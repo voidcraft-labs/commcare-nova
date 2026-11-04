@@ -1,6 +1,11 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { type CaseOperation, NEW_APP_SETTINGS, proseText } from "@/lib/domain";
+import {
+	type CaseOperation,
+	NEW_APP_SETTINGS,
+	proseText,
+	type TargetedCaseOperation,
+} from "@/lib/domain";
 import {
 	actingUser,
 	ancestorPath,
@@ -90,8 +95,8 @@ export function caseOperationFixture(scenario: OperationScenario) {
 	};
 	const op = (
 		id: string,
-		patch: Omit<CaseOperation, "uuid" | "id">,
-	): CaseOperation => ({
+		patch: Omit<TargetedCaseOperation, "uuid" | "id">,
+	): TargetedCaseOperation => ({
 		uuid: testUuid(id),
 		id,
 		...patch,
@@ -119,7 +124,18 @@ export function caseOperationFixture(scenario: OperationScenario) {
 				target,
 				rename: term(formField(TEXT)),
 			}),
-			op("finish_promoted", { action: "close", caseType: "visit", target }),
+			// A close of the loaded case is the form's own close (part 01's
+			// class C9): the retype form is a close form, so only a close of a
+			// case an expression names is an operation of its own.
+			...(scenario === "expression-retype"
+				? [
+						op("finish_promoted", {
+							action: "close",
+							caseType: "visit",
+							target,
+						}),
+					]
+				: []),
 		];
 	} else if (scenario === "nested") {
 		operations = [
@@ -248,8 +264,9 @@ export function caseOperationFixture(scenario: OperationScenario) {
 				action: "update",
 				caseType: "patient",
 				target: session,
+				// The own case saves `nickname` from a question, and no other
+				// change of the loaded patient may write what the own case does.
 				writes: [
-					{ property: "nickname", value: term(literal("Advanced first")) },
 					{ property: "occurred_at", value: now() },
 					{
 						property: "reference_at",
@@ -348,7 +365,12 @@ export function caseOperationFixture(scenario: OperationScenario) {
 					{
 						uuid: FORM,
 						name: "Edit",
-						type: "followup",
+						type: scenario === "retype" ? "close" : "followup",
+						// The close follows the promotion's condition, as the close of
+						// the promoted case did before it was the form's own close.
+						...(scenario === "retype" && {
+							closeCondition: eq(formField(ENABLED), literal("yes")),
+						}),
 						fields: [
 							f({ uuid: ENABLED, kind: "text", id: "enabled" }),
 							f({ uuid: DESTINATION, kind: "text", id: "destination" }),
@@ -450,6 +472,11 @@ export function caseOperationFixture(scenario: OperationScenario) {
 		doc.modules[doc.moduleOrder[1]].parentModuleUuid = doc.moduleOrder[0];
 		doc.modules[doc.moduleOrder[1]].parentCaseModuleUuid = doc.moduleOrder[0];
 	}
-	doc.forms[FORM].caseOperations = operations;
+	// After the own case `buildDoc` gives the follow-up, which holds every
+	// write the form's questions save to the loaded patient.
+	doc.forms[FORM].caseOperations = [
+		...(doc.forms[FORM].caseOperations ?? []),
+		...operations,
+	];
 	return doc;
 }

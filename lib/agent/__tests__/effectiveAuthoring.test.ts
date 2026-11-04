@@ -8,6 +8,9 @@ import { makeAuthoringHarness } from "./authoringHarness";
 import { namedFormFixture } from "./namedFormFixture";
 
 it("reads implicit lifecycle metadata and explains the starting values the production engine uses", async () => {
+	// A question saving to the loaded case with no starting value of its own
+	// is given the case's value as its default; one the call gives a default
+	// keeps it.
 	const h = makeAuthoringHarness(
 		{},
 		namedFormFixture([
@@ -27,7 +30,6 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 					kind: "text",
 					id: "condition",
 					label: "Condition",
-					default_value: "'new'",
 					caseWrite: { caseType: "equipment", property: "condition" },
 				},
 				{
@@ -50,7 +52,10 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 				},
 			],
 		}),
-	).toMatchObject({ ok: true });
+	).toMatchObject({
+		ok: true,
+		notes: [expect.objectContaining({ id: "condition" })],
+	});
 	await h.call("removeField", {
 		moduleUuid: "Equipment",
 		formUuid: "Inspect",
@@ -78,29 +83,33 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 			fields: [
 				{
 					id: "condition",
+					default_value: "#equipment/condition",
 					initialValue: {
 						source: "selected-record",
+						caseType: "equipment",
 						property: "condition",
-						configuredDefaultIsOverridden: true,
 					},
+					caseWrites: [{ caseType: "equipment", property: "condition" }],
 				},
 				{ id: "note", initialValue: { source: "configured-default" } },
 				{ id: "once", initialValue: { source: "configured-default" } },
 				{ id: "computed", initialValue: { source: "calculation" } },
 				{
 					id: "saved",
-					initialValue: { source: "selected-record", property: "saved" },
+					initialValue: { source: "configured-default" },
+					caseWrites: [{ caseType: "equipment", property: "saved" }],
 				},
 			],
 		},
 		answerWrites: [
 			{
-				caseType: "equipment",
-				action: "update",
-				answers: [
-					{ path: "condition", property: "condition" },
-					{ path: "saved", property: "saved" },
-				],
+				path: "condition",
+				writes: [{ caseType: "equipment", property: "condition" }],
+				opensWithCaseValue: true,
+			},
+			{
+				path: "saved",
+				writes: [{ caseType: "equipment", property: "saved" }],
 			},
 		],
 	});
@@ -141,10 +150,7 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 					path: "computed",
 					value: `${properties.condition ?? ""}!`,
 				}),
-				expect.objectContaining({
-					path: "saved",
-					value: properties.saved ?? "",
-				}),
+				expect.objectContaining({ path: "saved", value: "fallback" }),
 			]),
 		);
 	}

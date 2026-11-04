@@ -21,7 +21,10 @@ if (!output)
 	);
 mkdirSync(output, { recursive: true });
 const { doc, formUuid } = arithmeticFixture();
-const operation = doc.forms[formUuid].caseOperations?.[0];
+// The operation that saves the quotient, which follows the form's own case.
+const operation = doc.forms[formUuid].caseOperations?.find((candidate) =>
+	(candidate.writes ?? []).some((write) => write.property === "quotient"),
+);
 if (operation === undefined)
 	throw new Error("The arithmetic fixture has no write operation.");
 const types = requireExpressionContext(doc, {

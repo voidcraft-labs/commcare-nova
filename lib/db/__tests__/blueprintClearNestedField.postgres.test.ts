@@ -84,9 +84,27 @@ function populatedBlueprint(): BlueprintDoc {
 				name: "Form 1",
 				type: "close" as const,
 				connect: CONNECT,
-				closeCondition: { field: FIELD_UUID, answer: "yes" },
+				closeCondition: {
+					kind: "eq" as const,
+					left: {
+						kind: "term" as const,
+						term: { kind: "field" as const, uuid: FIELD_UUID },
+					},
+					right: {
+						kind: "term" as const,
+						term: { kind: "literal" as const, value: "yes" },
+					},
+				},
 				postSubmit: "app_home",
 				purpose: "Captures intake data",
+				// A close form's own case, first among its case changes.
+				caseOperations: [
+					{
+						uuid: testUuid("55555555-5555-4555-8555-555555555555"),
+						id: "patient",
+						action: "own" as const,
+					},
+				],
 			},
 		},
 		fields: {

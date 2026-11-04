@@ -7,6 +7,8 @@ import { formAnswerWrites } from "../../formAnswerWrites";
 import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import {
+	type CasePlacementWords,
+	formCasePlacementWords,
 	operationAddressSchema,
 	projectedCaseOperations,
 	resolveOperationAddress,
@@ -25,7 +27,16 @@ export type GetCaseOperationsResult =
 			 *  result carries the human handle rather than making the caller
 			 *  hold a uuid and a name it never asked for. */
 			readonly form: string;
+			/** Every case change in the order it runs, this form's own case
+			 *  first, without the placement a published app holds: the read
+			 *  states where each is kept in `placements` instead. */
 			readonly operations: readonly CaseOperation[];
+			/** Where CommCare HQ keeps each change, by operation uuid. The
+			 *  authoring projection puts each on its change as `placement`. */
+			readonly placements: Readonly<Record<Uuid, CasePlacementWords>>;
+			/** Where HQ keeps this form's own close, when it has a block of its
+			 *  own. */
+			readonly ownClose?: { readonly placement: CasePlacementWords };
 			readonly answerWrites: ReturnType<typeof formAnswerWrites>;
 			readonly operationSemantics: OperationSemantics;
 	  }
@@ -33,7 +44,7 @@ export type GetCaseOperationsResult =
 
 export const getCaseOperationsTool = {
 	description:
-		"Read a form's advanced record operations in execution order and the writes derived from its answers.",
+		"Read a form's case changes in the order they run, this form's own case first, each with where CommCare HQ keeps it.",
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,
@@ -44,13 +55,20 @@ export const getCaseOperationsTool = {
 		if (!address.ok) {
 			return { kind: "read", data: { error: address.error } };
 		}
+		const placements = formCasePlacementWords(doc, address.formUuid);
 		return {
 			kind: "read",
 			data: {
 				moduleUuid: address.moduleUuid,
 				formUuid: address.formUuid,
 				form: doc.forms[address.formUuid]?.name ?? "",
-				operations: projectedCaseOperations(doc, address.formUuid),
+				operations: projectedCaseOperations(doc, address.formUuid).map(
+					({ placement: _held, ...operation }) => operation as CaseOperation,
+				),
+				placements: placements.operations,
+				...(placements.ownClose !== undefined && {
+					ownClose: { placement: placements.ownClose },
+				}),
 				operationSemantics: operationSemantics(doc, address.formUuid),
 				answerWrites: formAnswerWrites(
 					doc,

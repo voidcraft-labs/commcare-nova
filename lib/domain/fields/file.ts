@@ -3,9 +3,9 @@
 // Generic-file capture. The worker attaches an existing document —
 // there is no camera, recorder, or scanner behind any capture kind on
 // Web Apps. Shares the capture-kind shape with image/audio/video/
-// signature: label + hint + required + relevant plus the ordinary
-// `caseWriteSchema` destination, whose write saves a link to the
-// attached file on the case, nothing else. No validation or default.
+// signature: label + hint + required + relevant. A case operation saves
+// a link to the attached file through a `capture-link` write value,
+// never the file itself. No validation or default.
 //
 // Two platform facts shape what the author is told at the point they
 // pick this kind, both stated in the field's `saDocs` and the public
@@ -21,19 +21,13 @@
 import tablerFileUpload from "@iconify-icons/tabler/file-upload";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import {
-	caseWriteSchema,
-	fieldBaseSchema,
-	formLogicSchema,
-	proseTemplateSchema,
-} from "./base";
+import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const fileFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("file"),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
-	caseWrite: caseWriteSchema.optional(),
 });
 
 export type FileField = z.infer<typeof fileFieldSchema>;

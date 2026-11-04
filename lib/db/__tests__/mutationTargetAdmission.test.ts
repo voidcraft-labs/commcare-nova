@@ -841,7 +841,7 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 				granular(formUuid, {
 					operation: "update-write",
 					uuid: OPERATION,
-					property: "status",
+					key: { property: "status" },
 					patch: { value: value("closed") },
 				}),
 			]),
@@ -1047,7 +1047,7 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 				granular(formUuid, {
 					operation: "remove-write",
 					uuid: OPERATION,
-					property: "status",
+					key: { property: "status" },
 				}),
 				granular(formUuid, {
 					operation: "add-write",
@@ -1057,7 +1057,7 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 				granular(formUuid, {
 					operation: "update-write",
 					uuid: OPERATION,
-					property: "note",
+					key: { property: "note" },
 					patch: { value: value("next") },
 				}),
 			]),
@@ -1067,7 +1067,7 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 				granular(formUuid, {
 					operation: "remove-write",
 					uuid: OPERATION,
-					property: "status",
+					key: { property: "status" },
 				}),
 				granular(formUuid, {
 					operation: "add-write",
@@ -1077,7 +1077,7 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 				granular(formUuid, {
 					operation: "update-write",
 					uuid: OPERATION,
-					property: "status",
+					key: { property: "status" },
 					patch: { value: value("lost") },
 				}),
 			]),
@@ -1088,12 +1088,12 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 				granular(formUuid, {
 					operation: "remove-write",
 					uuid: OPERATION,
-					property: "status",
+					key: { property: "status" },
 				}),
 				granular(formUuid, {
 					operation: "update-write",
 					uuid: OPERATION,
-					property: "status",
+					key: { property: "status" },
 					patch: { value: value("too-late") },
 				}),
 			]),

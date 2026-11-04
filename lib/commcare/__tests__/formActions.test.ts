@@ -1,177 +1,322 @@
 /**
- * The form actions Nova writes for HQ's Case Management tab: the shape the
- * tab's own save writes, so a save leaves them as published. What HQ builds
+ * The form actions Nova writes for HQ's Case Management tab, the basic
+ * projection of the form's wire plan: the own case's open or update and its
+ * close, the worker's record, and each basic subcase, in the shape the
+ * tab's own save writes, so a save leaves them as published. Catches a
+ * write HQ's build would put on another case or under another condition,
+ * and a preload written where HQ would overwrite a default. What HQ builds
  * from them is the proof lane's to show.
  */
-import { expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { describe, expect, it } from "vitest";
 import { buildFormActions } from "@/lib/commcare/formActions";
-import { type FormType, proseText } from "@/lib/domain";
+import type { CaseOperation, Form } from "@/lib/domain";
+import { eq, literal, term } from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
+import {
+	childCreate,
+	type FixtureOptions,
+	OP,
+	OPT,
+	own,
+	placementFixture,
+	read,
+	U,
+} from "./placementFixture";
 
-function app(
-	type: FormType,
-	options: {
-		caseType?: string;
-		closeCondition?: { field: string; answer: string };
-		fields?: ReturnType<typeof f>[];
-		attachmentTarget?: { origin: string; domain: string };
-	} = {},
+const TARGET = { origin: "https://hq.example", domain: "demo" };
+
+const choice = (field: string, value: string): Expression =>
+	({
+		kind: "term",
+		term: { kind: "choice", field: U(field), options: [OPT(value)] },
+	}) as Expression;
+const selects = (field: string, value: string): Expression =>
+	({
+		kind: "multi-select-contains",
+		property: read(field),
+		values: [{ kind: "choice", field: U(field), options: [OPT(value)] }],
+		quantifier: "any",
+	}) as Expression;
+const workerUpdate = (extra: Partial<CaseOperation> = {}) =>
+	({
+		uuid: OP("worker"),
+		id: "worker",
+		action: "update",
+		caseType: "commcare-user",
+		target: { kind: "worker-record" },
+		writes: [{ property: "age", value: read("age") }],
+		...extra,
+	}) as CaseOperation;
+
+function actions(
+	formType: Form["type"],
+	options: FixtureOptions,
+	attachmentTarget: typeof TARGET | null = null,
 ) {
-	const doc = buildDoc({
-		appName: "Form actions",
-		caseTypes: [
-			{
-				name: "patient",
-				properties: ["case_name", "external_id"].map((name) => ({
-					name,
-					label: proseText(name),
-				})),
-			},
-		],
-		modules: [
-			{
-				name: "Patients",
-				...(options.caseType !== undefined && {
-					caseType: options.caseType,
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-				}),
-				forms: [
-					{
-						name: "Record",
-						type,
-						fields: options.fields ?? [f({ kind: "text", id: "note" })],
-						...(options.closeCondition !== undefined && {
-							closeCondition: options.closeCondition,
-						}),
-					},
-				],
-			},
-		],
-	});
-	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	return buildFormActions(
-		doc,
-		formUuid,
-		options.caseType,
-		options.attachmentTarget ?? null,
-	);
+	const { doc, formUuid } = placementFixture(formType, options);
+	return buildFormActions(doc, formUuid, attachmentTarget);
 }
 
-const nameField = f({
-	kind: "text",
-	id: "name",
-	caseWrite: { caseType: "patient", property: "case_name" },
-});
-
-it.each(["registration", "followup", "close"] as const)(
-	"writes update_case always on a %s form that writes nothing else",
-	(type) => {
-		const actions = app(type, {
-			caseType: "patient",
-			...(type === "registration" && { fields: [nameField] }),
+describe("the own case", () => {
+	it("opens a registration's case from the name's trimmed sibling, under its open condition", () => {
+		const result = actions("registration", {
+			operations: () => [
+				own({
+					name: read("name"),
+					writes: [{ property: "age", value: read("age") }],
+				}),
+			],
+			form: { openCondition: eq(read("status"), choice("status", "yes")) },
 		});
-		expect(actions.update_case.condition.type).toBe("always");
-		expect(actions.update_case.update).toEqual({});
-	},
-);
-
-it("writes update_case never on a survey and on a form of a menu with no case type", () => {
-	expect(
-		app("survey", { caseType: "patient" }).update_case.condition.type,
-	).toBe("never");
-	expect(app("followup").update_case.condition.type).toBe("never");
-});
-
-it("writes an external id as an update row naming the trimmed sibling", () => {
-	const actions = app("registration", {
-		caseType: "patient",
-		fields: [
-			nameField,
-			f({
-				kind: "text",
-				id: "external",
-				caseWrite: { caseType: "patient", property: "external_id" },
-			}),
-		],
+		expect(result.open_case.condition).toEqual({
+			type: "if",
+			question: "/data/status",
+			answer: "yes",
+			operator: "=",
+			doc_type: "FormActionCondition",
+		});
+		expect(result.open_case.name_update.question_path).toBe(
+			"/data/nova_trimmed_name",
+		);
+		expect(result.open_case.external_id).toBeNull();
+		expect(result.update_case.condition.type).toBe("always");
+		expect(result.update_case.update).toEqual({
+			age: { question_path: "/data/age", update_mode: "always" },
+		});
 	});
-	expect(actions.open_case.external_id).toBeNull();
-	expect(actions.open_case.name_update.question_path).toBe(
-		"/data/nova_trimmed_name",
-	);
-	expect(actions.update_case.update).toEqual({
-		external_id: {
-			question_path: "/data/nova_trimmed_external",
-			update_mode: "always",
+
+	it("opens a registration's case every time when no open condition is set", () => {
+		const result = actions("registration", {
+			operations: () => [own({ name: read("name") })],
+		});
+		expect(result.open_case.condition.type).toBe("always");
+	});
+
+	it("updates a loaded case: a rename under `name`, an owner, a write saved only if changed, and one to the case above", () => {
+		const result = actions("followup", {
+			operations: () => [
+				own({
+					name: read("name"),
+					owner: read("flag"),
+					writes: [
+						{ property: "age", value: read("age"), onlyIfChanged: true },
+						{
+							property: "status",
+							value: read("status"),
+							via: [{ identifier: "parent" }],
+						},
+					],
+				}),
+			],
+		});
+		expect(result.open_case.condition.type).toBe("never");
+		expect(result.update_case.condition.type).toBe("always");
+		expect(result.update_case.update).toEqual({
+			name: { question_path: "/data/nova_trimmed_name", update_mode: "always" },
+			owner_id: { question_path: "/data/flag", update_mode: "always" },
+			age: { question_path: "/data/age", update_mode: "edit" },
+			"parent/status": { question_path: "/data/status", update_mode: "always" },
+		});
+	});
+
+	it.each(["registration", "followup", "close"] as const)(
+		"writes update_case always on a %s form that writes nothing else",
+		(formType) => {
+			const result = actions(formType, {
+				operations: () => [
+					own(formType === "registration" ? { name: read("name") } : {}),
+				],
+			});
+			expect(result.update_case.condition.type).toBe("always");
+			expect(result.update_case.update).toEqual({});
 		},
+	);
+
+	it("writes nothing for a survey", () => {
+		const result = actions("survey", {});
+		expect(result.open_case.condition.type).toBe("never");
+		expect(result.update_case.condition.type).toBe("never");
+		expect(result.close_case.condition.type).toBe("never");
 	});
 });
 
-it.each(["image", "audio", "video", "signature", "file"] as const)(
-	"writes a %s capture's case write as an update row naming its link sibling, never the upload question",
-	(kind) => {
-		// An update naming the upload question would be an `<attachment>` in
-		// HQ's build (`xform.py::XFormCaseBlock.add_case_updates`,
-		// `::is_attachment`); every capture names the sibling that holds the
-		// link to its file, and with no target there is no link to write.
-		const fields = [
-			nameField,
-			f({
-				kind,
-				id: "capture",
-				caseWrite: { caseType: "patient", property: "evidence" },
-			}),
-		];
-		const linked = app("registration", {
-			caseType: "patient",
-			fields,
-			attachmentTarget: {
-				origin: "https://www.commcarehq.org",
-				domain: "demo-project",
-			},
+describe("the own close", () => {
+	const closing = (closeCondition: Expression | undefined) =>
+		actions("close", {
+			operations: () => [own()],
+			...(closeCondition !== undefined && { form: { closeCondition } }),
+		}).close_case.condition;
+
+	it("closes every time when the close form states no condition", () => {
+		expect(closing(undefined)).toEqual(
+			expect.objectContaining({ type: "always" }),
+		);
+	});
+
+	it("prints each stateable shape as HQ's page saves it", () => {
+		expect(closing(eq(read("status"), choice("status", "yes")))).toEqual({
+			type: "if",
+			question: "/data/status",
+			answer: "yes",
+			operator: "=",
+			doc_type: "FormActionCondition",
 		});
-		expect(linked.update_case.update).toEqual({
-			evidence: {
-				question_path: "/data/nova_url_capture",
+		expect(closing(selects("tags", "red"))).toEqual({
+			type: "if",
+			question: "/data/tags",
+			answer: "red",
+			operator: "selected",
+			doc_type: "FormActionCondition",
+		});
+		expect(closing(read("flag"))).toEqual({
+			type: "if",
+			question: "/data/flag",
+			answer: null,
+			operator: "boolean_true",
+			doc_type: "FormActionCondition",
+		});
+	});
+
+	it("writes never where the close takes a Save to Case block of its own", () => {
+		expect(closing(eq(read("name"), term(literal("x"))))).toEqual(
+			expect.objectContaining({ type: "never" }),
+		);
+	});
+
+	it("closes a registration's new case only where a close condition is set", () => {
+		expect(
+			actions("registration", {
+				operations: () => [own({ name: read("name") })],
+			}).close_case.condition.type,
+		).toBe("never");
+		expect(
+			actions("registration", {
+				operations: () => [own({ name: read("name") })],
+				form: { closeCondition: read("flag") },
+			}).close_case.condition,
+		).toEqual(expect.objectContaining({ type: "if", question: "/data/flag" }));
+	});
+});
+
+describe("subcases", () => {
+	it("writes each basic subcase at its index, with its condition and a sharing close", () => {
+		const result = actions("followup", {
+			operations: (formType) => [
+				own(),
+				childCreate("kid", formType, {
+					condition: read("flag"),
+					owner: read("flag"),
+				}),
+				childCreate("row", formType, { repeat: "kids" }),
+				{
+					uuid: OP("kid-close"),
+					id: "kid_close",
+					action: "close",
+					caseType: "kid",
+					target: { kind: "op", opUuid: OP("kid") },
+					condition: eq(read("status"), choice("status", "no")),
+				} as CaseOperation,
+			],
+		});
+		expect(result.subcases).toEqual([
+			{
+				doc_type: "OpenSubCaseAction",
+				case_type: "kid",
+				name_update: {
+					question_path: "/data/nova_trimmed_name",
+					update_mode: "always",
+				},
+				reference_id: "",
+				case_properties: {
+					owner_id: { question_path: "/data/flag", update_mode: "always" },
+				},
+				repeat_context: "",
+				relationship: "child",
+				condition: {
+					type: "if",
+					question: "/data/flag",
+					answer: null,
+					operator: "boolean_true",
+					doc_type: "FormActionCondition",
+				},
+				close_condition: {
+					type: "if",
+					question: "/data/status",
+					answer: "no",
+					operator: "=",
+					doc_type: "FormActionCondition",
+				},
+			},
+			expect.objectContaining({
+				case_type: "kid",
+				repeat_context: "/data/kids",
+				name_update: {
+					question_path: "/data/kids/nova_trimmed_kid_name",
+					update_mode: "always",
+				},
+				condition: expect.objectContaining({ type: "always" }),
+				close_condition: expect.objectContaining({ type: "never" }),
+			}),
+		]);
+	});
+});
+
+describe("the worker's record", () => {
+	it("writes usercase_update from the worker-record update, on a survey too", () => {
+		const result = actions("survey", { operations: () => [workerUpdate()] });
+		expect(result.usercase_update).toEqual(
+			expect.objectContaining({
+				condition: expect.objectContaining({ type: "always" }),
+				update: { age: { question_path: "/data/age", update_mode: "always" } },
+			}),
+		);
+	});
+});
+
+describe("capture links", () => {
+	const linkWrite = () => [
+		own({
+			writes: [
+				{
+					property: "photo_url",
+					value: {
+						kind: "term",
+						term: { kind: "capture-link", field: U("photo") },
+					} as Expression,
+				},
+			],
+		}),
+	];
+
+	it("names the capture's link sibling, never the upload question", () => {
+		expect(
+			actions("followup", { operations: linkWrite }, TARGET).update_case.update,
+		).toEqual({
+			photo_url: {
+				question_path: "/data/nova_url_photo",
 				update_mode: "always",
 			},
 		});
-		expect(
-			app("registration", { caseType: "patient", fields }).update_case.update,
-		).toEqual({});
-	},
-);
-
-it("writes close_case never for a condition the Case Management tab cannot state, and if for one it can", () => {
-	const select = f({
-		kind: "single_select",
-		id: "outcome",
-		optionsSource: {
-			kind: "inline",
-			options: ["done", "moved"].map((value) => ({
-				value,
-				label: proseText(value),
-				uuid: testUuid(`form-actions-${value}`),
-			})),
-		},
 	});
-	expect(
-		app("close", {
-			caseType: "patient",
-			fields: [f({ kind: "text", id: "outcome" })],
-			closeCondition: { field: "outcome", answer: "done" },
-		}).close_case.condition.type,
-	).toBe("never");
-	expect(
-		app("close", {
-			caseType: "patient",
-			fields: [select],
-			closeCondition: { field: "outcome", answer: "done" },
-		}).close_case.condition,
-	).toMatchObject({ type: "if", question: "/data/outcome", answer: "done" });
-	expect(app("close", { caseType: "patient" }).close_case.condition.type).toBe(
-		"always",
-	);
+
+	it("withholds the link where there is no target to build it against", () => {
+		expect(
+			actions("followup", { operations: linkWrite }).update_case.update,
+		).toEqual({});
+	});
+});
+
+it("never writes case_preload, for any form type", () => {
+	for (const formType of ["registration", "followup", "close"] as const) {
+		const result = actions(formType, {
+			operations: () => [
+				own({
+					...(formType === "registration" && { name: read("name") }),
+					writes: [{ property: "age", value: read("age") }],
+				}),
+			],
+		});
+		expect(result.case_preload.condition.type).toBe("never");
+		expect(result.case_preload.preload).toEqual({});
+	}
 });

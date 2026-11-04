@@ -23,7 +23,6 @@ import type {
 } from "@/lib/domain";
 import { type ModuleLanding, moduleLanding } from "@/lib/domain";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
-import type { CreatedChildCaseReceipt } from "@/lib/preview/engine/caseDataBindingTypes";
 import type {
 	AfterSubmitChoice,
 	CarriedCase,
@@ -416,53 +415,29 @@ export function previewTargetHasSelectedCase(args: {
 	return selected !== undefined;
 }
 
-/** Join concrete created-child ids to their authored metadata through the
- * durable receipt's explicit authored-child index. `undefined` is the
- * deliberate historical-receipt path: the old flat ids are replayable but do
- * not prove metadata, so they contribute no carried child cases. */
-export function carriedChildCasesFromReceipt(args: {
-	readonly createdChildren: readonly CreatedChildCaseReceipt[] | undefined;
-	readonly authoredChildren: readonly {
-		readonly caseType: string;
-		readonly caseName?: string;
-	}[];
-	readonly parentCaseIds: readonly string[];
+/** The cases a submission changed, other than the cases it was opened for or
+ * registered, read from the transaction-captured patch: every case its
+ * operations created or changed, with the type and name it was saved with.
+ * A case datum the entry minted reads its name from here once the case
+ * exists. A historical receipt with no patch contributes none. */
+export function carriedCasesFromPatch(args: {
+	readonly caseDatabasePatch:
+		| { readonly rows: readonly CaseDatabaseSnapshot["rows"][number][] }
+		| undefined;
+	readonly primaryCaseIds: readonly string[];
 }): CarriedSubmission["childCases"] {
-	if (args.createdChildren === undefined) return [];
-	const expectedCount =
-		args.authoredChildren.length * args.parentCaseIds.length;
-	if (args.createdChildren.length !== expectedCount) {
-		throw new Error(
-			"The accepted submission returned an incomplete created-child receipt.",
-		);
-	}
-	const expectedPairs = new Set(
-		args.authoredChildren.flatMap((_child, authoredChildIndex) =>
-			args.parentCaseIds.map(
-				(parentCaseId) => `${authoredChildIndex}\u0000${parentCaseId}`,
-			),
-		),
+	const primary = new Set(args.primaryCaseIds);
+	return (args.caseDatabasePatch?.rows ?? []).flatMap((row) =>
+		primary.has(row.case_id)
+			? []
+			: [
+					{
+						caseType: row.case_type,
+						caseId: row.case_id,
+						...(row.case_name === "" ? {} : { caseName: row.case_name }),
+					},
+				],
 	);
-	const seenPairs = new Set<string>();
-	return args.createdChildren.map((createdChild) => {
-		const child = args.authoredChildren[createdChild.authoredChildIndex];
-		const pair = `${createdChild.authoredChildIndex}\u0000${createdChild.parentCaseId}`;
-		if (
-			child === undefined ||
-			!expectedPairs.has(pair) ||
-			seenPairs.has(pair)
-		) {
-			throw new Error(
-				"The accepted submission returned an invalid created-child receipt.",
-			);
-		}
-		seenPairs.add(pair);
-		return {
-			caseType: child.caseType,
-			caseId: createdChild.caseId,
-			...(child.caseName !== undefined && { caseName: child.caseName }),
-		};
-	});
 }
 
 /** Preserve the selected-entities collection across an automatic compatible

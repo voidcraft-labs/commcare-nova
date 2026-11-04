@@ -7,7 +7,9 @@
  * node, recursing through container kinds.
  *
  * All rules operate on the domain shape — `field.kind`, `field.validate`,
- * `field.caseWrite` — never on derived CommCare mappings. The only wire tokens
+ * `field.optionsSource` — never on derived CommCare mappings. What a field
+ * saves to a case is its form's case operations, judged in
+ * `caseOperations.ts`. The only wire tokens
  * appearing here are the `kind` string literals themselves, which match
  * CommCare's field-kind taxonomy and stay stable.
  */

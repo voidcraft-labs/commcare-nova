@@ -25,7 +25,7 @@ import { buildXForm } from "@/lib/commcare/xform/builder";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { proseText } from "@/lib/domain";
+import { type CaseOperation, proseText } from "@/lib/domain";
 import { w } from "../xpath/wire/builders";
 import { sessionInstance } from "../xpath/wire/instances";
 import { caseOperationFixture } from "./caseOperationFixture";
@@ -118,17 +118,11 @@ it("leaves an actual emitted form byte-identical when no actions need splicing",
 	expect(addCaseBlocks(source, emptyFormActions(), "patient")).toBe(source);
 });
 
-it("binds updates and all preload metadata to the supplied selected-case identity", () => {
+it("binds updates to the supplied selected-case identity, and writes no preload", () => {
 	const actions = emptyFormActions();
 	actions.update_case.condition = alwaysCondition();
 	actions.update_case.update = {
 		weight: { question_path: "/data/weight", update_mode: "always" },
-	};
-	actions.case_preload.condition = alwaysCondition();
-	actions.case_preload.preload = {
-		"/data/weight": "weight",
-		"/data/patient_name": "name",
-		"/data/assigned_owner": "owner_id",
 	};
 	const selected = "instance('commcaresession')/session/data/case_id_child";
 	const selectedPath = w.instance(sessionInstance(), [
@@ -159,22 +153,118 @@ it("binds updates and all preload metadata to the supplied selected-case identit
 		calculate: "/data/weight",
 		relevant: "count(/data/weight) > 0",
 	});
+	// A preload is the question's default, written at its place in the
+	// source: the archive seeds no question from the case.
+	expect(
+		output.modelNodes.filter(
+			(e) => e.name === "setvalue" && !e.attribs.ref.startsWith("/data/meta/"),
+		),
+	).toEqual([]);
+});
+
+// HQ's build writes a row saved only when the answer changed with the
+// comparison `XFormCaseBlock.add_case_updates` adds under
+// `SAVE_ONLY_EDITED_FORM_FIELDS`, and a key through an index into a block of
+// the case that index reaches (`XForm._add_case_updates`, its id
+// `get_case_parent_id_xpath`). The archive writes the same blocks.
+it("compares an answer saved only if changed with the case's value when the form opened", () => {
+	const actions = emptyFormActions();
+	actions.update_case.condition = alwaysCondition();
+	actions.update_case.update = {
+		weight: { question_path: "/data/weight", update_mode: "edit" },
+		name: { question_path: "/data/patient_name", update_mode: "edit" },
+	};
+	const output = read(addCaseBlocks(host(), actions, "patient"));
+	expect(output.bind("/data/case/update/weight")).toEqual({
+		nodeset: "/data/case/update/weight",
+		calculate: "/data/weight",
+		relevant:
+			"count(/data/weight) > 0 and instance('casedb')/casedb/case[@case_id = /data/case/@case_id]/weight != /data/weight",
+	});
+	expect(output.bind("/data/case/update/case_name").relevant).toBe(
+		"count(/data/patient_name) > 0 and instance('casedb')/casedb/case[@case_id = /data/case/@case_id]/case_name != /data/patient_name",
+	);
 	expect(
 		output.modelNodes
 			.filter((e) => e.name === "instance" && e.attribs.id === "casedb")
 			.map((e) => e.attribs),
 	).toEqual([{ id: "casedb", src: "jr://instance/casedb" }]);
-	for (const [field, property] of [
-		["weight", "weight"],
-		["patient_name", "case_name"],
-		["assigned_owner", "@owner_id"],
+});
+
+it("writes a key through an index into a block of the case that index reaches", () => {
+	const actions = emptyFormActions();
+	actions.update_case.condition = alwaysCondition();
+	actions.update_case.update = {
+		weight: { question_path: "/data/weight", update_mode: "always" },
+		"parent/done": { question_path: "/data/done", update_mode: "edit" },
+		"parent/host/assigned": {
+			question_path: "/data/assigned_owner",
+			update_mode: "always",
+		},
+	};
+	const output = read(addCaseBlocks(host(), actions, "patient"));
+	// The own block keeps only its own key; the ancestors stand under
+	// `parents`, before the own block, each chain built afresh as HQ builds
+	// it.
+	expect(names(child(child(output.data, "case"), "update"))).toEqual([
+		"weight",
+	]);
+	expect(names(output.data).slice(-2)).toEqual(["parents", "case"]);
+	const parents = child(output.data, "parents");
+	expect(names(parents)).toEqual(["parent", "parent"]);
+	const [direct, through] = parents.children.filter(isTag);
+	expect(names(direct)).toEqual(["case"]);
+	expect(names(child(child(through, "host"), "case"))).toEqual(["update"]);
+	const session = "instance('commcaresession')/session/data/case_id";
+	const parentId = `instance('casedb')/casedb/case[@case_id = ${session}]/index/parent`;
+	expect(output.bind("/data/parents/parent/case/@case_id")).toEqual({
+		nodeset: "/data/parents/parent/case/@case_id",
+		calculate: parentId,
+	});
+	expect(output.bind("/data/parents/parent/host/case/@case_id")).toEqual({
+		nodeset: "/data/parents/parent/host/case/@case_id",
+		calculate: `instance('casedb')/casedb/case[@case_id = ${parentId}]/index/host`,
+	});
+	expect(output.bind("/data/parents/parent/case/update/done")).toEqual({
+		nodeset: "/data/parents/parent/case/update/done",
+		calculate: "/data/done",
+		relevant:
+			"count(/data/done) > 0 and instance('casedb')/casedb/case[@case_id = /data/parents/parent/case/@case_id]/done != /data/done",
+	});
+	expect(output.bind("/data/parents/parent/host/case/update/assigned")).toEqual(
+		{
+			nodeset: "/data/parents/parent/host/case/update/assigned",
+			calculate: "/data/assigned_owner",
+			relevant: "count(/data/assigned_owner) > 0",
+		},
+	);
+	for (const path of [
+		"/data/parents/parent/case",
+		"/data/parents/parent/host/case",
 	]) {
-		expect(output.seed(`/data/${field}`)).toEqual({
-			ref: `/data/${field}`,
-			event: "xforms-ready",
-			value: `instance('casedb')/casedb/case[@case_id = ${selected}]/${property}`,
-		});
+		expect(output.bind(`${path}/@date_modified`).calculate).toBe(
+			"/data/meta/timeEnd",
+		);
+		expect(output.bind(`${path}/@user_id`).calculate).toBe("/data/meta/userID");
 	}
+});
+
+it("states a yes-or-no question's own truth as a close condition", () => {
+	const actions = emptyFormActions();
+	actions.update_case.condition = alwaysCondition();
+	actions.close_case.condition = {
+		type: "if",
+		question: "/data/done",
+		answer: null,
+		operator: "boolean_true",
+		doc_type: "FormActionCondition",
+	};
+	const output = read(addCaseBlocks(host(), actions, "patient"));
+	expect(names(child(output.data, "case"))).toEqual(["close"]);
+	expect(output.bind("/data/case/close")).toEqual({
+		nodeset: "/data/case/close",
+		relevant: "/data/done",
+	});
 });
 
 it("joins parent and child create IDs, merges name requirements, and guards child property writes", () => {
@@ -335,11 +425,8 @@ function bothExports(
 function patientApp(
 	type: "registration" | "followup" | "close",
 	fields: FieldSpec[],
-	closeCondition?: {
-		field: string;
-		answer: string;
-		operator?: "=" | "selected";
-	},
+	/** The close form's close condition, as form text. */
+	closeCondition?: string,
 ) {
 	return buildDoc({
 		appName: "Case writes",
@@ -640,11 +727,15 @@ it("states the requirement in place of an authored required condition on a creat
 });
 
 it("writes a close the Case Management tab cannot state as a Save to Case close", () => {
-	for (const answer of ["it's", `say "it's"`]) {
-		const doc = patientApp("close", [f({ kind: "text", id: "outcome" })], {
-			field: "outcome",
-			answer,
-		});
+	for (const [answer, condition] of [
+		["it's", `#form/outcome = "it's"`],
+		[`say "it's"`, `#form/outcome = concat('say "it', "'", 's"')`],
+	] as const) {
+		const doc = patientApp(
+			"close",
+			[f({ kind: "text", id: "outcome" })],
+			condition,
+		);
 		const { actions, source, local } = bothExports(doc);
 		expect(actions.close_case.condition.type).toBe("never");
 		expect(actions.update_case.condition.type).toBe("always");
@@ -682,29 +773,6 @@ it("writes a close the Case Management tab cannot state as a Save to Case close"
 	}
 });
 
-it("writes a close condition still missing its answer, which the validator refuses, as an unconditional close action", () => {
-	const doc = patientApp("close", [f({ kind: "text", id: "outcome" })], {
-		field: "outcome",
-		answer: "",
-	});
-	// The emitter stays total on a document the gate would refuse.
-	const hq = expandDoc(doc);
-	const form = hq.modules[0].forms[0];
-	expect(form.actions.close_case.condition.type).toBe("always");
-	const source = hq._attachments[`${form.unique_id}.xml`];
-	if (typeof source !== "string") throw new Error("Missing form source");
-	expect(
-		read(source)
-			.data.children.filter(isTag)
-			.map((e) => e.name),
-	).not.toContain("nova_operations");
-	const zip = new AdmZip(
-		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
-	);
-	const local = read(zip.readAsText("modules-0/forms-0.xml"));
-	expect(names(child(local.data, "case"))).toEqual(["close"]);
-});
-
 it("keeps a statable close on HQ's close action", () => {
 	const doc = patientApp(
 		"close",
@@ -722,7 +790,7 @@ it("keeps a statable close on HQ's close action", () => {
 				},
 			}),
 		],
-		{ field: "outcome", answer: "done" },
+		"#form/outcome = 'done'",
 	);
 	const { actions, source, local } = bothExports(doc);
 	expect(actions.close_case.condition).toMatchObject({
@@ -741,17 +809,35 @@ it("puts a repeat's single subcase block first in its item, before the item's Sa
 	const answer = Object.values(doc.fields).find(
 		(field) => field.id === "answer",
 	);
-	if (answer === undefined) throw new Error("Missing answer question");
-	Object.assign(answer, {
-		caseWrite: { caseType: "visit", property: "case_name" },
-	});
+	const items = Object.values(doc.fields).find((field) => field.id === "items");
+	const form = Object.values(doc.forms)[0];
+	if (answer === undefined || items === undefined || form === undefined)
+		throw new Error("The fixture holds its repeat and its answer");
+	// A visit named by the row's answer, a child of the loaded patient: the
+	// repeat's one basic subcase.
+	form.caseOperations?.splice(1, 0, {
+		uuid: testUuid("basic-visit"),
+		id: "basic_visit",
+		action: "create",
+		caseType: "visit",
+		target: { kind: "new" },
+		name: { kind: "term", term: { kind: "field", uuid: answer.uuid } },
+		links: [
+			{
+				identifier: "parent",
+				targetType: "patient",
+				target: { kind: "session" },
+				relationship: "child",
+			},
+		],
+		forEach: { repeat: items.uuid },
+	} as CaseOperation);
 	const hq = expandDoc(doc);
 	const zip = new AdmZip(
 		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
 	);
 	const local = read(zip.readAsText("modules-0/forms-0.xml"));
-	const items = child(local.data, "items");
-	expect(names(items)).toEqual([
+	expect(names(child(local.data, "items"))).toEqual([
 		"case",
 		"answer",
 		"nova_trimmed_answer",

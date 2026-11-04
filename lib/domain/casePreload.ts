@@ -1,38 +1,36 @@
 /**
- * Which answers a form seeds from the case it opened.
+ * Which answers a form opens showing a case's current value.
  *
- * A followup or close form in a module that opens ONE case at a time reads
- * every property it will update back out of that case at form open, so the
- * worker edits the current value in place. This module is the one statement
- * of that rule for every surface that has to agree with the running form:
- * the builder's inspector (what a field's "Default value" row means, what the
- * destination line says), the preview engine (which fields it seeds from the
- * loaded row), and the pure guidance helpers between them. The compiled
- * XForm reaches the same answer through the case-write inventory
- * (`lib/commcare/deriveCaseConfig.ts` copies the primary update writers into
- * the preload action), so a change here must keep that projection honest.
+ * A preload is a default value: a field opens showing a property of the case
+ * the form loaded exactly when its `default_value` is the `form-case` read of
+ * that property, with no other operator. Nothing else preloads, and the
+ * document says it where every surface reads it: the builder shows the
+ * default, the emitter writes it as the question's default setvalue, and the
+ * preview engine runs it in its place among the defaults.
  *
- * What preloads: a scalar writer whose destination is the module's own case
- * type, `case_name` included. What never preloads: a writer to a child type
- * (each submission creates a new case, so there is nothing to read), a writer
- * to the worker's own record (`#user/<prop>` already reads it), any capture
- * kind (a stored link is not an upload filename for the new submission), any field on a several-case form (there is no single case to
- * read), and every field on a registration or survey form.
- *
- * Inside a repeat, the running form seeds only the first instance; the
- * predicate answers for the field's destination, not its instance count.
+ * `writerOffersPreload` is when a new write to the form's own case is born
+ * with that default (`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite`):
+ * on a follow-up or close form that opens one case, a write of the own case
+ * with no `via`, by a field that is not a capture and holds neither a
+ * calculation nor a default yet. A person removes it like any default.
  */
 
-import { fieldCaseWrite } from "./caseTypes";
-import type { CaseWrite, Field } from "./fields";
-import { isCaptureField } from "./fields";
-import { CASE_LOADING_FORM_TYPES, type Form, type FormType } from "./forms";
+import type { BlueprintDoc } from "./blueprint";
+import { fieldCaseWriteViews } from "./caseWriteViews";
+import { formOfField } from "./fieldForm";
+import type { Field } from "./fields";
+import { fieldKindDeclaresKey, isCaptureField } from "./fields";
+import {
+	CASE_LOADING_FORM_TYPES,
+	type CaseWriteVia,
+	type FormType,
+} from "./forms";
 import {
 	type CaseSelectionCardinality,
 	caseSelectionCardinality,
-	type Module,
 } from "./modules";
-import { USERCASE_CASE_TYPE } from "./usercase";
+import { moduleUuidOfForm } from "./postSubmit";
+import type { Uuid } from "./uuid";
 
 /** A form whose entry loads exactly one existing case before it opens. */
 export function formOpensWithOneCase(
@@ -43,86 +41,73 @@ export function formOpensWithOneCase(
 }
 
 /**
- * Whether this field opens showing the loaded case's current value for the
- * property it writes.
+ * The case property a field opens showing: its default, when that default is
+ * exactly the `form-case` read of a property, with no other operator.
  */
-export function writerPreloadsFromLoadedCase(
+export function fieldPreload(
 	field: Field,
-	module: Pick<Module, "caseType" | "caseListConfig">,
-	form: Pick<Form, "type">,
-): boolean {
-	if (!formOpensWithOneCase(form.type, caseSelectionCardinality(module))) {
-		return false;
-	}
-	if (module.caseType === undefined) return false;
-	if (isCaptureField(field)) return false;
-	return fieldCaseWrite(field)?.caseType === module.caseType;
+): { readonly caseType: string; readonly property: string } | undefined {
+	if (!("default_value" in field)) return undefined;
+	const value = field.default_value;
+	if (value?.kind !== "term" || value.term.kind !== "form-case")
+		return undefined;
+	return { caseType: value.term.caseType, property: value.term.property };
 }
 
 /**
- * What a Hidden Value with no value saves, for a field that writes a case
- * property: the one sentence the builder shows under the field's Value
- * control and the SA and MCP tools return when a call leaves the field that
- * way. Where the form preloads the property into the field, the case's value
- * carries through; otherwise the field opens blank and each submission saves
- * the property blank. Undefined for any other field: a visible field, a
- * hidden field holding a calculation or a starting value, or one that writes
- * no case property.
+ * Whether a write of `property` by `fieldUuid` to the form's own case should
+ * be born with that preload: a one-case follow-up or close form, a write of
+ * the own case without `via`, a field that is not a capture, holds no
+ * `calculate` and no `default_value`, and is of a kind that holds a default.
+ */
+export function writerOffersPreload(
+	doc: Pick<
+		BlueprintDoc,
+		"fields" | "forms" | "formOrder" | "modules" | "fieldParent"
+	>,
+	fieldUuid: Uuid,
+	property: string,
+	via?: CaseWriteVia,
+): boolean {
+	if (via !== undefined || property.length === 0) return false;
+	const field = Object.hasOwn(doc.fields, fieldUuid)
+		? doc.fields[fieldUuid]
+		: undefined;
+	if (field === undefined || isCaptureField(field)) return false;
+	if (!fieldKindDeclaresKey(field.kind, "default_value")) return false;
+	if (
+		("calculate" in field && field.calculate !== undefined) ||
+		("default_value" in field && field.default_value !== undefined)
+	)
+		return false;
+	const formUuid = formOfField(doc, fieldUuid);
+	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
+	if (formUuid === undefined || form === undefined) return false;
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (module?.caseType === undefined) return false;
+	return formOpensWithOneCase(form.type, caseSelectionCardinality(module));
+}
+
+/**
+ * What a Hidden Value with no value saves, for one whose answer a case
+ * operation saves: the one sentence the builder shows under the field's
+ * Value control and the SA and MCP tools return when a call leaves the field
+ * that way. Undefined for any other field: a visible field, a Hidden Value
+ * holding a calculation or a starting value (a preload included), or one no
+ * write saves.
  */
 export function hiddenWriterBlankNote(
-	field: Field,
-	module: Pick<Module, "caseType" | "caseListConfig">,
-	form: Pick<Form, "type">,
+	doc: Parameters<typeof fieldCaseWriteViews>[0] & Pick<BlueprintDoc, "fields">,
+	fieldUuid: Uuid,
 ): string | undefined {
-	if (field.kind !== "hidden") return undefined;
-	if (field.calculate !== undefined || field.default_value !== undefined) {
+	const field = Object.hasOwn(doc.fields, fieldUuid)
+		? doc.fields[fieldUuid]
+		: undefined;
+	if (field?.kind !== "hidden") return undefined;
+	if (field.calculate !== undefined || field.default_value !== undefined)
 		return undefined;
-	}
-	const write = fieldCaseWrite(field);
-	if (write === undefined) return undefined;
-	return writerPreloadsFromLoadedCase(field, module, form)
-		? "Opens with this case's current value and carries it through unchanged."
-		: `Has no value yet, so each submission saves ${write.property} blank.`;
-}
-
-/**
- * `writerPreloadsFromLoadedCase` over the inspector's nullable context. With
- * no context nothing is known about the form the field sits in, so nothing
- * is claimed to preload.
- */
-export function writerPreloadsInContext(
-	field: Field,
-	context: {
-		readonly module: Pick<Module, "caseType" | "caseListConfig">;
-		readonly form: Pick<Form, "type">;
-	} | null,
-): boolean {
-	return (
-		context !== null &&
-		writerPreloadsFromLoadedCase(field, context.module, context.form)
-	);
-}
-
-/**
- * Where a destination lands relative to the form's module: the module's own
- * case (edited in place on a one-case followup), a child case (created on
- * each submission), or the worker's own record. The chooser only ever offers
- * those three, so anything that is neither own nor worker is a child.
- */
-export type CaseWriteDestinationClass =
-	| "own"
-	| "child"
-	| "worker-record"
-	| "none";
-
-export function caseWriteDestinationClass(
-	current: CaseWrite | undefined,
-	module: Pick<Module, "caseType">,
-): CaseWriteDestinationClass {
-	if (current === undefined) return "none";
-	if (current.caseType === USERCASE_CASE_TYPE) return "worker-record";
-	if (module.caseType !== undefined && current.caseType === module.caseType) {
-		return "own";
-	}
-	return "child";
+	const view = fieldCaseWriteViews(doc, fieldUuid)[0];
+	if (view === undefined) return undefined;
+	return `Has no value yet, so each submission saves ${view.property} blank.`;
 }

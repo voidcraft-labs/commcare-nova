@@ -12,12 +12,11 @@ import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
-	deriveCaseWriteInventory,
+	fieldCaseWriteViews,
 	fieldSchema,
 	proseText,
 } from "@/lib/domain";
-import { assertAndProjectCaseWriteInventory } from "../caseWriteAdmission";
-import { deriveCaseConfig } from "../deriveCaseConfig";
+import { planFormCaseWire } from "../casePlacementPlan";
 import { runValidation } from "../validator/runner";
 import { buildXForm } from "../xform/builder";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
@@ -131,9 +130,9 @@ describe("field planner position and identity", () => {
 		expect(planned).toEqual(before);
 	});
 });
-describe("private case-write projection", () => {
+describe("the case-write projection", () => {
 	it.each([false, true])(
-		"separates primary and child writers by destination, nested=$0",
+		"separates the own case's writes from a child's, by destination, nested=$0",
 		(nested) => {
 			const primary = f({
 				kind: "text",
@@ -203,55 +202,45 @@ describe("private case-write projection", () => {
 				}),
 			);
 			const before = structuredClone(doc);
-			const inventory = deriveCaseWriteInventory(
-				doc,
-				FORM,
-				{ caseType: "patient" },
-				"registration",
+			const { actions } = planFormCaseWire(doc, FORM);
+			const scope = nested ? "/data/details" : "/data";
+			expect(actions.open_case.name_update.question_path).toBe(
+				"/data/nova_trimmed_patient_name",
 			);
-			const config = deriveCaseConfig(
-				doc,
-				assertAndProjectCaseWriteInventory(inventory),
-			);
+			expect(actions.update_case.update).toEqual({});
 			expect(
-				config.caseNames?.map((w) => ({
-					uuid: w.fieldUuid,
-					property: w.property,
-					path: w.path.toXPath(),
-				})),
-			).toEqual([
-				{ uuid: ONE, property: "case_name", path: "/data/patient_name" },
-			]);
-			expect(config.caseProperties).toBeUndefined();
-			expect(config.childCases).toHaveLength(1);
-			const projected = config.childCases?.[0];
-			expect(projected?.caseType).toBe("referral");
-			expect(projected?.relationship).toBe("child");
-			expect(
-				projected?.caseNames.map((w) => ({
-					uuid: w.fieldUuid,
-					property: w.property,
-					path: w.path.toXPath(),
+				actions.subcases.map((subcase) => ({
+					caseType: subcase.case_type,
+					relationship: subcase.relationship,
+					name: subcase.name_update.question_path,
+					properties: subcase.case_properties,
 				})),
 			).toEqual([
 				{
-					uuid: TWO,
-					property: "case_name",
-					path: nested ? "/data/details/referral_name" : "/data/referral_name",
+					caseType: "referral",
+					relationship: "child",
+					name: `${scope}/nova_trimmed_referral_name`,
+					properties: {
+						reason: {
+							question_path: `${scope}/reason`,
+							update_mode: "always",
+						},
+					},
 				},
 			]);
+			// Each question's "Saves to" is its view of the write that names it.
 			expect(
-				projected?.caseProperties.map((w) => ({
-					uuid: w.fieldUuid,
-					property: w.property,
-					path: w.path.toXPath(),
-				})),
+				[ONE, TWO, ADDED].map((uuid) =>
+					fieldCaseWriteViews(doc, uuid).map((view) => [
+						view.caseType,
+						view.property,
+						view.destination,
+					]),
+				),
 			).toEqual([
-				{
-					uuid: ADDED,
-					property: "reason",
-					path: nested ? "/data/details/reason" : "/data/reason",
-				},
+				[["patient", "case_name", "own"]],
+				[["referral", "case_name", "child"]],
+				[["referral", "reason", "child"]],
 			]);
 			expect(doc).toEqual(before);
 		},

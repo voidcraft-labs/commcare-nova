@@ -51,8 +51,10 @@ const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
 // ## Vocabulary
 //
 // The SA speaks domain vocabulary end-to-end: `kind`, `validate`,
-// `validate_msg`, `caseWrite`. There is no translation layer between
-// the LLM and the mutation reducer — tool args flow straight through.
+// `validate_msg`. There is no translation layer between the LLM and the
+// mutation reducer — tool args flow straight through. The one tool-owned
+// key is `caseWrite`: a field stores no destination, so the tools plan
+// it into the form's case operations.
 // CommCare wire terms live only at the emission boundary in
 // `lib/commcare/` (XForm output). The domain never round-trips
 // through a wire shape.
@@ -65,7 +67,7 @@ const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
 import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
 import {
-	caseWriteSchema,
+	authoredCasePropertyNameSchema,
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
@@ -116,7 +118,7 @@ const FIELD_DOCS = {
 	optionsSource:
 		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs; labelProperty defaults to case_name. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record.",
 	caseWrite:
-		"Save this answer to a record property. The module's type writes its primary record; another type creates a child. Child creation needs a name writer. A capture saves a link to its file. Use recordName for the primary record's name.",
+		"Save this answer to a case property. The module's case type saves it to this form's case; a declared child type saves it to a new child case, which needs a question saving its case_name; commcare-user saves it to the worker's own record. A capture saves a link to its file. A value replaces every place this question saves to, and null stops it saving anywhere; when it saves to several places, change them with updateCaseOperation instead. On a follow-up or close form that opens one case, a question saving to this form's case is given a default_value reading that case's value, which you can replace or remove. Use recordName for the case's name.",
 	repeat_mode:
 		"Worker-added rows, a number of rows from a whole-number question or expression, or one row per case a query finds. Counts grow live during entry; lowering a count keeps created rows, answers and case operations. A query's rows are set when the form opens where the repeat has no condition of its own, its query reads no answer, it sits in no other repeat and no group around it shows on a condition that can change during entry; otherwise its rows follow the query as answers change, each row keeping its place.",
 	repeat_count:
@@ -245,12 +247,32 @@ const validateConfigField = () =>
 		);
 
 /**
- * A field's case destination is the domain's strict `{ caseType, property }`
- * on every kind. A capture's write is the link to its file, so a file kind
- * has nothing further to decide.
+ * Where a question's answer is saved: a case type and a property. A field
+ * stores no destination of its own; the tool plans this pair into the
+ * form's case operations (`lib/doc/fieldCaseWriteMutations.ts`
+ * `::planFieldCaseWrite`), and a capture's write is the link to its file.
+ * `commcare-user` names the worker's own record, so the case type is any
+ * nonblank name and the planner says which destinations a form has.
  */
+export const fieldCaseWriteInputSchema = z.strictObject({
+	caseType: z.string().min(1, "Case type must not be empty."),
+	property: authoredCasePropertyNameSchema,
+});
+export type FieldCaseWriteInput = z.infer<typeof fieldCaseWriteInputSchema>;
+
 const caseWriteField = () =>
-	caseWriteSchema.nullable().optional().describe(FIELD_DOCS.caseWrite);
+	fieldCaseWriteInputSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.caseWrite);
+
+/**
+ * Whether a kind holds an answer a case can save: every kind but a label
+ * and the three containers.
+ */
+function kindSavesAnswer(kind: FieldKind): boolean {
+	return kind !== "label" && !fieldRegistry[kind].isContainer;
+}
 
 // ── Flat tool inputs, kind-gated by refinement ───────────────────────
 //
@@ -311,7 +333,6 @@ const ADD_GATED_KEYS = [
 	"calculate",
 	"default_value",
 	"optionsSource",
-	"caseWrite",
 ] as const;
 
 const EDIT_GATED_KEYS = ADD_GATED_KEYS;
@@ -409,6 +430,9 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 				if (item[key] != null && !fieldKindDeclaresKey(item.kind, key)) {
 					undeclaredSlotIssue(ctx, item.kind, key);
 				}
+			}
+			if (item.caseWrite != null && !kindSavesAnswer(item.kind)) {
+				undeclaredSlotIssue(ctx, item.kind, "caseWrite");
 			}
 			// A case-writing field (`caseWrite` set) INHERITS label /
 			// optionsSource / validation / required from its catalog record —
@@ -524,6 +548,9 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				) {
 					undeclaredSlotIssue(ctx, patch.kind, key);
 				}
+			}
+			if (patch.caseWrite !== undefined && !kindSavesAnswer(patch.kind)) {
+				undeclaredSlotIssue(ctx, patch.kind, "caseWrite");
 			}
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
 			gateHiddenValueSources(

@@ -725,7 +725,7 @@ describe("fieldPlacementVerdict and the form's own case writes", () => {
 		return doc;
 	}
 
-	it("refuses moving a question that saves to the form's case into a repeat, before projecting it", () => {
+	it("refuses moving a question that saves to the form's case into a repeat, as the write's many values", () => {
 		const doc = caseWriteFixture();
 		const verdict = fieldPlacementVerdict(doc, {
 			uuid: SAVER,
@@ -734,9 +734,9 @@ describe("fieldPlacementVerdict and the form's own case writes", () => {
 		});
 		expect(verdict).toEqual({
 			ok: false,
-			reason: "case-write-placement",
+			reason: "expression-many-values",
 			message: expect.stringContaining(
-				'inside the repeat "visits", and a form saves that case once',
+				'reads an answer from every entry of the repeat "visits" where it needs one value',
 			),
 		});
 		expect(

@@ -2,11 +2,14 @@
  * SA tool: `editField` — update properties on an existing field.
  *
  * The most complex of the field-edit tools: a single call can carry a
- * kind conversion, an id change, AND a scalar-property patch. Kind
- * conversion remains its dedicated mutation; every field property,
- * including `id` and `caseWrite`, lands in one post-conversion
+ * kind conversion, an id change, a "Saves to" change AND a
+ * scalar-property patch. Kind conversion remains its dedicated mutation;
+ * every field property, including `id`, lands in one post-conversion
  * `updateField` patch so the reducer sees the complete semantic edit
- * atomically. Both the SA chat factory and the MCP adapter call this
+ * atomically. A field stores no case destination: `caseWrite` is planned
+ * into the form's case operations by the one "Saves to" planner
+ * (`planFieldCaseWrite`), first, so a conversion in the same call plans
+ * over the writes the call leaves. Both the SA chat factory and the MCP adapter call this
  * through the shared `ToolInvocationContext` interface.
  *
  * The stages are BUILT sequentially against local candidate docs (a
@@ -18,7 +21,7 @@
  * rejected call saved nothing" holds for this tool exactly as for every
  * single-batch tool.
  *
- * Seven exit branches:
+ * Eight exit branches:
  *
  *   1. Field not resolved at the given triple (missing, or a duplicated
  *      bare id `resolveFieldTarget` refuses as ambiguous — the uuid is
@@ -26,6 +29,8 @@
  *   2. Rename rejected by the shared identifier verdict (XML-illegal /
  *      reserved / over-long / sibling-conflicting new id, checked
  *      before ANY stage builds) → `{ error }`, nothing persisted.
+ *   2a. A `caseWrite` value on a question that saves to several places, or
+ *      one the "Saves to" planner refuses → `{ error }`, nothing staged.
  *   3. Illegal kind conversion (target not in the source kind's
  *      `convertTargets`), or a conversion into a select kind without
  *      the `optionsSource` the destination schema requires (it must ride
@@ -46,13 +51,13 @@
  */
 
 import { z } from "zod";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import {
 	planChoicePreservation,
 	planKindConversion,
 } from "@/lib/doc/kindConversionCascade";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	CasePropertyDataType,
@@ -64,6 +69,7 @@ import type {
 } from "@/lib/domain";
 import {
 	convertNeedsOptionSeed,
+	fieldCaseWriteViews,
 	findAuthoredBlueprintIdentity,
 	getConvertibleTypes,
 	hiddenWriterBlankNote,
@@ -135,6 +141,9 @@ export type EditFieldResult =
 			 *  with no value that writes a case property
 			 *  (`hiddenWriterBlankNote`). */
 			note?: string;
+			/** What planning `caseWrite` said, such as a starting value read
+			 *  from the case (`planFieldCaseWrite`). */
+			notes?: string[];
 	  })
 	| { error: string }
 	| {
@@ -162,9 +171,8 @@ export type EditFieldResult =
 /**
  * Coerce the property-patch portion of an `editField` call into the
  * reducer's field-patch shape. `kind` alone lands via its dedicated
- * `convertField` mutation. `id` and `caseWrite` remain independent slots:
- * changing the form-local id never renames a case property, while setting or
- * clearing `caseWrite` retargets only this writer.
+ * `convertField` mutation, and `caseWrite` through the "Saves to" planner.
+ * Changing the form-local id never renames a case property.
  *
  * Every clearable key in the edit schema is `.nullable().optional()`:
  *   - absent  → leave the current value alone (key omitted from the
@@ -176,7 +184,10 @@ export type EditFieldResult =
  *   - a value → set the property (key present with the value)
  */
 /** The edit-patch shape minus only the conversion discriminator. */
-type EditUpdatesPatch = Omit<z.infer<typeof editFieldUpdatesSchema>, "kind">;
+type EditUpdatesPatch = Omit<
+	z.infer<typeof editFieldUpdatesSchema>,
+	"kind" | "caseWrite"
+>;
 
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
@@ -196,7 +207,6 @@ function editPatchToFieldPatch(
 		"relevant",
 		"calculate",
 		"default_value",
-		"caseWrite",
 	] as const;
 	for (const key of scalarKeys) {
 		const value = updates[key];
@@ -259,7 +269,7 @@ export const editFieldTool = {
 			}
 			const currentId = resolved.field.id;
 
-			const { id: newId, kind: newKind, ...fieldUpdates } = updates;
+			const { id: newId, kind: newKind, caseWrite, ...fieldUpdates } = updates;
 			const preparedOptionsSource =
 				fieldUpdates.optionsSource === undefined
 					? undefined
@@ -333,6 +343,63 @@ export const editFieldTool = {
 							error: `Cannot rename "${currentId}" to "${newId}". ${verdict.message}`,
 						},
 					};
+				}
+			}
+
+			// "Saves to" first: a value replaces every place the question saves
+			// to, so on a question saving to several places it would silently
+			// drop all but one; those are edited one by one on the case
+			// changes. A conversion in the same call then plans over the
+			// writes this leaves.
+			const writeNotes: string[] = [];
+			if (caseWrite !== undefined) {
+				const views = fieldCaseWriteViews(doc, fieldUuid);
+				if (caseWrite !== null && views.length > 1) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: {
+							error: `Question “${currentId}” saves its answer to ${views.length} places, and caseWrite would replace them all with one. You can change each with updateCaseOperation/update_case_operation, or set caseWrite to null first to stop every one.`,
+						},
+					};
+				}
+				const plan = planFieldCaseWrite(
+					doc,
+					fieldUuid,
+					caseWrite === null
+						? null
+						: { caseType: caseWrite.caseType, property: caseWrite.property },
+				);
+				if (!plan.ok) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: { error: plan.message },
+					};
+				}
+				// A call that states the question's value itself keeps it: the
+				// starting value read from the case is offered only to a
+				// question the call gives none.
+				const statesValue =
+					Object.hasOwn(fieldUpdates, "default_value") ||
+					Object.hasOwn(fieldUpdates, "calculate");
+				const writeMutations = statesValue
+					? plan.mutations.filter(
+							(mutation) =>
+								!(
+									mutation.kind === "updateField" &&
+									mutation.uuid === fieldUuid &&
+									Object.hasOwn(mutation.patch, "default_value")
+								),
+						)
+					: plan.mutations;
+				if (!statesValue) writeNotes.push(...plan.notes);
+				if (writeMutations.length > 0) {
+					workingDoc = applyToDoc(workingDoc, writeMutations);
+					stages.push({
+						mutations: [...writeMutations],
+						stage: `edit:${resolved.formUuid}`,
+					});
 				}
 			}
 
@@ -417,16 +484,10 @@ export const editFieldTool = {
 				// conversion carries the property's other writers across in
 				// the same batch and re-declares a stale declared data_type —
 				// one field at a time can never cross the agreement gate. The
-				// plan must see the binding as THIS CALL leaves it: a
-				// same-call `caseWrite` change (retarget or null-clear)
-				// must not cascade a binding the field is leaving.
-				const changesCaseWrite = Object.hasOwn(fieldUpdates, "caseWrite");
-				const planField = changesCaseWrite
-					? ({
-							...resolved.field,
-							caseWrite: fieldUpdates.caseWrite ?? undefined,
-						} as Field)
-					: resolved.field;
+				// plan reads the writes as THIS CALL leaves them: the working
+				// document already holds a same-call `caseWrite` change.
+				const planField = workingDoc.fields[fieldUuid] as Field;
+				const savedTo = fieldCaseWriteViews(workingDoc, fieldUuid)[0];
 				const plan = planKindConversion({
 					doc: workingDoc,
 					field: planField,
@@ -551,16 +612,15 @@ export const editFieldTool = {
 						fieldUuid: peer.uuid,
 						formUuid: findContainingForm(workingDoc, peer.uuid) ?? null,
 					})),
-					...("caseWrite" in planField &&
-						planField.caseWrite && {
-							caseProperty: {
-								caseType: planField.caseWrite.caseType,
-								property: planField.caseWrite.property,
-								...(plan.redeclaredTo !== undefined && {
-									declaredType: plan.redeclaredTo,
-								}),
-							},
-						}),
+					...(savedTo !== undefined && {
+						caseProperty: {
+							caseType: savedTo.caseType,
+							property: savedTo.property,
+							...(plan.redeclaredTo !== undefined && {
+								declaredType: plan.redeclaredTo,
+							}),
+						},
+					}),
 				};
 			}
 
@@ -579,9 +639,9 @@ export const editFieldTool = {
 				};
 			}
 
-			// Every property, including an id change and a case destination,
-			// lands in ONE final updateField patch. They remain independent:
-			// id is form-local identity text; caseWrite retargets this writer.
+			// Every property, including an id change, lands in ONE final
+			// updateField patch. The id is form-local identity text, and never
+			// renames what the question saves to.
 			const propertyUpdates: EditUpdatesPatch = {
 				...fieldUpdates,
 				...(newId !== undefined &&
@@ -628,28 +688,6 @@ export const editFieldTool = {
 					preparedOptionsSource,
 				);
 				if (Object.keys(patch).length > 0) {
-					// Declaration chokepoint: a patch RE-TARGETING `caseWrite`
-					// to a type absent from the catalog declares it FIRST (a stage of
-					// its own, so the type exists before the field's catalog sync
-					// runs) — the reducer no longer auto-creates the type.
-					const nextWrite = (patch as { caseWrite?: unknown }).caseWrite;
-					const nextType =
-						typeof nextWrite === "object" &&
-						nextWrite !== null &&
-						"caseType" in nextWrite &&
-						typeof nextWrite.caseType === "string"
-							? nextWrite.caseType
-							: undefined;
-					if (nextType !== undefined && nextType.length > 0) {
-						const declMuts = declareCaseTypeMutations(workingDoc, nextType);
-						if (declMuts.length > 0) {
-							workingDoc = applyToDoc(workingDoc, declMuts);
-							stages.push({
-								mutations: declMuts,
-								stage: `edit:${resolved.formUuid}`,
-							});
-						}
-					}
 					// `currentField.kind` is the kind after any just-applied
 					// conversion — pass it as `targetKind` so the mutation
 					// discriminates against the post-convert shape, not the
@@ -715,12 +753,7 @@ export const editFieldTool = {
 				"label" in postField && postField.label
 					? projectProseTemplate(postField.label, commit.newDoc).text
 					: "";
-			const postModule = commit.newDoc.modules[resolved.moduleUuid];
-			const postForm = commit.newDoc.forms[resolved.formUuid];
-			const note =
-				postModule && postForm
-					? hiddenWriterBlankNote(postField, postModule, postForm)
-					: undefined;
+			const note = hiddenWriterBlankNote(commit.newDoc, fieldUuid);
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
@@ -733,6 +766,7 @@ export const editFieldTool = {
 					}),
 					...(valueSourceSwap && { valueSource: valueSourceSwap }),
 					...(note !== undefined && { note }),
+					...(writeNotes.length > 0 && { notes: writeNotes }),
 					...(preparedOptionsSource?.kind === "inline" && {
 						options: preparedOptionsSource.options.map((option) => ({
 							uuid: option.uuid,

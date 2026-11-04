@@ -78,7 +78,7 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 						{
 							name: "Close visit",
 							type: "close",
-							closeCondition: { field: "done", answer: "yes" },
+							closeCondition: "#form/done = 'yes'",
 							fields: [{ kind: "text", id: "done", label: proseText("Done?") }],
 						},
 					],
@@ -88,8 +88,8 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 		const formUuid = Object.keys(prev.forms)[0];
 		expect(prev.forms[formUuid].closeCondition).toBeDefined();
 
-		// The CloseConditionSection dispatch: switch the conditional close back
-		// to "always close" by blanking `closeCondition`.
+		// The form settings' close row: switch the conditional close back to
+		// "always close" by blanking `closeCondition`.
 		const next = produce(prev, (d) => {
 			delete d.forms[formUuid].closeCondition;
 		});

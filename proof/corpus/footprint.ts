@@ -37,6 +37,8 @@
  *   reaches the entries that hold the datum: its own case-loading forms'
  *   and those of the modules that select their cases under it
  *   (`selectionNames`, `selectionDatum`, `inlineSearch`);
+ * - its case type, the type of each of its forms' own case, reaches its
+ *   registration, follow-up and close forms (`ownCaseType`);
  * - what only its own case datum holds reaches its own case-loading forms
  *   (`detailConfirm`, `groupingConnection`);
  * - the shape a case-loading form's after-submit default reads (opening on
@@ -133,6 +135,7 @@ import {
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	CASE_FORM_TYPES,
 	CASE_LOADING_FORM_TYPES,
 	caseListColumnRuns,
 	casePropertyTargetKey,
@@ -544,11 +547,7 @@ interface ModuleDerivation {
  *
  * A frame carries each datum's id, case type and maximum.
  *
- * The case type reaches no other form of its own module: a registration
- * form's case-name writer names the module's case type, so a batch that
- * changes the one changes the other, and the form with it (the commit gate
- * refuses `CASE_CREATE_NAME_MISSING` otherwise), and a survey form's wire
- * holds no case type.
+ * The case type reaches the module's other forms through `ownCaseType`.
  */
 const selectionNames: ModuleDerivation = {
 	settings: (_side, module) => ({
@@ -558,6 +557,26 @@ const selectionNames: ModuleDerivation = {
 	}),
 	holders: selectionForms,
 	framed: true,
+};
+
+/**
+ * The case type of the form's own case: a registration, follow-up or close
+ * form's own case is of its module's case type and stores none of its own
+ * (`lib/domain/forms.ts::operationCaseType`), so the module's case type is
+ * what the form's case blocks create or update and what its Save to Case
+ * blocks name (`lib/commcare/casePlacementPlan.ts::planFormCaseWire`). It
+ * reaches every case form of the module, a registration form too, and no
+ * survey form, which has no own case. No frame carries it beyond what
+ * `selectionNames` reaches.
+ */
+const ownCaseType: ModuleDerivation = {
+	settings: (_side, module) => module.caseType,
+	holders: (side, moduleUuid) =>
+		formsOf(side, [moduleUuid], (inner, formUuid) => {
+			const type = inner.wire.forms[formUuid as Uuid]?.type;
+			return type !== undefined && CASE_FORM_TYPES.has(type);
+		}),
+	framed: false,
 };
 
 /**
@@ -948,6 +967,7 @@ const commonFrameDatums: ModuleDerivation = {
 /** Every module setting Nova writes into forms' wire, with the forms whose wire holds it. */
 const MODULE_DERIVATIONS: readonly ModuleDerivation[] = [
 	selectionNames,
+	ownCaseType,
 	selectionDatum,
 	inlineSearch,
 	afterSubmitDefault,

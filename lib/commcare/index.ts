@@ -27,7 +27,6 @@ export {
 	foldCsqlRuntime,
 } from "./csql/fold";
 export * from "./csql/positions";
-export * from "./deriveCaseConfig";
 export {
 	type EntryPointProjection,
 	type EntryPointRequiredSelection,

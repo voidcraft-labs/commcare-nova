@@ -411,6 +411,13 @@ function term(input: Term, ctx: Context): WireExpr {
 		}
 		case "choice":
 			return w.str(choiceValue(input, ctx.types.facts.options));
+		case "capture-link":
+			// The checker admits a capture link only as the whole value a case
+			// change saves, and case emission writes that value as the capture's
+			// URL node itself, so no printed expression holds one.
+			throw new Error(
+				`A capture link to question '${input.field}' reached expression printing. Case emission writes a capture link as the capture's URL node, and the checker admits it nowhere else.`,
+			);
 
 		case "case-type":
 			return w.str(input.caseType);

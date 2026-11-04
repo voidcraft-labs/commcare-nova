@@ -4,8 +4,9 @@
  * Value. Web Apps draws no date-and-time question, so this is how an app
  * that runs there asks for one.
  *
- * The original keeps its UUID, id, position, `relevant` and `caseWrite` and
- * becomes a Hidden Value calculated by the clock-keeping date over the two
+ * The original keeps its UUID, id, position and `relevant`, and every case
+ * write that saves its answer (its "Saves to", `fieldCaseWriteViews`) keeps
+ * reading it, since only its kind changes. It becomes a Hidden Value calculated by the clock-keeping date over the two
  * new questions (`datePattern.ts::clockKeepingJoin`), inserted immediately
  * before it. No reader of the original is rewritten: R2 types the join as a
  * date and time held as a Core `Date`, and R3 binds it `xsd:dateTime`, so
@@ -21,6 +22,8 @@ import {
 	collectTranslationUnits,
 	type Field,
 	type Form,
+	fieldCaseWriteViews,
+	fieldPreload,
 	formConnectIds,
 	type LanguageTag,
 	type Module,
@@ -30,7 +33,6 @@ import {
 	translationSourceFingerprintsEqual,
 	type Uuid,
 } from "@/lib/domain";
-import { writerPreloadsFromLoadedCase } from "@/lib/domain/casePreload";
 import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
 import { expressionChildren } from "@/lib/domain/expression/children";
 import {
@@ -299,7 +301,7 @@ export function planDatetimeSplit(
 	)
 		return refusal("self-read-through-a-filter");
 
-	const { parentUuid, formUuid, form, module } = where;
+	const { parentUuid, formUuid } = where;
 	const { dateUuid, timeUuid } = freeIdentities(doc, fieldUuid);
 	const taken = takenIds(doc, parentUuid);
 	const dateId = suffixUntilFree(`${original.id}_date`, taken);
@@ -308,23 +310,22 @@ export function planDatetimeSplit(
 		new Set([...taken, dateId]),
 	);
 
-	// The starting values: the loaded case's value where the form preloads
-	// the property into the question (the preload wins over a default on a
-	// device), else the original's default. `coalesce` unpacks a node's
-	// `Date`, so `format-date` keeps its clock rather than rounding a node.
-	const preloaded = writerPreloadsFromLoadedCase(original, module, form);
-	const write = original.caseWrite;
-	const start: Expression | undefined =
-		preloaded && write !== undefined
-			? {
-					kind: "term",
-					term: {
-						kind: "form-case",
-						caseType: write.caseType,
-						property: write.property,
-					},
-				}
-			: original.default_value;
+	// The starting value is the original's default, moved onto both new
+	// questions. A preload is that default (the `form-case` read of a
+	// property), so the split states it as moved from the preload when the
+	// default reads a property the original itself saves to. `coalesce`
+	// unpacks a node's `Date`, so `format-date` keeps its clock rather than
+	// rounding a node.
+	const start: Expression | undefined = original.default_value;
+	const preload = fieldPreload(original);
+	const preloaded =
+		preload !== undefined &&
+		fieldCaseWriteViews(doc, fieldUuid).some(
+			(view) =>
+				view.via === undefined &&
+				view.caseType === preload.caseType &&
+				view.property === preload.property,
+		);
 	const defaultFrom: DatetimeSplit["moved"]["defaultFrom"] =
 		start === undefined ? null : preloaded ? "preload" : "default";
 	const dateDefault: Expression | undefined =

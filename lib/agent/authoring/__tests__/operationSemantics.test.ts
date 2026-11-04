@@ -28,32 +28,39 @@ const feedback = z.object({
 			formAnswers: z.string(),
 			nativeCompareAndSet: z.boolean(),
 		}),
-		operations: z.array(
-			z.object({
-				operationUuid: z.string(),
-				id: z.string(),
-				target: record,
-				execution: z.object({
-					selectedRecords: z.string(),
-					repeatFieldUuid: z.string().optional(),
-				}),
-				conditionReads: z.array(read),
-				valueReads: z.array(read),
-				writes: z.array(z.string()),
-				readWriteOverlaps: z.array(
-					z.object({
-						property: z.string(),
-						readFrom: z.string(),
-						slot: z.string(),
-						throughFieldUuids: z.array(z.string()),
-						identity: z.string(),
+		// This form's own case is always its first change; these cases read
+		// the changes added after it, and one case reads the own case itself.
+		operations: z
+			.array(
+				z.object({
+					operationUuid: z.string(),
+					id: z.string(),
+					action: z.string(),
+					target: record,
+					execution: z.object({
+						selectedRecords: z.string(),
+						repeatFieldUuid: z.string().optional(),
 					}),
-				),
-				unresolvedReads: z.array(
-					z.object({ reason: z.string(), slot: z.string() }),
-				),
-			}),
-		),
+					conditionReads: z.array(read),
+					valueReads: z.array(read),
+					writes: z.array(z.string()),
+					readWriteOverlaps: z.array(
+						z.object({
+							property: z.string(),
+							readFrom: z.string(),
+							slot: z.string(),
+							throughFieldUuids: z.array(z.string()),
+							identity: z.string(),
+						}),
+					),
+					unresolvedReads: z.array(
+						z.object({ reason: z.string(), slot: z.string() }),
+					),
+				}),
+			)
+			.transform((operations) =>
+				operations.filter((operation) => operation.action !== "own"),
+			),
 	}),
 });
 
@@ -218,7 +225,7 @@ it("admits guarded writes and reports record identities consistently on both wri
 		Object.values(h.currentDoc().forms).find(
 			(form) => form.name === "Change entry",
 		)?.caseOperations,
-	).toHaveLength(4);
+	).toHaveLength(5);
 });
 
 it("separates per-write guards, captured value reads and unguarded writes, and refreshes after rename/update/removal", async () => {
@@ -360,9 +367,8 @@ it("separates per-write guards, captured value reads and unguarded writes, and r
 		expect(noAdvanced).toMatchObject({
 			answerWrites: [
 				{
-					caseType: "entry",
-					action: "update",
-					answers: [{ property: "contact" }],
+					path: "contact",
+					writes: [{ caseType: "entry", property: "contact" }],
 				},
 			],
 		});
@@ -537,10 +543,37 @@ it("inventories a converging admitted answer graph without expanding every path"
 			},
 		}),
 	};
-	const result = operationSemantics(observed, form.uuid).operations[0];
+	const result = operationSemantics(observed, form.uuid).operations.filter(
+		(operation) => operation.action !== "own",
+	)[0];
 	expect(result.valueReads.map((read) => read.property)).toEqual([
 		"phase",
 		"contact",
 	]);
 	expect(fieldReads).toBeLessThan(Object.keys(doc.fields).length * 64);
+});
+
+it("presents this form's own case as its first change, with where CommCare HQ keeps it", async () => {
+	const { h, call } = await fixture();
+	const read = z
+		.object({
+			operationSemantics: z.object({
+				operations: z.array(z.record(z.string(), z.unknown())),
+			}),
+		})
+		.parse(await call("getCaseOperations", { formUuid: "Change entry" }));
+	const form = Object.values(h.currentDoc().forms).find(
+		(candidate) => candidate.name === "Change entry",
+	);
+	const own = form?.caseOperations?.[0];
+	if (own?.action !== "own") throw new Error("Missing the own case.");
+	expect(read.operationSemantics.operations[0]).toMatchObject({
+		operationUuid: own.uuid,
+		action: "own",
+		caseType: "entry",
+		target: { kind: "selected-record" },
+		writes: ["contact"],
+		// A plain write of the loaded case is kept in Case Management.
+		placement: "case management",
+	});
 });

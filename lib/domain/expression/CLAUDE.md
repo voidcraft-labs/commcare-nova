@@ -285,6 +285,11 @@ never stored raw-XPath validation codes. There is no printed-source checker.
   first value that isn't whole) or `count-choices-unknown` (a select whose
   choices come from a data table or cases). A read of a count repeat's
   `count-result` is `int`.
+- `capture-link {field}` is the HQ address of the file a capture question
+  submitted, admitted only as the whole value of a case write
+  (`arm-unavailable` reasons `capture-link-slot` and `capture-link-field`); a
+  bare read of a capture as a write value is `expected-value` reason
+  `capture-answer`. Form text spells it `capture-link(#form/<question>)`.
 - A query repeat's `relevant` evaluates at its row (`{kind: "field", uuid}`),
   in both placements, so a stored condition prints relative to the row.
 - `count(self)` is the cardinality of the current row: `1` without a filter, or

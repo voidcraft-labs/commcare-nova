@@ -36,7 +36,6 @@ import {
 	formLogicSchema,
 	proseTemplateSchema,
 	selectOptionValueSchema,
-	uuidSchema,
 } from "@/lib/domain";
 
 // ── Reserved case properties (CommCare platform list) ───────────────
@@ -209,32 +208,6 @@ export const caseTypesOutputSchema = z.object({
 		.min(1)
 		.describe("Case types and their properties"),
 });
-
-// ── Per-form close condition ────────────────────────────────────────
-
-/**
- * A close form's conditional-close input — the ONE SA-facing shape,
- * shared by the creation tools (`createForm` / `createModule`) and
- * `updateForm`. `field` names the checked field by its bare id; each
- * tool resolves it to the stored uuid against its own context (the doc
- * for an edit, the doc-plus-batch overlay for a creation, so the
- * condition can name a field landing in the same call).
- */
-export const closeConditionInputSchema = z
-	.strictObject({
-		fieldUuid: uuidSchema.describe("Stable UUID of the field to check."),
-		answer: z.string().describe("Value that triggers closure"),
-		operator: z
-			.enum(["=", "selected"])
-			.nullable()
-			.optional()
-			.describe(
-				'"=" for exact match (default — null uses it). "selected" for multi-select fields.',
-			),
-	})
-	.describe(
-		"The condition is saved as a Save to Case close, which needs that plan feature in CommCare HQ, unless all of these hold: the field is a single select, multi select, Hidden Value or label outside any repeat; the answer contains no single quote (') and does not start or end with a double quote (\"); and for a select with its own options, the answer is one of them.",
-	);
 
 // ── Per-form Connect block ──────────────────────────────────────────
 

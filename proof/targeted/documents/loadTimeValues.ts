@@ -1,24 +1,28 @@
 /**
  * Defect 28, load-time values: a default that reads an answer the form
- * preloads from its case.
+ * opens with its case's value.
  *
- * A follow-up form opens each answer that writes its own case's property
- * showing the case's value (`lib/domain/casePreload.ts::
- * writerPreloadsFromLoadedCase`), which Nova sends HQ as the form's basic
- * `case_preload` (`lib/commcare/deriveCaseConfig.ts`). HQ's build loads it
- * after every other load-time `setvalue` of the form
- * (`app_manager/xform.py::XForm.add_case_preloads`), so a default later in
- * the form that reads the preloaded answer reads it blank there. The manifest
- * check refuses that shape
- * (`forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held`,
- * `load-changes-values`), which otherwise only the fuzz sample shows.
+ * A question opens showing its case's current value only where its starting
+ * value says so: the weight writer's default is the read of the patient's
+ * weight (`lib/domain/casePreload.ts::fieldPreload`), which Nova writes as
+ * the form builder's own default, a setvalue at the question's place in the
+ * form, and never as a `case_preload` (HQ's build would load that after
+ * every other load-time `setvalue` of the form,
+ * `app_manager/xform.py::XForm.add_case_preloads`, so a default later in the
+ * form that read the answer read it blank). The note's default, later in the
+ * form, reads the weight, so it opens holding the case's weight. The export
+ * holds no `case_preload`, the refused shape of
+ * `forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held`
+ * (`load-changes-values`), which the retained control
+ * `targeted-load-time-values` still shows.
  *
  * Beside them, a Hidden Value with neither a calculate nor a default: a data
  * node with a bare bind and no `setvalue`, which HQ's form builder keeps as
  * it is and Core opens blank.
  *
- * Fixed values: opened on the patient Amina, the weight a worker enters is
- * the weight the form holds.
+ * Fixed values: opened on the patient Amina, whose weight is 64, the note
+ * opens as `was 64`, and the weight a worker enters is the weight the form
+ * holds.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -62,6 +66,7 @@ export function loadTimeValues() {
 								uuid: uuid("weight"),
 								id: "weight",
 								label: proseText("Weight"),
+								default_value: "#patient/weight",
 								caseWrite: { caseType: "patient", property: "weight" },
 							}),
 							f({
@@ -94,6 +99,20 @@ export function loadTimeValues() {
 		doc,
 		expected: {
 			intent: [
+				{
+					id: "note-reads-case",
+					export: "local",
+					form,
+					restore: "restore.xml",
+					request: {
+						session: { command: "m0-f0", data: { case_id: "targeted-amina" } },
+						expressions: ["/data/weight", "/data/weight_note"],
+					},
+					expect: [
+						{ pointer: "/values/0/value", value: "64" },
+						{ pointer: "/values/1/value", value: "was 64" },
+					],
+				},
 				{
 					id: "weight-held",
 					export: "local",

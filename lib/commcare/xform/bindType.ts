@@ -78,13 +78,15 @@ export type FieldBindType = NonNullable<(typeof BIND_TYPE_BY_KIND)[FieldKind]>;
  * calculated by the clock-keeping date: the bind follows the property.
  *
  * The XForm emitter and Preview's setvalue casts both read this one rule,
- * so they agree on which questions are typed.
+ * so they agree on which questions are typed. `writes` is the field's view
+ * of the case writes that save it (`caseWriteViews.ts::fieldCaseWriteViews`).
  */
 export function fieldBindType(
 	field: Field,
 	caseTypes: readonly CaseType[],
+	writes: Parameters<typeof fieldValueType>[2],
 ): FieldBindType | null {
-	return fieldValueType(field, caseTypes) === "datetime"
+	return fieldValueType(field, caseTypes, writes) === "datetime"
 		? "xsd:dateTime"
 		: BIND_TYPE_BY_KIND[field.kind];
 }

@@ -10,11 +10,11 @@
  * Vellum (`src/logic.js::_addReferences`), which asks about reference errors
  * on every save.
  *
- * Two forms of one menu. "Assess" holds one case operation, an update of the
- * selected patient that writes `risk_level` from an answer: the only writer
- * of that property, and a Save to Case block on the wire. It also writes
- * `visit_count` from an ordinary field, which HQ's own case management
- * carries. "Review" validates one answer against each property. So HQ's
+ * Two forms of one menu. "Assess" holds, after its own case's change, one
+ * more case operation, an update of the selected patient that writes
+ * `risk_level` from an answer: the only writer of that property, and a Save
+ * to Case block on the wire. Its own case's change writes `visit_count` from
+ * an answer, which HQ's own case management carries. "Review" validates one answer against each property. So HQ's
  * form builder warns about the read of `risk_level` and not about the read
  * of `visit_count`, the control inside the document: the two reads differ
  * only in who writes the property.
@@ -130,7 +130,13 @@ export function saveToCaseRead() {
 		...built,
 		forms: {
 			...built.forms,
-			[assess]: { ...built.forms[assess], caseOperations: [operation] },
+			[assess]: {
+				...built.forms[assess],
+				caseOperations: [
+					...(built.forms[assess].caseOperations ?? []),
+					operation,
+				],
+			},
 		},
 	};
 	const restore = restoreXml({

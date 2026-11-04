@@ -2811,32 +2811,65 @@ test.describe("authenticated builder", () => {
 				await expect(idInput).toHaveValue("note");
 			});
 
-			await test.step("Always becomes a complete conditional reference without an empty saved identity", async () => {
+			await test.step("Every time becomes a complete condition, and choosing a condition saves nothing by itself", async () => {
 				await page
 					.getByRole("button", { name: "Form settings", exact: true })
 					.click();
-				await page.getByRole("button", { name: "Close Behavior" }).click();
-				await page
-					.getByRole("menuitem", { name: "When condition is met" })
-					.click();
-
-				const field = page.getByPlaceholder("Search fields");
-				await expect(field).toHaveValue("");
-				await field.click();
-				await page
-					.getByRole("option", { name: /First name.*first_name/ })
-					.click();
-				await expect(field).toHaveValue("first_name");
-				// Picking keeps focus in the picker. Focus dropped to the page here
-				// is reclaimed by the popover a moment later, which takes it from
-				// whatever control the person reached next.
-				await expect(field).toBeFocused();
-
-				const answer = page.getByPlaceholder("Plain text value");
-				await waitForSavedMutation('"answer":"Ada"', async () => {
-					await answer.fill("Ada");
-					await answer.blur();
+				const settings = page
+					.getByRole("dialog")
+					.filter({ hasText: "Form settings" });
+				const closeRow = settings.getByRole("group", {
+					name: "Close the case",
 				});
+				const everyTime = closeRow.getByRole("button", {
+					name: "Every time",
+					exact: true,
+				});
+				const whenTrue = closeRow.getByRole("button", {
+					name: "When a condition is true",
+					exact: true,
+				});
+				const save = settings.getByRole("button", {
+					name: "Save condition",
+					exact: true,
+				});
+				await expect(everyTime).toHaveAttribute("aria-pressed", "true");
+
+				// Choosing a condition opens the editor over a draft and stores
+				// nothing: cancelling returns the row to Every time.
+				let saved = false;
+				const watchSaves = (request: Request) => {
+					if (
+						request.method() === "PUT" &&
+						new URL(request.url()).pathname === `/api/apps/${fixture.appId}`
+					)
+						saved = true;
+				};
+				page.on("request", watchSaves);
+				try {
+					await whenTrue.click();
+					await expect(whenTrue).toHaveAttribute("aria-pressed", "true");
+					await expect(save).toBeVisible();
+					await settings
+						.getByRole("button", { name: "Cancel", exact: true })
+						.click();
+					await expect(everyTime).toHaveAttribute("aria-pressed", "true");
+					await expect(save).toHaveCount(0);
+				} finally {
+					page.off("request", watchSaves);
+				}
+				expect(saved).toBe(false);
+
+				// The completed condition is one save.
+				await whenTrue.click();
+				const answer = settings.getByRole("textbox", { name: "Text value" });
+				await answer.fill("Ada");
+				await answer.blur();
+				await waitForSavedMutation('"value":"Ada"', async () => {
+					await save.click();
+				});
+				await expect(save).toHaveCount(0);
+				await expect(whenTrue).toHaveAttribute("aria-pressed", "true");
 				await expect(answer).toHaveValue("Ada");
 			});
 
@@ -2908,11 +2941,12 @@ test.describe("authenticated builder", () => {
 				await page
 					.getByRole("button", { name: "Form settings", exact: true })
 					.click();
-				const field = page.getByPlaceholder("Search fields");
-				await expect(field).toHaveValue("given_name", { timeout: 20_000 });
 				const settings = page
 					.getByRole("dialog")
 					.filter({ hasText: "Form settings" });
+				await expect(
+					settings.getByRole("textbox", { name: "Text value" }),
+				).toHaveValue("Ada", { timeout: 20_000 });
 				await expect(settings).toHaveCount(1);
 				await expect(settings).not.toContainText(identity.firstNameUuid);
 				await expect(settings).not.toContainText(
@@ -2941,16 +2975,23 @@ test.describe("authenticated builder", () => {
 				]);
 			});
 
-			await test.step("returning to Always clears the reference cleanly", async () => {
+			await test.step("returning to Every time clears the condition cleanly", async () => {
 				await page.getByRole("button", { name: "Back to edit" }).click();
 				await page
 					.getByRole("button", { name: "Form settings", exact: true })
 					.click();
-				await page.getByRole("button", { name: "Close Behavior" }).click();
+				const settings = page
+					.getByRole("dialog")
+					.filter({ hasText: "Form settings" });
 				await waitForSavedMutation('"closeCondition":null', async () => {
-					await page.getByRole("menuitem", { name: "Always" }).click();
+					await settings
+						.getByRole("group", { name: "Close the case" })
+						.getByRole("button", { name: "Every time", exact: true })
+						.click();
 				});
-				await expect(page.getByPlaceholder("Search fields")).toHaveCount(0);
+				await expect(
+					settings.getByRole("textbox", { name: "Text value" }),
+				).toHaveCount(0);
 			});
 
 			await test.step("deleting a field selects its neighbor and Undo and Redo restore persisted state", async () => {
@@ -3350,7 +3391,9 @@ test.describe("authenticated builder", () => {
 				await editor.press("ControlOrMeta+A");
 				await editor.press("Backspace");
 				await expect(editor).toHaveText("");
-				await page.keyboard.insertText("concat('Patient ', #form/case_name)");
+				// The label question's answer as it is, so Case Management keeps
+				// creating the case a search with no matches registers.
+				await page.keyboard.insertText("#form/patient_label");
 				const saved = page.waitForResponse(
 					(response) =>
 						response.request().method() === "PUT" &&
@@ -3714,8 +3757,10 @@ test.describe("authenticated builder", () => {
 			});
 			const rows = list.getByRole("listitem");
 			await expect(rows).toHaveCount(CASE_CHANGES_SEQUENCE_LENGTH);
-			await expect(rows.nth(0)).toContainText("Create a new referral case");
-			await expect(rows.nth(3)).toContainText(
+			// The form's own case change is always first.
+			await expect(rows.nth(0)).toContainText("Update this form's");
+			await expect(rows.nth(1)).toContainText("Create a new referral case");
+			await expect(rows.nth(4)).toContainText(
 				`Update the archived referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
 			);
 
@@ -3723,13 +3768,13 @@ test.describe("authenticated builder", () => {
 			// states where in the sequence this change is.
 			const fileHandle = page.getByRole("button", {
 				name: new RegExp(
-					`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 4 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+					`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 5 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 				),
 			});
 			await fileHandle.focus();
 
-			// Home would put it ahead of the create whose case it changes. The
-			// planner refuses, and the refusal NAMES the change it is about
+			// Home would put it ahead of the form's own case change, which is
+			// always first. The planner refuses, and the refusal says why
 			// rather than the key silently doing nothing.
 			await page.keyboard.press("Home");
 			const refusal = page
@@ -3738,22 +3783,20 @@ test.describe("authenticated builder", () => {
 			await expect(refusal).toContainText(
 				`${CASE_CHANGES_SEED.ids.file} did not move`,
 			);
-			// The moved change is the one whose reference would break, so the
-			// sentence names what it DEPENDS on rather than naming it back.
 			await expect(refusal).toContainText(
-				`This change uses the case \u201c${CASE_CHANGES_SEED.ids.create}\u201d makes`,
+				"This form's case is always the first change.",
 			);
 			// Nothing moved: the refusal came BEFORE the gesture, not after a
 			// commit that had to be undone.
-			await expect(rows.nth(0)).toContainText("Create a new referral case");
-			await expect(rows.nth(3)).toContainText(
+			await expect(rows.nth(1)).toContainText("Create a new referral case");
+			await expect(rows.nth(4)).toContainText(
 				`Update the archived referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
 			);
 
 			// The same keyboard path still moves a change nothing depends on.
 			const noteHandle = page.getByRole("button", {
 				name: new RegExp(
-					`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 3 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+					`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 4 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 				),
 			});
 			await noteHandle.focus();
@@ -3762,7 +3805,7 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", {
 					name: new RegExp(
-						`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+						`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 3 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 					),
 				}),
 			).toBeVisible();
@@ -3770,7 +3813,7 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", {
 					name: new RegExp(
-						`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+						`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 3 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 					),
 				}),
 			).toBeFocused();

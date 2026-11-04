@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	f,
+	lowerFixtureCaseWrites,
+} from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { analyzeBlueprint, extractLogicFields } from "../blueprint-stats";
@@ -11,8 +15,8 @@ const FIELD = testUuid("63000000-0000-4000-8000-000000000000");
 const COLUMN = testUuid("64000000-0000-4000-8000-000000000000");
 const OPERATION = testUuid("65000000-0000-4000-8000-000000000000");
 
-function fixture(property: string): BlueprintDoc {
-	return {
+function fixture(property: string, fieldId = "case_name"): BlueprintDoc {
+	const doc: BlueprintDoc = {
 		appId: "stats-app",
 		appName: "Stats",
 		connectType: null,
@@ -59,10 +63,9 @@ function fixture(property: string): BlueprintDoc {
 		fields: {
 			[FIELD]: {
 				uuid: FIELD,
-				id: "case_name",
+				id: fieldId,
 				kind: "text",
 				label: proseText("Full name"),
-				caseWrite: { caseType: "patient", property },
 			},
 		},
 		moduleOrder: [MODULE],
@@ -70,20 +73,21 @@ function fixture(property: string): BlueprintDoc {
 		fieldOrder: { [FORM]: [FIELD] },
 		fieldParent: { [FIELD]: FORM },
 	};
+	return lowerFixtureCaseWrites(
+		doc,
+		new Map([[FIELD, { caseType: "patient", property }]]),
+	);
 }
 
 describe("blueprint stats case-write quality", () => {
 	it("accepts a friendly field id when its own-type destination is case_name", () => {
-		const doc = fixture("case_name");
-		doc.fields[FIELD].id = "full_name";
+		const doc = fixture("case_name", "full_name");
 
 		const stats = analyzeBlueprint(doc);
 
 		expect(stats.modules[0]?.forms[0]?.casePropertyCount).toBe(1);
 		expect(
-			stats.qualityFlags.some((flag) =>
-				flag.message.includes("no field writing case_name"),
-			),
+			stats.qualityFlags.some((flag) => flag.message.includes("no name")),
 		).toBe(false);
 	});
 
@@ -94,18 +98,13 @@ describe("blueprint stats case-write quality", () => {
 			expect.objectContaining({
 				severity: "error",
 				message:
-					"Registration form has no field writing case_name to its own case type — case will have no name",
+					"Registration form gives its new case no name — case will have no name",
 			}),
 		);
 	});
 
 	it("recognizes an advanced case operation as persisted form work", () => {
 		const doc = fixture("nickname");
-		const field = doc.fields[FIELD];
-		if (field === undefined || !("caseWrite" in field)) {
-			throw new Error("fixture field supports case writes");
-		}
-		delete field.caseWrite;
 		doc.forms[FORM] = {
 			...doc.forms[FORM],
 			type: "followup",

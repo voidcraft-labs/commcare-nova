@@ -54,7 +54,7 @@ import type {
 	ExpressionSlotRef,
 	FormNodeRef,
 } from "@/lib/domain/expression/types";
-import { orderedCaseOperations } from "@/lib/domain/forms";
+import { operationCaseType, orderedCaseOperations } from "@/lib/domain/forms";
 import { userPropertiesOf } from "@/lib/domain/users";
 import {
 	buildFormReferenceContext,
@@ -291,10 +291,17 @@ function caseRelations(doc: BlueprintDoc): ReadonlyMap<string, Set<string>> {
 	};
 	for (const type of doc.caseTypes ?? [])
 		if (type.parent_type) add(type.name, "parent");
-	for (const form of Object.values(doc.forms))
-		for (const operation of orderedCaseOperations(form))
-			for (const link of operation.links ?? [])
-				add(operation.caseType, link.identifier);
+	for (const formUuids of Object.values(doc.formOrder))
+		for (const formUuid of formUuids) {
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			for (const operation of orderedCaseOperations(form)) {
+				const caseType = operationCaseType(doc, formUuid, operation);
+				if (caseType === undefined) continue;
+				for (const link of operation.links ?? [])
+					add(caseType, link.identifier);
+			}
+		}
 	return relations;
 }
 

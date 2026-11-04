@@ -1,9 +1,10 @@
 /**
  * Bind rule R3: the type a field's bind declares. A visible question binds its
- * kind; a Hidden Value binds the effective type of the property it writes;
- * any other Hidden Value binds a date and time only where its calculate is
- * the clock-keeping date, since Core wraps a `Date` under any other bind as
- * `DateData` and drops its clock (`Recalculate.java::wrapData`).
+ * kind; a Hidden Value binds the effective type of the property a case
+ * operation saves its answer to; any other Hidden Value binds a date and time
+ * only where its calculate is the clock-keeping date, since Core wraps a
+ * `Date` under any other bind as `DateData` and drops its clock
+ * (`Recalculate.java::wrapData`).
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -39,6 +40,7 @@ const hidden = (patch: Partial<Extract<Field, { kind: "hidden" }>>): Field => ({
 	kind: "hidden",
 	...patch,
 });
+const write = (property: string) => ({ caseType: "visit", property });
 
 describe("fieldValueType", () => {
 	it("binds a visible question by its kind", () => {
@@ -48,35 +50,31 @@ describe("fieldValueType", () => {
 			kind: "datetime",
 			label: proseText("Seen"),
 		};
-		expect(fieldValueType(question, CATALOG)).toBe("datetime");
+		expect(fieldValueType(question, CATALOG, [write("noted")])).toBe(
+			"datetime",
+		);
 	});
 
 	it("binds a Hidden Value by the effective type of the property it writes, whatever its calculate", () => {
-		const write = (property: string) => ({ caseType: "visit", property });
+		expect(fieldValueType(hidden({}), CATALOG, [write("seen_at")])).toBe(
+			"datetime",
+		);
 		expect(
-			fieldValueType(hidden({ caseWrite: write("seen_at") }), CATALOG),
-		).toBe("datetime");
-		expect(
-			fieldValueType(
-				hidden({ caseWrite: write("noted"), calculate: JOIN }),
-				CATALOG,
-			),
+			fieldValueType(hidden({ calculate: JOIN }), CATALOG, [write("noted")]),
 		).toBe("text");
+		// The first write whose property has a type decides.
+		expect(
+			fieldValueType(hidden({}), CATALOG, [write("untyped"), write("seen_at")]),
+		).toBe("datetime");
 	});
 
 	it("binds any other Hidden Value a date and time only where its calculate is the clock-keeping date", () => {
-		expect(fieldValueType(hidden({ calculate: JOIN }), CATALOG)).toBe(
+		expect(fieldValueType(hidden({ calculate: JOIN }), CATALOG, [])).toBe(
 			"datetime",
 		);
 		// A written property with no effective type falls to the same rule.
 		expect(
-			fieldValueType(
-				hidden({
-					calculate: JOIN,
-					caseWrite: { caseType: "visit", property: "untyped" },
-				}),
-				CATALOG,
-			),
+			fieldValueType(hidden({ calculate: JOIN }), CATALOG, [write("untyped")]),
 		).toBe("datetime");
 		// Instant text without date() is text, and a date of a day is a date:
 		// neither is the clock-keeping date, so both keep `xsd:string`.
@@ -86,7 +84,7 @@ describe("fieldValueType", () => {
 			date: read(DAY),
 		};
 		expect(
-			fieldValueType(hidden({ calculate: instantText }), CATALOG),
+			fieldValueType(hidden({ calculate: instantText }), CATALOG, []),
 		).toBeUndefined();
 		expect(
 			fieldValueType(
@@ -97,8 +95,9 @@ describe("fieldValueType", () => {
 					},
 				}),
 				CATALOG,
+				[],
 			),
 		).toBeUndefined();
-		expect(fieldValueType(hidden({}), CATALOG)).toBeUndefined();
+		expect(fieldValueType(hidden({}), CATALOG, [])).toBeUndefined();
 	});
 });

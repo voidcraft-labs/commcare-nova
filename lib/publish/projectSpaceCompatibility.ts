@@ -20,7 +20,8 @@ export type ProjectSpaceCapabilityId =
 	| "registration-after-empty-search"
 	| "multi-select-case-lists"
 	| "related-case-search"
-	| "case-tiles";
+	| "case-tiles"
+	| "save-only-edited-answers";
 
 export type ProjectSpaceAdvisoryId = "large-search-performance";
 
@@ -84,6 +85,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		id: "case-tiles",
 		label: "Case tiles",
 		description: "Lets a case list draw each case as a tile.",
+	},
+	"save-only-edited-answers": {
+		id: "save-only-edited-answers",
+		label: "Save only answers that changed",
+		description:
+			"Lets a form save an answer to a case only when the worker changed it.",
 	},
 };
 
@@ -404,6 +411,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"multi-select-case-lists",
 	"related-case-search",
 	"case-tiles",
+	"save-only-edited-answers",
 ]);
 const ADVISORY_IDS = new Set<ProjectSpaceAdvisoryId>([
 	"large-search-performance",

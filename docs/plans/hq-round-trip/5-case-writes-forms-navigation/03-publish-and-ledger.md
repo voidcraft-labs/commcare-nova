@@ -2184,6 +2184,19 @@ From the outline (`5-case-writes-forms-navigation.md` at `2f985ed6`), the resear
   menu item wherever a module holds one, with a Vitest witness until pull request 10's lane witness. So no
   pull request's lane accepts a build difference its verdict does not know.
 
+- **`toggle/SAVE_ONLY_EDITED_FORM_FIELDS` keeps `preflight.kind: "precondition"`** with the cell
+  "flag probe; save-only-edited-answers", not `{kind: "capability"}`:
+  `lib/commcare/surface/schema.ts::gatePreflightSchema` admits none, precondition, confirmation and
+  refusal, every other probed flag is a precondition, and `surface/__tests__/gates.test.ts`'s
+  flag-probe check covers precondition gates only. Its content cell reads HELD.
+- **`proof/hq/test_flag_probe.py`'s user-alone test runs under
+  `override_settings(DISABLE_RANDOM_TOGGLES=False)`**: HQ's `settings.py` sets
+  `DISABLE_RANDOM_TOGGLES = UNIT_TESTING`, and `corehq/toggles/__init__.py::PredictablyRandomToggle.enabled`
+  (which `FeatureRelease` inherits) returns False under it before reading stored state, so the first
+  `FeatureRelease` the probe asks would read off in the harness while production reads it on.
+- **`linkWriteDestinations` lists each destination once** and reads the operation's case type as
+  `retype ?? operationCaseType`, as `lib/domain/caseWriteViews.ts` does.
+
 ---
 
 ## Executed during planning

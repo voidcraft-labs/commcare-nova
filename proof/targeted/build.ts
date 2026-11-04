@@ -19,13 +19,14 @@
  * admits over D, and what it commits must be exactly D′ as written. That
  * batch is the document's edit (`CorpusDocument.edit`).
  *
- * A query repeat's held placement (`placement`, `HELD_FIELD_KEYS`) is no
- * editor's choice, and no mutation an editor sends writes one: a publish
- * records it, or a migration writes it for an app already published. A
- * document written with one (a migration witness, holding what the cutover
- * writes for its published app) is planned without it, and the hold is then
- * laid on the committed document as the migration writes it, which the gate
- * must admit whole. An edit never changes a hold.
+ * A held placement (a query repeat's `placement`, `HELD_FIELD_KEYS`; a case
+ * operation's `placement`; a form's `ownClosePlacement`) is no editor's
+ * choice, and no mutation an editor sends writes one: a publish records it,
+ * or a migration writes it for an app already published. A document written
+ * with one (a migration witness, holding what the cutover writes for its
+ * published app) is planned without it, and every hold is then laid on the
+ * committed document as the migration writes it, which the gate must admit
+ * whole. An edit never changes a hold.
  *
  * Every identity a document holds is named from the document's id
  * (`targetedUuid`), never drawn from `buildDoc`'s counter, so a targeted
@@ -41,8 +42,10 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CasePlacement,
 	type Column,
 	declaresAndroid,
+	type OwnClosePlacement,
 	type PersistableDoc,
 	type Uuid,
 } from "@/lib/domain";
@@ -126,27 +129,54 @@ function firstDifference(a: unknown, b: unknown, path = ""): string {
 	return path === "" ? "/" : path;
 }
 
-/** The placement each query repeat of `doc` holds, by its uuid. */
-function heldPlacements(doc: BlueprintDoc): Map<Uuid, QueryRepeatPlacement> {
-	const holds = new Map<Uuid, QueryRepeatPlacement>();
+/** Every placement `doc` holds: each query repeat's, each case operation's
+ * and each form's own close's, keyed by the uuid of what holds it. */
+interface Holds {
+	readonly repeats: ReadonlyMap<Uuid, QueryRepeatPlacement>;
+	readonly operations: ReadonlyMap<Uuid, CasePlacement>;
+	readonly ownCloses: ReadonlyMap<Uuid, OwnClosePlacement>;
+}
+
+const NO_HOLDS: Holds = {
+	repeats: new Map(),
+	operations: new Map(),
+	ownCloses: new Map(),
+};
+
+function heldPlacements(doc: BlueprintDoc): Holds {
+	const repeats = new Map<Uuid, QueryRepeatPlacement>();
 	for (const field of Object.values(doc.fields)) {
 		if (
 			field.kind === "repeat" &&
 			field.repeat_mode === "query_bound" &&
 			field.placement !== undefined
 		)
-			holds.set(field.uuid, field.placement);
+			repeats.set(field.uuid, field.placement);
 	}
-	return holds;
+	const operations = new Map<Uuid, CasePlacement>();
+	const ownCloses = new Map<Uuid, OwnClosePlacement>();
+	for (const form of Object.values(doc.forms)) {
+		if (form.ownClosePlacement !== undefined)
+			ownCloses.set(form.uuid, form.ownClosePlacement);
+		for (const operation of form.caseOperations ?? [])
+			if (operation.placement !== undefined)
+				operations.set(operation.uuid, operation.placement);
+	}
+	return { repeats, operations, ownCloses };
 }
 
-/** `doc` with each query repeat holding the placement `holds` names, and the
- * others holding none. */
-function withPlacements(
-	doc: BlueprintDoc,
-	holds: ReadonlyMap<Uuid, QueryRepeatPlacement>,
-): BlueprintDoc {
-	if (holds.size === 0 && heldPlacements(doc).size === 0) return doc;
+function holdsAnything(holds: Holds): boolean {
+	return (
+		holds.repeats.size > 0 ||
+		holds.operations.size > 0 ||
+		holds.ownCloses.size > 0
+	);
+}
+
+/** `doc` with each query repeat, case operation and own close holding the
+ * placement `holds` names, and the others holding none. */
+function withPlacements(doc: BlueprintDoc, holds: Holds): BlueprintDoc {
+	if (!holdsAnything(holds) && !holdsAnything(heldPlacements(doc))) return doc;
 	const fields = Object.create(null) as BlueprintDoc["fields"];
 	for (const [uuid, field] of Object.entries(doc.fields) as [
 		Uuid,
@@ -157,10 +187,31 @@ function withPlacements(
 			continue;
 		}
 		const { placement: _held, ...unheld } = field;
-		const placement = holds.get(uuid);
+		const placement = holds.repeats.get(uuid);
 		fields[uuid] = placement === undefined ? unheld : { ...unheld, placement };
 	}
-	return { ...doc, fields };
+	const forms = Object.create(null) as BlueprintDoc["forms"];
+	for (const [uuid, form] of Object.entries(doc.forms) as [
+		Uuid,
+		BlueprintDoc["forms"][Uuid],
+	][]) {
+		const { ownClosePlacement: _heldClose, ...unheldForm } = form;
+		const ownClose = holds.ownCloses.get(uuid);
+		forms[uuid] = {
+			...unheldForm,
+			...(ownClose !== undefined && { ownClosePlacement: ownClose }),
+			...(form.caseOperations !== undefined && {
+				caseOperations: form.caseOperations.map((operation) => {
+					const { placement: _heldOperation, ...unheld } = operation;
+					const placement = holds.operations.get(operation.uuid);
+					return (
+						placement === undefined ? unheld : { ...unheld, placement }
+					) as typeof operation;
+				}),
+			}),
+		};
+	}
+	return { ...doc, fields, forms };
 }
 
 /**
@@ -176,10 +227,9 @@ function planned(
 	authored?: readonly Mutation[],
 ): { readonly mutations: Mutation[]; readonly committed: PersistableDoc } {
 	const holds = heldPlacements(to);
-	const unheld = new Map<Uuid, QueryRepeatPlacement>();
-	const planFrom = withPlacements(from, unheld);
+	const planFrom = withPlacements(from, NO_HOLDS);
 	const mutations =
-		authored ?? diffDocsToMutations(planFrom, withPlacements(to, unheld));
+		authored ?? diffDocsToMutations(planFrom, withPlacements(to, NO_HOLDS));
 	const verdict = mutationCommitVerdict(
 		planFrom,
 		mutations,
@@ -195,7 +245,7 @@ function planned(
 		);
 	}
 	let next = verdict.nextDoc;
-	if (holds.size > 0) {
+	if (holdsAnything(holds)) {
 		// The holds as a migration writes them, admitted whole.
 		const held = mutationCommitVerdict(
 			withPlacements(next, holds),
@@ -206,7 +256,9 @@ function planned(
 			throw new Error(
 				`Nova's commit gate refused the placements ${subject} holds (${held.findings
 					.map((finding) => `${finding.code}: ${finding.message}`)
-					.join("; ")}); hold only a placement its query repeat can take.`,
+					.join(
+						"; ",
+					)}); hold only a placement its query repeat, case operation or own close can take.`,
 			);
 		}
 		next = held.nextDoc;
@@ -245,7 +297,7 @@ export function targetedDocument(spec: TargetedSpec): CorpusDocument {
 		!isDeepStrictEqual(heldPlacements(spec.doc), heldPlacements(spec.edit))
 	) {
 		throw new Error(
-			`The edit of the targeted document ${spec.id} changes a query repeat's held placement, which no editor's edit writes; hold the same placements in both documents.`,
+			`The edit of the targeted document ${spec.id} changes a held placement, which no editor's edit writes; hold the same placements in both documents.`,
 		);
 	}
 	const edit =

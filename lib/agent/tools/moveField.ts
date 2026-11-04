@@ -45,6 +45,7 @@
  */
 
 import type { z } from "zod";
+import { planFieldMoveCaseWrites } from "@/lib/doc/fieldCaseWriteMutations";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { fieldPlacementVerdict } from "@/lib/doc/formSectionVerdicts";
 import type { Mutation } from "@/lib/doc/types";
@@ -245,6 +246,11 @@ export const moveFieldTool = {
 				moved.uuid,
 			);
 
+			// A question saving to a new child case of its repeat moves that
+			// save to the child case of its new repeat, in the same batch
+			// (`planFieldMoveCaseWrites`, planned before the move).
+			const carried = planFieldMoveCaseWrites(doc, moved.uuid, destParentUuid);
+			if (!carried.ok) return fail(carried.message);
 			const mutations: Mutation[] = [
 				{
 					kind: "moveField",
@@ -252,6 +258,7 @@ export const moveFieldTool = {
 					toParentUuid: destParentUuid,
 					after,
 				},
+				...carried.mutations,
 			];
 			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) return fail(commit.error);

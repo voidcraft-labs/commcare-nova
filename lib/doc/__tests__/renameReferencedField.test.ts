@@ -22,6 +22,7 @@ import {
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, plainColumn } from "@/lib/domain";
+import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -62,11 +63,10 @@ function docWithCloseConditionOn(fieldUuid: typeof FIELD) {
 						id: "visit",
 						name: "Visit",
 						type: "close",
-						closeCondition: {
-							field: fieldUuid,
-							operator: "=",
-							answer: "yes",
-						},
+						closeCondition: eq(
+							term(formField(fieldUuid)),
+							term(literal("yes")),
+						),
 						fields: [
 							f({
 								uuid: fieldUuid,
@@ -107,6 +107,8 @@ describe("renaming a field that a close condition references", () => {
 		if (!verdict.ok) return;
 		expect(verdict.nextDoc.fields[FIELD]?.id).toBe("given_name");
 		// The reference still points at the same field, untouched.
-		expect(verdict.nextDoc.forms[FORM]?.closeCondition?.field).toBe(FIELD);
+		expect(verdict.nextDoc.forms[FORM]?.closeCondition).toEqual(
+			eq(term(formField(FIELD)), term(literal("yes"))),
+		);
 	});
 });

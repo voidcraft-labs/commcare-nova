@@ -36,7 +36,8 @@ export type FormParseIssueCode =
 	| "placeholder-datum"
 	| "multi-select-datum-value"
 	| "unknown-itext"
-	| "choice-name-not-a-select";
+	| "choice-name-not-a-select"
+	| "capture-link-not-a-question";
 
 export interface FormParseIssue {
 	readonly code: FormParseIssueCode;

@@ -103,6 +103,7 @@ import {
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	type Field,
+	fieldCaseWriteViews,
 	humanizeId,
 	isCaptureField,
 	isOwnerOnlyCaseSearchConfig,
@@ -286,12 +287,12 @@ function consequencesForSelection(
 				continue;
 			}
 			for (const field of fieldsUnder(doc, form.uuid)) {
-				if (
-					!("caseWrite" in field) ||
-					field.caseWrite?.caseType !== module.caseType
-				) {
-					continue;
-				}
+				// A question that saves its answer to the form's own case
+				// saves it to every selected case.
+				const savesOwnCase = fieldCaseWriteViews(doc, field.uuid).some(
+					(view) => view.formUuid === form.uuid && view.destination === "own",
+				);
+				if (!savesOwnCase) continue;
 				const projectedLabel =
 					"label" in field && field.label !== undefined
 						? projectProse(field.label).trim()

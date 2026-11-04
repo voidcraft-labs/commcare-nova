@@ -59,6 +59,7 @@ function patient(
 	type: Form["type"] = "registration",
 	fields: FieldSpec[] = [plain],
 	caseType = "patient",
+	childTypes: NonNullable<BlueprintDoc["caseTypes"]> = [],
 ): BlueprintDoc {
 	return buildDoc({
 		appName: "Outreach",
@@ -70,6 +71,7 @@ function patient(
 					{ name: "note", data_type: "text", label: proseText("Note") },
 				],
 			},
+			...childTypes,
 		],
 		modules: [
 			{
@@ -113,6 +115,20 @@ function candidate(
 	const doc = structuredClone(base);
 	change(doc);
 	return doc;
+}
+/** The write of the question `fieldUuid` saves, in whichever case change
+ * of the doc holds it. */
+function writeOf(doc: BlueprintDoc, fieldUuid: string) {
+	for (const form of Object.values(doc.forms))
+		for (const operation of form.caseOperations ?? [])
+			for (const write of operation.writes ?? [])
+				if (
+					write.value.kind === "term" &&
+					write.value.term.kind === "field" &&
+					write.value.term.uuid === fieldUuid
+				)
+					return write;
+	throw new Error(`No case change saves ${fieldUuid}`);
 }
 function findings(doc: BlueprintDoc, codes: string[]) {
 	const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -190,9 +206,6 @@ describe("whole-document structural admission", () => {
 			const doc = candidate(base, (d) => {
 				d.modules[m].caseType = caseType;
 				catalog(d)[0].name = caseType;
-				const field = d.fields[name];
-				if ("caseWrite" in field && field.caseWrite)
-					field.caseWrite.caseType = caseType;
 			});
 			findings(doc, ["INVALID_CASE_TYPE_FORMAT"]);
 		},
@@ -374,9 +387,10 @@ describe("field and property identity policy", () => {
 			]),
 		);
 	});
+	// The write names the property, so its grammar is the operation's rule.
 	it.each([
-		["1note", "CASE_PROPERTY_BAD_FORMAT"],
-		["n".repeat(256), "CASE_PROPERTY_TOO_LONG"],
+		["1note", "CASE_OPERATION_UNKNOWN_PROPERTY"],
+		["n".repeat(256), "CASE_OPERATION_UNKNOWN_PROPERTY"],
 	])(
 		"rejects property %s with a complete linked candidate",
 		(property, code) => {
@@ -386,9 +400,7 @@ describe("field and property identity policy", () => {
 			findings(
 				candidate(doc, (d) => {
 					catalog(d)[0].properties[1].name = property;
-					const field = d.fields[q];
-					if ("caseWrite" in field && field.caseWrite)
-						field.caseWrite.property = property;
+					writeOf(d, q).property = property;
 				}),
 				[code],
 			);
@@ -552,6 +564,8 @@ describe("case action destinations and repeat scope", () => {
 			},
 			{ ...plain, caseWrite: { caseType: "visit", property: "note" } },
 		];
+		// The child type is declared from the start, so each field's "Saves
+		// to" makes its create as the document is built.
 		const doc = patient(
 			"registration",
 			mode === "root"
@@ -573,14 +587,17 @@ describe("case action destinations and repeat scope", () => {
 							children: fields,
 						},
 					],
-		);
-		catalog(doc).push({
-			name: "visit",
-			parent_type: "patient",
-			properties: [
-				{ name: "note", data_type: "text", label: proseText("Note") },
+			"patient",
+			[
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [
+						{ name: "note", data_type: "text", label: proseText("Note") },
+					],
+				},
 			],
-		});
+		);
 		const viewer = buildDoc({
 			appName: "Viewer",
 			modules: [
@@ -601,44 +618,45 @@ describe("case action destinations and repeat scope", () => {
 		doc.formOrder[childModule] = [];
 		return doc;
 	}
+	// A create holds its name by its shape, so a child with no name is no
+	// document: the "Saves to" planner refuses the write that would make one.
 	it.each(["root", "count_bound", "query_bound", "user_controlled"] as const)(
-		"admits a named child bucket at %s and refuses its missing name",
+		"admits a named child create at %s",
 		(mode) => {
 			const base = children(mode);
 			assertAdmittedDoc(base);
-			const errors = findings(
-				candidate(base, (d) => {
-					const field = d.fields[childName];
-					if ("caseWrite" in field) delete field.caseWrite;
-				}),
-				["CASE_CREATE_NAME_MISSING"],
-			);
-			expect(errors).toMatchObject([
-				{
-					scope: "form",
-					details: {
-						caseType: "visit",
-						writerCount: "0",
-						...(mode === "root" ? {} : { repeatId: "visits" }),
-					},
-				},
-			]);
+			expect(
+				base.forms[a].caseOperations?.flatMap((operation) =>
+					operation.action === "create"
+						? [[operation.caseType, operation.forEach !== undefined]]
+						: [],
+				),
+			).toEqual([["visit", mode !== "root"]]);
 		},
 	);
 	it.each(["count_bound", "query_bound", "user_controlled"] as const)(
 		"refuses a primary-case writer inside a %s repeat",
 		(mode) => {
+			// The own case saves the repeat's answer once per submission.
 			const doc = candidate(children(mode), (d) => {
-				const field = d.fields[q];
-				if ("caseWrite" in field && field.caseWrite)
-					field.caseWrite.caseType = "patient";
+				const own = d.forms[a].caseOperations?.find(
+					(operation) => operation.action === "own",
+				);
+				if (own === undefined) throw new Error("Missing the own case");
+				own.writes = [
+					...(own.writes ?? []),
+					{ property: "note", value: writeOf(d, q).value },
+				];
 			});
-			expect(findings(doc, ["PRIMARY_CASE_FIELD_IN_REPEAT"])).toMatchObject([
-				{
-					scope: "form",
-					location: { fieldUuid: q },
-					details: { repeatId: "visits", caseType: "patient" },
-				},
+			// Once per submission, a row's answer has many values: the
+			// checker's own refusal, located at the own case.
+			const many = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(error) =>
+					error.code === "CASE_OPERATION_EXPRESSION_TYPE" &&
+					error.details?.checkCode === "many-values",
+			);
+			expect(many).toMatchObject([
+				{ scope: "form", details: { checkReason: "repeat" } },
 			]);
 		},
 	);
@@ -660,12 +678,12 @@ describe("case action destinations and repeat scope", () => {
 			{ scope: "app", details: { caseType: "visit" } },
 		]);
 	});
-	it("rejects survey case annotations instead of treating them as an admitted no-op", () => {
+	it("refuses a survey that keeps the own case of the form it was", () => {
 		findings(
 			candidate(patient(), (d) => {
 				d.forms[a].type = "survey";
 			}),
-			["CASE_WRITE_NO_CASE_ACTION"],
+			["CASE_OWN_OPERATION"],
 		);
 	});
 });

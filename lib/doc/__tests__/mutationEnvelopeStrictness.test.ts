@@ -168,7 +168,7 @@ describe("final mutation envelope", () => {
 			caseOperationPatch: {
 				operation: "move-write",
 				uuid: OPERATION,
-				property: "visited_on",
+				key: { property: "visited_on" },
 				after: null,
 			},
 		} as const;

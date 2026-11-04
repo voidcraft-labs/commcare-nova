@@ -19,8 +19,8 @@ On every corpus document the checks are structural:
   (``''`` where it names none; a synthetic module, which holds a form Nova
   places outside its host, has its host's).
 - **HQ, the case properties it learns**: for each form, the custom
-  properties the document writes per case type (each field's ``caseWrite``
-  and each case operation's ``writes``) are the properties HQ learns the
+  properties the document writes per case type (each case operation's
+  ``writes``, the form's own case's among them) are the properties HQ learns the
   form writes (``FormBase.get_all_case_updates``, kept as the identity
   record's ``case_updates``; ``form:<m>.<f>@<state>``, ``/case_updates/*/*``).
   HQ names an attachment property ``attachment:<name>`` under
@@ -42,8 +42,14 @@ On every corpus document the checks are structural:
     (``domain_has_privilege``), for every form of every menu, merged with
     ``dict.update``, so for each case type only the last form (in app order)
     that writes it there counts. Save to Case is where HQ's editors put what
-    Case Management cannot say: a case operation, and an update of the
-    selected cases in a multi-select menu (HQ builds a form there that opens
+    Case Management cannot state (``_case_management_holds``: a case other
+    than the form's own, the worker's or a child of the form's own case, a
+    value that is no question's answer as it is or reads a question in a
+    repeat the slot does not run in, a write under a condition, a link on the
+    form's own case, an open, close or create condition Case Management
+    cannot state, a change of a new case before its create, a child of the
+    menu's own type, and a held Save to Case block),
+    and an update of the selected cases in a multi-select menu (HQ builds a form there that opens
     no case without its case management, ``xform.py::XForm._create_casexml``:
     ``default_case_management = False`` for ``is_multi_select()``, while the
     worker's own case is ``_add_usercase``'s, in any menu);
@@ -52,8 +58,9 @@ On every corpus document the checks are structural:
   A child or extension case a form creates (``actions.subcases``) is a slot
   the refresh never reads, so its writes are not expected there; HQ learns
   them all the same (``get_all_case_updates``, above).
-- **HQ, each attachment path**: each write the document stores as a case
-  attachment (``caseWrite.mode`` ``attachment``) is an ``attachment`` child
+- **HQ, each attachment path**: each write a control retained before step 5
+  stores as a case attachment (its field's ``caseWrite.mode``
+  ``attachment``) is an ``attachment`` child
   of a case block of that type in the form HQ built
   (``xform.py::CaseBlock.add_case_updates``), and HQ builds no attachment the
   document does not store as one (``form:<m>.<f>@<state>``, ``/attachments/*/*``),
@@ -221,8 +228,10 @@ class FormIntent:
     validations: dict = field(default_factory=dict)  # field uuid -> data path below the data root
     form_type: str | None = None
     multiple: bool = False  # the menu HQ holds the form in selects several cases
-    field_writes: dict = field(default_factory=dict)  # case type -> {property: mode}, from fields' caseWrite
-    operation_writes: dict = field(default_factory=dict)  # case type -> {property}, from case operations
+    # case type -> {property: mode}, the writes Case Management states (on a control retained before step 5, its
+    # fields' caseWrite)
+    field_writes: dict = field(default_factory=dict)
+    operation_writes: dict = field(default_factory=dict)  # case type -> {property}, the writes Save to Case holds
 
 
 @dataclass
@@ -395,31 +404,343 @@ def intent_of(document, *, edit=False) -> Intent:
     return document_intent(document.edit_document if edit else document.document)
 
 
+# The question kinds whose answer is a file (lib/domain/fields captureFieldKinds), the only questions a
+# ``capture-link`` names.
+CAPTURE_KINDS = frozenset({"image", "audio", "video", "signature", "file"})
+# The question kinds Case Management offers a condition on (case_config_utils.js, ``getQuestions('select
+# select1')``, widened by Hidden Values and labels).
+STATEABLE_KINDS = frozenset({"single_select", "multi_select", "hidden", "label"})
+
+
+@dataclass
+class _FormFacts:
+    """What one form's case management rules read: its questions (each with the repeat it stands in), its
+    operations, whether it registers its case, and the case types some menu names."""
+
+    fields: dict  # field uuid -> field
+    repeat_of: dict  # field uuid -> the uuid of the repeat it stands in, or None
+    operations: list
+    registration: bool
+    form: dict
+    menu_types: frozenset
+    module_type: str
+    several_cases: bool  # a follow-up or close form of a menu that selects several cases
+
+
+def _form_facts(doc, form_uuid, form, module_type, multiple):
+    fields = doc.get("fields") or {}
+    order = doc.get("fieldOrder") or {}
+    repeat_of = {}
+
+    def walk(parent, repeat):
+        for uuid in order.get(parent, []):
+            item = fields.get(uuid)
+            if item is None:
+                continue
+            repeat_of[uuid] = repeat
+            walk(uuid, uuid if item.get("kind") == "repeat" else repeat)
+
+    walk(form_uuid, None)
+    return _FormFacts(
+        fields=fields,
+        repeat_of=repeat_of,
+        operations=list(form.get("caseOperations") or ()),
+        registration=form.get("type") == "registration",
+        form=form,
+        menu_types=frozenset(
+            module.get("caseType") for module in (doc.get("modules") or {}).values() if module.get("caseType")
+        ),
+        module_type=module_type or "",
+        several_cases=multiple and form.get("type") in ("followup", "close"),
+    )
+
+
+def _term(value):
+    return value.get("term") if isinstance(value, dict) and value.get("kind") == "term" else None
+
+
+def _bare_read(value):
+    """The question an expression reads bare (a field read with no filter and no role), or None."""
+    term = _term(value)
+    if not isinstance(term, dict) or term.get("kind") != "field":
+        return None
+    if term.get("filters") is not None or term.get("role") is not None:
+        return None
+    return term.get("uuid")
+
+
+def _answer_question(facts, value):
+    """The question whose answer, as it is, ``value`` saves (a bare read, or the link to a capture's file), where
+    HQ's Case Management takes it as a question path: a question of this form that is no label or container."""
+    term = _term(value)
+    if not isinstance(term, dict):
+        return None
+    if term.get("kind") == "capture-link":
+        uuid = term.get("field")
+        if (facts.fields.get(uuid) or {}).get("kind") not in CAPTURE_KINDS:
+            return None
+    else:
+        uuid = _bare_read(value)
+    item = facts.fields.get(uuid)
+    if uuid not in facts.repeat_of or item is None:
+        return None
+    if item.get("kind") == "label" or item.get("kind") in CONTAINER_KINDS:
+        return None
+    return uuid
+
+
+def _slot_values(operation):
+    return [
+        *(operation.get(slot) for slot in ("name", "rename", "owner") if operation.get(slot) is not None),
+        *((write.get("value") for write in operation.get("writes") or ())),
+    ]
+
+
+def _values_stateable(facts, operation, repeat=None):
+    """Each value saves one question's answer as it is, from a question in no repeat or in ``repeat``, with no
+    condition on any write."""
+    if any(write.get("condition") is not None for write in operation.get("writes") or ()):
+        return False
+    for value in _slot_values(operation):
+        uuid = _answer_question(facts, value)
+        if uuid is None:
+            return False
+        if facts.repeat_of.get(uuid) not in (None, repeat):
+            return False
+    return True
+
+
+def _compared(value):
+    """A literal or a choice compared with a question: ``("literal", value)``, ``("choice", field, options)``."""
+    leaf = _term(value) if _term(value) is not None else value
+    if not isinstance(leaf, dict):
+        return None
+    if leaf.get("kind") == "literal":
+        return ("literal", leaf.get("value"))
+    if leaf.get("kind") == "choice":
+        return ("choice", leaf.get("field"), list(leaf.get("options") or ()))
+    return None
+
+
+def _inline_options(item):
+    if item.get("kind") not in ("single_select", "multi_select"):
+        return None
+    source = item.get("optionsSource") or {}
+    return source.get("options") if source.get("kind") == "inline" else None
+
+
+def _condition_stateable(facts, condition, *, own, repeat):
+    """Whether Case Management states ``condition`` (xform.py::XForm.action_relevance): absent or match-all; a
+    question alone; a question equal to one string, or to one of its own inline choices; a multi-select holding
+    one value; asked of a question it offers, in the subject's repeat, with an answer that holds no apostrophe
+    (and, on the form's own case, neither starts nor ends with a double quote)."""
+    if condition is None or condition.get("kind") == "match-all":
+        return True
+    question, compared = _bare_read(condition), None
+    if question is None and condition.get("kind") == "eq":
+        left, right = _bare_read(condition.get("left")), _bare_read(condition.get("right"))
+        if (left is None) == (right is None):
+            return False
+        question = left if left is not None else right
+        compared = _compared(condition.get("right") if left is not None else condition.get("left"))
+        if compared is None:
+            return False
+    elif question is None and condition.get("kind") == "multi-select-contains":
+        values = condition.get("values") or ()
+        if condition.get("quantifier") != "any" or len(values) != 1:
+            return False
+        question = _bare_read(condition.get("property"))
+        compared = _compared(values[0])
+        if question is None or compared is None:
+            return False
+    elif question is None:
+        return False
+    item = facts.fields.get(question)
+    if item is None or question not in facts.repeat_of:
+        return False
+    answer = None
+    if compared is not None:
+        if compared[0] == "literal":
+            if not isinstance(compared[1], str):
+                return False
+            if _inline_options(item) is not None:
+                return False
+            answer = compared[1]
+        else:
+            _, field, options = compared
+            match = [o for o in _inline_options(item) or () if len(options) == 1 and o.get("uuid") == options[0]]
+            if field != question or not match:
+                return False
+            answer = match[0].get("value")
+    if item.get("kind") not in STATEABLE_KINDS:
+        return False
+    if facts.repeat_of.get(question) not in (None, repeat):
+        return False
+    if isinstance(answer, str) and ("'" in answer or (own and (answer.startswith('"') or answer.endswith('"')))):
+        return False
+    return True
+
+
+def _changes(operation, create_uuid):
+    target = operation.get("target") or {}
+    return (
+        operation.get("action") in ("update", "close")
+        and target.get("kind") == "op"
+        and target.get("opUuid") == create_uuid
+    )
+
+
+def _holds_save_to_case(operation):
+    return (operation.get("placement") or {}).get("kind") == "save-to-case"
+
+
+def _own_slot_holds(facts, own):
+    """Whether Case Management's own slot states the form's own case (lib/commcare/placement.ts's own-slot
+    rules, restated): no link, no write condition, every value one question's answer as it is from a question in
+    no repeat, and on a registration an open and a close condition it states and no change of the new case
+    standing before its create. A held Save to Case block stays where it is."""
+    if own is None or _holds_save_to_case(own) or own.get("links"):
+        return False
+    if not _values_stateable(facts, own):
+        return False
+    if facts.registration:
+        for condition in (facts.form.get("openCondition"), facts.form.get("closeCondition")):
+            if not _condition_stateable(facts, condition, own=True, repeat=None):
+                return False
+        if any(_changes(operation, own.get("uuid")) for operation in facts.operations):
+            return False
+    return True
+
+
+def _case_management_holds(facts, operation, own):
+    """Whether HQ's Case Management can state ``operation``: the form's own case (``own``), the worker's own
+    record, or a child created with one ``parent`` index to the form's own case where Case Management states that
+    case too (``actions.subcases`` beside ``open_case``). Each saves questions' answers as they are, from where
+    the slot reads them, with no condition on a write, and holds no Save to Case block; the own case states its
+    form's conditions and is neither linked nor changed before it is created (``_own_slot_holds``), and a child
+    states its own condition, takes a menu's case type, is named from its own repeat and is changed by no later
+    operation but a close. What it cannot state takes a Save to Case block, which is where HQ's editors put it
+    (the module docstring)."""
+    if _holds_save_to_case(operation):
+        return False
+    action = operation.get("action")
+    if action == "own":
+        return _own_slot_holds(facts, operation)
+    target = operation.get("target") or {}
+    if action == "update":
+        if operation.get("caseType") != USERCASE_TYPE or target.get("kind") != "worker-record":
+            return False
+        # One form has one worker's-record slot, which the first update that can take it takes.
+        first = next(
+            (
+                op
+                for op in facts.operations
+                if op.get("action") == "update"
+                and (op.get("target") or {}).get("kind") == "worker-record"
+                and not _holds_save_to_case(op)
+                and _values_stateable(facts, op)
+            ),
+            None,
+        )
+        return first is operation
+    if action != "create" or target.get("idFrom") is not None or own is None or facts.several_cases:
+        return False
+    # A child of the menu's own case type takes Save to Case unless a publish held it in a subcase slot.
+    if operation.get("caseType") == facts.module_type and (operation.get("placement") or {}).get("kind") != "basic":
+        return False
+    if facts.registration and not _own_slot_holds(facts, own):
+        return False
+    links = operation.get("links") or ()
+    link_target = (links[0].get("target") or {}) if len(links) == 1 else {}
+    to_own = (
+        link_target.get("kind") == "op" and link_target.get("opUuid") == own.get("uuid")
+        if facts.registration
+        else link_target.get("kind") == "session"
+    )
+    if len(links) != 1 or links[0].get("identifier") != "parent" or links[0].get("relationship") != "child":
+        return False
+    if not to_own or operation.get("caseType") not in facts.menu_types:
+        return False
+    repeat = (operation.get("forEach") or {}).get("repeat")
+    if not _values_stateable(facts, operation, repeat):
+        return False
+    name = _answer_question(facts, operation.get("name")) if operation.get("name") is not None else None
+    if name is not None and facts.repeat_of.get(name) != repeat:
+        return False
+    if not _condition_stateable(facts, operation.get("condition"), own=False, repeat=repeat):
+        return False
+    # No later change of the new case, but the close that shares its slot: the first operation after it that
+    # names it, a close of it in the same repeat whose condition Case Management states.
+    created = operation.get("uuid")
+    changers = [op for op in facts.operations if _changes(op, created)]
+    if not changers:
+        return True
+    index = next(i for i, op in enumerate(facts.operations) if op is operation)
+    sharer = next((op for op in facts.operations[index + 1 :] if _names(op, created)), None)
+    return (
+        changers == [sharer]
+        and sharer.get("action") == "close"
+        and (sharer.get("forEach") or {}).get("repeat") == repeat
+        and not _holds_save_to_case(sharer)
+        and _condition_stateable(facts, sharer.get("condition"), own=False, repeat=repeat)
+    )
+
+
+def _names(operation, create_uuid):
+    """Whether ``operation`` names the case ``create_uuid`` makes: its target, a link, or an ``id-of`` anywhere
+    in its stored values."""
+
+    def mentions(node):
+        if isinstance(node, dict):
+            if node.get("kind") == "op" and node.get("opUuid") == create_uuid:
+                return True
+            if node.get("kind") == "id-of" and node.get("opUuid") == create_uuid:
+                return True
+            return any(mentions(child) for child in node.values())
+        if isinstance(node, list):
+            return any(mentions(child) for child in node)
+        return False
+
+    return mentions({key: value for key, value in operation.items() if key != "placement"})
+
+
 def _form_intent(doc, uuid, form, module_type, multiple=False):
+    """What one form states: every case change is one of its case operations (``caseOperations``), the form's
+    own case (``own``, of the module's case type) first. A write through an index (``via``) saves to another
+    case, whose key HQ keeps as the path ``parent/<name>``, so it is no custom property of either case here.
+
+    A control retained before step 5 keeps the intent its document stated then, field writes included
+    (``intent_of``), so this reads only a document in the shape its corpus emission wrote."""
     intent = FormIntent(uuid=uuid, module_type=module_type, form_type=form.get("type"), multiple=multiple)
     if form.get("type") == "registration" and module_type:
         intent.creates.add(module_type)
     for field_uuid, item, path in _field_paths(doc, uuid):
-        write = item.get("caseWrite")
-        if isinstance(write, dict) and write.get("caseType") and write.get("property"):
-            mode = write.get("mode") or "value"
-            if _custom(write["property"]):
-                intent.writes.setdefault(write["caseType"], {})[write["property"]] = mode
-                intent.field_writes.setdefault(write["caseType"], {})[write["property"]] = mode
-            if write["caseType"] not in (module_type, USERCASE_TYPE):
-                # Naming a type other than the module's own creates a child case of it (lib/domain/CLAUDE.md,
-                # case writes); the worker's own case is only ever updated.
-                intent.creates.add(write["caseType"])
         if item.get("validate") is not None:
             intent.validations[field_uuid] = path
-    for operation in form.get("caseOperations") or ():
-        case_type = operation.get("caseType")
-        if operation.get("action") == "create" and case_type:
+    operations = form.get("caseOperations") or ()
+    own_case = next((operation for operation in operations if operation.get("action") == "own"), None)
+    facts = _form_facts(doc, uuid, form, module_type, multiple)
+    for operation in operations:
+        own = operation.get("action") == "own"
+        case_type = module_type if own else operation.get("caseType")
+        if not case_type:
+            continue
+        if operation.get("action") == "create":
             intent.creates.add(case_type)
+        # A several-case menu's own case is saved per selected case in a Save to Case block: HQ builds no case
+        # management there (xform.py::XForm._create_casexml, default_case_management = False).
+        managed = _case_management_holds(facts, operation, own_case) and not (
+            own and multiple and form.get("type") != "registration"
+        )
         for write in operation.get("writes") or ():
-            if case_type and _custom(write.get("property")):
-                intent.writes.setdefault(case_type, {})[write["property"]] = "value"
-                intent.operation_writes.setdefault(case_type, set()).add(write["property"])
+            prop = write.get("property")
+            if write.get("via") or not _custom(prop):
+                continue
+            intent.writes.setdefault(case_type, {})[prop] = "value"
+            if managed:
+                intent.field_writes.setdefault(case_type, {})[prop] = "value"
+            else:
+                intent.operation_writes.setdefault(case_type, set()).add(prop)
     return intent
 
 

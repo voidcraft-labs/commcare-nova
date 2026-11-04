@@ -39,6 +39,7 @@ import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { lookupTypeIndex } from "../lookupTypeContext";
 import { validateLookupOptionsSources } from "../rules/lookupOptionsSource";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const TABLE_A = "00000000-0000-7000-8000-0000000000a1" as LookupTableId;
 const TABLE_B = "00000000-0000-7000-8000-0000000000b1" as LookupTableId;
@@ -780,6 +781,7 @@ describe("lookup type-context integration", () => {
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		doc.forms[formUuid].caseOperations = [
+			...ownArms(doc.forms[formUuid]),
 			{
 				uuid: testUuid("lookup-carrier-create-operation"),
 				id: "create_patient",
@@ -966,7 +968,7 @@ describe("lookup type-context integration", () => {
 					...baseUpdate,
 					uuid: testUuid("typed-operation-target"),
 					id: "target_expression",
-					target: { kind: "expression", expr: lookupInt },
+					target: { kind: "expression" as const, expr: lookupInt },
 				},
 			},
 			{
@@ -1100,7 +1102,10 @@ describe("lookup type-context integration", () => {
 			});
 			const moduleUuid = doc.moduleOrder[0];
 			const formUuid = doc.formOrder[moduleUuid][0];
-			doc.forms[formUuid].caseOperations = [testCase.operation];
+			doc.forms[formUuid].caseOperations = [
+				...ownArms(doc.forms[formUuid]),
+				testCase.operation,
+			];
 
 			const typeFindings = runValidation(doc, LOOKUP_CONTEXT).filter(
 				(finding) =>
@@ -1166,6 +1171,7 @@ describe("lookup type-context integration", () => {
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		doc.forms[formUuid].caseOperations = [
+			...ownArms(doc.forms[formUuid]),
 			{
 				uuid: testUuid("missing-lookup-carrier-operation"),
 				id: "update_patient",

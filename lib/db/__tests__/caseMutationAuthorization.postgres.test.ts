@@ -3,7 +3,10 @@
 import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { CaptureSubmissionRejectedError } from "@/lib/case-store";
+import {
+	CaptureSubmissionRejectedError,
+	type CaseOperationProgram,
+} from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
@@ -18,6 +21,46 @@ const USER = "case-writer";
 const PROJECT = "case-project";
 const OTHER_PROJECT = "case-project-other";
 const CASE_TYPE = "patient";
+
+/** A registration's program: its own case, a patient named `caseName`. */
+function registrationProgram(
+	formUuid: CaseOperationProgram["formUuid"],
+	caseName: string,
+): CaseOperationProgram {
+	const text = {
+		kind: "term",
+		term: { kind: "literal", value: caseName },
+	} as const;
+	return {
+		formUuid,
+		operations: [
+			{
+				operation: {
+					uuid: testUuid("case-mutation-authorization-own"),
+					id: CASE_TYPE,
+					action: "own",
+					name: text,
+					writes: [{ property: "name", value: text }],
+				},
+				guardConditions: [],
+				expressionSnapshotTypes: { links: new Map() },
+			},
+		],
+		ownCase: { caseType: CASE_TYPE, formType: "registration" },
+		scopes: [{ iterations: [{ formFields: new Map() }] }],
+		caseTypeSchemas: new Map([
+			[
+				CASE_TYPE,
+				{
+					name: CASE_TYPE,
+					properties: [
+						{ name: "name", label: proseText("Name"), data_type: "text" },
+					],
+				},
+			],
+		]),
+	};
+}
 
 function caseDb(): Kysely<CaseDatabase> {
 	return h.db() as unknown as Kysely<CaseDatabase>;
@@ -86,15 +129,8 @@ describe("case mutation authorization", () => {
 		const first = await store().applySubmission({
 			appId,
 			submissionReceipt: receipt,
-			ordinary: {
-				kind: "registration",
-				primary: {
-					caseType: CASE_TYPE,
-					caseName: "Ada",
-					properties: { name: "Ada" },
-				},
-				children: [],
-			},
+			ordinary: { kind: "registration" },
+			operations: registrationProgram(receipt.formUuid, "Ada"),
 		});
 		await h
 			.db()
@@ -107,15 +143,8 @@ describe("case mutation authorization", () => {
 			store().applySubmission({
 				appId,
 				submissionReceipt: receipt,
-				ordinary: {
-					kind: "registration",
-					primary: {
-						caseType: CASE_TYPE,
-						caseName: "must not run",
-						properties: { name: "must not run" },
-					},
-					children: [],
-				},
+				ordinary: { kind: "registration" },
+				operations: registrationProgram(receipt.formUuid, "must not run"),
 			}),
 		).resolves.toEqual(first);
 
@@ -129,15 +158,8 @@ describe("case mutation authorization", () => {
 					blueprintDigest: "0".repeat(64),
 					requestDigest: "stale-new-text-registration",
 				},
-				ordinary: {
-					kind: "registration",
-					primary: {
-						caseType: CASE_TYPE,
-						caseName: "stale",
-						properties: { name: "stale" },
-					},
-					children: [],
-				},
+				ordinary: { kind: "registration" },
+				operations: registrationProgram(receipt.formUuid, "stale"),
 			}),
 		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
 

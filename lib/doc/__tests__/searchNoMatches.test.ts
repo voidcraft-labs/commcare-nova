@@ -27,7 +27,11 @@ import {
 	searchAnswerFields,
 	searchFirstOnMutations,
 } from "@/lib/doc/searchNoMatchesForm";
-import { NEW_APP_SETTINGS, simpleSearchInputDef } from "@/lib/domain";
+import {
+	fieldCaseWriteViews,
+	NEW_APP_SETTINGS,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { input, now, term } from "@/lib/domain/expression/builders";
 import {
 	lookupColumnIdSchema,
@@ -359,7 +363,6 @@ describe("noMatchesRegistrationFormMutations", () => {
 			["hidden", "search_time"],
 		]);
 		expect(fields[0]).toMatchObject({
-			caseWrite: { caseType: "patient", property: "case_name" },
 			default_value: term(input(NAME_INPUT)),
 		});
 		expect(planned.mutations).toContainEqual({
@@ -368,13 +371,22 @@ describe("noMatchesRegistrationFormMutations", () => {
 			patch: {},
 			caseSearchConfigPatch: { searchFirst: true },
 		});
-		// The whole batch passes the gate as one commit.
+		// The whole batch passes the gate as one commit, and the new form's
+		// own case is named by the name question and saves the search time.
 		const verdict = mutationCommitVerdict(
 			doc,
 			planned.mutations,
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		if (!verdict.ok) throw new Error(JSON.stringify(verdict, null, 1));
+		expect(
+			fields.map((field) =>
+				fieldCaseWriteViews(verdict.nextDoc, field.uuid).map((view) => [
+					view.slot,
+					view.property,
+				]),
+			),
+		).toEqual([[["name", "case_name"]], [["write", "search_time"]]]);
 	});
 
 	it("declines a module without a case type", () => {
@@ -548,20 +560,22 @@ describe("searchInputFormFieldDependencies", () => {
 describe("searchAnswerFields", () => {
 	it("seeds one field per prompt from #search/<name>, saving to the prompt's property", () => {
 		const occupied = new Set<string>(["case_name"]);
-		const fields = searchAnswerFields(fixture(), MODULE, occupied);
-		expect(fields.map((field) => [field.kind, field.id])).toEqual([
+		const answers = searchAnswerFields(fixture(), MODULE, occupied);
+		expect(answers.map(({ field }) => [field.kind, field.id])).toEqual([
 			["text", "patient_name"],
 			["hidden", "search_time"],
 		]);
-		expect(fields[0]).toMatchObject({
-			label: proseText("Patient name"),
-			caseWrite: { caseType: "patient", property: "case_name" },
-			default_value: term(input(NAME_INPUT)),
+		expect(answers[0]).toMatchObject({
+			field: {
+				label: proseText("Patient name"),
+				default_value: term(input(NAME_INPUT)),
+			},
+			savesTo: { caseType: "patient", property: "case_name" },
 		});
 		// A hidden value is provenance of the search, saved under its own name.
-		expect(fields[1]).toMatchObject({
-			caseWrite: { caseType: "patient", property: "search_time" },
-			default_value: term(input(TIME_INPUT)),
+		expect(answers[1]).toMatchObject({
+			field: { default_value: term(input(TIME_INPUT)) },
+			savesTo: { caseType: "patient", property: "search_time" },
 		});
 		expect([...occupied]).toEqual(["case_name", "patient_name", "search_time"]);
 	});
@@ -573,7 +587,7 @@ describe("searchAnswerFields", () => {
 			new Set(),
 			new Set(["case_name"]),
 		);
-		expect(fields.map((field) => field.id)).toEqual(["search_time"]);
+		expect(fields.map(({ field }) => field.id)).toEqual(["search_time"]);
 	});
 
 	it("keeps a hidden value off the case when its name cannot be a property", () => {
@@ -591,9 +605,9 @@ describe("searchAnswerFields", () => {
 			},
 		];
 		assertAdmittedDoc(doc);
-		const [field] = searchAnswerFields(doc, MODULE, new Set());
-		expect(field).toMatchObject({ kind: "hidden", id: "case_id" });
-		expect(field).not.toHaveProperty("caseWrite");
+		const [answer] = searchAnswerFields(doc, MODULE, new Set());
+		expect(answer?.field).toMatchObject({ kind: "hidden", id: "case_id" });
+		expect(answer).not.toHaveProperty("savesTo");
 	});
 
 	it("gives two prompts on one property a single writer", () => {
@@ -624,7 +638,7 @@ describe("searchAnswerFields", () => {
 			new Set(),
 			occupiedProperties,
 		);
-		expect(fields.map((field) => field.id)).toEqual(["patient_name"]);
+		expect(fields.map(({ field }) => field.id)).toEqual(["patient_name"]);
 		expect([...occupiedProperties]).toEqual(["case_name"]);
 	});
 
@@ -634,7 +648,7 @@ describe("searchAnswerFields", () => {
 			MODULE,
 			new Set(["patient_name", "patient_name_2"]),
 		);
-		expect(fields[0]?.id).toBe("patient_name_3");
+		expect(fields[0]?.field.id).toBe("patient_name_3");
 	});
 });
 

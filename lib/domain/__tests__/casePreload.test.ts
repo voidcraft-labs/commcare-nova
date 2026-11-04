@@ -1,39 +1,97 @@
+/**
+ * A preload is a default value that reads the case the form loaded. These
+ * tests hold the three readers of that rule: which default is a preload,
+ * when a new write to the form's own case is born with one, and what a
+ * Hidden Value with no value is told it saves.
+ */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import {
-	caseWriteDestinationClass,
+	type BlueprintDoc,
+	type CaseOperation,
+	caseOperationSchema,
 	type Field,
+	fieldPreload,
 	formOpensWithOneCase,
 	hiddenWriterBlankNote,
-	type Module,
-	USERCASE_CASE_TYPE,
-	writerPreloadsFromLoadedCase,
+	proseText,
+	type Uuid,
+	writerOffersPreload,
 } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 
-const oneCaseModule = {
-	caseType: "patient",
-	caseListConfig: undefined,
-} satisfies Pick<Module, "caseType" | "caseListConfig">;
+const FORM = testUuid("preload-form");
+const OWN = testUuid("preload-own");
+const PHONE = testUuid("preload-phone");
 
-const severalCaseModule = {
-	caseType: "patient",
-	caseListConfig: {
-		columns: [],
-		listColumnOrder: [],
-		detailColumnOrder: [],
-		searchInputs: [],
-		selection: { kind: "multiple", maximum: 10 },
-	},
-} satisfies Pick<Module, "caseType" | "caseListConfig">;
+const formCase = (caseType: string, property: string): Expression => ({
+	kind: "term",
+	term: { kind: "form-case", caseType, property },
+});
+const read = (uuid: Uuid): Expression => ({
+	kind: "term",
+	term: { kind: "field", uuid },
+});
 
-function textWriter(caseType: string, property = "phone"): Field {
-	return {
-		uuid: "00000000-0000-4000-8000-000000000001",
-		kind: "text",
-		id: "phone",
-		label: { parts: [{ kind: "text", text: "Phone" }] },
-		caseWrite: { caseType, property },
-	} as Field;
+function app(options: {
+	readonly type: "registration" | "followup" | "close";
+	readonly fields: readonly FieldSpec[];
+	readonly severalCases?: true;
+	readonly operations?: readonly CaseOperation[];
+}): BlueprintDoc {
+	const operations = (options.operations ?? []).map((operation) =>
+		caseOperationSchema.parse(operation),
+	);
+	return buildDoc(
+		{
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: ["phone", "note"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					...(options.severalCases && {
+						caseListConfig: {
+							columns: [],
+							searchInputs: [],
+							selection: { kind: "multiple", maximum: 10 },
+						},
+					}),
+					forms: [
+						{
+							uuid: FORM,
+							name: "Visit",
+							type: options.type,
+							fields: [...options.fields],
+						},
+					],
+				},
+			],
+		},
+		(doc) => {
+			const form = doc.forms[FORM];
+			if (form === undefined) throw new Error("The fixture form is missing.");
+			if (operations.length > 0)
+				form.caseOperations = operations as typeof form.caseOperations;
+		},
+	);
 }
+
+const fieldOf = (doc: BlueprintDoc, uuid: Uuid): Field => {
+	const field = doc.fields[uuid];
+	if (field === undefined) throw new Error("The fixture field is missing.");
+	return field;
+};
 
 describe("formOpensWithOneCase", () => {
 	it("is true only for a followup or close form in a one-case module", () => {
@@ -45,187 +103,177 @@ describe("formOpensWithOneCase", () => {
 	});
 });
 
-describe("writerPreloadsFromLoadedCase", () => {
-	it("preloads a writer to the module's own type on a one-case followup or close form", () => {
-		expect(
-			writerPreloadsFromLoadedCase(textWriter("patient"), oneCaseModule, {
-				type: "followup",
-			}),
-		).toBe(true);
-		expect(
-			writerPreloadsFromLoadedCase(textWriter("patient"), oneCaseModule, {
-				type: "close",
-			}),
-		).toBe(true);
-	});
-
-	it("preloads case_name like every other property", () => {
-		expect(
-			writerPreloadsFromLoadedCase(
-				textWriter("patient", "case_name"),
-				oneCaseModule,
-				{ type: "followup" },
-			),
-		).toBe(true);
-	});
-
-	it("never preloads a child-type or worker-record writer", () => {
-		expect(
-			writerPreloadsFromLoadedCase(textWriter("visit"), oneCaseModule, {
-				type: "followup",
-			}),
-		).toBe(false);
-		expect(
-			writerPreloadsFromLoadedCase(
-				textWriter(USERCASE_CASE_TYPE),
-				oneCaseModule,
-				{ type: "followup" },
-			),
-		).toBe(false);
-	});
-
-	it("never preloads a capture kind, even to the own type", () => {
-		const image = {
-			uuid: "00000000-0000-4000-8000-000000000002",
-			kind: "image",
-			id: "photo",
-			label: { parts: [{ kind: "text", text: "Photo" }] },
-			caseWrite: { caseType: "patient", property: "photo" },
-		} as Field;
-		expect(
-			writerPreloadsFromLoadedCase(image, oneCaseModule, {
-				type: "followup",
-			}),
-		).toBe(false);
-	});
-
-	it("never preloads on a several-case form, a registration or survey form, or a module without a case type", () => {
-		expect(
-			writerPreloadsFromLoadedCase(textWriter("patient"), severalCaseModule, {
-				type: "followup",
-			}),
-		).toBe(false);
-		expect(
-			writerPreloadsFromLoadedCase(textWriter("patient"), oneCaseModule, {
-				type: "registration",
-			}),
-		).toBe(false);
-		expect(
-			writerPreloadsFromLoadedCase(textWriter("patient"), oneCaseModule, {
-				type: "survey",
-			}),
-		).toBe(false);
-		expect(
-			writerPreloadsFromLoadedCase(
-				textWriter("patient"),
-				{ caseType: undefined, caseListConfig: undefined },
-				{ type: "followup" },
-			),
-		).toBe(false);
-	});
-
-	it("does not preload a field with no destination", () => {
-		const plain = {
-			uuid: "00000000-0000-4000-8000-000000000003",
-			kind: "text",
-			id: "note",
-			label: { parts: [{ kind: "text", text: "Note" }] },
-		} as Field;
-		expect(
-			writerPreloadsFromLoadedCase(plain, oneCaseModule, {
-				type: "followup",
-			}),
-		).toBe(false);
+describe("fieldPreload", () => {
+	it("reads a default that is exactly the loaded case's property, of the own type or an ancestor's", () => {
+		const OWN_DEFAULT = testUuid("preload-own-default");
+		const ANCESTOR_DEFAULT = testUuid("preload-ancestor-default");
+		const NESTED = testUuid("preload-nested");
+		const doc = app({
+			type: "followup",
+			fields: [
+				f({
+					kind: "text",
+					id: "phone",
+					uuid: OWN_DEFAULT,
+					default_value: formCase("patient", "phone"),
+				}),
+				f({
+					kind: "text",
+					id: "village",
+					uuid: ANCESTOR_DEFAULT,
+					default_value: formCase("household", "case_name"),
+				}),
+				f({
+					kind: "text",
+					id: "greeting",
+					uuid: NESTED,
+					default_value: {
+						kind: "concat",
+						parts: [
+							formCase("patient", "phone"),
+							{ kind: "term", term: { kind: "literal", value: "!" } },
+						],
+					},
+				}),
+			],
+		});
+		expect(fieldPreload(fieldOf(doc, OWN_DEFAULT))).toEqual({
+			caseType: "patient",
+			property: "phone",
+		});
+		expect(fieldPreload(fieldOf(doc, ANCESTOR_DEFAULT))).toEqual({
+			caseType: "household",
+			property: "case_name",
+		});
+		// A default that reads the case inside another expression shows
+		// something computed from it, not the case's value.
+		expect(fieldPreload(fieldOf(doc, NESTED))).toBeUndefined();
 	});
 });
 
-describe("caseWriteDestinationClass", () => {
-	it("names own, child, worker-record, and none", () => {
-		expect(caseWriteDestinationClass(undefined, oneCaseModule)).toBe("none");
+describe("writerOffersPreload", () => {
+	const phone = f({ kind: "text", id: "phone", uuid: PHONE });
+
+	it("offers the preload to a one-case follow-up's own write", () => {
+		const doc = app({
+			type: "followup",
+			fields: [phone],
+			operations: [
+				{
+					uuid: OWN,
+					id: "patient",
+					action: "own",
+					writes: [{ property: "phone", value: read(PHONE) }],
+				},
+			],
+		});
+		expect(writerOffersPreload(doc, PHONE, "phone")).toBe(true);
 		expect(
-			caseWriteDestinationClass(
-				{ caseType: "patient", property: "phone" },
-				oneCaseModule,
+			writerOffersPreload(
+				app({ type: "close", fields: [phone] }),
+				PHONE,
+				"phone",
 			),
-		).toBe("own");
+		).toBe(true);
+	});
+
+	it("offers none on a registration, a several-case form or through `via`", () => {
 		expect(
-			caseWriteDestinationClass(
-				{ caseType: "visit", property: "notes" },
-				oneCaseModule,
+			writerOffersPreload(
+				app({ type: "registration", fields: [phone] }),
+				PHONE,
+				"phone",
 			),
-		).toBe("child");
+		).toBe(false);
 		expect(
-			caseWriteDestinationClass(
-				{ caseType: USERCASE_CASE_TYPE, property: "district" },
-				oneCaseModule,
+			writerOffersPreload(
+				app({ type: "followup", fields: [phone], severalCases: true }),
+				PHONE,
+				"phone",
 			),
-		).toBe("worker-record");
+		).toBe(false);
+		expect(
+			writerOffersPreload(
+				app({ type: "followup", fields: [phone] }),
+				PHONE,
+				"phone",
+				[{ identifier: "parent" }],
+			),
+		).toBe(false);
+	});
+
+	it("offers none to a capture, nor to a field that already holds a calculation or a default", () => {
+		const PHOTO = testUuid("preload-photo");
+		const CALCULATED = testUuid("preload-calculated");
+		const DEFAULTED = testUuid("preload-defaulted");
+		const doc = app({
+			type: "followup",
+			fields: [
+				f({ kind: "image", id: "photo", uuid: PHOTO }),
+				f({
+					kind: "hidden",
+					id: "calculated",
+					uuid: CALCULATED,
+					calculate: "'x'",
+				}),
+				f({
+					kind: "text",
+					id: "defaulted",
+					uuid: DEFAULTED,
+					default_value: "'x'",
+				}),
+			],
+		});
+		expect(writerOffersPreload(doc, PHOTO, "phone")).toBe(false);
+		expect(writerOffersPreload(doc, CALCULATED, "phone")).toBe(false);
+		expect(writerOffersPreload(doc, DEFAULTED, "phone")).toBe(false);
 	});
 });
 
 describe("hiddenWriterBlankNote", () => {
-	function hiddenWriter(extra: Record<string, unknown> = {}): Field {
-		return {
-			uuid: "00000000-0000-4000-8000-000000000002",
-			kind: "hidden",
-			id: "visit_count",
-			caseWrite: { caseType: "patient", property: "visit_count" },
-			...extra,
-		} as Field;
-	}
-
-	it("says the case's value carries through where the form preloads it", () => {
-		expect(
-			hiddenWriterBlankNote(hiddenWriter(), oneCaseModule, {
-				type: "followup",
+	const NOTE = testUuid("preload-note");
+	const CALCULATED = testUuid("preload-note-calculated");
+	const UNWRITTEN = testUuid("preload-note-unwritten");
+	const doc = app({
+		type: "followup",
+		fields: [
+			f({ kind: "hidden", id: "note", uuid: NOTE }),
+			f({
+				kind: "hidden",
+				id: "calculated",
+				uuid: CALCULATED,
+				calculate: "'x'",
 			}),
-		).toBe(
-			"Opens with this case's current value and carries it through unchanged.",
+			f({ kind: "hidden", id: "unwritten", uuid: UNWRITTEN }),
+			f({ kind: "text", id: "phone", uuid: PHONE }),
+		],
+		operations: [
+			{
+				uuid: OWN,
+				id: "patient",
+				action: "own",
+				writes: [
+					{ property: "note", value: read(NOTE) },
+					{ property: "phone", value: read(CALCULATED) },
+					{
+						property: "phone",
+						value: read(PHONE),
+						via: [{ identifier: "parent" }],
+					},
+				],
+			},
+		],
+	});
+
+	it("tells a Hidden Value with no value that its write saves the property blank", () => {
+		expect(hiddenWriterBlankNote(doc, NOTE)).toBe(
+			"Has no value yet, so each submission saves note blank.",
 		);
 	});
 
-	it("says each submission saves the property blank where it does not", () => {
-		expect(
-			hiddenWriterBlankNote(hiddenWriter(), oneCaseModule, {
-				type: "registration",
-			}),
-		).toBe("Has no value yet, so each submission saves visit_count blank.");
-		expect(
-			hiddenWriterBlankNote(hiddenWriter(), severalCaseModule, {
-				type: "followup",
-			}),
-		).toBe("Has no value yet, so each submission saves visit_count blank.");
-	});
-
-	it("says nothing for a hidden value with no writer, a value, or a visible field", () => {
-		const { caseWrite: _, ...noWriter } = hiddenWriter() as Field & {
-			caseWrite?: unknown;
-		};
-		expect(
-			hiddenWriterBlankNote(noWriter as Field, oneCaseModule, {
-				type: "registration",
-			}),
-		).toBeUndefined();
-		expect(
-			hiddenWriterBlankNote(
-				hiddenWriter({
-					default_value: { parts: [{ kind: "text", text: "''" }] },
-				}),
-				oneCaseModule,
-				{ type: "registration" },
-			),
-		).toBeUndefined();
-		expect(
-			hiddenWriterBlankNote(
-				hiddenWriter({ calculate: { parts: [{ kind: "text", text: "1" }] } }),
-				oneCaseModule,
-				{ type: "registration" },
-			),
-		).toBeUndefined();
-		expect(
-			hiddenWriterBlankNote(textWriter("patient"), oneCaseModule, {
-				type: "registration",
-			}),
-		).toBeUndefined();
+	it("says nothing of a calculated Hidden Value, an unwritten one or a visible question", () => {
+		expect(hiddenWriterBlankNote(doc, CALCULATED)).toBeUndefined();
+		expect(hiddenWriterBlankNote(doc, UNWRITTEN)).toBeUndefined();
+		expect(hiddenWriterBlankNote(doc, PHONE)).toBeUndefined();
 	});
 });

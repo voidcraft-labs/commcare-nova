@@ -5,12 +5,10 @@ import {
 	setFormHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
-import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { noMatchesFormEntryMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
 import {
 	appConnectIds,
-	asUuid,
 	formRootFieldIds,
 	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
@@ -22,10 +20,7 @@ import {
 	refineFormConnectMutations,
 	updateFormMutations,
 } from "../blueprintHelpers";
-import {
-	closeConditionInputSchema,
-	connectFormPatchSchema,
-} from "../planningSchemas";
+import { connectFormPatchSchema } from "../planningSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
@@ -65,11 +60,11 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"Name of the record this form creates or updates, using an answer or an expression.",
 			),
-		close_condition: closeConditionInputSchema
+		close_condition: formLogicSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Close forms only. Set conditional close; use operator "selected" for multi-select fields. Pass null to make the close unconditional again; leave it out to keep the current condition.',
+				"Close forms: the case closes only when this holds, and null closes it on every submission. Read form answers as any form expression does, such as #form/outcome = 'complete'. Leave it out to keep the current condition.",
 			),
 		post_submit: z
 			.enum(POST_SUBMIT_DESTINATIONS)
@@ -164,29 +159,9 @@ export const updateFormTool = {
 			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
 			if (purpose !== undefined) patch.purpose = purpose;
-			if (close_condition === null) patch.closeCondition = null;
-			if (close_condition != null) {
-				const fieldUuid = asUuid(close_condition.fieldUuid);
-				if (
-					doc.fields[fieldUuid] === undefined ||
-					findContainingForm(doc, fieldUuid) !== formUuid
-				) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error: `Field UUID "${close_condition.fieldUuid}" is not in form "${existing.name}".`,
-						},
-					};
-				}
-				patch.closeCondition = {
-					field: fieldUuid,
-					answer: close_condition.answer,
-					...(close_condition.operator && {
-						operator: close_condition.operator,
-					}),
-				};
-			}
+			// The condition arrives parsed in the form's close-condition slot;
+			// the checker reports a question the form does not have.
+			if (close_condition !== undefined) patch.closeCondition = close_condition;
 			if (post_submit === null) patch.postSubmit = null;
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;

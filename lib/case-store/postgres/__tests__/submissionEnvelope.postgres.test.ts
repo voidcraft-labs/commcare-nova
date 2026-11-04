@@ -5,16 +5,16 @@
 // against per-test Postgres databases (the store's transaction-using
 // methods reject the harness's outer BEGIN/ROLLBACK fixture).
 //
-// The ordinary-action arms (registration/followup/close shapes,
-// rollback, id ordering) are pinned by the store contract harness and
-// the preview binding suite. This file owns selected-case shared-patch
-// execution and what only the operation program exercises: in-transaction
-// expression evaluation against the pre-submission snapshot, identity
-// allocation (including the pinned TS↔XPath authored-id vector), server-side
-// target reauthorization, the resolved rolling-type proof, text-facet
-// preparation, the wirePortable retype subset, identifier-keyed link CRUD
-// with authored relationships, and whole-envelope rollback across ordinary +
-// operation effects.
+// Every case change a form makes is an operation of its program, the form's
+// own case first. This file owns the program's execution: the own case's
+// lifecycle under the form's open and close conditions, writes through an
+// index and writes saved only when changed, the worker's record, selected-case
+// fan-out, in-transaction expression evaluation against the pre-submission
+// snapshot, identity allocation (including the pinned TS↔XPath authored-id
+// vector and the ids an entry's session minted), server-side target
+// reauthorization, the resolved rolling-type proof, text-facet preparation,
+// the wirePortable retype subset, identifier-keyed link CRUD with authored
+// relationships, and whole-envelope rollback.
 
 import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
 import { Client, Pool } from "pg";
@@ -22,10 +22,14 @@ import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type CaseOperation,
+	type CaseOperationWrite,
 	type CaseType,
 	type OrganizationLevel,
+	type OwnCaseOperation,
+	type TargetedCaseOperation,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
+import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	actingUser,
 	eq,
@@ -48,12 +52,13 @@ import {
 } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
-import type { Database, JsonObject } from "../../sql/database";
+import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
 	EnvelopeCaseOperation,
+	OwnCaseProgram,
 	SubmissionReceiptClaim,
 } from "../../submission";
 import { PostgresCaseStore } from "../store";
@@ -235,7 +240,7 @@ async function seedPatient(
 // Program construction sugar
 // ---------------------------------------------------------------
 
-function operation(partial: Partial<CaseOperation>): CaseOperation {
+function operation(partial: Partial<TargetedCaseOperation>): CaseOperation {
 	return {
 		uuid: OP_A,
 		id: "op_a",
@@ -243,6 +248,51 @@ function operation(partial: Partial<CaseOperation>): CaseOperation {
 		caseType: "patient",
 		target: { kind: "session" },
 		...partial,
+	};
+}
+
+const OWN_UUID = testUuid("0000aaaa-0000-4000-8000-00000000a0a0");
+
+/** The form's own case, first in the program: a registration's create or the
+ * update of the case a follow-up or close form loaded. */
+function ownOp(partial: Partial<OwnCaseOperation> = {}): EnvelopeCaseOperation {
+	return envOp({ uuid: OWN_UUID, id: "patient", action: "own", ...partial });
+}
+
+/** Writes of literal values, in the order given. */
+function literalWrites(
+	values: Readonly<Record<string, string | number>>,
+): CaseOperationWrite[] {
+	return Object.entries(values).map(([property, value]) => ({
+		property,
+		value: term(literal(value)),
+	}));
+}
+
+/** A follow-up, close or registration program whose own case is a patient. */
+function ownProgram(
+	formType: OwnCaseProgram["formType"],
+	operations: EnvelopeCaseOperation[],
+	opts?: Parameters<typeof rootProgram>[1] & {
+		openCondition?: CaseOperationWrite["value"];
+		closeCondition?: CaseOperationWrite["value"];
+	},
+): CaseOperationProgram {
+	return {
+		...rootProgram(operations, {
+			...opts,
+			...(formType === "registration" ? { sessionCaseId: null } : {}),
+		}),
+		ownCase: {
+			caseType: "patient",
+			formType,
+			...(opts?.openCondition === undefined
+				? {}
+				: { openCondition: opts.openCondition }),
+			...(opts?.closeCondition === undefined
+				? {}
+				: { closeCondition: opts.closeCondition }),
+		},
 	};
 }
 
@@ -297,15 +347,13 @@ function rootProgram(
 }
 
 function followupOrdinary(
-	patchProperties: JsonObject = {},
+	kind: "followup" | "close" = "followup",
 ): Extract<ApplySubmissionArgs["ordinary"], { kind: "followup" | "close" }> {
 	return {
-		kind: "followup",
+		kind,
 		caseIds: [SESSION_CASE_ID],
 		selection: { kind: "single", maximum: 1 },
 		caseType: "patient",
-		patch: { properties: patchProperties },
-		children: [],
 	};
 }
 
@@ -669,30 +717,16 @@ describe("whole-envelope atomicity", () => {
 		).toMatchObject({ notes: "original" });
 	});
 
-	it("rolls the operation program back when the ordinary close's child fails", async () => {
+	it("rolls the whole program back when a child create after the close form's own case fails", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);
 
 		await expect(
 			submit(store, {
 				appId: APP_ID,
-				ordinary: {
-					kind: "close",
-					caseIds: [SESSION_CASE_ID],
-					selection: { kind: "single", maximum: 1 },
-					caseType: "patient",
-					patch: { properties: { notes: "final" } },
-					children: [
-						{
-							caseType: "visit",
-							caseName: "Bad child",
-							// `outcome` is text; an unknown property fails the
-							// schema's additionalProperties check.
-							properties: { unknown_property: "boom" },
-						},
-					],
-				},
-				operations: rootProgram([
+				ordinary: followupOrdinary("close"),
+				operations: ownProgram("close", [
+					ownOp({ writes: literalWrites({ notes: "final" }) }),
 					envOp(
 						operation({
 							uuid: OP_A,
@@ -702,12 +736,25 @@ describe("whole-envelope atomicity", () => {
 							name: term(literal("Visit A")),
 						}),
 					),
+					envOp(
+						operation({
+							uuid: OP_B,
+							id: "bad_child",
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(literal("Bad child")),
+							// `outcome` is text; an unknown property fails the
+							// schema's additionalProperties check.
+							writes: literalWrites({ unknown_property: "boom" }),
+						}),
+					),
 				]),
 			}),
 		).rejects.toThrow(CasePropertiesValidationError);
 
-		// NOTHING landed: not the operation's create, not the ordinary
-		// patch, not the lifecycle transition.
+		// NOTHING landed: not the creates, not the own case's write, not the
+		// lifecycle transition.
 		expect(
 			await store.query({
 				reading: SEARCH_READING,
@@ -723,7 +770,7 @@ describe("whole-envelope atomicity", () => {
 });
 
 describe("ordered selected-case batches", () => {
-	it("applies one ordinary patch to every selected case after advanced operations", async () => {
+	it("applies the own case's shared answers to every selected case, then each later operation", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
@@ -750,28 +797,23 @@ describe("ordered selected-case batches", () => {
 				caseIds,
 				selection: { kind: "multiple" as const, maximum: 3 },
 				caseType: "patient",
-				patch: {
-					caseName: "Shared name",
-					externalId: "shared-external-id",
-					properties: { notes: "from-form", age: 33 },
-				},
-				children: [],
 			},
 			operations: {
-				...rootProgram([
+				...ownProgram("followup", [
+					ownOp({
+						name: term(literal("Shared name")),
+						writes: literalWrites({
+							notes: "from-form",
+							age: 33,
+							external_id: "shared-external-id",
+						}),
+					}),
 					envOp(
 						operation({
 							action: "update",
 							caseType: "patient",
 							target: { kind: "session" },
-							rename: term(literal("Advanced name")),
-							writes: [
-								{ property: "notes", value: term(literal("advanced")) },
-								{
-									property: "external_id",
-									value: term(literal("advanced-external-id")),
-								},
-							],
+							writes: [{ property: "copy", value: term(literal("advanced")) }],
 						}),
 					),
 				]),
@@ -782,14 +824,29 @@ describe("ordered selected-case batches", () => {
 		const result = await submit(store, args);
 		expect(await submit(store, args)).toEqual(result);
 		expect(result.primaryCaseIds).toEqual(caseIds);
+		// Each selected case takes the own case's change and then the
+		// operation after it, in selection order.
 		expect(
-			result.operations.map(({ selection, caseId }) => ({ selection, caseId })),
-		).toEqual(caseIds.map((caseId, selection) => ({ selection, caseId })));
+			result.operations.map(({ action, selection, caseId }) => ({
+				action,
+				selection,
+				caseId,
+			})),
+		).toEqual(
+			caseIds.flatMap((caseId, selection) => [
+				{ action: "own", selection, caseId },
+				{ action: "update", selection, caseId },
+			]),
+		);
 		for (const caseId of caseIds) {
 			const row = await patientRow(store, caseId);
 			expect(row?.case_name).toBe("Shared name");
 			expect(row?.external_id).toBe("shared-external-id");
-			expect(row?.properties).toMatchObject({ notes: "from-form", age: 33 });
+			expect(row?.properties).toMatchObject({
+				notes: "from-form",
+				age: 33,
+				copy: "advanced",
+			});
 			expect(row?.properties).not.toHaveProperty("case_name");
 			expect(row?.properties).not.toHaveProperty("external_id");
 		}
@@ -801,7 +858,7 @@ describe("ordered selected-case batches", () => {
 		expect(receiptCount.rows[0]?.count).toBe("1");
 	});
 
-	it("keeps every selected case unchanged when the admitted patch is empty", async () => {
+	it("saves nothing to any selected case from a blank shared answer", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
@@ -826,6 +883,9 @@ describe("ordered selected-case batches", () => {
 			).map((row) => [row.case_id, row]),
 		);
 
+		// One shared blank must not erase a value on every selected case,
+		// so the own case saves nothing from it, as CommCare HQ writes such
+		// an update only when the answer is present and not empty.
 		await submit(store, {
 			appId: APP_ID,
 			ordinary: {
@@ -833,12 +893,31 @@ describe("ordered selected-case batches", () => {
 				caseIds: [SECOND_SESSION_CASE_ID, SESSION_CASE_ID],
 				selection: { kind: "multiple", maximum: 2 },
 				caseType: "patient",
-				patch: {
-					caseName: " \t\n",
-					externalId: "\u0000 \r",
-					properties: { notes: "", meds: [] },
-				},
-				children: [],
+			},
+			operations: {
+				...ownProgram(
+					"followup",
+					[
+						ownOp({
+							name: term(formField(KEY_FIELD)),
+							writes: [
+								{ property: "external_id", value: term(formField(FLAG_FIELD)) },
+								{ property: "notes", value: term(literal("")) },
+								{ property: "meds", value: term(formField(MEDS_FIELD)) },
+							],
+						}),
+					],
+					{
+						formFields: [
+							["11111111-1111-4111-8111-111111111111", " \t\n"],
+							// A control character Java's trim removes (no form answer
+							// holds U+0000, which XML cannot carry).
+							["22222222-2222-4222-8222-222222222222", "\u0001 \r"],
+							["33333333-3333-4333-8333-333333333333", []],
+						],
+					},
+				),
+				sessionCaseIds: [SECOND_SESSION_CASE_ID, SESSION_CASE_ID],
 			},
 		});
 
@@ -849,7 +928,7 @@ describe("ordered selected-case batches", () => {
 		}
 	});
 
-	it("rolls every selected-case patch back when a later child write fails", async () => {
+	it("rolls every selected case's own change back when a child create fails", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
@@ -870,18 +949,29 @@ describe("ordered selected-case batches", () => {
 					caseIds: [SECOND_SESSION_CASE_ID, SESSION_CASE_ID],
 					selection: { kind: "multiple", maximum: 2 },
 					caseType: "patient",
-					patch: {
-						caseName: "Must roll back",
-						externalId: "must-roll-back",
-						properties: { notes: "must roll back" },
-					},
-					children: [
-						{
-							caseType: "visit",
-							caseName: "Invalid child",
-							properties: { unknown_property: "boom" },
-						},
-					],
+				},
+				operations: {
+					...ownProgram("followup", [
+						ownOp({
+							name: term(literal("Must roll back")),
+							writes: literalWrites({
+								external_id: "must-roll-back",
+								notes: "must roll back",
+							}),
+						}),
+						envOp(
+							operation({
+								uuid: OP_B,
+								id: "invalid_child",
+								action: "create",
+								caseType: "visit",
+								target: { kind: "new" },
+								name: term(literal("Invalid child")),
+								writes: literalWrites({ unknown_property: "boom" }),
+							}),
+						),
+					]),
+					sessionCaseIds: [SECOND_SESSION_CASE_ID, SESSION_CASE_ID],
 				},
 			}),
 		).rejects.toThrow(CasePropertiesValidationError);
@@ -911,7 +1001,7 @@ describe("ordered selected-case batches", () => {
 		expect(receiptCount.rows[0]?.count).toBe("0");
 	});
 
-	it("rejects a retype of any selected case before the shared patch lands", async () => {
+	it("rejects a retype of any selected case before the own case's change lands", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
@@ -925,11 +1015,10 @@ describe("ordered selected-case batches", () => {
 					caseIds,
 					selection: { kind: "multiple", maximum: 2 },
 					caseType: "patient",
-					patch: { properties: { notes: "must not land" } },
-					children: [],
 				},
 				operations: {
-					...rootProgram([
+					...ownProgram("followup", [
+						ownOp({ writes: literalWrites({ notes: "must not land" }) }),
 						envOp(
 							operation({
 								action: "update",
@@ -980,8 +1069,6 @@ describe("ordered selected-case batches", () => {
 				caseIds,
 				selection: { kind: "multiple", maximum: 2 },
 				caseType: "patient",
-				patch: { properties: {} },
-				children: [],
 			},
 			operations: {
 				formUuid: FORM_UUID,
@@ -1104,8 +1191,6 @@ describe("ordered selected-case batches", () => {
 				caseIds,
 				selection: { kind: "multiple", maximum: 2 },
 				caseType: "patient",
-				patch: { properties: {} },
-				children: [],
 			},
 			operations: {
 				formUuid: FORM_UUID,
@@ -1157,7 +1242,7 @@ describe("ordered selected-case batches", () => {
 		}
 	});
 
-	it("fans children and close across the ordered selection", async () => {
+	it("closes every selected case in selection order after its own change", async () => {
 		const store = makeStore();
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
@@ -1170,59 +1255,36 @@ describe("ordered selected-case batches", () => {
 				caseIds,
 				selection: { kind: "multiple", maximum: 4 },
 				caseType: "patient",
-				patch: { properties: {} },
-				children: [
-					{
-						caseType: "visit",
-						caseName: "Intake",
-						properties: { outcome: "intake" },
-					},
-					{
-						caseType: "visit",
-						caseName: "Exit",
-						properties: { outcome: "exit" },
-					},
-				],
+			},
+			operations: {
+				...ownProgram("close", [
+					ownOp({ writes: literalWrites({ notes: "final" }) }),
+				]),
+				sessionCaseIds: caseIds,
 			},
 		});
 
 		expect(result.primaryCaseIds).toEqual(caseIds);
-		const children = await store.query({
-			reading: SEARCH_READING,
-			appId: APP_ID,
-			caseType: "visit",
-			caseIds: result.createdChildren.map((child) => child.caseId),
-		});
-		const childById = new Map(children.map((row) => [row.case_id, row]));
-		expect(result.createdChildren).toEqual([
-			{
-				authoredChildIndex: 0,
-				parentCaseId: SECOND_SESSION_CASE_ID,
-				caseId: expect.any(String),
-			},
-			{
-				authoredChildIndex: 0,
-				parentCaseId: SESSION_CASE_ID,
-				caseId: expect.any(String),
-			},
-			{
-				authoredChildIndex: 1,
-				parentCaseId: SECOND_SESSION_CASE_ID,
-				caseId: expect.any(String),
-			},
-			{
-				authoredChildIndex: 1,
-				parentCaseId: SESSION_CASE_ID,
-				caseId: expect.any(String),
-			},
-		]);
-		for (const createdChild of result.createdChildren) {
-			expect(childById.get(createdChild.caseId)?.parent_case_id).toBe(
-				createdChild.parentCaseId,
-			);
-		}
+		expect(result.createdChildren).toEqual([]);
+		expect(
+			result.operations.map(({ action, selection, caseId, executed }) => ({
+				action,
+				selection,
+				caseId,
+				executed,
+			})),
+		).toEqual(
+			caseIds.map((caseId, selection) => ({
+				action: "own",
+				selection,
+				caseId,
+				executed: true,
+			})),
+		);
 		for (const caseId of caseIds) {
-			expect((await patientRow(store, caseId))?.status).toBe("closed");
+			const row = await patientRow(store, caseId);
+			expect(row?.status).toBe("closed");
+			expect(row?.properties).toMatchObject({ notes: "final" });
 		}
 	});
 
@@ -1236,22 +1298,21 @@ describe("ordered selected-case batches", () => {
 			blueprintDigest: "0".repeat(64),
 			requestDigest: "multi-selection-retry-request",
 		};
+		const caseIds = [SESSION_CASE_ID, SECOND_SESSION_CASE_ID];
 		const args = {
 			appId: APP_ID,
 			submissionReceipt,
 			ordinary: {
 				kind: "close" as const,
-				caseIds: [SESSION_CASE_ID, SECOND_SESSION_CASE_ID],
+				caseIds,
 				selection: { kind: "multiple" as const, maximum: 2 },
 				caseType: "patient",
-				patch: { properties: {} },
-				children: [
-					{
-						caseType: "visit",
-						caseName: "Final visit",
-						properties: { outcome: "done" },
-					},
-				],
+			},
+			operations: {
+				...ownProgram("close", [
+					ownOp({ writes: literalWrites({ notes: "done" }) }),
+				]),
+				sessionCaseIds: caseIds,
 			},
 		};
 
@@ -1272,23 +1333,19 @@ describe("ordered selected-case batches", () => {
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
 		const accepted = await submit(store, args);
 		expect(await submit(store, args)).toEqual(accepted);
-		expect(accepted.createdChildren).toHaveLength(2);
 		const acceptedReceipt = await sql<{ result: unknown }>`
 			SELECT result
 			FROM form_submission_intents
 			WHERE app_id = ${APP_ID} AND entry_key = ${submissionReceipt.entryKey}
 		`.execute(dbHandle.db);
 		expect(acceptedReceipt.rows[0]?.result).toMatchObject({
-			createdChildren: accepted.createdChildren,
+			createdChildren: [],
+			operations: accepted.operations,
 		});
 		expect(acceptedReceipt.rows[0]?.result).not.toHaveProperty("childCaseIds");
-		expect(
-			await store.query({
-				reading: SEARCH_READING,
-				appId: APP_ID,
-				caseType: "visit",
-			}),
-		).toHaveLength(2);
+		for (const caseId of caseIds) {
+			expect((await patientRow(store, caseId))?.status).toBe("closed");
+		}
 	});
 });
 
@@ -1367,10 +1424,62 @@ describe("pre-submission snapshot", () => {
 		});
 	});
 
-	it("keeps a batch's session-link restriction when only one case is selected", async () => {
+	it("makes one child under each selected case for a create linked to the loaded case", async () => {
+		const store = makeStore();
+		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
+		const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: {
+				kind: "followup",
+				caseIds,
+				selection: { kind: "multiple", maximum: 2 },
+				caseType: "patient",
+			},
+			operations: {
+				...rootProgram([
+					envOp(
+						operation({
+							uuid: OP_A,
+							id: "visit",
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(literal("Visit")),
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									target: { kind: "session" },
+									relationship: "child",
+								},
+							],
+						}),
+					),
+				]),
+				sessionCaseIds: caseIds,
+			},
+		});
+		expect(result.operations.map((item) => item.operationUuid)).toEqual([
+			OP_A,
+			OP_A,
+		]);
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
+		expect(visits.map((visit) => visit.parent_case_id).sort()).toEqual(
+			[...caseIds].sort(),
+		);
+		expect(new Set(visits.map((visit) => visit.case_id)).size).toBe(2);
+	});
+
+	it("refuses a link to the loaded case on a batch operation that runs once for the form", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);
-		const ordinary = followupOrdinary({ notes: "must not land" });
+		const ordinary = followupOrdinary();
 		const error = await rejection(
 			submit(store, {
 				appId: APP_ID,
@@ -1378,10 +1487,13 @@ describe("pre-submission snapshot", () => {
 				operations: rootProgram([
 					envOp(
 						operation({
-							action: "create",
-							caseType: "visit",
-							target: { kind: "new" },
-							name: term(literal("Visit")),
+							action: "update",
+							caseType: "patient",
+							target: {
+								kind: "expression",
+								expr: term(literal(SESSION_CASE_ID)),
+							},
+							writes: [{ property: "notes", value: term(literal("linked")) }],
 							links: [
 								{
 									identifier: "parent",
@@ -1402,13 +1514,6 @@ describe("pre-submission snapshot", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.properties.notes).toBe(
 			"original",
 		);
-		expect(
-			await store.query({
-				reading: SEARCH_READING,
-				appId: APP_ID,
-				caseType: "visit",
-			}),
-		).toEqual([]);
 	});
 
 	it("every expression evaluates against pre-effect values", async () => {
@@ -2185,15 +2290,16 @@ describe("resolved sequence proof", () => {
 		);
 	});
 
-	it("rejects an advanced retype under a type-sensitive ordinary action", async () => {
+	it("rejects a later retype of the case the form's own case writes", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store);
 
 		const err = await rejection(
 			submit(store, {
 				appId: APP_ID,
-				ordinary: followupOrdinary({ notes: "patched" }),
-				operations: rootProgram([
+				ordinary: followupOrdinary(),
+				operations: ownProgram("followup", [
+					ownOp({ writes: literalWrites({ notes: "patched" }) }),
 					envOp(
 						operation({
 							uuid: OP_A,
@@ -2206,10 +2312,10 @@ describe("resolved sequence proof", () => {
 				]),
 			}),
 		);
-		// The ordinary followup still writes patient-shaped data to the
-		// session case; the fold's final implicit step refuses the
-		// transitioned type, mirroring the static analysis's `ordinary`
-		// slot.
+		// The own case writes patient-shaped data to the session case from
+		// Case Management's block, which runs after every other change, so
+		// the proof refuses the retyped case there, as the validator refuses
+		// a retype of the own case where its target is proven.
 		expect(err.rejection).toMatchObject({
 			kind: "sequence",
 			reason: "rolling-case-type-mismatch",
@@ -2875,7 +2981,442 @@ describe("multi-select writes", () => {
 });
 
 // ---------------------------------------------------------------
-// Operations + ordinary action in one envelope
+// The form's own case
+// ---------------------------------------------------------------
+
+describe("the form's own case", () => {
+	async function patients(store: PostgresCaseStore) {
+		return store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			includeHeld: true,
+		});
+	}
+
+	it.each([
+		["false", false],
+		["true", true],
+	] as const)(
+		"creates a registration's case only when its open condition holds (%s)",
+		async (_label, holds) => {
+			const store = makeStore();
+			const result = await submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "registration" },
+				operations: ownProgram(
+					"registration",
+					[
+						ownOp({
+							name: term(literal("Amina")),
+							writes: literalWrites({ notes: "registered" }),
+						}),
+					],
+					{
+						openCondition: eq(formField(FLAG_FIELD), literal("yes")),
+						formFields: [
+							["22222222-2222-4222-8222-222222222222", holds ? "yes" : "no"],
+						],
+					},
+				),
+			});
+
+			expect(result.operations).toEqual([
+				expect.objectContaining({
+					operationUuid: OWN_UUID,
+					action: "own",
+					executed: holds,
+				}),
+			]);
+			const rows = await patients(store);
+			expect(rows).toHaveLength(holds ? 1 : 0);
+			if (holds) {
+				expect(rows[0]).toMatchObject({
+					case_name: "Amina",
+					status: "open",
+					properties: { notes: "registered" },
+				});
+				expect(result.primaryCaseIds).toEqual([rows[0]?.case_id]);
+			}
+		},
+	);
+
+	it("skips every operation that names a registration's case when its open condition fails", async () => {
+		const store = makeStore();
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+			operations: ownProgram(
+				"registration",
+				[
+					ownOp({ name: term(literal("Amina")) }),
+					envOp(
+						operation({
+							uuid: OP_B,
+							id: "first_visit",
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(literal("First visit")),
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									target: { kind: "op", opUuid: OWN_UUID },
+									relationship: "child",
+								},
+							],
+						}),
+						{
+							guardConditions: [eq(formField(FLAG_FIELD), literal("yes"))],
+						},
+					),
+				],
+				{
+					openCondition: eq(formField(FLAG_FIELD), literal("yes")),
+					formFields: [["22222222-2222-4222-8222-222222222222", "no"]],
+				},
+			),
+		});
+
+		expect(result.operations.map((record) => record.executed)).toEqual([
+			false,
+			false,
+		]);
+		expect(await patients(store)).toHaveLength(0);
+		expect(
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
+		).toHaveLength(0);
+	});
+
+	it("creates a registration's case under the id its entry minted, and refuses an id already taken", async () => {
+		const store = makeStore();
+		const receipt = (entryKey: string): SubmissionReceiptClaim => ({
+			entryKey,
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
+			requestDigest: `${entryKey}-request`,
+		});
+		const program = (name: string): CaseOperationProgram => ({
+			...ownProgram("registration", [ownOp({ name: term(literal(name)) })]),
+			entryCaseKeys: new Map([[OWN_UUID, "new-case"]]),
+		});
+
+		const minted = entryDatumCaseId(APP_ID, "entry-named", "new-case");
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+			operations: program("Amina"),
+			submissionReceipt: receipt("entry-named"),
+		});
+		expect(result.primaryCaseIds).toEqual([minted]);
+		expect((await patientRow(store, minted))?.case_name).toBe("Amina");
+
+		// A case already holding the id the next entry minted refuses that
+		// submission rather than merging onto it.
+		const taken = entryDatumCaseId(APP_ID, "entry-taken", "new-case");
+		await seedPatient(store, taken, "Already here");
+		const err = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "registration" },
+				operations: program("Someone else"),
+				submissionReceipt: receipt("entry-taken"),
+			}),
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "new-case",
+			reason: "case-id-taken",
+			caseId: taken,
+		});
+		expect((await patientRow(store, taken))?.case_name).toBe("Already here");
+	});
+
+	it("closes the case a registration creates when its close condition holds", async () => {
+		const store = makeStore();
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+			operations: ownProgram(
+				"registration",
+				[ownOp({ name: term(literal("Closed at once")) })],
+				{
+					closeCondition: eq(formField(FLAG_FIELD), literal("yes")),
+					formFields: [["22222222-2222-4222-8222-222222222222", "yes"]],
+				},
+			),
+		});
+		const rows = await patients(store);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			case_name: "Closed at once",
+			status: "closed",
+		});
+		expect(rows[0]?.closed_on).not.toBeNull();
+	});
+
+	it.each([
+		["holds", "done", "closed"],
+		["fails", "pending", "open"],
+	] as const)(
+		"closes a close form's case after its writes only when its close condition %s",
+		async (_label, answer, status) => {
+			const store = makeStore();
+			await seedSessionPatient(store);
+			await submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary("close"),
+				operations: ownProgram(
+					"close",
+					[ownOp({ writes: literalWrites({ notes: "final" }) })],
+					{
+						closeCondition: eq(formField(FLAG_FIELD), literal("done")),
+						formFields: [["22222222-2222-4222-8222-222222222222", answer]],
+					},
+				),
+			});
+			const row = await patientRow(store, SESSION_CASE_ID);
+			// The writes land either way; only the close follows the condition.
+			expect(row?.properties).toMatchObject({ notes: "final" });
+			expect(row?.status).toBe(status);
+		},
+	);
+
+	it("closes a close form's case on every submission when it has no close condition", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary("close"),
+			operations: ownProgram("close", [ownOp()]),
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.status).toBe("closed");
+	});
+
+	it("saves a write through its index to the case the index reaches, and nothing where none is indexed", async () => {
+		const store = makeStore();
+		const HOUSEHOLD_ID = "00000000-0000-7000-8000-00000000dddd";
+		await seedPatient(store, HOUSEHOLD_ID, "The household", {
+			notes: "household",
+		});
+		await seedSessionPatient(store);
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						id: "index_household",
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								target: {
+									kind: "expression",
+									expr: term(literal(HOUSEHOLD_ID)),
+								},
+								relationship: "child",
+							},
+						],
+					}),
+					{
+						expressionSnapshotTypes: {
+							links: new Map([[0, "patient"]]),
+						},
+					},
+				),
+			]),
+		});
+
+		const viaParent = (value: string): EnvelopeCaseOperation =>
+			ownOp({
+				writes: [
+					{
+						property: "notes",
+						value: term(literal(value)),
+						via: [{ identifier: "parent" }],
+					},
+					{ property: "copy", value: term(literal(value)) },
+				],
+			});
+		const withVia = (program: CaseOperationProgram) => ({
+			...program,
+			operations: program.operations.map((entry) =>
+				entry.operation.uuid === OWN_UUID
+					? { ...entry, viaCaseTypes: new Map([[0, "patient"]]) }
+					: entry,
+			),
+		});
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: withVia(ownProgram("followup", [viaParent("from child")])),
+		});
+		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
+			notes: "from child",
+		});
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ notes: "original", copy: "from child" });
+
+		// The household itself has no parent index: its write through one
+		// saves nothing, and its own write still lands.
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: { ...followupOrdinary(), caseIds: [HOUSEHOLD_ID] },
+			operations: {
+				...withVia(ownProgram("followup", [viaParent("nowhere")])),
+				sessionCaseIds: [HOUSEHOLD_ID],
+			},
+		});
+		expect((await patientRow(store, HOUSEHOLD_ID))?.properties).toMatchObject({
+			notes: "from child",
+			copy: "nowhere",
+		});
+	});
+
+	it("saves an only-if-changed write only when the answer differs from the case's value", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store, { notes: "same", age: 30 });
+		const before = await patientRow(store, SESSION_CASE_ID);
+		const changedOnly = (notes: string, age: string) =>
+			ownProgram(
+				"followup",
+				[
+					ownOp({
+						writes: [
+							{
+								property: "notes",
+								value: term(formField(KEY_FIELD)),
+								onlyIfChanged: true,
+							},
+							{
+								property: "age",
+								value: term(formField(FLAG_FIELD)),
+								onlyIfChanged: true,
+							},
+						],
+					}),
+				],
+				{
+					formFields: [
+						["11111111-1111-4111-8111-111111111111", notes],
+						["22222222-2222-4222-8222-222222222222", age],
+					],
+				},
+			);
+
+		// Both answers equal what the case holds, compared as text: nothing
+		// is written.
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: changedOnly("same", "30"),
+		});
+		const unchanged = await patientRow(store, SESSION_CASE_ID);
+		expect(unchanged?.properties).toEqual(before?.properties);
+
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: changedOnly("different", "30"),
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.properties).toEqual({
+			notes: "different",
+			age: 30,
+		});
+	});
+
+	it("updates the acting worker's own record through the worker-record target", async () => {
+		const store = makeStore();
+		const usercaseBlueprint = buildSimpleBlueprint(
+			[
+				{
+					name: USERCASE_CASE_TYPE,
+					properties: [
+						{ name: "visits", label: proseText("Visits"), data_type: "text" },
+					],
+				},
+			],
+			APP_ID,
+		);
+		const visitsUuid = testUuid("worker-record-visits-property");
+		usercaseBlueprint.userProperties = {
+			[visitsUuid]: { uuid: visitsUuid, slug: "visits", label: "Visits" },
+		};
+		usercaseBlueprint.userPropertyOrder = [visitsUuid];
+		const workerSchemas = buildCaseTypeMap(usercaseBlueprint);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: USERCASE_CASE_TYPE,
+			caseTypeSchemas: workerSchemas,
+		});
+		const WORKER_RECORD_ID = "00000000-0000-7000-8000-00000000eeee";
+		await store.insert({
+			appId: APP_ID,
+			row: {
+				case_id: WORKER_RECORD_ID,
+				case_type: USERCASE_CASE_TYPE,
+				case_name: "Worker one",
+				status: "open",
+				properties: JSON.stringify({ hq_user_id: ACTOR, visits: "1" }),
+			},
+		});
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			operations: {
+				...rootProgram(
+					[
+						envOp(
+							operation({
+								uuid: OP_A,
+								id: "count_visit",
+								action: "update",
+								caseType: USERCASE_CASE_TYPE,
+								target: { kind: "worker-record" },
+								writes: [
+									{ property: "visits", value: term(formField(KEY_FIELD)) },
+								],
+							}),
+						),
+					],
+					{
+						sessionCaseId: null,
+						formFields: [["11111111-1111-4111-8111-111111111111", "2"]],
+					},
+				),
+				caseTypeSchemas: workerSchemas,
+			},
+		});
+
+		expect(result.operations).toEqual([
+			expect.objectContaining({ caseId: WORKER_RECORD_ID, executed: true }),
+		]);
+		const [record] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: USERCASE_CASE_TYPE,
+		});
+		expect(record?.properties).toEqual({ hq_user_id: ACTOR, visits: "2" });
+		expect(result.caseDatabasePatch?.rows.map((row) => row.case_id)).toEqual([
+			WORKER_RECORD_ID,
+		]);
+	});
+});
+
+// ---------------------------------------------------------------
+// One envelope's selection
 // ---------------------------------------------------------------
 
 describe("combined submission", () => {
@@ -2908,7 +3449,7 @@ describe("combined submission", () => {
 });
 
 describe("transaction-captured case database patch", () => {
-	it("includes the worker usercase and replays its accepted state after a later write", async () => {
+	it("includes the worker record its update writes and replays its accepted state after a later write", async () => {
 		const store = makeStore();
 		const usercaseType: CaseType = {
 			name: USERCASE_CASE_TYPE,
@@ -2951,7 +3492,24 @@ describe("transaction-captured case database patch", () => {
 		const args = {
 			appId: APP_ID,
 			ordinary: { kind: "none" } as const,
-			usercase: { properties: { role: "supervisor" } },
+			operations: {
+				...rootProgram(
+					[
+						envOp(
+							operation({
+								uuid: OP_A,
+								id: "worker_role",
+								action: "update",
+								caseType: USERCASE_CASE_TYPE,
+								target: { kind: "worker-record" },
+								writes: literalWrites({ role: "supervisor" }),
+							}),
+						),
+					],
+					{ sessionCaseId: null },
+				),
+				caseTypeSchemas: buildCaseTypeMap(usercaseBlueprint),
+			},
 			submissionReceipt: receipt,
 		};
 
@@ -3004,29 +3562,25 @@ describe("durable text-only submission receipt", () => {
 		const first = await submit(store, {
 			appId: APP_ID,
 			submissionReceipt: receipt,
-			ordinary: {
-				kind: "registration",
-				primary: {
-					caseType: "patient",
-					caseName: "First registration",
-					properties: { notes: "accepted" },
-				},
-				children: [],
-			},
+			ordinary: { kind: "registration" },
+			operations: ownProgram("registration", [
+				ownOp({
+					name: term(literal("First registration")),
+					writes: literalWrites({ notes: "accepted" }),
+				}),
+			]),
 		});
 
 		const replay = await submit(store, {
 			appId: APP_ID,
 			submissionReceipt: receipt,
-			ordinary: {
-				kind: "registration",
-				primary: {
-					caseType: "patient",
-					caseName: "must not run",
-					properties: { notes: "must not run" },
-				},
-				children: [],
-			},
+			ordinary: { kind: "registration" },
+			operations: ownProgram("registration", [
+				ownOp({
+					name: term(literal("must not run")),
+					writes: literalWrites({ notes: "must not run" }),
+				}),
+			]),
 		});
 		expect(replay).toEqual(first);
 		expect(first.primaryCaseIds).toEqual([expect.any(String)]);
@@ -3069,15 +3623,12 @@ describe("durable text-only submission receipt", () => {
 					...receipt,
 					requestDigest: "changed-text-registration-request",
 				},
-				ordinary: {
-					kind: "registration",
-					primary: {
-						caseType: "patient",
-						caseName: "must not run",
-						properties: {},
-					},
-					children: [],
-				},
+				ordinary: { kind: "registration" },
+				operations: ownProgram("registration", [
+					ownOp({
+						name: term(literal("must not run")),
+					}),
+				]),
 			}),
 		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
 		expect(
@@ -3193,21 +3744,32 @@ describe("durable text-only submission receipt", () => {
 			submit(store, {
 				appId: APP_ID,
 				submissionReceipt: receipt,
-				ordinary: {
-					kind: "registration",
-					primary: {
-						caseType: "patient",
-						caseName: "must roll back",
-						properties: { notes: "must roll back" },
-					},
-					children: [
-						{
+				ordinary: { kind: "registration" },
+				operations: ownProgram("registration", [
+					ownOp({
+						name: term(literal("must roll back")),
+						writes: literalWrites({ notes: "must roll back" }),
+					}),
+					envOp(
+						operation({
+							uuid: OP_B,
+							id: "invalid_child",
+							action: "create",
 							caseType: "visit",
-							caseName: "invalid child",
-							properties: { unknown: "reject" },
-						},
-					],
-				},
+							target: { kind: "new" },
+							name: term(literal("invalid child")),
+							writes: literalWrites({ unknown: "reject" }),
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									target: { kind: "op", opUuid: OWN_UUID },
+									relationship: "child",
+								},
+							],
+						}),
+					),
+				]),
 			}),
 		).rejects.toBeInstanceOf(CasePropertiesValidationError);
 
@@ -3322,7 +3884,10 @@ describe("atomic form-capture intent", () => {
 		await seedSessionPatient(store);
 		const args = {
 			appId: APP_ID,
-			ordinary: followupOrdinary({ notes: "accepted" }),
+			ordinary: followupOrdinary(),
+			operations: ownProgram("followup", [
+				ownOp({ writes: literalWrites({ notes: "accepted" }) }),
+			]),
 			submissionReceipt: {
 				entryKey: capture.intent.entryKey,
 				formUuid: capture.intent.formUuid,
@@ -3336,7 +3901,10 @@ describe("atomic form-capture intent", () => {
 		const first = await submit(store, args);
 		const replay = await submit(store, {
 			appId: APP_ID,
-			ordinary: followupOrdinary({ notes: "must not replay" }),
+			ordinary: followupOrdinary(),
+			operations: ownProgram("followup", [
+				ownOp({ writes: literalWrites({ notes: "must not replay" }) }),
+			]),
 			// Simulates a retry after the form or its final capture question was
 			// deleted: no current capture intent survives, only durable identity.
 			submissionReceipt: args.submissionReceipt,
@@ -3374,7 +3942,10 @@ describe("atomic form-capture intent", () => {
 		await expect(
 			submit(store, {
 				appId: APP_ID,
-				ordinary: followupOrdinary({ notes: "must not replay" }),
+				ordinary: followupOrdinary(),
+				operations: ownProgram("followup", [
+					ownOp({ writes: literalWrites({ notes: "must not replay" }) }),
+				]),
 				submissionReceipt: {
 					...args.submissionReceipt,
 					requestDigest: "capture-request-b",
@@ -3452,7 +4023,10 @@ describe("atomic form-capture intent", () => {
 		const err = await rejection(
 			submit(store, {
 				appId: APP_ID,
-				ordinary: followupOrdinary({ notes: "never lands" }),
+				ordinary: followupOrdinary(),
+				operations: ownProgram("followup", [
+					ownOp({ writes: literalWrites({ notes: "never lands" }) }),
+				]),
 				captureIntent: capture.intent,
 			}),
 		);

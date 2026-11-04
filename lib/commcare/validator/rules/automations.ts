@@ -15,6 +15,7 @@ import {
 	effectiveCaseTypes,
 	isAutomationImplicitTextReadProperty,
 	isAutomationMessageShadowedCaseProperty,
+	operationCaseType,
 	orderedCaseOperations,
 	organizationLevelsOf,
 	userPropertiesOf,
@@ -89,9 +90,12 @@ function canAuthorAdditionalExtensionHost(
 		(candidate) => candidate.name === caseType,
 	);
 	if (declaredCaseType?.relationship !== "extension") return false;
-	for (const form of Object.values(doc.forms)) {
+	for (const formUuid of Object.values(doc.formOrder).flat()) {
+		const form = doc.forms[formUuid];
+		if (form === undefined) continue;
 		for (const operation of orderedCaseOperations(form)) {
-			const resultingCaseType = operation.retype ?? operation.caseType;
+			const resultingCaseType =
+				operation.retype ?? operationCaseType(doc, formUuid, operation);
 			if (resultingCaseType !== caseType) continue;
 			if (
 				(operation.links ?? []).some(

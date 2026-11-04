@@ -232,9 +232,10 @@ summaries, failures, and corrections; schema acceptance alone proves no quality.
 
 ## Effective reads and activity presentation
 
-Scoped question reads include their effective initial-value source. The case
-preload rule remains in `lib/domain/casePreload.ts`; selected-record values can
-supersede explicit defaults, including with blank. `getCaseProperty` reads the
+Scoped question reads include each question's starting value. A preload is a
+default that reads the case (`lib/domain/casePreload.ts::fieldPreload`), which
+the field planners write at a writer's birth and an author can replace or
+remove. `getCaseProperty` reads the
 effective catalog, including standard timestamps and writer-derived properties.
 The overview lists standard metadata once, separately from each type's properties.
 Worker readiness reports configuration gaps and inherited persona values; it is

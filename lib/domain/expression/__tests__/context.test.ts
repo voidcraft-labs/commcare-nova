@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	deriveCaseWriteInventory,
-	deriveCaseWriteInventoryForStructure,
-} from "../../caseWriteInventory";
 import { activeRowScope, slotContext } from "../context";
-import { formStructure } from "../formStructure";
 import {
 	checkExpression,
 	expressionContextAtPath,
@@ -291,59 +286,5 @@ describe("an actual expression slot", () => {
 				ctx,
 			)?.caseIdOf,
 		).toBe("patient");
-	});
-	it("admits a worker-record source supplied by a writer in the same prepared call", () => {
-		const base = formFixture();
-		const property = testUuid("pending-worker-property");
-		const doc = {
-			...base,
-			userProperties: {
-				[property]: { uuid: property, slug: "visit_note", label: "Visit note" },
-			},
-			userPropertyOrder: [property],
-		};
-		const saved = formStructure(doc, ids.form);
-		if (saved === undefined) throw new Error("The fixture form is missing.");
-		const field = saved.fields.get(ids.text);
-		if (field === undefined) throw new Error("The fixture field is missing.");
-		const prepared = {
-			...saved,
-			fields: new Map([
-				...saved.fields,
-				[
-					ids.text,
-					{
-						...field,
-						caseWrite: { caseType: "commcare-user", property: "visit_note" },
-					},
-				] as const,
-			]),
-		};
-		const slot = {
-			entity: "field" as const,
-			uuid: ids.hidden,
-			slot: "calculate" as const,
-		};
-		const expression: Expression = {
-			kind: "term",
-			term: { kind: "session-datum", datum: { kind: "worker-record" } },
-		};
-		const pending = slotContext(doc, slot, new Map(), { form: prepared });
-		if (pending === undefined)
-			throw new Error("The prepared fixture slot is missing.");
-		expect(checkExpression(expression, pending).errors).toEqual([]);
-		expect(
-			checkExpression(expression, requireContext(doc, slot)).errors,
-		).toContainEqual(expect.objectContaining({ code: "datum-not-supplied" }));
-		expect(
-			deriveCaseWriteInventoryForStructure(doc, saved, doc.modules[ids.module]),
-		).toEqual(
-			deriveCaseWriteInventory(
-				doc,
-				ids.form,
-				doc.modules[ids.module],
-				doc.forms[ids.form].type,
-			),
-		);
 	});
 });

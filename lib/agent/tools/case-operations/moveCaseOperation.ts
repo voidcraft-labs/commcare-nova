@@ -19,6 +19,7 @@ import {
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	dependentOperationNames,
+	OWN_CASE_OPERATION_REFUSAL,
 	operationAddressSchema,
 	operationByUuid,
 	resolveOperationAddress,
@@ -72,12 +73,15 @@ function moveRefusal(
 			return plan.dependencyKind === "target-type"
 				? `Cannot move "${operationId}" there because that order would change which kind of case ${involved || "a later operation"} acts on.`
 				: `Cannot move "${operationId}" there because it would break the reference ${involved || "another operation"} has to a case an earlier operation makes.`;
+		case "own-first":
+		case "own-case":
+			return OWN_CASE_OPERATION_REFUSAL;
 	}
 }
 
 export const moveCaseOperationTool = {
 	description:
-		"Reorder an advanced record operation. Dependencies must remain before their consumers.",
+		"Reorder a case change. This form's own case stays first, and a change stays after every change it depends on.",
 	inputSchema: moveCaseOperationInputSchema,
 	async execute(
 		input: MoveCaseOperationInput,
@@ -132,6 +136,22 @@ export const moveCaseOperationTool = {
 					result: {
 						error: `Case operation UUID "${afterOperationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
+				};
+			}
+			// This form's own case stays first: it does not move, and nothing
+			// moves above it.
+			const operations = orderedCaseOperations(
+				doc.forms[address.formUuid] ?? {},
+			);
+			if (
+				operation.action === "own" ||
+				(afterOperationUuid === null &&
+					operations.some((candidate) => candidate.action === "own"))
+			) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: OWN_CASE_OPERATION_REFUSAL },
 				};
 			}
 			const plan = moveCaseOperationAfterMutation(

@@ -1,3 +1,4 @@
+import { placedBasic } from "@/lib/commcare/placement";
 import { planGeneratedNodes } from "@/lib/commcare/xform/generatedNodes";
 import {
 	type BlueprintDoc,
@@ -37,7 +38,9 @@ export function buildEngineInput(
 		wireName: formWireName(doc, formUuid),
 		repeatCountNames: repeatCountNamesOf(doc, formUuid),
 		caseScalarTextGuards: Object.fromEntries(
-			caseScalarTextGuards(doc, formUuid),
+			caseScalarTextGuards(doc, formUuid, {
+				placedBasic: placedBasic(doc, formUuid),
+			}),
 		),
 		...(resolved === undefined ? {} : { language: resolved }),
 		fields:

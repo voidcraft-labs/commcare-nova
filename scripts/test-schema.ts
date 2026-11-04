@@ -18,7 +18,8 @@
  *     registered schema. Known names: `evaluateForm`, `startAppTest`,
  *     `createLocation`,
  *     `updateLocation`, `addFields`, `addAutomations`, `updateAutomation`,
- *     `addCaseOperations`, `updateCaseOperation`, `updateCaseProperty`,
+ *     `addCaseOperations`, `updateCaseOperation`, `getCaseOperations`,
+ *     `removeCaseOperation`, `moveCaseOperation`, `updateCaseProperty`,
  *     `setFieldOptionsSource`,
  *     `configureCaseList`, `addCaseListColumns`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
@@ -60,6 +61,9 @@ import { setCaseListTileTool } from "../lib/agent/tools/case-list-config/setCase
 import { updateCaseListColumnTool } from "../lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "../lib/agent/tools/case-list-config/updateSearchInput";
 import { addCaseOperationsTool } from "../lib/agent/tools/case-operations/addCaseOperations";
+import { getCaseOperationsTool } from "../lib/agent/tools/case-operations/getCaseOperations";
+import { moveCaseOperationTool } from "../lib/agent/tools/case-operations/moveCaseOperation";
+import { removeCaseOperationTool } from "../lib/agent/tools/case-operations/removeCaseOperation";
 import { updateCaseOperationTool } from "../lib/agent/tools/case-operations/updateCaseOperation";
 import { setCaseSearchAdvancedTool } from "../lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/setCaseSearchDisplay";
@@ -190,7 +194,28 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: updateCaseOperationTool.description,
 		schema: updateCaseOperationTool.inputSchema,
 		prompt:
-			'Use updateCaseOperation on the form "Follow-up visit" in the module "Patients" to replace operation 33333333-3333-4333-8333-333333333333. Keep its id record_visit and update the selected patient record, writing visits as the authored expression "#case/visits + 2".',
+			'Use updateCaseOperation on the form "Follow-up visit" in the module "Patients" to replace this form\'s own case change 33333333-3333-4333-8333-333333333333, keeping its writes and adding a write of visits as the authored expression "#case/visits + 1".',
+	},
+	{
+		name: "getCaseOperations",
+		description: getCaseOperationsTool.description,
+		schema: getCaseOperationsTool.inputSchema,
+		prompt:
+			"Use getCaseOperations with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to read the form's case changes.",
+	},
+	{
+		name: "removeCaseOperation",
+		description: removeCaseOperationTool.description,
+		schema: removeCaseOperationTool.inputSchema,
+		prompt:
+			"Use removeCaseOperation with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to remove the case change 33333333-3333-4333-8333-333333333333.",
+	},
+	{
+		name: "moveCaseOperation",
+		description: moveCaseOperationTool.description,
+		schema: moveCaseOperationTool.inputSchema,
+		prompt:
+			"Use moveCaseOperation with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to move the case change 33333333-3333-4333-8333-333333333333 after the case change 44444444-4444-4444-8444-444444444444.",
 	},
 	{
 		name: "updateCaseProperty",
@@ -218,7 +243,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: updateFormTool.description,
 		schema: updateFormTool.inputSchema,
 		prompt:
-			"Use updateForm with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to close the case only when the answer to fieldUuid 33333333-3333-4333-8333-333333333333 is 'done'.",
+			"Use updateForm with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to close the case only when #form/outcome = 'done'.",
 	},
 	{
 		name: "configureConnect",

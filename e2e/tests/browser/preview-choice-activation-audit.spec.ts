@@ -349,11 +349,15 @@ test("invalid Submit still refuses and a corrected local clock draft submits exa
 		"Transport unavailable. Try again.",
 	);
 	expect(app.submissions).toHaveLength(1);
+	// The answers the form's own case reads, the corrected clock among them.
 	expect(app.submissions[0]?.[0]).toMatchObject({
 		kind: "registration",
-		primary: {
-			caseName: "Fictional visitor",
-			properties: { age: 35, clock: "14:30:00.000Z" },
+		operationAnswers: {
+			root: expect.arrayContaining([
+				expect.objectContaining({ value: "Fictional visitor" }),
+				expect.objectContaining({ value: "35" }),
+				expect.objectContaining({ value: "14:30:00.000Z" }),
+			]),
 		},
 	});
 });

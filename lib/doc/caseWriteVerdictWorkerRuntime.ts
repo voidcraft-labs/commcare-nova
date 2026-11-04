@@ -20,8 +20,7 @@ export function evaluateCaseWriteVerdictBatch(
 		};
 	}
 	const doc = hydratePersistedBlueprint(request.doc);
-	const field = doc.fields[request.fieldUuid];
-	if (field === undefined) {
+	if (!Object.hasOwn(doc.fields, request.fieldUuid)) {
 		return {
 			version: CASE_WRITE_VERDICT_WORKER_VERSION,
 			requestId: request.requestId,
@@ -36,8 +35,8 @@ export function evaluateCaseWriteVerdictBatch(
 			candidate.key,
 			caseWriteChoiceVerdict(
 				doc,
-				field,
-				candidate.caseWrite,
+				request.fieldUuid,
+				candidate,
 				request.lookupContext,
 			),
 		]),

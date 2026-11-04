@@ -18,10 +18,20 @@
 // universe. The list of these sentences IS that screen, so a row that
 // reads as an AST node name defeats the whole surface.
 
-import { type CaseOperation, humanizeId, type Uuid } from "@/lib/domain";
+import {
+	type CaseOperation,
+	type FormType,
+	humanizeId,
+	type TargetedCaseOperation,
+	type Uuid,
+} from "@/lib/domain";
 
 /** What the row needs from outside the operation to read naturally. */
 export interface OperationSentenceContext {
+	/** The form's type: what its own case does. */
+	readonly formType: FormType | undefined;
+	/** The case type of the form's own case: its module's. */
+	readonly ownCaseType: string | undefined;
 	/** Human name of an earlier operation, by uuid: for an `op` target. */
 	readonly operationName: (uuid: Uuid) => string | undefined;
 	/** Human label of a repeat field, by uuid: for `forEach`. */
@@ -79,7 +89,7 @@ export function casePropertyPhrase(name: string): string {
 
 /** The case this operation acts on, in the author's terms. */
 function targetPhrase(
-	operation: CaseOperation,
+	operation: TargetedCaseOperation,
 	context: OperationSentenceContext,
 ): string {
 	/* Case types are stored as identifiers, but this is an author-facing
@@ -107,6 +117,24 @@ function targetPhrase(
 		}
 		case "expression":
 			return `a ${type} case found by a calculation`;
+		case "worker-record":
+			return "the worker's record";
+	}
+}
+
+/** The form's own case, named by what the form does with it. */
+function ownLead(context: OperationSentenceContext): string {
+	const ownCase =
+		context.ownCaseType === undefined
+			? "this form's case"
+			: `this form's ${caseTypePhrase(context.ownCaseType)} case`;
+	switch (context.formType) {
+		case "registration":
+			return `Create ${ownCase}`;
+		case "close":
+			return `Update and close ${ownCase}`;
+		default:
+			return `Update ${ownCase}`;
 	}
 }
 
@@ -120,6 +148,7 @@ function leadClause(
 	operation: CaseOperation,
 	context: OperationSentenceContext,
 ): string {
+	if (operation.action === "own") return ownLead(context);
 	const target = targetPhrase(operation, context);
 	switch (operation.action) {
 		case "create":

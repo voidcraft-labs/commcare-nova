@@ -1,22 +1,26 @@
+import { Immer } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
-	deriveCaseWriteInventory,
 	effectiveCaseTypes,
+	formCaseWriteViews,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 	plainColumn,
+	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -46,6 +50,7 @@ import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { ValidationErrorCode } from "../errors";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
 const SECOND = testUuid("22222222-2222-4222-8222-222222222222");
@@ -355,7 +360,9 @@ function nestedRepeatFixture(): Fixture {
 	return { doc, moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
 }
 
-function create(patch: Partial<CaseOperation> = {}): CaseOperation {
+function create(
+	patch: Partial<TargetedCaseOperation> = {},
+): TargetedCaseOperation {
 	return {
 		uuid: CREATE,
 		id: "create_visit",
@@ -367,7 +374,9 @@ function create(patch: Partial<CaseOperation> = {}): CaseOperation {
 	};
 }
 
-function update(patch: Partial<CaseOperation> = {}): CaseOperation {
+function update(
+	patch: Partial<TargetedCaseOperation> = {},
+): TargetedCaseOperation {
 	return {
 		uuid: SECOND,
 		id: "update_patient",
@@ -383,7 +392,10 @@ function errorsFor(
 	formType: "followup" | "registration" | "close" = "followup",
 ): ReturnType<typeof validateCandidate> {
 	const built = fixture(formType);
-	built.doc.forms[built.formUuid].caseOperations = [...operations];
+	built.doc.forms[built.formUuid].caseOperations = [
+		...ownArms(built.doc.forms[built.formUuid]),
+		...operations,
+	];
 	return validateCandidate(built.doc);
 }
 
@@ -402,6 +414,8 @@ function expectCode(
 	expect(codesFor(operations, formType)).toContain(code);
 }
 
+/** Renames the field and saves its answer to `caseType`'s `property`, as
+ * the builder's "Saves to" plans it, in place on the fixture. */
 function mapFieldToCaseType(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
@@ -409,12 +423,22 @@ function mapFieldToCaseType(
 	caseType: string,
 	property: string = id,
 ): void {
-	const field = doc.fields[fieldUuid];
-	if (field.kind !== "text")
-		throw new Error("Fixture mapping requires a text field");
-	field.id = id;
-	field.caseWrite = { caseType, property };
+	doc.fields[fieldUuid].id = id;
+	const plan = planFieldCaseWrite({ ...doc }, fieldUuid, {
+		caseType,
+		property,
+	});
+	if (!plan.ok) throw new Error(plan.message);
+	const next = FIXTURE_IMMER.produce(doc, (draft) => {
+		applyMutations(draft, [...plan.mutations]);
+	});
+	doc.forms = next.forms;
+	doc.fields = next.fields;
+	doc.caseTypes = next.caseTypes;
 }
+
+/** Reduces fixture edits without freezing: the tests edit fixtures in place. */
+const FIXTURE_IMMER = new Immer({ autoFreeze: false });
 
 describe("case-operation on-device portability", () => {
 	// These tests exercise the complete admission rule, including its emitter
@@ -668,6 +692,7 @@ describe("case-operation activation and identity", () => {
 
 		const siblingScopes = fixture();
 		siblingScopes.doc.forms[siblingScopes.formUuid].caseOperations = [
+			...ownArms(siblingScopes.doc.forms[siblingScopes.formUuid]),
 			create({
 				forEach: { repeat: REPEAT_A },
 				target: { kind: "new", idFrom: REPEAT_A_TEXT },
@@ -697,6 +722,7 @@ describe("case-operation activation and identity", () => {
 			REPEAT_B,
 		];
 		nestedScopes.doc.forms[nestedScopes.formUuid].caseOperations = [
+			...ownArms(nestedScopes.doc.forms[nestedScopes.formUuid]),
 			create({
 				forEach: { repeat: REPEAT_B },
 				target: { kind: "new", idFrom: REPEAT_B_TEXT },
@@ -763,7 +789,7 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 		expectCode("CASE_OPERATION_UNKNOWN_PROPERTY", [
 			update({ writes: [{ property: "missing", value: term(literal("x")) }] }),
 		]);
-		expectCode("CASE_OPERATION_INVALID_FACETS", [
+		expectCode("CASE_WRITE_DUPLICATE_PROPERTY", [
 			update({
 				writes: [
 					{ property: "nickname", value: term(literal("a")) },
@@ -797,6 +823,7 @@ describe("case-operation action, catalog, and reserved vocabulary", () => {
 	it("admits external_id through the generic write slot without a catalog declaration", () => {
 		const built = fixture();
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({
 				writes: [
 					{
@@ -959,6 +986,7 @@ describe("case-operation target and dependency safety", () => {
 
 		built.doc.formOrder[built.moduleUuid] = [registrationUuid, built.formUuid];
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({
 				condition: eq(
 					term(prop("patient", "nickname")),
@@ -1217,6 +1245,7 @@ describe("case-operation target and dependency safety", () => {
 		const primaryWrite = fixture();
 		mapFieldToCaseType(primaryWrite.doc, TEXT, "nickname", "patient");
 		primaryWrite.doc.forms[primaryWrite.formUuid].caseOperations = [
+			...ownArms(primaryWrite.doc.forms[primaryWrite.formUuid]),
 			update({ retype: "visit" }),
 		];
 		const primaryErrors = validateCandidate(primaryWrite.doc);
@@ -1227,7 +1256,7 @@ describe("case-operation target and dependency safety", () => {
 			primaryErrors.find(
 				(error) => error.code === "CASE_OPERATION_TARGET_TYPE_MISMATCH",
 			)?.message,
-		).toContain("ordinary form action's session target");
+		).toMatch(/^This form's own case is /);
 
 		const primaryName = fixture();
 		mapFieldToCaseType(
@@ -1238,27 +1267,20 @@ describe("case-operation target and dependency safety", () => {
 			"case_name",
 		);
 		primaryName.doc.forms[primaryName.formUuid].caseOperations = [
+			...ownArms(primaryName.doc.forms[primaryName.formUuid]),
 			update({ retype: "visit" }),
 		];
-		const primaryNameModule = primaryName.doc.modules[primaryName.moduleUuid];
-		if (primaryNameModule === undefined) {
-			throw new Error("fixture module is missing");
-		}
-		const primaryNameInventory = deriveCaseWriteInventory(
-			primaryName.doc,
-			primaryName.formUuid,
-			primaryNameModule,
-			primaryName.doc.forms[primaryName.formUuid].type,
-		);
-		expect(primaryNameInventory.writers).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					fieldId: "friendly_name",
-					caseType: "patient",
-					property: "case_name",
-				}),
-			]),
-		);
+		expect(
+			formCaseWriteViews({ ...primaryName.doc }, primaryName.formUuid).get(
+				TEXT,
+			),
+		).toEqual([
+			expect.objectContaining({
+				slot: "name",
+				caseType: "patient",
+				property: "case_name",
+			}),
+		]);
 		expect(
 			validateCandidate(primaryName.doc).map((error) => error.code),
 		).toContain("CASE_OPERATION_TARGET_TYPE_MISMATCH");
@@ -1266,6 +1288,7 @@ describe("case-operation target and dependency safety", () => {
 		const runtimeAlias = fixture();
 		mapFieldToCaseType(runtimeAlias.doc, TEXT, "nickname", "patient");
 		runtimeAlias.doc.forms[runtimeAlias.formUuid].caseOperations = [
+			...ownArms(runtimeAlias.doc.forms[runtimeAlias.formUuid]),
 			update({
 				target: {
 					kind: "expression",
@@ -1280,8 +1303,13 @@ describe("case-operation target and dependency safety", () => {
 
 		const childCase = fixture();
 		mapFieldToCaseType(childCase.doc, TEXT, "case_name", "visit");
+		// The child's create links to this form's case after the retype.
+		const childOperations =
+			childCase.doc.forms[childCase.formUuid].caseOperations ?? [];
 		childCase.doc.forms[childCase.formUuid].caseOperations = [
+			...ownArms(childCase.doc.forms[childCase.formUuid]),
 			update({ retype: "visit" }),
+			...childOperations.filter((operation) => operation.action !== "own"),
 		];
 		expect(
 			validateCandidate(childCase.doc).map((error) => error.code),
@@ -1292,6 +1320,7 @@ describe("case-operation target and dependency safety", () => {
 		const built = fixture();
 		mapFieldToCaseType(built.doc, TEXT, "nickname", "patient");
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({
 				retype: "visit",
 				condition: eq(formField(TEXT), literal("transition")),
@@ -1421,6 +1450,7 @@ describe("case-operation target and dependency safety", () => {
 			mode: "repeated" | "singular" = "repeated",
 		): ValidationErrorCode[] => {
 			built.doc.forms[built.formUuid].caseOperations = [
+				...ownArms(built.doc.forms[built.formUuid]),
 				update({
 					...(mode === "repeated" && {
 						forEach: { repeat: REPEAT_B },
@@ -1452,6 +1482,7 @@ describe("case-operation target and dependency safety", () => {
 
 		const predicateCodes = (fieldUuid: Uuid): ValidationErrorCode[] => {
 			built.doc.forms[built.formUuid].caseOperations = [
+				...ownArms(built.doc.forms[built.formUuid]),
 				update({
 					forEach: { repeat: REPEAT_B },
 					condition: eq(
@@ -1474,6 +1505,7 @@ describe("case-operation target and dependency safety", () => {
 		);
 
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({
 				forEach: { repeat: REPEAT_B },
 				owner: term(formField(REPEAT_A_TEXT)),
@@ -1484,6 +1516,7 @@ describe("case-operation target and dependency safety", () => {
 		).toContain("CASE_OPERATION_REPEAT_CORRELATION");
 
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({
 				forEach: { repeat: REPEAT_B },
 				condition: eq(formField(REPEAT_A_TEXT), literal("ordinary")),
@@ -1541,10 +1574,17 @@ describe("case-operation target and dependency safety", () => {
 						},
 					],
 				},
-				caseWrite: { caseType: "patient", property: "stage" },
 			};
+			mapFieldToCaseType(built.doc, TEXT, "stage", "patient");
+			// The literal saves to the same property through a target Nova does
+			// not prove is the form's own case, so the two writers stand apart.
 			built.doc.forms[built.formUuid].caseOperations = [
+				...(built.doc.forms[built.formUuid].caseOperations ?? []),
 				update({
+					target: {
+						kind: "expression",
+						expr: term(prop("patient", "case_id")),
+					},
 					writes: [{ property: "stage", value: term(literal("pending")) }],
 				}),
 			];
@@ -1560,6 +1600,7 @@ describe("case-operation target and dependency safety", () => {
 	it("uses destination storage types without hiding incompatible value branches", () => {
 		const built = fixture();
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({ writes: [{ property: "weight", value: term(literal(7)) }] }),
 			update({
 				uuid: THIRD,
@@ -1569,6 +1610,7 @@ describe("case-operation target and dependency safety", () => {
 		];
 		expect(validateCandidate(built.doc)).toEqual([]);
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({
 				writes: [
 					{
@@ -1586,6 +1628,7 @@ describe("case-operation target and dependency safety", () => {
 			"CASE_OPERATION_EXPRESSION_TYPE",
 		);
 		built.doc.forms[built.formUuid].caseOperations = [
+			...ownArms(built.doc.forms[built.formUuid]),
 			update({
 				writes: [
 					{

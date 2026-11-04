@@ -17,9 +17,10 @@
 //   `label_media`) is for every visible-input field kind that
 //   genuinely always needs a label.
 // - `inputFieldBaseSchema` (fieldBase + the optional input-specific
-//   slots: `hint`, `help`, `help_media`, `required`, `relevant`,
-//   `caseWrite`) carries the input-specific wiring used by
-//   text/int/select/etc.
+//   slots: `hint`, `help`, `help_media`, `required`, `relevant`)
+//   carries the input-specific wiring used by text/int/select/etc. A
+//   field holds no case destination: what a form saves to a case lives
+//   on the form's case operations (`forms.ts`).
 //
 // Two message slots carry media: a visible field's label
 // (`label_media`) and an input's help (`help_media`), the image / audio /
@@ -46,10 +47,6 @@
 // whose label policy matches its semantics.
 
 import { z } from "zod";
-import {
-	type AuthoredCasePropertyName,
-	authoredCasePropertyNameSchema,
-} from "../casePropertyName";
 import { type Expression, formLogicSchema } from "../expression/types";
 import { type Media, mediaSchema } from "../multimedia";
 import {
@@ -115,36 +112,8 @@ export const containerFieldBase = structuralFieldBase.extend({
 });
 
 /**
- * One field's explicit case-storage destination.
- *
- * Field identity and storage identity are independent: `Field.id` is the
- * friendly form question/node name, while this pair is the case type and
- * property written on submit. The complete pair is optional; there is no
- * half-bound state and no inferred property fallback to `Field.id`.
- *
- * A capture field (image, audio, video, signature, file) takes this same
- * destination, and its write saves a link to the submitted file, never
- * the file. The capture's answer is a file name, so it can never be the
- * case value; the write reads the generated `nova_url_<question>` node
- * holding the CommCare HQ address of the file instead. It never names the
- * capture question itself: CommCare HQ routes an update whose question
- * path has an `<upload ref>` in the body into an `<attachment>` block,
- * purely structurally (`corehq/apps/app_manager/xform.py`
- * `::CaseBlock.add_case_updates`, `::CaseBlock.is_attachment`).
- */
-export interface CaseWrite {
-	caseType: string;
-	property: AuthoredCasePropertyName;
-}
-
-export const caseWriteSchema = z.strictObject({
-	caseType: z.string().min(1, "Case type must not be empty."),
-	property: authoredCasePropertyNameSchema,
-});
-
-/**
- * Input-capable fields additionally carry hint / required / relevant
- * / case wiring, and the help message's text + media pair.
+ * Input-capable fields additionally carry hint / required / relevant,
+ * and the help message's text + media pair.
  *
  * Layout of slots:
  *
@@ -165,7 +134,6 @@ export type InputFieldBase = FieldBase & {
 	help_media?: Media;
 	required?: Expression; // an expression, or the "true()" sentinel
 	relevant?: Expression;
-	caseWrite?: CaseWrite;
 };
 
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
@@ -174,7 +142,6 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
 	help_media: mediaSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
-	caseWrite: caseWriteSchema.optional(),
 });
 
 /**

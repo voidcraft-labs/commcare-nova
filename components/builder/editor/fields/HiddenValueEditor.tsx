@@ -17,16 +17,13 @@
  * holds neither slot (a fresh insertion, a conversion that carried nothing)
  * shows Keep in step at rest, because most hidden values track other
  * answers, so the person types straight into the mode they most likely want.
- * The one exception is a preloaded writer, where set once is a real fact
- * worth showing. Under the switch, a field with no value that writes a case
- * property says what each submission saves (`hiddenWriterBlankNote`) while
- * no other value is being chosen.
+ * Under the switch, a field with no value that writes a case property says
+ * what each submission saves (`hiddenWriterBlankNote`) while no other value
+ * is being chosen.
  *
- * On a one-case followup form where the field writes the loaded case's own
- * type, set once shows the preloaded-value row instead of an editor: the
- * case supplies the value, and a typed expression there would never run.
- * The mode stays selectable because on such a writer set once has a real
- * meaning (carry the case's value through unchanged).
+ * A field that opens with its case's current value holds that read as its
+ * set-once value (`fieldPreload`), shown as its card like any other
+ * starting value, and the line under the switch says so.
  *
  * `data-field-id` conventions: the mode switch is `value_mode`; the body is
  * the SHOWN slot key, so undo focus, `findFieldElement`, and Playwright
@@ -49,22 +46,20 @@ import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useHiddenWriterBlankNote } from "@/lib/doc/hooks/useHiddenWriterBlankNote";
 import {
 	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import {
 	type CommitOutcome,
+	fieldPreload,
 	type HiddenField,
-	hiddenWriterBlankNote,
-	writerPreloadsInContext,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
-import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { useSessionFocusHint } from "@/lib/session/hooks";
 import {
 	activeHiddenValueMode,
-	HIDDEN_VALUE_EMPTY_PATCH,
 	HIDDEN_VALUE_MODES,
 	type HiddenValueMode,
 	type HiddenValuePatch,
@@ -72,7 +67,6 @@ import {
 	hiddenValueModeSwitch,
 	hiddenValueSavePatch,
 } from "./hiddenValueModel";
-import { PreloadedValueRow } from "./PreloadedValueRow";
 
 const PROJECTION_FAILED =
 	"This expression contains a reference that no longer resolves. Re-enter the intended field or worker-information reference.";
@@ -83,18 +77,12 @@ export function HiddenValueEditor({
 	autoFocus,
 }: FieldEditorComponentProps<HiddenField, "calculate">) {
 	const storedMode = activeHiddenValueMode(field);
-	const formContext = useSelectedFormContext();
-	const preloads = writerPreloadsInContext(field, formContext);
-	const blankNote =
-		formContext === null
-			? undefined
-			: hiddenWriterBlankNote(field, formContext.module, formContext.form);
+	const preloads = fieldPreload(field) !== undefined;
+	const blankNote = useHiddenWriterBlankNote(field.uuid);
 	/* Whether the control shows keep in step over a set-once document. An
 	 * explicit choice is remembered per field (the instance is reused across
 	 * selections) and opens the editor; with no choice made, a field holding
-	 * neither slot shows keep in step at rest, except a
-	 * preloaded writer, where set once is the truth worth showing (the
-	 * case's value carries through). */
+	 * neither slot shows keep in step at rest. */
 	const [awaitingChoice, setAwaitingChoice] = useState<{
 		readonly uuid: string;
 		readonly awaiting: boolean;
@@ -103,7 +91,7 @@ export function HiddenValueEditor({
 		awaitingChoice?.uuid === field.uuid ? awaitingChoice.awaiting : undefined;
 	const awaitingCalculation =
 		storedMode === "default_value" &&
-		(chosen ?? (field.default_value === undefined && !preloads));
+		(chosen ?? field.default_value === undefined);
 	const mode: HiddenValueMode = awaitingCalculation ? "calculate" : storedMode;
 	const expression = mode === storedMode ? field[storedMode] : undefined;
 	const slot = { entity: "field" as const, uuid: field.uuid, slot: mode };
@@ -171,11 +159,6 @@ export function HiddenValueEditor({
 		[dispatch, field],
 	);
 
-	/* The preloaded row shows any stored default. */
-	const showsPreloadedRow = mode === "default_value" && preloads;
-	const stored =
-		showsPreloadedRow && expression !== undefined ? projection : undefined;
-
 	return (
 		<div className="space-y-2">
 			<span
@@ -208,31 +191,20 @@ export function HiddenValueEditor({
 					editing || chosen === true,
 				)}
 			</InspectorHint>
-			{showsPreloadedRow ? (
-				<PreloadedValueRow
-					keyName="default_value"
-					stored={stored}
-					onRemoveStored={() => dispatch(HIDDEN_VALUE_EMPTY_PATCH)}
+			<div data-field-id={mode}>
+				{/* `autoEdit` is read at mount, so the key carries both the
+				 * slot and a chosen keep in step: choosing it over the resting
+				 * editor remounts into editing. */}
+				<XPathField
+					key={chosen === true ? `${mode}:chosen` : mode}
+					value={projection.text}
+					onSave={handleSave}
 					getEditorContext={getEditorContext}
+					autoEdit={!!autoFocus || focusHint === mode || chosen === true}
+					onEditingChange={handleEditingChange}
 				/>
-			) : (
-				<div data-field-id={mode}>
-					{/* `autoEdit` is read at mount, so the key carries both the
-					 * slot and a chosen keep in step: choosing it over the resting
-					 * editor remounts into editing. */}
-					<XPathField
-						key={chosen === true ? `${mode}:chosen` : mode}
-						value={projection.text}
-						onSave={handleSave}
-						getEditorContext={getEditorContext}
-						autoEdit={!!autoFocus || focusHint === mode || chosen === true}
-						onEditingChange={handleEditingChange}
-					/>
-				</div>
-			)}
-			{!projection.ok && !showsPreloadedRow && (
-				<RejectionInline message={PROJECTION_FAILED} />
-			)}
+			</div>
+			{!projection.ok && <RejectionInline message={PROJECTION_FAILED} />}
 			<RejectionInline message={rejection} />
 		</div>
 	);

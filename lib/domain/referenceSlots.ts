@@ -27,10 +27,9 @@
 //
 // ## What is deliberately NOT here
 //
-//   - Derived case wiring (`case_preload`, form actions, child-case
-//     buckets): never stored on the doc — `lib/commcare`'s
-//     `deriveCaseConfig` re-derives it from each field's stable uuid,
-//     current path, and explicit `caseWrite` destination on demand.
+//   - Derived case wiring (form actions, Save to Case blocks): never
+//     stored on the doc — `lib/commcare` derives it from the form's case
+//     operations on demand.
 //   - Blueprint-root slots (`appId` / `appName` / `connectType` /
 //     `logo` / the order arrays / the `caseTypes` catalog): the
 //     registry's owning entities are field / form / module. The
@@ -117,8 +116,8 @@ export interface FieldReferenceSlot {
  * One reference-carrying slot on a `Form`. The form schema is one
  * object across all four form types, so applicability is semantic, not
  * structural: `formTypes` lists the types the slot is VALID on per the
- * validator's rules (a `closeCondition` off a close form is rejected
- * by `rules/form.ts::closeConditionValidation`), while the path
+ * validator's rules (a `closeCondition` off a registration or a close
+ * form is `CLOSE_CONDITION_WRONG_TYPE`), while the path
  * resolves on every form. Connect slots are additionally gated by the app-level
  * `connectType` (learn apps carry `assessment`, deliver apps carry
  * `deliver_unit`) — an app-level axis, so it isn't encoded per-slot.
@@ -172,7 +171,7 @@ export type ReferenceSlot =
 // each group exact against the per-kind schemas.
 
 /** Kinds extending `inputFieldBaseSchema` — full input wiring
- *  (hint / help / required / relevant / caseWrite). */
+ *  (hint / help / required / relevant). */
 const INPUT_KINDS = [
 	"text",
 	"int",
@@ -371,27 +370,6 @@ export const FIELD_REFERENCE_SLOTS = [
 		kind: "options-source",
 		appliesTo: SELECT_KINDS,
 	},
-	{
-		entity: "field",
-		slot: "case_write_case_type",
-		path: "caseWrite.caseType",
-		kind: "case-type-ref",
-		// One half of the field's explicit case-storage destination.
-		// The sibling `caseWrite.property` is registered independently as
-		// the name-backed property identity on that case type.
-		//
-		// Capture kinds belong here too: their destination is the same
-		// pair, and leaving them out would make an app-wide property
-		// rename silently miss every capture writer.
-		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS, "hidden"],
-	},
-	{
-		entity: "field",
-		slot: "case_write_property",
-		path: "caseWrite.property",
-		kind: "case-property-ref",
-		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS, "hidden"],
-	},
 ] as const satisfies readonly FieldReferenceSlot[];
 
 // ── Form slots ────────────────────────────────────────────────────
@@ -406,12 +384,22 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
-		slot: "close_condition_field",
-		path: "closeCondition.field",
-		// The checked field's stable uuid. Admission and validation reject a
-		// missing target; consumers never reinterpret this identity as an id.
-		kind: "entity-uuid",
-		formTypes: ["close"],
+		slot: "form_open_condition",
+		path: "openCondition",
+		// When a registration creates its case, read once as the form is
+		// submitted (`OPEN_CONDITION_WRONG_TYPE` off a registration).
+		kind: "expression",
+		formTypes: ["registration"],
+	},
+	{
+		entity: "form",
+		slot: "form_close_condition",
+		path: "closeCondition",
+		// When the form closes its own case, read once as the form is
+		// submitted (`CLOSE_CONDITION_WRONG_TYPE` off a registration or a
+		// close form).
+		kind: "expression",
+		formTypes: ["registration", "close"],
 	},
 	{
 		entity: "form",
@@ -554,6 +542,26 @@ export const FORM_REFERENCE_SLOTS = [
 		slot: "case_operation_write_condition",
 		path: "caseOperations[].writes[].condition",
 		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_write_via",
+		path: "caseOperations[].writes[].via",
+		// The index steps a write walks to the case above its operation's,
+		// each step the one a `prop` read's `ancestor` arm takes: a
+		// `throughCaseType` names a case type, and the walk decides which
+		// case type the write's property belongs to.
+		kind: "relation-path",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_placement_repeat",
+		path: "caseOperations[].placement.repeat",
+		// A held Save to Case placement's repeat, the operation's `forEach`
+		// repeat by the validator's `scope` rule.
+		kind: "entity-uuid",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -836,7 +844,21 @@ export function expressionSlotKey(ref: ExpressionSlotRef): string {
 	}
 	if ("linkUuid" in member) return JSON.stringify([...base, member.linkUuid]);
 	if ("property" in member) {
-		return JSON.stringify([...base, member.operationUuid, member.property]);
+		// A write's key is its property through its `via`: two writes of one
+		// property, one through `via`, are two slots.
+		return JSON.stringify([
+			...base,
+			member.operationUuid,
+			member.property,
+			...(member.via === undefined
+				? []
+				: [
+						member.via.map((step) => [
+							step.identifier,
+							step.throughCaseType ?? null,
+						]),
+					]),
+		]);
 	}
 	if ("identifier" in member) {
 		return JSON.stringify([...base, member.operationUuid, member.identifier]);
@@ -910,6 +932,8 @@ function expressionRefForEntry(
 	if (form === undefined) return undefined;
 	switch (entry.slot) {
 		case "form_display_condition":
+		case "form_open_condition":
+		case "form_close_condition":
 		case "assessment_user_score":
 		case "deliver_entity_id":
 		case "deliver_entity_name":
@@ -962,7 +986,11 @@ function expressionRefForEntry(
 						entity: "form",
 						uuid,
 						slot: entry.slot,
-						member: { operationUuid: operation.uuid, property: write.property },
+						member: {
+							operationUuid: operation.uuid,
+							property: write.property,
+							...(write.via === undefined ? {} : { via: write.via }),
+						},
 					};
 		}
 		case "case_operation_link_target_expression": {
@@ -1331,8 +1359,6 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	hiddenFromMenu: "config",
 	"entry.kind": "discriminator",
 	"entry.label": "display-text",
-	"closeCondition.answer": "data-literal",
-	"closeCondition.operator": "config",
 	"formLinks[].uuid": "identity",
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
@@ -1341,6 +1367,16 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].links[].identifier": "wire-token",
 	"caseOperations[].links[].target.kind": "discriminator",
 	"caseOperations[].links[].relationship": "config",
+	"caseOperations[].writes[].onlyIfChanged": "config",
+	// A held placement names the slot or the block CommCare HQ keeps the
+	// change in: closed enums, an index, and the element names of a Save to
+	// Case block's path in the form's source.
+	"caseOperations[].placement.kind": "discriminator",
+	"caseOperations[].placement.slot": "discriminator",
+	"caseOperations[].placement.index": "config",
+	"caseOperations[].placement.path": "wire-token",
+	"ownClosePlacement.kind": "discriminator",
+	"ownClosePlacement.path": "wire-token",
 	"connect.learn_module.id": "declaration",
 	"connect.learn_module.name": "display-text",
 	"connect.learn_module.description": "display-text",

@@ -21,7 +21,7 @@ import {
 	type AfterSubmitTargetVisibility,
 	afterSubmitRoute,
 	afterSubmitTargetVisibility,
-	carriedChildCasesFromReceipt,
+	carriedCasesFromPatch,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "@/lib/preview/afterSubmitRouting";
@@ -676,92 +676,50 @@ describe("moduleLanding", () => {
 	});
 });
 
-describe("created-child receipt projection", () => {
-	it("joins every two-child x two-parent receipt record to its authored after-submit metadata", () => {
-		const childCases = carriedChildCasesFromReceipt({
-			authoredChildren: [
-				{ caseType: "encounter", caseName: "Encounter" },
-				{ caseType: "referral", caseName: "Referral" },
-			],
-			parentCaseIds: ["parent-second", "parent-first"],
-			createdChildren: [
-				{
-					authoredChildIndex: 0,
-					parentCaseId: "parent-second",
-					caseId: "encounter-second",
-				},
-				{
-					authoredChildIndex: 0,
-					parentCaseId: "parent-first",
-					caseId: "encounter-first",
-				},
-				{
-					authoredChildIndex: 1,
-					parentCaseId: "parent-second",
-					caseId: "referral-second",
-				},
-				{
-					authoredChildIndex: 1,
-					parentCaseId: "parent-first",
-					caseId: "referral-first",
-				},
-			],
-		});
+describe("cases a submission changed, read from its patch", () => {
+	const row = (caseId: string, caseType: string, caseName: string) => ({
+		case_id: caseId,
+		app_id: "app-1",
+		case_type: caseType,
+		owner_id: "worker-1",
+		status: "open",
+		opened_on: new Date("2026-08-01T00:00:00.000Z"),
+		modified_on: new Date("2026-08-02T00:00:00.000Z"),
+		closed_on: null,
+		case_name: caseName,
+		external_id: null,
+		parent_case_id: null,
+		properties: {},
+	});
 
-		expect(childCases).toEqual([
-			{
-				caseType: "encounter",
-				caseName: "Encounter",
-				caseId: "encounter-second",
-			},
-			{
-				caseType: "encounter",
-				caseName: "Encounter",
-				caseId: "encounter-first",
-			},
-			{
-				caseType: "referral",
-				caseName: "Referral",
-				caseId: "referral-second",
-			},
-			{
-				caseType: "referral",
-				caseName: "Referral",
-				caseId: "referral-first",
-			},
-		]);
+	it("names every changed case but the ones the form was opened for or registered", () => {
+		// A created case's datum reads its name from here once it exists; the
+		// form's own case is named by its own read-back.
 		expect(
-			carriedChildCasesFromReceipt({
-				createdChildren: undefined,
-				authoredChildren: [{ caseType: "encounter", caseName: "Encounter" }],
-				parentCaseIds: ["parent"],
+			carriedCasesFromPatch({
+				caseDatabasePatch: {
+					rows: [
+						row("patient-1", "patient", "Amina"),
+						row("visit-1", "visit", "First visit"),
+						row("worker-1", "commcare-user", ""),
+					],
+				},
+				primaryCaseIds: ["patient-1"],
+			}),
+		).toEqual([
+			{ caseType: "visit", caseId: "visit-1", caseName: "First visit" },
+			{ caseType: "commcare-user", caseId: "worker-1" },
+		]);
+	});
+
+	it("names none for a historical receipt that saved no patch", () => {
+		expect(
+			carriedCasesFromPatch({
+				caseDatabasePatch: undefined,
+				primaryCaseIds: ["patient-1"],
 			}),
 		).toEqual([]);
 	});
-});
-
-it("rejects incomplete and duplicate created-child receipts before routing", () => {
-	const authoredChildren = [{ caseType: "visit" }];
-	const parentCaseIds = ["first", "second"];
-	expect(() =>
-		carriedChildCasesFromReceipt({
-			authoredChildren,
-			parentCaseIds,
-			createdChildren: [
-				{ authoredChildIndex: 0, parentCaseId: "first", caseId: "visit-1" },
-			],
-		}),
-	).toThrow(/incomplete/);
-	expect(() =>
-		carriedChildCasesFromReceipt({
-			authoredChildren,
-			parentCaseIds,
-			createdChildren: [
-				{ authoredChildIndex: 0, parentCaseId: "first", caseId: "visit-1" },
-				{ authoredChildIndex: 0, parentCaseId: "first", caseId: "visit-2" },
-			],
-		}),
-	).toThrow(/invalid/);
 });
 
 describe("afterSubmitRoute per platform", () => {

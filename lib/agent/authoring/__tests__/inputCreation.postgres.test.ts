@@ -3,7 +3,6 @@ import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeDurableAuthoringHarness } from "@/lib/agent/__tests__/durableAuthoringHarness";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { FormEngine } from "@/lib/preview/engine/formEngine";
 
 const db = setupAppStateTestDb("authoring_input_creation_", {
 	authSchema: "migrated",
@@ -47,31 +46,28 @@ it("creates and edits record names without making the author construct name writ
 		(form) => form.name === "Lend",
 	);
 	if (!form) throw new Error("The form was not created.");
-	const submission = async () => {
-		const doc = await h.currentDoc();
-		const engine = new FormEngine(
-			{
-				doc,
-				form: doc.forms[form.uuid],
-				formUuid: form.uuid,
-				fields: doc.fields,
-				fieldOrder: doc.fieldOrder,
-				caseTypes: doc.caseTypes ?? [],
-			},
-			"loan",
-		);
-		engine.setValue("/data/borrower", "Ada");
-		engine.setValue("/data/tool", "Drill");
-		return engine.computeSubmissionMutation({
-			entryKey: "11111111-1111-4111-8111-111111111111",
-		});
+	// The form's own case takes the name and saves both answers; the
+	// server evaluates them at submission.
+	const ownCase = async () => {
+		const own = (await h.currentDoc()).forms[form.uuid].caseOperations?.[0];
+		if (own?.action !== "own") throw new Error("Missing the own case.");
+		return own;
 	};
-	expect(await submission()).toMatchObject({
-		kind: "registration",
-		primary: {
-			caseName: "Ada - Drill",
-			properties: { borrower: "Ada", tool: "Drill" },
-		},
+	const answer = (id: string) => async () => {
+		const field = Object.values((await h.currentDoc()).fields).find(
+			(candidate) => candidate.id === id,
+		);
+		if (!field) throw new Error(`Missing question ${id}.`);
+		return { kind: "term", term: { kind: "field", uuid: field.uuid } };
+	};
+	const borrower = await answer("borrower")();
+	const tool = await answer("tool")();
+	expect(await ownCase()).toMatchObject({
+		name: { kind: "concat" },
+		writes: [
+			{ property: "borrower", value: borrower },
+			{ property: "tool", value: tool },
+		],
 	});
 	const read = z
 		.object({ recordName: z.string() })
@@ -88,12 +84,12 @@ it("creates and edits record names without making the author construct name writ
 		moduleUuid: "Loans",
 		recordName: "#form/borrower",
 	});
-	expect(await submission()).toMatchObject({
-		kind: "registration",
-		primary: {
-			caseName: "Ada",
-			properties: { borrower: "Ada", tool: "Drill" },
-		},
+	expect(await ownCase()).toMatchObject({
+		name: borrower,
+		writes: [
+			{ property: "borrower", value: borrower },
+			{ property: "tool", value: tool },
+		],
 	});
 	await h.call("createForm", {
 		moduleUuid: "Loans",
@@ -115,23 +111,12 @@ it("creates and edits record names without making the author construct name writ
 	);
 	if (!quick) throw new Error("The quick form was not created.");
 	const doc = await h.currentDoc();
-	const engine = new FormEngine(
-		{
-			doc,
-			form: quick,
-			formUuid: quick.uuid,
-			fields: doc.fields,
-			fieldOrder: doc.fieldOrder,
-			caseTypes: doc.caseTypes ?? [],
-		},
-		"loan",
-	);
-	engine.setValue("/data/name", "Saw for Bea");
-	expect(
-		engine.computeSubmissionMutation({
-			entryKey: "11111111-1111-4111-8111-111111111111",
-		}),
-	).toMatchObject({ primary: { caseName: "Saw for Bea" } });
+	// The name is the own case's, read from the answer; no question stands
+	// in for it.
+	expect(quick.caseOperations?.[0]).toMatchObject({
+		action: "own",
+		name: await answer("name")(),
+	});
 	expect(doc.fieldOrder[quick.uuid]).toHaveLength(1);
 	expect(await h.save()).toMatchObject({ saved: true });
 });

@@ -114,9 +114,9 @@ export function hiddenValueModeSwitch(
 }
 
 /**
- * The quiet line under the mode switch. `preloads` is true when the field
- * writes the loaded case's own type on a one-case form, so set once means
- * the case's value is carried through rather than a typed expression.
+ * The quiet line under the mode switch. `preloads` is true when the field's
+ * set-once value is its case's current value (`fieldPreload`), so set once
+ * carries that value through rather than a typed expression.
  * `blankNote` is `hiddenWriterBlankNote`'s sentence for a field with no
  * value that writes a case property; where it answers, it is the line, but
  * only for the field as stored: while `choosing` (the editor is open, or keep
@@ -131,9 +131,7 @@ export function hiddenValueModeHint(
 ): string {
 	if (blankNote !== undefined && !choosing) return blankNote;
 	if (mode === "calculate") {
-		return preloads
-			? "Recalculates whenever a value it uses changes and each time the form opens. The result replaces this case's current value."
-			: "Recalculates whenever a value it uses changes and each time the form opens, a reopened saved form included.";
+		return "Recalculates whenever a value it uses changes and each time the form opens, a reopened saved form included.";
 	}
 	return preloads
 		? "Opens with this case's current value and carries it through unchanged."

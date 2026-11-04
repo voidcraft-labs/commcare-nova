@@ -142,19 +142,21 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 				ctx,
 			),
 	});
+	// The form's case changes, its own case's included, run at submission,
+	// which a form check does not perform.
 	expect(outcome.data).toMatchObject({
 		valid: true,
 		proposedValues: {
 			kind: "close",
 			caseIds: [ownCase.caseId],
-			patch: { properties: { condition: "Worn" } },
+			caseOperations: "not-evaluated",
 		},
 	});
 	expect(outcome.data).not.toHaveProperty("submission");
 	expect(outcome.data).toHaveProperty("proposedValues", {
 		kind: "close",
 		caseIds: [ownCase.caseId],
-		patch: { properties: { condition: "Worn" } },
+		caseOperations: "not-evaluated",
 	});
 	const scenario = {
 		records: [
@@ -193,7 +195,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 		valid: true,
 		proposedValues: {
 			caseIds: ["example"],
-			patch: { properties: { condition: "Worn" } },
+			caseOperations: "not-evaluated",
 		},
 	});
 	expect(

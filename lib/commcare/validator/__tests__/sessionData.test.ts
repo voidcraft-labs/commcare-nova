@@ -1,7 +1,10 @@
 /** Session names bind at parse time; saved reads retain domain entry identity. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	caseListConfig,
+	lowerFixtureCaseWrites,
+} from "@/lib/__tests__/docHelpers";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -81,6 +84,10 @@ describe("session datum admission", () => {
 		const doc = readDoc(selectedCase);
 		doc.forms[ids.form].type = "survey";
 		delete doc.forms[ids.form].formLinks;
+		// A survey holds no own case: the type change takes it with it.
+		doc.forms[ids.form].caseOperations = doc.forms[
+			ids.form
+		].caseOperations?.filter((operation) => operation.action !== "own");
 		const findings = runValidation(
 			structuredClone(doc),
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -240,7 +247,15 @@ describe("session datum admission", () => {
 			kind: "count",
 			via: { kind: "selected-cases", module: reads.batch },
 		};
-		probe.caseWrite = { caseType: "commcare-user", property: "closed_count" };
+		lowerFixtureCaseWrites(
+			doc,
+			new Map([
+				[
+					reads.closeProbe,
+					{ caseType: "commcare-user", property: "closed_count" },
+				],
+			]),
+		);
 		const link = testUuid("session-data-batch-link");
 		doc.forms[reads.close].formLinks = [
 			{ uuid: link, target: { type: "module", moduleUuid: reads.batch } },

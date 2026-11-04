@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
+import { ownCaseUuidFor } from "@/lib/doc/__tests__/ownCaseFixture";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import {
 	type CaseOperation,
 	collectTranslationUnits,
-	type Field,
 	makeTranslationUnitId,
 	materializableCaseTypes,
 	type Uuid,
@@ -660,18 +660,38 @@ describe("EngineController async runtime", () => {
 		requests.length = 0;
 		const before = store.getState();
 
+		// The answer now saves to `nickname` in place of `age`: the own case's
+		// write moves, and nothing a worker evaluates changes.
+		const ownCase = ownCaseUuidFor(FORM_UUID);
 		applyControllerEdit(store, [
 			{
-				kind: "updateField",
-				uuid: FIELD_UUID,
-				targetKind: "hidden",
-				patch: { caseWrite: { caseType: "patient", property: "nickname" } },
+				kind: "updateForm",
+				uuid: FORM_UUID,
+				patch: {},
+				caseOperationPatch: {
+					operation: "remove-write",
+					uuid: ownCase,
+					key: { property: "age" },
+				},
+			},
+			{
+				kind: "updateForm",
+				uuid: FORM_UUID,
+				patch: {},
+				caseOperationPatch: {
+					operation: "add-write",
+					uuid: ownCase,
+					value: {
+						property: "nickname",
+						value: { kind: "term", term: { kind: "field", uuid: FIELD_UUID } },
+					},
+				},
 			},
 		]);
 		await ctrl.awaitSettled();
 
 		expect(store.getState().caseTypes).toBe(before.caseTypes);
-		expect(store.getState().forms[FORM_UUID]).toBe(before.forms[FORM_UUID]);
+		expect(store.getState().fields).toBe(before.fields);
 		expect(store.getState().fieldOrder).toBe(before.fieldOrder);
 		expect(
 			requests.map((request) => ({
@@ -681,22 +701,14 @@ describe("EngineController async runtime", () => {
 		).toEqual([]);
 		const snapshot = await ctrl.computeSubmissionMutationAsync({}, entryKey);
 		expect(snapshot?.documentState).toBe(store.getState());
-		const submittedField = snapshot?.documentState.fields[FIELD_UUID] as
-			| Extract<Field, { kind: "hidden" }>
-			| undefined;
-		expect(submittedField?.caseWrite).toEqual({
-			caseType: "patient",
-			property: "nickname",
-		});
-		expect(snapshot?.mutation).toMatchObject({
-			kind: "registration",
-			primary: {
-				caseType: "patient",
-				caseName: "Patient",
-				properties: { nickname: "ready" },
-			},
-		});
-		expect(snapshot?.mutation).not.toHaveProperty("primary.properties.age");
+		const own = snapshot?.documentState.forms[FORM_UUID]?.caseOperations?.[0];
+		expect(own?.writes?.map((write) => write.property)).toEqual(["nickname"]);
+		expect(snapshot?.mutation.kind).toBe("registration");
+		expect(
+			snapshot?.mutation.operationAnswers?.root.find(
+				(entry) => entry.fieldUuid === FIELD_UUID,
+			)?.value,
+		).toBe("ready");
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		ctrl.dispose();
 	});
@@ -840,7 +852,7 @@ describe("EngineController async runtime", () => {
 				caseOperationPatch: {
 					operation: "update-write",
 					uuid: OPERATION_UUID,
-					property: "score",
+					key: { property: "score" },
 					patch: { value: term(literal("text score")) },
 				},
 			},
@@ -858,10 +870,12 @@ describe("EngineController async runtime", () => {
 		if (entryKey === undefined) throw new Error("Expected entry");
 		const snapshot = await ctrl.computeSubmissionMutationAsync({}, entryKey);
 		expect(snapshot?.documentState).toBe(store.getState());
-		expect(snapshot?.mutation).toMatchObject({
-			kind: "registration",
-			primary: { properties: { score: "8" } },
-		});
+		expect(snapshot?.mutation.kind).toBe("registration");
+		expect(
+			snapshot?.mutation.operationAnswers?.root.find(
+				(entry) => entry.fieldUuid === RESULT_FIELD_UUID,
+			)?.value,
+		).toBe("8");
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		ctrl.dispose();
 	});

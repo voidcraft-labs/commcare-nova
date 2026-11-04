@@ -367,7 +367,9 @@ function fixedOwnerDoc() {
 		],
 	});
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	// After the own case `buildDoc` gives the follow-up.
 	doc.forms[formUuid].caseOperations = [
+		...(doc.forms[formUuid].caseOperations ?? []),
 		{
 			uuid: testUuid("11111111-1111-4111-8111-111111111111"),
 			id: "set_owner",
@@ -398,7 +400,9 @@ const CLINIC = testUuid("33333333-3333-4333-8333-333333333333");
 function reverseOwnerDoc() {
 	const doc = fixedOwnerDoc();
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	const operation = doc.forms[formUuid].caseOperations?.[0];
+	const operation = doc.forms[formUuid].caseOperations?.find(
+		(candidate) => candidate.id === "set_owner",
+	);
 	if (operation === undefined) throw new Error("owner operation missing");
 	operation.owner = term(ownerLocationAtLevel(CLINIC, "patient"));
 	const levels: Record<string, OrganizationLevel> = {

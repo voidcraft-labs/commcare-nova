@@ -2,6 +2,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
 import { assertNever } from "@/lib/utils/assertNever";
+import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
 
 export interface MutationSequenceAdmissionIssue {
 	readonly mutationIndex: number;
@@ -124,10 +125,7 @@ function stateFromDoc(doc: BlueprintDoc): SequenceState {
 		);
 		for (const operation of operations) {
 			const key = operationKey(form.uuid, operation.uuid);
-			operationWrites.set(
-				key,
-				(operation.writes ?? []).map((write) => write.property),
-			);
+			operationWrites.set(key, (operation.writes ?? []).map(caseWriteIdOf));
 			operationLinks.set(
 				key,
 				(operation.links ?? []).map((link) => link.identifier),
@@ -285,10 +283,7 @@ function seedOperation(
 	>[number],
 ): void {
 	const key = operationKey(formUuid, operation.uuid);
-	state.operationWrites.set(
-		key,
-		(operation.writes ?? []).map((write) => write.property),
-	);
+	state.operationWrites.set(key, (operation.writes ?? []).map(caseWriteIdOf));
 	state.operationLinks.set(
 		key,
 		(operation.links ?? []).map((link) => link.identifier),
@@ -531,7 +526,9 @@ export function mutationSequenceAdmissionIssue(
 					const order = state.operationOrder.get(mutation.uuid) ?? [];
 					state.operationOrder.set(mutation.uuid, order);
 					if (change.operation === "add") {
-						order.push(change.value.uuid);
+						// The own arm lands first, as the reducer places it.
+						if (change.value.action === "own") order.unshift(change.value.uuid);
+						else order.push(change.value.uuid);
 						seedOperation(state, mutation.uuid, change.value);
 					} else {
 						removeMember(order, change.uuid);
@@ -548,12 +545,18 @@ export function mutationSequenceAdmissionIssue(
 						break;
 					case "add-write": {
 						const order = state.operationWrites.get(key) ?? [];
-						if (!place(order, patch.value.property, patch.after)) {
+						if (
+							!place(
+								order,
+								caseWriteIdOf(patch.value),
+								patch.after == null ? patch.after : caseWriteKeyId(patch.after),
+							)
+						) {
 							return issue(
 								mutation,
 								mutationIndex,
 								`case operation ${patch.uuid} writes`,
-								patch.after,
+								patch.after?.property,
 							);
 						}
 						state.operationWrites.set(key, order);
@@ -562,16 +565,26 @@ export function mutationSequenceAdmissionIssue(
 					case "update-write":
 						break;
 					case "remove-write":
-						removeMember(state.operationWrites.get(key), patch.property);
+						removeMember(
+							state.operationWrites.get(key),
+							caseWriteKeyId(patch.key),
+						);
 						break;
 					case "move-write": {
 						const order = state.operationWrites.get(key) ?? [];
-						if (!place(order, patch.property, patch.after, true)) {
+						if (
+							!place(
+								order,
+								caseWriteKeyId(patch.key),
+								patch.after === null ? null : caseWriteKeyId(patch.after),
+								true,
+							)
+						) {
 							return issue(
 								mutation,
 								mutationIndex,
 								`case operation ${patch.uuid} writes`,
-								patch.after,
+								patch.after?.property,
 							);
 						}
 						state.operationWrites.set(key, order);

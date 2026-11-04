@@ -27,7 +27,11 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import { type BlueprintDoc, fieldCaseWrite, type Persona } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	fieldCaseWriteViews,
+	type Persona,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
 import { applyBlueprintChange as applyBlueprintChangeOpaque } from "../applyBlueprintChange";
@@ -526,10 +530,12 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 
 		// The conversion was queued when this writer still targeted patient.a.
 		const queuedAgainst = writerDoc("text", "patient", "a");
-		expect(fieldCaseWrite(queuedAgainst.fields[fieldUuid])).toEqual({
-			caseType: "patient",
-			property: "a",
-		});
+		expect(
+			fieldCaseWriteViews(queuedAgainst, fieldUuid).map((view) => ({
+				caseType: view.caseType,
+				property: view.property,
+			})),
+		).toEqual([{ caseType: "patient", property: "a" }]);
 
 		// A peer retargeted the same UUID to visit.b before our writer acquired
 		// the app lock. The guarded writer replays convertField on this fresh doc.

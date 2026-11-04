@@ -1,7 +1,8 @@
 import type { Draft } from "immer";
+import { caseWriteIdOf, caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { caseOperationSchema } from "@/lib/domain";
+import { caseOperationSchema, type Form } from "@/lib/domain";
 import { cascadeDeleteForm } from "./helpers";
 import { postSubmitBefore, reconcilePostSubmitWithMenuShape } from "./modules";
 
@@ -55,6 +56,20 @@ function spliceNamedAfter<T>(
 	const at = rest.findIndex((item) => keyOf(item) === after);
 	if (at < 0) return [...items];
 	return [...rest.slice(0, at + 1), moving, ...rest.slice(at + 1)];
+}
+
+/**
+ * "Every time" has one spelling per form type. An open condition that is
+ * `match-all` means a registration opens its case on every submission, which
+ * is what an absent one means, so it is stored absent; so is a close form's
+ * `match-all` close condition. A registration's close condition keeps
+ * `match-all`, because there absent means "never close" and `match-all` is
+ * "close every time".
+ */
+function storeEveryTimeAsAbsent(form: Draft<Form>): void {
+	if (form.openCondition?.kind === "match-all") delete form.openCondition;
+	if (form.type === "close" && form.closeCondition?.kind === "match-all")
+		delete form.closeCondition;
 }
 
 export function applyFormMutation(
@@ -239,6 +254,7 @@ export function applyFormMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
+			storeEveryTimeAsAbsent(form);
 			const operations = form.caseOperations ?? [];
 			const operation = (
 				uuid: NonNullable<typeof mut.caseOperationPatch>["uuid"],
@@ -285,18 +301,21 @@ export function applyFormMutation(
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
 						const writes = current.writes ?? [];
-						if (
-							writes.some((write) => write.property === semantic.value.property)
-						) {
+						const added = caseWriteIdOf(semantic.value);
+						if (writes.some((write) => caseWriteIdOf(write) === added)) {
 							return;
 						}
+						const anchor =
+							semantic.after === undefined || semantic.after === null
+								? semantic.after
+								: caseWriteKeyId(semantic.after);
 						const index =
-							semantic.after === undefined
+							anchor === undefined
 								? writes.length
-								: semantic.after === null
+								: anchor === null
 									? 0
 									: writes.findIndex(
-											(write) => write.property === semantic.after,
+											(write) => caseWriteIdOf(write) === anchor,
 										) + 1;
 						if (
 							index === 0 &&
@@ -318,8 +337,9 @@ export function applyFormMutation(
 					}
 					case "update-write": {
 						const current = operation(semantic.uuid);
+						const key = caseWriteKeyId(semantic.key);
 						const write = current?.writes?.find(
-							(candidate) => candidate.property === semantic.property,
+							(candidate) => caseWriteIdOf(candidate) === key,
 						);
 						if (write === undefined) return;
 						applyPatch(
@@ -332,8 +352,9 @@ export function applyFormMutation(
 					case "remove-write": {
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
+						const key = caseWriteKeyId(semantic.key);
 						const writes = (current.writes ?? []).filter(
-							(write) => write.property !== semantic.property,
+							(write) => caseWriteIdOf(write) !== key,
 						);
 						if (writes.length === 0) delete current.writes;
 						else current.writes = writes;
@@ -346,9 +367,9 @@ export function applyFormMutation(
 						const writes = current.writes ?? [];
 						current.writes = spliceNamedAfter(
 							writes,
-							semantic.property,
-							semantic.after,
-							(write) => write.property,
+							caseWriteKeyId(semantic.key),
+							semantic.after === null ? null : caseWriteKeyId(semantic.after),
+							caseWriteIdOf,
 						);
 						form.caseOperations = operations;
 						return;
@@ -462,7 +483,12 @@ export function applyFormMutation(
 						// the save 500s. Worse, the first apply's later mutations write
 						// THROUGH the alias into the event: the stored `add` ends up
 						// carrying links and writes it never authored.
-						operations.push(structuredClone(change.value));
+						// The own arm is always the first change (`CASE_OWN_OPERATION`
+						// reason `position`), so it lands at the front; every other
+						// add appends, and a `move` places it.
+						if (change.value.action === "own")
+							operations.unshift(structuredClone(change.value));
+						else operations.push(structuredClone(change.value));
 						form.caseOperations = operations;
 					}
 					return;

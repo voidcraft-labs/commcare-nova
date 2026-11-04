@@ -7,8 +7,9 @@ import {
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type Mutation, mutationSchema } from "@/lib/doc/types";
+import { type Mutation, mutationSchema, type Uuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	hiddenSearchInputDef,
@@ -17,6 +18,7 @@ import {
 import {
 	eq,
 	exists,
+	formField,
 	literal,
 	now,
 	ownerLocationAtLevel,
@@ -111,6 +113,37 @@ function fixture(): BlueprintDoc {
 	assertAdmittedDoc(doc);
 	return doc;
 }
+/** The patient form with a question that names a new visit beneath the
+ *  patient, through the one "Saves to" planner. */
+function withChildVisit(doc: BlueprintDoc, nameUuid: Uuid): BlueprintDoc {
+	const added = commit(doc, [
+		{
+			kind: "addField",
+			parentUuid: PATIENT_FORM,
+			field: {
+				uuid: nameUuid,
+				id: "visit_name",
+				kind: "text",
+				label: proseText("Visit name"),
+			},
+		},
+	]);
+	return savesToVisit(added, nameUuid, "case_name");
+}
+
+function savesToVisit(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+	property: string,
+): BlueprintDoc {
+	const plan = planFieldCaseWrite(doc, fieldUuid, {
+		caseType: "visit",
+		property,
+	});
+	if (!plan.ok) throw new Error(plan.message);
+	return commit(doc, plan.mutations);
+}
+
 function commit(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
@@ -269,6 +302,7 @@ describe("case type retirement from admitted workflows", () => {
 	it("names independent case operations outside the removed module", () => {
 		const doc = fixture();
 		doc.forms[PATIENT_FORM].caseOperations = [
+			...(doc.forms[PATIENT_FORM].caseOperations ?? []),
 			{
 				uuid: testUuid("retire-create-visit"),
 				id: "create_visit",
@@ -285,33 +319,37 @@ describe("case type retirement from admitted workflows", () => {
 	it("names both writers that create a child case in another module", () => {
 		const doc = fixture();
 		parent(doc, "visit", "patient");
-		const nameUuid = testUuid("retire-child-name");
-		const next = commit(doc, [
-			{
-				kind: "addField",
-				parentUuid: PATIENT_FORM,
-				field: {
-					uuid: nameUuid,
-					id: "visit_name",
-					kind: "text",
-					label: proseText("Visit name"),
-					caseWrite: { caseType: "visit", property: "case_name" },
-				},
-			},
-			{
-				kind: "updateField",
-				uuid: SUMMARY,
-				targetKind: "text",
-				patch: { caseWrite: { caseType: "visit", property: "summary" } },
-			},
-		]);
-		const plan = blocked(next);
+		const next = withChildVisit(doc, testUuid("retire-child-name"));
+		const created = savesToVisit(next, SUMMARY, "summary");
+		const create = created.forms[PATIENT_FORM].caseOperations?.find(
+			(operation) => operation.action === "create",
+		);
+		expect(create).toMatchObject({ caseType: "visit" });
+		const plan = blocked(created);
+		// Both questions save to the one case the form creates, so the
+		// operation that creates it is the one reference.
 		expect(plan.references).toEqual([
-			'field "summary" in form "Review patient" (module "Patients") saves to it (caseWrite.caseType)',
-			'field "visit_name" in form "Review patient" (module "Patients") saves to it (caseWrite.caseType)',
+			`case operation "${create?.id}" in form "Review patient" (module "Patients") targets "visit"`,
 		]);
-		expect(plan.userMessage).toContain('field "summary"');
-		expect(plan.userMessage).not.toContain("caseWrite.caseType");
+		expect(plan.userMessage).toContain(`case operation "${create?.id}"`);
+	});
+	it("names a write of the own case that saves through the retiring type", () => {
+		const doc = fixture();
+		parent(doc, "visit", "patient");
+		const own = doc.forms[VISIT_FORM].caseOperations?.[0];
+		if (own?.action !== "own") throw new Error("Record visit has no own case.");
+		own.writes = [
+			...(own.writes ?? []),
+			{
+				property: "village",
+				value: term(formField(doc.fieldOrder[VISIT_FORM][0])),
+				via: [{ identifier: "parent", throughCaseType: "patient" }],
+			},
+		];
+		assertAdmittedDoc(doc);
+		expect(blocked(doc, PATIENT).references).toContain(
+			`case operation "${own.id}" in form "Record visit" (module "Visits") saves "village" through a "patient" case`,
+		);
 	});
 	it("names typed XPath and prose reads of an ancestor case", () => {
 		const doc = fixture();
@@ -366,18 +404,8 @@ describe("case type retirement from admitted workflows", () => {
 	it("names a newly created child record's typed session datum", () => {
 		const doc = fixture();
 		parent(doc, "visit", "patient");
-		const next = commit(doc, [
-			{
-				kind: "addField",
-				parentUuid: PATIENT_FORM,
-				field: {
-					uuid: testUuid("retire-datum-child-name"),
-					id: "visit_name",
-					kind: "text",
-					label: proseText("Visit name"),
-					caseWrite: { caseType: "visit", property: "case_name" },
-				},
-			},
+		const named = withChildVisit(doc, testUuid("retire-datum-child-name"));
+		const next = commit(named, [
 			{
 				kind: "updateField",
 				uuid: SUMMARY,
@@ -400,13 +428,16 @@ describe("case type retirement from admitted workflows", () => {
 	it("keeps selected-record datums attached to their module during a retype", () => {
 		const doc = fixture();
 		const fieldUuid = doc.fieldOrder[VISIT_FORM][0];
+		const stopped = planFieldCaseWrite(doc, fieldUuid, null);
+		if (!stopped.ok) throw new Error(stopped.message);
 		const next = commit(doc, [
+			...stopped.mutations,
 			{
 				kind: "updateField",
 				uuid: fieldUuid,
 				targetKind: "text",
 				patch: {
-					caseWrite: null,
+					default_value: null,
 					relevant: eq(
 						term({
 							kind: "session-datum",
@@ -496,6 +527,7 @@ describe("case type retirement from admitted workflows", () => {
 		};
 		doc.organizationLevelOrder = [region, facility];
 		doc.forms[VISIT_FORM].caseOperations = [
+			...(doc.forms[VISIT_FORM].caseOperations ?? []),
 			{
 				uuid: testUuid("retire-owner-operation"),
 				id: "reverse_owner",
@@ -553,7 +585,7 @@ describe("case type retirement from admitted workflows", () => {
 		expect(plan.kind).toBe("blocked");
 		if (plan.kind !== "blocked") throw new Error("expected reference blocker");
 		expect(plan.references).toEqual([
-			'field "case_name" in form "Record visit" (module "Visits") saves to it (caseWrite.caseType)',
+			'field "case_name" in form "Record visit" (module "Visits") references #visit/… in its "default_value" expression',
 		]);
 		expect(planCaseTypeRetirementOnRetype(doc, VISIT, "visit")).toEqual({
 			kind: "none",

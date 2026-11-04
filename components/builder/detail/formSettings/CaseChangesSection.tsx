@@ -2,8 +2,8 @@
 //
 // The form-settings row that leads to a form's case changes.
 //
-// This row describes configured advanced actions. Ordinary registration and
-// field writes belong to the form and are not counted here.
+// Every change a submission makes to cases is one of the form's case
+// changes, the form's own case first, so the count is all of them.
 
 "use client";
 
@@ -33,14 +33,14 @@ export function CaseChangesSection({
 		<section className="space-y-3">
 			<div>
 				<h3 className="text-[13px] font-medium leading-5 text-nova-text-secondary">
-					Additional case changes
+					Case changes
 				</h3>
 				<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
 					{count === 0
-						? "No additional case changes are configured."
+						? "Submitting this form doesn't change any cases."
 						: count === 1
-							? "1 additional case change is configured."
-							: `${count} additional case changes are configured.`}
+							? "Submitting this form makes 1 case change."
+							: `Submitting this form makes ${count} case changes.`}
 				</p>
 			</div>
 			<Button

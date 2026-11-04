@@ -28,6 +28,7 @@ import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import {
 	loadCaseDataAction,
+	loadCaseDatabaseSnapshotAction,
 	loadCasesAction,
 	submitFormAction,
 } from "@/lib/preview/engine/caseDataBinding";
@@ -151,6 +152,9 @@ function buildFixtureDoc(): BlueprintDoc {
 								kind: "int",
 								id: "age",
 								label: proseText("Age"),
+								// A preload is the question's starting value: it opens with
+								// the patient's age.
+								default_value: "#patient/age",
 								caseWrite: { caseType: "patient", property: "age" },
 							}),
 						],
@@ -193,11 +197,25 @@ async function controllerFor(formUuid: Uuid, caseId?: string) {
 		const result = await loadCaseDataAction(APP_ID, "patient", caseId, 0);
 		if (result.kind !== "row")
 			throw new Error(`Case preload failed: ${JSON.stringify(result)}`);
+		// The age question's starting value reads the chosen patient from the
+		// device's case database, keyed on the session's case id, as a
+		// device's form does.
+		const device = await loadCaseDatabaseSnapshotAction(APP_ID);
+		if (device.kind !== "data")
+			throw new Error(`Case database failed: ${JSON.stringify(device)}`);
+		controller.setCaseDatabaseState({
+			required: true,
+			status: "ready",
+			snapshot: device.snapshot,
+		});
 		controller.activateForm(
 			formUuid,
 			caseRowsToFormPreloads(result.row, result.ancestors, [
 				{ name: "patient", depth: 0 },
 			]),
+			undefined,
+			undefined,
+			{ appId: APP_ID, boundCases: [{ caseId }], menuSelections: {} },
 		);
 	}
 	expect(controller.entryStore.getState().ready).toBe(true);

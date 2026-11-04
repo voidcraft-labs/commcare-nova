@@ -28,8 +28,9 @@
  *   the other Hidden Value writers (`others`).
  *
  * A blank `''` fits every property (`Recalculate.wrapData` stores no value),
- * an output nothing types holds no opinion, and a starting value a preload
- * overwrites never saves its own value, so none of them is reported.
+ * an output nothing types holds no opinion, and a starting value that reads
+ * the case's own value of the property (a preload) types as that property,
+ * so none of them is reported.
  *
  * App-scoped because writer and reader sit in different forms: the rule runs
  * on every validation, scoped or not, and its code is scope-exempt.

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
-import type { CaseOperation } from "@/lib/domain";
+import type {
+	FormType,
+	OwnCaseOperation,
+	TargetedCaseOperation,
+} from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 import {
 	type OperationSentenceContext,
@@ -20,6 +24,8 @@ const names: Record<string, string> = {
 };
 
 const context: OperationSentenceContext = {
+	formType: "followup",
+	ownCaseType: "client",
 	operationName: (uuid) => names[uuid],
 	repeatLabel: (uuid) => names[uuid],
 	fieldLabel: (uuid) => names[uuid],
@@ -27,12 +33,14 @@ const context: OperationSentenceContext = {
 
 /** Nothing outside the operation resolves: every fallback fires. */
 const blind: OperationSentenceContext = {
+	formType: undefined,
+	ownCaseType: undefined,
 	operationName: () => undefined,
 	repeatLabel: () => undefined,
 	fieldLabel: () => undefined,
 };
 
-function op(patch: Partial<CaseOperation> = {}): CaseOperation {
+function op(patch: Partial<TargetedCaseOperation> = {}): TargetedCaseOperation {
 	return {
 		uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 		id: "do_thing",
@@ -210,6 +218,38 @@ describe("operationSentence", () => {
 		);
 		expect(operationSentenceText(sentence)).not.toContain(CREATE);
 		expect(operationSentenceText(sentence)).not.toContain(REPEAT);
+	});
+
+	it("reads this form's own case by what the form does with it", () => {
+		const own: OwnCaseOperation = {
+			uuid: testUuid("55555555-5555-4555-8555-555555555555"),
+			id: "client",
+			action: "own",
+			writes: [{ property: "status", value: term(literal("x")) }],
+		};
+		const lead = (formType: FormType) =>
+			operationSentence(own, { ...context, formType }).lead;
+		expect(lead("registration")).toBe("Create this form's client case");
+		expect(lead("followup")).toBe("Update this form's client case");
+		expect(lead("close")).toBe("Update and close this form's client case");
+		expect(operationSentence(own, context).details).toEqual([
+			"saves 1 property",
+		]);
+		expect(operationSentence(own, blind).lead).toBe("Update this form's case");
+	});
+
+	it("names the worker's record as the case an update acts on", () => {
+		expect(
+			operationSentence(
+				op({
+					action: "update",
+					caseType: "commcare-user",
+					target: { kind: "worker-record" },
+					name: undefined,
+				}),
+				context,
+			).lead,
+		).toBe("Update the worker's record");
 	});
 
 	it("joins the row into one accessible sentence", () => {

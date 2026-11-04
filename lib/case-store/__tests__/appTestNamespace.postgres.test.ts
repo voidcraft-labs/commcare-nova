@@ -255,14 +255,27 @@ describe("isolated app-test submissions", () => {
 				await store.applySubmission({
 					appId,
 					submissionReceipt: receipt,
-					ordinary: {
-						kind: "registration",
-						primary: {
-							caseType: "equipment",
-							caseName: "Pump",
-							properties: {},
-						},
-						children: [],
+					ordinary: { kind: "registration" },
+					operations: {
+						formUuid: receipt.formUuid,
+						operations: [
+							{
+								operation: {
+									uuid: testUuid("app-test-namespace-own-case"),
+									id: "equipment",
+									action: "own",
+									name: {
+										kind: "term",
+										term: { kind: "literal", value: "Pump" },
+									},
+								},
+								guardConditions: [],
+								expressionSnapshotTypes: { links: new Map() },
+							},
+						],
+						ownCase: { caseType: "equipment", formType: "registration" },
+						scopes: [{ iterations: [{ formFields: new Map() }] }],
+						caseTypeSchemas: new Map(),
 					},
 				});
 				await sql`UPDATE cases SET project_id = 'invalid-project'`.execute(tx);
@@ -303,8 +316,34 @@ describe("isolated app-test submissions", () => {
 				caseIds: ["same-authored-id"],
 				caseType: "equipment",
 				selection: { kind: "single" as const, maximum: 1 as const },
-				patch: { properties: { inspection: "retired" } },
-				children: [],
+			},
+			// The close form's own case writes the inspection, then closes.
+			operations: {
+				formUuid: receipt.formUuid,
+				operations: [
+					{
+						operation: {
+							uuid: testUuid("app-test-namespace-own-case"),
+							id: "equipment",
+							action: "own" as const,
+							writes: [
+								{
+									property: "inspection",
+									value: {
+										kind: "term" as const,
+										term: { kind: "literal" as const, value: "retired" },
+									},
+								},
+							],
+						},
+						guardConditions: [],
+						expressionSnapshotTypes: { links: new Map() },
+					},
+				],
+				ownCase: { caseType: "equipment", formType: "close" as const },
+				sessionCaseIds: ["same-authored-id"],
+				scopes: [{ iterations: [{ formFields: new Map() }] }],
+				caseTypeSchemas: new Map(),
 			},
 		};
 		const result = await run(first, (store) => store.applySubmission(close));
@@ -398,14 +437,28 @@ describe("isolated app-test submissions", () => {
 		const submission = {
 			appId,
 			submissionReceipt: receipt,
-			ordinary: {
-				kind: "registration" as const,
-				primary: {
-					caseType: "equipment",
-					caseName: "New pump",
-					properties: {},
-				},
-				children: [],
+			ordinary: { kind: "registration" as const },
+			// The registration's own case creates the new pump.
+			operations: {
+				formUuid: receipt.formUuid,
+				operations: [
+					{
+						operation: {
+							uuid: testUuid("app-test-namespace-own-case"),
+							id: "equipment",
+							action: "own" as const,
+							name: {
+								kind: "term" as const,
+								term: { kind: "literal" as const, value: "New pump" },
+							},
+						},
+						guardConditions: [],
+						expressionSnapshotTypes: { links: new Map() },
+					},
+				],
+				ownCase: { caseType: "equipment", formType: "registration" as const },
+				scopes: [{ iterations: [{ formFields: new Map() }] }],
+				caseTypeSchemas: new Map(),
 			},
 		};
 		await expect(

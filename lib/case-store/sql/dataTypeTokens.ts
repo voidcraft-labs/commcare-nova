@@ -97,11 +97,11 @@ export interface ReservedScalarColumn {
  * it under every other reading.
  *
  * **Shadowing:** these names are also syntactically valid property
- * identifiers, but a field cannot write one — the validator's
- * `RESERVED_CASE_PROPERTY` rule rejects every entry here except
- * `case_name` as an explicit `caseWrite.property` target — so the scalar read
- * can never shadow authored case data; the compilers trust that
- * rejection upstream.
+ * identifiers, but no case operation writes one as a property — the
+ * validator's `CASE_OPERATION_RESERVED_PROPERTY` rule rejects every entry
+ * here except `external_id` (`case_name` is saved through an operation's
+ * `name` or `rename`) — so the scalar read can never shadow authored case
+ * data; the compilers trust that rejection upstream.
  */
 export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
 	string,

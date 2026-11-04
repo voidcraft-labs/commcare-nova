@@ -8,7 +8,6 @@ import { parseAuthoredFormExpression } from "@/lib/doc/expressionText";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import {
 	type BlueprintDoc,
-	caseWriteSchema,
 	fieldKinds,
 	formLinkTargetSchema,
 	formRootFieldIds,
@@ -250,19 +249,12 @@ function fieldDeclaration(
 	else if (raw.validate != null && object.parse(raw.validate).msg !== undefined)
 		prose.add("validate_msg");
 	const choice = choices(raw.optionsSource, previous?.choices);
-	const caseWrite =
-		raw.caseWrite === undefined
-			? previous?.caseWrite
-			: raw.caseWrite === null
-				? undefined
-				: caseWriteSchema.parse(raw.caseWrite);
 	const kind = z.enum(fieldKinds).parse(raw.kind ?? previous?.kind);
 	return {
 		uuid,
 		parent,
 		kind,
 		id: z.string().parse(raw.id ?? previous?.id),
-		...(caseWrite === undefined ? {} : { caseWrite }),
 		...(kind !== "repeat"
 			? {}
 			: {
@@ -569,6 +561,12 @@ export function prepareFormAuthoring(args: {
 			return fieldSlot(uuidSchema.parse(input.fieldUuid), path.slice(1));
 		if (toolName === "updateForm" && path[0] === "recordName")
 			return recordName?.slot;
+		if (
+			toolName === "updateForm" &&
+			path[0] === "close_condition" &&
+			formUuid !== undefined
+		)
+			return { entity: "form", uuid: formUuid, slot: "form_close_condition" };
 		let owner = formUuid;
 		let local = path;
 		if (

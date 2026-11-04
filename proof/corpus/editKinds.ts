@@ -1788,10 +1788,13 @@ const removeField: KindGenerator = (ctx) => {
 	const withSiblings = unread.filter(
 		(at) => (doc.fieldOrder[at.parentUuid] ?? []).length > 1,
 	);
+	// A field that saves to a case stops saving in the same batch
+	// (`removeFieldMutations` plans it), or the planner says why it cannot.
 	if (withSiblings.length > 0) {
-		return forTargets(ctx, withSiblings, (at) =>
-			batch(removeFieldMutations(doc, at.field.uuid)),
-		);
+		return forTargets(ctx, withSiblings, (at) => {
+			const plan = removeFieldMutations(doc, at.field.uuid);
+			return plan.ok ? batch([...plan.mutations]) : refusal("field-removal");
+		});
 	}
 	// A parent keeps at least one field: an only child gives way to a new one.
 	return take(ctx, unread, 1).map((at) => {
@@ -1799,10 +1802,10 @@ const removeField: KindGenerator = (ctx) => {
 			parentUuid: at.parentUuid,
 			field: freshTextField(ctx),
 		});
-		return batch([
-			...prefix,
-			...removeFieldMutations(docAfter(doc, prefix), at.field.uuid),
-		]);
+		const plan = removeFieldMutations(docAfter(doc, prefix), at.field.uuid);
+		return plan.ok
+			? batch([...prefix, ...plan.mutations])
+			: refusal("field-removal");
 	});
 };
 

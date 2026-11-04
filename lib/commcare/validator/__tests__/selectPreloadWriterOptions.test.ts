@@ -16,6 +16,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const REGISTER = testUuid("preload-options-register");
 const VISIT = testUuid("preload-options-visit");
@@ -134,6 +135,7 @@ function withOperation(
 	write: CaseOperation["writes"],
 ): BlueprintDoc {
 	built.forms[CHECK_IN].caseOperations = [
+		...ownArms(built.forms[CHECK_IN]),
 		{
 			uuid: OPERATION,
 			id: "mark_status",
@@ -219,20 +221,31 @@ describe("a Hidden Value's literal into a property a choice question starts on",
 		]);
 	});
 
-	it("admits a follow-up starting value its own preload overwrites, beside the same calculation refused", () => {
-		expect(
-			validate(doc({ checkIn: [hiddenWriter({ default_value: "'z'" })] })),
-		).toEqual([]);
-		expect(
-			ofCode(doc({ checkIn: [hiddenWriter({ calculate: "'z'" })] })),
-		).toEqual([
-			expect.objectContaining({
-				location: expect.objectContaining({
-					formUuid: CHECK_IN,
-					field: "calculate",
+	it("judges a follow-up starting value as it judges the same calculation", () => {
+		// A preload is itself a starting value that reads the case, so nothing
+		// runs after a literal one and replaces it.
+		for (const slot of ["default_value", "calculate"] as const) {
+			expect(
+				ofCode(
+					doc({
+						checkIn: [
+							hiddenWriter(
+								slot === "default_value"
+									? { default_value: "'z'" }
+									: { calculate: "'z'" },
+							),
+						],
+					}),
+				),
+			).toEqual([
+				expect.objectContaining({
+					location: expect.objectContaining({
+						formUuid: CHECK_IN,
+						field: slot,
+					}),
 				}),
-			}),
-		]);
+			]);
+		}
 	});
 });
 

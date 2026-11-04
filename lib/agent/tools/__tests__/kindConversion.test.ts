@@ -23,7 +23,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc as buildFixtureDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
-	fieldCaseWrite,
+	fieldCaseWriteViews,
 	proseTemplateText,
 	type SelectOption,
 } from "@/lib/domain";
@@ -744,23 +744,27 @@ describe("editField — demotions", () => {
 		const addressed = h.currentDoc().fields[registerStatus.uuid];
 		expect(addressed?.kind).toBe("single_select");
 		expect(addressed?.id).toBe("local_status");
-		expect(addressed && fieldCaseWrite(addressed)).toBeUndefined();
-		expect(result.mutations).toEqual([
+		expect(fieldCaseWriteViews(h.currentDoc(), registerStatus.uuid)).toEqual(
+			[],
+		);
+		// The write stops on the form's own case first; the conversion then
+		// converts the addressed field alone.
+		expect(
+			result.mutations.filter((mutation) => mutation.kind === "convertField"),
+		).toEqual([
 			expect.objectContaining({
-				kind: "convertField",
 				uuid: registerStatus.uuid,
 				toKind: "single_select",
 			}),
+		]);
+		expect(result.mutations).toContainEqual(
 			expect.objectContaining({
 				kind: "updateField",
 				uuid: registerStatus.uuid,
 				targetKind: "single_select",
-				patch: expect.objectContaining({
-					id: "local_status",
-					caseWrite: null,
-				}),
+				patch: expect.objectContaining({ id: "local_status" }),
 			}),
-		]);
+		);
 		const peer = Object.values(h.currentDoc().fields).find(
 			(fld) => fld.id === "status" && fld.uuid !== registerStatus.uuid,
 		);
@@ -866,11 +870,10 @@ describe("editField — demotions", () => {
 		expect(h.currentDoc().fields[addressed.uuid]).toMatchObject({
 			id: "risk_score",
 			kind: "single_select",
-			caseWrite: {
-				caseType: "patient",
-				property: "risk_score",
-			},
 		});
+		expect(fieldCaseWriteViews(h.currentDoc(), addressed.uuid)).toEqual([
+			expect.objectContaining({ caseType: "patient", property: "risk_score" }),
+		]);
 		// Planning against the call's final pair carries the existing
 		// patient/risk_score writer across too; planning against the unbound
 		// field would leave this peer as text.
@@ -883,17 +886,11 @@ describe("editField — demotions", () => {
 					mutation.toKind === "single_select",
 			),
 		).toBe(true);
-		expect(result.mutations.at(-1)).toEqual({
+		expect(result.mutations).toContainEqual({
 			kind: "updateField",
 			uuid: addressed.uuid,
 			targetKind: "single_select",
-			patch: {
-				id: "risk_score",
-				caseWrite: {
-					caseType: "patient",
-					property: "risk_score",
-				},
-			},
+			patch: { id: "risk_score" },
 		});
 	});
 

@@ -27,13 +27,21 @@ import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	enableCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
+import {
+	type FieldRemovalPlan,
+	planFieldRemoval,
+} from "@/lib/doc/fieldRemovalMutations";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
 } from "@/lib/doc/modulePatchMutations";
 import { anchorForIndex, sequenceMovesTo } from "@/lib/doc/mutations/sequence";
-import { moduleFormHostMutations } from "@/lib/doc/scaffolds";
+import {
+	declareCaseTypeMutations,
+	moduleFormHostMutations,
+	ownCaseOperation,
+} from "@/lib/doc/scaffolds";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -560,13 +568,15 @@ export interface NewFormInput {
 	name: string;
 	type: FormType;
 	purpose?: string;
-	closeCondition?: Form["closeCondition"];
 	postSubmit?: PostSubmitDestination;
 	entry?: Form["entry"];
 }
 
 /** Build an empty form under an existing module. Its questions are separate
- * mutations in the same private authoring workspace. */
+ * mutations in the same private authoring workspace. A registration,
+ * follow-up or close form of a module with a case type is born with its own
+ * case as its first change (`ownCaseOperation`), which a registration names
+ * once a question or `recordName` gives it a name. */
 export function addFormMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
@@ -580,6 +590,11 @@ export function addFormMutations(
 			? input.uuid
 			: crypto.randomUUID(),
 	);
+	const caseType = doc.modules[moduleUuid]?.caseType;
+	const own =
+		caseType !== undefined && input.type !== "survey"
+			? ownCaseOperation(caseType, new Set())
+			: undefined;
 	const form: Form = {
 		uuid,
 		// Forms carry a semantic id alongside name, mirroring modules.
@@ -587,13 +602,16 @@ export function addFormMutations(
 		name: input.name,
 		type: input.type,
 		...(input.purpose !== undefined && { purpose: input.purpose }),
-		...(input.closeCondition !== undefined && {
-			closeCondition: input.closeCondition,
-		}),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
 		...(input.entry !== undefined && { entry: input.entry }),
+		...(own !== undefined && { caseOperations: [own] }),
 	};
 	return [
+		// The reducer never mints a case type, so the own case declares its
+		// type first; a no-op when the catalog already holds it.
+		...(own !== undefined && caseType !== undefined
+			? declareCaseTypeMutations(doc, caseType)
+			: []),
 		...(formEntersFromMenu(form)
 			? moduleFormHostMutations(doc, moduleUuid)
 			: []),
@@ -615,16 +633,16 @@ export function removeFormMutations(
 /**
  * Patch non-Connect form-level fields. Nullable fields (`closeCondition`,
  * `postSubmit`) follow a convention: passing `null` clears the field (the
- * reducer stores `undefined`), passing an object replaces it, and omitting
+ * reducer stores `undefined`), passing a value replaces it, and omitting
  * the key leaves it untouched. Connect participation is deliberately absent;
- * the app-wide target planner owns membership.
+ * the app-wide target planner owns membership, and a type change is absent
+ * too: it carries the form's own case, so `planFormTypeChange` plans it.
  */
 export function updateFormMutations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	patch: Partial<{
 		name: string;
-		type: FormType;
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
@@ -636,7 +654,6 @@ export function updateFormMutations(
 		mutations.push({ kind: "renameForm", uuid: formUuid, newId: patch.name });
 	}
 	const reducerPatch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
-	if (patch.type !== undefined) reducerPatch.type = patch.type;
 	if (patch.closeCondition !== undefined) {
 		reducerPatch.closeCondition =
 			patch.closeCondition === null ? null : patch.closeCondition;
@@ -705,13 +722,15 @@ export function addFieldMutations(
 	];
 }
 
-/** Remove a field (cascades children via the reducer). */
+/** Remove a field (cascades children via the reducer), first stopping
+ *  everything it and its subtree save to a case (`planFieldRemoval`); a
+ *  save that can't stop refuses with the planner's sentence. */
 export function removeFieldMutations(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
-): Mutation[] {
-	if (doc.fields[fieldUuid] === undefined) return [];
-	return [{ kind: "removeField", uuid: fieldUuid }];
+): FieldRemovalPlan {
+	if (doc.fields[fieldUuid] === undefined) return { ok: true, mutations: [] };
+	return planFieldRemoval(doc, fieldUuid);
 }
 
 /** Patch arbitrary fields on a field entity. The `Field` union is

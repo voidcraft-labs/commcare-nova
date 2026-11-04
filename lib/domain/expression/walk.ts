@@ -160,14 +160,15 @@ export function expressionReadsRelatedCaseData(
 	return found;
 }
 /** Whether the expression reads an answer of its own form: a term of kind
- * `field`, `form-node` or `repeat-row`. The case the form opens on, a case
- * query, a session value, a Search answer, a lookup table, a place and a
- * worker property are not answers. */
+ * `field`, `capture-link`, `form-node` or `repeat-row`. The case the form
+ * opens on, a case query, a session value, a Search answer, a lookup table, a
+ * place and a worker property are not answers. */
 export function expressionReadsFormAnswers(expression: Expression): boolean {
 	let found = false;
 	walkExpressionTerms(expression, (term) => {
 		if (
 			term.kind === "field" ||
+			term.kind === "capture-link" ||
 			term.kind === "form-node" ||
 			term.kind === "repeat-row"
 		)

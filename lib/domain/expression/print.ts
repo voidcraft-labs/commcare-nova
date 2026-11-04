@@ -370,6 +370,11 @@ function printWith(
 			case "repeat-row":
 				formRead(term, path, ctx);
 				break;
+			case "capture-link":
+				call("capture-link", () =>
+					formRead({ kind: "field", uuid: term.field }, path, ctx),
+				);
+				break;
 			case "prop":
 				if (term.via !== undefined && term.via.kind !== "self")
 					missing(path, "arm");

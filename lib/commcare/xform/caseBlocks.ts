@@ -207,14 +207,6 @@ function buildCaseBlocks(
 	const closeMode = closeCase.condition.type;
 	const isClose = closeMode === "always" || closeMode === "if";
 	const hasSubcases = subcases.length > 0;
-	// Case-preload (followup/close forms): one casedb-read `<setvalue>` per
-	// preloaded property. Independent of the primary `<case>` block — preload
-	// targets the form's own question nodes. Included in the early-return guard
-	// so a (degenerate) preload-only form still emits its setvalues.
-	const preloadAction = actions.case_preload;
-	const hasPreload =
-		preloadAction.condition.type === "always" &&
-		Object.keys(preloadAction.preload).length > 0;
 	// The worker's own record. Independent of every branch below: HQ emits it
 	// from `XForm._add_usercase`, gated only on `usercase_update` being active
 	// with a non-empty update map, so a form whose ONLY write is to the worker
@@ -229,7 +221,6 @@ function buildCaseBlocks(
 		!isUpdate &&
 		!isClose &&
 		!hasSubcases &&
-		!hasPreload &&
 		!hasUsercaseUpdate
 	) {
 		return null;
@@ -390,62 +381,86 @@ function buildCaseBlocks(
 		);
 	}
 
-	if (isUpdate && Object.keys(updateCase.update).length > 0) {
-		// `<update>` stands exactly when the update map holds an entry: HQ's
-		// `XForm._add_case_updates` reaches `XFormCaseBlock.update_block` only
-		// for a non-empty map, so a follow-up that writes nothing carries the
-		// bare block that touches its case.
-		const primaryUpdatePath = primaryCasePath.child("update");
-		const updateMappings = Object.entries(updateCase.update);
-		// Every write is an `<update>` child. HQ's build makes an update
-		// whose question path is an upload question an `<attachment>`
-		// (`xform.py::XFormCaseBlock.add_case_updates`, `::is_attachment`),
-		// and no action names one: a capture's write names its link sibling
-		// (`formActions.ts`).
-		const writes = updateMappings
-			.map(([prop, mapping]) => {
-				const validProp = validatePropertyName(formActionsPropertyToWire(prop));
-				const qPath =
-					mapping.question_path || FormPath.root().child(prop).toXPath();
-				return { validProp, resolvedQPath: validateXFormPath(qPath) } as const;
-			})
-			.sort(byWireName);
-		caseChildren.push(
-			el(
-				"update",
-				{},
-				writes.map((write) => el(write.validProp, {})),
-			),
-		);
-		for (const { validProp, resolvedQPath } of writes) {
-			// `relevant="count(<qPath>) > 0"` skips the case-update bind
-			// when the source question's data node is absent at submission
-			// time — the JavaRosa semantic when a `<bind relevant="...">`
-			// is false. Without this guard, a conditionally-hidden field
-			// (`relevant="age > 60"` on a `weight` question, say) would
-			// still fire its case-update with an empty calculate result
-			// at submission, overwriting the case's existing property
-			// value. CCHQ's `XFormCaseBlock.add_case_updates` carries the
-			// same guard; matching here preserves case data through
-			// conditional-question flows. A name or an external id reads the
-			// question's trimmed sibling, which its action names.
+	// The update map's keys split as HQ's build splits them
+	// (`xform.py::XForm._add_case_updates`, `util.py::split_path`): a key with
+	// no `/` writes the form's own case; `parent/p` or `parent/host/p` writes
+	// the case those indices reach, from a block of its own under
+	// `<parents>`.
+	const ownUpdates: (readonly [string, UpdateMapping])[] = [];
+	const updatesByAncestor = new Map<
+		string,
+		(readonly [string, UpdateMapping])[]
+	>();
+	if (isUpdate) {
+		for (const [key, mapping] of Object.entries(updateCase.update)) {
+			const steps = key.split("/");
+			const property = steps.pop() ?? key;
+			const ancestor = steps.join("/");
+			if (ancestor === "") ownUpdates.push([property, mapping]);
+			else
+				updatesByAncestor.set(ancestor, [
+					...(updatesByAncestor.get(ancestor) ?? []),
+					[property, mapping],
+				]);
+		}
+	}
+	let parentsElement: Element | undefined;
+	if (updatesByAncestor.size > 0) {
+		// Each case above the form's own takes a block under
+		// `/data/parents/<index>/…/case`, its id the index chain read from the
+		// case database (`xform.py::get_case_parent_id_xpath`), in the order
+		// of its index path, as `XForm._add_case_updates` writes them. HQ
+		// builds each chain afresh, so two paths that share a first index
+		// stand in two elements of that name.
+		const parentsPath = FormPath.root().child("parents");
+		const chains: Element[] = [];
+		for (const [ancestor, updates] of [...updatesByAncestor].sort(([a], [b]) =>
+			a < b ? -1 : a > b ? 1 : 0,
+		)) {
+			const steps = ancestor.split("/");
+			let nodePath = parentsPath;
+			let id = selectedCaseIdRef;
+			for (const step of steps) {
+				nodePath = nodePath.child(step);
+				id = w.append(caseById(id, "casedb"), [
+					w.step("index"),
+					w.step(validatePropertyName(step)),
+				]);
+			}
+			const casePath = nodePath.child("case");
 			binds.push(
+				...caseMetaBinds(casePath, context),
 				xel(
 					"bind",
 					{
 						xpath: {
-							nodeset: primaryUpdatePath.child(validProp).toWire(),
-							calculate: FormPath.parse(resolvedQPath).toWire(),
-							relevant: w.gt(
-								w.call("count", [FormPath.parse(resolvedQPath).toWire()]),
-								w.num(0),
-							),
+							nodeset: casePath.attr("case_id").toWire(),
+							calculate: id,
 						},
 					},
 					context,
 				),
 			);
+			let chain = buildCaseElement([
+				updateBlock(casePath, updates, binds, context),
+			]);
+			for (const step of [...steps].reverse()) chain = el(step, {}, [chain]);
+			chains.push(chain);
 		}
+		parentsElement = el("parents", {}, chains);
+	}
+	if (ownUpdates.length > 0) {
+		// `<update>` stands exactly when the update map holds an entry: HQ's
+		// `XForm._add_case_updates` reaches `XFormCaseBlock.update_block` only
+		// for a non-empty map, so a follow-up that writes nothing carries the
+		// bare block that touches its case.
+		//
+		// Every write is an `<update>` child. HQ's build makes an update
+		// whose question path is an upload question an `<attachment>`
+		// (`xform.py::XFormCaseBlock.add_case_updates`, `::is_attachment`),
+		// and no action names one: a capture's write names its link sibling
+		// (`casePlacementPlan.ts`).
+		caseChildren.push(updateBlock(primaryCasePath, ownUpdates, binds, context));
 	}
 
 	if (isClose) {
@@ -469,43 +484,6 @@ function buildCaseBlocks(
 		}
 	}
 
-	// Case-preload: seed each preloaded question from the loaded case at form
-	// load. `preload` maps the question's `/data/...` path → the case property
-	// to read. The value XPath is the canonical case-loading shape — look up
-	// the case selected for this entry (`session/data/case_id`) in `casedb`
-	// and read the property. Mirrors `XForm.add_case_preloads`. These setvalues
-	// are spliced after source emission; their serialized trees contribute
-	// declarations to this splice's sink. `<setvalue>` reads once, at load.
-	if (hasPreload) {
-		for (const [questionPath, caseProperty] of Object.entries(
-			preloadAction.preload,
-		)) {
-			const property = validatePropertyName(
-				formActionsPropertyToWire(caseProperty),
-			);
-			// HQ's add_case_preloads maps owner_id to the casedb attribute;
-			// update transactions still write the owner_id child, so this is a
-			// read-only projection rather than a change to the shared name mapper.
-			const propertyStep =
-				property === "owner_id" ? w.attr("owner_id") : w.step(property);
-			setvalues.push(
-				xel(
-					"setvalue",
-					{
-						attributes: { event: "xforms-ready" },
-						xpath: {
-							ref: FormPath.parse(validateXFormPath(questionPath)).toWire(),
-							value: w.append(caseById(selectedCaseIdRef, "casedb"), [
-								propertyStep,
-							]),
-						},
-					},
-					context,
-				),
-			);
-		}
-	}
-
 	// A child-create-only followup still needs its selected parent block:
 	// every child index reads /data/case/@case_id. HQ bind_case_id likewise
 	// materializes this empty transaction even without parent property writes.
@@ -513,6 +491,12 @@ function buildCaseBlocks(
 	// record, the order `XForm._create_casexml` and `_add_usercase` leave the
 	// data node in; Core applies blocks in document order.
 	const dataChildren: CaseBlockChild[] = [];
+	if (parentsElement !== undefined)
+		dataChildren.push({
+			parentPath: FormPath.root(),
+			element: parentsElement,
+			position: "last",
+		});
 	const hasPrimaryBlock = isCreate || isUpdate || isClose || hasSubcases;
 	if (hasPrimaryBlock) {
 		// `<case>` attribute binds read out of the always-on /data/meta block
@@ -759,63 +743,26 @@ function buildCaseBlocks(
 		// Always emit `<update/>` on the subcase wrapper — CCHQ does the
 		// same on every subcase regardless of case_properties count (via
 		// `XFormCaseBlock.update_block`'s memoized side-effect). Matching
-		// preserves byte-level parity with `multiple_subcase_repeat.xml`
-		// + future CCHQ-side checks.
-		// Every write is an `<update>` child, as on the primary case block.
-		const scWrites = Object.entries(sc.case_properties)
-			.map(([prop, mapping]) => {
-				const validProp = validatePropertyName(prop);
-				const qPath =
-					mapping.question_path || FormPath.root().child(prop).toXPath();
-				return { validProp, resolvedQPath: validateXFormPath(qPath) } as const;
-			})
-			.sort(byWireName);
+		// preserves byte-level parity with `multiple_subcase_repeat.xml`.
+		// Every row's bind nests under `<case>`
+		// (`<subcase_n>/case/update/<prop>`), with the guard every update row
+		// carries.
 		scChildren.push(
-			el(
-				"update",
-				{},
-				scWrites.map((write) => el(write.validProp, {})),
+			updateBlock(
+				subcaseCasePath,
+				Object.entries(sc.case_properties),
+				binds,
+				context,
 			),
 		);
-		const subcaseUpdatePath = subcaseCasePath.child("update");
-		for (const { validProp, resolvedQPath } of scWrites) {
-			// Subcase update binds nest the property under `<case>` — the
-			// path is `<subcase_n>/case/update/<prop>`, NOT
-			// `<subcase_n>/update/<prop>`. The case element is what wraps
-			// the entire case-transaction shape (create / index / update /
-			// close); the bind nodeset must match the actual element path
-			// or `XFORM_DANGLING_BIND` fires post-injection. The
-			// `relevant="count(<qPath>) > 0"` guard is the same
-			// preserves-existing-property-on-hidden-question guard the
-			// primary case-update path carries.
-			binds.push(
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: subcaseUpdatePath.child(validProp).toWire(),
-							calculate: FormPath.parse(resolvedQPath).toWire(),
-							relevant: w.gt(
-								w.call("count", [FormPath.parse(resolvedQPath).toWire()]),
-								w.num(0),
-							),
-						},
-					},
-					context,
-				),
-			);
-		}
 
 		// Subcase close-on-submit. CCHQ's basic-module path orders the subcase
 		// transaction children create / update / close / index — `add_close_block`
 		// runs before `add_index_ref` (`xform.py::XForm.add_form_actions`), so the
-		// `<close>` precedes the `<index>` pushed below. No authoring surface
-		// populates an active `close_condition` today (`buildFormActions`
-		// hardcodes a `never` condition for every subcase), so this branch is
-		// dormant in production — it exists so the moment a subcase-close
-		// authoring surface lands, both this emitter and the HQ-JSON projection
-		// render the `<close>` transaction from the same `FormActions` field, in
-		// the right wire position. Mirrors CCHQ's `add_close_block`.
+		// `<close>` precedes the `<index>` pushed below. A subcase's
+		// `close_condition` is a close operation of the case it creates that
+		// shares its basic place (`placement.ts`, `casePlacementPlan.ts`).
+		// Mirrors CCHQ's `add_close_block`.
 		const scCloseMode = sc.close_condition.type;
 		if (scCloseMode === "always" || scCloseMode === "if") {
 			scChildren.push(el("close", {}));
@@ -918,30 +865,9 @@ function buildCaseBlocks(
 	// existing element: nothing in the authored form produces a
 	// `commcare_usercase` node, so there is no parent to resolve.
 	if (hasUsercaseUpdate) {
-		const usercasePath = FormPath.root().child("commcare_usercase");
-		const usercaseCasePath = usercasePath.child("case");
-		const usercaseUpdatePath = usercaseCasePath.child("update");
-		const writes = Object.entries(usercaseAction.update)
-			.map(([property, mapping]) => ({
-				validProp: validatePropertyName(formActionsPropertyToWire(property)),
-				questionPath: validateXFormPath(
-					mapping.question_path || FormPath.root().child(property).toXPath(),
-				),
-			}))
-			.sort(byWireName);
-		dataChildren.push({
-			position: "last",
-			parentPath: FormPath.root(),
-			element: el("commcare_usercase", {}, [
-				buildCaseElement([
-					el(
-						"update",
-						{},
-						writes.map((write) => el(write.validProp, {})),
-					),
-				]),
-			]),
-		});
+		const usercaseCasePath = FormPath.root()
+			.child("commcare_usercase")
+			.child("case");
 		// `_add_usercase_bind`: a bind with a calculate, not a setvalue. The
 		// datum is computed at entry (`requires_selection=False`), so the value
 		// is already in the session when the form opens and stays put.
@@ -956,55 +882,20 @@ function buildCaseBlocks(
 				},
 				context,
 			),
+			// `XFormCaseBlock.elem`'s own two binds, which every case block gets.
+			...caseMetaBinds(usercaseCasePath, context),
 		);
-		// `XFormCaseBlock.elem`'s own two binds, which every case block gets.
-		binds.push(
-			xel(
-				"bind",
-				{
-					attributes: { type: "xsd:dateTime" },
-					xpath: {
-						nodeset: usercaseCasePath.attr("date_modified").toWire(),
-						calculate: metaTimeEnd,
-					},
-				},
-				context,
-			),
+		const update = updateBlock(
+			usercaseCasePath,
+			Object.entries(usercaseAction.update),
+			binds,
+			context,
 		);
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: usercaseCasePath.attr("user_id").toWire(),
-						calculate: metaUserID,
-					},
-				},
-				context,
-			),
-		);
-		for (const { validProp: wireProperty, questionPath } of writes) {
-			// Same `count(...) > 0` guard every other update bind carries: a
-			// conditionally-hidden question has no data node at submission, and
-			// without the guard its bind would fire with an empty calculate and
-			// erase the value already on the worker's record.
-			binds.push(
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: usercaseUpdatePath.child(wireProperty).toWire(),
-							calculate: FormPath.parse(questionPath).toWire(),
-							relevant: w.gt(
-								w.call("count", [FormPath.parse(questionPath).toWire()]),
-								w.num(0),
-							),
-						},
-					},
-					context,
-				),
-			);
-		}
+		dataChildren.push({
+			position: "last",
+			parentPath: FormPath.root(),
+			element: el("commcare_usercase", {}, [buildCaseElement([update])]),
+		});
 	}
 
 	return {
@@ -1013,6 +904,105 @@ function buildCaseBlocks(
 		setvalues,
 		...(requiredNamePaths.length > 0 && { requiredNamePaths }),
 	};
+}
+
+/** One row of a basic action's update map, as `FormActions` holds it. */
+type UpdateMapping = {
+	readonly question_path: string;
+	readonly update_mode: string;
+};
+
+/** The `@date_modified` and `@user_id` binds every case block carries
+ *  (`XFormCaseBlock.elem`). */
+function caseMetaBinds(
+	casePath: FormPath,
+	context: WireElementContext,
+): Element[] {
+	return [
+		xel(
+			"bind",
+			{
+				attributes: { type: "xsd:dateTime" },
+				xpath: {
+					nodeset: casePath.attr("date_modified").toWire(),
+					calculate: FormPath.root().child("meta").child("timeEnd").toWire(),
+				},
+			},
+			context,
+		),
+		xel(
+			"bind",
+			{
+				xpath: {
+					nodeset: casePath.attr("user_id").toWire(),
+					calculate: FormPath.root().child("meta").child("userID").toWire(),
+				},
+			},
+			context,
+		),
+	];
+}
+
+/**
+ * A block's `<update>` and each row's bind, in HQ's order
+ * (`xform.py::XFormCaseBlock.add_case_updates`): rows by wire name, each
+ * calculated from the path its action names and present only while that
+ * path is (`count(path) > 0`), since a question the worker never reached
+ * has no node, and an unguarded row would overwrite the case's value with
+ * blank. A row saved only when the answer changed (`update_mode: edit`)
+ * also compares the answer with the case's value when the form opened,
+ * `instance('casedb')/casedb/case[@case_id = <the block's id>]/<property>`,
+ * the comparison HQ's build adds under `SAVE_ONLY_EDITED_FORM_FIELDS`.
+ */
+function updateBlock(
+	casePath: FormPath,
+	updates: readonly (readonly [string, UpdateMapping])[],
+	binds: Element[],
+	context: WireElementContext,
+): Element {
+	const rows = updates
+		.map(([property, mapping]) => ({
+			validProp: validatePropertyName(formActionsPropertyToWire(property)),
+			resolvedQPath: validateXFormPath(
+				mapping.question_path || FormPath.root().child(property).toXPath(),
+			),
+			edit: mapping.update_mode === "edit",
+		}))
+		.sort(byWireName);
+	const updatePath = casePath.child("update");
+	for (const { validProp, resolvedQPath, edit } of rows) {
+		const source = FormPath.parse(resolvedQPath).toWire();
+		const present = w.gt(w.call("count", [source]), w.num(0));
+		binds.push(
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: updatePath.child(validProp).toWire(),
+						calculate: source,
+						relevant: edit
+							? w.and(
+									present,
+									w.ne(
+										w.append(
+											caseById(casePath.attr("case_id").toWire(), "casedb"),
+											[w.step(validProp)],
+										),
+										source,
+									),
+								)
+							: present,
+					},
+				},
+				context,
+			),
+		);
+	}
+	return el(
+		"update",
+		{},
+		rows.map((row) => el(row.validProp, {})),
+	);
 }
 
 /**
@@ -1041,7 +1031,9 @@ function buildCaseElement(children: Element[]): Element {
  * conditional case closes (`<bind nodeset="/data/case/close" relevant>`), and
  * conditional subcase opens.
  *
- * Two shapes per the question's operator:
+ * Three shapes per the question's operator, as `xform.py::XForm.
+ * action_relevance` writes them:
+ *   - `boolean_true` → `<qPath>` — the question's own truth.
  *   - `selected`  → `selected(<qPath>, '<answer>')` — for multi-select items
  *     where the answer is a token within the value list.
  *   - everything else → `<qPath> = '<answer>'` — equality compare.
@@ -1055,6 +1047,7 @@ function conditionToRelevantXPath(condition: FormActionCondition): WireExpr {
 	const qPath = FormPath.parse(
 		validateXFormPath(condition.question ?? ""),
 	).toWire();
+	if (condition.operator === "boolean_true") return qPath;
 	const answer = w.str(condition.answer ?? "");
 	return condition.operator === "selected"
 		? w.call("selected", [qPath, answer])

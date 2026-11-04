@@ -177,7 +177,8 @@ export function invertCasePropertyRenameMutation(
  *
  * Every walker reads each leaf once, so chains, swaps, and cycles expose no
  * intermediate spelling. Field ids are form-node names and are never changed;
- * only the independent `caseWrite.property` binding follows the global rename.
+ * an operation's write keys and every typed read of the property, a field's
+ * `form-case` default included, follow the global rename.
  */
 export function applyCasePropertyRenamePlan(
 	draft: Draft<BlueprintDoc>,
@@ -207,11 +208,17 @@ export function rewriteCasePropertyCarriers(
 			caseTypes: doc.caseTypes ?? [],
 		});
 	}
-	for (const form of Object.values(doc.forms)) {
-		rewriteFormReferenceSlots(form, {
-			resolveCaseProperty: resolve,
-			caseTypes: doc.caseTypes ?? [],
-		});
+	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+		const moduleCaseType = doc.modules[moduleUuid]?.caseType;
+		for (const formUuid of formUuids) {
+			const form = doc.forms[formUuid];
+			if (form === undefined) continue;
+			rewriteFormReferenceSlots(form, {
+				resolveCaseProperty: resolve,
+				caseTypes: doc.caseTypes ?? [],
+				...(moduleCaseType !== undefined && { moduleCaseType }),
+			});
+		}
 	}
 	for (const module of Object.values(doc.modules)) {
 		rewriteModuleCaseRefs(module, resolve, doc.caseTypes ?? []);
@@ -503,8 +510,8 @@ export function casePropertyCarrierNames(
  * never return it as a command.
  *
  * Granular edits stay granular: adding/removing a writer or catalog property,
- * locally retargeting `field.caseWrite`, or changing a case-operation write
- * does not change an existing declaration name in place. Conversely, once a
+ * or retargeting or changing one case-operation write (a question's "Saves
+ * to" included), does not change an existing declaration name in place. Conversely, once a
  * valid declaration relation is present, unrelated endpoint changes do not
  * make its saved-row effects inferable. Generic diff must still refuse it:
  * masking the app name or an unrelated label cannot turn semantic provenance

@@ -208,19 +208,26 @@ describe("case-property rename through the guarded writer", () => {
 			{ ...parkedBefore[1], property: "a" },
 		]);
 
-		const fields = Object.values(committed.committedDoc.fields);
-		const aField = fields.find((field) => field.id === "a_question");
-		const bField = fields.find((field) => field.id === "b_question");
-		expect(
-			aField !== undefined && "caseWrite" in aField
-				? aField.caseWrite
-				: undefined,
-		).toEqual({ caseType: "patient", property: "b" });
-		expect(
-			bField !== undefined && "caseWrite" in bField
-				? bField.caseWrite
-				: undefined,
-		).toEqual({ caseType: "patient", property: "a" });
+		// Each question's answer is now saved to the other property: the own
+		// case's write that reads it carries the swapped key.
+		const committedDoc = committed.committedDoc;
+		const savedTo = (questionId: string) => {
+			const field = Object.values(committedDoc.fields).find(
+				(candidate) => candidate.id === questionId,
+			);
+			return Object.values(committedDoc.forms)
+				.flatMap((form) => form.caseOperations ?? [])
+				.flatMap((operation) => operation.writes ?? [])
+				.filter(
+					(write) =>
+						write.value.kind === "term" &&
+						write.value.term.kind === "field" &&
+						write.value.term.uuid === field?.uuid,
+				)
+				.map((write) => write.property);
+		};
+		expect(savedTo("a_question")).toEqual(["b"]);
+		expect(savedTo("b_question")).toEqual(["a"]);
 
 		const stream = await h
 			.db()

@@ -4,6 +4,7 @@ import { findAll, textContent } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { SaxesParser } from "saxes";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -262,6 +263,10 @@ it("joins case-backed Connect calculations and HQ dependency paths to the select
 		{ field: "case_name", header: "Name" },
 	]);
 	doc.forms[formUuid].type = "followup";
+	// A follow-up holds its own case, first.
+	doc.forms[formUuid].caseOperations = [
+		{ uuid: testUuid("connect-own-visit"), id: "visit", action: "own" },
+	];
 	doc.forms[formUuid].connect = {
 		deliver_unit: {
 			id: "vendor_visit",

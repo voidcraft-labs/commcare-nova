@@ -1,13 +1,11 @@
 /** Native-neutral bridge from the wire owner's exact preceding-task frame. */
 import {
 	type BlueprintDoc,
-	deriveCaseWriteInventory,
 	moduleParent,
 	moduleUuidOfForm,
 	type NavigationReadFinding,
 	type Uuid,
 } from "@/lib/domain";
-import { caseWriteAdmissionFindings } from "./caseWriteFindings";
 import { emissionPlan } from "./emissionPlan";
 import {
 	entryFrameDatums,
@@ -17,6 +15,10 @@ import {
 	previousEntryFrameChildren,
 	selectedCaseDatumId,
 } from "./formLinkProjection";
+import {
+	caseCreateNameMissingMessage,
+	ownCaseOperationFindings,
+} from "./ownCaseOperationFindings";
 
 export interface PreviousTaskSelection {
 	readonly moduleUuid: Uuid;
@@ -100,7 +102,7 @@ export function projectTaskFormSelections(
 	});
 }
 
-/** Private forms can carry case-write findings while their author repairs
+/** Private forms can lack a buildable own case while their author repairs
  * them. Every neighboring form contributes to the common entry prefix, so
  * qualify the same menu path before lowering it. Runtime/export stay strict. */
 export function readPreviousTaskProjection(
@@ -122,15 +124,13 @@ export function readPreviousTaskProjection(
 		const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 		for (const uuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[uuid];
-			for (const issue of caseWriteAdmissionFindings(
-				{
-					moduleUuid,
-					moduleName: doc.modules[moduleUuid].name,
-					formUuid: uuid,
-					formName: form.name,
-				},
-				deriveCaseWriteInventory(doc, uuid, { caseType }, form.type),
-			)) {
+			for (const issue of ownCaseOperationFindings({
+				form,
+				formUuid: uuid,
+				moduleUuid,
+				moduleName: doc.modules[moduleUuid].name,
+				caseType,
+			})) {
 				findings.push({
 					code: issue.code,
 					message: issue.message,
@@ -141,6 +141,19 @@ export function readPreviousTaskProjection(
 					}),
 				});
 			}
+			// A registration's case actions name the case it creates.
+			if (
+				form.type === "registration" &&
+				caseType !== "" &&
+				form.caseOperations?.find((operation) => operation.action === "own")
+					?.name === undefined
+			)
+				findings.push({
+					code: "CASE_CREATE_NAME_MISSING",
+					message: caseCreateNameMissingMessage(form.name),
+					moduleUuid,
+					formUuid: uuid,
+				});
 		}
 		moduleUuid = moduleParent(doc, moduleUuid) ?? undefined;
 	}

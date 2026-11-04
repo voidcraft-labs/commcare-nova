@@ -360,7 +360,13 @@ def corpus_documents(directories, corpus=None):
             documents = json.loads(index.read_text(encoding="utf-8"))["documents"]
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise CorpusUnknown(f"{index} is not a corpus index ({{documents: [{{id}}...]}}): {error}") from error
-        listed[str(root)] = frozenset(document["id"] for document in documents)
+        # A migration witness runs no sensitivity check (``cases.WITNESS_UNRUN``,
+        # ``corpus.Document.migration_witness``), so no run's evidence holds one.
+        listed[str(root)] = frozenset(
+            document["id"]
+            for document in documents
+            if not str(document.get("source", "")).startswith("targeted-migration:")
+        )
     if len(set(listed.values())) > 1:
         raise CorpusUnknown(
             f"The block directories were run over different corpora ({sorted(listed)} list different documents),"

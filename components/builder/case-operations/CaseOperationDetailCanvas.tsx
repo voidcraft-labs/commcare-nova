@@ -18,6 +18,13 @@
 // offering a case read this module can never make, or an earlier create's
 // id inside a runtime target. `editorScope.ts` owns the last two, because
 // the target slots deliberately do NOT get the same scope as the rest.
+//
+// The form's own case opens here like any change. Its case type is its
+// menu's and the case it acts on follows the form's type, so it has no
+// condition of its own and no runtime target: when it runs is the form's
+// (its close condition is in the form's settings). Its name, owner,
+// writes and links are edited exactly as another change's are, and each
+// write is the same one a question's "Saves to" row shows.
 
 "use client";
 
@@ -72,6 +79,7 @@ import {
 	type CaseOperationWrite,
 	type CasePropertyDataType,
 	levelOwnsCases,
+	operationTarget,
 } from "@/lib/domain";
 import type { ExpressionSlotRef } from "@/lib/domain/expression";
 import {
@@ -176,16 +184,22 @@ export function CaseOperationDetailCanvas({
 	/* Only the creates BEFORE this one are in scope: the same set the
 	 * checker admits, so an `id-of` value can never name a case that does
 	 * not exist yet at this point in the sequence. */
+	const registers = sentenceContext.formType === "registration";
 	const operationScope = useMemo<OperationValueScope>(() => {
 		const creates: { uuid: Uuid; label: string }[] = [];
 		for (const candidate of operations) {
 			if (candidate.uuid === operationUuid) break;
-			if (candidate.action === "create") {
+			// A registration's own case is the case the form creates, which
+			// later changes name as they name any earlier create's.
+			if (
+				candidate.action === "create" ||
+				(candidate.action === "own" && registers)
+			) {
 				creates.push({ uuid: candidate.uuid, label: candidate.id });
 			}
 		}
 		return { creates };
-	}, [operations, operationUuid]);
+	}, [operations, operationUuid, registers]);
 
 	useEffect(() => {
 		headingRef.current?.focus();
@@ -205,7 +219,11 @@ export function CaseOperationDetailCanvas({
 		);
 	}
 
-	const destination = operation.retype ?? operation.caseType;
+	const own = operation.action === "own";
+	const formType = sentenceContext.formType ?? "followup";
+	const destination =
+		operation.retype ?? view.caseTypeOf(operation) ?? expressionCaseType;
+	const target = operationTarget(operation, formType);
 	const destinationType = caseTypes.find(
 		(caseType) => caseType.name === destination,
 	);
@@ -218,9 +236,10 @@ export function CaseOperationDetailCanvas({
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 		return outcome.ok;
 	};
-	const runtimeTargetExpression =
-		operation.target.kind === "expression"
-			? operation.target.expr
+	const runtimeTargetExpression = own
+		? undefined
+		: target.kind === "expression"
+			? target.expr
 			: targetDraft.expression;
 
 	const editorScope = {
@@ -296,9 +315,9 @@ export function CaseOperationDetailCanvas({
 					{sentence.lead}
 				</h1>
 				<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-					Everything this change works out when the form is submitted. What kind
-					of change it is, and which case it acts on, are in the panel beside
-					this screen.
+					{own
+						? "Everything this form saves to its own case when it is submitted. Each value a question saves here also shows on that question as where it saves to."
+						: "Everything this change works out when the form is submitted. What kind of change it is, and which case it acts on, are in the panel beside this screen."}
 				</p>
 			</header>
 
@@ -318,144 +337,175 @@ export function CaseOperationDetailCanvas({
 			)}
 
 			<fieldset disabled={!operationCanEdit} className="contents">
-				<Section
-					title="When this runs"
-					description={
-						operation.condition === undefined
-							? "Every time this form is submitted."
-							: "Only when this is true of the submitted answers."
-					}
-					action={
-						operation.condition !== undefined && operationCanEdit ? (
-							<ClearConditionButton
-								label="Always run"
-								title="Always run this change?"
-								consequence="It will happen on every submission of this form."
-								finalFocus={() => conditionCleared.addRef.current}
-								onConfirm={() => {
-									conditionCleared.onCleared();
-									commit({ ...operation, condition: undefined });
-								}}
-							/>
-						) : undefined
-					}
-				>
-					{operation.condition === undefined ? (
-						<AddSlotButton
-							ref={conditionCleared.addRef}
-							label="Add a condition"
-							disabled={!operationCanEdit}
-							onClick={() =>
-								commit({
-									...operation,
-									condition: firstComparisonDefault({
-										expressionContext: conditionContext,
-										caseTypes,
-										currentCaseType: expressionCaseType,
-										knownInputs: [],
-										userProperties,
-										formFields,
-										operationScope,
-										// What the slot may read: a case-loading form's case,
-										// else no case (`shared/editorAxes.ts`).
-										...editorAxesOf(conditionContext),
-									}),
-								})
-							}
-						/>
-					) : (
-						<ConditionSlotEditor
-							slot={conditionSlot}
-							value={operation.condition}
-							onChange={(condition: Expression) =>
-								commit({ ...operation, condition })
-							}
-							rootLabel="when this runs"
-							caseTypes={caseTypes}
-							currentCaseType={expressionCaseType}
-							userProperties={userProperties}
-							formFields={formFields}
-							operationScope={operationScope}
-						/>
-					)}
-				</Section>
-
-				{runtimeTargetExpression !== undefined && (
+				{!own && (
 					<Section
-						title="Which case to change"
-						description="Work out the case this change acts on. The result must be a case id."
+						title="When this runs"
+						description={
+							operation.condition === undefined
+								? "Every time this form is submitted."
+								: "Only when this is true of the submitted answers."
+						}
 						action={
-							operation.target.kind !== "expression" && operationCanEdit ? (
-								<Button
-									type="button"
-									variant="ghost"
-									onClick={targetDraft.clear}
-								>
-									Cancel
-								</Button>
+							operation.condition !== undefined && operationCanEdit ? (
+								<ClearConditionButton
+									label="Always run"
+									title="Always run this change?"
+									consequence="It will happen on every submission of this form."
+									finalFocus={() => conditionCleared.addRef.current}
+									onConfirm={() => {
+										conditionCleared.onCleared();
+										commit({ ...operation, condition: undefined });
+									}}
+								/>
 							) : undefined
 						}
 					>
-						<ExpressionSlotEditor
-							slot={{
-								entity: "form",
-								uuid: formUuid,
-								slot: "case_operation_target_expression",
-								member: { operationUuid },
-							}}
-							candidate={{
-								entity: "case-operation",
-								value: {
-									...operation,
-									target: { kind: "expression", expr: runtimeTargetExpression },
-								},
-							}}
-							value={runtimeTargetExpression}
-							onChange={(expr: Expression) => {
-								if (operation.target.kind === "expression") {
+						{operation.condition === undefined ? (
+							<AddSlotButton
+								ref={conditionCleared.addRef}
+								label="Add a condition"
+								disabled={!operationCanEdit}
+								onClick={() =>
 									commit({
 										...operation,
-										target: { kind: "expression", expr },
-									});
-									return;
+										condition: firstComparisonDefault({
+											expressionContext: conditionContext,
+											caseTypes,
+											currentCaseType: expressionCaseType,
+											knownInputs: [],
+											userProperties,
+											formFields,
+											operationScope,
+											// What the slot may read: a case-loading form's case,
+											// else no case (`shared/editorAxes.ts`).
+											...editorAxesOf(conditionContext),
+										}),
+									})
 								}
-								targetDraft.update(expr);
-								const next = retargetCaseOperation(
-									operation,
-									{ kind: "expression", expr },
-									operations.slice(0, index),
-									sessionCaseAvailable ? expressionCaseType : undefined,
-								);
-								if (commit(next)) targetDraft.clear();
-							}}
-							constraint={caseOperationRuntimeTargetConstraint()}
-							{...editorScope}
-							// A runtime target may not name a create's output: target
-							// that create directly instead. Owner sentinels are withheld
-							// because this is not an owner-value slot.
-							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
-						/>
+							/>
+						) : (
+							<ConditionSlotEditor
+								slot={conditionSlot}
+								value={operation.condition}
+								onChange={(condition: Expression) =>
+									commit({ ...operation, condition })
+								}
+								rootLabel="when this runs"
+								caseTypes={caseTypes}
+								currentCaseType={expressionCaseType}
+								userProperties={userProperties}
+								formFields={formFields}
+								operationScope={operationScope}
+							/>
+						)}
 					</Section>
 				)}
 
-				{operation.action === "create" && operation.name !== undefined && (
-					<Section
-						title="The case's name"
-						description="What people will see this case called in lists."
-					>
-						<ExpressionSlotEditor
-							slot={{
-								entity: "form",
-								uuid: formUuid,
-								slot: "case_operation_name",
-								member: { operationUuid },
-							}}
-							value={operation.name}
-							onChange={(name: Expression) => commit({ ...operation, name })}
-							constraint={caseOperationTextConstraint()}
-							{...editorScope}
-						/>
-					</Section>
+				{operation.action !== "own" &&
+					runtimeTargetExpression !== undefined && (
+						<Section
+							title="Which case to change"
+							description="Work out the case this change acts on. The result must be a case id."
+							action={
+								operation.target.kind !== "expression" && operationCanEdit ? (
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={targetDraft.clear}
+									>
+										Cancel
+									</Button>
+								) : undefined
+							}
+						>
+							<ExpressionSlotEditor
+								slot={{
+									entity: "form",
+									uuid: formUuid,
+									slot: "case_operation_target_expression",
+									member: { operationUuid },
+								}}
+								candidate={{
+									entity: "case-operation",
+									value: {
+										...operation,
+										target: {
+											kind: "expression" as const,
+											expr: runtimeTargetExpression,
+										},
+									},
+								}}
+								value={runtimeTargetExpression}
+								onChange={(expr: Expression) => {
+									if (operation.target.kind === "expression") {
+										commit({
+											...operation,
+											target: { kind: "expression" as const, expr },
+										});
+										return;
+									}
+									targetDraft.update(expr);
+									const next = retargetCaseOperation(
+										operation,
+										{ kind: "expression", expr },
+										operations.slice(0, index),
+										sessionCaseAvailable ? expressionCaseType : undefined,
+									);
+									if (commit(next)) targetDraft.clear();
+								}}
+								constraint={caseOperationRuntimeTargetConstraint()}
+								{...editorScope}
+								// A runtime target may not name a create's output: target
+								// that create directly instead. Owner sentinels are withheld
+								// because this is not an owner-value slot.
+								operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
+							/>
+						</Section>
+					)}
+
+				{(operation.action === "create" ||
+					(own && formType === "registration")) &&
+					operation.name !== undefined && (
+						<Section
+							title="The case's name"
+							description="What people will see this case called in lists."
+						>
+							<ExpressionSlotEditor
+								slot={{
+									entity: "form",
+									uuid: formUuid,
+									slot: "case_operation_name",
+									member: { operationUuid },
+								}}
+								value={operation.name}
+								onChange={(name: Expression) => commit({ ...operation, name })}
+								constraint={caseOperationTextConstraint()}
+								{...editorScope}
+							/>
+						</Section>
+					)}
+
+				{own && formType !== "registration" && (
+					<OptionalExpressionSection
+						slot={{
+							entity: "form",
+							uuid: formUuid,
+							slot: "case_operation_name",
+							member: { operationUuid },
+						}}
+						title="Give the case a new name"
+						description="Changes what people see this case called."
+						addLabel="Set a new name"
+						clearLabel="Leave the name alone"
+						clearTitle="Leave the name alone?"
+						clearConsequence="This form will stop renaming its case."
+						value={operation.name}
+						canEdit={operationCanEdit}
+						seed={() => seedRenameValue(destination, formFields)}
+						onChange={(name) => commit({ ...operation, name })}
+						constraint={caseOperationTextConstraint()}
+						editorScope={editorScope}
+					/>
 				)}
 
 				{operation.action === "update" && (
@@ -489,7 +539,13 @@ export function CaseOperationDetailCanvas({
 							slot: "case_operation_owner",
 							member: { operationUuid },
 						}}
-						action={operation.action}
+						action={
+							operation.action === "own"
+								? formType === "registration"
+									? "create"
+									: "update"
+								: operation.action
+						}
 						value={operation.owner}
 						canEdit={operationCanEdit}
 						onChange={(owner) => commit({ ...operation, owner })}
@@ -515,7 +571,7 @@ export function CaseOperationDetailCanvas({
 							<WriteRow
 								formUuid={formUuid}
 								operationUuid={operationUuid}
-								key={write.property}
+								key={JSON.stringify([write.property, write.via ?? null])}
 								write={write}
 								canEdit={operationCanEdit}
 								editorScope={editorScope}
@@ -584,7 +640,7 @@ export function CaseOperationDetailCanvas({
 									expressionCaseType || undefined,
 								) ??
 									expressionCaseType) ||
-								operation.caseType
+								destination
 							}
 							precedingOperations={operations.slice(0, index)}
 							initialSessionCaseType={
@@ -606,7 +662,7 @@ export function CaseOperationDetailCanvas({
 								sessionUnavailableReason,
 								// A case cannot connect to itself, so the change's own
 								// target is withheld with that reason.
-								excludes: operation.target,
+								excludes: target,
 							}}
 							editVerdict={(links) => view.editVerdict({ ...operation, links })}
 							onChange={(links) => commit({ ...operation, links })}

@@ -15,10 +15,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, CaseOperation, Form } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
-import {
-	closeConditionHolds,
-	formChangesSessionCase,
-} from "../unheldCaseSubmit";
+import { formChangesSessionCase } from "../unheldCaseSubmit";
 
 const FORM = testUuid("unheld-form");
 
@@ -26,7 +23,6 @@ function visitDoc(
 	type: Form["type"],
 	fields: FieldSpec[],
 	options: {
-		readonly closeCondition?: { field: string; answer: string };
 		readonly caseOperations?: CaseOperation[];
 	} = {},
 ): BlueprintDoc {
@@ -53,9 +49,6 @@ function visitDoc(
 							name: "Update visit",
 							type,
 							fields,
-							...(options.closeCondition !== undefined && {
-								closeCondition: options.closeCondition,
-							}),
 						},
 					],
 				},
@@ -85,51 +78,55 @@ describe("formChangesSessionCase", () => {
 		).toBe(true);
 	});
 
-	it("counts a close form whose close condition holds, and not one whose condition fails", () => {
-		const doc = visitDoc(
-			"close",
-			[{ kind: "text", id: "outcome", label: "Outcome" }],
-			{ closeCondition: { field: "outcome", answer: "done" } },
-		);
-		const holds = (answer: string) =>
-			closeConditionHolds(doc, FORM, (uuid) =>
-				uuid === doc.forms[FORM].closeCondition?.field ? answer : "",
-			);
-		expect(formChangesSessionCase(doc, FORM, holds("done"))).toBe(true);
-		expect(formChangesSessionCase(doc, FORM, holds("pending"))).toBe(false);
+	it("counts a close form whose close holds, and not one whose close does not", () => {
+		// Whether the close holds is the form's close condition over the
+		// submitted answers (`FormEngine.ownCloseHolds`).
+		const doc = visitDoc("close", [
+			{ kind: "text", id: "outcome", label: "Outcome" },
+		]);
+		expect(formChangesSessionCase(doc, FORM, true)).toBe(true);
+		expect(formChangesSessionCase(doc, FORM, false)).toBe(false);
 	});
 
-	it("counts a close form with no close condition, which always closes", () => {
-		const doc = visitDoc("close", [
+	it("does not count a follow-up whose own case saves only to the case above it", () => {
+		const doc = visitDoc("followup", [
 			{ kind: "text", id: "note", label: "Note" },
 		]);
-		expect(closeConditionHolds(doc, FORM, () => "")).toBe(true);
-		expect(
-			formChangesSessionCase(
-				doc,
-				FORM,
-				closeConditionHolds(doc, FORM, () => ""),
+		const form = doc.forms[FORM];
+		doc.forms[FORM] = {
+			...form,
+			caseOperations: form.caseOperations?.map((operation) =>
+				operation.action === "own"
+					? {
+							...operation,
+							writes: [
+								{
+									property: "status",
+									value: term(literal("seen")),
+									via: [{ identifier: "parent" }],
+								},
+							],
+						}
+					: operation,
 			),
-		).toBe(true);
+		};
+		expect(formChangesSessionCase(doc, FORM, false)).toBe(false);
 	});
 
-	it("reads a multiple-choice close condition as one of the answers", () => {
-		const doc = visitDoc(
-			"close",
-			[{ kind: "text", id: "outcome", label: "Outcome" }],
-			{ closeCondition: { field: "outcome", answer: "done" } },
-		);
+	it("counts a follow-up whose own case renames the case it loaded", () => {
+		const doc = visitDoc("followup", [
+			{ kind: "text", id: "note", label: "Note" },
+		]);
+		const form = doc.forms[FORM];
 		doc.forms[FORM] = {
-			...doc.forms[FORM],
-			closeCondition: {
-				...(doc.forms[FORM].closeCondition as NonNullable<
-					Form["closeCondition"]
-				>),
-				operator: "selected",
-			},
+			...form,
+			caseOperations: form.caseOperations?.map((operation) =>
+				operation.action === "own"
+					? { ...operation, name: term(literal("Renamed")) }
+					: operation,
+			),
 		};
-		expect(closeConditionHolds(doc, FORM, () => "started done")).toBe(true);
-		expect(closeConditionHolds(doc, FORM, () => "started")).toBe(false);
+		expect(formChangesSessionCase(doc, FORM, false)).toBe(true);
 	});
 
 	it("counts an update of the session's case from an authored operation", () => {

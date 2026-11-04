@@ -131,6 +131,8 @@ describe("choice preservation during field edits", () => {
 	it("rewrites admitted field, operation, and Connect carriers", () => {
 		const doc = fixture();
 		doc.forms[FORM].caseOperations = [
+			// The form's own case change stays first.
+			...(doc.forms[FORM].caseOperations ?? []),
 			{
 				uuid: OP,
 				id: "save_note",
@@ -166,7 +168,9 @@ describe("choice preservation during field edits", () => {
 		);
 		expect(admitted.ok ? [] : admitted.findings).toEqual([]);
 		expect(
-			planned.next.forms[FORM].caseOperations?.[0].writes?.[0],
+			planned.next.forms[FORM].caseOperations?.find(
+				(operation) => operation.uuid === OP,
+			)?.writes?.[0],
 		).toMatchObject({ property: "note", value: term(literal("yes")) });
 	});
 

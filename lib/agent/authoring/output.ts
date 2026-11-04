@@ -8,6 +8,7 @@ import {
 } from "@/lib/commcare/formLinkProjection";
 import { projectFormExpression } from "@/lib/doc/expressionText";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
+import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import {
@@ -273,6 +274,13 @@ interface ReadProjection {
 	): unknown;
 	field(value: FieldWithChildren): unknown;
 	recordName(formUuid: Uuid, value: Expression): string;
+	/** A form's open or close condition as the form logic `updateForm`
+	 *  accepts. */
+	formCondition(
+		formUuid: Uuid,
+		slot: "form_open_condition" | "form_close_condition",
+		value: Expression,
+	): string;
 }
 
 /** The tool's result already is its authored reading form. */
@@ -337,8 +345,20 @@ const readProjectors: {
 		};
 	},
 	getField: (data, { field }) => ({ ...data, field: field(data.field) }),
-	getForm(data, { project, scope, field, doc, recordName }) {
-		const { fields, ...form } = data.form;
+	getForm(data, { project, scope, field, doc, recordName, formCondition }) {
+		const {
+			fields,
+			openCondition,
+			closeCondition,
+			ownClosePlacement: _heldClose,
+			...form
+		} = data.form;
+		// A held placement is an identity no author chooses: no edit accepts
+		// it, so the read leaves it out, and getCaseOperations states where
+		// each change is kept.
+		const operations = form.caseOperations?.map(
+			({ placement: _held, ...operation }) => operation,
+		);
 		return {
 			...data,
 			recordContext: formRecordContext(doc, form.uuid),
@@ -346,7 +366,30 @@ const readProjectors: {
 				recordName: recordName(form.uuid, data.recordName),
 			}),
 			form: {
-				...record.parse(project(formSchema, form, scope(form.uuid))),
+				...record.parse(
+					project(
+						formSchema,
+						{
+							...form,
+							...(operations !== undefined && { caseOperations: operations }),
+						},
+						scope(form.uuid),
+					),
+				),
+				...(openCondition !== undefined && {
+					openCondition: formCondition(
+						form.uuid,
+						"form_open_condition",
+						openCondition,
+					),
+				}),
+				...(closeCondition !== undefined && {
+					closeCondition: formCondition(
+						form.uuid,
+						"form_close_condition",
+						closeCondition,
+					),
+				}),
 				fields: fields.map(field),
 			},
 		};
@@ -377,13 +420,23 @@ const readProjectors: {
 			})),
 		};
 	},
-	getCaseOperations: (data, { project, scope }) => ({
+	getCaseOperations: ({ placements, ...data }, { project, scope }) => ({
 		...data,
-		operations: project(
-			z.array(caseOperationSchema),
-			data.operations,
-			scope(data.formUuid),
-		),
+		operations: records
+			.parse(
+				project(
+					z.array(caseOperationSchema),
+					data.operations,
+					scope(data.formUuid),
+				),
+			)
+			.map((operation, index) => {
+				const uuid = data.operations[index]?.uuid;
+				const placement = uuid === undefined ? undefined : placements[uuid];
+				return placement === undefined
+					? operation
+					: { ...operation, placement };
+			}),
 	}),
 	getTranslatableContent(data, { doc, scope }) {
 		const payload = record.parse(data);
@@ -542,20 +595,16 @@ export function projectAuthoringRead(args: {
 		data: unknown,
 		read: ReadProjection,
 	) => unknown;
+	// The record name is the own case's name slot, printed where an edit of
+	// it is parsed (`prepareFormRecordName`).
 	function recordName(formUuid: Uuid, value: Expression): string {
-		const writer = Object.values(doc.fields).find(
-			(field) =>
-				field.kind === "hidden" &&
-				field.caseWrite?.property === "case_name" &&
-				field.calculate === value &&
-				findContainingForm(doc, field.uuid) === formUuid,
-		);
+		const prepared = prepareFormRecordName(doc, formUuid);
 		const projection =
-			writer === undefined
+			prepared === undefined
 				? printFormExpression(value, referenceNames(doc))
 				: projectFormExpression(
 						doc,
-						{ entity: "field", uuid: writer.uuid, slot: "calculate" },
+						prepared.slot,
 						value,
 						new Map((tables ?? []).map((table) => [table.id, table])),
 					);
@@ -563,5 +612,29 @@ export function projectAuthoringRead(args: {
 			throw new Error("The record naming rule has an unresolved identity.");
 		return projection.text;
 	}
-	return projector(data, { doc, scope, project, field, recordName });
+	function formCondition(
+		formUuid: Uuid,
+		slot: "form_open_condition" | "form_close_condition",
+		value: Expression,
+	): string {
+		const projection = projectFormExpression(
+			doc,
+			{ entity: "form", uuid: formUuid, slot },
+			value,
+			new Map((tables ?? []).map((table) => [table.id, table])),
+		);
+		if (projection.unresolved.length)
+			throw new Error(
+				"The form's open or close condition has an unresolved identity.",
+			);
+		return projection.text;
+	}
+	return projector(data, {
+		doc,
+		scope,
+		project,
+		field,
+		recordName,
+		formCondition,
+	});
 }

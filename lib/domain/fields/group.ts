@@ -5,8 +5,9 @@
 // condition — no child field needs its own relevant when the group controls
 // visibility at the container level. Maps to CommCare <group> control.
 //
-// Groups do not write to the case — they have no caseWrite, hint, or
-// required fields. Only `relevant` is meaningful at the group level.
+// Groups have no answer of their own, so no case operation saves one,
+// and they carry no hint or required. Only `relevant` is meaningful at
+// the group level.
 //
 // **Empty-label groups are transparent at runtime.** Groups extend
 // `containerFieldBase` (label optional) rather than `fieldBaseSchema`
@@ -19,7 +20,7 @@
 // can select and edit them. Empty-label groups are a residual layout
 // affordance — a place for stray hidden fields that don't fit any
 // labeled group. Logical case-scoped grouping (every child field's
-// `caseWrite` matching the group's purpose) is the primary
+// answer saved to the case the group is about) is the primary
 // organization pattern; empty-label groups are not a primary
 // disambiguation tool.
 
@@ -45,6 +46,6 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	isContainer: true,
 	carriesValidation: false,
 	saDocs:
-		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's caseWrite matches the group's purpose) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime), a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
+		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's answer is saved to the case the group is about) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime), a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
 	convertTargets: ["repeat"],
 };

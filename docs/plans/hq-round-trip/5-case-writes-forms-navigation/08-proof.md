@@ -1695,6 +1695,79 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   evidence stands. The index node now written in every count-placement row (part 04's departures) is
   one more generated node added under `/questions/*` on `form:0.0`, inside the same move.
 
+- **`targeted-migration-case-writes`' Discharge loses one row on republish** (§5.2 expects no moves):
+  `main` wrote the follow-up's authored close as a Save to Case block whose update held the
+  idempotent `case_type` row every write-free non-create block carries; the held own close is a
+  close-only block, the shape `main` and HQ write for an own close
+  (`xform.py::XFormCaseBlock.add_close_block`, `xform/caseOps.ts`), and a hold records no origin
+  that could tell the two apart, so the republish drops `update/case_type`, its bind and the
+  `case_references_data.save` property. The close stays at its path; G6 writes the move proof 1
+  shows.
+- **G6 at pull request 4 is outcome A, with one more class than §5.2 expects.** Proof 1 on pull request
+  4's lane (run 41434261422) showed, on `targeted-migration-case-writes`, Discharge's dropped row
+  (`app.json` `case_references_data/save/*/properties/*`, `form:1.1` `/case_updates/*/*` and
+  `/questions/*`, each written for defect 22) and, on both it and `targeted-migration-groups-preloads`, a
+  `case_references_data/load` entry each preload adds now that it is the question's default (`#case/last_note`,
+  `#case/weight`; written for defect 28). Each move is scoped to its witnesses.
+- **`toggle/SAVE_ONLY_EDITED_FORM_FIELDS`' effects are written at pull request 4** (§16 names no row for
+  it): `targeted-case-writes-one-concept` writes an `onlyIfChanged` row, and HQ reads the flag on every
+  form it builds (`xform.py::XForm.__init__`, `save_only_if_edited`) and drops the comparison from that
+  row's `relevant` when it is off (`XFormCaseBlock.add_case_updates`). The effect,
+  `form:*` `/html/head[*]/model[*]/bind[@nodeset=/data/case/update/*]/@relevant`, is written by
+  `python3 -m proof.checks.sensitivity effects` from that run's blocks. The writer counted the migration
+  witnesses, which run no sensitivity check (`cases.WITNESS_UNRUN`), as a gap in a whole run, and now
+  leaves them out (`sensitivity.py::corpus_documents`).
+- **The rule tests `preload-condition` and `setvalue-order` follow the preload's move into the
+  source.** `case-operation-sequence` holds no `case_preload` now, so `test_preload_condition.py` gives
+  the form a preload as the Case Management page would save one before flipping its condition; and a
+  starting value read from the case is a setvalue of the source that reads a node, so
+  `test_setvalue_order.py` reverses each run of node-free setvalues around it, as the rule sorts them,
+  and moves the formatted clock into that run.
+- **The native proofs follow the own arm.** `emit-arithmetic-evidence.ts` takes the operation that saves
+  the quotient rather than the form's first (now the own arm); `CaseOperationRuntimeTest.sequence` holds
+  `defaulted_at` and `visible_at` to the submission's clock, their `now()` defaults; and the `retype`
+  scenario's close form closes under the promotion's condition (`closeCondition`), which its close of
+  the promoted case carried before C9 made it the form's own close.
+- **The retained `navigation-base` reads are HQ's answers after pull request 4's publish**, copied from
+  that run's blocks. Visit holds no preload now, so a Case Management save of it writes an empty
+  `case_preload` under condition `always` over the publish's `never`, as the save of Register already
+  did; `hqSourceBaseline.test.ts` reads that save as a `form` change like Register's.
+- **The search-first smoke journey names its record from a label question.** A record name of
+  `concat('Patient ', #form/case_name)` is no answer Case Management can state, so the own case would
+  take Save to Case and the form could no longer be the one a search with no matches offers
+  (01, departure 41). The seed carries a Hidden Value holding that `concat`, and the journey authors
+  the name as its bare read.
+- **`targeted-case-writes-one-concept` follows §5.1 where it adds to part 01 §21**: the computed write
+  is the own case of a second follow-up ("Score patient", whose own arm alone takes Save to Case),
+  and a separate close form ("Discharge") holds a choice close condition. Its no-readers estimate
+  copies `targeted-close-conditions`' 7.091 s until pull request 15 refreshes it.
+- **The case-writes witness's "Close in repeat" holds `count(#form/rounds/departed[. = 'yes']) > 0`**:
+  part 09's C6 writes the literal comparison, which the head checker refuses as `many-values` in
+  `form_close_condition`; the witness holds the same existential meaning.
+- **`proof/targeted/build.ts` lays operation and own-close holds on the committed document**, as it
+  lays query-repeat holds, since no mutation writes one before pull request 5.
+- **G1's two scenarios are one registration form in a new producer**,
+  `proof/native/producers/caseOrderScenarios.ts`, wired into `emit-case-evidence.ts` and regenerated
+  by `steps/case_emission.py` (the `only-if-changed` form under `SAVE_ONLY_EDITED_FORM_FIELDS`, checked
+  by `test_case_emission.py::_check_edited`), rather than an edit of
+  `lib/commcare/__tests__/caseOperationFixture.ts`.
+- **`proof/checks/intent.py` classifies a write by what Case Management can state**
+  (`_case_management_holds`): it cannot run Nova's planner, so it restates `placement.ts`'s slot rules
+  in Python. The own case is Case Management's only with no link, no write condition, every value one
+  question's answer as it is (a field read with no filter and no role, or a capture's link) from a
+  question in no repeat, and on a registration an open and a close condition Case Management states
+  and no change of the new case before its create; the worker's record takes its one slot by the same
+  value rules; a child is Case Management's only as a `parent` child of a Case Management own case of a
+  menu's case type other than the menu's own, named from its own repeat, under a condition Case
+  Management states and changed by no later operation but the close that shares its slot. A held
+  Save to Case block is Save to Case's, a several-case menu's own case is Save to Case's, and a `via`
+  write is no custom property of either case.
+- **`proof/corpus/footprint.ts` gains an `ownCaseType` derivation**: the own arm stores no case type,
+  so a module retype changes its registration, follow-up and close forms' wire with no field edit.
+- **Two corpus fixtures change content to meet the own-case rules**: `case-operation-retype`'s close
+  is the unconditional own close of a close form, and in `case-operation-sequence` `defaulted_at` and
+  `visible_at` keep their authored `now()` defaults, since a preload is now the question's default.
+
 ## What other parts read from this one
 
 - **Every part**: the targeted documents' names (§5.1) and that no step 5 pull request leaves a live entry

@@ -113,7 +113,9 @@ export function locationOwnerFixture(
 		levels.map((level) => [level.uuid, level]),
 	);
 	doc.organizationLevelOrder = levels.map((level) => level.uuid);
+	// After the own case `buildDoc` gives the follow-up.
 	doc.forms[LOCATION_FORM].caseOperations = [
+		...(doc.forms[LOCATION_FORM].caseOperations ?? []),
 		{
 			uuid: testUuid("location-owner-operation"),
 			id: "transfer",

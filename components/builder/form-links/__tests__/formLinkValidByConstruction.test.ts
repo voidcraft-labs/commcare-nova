@@ -47,6 +47,7 @@ import {
 	toNote,
 	toVisit,
 	VISIT,
+	withoutCaseValueStarts,
 } from "./fixture";
 
 /** Replay an ok plan through the gate and the reducers; return the doc. */
@@ -162,15 +163,18 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 			// Choosing several cases runs in Web Apps alone.
 			draft.appSettings.runsOnlyOn = "web-apps";
 			draft.forms[SOURCE].type = "followup";
+			withoutCaseValueStarts(draft, [SOURCE, VISIT]);
 			draft.modules[CARE].parentModuleUuid = HOUSEHOLDS;
 			draft.moduleOrder = [HOUSEHOLDS, CARE, INTAKE];
+			// Neither form saves an answer: each keeps only its own case.
 			for (const formUuid of [SOURCE, VISIT]) {
-				for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
-					const field = draft.fields[fieldUuid];
-					if (field !== undefined && "caseWrite" in field) {
-						delete field.caseWrite;
-					}
-				}
+				const form = draft.forms[formUuid];
+				form.caseOperations = (form.caseOperations ?? []).flatMap(
+					(operation) =>
+						operation.action === "own"
+							? [{ uuid: operation.uuid, id: operation.id, action: "own" }]
+							: [],
+				);
 			}
 		});
 
@@ -261,6 +265,7 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 			config.selection = { kind: "multiple", maximum: 10 };
 			// Choosing several cases runs in Web Apps alone.
 			draft.appSettings.runsOnlyOn = "web-apps";
+			withoutCaseValueStarts(draft, [VISIT]);
 		});
 		const verdict = formLinkTargetVerdict(
 			multiple,

@@ -11,6 +11,7 @@
 
 import { expect } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { lowerFixtureCaseWrites } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -70,46 +71,53 @@ export function makeCaseListDoc(): BlueprintDoc {
 		id: "case_name",
 		kind: "text",
 		label: proseText("Full name"),
-		caseWrite: { caseType: "patient", property: "case_name" },
 	};
-	return {
-		appId: "test-app",
-		appName: "Clinic Intake",
-		connectType: null,
-		appSettings: { showSavedForms: false, showIncompleteForms: false },
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: proseText("Full name") },
-					{ name: "full_name", label: proseText("Name") },
-					{ name: "phone", label: proseText("Phone") },
-					{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
-					{
-						name: "last_visit",
-						label: proseText("Last visit"),
-						data_type: "date",
-					},
-					{ name: "region_code", label: proseText("Region code") },
-					{ name: "region", label: proseText("Region") },
-					{ name: "status", label: proseText("Status") },
-					{ name: "alpha", label: proseText("Alpha") },
-					{ name: "beta", label: proseText("Beta") },
-					{ name: "charlie", label: proseText("Charlie") },
-					{ name: "existing", label: proseText("Existing") },
-					{ name: "first", label: proseText("First") },
-					{ name: "second", label: proseText("Second") },
-				],
-			},
-		],
-		modules: { [MOD_A]: mod },
-		forms: { [FORM_A]: form },
-		fields: { [FIELD_A]: field },
-		moduleOrder: [MOD_A],
-		formOrder: { [MOD_A]: [FORM_A] },
-		fieldOrder: { [FORM_A]: [FIELD_A] },
-		fieldParent: { [FIELD_A]: FORM_A },
-	};
+	// The question names the patient: lowered into the form's own case.
+	return lowerFixtureCaseWrites(
+		{
+			appId: "test-app",
+			appName: "Clinic Intake",
+			connectType: null,
+			appSettings: { showSavedForms: false, showIncompleteForms: false },
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Full name") },
+						{ name: "full_name", label: proseText("Name") },
+						{ name: "phone", label: proseText("Phone") },
+						{
+							name: "dob",
+							label: proseText("Date of birth"),
+							data_type: "date",
+						},
+						{
+							name: "last_visit",
+							label: proseText("Last visit"),
+							data_type: "date",
+						},
+						{ name: "region_code", label: proseText("Region code") },
+						{ name: "region", label: proseText("Region") },
+						{ name: "status", label: proseText("Status") },
+						{ name: "alpha", label: proseText("Alpha") },
+						{ name: "beta", label: proseText("Beta") },
+						{ name: "charlie", label: proseText("Charlie") },
+						{ name: "existing", label: proseText("Existing") },
+						{ name: "first", label: proseText("First") },
+						{ name: "second", label: proseText("Second") },
+					],
+				},
+			],
+			modules: { [MOD_A]: mod },
+			forms: { [FORM_A]: form },
+			fields: { [FIELD_A]: field },
+			moduleOrder: [MOD_A],
+			formOrder: { [MOD_A]: [FORM_A] },
+			fieldOrder: { [FORM_A]: [FIELD_A] },
+			fieldParent: { [FIELD_A]: FORM_A },
+		},
+		new Map([[FIELD_A, { caseType: "patient", property: "case_name" }]]),
+	);
 }
 
 /** Bundle of the starting doc + a canonical workspace over a lightweight stub

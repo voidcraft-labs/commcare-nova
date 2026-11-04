@@ -105,7 +105,9 @@ function addAdvancedExtensionLink(
 ): void {
 	const form = Object.values(doc.forms)[0];
 	if (form === undefined) throw new Error("expected automation fixture form");
+	// The form's own case stays first; the extension link follows it.
 	form.caseOperations = [
+		...(form.caseOperations ?? []),
 		{
 			uuid: testUuid(`advanced-extension-${identifier}`),
 			id: `link_${identifier}`,

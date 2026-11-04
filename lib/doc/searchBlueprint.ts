@@ -12,7 +12,7 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	childModuleUuids,
-	fieldCaseWrite,
+	fieldCaseWriteViews,
 	isContainer,
 	projectedModulePreorder,
 	proseSource,
@@ -226,16 +226,16 @@ function searchFields(
 		if (label?.toLowerCase().includes(query)) {
 			matchFields.push({ field: "label", value: label });
 		}
-		const caseWrite = fieldCaseWrite(field);
-		const savesTo =
-			caseWrite === undefined
-				? undefined
-				: `${caseWrite.caseType}/${caseWrite.property}`;
-		if (savesTo?.toLowerCase().includes(query)) {
-			matchFields.push({
-				field: "caseWrite",
-				value: savesTo,
-			});
+		// Each place the field's answer is saved to, once: its "Saves to"
+		// view, spelled `<case type>/<property>` on the case the write lands on.
+		const savesTo = new Set(
+			fieldCaseWriteViews(doc, fieldUuid).map(
+				(view) => `${view.caseType}/${view.property}`,
+			),
+		);
+		for (const value of savesTo) {
+			if (value.toLowerCase().includes(query))
+				matchFields.push({ field: "caseWrite", value });
 		}
 		// Search projects each executable slot with its actual source coordinate.
 		for (const key of [
@@ -291,7 +291,8 @@ function searchFields(
 		}
 
 		for (const match of matchFields) {
-			const caseTag = savesTo === undefined ? "" : `, saves-to:${savesTo}`;
+			const caseTag =
+				savesTo.size === 0 ? "" : `, saves-to:${[...savesTo].join(" ")}`;
 			results.push({
 				type: "field",
 				moduleUuid,

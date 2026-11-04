@@ -1,8 +1,8 @@
-import type { BlueprintDoc } from "./blueprint";
 import {
-	deriveCaseWriteInventory,
-	deriveCaseWriteInventoryForStructure,
-} from "./caseWriteInventory";
+	registrationMintsOwnCaseId,
+	rootBasicSubcaseCreates,
+} from "./basicCaseSlots";
+import type { BlueprintDoc } from "./blueprint";
 import type { FormStructure } from "./expression/formStructure";
 import { type DatumRef, datumRefKey } from "./expression/types";
 import { CASE_LOADING_FORM_TYPES, type FormLinkTarget } from "./forms";
@@ -15,6 +15,7 @@ import {
 	moduleOpensOnSearch,
 } from "./modules";
 import type { Uuid } from "./uuid";
+import { savesToWorkerRecord } from "./workerRecordRequirements";
 
 /** A physical entry. A browse entry includes its own selection; a case-list
  * evaluation point below runs before that selection has been made. */
@@ -227,21 +228,29 @@ function suppliedAtEntry(
 		const form =
 			prepared?.formUuid === entry.form ? prepared : doc.forms[entry.form];
 		if (form === undefined) return EMPTY_SUPPLIES;
-		const inventory =
-			prepared?.formUuid === entry.form
-				? deriveCaseWriteInventoryForStructure(doc, prepared, mod)
-				: deriveCaseWriteInventory(doc, entry.form, mod, form.type);
-		if (form.type === "registration" && mod.caseType !== undefined)
+		// A prepared structure carries no case operations: what a form saves
+		// is its saved operations, which the commit gate checks again over
+		// the committed document. The case a registration creates, and each
+		// child it creates at the root, has a session value only where its
+		// change takes a slot of Case Management (`basicCaseSlots.ts`).
+		const saved = doc.forms[entry.form];
+		if (
+			form.type === "registration" &&
+			mod.caseType !== undefined &&
+			(saved === undefined ||
+				saved.type !== "registration" ||
+				registrationMintsOwnCaseId(doc, entry.form))
+		)
 			add({ kind: "new-case" });
-		for (const bucket of inventory.buckets) {
-			if (bucket.kind === "usercase" && bucket.writers.length > 0)
-				add({ kind: "worker-record" });
+		if (saved !== undefined) {
+			if (savesToWorkerRecord(saved)) add({ kind: "worker-record" });
 			if (
-				bucket.kind === "child" &&
-				bucket.repeatUuid === undefined &&
-				caseSelectionCardinality(mod) === "single"
+				mod.caseType !== undefined &&
+				(form.type === "registration" ||
+					caseSelectionCardinality(mod) === "single")
 			)
-				add({ kind: "new-child-case", caseType: bucket.caseType });
+				for (const { caseType } of rootBasicSubcaseCreates(doc, entry.form))
+					add({ kind: "new-child-case", caseType });
 		}
 		if (
 			selected.includes(entry.module) &&

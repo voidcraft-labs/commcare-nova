@@ -33,6 +33,7 @@ import {
 	caseSearchConfigSchema,
 	caseSelectionSchema,
 	caseTileLayoutSchema,
+	caseWriteKeySchema,
 	columnSchema,
 	columnSortSchema,
 	fieldHoldsHeldKey,
@@ -146,13 +147,37 @@ function clearablePartialPatch<S extends { uuid: z.ZodType } & z.ZodRawShape>(
 	}>;
 }
 
+/**
+ * The stored operation arms as a payload carries them: every arm without its
+ * held `placement`. Where a published app keeps a change in CommCare HQ is no
+ * author's choice, so no add or update writes it (`holdPlacements` alone
+ * does); a new or duplicated operation starts unheld.
+ */
+function operationPayloadArms(
+	operationValueSchema: typeof caseOperationSchema,
+) {
+	const [own, create, update, close] = operationValueSchema.options;
+	return {
+		own: own.omit({ placement: true }),
+		create: create.omit({ placement: true }),
+		update: update.omit({ placement: true }),
+		close: close.omit({ placement: true }),
+	};
+}
+
 function caseOperationChangeSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
 ) {
+	const arms = operationPayloadArms(operationValueSchema);
 	return z.discriminatedUnion("operation", [
 		z.strictObject({
 			operation: z.literal("add"),
-			value: operationValueSchema,
+			value: z.discriminatedUnion("action", [
+				arms.own,
+				arms.create,
+				arms.update,
+				arms.close,
+			]),
 		}),
 		z.strictObject({ operation: z.literal("remove"), uuid: uuidSchema }),
 	]);
@@ -164,59 +189,73 @@ function caseOperationChangeSchemaFor(
  * Adds and removals use `caseOperationChange`; every edit to an existing
  * operation uses this identity-keyed union. There is no paired whole-operation
  * fallback; every reader consumes this one payload.
+ *
+ * A write is addressed by its key (`caseWriteKeySchema`: its property and the
+ * indices its `via` walks). `via` is part of the key and never patched:
+ * saving the same answer through other indices is `remove-write` then
+ * `add-write`.
  */
 function caseOperationPatchSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
 ) {
+	const arms = operationPayloadArms(operationValueSchema);
 	// Identity and destination action are represented once on the outer update
-	// arm. Writes and links have their own keyed merge units.
-	const createOperationPatchSchema = clearablePartialPatch(
-		operationValueSchema.options[0],
-	)
+	// arm. Writes and links have their own keyed merge units. The own arm's
+	// case type, target, condition and repeat are the form's, so only its name
+	// and owner are scalar slots of its own.
+	const ownOperationPatchSchema = clearablePartialPatch(arms.own)
+		.pick({ name: true, owner: true })
+		.strict();
+	const createOperationPatchSchema = clearablePartialPatch(arms.create)
 		.omit({ action: true, writes: true, links: true })
 		.strict();
-	const updateOperationPatchSchema = clearablePartialPatch(
-		operationValueSchema.options[1],
-	)
+	const updateOperationPatchSchema = clearablePartialPatch(arms.update)
 		.omit({ action: true, writes: true, links: true })
 		.strict();
-	const closeOperationPatchSchema = clearablePartialPatch(
-		operationValueSchema.options[2],
-	)
+	const closeOperationPatchSchema = clearablePartialPatch(arms.close)
 		.omit({ action: true, writes: true, links: true })
 		.strict();
 	const operationUpdateSchema = z.discriminatedUnion("targetAction", [
 		z.strictObject({
 			operation: z.literal("update"),
 			uuid: uuidSchema,
-			targetAction: operationValueSchema.options[0].shape.action,
+			targetAction: arms.own.shape.action,
+			patch: ownOperationPatchSchema,
+		}),
+		z.strictObject({
+			operation: z.literal("update"),
+			uuid: uuidSchema,
+			targetAction: arms.create.shape.action,
 			patch: createOperationPatchSchema,
 		}),
 		z.strictObject({
 			operation: z.literal("update"),
 			uuid: uuidSchema,
-			targetAction: operationValueSchema.options[1].shape.action,
+			targetAction: arms.update.shape.action,
 			patch: updateOperationPatchSchema,
 		}),
 		z.strictObject({
 			operation: z.literal("update"),
 			uuid: uuidSchema,
-			targetAction: operationValueSchema.options[2].shape.action,
+			targetAction: arms.close.shape.action,
 			patch: closeOperationPatchSchema,
 		}),
 	]);
-	const writeSchema =
-		operationValueSchema.options[0].shape.writes.unwrap().element;
+	const writeSchema = arms.create.shape.writes.unwrap().element;
 	const writePatchSchema = z
 		.strictObject({
 			value: writeSchema.shape.value.optional(),
 			condition: writeSchema.shape.condition.unwrap().nullable().optional(),
+			/** `null` saves the answer every time again. */
+			onlyIfChanged: writeSchema.shape.onlyIfChanged
+				.unwrap()
+				.nullable()
+				.optional(),
 		})
 		.refine((patch) => Object.keys(patch).length > 0, {
 			error: "A case-operation write patch must change at least one slot.",
 		});
-	const linkSchema =
-		operationValueSchema.options[0].shape.links.unwrap().element;
+	const linkSchema = arms.create.shape.links.unwrap().element;
 	const linkPatchSchema = linkSchema
 		.omit({ identifier: true })
 		.partial()
@@ -230,26 +269,26 @@ function caseOperationPatchSchemaFor(
 			operation: z.literal("add-write"),
 			uuid: uuidSchema,
 			value: writeSchema,
-			/** Logical predecessor in this operation's write collection.
-			 * `null` means first; omission means intentional append. */
-			after: writeSchema.shape.property.nullable().optional(),
+			/** Logical predecessor in this operation's write collection, by its
+			 * key. `null` means first; omission means intentional append. */
+			after: caseWriteKeySchema.nullable().optional(),
 		}),
 		z.strictObject({
 			operation: z.literal("update-write"),
 			uuid: uuidSchema,
-			property: writeSchema.shape.property,
+			key: caseWriteKeySchema,
 			patch: writePatchSchema,
 		}),
 		z.strictObject({
 			operation: z.literal("remove-write"),
 			uuid: uuidSchema,
-			property: writeSchema.shape.property,
+			key: caseWriteKeySchema,
 		}),
 		z.strictObject({
 			operation: z.literal("move-write"),
 			uuid: uuidSchema,
-			property: writeSchema.shape.property,
-			after: writeSchema.shape.property.nullable(),
+			key: caseWriteKeySchema,
+			after: caseWriteKeySchema.nullable(),
 		}),
 		z.strictObject({
 			operation: z.literal("add-link"),
@@ -465,7 +504,36 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	formLinks: true,
 	icon: true,
 	audioLabel: true,
+	// Where a published app keeps the own close is held by `holdPlacements`
+	// alone; no form patch writes it.
+	ownClosePlacement: true,
 });
+
+/**
+ * Whether a form-shaped value holds a placement: its own close's, or one of
+ * its operations'. A held placement is no author's choice, so a new form
+ * carries none.
+ */
+function formHoldsPlacement(form: {
+	readonly ownClosePlacement?: unknown;
+	readonly caseOperations?: readonly { readonly placement?: unknown }[];
+}): boolean {
+	return (
+		form.ownClosePlacement !== undefined ||
+		(form.caseOperations ?? []).some(
+			(operation) => operation.placement !== undefined,
+		)
+	);
+}
+
+const HELD_FORM_PLACEMENT_MESSAGE =
+	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.";
+
+/** `addForm`'s form: any form, holding no placement. */
+const addFormFormSchema = formSchema.refine(
+	(form) => !formHoldsPlacement(form),
+	HELD_FORM_PLACEMENT_MESSAGE,
+);
 /**
  * Granular edit of one established after-submit link, addressed by uuid.
  * `target` is required on a link so it replaces rather than clears;
@@ -624,7 +692,7 @@ const finalMutationFamily = {
 	moduleUpdatePatch: canonicalModuleUpdatePatchSchema,
 	caseSearchConfig: caseSearchConfigSchema,
 	caseSearchConfigPatch: canonicalCaseSearchConfigPatchSchema,
-	form: formSchema,
+	form: addFormFormSchema,
 	formUpdatePatch: canonicalFormUpdatePatchSchema,
 	caseOperationChange: canonicalCaseOperationChangeSchema,
 	caseOperationPatch: canonicalCaseOperationPatchSchema,
@@ -680,6 +748,66 @@ function reportImmutableCaseOperationIdentity(
 }
 
 /**
+ * Reports a form update that carries a held placement: an operation's
+ * `placement` in an added operation or an operation patch, or the form's
+ * `ownClosePlacement` in the form patch.
+ *
+ * Every payload schema omits those slots, so strict parsing refuses them on
+ * its own. As with the operation uuid above, this supplies the sentence: the
+ * caller's mistake is believing an edit can choose where a published app keeps
+ * a change, and "Unrecognized key" would not tell it so.
+ */
+function reportHeldPlacementInPayload(
+	value: unknown,
+	ctx: z.RefinementCtx,
+): void {
+	if (!isPlainRecord(value) || value.kind !== "updateForm") return;
+	if (
+		isPlainRecord(value.patch) &&
+		Object.hasOwn(value.patch, "ownClosePlacement")
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["patch", "ownClosePlacement"],
+			message:
+				"This form update also sets where a published app keeps the form's own close. No edit chooses that, so leave `ownClosePlacement` out of the patch.",
+		});
+	}
+	const change = value.caseOperationChange;
+	if (
+		isPlainRecord(change) &&
+		change.operation === "add" &&
+		isPlainRecord(change.value) &&
+		Object.hasOwn(change.value, "placement")
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["caseOperationChange", "value", "placement"],
+			message:
+				"A new case change can't hold where a published app keeps it, since no edit chooses that. Leave out `placement`, and the change takes the placement its shape gives.",
+		});
+	}
+	const patch = value.caseOperationPatch;
+	if (
+		isPlainRecord(patch) &&
+		patch.operation === "update" &&
+		isPlainRecord(patch.patch) &&
+		Object.hasOwn(patch.patch, "placement")
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["caseOperationPatch", "patch", "placement"],
+			message:
+				"This update also sets where a published app keeps the case change. No edit chooses that, so leave `placement` out of the patch.",
+		});
+	}
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * Run a raw-input check before `schema` without changing its public I/O types.
  *
  * Zod 4's `preprocess` declaration always exposes `unknown` as the wrapper's
@@ -700,6 +828,7 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 	const guarded = z.preprocess<z.input<Schema>, Schema, z.input<Schema>>(
 		(value, ctx) => {
 			reportImmutableCaseOperationIdentity(value, ctx);
+			reportHeldPlacementInPayload(value, ctx);
 			return value;
 		},
 		schema,

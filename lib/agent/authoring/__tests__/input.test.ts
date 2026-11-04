@@ -17,6 +17,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
+import { AuthoringInputError } from "../errors";
 
 function authoring(
 	options: MakeToolWorkspaceHarnessOptions = {},
@@ -225,7 +226,7 @@ it("binds new questions, case operations, and case-list order without predeclare
 	await h.call("updateForm", {
 		moduleUuid: "Clients",
 		formUuid: "Visit",
-		close_condition: { fieldUuid: "done", answer: "yes" },
+		close_condition: "#form/confirmation/done = 'yes'",
 	});
 	await h.call("removeField", {
 		moduleUuid: "Clients",
@@ -239,10 +240,12 @@ it("binds new questions, case operations, and case-list order without predeclare
 		(item) => item.id === "done",
 	);
 	if (!form || !done) throw new Error("Missing visit form.");
-	expect(form.closeCondition).toMatchObject({
-		field: done.uuid,
-		answer: "yes",
-	});
+	// The condition stores the question's identity, never its path.
+	const doneRead = {
+		kind: "eq",
+		left: { kind: "term", term: { kind: "field", uuid: done.uuid } },
+	};
+	expect(form.closeCondition).toMatchObject(doneRead);
 	await h.call("editField", {
 		formUuid: "Visit",
 		fieldUuid: "done",
@@ -250,9 +253,11 @@ it("binds new questions, case operations, and case-list order without predeclare
 	});
 	await h.call("updateForm", {
 		formUuid: "Visit",
-		close_condition: { fieldUuid: "finished", answer: "yes" },
+		close_condition: "#form/confirmation/finished = 'yes'",
 	});
-	expect(h.currentDoc().forms[form.uuid].closeCondition?.field).toBe(done.uuid);
+	expect(h.currentDoc().forms[form.uuid].closeCondition).toMatchObject(
+		doneRead,
+	);
 	await h.call("addCaseOperations", {
 		formUuid: "Visit",
 		operations: [
@@ -277,13 +282,15 @@ it("binds new questions, case operations, and case-list order without predeclare
 			},
 		],
 	});
+	// The close form's own case runs first; the added changes follow it.
 	const operations = orderedCaseOperations(h.currentDoc().forms[form.uuid]);
-	expect(operations[1]).toMatchObject({
-		target: { kind: "op", opUuid: operations[0].uuid },
+	expect(operations[0]).toMatchObject({ action: "own" });
+	expect(operations[2]).toMatchObject({
+		target: { kind: "op", opUuid: operations[1].uuid },
 		writes: [
 			{
 				property: "source_id",
-				value: { kind: "id-of", opUuid: operations[0].uuid },
+				value: { kind: "id-of", opUuid: operations[1].uuid },
 			},
 		],
 	});
@@ -310,9 +317,9 @@ it("binds new questions, case operations, and case-list order without predeclare
 	await expect(
 		h.call("updateForm", {
 			formUuid: "Visit",
-			close_condition: { fieldUuid: "missing", answer: "yes" },
+			close_condition: "#form/missing = 'yes'",
 		}),
-	).rejects.toThrow("not in this scope");
+	).rejects.toThrow(AuthoringInputError);
 	expect(h.currentDoc()).toEqual(before);
 	await expect(
 		h.call("configureCaseList", {

@@ -248,6 +248,9 @@ function docWithDormantCaseListIcon() {
 				id: "f",
 				name: "F",
 				type: "followup",
+				caseOperations: [
+					{ uuid: testUuid("form-x-own"), id: "patient", action: "own" },
+				],
 			},
 		},
 		fields: {

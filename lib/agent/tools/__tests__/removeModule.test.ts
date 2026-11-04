@@ -205,7 +205,13 @@ describe("removeModule", () => {
 		const result = out.result;
 		if (typeof result !== "object" || !("error" in result))
 			throw new Error("expected retirement refusal");
-		expect(result.error).toContain('"visit_note"');
+		// The questions save to "visit" through the form's child-case change,
+		// which the refusal names.
+		const childCase = Object.values(h.currentDoc().forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.find((operation) => operation.caseType === "visit");
+		if (childCase === undefined) throw new Error("Missing the visit change.");
+		expect(result.error).toContain(`"${childCase.id}"`);
 		expect(result.error).toContain("Remove or retarget");
 	});
 });

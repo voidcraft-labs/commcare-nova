@@ -80,6 +80,7 @@ import {
 	ParkedValueNotFoundError,
 } from "../errors";
 import { buildCaseTypeMap, type CaseStore } from "../store";
+import type { EnvelopeCaseOperation } from "../submission";
 import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 
 // ---------------------------------------------------------------
@@ -150,6 +151,85 @@ function submissionReceipt() {
 		requestDigest: `store-contract-request-${submissionReceiptSequence}`,
 	};
 }
+/** One case a registration's program creates: its type, name and the
+ * literal values it saves. */
+interface RegisteredCase {
+	readonly caseType: string;
+	readonly caseName: string;
+	readonly properties: Readonly<Record<string, string | number>>;
+}
+
+const OWN_UUID = testUuid("store-contract-own-case");
+
+/**
+ * A registration's submission: its own case created as `primary`, then each
+ * of `children` created under it, as the form's case operations run them.
+ */
+function registrationSubmission(
+	blueprint: BlueprintDoc,
+	primary: RegisteredCase,
+	children: readonly RegisteredCase[],
+): Parameters<CaseStore["applySubmission"]>[0] {
+	const writes = (properties: RegisteredCase["properties"]) =>
+		Object.entries(properties).map(([property, value]) => ({
+			property,
+			value: term(literal(value)),
+		}));
+	const envelope = (operation: EnvelopeCaseOperation["operation"]) => ({
+		operation,
+		guardConditions: [],
+		expressionSnapshotTypes: { links: new Map<number, string>() },
+	});
+	return {
+		appId: APP_ID,
+		submissionReceipt: submissionReceipt(),
+		ordinary: { kind: "registration" },
+		operations: {
+			formUuid: testUuid("66666666-6666-4666-8666-666666666666"),
+			operations: [
+				envelope({
+					uuid: OWN_UUID,
+					id: primary.caseType,
+					action: "own",
+					name: term(literal(primary.caseName)),
+					writes: writes(primary.properties),
+				}),
+				...children.map((child, index) =>
+					envelope({
+						uuid: testUuid(`store-contract-child-${index}`),
+						id: `child_${index}`,
+						action: "create",
+						caseType: child.caseType,
+						target: { kind: "new" },
+						name: term(literal(child.caseName)),
+						writes: writes(child.properties),
+						links: [
+							{
+								identifier: "parent",
+								targetType: primary.caseType,
+								target: { kind: "op", opUuid: OWN_UUID },
+								relationship: "child",
+							},
+						],
+					}),
+				),
+			],
+			ownCase: { caseType: primary.caseType, formType: "registration" },
+			scopes: [{ iterations: [{ formFields: new Map() }] }],
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+		},
+	};
+}
+
+/** The ids of the children a registration's creates made, in order. */
+function createdChildIds(
+	result: Awaited<ReturnType<CaseStore["applySubmission"]>>,
+): string[] {
+	return result.operations
+		.filter((record) => record.action === "create" && record.executed)
+		.map((record) => record.caseId);
+}
+
 const PROJECT_A = "project-a";
 const PROJECT_B = "project-b";
 const USER_A = "user-a";
@@ -675,20 +755,17 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "household");
 			await seedSchema(store, blueprint, "patient");
 
-			// Primary household + two children patients. Children
-			// carry no parent — the envelope threads the primary's
-			// generated id.
-			const result = await store.applySubmission({
-				appId: APP_ID,
-				submissionReceipt: submissionReceipt(),
-				ordinary: {
-					kind: "registration",
-					primary: {
+			// The own household + two child patients, each linked
+			// `parent` to the case the own case creates.
+			const result = await store.applySubmission(
+				registrationSubmission(
+					blueprint,
+					{
 						caseType: "household",
 						caseName: "North household",
 						properties: { region: "North" },
 					},
-					children: [
+					[
 						{
 							caseType: "patient",
 							caseName: "Alice",
@@ -700,10 +777,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 							properties: { name: "Bob", age: 40 },
 						},
 					],
-				},
-			});
+				),
+			);
 			expect(result.primaryCaseIds).toEqual([expect.any(String)]);
-			expect(result.createdChildren).toHaveLength(2);
+			expect(createdChildIds(result)).toHaveLength(2);
 			const primaryCaseId = result.primaryCaseIds[0] ?? "";
 
 			// Primary row landed, born open.
@@ -717,8 +794,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(households[0]?.status).toBe("open");
 
 			// Children landed and carry the primary's id as their
-			// `parent_case_id` — the implicit threading the envelope's
-			// registration contract pins.
+			// `parent_case_id`, through the link to the own case's
+			// create.
 			const patients = await store.query({
 				reading: SEARCH_READING,
 				appId: APP_ID,
@@ -739,8 +816,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(subcases).toHaveLength(2);
 			const reachedIds = new Set(subcases.map((c) => c.case_id));
-			for (const child of result.createdChildren) {
-				expect(reachedIds.has(child.caseId)).toBe(true);
+			for (const childId of createdChildIds(result)) {
+				expect(reachedIds.has(childId)).toBe(true);
 			}
 		});
 
@@ -757,17 +834,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "patient");
 
 			await expect(
-				store.applySubmission({
-					appId: APP_ID,
-					submissionReceipt: submissionReceipt(),
-					ordinary: {
-						kind: "registration",
-						primary: {
+				store.applySubmission(
+					registrationSubmission(
+						blueprint,
+						{
 							caseType: "household",
 							caseName: "North household",
 							properties: { region: "North" },
 						},
-						children: [
+						[
 							{
 								caseType: "patient",
 								caseName: "Alice",
@@ -779,8 +854,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 								},
 							},
 						],
-					},
-				}),
+					),
+				),
 			).rejects.toThrow();
 
 			// Primary's case-type is empty after rollback — the
@@ -826,17 +901,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// visit, patient — so an implementation that grouped by
 			// type would have to reassemble; the id list must still
 			// read in the caller's order.
-			const result = await store.applySubmission({
-				appId: APP_ID,
-				submissionReceipt: submissionReceipt(),
-				ordinary: {
-					kind: "registration",
-					primary: {
+			const result = await store.applySubmission(
+				registrationSubmission(
+					blueprint,
+					{
 						caseType: "household",
 						caseName: "North household",
 						properties: { region: "North" },
 					},
-					children: [
+					[
 						{
 							caseType: "patient",
 							caseName: "Alice",
@@ -853,9 +926,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 							properties: { name: "Bob", age: 40 },
 						},
 					],
-				},
-			});
-			expect(result.createdChildren).toHaveLength(3);
+				),
+			);
+			const childIds = createdChildIds(result);
+			expect(childIds).toHaveLength(3);
 
 			// All three rows materialize: 1 household, 2 patients,
 			// 1 visit, all under the same primary id.
@@ -876,9 +950,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// position 1 the visit; position 2 Bob the patient. Look
 			// up each row by its returned id and verify the case-type
 			// lines up with the input.
-			const aliceId = result.createdChildren[0]?.caseId;
-			const visitId = result.createdChildren[1]?.caseId;
-			const bobId = result.createdChildren[2]?.caseId;
+			const [aliceId, visitId, bobId] = childIds;
 			expect(aliceId).toBeDefined();
 			expect(visitId).toBeDefined();
 			expect(bobId).toBeDefined();
@@ -905,21 +977,19 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
 
-			const result = await store.applySubmission({
-				appId: APP_ID,
-				submissionReceipt: submissionReceipt(),
-				ordinary: {
-					kind: "registration",
-					primary: {
+			const result = await store.applySubmission(
+				registrationSubmission(
+					blueprint,
+					{
 						caseType: "patient",
 						caseName: "Solo",
 						properties: { name: "Solo", age: 50 },
 					},
-					children: [],
-				},
-			});
+					[],
+				),
+			);
 			expect(result.primaryCaseIds).toEqual([expect.any(String)]);
-			expect(result.createdChildren).toHaveLength(0);
+			expect(createdChildIds(result)).toHaveLength(0);
 
 			const rows = await store.query({
 				reading: SEARCH_READING,

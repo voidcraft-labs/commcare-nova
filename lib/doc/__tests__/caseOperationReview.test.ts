@@ -199,7 +199,12 @@ function docWithOperations(operations: readonly CaseOperation[]): {
 		],
 	});
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	doc.forms[formUuid].caseOperations = [...operations];
+	// The follow-up's own case change stays first, where it must be; the
+	// operations under review follow it.
+	const own = doc.forms[formUuid].caseOperations?.filter(
+		(operation) => operation.action === "own",
+	);
+	doc.forms[formUuid].caseOperations = [...(own ?? []), ...operations];
 	assertAdmittedDoc(doc);
 	return { doc, formUuid };
 }
@@ -238,18 +243,20 @@ describe("caseOperationMoveVerdicts", () => {
 			create(SECOND, "create_other"),
 			everySlotConsumer(),
 		]);
+		// Index 0 is the own case's change, which nothing may precede.
 		const expected = [
-			[true, true, false],
-			[true, true, true],
-			[false, true, true],
+			[false, true, true, false],
+			[false, true, true, true],
+			[false, false, true, true],
 		];
 		const ordered = orderedCaseOperations(doc.forms[formUuid]);
-		for (const [from, operation] of ordered.entries()) {
+		const reviewed = ordered.filter((operation) => operation.action !== "own");
+		for (const [from, operation] of reviewed.entries()) {
 			const verdicts = caseOperationMoveVerdicts(doc, formUuid, operation.uuid);
 			expect([...verdicts.values()].map((verdict) => verdict.ok)).toEqual(
 				expected[from],
 			);
-			for (let to = 0; to < 3; to++) {
+			for (let to = 0; to < ordered.length; to++) {
 				const without = ordered.filter((item) => item.uuid !== operation.uuid);
 				const after = to === 0 ? null : without[to - 1].uuid;
 				const gate = mutationCommitVerdict(
@@ -288,13 +295,13 @@ describe("caseOperationMoveVerdicts", () => {
 			everySlotConsumer(),
 		]);
 		const verdicts = caseOperationMoveVerdicts(doc, formUuid, CREATE);
-		const afterConsumer = verdicts.get(1);
+		const afterConsumer = verdicts.get(2);
 		expect(afterConsumer?.ok).toBe(false);
 		if (afterConsumer?.ok === false) {
 			expect(afterConsumer.blockingUuids).toEqual([CONSUMER]);
 		}
 		// Staying put remains fine.
-		expect(verdicts.get(0)?.ok).toBe(true);
+		expect(verdicts.get(1)?.ok).toBe(true);
 	});
 
 	it("returns an empty map for an unknown form or operation", () => {
@@ -312,7 +319,7 @@ describe("caseOperationMoveVerdicts", () => {
 			create(CREATE, "create_visit"),
 			everySlotConsumer(),
 		]);
-		const verdict = caseOperationMoveVerdicts(doc, formUuid, CREATE).get(1);
+		const verdict = caseOperationMoveVerdicts(doc, formUuid, CREATE).get(2);
 		expect(verdict).toEqual({
 			ok: false,
 			reason: "dependent-reference",
@@ -326,7 +333,7 @@ describe("caseOperationMoveVerdicts", () => {
 	// whatever it found instead of the change that actually blocks.
 	it("names the operation whose case type would change, as a target-type refusal", () => {
 		const { doc, formUuid } = retypeChain();
-		const verdict = caseOperationMoveVerdicts(doc, formUuid, RETYPE).get(1);
+		const verdict = caseOperationMoveVerdicts(doc, formUuid, RETYPE).get(2);
 		expect(verdict).toEqual({
 			ok: false,
 			reason: "dependent-reference",
@@ -337,7 +344,7 @@ describe("caseOperationMoveVerdicts", () => {
 
 	it("reports the same target-type cause when the moved change is the one left mistyped", () => {
 		const { doc, formUuid } = retypeChain();
-		const verdict = caseOperationMoveVerdicts(doc, formUuid, LATER).get(0);
+		const verdict = caseOperationMoveVerdicts(doc, formUuid, LATER).get(1);
 		expect(verdict).toEqual({
 			ok: false,
 			reason: "dependent-reference",

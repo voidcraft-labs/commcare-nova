@@ -1214,10 +1214,11 @@ export interface CaseStore extends SchemaCaseStore {
 	}>;
 
 	/**
-	 * Apply one whole form submission — the ordinary form action
-	 * (registration primary + children, followup update + children,
-	 * close including final writes) plus the advanced case-operation
-	 * program — in ONE Postgres transaction under the store's standard
+	 * Apply one whole form submission — its case-operation program, the
+	 * form's own case first (a registration's create, or the update and
+	 * close of the cases a follow-up or close form loaded), then every
+	 * other operation in array order — in ONE Postgres transaction under
+	 * the store's standard
 	 * lock order and in-transaction reauthorization. Operation
 	 * expressions evaluate through the AST→Kysely compiler against the
 	 * pre-submission snapshot before any DML; targets resolve

@@ -6,6 +6,11 @@ import {
 } from "@/lib/commcare/constants";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
+	caseCreateNameMissingMessage,
+	ownCaseOperationFindings,
+} from "@/lib/commcare/ownCaseOperationFindings";
+import { placementIneligibility } from "@/lib/commcare/placement";
+import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
@@ -24,7 +29,11 @@ import {
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
+	type CaseOperationWrite,
+	type CaseTarget,
+	type CaseWriteVia,
 	caseDataTypeForFieldKind,
+	caseWriteKeyOf,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
@@ -37,17 +46,26 @@ import {
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	type Module,
 	operationCanReadFormField,
+	operationCaseType,
+	operationTarget,
 	orderedCaseOperations,
+	placementIneligibilitySentence,
 	planCaseRetype,
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
+	sameCaseWriteKey,
+	USERCASE_BUILT_IN_KEYS,
+	USERCASE_CASE_TYPE,
 	type Uuid,
+	userPropertiesOf,
 } from "@/lib/domain";
+import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
 	type ExpressionContext,
 	slotContext,
 } from "@/lib/domain/expression/context";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
 	checkExpression,
 	expressionContextAtPath,
@@ -62,7 +80,6 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
-
 import {
 	caseOperationIdNameProblem,
 	caseOperationLinkNameProblem,
@@ -113,7 +130,14 @@ export function validateCaseOperations(
 	const form = doc.forms[formUuid];
 	const module = doc.modules[moduleUuid];
 	const operations = orderedCaseOperations(form);
-	if (operations.length === 0) return [];
+	const ownFindings = ownCaseOperationFindings({
+		form,
+		formUuid,
+		moduleUuid,
+		moduleName: module.name,
+		caseType: module.caseType,
+	});
+	if (operations.length === 0) return ownFindings;
 
 	const caseTypes = effectiveCaseTypes(doc);
 	const fields = collectFormFields(doc, formUuid);
@@ -134,10 +158,12 @@ export function validateCaseOperations(
 		lookupTables,
 	};
 
-	const errors: ValidationError[] = [];
+	const errors: ValidationError[] = [...ownFindings];
 	const seenUuids = new Set<Uuid>();
 	const seenIds = new Set<string>();
 	const priorCreates = new Map<Uuid, CaseOperation>();
+	errors.push(...ownCaseIndependenceFindings(ctx, operations));
+	errors.push(...workerRecordFindings(ctx, operations));
 	for (const violation of caseOperationTargetTypeOrderViolations(
 		doc,
 		formUuid,
@@ -146,22 +172,23 @@ export function validateCaseOperations(
 		const operation = operations.find(
 			(candidate) => candidate.uuid === violation.operationUuid,
 		);
-		const targetLabel =
+		const subject =
 			violation.slot === "target"
-				? "operation target"
+				? "The operation target"
 				: violation.slot === "ordinary"
-					? "ordinary form action's session target"
-					: `link "${violation.slot.slice(5)}" target`;
+					? "This form's own case"
+					: `The link "${violation.slot.slice(5)}" target`;
 		errors.push(
 			opError(
 				ctx,
 				operation,
 				"CASE_OPERATION_TARGET_TYPE_MISMATCH",
 				violation.kind === "known-identity"
-					? `The ${targetLabel} is ${violation.actualType} at this point in the operation sequence, not ${violation.expectedType}.`
+					? `${subject} is ${violation.actualType} at this point in the operation sequence, not ${violation.expectedType}.`
 					: violation.kind === "repeat-alias"
 						? `Repeated retype operation "${operation?.id ?? violation.operationUuid}" may address the same case in more than one iteration. After the first ${violation.actualType} transition, a later iteration could no longer consume it as ${violation.expectedType}; use a correlated generated create whose id is fresh per iteration.`
-						: `The ${targetLabel} may resolve to the same concrete case as an earlier transition that leaves it as ${violation.actualType}, not ${violation.expectedType}. Use the same typed target reference, or a target Nova can prove is distinct.`,
+						: `${subject} may resolve to the same concrete case as an earlier transition that leaves it as ${violation.actualType}, not ${violation.expectedType}. Use the same typed target reference, or a target Nova can prove is distinct.`,
+				violation.slot === "ordinary" ? { subject: "own-case" } : undefined,
 			),
 		);
 	}
@@ -243,7 +270,10 @@ export function validateCaseOperations(
 		}
 		seenIds.add(operation.id);
 		validateOperation(ctx, operation, priorCreates, errors);
-		if (operation.action === "create") {
+		if (
+			operation.action === "create" ||
+			(operation.action === "own" && form.type === "registration")
+		) {
 			priorCreates.set(operation.uuid, operation);
 		}
 	}
@@ -256,15 +286,24 @@ function validateOperation(
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
 	errors: ValidationError[],
 ): void {
-	validateCaseType(ctx, operation, operation.caseType, errors);
-	if (operation.retype !== undefined) {
+	if (operation.action === "own") {
+		validateOwnOperation(ctx, operation, errors);
+		return;
+	}
+	const workerRecord = operation.target.kind === "worker-record";
+	if (!workerRecord || operation.caseType !== USERCASE_CASE_TYPE)
+		validateCaseType(ctx, operation, operation.caseType, errors);
+	// A retype of the worker's record is refused as a facet it can't carry
+	// (`workerRecordFindings`), so no retype plan is asked of it.
+	if (operation.retype !== undefined && !workerRecord) {
 		validateCaseType(ctx, operation, operation.retype, errors);
 		const producer =
 			operation.target.kind === "op"
 				? priorCreates.get(operation.target.opUuid)
 				: undefined;
 		if (
-			producer?.target.kind === "new" &&
+			producer?.action === "create" &&
+			producer.target.kind === "new" &&
 			producer.target.idFrom !== undefined &&
 			operation.retype !== operation.caseType
 		) {
@@ -364,14 +403,7 @@ function validateOperation(
 		operationSlot(ctx, operation, "case_operation_condition"),
 		errors,
 	);
-	validateTextExpression(
-		ctx,
-		operation,
-		operation.name,
-		"create name",
-		operationSlot(ctx, operation, "case_operation_name"),
-		errors,
-	);
+	validateNameExpression(ctx, operation, operation.name, "create name", errors);
 	validateTextExpression(
 		ctx,
 		operation,
@@ -389,95 +421,22 @@ function validateOperation(
 		errors,
 	);
 
-	const destination = operation.retype ?? operation.caseType;
-	const persistedProperties = new Map(
-		(
-			(ctx.doc.caseTypes ?? []).find(
-				(caseType) => caseType.name === destination,
-			)?.properties ?? []
-		).map((property) => [property.name, property]),
+	validateWrites(
+		ctx,
+		operation,
+		operation.retype ?? operation.caseType,
+		workerRecord,
+		errors,
 	);
-	const seenWrites = new Set<string>();
-	for (const write of operation.writes ?? []) {
-		const invalidPropertyFormat = !isCaseOperationProperty(write.property);
-		const propertyTooLong = write.property.length > MAX_CASE_PROPERTY_LENGTH;
-		if (
-			invalidPropertyFormat ||
-			propertyTooLong ||
-			(!persistedProperties.has(write.property) &&
-				!isWritableStandardCaseProperty(write.property))
-		) {
-			errors.push(
-				opError(
-					ctx,
-					operation,
-					"CASE_OPERATION_UNKNOWN_PROPERTY",
-					invalidPropertyFormat
-						? `Case property "${write.property}" is invalid. ${CASE_OPERATION_PROPERTY_FORMAT_MESSAGE}`
-						: propertyTooLong
-							? `Case property "${write.property}" is longer than ${MAX_CASE_PROPERTY_LENGTH} characters.`
-							: `Case property "${write.property}" is not declared on ${destination}.`,
-				),
-			);
-		}
-		if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property)) {
-			errors.push(
-				opError(
-					ctx,
-					operation,
-					"CASE_OPERATION_RESERVED_PROPERTY",
-					`Case property "${write.property}" is reserved; use the operation's dedicated facet instead.`,
-				),
-			);
-		}
-		if (seenWrites.has(write.property)) {
-			errors.push(
-				opError(
-					ctx,
-					operation,
-					"CASE_OPERATION_INVALID_FACETS",
-					`Case property "${write.property}" is written twice by one operation.`,
-				),
-			);
-		}
-		seenWrites.add(write.property);
-		const writerTypes = ctx.writerTypes.get(destination)?.get(write.property);
-		if ((writerTypes?.size ?? 0) > 1) {
-			errors.push(
-				opError(
-					ctx,
-					operation,
-					"CASE_OPERATION_EXPRESSION_TYPE",
-					`Case property "${write.property}" on ${destination} has conflicting writer types: ${[...(writerTypes ?? [])].sort().join(", ")}.`,
-				),
-			);
-		}
-		validateExpressionSlot(
-			ctx,
-			operation,
-			write.value,
-			{
-				entity: "form",
-				uuid: ctx.formUuid,
-				slot: "case_operation_write_value",
-				member: { operationUuid: operation.uuid, property: write.property },
-			},
-			errors,
-		);
-		validatePredicateSlot(
-			ctx,
-			operation,
-			write.condition,
-			{
-				entity: "form",
-				uuid: ctx.formUuid,
-				slot: "case_operation_write_condition",
-				member: { operationUuid: operation.uuid, property: write.property },
-			},
-			errors,
-		);
-	}
+	validateLinks(ctx, operation, priorCreates, errors);
+}
 
+function validateLinks(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
+	errors: ValidationError[],
+): void {
 	const linkIds = new Set<string>();
 	const allLinkIds = new Set(
 		(operation.links ?? []).map((link) => link.identifier),
@@ -524,7 +483,7 @@ function validateOperation(
 		linkIds.add(link.identifier);
 		validateCaseType(ctx, operation, link.targetType, errors);
 		if (link.target !== null) {
-			if (link.target.kind === "new") {
+			if (link.target.kind === "new" || link.target.kind === "worker-record") {
 				errors.push(
 					opError(
 						ctx,
@@ -551,7 +510,7 @@ function validateOperation(
 					errors,
 				);
 			}
-			if (targetsOperationCase(operation, link.target)) {
+			if (targetsOperationCase(ctx.form.type, operation, link.target)) {
 				errors.push(
 					opError(
 						ctx,
@@ -563,6 +522,608 @@ function validateOperation(
 			}
 		}
 	}
+}
+
+/**
+ * The form's own case: its case type is the module's and its target is the
+ * form's, so neither is checked here. A registration's own arm names the
+ * case it creates (`CASE_CREATE_NAME_MISSING` without one); on a follow-up or
+ * close form a name renames the loaded case.
+ */
+function validateOwnOperation(
+	ctx: OperationRuleContext,
+	operation: Extract<CaseOperation, { action: "own" }>,
+	errors: ValidationError[],
+): void {
+	const registration = ctx.form.type === "registration";
+	if (registration && operation.name === undefined) {
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_CREATE_NAME_MISSING",
+				caseCreateNameMissingMessage(ctx.form.name),
+			),
+		);
+	}
+	validateNameExpression(
+		ctx,
+		operation,
+		operation.name,
+		registration ? "create name" : "rename",
+		errors,
+	);
+	validateTextExpression(
+		ctx,
+		operation,
+		operation.owner,
+		"owner",
+		operationSlot(ctx, operation, "case_operation_owner"),
+		errors,
+	);
+	const caseType = operationCaseType(ctx.doc, ctx.formUuid, operation);
+	// An own arm in a module without a case type is refused at the form
+	// (`CASE_OWN_OPERATION`, reason `form-type`); its writes save nowhere.
+	if (caseType !== undefined)
+		validateWrites(ctx, operation, caseType, false, errors);
+	validateLinks(ctx, operation, new Map(), errors);
+}
+
+/**
+ * A name or create name. A link to a captured file is never a case's name:
+ * CommCare keeps the name as the case's own scalar, and the link is the
+ * file's address (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
+ */
+function validateNameExpression(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	expression: Expression | undefined,
+	facet: "create name" | "rename",
+	errors: ValidationError[],
+): void {
+	const read = caseWriteValueField(expression);
+	if (read?.link === true) {
+		errors.push(
+			captureStandardPropertyError(ctx, operation, read.field, "case_name"),
+		);
+		return;
+	}
+	validateTextExpression(
+		ctx,
+		operation,
+		expression,
+		facet,
+		operationSlot(ctx, operation, "case_operation_name"),
+		errors,
+		{ fieldOwnsAssignment: fieldJudgesItsOwnType(ctx, expression) },
+	);
+}
+
+function captureStandardPropertyError(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	fieldUuid: Uuid,
+	property: "case_name" | "external_id",
+): ValidationError {
+	const fieldId = ctx.doc.fields[fieldUuid]?.id ?? "a capture question";
+	const what = property === "case_name" ? "name" : "external id";
+	return opError(
+		ctx,
+		operation,
+		"CAPTURE_CASE_WRITE_STANDARD_PROPERTY",
+		`“${operation.id}” in “${ctx.form.name}” saves the link to the file “${fieldId}” captures as the case's ${what}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
+		{ property, questionId: fieldId },
+	);
+}
+
+/**
+ * Every write of one operation: its property on the case its `via` reaches,
+ * its value and its condition, and the `via` and `onlyIfChanged` facets.
+ * `destination` is the operation's own case type after any retype.
+ */
+function validateWrites(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	destination: string,
+	workerRecord: boolean,
+	errors: ValidationError[],
+): void {
+	const seenWrites: CaseOperationWrite[] = [];
+	for (const write of operation.writes ?? []) {
+		const reached =
+			write.via === undefined
+				? destination
+				: validateVia(ctx, operation, write, write.via, destination, errors);
+		validateOnlyIfChanged(ctx, operation, write, errors);
+		if (
+			seenWrites.some((seen) =>
+				sameCaseWriteKey(caseWriteKeyOf(seen), caseWriteKeyOf(write)),
+			)
+		) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_WRITE_DUPLICATE_PROPERTY",
+					`“${operation.id}” saves ${write.property} twice. You can keep one of them.`,
+					{ reason: "operation", property: write.property },
+				),
+			);
+		}
+		seenWrites.push(write);
+		if (workerRecord)
+			validateWorkerRecordProperty(ctx, operation, write, errors);
+		else if (reached !== undefined)
+			validateWriteProperty(
+				ctx,
+				operation,
+				write.property,
+				reached,
+				// A field's answer saved as it is declares the property it saves
+				// to, as a field's "Saves to" always has (`effectiveCaseTypes`
+				// derives its entry from the writer); a computed value saves only
+				// to a property the catalog declares.
+				caseWriteValueField(write.value) !== undefined,
+				errors,
+			);
+		if (
+			!workerRecord &&
+			FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property)
+		) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_RESERVED_PROPERTY",
+					`Case property "${write.property}" is reserved; use the operation's dedicated facet instead.`,
+				),
+			);
+		}
+		const read = caseWriteValueField(write.value);
+		if (read?.link === true && write.property === "external_id")
+			errors.push(
+				captureStandardPropertyError(ctx, operation, read.field, "external_id"),
+			);
+		const fieldOwnsAssignment = fieldJudgesItsOwnType(ctx, write.value);
+		const writerTypes =
+			reached === undefined || fieldOwnsAssignment
+				? undefined
+				: ctx.writerTypes.get(reached)?.get(write.property);
+		if ((writerTypes?.size ?? 0) > 1) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_EXPRESSION_TYPE",
+					`Case property "${write.property}" on ${reached} has conflicting writer types: ${[...(writerTypes ?? [])].sort().join(", ")}.`,
+				),
+			);
+		}
+		validateExpressionSlot(
+			ctx,
+			operation,
+			write.value,
+			{
+				entity: "form",
+				uuid: ctx.formUuid,
+				slot: "case_operation_write_value",
+				member: {
+					operationUuid: operation.uuid,
+					property: write.property,
+					...(write.via !== undefined && { via: write.via }),
+				},
+			},
+			errors,
+			{ fieldOwnsAssignment },
+		);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			write.condition,
+			{
+				entity: "form",
+				uuid: ctx.formUuid,
+				slot: "case_operation_write_condition",
+				member: {
+					operationUuid: operation.uuid,
+					property: write.property,
+					...(write.via !== undefined && { via: write.via }),
+				},
+			},
+			errors,
+		);
+	}
+}
+
+/**
+ * Whether `value` is a field's answer saved as it is, by a field whose type
+ * agreement with the property a field rule judges: a question whose kind
+ * pins a type, or a Hidden Value, whose inferred type the writer-agreement
+ * rule reads.
+ */
+function fieldJudgesItsOwnType(
+	ctx: OperationRuleContext,
+	value: Expression | undefined,
+): boolean {
+	const read = caseWriteValueField(value);
+	if (read === undefined || read.link) return false;
+	const field = ctx.fields.get(read.field);
+	return (
+		field !== undefined &&
+		(field.kind === "hidden" || field.dataType !== undefined)
+	);
+}
+
+function validateWriteProperty(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	property: string,
+	destination: string,
+	writerDeclares: boolean,
+	errors: ValidationError[],
+): void {
+	const declared =
+		writerDeclares ||
+		(ctx.doc.caseTypes ?? [])
+			.find((caseType) => caseType.name === destination)
+			?.properties.some((entry) => entry.name === property);
+	const invalidPropertyFormat = !isCaseOperationProperty(property);
+	const propertyTooLong = property.length > MAX_CASE_PROPERTY_LENGTH;
+	if (
+		!invalidPropertyFormat &&
+		!propertyTooLong &&
+		(declared === true || isWritableStandardCaseProperty(property))
+	)
+		return;
+	errors.push(
+		opError(
+			ctx,
+			operation,
+			"CASE_OPERATION_UNKNOWN_PROPERTY",
+			invalidPropertyFormat
+				? `Case property "${property}" is invalid. ${CASE_OPERATION_PROPERTY_FORMAT_MESSAGE}`
+				: propertyTooLong
+					? `Case property "${property}" is longer than ${MAX_CASE_PROPERTY_LENGTH} characters.`
+					: `Case property "${property}" is not declared on ${destination}.`,
+		),
+	);
+}
+
+/**
+ * A write to the worker's record saves one of the worker details the app
+ * declares (Worker information in App setup), never one Nova keeps in step
+ * with the worker's profile.
+ */
+function validateWorkerRecordProperty(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	write: CaseOperationWrite,
+	errors: ValidationError[],
+): void {
+	const location = { property: write.property, caseType: USERCASE_CASE_TYPE };
+	if (USERCASE_BUILT_IN_KEYS.includes(write.property)) {
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"USERCASE_WRITE_MANAGED_PROPERTY",
+				`“${operation.id}” in “${ctx.form.name}” saves to "${write.property}" on the worker's own record. Nova keeps that one in step with the worker's profile, so a value saved there is replaced the next time that worker changes. You can save to a worker detail you added under Worker information instead.`,
+				location,
+			),
+		);
+		return;
+	}
+	const declared = Object.values(userPropertiesOf(ctx.doc)).some(
+		(property) => property.slug === write.property,
+	);
+	if (declared) return;
+	errors.push(
+		opError(
+			ctx,
+			operation,
+			"USERCASE_WRITE_UNDECLARED_PROPERTY",
+			`“${operation.id}” in “${ctx.form.name}” saves to "${write.property}" on the worker's own record, but no worker detail by that name exists. You can add it under Worker information in App setup, or save to one that is already there.`,
+			location,
+		),
+	);
+}
+
+/** Whether the basic own slot can hold the form's own arm, and if not the
+ * first reason it can't. */
+function ownSlotRefusal(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+): { readonly ineligibility: string; readonly sentence: string } | undefined {
+	const first = placementIneligibility(
+		ctx.doc,
+		ctx.formUuid,
+		{ kind: "operation", operationUuid: operation.uuid },
+		{ kind: "basic", slot: "own" },
+	)[0];
+	return first === undefined
+		? undefined
+		: {
+				ineligibility: first.reason,
+				sentence: placementIneligibilitySentence(first.reason),
+			};
+}
+
+/**
+ * A save to the case above (`via`): only the own arm of a follow-up or close
+ * form holds one, through `parent` and `host` steps the catalog resolves,
+ * and only while Case Management saves that arm (HQ's update keys
+ * `parent/p` and `host/parent/p`, `xform.py::get_case_parent_id_xpath`;
+ * Vellum's Save to Case block saves one case, `saveToCase.js`). Returns the
+ * case type the write lands on, when it resolves.
+ */
+function validateVia(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	write: CaseOperationWrite,
+	via: CaseWriteVia,
+	origin: string,
+	errors: ValidationError[],
+): string | undefined {
+	const refuse = (
+		reason: "new-case" | "target" | "step" | "unresolved" | "placement",
+		message: string,
+		extra?: Record<string, string>,
+	): undefined => {
+		errors.push(
+			opError(ctx, operation, "CASE_WRITE_VIA_INVALID", message, {
+				reason,
+				property: write.property,
+				...extra,
+			}),
+		);
+		return undefined;
+	};
+	const newCase =
+		operation.action === "create" ||
+		(operation.action === "own" && ctx.form.type === "registration");
+	if (newCase)
+		return refuse(
+			"new-case",
+			`${write.property} is saved to the case above a case this form creates, and that case has no link yet while the form is open. You can save it from a form that opens the existing case.`,
+		);
+	if (operation.action !== "own")
+		return refuse(
+			"target",
+			"Only this form's own case can save to the case above it. You can add a case change that updates that case instead.",
+		);
+	const step = via.find(
+		(candidate) =>
+			candidate.identifier !== "parent" && candidate.identifier !== "host",
+	);
+	if (step !== undefined)
+		return refuse(
+			"step",
+			`CommCare HQ saves to a case above only through a parent or host link, and “${step.identifier}” is neither.`,
+			{ identifier: step.identifier },
+		);
+	const reached = resolveRelationDestination(
+		{ kind: "ancestor", via },
+		origin,
+		ctx.caseTypes,
+	);
+	if (!reached.ok)
+		return refuse(
+			"unresolved",
+			`${write.property} is saved through a link that doesn't lead to a case type. You can choose the case above it again.`,
+		);
+	const placement = ownSlotRefusal(ctx, operation);
+	if (placement !== undefined)
+		refuse(
+			"placement",
+			`This form's case is saved through Save to Case, which saves one case per block. ${placement.sentence} You can save ${write.property} with a case change that updates that case instead.`,
+			{
+				ineligibility: placement.ineligibility,
+				placementSentence: placement.sentence,
+			},
+		);
+	return reached.caseType;
+}
+
+/**
+ * Saving only an answer that changed: only the own arm of a follow-up or
+ * close form holds it, while Case Management saves that arm (HQ's
+ * `update_mode: "edit"`; Vellum's Save to Case block has no such setting,
+ * `saveToCase.js`).
+ */
+function validateOnlyIfChanged(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	write: CaseOperationWrite,
+	errors: ValidationError[],
+): void {
+	if (write.onlyIfChanged !== true) return;
+	const refuse = (
+		reason: "new-case" | "target" | "placement",
+		message: string,
+		extra?: Record<string, string>,
+	): void => {
+		errors.push(
+			opError(ctx, operation, "CASE_WRITE_ONLY_IF_CHANGED_INVALID", message, {
+				reason,
+				property: write.property,
+				...extra,
+			}),
+		);
+	};
+	if (
+		operation.action === "create" ||
+		(operation.action === "own" && ctx.form.type === "registration")
+	) {
+		refuse(
+			"new-case",
+			`${write.property} is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.`,
+		);
+		return;
+	}
+	if (operation.action !== "own") {
+		refuse(
+			"target",
+			`Only this form's own case can save just the answers that changed. You can save ${write.property} every time instead.`,
+		);
+		return;
+	}
+	const placement = ownSlotRefusal(ctx, operation);
+	if (placement !== undefined)
+		refuse(
+			"placement",
+			`This form's case is saved through Save to Case, which can't save only changed answers. ${placement.sentence} You can save ${write.property} every time, or change the form so Case Management can hold it.`,
+			{
+				ineligibility: placement.ineligibility,
+				placementSentence: placement.sentence,
+			},
+		);
+}
+
+/** Whether `target` is the form's own case as Nova can prove it: the loaded
+ * case on a follow-up or close form, the own arm's create on a registration. */
+function targetsOwnCase(
+	ctx: OperationRuleContext,
+	target: CaseTarget,
+	ownUuid: Uuid,
+): boolean {
+	return ctx.form.type === "registration"
+		? target.kind === "op" && target.opUuid === ownUuid
+		: CASE_LOADING_FORM_TYPES.has(ctx.form.type) && target.kind === "session";
+}
+
+/**
+ * The own arm's effects mean the same wherever its block runs, because no
+ * other operation writes what it writes on the form's own case
+ * (`CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case`) or closes that case
+ * (`CASE_OPERATION_CLOSES_OWN_CASE`). A write through `via` counts on the
+ * case `via` reaches. A retype of the own case where the own arm writes is
+ * the rolling type proof's (`CASE_OPERATION_TARGET_TYPE_MISMATCH`). An
+ * `expression` target is not proven to be the own case, so it is outside
+ * these rules.
+ */
+function ownCaseIndependenceFindings(
+	ctx: OperationRuleContext,
+	operations: readonly CaseOperation[],
+): ValidationError[] {
+	const own = operations.find((operation) => operation.action === "own");
+	if (own === undefined) return [];
+	const ownKeys = (own.writes ?? []).map(caseWriteKeyOf);
+	const errors: ValidationError[] = [];
+	const duplicate = (operation: CaseOperation, property: string) =>
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_WRITE_DUPLICATE_PROPERTY",
+				`“${operation.id}” saves ${property} to this form's case, which this form's own change already saves. You can save it in one of the two.`,
+				{ reason: "own-case", property, ownOperationUuid: own.uuid },
+			),
+		);
+	for (const operation of operations) {
+		if (operation.action === "own") continue;
+		if (!targetsOwnCase(ctx, operation.target, own.uuid)) continue;
+		if (operation.action === "close") {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_CLOSES_OWN_CASE",
+					ctx.form.type === "close"
+						? `“${ctx.form.name}” already closes its own case. You can remove “${operation.id}”, or set when it closes in the form's settings.`
+						: `“${operation.id}” closes this form's own case. You can make “${ctx.form.name}” a close form, which closes it, and remove this change.`,
+					{ formType: ctx.form.type },
+				),
+			);
+		}
+		if (own.name !== undefined && operation.rename !== undefined)
+			duplicate(operation, "case_name");
+		if (own.owner !== undefined && operation.owner !== undefined)
+			duplicate(operation, "owner_id");
+		for (const write of operation.writes ?? []) {
+			const key = caseWriteKeyOf(write);
+			if (
+				(own.name !== undefined &&
+					key.via === undefined &&
+					key.property === "case_name") ||
+				(own.owner !== undefined &&
+					key.via === undefined &&
+					key.property === "owner_id") ||
+				ownKeys.some((ownKey) => sameCaseWriteKey(ownKey, key))
+			)
+				duplicate(operation, write.property);
+		}
+	}
+	return errors;
+}
+
+/** The facets an update of the worker's record may not carry, each with
+ * the words its refusal names it by. */
+const WORKER_RECORD_FACETS = [
+	["rename", "rename it"],
+	["owner", "change its owner"],
+	["retype", "change its type"],
+	["links", "link it to another case"],
+	["condition", "run on a condition"],
+	["forEach", "run for each row of a repeat"],
+] as const;
+
+/**
+ * The worker's record (`{kind: "worker-record"}`) is the target of at most
+ * one update of `commcare-user` per form, which only saves properties: HQ's
+ * usercase block writes property updates alone (`xform.py::_add_usercase`),
+ * and Nova keeps that one operation the form's every write to the record.
+ */
+function workerRecordFindings(
+	ctx: OperationRuleContext,
+	operations: readonly CaseOperation[],
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	let first: CaseOperation | undefined;
+	for (const operation of operations) {
+		if (operation.action === "own") continue;
+		if (operation.target.kind !== "worker-record") continue;
+		if (
+			operation.action !== "update" ||
+			operation.caseType !== USERCASE_CASE_TYPE
+		) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_TARGET_INVALID",
+					"The worker's record is a commcare-user case, so only an update of commcare-user can save to it.",
+					{ reason: "worker-record-type" },
+				),
+			);
+			continue;
+		}
+		if (first !== undefined) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_TARGET_INVALID",
+					`This form already saves to the worker's record in “${first.id}”. You can add these saves there.`,
+					{ reason: "worker-record-twice", firstOperationUuid: first.uuid },
+				),
+			);
+		} else first = operation;
+		for (const [facet, words] of WORKER_RECORD_FACETS) {
+			const value = operation[facet];
+			if (value === undefined || (Array.isArray(value) && value.length === 0))
+				continue;
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_TARGET_INVALID",
+					`The worker's record can only be updated, so “${operation.id}” can't ${words}.`,
+					{ reason: "worker-record-facet", facet },
+				),
+			);
+		}
+	}
+	return errors;
 }
 
 function validateCaseType(
@@ -609,15 +1170,16 @@ function validateCaseType(
 function validateTarget(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
-	target:
-		| Exclude<CaseOperation["target"], { kind: "new" }>
-		| CaseOperation["target"],
+	target: CaseTarget,
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
 	slot: FormExpressionSlotRef,
 	errors: ValidationError[],
 ): void {
 	switch (target.kind) {
 		case "new":
+		// The worker's record is always there; `workerRecordFindings` holds
+		// which operation may target it.
+		case "worker-record":
 			return;
 		case "session":
 			if (!ctx.sessionCaseAvailable) {
@@ -708,6 +1270,7 @@ function validateExpressionSlot(
 	expression: Expression,
 	slot: FormExpressionSlotRef,
 	errors: ValidationError[],
+	options: { readonly fieldOwnsAssignment?: boolean } = {},
 ): void {
 	const typeContext = slotContext(ctx.doc, slot, ctx.lookupTables ?? new Map());
 	if (typeContext === undefined) {
@@ -722,7 +1285,19 @@ function validateExpressionSlot(
 		return;
 	}
 	const result = checkExpression(expression, typeContext);
-	const typeErrors = semanticCheckErrors(result);
+	// Whether a field's answer fits the property it saves to is the field's
+	// own rule (`FIELD_KIND_PROPERTY_TYPE_MISMATCH`, `FIELD_KIND_WRITERS_DISAGREE`,
+	// `HIDDEN_VALUE_WRITER_TYPE_MISMATCH`), which names the field; the same
+	// refusal is not said again here at the operation that saves it.
+	const typeErrors = semanticCheckErrors(result).filter(
+		(error) =>
+			!(
+				options.fieldOwnsAssignment === true &&
+				error.code === "expected-value" &&
+				error.path.length === 0 &&
+				(error.reason === undefined || error.reason === "clock-lost")
+			),
+	);
 	if (typeErrors.length > 0)
 		errors.push(
 			opError(
@@ -746,7 +1321,12 @@ function validateExpressionSlot(
 						),
 			),
 		);
-	else if (result.errors.length === 0)
+	// A link to a captured file is printed as the capture's URL node by case
+	// emission, never through an expression, so it has no printing to try.
+	else if (
+		result.errors.length === 0 &&
+		caseWriteValueField(expression)?.link !== true
+	)
 		validateOnDeviceExpression(ctx, operation, expression, typeContext, errors);
 	validateCaseSnapshotUse(
 		ctx,
@@ -779,6 +1359,7 @@ function validateTextExpression(
 	facet: "create name" | "owner" | "rename",
 	slot: FormExpressionSlotRef,
 	errors: ValidationError[],
+	options: { readonly fieldOwnsAssignment?: boolean } = {},
 ): void {
 	if (expression === undefined) return;
 	const locationTerms: Term[] = [];
@@ -806,7 +1387,7 @@ function validateTextExpression(
 			),
 		);
 	}
-	validateExpressionSlot(ctx, operation, expression, slot, errors);
+	validateExpressionSlot(ctx, operation, expression, slot, errors, options);
 	if (
 		expression.kind !== "term" ||
 		expression.term.kind !== "literal" ||
@@ -854,6 +1435,10 @@ function validateOnDeviceExpression(
 	typeContext: ExpressionContext,
 	errors: ValidationError[],
 ): void {
+	// A capture's link is printed as the capture's address, never as an
+	// expression, so a whole capture-link value has no on-device form to check.
+	if (expression.kind === "term" && expression.term.kind === "capture-link")
+		return;
 	const compatibilityIssue = findOnDeviceDateAddIssue(expression, typeContext);
 	if (compatibilityIssue !== undefined) {
 		errors.push(
@@ -1088,7 +1673,10 @@ function validateIdOfReference(
 		return;
 	}
 	const producer = orderedCaseOperations(ctx.form).find(
-		(candidate) => candidate.uuid === opUuid && candidate.action === "create",
+		(candidate) =>
+			candidate.uuid === opUuid &&
+			(candidate.action === "create" ||
+				(candidate.action === "own" && ctx.form.type === "registration")),
 	);
 	if (producer !== undefined)
 		validateRepeatReference(ctx, operation, producer, errors);
@@ -1127,10 +1715,12 @@ function validateRepeatReference(
 }
 
 function targetsOperationCase(
+	formType: Form["type"],
 	operation: CaseOperation,
-	target: CaseOperation["target"],
+	target: CaseTarget,
 ): boolean {
-	switch (operation.target.kind) {
+	const own = operationTarget(operation, formType);
+	switch (own.kind) {
 		case "new": {
 			if (target.kind === "op") return target.opUuid === operation.uuid;
 			// An idFrom field is only the raw key. The operation's concrete id is
@@ -1141,9 +1731,9 @@ function targetsOperationCase(
 		case "session":
 		case "op":
 		case "expression":
+		case "worker-record":
 			return (
-				target.kind !== "new" &&
-				sameCaseOperationTargetIdentity(operation.target, target)
+				target.kind !== "new" && sameCaseOperationTargetIdentity(own, target)
 			);
 	}
 }

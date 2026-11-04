@@ -8,6 +8,7 @@ import {
 	type ModuleSpec,
 } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	eq,
@@ -240,41 +241,40 @@ describe("unwritten property derivation", () => {
 		const before = unwrittenProperties(doc);
 		expect(before).toHaveLength(1);
 		expect(unwrittenProperties(doc)).toBe(before);
+		const saved = planFieldCaseWrite(doc, FIELD, {
+			caseType: "medication_order",
+			property: "order_status",
+		});
+		if (!saved.ok) throw new Error(saved.message);
 		const verdict = mutationCommitVerdict(
 			doc,
-			[
-				{
-					kind: "updateField",
-					uuid: FIELD,
-					targetKind: "text",
-					patch: {
-						caseWrite: {
-							caseType: "medication_order",
-							property: "order_status",
-						},
-					},
-				},
-			],
+			saved.mutations,
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		expect(unwrittenProperties(verdict.nextDoc)).toEqual([]);
 		expect(unwrittenPropertyCards(verdict.nextDoc)).toEqual([]);
 		expect(unwrittenProperties(doc)).toBe(before);
+		const stopped = planFieldCaseWrite(verdict.nextDoc, FIELD, null);
+		if (!stopped.ok) throw new Error(stopped.message);
 		const cleared = mutationCommitVerdict(
 			verdict.nextDoc,
-			[
-				{
-					kind: "updateField",
-					uuid: FIELD,
-					targetKind: "text",
-					patch: { caseWrite: null },
-				},
-			],
+			stopped.mutations,
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(cleared.ok ? [] : cleared.findings).toEqual([]);
-		expect(unwrittenProperties(cleared.nextDoc)).toEqual(before);
+		// Stopping the save keeps the starting value it was born with (the
+		// case's current value), so the question now reads the property twice.
+		expect(saved.notes).toEqual(["Opens with the case's current value."]);
+		expect(unwrittenProperties(cleared.nextDoc)).toEqual([
+			{
+				...before[0],
+				reads: [
+					{ carrier: FIELD, entity: "field", slot: "default_value" },
+					...(before[0]?.reads ?? []),
+				],
+			},
+		]);
 	});
 	it("counts explicit case-operation writes as in-app writers", () => {
 		const doc = orderDoc();

@@ -116,7 +116,7 @@ export type {
 	OperationIterationBindings,
 	OperationScopeIterations,
 	OrdinarySubmissionAction,
-	SubmissionCaseSeed,
+	OwnCaseProgram,
 	SubmissionEnvelopeResult,
 	SubmissionReceiptClaim,
 	SubmissionReceiptIdentity,

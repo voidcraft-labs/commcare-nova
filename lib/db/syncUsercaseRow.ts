@@ -140,7 +140,8 @@ export interface SyncUsercaseRowArgs {
  * to have one is for the catalog to have dropped a property whose values are
  * still on the rows — which `applySchemaChange` parks. An undeclared write
  * destination is therefore unstorable rather than merely unwise, and refusing
- * one belongs in `caseWrite` admission where an author can be told why.
+ * one belongs to the worker-record operation's admission
+ * (`USERCASE_WRITE_UNDECLARED_PROPERTY`), where an author can be told why.
  */
 export async function syncUsercaseRow(
 	store: Pick<CaseStore, "query" | "insert" | "update">,

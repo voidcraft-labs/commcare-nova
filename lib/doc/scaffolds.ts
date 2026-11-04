@@ -23,19 +23,23 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseListConfig,
 	type CaseOperation,
-	type Field,
+	caseDataTypeForFieldKind,
+	caseWriteValueField,
+	type Expression,
 	type Form,
 	type FormType,
-	fieldCaseWrite,
 	formTypeLabels,
 	humanizeId,
 	type Module,
+	type OwnCaseOperation,
+	ownCaseOperationId,
 	plainColumn,
 	proseText,
 	type TextField,
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { addModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import { orderedFormUuids } from "./fieldWalk";
@@ -58,21 +62,28 @@ export function formAfterAtIndex(
 }
 
 /**
- * The case-type DECLARATION chokepoint. A field writing to a case type absent
- * from the catalog prepends a granular `declareCaseType` — the reducer no
- * longer auto-creates the type on a field write (that would clobber a
- * concurrent declaration), so EVERY `caseWrite`-setting surface (the SA
- * add/edit assembly, the MCP field handlers via the shared tools, and the
- * builder's add/edit gestures) routes through this. A no-op when the field
- * writes no case or its type is already declared.
+ * The form's own case, born for a form of a module whose case type is
+ * `caseType`: its id is that type made unique among `takenIds` (the form's
+ * other operation ids, `caseOperationIdentifiers.ts::ownCaseOperationId`),
+ * its uuid is minted here, and `name` is a registration's name for the new
+ * case. It writes nothing until an author saves an answer to it.
  */
-export function declareCaseTypeForField(
-	doc: BlueprintDoc,
-	field: Field,
-): Mutation[] {
-	const write = fieldCaseWrite(field);
-	if (write === undefined) return [];
-	return declareCaseTypeMutations(doc, write.caseType);
+export function ownCaseOperation(
+	caseType: string,
+	takenIds: ReadonlySet<string>,
+	name?: Expression,
+): OwnCaseOperation {
+	return {
+		uuid: asUuid(crypto.randomUUID()),
+		id: ownCaseOperationId(caseType, takenIds),
+		action: "own",
+		...(name !== undefined && { name }),
+	};
+}
+
+/** A bare read of the answer to the question `uuid`. */
+export function bareFieldRead(uuid: Uuid): Expression {
+	return { kind: "term", term: { kind: "field", uuid } };
 }
 
 /** Header for the `Name` column a new case module is born with. `case_name` is
@@ -127,24 +138,22 @@ function existingFormIds(doc: BlueprintDoc): Set<string> {
 /** A text field. Typed as `TextField` (not cast to `Field`) so the per-kind
  *  schema check still applies — a property the kind doesn't have won't compile,
  *  the guarantee `newFieldDefaults.ts` was created to keep. */
-function textField(id: string, label: string, caseType?: string): TextField {
+function textField(id: string, label: string): TextField {
 	return {
 		kind: "text",
 		uuid: asUuid(crypto.randomUUID()),
 		id,
 		label: proseText(label),
-		...(caseType !== undefined && {
-			caseWrite: { caseType, property: id },
-		}),
 	};
 }
 
-/** The field a registration form is born with: just the `case_name` writer
- *  (`CASE_CREATE_NAME_MISSING`). A name-only case create is valid across the whole
- *  wire (verified against commcare-hq / commcare-core / formplayer), so no
- *  extra "saved property" field is forced. */
-function registrationFields(caseType: string | undefined): TextField[] {
-	return [textField("case_name", "Name", caseType)];
+/** The question a registration form is born with: the one its own case
+ *  reads as the new case's name (`CASE_CREATE_NAME_MISSING`). A name-only
+ *  case create is valid across the whole wire (verified against commcare-hq /
+ *  commcare-core / formplayer), so no extra "saved property" field is forced.
+ *  The question itself saves nowhere; the own case's `name` reads it. */
+function registrationNameQuestion(): TextField {
+	return textField("case_name", "Name");
 }
 
 /** A plain text question — the default first field for a non-registration
@@ -187,9 +196,32 @@ export function declareCaseTypeMutations(
 export function caseOperationCatalogMutations(
 	doc: BlueprintDoc,
 	operation: CaseOperation,
+	ownCaseType?: string,
 ): Mutation[] {
+	return catalogMutationsForOperations(doc, [{ operation, ownCaseType }]);
+}
+
+/**
+ * The catalog prerequisites of several operations in one batch, each type and
+ * property declared once. `ownCaseType` is an own arm's case type (its
+ * module's, or the module's next one when the module is retyped or the form
+ * moves); an own arm without one declares nothing, and the gate names it.
+ *
+ * A write through `via` saves to the case its indices reach, so its
+ * property is declared on that case's type; a `via` the catalog cannot
+ * resolve declares nothing and is the gate's to refuse
+ * (`CASE_WRITE_VIA_INVALID` reason `unresolved`).
+ */
+export function catalogMutationsForOperations(
+	doc: BlueprintDoc,
+	entries: readonly {
+		readonly operation: CaseOperation;
+		readonly ownCaseType?: string;
+	}[],
+): Mutation[] {
+	const caseTypes = doc.caseTypes ?? [];
 	const declared = new Map(
-		(doc.caseTypes ?? []).map((caseType) => [
+		caseTypes.map((caseType) => [
 			caseType.name,
 			new Set(caseType.properties.map((property) => property.name)),
 		]),
@@ -200,24 +232,49 @@ export function caseOperationCatalogMutations(
 		declared.set(caseType, new Set());
 		mutations.push({ kind: "declareCaseType", caseType });
 	};
-	ensureType(operation.caseType);
-	if (operation.retype !== undefined) ensureType(operation.retype);
-	for (const link of operation.links ?? []) ensureType(link.targetType);
+	for (const { operation, ownCaseType } of entries) {
+		const operationType =
+			operation.action === "own" ? ownCaseType : operation.caseType;
+		if (operationType === undefined) continue;
+		ensureType(operationType);
+		if (operation.retype !== undefined) ensureType(operation.retype);
+		for (const link of operation.links ?? []) ensureType(link.targetType);
 
-	const destination = operation.retype ?? operation.caseType;
-	const properties = declared.get(destination) as Set<string>;
-	for (const write of operation.writes ?? []) {
-		if (CASE_SCALAR_PROPERTY_NAMES.has(write.property)) continue;
-		if (properties.has(write.property)) continue;
-		properties.add(write.property);
-		mutations.push({
-			kind: "addCaseProperty",
-			caseType: destination,
-			property: {
-				name: write.property,
-				label: proseText(humanizeId(write.property)),
-			},
-		});
+		const writtenType = operation.retype ?? operationType;
+		for (const write of operation.writes ?? []) {
+			if (CASE_SCALAR_PROPERTY_NAMES.has(write.property)) continue;
+			const destination = resolveRelationDestination(
+				write.via === undefined
+					? undefined
+					: { kind: "ancestor", via: write.via },
+				writtenType,
+				caseTypes,
+			);
+			if (!destination.ok) continue;
+			ensureType(destination.caseType);
+			const properties = declared.get(destination.caseType) as Set<string>;
+			if (properties.has(write.property)) continue;
+			properties.add(write.property);
+			// A question's answer saved as it is seeds the new entry's type
+			// from the question's kind, as a field's "Saves to" always has: a
+			// select's choices then belong to a select property.
+			const source = caseWriteValueField(write.value);
+			const field =
+				source === undefined || source.link
+					? undefined
+					: doc.fields[source.field];
+			const dataType =
+				field === undefined ? undefined : caseDataTypeForFieldKind(field.kind);
+			mutations.push({
+				kind: "addCaseProperty",
+				caseType: destination.caseType,
+				property: {
+					name: write.property,
+					label: proseText(humanizeId(write.property)),
+					...(dataType !== undefined && { data_type: dataType }),
+				},
+			});
+		}
 	}
 	return mutations;
 }
@@ -431,8 +488,14 @@ export function moduleFormHostMutations(
 
 /**
  * A new form of `type` in `moduleUuid`, born with a default first field:
- *   - `registration` → a `case_name` writer (needs the module's case type)
+ *   - `registration` → a `case_name` question its own case names the new
+ *     case from (needs the module's case type)
  *   - everything else → a plain text question
+ *
+ * A registration, follow-up or close form of a module with a case type is
+ * born with its own case first in its operations: on a registration it
+ * names the new case with a bare read of that question, and on a follow-up
+ * or close it writes nothing.
  *
  * A `caseListOnly` module can't hold forms (`CASE_LIST_ONLY_HAS_FORMS`), so the
  * batch first flips the flag off and seeds a `Name` column if the module has
@@ -450,29 +513,37 @@ export function formScaffoldMutations(
 
 	const formUuid = asUuid(crypto.randomUUID());
 	const formName = formTypeLabels[type];
+	// A registration form is born with just the question that names its case;
+	// every other type gets one text question so it isn't born empty
+	// (`EMPTY_FORM`).
+	const fields =
+		type === "registration"
+			? [registrationNameQuestion()]
+			: [defaultQuestion()];
+	const caseType = mod.caseType;
+	const own =
+		caseType !== undefined && type !== "survey"
+			? ownCaseOperation(
+					caseType,
+					new Set(),
+					type === "registration" ? bareFieldRead(fields[0].uuid) : undefined,
+				)
+			: undefined;
 	const form: Form = {
 		uuid: formUuid,
 		id: uniqueSlug(formName, "form", existingFormIds(doc)),
 		name: formName,
 		type,
+		...(own !== undefined && { caseOperations: [own] }),
 	};
-	// A registration form is born with just the `case_name` writer; every other
-	// type gets one text question so it isn't born empty (`EMPTY_FORM`).
-	const fields =
-		type === "registration"
-			? registrationFields(mod.caseType)
-			: [defaultQuestion()];
 
 	const mutations: Mutation[] = [];
-	// Declare each case type a born field writes to BEFORE its addField. The
-	// reducer no longer auto-mints the type, and `mod.caseType` can be ABSENT
-	// from the catalog (dropped from the data model, or a retire-vs-add race) —
-	// so a registration form's `case_name` writer would otherwise trip
-	// `CASE_WRITE_UNKNOWN_TYPE` and the form would silently not be created.
-	// The same declare chokepoint every sibling caseWrite surface routes through;
-	// idempotent (a no-op) when the type is already present.
-	for (const field of fields) {
-		mutations.push(...declareCaseTypeForField(doc, field));
+	// `mod.caseType` can be ABSENT from the catalog (dropped from the data
+	// model, or a retire-vs-add race), and the reducer never mints a type, so
+	// the form's own case declares it first; idempotent (a no-op) when the
+	// type is already present.
+	if (own !== undefined && caseType !== undefined) {
+		mutations.push(...declareCaseTypeMutations(doc, caseType));
 	}
 	mutations.push(...moduleFormHostMutations(doc, moduleUuid));
 	const after = anchorForIndex(doc.formOrder[moduleUuid] ?? [], index);

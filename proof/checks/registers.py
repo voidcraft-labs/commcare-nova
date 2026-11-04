@@ -130,7 +130,6 @@ OPEN_DEFECTS = {
     24: 5,
     26: 5,
     27: 5,
-    28: 5,
 }
 
 PROOF_DIR = Path(__file__).resolve().parents[1]

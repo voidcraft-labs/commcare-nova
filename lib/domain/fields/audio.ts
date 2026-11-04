@@ -2,9 +2,9 @@
 //
 // Audio capture field. Emits `<upload mediatype="audio/*">` over a
 // `binary` bind. Cannot be calculated or validated — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema, and takes
-// the ordinary `caseWriteSchema` destination, whose write saves a link
-// to the captured file on the case, nothing else.
+// fieldBaseSchema directly rather than inputFieldBaseSchema. A case
+// operation saves a link to the captured file through a `capture-link`
+// write value, never the file itself.
 //
 // How the worker adds the sound depends on where the app runs: CommCare
 // Web Apps has no microphone or recorder anywhere in cloudcare, so the
@@ -17,19 +17,13 @@
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import {
-	caseWriteSchema,
-	fieldBaseSchema,
-	formLogicSchema,
-	proseTemplateSchema,
-} from "./base";
+import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const audioFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("audio"),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
-	caseWrite: caseWriteSchema.optional(),
 });
 
 export type AudioField = z.infer<typeof audioFieldSchema>;

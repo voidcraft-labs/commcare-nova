@@ -10,10 +10,12 @@
  *
  * - **A basic child case of its own menu's case type** (defect 12, under
  *   `DONT_INDEX_SAME_CASETYPE`). HQ's basic child case is a form's
- *   `subcases` action. Nova derives one only for a field that writes a case
- *   type other than its menu's (`lib/commcare/deriveCaseConfig.ts`, the
- *   `child` buckets): a field that writes the menu's own type writes the
- *   selected or new case of the menu itself, whatever the type's parent is.
+ *   `subcases` action. Nova places a create there only when its case type
+ *   is not its menu's (`lib/commcare/placement.ts::sameTypeExclusions` keeps
+ *   a same-type create out of the basic slot until a publish can check the
+ *   project space, `lib/commcare/sameTypeChildCases.ts`): a field that
+ *   writes the menu's own type writes the selected or new case of the menu
+ *   itself, whatever the type's parent is.
  *   So a type that is its own parent, written from its own menu, is
  *   admitted and exports no `subcases` action at all. The accepted
  *   counterpart is a field that writes another type, which exports one.
@@ -45,6 +47,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { plainColumn, proseText } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
@@ -78,7 +81,7 @@ function exported(doc: BlueprintDoc): HqApp {
 		doc,
 		expected: { intent: [] },
 	});
-	return expandDoc(made.doc as BlueprintDoc) as unknown as HqApp;
+	return expandDoc(hydratePersistedBlueprint(made.doc)) as unknown as HqApp;
 }
 
 function childTypes(app: HqApp): string[][] {

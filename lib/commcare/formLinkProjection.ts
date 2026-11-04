@@ -1,4 +1,5 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
+import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
@@ -64,11 +65,9 @@ import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
-	caseSelectionCardinality,
 	type DatumEntry,
 	type DatumRef,
 	datumRefKey,
-	deriveCaseWriteInventory,
 	type Expression,
 	type FormLink,
 	type FormLinkTarget,
@@ -80,8 +79,8 @@ import {
 import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
+import { planFormCaseWire } from "./casePlacementPlan";
 import { caseTypeDepthMap } from "./caseTypeDepths";
-import { caseWriteAdmissionIssues } from "./caseWriteAdmission";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
 import { moduleExpressionContexts } from "./expressionContext";
 import { buildFormActions } from "./formActions";
@@ -89,15 +88,14 @@ import {
 	type LookupWireNaming,
 	lookupTypeIndexFromNaming,
 } from "./lookup/naming";
+import { ownCaseOperationFindings } from "./ownCaseOperationFindings";
 import {
 	deriveCaseSelectionDatum,
 	deriveSessionDatums,
-	newCaseIdDatumId,
 	type SessionDatum,
 	type StackQueryData,
 	sessionDatumRequiresSelection,
 } from "./session";
-import { subcaseSessionDatumId } from "./subcaseWire";
 import {
 	buildInlineSearch,
 	type InlineSearchEmission,
@@ -268,18 +266,7 @@ export interface HqSelectionBoundMismatch {
  * `buildFormActions` on this and the compiler gates the entry's case datum
  * on it, so the projection must read the same answer.
  */
-export function moduleCaseTypeForActions(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-): string {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined || !mod.caseType) return "";
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
-	const hasCases =
-		mod.caseListOnly === true ||
-		formUuids.some((formUuid) => doc.forms[formUuid]?.type !== "survey");
-	return hasCases ? mod.caseType : "";
-}
+export const moduleCaseTypeForActions = domainModuleCaseTypeForActions;
 
 export function formLinkProjectionContext(
 	doc: BlueprintDoc,
@@ -312,17 +299,10 @@ export function formLinkProjectionContext(
 		((formUuid: Uuid): FormActions => {
 			const held = cache.get(formUuid);
 			if (held !== undefined) return held;
-			const moduleUuid = moduleOf.get(formUuid);
 			const built = buildFormActions(
 				doc,
 				formUuid,
-				moduleUuid === undefined
-					? undefined
-					: moduleCaseTypeForActions(doc, moduleUuid),
 				opts.attachmentTarget ?? null,
-				moduleUuid === undefined
-					? "single"
-					: caseSelectionCardinality(doc.modules[moduleUuid]),
 			);
 			cache.set(formUuid, built);
 			return built;
@@ -712,6 +692,9 @@ export function entrySessionDatums(
 		...(caseType !== "" && { caseType }),
 		caseSelectionDatums: selectionDatums,
 		actions: ctx.formActions(formUuid),
+		newCases: planFormCaseWire(doc, formUuid, {
+			attachmentTarget: ctx.attachmentTarget,
+		}).datums,
 		...(mod.caseListConfig?.tile?.grouping !== undefined && {
 			tileGrouping: mod.caseListConfig.tile.grouping,
 		}),
@@ -768,25 +751,16 @@ export function entryDatumIds(
 		formUuid === undefined
 			? caseListSessionDatums(doc, ctx, moduleUuid)
 			: entrySessionDatums(doc, ctx, moduleUuid, formUuid);
-	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
-	const actions =
-		formUuid === undefined ? undefined : ctx.formActions(formUuid);
-	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
-	const opensCase =
-		actions?.open_case.condition.type === "always" ||
-		actions?.open_case.condition.type === "if";
-	const childIds = new Map(
-		(actions?.subcases ?? []).flatMap((subcase, index) =>
-			subcase.repeat_context ||
-			caseSelectionCardinality(doc.modules[moduleUuid]) === "multiple"
-				? []
-				: [
-						[
-							subcaseSessionDatumId(subcase, index, opensCase),
-							subcase.case_type,
-						] as const,
-					],
-		),
+	// The new cases HQ gives a datum (`casePlacementPlan.ts`'s `datums`): the
+	// own case a registration opens, and each basic subcase outside a repeat,
+	// by the id its position gives it.
+	const newCaseRefs = new Map<string, DatumRef>(
+		(formUuid === undefined
+			? []
+			: planFormCaseWire(doc, formUuid, {
+					attachmentTarget: ctx.attachmentTarget,
+				}).datums
+		).map((datum) => [datum.id, datum.ref] as const),
 	);
 	const rows = datums.map((datum): EntryDatumId => {
 		const refs: DatumRef[] = [];
@@ -801,17 +775,9 @@ export function entryDatumIds(
 			refs.push({ kind: "worker-record" });
 		} else if (grouping !== undefined) {
 			refs.push({ kind: "tile-group-parents", module: grouping });
-		} else if (
-			form?.type === "registration" &&
-			opensCase &&
-			caseType !== "" &&
-			datum.id === newCaseIdDatumId(caseType)
-		) {
-			refs.push({ kind: "new-case" });
 		} else {
-			const childType = childIds.get(datum.id);
-			if (childType !== undefined)
-				refs.push({ kind: "new-child-case", caseType: childType });
+			const created = newCaseRefs.get(datum.id);
+			if (created !== undefined) refs.push(created);
 		}
 		const queryNext = ctx.queryNextDatums.get(datum);
 		const queryModule =
@@ -837,14 +803,21 @@ export function entryDatumIds(
 	return rows;
 }
 
+/**
+ * The id of the datum that supplies each ref. A ref two rows supply (two
+ * creates of one type outside a repeat both give `new-child-case`) names the
+ * first in entry order, the datum HQ's `_find_best_match` carries for a
+ * link that matches by case type (`workflow.py`).
+ */
 export function entryDatumIdResolver(
 	rows: readonly EntryDatumId[],
 ): (ref: DatumRef) => string | undefined {
-	const ids = new Map(
-		rows.flatMap((row) =>
-			row.refs.map((ref) => [datumRefKey(ref), row.id] as const),
-		),
-	);
+	const ids = new Map<string, string>();
+	for (const row of rows)
+		for (const ref of row.refs) {
+			const key = datumRefKey(ref);
+			if (!ids.has(key)) ids.set(key, row.id);
+		}
 	return (ref) => ids.get(datumRefKey(ref));
 }
 
@@ -1734,13 +1707,12 @@ export interface ProjectedFormLinks {
  * module's common-prefix datums, which read every form in it), and every
  * structural ancestor form whose datums a child entry inherits. The wire
  * builder fails closed on a module outside the sequence, a case type that
- * is not an identifier, a form whose case writes the admission refuses, a
- * field id that is not an XML name, or a close condition naming a field the
- * form does not hold — each a finding of its own
- * (`INVALID_CASE_TYPE_FORMAT`, `CASE_WRITE_*`, `CASE_CREATE_NAME_*`,
- * `INVALID_FIELD_ID`, `CLOSE_CONDITION_FIELD_NOT_FOUND`, the topology checks) — so the validator asks this
- * first and never dies where another rule reports. The check reads the same
- * inventory, the same admission, and the same grammars the builder does.
+ * is not an identifier, or a form whose own case is missing, doubled, out
+ * of place or, on a registration, unnamed — each a finding of its own
+ * (`INVALID_CASE_TYPE_FORMAT`, `CASE_OPERATION_INVALID_CASE_TYPE`,
+ * `CASE_OWN_OPERATION`, `CASE_CREATE_NAME_MISSING`, the topology checks) — so the validator asks this first and never dies where another
+ * rule reports. The check reads the same own-case statement
+ * (`ownCaseOperationFindings.ts`) and the same grammars the builder does.
  */
 export function formLinkActionsBuildable(
 	doc: BlueprintDoc,
@@ -1795,43 +1767,41 @@ export function moduleFrameActionsBuildable(
 		}
 		if (!wellFormedCaseType(mod.caseType)) return false;
 	}
-	const xmlNames = (
-		segments: readonly { readonly fieldId: string }[] | undefined,
-	): boolean =>
-		(segments ?? []).every((segment) =>
-			XML_ELEMENT_NAME_REGEX.test(segment.fieldId),
-		);
 	for (const uuid of forms) {
 		const form = doc.forms[uuid];
 		const moduleUuid = moduleOf(uuid);
 		if (form === undefined || moduleUuid === undefined) return false;
-		const inventory = deriveCaseWriteInventory(
-			doc,
-			uuid,
-			{ caseType: moduleCaseTypeForActions(doc, moduleUuid) },
-			form.type,
-		);
-		if (caseWriteAdmissionIssues(inventory).length > 0) return false;
-		// A close form's condition is read at its question's path
-		// (`xform/caseOps.ts::formCloseCondition`); one naming a field the form
-		// does not hold is `CLOSE_CONDITION_FIELD_NOT_FOUND`.
-		const close = form.closeCondition;
+		const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 		if (
-			close?.field &&
-			close.answer &&
-			!descendantFieldUuids(doc, uuid).has(close.field)
+			ownCaseOperationFindings({
+				form,
+				formUuid: uuid,
+				moduleUuid,
+				moduleName: doc.modules[moduleUuid]?.name ?? "",
+				caseType,
+			}).length > 0
 		)
 			return false;
 		if (
-			!inventory.buckets.every(
-				(bucket) =>
-					wellFormedCaseType(bucket.caseType) &&
-					xmlNames(bucket.repeatPath) &&
-					bucket.writers.every((writer) => xmlNames(writer.path)),
+			!(form.caseOperations ?? []).every(
+				(operation) =>
+					operation.action === "own" || wellFormedCaseType(operation.caseType),
 			)
-		) {
+		)
 			return false;
-		}
+		// The wire plan names the new case from the registration's own name
+		// (`CASE_CREATE_NAME_MISSING` without one), and reaches each question
+		// by its id (`INVALID_FIELD_ID` for one that is no XML name).
+		if (
+			form.type === "registration" &&
+			caseType !== "" &&
+			form.caseOperations?.find((operation) => operation.action === "own")
+				?.name === undefined
+		)
+			return false;
+		for (const fieldUuid of descendantFieldUuids(doc, uuid))
+			if (!XML_ELEMENT_NAME_REGEX.test(doc.fields[fieldUuid]?.id ?? ""))
+				return false;
 	}
 	return true;
 }
@@ -1846,7 +1816,7 @@ const frameBuildableByContext = new WeakMap<
 
 /** `moduleFrameActionsBuildable(doc, [moduleUuid])`, derived once per menu
  * per context: the per-form rules ask it for every form of a menu, and each
- * answer derives the case-write inventory of every form the menu reaches. */
+ * answer reads the own case of every form the menu reaches. */
 export function moduleFrameActionsBuildableIn(
 	doc: BlueprintDoc,
 	context: FormLinkProjectionContext,

@@ -43,6 +43,7 @@ import {
 	setModuleDisplayConditionMutation,
 	setModuleHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
+import { moduleCaseTypeChangeMutations } from "@/lib/doc/formTypeMutations";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
 import {
 	asUuid,
@@ -236,7 +237,14 @@ export const updateModuleTool = {
 				...(parentCaseModuleUuid === undefined
 					? []
 					: [updateModuleMutation(moduleUuid, { parentCaseModuleUuid })]),
-				...caseTypeCatalogMutations(doc, retirement, case_type ?? undefined),
+				...(case_type != null
+					? moduleCaseTypeChangeMutations(
+							doc,
+							moduleUuid,
+							retirement,
+							case_type,
+						)
+					: caseTypeCatalogMutations(doc, retirement, undefined)),
 				...updateModuleMutations(mod, {
 					...(name != null && { name }),
 					...(case_type != null && { caseType: case_type }),

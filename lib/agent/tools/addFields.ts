@@ -116,7 +116,9 @@ export type AddFieldsInput = z.infer<typeof addFieldsInputSchema>;
 export type AddFieldsResult =
 	| (MutationSuccess & {
 			fields: CreatedFieldIdentity[];
-			/** What each submission saves, for every added hidden field with
+			/** What the call did beyond adding the fields: a question saving
+			 *  to this form's case that opens with the case's current value,
+			 *  and what each submission saves for an added hidden field with
 			 *  no value that writes a case property (`hiddenWriterBlankNote`). */
 			notes?: Array<{ uuid: Uuid; id: string; note: string }>;
 	  })
@@ -150,7 +152,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { form, module } = resolved;
+			const { form } = resolved;
 
 			// The shared assembly pipeline: sentinel strip → defaults → uuid
 			// mint → domain Field → identifier verdict, with in-batch
@@ -192,7 +194,7 @@ export const addFieldsTool = {
 					},
 				};
 			}
-			const { mutations, created } = assembly;
+			const { mutations, created, notes: writeNotes } = assembly;
 
 			// A question kind the app's platforms can't run is refused before
 			// it stages, in the platform rule's own words for that question.
@@ -234,13 +236,15 @@ export const addFieldsTool = {
 					result: { error: commit.error },
 				};
 			}
-			const notes = created.flatMap((identity) => {
-				const field = commit.newDoc.fields[identity.uuid];
-				const note = field && hiddenWriterBlankNote(field, module, form);
-				return note === undefined
-					? []
-					: [{ uuid: identity.uuid, id: identity.id, note }];
-			});
+			const notes = [
+				...writeNotes,
+				...created.flatMap((identity) => {
+					const note = hiddenWriterBlankNote(commit.newDoc, identity.uuid);
+					return note === undefined
+						? []
+						: [{ uuid: identity.uuid, id: identity.id, note }];
+				}),
+			];
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,

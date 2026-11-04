@@ -33,7 +33,13 @@ import {
 	NEW_APP_SETTINGS,
 	proseText,
 } from "@/lib/domain";
-import { eq, fixedLocation, literal, term } from "@/lib/domain/expression";
+import {
+	concat,
+	eq,
+	fixedLocation,
+	literal,
+	term,
+} from "@/lib/domain/expression";
 import {
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
@@ -62,6 +68,7 @@ import { assertGenerated, manifestFor } from "./compilerEvidence";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { extensionCaseFixture } from "./extensionCaseFixture";
 import { clinicNames } from "./instanceReadFixture";
+import { childCreate, own, placementFixture, read } from "./placementFixture";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
 import { blueprintDocArbitrary } from "./xformDocArbitrary";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
@@ -639,13 +646,13 @@ describe("each privilege's reasons", () => {
 							name: "Close by outcome",
 							type: "close",
 							fields: [outcome("single_select")],
-							closeCondition: { field: "outcome", answer: "done" },
+							closeCondition: "#form/outcome = 'done'",
 						},
 						{
 							name: "Close by note",
 							type: "close",
 							fields: [outcome("text")],
-							closeCondition: { field: "outcome", answer: "done" },
+							closeCondition: "#form/outcome = 'done'",
 						},
 					],
 				},
@@ -653,6 +660,53 @@ describe("each privilege's reasons", () => {
 		});
 		expect(reasonsOf(doc, "save_to_case")).toEqual([
 			"Close by note writes its case changes as Save to Case blocks.",
+		]);
+	});
+
+	it("asks Save to Case for a form with one Save to Case placement, and not for a form whose changes all take basic slots", () => {
+		const basic = placementFixture("followup", {
+			operations: (formType) => [
+				own({ writes: [{ property: "age", value: read("age") }] }),
+				childCreate("kid", formType),
+			],
+		}).doc;
+		expect(reasonsOf(basic, "save_to_case")).toBeUndefined();
+		const saved = placementFixture("followup", {
+			operations: () => [
+				own({
+					writes: [
+						{
+							property: "age",
+							value: concat(read("age"), term(literal("!"))),
+						},
+					],
+				}),
+			],
+		}).doc;
+		expect(reasonsOf(saved, "save_to_case")).toEqual([
+			"Under test writes its case changes as Save to Case blocks.",
+		]);
+	});
+
+	it("asks child cases only for a basic subcase placement", () => {
+		const subcase = placementFixture("followup", {
+			operations: (formType) => [own(), childCreate("kid", formType)],
+		}).doc;
+		expect(reasonsOf(subcase, "child_cases")).toEqual([
+			"Under test creates or updates a child case.",
+		]);
+		// A child named by a computed value takes Save to Case.
+		const saved = placementFixture("followup", {
+			operations: (formType) => [
+				own(),
+				childCreate("kid", formType, {
+					name: concat(read("name"), term(literal("!"))),
+				}),
+			],
+		}).doc;
+		expect(reasonsOf(saved, "child_cases")).toBeUndefined();
+		expect(reasonsOf(saved, "save_to_case")).toEqual([
+			"Under test writes its case changes as Save to Case blocks.",
 		]);
 	});
 
@@ -707,7 +761,9 @@ describe("each privilege's reasons", () => {
 	});
 	it("does not require the location fixture for a fixed place destination", () => {
 		const doc = locationOwnerFixture("plain");
-		const operation = doc.forms[LOCATION_FORM].caseOperations?.[0];
+		const operation = doc.forms[LOCATION_FORM].caseOperations?.find(
+			(candidate) => candidate.id === "transfer",
+		);
 		if (operation === undefined)
 			throw new Error("Missing location owner operation");
 		operation.owner = term(fixedLocation(testUuid("fixed-clinic")));

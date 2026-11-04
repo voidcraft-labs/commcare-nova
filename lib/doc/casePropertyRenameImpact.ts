@@ -8,7 +8,12 @@ import {
 	rewriteCasePropertyCarriers,
 } from "@/lib/doc/casePropertyRenames";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CaseOperationWrite,
+	caseWriteValueField,
+	type Uuid,
+} from "@/lib/domain";
 
 export type CasePropertyRenameImpactGroupKey =
 	| "field-writers"
@@ -58,31 +63,57 @@ function pointerParts(path: string): readonly string[] {
 		.map((part) => decodePointerPart(part));
 }
 
-function impactGroup(path: string): CasePropertyRenameImpactGroupKey {
+/**
+ * The operation write a pointer names, when it names a write's property:
+ * `/forms/<form>/caseOperations/<i>/writes/<j>/property`.
+ */
+function writeAt(
+	parts: readonly string[],
+	doc: BlueprintDoc,
+): CaseOperationWrite | undefined {
+	if (
+		parts[0] !== "forms" ||
+		parts[1] === undefined ||
+		parts[2] !== "caseOperations" ||
+		parts[4] !== "writes" ||
+		parts[6] !== "property"
+	)
+		return undefined;
+	const form = Object.hasOwn(doc.forms, parts[1])
+		? doc.forms[parts[1] as Uuid]
+		: undefined;
+	return form?.caseOperations?.[Number(parts[3])]?.writes?.[Number(parts[5])];
+}
+
+/**
+ * Which group a changed leaf belongs to. A write that saves one question's
+ * answer is that question's destination ("Saves to"), so it counts under
+ * `field-writers` with the question as its carrier; any other write is an
+ * operation's own expression.
+ */
+function impactOf(
+	path: string,
+	doc: BlueprintDoc,
+): {
+	readonly group: CasePropertyRenameImpactGroupKey;
+	readonly owner: string;
+} {
 	const parts = pointerParts(path);
-	if (
-		parts[0] === "fields" &&
-		parts[2] === "caseWrite" &&
-		parts[3] === "property"
-	) {
-		return "field-writers";
-	}
-	if (
-		parts[0] === "forms" &&
-		parts[2] === "caseOperations" &&
-		parts[4] === "writes" &&
-		parts[6] === "property"
-	) {
-		return "case-operation-writes";
+	const write = writeAt(parts, doc);
+	if (write !== undefined) {
+		const read = caseWriteValueField(write.value);
+		return read === undefined
+			? { group: "case-operation-writes", owner: carrierKey(path, doc) }
+			: { group: "field-writers", owner: `fields:${read.field}` };
 	}
 	if (
 		parts[0] === "caseTypes" &&
 		parts[2] === "properties" &&
 		parts[4] === "name"
 	) {
-		return "catalog-declarations";
+		return { group: "catalog-declarations", owner: carrierKey(path, doc) };
 	}
-	return "typed-reads";
+	return { group: "typed-reads", owner: carrierKey(path, doc) };
 }
 
 function carrierKey(path: string, doc: BlueprintDoc): string {
@@ -182,9 +213,8 @@ export function casePropertyRenameImpact(
 	>();
 	const allCarriers = new Set<string>();
 	for (const carrier of changed) {
-		const group = impactGroup(carrier.path);
+		const { group, owner } = impactOf(carrier.path, doc);
 		groupOccurrences.set(group, (groupOccurrences.get(group) ?? 0) + 1);
-		const owner = carrierKey(carrier.path, doc);
 		allCarriers.add(owner);
 		const owners = groupCarriers.get(group) ?? new Set<string>();
 		owners.add(owner);

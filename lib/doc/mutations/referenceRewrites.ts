@@ -22,7 +22,11 @@ export interface FieldSlotRewriteOps {
 	resolveCaseProperty: CasePropertyNameResolver;
 	caseTypes: readonly CaseType[];
 }
-export interface FormSlotRewriteContext extends FieldSlotRewriteOps {}
+export interface FormSlotRewriteContext extends FieldSlotRewriteOps {
+	/** The case type of the form's module: the own arm's case type, which it
+	 *  does not store. Absent for a form in a module without one. */
+	moduleCaseType?: string;
+}
 
 function rewriteExpressions(
 	entity: unknown,
@@ -80,17 +84,6 @@ export function rewriteFieldReferenceSlots(
 				}
 				break;
 			case "case-property-ref":
-				if ("caseWrite" in field && field.caseWrite !== undefined) {
-					const next = ops.resolveCaseProperty(
-						field.caseWrite.caseType,
-						field.caseWrite.property,
-					);
-					if (next !== undefined && next !== field.caseWrite.property) {
-						field.caseWrite.property = next;
-						changed++;
-					}
-				}
-				break;
 			case "case-type-ref":
 			case "entity-uuid":
 			case "relation-path":
@@ -115,9 +108,23 @@ export function rewriteFormReferenceSlots(
 			changed += rewriteExpressions(form, slot.path, ops);
 		if (slot.slot === "case_operation_write_property") {
 			for (const operation of form.caseOperations ?? []) {
+				const operationCaseType =
+					operation.action === "own"
+						? ops.moduleCaseType
+						: (operation.retype ?? operation.caseType);
 				for (const write of operation.writes ?? []) {
+					// A write keyed through `via` saves to the case its indices
+					// reach, so the property it names is that case's.
+					const destination = resolveRelationDestination(
+						write.via === undefined
+							? undefined
+							: { kind: "ancestor", via: write.via },
+						operationCaseType,
+						ops.caseTypes,
+					);
+					if (!destination.ok) continue;
 					const next = ops.resolveCaseProperty(
-						operation.retype ?? operation.caseType,
+						destination.caseType,
 						write.property,
 					);
 					if (next !== undefined && next !== write.property) {

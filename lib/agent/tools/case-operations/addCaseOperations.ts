@@ -21,6 +21,7 @@ import {
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	caseOperationInputSchema,
+	OWN_CASE_OPERATION_REFUSAL,
 	operationAddressSchema,
 	operationIdRejection,
 	resolveCaseOperationInput,
@@ -101,7 +102,7 @@ export type AddCaseOperationsResult =
 
 export const addCaseOperationsTool = {
 	description:
-		"Add one or more complete advanced case operations to a form. Operations create additional records or update/close targeted records when the form is submitted. A registration form's direct caseWrite fields already create its primary case; never add a create operation for that same record.",
+		"Add one or more complete case changes to a form, in the order they run after its own case's change. This form's own case is always its first change and comes with the form's type: save answers to it with a question's caseWrite, or edit it with updateCaseOperation. Never add a create for this form's own case.",
 	inputSchema: addCaseOperationsInputSchema,
 	async execute(
 		input: AddCaseOperationsInput,
@@ -155,6 +156,19 @@ export const addCaseOperationsTool = {
 					result: {
 						error: `Case operation UUID "${initialAfter}" is not an existing operation in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
+				};
+			}
+			// This form's own case stays first, so nothing is added above it.
+			if (
+				initialAfter === null &&
+				orderedCaseOperations(working.forms[address.formUuid] ?? {}).some(
+					(operation) => operation.action === "own",
+				)
+			) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: OWN_CASE_OPERATION_REFUSAL },
 				};
 			}
 			let afterOperationUuid = initialAfter;

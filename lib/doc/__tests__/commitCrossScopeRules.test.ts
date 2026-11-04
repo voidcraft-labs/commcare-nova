@@ -2,9 +2,15 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { fieldAnswerValue } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
-import type { BlueprintDoc, Field } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type Field,
+	fieldCaseWriteViews,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -170,22 +176,39 @@ describe("commit dependencies beyond the edited field or form", () => {
 			replacement = byId(doc, "village");
 		expect(
 			codes(commit(doc, [{ kind: "removeField", uuid: name.uuid }])),
-		).toContain("CASE_CREATE_NAME_MISSING");
+		).toContain("CASE_OPERATION_EXPRESSION_TYPE");
+		// The own case's name moves to the replacement as the old writer leaves.
+		const formUuid = asUuid(doc.fieldParent[name.uuid] ?? "");
+		const own = doc.forms[formUuid]?.caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		if (own === undefined) throw new Error("missing own case");
 		const result = commit(doc, [
 			{ kind: "removeField", uuid: name.uuid },
 			{
-				kind: "updateField",
-				uuid: replacement.uuid,
-				targetKind: "text",
-				patch: { caseWrite: { caseType: "patient", property: "case_name" } },
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: own.uuid,
+					targetAction: "own",
+					patch: { name: fieldAnswerValue(replacement) },
+				},
 			},
 		]);
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error("atomic name transfer must commit");
 		expect(result.nextDoc.fields[name.uuid]).toBeUndefined();
-		expect(result.nextDoc.fields[replacement.uuid]).toMatchObject({
-			caseWrite: { caseType: "patient", property: "case_name" },
-		});
+		expect(
+			fieldCaseWriteViews(result.nextDoc, replacement.uuid).map((view) => ({
+				caseType: view.caseType,
+				property: view.property,
+			})),
+		).toEqual([
+			{ caseType: "patient", property: "case_name" },
+			{ caseType: "patient", property: "village" },
+		]);
 	});
 	it("refuses a type conversion that disagrees with another form's writer", () => {
 		const doc = richDoc();
@@ -197,7 +220,7 @@ describe("commit dependencies beyond the edited field or form", () => {
 			codes(commit(doc, [{ kind: "convertField", uuid, toKind: "time" }])),
 		).toContain("FIELD_KIND_WRITERS_DISAGREE");
 	});
-	it("refuses moving a primary case writer into a repeat", () => {
+	it("refuses moving a primary case writer into a repeat, where its answer has one value per row", () => {
 		const doc = richDoc();
 		expect(
 			codes(
@@ -210,7 +233,7 @@ describe("commit dependencies beyond the edited field or form", () => {
 					},
 				]),
 			),
-		).toContain("PRIMARY_CASE_FIELD_IN_REPEAT");
+		).toContain("CASE_OPERATION_EXPRESSION_TYPE");
 	});
 	it("refuses turning a case-free survey into a registration form", () => {
 		const doc = richDoc();

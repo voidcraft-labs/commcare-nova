@@ -259,7 +259,9 @@ it("returns concrete navigation from private create, update and read while quali
 		(item) => item.id === "notes",
 	);
 	if (!note) throw new Error("Missing note field");
-	await f.workspace.stageDispatch({
+	// A destination the form can't save to is refused by the "Saves to"
+	// planner before anything stages, so the form keeps its navigation.
+	const unrelated = await f.workspace.stageDispatch({
 		toolName: "editField",
 		requestId: "unrelated-writer",
 		input: {
@@ -267,40 +269,9 @@ it("returns concrete navigation from private create, update and read while quali
 			updates: { caseWrite: { caseType: "member", property: "case_name" } },
 		},
 	});
-	const finding = {
-		code: "CASE_WRITE_NOT_DIRECT_CHILD",
-		moduleUuid: module.uuid,
-		formUuid: review.uuid,
-		fieldUuid: note.uuid,
-	};
-	const unavailable = {
-		afterSubmit: { fallback: { screen: "unavailable", findings: [finding] } },
-	};
-	const invalidRead = await f.workspace.stageDispatch({
-		toolName: "getForm",
-		requestId: "read-invalid-writer",
-		input: { moduleUuid: module.uuid, formUuid: review.uuid },
-	});
-	expect(invalidRead.result).toMatchObject({
-		kind: "read",
-		data: {
-			form: { name: "Review" },
-			navigation: unavailable,
-		},
-	});
-	const invalidUpdate = await f.workspace.stageDispatch({
-		toolName: "updateForm",
-		requestId: "describe-invalid-writer",
-		input: {
-			moduleUuid: module.uuid,
-			formUuid: review.uuid,
-			purpose: "Review a loan",
-		},
-	});
-	expect(invalidUpdate.receipt?.disposition).toBe("staged");
-	expect(invalidUpdate.result).toMatchObject({
+	expect(unrelated.result).toMatchObject({
 		kind: "mutate",
-		result: { ok: true, navigation: unavailable },
+		result: { error: expect.any(String) },
 	});
 	const sibling = await f.workspace.stageDispatch({
 		toolName: "createForm",
@@ -310,7 +281,7 @@ it("returns concrete navigation from private create, update and read while quali
 	expect(sibling.receipt?.disposition).toBe("staged");
 	expect(sibling.result).toMatchObject({
 		kind: "mutate",
-		result: { ok: true, navigation: unavailable },
+		result: { ok: true },
 	});
 	await f.workspace.stageDispatch({
 		toolName: "addFields",
@@ -320,12 +291,6 @@ it("returns concrete navigation from private create, update and read while quali
 			formUuid: "Second review",
 			fields: [{ kind: "text", id: "comment", label: "Comment" }],
 		},
-	});
-	expect((await f.commit()).kind).toBe("gate-rejected");
-	await f.workspace.stageDispatch({
-		toolName: "editField",
-		requestId: "repair-writer",
-		input: { fieldUuid: note.uuid, updates: { caseWrite: null } },
 	});
 	const repaired = await f.workspace.stageDispatch({
 		toolName: "getForm",

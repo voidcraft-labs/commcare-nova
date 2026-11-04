@@ -1,5 +1,5 @@
 import type { BlueprintDoc } from "../blueprint";
-import type { CaseWrite, FieldKind, RepeatMode } from "../fields";
+import type { FieldKind, RepeatMode } from "../fields";
 import type { FormEntry, FormLinkTarget, FormType } from "../forms";
 import type { LookupTableId } from "../lookupIds";
 import { moduleUuidOfForm } from "../postSubmit";
@@ -32,7 +32,6 @@ export interface FormStructureField {
 	readonly id: string;
 	readonly kind: FieldKind;
 	readonly parent: Uuid;
-	readonly caseWrite?: CaseWrite;
 	readonly repeatMode?: RepeatMode;
 	/** A query repeat's held placement (its stored `placement`), absent where
 	 * it holds none. */
@@ -121,9 +120,6 @@ export function formStructure(
 						? ["validate_msg" as const]
 						: []),
 				],
-				...("caseWrite" in field && field.caseWrite !== undefined
-					? { caseWrite: field.caseWrite }
-					: {}),
 				...(field.kind === "repeat" ? { repeatMode: field.repeat_mode } : {}),
 				...(field.kind === "repeat" &&
 				field.repeat_mode === "query_bound" &&

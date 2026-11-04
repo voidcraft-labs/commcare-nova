@@ -289,7 +289,11 @@ export function parseFormExpression(
 						// a call would not carry its slot admission.
 						node.name === "here"
 						? { minArgs: 0, maxArgs: 0, returnType: "string" as const }
-						: undefined;
+						: // Nova's link to a captured file, which a case change saves;
+							// no runtime evaluates it, so it is no registry function.
+							node.name === "capture-link"
+							? { minArgs: 1, maxArgs: 1, returnType: "string" as const }
+							: undefined;
 		const spec = special ?? FUNCTION_REGISTRY.get(node.name);
 		if (spec === undefined)
 			refuse(
@@ -302,6 +306,22 @@ export function parseFormExpression(
 		if (node.name === "current" || node.name === "instance")
 			return bindFormPath(binder, node, ctx);
 		if (node.name === "here") return remember({ kind: "here" }, node);
+		if (node.name === "capture-link") {
+			// The argument names the question by its path; whether it captures
+			// a file, and where the link may stand, is the checker's.
+			const question = expressionTerm(bind(node.args[0], ctx));
+			if (
+				question?.kind !== "field" ||
+				question.role !== undefined ||
+				question.filters !== undefined
+			)
+				refuse(
+					"capture-link-not-a-question",
+					node.args[0],
+					"capture-link reads one question that captures a file, such as capture-link(#form/photo).",
+				);
+			return term({ kind: "capture-link", field: question.uuid }, node);
+		}
 		if (node.name === "jr:itext") {
 			const prior = hints.get(node);
 			if (

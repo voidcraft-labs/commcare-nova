@@ -26,7 +26,11 @@
 //     later effect, because CommCare's two processors would disagree
 //     about the result. Nothing the author did is wrong; the sequence
 //     just is not expressible.
+//   - `own-first`: the form's own case is always the first change, so it
+//     never moves and nothing moves above it. Nothing else is involved,
+//     so the sentence names nothing else.
 
+import { OWN_FIRST_MESSAGE } from "@/lib/doc/caseOperationMutations";
 import type {
 	CaseOperationMoveVerdict,
 	CaseOperationReferenceSlot,
@@ -100,6 +104,7 @@ export function moveRefusalReason(
 		readonly dependsOn: readonly Uuid[];
 	},
 ): string {
+	if (verdict.reason === "own-first") return OWN_FIRST_MESSAGE;
 	if (verdict.reason === "dependent-reference") {
 		const others = verdict.blockingUuids.filter(
 			(uuid) => uuid !== context.moved,

@@ -26,6 +26,7 @@ import {
 	type CasePropertyDataType,
 	type CaseTarget,
 	humanizeId,
+	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -90,7 +91,7 @@ function seededCaseName(caseType: string): Expression {
 export function seedCaseOperation(
 	seed: CaseOperationSeedKind,
 	takenIds: ReadonlySet<string>,
-): CaseOperation {
+): TargetedCaseOperation {
 	const uuid = newUuid();
 	switch (seed.kind) {
 		case "create":
@@ -264,11 +265,11 @@ export function nextLinkIdentifier(taken: ReadonlySet<string>): string {
  * content.
  */
 export function reshapeForAction(
-	operation: CaseOperation,
-	action: CaseOperation["action"],
+	operation: TargetedCaseOperation,
+	action: TargetedCaseOperation["action"],
 	fallbackTarget: CaseTarget,
 	fallbackCaseType: string,
-): CaseOperation {
+): TargetedCaseOperation {
 	const base = {
 		...operation,
 		action,
@@ -277,7 +278,7 @@ export function reshapeForAction(
 		name: undefined,
 		owner: undefined,
 		links: operation.links,
-	} satisfies CaseOperation;
+	} satisfies TargetedCaseOperation;
 	if (action === "create") {
 		return stripUndefined({
 			...base,
@@ -307,8 +308,8 @@ export function reshapeForAction(
 
 /** What changing to `action` would discard, in the author's words. */
 export function actionChangeLosses(
-	operation: CaseOperation,
-	action: CaseOperation["action"],
+	operation: TargetedCaseOperation,
+	action: TargetedCaseOperation["action"],
 ): readonly string[] {
 	const losses: string[] = [];
 	if (action !== "create" && operation.target.kind === "new") {
@@ -334,10 +335,12 @@ export function actionChangeLosses(
 }
 
 /** Drop explicitly-undefined keys so the stored object stays exact. */
-function stripUndefined(operation: CaseOperation): CaseOperation {
+function stripUndefined(
+	operation: TargetedCaseOperation,
+): TargetedCaseOperation {
 	return Object.fromEntries(
 		Object.entries(operation).filter(([, value]) => value !== undefined),
-	) as CaseOperation;
+	) as TargetedCaseOperation;
 }
 
 /** Every operation id already in use, for slug uniqueness. */

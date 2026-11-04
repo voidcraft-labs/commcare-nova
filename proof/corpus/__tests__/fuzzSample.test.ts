@@ -23,7 +23,16 @@ import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	CASE_LOADING_FORM_TYPES,
+	caseSelectionCardinality,
+	fieldCaseWriteViews,
+	fieldKindDeclaresKey,
+	fieldPreload,
+	moduleUuidOfForm,
+} from "@/lib/domain";
 import {
 	DEFAULT_CORPUS_SEED,
 	DEFAULT_EXPRESSION_SAMPLE_SIZE,
@@ -58,18 +67,67 @@ function asWritten(sampled: SampledDocument): unknown {
 }
 
 /**
+ * Whether a question of `doc` opened with its case's value before step 5
+ * without saying so: it saves to the own case of a follow-up or close form
+ * of a one-case menu, as a question that holds no calculation and can hold a
+ * starting value, and its starting value is not the read of that property
+ * (`fieldPreload`). Before step 5 the form loaded the case's value into it
+ * by rule; after it, only a starting value that reads the case does.
+ */
+function opensWithCaseValueUnstated(doc: BlueprintDoc): boolean {
+	return Object.values(doc.fields).some((field) => {
+		if (!fieldKindDeclaresKey(field.kind, "default_value")) return false;
+		if ("calculate" in field && field.calculate !== undefined) return false;
+		return fieldCaseWriteViews(doc, field.uuid).some((view) => {
+			const form = doc.forms[view.formUuid];
+			const moduleUuid = moduleUuidOfForm(doc, view.formUuid);
+			const module =
+				moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+			return (
+				form !== undefined &&
+				module !== undefined &&
+				CASE_LOADING_FORM_TYPES.has(form.type) &&
+				caseSelectionCardinality(module) === "single" &&
+				view.destination === "own" &&
+				view.slot !== "owner" &&
+				!view.link &&
+				view.via === undefined &&
+				fieldPreload(field)?.property !== view.property
+			);
+		});
+	});
+}
+
+/**
  * Each step 5 shape a draw could hold that the cutover maps in a stored app,
- * read from the drawn document and the codes its validation raises, so the
- * observation is the gate's and not the mapping's own planner. Pull requests
- * that make another drawn shape inadmissible add theirs here.
+ * read from the drawn document as the writer writes it (`written`, before
+ * the strict schema reads it), the document and the codes its validation
+ * raises, so the observation is the document's and the gate's and not the
+ * mapping's own planner. Pull requests that make another drawn shape
+ * inadmissible add theirs here.
  */
 const STEP_5_SHAPES: readonly {
 	readonly name: string;
-	readonly heldBy: (doc: BlueprintDoc, codes: ReadonlySet<string>) => boolean;
+	readonly heldBy: (
+		doc: BlueprintDoc,
+		codes: ReadonlySet<string>,
+		written: { readonly fields?: Record<string, object> },
+	) => boolean;
 }[] = [
 	{
 		name: "a repeat count that isn't a whole number",
 		heldBy: (_doc, codes) => codes.has("REPEAT_COUNT_TYPE"),
+	},
+	{
+		name: "a question that says where its answer is saved",
+		heldBy: (_doc, _codes, written) =>
+			Object.values(written.fields ?? {}).some((field) =>
+				Object.hasOwn(field, "caseWrite"),
+			),
+	},
+	{
+		name: "a question that opens with its case's value without saying so",
+		heldBy: (doc) => opensWithCaseValueUnstated(doc),
 	},
 ];
 
@@ -159,28 +217,50 @@ describe("the corpus's fuzz sample", () => {
 		expect(split.filter((field) => field.kind === "datetime")).toEqual([]);
 	});
 
-	it("maps each step 5 shape of a draw as the cutover maps a stored app", () => {
+	it("maps each step 5 shape of a draw as the cutover maps a stored app, with no further draw", () => {
 		const sample = sampleFuzzDocuments({
 			size: 24,
 			seed: DEFAULT_CORPUS_SEED,
 			manifestFor,
 		});
+		let saving = 0;
 		for (const sampled of sample) {
-			const doc = hydratePersistedBlueprint(
-				blueprintDocSchema.parse((asWritten(sampled) as { doc: unknown }).doc),
-			);
+			const written = (asWritten(sampled) as { doc: { fields?: object } }).doc;
+			const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(written));
 			const codes = new Set(
 				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
 					(finding) => finding.code,
 				),
 			);
 			expect(
-				STEP_5_SHAPES.filter((shape) => shape.heldBy(doc, codes)).map(
-					(shape) => shape.name,
-				),
+				STEP_5_SHAPES.filter((shape) =>
+					shape.heldBy(
+						doc,
+						codes,
+						written as { fields?: Record<string, object> },
+					),
+				).map((shape) => shape.name),
 				sampled.document.id,
 			).toEqual([]);
+			if (
+				Object.values(doc.forms).some((form) =>
+					(form.caseOperations ?? []).some(
+						(operation) => (operation.writes?.length ?? 0) > 0,
+					),
+				)
+			)
+				saving += 1;
 		}
+		// The drawn saves are there, as operations: the mapping kept them.
+		expect(saving).toBeGreaterThan(0);
+		// The mapping draws nothing: a smaller draw is the start of a larger one.
+		const written = new Map(
+			sample.map((sampled) => [sampled.document.id, asWritten(sampled)]),
+		);
+		for (const sampled of draw(2, DEFAULT_CORPUS_SEED))
+			expect(written.get(sampled.document.id), sampled.document.id).toEqual(
+				asWritten(sampled),
+			);
 	});
 
 	afterAll(() => {

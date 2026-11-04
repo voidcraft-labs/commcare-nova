@@ -188,7 +188,9 @@ describe("a batch applies twice", () => {
 			},
 		]);
 
-		const links = doc.forms[FORM].caseOperations?.[0]?.links;
+		const links = doc.forms[FORM].caseOperations?.find(
+			(operation) => operation.uuid === OPERATION,
+		)?.links;
 		expect(links).toHaveLength(1);
 		expect(links?.[0].target).toBeNull();
 	});
@@ -230,13 +232,15 @@ describe("a batch applies twice", () => {
 				caseOperationPatch: {
 					operation: "update-write",
 					uuid: OPERATION,
-					property: "visit_status",
+					key: { property: "visit_status" },
 					patch: { value: term(literal("filed")) },
 				},
 			},
 		]);
 
-		const writes = doc.forms[FORM].caseOperations?.[0]?.writes;
+		const writes = doc.forms[FORM].caseOperations?.find(
+			(operation) => operation.uuid === OPERATION,
+		)?.writes;
 		expect(writes).toHaveLength(1);
 		expect(writes?.[0].value).toEqual(term(literal("filed")));
 	});

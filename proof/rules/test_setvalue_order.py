@@ -36,6 +36,7 @@ from __future__ import annotations
 import pytest
 from lxml import etree
 
+from proof.rules._xpath import node_free
 from proof.rules.conftest import build_differences, published, rewritten, runs_alike, shown
 from proof.rules.setvalue_order import RULE, normalize
 
@@ -45,12 +46,23 @@ HEAD = "{http://www.w3.org/1999/xhtml}head"
 
 
 def _reversed_setvalues(root):
+    """Each run of the form's setvalues whose value reads no node, reversed in place; a setvalue that reads a node
+    (a starting value read from the case) keeps its place between them, as the rule keeps it."""
     model = root.find(HEAD).find(f"{XF}model")
     setvalues = model.findall(f"{XF}setvalue")
-    assert len(setvalues) > 1, "the form has fewer than two setvalues"
-    copies = [etree.fromstring(etree.tostring(setvalue)) for setvalue in reversed(setvalues)]
-    for held, placed in zip(setvalues, copies, strict=True):
-        model.replace(held, placed)
+    runs, run = [], []
+    for setvalue in setvalues:
+        if node_free(setvalue.get("value", "")):
+            run.append(setvalue)
+            continue
+        runs.append(run)
+        run = []
+    runs.append(run)
+    assert any(len(run) > 1 for run in runs), "the form has no two node-free setvalues in a row"
+    for run in runs:
+        copies = [etree.fromstring(etree.tostring(setvalue)) for setvalue in reversed(run)]
+        for held, placed in zip(run, copies, strict=True):
+            model.replace(held, placed)
 
 
 COPY = "proof_copy"
@@ -134,6 +146,13 @@ def _formatted_today(root):
     assert len(clocks) == 1, "the form must record its formatted clock"
     assert clocks[0].get("value") == "format-date(now(), '%Y-%m-%d %H:%M:%S %Z')", clocks[0].attrib
     clocks[0].set("value", "format-date(today(), '%Y-%m-%d %H:%M:%S %Z')")
+    # Into the run of node-free setvalues before the first that reads a node (a starting value read from the
+    # case), so reversing the run moves the clock among the others.
+    reading = next(
+        (action for action in model.findall(f"{XF}setvalue") if not node_free(action.get("value", ""))), None
+    )
+    if reading is not None:
+        reading.addprevious(clocks[0])
 
 
 def _reversed_formatted_today(root):

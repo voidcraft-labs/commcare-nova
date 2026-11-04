@@ -17,6 +17,7 @@ import {
 import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const KEY = testUuid("11111111-1111-4111-8111-111111111111");
 const SESSION_UPDATE = testUuid("22222222-2222-4222-8222-222222222222");
@@ -84,7 +85,10 @@ function directCollectionLinkDoc(
 		],
 	});
 	expectAdmittedDoc({ ...doc });
-	doc.forms[SOURCE_FORM].caseOperations = [...caseOperations];
+	doc.forms[SOURCE_FORM].caseOperations = [
+		...ownArms(doc.forms[SOURCE_FORM]),
+		...caseOperations,
+	];
 	return doc;
 }
 
@@ -145,9 +149,9 @@ function codes(doc: ReturnType<typeof buildDoc>): string[] {
 	);
 }
 
-const FANOUT_CHILD_DATUM = "case_id_new_visit_0";
+const CHILD_DATUM = "case_id_new_visit_0";
 
-function fanoutExpressionDoc(options: {
+function linkExpressionDoc(options: {
 	condition?: Expression;
 	datumXpath?: Expression;
 }) {
@@ -417,20 +421,13 @@ describe("multi-select absolute validation", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		expectAdmittedDoc({ ...doc });
 		doc.forms[formUuid].caseOperations = [
+			...ownArms(doc.forms[formUuid]),
 			{
 				uuid: SESSION_UPDATE,
 				id: "update_selected",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
-				links: [
-					{
-						identifier: "parent",
-						targetType: "patient",
-						target: { kind: "session" },
-						relationship: "child",
-					},
-				],
 			},
 			{
 				uuid: CREATE,
@@ -440,15 +437,43 @@ describe("multi-select absolute validation", () => {
 				target: { kind: "new", idFrom: KEY },
 				name: term(literal("Visit")),
 			},
+			{
+				uuid: SESSION_RESTORE,
+				id: "update_found",
+				action: "update",
+				caseType: "visit",
+				target: {
+					kind: "expression",
+					expr: term(literal("found-visit")),
+				},
+				links: [
+					{
+						identifier: "parent",
+						targetType: "patient",
+						target: { kind: "session" },
+						relationship: "child",
+					},
+				],
+			},
 		] satisfies CaseOperation[];
 
-		expect(codes(doc)).toEqual(
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings.map((finding) => finding.code)).toEqual(
 			expect.arrayContaining([
 				"MULTI_SELECT_SESSION_OPERATION_LINK",
 				"MULTI_SELECT_AUTHORED_KEY_CREATE",
 				"MULTI_SELECT_OPERATION_ORDER",
 			]),
 		);
+		// The session link is refused on the update that runs once for the
+		// form, where "the selected case" names no one case.
+		expect(
+			findings
+				.filter(
+					(finding) => finding.code === "MULTI_SELECT_SESSION_OPERATION_LINK",
+				)
+				.map((finding) => finding.details?.operationId),
+		).toEqual(["update_found"]);
 	});
 
 	it("requires a direct destination form to accept the complete set", () => {
@@ -617,7 +642,10 @@ describe("multi-select absolute validation", () => {
 		);
 	});
 
-	it("refuses to carry one phantom child id after creating a child per selected parent", () => {
+	it("admits a child case per selected parent, linked to each selected case", () => {
+		// A create linked to the loaded case runs once per selected case, so
+		// "the case this form opened" names the current selected case in each
+		// iteration: one child under each, as the wire makes it.
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -682,68 +710,69 @@ describe("multi-select absolute validation", () => {
 			],
 		});
 
-		const baseline = structuredClone(doc);
-		delete baseline.forms[SOURCE_FORM].formLinks;
-		expectAdmittedDoc(baseline);
-		expect(codes(doc)).toContain("MULTI_SELECT_FANOUT_CHILD_DATUM");
-		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CARDINALITY");
+		const create = doc.forms[SOURCE_FORM].caseOperations?.find(
+			(operation) => operation.action === "create",
+		);
+		expect(create?.links).toEqual([
+			expect.objectContaining({
+				identifier: "parent",
+				target: { kind: "session" },
+			}),
+		]);
+		// The form makes a child per selected parent, so no one new visit can
+		// be carried into the visit form, which opens one visit.
+		expect(codes(doc)).not.toContain("MULTI_SELECT_SESSION_OPERATION_LINK");
+		expect(codes(doc)).toContain("FORM_LINK_SELECTION_CARDINALITY");
+		delete doc.forms[SOURCE_FORM].formLinks;
+		expectAdmittedDoc(doc);
 	});
 
-	it("rejects a form-link condition that observes the scalar fanout-child datum", () => {
-		const doc = fanoutExpressionDoc({
-			condition: neq(
-				{
+	it.each([
+		{
+			surface: "condition",
+			options: {
+				condition: neq(
+					{
+						kind: "session-datum",
+						datum: { kind: "new-child-case", caseType: "visit" },
+					},
+					literal(""),
+				),
+			},
+		},
+		{
+			surface: "carried value",
+			options: {
+				datumXpath: term({
 					kind: "session-datum",
 					datum: { kind: "new-child-case", caseType: "visit" },
-				},
-				literal(""),
-			),
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
-		);
-
-		expect(findings).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					surface: "condition",
-					datumRef: "new-child-case:visit",
 				}),
-			}),
-		]);
-	});
-
-	it("rejects a manual carried value that observes the scalar fanout-child datum", () => {
-		const doc = fanoutExpressionDoc({
-			datumXpath: term({
-				kind: "session-datum",
-				datum: { kind: "new-child-case", caseType: "visit" },
-			}),
-		});
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(finding) => finding.code === "MULTI_SELECT_FANOUT_CHILD_DATUM",
-		);
-
-		expect(findings).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					surface: "carried value",
-					datumRef: "new-child-case:visit",
-				}),
-			}),
-		]);
-	});
+			},
+		},
+	])(
+		"refuses a link $surface that reads the one new child a form makes per selected parent",
+		({ options }) => {
+			// The form makes a visit under each selected patient, so its entry
+			// supplies no one new visit for a link to read.
+			expect(codes(linkExpressionDoc({}))).not.toContain(
+				"SESSION_DATUM_NOT_SUPPLIED",
+			);
+			expect(codes(linkExpressionDoc(options))).toContain(
+				"SESSION_DATUM_NOT_SUPPLIED",
+			);
+		},
+	);
 
 	it.each([
 		"count(instance('commcaresession')/session/data/*) > 0",
 		"instance('commcaresession')/session/data/*",
 		"count(instance('commcaresession')/session/data/unrelated/following-sibling::*) > 0",
 		"count(instance('commcaresession')/session/context/userid[../../data[count(*) = 2]]) > 0",
-		`instance('commcaresession')/session/context/userid[../../data/${FANOUT_CHILD_DATUM}/following-sibling::*]`,
+		`instance('commcaresession')/session/context/userid[../../data/${CHILD_DATUM}/following-sibling::*]`,
 	])(
 		"refuses broad or filtered session access before storage: %s",
 		(source) => {
-			const doc = fanoutExpressionDoc({});
+			const doc = linkExpressionDoc({});
 			const link = doc.forms[SOURCE_FORM].formLinks?.[0];
 			if (link === undefined) throw new Error("Fixture requires a form link");
 			const result = parseFormExpression(source, {
@@ -761,7 +790,7 @@ describe("multi-select absolute validation", () => {
 	);
 
 	it("allows plain unrelated exact session reads without filters", () => {
-		const doc = fanoutExpressionDoc({
+		const doc = linkExpressionDoc({
 			condition: neq(sessionUser("user_id"), literal("")),
 		});
 

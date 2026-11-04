@@ -3,18 +3,12 @@
  *
  * Each rule receives the normalized `BlueprintDoc`, the form entity, and its
  * `formUuid` (plus the owning module for rules that need sibling context).
- * Case-write action assignment, path resolution, repeat scope, and admission
- * are derived once per form through `deriveCaseWriteInventory`; every
- * case-write finding below consumes that one inventory.
+ * A form writes case data only through its case operations, whose rules
+ * live in `caseOperations.ts`; this file holds the form's own open and close
+ * conditions beside the rest of the form's rules.
  */
 
-import {
-	CASE_PROPERTY_REGEX,
-	MAX_CASE_PROPERTY_LENGTH,
-	MAX_FORM_ATTACHMENTS,
-	MEDIA_FIELD_KINDS,
-} from "@/lib/commcare";
-import { caseWriteAdmissionFindings } from "@/lib/commcare/caseWriteFindings";
+import { MAX_FORM_ATTACHMENTS, MEDIA_FIELD_KINDS } from "@/lib/commcare";
 import {
 	connectIdError,
 	connectIdProblem,
@@ -29,13 +23,10 @@ import {
 	projectFormLinks,
 } from "@/lib/commcare/formLinkProjection";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	appConnectIds,
 	type BlueprintDoc,
-	type CaseWriteInventory,
 	connectDeliverFormHoldsTask,
-	deriveCaseWriteInventory,
 	type Field,
 	type Form,
 	type FormLink,
@@ -43,6 +34,7 @@ import {
 	formConnectIds,
 	formLinkDestination,
 	formRootTakenIds,
+	formTypeLabels,
 	isConnectLearnConfig,
 	isNoMatchesForm,
 	type Module,
@@ -61,7 +53,11 @@ import { datumRefKey } from "@/lib/domain/expression/types";
 import { freeQuestionId } from "@/lib/domain/questionId";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { type ValidationError, validationError } from "../errors";
-import type { LookupTypeIndex } from "../lookupTypeContext";
+import {
+	checkErrorDetails,
+	type LookupTypeIndex,
+	semanticCheckErrors,
+} from "../lookupTypeContext";
 import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
 import { validateCaseOperations } from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
@@ -307,31 +303,49 @@ function tooManyAttachments(
 }
 
 /**
- * Validate `closeCondition` on close forms.
+ * The form's own open and close conditions.
  *
- * `closeCondition` is only valid on forms with type "close". When present,
- * both field and answer must be specified, and the referenced field must
- * exist in the form.
+ * Only a registration creates its case on a condition (`openCondition`), and
+ * only a registration or a close form closes its own case (`closeCondition`).
+ * Each condition is form logic read once as the form is submitted; a finding
+ * inside it is `CASE_OPERATION_EXPRESSION_TYPE` at the condition's path.
  */
-function closeConditionValidation(
+function ownCaseConditionValidation(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
 	mod: Module,
+	lookupTables: LookupTypeIndex | undefined,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
+	const typeName = formTypeLabels[form.type].toLowerCase();
 
-	if (form.closeCondition && form.type !== "close") {
+	if (form.openCondition !== undefined && form.type !== "registration") {
+		errors.push(
+			validationError(
+				"OPEN_CONDITION_WRONG_TYPE",
+				"form",
+				`Only a registration form creates its case on a condition, and “${ctx.formName}” is a ${typeName} form. You can remove the condition or make it a registration form.`,
+				{ ...loc, field: "openCondition" },
+				{ formType: form.type },
+			),
+		);
+	}
+	if (
+		form.closeCondition !== undefined &&
+		form.type !== "registration" &&
+		form.type !== "close"
+	) {
 		errors.push(
 			validationError(
 				"CLOSE_CONDITION_WRONG_TYPE",
 				"form",
-				`"${ctx.formName}" has a close_condition but isn't a close form. close_condition is only valid on forms with type "close". Either change the form type to "close" or remove the close_condition.`,
-				loc,
+				`Only registration and close forms close their own case, and “${ctx.formName}” is a ${typeName} form. You can remove the close condition or make it a close form.`,
+				{ ...loc, field: "closeCondition" },
+				{ formType: form.type },
 			),
 		);
-		return errors;
 	}
 
 	if (form.type === "close" && !mod.caseType) {
@@ -345,35 +359,49 @@ function closeConditionValidation(
 		);
 	}
 
-	if (form.closeCondition) {
-		const cc = form.closeCondition;
-		if (!cc.field || !cc.answer) {
-			errors.push(
-				validationError(
-					"CLOSE_CONDITION_INCOMPLETE",
-					"form",
-					`"${ctx.formName}" has a close_condition but is missing the ${!cc.field ? "field" : "answer"}. Both field and answer are required for conditional close. To close unconditionally, remove the close_condition entirely.`,
-					loc,
-				),
+	const conditions = [
+		{
+			slot: "form_open_condition",
+			path: "openCondition",
+			admitted: form.type === "registration",
+			condition: form.openCondition,
+			subject: "the condition that creates its case",
+		},
+		{
+			slot: "form_close_condition",
+			path: "closeCondition",
+			admitted: form.type === "registration" || form.type === "close",
+			condition: form.closeCondition,
+			subject: "the condition that closes its case",
+		},
+	] as const;
+	for (const { slot, path, admitted, condition, subject } of conditions) {
+		// A condition on a form type that holds none is refused above; its
+		// slot has no context to check it in.
+		if (condition === undefined || !admitted) continue;
+		const typeContext = slotContext(
+			doc,
+			{ entity: "form", uuid: ctx.formUuid, slot },
+			lookupTables ?? new Map(),
+		);
+		if (typeContext === undefined)
+			throw new Error(
+				`Nova was checking ${subject} in “${ctx.formName}” and found no place for it in the form.`,
 			);
-		}
-		if (cc.field) {
-			// The ref is the checked field's stable uuid; it must land on a
-			// field of THIS form. A legacy dangler (unresolvable id text)
-			// fails the same membership test and reports its text verbatim.
-			const formFieldUuids = descendantFieldUuids(doc, ctx.formUuid);
-			if (!formFieldUuids.has(cc.field)) {
-				const shown = doc.fields[cc.field]?.id ?? cc.field;
-				errors.push(
-					validationError(
-						"CLOSE_CONDITION_FIELD_NOT_FOUND",
-						"form",
-						`"${ctx.formName}" has close_condition checking field "${shown}", but no field like that exists in the form. Either add the field or update close_condition to reference an existing one.`,
-						loc,
-					),
-				);
-			}
-		}
+		const typeErrors = semanticCheckErrors(
+			checkExpression(condition, typeContext),
+		);
+		const first = typeErrors[0];
+		if (first === undefined) continue;
+		errors.push(
+			validationError(
+				"CASE_OPERATION_EXPRESSION_TYPE",
+				"form",
+				`In “${ctx.formName}”, ${subject} isn't valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
+				{ ...loc, field: path },
+				{ condition: path, ...checkErrorDetails(first, typeContext) },
+			),
+		);
 	}
 
 	return errors;
@@ -1012,59 +1040,6 @@ function duplicateFieldIds(
 	return errors;
 }
 
-function casePropertyBadFormat(
-	ctx: FormContext,
-	inventory: CaseWriteInventory,
-): ValidationError[] {
-	const errors: ValidationError[] = [];
-	for (const writer of inventory.writers) {
-		const prop = writer.property;
-		if (prop === "case_name") continue;
-		if (!CASE_PROPERTY_REGEX.test(prop)) {
-			errors.push(
-				validationError(
-					"CASE_PROPERTY_BAD_FORMAT",
-					"form",
-					`"${ctx.formName}" has case property "${prop}" which isn't a valid identifier. Property names must start with a letter and can only contain letters, digits, underscores, or hyphens. Try renaming it to something like "${prop.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/^[^a-zA-Z]/, "q_")}".`,
-					{
-						...baseLocation(ctx),
-						fieldUuid: writer.fieldUuid,
-						fieldId: writer.fieldId,
-					},
-					{ property: prop },
-				),
-			);
-		}
-	}
-	return errors;
-}
-
-function casePropertyTooLong(
-	ctx: FormContext,
-	inventory: CaseWriteInventory,
-): ValidationError[] {
-	const errors: ValidationError[] = [];
-	for (const writer of inventory.writers) {
-		const prop = writer.property;
-		if (prop.length > MAX_CASE_PROPERTY_LENGTH) {
-			errors.push(
-				validationError(
-					"CASE_PROPERTY_TOO_LONG",
-					"form",
-					`"${ctx.formName}" has case property "${prop.slice(0, 40)}..." which is ${prop.length} characters long. CommCare limits property names to ${MAX_CASE_PROPERTY_LENGTH} characters. Use a shorter, more concise name.`,
-					{
-						...baseLocation(ctx),
-						fieldUuid: writer.fieldUuid,
-						fieldId: writer.fieldId,
-					},
-					{ property: prop },
-				),
-			);
-		}
-	}
-	return errors;
-}
-
 // ── Rule runner ────────────────────────────────────────────────────
 
 export function runFormRules(
@@ -1083,13 +1058,6 @@ export function runFormRules(
 		moduleName: mod.name,
 	};
 
-	const caseWriteInventory = deriveCaseWriteInventory(
-		doc,
-		formUuid,
-		mod,
-		form.type,
-	);
-
 	const errors: ValidationError[] = [];
 	errors.push(...emptyForm(doc, form, ctx));
 	errors.push(...formSections(doc, ctx));
@@ -1100,18 +1068,13 @@ export function runFormRules(
 			...validateCaseOptionsSources(doc, formUuid, moduleUuid, lookupTables),
 		);
 	}
-	errors.push(...closeConditionValidation(doc, form, ctx, mod));
+	errors.push(...ownCaseConditionValidation(doc, form, ctx, mod, lookupTables));
 	errors.push(...duplicateFieldIds(doc, ctx));
 	errors.push(...rootFieldNamesConnectBlock(doc, ctx));
-	errors.push(...caseWriteAdmissionFindings(ctx, caseWriteInventory));
 	errors.push(...tooManyAttachments(doc, ctx));
-	errors.push(...casePropertyBadFormat(ctx, caseWriteInventory));
-	errors.push(...casePropertyTooLong(ctx, caseWriteInventory));
 	errors.push(...postSubmitValidation(doc, form, ctx, mod));
 	errors.push(...searchNoMatchesEntry(doc, form, formUuid, moduleUuid));
-	errors.push(
-		...formLinkSelectionCardinality(doc, form, mod, ctx, caseWriteInventory),
-	);
+	errors.push(...formLinkSelectionCardinality(doc, form, mod, ctx));
 	errors.push(...formLinkValidation(doc, form, ctx, lookupTables));
 	errors.push(...hiddenMenuLinkTargets(doc, form, baseLocation(ctx)));
 	errors.push(...connectValidation(doc, form, ctx));
@@ -1126,9 +1089,7 @@ export function runFormRules(
 			entryPlan,
 		),
 	);
-	errors.push(
-		...multiSelectFormSemantics(doc, form, mod, ctx, caseWriteInventory),
-	);
+	errors.push(...multiSelectFormSemantics(doc, form, mod, ctx));
 
 	return errors;
 }

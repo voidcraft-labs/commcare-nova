@@ -10,15 +10,32 @@
  * default label; override any property by passing it in the patch. The
  * shape is union-wide on purpose — callers pick the `kind` and provide
  * whatever keys that variant supports.
+ *
+ * A field spec may still say where its answer is saved,
+ * `caseWrite: { caseType, property }`, though a field holds no destination:
+ * a form saves case data only through its case operations. `buildDoc`
+ * lowers the sugar through the one "Saves to" planner
+ * (`fieldCaseWriteMutations.ts::planFieldCaseWrite`) once the doc is
+ * assembled, so a fixture keeps stating the content it means.
  */
 
+import { Immer } from "immer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
-import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
+import { planExplicitPreloads } from "@/lib/doc/explicitPreloads";
+import {
+	nameFirstWithinBuckets,
+	nearestRepeatOf,
+	planFieldCaseWrite,
+} from "@/lib/doc/fieldCaseWriteMutations";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { operationsFromFieldWrites } from "@/lib/doc/fieldWriteOperations";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppSettings,
 	type BlueprintDoc,
+	type CaseOperation,
 	type CaseProperty,
 	type CaseType,
 	type ConnectType,
@@ -27,9 +44,11 @@ import {
 	type FieldKind,
 	type Form,
 	type FormLink,
+	isCaptureField,
 	isContainerKindName,
 	type Module,
 	NEW_APP_SETTINGS,
+	ownCaseOperationId,
 	PLATFORMS,
 	type ProseTemplate,
 	plainColumn,
@@ -37,6 +56,7 @@ import {
 	type UserCollections,
 	type Uuid,
 	unavailableUses,
+	writerOffersPreload,
 } from "@/lib/domain";
 import {
 	type FormStructure,
@@ -114,13 +134,12 @@ export interface FormSpec {
 	type: Form["type"];
 	purpose?: string;
 	displayCondition?: Form["displayCondition"];
-	/** Authored with a field ID (the concise spec shape); `buildDoc`
-	 *  resolves it to the field's uuid against the assembled form. */
-	closeCondition?: {
-		field: string;
-		answer: string;
-		operator?: "=" | "selected";
-	};
+	/** When a registration creates its case. Source text is parsed in the
+	 *  `form_open_condition` slot against the assembled doc. */
+	openCondition?: string | Expression;
+	/** When the form closes its own case. Source text is parsed in the
+	 *  `form_close_condition` slot against the assembled doc. */
+	closeCondition?: string | Expression;
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
 	entry?: Form["entry"];
@@ -305,6 +324,7 @@ export function buildDoc(
 	const moduleOrder: Uuid[] = [];
 	const formOrder: BlueprintDoc["formOrder"] = {};
 	const fieldOrder: BlueprintDoc["fieldOrder"] = {};
+	const caseWrites: FixtureCaseWrites = new Map();
 
 	for (const modSpec of spec.modules ?? []) {
 		const moduleUuid = testUuid(modSpec.uuid ?? nextUuid("mod"));
@@ -349,6 +369,9 @@ export function buildDoc(
 				...(formSpec.displayCondition !== undefined && {
 					displayCondition: formSpec.displayCondition,
 				}),
+				...(formSpec.openCondition !== undefined && {
+					openCondition: formSpec.openCondition as Form["openCondition"],
+				}),
 				...(formSpec.closeCondition !== undefined && {
 					closeCondition: formSpec.closeCondition as Form["closeCondition"],
 				}),
@@ -364,7 +387,13 @@ export function buildDoc(
 				}),
 			};
 
-			installFields(formSpec.fields ?? [], formUuid, fields, fieldOrder);
+			installFields(
+				formSpec.fields ?? [],
+				formUuid,
+				fields,
+				fieldOrder,
+				caseWrites,
+			);
 		}
 	}
 
@@ -384,16 +413,229 @@ export function buildDoc(
 	};
 	configure?.(doc);
 	rebuildFieldParent(doc);
+	addOwnCases(doc);
+	// A form's own case takes its name from the writes, which the parser's
+	// datum projection reads while it resolves the fixture's text.
+	lowerCaseWrites(doc, caseWrites);
 	resolveDocExpressions(doc);
-	for (const [formUuid, form] of Object.entries(doc.forms)) {
-		if (form.closeCondition && form.closeCondition.field.length > 0) {
-			form.closeCondition.field = testUuid(
-				resolveCloseFieldRef(doc, formUuid, form.closeCondition.field),
+	if (spec.appSettings === undefined) declareContentPlatforms(doc);
+	return doc;
+}
+
+/** Where each fixture field's `caseWrite` sugar said its answer is saved. */
+type FixtureCaseWrites = Map<Uuid, { caseType: string; property: string }>;
+
+/**
+ * For a test that hand-assembles its document rather than using `buildDoc`:
+ * give each case form its own case and lower each field's `caseWrite` sugar
+ * (`caseWrites`, by field uuid) into the form's case operations, exactly as
+ * `buildDoc` does. Mutates `doc` in place and returns it.
+ */
+export function lowerFixtureCaseWrites(
+	doc: BlueprintDoc,
+	caseWrites: ReadonlyMap<Uuid, { caseType: string; property: string }>,
+): BlueprintDoc {
+	addOwnCases(doc);
+	lowerCaseWrites(doc, new Map(caseWrites));
+	return doc;
+}
+
+/**
+ * Give every registration, follow-up and close form of a module with a case
+ * type that holds no own case one, first, as `formScaffoldMutations` births
+ * a form: it writes nothing until a field's `caseWrite` is lowered onto it.
+ * Its uuid is the one `lib/doc/__tests__/ownCaseFixture.ts::ownCaseUuidFor`
+ * names, so a test can address it.
+ */
+function addOwnCases(doc: BlueprintDoc): void {
+	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+		const caseType = doc.modules[moduleUuid]?.caseType;
+		if (caseType === undefined) continue;
+		for (const formUuid of formUuids) {
+			const form = doc.forms[formUuid];
+			if (form === undefined || form.type === "survey") continue;
+			const operations = form.caseOperations ?? [];
+			if (operations.some((operation) => operation.action === "own")) continue;
+			form.caseOperations = [
+				{
+					uuid: testUuid(`own-case-of-${formUuid}`),
+					id: ownCaseOperationId(
+						caseType,
+						new Set(operations.map((operation) => operation.id)),
+					),
+					action: "own",
+				},
+				...operations,
+			];
+		}
+	}
+}
+
+/** Reduces fixture batches without freezing: tests edit fixtures in place. */
+const FIXTURE_IMMER = new Immer({ autoFreeze: false });
+
+const CATALOG_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
+	"declareCaseType",
+	"addCaseProperty",
+]);
+
+/**
+ * Lower each field's `caseWrite` sugar into the form's case operations,
+ * form by form, in data-tree order, each bucket's `case_name` writer first
+ * so a new child case is made with its name. Each write is planned by
+ * `planFieldCaseWrite` (with the starting value it is born with) and
+ * applied through the reducers without the gate, since a fixture may be
+ * built invalid on purpose; the catalog entries the planner would declare
+ * are left out, so the fixture's catalog stays the one it states.
+ *
+ * Where the planner refuses a write the fixture asked for (a second name for
+ * one case, a child case with no name), the form takes the operations its
+ * writes made before the planner existed instead
+ * (`operationsFromFieldWrites`, with `planExplicitPreloads` for the writers
+ * that opened with their case's value), so a fixture of a shape the gate
+ * refuses still states it.
+ */
+function lowerCaseWrites(
+	doc: BlueprintDoc,
+	caseWrites: FixtureCaseWrites,
+): void {
+	if (caseWrites.size === 0) return;
+	// Plan over a copy: the planners memoize per document object, and the
+	// fixture itself is written once the lowering is done.
+	let work: BlueprintDoc = structuredClone(doc);
+	const apply = (base: BlueprintDoc, mutations: readonly Mutation[]) =>
+		mutations.length === 0
+			? base
+			: FIXTURE_IMMER.produce(base, (draft) => {
+					applyMutations(draft, mutations);
+				});
+	const touched = new Set<Uuid>();
+	for (const formUuids of Object.values(doc.formOrder)) {
+		for (const formUuid of formUuids) {
+			const writers = dataTreeOrder(doc, formUuid).flatMap((fieldUuid) => {
+				const write = caseWrites.get(fieldUuid);
+				return write === undefined ? [] : [{ fieldUuid, ...write }];
+			});
+			if (writers.length === 0) continue;
+			for (const writer of writers) touched.add(writer.fieldUuid);
+			const items = nameFirstWithinBuckets(
+				writers.map((writer) => ({
+					writer,
+					view: {
+						caseType: writer.caseType,
+						slot: writer.property === "case_name" ? "name" : "write",
+					} as const,
+					repeat: nearestRepeatOf(doc, writer.fieldUuid),
+				})),
+			);
+			const before = work;
+			let refused = false;
+			for (const { writer } of items) {
+				const plan = planFieldCaseWrite(work, writer.fieldUuid, {
+					caseType: writer.caseType,
+					property: writer.property,
+				});
+				if (!plan.ok) {
+					refused = true;
+					break;
+				}
+				work = apply(
+					work,
+					plan.mutations.filter(
+						(mutation) => !CATALOG_KINDS.has(mutation.kind),
+					),
+				);
+			}
+			if (!refused) continue;
+			const preloaded = writers.filter((writer) =>
+				writerOffersPreload(before, writer.fieldUuid, writer.property),
+			);
+			work = apply(
+				before,
+				operationsFromFieldWrites(
+					before,
+					formUuid,
+					writers.map((writer) => ({
+						...writer,
+						capture: isCaptureField(before.fields[writer.fieldUuid]),
+					})),
+				),
+			);
+			work = apply(
+				work,
+				planExplicitPreloads(
+					work,
+					formUuid,
+					preloaded.map((writer) => writer.fieldUuid),
+				),
 			);
 		}
 	}
-	if (spec.appSettings === undefined) declareContentPlatforms(doc);
-	return doc;
+	for (const [formUuid, form] of Object.entries(work.forms)) {
+		const target = doc.forms[formUuid];
+		if (target === undefined) continue;
+		if (form.caseOperations === undefined) delete target.caseOperations;
+		else
+			target.caseOperations = withFixtureOperationUuids(
+				formUuid as Uuid,
+				new Set((target.caseOperations ?? []).map((op) => op.uuid)),
+				form.caseOperations,
+			);
+	}
+	for (const fieldUuid of touched) {
+		const field = work.fields[fieldUuid];
+		if (field !== undefined && "default_value" in field)
+			(doc.fields[fieldUuid] as Record<string, unknown>).default_value =
+				field.default_value;
+	}
+}
+
+/**
+ * `operations` with each operation the lowering made (one whose uuid is not
+ * in `before`) named from its form, action, case type and repeat, as
+ * `testUuid` names every other fixture identity: the planner draws a new
+ * operation's uuid at random, and a fixture is the same document every time
+ * it is built. Every reference to a renamed operation is renamed with it.
+ */
+function withFixtureOperationUuids(
+	formUuid: Uuid,
+	before: ReadonlySet<Uuid>,
+	operations: readonly CaseOperation[],
+): CaseOperation[] {
+	const renames = new Map<string, Uuid>();
+	const counts = new Map<string, number>();
+	for (const operation of operations) {
+		if (before.has(operation.uuid)) continue;
+		const key = `${formUuid}:${operation.action}:${operation.caseType ?? ""}:${operation.forEach?.repeat ?? "root"}`;
+		const n = counts.get(key) ?? 0;
+		counts.set(key, n + 1);
+		renames.set(operation.uuid, testUuid(`case-write-operation:${key}:${n}`));
+	}
+	if (renames.size === 0) return [...operations];
+	const rename = (value: unknown): unknown => {
+		if (typeof value === "string") return renames.get(value) ?? value;
+		if (Array.isArray(value)) return value.map(rename);
+		if (value !== null && typeof value === "object")
+			return Object.fromEntries(
+				Object.entries(value).map(([key, entry]) => [key, rename(entry)]),
+			);
+		return value;
+	};
+	return operations.map((operation) => rename(operation) as CaseOperation);
+}
+
+/** Every field of `formUuid` in data-tree order: each before its children. */
+function dataTreeOrder(doc: BlueprintDoc, formUuid: Uuid): Uuid[] {
+	const order: Uuid[] = [];
+	const walk = (parentUuid: Uuid) => {
+		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+			if (doc.fields[uuid] === undefined) continue;
+			order.push(uuid);
+			walk(uuid);
+		}
+	};
+	walk(formUuid);
+	return order;
 }
 
 /** Set `runsOnlyOn` to the platform the content allows, or leave both. */
@@ -541,11 +783,27 @@ function installFields(
 	parentUuid: Uuid,
 	fields: BlueprintDoc["fields"],
 	fieldOrder: BlueprintDoc["fieldOrder"],
+	caseWrites: FixtureCaseWrites,
 ): void {
 	for (const spec of specs) {
-		const { children, uuid: rawUuid, kind, id, label, ...rest } = spec;
+		const {
+			children,
+			uuid: rawUuid,
+			kind,
+			id,
+			label,
+			caseWrite,
+			...rest
+		} = spec;
 		const uuid = testUuid(rawUuid ?? nextUuid("fld"));
 		fieldOrder[parentUuid].push(uuid);
+		if (caseWrite !== undefined && caseWrite !== null) {
+			const { caseType, property } = caseWrite as {
+				caseType: string;
+				property: string;
+			};
+			caseWrites.set(uuid, { caseType, property });
+		}
 
 		const base: Record<string, unknown> = {
 			uuid,
@@ -598,7 +856,8 @@ function installFields(
 		// treat the field as a leaf.
 		if (isContainerKindName(kind)) {
 			fieldOrder[uuid] = [];
-			if (children?.length) installFields(children, uuid, fields, fieldOrder);
+			if (children?.length)
+				installFields(children, uuid, fields, fieldOrder, caseWrites);
 		}
 	}
 }

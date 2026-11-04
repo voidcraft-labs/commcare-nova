@@ -26,6 +26,16 @@ const DATE_FIELD = testUuid("44444444-4444-4444-8444-444444444444");
  * writer's property to the declared type without a `data_type`, and
  * `effectiveCaseTypes` is what fills one in.
  */
+/**
+ * The operations under review update another patient: the form's own case
+ * saves each property once, through its own change, which holds the field's
+ * write.
+ */
+const OTHER_PATIENT = {
+	kind: "expression",
+	expr: term(literal("other-patient")),
+} as const;
+
 function fixture(): {
 	doc: BlueprintDoc;
 	formUuid: Uuid;
@@ -92,7 +102,7 @@ function fixture(): {
 		id: "record_visit",
 		action: "update",
 		caseType: "patient",
-		target: { kind: "session" },
+		target: OTHER_PATIENT,
 		writes: [
 			{ property: "declared_date", value: term(formField(DATE_FIELD)) },
 			{ property: "operation_only", value: term(literal("hello")) },
@@ -106,7 +116,7 @@ function fixture(): {
 		id: "tag_visit",
 		action: "update",
 		caseType: "patient",
-		target: { kind: "session" },
+		target: OTHER_PATIENT,
 		writes: [{ property: "two_operations", value: term(literal("hello")) }],
 	};
 	const elsewhere: CaseOperation = {
@@ -117,8 +127,16 @@ function fixture(): {
 		target: { kind: "session" },
 		writes: [{ property: "written_elsewhere", value: term(literal("hello")) }],
 	};
-	doc.forms[formUuid].caseOperations = [subject, sibling];
-	doc.forms[otherFormUuid].caseOperations = [elsewhere];
+	// Each follow-up keeps its own case's change first.
+	const ownOf = (uuid: typeof formUuid) =>
+		(doc.forms[uuid].caseOperations ?? []).filter(
+			(operation) => operation.action === "own",
+		);
+	doc.forms[formUuid].caseOperations = [...ownOf(formUuid), subject, sibling];
+	doc.forms[otherFormUuid].caseOperations = [
+		...ownOf(otherFormUuid),
+		elsewhere,
+	];
 
 	assertAdmittedDoc(doc);
 	return { doc, formUuid, otherFormUuid };
@@ -155,7 +173,7 @@ describe("the type a case-operation write's value must satisfy", () => {
 					caseOperationPatch: {
 						operation: "update-write",
 						uuid: SUBJECT,
-						property: "operation_only",
+						key: { property: "operation_only" },
 						patch: { value: term(formField(DATE_FIELD)) },
 					},
 				},
@@ -191,8 +209,8 @@ describe("the type a case-operation write's value must satisfy", () => {
 	});
 
 	it("takes a same-form field's type", () => {
-		// A field carries its own uuid, so it is already a foreign carrier
-		// even though it sits in this very form.
+		// The field's answer is saved by this form's own case change, a
+		// sibling of the operation under review.
 		expect(typeOf("field_written")).toBe("date");
 	});
 

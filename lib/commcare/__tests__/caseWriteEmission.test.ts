@@ -10,7 +10,12 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	fieldCaseWriteViews,
+	proseText,
+} from "@/lib/domain";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { xpathEvidence } from "./xpathEvidence";
 
@@ -62,6 +67,8 @@ function exported(doc: BlueprintDoc) {
 	};
 }
 
+// The own case's writes name each question by identity, so a rename and a
+// move of the question carry its write and its starting value with it.
 // Export facts are asserted against actual nodes and complete bind attributes.
 // This is not native HQ execution: that evidence belongs in proof/native.
 it.each(["registration", "followup"] as const)(
@@ -150,10 +157,14 @@ it.each(["registration", "followup"] as const)(
 				doc = verdict.nextDoc;
 			}
 			const output = exported(doc);
-			expect(doc.fields[writerUuid]).toMatchObject({
-				uuid: writerUuid,
-				caseWrite: { caseType: "issue", property: "issue_description" },
-			});
+			// The question's "Saves to" is its view of the own case's write,
+			// which names it by identity.
+			expect(
+				fieldCaseWriteViews(doc, writerUuid).map((view) => ({
+					caseType: view.caseType,
+					property: view.property,
+				})),
+			).toEqual([{ caseType: "issue", property: "issue_description" }]);
 			expect(output.actions.update_case.update).toEqual({
 				issue_description: { question_path: path, update_mode: "always" },
 				...(type === "followup" && {
@@ -201,11 +212,10 @@ it.each(["registration", "followup"] as const)(
 					relevant: "count(/data/nova_trimmed_subject) > 0",
 				}),
 			});
+			expect(output.actions.case_preload.preload).toEqual({});
 			if (type === "followup") {
-				expect(output.actions.case_preload.preload).toEqual({
-					"/data/subject": "name",
-					[path]: "issue_description",
-				});
+				// The writer opens on the case's value through its own default,
+				// which moves with it.
 				const preload = one(
 					output.local.seeds.filter((e) => e.attribs.ref === path),
 				).attribs;

@@ -9,11 +9,18 @@ import {
 	type Expression,
 	formLinkDatumNameSchema,
 	formLogicSchema,
+	type RelationStep,
+	relationStepSchema,
 	valueSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "./expression/types";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
+import {
+	type CasePlacement,
+	casePlacementSchema,
+	ownClosePlacementSchema,
+} from "./placements";
 import { type Uuid, uuidSchema } from "./uuid";
 
 export const FORM_TYPES = [
@@ -151,16 +158,6 @@ export function defaultPostSubmit(
 	return parentOrSelfWithholds ? "firstMenu" : "module";
 }
 
-const closeConditionSchema = z.strictObject({
-	// The checked field, by stable uuid — rename-proof identity, the
-	// same contract as form-link targets. The frozen one-off migration
-	// converts textual ids before this final schema is installed; the live
-	// schema admits no empty or unresolved placeholder.
-	field: uuidSchema,
-	answer: z.string(),
-	operator: z.enum(["=", "selected"]).optional(),
-});
-
 const formLinkDatumSchema = z.strictObject({
 	name: formLinkDatumNameSchema,
 	xpath: formLogicSchema,
@@ -237,13 +234,16 @@ export type FormLinkTarget = FormLink["target"];
 /**
  * A typed case identity used by a form submission operation.
  *
- * The four arms deliberately model author intent rather than CommCare's
+ * The five arms deliberately model author intent rather than CommCare's
  * free-form case-id calculate. A create owns a `new` target (optionally keyed
  * by a form field through Nova's stable namespaced-id derivation); later
  * operations may name an earlier create, the loaded
- * session case, or a runtime expression. The validator owns the contextual
- * rules (earlier-create order, repeat correlation, session type, and text
- * expression result) because those require the containing form/module/doc.
+ * session case, a runtime expression, or the submitting worker's own record
+ * (`worker-record`, the target of an `update` of `commcare-user` only). The
+ * validator owns the contextual rules (earlier-create order, repeat
+ * correlation, session type, text expression result, and the worker record's
+ * one operation per form) because those require the containing
+ * form/module/doc.
  */
 const newCaseTargetSchema = z.strictObject({
 	kind: z.literal("new"),
@@ -262,11 +262,16 @@ const expressionCaseTargetSchema = z.strictObject({
 	expr: valueSchema,
 });
 
+const workerRecordCaseTargetSchema = z.strictObject({
+	kind: z.literal("worker-record"),
+});
+
 export const caseTargetSchema = z.discriminatedUnion("kind", [
 	newCaseTargetSchema,
 	operationCaseTargetSchema,
 	sessionCaseTargetSchema,
 	expressionCaseTargetSchema,
+	workerRecordCaseTargetSchema,
 ]);
 export type CaseTarget = z.infer<typeof caseTargetSchema>;
 
@@ -276,7 +281,25 @@ const existingCaseTargetSchema = z.discriminatedUnion("kind", [
 	expressionCaseTargetSchema,
 ]);
 
-export const CASE_OPERATION_ACTIONS = ["create", "update", "close"] as const;
+/** An update's target: an existing case, or the submitting worker's record. */
+const updateCaseTargetSchema = z.discriminatedUnion("kind", [
+	operationCaseTargetSchema,
+	sessionCaseTargetSchema,
+	expressionCaseTargetSchema,
+	workerRecordCaseTargetSchema,
+]);
+
+/**
+ * `own` is the form's own case: the case a registration creates, or the one
+ * a follow-up or close form loaded. Its case type is the module's and its
+ * target follows the form's type, so it stores neither.
+ */
+export const CASE_OPERATION_ACTIONS = [
+	"own",
+	"create",
+	"update",
+	"close",
+] as const;
 export type CaseOperationAction = (typeof CASE_OPERATION_ACTIONS)[number];
 
 /**
@@ -293,16 +316,69 @@ export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
 	"user-owner-mapping-case",
 ]);
 
+/**
+ * The indices a write walks from its operation's case to the case it saves
+ * to, each step the one a `prop` read's `ancestor` arm takes. Absent: the
+ * operation's own case.
+ */
+export const caseWriteViaSchema = z.tuple(
+	[relationStepSchema],
+	relationStepSchema,
+);
+export type CaseWriteVia = [RelationStep, ...RelationStep[]];
+
 export const caseOperationWriteSchema = z.strictObject({
 	property: authoredCasePropertyNameSchema,
 	value: valueSchema,
 	condition: conditionSchema.optional(),
+	/** Saves to the case these indices reach rather than the operation's own. */
+	via: caseWriteViaSchema.optional(),
+	/** Saves only when the answer differs from the case's current value. */
+	onlyIfChanged: z.literal(true).optional(),
 });
 export type CaseOperationWrite = {
 	property: string;
 	value: Expression;
 	condition?: Expression;
+	via?: CaseWriteVia;
+	onlyIfChanged?: true;
 };
+
+/**
+ * What one write saves to: its property on the case its `via` reaches. Two
+ * writes of one key in one operation save to the same place, which the
+ * validator refuses.
+ */
+export const caseWriteKeySchema = z.strictObject({
+	property: authoredCasePropertyNameSchema,
+	via: caseWriteViaSchema.optional(),
+});
+export type CaseWriteKey = {
+	property: string;
+	via?: CaseWriteVia;
+};
+
+/** The key of `write`. */
+export function caseWriteKeyOf(write: CaseOperationWrite): CaseWriteKey {
+	return write.via === undefined
+		? { property: write.property }
+		: { property: write.property, via: write.via };
+}
+
+/** Whether two keys name the same property on the same case. */
+export function sameCaseWriteKey(a: CaseWriteKey, b: CaseWriteKey): boolean {
+	if (a.property !== b.property) return false;
+	const aVia = a.via ?? [];
+	const bVia = b.via ?? [];
+	return (
+		aVia.length === bVia.length &&
+		aVia.every(
+			(step, index) =>
+				step.identifier === bVia[index]?.identifier &&
+				step.throughCaseType === bVia[index]?.throughCaseType,
+		)
+	);
+}
 
 export const caseOperationLinkSchema = z.strictObject({
 	identifier: z.string(),
@@ -319,6 +395,10 @@ export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
  * execution order is the array's own position, so an operation carries no
  * ordering slot at all. The action is the stored-shape discriminator: each arm
  * admits only the facets CommCare can execute for that action.
+ *
+ * Every arm holds an optional `placement`: where a published app already
+ * keeps the change in CommCare HQ, held so a later publish keeps it there.
+ * No mutation payload carries it.
  */
 const caseOperationCommonShape = {
 	uuid: uuidSchema,
@@ -327,9 +407,38 @@ const caseOperationCommonShape = {
 	condition: conditionSchema.optional(),
 	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
+	placement: casePlacementSchema.optional(),
 } as const;
 
+/**
+ * The form's own case, first in every registration, follow-up and close form
+ * of a module with a case type. Its `id` is the module's case type at birth,
+ * made unique among the form's operation ids
+ * (`caseOperationIdentifiers.ts::ownCaseOperationId`). Whether it runs is
+ * the form's `openCondition` and `closeCondition`, never a condition of its
+ * own, and it runs once per submission, never per repeat row.
+ */
+export const ownCaseOperationSchema = z.strictObject({
+	uuid: uuidSchema,
+	id: z.string(),
+	action: z.literal("own"),
+	/** Registration: the new case's name. Follow-up and close: a rename of
+	 *  the case the form loaded. */
+	name: valueSchema.optional(),
+	owner: valueSchema.optional(),
+	writes: z.array(caseOperationWriteSchema).optional(),
+	links: z.array(caseOperationLinkSchema).optional(),
+	placement: casePlacementSchema.optional(),
+	caseType: z.never().optional(),
+	target: z.never().optional(),
+	condition: z.never().optional(),
+	forEach: z.never().optional(),
+	rename: z.never().optional(),
+	retype: z.never().optional(),
+});
+
 export const caseOperationSchema = z.discriminatedUnion("action", [
+	ownCaseOperationSchema,
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("create"),
@@ -343,7 +452,7 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	z.strictObject({
 		...caseOperationCommonShape,
 		action: z.literal("update"),
-		target: existingCaseTargetSchema,
+		target: updateCaseTargetSchema,
 		name: z.never().optional(),
 		owner: valueSchema.optional(),
 		rename: valueSchema.optional(),
@@ -362,6 +471,38 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 	}),
 ]);
 
+type CaseOperationFacets = {
+	uuid: Uuid;
+	id: string;
+	name?: Expression;
+	owner?: Expression;
+	writes?: CaseOperationWrite[];
+	links?: CaseOperationLink[];
+	placement?: CasePlacement;
+};
+
+/** The form's own case: no stored case type, target, condition or repeat. */
+export type OwnCaseOperation = CaseOperationFacets & {
+	action: "own";
+	caseType?: undefined;
+	target?: undefined;
+	condition?: undefined;
+	forEach?: undefined;
+	rename?: undefined;
+	retype?: undefined;
+};
+
+/** A create, update or close: it names its case type and its target. */
+export type TargetedCaseOperation = CaseOperationFacets & {
+	action: Exclude<CaseOperationAction, "own">;
+	caseType: string;
+	target: CaseTarget;
+	condition?: Expression;
+	forEach?: { repeat: Uuid };
+	rename?: Expression;
+	retype?: string;
+};
+
 /**
  * The read model shared by operation consumers.
  *
@@ -369,23 +510,11 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
  * `caseOperationSchema` is the authoritative action-discriminated stored shape.
  * Keeping the common facet view here lets generic walkers and mutation planners
  * inspect an already-parsed operation without re-distributing every helper over
- * the three action arms.
+ * the create, update and close arms; only the own arm stands apart, because
+ * its case type and target are the form's. Read them through
+ * `operationCaseType` and `operationTarget`.
  */
-export type CaseOperation = {
-	uuid: Uuid;
-	id: string;
-	action: CaseOperationAction;
-	caseType: string;
-	target: CaseTarget;
-	condition?: Expression;
-	forEach?: { repeat: Uuid };
-	name?: Expression;
-	owner?: Expression;
-	rename?: Expression;
-	retype?: string;
-	writes?: CaseOperationWrite[];
-	links?: CaseOperationLink[];
-};
+export type CaseOperation = OwnCaseOperation | TargetedCaseOperation;
 
 /**
  * The same strict runtime parser with its output viewed through the common
@@ -395,6 +524,70 @@ export type CaseOperation = {
  */
 export const caseOperationReadSchema: z.ZodType<CaseOperation> =
 	caseOperationSchema;
+
+/** Whether `operation` is the form's own case. */
+export function isOwnCaseOperation(
+	operation: CaseOperation,
+): operation is OwnCaseOperation {
+	return operation.action === "own";
+}
+
+/**
+ * The case type `operation` works on: the module's case type for the own
+ * arm (`undefined` when the form's module has none or the form is in no
+ * module), else the type it stores.
+ */
+export function operationCaseType(
+	doc: {
+		readonly formOrder: Readonly<Record<string, readonly string[]>>;
+		readonly modules: Readonly<
+			Record<string, { readonly caseType?: string } | undefined>
+		>;
+	},
+	formUuid: Uuid,
+	operation: CaseOperation,
+): string | undefined {
+	if (operation.action !== "own") return operation.caseType;
+	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+		if (formUuids.includes(formUuid)) return doc.modules[moduleUuid]?.caseType;
+	}
+	return undefined;
+}
+
+/**
+ * The case `operation` works on: for the own arm, the case a registration
+ * creates (`new`) or the case any other form loaded (`session`); else the
+ * target it stores. The own arm on a survey form is refused by the
+ * validator, so the `session` answer there is never acted on.
+ */
+export function operationTarget(
+	operation: CaseOperation,
+	formType: FormType,
+): CaseTarget {
+	if (operation.action !== "own") return operation.target;
+	return formType === "registration" ? { kind: "new" } : { kind: "session" };
+}
+
+/**
+ * Whether `operation` runs once for each case a several-case form selected:
+ * the own arm, an update or close of the loaded case (`session` target), and
+ * a create with a link to the loaded case, which makes one case under each
+ * selected case. Inside that iteration, `session` names the current selected
+ * case, so a session reference there is never ambiguous; every other
+ * operation runs once for the form, where `session` names no one case. On a
+ * form that loads one case the iteration has one member and the answer
+ * changes nothing.
+ */
+export function caseOperationRunsPerSelectedCase(
+	operation: CaseOperation,
+): boolean {
+	if (operation.action === "own") return true;
+	if (operation.action === "create")
+		return (operation.links ?? []).some(
+			(link) => link.target?.kind === "session",
+		);
+	return operation.target.kind === "session";
+}
 
 /**
  * The operation sequence — which is simply the array, copied so callers can
@@ -540,7 +733,24 @@ export const formSchema = z.strictObject({
 	 * after-submit link and from an entry point.
 	 */
 	hiddenFromMenu: z.literal(true).optional(),
-	closeCondition: closeConditionSchema.optional(),
+	/**
+	 * When a registration creates its case; absent, on every submission.
+	 * Registration only (`OPEN_CONDITION_WRONG_TYPE`).
+	 */
+	openCondition: conditionSchema.optional(),
+	/**
+	 * When the form closes its own case. A close form closes it on every
+	 * submission when this is absent; a registration closes the case it
+	 * creates only when this is present. Registration and close only
+	 * (`CLOSE_CONDITION_WRONG_TYPE`).
+	 */
+	closeCondition: conditionSchema.optional(),
+	/**
+	 * Where a published app keeps this form's own close when it has a Save
+	 * to Case block of its own, held so a later publish keeps it there. No
+	 * mutation payload carries it.
+	 */
+	ownClosePlacement: ownClosePlacementSchema.optional(),
 	connect: connectConfigSchema.optional(),
 	postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 	/**

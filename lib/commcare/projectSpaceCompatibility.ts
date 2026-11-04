@@ -10,14 +10,19 @@ import {
 	type BlueprintDoc,
 	CONNECT_TYPE_LABELS,
 	caseListColumnTextShows,
+	caseWriteValueField,
 	effectiveCaseSearchConfig,
 	type Field,
-	isCaptureField,
 	type Module,
 	noMatchesFormOf,
+	operationCaseType,
+	proseSurfaceReads,
 	searchInputDefault,
 	tileCellFor,
+	type Uuid,
 } from "@/lib/domain";
+import { relationDestinationCaseType } from "@/lib/domain/expression/rewrite";
+import type { Expression, Term } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	type ProjectSpaceAdvisoryUse,
@@ -55,7 +60,8 @@ export type HqPrivateFeatureFlagId =
 	| "large-search-performance"
 	| "related-case-lookups"
 	| "case-tiles"
-	| "custom-case-tiles";
+	| "custom-case-tiles"
+	| "save-only-edited-answers";
 
 /** Private input to the low-level HQ probe. Never serialize this object. */
 export interface HqPrivateFeatureFlagRequirement {
@@ -79,6 +85,7 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"related-case-lookups": "CASE_SEARCH_RELATED_LOOKUPS",
 	"case-tiles": "CASE_LIST_TILE",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
+	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
 } as const satisfies Record<HqPrivateFeatureFlagId, string>;
 
 /* Resolved when the module loads, so a flag whose gate entry is missing or
@@ -205,36 +212,138 @@ function moduleHasCaseTiles(module: Module): boolean {
 	);
 }
 
+/** Where a link write lands: a case type and its property. */
+export interface LinkWriteDestination {
+	readonly caseType: string;
+	readonly property: string;
+}
+
 /**
- * Whether the link a capture question saves on a case is shown on a screen:
- * a column of some module of that case type, shown on Results or Details,
- * reads the property, as a column of its own or inside a calculated
- * column's expression. HQ reads `VIEW_FORM_ATTACHMENT` only when someone
- * opens such a link (`reports/views.py::_can_view_form_attachment`), so a
- * link no screen shows asks nothing of the project space.
+ * Every link write's landing `(caseType, property)`, in document order and
+ * each once. A link write is a case operation's write whose value is the
+ * `capture-link` of a capture question; it lands on the operation's case
+ * type (the module's, for the own arm) or on the ancestor its `via` reaches.
+ * A `via` the catalog does not resolve lands nowhere the validator admits
+ * (`CASE_WRITE_VIA_INVALID`), so it names no destination.
  */
-export function linkWriteIsShown(doc: BlueprintDoc, field: Field): boolean {
-	if (!isCaptureField(field) || field.caseWrite === undefined) return false;
-	const { caseType, property } = field.caseWrite;
-	return Object.values(doc.modules).some(
-		(module) =>
-			module.caseType === caseType &&
-			(module.caseListConfig?.columns ?? []).some((column) => {
-				if (!caseListColumnTextShows(column)) return false;
-				if (column.kind !== "calculated") return column.field === property;
-				let reads = false;
-				walkExpressionTerms(column.expression, (term) => {
-					if (
-						term.kind === "prop" &&
-						term.caseType === caseType &&
-						term.property === property &&
-						(term.via === undefined || term.via.kind === "self")
-					) {
-						reads = true;
-					}
-				});
-				return reads;
-			}),
+export function linkWriteDestinations(
+	doc: BlueprintDoc,
+): readonly LinkWriteDestination[] {
+	const caseTypes = doc.caseTypes ?? [];
+	const seen = new Set<string>();
+	const destinations: LinkWriteDestination[] = [];
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			for (const operation of form?.caseOperations ?? []) {
+				const operationType =
+					operation.retype ?? operationCaseType(doc, formUuid, operation);
+				for (const write of operation.writes ?? []) {
+					if (caseWriteValueField(write.value)?.link !== true) continue;
+					const caseType = relationDestinationCaseType(
+						write.via === undefined
+							? undefined
+							: { kind: "ancestor", via: write.via },
+						operationType,
+						caseTypes,
+					);
+					if (caseType === undefined) continue;
+					const key = JSON.stringify([caseType, write.property]);
+					if (seen.has(key)) continue;
+					seen.add(key);
+					destinations.push({ caseType, property: write.property });
+				}
+			}
+		}
+	}
+	return destinations;
+}
+
+/**
+ * Whether some case list or detail column shows, or some form's prose
+ * prints, the link a write lands. HQ reads `VIEW_FORM_ATTACHMENT` only when
+ * someone opens such a link (`reports/views.py::_can_view_form_attachment`),
+ * so a link nothing shows asks nothing of the project space.
+ *
+ * - A column shown on Results or Details reads the destination: a plain
+ *   column of a module of that case type naming the property, or a
+ *   calculated column, in a module of any case type, with a `prop` read
+ *   landing there through its relation.
+ * - A question's prose (every slot `proseSurfaceReads` lists) holds a
+ *   `case-ref` to the destination, or a `field-ref` to a question whose
+ *   `calculate` or `default_value` reads it. A translation keeps its source's
+ *   references (`translationValueIntegrityIssue`), so the source prose is
+ *   every language's. Prose is not parsed as markdown: a markdown link is
+ *   what a worker taps (Web Apps' `markdown.js::initMd`, Android's
+ *   `QuestionWidget.setQuestionText`), and a printed address the worker
+ *   copies reaches the same view, so every printed reference counts.
+ */
+export function linkWriteIsShown(
+	doc: BlueprintDoc,
+	destination: LinkWriteDestination,
+): boolean {
+	const { caseType, property } = destination;
+	const caseTypes = doc.caseTypes ?? [];
+	const readsDestination = (expression: Expression | undefined): boolean => {
+		if (expression === undefined) return false;
+		let reads = false;
+		walkExpressionTerms(expression, (term: Term) => {
+			if (
+				(term.kind === "prop" &&
+					term.property === property &&
+					relationDestinationCaseType(term.via, term.caseType, caseTypes) ===
+						caseType) ||
+				(term.kind === "form-case" &&
+					term.caseType === caseType &&
+					term.property === property)
+			) {
+				reads = true;
+			}
+		});
+		return reads;
+	};
+
+	const columnShows = Object.values(doc.modules).some((module) =>
+		(module.caseListConfig?.columns ?? []).some((column) => {
+			if (!caseListColumnTextShows(column)) return false;
+			if (column.kind === "calculated") {
+				return readsDestination(column.expression);
+			}
+			return module.caseType === caseType && column.field === property;
+		}),
+	);
+	if (columnShows) return true;
+
+	const fieldLogicReads = (uuid: Uuid): boolean => {
+		const field: Field | undefined = Object.hasOwn(doc.fields, uuid)
+			? doc.fields[uuid]
+			: undefined;
+		if (field === undefined) return false;
+		return (
+			("calculate" in field && readsDestination(field.calculate)) ||
+			("default_value" in field && readsDestination(field.default_value))
+		);
+	};
+	return Object.values(doc.fields).some((field) =>
+		proseSurfaceReads(field, doc).some((read) =>
+			read.template.parts.some(
+				(part) =>
+					(part.kind === "case-ref" &&
+						part.caseType === caseType &&
+						part.property === property) ||
+					(part.kind === "field-ref" && fieldLogicReads(part.uuid)),
+			),
+		),
+	);
+}
+
+/** Whether some case operation of the form saves a write only when the
+ *  worker changed its answer. */
+function formSavesOnlyEditedAnswers(
+	form: BlueprintDoc["forms"][string],
+): boolean {
+	return (form.caseOperations ?? []).some((operation) =>
+		(operation.writes ?? []).some((write) => write.onlyIfChanged === true),
 	);
 }
 
@@ -313,14 +422,27 @@ export function projectSpaceCompatibilityProbePlan(
 		}
 	}
 
-	for (const field of Object.values(doc.fields)) {
-		if (!isCaptureField(field) || field.caseWrite === undefined) continue;
-		if (linkWriteIsShown(doc, field)) {
-			addReason(
-				"attachment-links",
-				"A case list or its details show a link to a captured file.",
-			);
-		}
+	if (
+		linkWriteDestinations(doc).some((destination) =>
+			linkWriteIsShown(doc, destination),
+		)
+	) {
+		addReason(
+			"attachment-links",
+			"The app shows a link to a captured file in a case list, its details or a form.",
+		);
+	}
+
+	/* Without the flag HQ's build writes an `update_mode: edit` row every
+	 * time (`xform.py::XFormCaseBlock.add_case_updates` compares only under
+	 * the `save_only_if_edited` that `XForm.__init__` reads from
+	 * `SAVE_ONLY_EDITED_FORM_FIELDS`), and its Case Management page shows
+	 * the setting only under it (`case_config_ko_templates.html`). */
+	if (Object.values(doc.forms).some(formSavesOnlyEditedAnswers)) {
+		addReason(
+			"save-only-edited-answers",
+			"A form saves an answer to a case only when the worker changed it.",
+		);
 	}
 
 	const usesConnectAutomation = Object.values(doc.automations ?? {}).some(
@@ -380,6 +502,7 @@ export function projectSpaceCompatibilityProbePlan(
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
 		["commcare-connect", ["commcare-connect"]],
 		["attachment-links", ["attachment-links"]],
+		["save-only-edited-answers", ["save-only-edited-answers"]],
 	] as const) {
 		const reasons = reasonsByCapability.get(capability);
 		if (!reasons) continue;

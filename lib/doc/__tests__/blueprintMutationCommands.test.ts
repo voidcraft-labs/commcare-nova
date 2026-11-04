@@ -11,8 +11,8 @@ import {
 	createBlueprintDocStore,
 } from "@/lib/doc/store";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { type Automation, uuidSchema } from "@/lib/domain";
-import { eq, literal, term } from "@/lib/domain/expression/builders";
+import { type Automation, fieldCaseWriteViews, uuidSchema } from "@/lib/domain";
+import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import type { Choice } from "@/lib/domain/expression/types";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
@@ -410,35 +410,44 @@ describe("Builder mutation commands", () => {
 					id: "cp_f1",
 					name: "F1",
 					type: "followup",
+					caseOperations: [
+						{
+							uuid: testUuid("cp-own-1"),
+							id: "patient",
+							action: "own",
+							writes: [{ property: "age", value: term(formField(CP_PRIMARY)) }],
+						},
+					],
 				},
 				[CP_F2]: {
 					uuid: CP_F2,
 					id: "cp_f2",
 					name: "F2",
 					type: "followup",
+					caseOperations: [
+						{
+							uuid: testUuid("cp-own-2"),
+							id: "patient",
+							action: "own",
+							writes: [{ property: "age", value: term(formField(CP_PEER)) }],
+						},
+					],
 				},
 			},
 			fields: {
-				// Primary and peer share the same independent caseWrite pair.
+				// Primary and peer each save to the same property, through their
+				// own forms' own cases.
 				[CP_PRIMARY]: {
 					uuid: CP_PRIMARY,
 					id: "age",
 					kind: "text",
 					label: proseText("Age"),
-					caseWrite: {
-						caseType: "patient",
-						property: "age",
-					},
 				} as BlueprintDoc["fields"][typeof CP_PRIMARY],
 				[CP_PEER]: {
 					uuid: CP_PEER,
 					id: "age",
 					kind: "text",
 					label: proseText("Age"),
-					caseWrite: {
-						caseType: "patient",
-						property: "age",
-					},
 				} as BlueprintDoc["fields"][typeof CP_PEER],
 				// This sibling blocks only a local rename of CP_PEER, not the
 				// unrelated primary field in F1.
@@ -476,6 +485,12 @@ describe("Builder mutation commands", () => {
 		expect(state.fields[CP_PRIMARY]?.id).toBe("age_new");
 		expect(state.fields[CP_PEER]?.id).toBe("age");
 		expect(state.fields[CP_BLOCKER]?.id).toBe("age_new");
+		// Both saves still read their questions.
+		expect(
+			[CP_PRIMARY, CP_PEER].map((uuid) =>
+				fieldCaseWriteViews(state, uuid).map((view) => view.property),
+			),
+		).toEqual([["age"], ["age"]]);
 	});
 
 	// ── updateApp undo ────────────────────────────────────────────────────
@@ -1721,5 +1736,188 @@ describe("Builder choice preservation", () => {
 		expect(store.getState().fields[Q_B]).toEqual(original.fields[Q_B]);
 		expect(store.getState().peekCommandBatches()).toEqual([]);
 		expect(toastStore.toasts.map((toast) => toast.severity)).toEqual(["error"]);
+	});
+});
+
+describe("Builder field commands carry the case writes their fields hold", () => {
+	const REGISTER = testUuid("cascade-register-form");
+	const NAME = testUuid("cascade-name");
+	const VISITS = testUuid("cascade-visits");
+	const FOLLOWUPS = testUuid("cascade-followups");
+	const VISIT_NAME = testUuid("cascade-visit-name");
+	const NOTE = testUuid("cascade-note");
+	const CHECK = testUuid("cascade-check-form");
+
+	/** A registration that names its patient and saves each visit row as a
+	 *  new visit beneath it, beside a second repeat with no case yet. */
+	function cascadeFixture(): BlueprintDoc {
+		return buildDoc({
+			appId: "cascade",
+			appName: "Cascade",
+			caseTypes: [
+				{ name: "patient", properties: [{ name: "note", label: "Note" }] },
+				{ name: "visit", parent_type: "patient", properties: [] },
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: resolveCaseListConfig({
+						columns: [
+							{
+								uuid: testUuid("cascade-name-column"),
+								kind: "plain",
+								field: "case_name",
+								header: "Name",
+							},
+						],
+						searchInputs: [],
+					}),
+					forms: [
+						{
+							uuid: REGISTER,
+							name: "Register",
+							type: "registration",
+							fields: [
+								{
+									uuid: NAME,
+									kind: "text",
+									id: "name",
+									label: "Name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								},
+								{
+									uuid: NOTE,
+									kind: "text",
+									id: "note",
+									label: "Note",
+									caseWrite: { caseType: "patient", property: "note" },
+								},
+								{
+									uuid: VISITS,
+									kind: "repeat",
+									id: "visits",
+									label: "Visits",
+									repeat_mode: "user_controlled",
+									children: [
+										{
+											uuid: VISIT_NAME,
+											kind: "text",
+											id: "visit_name",
+											label: "Visit name",
+											caseWrite: { caseType: "visit", property: "case_name" },
+										},
+									],
+								},
+								{
+									uuid: FOLLOWUPS,
+									kind: "repeat",
+									id: "followups",
+									label: "Follow-ups",
+									repeat_mode: "user_controlled",
+									children: [],
+								},
+							],
+						},
+						{
+							uuid: CHECK,
+							name: "Check",
+							type: "followup",
+							fields: [{ kind: "text", id: "seen", label: "Seen" }],
+						},
+					],
+				},
+				{
+					name: "Visits",
+					caseType: "visit",
+					caseListOnly: true,
+					caseListConfig: resolveCaseListConfig({
+						columns: [
+							{
+								uuid: testUuid("cascade-visit-column"),
+								kind: "plain",
+								field: "case_name",
+								header: "Name",
+							},
+						],
+						searchInputs: [],
+					}),
+				},
+			],
+		});
+	}
+
+	const createsOf = (store: BlueprintDocStoreApi) =>
+		(store.getState().forms[REGISTER]?.caseOperations ?? []).filter(
+			(operation) => operation.action === "create",
+		);
+
+	it("removeField stops every save of the removed subtree before removing it", () => {
+		const { mutations, store } = setup(cascadeFixture());
+		expect(createsOf(store)).toHaveLength(1);
+		expect(mutations.removeField(NOTE).ok).toBe(true);
+		const own = store
+			.getState()
+			.forms[REGISTER]?.caseOperations?.find(
+				(operation) => operation.action === "own",
+			);
+		expect(own?.writes ?? []).toEqual([]);
+
+		// The repeat goes with the question that names its visits, so the
+		// create it fed goes too.
+		expect(mutations.removeField(VISITS).ok).toBe(true);
+		expect(store.getState().fields[VISIT_NAME]).toBeUndefined();
+		expect(createsOf(store)).toEqual([]);
+		expect(store.getState().peekCommandBatches()).toHaveLength(2);
+	});
+
+	it("removeField refuses the question that names the new case, in the planner's sentence", () => {
+		const { mutations, store } = setup(cascadeFixture());
+		expect(mutations.removeField(NAME)).toEqual({
+			ok: false,
+			messages: [
+				"A new case needs a name. Choose another question to name it first.",
+			],
+		});
+		expect(store.getState().fields[NAME]).toBeDefined();
+		expect(store.getState().peekCommandBatches()).toEqual([]);
+	});
+
+	it("moveField re-homes a save to a new case into the create of its new repeat", () => {
+		const { mutations, store } = setup(cascadeFixture());
+		const [before] = createsOf(store);
+		expect(before?.forEach?.repeat).toBe(VISITS);
+		expect(
+			mutations.moveField(VISIT_NAME, { toParentUuid: FOLLOWUPS }).ok,
+		).toBe(true);
+		const creates = createsOf(store);
+		expect(creates.map((operation) => operation.forEach?.repeat)).toEqual([
+			FOLLOWUPS,
+		]);
+		expect(
+			fieldCaseWriteViews(store.getState(), VISIT_NAME).map((view) => [
+				view.slot,
+				view.caseType,
+				view.destination,
+			]),
+		).toEqual([["name", "visit", "child"]]);
+	});
+
+	it("updateForm carries a type change through the form-type planner", () => {
+		const { mutations, store } = setup(cascadeFixture());
+		const ownOf = () =>
+			store
+				.getState()
+				.forms[CHECK]?.caseOperations?.filter(
+					(operation) => operation.action === "own",
+				) ?? [];
+		expect(ownOf()).toHaveLength(1);
+		// A survey has no case, so its own case leaves with the type.
+		expect(mutations.updateForm(CHECK, { type: "survey" }).ok).toBe(true);
+		expect(store.getState().forms[CHECK]?.type).toBe("survey");
+		expect(ownOf()).toEqual([]);
+		// And a follow-up gains one again.
+		expect(mutations.updateForm(CHECK, { type: "followup" }).ok).toBe(true);
+		expect(ownOf()).toHaveLength(1);
 	});
 });

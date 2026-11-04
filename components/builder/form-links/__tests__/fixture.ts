@@ -8,7 +8,7 @@
 
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, FormLink } from "@/lib/domain";
+import type { BlueprintDoc, FormLink, Uuid } from "@/lib/domain";
 import type { FormLinkDatumName } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 
@@ -148,4 +148,28 @@ export function fixture(
 			},
 		],
 	});
+}
+
+/**
+ * Make `formUuids` forms of a menu that chooses several cases: a form that
+ * works on several cases opens no one case's value, so a question that
+ * opened with its case's value starts blank instead, as the planner leaves
+ * it once the menu chooses several cases.
+ */
+export function withoutCaseValueStarts(
+	draft: BlueprintDoc,
+	formUuids: readonly Uuid[],
+): void {
+	for (const formUuid of formUuids) {
+		for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
+			const field = draft.fields[fieldUuid];
+			if (
+				field !== undefined &&
+				"default_value" in field &&
+				field.default_value?.kind === "term" &&
+				field.default_value.term.kind === "form-case"
+			)
+				delete field.default_value;
+		}
+	}
 }

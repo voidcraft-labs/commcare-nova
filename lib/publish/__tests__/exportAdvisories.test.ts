@@ -7,7 +7,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { CaseOperation } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	decodeExportAdvisories,
@@ -16,10 +19,17 @@ import {
 	exportAdvisories,
 } from "../exportAdvisories";
 
+/**
+ * A registration whose captures each save a link to their file through the
+ * own case's writes, or, with `saved: false`, save nothing.
+ */
 function docWithCaptures(
 	captures: ReadonlyArray<{ id: string; property: string }>,
+	{ saved = true }: { readonly saved?: boolean } = {},
 ) {
-	return buildDoc({
+	const nameUuid = testUuid("field-full-name");
+	const captureUuid = (id: string) => testUuid(`field-${id}`);
+	const doc = buildDoc({
 		appName: "Attachments",
 		caseTypes: [
 			{
@@ -45,18 +55,15 @@ function docWithCaptures(
 							f({
 								kind: "text",
 								id: "full_name",
+								uuid: nameUuid,
 								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 							...captures.map((capture) =>
 								f({
 									kind: "image",
 									id: capture.id,
+									uuid: captureUuid(capture.id),
 									label: proseText(capture.id),
-									caseWrite: {
-										caseType: "patient",
-										property: capture.property,
-									},
 								}),
 							),
 						],
@@ -65,6 +72,29 @@ function docWithCaptures(
 			},
 		],
 	});
+	const [form] = Object.values(doc.forms);
+	if (form === undefined) throw new Error("The fixture builds one form.");
+	const own: CaseOperation = {
+		uuid: testUuid("operation-own"),
+		id: "own",
+		action: "own",
+		name: term(formField(nameUuid)),
+		...(saved
+			? {
+					writes: captures.map((capture) => ({
+						property: capture.property,
+						value: term({
+							kind: "capture-link",
+							field: captureUuid(capture.id),
+						}),
+					})),
+				}
+			: {}),
+	};
+	return {
+		...doc,
+		forms: { ...doc.forms, [form.uuid]: { ...form, caseOperations: [own] } },
+	};
 }
 
 describe("exportAdvisories", () => {
@@ -112,10 +142,9 @@ describe("exportAdvisories", () => {
 
 	it("says nothing about an app with no attachment links", () => {
 		// A capture that saves nowhere loses nothing by being downloaded.
-		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
-		for (const field of Object.values(doc.fields)) {
-			if (field.kind === "image") delete field.caseWrite;
-		}
+		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }], {
+			saved: false,
+		});
 		expect(exportAdvisories(doc, "none")).toEqual([]);
 		expect(exportAdvisories(doc, "ambiguous")).toEqual([]);
 	});

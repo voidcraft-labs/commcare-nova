@@ -13,10 +13,14 @@
  * none of them; and HQ builds the answer inside single quotes with nothing
  * escaped (`xform.py::XForm.action_relevance`), so an answer holding `'`
  * reads as another condition, or as no XPath at all, which Core's parser
- * refuses. Nova writes such a close as a Save to Case close in the form's
- * source, with `close_case` `never`
- * (`lib/domain/closeCondition.ts::closeConditionPlacement`), so the save keeps
- * it and both export paths close the same case.
+ * refuses. Each close condition is the form's `closeCondition`, an
+ * `Expression` comparing the outcome with its answer, which the parser keeps
+ * a literal where no inline option holds it. Case Management cannot state
+ * any of them (`lib/commcare/placement.ts::planPlacements`: the reasons
+ * `condition-quote-boundary`, `condition-apostrophe`,
+ * `condition-question-kind` and `condition-not-a-choice`), so Nova writes
+ * each close as a Save to Case close in the form's source, with `close_case`
+ * `never`, which the save keeps, and both export paths close the same case.
  *
  * - `targeted-close-conditions`, one close form per part: a hidden value
  *   holding `"done"` compared with `"done"`, quotes included, so the visit
@@ -24,7 +28,8 @@
  *   does not, though HQ's build of the answer as entered reads the
  *   comparison as an `or` of two strings, true for every value; a text
  *   question, which the tab cannot set; and a select with the inline options
- *   `a` and `b` compared with `c`, which is neither, so it does not close.
+ *   `a` and `b` compared with the literal `c`, which is neither, so it does
+ *   not close.
  * - `targeted-close-condition-unparsable`: a hidden value compared with
  *   `it's done`, which HQ builds as XPath Core cannot parse.
  *
@@ -117,7 +122,7 @@ function closeApp(id: string, closes: readonly CloseForm[]) {
 					uuid: uuid(`close-${index}`),
 					name: close.name,
 					type: "close" as const,
-					closeCondition: { field: "outcome", answer: close.answer },
+					closeCondition: `#form/outcome = ${literal(close.answer)}`,
 					fields: [outcomeField(uuid, close, index)],
 				})),
 			},

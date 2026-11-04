@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc as buildFixtureDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import {
 	mutationCommitVerdict,
 	mutationCommitVerdictWithPrevalidation,
@@ -37,6 +41,24 @@ import {
 } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
+import {
+	addOwnCases,
+	addOwnWrite,
+	ownCaseUuidFor,
+	removeOwnWrite,
+} from "./ownCaseFixture";
+
+/** `buildDoc`, with the own case every case form holds first. */
+function buildDoc(
+	...[spec, configure]: Parameters<typeof buildFixtureDoc>
+): ReturnType<typeof buildFixtureDoc> {
+	return buildFixtureDoc(spec, (doc) => {
+		configure?.(doc);
+		addOwnCases(doc);
+	});
+}
+
+const answer = (uuid: string) => term(formField(asUuid(uuid)));
 
 /** The footprint the Builder gate computes: over the valid snapshot and the
  * candidate the batch produces from it. */
@@ -127,23 +149,79 @@ describe("incrementalValidationScope", () => {
 		expect(scope).toEqual({ formUuids: new Set([formUuid]) });
 	});
 
-	it("rechecks module rules when a case destination changes and every inferred fact stays", () => {
-		/* Two text writers of one declared text property: dropping one leaves
+	it("rechecks the whole module, every module rule and every form with case changes when a write changes and every inferred fact stays", () => {
+		/* Two text writes of one declared text property: dropping one leaves
 		 * the catalog and every writer opinion as they were. */
-		const writer = (id: string) =>
-			f({
-				kind: "text",
-				id,
-				caseWrite: { caseType: "patient", property: "note" },
-			});
+		const NOTE = testUuid("scope-two-writers-note");
+		const REMARK = testUuid("scope-two-writers-remark");
+		const doc = buildDoc(
+			{
+				appName: "Two writers",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "note", label: "Note", data_type: "text" }],
+					},
+				],
+				modules: [
+					{
+						uuid: LINK_MODULE,
+						name: "Visit",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: LINK_FORM,
+								name: "Visit form",
+								type: "followup",
+								fields: [f({ uuid: NOTE, kind: "text", id: "note" })],
+							},
+							{
+								uuid: SECOND_FORM,
+								name: "Review form",
+								type: "followup",
+								fields: [f({ uuid: REMARK, kind: "text", id: "remark" })],
+							},
+						],
+					},
+				],
+			},
+			(draft) => {
+				draft.forms[LINK_FORM].caseOperations = [
+					{
+						uuid: ownCaseUuidFor(LINK_FORM),
+						id: "patient",
+						action: "own",
+						writes: [{ property: "note", value: answer(NOTE) }],
+					},
+				];
+				draft.forms[SECOND_FORM].caseOperations = [
+					{
+						uuid: ownCaseUuidFor(SECOND_FORM),
+						id: "patient",
+						action: "own",
+						writes: [{ property: "note", value: answer(REMARK) }],
+					},
+				];
+			},
+		);
+		const mutations: Mutation[] = [
+			removeOwnWrite(doc, LINK_FORM, { property: "note" }),
+		];
+		expect(incrementalValidationScope(doc, mutations)).toEqual({
+			moduleUuids: new Set([LINK_MODULE]),
+			formUuids: new Set([LINK_FORM, SECOND_FORM]),
+		});
+		expect(expectCommitParity(doc, mutations).ok).toBe(true);
+	});
+
+	it("takes the whole-module scope for an open or close condition and every form of the module", () => {
+		const FLAG = testUuid("scope-condition-flag");
 		const doc = buildDoc({
-			appName: "Two writers",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "note", label: "Note", data_type: "text" }],
-				},
-			],
+			appName: "Conditions",
+			caseTypes: [{ name: "patient", properties: [] }],
 			modules: [
 				{
 					uuid: LINK_MODULE,
@@ -155,38 +233,62 @@ describe("incrementalValidationScope", () => {
 					forms: [
 						{
 							uuid: LINK_FORM,
-							name: "Visit form",
-							type: "followup",
-							fields: [writer("note")],
+							name: "Discharge",
+							type: "close",
+							fields: [f({ uuid: FLAG, kind: "text", id: "flag" })],
 						},
 						{
 							uuid: SECOND_FORM,
 							name: "Review form",
 							type: "followup",
-							fields: [writer("remark")],
+							fields: [f({ kind: "text", id: "remark" })],
 						},
 					],
 				},
 			],
 		});
-		const fieldUuid = doc.fieldOrder[LINK_FORM]?.[0];
-		if (fieldUuid === undefined) throw new Error("writer fixture missing");
-		const mutations: Mutation[] = [
-			{
-				kind: "updateField",
-				uuid: fieldUuid,
-				targetKind: "text",
-				patch: { caseWrite: null },
-			},
-		];
-		expect(incrementalValidationScope(doc, mutations)).toEqual({
-			moduleUuids: new Set([LINK_MODULE]),
-			formUuids: new Set([LINK_FORM]),
-		});
-		expect(expectCommitParity(doc, mutations).ok).toBe(true);
+		for (const patch of [
+			{ closeCondition: eq(answer(FLAG), term(literal("done"))) },
+			{ openCondition: null },
+		] as const) {
+			expect(
+				incrementalValidationScope(doc, [
+					{ kind: "updateForm", uuid: LINK_FORM, patch },
+				]),
+			).toEqual({
+				moduleUuids: new Set([LINK_MODULE]),
+				formUuids: new Set([LINK_FORM, SECOND_FORM]),
+			});
+		}
 	});
 
-	it("takes the absolute gate when a case destination changes an operation's inferred writer types", () => {
+	it("takes the whole-module scope for an own case's patch and keeps the absolute gate for a type change", () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const scope = incrementalValidationScope(doc, [
+			{
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: ownCaseUuidFor(formUuid),
+					targetAction: "own",
+					patch: { owner: term(literal("owner-id")) },
+				},
+			},
+		]);
+		expect(scope).toEqual({
+			moduleUuids: new Set([moduleUuid]),
+			formUuids: new Set([formUuid]),
+		});
+		expect(
+			incrementalValidationScope(doc, [
+				{ kind: "updateForm", uuid: formUuid, patch: { type: "close" } },
+			]),
+		).toBeUndefined();
+	});
+
+	it("takes the absolute gate when a write changes an operation's inferred writer types", () => {
 		const doc = buildDoc({
 			appName: "Writer and operation dependency",
 			caseTypes: [
@@ -209,16 +311,7 @@ describe("incrementalValidationScope", () => {
 						{
 							name: "Edit field",
 							type: "followup",
-							fields: [
-								f({
-									kind: "text",
-									id: "nickname",
-									caseWrite: {
-										caseType: "patient",
-										property: "nickname",
-									},
-								}),
-							],
+							fields: [f({ kind: "text", id: "nickname" })],
 						},
 					],
 				},
@@ -266,17 +359,16 @@ describe("incrementalValidationScope", () => {
 		};
 		doc.forms[operationFormUuid] = {
 			...doc.forms[operationFormUuid],
-			caseOperations: [operation],
+			caseOperations: [
+				...(doc.forms[operationFormUuid].caseOperations ?? []),
+				operation,
+			],
 		};
 		const mutations: Mutation[] = [
-			{
-				kind: "updateField",
-				uuid: fieldUuid,
-				targetKind: "text",
-				patch: {
-					caseWrite: { caseType: "patient", property: "mixed" },
-				},
-			},
+			addOwnWrite(doc, authorFormUuid, {
+				property: "mixed",
+				value: answer(fieldUuid),
+			}),
 		];
 
 		expect(incrementalValidationScope(doc, mutations)).toBeUndefined();
@@ -615,6 +707,10 @@ describe("incrementalValidationScope", () => {
 					},
 				],
 			});
+			// The note saves to each selected case without opening with one
+			// case's value, so both selection modes admit the form.
+			for (const field of Object.values(doc.fields))
+				if ("default_value" in field) delete field.default_value;
 			const moduleUuid = doc.moduleOrder[0];
 			const mutation: Mutation = {
 				kind: "setCaseListMeta",
@@ -781,54 +877,52 @@ describe("incrementalValidationScope", () => {
 	});
 
 	it("matches the absolute gate when a writer changes another module's case list", () => {
-		const doc = buildDoc({
-			appName: "Writer dependency",
-			caseTypes: [{ name: "patient", properties: [] }],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "nickname", header: "Nickname" },
-					]),
-					forms: [
-						{
-							name: "Update patient",
-							type: "followup",
-							fields: [
-								f({
-									kind: "text",
-									id: "nickname",
-									caseWrite: {
-										caseType: "patient",
-										property: "nickname",
-									},
-								}),
-							],
-						},
-					],
-				},
-				{
-					name: "Patient records",
-					caseType: "patient",
-					caseListOnly: true,
-					caseListConfig: caseListConfig([
-						{ field: "nickname", header: "Nickname" },
-					]),
-					forms: [],
-				},
-			],
-		});
-		const formUuid = doc.formOrder[doc.moduleOrder[0]]?.[0];
-		const fieldUuid = formUuid && doc.fieldOrder[formUuid]?.[0];
-		if (fieldUuid === undefined) throw new Error("writer fixture missing");
-		const mutations: Mutation[] = [
+		const NICKNAME = testUuid("scope-writer-nickname");
+		const UPDATE_FORM = testUuid("scope-writer-update-form");
+		const doc = buildDoc(
 			{
-				kind: "updateField",
-				uuid: fieldUuid,
-				targetKind: "text",
-				patch: { caseWrite: null },
+				appName: "Writer dependency",
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "nickname", header: "Nickname" },
+						]),
+						forms: [
+							{
+								uuid: UPDATE_FORM,
+								name: "Update patient",
+								type: "followup",
+								fields: [f({ uuid: NICKNAME, kind: "text", id: "nickname" })],
+							},
+						],
+					},
+					{
+						name: "Patient records",
+						caseType: "patient",
+						caseListOnly: true,
+						caseListConfig: caseListConfig([
+							{ field: "nickname", header: "Nickname" },
+						]),
+						forms: [],
+					},
+				],
 			},
+			(draft) => {
+				draft.forms[UPDATE_FORM].caseOperations = [
+					{
+						uuid: ownCaseUuidFor(UPDATE_FORM),
+						id: "patient",
+						action: "own",
+						writes: [{ property: "nickname", value: answer(NICKNAME) }],
+					},
+				];
+			},
+		);
+		const mutations: Mutation[] = [
+			removeOwnWrite(doc, UPDATE_FORM, { property: "nickname" }),
 		];
 		assertAdmittedDoc(doc);
 		const absolute = mutationCommitVerdict(
@@ -884,45 +978,49 @@ describe("scoped commits under document-wide inference", () => {
 		readonly author: ReturnType<typeof f>[];
 		readonly reader: ReturnType<typeof f>[];
 		readonly readerCaseList?: ReturnType<typeof dateColumnConfig>;
+		readonly configure?: (doc: ReturnType<typeof buildDoc>) => void;
 	}) {
-		return buildDoc({
-			appName: "Inference footprint",
-			caseTypes: [{ name: "patient", properties: args.properties ?? [] }],
-			modules: [
-				{
-					uuid: AUTHOR_MODULE,
-					name: "Author",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							uuid: AUTHOR_FORM,
-							name: "Author form",
-							type: "followup",
-							fields: args.author,
-						},
-					],
-				},
-				{
-					uuid: READER_MODULE,
-					name: "Reader",
-					caseType: "patient",
-					caseListConfig:
-						args.readerCaseList ??
-						caseListConfig([{ field: "case_name", header: "Name" }]),
-					forms: [
-						{
-							uuid: READER_FORM,
-							name: "Reader form",
-							type: "followup",
-							fields: args.reader,
-						},
-					],
-				},
-			],
-		});
+		return buildDoc(
+			{
+				appName: "Inference footprint",
+				caseTypes: [{ name: "patient", properties: args.properties ?? [] }],
+				modules: [
+					{
+						uuid: AUTHOR_MODULE,
+						name: "Author",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: AUTHOR_FORM,
+								name: "Author form",
+								type: "followup",
+								fields: args.author,
+							},
+						],
+					},
+					{
+						uuid: READER_MODULE,
+						name: "Reader",
+						caseType: "patient",
+						caseListConfig:
+							args.readerCaseList ??
+							caseListConfig([{ field: "case_name", header: "Name" }]),
+						forms: [
+							{
+								uuid: READER_FORM,
+								name: "Reader form",
+								type: "followup",
+								fields: args.reader,
+							},
+						],
+					},
+				],
+			},
+			args.configure,
+		);
 	}
 
 	function expectAbsoluteRefusal(
@@ -948,14 +1046,7 @@ describe("scoped commits under document-wide inference", () => {
 
 	it("refuses dropping the only writer of a property another form reads", () => {
 		const doc = twoModules({
-			author: [
-				f({
-					uuid: WRITER,
-					kind: "text",
-					id: "nickname",
-					caseWrite: { caseType: "patient", property: "nickname" },
-				}),
-			],
+			author: [f({ uuid: WRITER, kind: "text", id: "nickname" })],
 			reader: [
 				f({
 					kind: "text",
@@ -963,13 +1054,18 @@ describe("scoped commits under document-wide inference", () => {
 					relevant: "#patient/nickname != ''",
 				}),
 			],
+			configure: (draft) => {
+				draft.forms[AUTHOR_FORM].caseOperations = [
+					{
+						uuid: ownCaseUuidFor(AUTHOR_FORM),
+						id: "patient",
+						action: "own",
+						writes: [{ property: "nickname", value: answer(WRITER) }],
+					},
+				];
+			},
 		});
-		const drop: Mutation = {
-			kind: "updateField",
-			uuid: WRITER,
-			targetKind: "text",
-			patch: { caseWrite: null },
-		};
+		const drop = removeOwnWrite(doc, AUTHOR_FORM, { property: "nickname" });
 		expectAbsoluteRefusal(doc, [drop], "INVALID_CASE_REF", {
 			formUuid: READER_FORM,
 		});
@@ -1008,7 +1104,7 @@ describe("scoped commits under document-wide inference", () => {
 		};
 		doc.forms[READER_FORM] = {
 			...doc.forms[READER_FORM],
-			caseOperations: [copy],
+			caseOperations: [...(doc.forms[READER_FORM].caseOperations ?? []), copy],
 		};
 		const verdict = expectAbsoluteRefusal(
 			doc,

@@ -2,9 +2,9 @@
 //
 // Video capture field. Emits `<upload mediatype="video/*">` over a
 // `binary` bind. Cannot be calculated or validated — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema, and takes
-// the ordinary `caseWriteSchema` destination, whose write saves a link
-// to the captured file on the case, nothing else.
+// fieldBaseSchema directly rather than inputFieldBaseSchema. A case
+// operation saves a link to the captured file through a `capture-link`
+// write value, never the file itself.
 //
 // How the worker adds the video depends on where the app runs: CommCare
 // Web Apps has no camera or recorder, so the worker picks an existing
@@ -15,19 +15,13 @@
 import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import {
-	caseWriteSchema,
-	fieldBaseSchema,
-	formLogicSchema,
-	proseTemplateSchema,
-} from "./base";
+import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const videoFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("video"),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
-	caseWrite: caseWriteSchema.optional(),
 });
 
 export type VideoField = z.infer<typeof videoFieldSchema>;

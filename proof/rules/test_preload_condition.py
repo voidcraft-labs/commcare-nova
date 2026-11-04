@@ -6,10 +6,11 @@ condition for it. The plausible failures: the build reading the condition
 (so the save would change which preloads are built), and the rule erasing
 another condition type.
 
-A corpus document whose follow-up form preloads case properties is
-published with the preload's condition ``never`` (Nova's) and ``always``
-(the save's): HQ builds both alike and the rule erases the difference. The
-rule leaves an ``if`` condition.
+A corpus document's follow-up form is published with a preload the Case
+Management page could save (Nova writes none: a preload is a question's
+starting value) and the preload's condition ``never`` (Nova's) and
+``always`` (the save's): HQ builds both alike and the rule erases the
+difference. The rule leaves an ``if`` condition.
 """
 
 from __future__ import annotations
@@ -23,7 +24,9 @@ DOCUMENT = "case-operation-sequence"
 def _condition(kind):
     def change(doc):
         preload = doc["modules"][0]["forms"][0]["actions"]["case_preload"]
-        assert preload["preload"], "the form preloads nothing"
+        # The question and property the form's own case already saves, preloaded as the Case Management page
+        # writes a preload: question path to property.
+        preload["preload"] = {"/data/ordinary_note": "nickname"}
         preload["condition"]["type"] = kind
 
     return edited(change)

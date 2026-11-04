@@ -700,7 +700,7 @@ test("measures production-shaped Builder and Preview interactions", async ({
 	await option.click();
 	await expect(trigger).toHaveAttribute(
 		"aria-label",
-		/Saves to: Profile property 50, #profile_participant\/profile_property_50/i,
+		/Saves to: .*Profile property 50, #profile_participant\/profile_property_50/i,
 	);
 	const selectionCpuTopSelfTime = selectionCpu
 		? await stopCpuProfile(selectionCpu)

@@ -647,8 +647,6 @@ describe("fieldReferenceSlotsFor", () => {
 			"relevant",
 			"calculate",
 			"default_value",
-			"case_write_case_type",
-			"case_write_property",
 		]);
 	});
 

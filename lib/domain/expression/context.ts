@@ -1,3 +1,4 @@
+import { registrationMintsOwnCaseId } from "../basicCaseSlots";
 import type { BlueprintDoc, CaseType } from "../blueprint";
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import {
@@ -13,7 +14,12 @@ import {
 } from "../entryDatumSupplies";
 import { formOfField } from "../fieldForm";
 import type { SelectOption } from "../fields";
-import { orderedCaseOperations } from "../forms";
+import {
+	caseWriteKeyOf,
+	operationCaseType,
+	orderedCaseOperations,
+	sameCaseWriteKey,
+} from "../forms";
 import type { TranslationUnitId } from "../localization";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
 import { moduleIsCaseFirst } from "../menuForms";
@@ -53,6 +59,7 @@ import {
 } from "./formStructure";
 import { inferExpressionTypes } from "./inference";
 import { type RuleSet, type SlotProfile, slotProfile } from "./profiles";
+import { resolveRelationDestination } from "./relationDestination";
 import type { Held, ScalarHeld, ScalarType } from "./typeChecker";
 import { datumRefKey, type FormNodeRef, type SlotContextRef } from "./types";
 
@@ -127,6 +134,12 @@ export interface FormExpressionFacts extends FormStructure {
 		}
 	>;
 	readonly readableCaseTypes: ReadonlyMap<string, ReadonlySet<string>>;
+	/** False on a registration whose entry gives the case it creates no
+	 * session value (its change is a Save to Case block,
+	 * `basicCaseSlots.ts::registrationMintsOwnCaseId`): no read of that case
+	 * or the cases above it has an id to start from. True on every other
+	 * form. */
+	readonly ownCaseIdMinted: boolean;
 	readonly searchInputs: readonly SearchInputDecl[];
 	readonly noMatchesForm: boolean;
 	/** Whether the form's module opens on its search, so its forms open
@@ -266,9 +279,11 @@ export function untypedExpressionFacts(
 		),
 		operationCaseTypes: new Map(
 			Object.values(doc.forms).flatMap((form) =>
-				orderedCaseOperations(form)
-					.filter((operation) => operation.action === "create")
-					.map((operation) => [operation.uuid, operation.caseType] as const),
+				orderedCaseOperations(form).flatMap((operation) =>
+					operation.action === "create"
+						? [[operation.uuid, operation.caseType] as const]
+						: [],
+				),
 			),
 		),
 		moduleSearchInputs: new Map(
@@ -499,6 +514,10 @@ function buildFormFacts(
 			module?.caseType,
 			structure.type,
 		),
+		ownCaseIdMinted:
+			structure.type !== "registration" ||
+			doc.forms[structure.formUuid]?.type !== "registration" ||
+			registrationMintsOwnCaseId(doc, structure.formUuid),
 	};
 }
 export function formExpressionFacts(
@@ -753,6 +772,20 @@ export function slotContext(
 				options.form,
 			);
 		} else if (
+			slot.slot === "form_open_condition" ||
+			slot.slot === "form_close_condition"
+		) {
+			// Form logic over the form's answers, read once as the form is
+			// submitted: the own case's Case Management condition or the
+			// relevance of its Save to Case block.
+			profile = slotProfile(
+				"form",
+				"form",
+				["XF", "HQ", "PV"],
+				{ kind: "condition" },
+				{ searchInputs: form.searchInputs },
+			);
+		} else if (
 			slot.slot === "form_link_condition" ||
 			slot.slot === "form_link_datum_xpath"
 		) {
@@ -795,11 +828,16 @@ export function slotContext(
 			);
 			const operation = operations[index];
 			if (operation === undefined) return undefined;
-			if (
-				"property" in member &&
-				!operation.writes?.some((write) => write.property === member.property)
-			)
-				return undefined;
+			const write =
+				"property" in member
+					? operation.writes?.find((candidate) =>
+							sameCaseWriteKey(caseWriteKeyOf(candidate), {
+								property: member.property,
+								...(member.via === undefined ? {} : { via: [...member.via] }),
+							}),
+						)
+					: undefined;
+			if ("property" in member && write === undefined) return undefined;
 			if (
 				"identifier" in member &&
 				!operation.links?.some((link) => link.identifier === member.identifier)
@@ -811,10 +849,30 @@ export function slotContext(
 			const target =
 				slot.slot === "case_operation_target_expression" ||
 				slot.slot === "case_operation_link_target_expression";
-			const destinationType = operation.retype ?? operation.caseType;
-			const destinations: CasePropertyDataType[] =
-				"property" in member
-					? [
+			// A write lands on the operation's case after any retype, or through
+			// `via` on the case above it; the form's own change saves to its
+			// module's case.
+			const operationType =
+				operation.retype ?? operationCaseType(doc, slot.uuid, operation);
+			const viaDestination =
+				write?.via === undefined || operationType === undefined
+					? undefined
+					: resolveRelationDestination(
+							{ kind: "ancestor", via: write.via },
+							operationType,
+							doc.caseTypes ?? [],
+						);
+			const destinationType =
+				viaDestination === undefined
+					? operationType
+					: viaDestination.ok
+						? viaDestination.caseType
+						: undefined;
+			const destinations: CasePropertyDataType[] = !("property" in member)
+				? ["text"]
+				: destinationType === undefined
+					? []
+					: [
 							...new Set([
 								...(doc.caseTypes
 									?.find((type) => type.name === destinationType)
@@ -828,8 +886,7 @@ export function slotContext(
 									.writerOpinions.get(destinationType)
 									?.get(member.property) ?? []),
 							]),
-						]
-					: ["text"];
+						];
 			profile = slotProfile(
 				"record",
 				"submission",
@@ -847,6 +904,7 @@ export function slotContext(
 									.map((candidate) => candidate.uuid),
 					),
 					ownerValues: slot.slot === "case_operation_owner",
+					captureLinkWholeValue: slot.slot === "case_operation_write_value",
 				},
 			);
 			rows = [{ kind: "case", root: "casedb", caseType: module.caseType }];

@@ -18,8 +18,11 @@ import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	type CaseOperationWrite,
 	canonicalProseTemplate,
+	caseWriteKeyOf,
 	plainColumn,
+	sameCaseWriteKey,
 } from "@/lib/domain";
 import {
 	eq,
@@ -42,13 +45,21 @@ const OPTION = testUuid("index-fuzz-option");
 const EXTRA_OPTION = testUuid("index-fuzz-extra-option");
 const TEMPORARY = testUuid("index-fuzz-temporary");
 const OPERATION = testUuid("index-fuzz-operation");
+const OWN = testUuid("index-fuzz-own");
 const COLUMN = testUuid("index-fuzz-column");
 
 function seedDoc(): BlueprintDoc {
 	const doc = buildDoc({
 		caseTypes: [
 			{
+				name: "household",
+				properties: [
+					{ name: "village", label: proseText("village"), data_type: "text" },
+				],
+			},
+			{
 				name: "patient",
+				parent_type: "household",
 				properties: ["metric_a", "metric_b", "metric_out"].map((name) => ({
 					name,
 					label: proseText(name),
@@ -72,12 +83,7 @@ function seedDoc(): BlueprintDoc {
 						name: "Visit",
 						type: "followup",
 						fields: [
-							f({
-								uuid: A,
-								kind: "text",
-								id: "a",
-								caseWrite: { caseType: "patient", property: "metric_a" },
-							}),
+							f({ uuid: A, kind: "text", id: "a" }),
 							f({ uuid: B, kind: "text", id: "b" }),
 							f({
 								uuid: WATCHER,
@@ -108,6 +114,12 @@ function seedDoc(): BlueprintDoc {
 		],
 	});
 	doc.forms[FORM].caseOperations = [
+		{
+			uuid: OWN,
+			id: "patient",
+			action: "own",
+			writes: [{ property: "metric_a", value: term(formField(A)) }],
+		},
 		{
 			uuid: OPERATION,
 			id: "record_metric",
@@ -172,17 +184,56 @@ function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 					},
 				},
 			];
-		case "writer":
+		case "writer": {
+			// The own case saves `a` to `metric_a`, to the household's
+			// `village` through `via`, or nowhere.
+			const desired: CaseOperationWrite | undefined =
+				pick === 0
+					? { property: "metric_a", value: term(formField(A)) }
+					: pick === 1
+						? {
+								property: "village",
+								value: term(formField(A)),
+								via: [{ identifier: "parent" }],
+							}
+						: undefined;
+			const own = doc.forms[FORM].caseOperations?.find(
+				(operation) => operation.uuid === OWN,
+			);
+			const current = own?.writes ?? [];
+			const patch = (
+				caseOperationPatch: Extract<
+					Mutation,
+					{ kind: "updateForm" }
+				>["caseOperationPatch"],
+			): Mutation => ({
+				kind: "updateForm",
+				uuid: FORM,
+				patch: {},
+				caseOperationPatch,
+			});
 			return [
-				{
-					kind: "updateField",
-					uuid: A,
-					targetKind: "text",
-					patch: {
-						caseWrite: pick === 2 ? null : { caseType: "patient", property },
-					},
-				},
+				...current
+					.filter(
+						(write) =>
+							desired === undefined ||
+							!sameCaseWriteKey(caseWriteKeyOf(write), caseWriteKeyOf(desired)),
+					)
+					.map((write) =>
+						patch({
+							operation: "remove-write",
+							uuid: OWN,
+							key: caseWriteKeyOf(write),
+						}),
+					),
+				...(desired === undefined ||
+				current.some((write) =>
+					sameCaseWriteKey(caseWriteKeyOf(write), caseWriteKeyOf(desired)),
+				)
+					? []
+					: [patch({ operation: "add-write", uuid: OWN, value: desired })]),
 			];
+		}
 		case "filter":
 			return [
 				{
@@ -261,7 +312,7 @@ function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 					caseOperationPatch: {
 						operation: "update-write",
 						uuid: OPERATION,
-						property: "metric_out",
+						key: { property: "metric_out" },
 						patch: {
 							value:
 								pick === 2

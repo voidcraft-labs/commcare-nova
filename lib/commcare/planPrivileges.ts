@@ -42,6 +42,7 @@ import {
 } from "./connectSlugs";
 import { formLinkProjectionContext } from "./formLinkProjection";
 import { formsReadingLocationsFixture } from "./locations/readsLocationsFixture";
+import { appPlacements } from "./placement";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { formEmitsSaveToCase } from "./xform/caseOps";
 
@@ -257,7 +258,9 @@ export function requiredPlanPrivileges(
 
 	/* `child_cases`: HQ's Case Management page keeps a form's child cases
 	 * un-editable without it (`add_ons.py::_ADD_ONS["subcases"]`, whose
-	 * `used_in_form` reads the `subcases` list's length). */
+	 * `used_in_form` reads the `subcases` list's length). The list holds each
+	 * basic subcase placement and, beside an extension child a field writes,
+	 * HQ's inert subcase (`casePlacementPlan.ts`). */
 	add(
 		"child_cases",
 		forms.flatMap(({ formUuid }) =>
@@ -284,11 +287,16 @@ export function requiredPlanPrivileges(
 
 	/* `save_to_case`: HQ loads Vellum's `saveToCase` plugin only under it
 	 * (`views/formdesigner.py::_get_vellum_plugins`), so a save in the form
-	 * builder discards the case binds of every Save to Case block. */
+	 * builder discards the case binds of every Save to Case block. Asked for
+	 * each form some placement of which is Save to Case and whose source
+	 * writes that block. */
+	const placements = appPlacements(doc);
 	add(
 		"save_to_case",
 		forms.flatMap(({ formUuid }) =>
-			formEmitsSaveToCase(doc, formUuid, linkContext)
+			[...(placements.get(formUuid)?.placements.values() ?? [])].some(
+				(planned) => planned.placement.kind === "save-to-case",
+			) && formEmitsSaveToCase(doc, formUuid, linkContext)
 				? [
 						`${formName(doc, formUuid)} writes its case changes as Save to Case blocks.`,
 					]

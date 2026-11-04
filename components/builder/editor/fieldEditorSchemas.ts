@@ -25,7 +25,6 @@ import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEdi
 import type { HiddenValueEditor as HiddenValueEditorComponent } from "@/components/builder/editor/fields/HiddenValueEditor";
 import type { MediaSlotEditor as MediaSlotEditorComponent } from "@/components/builder/editor/fields/MediaSlotEditor";
 import type { OptionsSourceEditor as OptionsSourceEditorComponent } from "@/components/builder/editor/fields/OptionsSourceEditor";
-import type { PreloadedDefaultValueEditor as PreloadedDefaultValueEditorComponent } from "@/components/builder/editor/fields/PreloadedValueRow";
 import type { TextEditor as TextEditorComponent } from "@/components/builder/editor/fields/TextEditor";
 import type { XPathEditor as XPathEditorComponent } from "@/components/builder/editor/fields/XPathEditor";
 import {
@@ -61,14 +60,11 @@ import type {
 	TimeField,
 	VideoField,
 } from "@/lib/domain";
-import { writerPreloadsInContext } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
-	FieldEditorContext,
 	FieldEditorSchema,
 	FormExpressionKeys,
 } from "@/lib/domain/kinds";
-import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { requiredEntry } from "./requiredEntry";
 
 function EditorLoading() {
@@ -152,9 +148,9 @@ function WarmXPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 }
 const XPathEditor = WarmXPathEditor as typeof XPathEditorComponent;
 
-/* The hidden field's single Value control and the preloaded-value row both
- * render CodeMirror, so they ride the same lazy boundary the XPath editor
- * does rather than joining Builder startup. */
+/* The hidden field's single Value control renders CodeMirror, so it rides
+ * the same lazy boundary the XPath editor does rather than joining Builder
+ * startup. */
 const HiddenValueEditor = dynamic(
 	() =>
 		import("@/components/builder/editor/fields/HiddenValueEditor").then(
@@ -162,38 +158,6 @@ const HiddenValueEditor = dynamic(
 		),
 	{ loading: EditorLoading },
 ) as typeof HiddenValueEditorComponent;
-const PreloadedDefaultValueEditor = dynamic(
-	() =>
-		import("@/components/builder/editor/fields/PreloadedValueRow").then(
-			(module) => module.PreloadedDefaultValueEditor,
-		),
-	{ loading: EditorLoading },
-) as typeof PreloadedDefaultValueEditorComponent;
-
-/**
- * The `default_value` editor. On a field the form opens with the loaded
- * case's current value there is no starting value to author, so the row
- * says so (and shows any stored expression read-only with a way to clear
- * it); everywhere else it is the ordinary XPath editor. Same predicate the
- * entry's `visible` reads, so the forced-visible row and this branch agree.
- */
-function DefaultValueEditor<F extends Field, K extends FormExpressionKeys<F>>(
-	props: FieldEditorComponentProps<F, K>,
-) {
-	const preloads = writerPreloadsInContext(
-		props.field,
-		useSelectedFormContext(),
-	);
-	return createElement(
-		preloads
-			? (PreloadedDefaultValueEditor as ComponentType<
-					FieldEditorComponentProps<F, K>
-				>)
-			: (XPathEditor as ComponentType<FieldEditorComponentProps<F, K>>),
-		props,
-	);
-}
-
 // ── Shared entry factories ──────────────────────────────────────────────
 //
 // Every kind's logic section repeats the same "addable + visible iff
@@ -222,27 +186,23 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 	};
 }
 
-// The `default_value` entry. Addable like any optional XPath slot, and
-// ALSO forced visible, as the read-only preloaded row, on a field the form
-// opens with the loaded case's current value: the person needs to see what
-// happens at form open there, and offering an "Add default value" pill for
-// an expression that could never run would be a promise the form does not
-// keep. Forced-visible means the active row; it is never a pill.
+// The `default_value` entry: addable like any optional XPath slot. A field
+// that opens with its case's current value holds that read here as its
+// starting value, shown as its card (`<case type>'s <property>`) like any
+// other default, so there is nothing to force.
 function defaultValueEntry<F extends Field & { default_value?: unknown }>(): {
 	key: "default_value";
 	component: typeof XPathEditor;
 	label: string;
 	addable: true;
-	visible: (field: F, context: FieldEditorContext) => boolean;
+	visible: (field: F) => boolean;
 } {
 	return {
 		key: "default_value",
-		component: DefaultValueEditor as typeof XPathEditor,
+		component: XPathEditor,
 		label: "Default value",
 		addable: true,
-		visible: (field, context) =>
-			field.default_value !== undefined ||
-			writerPreloadsInContext(field, context),
+		visible: (field) => field.default_value !== undefined,
 	};
 }
 
@@ -313,13 +273,18 @@ function mediaEntry<F extends Field, K extends keyof F & string>(
 	};
 }
 
+// "Saves to" edits no slot of the field: a question holds no destination,
+// and what it saves to is a view of its form's case operations, which the
+// editor reads and plans itself (`CaseWriteEditor`). The entry is keyed on
+// `uuid`, the one key every field holds and no editor writes, so it mounts
+// on every kind that lists it and never dispatches a field patch.
 function caseWriteEntry<F extends Field>(): {
-	key: "caseWrite" & keyof F;
+	key: "uuid" & keyof F;
 	component: typeof CaseWriteEditor;
 	label: string;
 } {
 	return {
-		key: "caseWrite" as "caseWrite" & keyof F,
+		key: "uuid" as "uuid" & keyof F,
 		component: CaseWriteEditor,
 		label: "Saves to",
 	};

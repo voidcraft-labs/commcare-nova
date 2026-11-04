@@ -80,10 +80,7 @@ import {
 	emissionPlan,
 	searchAnswersOf,
 } from "./emissionPlan";
-import {
-	buildCaseReferencesLoad,
-	buildPrimaryCaseUpdateMap,
-} from "./formActions";
+import { buildCaseReferencesLoad } from "./formActions";
 import {
 	entryDatumIdResolver,
 	entryDatumIds,
@@ -101,7 +98,6 @@ import {
 	serializeHqApplication,
 } from "./hqJson/xpath";
 import { buildXFormSource } from "./xform/builder";
-import { formUpdatesSelectedCasesInSource } from "./xform/sourceCaseWrites";
 
 /**
  * One projected link in HQ's `FormLink` shape. `xpath` carries the
@@ -305,18 +301,11 @@ export function expandDoc(
 			);
 			const ownCaseDatumId = ownCaseDatum?.id;
 			const formActions = linkContext.formActions(formUuid);
-			const multipleCaseDatum = formUpdatesSelectedCasesInSource(ownCaseDatum)
-				? ownCaseDatum
-				: undefined;
-			const multiSelectPrimaryUpdate =
-				multipleCaseDatum === undefined
-					? {}
-					: buildPrimaryCaseUpdateMap(
-							doc,
-							formUuid,
-							mod.caseType,
-							opts.attachmentTarget ?? null,
-						);
+			// An entry that selects several cases has no one case for HQ's
+			// basic actions; the source works on each through the
+			// selected-entities instance.
+			const multipleCaseDatum =
+				ownCaseDatum?.maxSelectValue !== undefined ? ownCaseDatum : undefined;
 
 			const source = buildXFormSource(doc, formUuid, {
 				xmlns,
@@ -347,11 +336,7 @@ export function expandDoc(
 					}),
 				...(multipleCaseDatum !== undefined && {
 					selectedCasesInstanceId: multipleCaseDatum.id,
-					...(Object.keys(multiSelectPrimaryUpdate).length > 0 && {
-						multiSelectPrimaryUpdate,
-					}),
 				}),
-				ordinarySubcases: formActions.subcases,
 				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),

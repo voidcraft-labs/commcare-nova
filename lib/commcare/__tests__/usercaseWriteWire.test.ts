@@ -8,6 +8,7 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
@@ -186,16 +187,13 @@ it("removes all worker entry requirements and case effects when the last writer 
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	const fieldUuid = doc.fieldOrder[formUuid][1];
 	expect(children(before.data, "commcare_usercase")).toHaveLength(1);
+	// Clearing the question's "Saves to" removes the worker-record update
+	// that saved it.
+	const plan = planFieldCaseWrite(doc, fieldUuid, null);
+	if (!plan.ok) throw new Error(plan.message);
 	const verdict = mutationCommitVerdict(
 		doc,
-		[
-			{
-				kind: "updateField",
-				targetKind: "text",
-				uuid: fieldUuid,
-				patch: { caseWrite: null },
-			},
-		],
+		plan.mutations,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	expect(verdict.ok).toBe(true);
@@ -230,24 +228,35 @@ it("exports the current question path and explicitly retargeted worker property"
 	if (!propertyUuid) throw new Error("Missing worker property");
 	// Worker-case destinations are explicit names. Rename the declaration and
 	// its writer atomically; an isolated question-id edit never implies this.
+	const rename = [
+		{
+			kind: "updateUserProperty",
+			uuid: propertyUuid,
+			patch: { slug: "home_visits" },
+		},
+		{
+			kind: "updateField",
+			targetKind: "text",
+			uuid: fieldUuid,
+			patch: { id: "current_count" },
+		},
+	] as const;
+	// The retarget is planned over the renamed document and committed with
+	// the rename in one batch: alone, either half saves to a detail no worker
+	// carries.
+	const renamed = mutationCommitVerdict(
+		doc,
+		rename,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	).nextDoc;
+	const plan = planFieldCaseWrite(renamed, fieldUuid, {
+		caseType: "commcare-user",
+		property: "home_visits",
+	});
+	if (!plan.ok) throw new Error(plan.message);
 	const verdict = mutationCommitVerdict(
 		doc,
-		[
-			{
-				kind: "updateUserProperty",
-				uuid: propertyUuid,
-				patch: { slug: "home_visits" },
-			},
-			{
-				kind: "updateField",
-				targetKind: "text",
-				uuid: fieldUuid,
-				patch: {
-					id: "current_count",
-					caseWrite: { caseType: "commcare-user", property: "home_visits" },
-				},
-			},
-		],
+		[...rename, ...plan.mutations],
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	expect(verdict.ok).toBe(true);

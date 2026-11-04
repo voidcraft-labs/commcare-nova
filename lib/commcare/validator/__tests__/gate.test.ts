@@ -5,6 +5,7 @@ import {
 	mutationCommitVerdict,
 	mutationCommitVerdictWithPrevalidation,
 } from "@/lib/doc/commitVerdicts";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -566,19 +567,25 @@ describe("evaluateCommit", () => {
 		);
 		blueprintDocSchema.parse(toPersistableDoc(doc));
 		expect(prevCodes).toEqual(["CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY"]);
-		const verdict = gateCommit(doc, [
-			{
-				kind: "addField",
-				parentUuid: registerForm,
-				field: {
-					uuid: testUuid("fld-age-new"),
-					kind: "date",
-					id: "age",
-					label: proseText("Age"),
-					caseWrite: { caseType: "patient", property: "age" },
-				},
+		const addAge: Mutation = {
+			kind: "addField",
+			parentUuid: registerForm,
+			field: {
+				uuid: testUuid("fld-age-new"),
+				kind: "date",
+				id: "age",
+				label: proseText("Age"),
 			},
-		]);
+		};
+		// The new question saves to `age` through the registration's own case,
+		// planned as the builder's "Saves to" plans it.
+		const saves = planFieldCaseWrite(
+			apply(doc, [addAge]),
+			testUuid("fld-age-new"),
+			{ caseType: "patient", property: "age" },
+		);
+		if (!saves.ok) throw new Error(saves.message);
+		const verdict = gateCommit(doc, [addAge, ...saves.mutations]);
 		expect(codes(verdict)).toEqual([
 			"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
 		]);

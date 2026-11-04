@@ -23,6 +23,8 @@ const YES = testUuid("removal-yes");
 const NO = testUuid("removal-no");
 const MAYBE = testUuid("removal-maybe");
 const OP = testUuid("removal-operation");
+const OWN = testUuid("removal-own");
+const OWN_CASE = { uuid: OWN, id: "patient", action: "own" } as const;
 
 const choiceOf = (option: typeof YES): Choice => ({
 	kind: "choice",
@@ -36,6 +38,10 @@ const OPTIONS: SelectOption[] = [
 ];
 
 function fixture(configure?: (doc: BlueprintDoc) => void): BlueprintDoc {
+	const withOwnCase = (doc: BlueprintDoc) => {
+		doc.forms[FORM].caseOperations = [{ ...OWN_CASE }];
+		configure?.(doc);
+	};
 	return buildDoc(
 		{
 			caseTypes: [
@@ -75,7 +81,7 @@ function fixture(configure?: (doc: BlueprintDoc) => void): BlueprintDoc {
 				},
 			],
 		},
-		configure,
+		withOwnCase,
 	);
 }
 
@@ -132,6 +138,7 @@ describe("removing a choice a formula names", () => {
 	it("names a case change by its form", () => {
 		const doc = fixture((draft) => {
 			draft.forms[FORM].caseOperations = [
+				{ ...OWN_CASE },
 				{
 					uuid: OP,
 					id: "save_note",
@@ -146,6 +153,28 @@ describe("removing a choice a formula names", () => {
 		expect(blocker(doc, MAYBE)).toBe(
 			"A case change in Review compares with this choice. You can change that first.",
 		);
+	});
+
+	it("names a close condition that compares with the choice, and the gate refuses the removal", () => {
+		const doc = fixture((draft) => {
+			draft.forms[FORM].type = "close";
+			draft.forms[FORM].closeCondition = eq(
+				formField(SELECT),
+				term(choiceOf(MAYBE)),
+			);
+		});
+		doc.refIndex = buildReferenceIndex(doc);
+		assertAdmittedDoc(doc);
+		expect(blocker(doc, MAYBE)).toBe(
+			"Review's condition for closing the case compares with this choice. You can change that first.",
+		);
+		expect(
+			mutationCommitVerdict(
+				doc,
+				[withoutOption(MAYBE)],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
 	});
 
 	it("keeps a reader connected when the choice's value changes, rewriting nothing", () => {

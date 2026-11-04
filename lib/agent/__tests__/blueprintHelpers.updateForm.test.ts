@@ -9,6 +9,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { eq, formField, literal } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	addFormMutations,
@@ -19,6 +20,7 @@ import {
 const MODULE_UUID = testUuid("update-form-module");
 const FORM_UUID = testUuid("update-form-form");
 const FIELD_UUID = testUuid("update-form-field");
+const OWN_UUID = testUuid("update-form-own");
 
 function docWithEveryHelperClearableSlot(): BlueprintDoc {
 	const doc: BlueprintDoc = {
@@ -50,7 +52,8 @@ function docWithEveryHelperClearableSlot(): BlueprintDoc {
 				name: "Form",
 				type: "close",
 				purpose: "Collect the final status",
-				closeCondition: { field: FIELD_UUID, answer: "yes" },
+				closeCondition: eq(formField(FIELD_UUID), literal("yes")),
+				caseOperations: [{ uuid: OWN_UUID, id: "patient", action: "own" }],
 				connect: {
 					learn_module: {
 						id: "intro",

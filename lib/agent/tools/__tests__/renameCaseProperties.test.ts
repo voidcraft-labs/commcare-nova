@@ -3,8 +3,8 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
-import { type BlueprintDoc, fieldCaseWrite } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression";
+import { type BlueprintDoc, fieldCaseWriteViews } from "@/lib/domain";
+import { formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import {
@@ -17,6 +17,7 @@ const FORM = testUuid("20000000-0000-4000-8000-000000000000");
 const FIELD = testUuid("30000000-0000-4000-8000-000000000000");
 const OPERATION = testUuid("40000000-0000-4000-8000-000000000000");
 const COLUMN = testUuid("50000000-0000-4000-8000-000000000000");
+const OWN = testUuid("60000000-0000-4000-8000-000000000000");
 
 function fixture(): BlueprintDoc {
 	return {
@@ -62,12 +63,21 @@ function fixture(): BlueprintDoc {
 				name: "Edit patient",
 				type: "followup",
 				caseOperations: [
+					// The question saves its answer to the loaded patient's phone.
+					{
+						uuid: OWN,
+						id: "patient",
+						action: "own",
+						writes: [{ property: "phone", value: term(formField(FIELD)) }],
+					},
+					// Another change saves a phone to a new patient.
 					{
 						uuid: OPERATION,
 						id: "write_phone",
-						action: "update",
+						action: "create",
 						caseType: "patient",
-						target: { kind: "session" },
+						target: { kind: "new" },
+						name: term(literal("Referred patient")),
 						writes: [
 							{
 								property: "phone",
@@ -84,7 +94,6 @@ function fixture(): BlueprintDoc {
 				id: "contact_number",
 				kind: "text",
 				label: proseText("Phone"),
-				caseWrite: { caseType: "patient", property: "phone" },
 			},
 		},
 		moduleOrder: [MODULE],
@@ -119,12 +128,14 @@ describe("renameCaseProperties shared SA/MCP tool", () => {
 			"case-properties:rename",
 		);
 		expect(harness.currentDoc().fields[FIELD].id).toBe("contact_number");
-		expect(fieldCaseWrite(harness.currentDoc().fields[FIELD])).toEqual({
-			caseType: "patient",
-			property: "primary_phone",
-		});
+		expect(fieldCaseWriteViews(harness.currentDoc(), FIELD)).toEqual([
+			expect.objectContaining({
+				caseType: "patient",
+				property: "primary_phone",
+			}),
+		]);
 		expect(
-			harness.currentDoc().forms[FORM].caseOperations?.[0]?.writes?.[0]
+			harness.currentDoc().forms[FORM].caseOperations?.[1]?.writes?.[0]
 				?.property,
 		).toBe("primary_phone");
 		expect(

@@ -177,8 +177,14 @@ export function admitConstraintMessageFixture(
 	assets = mediaManifest(),
 ): void {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
-	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
-		mediaAssets: mediaRecords(assets),
-	});
+	// Validated as a copy: the emitters' plans are made once per document
+	// object, and the tests edit the fixture in place after admitting it.
+	const findings = runValidation(
+		structuredClone(doc),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+		{
+			mediaAssets: mediaRecords(assets),
+		},
+	);
 	if (findings.length > 0) throw new Error(JSON.stringify(findings));
 }

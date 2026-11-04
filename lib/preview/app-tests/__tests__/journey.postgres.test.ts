@@ -530,6 +530,9 @@ it("requires a saved role and parent selection, then executes additional operati
 					{ name: "Receipt", type: "survey" },
 				],
 			},
+			// A child the Inspect form creates under its equipment needs a
+			// menu that lists its case type.
+			{ name: "Inspections", caseType: "inspection", forms: [] },
 		]),
 	);
 	const write = async (name: string, input: unknown) =>

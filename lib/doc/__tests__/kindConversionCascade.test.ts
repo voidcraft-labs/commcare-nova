@@ -145,7 +145,7 @@ describe("planKindConversion — generalized escort", () => {
 		).toBe("datetime");
 	});
 
-	it("keys the conversion plan by caseWrite.property, never the field id", () => {
+	it("keys the conversion plan by the property the question saves to, never the field id", () => {
 		const doc = temporalDoc();
 		const addressed = fieldIn(doc, "visit_on");
 		addressed.id = "visit_date_question";
@@ -274,7 +274,9 @@ describe("planKindConversion — generalized escort", () => {
 	it("blocks a type flip when a case operation also writes the property", () => {
 		const doc = temporalDoc();
 		const formUuid = Object.keys(doc.forms)[0] as import("@/lib/domain").Uuid;
-		(doc.forms[formUuid] as Form).caseOperations = [
+		const form = doc.forms[formUuid] as Form;
+		form.caseOperations = [
+			...(form.caseOperations ?? []),
 			{
 				uuid: testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
 				id: "record_visit_date",

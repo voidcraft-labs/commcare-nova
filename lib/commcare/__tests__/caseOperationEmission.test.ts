@@ -81,7 +81,9 @@ const expectedOperations: Record<OperationScenario, string[]> = {
 	conditional: sequence,
 	repeat: sequence,
 	query: sequence,
-	retype: transitions,
+	// The close form's own close, under a text answer Case Management cannot
+	// state, takes a Save to Case block of its own after the retype.
+	retype: ["promote", "rename_promoted", "nova_close"],
 	"expression-retype": transitions,
 	key: ["create_visit"],
 	"key-query": ["create_visit"],
@@ -306,6 +308,17 @@ it.each(operationScenarios)(
 					`${base}/nova_condition_create_visit/nova_guard_create_visit_text`,
 				);
 			}
+			if (scenario === "retype") {
+				expect(at("nova_close")).toBe(
+					`${base}/nova_condition_close/nova_close`,
+				);
+				expect(
+					xpathEvidence(bind(`${base}/nova_condition_close`).relevant),
+				).toEqual(xpathEvidence("/data/enabled = 'yes'"));
+				expect(
+					children(caseBlock("nova_close")).map((element) => element.name),
+				).toEqual(["close"]);
+			}
 			if (expectedOperations[scenario] === transitions) {
 				expect(
 					xpathEvidence(bind(`${base}/nova_condition_promote`).relevant),
@@ -510,7 +523,9 @@ it("refuses the old repeated-key update fixture at admission", () => {
 	const doc = caseOperationFixture("query");
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const form = Object.values(doc.forms).find((form) => form.caseOperations);
-	const create = form?.caseOperations?.[0];
+	const create = form?.caseOperations?.find(
+		(operation) => operation.action !== "own",
+	);
 	const key = Object.values(doc.fields).find((field) => field.id === "key");
 	if (!create || !key) throw new Error("Missing operation fixture identity");
 	create.target = { kind: "new", idFrom: key.uuid };
@@ -562,9 +577,9 @@ function locationPaths(source: string): string[] {
 
 it("writes one update-only guard of each kind after its operation's block, reading the block through current()", () => {
 	const doc = caseOperationFixture("expression-retype");
-	const promote = Object.values(doc.forms).find(
-		(form) => form.caseOperations !== undefined,
-	)?.caseOperations?.[0];
+	const promote = Object.values(doc.forms)
+		.find((form) => form.caseOperations !== undefined)
+		?.caseOperations?.find((operation) => operation.action !== "own");
 	if (promote === undefined) throw new Error("Missing promote");
 	promote.rename = term(formField(fieldUuid(doc, "answer")));
 	promote.links = ["first", "second"].map((identifier) => ({
@@ -637,9 +652,9 @@ it("writes one update-only guard of each kind after its operation's block, readi
 
 it("checks an external_id write declared datetime in its text guard", () => {
 	const doc = caseOperationFixture("scalar");
-	const operation = Object.values(doc.forms).find(
-		(form) => form.caseOperations !== undefined,
-	)?.caseOperations?.[0];
+	const operation = Object.values(doc.forms)
+		.find((form) => form.caseOperations !== undefined)
+		?.caseOperations?.find((operation) => operation.action !== "own");
 	const patient = doc.caseTypes?.find((type) => type.name === "patient");
 	if (operation === undefined || patient === undefined)
 		throw new Error("Missing scalar fixture identity");

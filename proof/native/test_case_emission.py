@@ -271,6 +271,18 @@ def _check_operation(record):
     return _ordered(record, name.removeprefix("operation-"))
 
 
+def _check_edited(record):
+    """A form whose own case saves an answer only when it changed: Case Management's alone, so it holds no
+    ``nova_operations`` group, and HQ's build under ``SAVE_ONLY_EDITED_FORM_FIELDS`` writes the comparison with the
+    case into the update's relevance (``xform.py::XFormCaseBlock.add_case_updates``), as the local form does."""
+    name = record["scenario"]
+    for xml in [record["native"], record["local"]]:
+        tree = etree.fromstring(xml)
+        relevant = tree.xpath('//x:bind[@nodeset="/data/case/update/nickname"]/@relevant', namespaces=NAMESPACES)
+        assert len(relevant) == 1 and "instance('casedb')" in relevant[0] and "!=" in relevant[0], (name, relevant)
+    return _ordered(record, name.removeprefix("operation-"))
+
+
 def _ordered(record, scenario):
     """The record's hashes, once the local form's case blocks stand where HQ's regenerated form puts them."""
     native = _child_orders(etree.fromstring(record["native"]))
@@ -300,5 +312,6 @@ def test_hq_keeps_extension_indices_datums_worker_writes_and_whole_case_forms(na
         "workerEvidence": [_check_worker(record) for record in result["workers"]],
         "captureEvidence": [_check_capture(record) for record in result["captures"]],
         "operationEvidence": [_check_operation(record) for record in result["operations"]],
+        "editedEvidence": [_check_edited(record) for record in result["edited"]],
     }
     write_evidence(native.family("case"), "case-emission", evidence)

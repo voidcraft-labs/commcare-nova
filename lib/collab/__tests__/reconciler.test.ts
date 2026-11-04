@@ -15,7 +15,11 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	lowerFixtureCaseWrites,
+} from "@/lib/__tests__/docHelpers";
 import {
 	createReconciler,
 	type MutationFrame,
@@ -42,6 +46,7 @@ import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type Automation,
 	automationMessageText,
+	fieldCaseWriteViews,
 	proseTemplateText,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -112,15 +117,10 @@ function makeRenameDoc(appName = "App"): BlueprintDoc {
 			properties: [{ name: "a", label: proseText("A") }],
 		},
 	];
-	const field = doc.fields[F_A];
-	if (field === undefined || field.kind !== "text") {
-		throw new Error("rename fixture field must be text");
-	}
-	doc.fields[F_A] = {
-		...field,
-		caseWrite: { caseType: "patient", property: "a" },
-	};
-	return doc;
+	return lowerFixtureCaseWrites(
+		doc,
+		new Map([[F_A, { caseType: "patient", property: "a" }]]),
+	);
 }
 
 function caseUpdateAutomation(): Extract<Automation, { kind: "case-update" }> {
@@ -189,14 +189,14 @@ function makeAutomationDoc(): BlueprintDoc {
 	return doc;
 }
 
-function fieldCaseWrite(
+/** Where the form saves `uuid`'s answer, when it saves it once. */
+function savedTo(
 	doc: BlueprintDoc,
 	uuid: Uuid,
 ): { readonly caseType: string; readonly property: string } | undefined {
-	const field = doc.fields[uuid];
-	return field !== undefined && "caseWrite" in field
-		? field.caseWrite
-		: undefined;
+	const [view, ...rest] = fieldCaseWriteViews(doc, uuid);
+	if (view === undefined || rest.length > 0) return undefined;
+	return { caseType: view.caseType, property: view.property };
 }
 
 function renameProperty(from: string, to: string): Mutation {
@@ -723,7 +723,7 @@ describe("reconciler", () => {
 			);
 			// Replaying a→b over the peer's a→c base is inadmissible. The local
 			// display and exact queued command remain intact; no partial fold.
-			expect(fieldCaseWrite(h.docStore.getState(), F_A)).toEqual({
+			expect(savedTo(h.docStore.getState(), F_A)).toEqual({
 				caseType: "patient",
 				property: "b",
 			});
@@ -894,7 +894,7 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().canUndo).toBe(false);
 			expect(h.docStore.getState().appName).toBe("Base");
 			expect(h.docStore.getState().forms[FORM].purpose).toBeUndefined();
-			expect(fieldCaseWrite(h.docStore.getState(), F_A)).toEqual({
+			expect(savedTo(h.docStore.getState(), F_A)).toEqual({
 				caseType: "patient",
 				property: "a",
 			});

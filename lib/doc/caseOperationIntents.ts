@@ -25,6 +25,13 @@ export function caseOperationTargetTypeAfter(
 	let caseType = target.kind === "session" ? initialSessionCaseType : undefined;
 
 	for (const operation of precedingOperations) {
+		// The own arm works on the form's own case, whose type is the module's:
+		// a reference to it by operation names that case, and it never retypes.
+		if (operation.action === "own") {
+			if (target.kind === "op" && target.opUuid === operation.uuid)
+				caseType = initialSessionCaseType;
+			continue;
+		}
 		if (
 			operation.action === "create" &&
 			target.kind === "op" &&
@@ -63,6 +70,8 @@ export function retargetCaseOperation(
 	precedingOperations: readonly CaseOperation[],
 	initialSessionCaseType: string | undefined,
 ): CaseOperation {
+	// The own arm stores no target: its case is the form's own.
+	if (operation.action === "own") return operation;
 	const caseType =
 		target.kind === "new"
 			? undefined

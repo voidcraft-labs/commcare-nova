@@ -675,7 +675,12 @@ it.each([
 				expect(evaluation("filled-answers")).toMatchObject({
 					mode: "evaluation",
 					valid: true,
-					proposedValues: { primary: { caseName: "Ada - Drill" } },
+					// The form's own case is an operation the running app
+					// evaluates at submission.
+					proposedValues: {
+						kind: "registration",
+						caseOperations: "not-evaluated",
+					},
 				});
 				expect(
 					await withAppTx((tx) =>

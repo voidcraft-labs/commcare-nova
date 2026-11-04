@@ -384,35 +384,20 @@ export type PopulateSampleCasesResult =
 	| { kind: "error"; message: string };
 
 /**
- * One submission's worth of case-store mutations, derived from a
- * completed form. The form engine emits this directly — the
- * authoring layer has no `XForm`-style serialization step between
- * the engine's tree and the case-store. `kind` mirrors `FormType`
+ * One submission, derived from a completed form. `kind` mirrors `FormType`
  * so the type checker forces consumers to reason about every arm.
  *
- * Per-arm shape:
- * - `registration` — `primary` is the new case the form creates;
- *   `children` are additional cases bucketed by explicit `caseWrite`
- *   destination and repeat identity.
- *   Children carry NO `parentCaseId`; the case-store's submission
- *   envelope threads the primary's generated id at write time.
- * - `followup` — `caseIds` is the ordered selected set the form acts on;
- *   `patch.properties` is the JSONB delta. Multi-case admission forbids the
- *   primary patch; ordinary children expand once per selected parent in the
- *   atomic envelope.
- * - `close` — same shape as `followup`, plus the bound case's atomic
- *   lifecycle transition (`closed_on` + built-in `status = "closed"`)
- *   after the updates land.
- * - `survey` — structural no-op; the form owns no case rows.
+ * The client names answers and never a case write: every case change the
+ * form makes is one of its case operations, its own case first, which the
+ * server builds from the committed form and evaluates against
+ * `operationAnswers` inside one Postgres transaction
+ * (`CaseStore.applySubmission`).
  *
- * All three case-bearing arms land through `CaseStore.applySubmission`
- * in ONE Postgres transaction — primary write, every child, and the
- * close transition together or not at all.
- *
- * `caseName` and `externalId` are separate from `properties` because the
- * case-store routes them to dedicated row columns. The JSONB document carries
- * only user-defined properties. The walker keys off the explicit
- * `caseWrite.property`, not the editable form-field id.
+ * - `registration` — the form's own arm creates its case.
+ * - `followup` / `close` — `caseIds` is the ordered selected set the form
+ *   acts on; the own arm updates each, and on a close form closes it when
+ *   the form's close condition holds.
+ * - `survey` — the form owns no case of its own; its operations still run.
  */
 /** One collected answer for the operation program — plain JSON for the
  *  Server Action wire (a Map would flip the call to multipart and trip
@@ -420,6 +405,10 @@ export type PopulateSampleCasesResult =
 export interface SubmissionAnswerEntry {
 	readonly fieldUuid: string;
 	readonly value: string | readonly string[];
+	/** The question does not take part in the submission (it, or a group or
+	 *  repeat around it, is not relevant). Its value reads blank; a write that
+	 *  saves its answer as it is to a case the form updates saves nothing. */
+	readonly absent?: true;
 }
 
 /**
@@ -451,34 +440,6 @@ export interface SubmissionAttachmentReference {
 }
 
 /**
- * Raw submitted values for the one field a close form's committed close
- * condition reads. `values` follows the main instance's relevant node order:
- * zero values is an empty nodeset, one is the ordinary scalar case, and more
- * than one is preserved so the server can reject the same scalar-coercion
- * ambiguity JavaRosa rejects rather than choosing an iteration.
- *
- * This is answer data, never condition authority. The committed form chooses
- * the field, operator, and comparison value server-side.
- */
-export interface SubmissionCloseConditionAnswers {
-	readonly fieldUuid: string;
-	readonly values: ReadonlyArray<string>;
-}
-
-/**
- * Stable identity of one authored ordinary child bucket. `caseType` plus the
- * nearest repeat UUID (or root when absent) identifies the committed bucket;
- * `repeatInstanceKey` distinguishes concrete submitted iterations without
- * turning their rendered path into authority. The server validates every
- * member against the committed case-write inventory before projecting a seed.
- */
-export interface SubmissionOrdinaryChildBucket {
-	readonly caseType: string;
-	readonly repeatUuid?: string;
-	readonly repeatInstanceKey?: string;
-}
-
-/**
  * The final submission protocol every arm carries.
  *
  * `entryKey` names this form entry's attachment scope
@@ -500,78 +461,19 @@ interface SubmissionProtocol {
 	readonly formUuid: string;
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
-	readonly closeConditionAnswers?: SubmissionCloseConditionAnswers;
-	/** Aligned 1:1 with a case-bearing arm's `children`. FormEngine always
-	 * supplies it; optional in the untrusted wire type so a stale or forged
-	 * client can reach the server's explicit reload-and-submit rejection. */
-	readonly ordinaryChildBuckets?: ReadonlyArray<SubmissionOrdinaryChildBucket>;
+	/** The answers the committed form's case operations and its open and
+	 * close conditions read. Present whenever the form has an operation; a
+	 * form with none, a survey or a form in a menu with no case type, sends
+	 * none. */
 	readonly operationAnswers?: SubmissionOperationAnswers;
-	/**
-	 * Answers saved to the worker's own record, if the form has any.
-	 *
-	 * On the protocol rather than inside an arm because that is where the wire
-	 * puts it: `usercase_update` is independent of the primary case action, so
-	 * a survey form carries one just as a followup does.
-	 *
-	 * Not authority. The server writes it to the ACTING worker's record —
-	 * addressed by the store's own bound owner — so this names values, never a
-	 * record.
-	 */
-	readonly usercase?: JsonObject;
 }
 
 export type SubmissionMutation = SubmissionProtocol &
 	(
-		| {
-				kind: "registration";
-				primary: {
-					caseType: string;
-					caseName?: string;
-					externalId?: string;
-					properties: JsonObject;
-				};
-				children: ReadonlyArray<{
-					caseType: string;
-					caseName?: string;
-					externalId?: string;
-					properties: JsonObject;
-				}>;
-		  }
-		| {
-				kind: "followup";
-				caseIds: ReadonlyArray<string>;
-				patch: {
-					caseName?: string;
-					externalId?: string;
-					properties: JsonObject;
-				};
-				children: ReadonlyArray<{
-					caseType: string;
-					caseName?: string;
-					externalId?: string;
-					properties: JsonObject;
-				}>;
-		  }
-		| {
-				kind: "close";
-				caseIds: ReadonlyArray<string>;
-				patch: {
-					caseName?: string;
-					externalId?: string;
-					properties: JsonObject;
-				};
-				children: ReadonlyArray<{
-					caseType: string;
-					caseName?: string;
-					externalId?: string;
-					properties: JsonObject;
-				}>;
-		  }
-		| {
-				/** A survey touches no case ORDINARILY, but its case operations and
-				 * capture intent still execute through the same final protocol. */
-				kind: "survey";
-		  }
+		| { kind: "registration" }
+		| { kind: "followup"; caseIds: ReadonlyArray<string> }
+		| { kind: "close"; caseIds: ReadonlyArray<string> }
+		| { kind: "survey" }
 	);
 
 /**

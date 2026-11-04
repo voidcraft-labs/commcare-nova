@@ -4,21 +4,32 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	type Automation,
 	automationMessageText,
+	type CaseOperationWrite,
 	type Column,
+	type Field,
 	type Module,
 	NEW_APP_SETTINGS,
 	plainColumn,
 } from "@/lib/domain";
-import { literal, prop, term } from "@/lib/domain/expression";
-import { proseText } from "@/lib/domain/prose";
+import {
+	formField,
+	literal,
+	prop,
+	type RelationStep,
+	term,
+} from "@/lib/domain/expression";
+import { type ProsePart, proseText } from "@/lib/domain/prose";
 import {
 	decodeProjectSpaceCompatibilityReport,
 	encodeProjectSpaceCompatibilityReport,
+	linkWriteDestinations,
+	linkWriteIsShown,
 	projectSpaceCompatibilityForDownload,
 	projectSpaceCompatibilityForTarget,
 	projectSpaceCompatibilityProbePlan,
 	requiredProjectSpaceCapabilities,
 } from "../projectSpaceCompatibility";
+import { domainFeatureFlag } from "../surface/gates";
 
 // These tests project authored feature facts over a whole document; target
 // support is supplied by probes.
@@ -320,54 +331,127 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 	});
 
 	describe("a captured file's link", () => {
-		// Every capture's case write is a link to the submitted file, a
-		// capture of any kind included. No export writes a case attachment,
-		// so no document asks the project space to store files on cases; the
-		// only thing a link asks is to be opened, where a screen shows it.
-		const capture = (
-			kind: "image" | "file",
-			uuid: ReturnType<typeof testUuid>,
-		) => ({
-			uuid,
-			id: `photo_${kind}`,
-			kind,
-			label: proseText("Photo"),
-			caseWrite: { caseType: "patient", property: "photo" },
-		});
-		const imageUuid = testUuid("field-photo-image");
-		const fileUuid = testUuid("field-photo-file");
-		const fields = {
-			[imageUuid]: capture("image", imageUuid),
-			[fileUuid]: capture("file", fileUuid),
-		};
+		// Every capture's case write is a link to the submitted file, held
+		// as a case operation's write whose value is `capture-link`. No
+		// export writes a case attachment, so the only thing a link asks of
+		// the project space is to be opened, where something shows it.
+		const householdModuleUuid = testUuid("module-households");
+		const patientModuleUuid = testUuid("module-patients");
+		const visitUuid = testUuid("form-visit");
+		const photoUuid = testUuid("field-photo");
+		const noteUuid = testUuid("field-note");
+		const copyUuid = testUuid("field-photo-copy");
 		const columnUuid = testUuid("column-photo");
-		const probePlan = (columns: Module["caseListConfig"] = undefined) => {
-			const patient = module(
-				columns === undefined ? {} : { caseListConfig: columns },
-			);
-			return projectSpaceCompatibilityProbePlan(
-				doc({ fields, modules: { [patient.uuid]: patient } }),
-			);
-		};
-		const capabilityIds = (columns: Module["caseListConfig"] = undefined) =>
-			probePlan(columns).capabilities.map((item) => item.capability.id);
+		const caseTypes = [
+			{ name: "household", properties: [] },
+			{ name: "patient", parent_type: "household", properties: [] },
+		];
+		const parentVia: [RelationStep] = [{ identifier: "parent" }];
+		const linkWrite = (via?: typeof parentVia): CaseOperationWrite => ({
+			property: "photo",
+			value: term({ kind: "capture-link", field: photoUuid }),
+			...(via === undefined ? {} : { via }),
+		});
 		const listOf = (columns: Column[]) => ({
 			columns,
 			listColumnOrder: columns.map((column) => column.uuid),
 			detailColumnOrder: columns.map((column) => column.uuid),
 			searchInputs: [],
 		});
+		/** A follow-up on a patient that saves the photo's link, with the
+		 *  columns each module shows and any further questions. */
+		const linkDoc = (
+			options: {
+				readonly via?: typeof parentVia;
+				readonly patientColumns?: Column[];
+				readonly householdColumns?: Column[];
+				readonly fields?: readonly Field[];
+			} = {},
+		): CompatibilityInput => {
+			const households = module({
+				uuid: householdModuleUuid,
+				id: "households",
+				name: "Households",
+				caseType: "household",
+				caseListConfig: listOf(options.householdColumns ?? []),
+			});
+			const patients = module({
+				uuid: patientModuleUuid,
+				caseListOnly: false,
+				caseListConfig: listOf(options.patientColumns ?? []),
+			});
+			const photo: Field = {
+				uuid: photoUuid,
+				id: "photo",
+				kind: "image",
+				label: proseText("Photo"),
+			};
+			const extra = options.fields ?? [];
+			return doc({
+				caseTypes,
+				modules: { [households.uuid]: households, [patients.uuid]: patients },
+				moduleOrder: [households.uuid, patients.uuid],
+				forms: {
+					[visitUuid]: {
+						uuid: visitUuid,
+						id: "visit",
+						name: "Visit",
+						type: "followup",
+						caseOperations: [
+							{
+								uuid: testUuid("operation-own"),
+								id: "own",
+								action: "own",
+								writes: [linkWrite(options.via)],
+							},
+						],
+					},
+				},
+				formOrder: {
+					[households.uuid]: [],
+					[patients.uuid]: [visitUuid],
+				},
+				fields: Object.fromEntries(
+					[photo, ...extra].map((field) => [field.uuid, field]),
+				),
+				fieldOrder: {
+					[visitUuid]: [photoUuid, ...extra.map((field) => field.uuid)],
+				},
+			});
+		};
+		const capabilityIds = (input: CompatibilityInput) =>
+			requiredProjectSpaceCapabilities(input).map((item) => item.id);
+		const PATIENT = { caseType: "patient", property: "photo" };
+		const HOUSEHOLD = { caseType: "household", property: "photo" };
 
-		it("asks nothing where no screen shows it", () => {
-			expect(capabilityIds()).toEqual([]);
+		it("lands each link write on its operation's case, or the ancestor its via reaches", () => {
+			expect(linkWriteDestinations(linkDoc())).toEqual([PATIENT]);
+			expect(linkWriteDestinations(linkDoc({ via: parentVia }))).toEqual([
+				HOUSEHOLD,
+			]);
 		});
 
-		it("asks for links to captured files where a column shows it", () => {
-			const plan = probePlan(
-				listOf([plainColumn(columnUuid, "photo", "Photo")]),
-			);
+		it("asks nothing where nothing shows it", () => {
+			const input = linkDoc({
+				// A column of another case type naming the same property shows
+				// that type's value, not the link.
+				householdColumns: [plainColumn(columnUuid, "photo", "Photo")],
+			});
+			expect(linkWriteIsShown(input, PATIENT)).toBe(false);
+			expect(capabilityIds(input)).toEqual([]);
+		});
+
+		it("asks for links to captured files where a plain column shows it", () => {
+			const input = linkDoc({
+				patientColumns: [plainColumn(columnUuid, "photo", "Photo")],
+			});
+			expect(linkWriteIsShown(input, PATIENT)).toBe(true);
+			const plan = projectSpaceCompatibilityProbePlan(input);
 			expect(plan.capabilities.map((item) => item.capability.id)).toEqual([
 				"attachment-links",
+			]);
+			expect(plan.capabilities[0]?.capability.reasons).toEqual([
+				"The app shows a link to a captured file in a case list, its details or a form.",
 			]);
 			expect(
 				plan.capabilities.flatMap((item) =>
@@ -376,32 +460,176 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 			).toEqual(["attachment-links"]);
 		});
 
-		it("asks for links to captured files where a calculated column reads it", () => {
-			expect(
-				capabilityIds(
-					listOf([
-						{
-							uuid: columnUuid,
-							kind: "calculated",
-							header: "Photo",
-							expression: term(prop("patient", "photo")),
-						},
-					]),
-				),
-			).toEqual(["attachment-links"]);
+		it("asks where a child menu's calculated column shows a link saved on its parent", () => {
+			const input = linkDoc({
+				via: parentVia,
+				patientColumns: [
+					{
+						uuid: columnUuid,
+						kind: "calculated",
+						header: "Household photo",
+						expression: term(
+							prop("patient", "photo", { kind: "ancestor", via: parentVia }),
+						),
+					},
+				],
+			});
+			expect(linkWriteIsShown(input, HOUSEHOLD)).toBe(true);
+			expect(capabilityIds(input)).toEqual(["attachment-links"]);
+			// The same column reading the patient's own property shows
+			// another value.
+			const own = linkDoc({
+				via: parentVia,
+				patientColumns: [
+					{
+						uuid: columnUuid,
+						kind: "calculated",
+						header: "Photo",
+						expression: term(prop("patient", "photo")),
+					},
+				],
+			});
+			expect(linkWriteIsShown(own, HOUSEHOLD)).toBe(false);
+		});
+
+		it("asks where a form's prose prints the link, directly or through a question that reads it", () => {
+			const note = (part: ProsePart): Field => ({
+				uuid: noteUuid,
+				id: "note",
+				kind: "label",
+				label: { parts: [{ kind: "text", text: "Open the photo: " }, part] },
+			});
+			const copy: Field = {
+				uuid: copyUuid,
+				id: "photo_link",
+				kind: "hidden",
+				default_value: term({
+					kind: "form-case",
+					caseType: "patient",
+					property: "photo",
+				}),
+			};
+
+			const printed = linkDoc({
+				fields: [
+					note({ kind: "case-ref", caseType: "patient", property: "photo" }),
+				],
+			});
+			expect(linkWriteIsShown(printed, PATIENT)).toBe(true);
+			expect(capabilityIds(printed)).toEqual(["attachment-links"]);
+
+			const throughQuestion = linkDoc({
+				fields: [copy, note({ kind: "field-ref", uuid: copyUuid })],
+			});
+			expect(linkWriteIsShown(throughQuestion, PATIENT)).toBe(true);
+
+			// A question that reads the link, and no prose that prints it.
+			expect(linkWriteIsShown(linkDoc({ fields: [copy] }), PATIENT)).toBe(
+				false,
+			);
 		});
 
 		it("asks nothing for a column hidden from both screens", () => {
-			expect(
-				capabilityIds(
-					listOf([
-						plainColumn(columnUuid, "photo", "Photo", {
-							visibleInList: false,
-							visibleInDetail: false,
-						}),
-					]),
+			const input = linkDoc({
+				patientColumns: [
+					plainColumn(columnUuid, "photo", "Photo", {
+						visibleInList: false,
+						visibleInDetail: false,
+					}),
+				],
+			});
+			expect(linkWriteIsShown(input, PATIENT)).toBe(false);
+			expect(capabilityIds(input)).toEqual([]);
+		});
+	});
+
+	describe("saving only answers that changed", () => {
+		const formUuid = testUuid("form-update");
+		const answerUuid = testUuid("field-weight");
+		const updateDoc = (onlyIfChanged: boolean): CompatibilityInput => {
+			const patients = module({ caseListOnly: false });
+			return doc({
+				modules: { [patients.uuid]: patients },
+				moduleOrder: [patients.uuid],
+				forms: {
+					[formUuid]: {
+						uuid: formUuid,
+						id: "update",
+						name: "Update",
+						type: "followup",
+						caseOperations: [
+							{
+								uuid: testUuid("operation-own"),
+								id: "own",
+								action: "own",
+								writes: [
+									{
+										property: "weight",
+										value: term(formField(answerUuid)),
+										...(onlyIfChanged ? { onlyIfChanged: true as const } : {}),
+									},
+								],
+							},
+						],
+					},
+				},
+				formOrder: { [patients.uuid]: [formUuid] },
+				fields: {
+					[answerUuid]: {
+						uuid: answerUuid,
+						id: "weight",
+						kind: "decimal",
+						label: proseText("Weight"),
+					},
+				},
+				fieldOrder: { [formUuid]: [answerUuid] },
+			});
+		};
+
+		it("asks for the setting exactly where a write saves only a changed answer", () => {
+			expect(requiredProjectSpaceCapabilities(updateDoc(false))).toEqual([]);
+			const [capability, ...rest] = projectSpaceCompatibilityProbePlan(
+				updateDoc(true),
+			).capabilities;
+			expect(rest).toEqual([]);
+			expect(capability?.capability.id).toBe("save-only-edited-answers");
+			expect(capability?.capability.label).toBe(
+				"Save only answers that changed",
+			);
+			expect(capability?.capability.reasons).toEqual([
+				"A form saves an answer to a case only when the worker changed it.",
+			]);
+			const gate = domainFeatureFlag("SAVE_ONLY_EDITED_FORM_FIELDS");
+			expect(capability?.featureFlags).toEqual([
+				{
+					id: "save-only-edited-answers",
+					slug: gate.slug,
+					namespace: gate.namespace,
+				},
+			]);
+			expect(capability?.runtimeProbes).toEqual([]);
+		});
+
+		it("stops a publish to a project space without it, and keeps the capability through the public report", () => {
+			const report = projectSpaceCompatibilityForTarget(
+				"clinic-space",
+				projectSpaceCompatibilityProbePlan(updateDoc(true)).capabilities.map(
+					(plan) => ({
+						capability: plan.capability,
+						state: "missing" as const,
+					}),
 				),
-			).toEqual([]);
+				[],
+			);
+			expect(report.status).toBe("blocked");
+			expect(report.blockers.map((blocker) => blocker.id)).toEqual([
+				"save-only-edited-answers",
+			]);
+			expect(
+				decodeProjectSpaceCompatibilityReport(
+					encodeProjectSpaceCompatibilityReport(report),
+				),
+			).toEqual(report);
 		});
 	});
 });

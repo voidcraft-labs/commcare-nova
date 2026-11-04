@@ -5,7 +5,9 @@ import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { projectAuthoringRead } from "@/lib/agent/authoring/output";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import { formCasePlacementView } from "@/lib/doc/casePlacements";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	caseOperationSchema,
@@ -29,6 +31,7 @@ import { removeCaseOperationTool } from "../removeCaseOperation";
 import {
 	type CaseOperationInput,
 	caseOperationInputSchema,
+	OWN_CASE_OPERATION_REFUSAL,
 	resolveCaseOperationInput,
 } from "../shared";
 import { updateCaseOperationTool } from "../updateCaseOperation";
@@ -134,6 +137,25 @@ function fixture(): {
 		moduleUuid,
 		formUuid: doc.formOrder[moduleUuid][0],
 	};
+}
+
+/** The follow-up form's own case: always its first change. */
+function ownOf(doc: BlueprintDoc, formUuid: Uuid): Uuid {
+	const own = doc.forms[formUuid].caseOperations?.[0];
+	if (own?.action !== "own") throw new Error("fixture own case");
+	return own.uuid;
+}
+
+/** An authored getCaseOperations read's changes, each with the placement
+ *  words the read adds. */
+function readOperations(data: unknown) {
+	return z
+		.object({ operations: z.array(z.record(z.string(), z.unknown())) })
+		.parse(data)
+		.operations.map(({ placement, ...operation }) => ({
+			operation,
+			placement,
+		}));
 }
 
 function item(operation: CaseOperationInput, operationUuid: Uuid) {
@@ -413,12 +435,14 @@ describe("shared case-operation tools", () => {
 		});
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		const operations = h.currentDoc().forms[formUuid].caseOperations ?? [];
-		expect(operations).toHaveLength(2);
-		expect(operations[0]).toMatchObject({
+		// The new changes run after this form's own case.
+		expect(operations).toHaveLength(3);
+		expect(operations[0]).toMatchObject({ action: "own" });
+		expect(operations[1]).toMatchObject({
 			uuid: CREATE_UUID,
 			name: fieldValue,
 		});
-		expect(operations[1]).toMatchObject({
+		expect(operations[2]).toMatchObject({
 			uuid: UPDATE_UUID,
 			target: { kind: "op", opUuid: CREATE_UUID },
 			writes: [
@@ -446,8 +470,9 @@ describe("shared case-operation tools", () => {
 			.object({ operations: z.array(caseOperationSchema) })
 			.parse(read.data).operations;
 		expect(projected).toEqual(h.currentDoc().forms[formUuid].caseOperations);
-		expect(projected[0]).toMatchObject({ uuid: CREATE_UUID, name: fieldValue });
-		expect(projected[1]).toMatchObject({
+		expect(projected[0]).toMatchObject({ action: "own" });
+		expect(projected[1]).toMatchObject({ uuid: CREATE_UUID, name: fieldValue });
+		expect(projected[2]).toMatchObject({
 			uuid: UPDATE_UUID,
 			target: { kind: "op", opUuid: CREATE_UUID },
 			writes: updateVisit.writes,
@@ -591,19 +616,20 @@ describe("shared case-operation tools", () => {
 			],
 		});
 		h.recordMutations.mockClear();
+		const own = ownOf(doc, formUuid);
 		const moved = await h.runTool(moveCaseOperationTool, {
 			moduleUuid,
 			formUuid,
 			operationUuid: independentUuid,
-			afterOperationUuid: null,
+			afterOperationUuid: own,
 		});
 		expect(moved.result).toMatchObject({
-			afterOperationUuid: null,
-			operationOrder: [independentUuid, CREATE_UUID, UPDATE_UUID],
+			afterOperationUuid: own,
+			operationOrder: [own, independentUuid, CREATE_UUID, UPDATE_UUID],
 		});
 		expect(
 			h.currentDoc().forms[formUuid].caseOperations?.map((op) => op.uuid),
-		).toEqual([independentUuid, CREATE_UUID, UPDATE_UUID]);
+		).toEqual([own, independentUuid, CREATE_UUID, UPDATE_UUID]);
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		for (const operationUuid of [UPDATE_UUID, CREATE_UUID]) {
 			const removed = await h.runTool(removeCaseOperationTool, {
@@ -615,7 +641,7 @@ describe("shared case-operation tools", () => {
 		}
 		expect(
 			h.currentDoc().forms[formUuid].caseOperations?.map((op) => op.uuid),
-		).toEqual([independentUuid]);
+		).toEqual([own, independentUuid]);
 		expect(h.recordMutations).toHaveBeenCalledTimes(3);
 		expectAdmittedDoc(h.currentDoc());
 	});
@@ -629,15 +655,16 @@ describe("shared case-operation tools", () => {
 			operations: [item(createVisit, CREATE_UUID)],
 		});
 		h.recordMutations.mockClear();
+		const own = ownOf(doc, formUuid);
 		const moved = await h.runTool(moveCaseOperationTool, {
 			moduleUuid,
 			formUuid,
 			operationUuid: CREATE_UUID,
-			afterOperationUuid: null,
+			afterOperationUuid: own,
 		});
 		expect(moved.result).toMatchObject({
-			afterOperationUuid: null,
-			operationOrder: [CREATE_UUID],
+			afterOperationUuid: own,
+			operationOrder: [own, CREATE_UUID],
 			ok: true,
 		});
 		expect(moved.mutations).toEqual([]);
@@ -793,5 +820,165 @@ describe("dependency refusals name the actual constraint", () => {
 		const error = z.object({ error: z.string() }).parse(removed.result).error;
 		expect(error).toContain("uses its result");
 		expect(error).not.toContain("kind of case");
+	});
+});
+
+describe("this form's own case on the case change tools", () => {
+	it("edits the own case in place, keeping its identity", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const own = ownOf(doc, formUuid);
+		const before = h.currentDoc().forms[formUuid].caseOperations?.[0];
+		if (before?.action !== "own") throw new Error("fixture own case");
+		const visits = {
+			property: "visits",
+			value: { kind: "term", term: { kind: "literal", value: 1 } },
+		} as const;
+
+		const result = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: own,
+			operation: {
+				action: "own",
+				writes: [...(before.writes ?? []), visits],
+			},
+		});
+
+		expect(result.result).not.toHaveProperty("error");
+		// One granular write addition on the own arm, never a replacement.
+		expect(
+			result.mutations.some(
+				(mutation) =>
+					mutation.kind === "updateForm" &&
+					mutation.caseOperationChange !== undefined,
+			),
+		).toBe(false);
+		const after = h.currentDoc().forms[formUuid].caseOperations ?? [];
+		expect(after[0]).toMatchObject({
+			uuid: own,
+			id: before.id,
+			action: "own",
+			writes: [...(before.writes ?? []), visits],
+		});
+		expectAdmittedDoc(h.currentDoc());
+	});
+
+	it("refuses turning the own case into another change or another change into it", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [item(createVisit, CREATE_UUID)],
+		});
+		h.recordMutations.mockClear();
+
+		const intoCreate = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: ownOf(doc, formUuid),
+			operation: createVisit,
+		});
+		const intoOwn = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: CREATE_UUID,
+			operation: { action: "own" },
+		});
+
+		expect(intoCreate.result).toHaveProperty("error");
+		expect(intoOwn.result).toHaveProperty("error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("refuses adding, removing or moving the own case", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [item(createVisit, CREATE_UUID)],
+		});
+		h.recordMutations.mockClear();
+		const own = ownOf(doc, formUuid);
+
+		// A new change is never the own case: the strict union has no own arm.
+		expect(
+			addCaseOperationsInputSchema.safeParse({
+				moduleUuid,
+				formUuid,
+				operations: [{ operation: { action: "own" } }],
+			}).success,
+		).toBe(false);
+		const added = await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [
+				item({ ...createVisit, id: "first_visit" }, testUuid("first-visit")),
+			],
+			afterOperationUuid: null,
+		});
+		const removed = await h.runTool(removeCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: own,
+		});
+		const movedOwn = await h.runTool(moveCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: own,
+			afterOperationUuid: CREATE_UUID,
+		});
+		const movedAbove = await h.runTool(moveCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: CREATE_UUID,
+			afterOperationUuid: null,
+		});
+
+		for (const refused of [added, removed, movedOwn, movedAbove])
+			expect(refused.result).toEqual({ error: OWN_CASE_OPERATION_REFUSAL });
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(
+			h.currentDoc().forms[formUuid].caseOperations?.map((op) => op.uuid),
+		).toEqual([own, CREATE_UUID]);
+	});
+
+	it("reads the own case first, each change with where CommCare HQ keeps it", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: visitBatch(),
+		});
+		const read = await h.runTool(getCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+		});
+
+		// The authored read every client sees: the projector puts each
+		// change's placement on it.
+		const authored = projectAuthoringRead({
+			toolName: "getCaseOperations",
+			data: read.data,
+			doc: h.currentDoc(),
+		});
+		const operations = readOperations(authored);
+		expect(operations[0]?.operation).toMatchObject({
+			uuid: ownOf(doc, formUuid),
+			action: "own",
+		});
+		// The read relays the placement planner the export reads: a plain
+		// write of the loaded case is kept in Case Management.
+		expect(operations[0]?.placement).toBe("case management");
+		const view = formCasePlacementView(h.currentDoc(), formUuid);
+		expect(operations.map(({ placement }) => placement)).toEqual(
+			view.operations.map(({ entry }) =>
+				entry.home === "save-to-case" ? "save to case" : "case management",
+			),
+		);
+		expect(authored).not.toHaveProperty("placements");
 	});
 });

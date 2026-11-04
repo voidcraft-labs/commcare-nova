@@ -567,9 +567,22 @@ def test_the_case_database_seeds_each_property_from_the_effective_catalog():
     document = _document()
     patient = document["doc"]["caseTypes"][1]
     patient["properties"].append({"name": "start_date"})
-    document["doc"]["fields"] = {
-        "date": {"kind": "date", "caseWrite": {"caseType": "patient", "property": "start_date"}},
-        "saved": {"kind": "int", "caseWrite": {"caseType": "patient", "property": "saved_prop"}},
+    document["doc"]["fields"] = {"date": {"kind": "date"}, "saved": {"kind": "int"}}
+    answer = lambda uuid: {"kind": "term", "term": {"kind": "field", "uuid": uuid}}  # noqa: E731
+    document["doc"]["forms"] = {
+        "form": {
+            "caseOperations": [
+                {
+                    "uuid": "own",
+                    "id": "patient",
+                    "action": "own",
+                    "writes": [
+                        {"property": "start_date", "value": answer("date")},
+                        {"property": "saved_prop", "value": answer("saved")},
+                    ],
+                }
+            ]
+        }
     }
     catalog = document["catalog"][1]
     catalog["properties"].extend(

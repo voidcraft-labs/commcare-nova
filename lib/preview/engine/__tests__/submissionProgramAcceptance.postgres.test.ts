@@ -1,15 +1,17 @@
 // Submission-program acceptance: the ENGINE's collected answers flow
 // through the PURE program builder into the REAL storage executor —
 // proving the production supplier produces executor-compatible programs
-// over a real committed-doc shape. Covers the absent-value matrix
-// (blank answer → absent JSONB key; blank authored key → typed
-// whole-rollback rejection) and effect ordering (iteration-major
-// repeat expansion; the ordinary action landing LAST with its
-// caseType folded into the rolling proof).
+// over a real committed-doc shape. Covers the form's own case (its
+// creates under the ids its entry minted, its close under the committed
+// close condition), the absent-value matrix (blank answer → absent JSONB
+// key; blank authored key → typed whole-rollback rejection) and effect
+// ordering (the own case first, as the array holds it; iteration-major
+// repeat expansion).
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseStore, LookupTableSchemas } from "@/lib/case-store";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { SubmissionRejectedError } from "@/lib/case-store/errors";
@@ -19,13 +21,14 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
 import type { AppDatabase } from "@/lib/db/pg";
-import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
+import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	eq,
 	formField,
 	literal,
 	matchNone,
+	or,
 	tableColumn,
 	tableLookup,
 	term,
@@ -154,8 +157,7 @@ async function submit(
 		projection,
 		identity: IDENTITY,
 	});
-	expect(built.program).toBeDefined();
-	expect(built.ordinaryCaseType).toBe("patient");
+	expect(built.program?.ownCase?.caseType).toBe("patient");
 	const withLookupSchemas =
 		built.program === undefined || lookupTableSchemas === undefined
 			? built
@@ -203,8 +205,10 @@ describe("engine → builder → executor acceptance", () => {
 				visit_note: "kept",
 				...(participates ? { op_status: "pending" } : {}),
 			});
+			// The own case, the root read, and the repeat's create when the
+			// repeat participates.
 			expect(result.operations.filter((op) => op.executed)).toHaveLength(
-				participates ? 2 : 1,
+				participates ? 3 : 2,
 			);
 			expect(
 				await store.query({
@@ -241,7 +245,7 @@ describe("engine → builder → executor acceptance", () => {
 			});
 		},
 	);
-	it("projects committed registration destinations and preserves authored child receipt indices", async () => {
+	it("creates a registration's case and its children from the committed form, each named case under the id its entry minted", async () => {
 		const { doc, formUuid } = ordinaryAuthorityDoc();
 		const store = makeStore();
 		const schemas = buildCaseTypeMap(doc);
@@ -254,19 +258,6 @@ describe("engine → builder → executor acceptance", () => {
 		}
 
 		const mutation = ordinaryAuthorityMutation(doc, formUuid);
-		expect(mutation.ordinaryChildBuckets).toEqual([
-			{ caseType: "visit" },
-			{
-				caseType: "medication_order",
-				repeatUuid: expect.any(String),
-				repeatInstanceKey: "/data/orders[0]",
-			},
-			{
-				caseType: "medication_order",
-				repeatUuid: expect.any(String),
-				repeatInstanceKey: "/data/orders[1]",
-			},
-		]);
 		const projection = validateCaptureSubmissionProjection(mutation);
 		const built = buildCaseOperationProgramFromDoc({
 			device: webAppsDevice(),
@@ -275,39 +266,21 @@ describe("engine → builder → executor acceptance", () => {
 			projection,
 			identity: IDENTITY,
 		});
-		expect(built.ordinaryAction).toEqual({
-			kind: "registration",
-			// The entry's session names the patient and its one visit, so both
-			// are created with the ids the form read; the repeat's orders are
-			// named by no datum.
-			primary: {
-				caseType: "patient",
-				caseName: "Ada",
-				properties: { age: 37 },
-				entryCaseKey: "new-case",
-			},
-			children: [
-				{
-					caseType: "visit",
-					caseName: "First visit",
-					properties: { notes: "Checkup" },
-					parentRelationship: "child",
-					entryCaseKey: "new-child-case:visit",
-				},
-				{
-					caseType: "medication_order",
-					caseName: "Hydrangea",
-					properties: {},
-					parentRelationship: "child",
-				},
-				{
-					caseType: "medication_order",
-					caseName: "Aspirin",
-					properties: {},
-					parentRelationship: "child",
-				},
-			],
-		});
+		expect(built.ordinaryAction).toEqual({ kind: "registration" });
+		const program = built.program;
+		// The entry's session names the patient and its one visit, so both
+		// are created with the ids the form read; the repeat's orders are
+		// named by no datum.
+		expect(
+			program?.operations.map(({ operation }) => [
+				operation.action,
+				program.entryCaseKeys?.get(operation.uuid),
+			]),
+		).toEqual([
+			["own", "new-case"],
+			["create", "new-child-case:visit"],
+			["create", undefined],
+		]);
 		const envelope = submissionEnvelopeArgs(mutation, APP_ID, {
 			...built,
 			submissionReceipt: {
@@ -323,52 +296,160 @@ describe("engine → builder → executor acceptance", () => {
 		});
 
 		const result = await store.applySubmission(envelope);
-		expect(result.primaryCaseIds).toHaveLength(1);
+		const entryKey = envelope.submissionReceipt.entryKey;
+		const patientId = entryDatumCaseId(APP_ID, entryKey, "new-case");
+		const visitId = entryDatumCaseId(APP_ID, entryKey, "new-child-case:visit");
+		expect(result.primaryCaseIds).toEqual([patientId]);
+		expect(result.createdChildren).toEqual([]);
 		const patients = await store.query({
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
-		expect(patients.map((row) => [row.case_name, row.properties])).toEqual([
-			["Ada", { age: 37 }],
+		expect(
+			patients.map((row) => [row.case_id, row.case_name, row.properties]),
+		).toEqual([[patientId, "Ada", { age: 37 }]]);
+		const [visit] = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
+		expect(visit).toMatchObject({
+			case_id: visitId,
+			case_name: "First visit",
+			parent_case_id: patientId,
+			properties: { notes: "Checkup" },
+		});
+		const orders = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "medication_order",
+		});
+		expect(orders.map((row) => row.case_name).sort()).toEqual([
+			"Aspirin",
+			"Hydrangea",
 		]);
-		for (const [index, caseType, name] of [
-			[0, "visit", "First visit"],
-			[1, "medication_order", "Hydrangea"],
-			[2, "medication_order", "Aspirin"],
-		] as const) {
+		for (const order of orders) {
+			expect(order.parent_case_id).toBe(patientId);
+		}
+		const ids = new Set([
+			patientId,
+			visitId,
+			...orders.map((row) => row.case_id),
+		]);
+		expect(ids.size).toBe(4);
+	});
+
+	it.each([
+		["no", 0, undefined],
+		["yes", 1, "open"],
+		["yes and close", 1, "closed"],
+	] as const)(
+		"runs a registration's own case under its open and close conditions (%s)",
+		async (answer, created, status) => {
+			const doc = buildDoc(
+				{
+					appName: "Conditional registration",
+					caseTypes: [{ name: "patient", properties: [] }],
+					modules: [
+						{
+							name: "Patients",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									name: "Register",
+									type: "registration",
+									fields: [
+										f({
+											kind: "text",
+											id: "name",
+											caseWrite: {
+												caseType: "patient",
+												property: "case_name",
+											},
+										}),
+										f({ kind: "text", id: "consent" }),
+									],
+								},
+							],
+						},
+					],
+				},
+				(draft) => {
+					const [formUuid] = Object.keys(draft.forms);
+					const consent = Object.values(draft.fields).find(
+						(field) => field.id === "consent",
+					);
+					if (formUuid === undefined || consent === undefined) return;
+					draft.forms[formUuid] = {
+						...draft.forms[formUuid],
+						// Create the case on consent; close it again at once when
+						// the answer also says to close it.
+						openCondition: or(
+							eq(formField(consent.uuid), literal("yes")),
+							eq(formField(consent.uuid), literal("yes and close")),
+						),
+						closeCondition: eq(
+							formField(consent.uuid),
+							literal("yes and close"),
+						),
+					};
+				},
+			);
+			const formUuid = Object.keys(doc.forms)[0] as Uuid;
+			const store = makeStore();
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: buildCaseTypeMap(doc),
+			});
+			const engine = engineFor(doc, formUuid);
+			engine.setValue("/data/name", "Amina");
+			engine.setValue("/data/consent", answer);
+			const mutation = engine.computeSubmissionMutation({
+				entryKey: ENTRY_KEY,
+			});
+			const projection = validateCaptureSubmissionProjection(mutation);
+			const built = buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation,
+				projection,
+				identity: IDENTITY,
+			});
+			await store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, {
+					...built,
+					submissionReceipt: {
+						...buildSubmissionReceiptIdentity({
+							appId: APP_ID,
+							identity: IDENTITY,
+							mutation,
+							projection,
+						}),
+						expectedAppMutationSeq: 0,
+						blueprintDigest: "0".repeat(64),
+					},
+				}),
+			);
 			const rows = await store.query({
 				reading: SEARCH_READING,
 				appId: APP_ID,
-				caseType,
+				caseType: "patient",
+				includeHeld: true,
 			});
-			const child = rows.find(
-				(row) => row.case_id === result.createdChildren[index]?.caseId,
-			);
-			expect(child).toMatchObject({
-				case_name: name,
-				parent_case_id: result.primaryCaseIds[0],
-			});
-		}
+			expect(rows).toHaveLength(created);
+			if (status !== undefined) {
+				expect(rows[0]).toMatchObject({ case_name: "Amina", status });
+			}
+		},
+	);
 
-		expect(result.createdChildren).toEqual(
-			[0, 1, 2].map((authoredChildIndex) => ({
-				authoredChildIndex,
-				parentCaseId: result.primaryCaseIds[0],
-				caseId: expect.any(String),
-			})),
-		);
-		const entryKey = envelope.submissionReceipt.entryKey;
-		const patientId = entryDatumCaseId(APP_ID, entryKey, "new-case");
-		const visitId = entryDatumCaseId(APP_ID, entryKey, "new-child-case:visit");
-		expect(result.primaryCaseIds).toEqual([patientId]);
-		expect(result.createdChildren[0]?.caseId).toBe(visitId);
-		const orderIds = result.createdChildren.slice(1).map((c) => c.caseId);
-		expect(new Set([patientId, visitId, ...orderIds]).size).toBe(4);
-	});
-
-	it("evaluates one committed close condition and closes the complete ordered selection", async () => {
-		const { doc, formUuid, conditionFieldUuid } = conditionalCloseDoc();
+	it("closes the complete ordered selection when the committed close condition holds", async () => {
+		const { doc, formUuid } = conditionalCloseDoc();
 		const store = makeStore();
 		await seedSessionCase(store, doc);
 		await seedSecondSessionCase(store);
@@ -380,10 +461,6 @@ describe("engine → builder → executor acceptance", () => {
 			entryKey: ENTRY_KEY,
 		});
 		const projection = validateCaptureSubmissionProjection(mutation);
-		expect(projection.closeConditionAnswers).toEqual({
-			fieldUuid: conditionFieldUuid,
-			values: ["done"],
-		});
 		const built = buildCaseOperationProgramFromDoc({
 			device: webAppsDevice(),
 			blueprint: doc,
@@ -393,9 +470,17 @@ describe("engine → builder → executor acceptance", () => {
 		});
 		expect(built).toMatchObject({
 			ordinaryFormType: "close",
-			ordinaryCloseCase: true,
-			ordinaryCaseType: "patient",
-			ordinarySelection: { kind: "multiple", maximum: 4 },
+			ordinaryAction: {
+				kind: "close",
+				caseIds: [SECOND_SESSION_CASE, SESSION_CASE],
+				caseType: "patient",
+				selection: { kind: "multiple", maximum: 4 },
+			},
+		});
+		expect(built.program?.ownCase).toEqual({
+			caseType: "patient",
+			formType: "close",
+			closeCondition: doc.forms[formUuid]?.closeCondition,
 		});
 		const envelope = submissionEnvelopeArgs(mutation, APP_ID, {
 			...built,
@@ -409,10 +494,6 @@ describe("engine → builder → executor acceptance", () => {
 				expectedAppMutationSeq: 0,
 				blueprintDigest: "0".repeat(64),
 			},
-		});
-		expect(envelope.ordinary).toMatchObject({
-			kind: "close",
-			caseIds: [SECOND_SESSION_CASE, SESSION_CASE],
 		});
 
 		const result = await store.applySubmission(envelope);
@@ -451,7 +532,6 @@ describe("engine → builder → executor acceptance", () => {
 			projection,
 			identity: IDENTITY,
 		});
-		expect(built.ordinaryCloseCase).toBe(false);
 		const envelope = submissionEnvelopeArgs(mutation, APP_ID, {
 			...built,
 			submissionReceipt: {
@@ -465,7 +545,7 @@ describe("engine → builder → executor acceptance", () => {
 				blueprintDigest: "0".repeat(64),
 			},
 		});
-		expect(envelope.ordinary.kind).toBe("followup");
+		expect(envelope.ordinary.kind).toBe("close");
 
 		await store.applySubmission(envelope);
 		const rows = await store.query({
@@ -482,7 +562,7 @@ describe("engine → builder → executor acceptance", () => {
 		).toEqual(["open", "open"]);
 	});
 
-	it("a root operation writes custom and scalar values; the ordinary scalar action lands last", async () => {
+	it("the own case and a later root operation each write their own values", async () => {
 		const { doc, formUuid } = acceptanceDoc((ids) => [
 			{
 				uuid: OP_ROOT,
@@ -497,9 +577,6 @@ describe("engine → builder → executor acceptance", () => {
 					// key, never null or "". (A root operation may read root
 					// answers only — the validator's correlation rule.)
 					{ property: "visit_note", value: term(formField(ids.extra)) },
-					// Contends with the ordinary patch — the ordinary action
-					// executes LAST, so its value must win.
-					{ property: "external_id", value: term(formField(ids.note)) },
 				],
 			} satisfies CaseOperation,
 		]);
@@ -508,17 +585,22 @@ describe("engine → builder → executor acceptance", () => {
 
 		const engine = engineFor(doc, formUuid);
 		engine.setValue("/data/note", "from-operation");
-		engine.setValue("/data/external_code", "from-ordinary");
+		engine.setValue("/data/external_code", "from-own-case");
 
 		const result = await submit(doc, engine, store);
 		expect(result.primaryCaseIds).toEqual([SESSION_CASE]);
-		expect(result.operations).toHaveLength(1);
-		expect(result.operations[0]?.executed).toBe(true);
+		// The own case first, as the array holds it.
+		expect(
+			result.operations.map(({ action, executed }) => [action, executed]),
+		).toEqual([
+			["own", true],
+			["update", true],
+		]);
 
 		const row = await loadCase(store, SESSION_CASE);
 		expect(row?.properties.op_status).toBe("from-operation");
 		expect("visit_note" in (row?.properties ?? {})).toBe(false);
-		expect(row?.external_id).toBe("from-ordinary");
+		expect(row?.external_id).toBe("from-own-case");
 		expect(row?.properties).not.toHaveProperty("external_id");
 	});
 
@@ -546,7 +628,9 @@ describe("engine → builder → executor acceptance", () => {
 		engine.setValue("/data/visits[1]/visit_note", "second visit");
 
 		const result = await submit(doc, engine, store);
-		const executed = result.operations.filter((op) => op.executed);
+		const executed = result.operations.filter(
+			(op) => op.executed && op.operationUuid === OP_REPEAT,
+		);
 		expect(executed).toHaveLength(2);
 		expect(executed.map((op) => op.iteration)).toEqual([0, 1]);
 
@@ -562,7 +646,7 @@ describe("engine → builder → executor acceptance", () => {
 		]);
 	});
 
-	it("a blank authored key rejects before the ordinary patch can commit", async () => {
+	it("a blank authored key rejects before the own case's write can commit", async () => {
 		const { doc, formUuid } = acceptanceDoc((ids) => [
 			{
 				uuid: OP_ROOT,
@@ -577,8 +661,8 @@ describe("engine → builder → executor acceptance", () => {
 		await seedSessionCase(store, doc);
 
 		const engine = engineFor(doc, formUuid);
-		// The authored key's source answer stays BLANK; the ordinary patch
-		// still carries a scalar write that must not survive the rollback.
+		// The authored key's source answer stays BLANK; the own case still
+		// saves a scalar that must not survive the rollback.
 		engine.setValue("/data/external_code", "should-roll-back");
 
 		await expect(submit(doc, engine, store)).rejects.toThrow(
@@ -608,16 +692,18 @@ describe("engine → builder → executor acceptance", () => {
 		engine.setValue("/data/note", "never-lands");
 
 		const result = await submit(doc, engine, store);
-		expect(result.operations[0]?.executed).toBe(false);
+		expect(
+			result.operations.find((op) => op.operationUuid === OP_ROOT)?.executed,
+		).toBe(false);
 		const row = await loadCase(store, SESSION_CASE);
-		// The gated operation is skipped, while the form's ordinary blank
-		// `external_id` writer still executes under scalar semantics: blank
+		// The gated operation is skipped, while the own case's blank
+		// `external_id` write still executes under scalar semantics: blank
 		// explicitly clears that optional scalar rather than preserving it.
 		expect(row?.external_id).toBe("");
 		expect(row?.properties).not.toHaveProperty("external_id");
 	});
 
-	it("a lookup-backed false condition skips its operation while the ordinary effect commits", async () => {
+	it("a lookup-backed false condition skips its operation while the own case's write commits", async () => {
 		const appDb = dbHandle.db as Kysely<AppDatabase>;
 		const seeded = await appDb.transaction().execute((tx) =>
 			applyLookupAuthoringBatchInTransaction(
@@ -677,7 +763,7 @@ describe("engine → builder → executor acceptance", () => {
 			...lookupSnapshot,
 		});
 		engine.setValue("/data/note", "never-lands");
-		engine.setValue("/data/external_code", "ordinary-landed");
+		engine.setValue("/data/external_code", "own-case-landed");
 		const lookupTableSchemas: LookupTableSchemas = new Map(
 			lookupSnapshot.definitions.map((definition) => [
 				definition.id,
@@ -688,14 +774,11 @@ describe("engine → builder → executor acceptance", () => {
 		);
 
 		const result = await submit(doc, engine, store, lookupTableSchemas);
-		expect(result.operations).toEqual([
-			expect.objectContaining({
-				operationUuid: OP_ROOT,
-				executed: false,
-			}),
-		]);
+		expect(
+			result.operations.find((op) => op.operationUuid === OP_ROOT),
+		).toMatchObject({ executed: false });
 		const row = await loadCase(store, SESSION_CASE);
-		expect(row?.external_id).toBe("ordinary-landed");
+		expect(row?.external_id).toBe("own-case-landed");
 		expect(row?.properties).not.toHaveProperty("external_id");
 		expect("op_status" in (row?.properties ?? {})).toBe(false);
 	});

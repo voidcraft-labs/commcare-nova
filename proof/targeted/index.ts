@@ -14,6 +14,7 @@ import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
+import { caseWritesOneConcept } from "./documents/caseWritesOneConcept";
 import {
 	closeConditions,
 	closeConditionUnparsable,
@@ -175,6 +176,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	migrationRepeatCounts,
 	queryRepeatPlacements,
 	repeatCountWhole,
+	caseWritesOneConcept,
 ];
 
 /** Every targeted document, in a fixed order. */

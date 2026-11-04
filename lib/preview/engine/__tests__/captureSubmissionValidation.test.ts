@@ -29,17 +29,6 @@ describe("validateCaptureSubmissionProjection", () => {
 		).toEqual(projection(MAX_SUBMITTED_CAPTURE_COUNT));
 	});
 
-	it("accepts the narrow submitted-answer projection for a close condition", () => {
-		const submitted = {
-			...projection(0),
-			closeConditionAnswers: {
-				fieldUuid: FIELD_UUID,
-				values: ["ready"],
-			},
-		};
-		expect(validateCaptureSubmissionProjection(submitted)).toEqual(submitted);
-	});
-
 	it("rejects an attachment set above the CommCare submission cap", () => {
 		expect(() =>
 			validateCaptureSubmissionProjection(
@@ -83,19 +72,6 @@ describe("validateCaptureSubmissionProjection", () => {
 				properties: {},
 			}),
 		).toEqual(valid);
-	});
-
-	it("rejects malformed or over-posted close-condition answers", () => {
-		expect(() =>
-			validateCaptureSubmissionProjection({
-				...projection(0),
-				closeConditionAnswers: {
-					fieldUuid: FIELD_UUID,
-					values: ["ready"],
-					operator: "selected",
-				},
-			}),
-		).toThrow(CaptureSubmissionRejectedError);
 	});
 
 	it("rejects a projection missing any required protocol field", () => {

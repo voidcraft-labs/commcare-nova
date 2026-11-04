@@ -819,8 +819,9 @@ async function applyOp(
 			 * the first one in the doc (none existing → keep the raw indices,
 			 * so the wrong-form-type rejection stays exercised). The field id
 			 * resolves off the target form via `fieldPick`; the "ghost" arm
-			 * keeps the field-not-found rejection alive and the empty answer
-			 * keeps the incomplete-condition rejection alive. */
+			 * keeps the gate's refusal of a read of a missing question alive,
+			 * and the empty answer closes on a blank answer. The tool takes
+			 * the canonical form logic `#form/<field> = '<answer>'`. */
 			let moduleIndex: number = op.moduleIndex;
 			let formIndex: number = op.formIndex;
 			if (formTypeAt(doc, moduleIndex, formIndex) !== "close") {
@@ -837,7 +838,7 @@ async function applyOp(
 				updateFormTool,
 				{
 					...address,
-					close_condition: { fieldUuid, answer: op.closeAnswer },
+					close_condition: eq(formField(fieldUuid), literal(op.closeAnswer)),
 				},
 				ctx,
 				doc,

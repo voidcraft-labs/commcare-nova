@@ -4,14 +4,17 @@
  * Thin wrapper over `removeFieldMutations`. Both the SA chat factory
  * and the MCP adapter call this through the shared
  * `ToolInvocationContext` interface. The reducer cascades deletion to
- * the field's children — container kinds drop their entire subtree.
+ * the field's children — container kinds drop their entire subtree — and
+ * the batch first stops everything they save to a case.
  *
- * Two exit branches:
+ * Three exit branches:
  *
  *   1. Field not resolved at the given triple (missing, or a duplicated
  *      bare id `resolveFieldTarget` refuses as ambiguous) → `{ error }`,
  *      no mutations.
- *   2. Success → human-readable summary showing before/after field
+ *   2. A save the removal can't stop (the only name of the case a
+ *      registration creates) → `{ error }` in the planner's sentence.
+ *   3. Success → human-readable summary showing before/after field
  *      counts, tagged `form:M-F`.
  */
 
@@ -70,7 +73,15 @@ export const removeFieldTool = {
 				"label" in resolved.field && resolved.field.label
 					? projectProseTemplate(resolved.field.label, doc).text
 					: "";
-			const mutations = removeFieldMutations(doc, resolved.field.uuid);
+			const plan = removeFieldMutations(doc, resolved.field.uuid);
+			if (!plan.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: plan.message },
+				};
+			}
+			const mutations = [...plan.mutations];
 			const commit = await guardedMutate(
 				ctx,
 				mutations,

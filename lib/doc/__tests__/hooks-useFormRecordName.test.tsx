@@ -14,15 +14,16 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
+import { fieldCaseWriteViews } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const FORM = testUuid("record-name-form");
 const NAME = testUuid("record-name-answer");
 
-// React owns the reservation lifetime: one mounted editor must survive a
-// committed calculated carrier becoming an ordinary field after a peer edit.
-it("renews a consumed reservation before another accepted writer takes over", () => {
+// The record name is the own case's name slot: the hook projects it there,
+// the parse and the commit share that slot, and no question stands in for it.
+it("edits the own case's name in its own slot, through a committed snapshot change", () => {
 	const doc = buildDoc({
 		caseTypes: [{ name: "person", properties: [] }],
 		modules: [
@@ -78,48 +79,39 @@ it("renews a consumed reservation before another accepted writer takes over", ()
 		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
 		act(() => store.getState().commitDoc(verdict.nextDoc, verdict.mutations));
 	};
+	const ownName = () =>
+		store
+			.getState()
+			.forms[FORM]?.caseOperations?.find(
+				(operation) => operation.action === "own",
+			)?.name;
 	try {
-		const first = current().prepared;
-		expect(current().text).toBe("#form/name");
-		commit([{ kind: "setAppName", name: "People register" }]);
-		expect(current().prepared.fieldUuid).toBe(first.fieldUuid);
-		const value = term(literal("Calculated name"));
-		commit(formRecordNameMutations(store.getState(), FORM, value, first));
-		expect(current().prepared.fieldUuid).toBe(first.fieldUuid);
-		expect(current().text).toBe("'Calculated name'");
-
-		commit([
-			{
-				kind: "updateField",
-				uuid: first.fieldUuid,
-				targetKind: "hidden",
-				patch: { caseWrite: null },
-			},
-			{
-				kind: "updateField",
-				uuid: NAME,
-				targetKind: "text",
-				patch: { caseWrite: { caseType: "person", property: "case_name" } },
-			},
-		]);
-		const second = current().prepared;
-		expect(current().text).toBe("#form/name");
-		expect(second.fieldUuid).not.toBe(first.fieldUuid);
-		expect(store.getState().fields[second.fieldUuid]).toBeUndefined();
-		expect(store.getState().fields[first.fieldUuid]).toMatchObject({
-			kind: "hidden",
-			calculate: value,
+		const prepared = current().prepared;
+		expect(prepared.slot).toMatchObject({
+			entity: "form",
+			uuid: FORM,
+			slot: "case_operation_name",
 		});
-		expect(store.getState().fields[first.fieldUuid]).not.toHaveProperty(
-			"caseWrite",
-		);
-		commit([{ kind: "setAppName", name: "Updated register" }]);
-		expect(current().prepared.fieldUuid).toBe(second.fieldUuid);
+		expect(current().text).toBe("#form/name");
+		expect(fieldCaseWriteViews(store.getState(), NAME)).toMatchObject([
+			{ slot: "name", property: "case_name" },
+		]);
+		const fieldCount = Object.keys(store.getState().fields).length;
 
-		// The reservation is still the real carrier the parser and commit share.
+		const value = term(literal("Calculated name"));
+		commit(formRecordNameMutations(store.getState(), FORM, value, prepared));
+		expect(ownName()).toEqual(value);
+		expect(current().text).toBe("'Calculated name'");
+		expect(Object.keys(store.getState().fields)).toHaveLength(fieldCount);
+		expect(fieldCaseWriteViews(store.getState(), NAME)).toEqual([]);
+		// Setting the name it already has is no change.
+		expect(
+			formRecordNameMutations(store.getState(), FORM, value, prepared),
+		).toEqual([]);
+
 		const parsed = parseFormExpressionForSlot(
 			store.getState(),
-			second.slot,
+			current().prepared.slot,
 			"concat(#form/name, ' next')",
 			"unavailable",
 			{ form: current().prepared.form },
@@ -127,22 +119,22 @@ it("renews a consumed reservation before another accepted writer takes over", ()
 		if (!parsed.ok || parsed.expression === undefined)
 			throw new Error("The replacement record name did not parse.");
 		const replacement = parsed.expression;
-		expect(() =>
-			formRecordNameMutations(store.getState(), FORM, replacement, first),
-		).toThrow("The new record-name field's identity is already in use.");
 		commit(
-			formRecordNameMutations(store.getState(), FORM, replacement, second),
+			formRecordNameMutations(store.getState(), FORM, replacement, prepared),
 		);
-		expect(current().prepared.fieldUuid).toBe(second.fieldUuid);
 		expect(current().text).toBe("concat(#form/name, ' next')");
-		expect(store.getState().fields[second.fieldUuid]).toMatchObject({
-			kind: "hidden",
-			calculate: replacement,
-			caseWrite: { caseType: "person", property: "case_name" },
-		});
-		expect(store.getState().fields[first.fieldUuid]).not.toHaveProperty(
-			"caseWrite",
-		);
+		expect(ownName()).toEqual(replacement);
+
+		// An edit parsed for an own case the form no longer holds is refused.
+		const stale = {
+			slot: {
+				...prepared.slot,
+				member: { operationUuid: testUuid("another-own-case") },
+			},
+		};
+		expect(() =>
+			formRecordNameMutations(store.getState(), FORM, value, stale),
+		).toThrow("The record this form names changed while you were editing.");
 	} finally {
 		unmount();
 	}

@@ -162,12 +162,23 @@ describe("form expression binding", () => {
 	});
 	it("binds record queries before unrelated pending case writers are admitted", () => {
 		const doc = makeDoc();
-		const field = doc.fields[AGE];
-		if (field?.kind !== "int") throw new Error("Missing age question");
-		doc.fields[AGE] = {
-			...field,
-			caseWrite: { caseType: "not_yet_declared", property: "score" },
-		};
+		doc.forms[FORM].caseOperations = [
+			...(doc.forms[FORM].caseOperations ?? []),
+			{
+				uuid: testUuid("parse-pending-create"),
+				id: "not_yet_declared",
+				action: "create",
+				caseType: "not_yet_declared",
+				target: { kind: "new" },
+				name: { kind: "term", term: { kind: "field", uuid: AGE } },
+				writes: [
+					{
+						property: "score",
+						value: { kind: "term", term: { kind: "field", uuid: AGE } },
+					},
+				],
+			},
+		];
 		expect(parse("instance('casedb')/casedb/case/@case_id", doc)).toMatchObject(
 			{
 				kind: "project",

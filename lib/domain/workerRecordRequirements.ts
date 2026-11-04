@@ -1,7 +1,7 @@
 import type { BlueprintDoc } from "./blueprint";
-import { deriveCaseWriteInventory } from "./caseWriteInventory";
 import { isExpression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
+import type { Form } from "./forms";
 import { isProseTemplate } from "./prose";
 import {
 	FORM_REFERENCE_SLOTS,
@@ -37,11 +37,23 @@ function readsWorkerRecord(value: unknown): boolean {
 	return reads;
 }
 
+/** Whether one of the form's case operations saves to the worker's record. */
+export function savesToWorkerRecord(
+	form: Pick<Form, "caseOperations">,
+): boolean {
+	return (form.caseOperations ?? []).some(
+		(operation) =>
+			operation.action === "update" &&
+			operation.target.kind === "worker-record" &&
+			(operation.writes?.length ?? 0) > 0,
+	);
+}
+
 /**
  * The forms that read or save to the worker's own record, in the document's
  * form order. A form's XPath and prose read it, its form links' conditions
- * and link datums among them; a `usercase` bucket in its case-write
- * inventory saves to it. Record-scope predicates read session data instead
+ * and link datums among them; an update of the worker's record among its case
+ * operations saves to it. Record-scope predicates read session data instead
  * and never count.
  */
 export function workerRecordRequirements(
@@ -80,12 +92,7 @@ export function workerRecordRequirements(
 							readsWorkerRecord(value),
 						),
 				);
-			const writes = deriveCaseWriteInventory(
-				doc,
-				formUuid,
-				module,
-				form.type,
-			).buckets.some((bucket) => bucket.kind === "usercase");
+			const writes = savesToWorkerRecord(form);
 			if (reads || writes)
 				requirements.push({
 					formUuid,

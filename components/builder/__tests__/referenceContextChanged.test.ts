@@ -35,16 +35,13 @@ function referenceDoc(doc: BlueprintDoc) {
 }
 
 describe("Builder reference-context invalidation", () => {
-	it("does not invalidate for a case-write-only edit that leaves the actual reference projection unchanged", () => {
+	it("does not invalidate for a field edit that leaves the actual reference projection unchanged", () => {
 		const { doc, field, form } = fixture();
 		const next: BlueprintDoc = {
 			...doc,
 			fields: {
 				...doc.fields,
-				[field.uuid]: {
-					...field,
-					caseWrite: { caseType: "patient", property: "case_name" },
-				},
+				[field.uuid]: { ...field, hint: proseText("Their full name") },
 			},
 		};
 		expect(buildFormReferenceContext(referenceDoc(next), form.uuid)).toEqual(

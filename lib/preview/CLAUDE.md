@@ -102,8 +102,7 @@ counts reading those nodes use Core's typed conversion without replaying calcula
 Calculated/default datetime answers retain the XPath Date's instant, including
 hidden writers whose effective destination is datetime. Both synchronous and
 worker evaluation use `FormEngine.computedFieldValue`; generic XPath string(Date)
-remains date-only. Ordinary followup preloads still override defaults, including
-when the stored property is blank. This does not change event-history policy.
+remains date-only. This does not change event-history policy.
 
 Finite numeric calculated/default answers for `single_select` and `multi_select`
 use the shared `numericAnswerText` after unpacking in
@@ -445,24 +444,28 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 ## Form engine lifecycle rules
 
-- **Initialization actions run in authored scope and order.** Defaults and query snapshots run in document order; primary case preloads are appended last. Count-bound repeats read live counts after calculations and preloads settle, and again during entry and answer changes. Increasing a count inserts only new rows; decreasing it retains rows, answers, and case operations. Each write triggers dependent calculations and relevance changes before the next action, including reads affected by a hidden group. A loaded writer therefore ends with its case value, including blank, while an earlier snapshot can retain its default. Standalone calculations run after the actions. Inserting a repeat initializes only that new subtree, including its bound descendants, without recapturing earlier rows. Query identity attributes precede child initialization. Generated snapshot targets carry their enclosing row through the XPath worker even before a repeat has rows; they are expression-local contexts, never answer rows or saved data. Several-case forms preload no single selected record. Root-section query repeats retain their form-start membership; count-bound repeats refresh their target. A count-placement query repeat's rows follow its query; one past the end is not relevant and keeps its answers, and its result is written, and what reads it run, before a row grows, so a new row is within the result while its starting values read its id. Each new row runs as Core's `createNewRepeat` runs it: its starting values, then what it triggers and what it roots, narrowed to the row (`getAffectedInitialization`, `getRootedInitialization`), and the program's values and conditions are published without running again (`commitInitialization`), so a growth never gives older rows what the newest read. A query repeat's row is made only where its condition holds at its place, and none after one where it does not, until it does (`rowPromptRelevant`, Core's prompt for an unmade row, `FormEntryModel.isIndexRelevant` → `FormDef.isRepeatRelevant`); a model-iteration repeat makes such rows later too, from the membership the form opened with. A model-iteration row's `@index` is the relevant rows before it, its `int(@current_index)`. The wrapper's `@ids`, `@count` and `@current_index` sit on an element of their own beside the rows (`queryWrapperName.ts`), keyed by the repeat's path; `@current_index` counts the relevant rows as it is read. A query repeat's condition is evaluated at each of its rows (`FieldState.rowConditions`), in both placements. A row that is not relevant drops out of every nodeset that selects it, so `count()` reads only the relevant rows (Core `XPathLazyNodeset.java::performEvaluation`). Both defer insertion until that page is entered. Nested initialization then reads earlier-page answers. Entry checkpoints retain pending snapshots and the active page. Already inserted rows never recapture membership on Back/Next. Unsectioned Preview still presents the form together; no universal native question-by-question parity is claimed.
+- **Initialization actions run in authored scope and order.** Defaults and query snapshots run in document order; a preload is a default and runs in its place. Count-bound repeats read live counts after calculations and defaults settle, and again during entry and answer changes. Increasing a count inserts only new rows; decreasing it retains rows, answers, and case operations. Each write triggers dependent calculations and relevance changes before the next action, including reads affected by a hidden group. A later default that reads a preloaded question therefore reads the case's value. Standalone calculations run after the actions. Inserting a repeat initializes only that new subtree, including its bound descendants, without recapturing earlier rows. Query identity attributes precede child initialization. Generated snapshot targets carry their enclosing row through the XPath worker even before a repeat has rows; they are expression-local contexts, never answer rows or saved data. Several-case forms preload no single selected record. Root-section query repeats retain their form-start membership; count-bound repeats refresh their target. A count-placement query repeat's rows follow its query; one past the end is not relevant and keeps its answers, and its result is written, and what reads it run, before a row grows, so a new row is within the result while its starting values read its id. Each new row runs as Core's `createNewRepeat` runs it: its starting values, then what it triggers and what it roots, narrowed to the row (`getAffectedInitialization`, `getRootedInitialization`), and the program's values and conditions are published without running again (`commitInitialization`), so a growth never gives older rows what the newest read. A query repeat's row is made only where its condition holds at its place, and none after one where it does not, until it does (`rowPromptRelevant`, Core's prompt for an unmade row, `FormEntryModel.isIndexRelevant` → `FormDef.isRepeatRelevant`); a model-iteration repeat makes such rows later too, from the membership the form opened with. A model-iteration row's `@index` is the relevant rows before it, its `int(@current_index)`. The wrapper's `@ids`, `@count` and `@current_index` sit on an element of their own beside the rows (`queryWrapperName.ts`), keyed by the repeat's path; `@current_index` counts the relevant rows as it is read. A query repeat's condition is evaluated at each of its rows (`FieldState.rowConditions`), in both placements. A row that is not relevant drops out of every nodeset that selects it, so `count()` reads only the relevant rows (Core `XPathLazyNodeset.java::performEvaluation`). Both defer insertion until that page is entered. Nested initialization then reads earlier-page answers. Entry checkpoints retain pending snapshots and the active page. Already inserted rows never recapture membership on Back/Next. Unsectioned Preview still presents the form together; no universal native question-by-question parity is claimed.
 
 - **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission. Both synchronous and worker-backed blur obey this rule; a required warning already shown by submission remains until the answer changes.
 - **Typed answers are checked before authored validation.** `answerShapeError` checks numeric and temporal answers on blur and at submission. Empty values belong to requiredness. Integer answers use signed decimal digits in the signed 32-bit range; decimal answers accept finite decimal and exponent notation. The numeric widget preserves incomplete text so an optional malformed answer cannot become an empty value through native input sanitization. Numeric case-write projection uses the same full-answer parser and never truncates a prefix. Temporal checks accept every spelling `isReadableTemporalValue` can canonicalize, including older stored values. Errors stay beside the owning question instead of surfacing later as a case-property refusal. Submit retains answer focus during a mouse press so blur validation cannot move the button out from under its release; activation then blurs the current control so local coordinate drafts and clock normalization commit before submission captures answers. A refusal reveals and focuses the first invalid question. Keyboard activation remains native.
-- **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a case preload, a starting value, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
+- **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a starting value, a preload among them, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
 - **Default text remains text.** A default evaluating to `"false"` is a nonempty answer in both synchronous and worker execution; only the empty string means no default value. XPath numeric coercion and `selected()` use Java ASCII-control trimming, so nonbreaking spaces remain significant.
 - **`reset()` is a full reinitialization** — rebuild instance, replay scoped initialization actions, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
 
 ### Two-state JSONB collapse for form completion
 
-`computeSubmissionMutation` reads each leaf field's value via
-`instance.get(fieldPath)` and filters on emptiness only
-(`if (raw === undefined || raw === "") continue`); empty fields
-are excluded from the emitted mutation, hidden fields with non-
-empty values are NOT excluded. Properties whose value is empty
-do not appear as keys in the mutation's `properties` object,
-which means the case-store write omits them from the JSONB
+The engine sends answers, never a case write: `computeSubmissionMutation`
+carries the per-scope answers the form's case operations read
+(`computeOperationAnswers`; a non-relevant answer reads blank and is marked
+`absent`), and the server evaluates each write. A write that saves an
+`absent` answer as it is to the own case of a form that updates it, or to the
+worker's record, is left out of the program
+(`caseDataBindingHelpers.ts::buildCaseOperationProgramFromDoc`), as the
+wire's `count(path) > 0` relevance on that row leaves it out, so a hidden
+question keeps the stored value in every placement. A write that evaluates blank projects to
+key-absent in the envelope (`lib/case-store`, `storageValueFromEvaluation`),
+so a property whose value is empty does not appear as a key in the JSONB
 document.
 
 AJV's strict-mode constraints rule out the alternatives: `null`
@@ -472,24 +475,17 @@ Omission is the only shape that passes validation AND aligns
 with Postgres missing-value semantics ("absent" ≡ "not present
 in the JSONB document").
 
-Case-write collection is not a second Preview model. `FormEngine` derives
-`lib/domain/caseWriteInventory.ts` for its active form and immediately crosses
-the shared `assertAndProjectCaseWriteInventory` boundary used by CommCare
-lowering. That boundary admits the exact own/direct-child bucket membership and
-forces every writer/repeat path through the private typed `FormPath` projection
-once. Preview then materializes those admitted bucket objects against live
-values: it trusts `bucket.kind`, carries the writer's explicit destination
-property, and asserts that the runtime's nearest repeat UUID equals the
-bucket's nearest repeat UUID before creating a concrete per-iteration child.
-It never reclassifies primary/child membership from case-type text, field ids,
-or rendered paths. The engine input uses `materializableCaseTypes(doc)`, so
-writer-derived properties are typed without inventing a separate unknown-
-property admission rule.
+Case writes are not a second Preview model. Every case change of a form is
+one of its case operations, the own case's first, and the server builds the
+program from the committed form (`buildSubmissionOperationProgram`). The
+engine reads a field's writes only through `lib/domain/caseWriteViews.ts`
+(`formCaseWriteViews`), which decide a Hidden Value's bind type; it never
+reclassifies a write from case-type text, field ids, or rendered paths.
 
 The standard writable scalars are a separate, explicit projection:
 `case_name` and `external_id` never enter the JSONB `properties` object.
-Preview routes them through the primary/child scalar slots that the submission
-envelope maps to `cases.case_name` and `cases.external_id`. Both use the shared
+The submission envelope maps an operation's name and an `external_id` write to
+`cases.case_name` and `cases.external_id`. Both use the shared
 Java `String.trim` boundary (only U+0000 through U+0020) and the 255 UTF-16-unit
 limit. The form engine refuses a blank or over-long case name, and an over-long
 external id, at the question a worker answers, reading
@@ -498,14 +494,13 @@ it from that question's own constraint, on the kinds
 `caseScalarTextGuardIsChecked` names, the emitter's own predicate (a Hidden
 Value source takes no such check). A case-destination edit that moves a guard
 revalidates the answers it reaches. An active blank `case_name` is invalid; an active blank `external_id` is
-a real `""` write that clears the value. A missing or irrelevant writer is no
-intent and preserves the existing scalar. The primary destination in an
-authored several-case form has one additional safeguard: a normalized blank
+a real `""` write that clears the value. The own arm of an authored
+several-case form has one additional safeguard: a normalized blank
 `case_name` or `external_id` is also no intent, because one shared blank must
-not erase that scalar across every selected case. Child creation keeps the
-ordinary scalar rules. When an ordinary field writer and a case operation both
-target `external_id`, the ordinary form action runs last and wins, matching the
-emitted CommCare transaction.
+not erase that scalar across every selected case. No other operation writes
+the `external_id` the own arm writes: the own case's change and every other
+operation of the form are independent, so where HQ runs the own arm's block
+does not decide a value.
 
 Form completion produces only 2 of the 3 spec-defined JSONB
 states (absent / null / present-and-empty) — the
@@ -517,8 +512,8 @@ read `lib/domain/expression/CLAUDE.md` § "Blank semantics: a locked invariant".
 Every case-bearing submission lands through the case-store's atomic
 envelope: `submitFormAction` projects the engine's `SubmissionMutation`
 onto `CaseStore.applySubmission` (`submissionEnvelopeArgs` in the
-binding helpers), which applies the primary write, every child insert,
-and close's lifecycle transition in ONE Postgres transaction — partial
+binding helpers), which applies every case operation, the own case's change
+first, in ONE Postgres transaction: partial
 success is unobservable, and the running-app view re-queries one
 settled state on resolve. Every mutation arm carries the form UUID,
 controller-owned entry UUID, and exact attachment-reference projection
@@ -542,19 +537,18 @@ for a reload instead of evaluating today's after-submit topology. The SERVER bui
 the case-operation program from the COMMITTED doc
 (`buildSubmissionOperationProgram`: the shared `lib/doc/caseOperationOrder.ts`
 analyses + `buildCaseTypeMap` + the
-identity's session values, `ordinary.caseType` populated for the rolling
-proof). Even when the form has no advanced operations, that build projects each
-ordinary child's committed case-type relationship; the client never asserts
-`child` versus `extension`, and the envelope persists the same `parent` index
-relationship the XForm emits. That same authorized boundary retains the `LookupScope`, projects the
+identity's session values, and the own arm's case type, form type and open
+and close conditions as `ownCase`). A child's relationship is its committed
+create's link; the client never asserts `child` versus `extension`, and the
+envelope persists the same `parent` index relationship the XForm emits. That same authorized boundary retains the `LookupScope`, projects the
 canonical production lookup occurrences onto the built program's operation
 UUIDs, and loads one rows-free definition snapshot only when those operations
 actually carry lookup references. The resulting `lookupTableSchemas` map is
 part of the immutable program handed to `applySubmission`, so a schema-heal
 retry reuses the exact same compiler context; lookup rows themselves stay
 current inside the submission transaction. A committed operation-bearing form
-with missing answer bags rejects wholesale rather than silently applying
-ordinary-only effects. A survey with a program executes it, and the envelope's
+with missing answer bags rejects wholesale rather than applying part of its
+effects. A survey with a program executes it, and the envelope's
 typed `SubmissionRejectedError` surfaces as the
 `submission-rejected` result arm with whole-rollback copy in
 `FormScreen`. The close transition itself stays the
@@ -1107,14 +1101,15 @@ the choices, releases the controls, and shows retry guidance.
 
 A batch-consuming follow-up or close form receives the collection as a typed
 target, never `caseId[0]` and never N simulated form submissions. Shared form
-answers and app-level effects evaluate once. Explicit session-case operations
+answers and app-level effects evaluate once. Operations that run per selected
+case (the own arm, a session-targeted update or close, a create linked to the
+loaded case)
 expand over selected ids in selection order; an authored repeat is the outer
 axis and selected cases are the inner axis. Every target is reauthorized and
-type-checked server-side, and the ordinary lifecycle effects, expanded
-operation program, storage writes, and submission receipt commit in one
-transaction. A failed target or effect rolls the complete batch back. Ordinary
-primary destinations start without a case preload and apply each nonblank
-shared answer to every selected case; blank answers preserve every existing
+type-checked server-side, and the expanded operation program, storage writes, and submission receipt commit in one
+transaction. A failed target or effect rolls the complete batch back. The own
+arm's writes start without a preload and apply each nonblank shared answer to
+every selected case; blank answers preserve every existing
 value. The authored cardinality controls that behavior even when exactly one
 case is selected, so the form engine never invents a representative case value.
 Its logic reads the selection through
@@ -1133,28 +1128,19 @@ exactly one primary case. A real several-case result never chooses a
 representative. This also lets a response-lost old request match and replay a
 receipt committed by either side of the deployment.
 
-The committed form is the authority for the ordinary submission arm. A
-client discriminator that disagrees with its committed type is rejected
-before capture preparation or case effects. For a conditional close, the
-final protocol carries only the relevant submitted nodes for the referenced
-field; the server reloads the committed field, operator, and comparison answer,
-evaluates one shared boolean, and closes either the complete ordered selection
-or none of it. A false close condition still runs the form's ordinary updates,
-children, and operation program atomically; it changes only the close lifecycle
-transition.
+The committed form is the authority for the submission. A client
+discriminator that disagrees with its committed type is rejected before
+capture preparation or case effects. The form's open and close conditions are
+expressions the server evaluates over the submitted answers, with the own
+arm's step (`ownCase`); a false close condition still runs the form's other
+case changes atomically and changes only the close lifecycle transition.
 
-That authority includes the complete ordinary case-write structure, not just
-the form discriminator. The server derives the primary case type, writable
-standard/custom destinations, and exact ordinary child buckets from the
-committed `deriveCaseWriteInventory`. A child answer carries an internal
-`(caseType, nearest repeat UUID or root, concrete repeat instance)` identity;
-the server matches it to that inventory, refuses duplicate root buckets or
-duplicate repeat instances, derives the relationship, and strips the identity
-before storage. Registration primary/children and follow-up/close
-patch/children therefore contribute answer values only. They cannot add a
-schema-valid but unauthored property, standard scalar, child type, or child
-bucket. The accepted child array retains form order, so durable
-`authoredChildIndex` receipts and post-submit child routing do not change.
+That authority covers every case write, not just the form discriminator. The
+client sends answers only, and the server builds every operation from the
+committed form, so a submission cannot add a schema-valid but unauthored
+property, standard scalar, child type, or child create. A receipt written
+before child cases were operations keeps its `authoredChildIndex` records for
+replay.
 
 ## Results order and the quick filter
 

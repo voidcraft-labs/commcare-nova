@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import type { CaseOperation } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/expression";
+import { eq, formField, literal, term } from "@/lib/domain/expression";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import { buildCaseOperationProgramFromDoc } from "../caseDataBindingHelpers";
@@ -33,88 +33,47 @@ const IDENTITY: ResolvedPreviewIdentity = {
 };
 
 describe("committed program input rejection", () => {
-	it("rejects every uncommitted ordinary case structure before effects", () => {
+	it("builds every case change from the committed form, whatever case structure the client sends", () => {
+		// The client names answers. A client that also names destinations, a
+		// worker-record write or a close answer changes nothing the program
+		// does: the own case, the child creates and the close all come from
+		// the committed form.
 		const { doc, formUuid } = ordinaryAuthorityDoc();
 		const mutation = ordinaryAuthorityMutation(doc, formUuid);
-		const reject = (forged: SubmissionMutation, committed = doc) => {
-			const projection = validateCaptureSubmissionProjection(forged);
-			expect(() =>
-				buildCaseOperationProgramFromDoc({
-					device: webAppsDevice(),
-					blueprint: committed,
-					mutation: forged,
-					projection,
-					identity: IDENTITY,
-				}),
-			).toThrow(CaptureSubmissionRejectedError);
-		};
-		const [rootChild, repeatedChild] = mutation.children;
-		const [rootBucket, repeatedBucket] = mutation.ordinaryChildBuckets ?? [];
-		if (
-			rootChild === undefined ||
-			repeatedChild === undefined ||
-			rootBucket === undefined ||
-			repeatedBucket === undefined
-		) {
-			throw new Error("Ordinary-authority fixture is missing child buckets.");
-		}
-
-		reject({
-			...mutation,
-			primary: { ...mutation.primary, caseType: "visit" },
-		});
-		reject({
+		const build = (submitted: SubmissionMutation, committed = doc) =>
+			buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: committed,
+				mutation: submitted,
+				projection: validateCaptureSubmissionProjection(submitted),
+				identity: IDENTITY,
+			});
+		const built = build(mutation);
+		const forged = {
 			...mutation,
 			primary: {
-				...mutation.primary,
-				properties: {
-					...mutation.primary.properties,
-					nickname: "The Countess",
-				},
+				caseType: "visit",
+				caseName: "Forged",
+				properties: { nickname: "The Countess" },
 			},
-		});
-		reject({
-			...mutation,
-			children: [
-				{ ...rootChild, caseType: "lab_result", properties: {} },
-				...mutation.children.slice(1),
-			],
-			ordinaryChildBuckets: [
-				{ caseType: "lab_result" },
-				...(mutation.ordinaryChildBuckets ?? []).slice(1),
-			],
-		});
-		reject({
-			...mutation,
-			children: [
-				{
-					...rootChild,
-					properties: { ...rootChild.properties, private_note: "hidden" },
-				},
-				...mutation.children.slice(1),
-			],
-		});
-		reject({
-			...mutation,
-			children: [rootChild, rootChild, ...mutation.children.slice(1)],
-			ordinaryChildBuckets: [
-				rootBucket,
-				rootBucket,
-				...(mutation.ordinaryChildBuckets ?? []).slice(1),
-			],
-		});
-		reject({
-			...mutation,
-			children: [...mutation.children, repeatedChild],
-			ordinaryChildBuckets: [
-				...(mutation.ordinaryChildBuckets ?? []),
-				repeatedBucket,
-			],
-		});
-		reject({
-			...mutation,
-			primary: { ...mutation.primary, externalId: "forged-external" },
-		});
+			children: [{ caseType: "lab_result", properties: {} }],
+			ordinaryChildBuckets: [{ caseType: "lab_result" }],
+			usercase: { role: "admin" },
+			closeConditionAnswers: { fieldUuid: formUuid, values: ["done"] },
+		} as SubmissionMutation;
+		expect(build(forged)).toEqual(built);
+		expect(built.ordinaryAction).toEqual({ kind: "registration" });
+		expect(
+			built.program?.operations.map(({ operation }) => [
+				operation.action,
+				operation.action === "own" ? undefined : operation.caseType,
+				operation.forEach !== undefined,
+			]),
+		).toEqual([
+			["own", undefined, false],
+			["create", "visit", false],
+			["create", "medication_order", true],
+		]);
 
 		const close = conditionalCloseDoc();
 		const closeEngine = engineFor(close.doc, close.formUuid);
@@ -123,15 +82,14 @@ describe("committed program input rejection", () => {
 			caseIds: [SESSION_CASE, SECOND_SESSION_CASE],
 			entryKey: ENTRY_KEY,
 		});
-		if (closeMutation.kind !== "close") {
-			throw new Error("Conditional-close fixture did not produce close.");
-		}
-		reject(
-			{
-				...closeMutation,
-				patch: { ...closeMutation.patch, caseName: "Forged name" },
-			},
-			close.doc,
+		const closeProgram = build(closeMutation, close.doc).program;
+		expect(closeProgram?.ownCase).toEqual({
+			caseType: "patient",
+			formType: "close",
+			closeCondition: close.doc.forms[close.formUuid]?.closeCondition,
+		});
+		expect(closeProgram?.scopes[0]?.iterations[0]?.formFields).toEqual(
+			new Map([[close.conditionFieldUuid, "done"]]),
 		);
 	});
 
@@ -157,7 +115,7 @@ describe("committed program input rejection", () => {
 		).toThrow(CaptureSubmissionRejectedError);
 	});
 
-	it("operations present but no collected answer bags rejects the final protocol", async () => {
+	it("an operation reading an answer the client did not send rejects the final protocol", async () => {
 		const { doc, formUuid } = acceptanceDoc((ids) => [
 			{
 				uuid: OP_ROOT,
@@ -165,7 +123,7 @@ describe("committed program input rejection", () => {
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
-				writes: [{ property: "external_id", value: term(formField(ids.note)) }],
+				writes: [{ property: "op_status", value: term(formField(ids.note)) }],
 			} as CaseOperation,
 		]);
 		const engine = engineFor(doc, formUuid);
@@ -187,5 +145,44 @@ describe("committed program input rejection", () => {
 				identity: IDENTITY,
 			}),
 		).toThrow(CaptureSubmissionRejectedError);
+	});
+});
+
+describe("an own-case answer that takes no part in the submission", () => {
+	it("saves nothing to the case while its question is not relevant, as the wire's update does", () => {
+		const { doc, formUuid, uuids } = acceptanceDoc(() => []);
+		const shown = eq(formField(uuids.note), literal("show"));
+		const gated = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[uuids.externalCode]: {
+					...doc.fields[uuids.externalCode],
+					relevant: shown,
+				},
+			},
+		} as typeof doc;
+		const ownWrites = (note: string) => {
+			const engine = engineFor(gated, formUuid);
+			engine.setValue("/data/note", note);
+			engine.setValue("/data/external_code", "EX-1");
+			const mutation = engine.computeSubmissionMutation({
+				caseIds: [SESSION_CASE],
+				entryKey: ENTRY_KEY,
+			});
+			const program = buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: gated,
+				mutation,
+				projection: validateCaptureSubmissionProjection(mutation),
+				identity: IDENTITY,
+			}).program;
+			const own = program?.operations.find(
+				({ operation }) => operation.action === "own",
+			);
+			return own?.operation.writes?.map((write) => write.property);
+		};
+		expect(ownWrites("show")).toEqual(["external_id"]);
+		expect(ownWrites("hide")).toEqual([]);
 	});
 });

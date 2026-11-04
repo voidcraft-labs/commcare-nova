@@ -2,14 +2,15 @@ import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	type CaseOperationWrite,
 	caseSelectionCardinality,
 	effectiveCaseTypes,
-	fieldCaseWrite,
 	moduleUuidOfForm,
+	operationCaseType,
+	operationTarget,
 	orderedCaseOperations,
 	reachableCaseTypes,
 	type Uuid,
-	writerPreloadsFromLoadedCase,
 } from "@/lib/domain";
 import {
 	type CheckPath,
@@ -21,6 +22,10 @@ import {
 	type Term,
 	walkExpression,
 } from "@/lib/domain/expression";
+import {
+	type CasePlacementWords,
+	formCasePlacementWords,
+} from "./casePlacementWords";
 
 /** A record address, not merely its type. Runtime addresses may alias; a fresh
  * generated create cannot be the selected or an already stored related row. */
@@ -32,6 +37,7 @@ export type OperationRecordScope =
 			readonly operationUuid: Uuid;
 			readonly identity: "generated" | "authored-key";
 	  }
+	| { readonly kind: "worker-record" }
 	| { readonly kind: "runtime-record" };
 
 export interface OperationPropertyRead {
@@ -57,8 +63,11 @@ export interface OperationSemantics {
 		readonly operationUuid: Uuid;
 		readonly id: string;
 		readonly action: CaseOperation["action"];
-		readonly caseType: string;
+		/** The module's case type for this form's own case. */
+		readonly caseType?: string;
 		readonly target: OperationRecordScope;
+		/** Where CommCare HQ keeps the change. */
+		readonly placement?: CasePlacementWords;
 		readonly execution: {
 			readonly repeatFieldUuid?: Uuid;
 			readonly selectedRecords: "one" | "each" | "none";
@@ -86,7 +95,9 @@ export interface OperationSemantics {
 
 /** Contextual feedback only: this inventory never changes admission or runtime
  * behavior. It follows canonical expression identities and distinguishes
- * runtime record sets from reads proven to address the selected record. */
+ * runtime record sets from reads proven to address the selected record.
+ * This form's own case is its first change: its target follows the form's
+ * type, and its open and close conditions are read as its conditions. */
 export function operationSemantics(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -100,7 +111,15 @@ export function operationSemantics(
 			? module?.caseType
 			: undefined;
 	const ancestors = reachableCaseTypes(selectedType, caseTypes);
-	const operations = orderedCaseOperations(form ?? {});
+	const ordered = orderedCaseOperations(form ?? {});
+	const operations = [
+		...ordered.filter((operation) => operation.action === "own"),
+		...ordered.filter((operation) => operation.action !== "own"),
+	];
+	const formType = form?.type ?? "survey";
+	const placements = form
+		? formCasePlacementWords(doc, formUuid).operations
+		: {};
 	const creates = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
 	);
@@ -140,25 +159,30 @@ export function operationSemantics(
 	}
 	function createdRecord(uuid: Uuid): OperationRecordScope {
 		const producer = creates.get(uuid);
+		const target =
+			producer === undefined ? undefined : operationTarget(producer, formType);
 		return {
 			kind: "created-record",
 			operationUuid: uuid,
 			identity:
-				producer?.target.kind === "new" && producer.target.idFrom === undefined
+				target?.kind === "new" && target.idFrom === undefined
 					? "generated"
 					: "authored-key",
 		};
 	}
 	function targetRecord(operation: CaseOperation): OperationRecordScope {
-		switch (operation.target.kind) {
+		const target = operationTarget(operation, formType);
+		switch (target.kind) {
 			case "new":
 				return createdRecord(operation.uuid);
 			case "op":
-				return createdRecord(operation.target.opUuid);
+				return createdRecord(target.opUuid);
 			case "session":
 				return { kind: "selected-record" };
+			case "worker-record":
+				return { kind: "worker-record" };
 			case "expression": {
-				const expression = operation.target.expr;
+				const expression = target.expr;
 				if (
 					expression.kind === "term" &&
 					expression.term.kind === "prop" &&
@@ -219,24 +243,10 @@ export function operationSemantics(
 				const field = doc.fields[uuid];
 				if (!field) return;
 				const throughFieldUuids = [...chain, uuid];
-				const write = fieldCaseWrite(field);
+				// A starting value read from the case is the field's default:
+				// its `form-case` read is collected like any other.
 				const calculated =
 					field.kind === "hidden" && field.calculate !== undefined;
-				if (
-					!calculated &&
-					write &&
-					module &&
-					form &&
-					writerPreloadsFromLoadedCase(field, module, form)
-				) {
-					reads.push({
-						...write,
-						record: { kind: "selected-record" },
-						slot,
-						throughFieldUuids,
-					});
-					return;
-				}
 				const expression = calculated
 					? field.calculate
 					: "default_value" in field
@@ -338,38 +348,53 @@ export function operationSemantics(
 				});
 			}
 			condition(operation.condition, "operation");
+			if (operation.action === "own") {
+				if (formType === "registration")
+					condition(form?.openCondition, "open-condition");
+				if (formType === "registration" || formType === "close")
+					condition(form?.closeCondition, "close-condition");
+			}
+			const target = operationTarget(operation, formType);
 			for (const uuid of inherited.get(operation.uuid) ?? [])
 				condition(creates.get(uuid)?.condition, `inherited:${uuid}`);
-			if (operation.target.kind === "expression")
-				value(operation.target.expr, "target");
-			if (operation.target.kind === "new" && operation.target.idFrom)
-				collectField(operation.target.idFrom, "identity-key", valueReads, []);
+			if (target.kind === "expression") value(target.expr, "target");
+			if (target.kind === "new" && target.idFrom)
+				collectField(target.idFrom, "identity-key", valueReads, []);
 			value(operation.name, "name");
 			value(operation.owner, "owner");
 			value(operation.rename, "rename");
 			for (const write of operation.writes ?? []) {
-				condition(write.condition, `write:${write.property}`);
-				value(write.value, `write:${write.property}`);
+				condition(write.condition, `write:${writeName(write)}`);
+				value(write.value, `write:${writeName(write)}`);
 			}
 			for (const link of operation.links ?? [])
 				if (link.target?.kind === "expression")
 					value(link.target.expr, `link:${link.identifier}`);
+			const closes =
+				operation.action === "close" ||
+				(operation.action === "own" &&
+					(formType === "close" ||
+						(formType === "registration" &&
+							form?.closeCondition !== undefined)));
 			const writes = [
-				...(operation.writes ?? []).map((write) => write.property),
+				...(operation.writes ?? []).map(writeName),
 				...(operation.name !== undefined || operation.rename !== undefined
 					? ["case_name"]
 					: []),
 				...(operation.owner !== undefined ? ["owner_id"] : []),
 				...(operation.retype !== undefined ? ["case_type"] : []),
-				...(operation.action === "close" ? ["status"] : []),
+				...(closes ? ["status"] : []),
 			];
-			const target = targetRecord(operation);
+			const record = targetRecord(operation);
+			const caseType = operationCaseType(doc, formUuid, operation);
+			const placement = placements[operation.uuid];
 			return {
 				operationUuid: operation.uuid,
 				id: operation.id,
 				action: operation.action,
-				caseType: operation.caseType,
-				target,
+				...(caseType !== undefined && { caseType }),
+				target: record,
+				...(placement !== undefined && { placement }),
 				execution: {
 					...(operation.forEach && {
 						repeatFieldUuid: operation.forEach.repeat,
@@ -378,7 +403,7 @@ export function operationSemantics(
 						selectedType === undefined
 							? ("none" as const)
 							: caseSelectionCardinality(module ?? {}) === "multiple"
-								? operation.target.kind === "session"
+								? target.kind === "session"
 									? ("each" as const)
 									: ("none" as const)
 								: ("one" as const),
@@ -395,7 +420,7 @@ export function operationSemantics(
 					).flatMap(([readFrom, reads]) =>
 						reads.flatMap((read) => {
 							if (!writes.includes(read.property)) return [];
-							const identity = matchingRecord(read, target, operation.caseType);
+							const identity = matchingRecord(read, record, caseType);
 							return identity
 								? [
 										{
@@ -416,6 +441,14 @@ export function operationSemantics(
 	};
 }
 
+/** A write's name in the inventory: its property, after the indices its
+ *  `via` walks to a case above the change's own. */
+function writeName(write: CaseOperationWrite): string {
+	return write.via === undefined
+		? write.property
+		: [...write.via.map((step) => step.identifier), write.property].join("/");
+}
+
 function unique<T>(values: readonly T[]): T[] {
 	return [
 		...new Map(values.map((value) => [JSON.stringify(value), value])).values(),
@@ -425,7 +458,7 @@ function unique<T>(values: readonly T[]): T[] {
 function matchingRecord(
 	read: OperationPropertyRead,
 	target: OperationRecordScope,
-	targetType: string,
+	targetType: string | undefined,
 ): "same-record" | "may-alias" | undefined {
 	if (target.kind === "created-record" && target.identity === "generated")
 		return undefined;

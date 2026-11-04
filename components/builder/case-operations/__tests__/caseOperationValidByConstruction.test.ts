@@ -40,6 +40,7 @@ import {
 	effectiveCaseTypes,
 	type Form,
 	isCaseFirstModule,
+	type TargetedCaseOperation,
 	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
@@ -264,7 +265,9 @@ function priorCreate(): CaseOperation {
  * the session so the baseline also works in a registration form, which
  * has no selected case before its primary case is created.
  */
-function subjectOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
+function subjectOperation(
+	patch: Partial<TargetedCaseOperation> = {},
+): TargetedCaseOperation {
 	return {
 		uuid: SUBJECT,
 		id: "update_visit",
@@ -273,6 +276,14 @@ function subjectOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 		target: { kind: "op", opUuid: CREATE },
 		...patch,
 	};
+}
+
+/** The form's own case, which every case form keeps first: the operations
+ *  under test follow it. */
+function ownCase(doc: BlueprintDoc, formUuid: Uuid): CaseOperation[] {
+	return (doc.forms[formUuid]?.caseOperations ?? []).filter(
+		(operation) => operation.action === "own",
+	);
 }
 
 function operationContext(
@@ -286,7 +297,11 @@ function operationContext(
 			...shape.doc.forms,
 			[shape.formUuid]: {
 				...shape.doc.forms[shape.formUuid],
-				caseOperations: [priorCreate(), operation],
+				caseOperations: [
+					...ownCase(shape.doc, shape.formUuid),
+					priorCreate(),
+					operation,
+				],
 			},
 		},
 	};
@@ -303,6 +318,7 @@ function gateFindings(
 ): readonly string[] {
 	const built = fixture(shape.kind);
 	(built.doc.forms[built.formUuid] as Form).caseOperations = [
+		...ownCase(built.doc, built.formUuid),
 		priorCreate(),
 		operation,
 	];

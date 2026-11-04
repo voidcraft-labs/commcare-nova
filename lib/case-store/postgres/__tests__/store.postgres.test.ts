@@ -2090,16 +2090,39 @@ describe("PostgresCaseStore — creation stamps", () => {
 				blueprintDigest: "0".repeat(64),
 				requestDigest: "store-creation-stamp-request",
 			},
-			ordinary: {
-				kind: "registration",
-				primary: { caseType: "patient", caseName: "Mary", properties: {} },
-				children: [
+			ordinary: { kind: "registration" },
+			operations: {
+				formUuid: testUuid("66666666-6666-4666-8666-666666666666"),
+				operations: [
 					{
-						caseType: "medication_order",
-						caseName: "Rifampin",
-						properties: {},
+						operation: {
+							uuid: testUuid("store-creation-stamp-own"),
+							id: "patient",
+							action: "own",
+							name: { kind: "term", term: { kind: "literal", value: "Mary" } },
+						},
+						guardConditions: [],
+						expressionSnapshotTypes: { links: new Map() },
+					},
+					{
+						operation: {
+							uuid: testUuid("store-creation-stamp-order"),
+							id: "medication_order",
+							action: "create",
+							caseType: "medication_order",
+							target: { kind: "new" },
+							name: {
+								kind: "term",
+								term: { kind: "literal", value: "Rifampin" },
+							},
+						},
+						guardConditions: [],
+						expressionSnapshotTypes: { links: new Map() },
 					},
 				],
+				ownCase: { caseType: "patient", formType: "registration" },
+				scopes: [{ iterations: [{ formFields: new Map() }] }],
+				caseTypeSchemas: schemas,
 			},
 		});
 

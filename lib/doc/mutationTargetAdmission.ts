@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { assertNever } from "@/lib/utils/assertNever";
+import { caseWriteIdOf, caseWriteKeyId } from "./caseWriteKeys";
 
 /**
  * Whether any mutation in `mutations` targets an entity that no longer exists
@@ -293,7 +294,7 @@ export function mutationTargetsInvalid(
 		const key = caseOperationKey(formUuid, operation.uuid);
 		caseOperationWrites.set(
 			key,
-			new Set((operation.writes ?? []).map((write) => write.property)),
+			new Set((operation.writes ?? []).map(caseWriteIdOf)),
 		);
 		caseOperationLinks.set(
 			key,
@@ -565,34 +566,40 @@ export function mutationTargetsInvalid(
 					switch (semantic.operation) {
 						case "update":
 							break;
-						case "add-write":
-							if (writes.has(semantic.value.property) && !born) return true;
+						case "add-write": {
+							const added = caseWriteIdOf(semantic.value);
+							if (writes.has(added) && !born) return true;
 							if (
 								semantic.after !== undefined &&
 								semantic.after !== null &&
-								!writes.has(semantic.after)
+								!writes.has(caseWriteKeyId(semantic.after))
 							) {
 								return true;
 							}
-							writes.add(semantic.value.property);
+							writes.add(added);
 							break;
+						}
 						case "update-write":
-							if (!writes.has(semantic.property)) return true;
+							if (!writes.has(caseWriteKeyId(semantic.key))) return true;
 							break;
-						case "remove-write":
-							if (!writes.has(semantic.property)) return true;
-							writes.delete(semantic.property);
+						case "remove-write": {
+							const removed = caseWriteKeyId(semantic.key);
+							if (!writes.has(removed)) return true;
+							writes.delete(removed);
 							break;
-						case "move-write":
+						}
+						case "move-write": {
+							const moved = caseWriteKeyId(semantic.key);
+							const anchor =
+								semantic.after === null ? null : caseWriteKeyId(semantic.after);
 							if (
-								!writes.has(semantic.property) ||
-								(semantic.after !== null &&
-									(semantic.after === semantic.property ||
-										!writes.has(semantic.after)))
+								!writes.has(moved) ||
+								(anchor !== null && (anchor === moved || !writes.has(anchor)))
 							) {
 								return true;
 							}
 							break;
+						}
 						case "add-link":
 							if (links.has(semantic.value.identifier) && !born) return true;
 							if (

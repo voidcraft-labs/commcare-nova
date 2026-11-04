@@ -93,20 +93,12 @@ export const evaluateFormTool = {
 			);
 			const result = await evaluateForm(ctx.snapshot.doc, input, context);
 			const { submission, ...observation } = result;
+			// Every case change the form makes, its own case included, is a
+			// case operation the running app evaluates at submission.
 			const proposedValues = submission && {
 				kind: submission.kind,
-				...(submission.kind === "registration"
-					? { primary: submission.primary }
-					: {}),
 				...(submission.kind === "followup" || submission.kind === "close"
-					? { caseIds: submission.caseIds, patch: submission.patch }
-					: {}),
-				...(submission.kind !== "survey" && submission.children.length
-					? { children: submission.children }
-					: {}),
-				...(submission.usercase ? { worker: submission.usercase } : {}),
-				...(submission.closeConditionAnswers
-					? { closeCondition: "not-evaluated" as const }
+					? { caseIds: submission.caseIds }
 					: {}),
 				...(orderedCaseOperations(ctx.snapshot.doc.forms[input.formUuid]).length
 					? { caseOperations: "not-evaluated" as const }

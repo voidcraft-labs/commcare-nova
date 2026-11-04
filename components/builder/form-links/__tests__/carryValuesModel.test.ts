@@ -18,6 +18,8 @@ import {
 	toInspect,
 	toNote,
 	toVisit,
+	VISIT,
+	withoutCaseValueStarts,
 } from "./fixture";
 
 function project(doc: BlueprintDoc, link: FormLink) {
@@ -40,6 +42,7 @@ function selectionDoc() {
 			// Choosing several cases runs in Web Apps alone.
 			draft.appSettings.runsOnlyOn = "web-apps";
 			draft.forms[SOURCE].type = "followup";
+			withoutCaseValueStarts(draft, [SOURCE, VISIT]);
 		},
 	);
 	assertAdmittedDoc(doc);

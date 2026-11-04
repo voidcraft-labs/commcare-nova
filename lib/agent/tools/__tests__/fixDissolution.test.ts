@@ -15,9 +15,11 @@ import {
 } from "@/lib/agent/__tests__/fixtures";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
+import { eq, formField, literal } from "@/lib/domain/expression";
 import { addFieldsItemSchema, editFieldUpdatesSchema } from "../../toolSchemas";
 import { addFieldsTool } from "../addFields";
 import { createFormTool } from "../createForm";
+import { removeFieldTool } from "../removeField";
 import { updateModuleTool } from "../updateModule";
 
 /** Canonical workspace over a stub host — `recordMutations` is the persistence
@@ -223,20 +225,27 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 // ── Case-create name completeness (cannot dissolve — content) ──────
 
 describe("case-create name completeness — the gate owns it", () => {
-	it("removing the case_name field is rejected — the writer never disappears", () => {
+	it("removing the question that names a new case is refused — the name never disappears", async () => {
 		const doc = minDoc();
 		const target = fieldByBareId(doc, "case_name");
-		const verdict = mutationCommitVerdict(
-			doc,
-			[{ kind: "removeField", uuid: target.uuid }],
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain(
-				"CASE_CREATE_NAME_MISSING",
-			);
-		}
+		// A bare removal would leave the own case's name reading nothing.
+		expect(
+			mutationCommitVerdict(
+				doc,
+				[{ kind: "removeField", uuid: target.uuid }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+		// The tool stops what the question saves first, and the one name a
+		// registration gives its case can't stop.
+		const h = makeHarness(doc);
+		const out = await h.runTool(removeFieldTool, {
+			...formAddress(doc),
+			fieldUuid: target.uuid,
+		});
+		expect(out.result).toHaveProperty("error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
 	});
 });
 
@@ -282,6 +291,7 @@ describe("a capture's case destination is the link to its file on every construc
 			editFieldUpdatesSchema.safeParse({ kind: "image", caseWrite: PLAIN })
 				.success,
 		).toBe(true);
+		// A field stores no destination: the form's case changes hold it.
 		expect(
 			fieldSchema.safeParse({
 				uuid: "00000000-0000-4000-8000-000000000001",
@@ -290,7 +300,7 @@ describe("a capture's case destination is the link to its file on every construc
 				label: proseText("Photo"),
 				caseWrite: PLAIN,
 			}).success,
-		).toBe(true);
+		).toBe(false);
 	});
 
 	it("every surface refuses a `mode`, on a capture and on any other kind", () => {
@@ -456,35 +466,39 @@ function closeFormDoc(): BlueprintDoc {
 }
 
 describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
-	it("a close condition naming a nonexistent field is rejected", () => {
+	it("a close condition reading a question the form doesn't have is refused before it stores", async () => {
 		const doc = closeFormDoc();
-		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
-
+		const h = makeAuthoringHarness({}, doc);
+		const before = h.currentDoc();
+		// The condition is form logic; an unknown question refuses at parse.
+		await expect(
+			h.call("updateForm", {
+				...formAddress(doc, 1),
+				close_condition: "#form/ghost = 'done'",
+			}),
+		).rejects.toThrow();
+		expect(h.currentDoc()).toEqual(before);
+		// A stored read of a question no longer in the form is the gate's.
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
 				{
 					kind: "updateForm",
-					uuid: closeFormUuid,
+					uuid: doc.formOrder[doc.moduleOrder[0]][1],
 					patch: {
-						closeCondition: { field: testUuid("ghost"), answer: "done" },
+						closeCondition: eq(formField(testUuid("ghost")), literal("done")),
 					},
 				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain(
-				"CLOSE_CONDITION_FIELD_NOT_FOUND",
-			);
-		}
 	});
 
-	it("a close condition on a non-close form is rejected (WRONG_TYPE)", () => {
+	it("a close condition on a follow-up form is rejected (WRONG_TYPE)", () => {
 		const doc = minDoc();
-		// minDoc's only form is a registration form — a close condition on
-		// it is exactly the contradictory config the rule names.
+		// A follow-up closes nothing, so its close condition is exactly the
+		// contradictory config the rule names.
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
@@ -492,10 +506,11 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 					kind: "updateForm",
 					uuid: doc.formOrder[doc.moduleOrder[0]][0],
 					patch: {
-						closeCondition: {
-							field: fieldByBareId(doc, "village").uuid,
-							answer: "done",
-						},
+						type: "followup",
+						closeCondition: eq(
+							formField(fieldByBareId(doc, "village").uuid),
+							literal("done"),
+						),
 					},
 				},
 			],
@@ -505,35 +520,6 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 		if (!verdict.ok) {
 			expect(verdict.findings.map((e) => e.code)).toContain(
 				"CLOSE_CONDITION_WRONG_TYPE",
-			);
-		}
-	});
-
-	it("a close condition missing its field or answer is rejected (INCOMPLETE)", () => {
-		const doc = closeFormDoc();
-		const closeFormUuid = doc.formOrder[doc.moduleOrder[0]][1];
-		const verdict = mutationCommitVerdict(
-			doc,
-			[
-				{
-					kind: "updateForm",
-					uuid: closeFormUuid,
-					// The schema admits empty strings, so this is a live input
-					// shape — both halves are required for a conditional close.
-					patch: {
-						closeCondition: {
-							field: fieldByBareId(doc, "outcome").uuid,
-							answer: "",
-						},
-					},
-				},
-			],
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain(
-				"CLOSE_CONDITION_INCOMPLETE",
 			);
 		}
 	});

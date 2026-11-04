@@ -34,7 +34,12 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { serializeWire, type WireExpr, w } from "@/lib/commcare/xpath";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema, tileCell } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	tileCell,
+	type Uuid,
+} from "@/lib/domain";
 import { and, eq, literal, neq, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
@@ -763,9 +768,8 @@ describe("ownCaseSessionRef", () => {
 		mod.caseListConfig = undefined;
 		reg.type = "survey";
 		reg.formLinks = undefined;
-		for (const uuid of doc.fieldOrder[REGISTER] ?? []) {
-			delete (doc.fields[uuid] as { caseWrite?: unknown }).caseWrite;
-		}
+		// A survey holds no own case.
+		reg.caseOperations = undefined;
 		const ctx = formLinkProjectionContext(doc);
 		expect(
 			ownCaseSessionRef(
@@ -839,17 +843,11 @@ describe("totality predicates", () => {
 		const doc = frogDoc();
 		const links = doc.forms[REGISTER]?.formLinks ?? [];
 		expect(formLinkActionsBuildable(doc, REGISTER, links)).toBe(true);
-		// Strip the target module's registration form of its case_name
-		// writer: the admission refuses it (CASE_CREATE_NAME_MISSING) and the
-		// wire builder would throw on it.
+		// Strip the target module's registration of the name of the case it
+		// creates: the validator refuses it (CASE_CREATE_NAME_MISSING) and the
+		// wire plan would throw on it.
 		const broken = structuredClone(doc);
-		const nameField = Object.values(broken.fields).find(
-			(field) =>
-				field.id === "case_name" &&
-				(broken.fieldOrder[REGISTER_AGAIN] ?? []).includes(field.uuid),
-		);
-		if (nameField === undefined) throw new Error("fixture missing writer");
-		delete (nameField as { caseWrite?: unknown }).caseWrite;
+		unname(broken, REGISTER_AGAIN);
 		expect(formLinkActionsBuildable(broken, REGISTER, links)).toBe(false);
 	});
 
@@ -868,14 +866,17 @@ describe("totality predicates", () => {
 		expect(formLinkActionsBuildable(doc, VISIT, links)).toBe(true);
 
 		const broken = structuredClone(doc);
-		const rootNameWriter = Object.values(broken.fields).find(
-			(field) =>
-				field.id === "case_name" &&
-				(broken.fieldOrder[REGISTER] ?? []).includes(field.uuid),
-		);
-		if (rootNameWriter === undefined) throw new Error("fixture missing writer");
-		delete (rootNameWriter as { caseWrite?: unknown }).caseWrite;
+		unname(broken, REGISTER);
 
 		expect(formLinkActionsBuildable(broken, VISIT, links)).toBe(false);
 	});
 });
+
+/** Take the name of the case `formUuid` creates off its own case. */
+function unname(doc: BlueprintDoc, formUuid: Uuid): void {
+	const own = doc.forms[formUuid]?.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	if (own?.name === undefined) throw new Error("fixture missing its name");
+	delete own.name;
+}

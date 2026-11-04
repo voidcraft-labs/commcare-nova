@@ -105,11 +105,13 @@ function admitted(doc: BlueprintDoc) {
 const MODULE_ID = OPERATIONS_SOURCE.moduleOrder[0];
 const FORM_ID = OPERATIONS_SOURCE.formOrder[MODULE_ID][0];
 const OPERATION_ID = uuidSchema.parse("00000000-0000-4000-8000-000000000390");
+// The form's own case stays first; the change under test follows it.
 OPERATIONS_SOURCE.forms[FORM_ID].caseOperations = [
+	...(OPERATIONS_SOURCE.forms[FORM_ID].caseOperations ?? []),
 	{
 		uuid: OPERATION_ID,
-		id: "close_patient",
-		action: "close",
+		id: "update_patient",
+		action: "update",
 		caseType: "patient",
 		target: { kind: "session" },
 	},
@@ -119,8 +121,11 @@ const OPERATIONS_DOC = admitted(OPERATIONS_SOURCE);
 function CaseTargetContent() {
 	const view = useCaseOperations(FORM_ID);
 	const canUndo = useCanUndo();
-	const operation = view.operations[0];
-	if (!operation) throw new Error("Missing native operation state");
+	const operation = view.operations.find(
+		(candidate) => candidate.uuid === OPERATION_ID,
+	);
+	if (operation === undefined || operation.action === "own")
+		throw new Error("Missing native operation state");
 	if (!OPERATION_ID) throw new Error("Missing native operation");
 	return (
 		<>
@@ -156,8 +161,12 @@ function CaseTargetContent() {
 				/>
 			</section>
 			<Button>Leave case change</Button>
+			{/* The changes after this form's own case, the one under test
+			 * first. */}
 			<output aria-label="Saved case changes">
-				{JSON.stringify(view.operations)}
+				{JSON.stringify(
+					view.operations.filter((candidate) => candidate.action !== "own"),
+				)}
 			</output>
 			<output aria-label="Can undo case change">{String(canUndo)}</output>
 		</>
@@ -191,6 +200,10 @@ for (const moduleUuid of [INTAKE, CARE]) {
 // Choosing several cases runs in Web Apps alone.
 collection.appSettings = { ...collection.appSettings, runsOnlyOn: "web-apps" };
 collection.forms[SOURCE].type = "followup";
+// A form that loads several cases reads none of them as one starting value,
+// so no question opens with one selected case's value.
+for (const field of Object.values(collection.fields))
+	if ("default_value" in field) delete field.default_value;
 const CARRY_COLLECTION_DOC = admitted(collection);
 function CarryContent() {
 	const view = useFormLinks(SOURCE);

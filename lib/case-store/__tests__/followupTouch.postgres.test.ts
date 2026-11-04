@@ -1,12 +1,11 @@
 // lib/case-store/__tests__/followupTouch.postgres.test.ts
 //
-// A follow-up that writes nothing still touches its case. Nova's exports
-// write `update_case` `always` on every case form, so HQ's build gives a
-// one-case follow-up a primary block that names the selected case, and HQ's
-// case processing moves that case's `modified_on` for each submission. A
-// several-case form has no primary block, so nothing moves there. The case
-// store is Preview's copy of that processing, through the production store
-// and real transactions.
+// A follow-up whose own case writes nothing still touches its case. HQ's
+// build gives a one-case follow-up a primary block that names the selected
+// case, and HQ's case processing moves that case's `modified_on` for each
+// submission. A several-case form has no primary block, so nothing moves
+// there. The case store is Preview's copy of that processing, through the
+// production store and real transactions.
 
 import { type Kysely, sql } from "kysely";
 import { describe, expect, it } from "vitest";
@@ -19,7 +18,11 @@ import { HeuristicCaseGenerator } from "../sample/heuristic";
 import { setupPerTestDatabase } from "../sql/__tests__/perTestDatabase";
 import type { Database } from "../sql/database";
 import { buildCaseTypeMap } from "../store";
-import type { ApplySubmissionArgs } from "../submission";
+import type {
+	ApplySubmissionArgs,
+	CaseOperationProgram,
+	EnvelopeCaseOperation,
+} from "../submission";
 import { buildSimpleBlueprint } from "./fixtures/simpleBlueprint";
 
 const APP_ID = "followup-touch-app";
@@ -93,14 +96,48 @@ async function seedPatient(
 
 let receipt = 0;
 
+const OWN_UUID = testUuid("0000aaaa-0000-4000-8000-00000000a0a0");
+
+function envOp(operation: EnvelopeCaseOperation["operation"]) {
+	return {
+		operation,
+		guardConditions: [],
+		expressionSnapshotTypes: { links: new Map<number, string>() },
+	};
+}
+
+/** The follow-up's program: its own case, which writes nothing, then
+ * `rest`. */
+function followupProgram(
+	caseIds: readonly string[],
+	rest: EnvelopeCaseOperation[] = [],
+): CaseOperationProgram {
+	return {
+		formUuid: FORM_UUID,
+		operations: [
+			envOp({ uuid: OWN_UUID, id: "patient", action: "own" }),
+			...rest,
+		],
+		ownCase: { caseType: "patient", formType: "followup" },
+		scopes: [{ iterations: [{ formFields: new Map() }] }],
+		sessionCaseIds: caseIds,
+		caseTypeSchemas: SCHEMAS,
+	};
+}
+
 function submit(
 	store: PostgresCaseStore,
-	ordinary: ApplySubmissionArgs["ordinary"],
+	ordinary: Extract<
+		ApplySubmissionArgs["ordinary"],
+		{ kind: "followup" | "close" }
+	>,
+	rest: EnvelopeCaseOperation[] = [],
 ) {
 	receipt += 1;
 	return store.applySubmission({
 		appId: APP_ID,
 		ordinary,
+		operations: followupProgram(ordinary.caseIds, rest),
 		submissionReceipt: {
 			entryKey: `followup-touch-${receipt}`,
 			formUuid: FORM_UUID,
@@ -140,8 +177,6 @@ describe("a follow-up that writes nothing", () => {
 			caseIds: [ALICE],
 			selection: { kind: "single", maximum: 1 },
 			caseType: "patient",
-			patch: { properties: {} },
-			children: [],
 		});
 
 		const [after] = await store.query({
@@ -161,16 +196,31 @@ describe("a follow-up that writes nothing", () => {
 		const store = makeStore();
 		await seedPatient(store, ALICE, "Alice");
 
-		await submit(store, {
-			kind: "followup",
-			caseIds: [ALICE],
-			selection: { kind: "single", maximum: 1 },
-			caseType: "patient",
-			patch: { properties: {} },
-			children: [
-				{ caseType: "visit", caseName: "Visit", properties: { notes: "x" } },
+		await submit(
+			store,
+			{
+				kind: "followup",
+				caseIds: [ALICE],
+				selection: { kind: "single", maximum: 1 },
+				caseType: "patient",
+			},
+			[
+				envOp({
+					uuid: testUuid("0000bbbb-0000-4000-8000-00000000b0b0"),
+					id: "visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: { kind: "term", term: { kind: "literal", value: "Visit" } },
+					writes: [
+						{
+							property: "notes",
+							value: { kind: "term", term: { kind: "literal", value: "x" } },
+						},
+					],
+				}),
 			],
-		});
+		);
 
 		expect((await modifiedOn(store, ALICE))?.getTime()).toBeGreaterThan(
 			BEFORE.getTime(),
@@ -187,8 +237,6 @@ describe("a follow-up that writes nothing", () => {
 			caseIds: [ALICE, BOB],
 			selection: { kind: "multiple", maximum: 2 },
 			caseType: "patient",
-			patch: { properties: {} },
-			children: [],
 		});
 
 		expect(await modifiedOn(store, ALICE)).toEqual(BEFORE);
