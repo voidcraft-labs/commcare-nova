@@ -60,8 +60,10 @@ import {
 	type CaseType,
 	caseWriteKeyOf,
 	type Expression,
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
 	type Form,
 	isCaptureFieldKind,
+	isWritableStandardCaseProperty,
 	type OwnCaseOperation,
 	reachableCaseTypes,
 	sameCaseWriteKey,
@@ -547,6 +549,8 @@ function linkCaptureWrites(
 	const changes: PlannedChange[] = [];
 	const notice: MigrationNoticeEntry[] = [];
 	const mutations: Mutation[] = [];
+	/** The (form, question, property) lines already planned. */
+	const lines = new Set<string>();
 	const catalog = doc.caseTypes ?? [];
 	let propertyTypes:
 		| ReturnType<typeof inferExpressionTypes>["propertyTypes"]
@@ -575,11 +579,19 @@ function linkCaptureWrites(
 			for (const write of operation.writes ?? []) {
 				const capture = bareCaptureAnswer(doc, write.value);
 				if (capture === undefined) continue;
-				if (write.property === "external_id") {
+				// A reserved property no write may name is the gate's own finding
+				// (`CASE_OPERATION_RESERVED_PROPERTY`), whatever the value.
+				if (FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has(write.property))
+					continue;
+				// A standard property CommCare keeps as the case's own value, in
+				// which the validator's `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`
+				// refuses a link; a name is the operation's `name`, above.
+				if (isWritableStandardCaseProperty(write.property)) {
+					const what = write.property === "case_name" ? "name" : "external id";
 					place(
 						capture,
 						"external-id",
-						`“${operation.id}” in “${form.name}” saves the file “${question(capture)}” captures as the case's external id. Nova now saves a capture as a link to its file, and CommCare keeps a case's external id as its own text. You can save the file to a property of its own.`,
+						`“${operation.id}” in “${form.name}” saves the file “${question(capture)}” captures as the case's ${what}. Nova now saves a capture as a link to its file, and CommCare keeps a case's ${what} as its own text. You can save the file to a property of its own.`,
 					);
 					continue;
 				}
@@ -603,6 +615,9 @@ function linkCaptureWrites(
 					continue;
 				}
 				linked++;
+				const line = JSON.stringify([formUuid, capture, write.property]);
+				const named = lines.has(line);
+				lines.add(line);
 				mutations.push(
 					caseOperationEdit(formUuid, {
 						caseOperationPatch: {
@@ -618,12 +633,15 @@ function linkCaptureWrites(
 						},
 					}),
 				);
-				notice.push(
-					captureSavesLinkNotName(
-						{ uuid: capture, name: question(capture) },
-						{ form: form.name, property: write.property },
-					),
-				);
+				// One line per form, question and property, as C5's
+				// `capture-saves-link` is one per question.
+				if (!named)
+					notice.push(
+						captureSavesLinkNotName(
+							{ uuid: capture, name: question(capture) },
+							{ form: form.name, property: write.property },
+						),
+					);
 			}
 		}
 		if (linked > 0)

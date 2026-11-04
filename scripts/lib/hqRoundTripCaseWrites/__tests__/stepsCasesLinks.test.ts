@@ -531,6 +531,52 @@ describe("writes-into-operations: a capture's answer saved by an operation", () 
 			expect(result.doc).toBe(before);
 		},
 	);
+
+	// Two writes of one capture to one property in one form are one line, as
+	// C5's `capture-saves-link` is one per question.
+	it("names a question's link once per form and property, however many writes save it", () => {
+		const before = planted(fixture.doc, (doc) => {
+			const snap = doc.forms[at("snap")];
+			snap?.caseOperations?.push({
+				uuid: at("snap-create"),
+				id: "copy_photo",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: { kind: "term", term: { kind: "literal", value: "Copy" } },
+				writes: [{ property: "photo_name", value: answer }],
+			});
+		});
+		const result = writesIntoOperations(before, fixture.facts);
+		expect(result.blockers).toEqual([]);
+		expect(result.changes[0]).toMatchObject({
+			kind: "capture-write-linked",
+			detail: { writes: 2 },
+		});
+		expect(
+			result.notice.filter(
+				(entry) => entry.reason === "capture-saves-link-not-name",
+			),
+		).toHaveLength(1);
+	});
+
+	// No write may name a reserved property, whatever its value, which the
+	// gate says itself.
+	it("leaves a write to a reserved property to the gate", () => {
+		const before = writing((operation) => {
+			if (operation.writes?.[0]) operation.writes[0].property = "owner_id";
+		});
+		const result = writesIntoOperations(before, fixture.facts);
+		expect(result.blockers).toEqual([]);
+		expect(
+			operationOf(formOf(result.doc, at("snap")), at("snap-update")).writes,
+		).toEqual([{ property: "owner_id", value: answer }]);
+		expect(
+			result.notice.some(
+				(entry) => entry.reason === "capture-saves-link-not-name",
+			),
+		).toBe(false);
+	});
 });
 
 describe("writes-into-operations: C1 to C3", () => {

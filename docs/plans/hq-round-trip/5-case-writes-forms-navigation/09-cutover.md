@@ -596,11 +596,14 @@ In this order, per form:
 
 0. **Stored capture reads.** A stored operation's write whose whole value is a bare read of a capture
    question saved the captured file's name at `main`; the head saves a capture only as the link to its file.
-   The write's value becomes `{ kind: "term", term: { kind: "capture-link", field } }` (change
-   `capture-write-linked`), and the question gets `capture-saves-link-not-name` (field, `detail.form`,
-   `detail.property`). Where the link can't be saved, the blocker `capture-write-unlinkable` names the place:
-   a case's name (`case-name`) or external id (`external-id`), which CommCare keeps as the case's own text,
-   or a property whose type holds no text (`property-type`, the inferred type, which the rewrite leaves
+   The write's value becomes `{ kind: "term", term: { kind: "capture-link", field } }` through an
+   `update-write` patch (change `capture-write-linked`), and the question gets one
+   `capture-saves-link-not-name` per form and property (field, `detail.form`, `detail.property`), as C5's
+   `capture-saves-link` is one per question. A write to a reserved property is left to the gate's own
+   `CASE_OPERATION_RESERVED_PROPERTY`. Where the link can't be saved, the blocker `capture-write-unlinkable`
+   names the place: a case's name (`case-name`) or a standard property CommCare keeps as the case's own text
+   (`external-id`, the validator's `isWritableStandardCaseProperty`, which `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`
+   reads), or a property whose type holds no text (`property-type`, the inferred type, which the rewrite leaves
    unchanged since a capture's answer and its link both hold no type opinion). The author's remedy is to save
    the file to a property of its own in today's builder.
 1. **C9** (part 01 class (a); production holds the shape, so C9 rewrites forms at the window, section 19.1). For each `followup` or `close` form holding
