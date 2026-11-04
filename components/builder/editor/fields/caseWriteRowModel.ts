@@ -342,19 +342,17 @@ function preloadLine(
 	input: CaseWriteRowInput,
 ): CaseWritePreloadLine | undefined {
 	const { view, field, form, module } = input;
-	// The line is about a save to this form's case on a form that opens one.
-	if (
-		view.destination !== "own" ||
-		view.link ||
-		module.caseType === undefined ||
-		!formOpensWithOneCase(form.type, caseSelectionCardinality(module))
-	)
+	// The line is about a save to this form's case itself: a write through
+	// `via` reaches another case, whatever destination a view gives it.
+	if (view.destination !== "own" || view.via !== undefined || view.link)
 		return undefined;
 	const preload = fieldPreload(field);
 	if (
 		preload !== undefined &&
+		module.caseType !== undefined &&
 		preload.caseType === module.caseType &&
-		preload.property === view.property
+		preload.property === view.property &&
+		formOpensWithOneCase(form.type, caseSelectionCardinality(module))
 	) {
 		return {
 			line: OPENS_WITH_CASE_VALUE_LINE,

@@ -257,23 +257,53 @@ describe("writerOffersPreload", () => {
 });
 
 describe("saveOffersPreload", () => {
-	// The rule writerOffersPreload reads, over the field, its form's type and
-	// its module: the two agree on every save they are both asked about.
-	it("answers as writerOffersPreload does for the same save", () => {
-		const phone = f({ kind: "text", id: "phone", uuid: PHONE });
-		for (const type of ["registration", "followup", "close"] as const) {
-			const doc = app({ type, fields: [phone] });
-			const moduleUuid = doc.moduleOrder[0];
-			const module = doc.modules[moduleUuid];
-			const field = doc.fields[PHONE];
-			if (module === undefined || field === undefined)
-				throw new Error("The fixture holds no question.");
-			for (const property of ["phone", "owner_id"]) {
-				expect(
-					saveOffersPreload({ field, property, formType: type, module }),
-				).toBe(writerOffersPreload(doc, PHONE, property));
-			}
-		}
+	// The rule over a field, its form's type and its module, as the builder's
+	// "Saves to" row asks it with no document.
+	const followup = app({ type: "followup", fields: [] });
+	const module = followup.modules[followup.moduleOrder[0]];
+	const several = app({ type: "followup", fields: [], severalCases: true });
+	const severalModule = several.modules[several.moduleOrder[0]];
+	const text = { uuid: PHONE, kind: "text", id: "phone" } as Field;
+	const offers = (
+		field: Field,
+		overrides: Partial<Parameters<typeof saveOffersPreload>[0]> = {},
+	) =>
+		saveOffersPreload({
+			field,
+			property: "phone",
+			formType: "followup",
+			module,
+			...overrides,
+		});
+
+	it("offers the case's value to a plain write on a one-case loading form", () => {
+		expect(offers(text)).toBe(true);
+		expect(offers(text, { formType: "close" })).toBe(true);
+	});
+
+	it("offers none to the owner, through `via`, on a registration or a several-case form", () => {
+		expect(offers(text, { property: "owner_id" })).toBe(false);
+		expect(offers(text, { via: [{ identifier: "parent" }] })).toBe(false);
+		expect(offers(text, { formType: "registration" })).toBe(false);
+		expect(offers(text, { module: severalModule })).toBe(false);
+	});
+
+	it("offers none to a capture, nor to a question that holds a calculation or a starting value", () => {
+		expect(offers({ ...text, kind: "image" } as Field)).toBe(false);
+		expect(
+			offers({
+				...text,
+				default_value: { kind: "term", term: { kind: "literal", value: "x" } },
+			} as Field),
+		).toBe(false);
+		expect(
+			offers({
+				uuid: PHONE,
+				kind: "hidden",
+				id: "phone",
+				calculate: { kind: "term", term: { kind: "literal", value: "x" } },
+			} as Field),
+		).toBe(false);
 	});
 });
 

@@ -8,12 +8,14 @@
  * default, the emitter writes it as the question's default setvalue, and the
  * preview engine runs it in its place among the defaults.
  *
- * `writerOffersPreload` is when a new write to the form's own case is born
- * with that default (`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite`):
- * on a follow-up or close form that opens one case, a write of the own case
- * with no `via`, to any property but its owner, by a field that is not a
- * capture and holds neither a calculation nor a default yet. A person
- * removes it like any default.
+ * `saveOffersPreload` is the one rule for when a new write to the form's own
+ * case is born with that default: on a follow-up or close form that opens
+ * one case, a write of the own case with no `via`, to any property but its
+ * owner, by a field that is not a capture and holds neither a calculation
+ * nor a default yet. The planner reads it through `writerOffersPreload`
+ * (`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite`), which finds
+ * the field's form and module in the document, and the builder's "Saves to"
+ * row calls it directly. A person removes the default like any other.
  */
 
 import type { BlueprintDoc } from "./blueprint";
@@ -72,9 +74,6 @@ export function writerOffersPreload(
 	property: string,
 	via?: CaseWriteVia,
 ): boolean {
-	// What the save alone decides, before the document is read.
-	if (via !== undefined || property.length === 0 || property === "owner_id")
-		return false;
 	const field = Object.hasOwn(doc.fields, fieldUuid)
 		? doc.fields[fieldUuid]
 		: undefined;
