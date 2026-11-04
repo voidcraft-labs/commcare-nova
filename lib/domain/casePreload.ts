@@ -29,6 +29,7 @@ import {
 import {
 	type CaseSelectionCardinality,
 	caseSelectionCardinality,
+	type Module,
 } from "./modules";
 import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
@@ -71,25 +72,50 @@ export function writerOffersPreload(
 	property: string,
 	via?: CaseWriteVia,
 ): boolean {
-	if (via !== undefined || property.length === 0 || property === "owner_id")
-		return false;
 	const field = Object.hasOwn(doc.fields, fieldUuid)
 		? doc.fields[fieldUuid]
 		: undefined;
-	if (field === undefined || isCaptureField(field)) return false;
+	if (field === undefined) return false;
+	const formUuid = formOfField(doc, fieldUuid);
+	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
+	if (formUuid === undefined || form === undefined) return false;
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (module === undefined) return false;
+	return saveOffersPreload({
+		field,
+		property,
+		via,
+		formType: form.type,
+		module,
+	});
+}
+
+/**
+ * `writerOffersPreload` over what it reads, for a caller that holds the
+ * field, its form's type and its module rather than the document (the
+ * builder's "Saves to" row): the one rule for which save is offered the
+ * case's value as its starting value.
+ */
+export function saveOffersPreload(save: {
+	readonly field: Field;
+	readonly property: string;
+	readonly via?: CaseWriteVia;
+	readonly formType: FormType;
+	readonly module: Pick<Module, "caseType" | "caseListConfig">;
+}): boolean {
+	const { field, property, via, formType, module } = save;
+	if (via !== undefined || property.length === 0 || property === "owner_id")
+		return false;
+	if (isCaptureField(field)) return false;
 	if (!fieldKindDeclaresKey(field.kind, "default_value")) return false;
 	if (
 		("calculate" in field && field.calculate !== undefined) ||
 		("default_value" in field && field.default_value !== undefined)
 	)
 		return false;
-	const formUuid = formOfField(doc, fieldUuid);
-	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
-	if (formUuid === undefined || form === undefined) return false;
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	if (module?.caseType === undefined) return false;
-	return formOpensWithOneCase(form.type, caseSelectionCardinality(module));
+	if (module.caseType === undefined) return false;
+	return formOpensWithOneCase(formType, caseSelectionCardinality(module));
 }
 
 /**

@@ -44,6 +44,7 @@ import {
 	isCaptureField,
 	type Module,
 	type RelationStep,
+	saveOffersPreload,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
@@ -336,8 +337,8 @@ function chainLabel(caseType: string, via: CaseWriteVia): string {
  *
  * A save to the case's owner is offered no starting value from it, so with
  * none it shows no line; one that already opens on the owner shows the first
- * line like any other. The row holds no document, so it restates the rule
- * the planner reads from `casePreload.ts::writerOffersPreload`.
+ * line like any other. Which save is offered one is
+ * `casePreload.ts::saveOffersPreload`, the rule the planner reads too.
  */
 function preloadLine(
 	input: CaseWriteRowInput,
@@ -372,10 +373,15 @@ function preloadLine(
 			},
 		};
 	}
-	const hasDefault =
-		"default_value" in field && field.default_value !== undefined;
-	const hasCalculation = "calculate" in field && field.calculate !== undefined;
-	if (hasDefault || hasCalculation || view.property === "owner_id")
+	if (
+		!saveOffersPreload({
+			field,
+			property: view.property,
+			...(view.via !== undefined && { via: view.via }),
+			formType: form.type,
+			module,
+		})
+	)
 		return undefined;
 	const misfit = startingValueMisfitOfType(field, input.propertyType);
 	if (misfit !== undefined) return { line: MISFIT_LINES[misfit.kind] };
