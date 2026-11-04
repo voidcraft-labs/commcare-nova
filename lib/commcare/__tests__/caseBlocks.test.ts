@@ -849,6 +849,59 @@ it("writes a close condition that reads the form's case or a case above it as th
 	}
 });
 
+// The form's read of its case binds only where the own close's condition is
+// printed. An operation slot is record logic, which the checker never lets
+// hold a form read; one planted there finds no binding rather than reading
+// through the row the operation stands on.
+it("prints no form read of the case in a selected case's operation slot", () => {
+	const doc = buildDoc({
+		appName: "Case writes",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: ["case_name", "outcome", "note"].map((name) => ({
+					name,
+					label: proseText(name),
+				})),
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					selection: { kind: "multiple", maximum: 5 },
+				},
+				forms: [
+					{
+						name: "Review",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", ...write("note") })],
+					},
+				],
+			},
+		],
+	});
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const own = Object.values(doc.forms)[0]?.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	const noteWrite = own?.writes?.[0];
+	if (noteWrite === undefined) throw new Error("The form saves no note.");
+	noteWrite.condition = {
+		kind: "eq",
+		left: {
+			kind: "term",
+			term: { kind: "form-case", caseType: "patient", property: "outcome" },
+		},
+		right: { kind: "term", term: { kind: "literal", value: "done" } },
+	};
+	expect(() => expandDoc(doc)).toThrow(
+		"Selected form record is unavailable in this expression context.",
+	);
+});
+
 it("keeps a statable close on HQ's close action", () => {
 	const doc = patientApp(
 		"close",
