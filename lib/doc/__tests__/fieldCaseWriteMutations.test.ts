@@ -931,9 +931,9 @@ describe("planFieldCaseWrite: the starting value", () => {
 		// A save the question keeps keeps its standing: the starting value
 		// born for the save the plan drops goes and the kept save is born
 		// none, whether a whole replace names it or a removal of the other
-		// leaves it. The note says a blank answer clears what it saves, and
-		// names the starting value where the question can open on the kept
-		// save's value.
+		// leaves it. The note says the question starts blank, and names the
+		// starting value where the question can open on the kept save's
+		// value.
 		it.each([
 			[
 				"a whole-number question on a fitting property",
@@ -996,8 +996,9 @@ describe("planFieldCaseWrite: the starting value", () => {
 			expect(moved).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
 		});
 
-		// A save to a case the form creates clears nothing, so a born save
-		// moved there says only that the question starts blank.
+		// A save off the form's case offers no starting value from it, so a
+		// born save moved to a case the form creates says only that the
+		// question starts blank.
 		it("says only that it starts blank when its save moves to a case the form creates", () => {
 			const doc = visit();
 			const saved = land(

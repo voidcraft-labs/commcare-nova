@@ -87,9 +87,7 @@ export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
 /** What a result says when the starting value born for a save goes with it
- *  and the question saves nothing to a case that already exists (no save,
- *  or only a case the form creates), and for a Hidden Value, whose own note
- *  (`casePreload.ts::hiddenWriterBlankNote`) says what an empty one saves. */
+ *  (`startsBlankNote`). */
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
 
@@ -121,7 +119,7 @@ function startsBlankNote(
 		return STARTS_BLANK_NOTE;
 	const opensOn = fieldCaseWriteViews(after, field.uuid).find(
 		(view) =>
-			view.formUuid === ctx.formUuid &&
+			// A write through `via` is an `ancestor` view, never `own`.
 			view.destination === "own" &&
 			view.slot !== "owner" &&
 			writerOffersPreload(after, field.uuid, view.property) &&
