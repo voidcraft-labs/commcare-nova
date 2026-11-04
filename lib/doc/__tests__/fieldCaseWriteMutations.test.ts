@@ -13,7 +13,6 @@ import {
 	OPENS_WITH_CASE_VALUE_NOTE,
 	planFieldCaseWrite,
 	planFieldMoveCaseWrites,
-	STARTS_BLANK_ON_DECIMAL_NOTE,
 	saveNewCaseNameFirstMessage,
 } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -505,67 +504,140 @@ describe("planFieldCaseWrite: the starting value", () => {
 		});
 	});
 
-	// A whole-number question opening on a decimal number stops the form, so
-	// one saving to a property that holds decimals starts blank, and the gate
-	// admits the save rather than refusing the starting value.
-	it("starts a whole-number question blank where the property holds decimal numbers", () => {
+	// A question that can't open on the case's value is refused the save: a
+	// whole-number question on a property that holds decimals stops the form
+	// as it opens, and starting it blank instead would clear the case's value
+	// on every submission that leaves it alone.
+	describe("a question that can't open on the case's value", () => {
 		const COUNT = testUuid("saves-fup-count");
-		const doc = buildDoc({
-			caseTypes: [
-				{
-					name: "household",
-					properties: [
-						{ name: "weight", label: "Weight", data_type: "decimal" },
-						{ name: "visits", label: "Visits", data_type: "int" },
-					],
-				},
-			],
-			modules: [
-				{
-					name: "Households",
+		const STAGE = testUuid("saves-fup-stage");
+		const visit = () =>
+			buildDoc({
+				caseTypes: [
+					{
+						name: "household",
+						properties: [
+							{ name: "weight", label: "Weight", data_type: "decimal" },
+							{ name: "visits", label: "Visits", data_type: "int" },
+							{ name: "tally", label: "Tally", data_type: "int" },
+							{ name: "remark", label: "Remark", data_type: "text" },
+							{ name: "stage", label: "Stage" },
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Households",
+						caseType: "household",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "hh_name",
+										caseWrite: { caseType: "household", property: "case_name" },
+									}),
+								],
+							},
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({ uuid: COUNT, kind: "int", id: "count" }),
+									f({
+										uuid: STAGE,
+										kind: "single_select",
+										id: "stage",
+										options: [
+											{ value: "open", label: "Open" },
+											{ value: "closed", label: "Closed" },
+										],
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+
+		it("refuses a whole-number question on a decimal property, and bears a fitting one's starting value", () => {
+			const doc = visit();
+			expect(
+				refusal(
+					planFieldCaseWrite(doc, COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			).toBe(
+				`"count" in "Visit" can't save to "weight", because it would open on the case's value, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. Leaving it blank would clear the case's value. You can make "count" a decimal question, or save it to a property that holds whole numbers.`,
+			);
+			expect(
+				planFieldCaseWrite(doc, COUNT, {
 					caseType: "household",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Register",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "hh_name",
-									caseWrite: { caseType: "household", property: "case_name" },
-								}),
-							],
-						},
-						{
-							name: "Visit",
-							type: "followup",
-							fields: [f({ uuid: COUNT, kind: "int", id: "count" })],
-						},
-					],
+					property: "visits",
+				}),
+			).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
+		});
+
+		it("refuses a choice question on a text property, and bears one on a property only it types", () => {
+			const doc = visit();
+			expect(
+				refusal(
+					planFieldCaseWrite(doc, STAGE, {
+						caseType: "household",
+						property: "remark",
+					}),
+				),
+			).toBe(
+				`"stage" in "Visit" can't save to "remark", because it would open on the case's value, which can be text that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a text question, or save it to a property only questions with these choices save to.`,
+			);
+			expect(
+				planFieldCaseWrite(doc, STAGE, {
+					caseType: "household",
+					property: "stage",
+				}),
+			).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
+		});
+
+		// The starting value the planner bore reads the property it saved to,
+		// so a save moved elsewhere takes its own, or is refused where the
+		// question can't open on the new property's value.
+		it("moves a born starting value with the save, and refuses the move where it can't open", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			);
+			const moved = land(
+				saved,
+				planFieldCaseWrite(saved, COUNT, {
+					caseType: "household",
+					property: "tally",
+				}),
+			);
+			expect(moved.fields[COUNT]).toMatchObject({
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "household", property: "tally" },
 				},
-			],
-		});
-		const decimal = planFieldCaseWrite(doc, COUNT, {
-			caseType: "household",
-			property: "weight",
-		});
-		expect(decimal).toMatchObject({
-			ok: true,
-			notes: [STARTS_BLANK_ON_DECIMAL_NOTE],
-		});
-		expect(land(doc, decimal).fields[COUNT]).not.toHaveProperty(
-			"default_value",
-		);
-		const whole = planFieldCaseWrite(doc, COUNT, {
-			caseType: "household",
-			property: "visits",
-		});
-		expect(whole).toMatchObject({
-			ok: true,
-			notes: [OPENS_WITH_CASE_VALUE_NOTE],
+			});
+			expect(
+				refusal(
+					planFieldCaseWrite(moved, COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			).toContain('"count" in "Visit" can\'t save to "weight"');
 		});
 	});
 

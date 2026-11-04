@@ -2162,8 +2162,12 @@ writer converging exactly the planned differences (G7).
   numbers, a whole-number question can't start on it: `IntegerData.cast` reads its starting value with
   `Integer.parseInt` and stops the form on `2.5`. The new rule `WHOLE_NUMBER_STARTS_ON_DECIMAL`
   (`lib/commcare/validator/rules/wholeNumberStart.ts`) refuses an integer question whose starting value
-  types as a decimal, and the planners that write a starting value (`planFieldCaseWrite`, and C7's
-  `planExplicitPreloads`) leave such a question blank (`lib/domain/wholeNumberStart.ts`).
+  types as a decimal. Starting such a question blank is no remedy, since a blank answer on a one-case form
+  saves blank and clears the case's value (`lib/commcare/xform/caseBlocks.ts::updateBlock`, HQ's
+  `XFormCaseBlock.add_case_updates`, Core's `CaseXmlParser.updateCase`), so `planFieldCaseWrite` refuses a
+  new save whose question can't open on the case's value (`lib/domain/startingValueFit.ts`), a choice
+  question on a property holding other values included, and C7's `planExplicitPreloads` writes main's
+  starting values unchanged for the rule to judge.
 - **A Hidden Value's branches are held to the property only where one would break a reader** (the advisory
   scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an
   operation saves its answer to, so a calculation `main` admitted beside an operation, giving several choices

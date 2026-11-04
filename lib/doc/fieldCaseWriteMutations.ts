@@ -35,20 +35,24 @@ import {
 	type CaseWriteKey,
 	type CaseWriteVia,
 	caseWriteKeyOf,
+	choiceStartsOutsideItsChoices,
 	type Expression,
 	type Field,
 	type FieldCaseWriteView,
 	type FieldCaseWriteViewKey,
 	type Form,
 	fieldCaseWriteViews,
+	fieldPreload,
 	formOfField,
 	isCaptureField,
 	moduleUuidOfForm,
 	type OwnCaseOperation,
 	ownCaseOperationId,
+	propertyAgreedType,
 	sameCaseWriteKey,
 	USERCASE_CASE_TYPE,
 	type Uuid,
+	valueKindPhrase,
 	wholeNumberStartsOnDecimal,
 	writerOffersPreload,
 } from "@/lib/domain";
@@ -84,10 +88,35 @@ export type FieldCaseWritePlan =
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
-/** The note for an integer question saving to a property that holds
- *  decimal numbers, which it can't open on (`wholeNumberStart.ts`). */
-export const STARTS_BLANK_ON_DECIMAL_NOTE =
-	"Starts blank, because the case's value can be a decimal number, which a whole-number question can't open on.";
+/** `field` without its starting value. */
+function withoutDefault(field: Field): Field {
+	if (!("default_value" in field)) return field;
+	const { default_value: _default, ...rest } = field;
+	return rest as Field;
+}
+
+/**
+ * The refusal for a save to the form's own case on a one-case loading form
+ * where the question can't open on the case's value
+ * (`lib/domain/startingValueFit.ts`). Starting it blank is no way out: a
+ * blank answer saves blank and clears the case's value. Undefined where the
+ * question fits.
+ */
+function startingValueRefusal(
+	doc: BlueprintDoc,
+	field: Field,
+	formName: string,
+	caseType: string,
+	property: string,
+): string | undefined {
+	const type = propertyAgreedType(doc, caseType, property);
+	const subject = `"${field.id}" in "${formName}" can't save to "${property}", because it would open on the case's value`;
+	if (wholeNumberStartsOnDecimal(field, type))
+		return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. Leaving it blank would clear the case's value. You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
+	if (choiceStartsOutsideItsChoices(field, type))
+		return `${subject}, which can be ${valueKindPhrase(type)} that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "${field.id}" a text question, or save it to a property only questions with these choices save to.`;
+	return undefined;
+}
 
 /** The refusal for removing the only name a registration gives its case. */
 export const NEW_CASE_NEEDS_NAME_MESSAGE =
@@ -776,7 +805,12 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * A new save to the form's own case on a follow-up or close form that opens
  * one case is born with the case's current value as the question's starting
  * value, when the question holds none yet (`writerOffersPreload`); the
- * result's `notes` say so.
+ * result's `notes` say so. A starting value born for a save the plan
+ * replaces counts as none: the new save is born with its own, or it goes.
+ * Where the question can't open on the case's value, a whole-number question
+ * on a property that holds decimal numbers or a choice question on one that
+ * holds other values (`lib/domain/startingValueFit.ts`), the save is
+ * refused, since starting it blank would clear the case's value.
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -814,7 +848,29 @@ export function planFieldCaseWrite(
 	for (const view of removed) removeViewWrite(draft, view);
 
 	let preload: { readonly property: string } | undefined;
-	let startsBlankOnDecimal = false;
+	/* A starting value the planner bore for a save it now removes reads the
+	 * old property, so it is the question's no longer: the new save is born
+	 * with its own, or the old one goes. */
+	const born = fieldPreload(field);
+	const bornOfRemoved =
+		born !== undefined &&
+		born.caseType === ctx.moduleCaseType &&
+		removed.some(
+			(view) =>
+				view.destination === "own" &&
+				view.slot !== "owner" &&
+				view.via === undefined &&
+				view.property === born.property,
+		);
+	const offerDoc: BlueprintDoc = bornOfRemoved
+		? {
+				...doc,
+				fields: {
+					...doc.fields,
+					[fieldUuid]: withoutDefault(field),
+				},
+			}
+		: doc;
 	if (destination !== null) {
 		const resolved = resolveDestination(ctx, field, destination);
 		const value = fieldAnswerValue(field);
@@ -849,21 +905,18 @@ export function planFieldCaseWrite(
 				if (
 					saved.slot !== "owner" &&
 					destination.via === undefined &&
-					writerOffersPreload(doc, fieldUuid, destination.property)
+					ctx.moduleCaseType !== undefined &&
+					writerOffersPreload(offerDoc, fieldUuid, destination.property)
 				) {
-					// An integer question opening on a decimal number stops the
-					// form, so it starts blank instead.
-					if (
-						ctx.moduleCaseType !== undefined &&
-						wholeNumberStartsOnDecimal(
-							doc,
-							field,
-							ctx.moduleCaseType,
-							destination.property,
-						)
-					)
-						startsBlankOnDecimal = true;
-					else preload = { property: destination.property };
+					const unfit = startingValueRefusal(
+						doc,
+						field,
+						ctx.form.name,
+						ctx.moduleCaseType,
+						destination.property,
+					);
+					if (unfit !== undefined) return { ok: false, message: unfit };
+					preload = { property: destination.property };
 				}
 				break;
 			}
@@ -891,8 +944,13 @@ export function planFieldCaseWrite(
 			},
 		} as Mutation);
 		notes.push(OPENS_WITH_CASE_VALUE_NOTE);
-	}
-	if (startsBlankOnDecimal) notes.push(STARTS_BLANK_ON_DECIMAL_NOTE);
+	} else if (bornOfRemoved && destination !== null)
+		draft.mutations.push({
+			kind: "updateField",
+			uuid: fieldUuid,
+			targetKind: field.kind,
+			patch: { default_value: null },
+		} as Mutation);
 	return { ok: true, mutations: draft.mutations, notes };
 }
 

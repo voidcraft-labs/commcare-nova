@@ -28,11 +28,14 @@ question alone keeps what was there, and clearing it is a real change. Because
 the case supplies the opening value, Nova does not offer a starting value on
 those questions; the properties pane says so on the question instead.
 
-A whole-number question that saves to a property holding decimal numbers starts
-blank instead, because CommCare stops a form when a whole-number question
-opens on a decimal number. Nova points out any starting value of such a
-question that could be a decimal, and you can make the question a decimal one
-or start it on the whole part with `int(...)`.
+A question can't save to its case where it couldn't open on the case's value.
+A whole-number question can't save to a property that holds decimal numbers,
+and a choice question can't save to one that holds other text, because
+CommCare stops the form when the question opens on such a value. Starting it
+blank instead would clear the case's value whenever a worker leaves it alone,
+so Nova offers a decimal or text question for that property. Nova also points
+out any starting value of a whole-number question that could be a decimal, and
+you can start it on the whole part with `int(...)`.
 
 A question that saves to a child case type works differently. Each submission
 creates a new child case, so there is nothing to show yet and the question

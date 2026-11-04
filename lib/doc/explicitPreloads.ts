@@ -16,7 +16,6 @@ import {
 	fieldKindDeclaresKey,
 	moduleUuidOfForm,
 	type Uuid,
-	wholeNumberStartsOnDecimal,
 } from "@/lib/domain";
 import { deepEqual } from "./deepEqual";
 import type { Mutation } from "./types";
@@ -29,10 +28,8 @@ import type { Mutation } from "./types";
  * A writer gets none when it holds a calculation (a Hidden Value's value is
  * its calculation, and a default beside it is refused), when its kind holds
  * no starting value, when it saves nothing to the own case of `formUuid`
- * directly, when it already opens with that read, or when it is a
- * whole-number question and the property holds decimal numbers, which it
- * can't open on (`lib/domain/wholeNumberStart.ts`). Pure and deterministic;
- * a second application plans nothing.
+ * directly, or when it already opens with that read. Pure and
+ * deterministic; a second application plans nothing.
  */
 export function planExplicitPreloads(
 	doc: BlueprintDoc,
@@ -61,8 +58,6 @@ export function planExplicitPreloads(
 				!candidate.link,
 		);
 		if (view === undefined) continue;
-		if (wholeNumberStartsOnDecimal(doc, field, caseType, view.property))
-			continue;
 		const preload: Expression = {
 			kind: "term",
 			term: { kind: "form-case", caseType, property: view.property },

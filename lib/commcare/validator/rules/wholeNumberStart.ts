@@ -1,16 +1,10 @@
 /**
- * Rule: a whole-number question's starting value is never a decimal number.
- *
- * A starting value is a setvalue that casts the text it gives through the
- * question's answer class as the form opens
- * (`SetValueAction.java::processAction`), and an integer question reads it
- * with `Integer.parseInt` (`IntegerData.java::cast`), which throws on `2.5`
- * and stops the form. So an `int` question whose `default_value` types as
+ * Rule: a whole-number question's starting value is never a decimal number,
+ * which stops the form as it opens (`lib/domain/startingValueFit.ts` holds
+ * the CommCare fact). An `int` question whose `default_value` types as
  * `decimal` in its slot is `WHOLE_NUMBER_STARTS_ON_DECIMAL`: a read of a
- * decimal case property (the starting value a question saving to that
- * property opens with, which an integer writer beside a decimal one can
- * make), a decimal calculation, or a decimal question's answer. A value
- * nothing types holds no opinion.
+ * property that holds decimal numbers, a decimal calculation, or a decimal
+ * question's answer. A value nothing types holds no opinion.
  *
  * App-scoped because the property's type comes from writers in every form:
  * a decimal writer in one form refuses the starting value of an integer
@@ -23,11 +17,10 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldPreload } from "@/lib/domain/casePreload";
 import { slotContext } from "@/lib/domain/expression/context";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
+import { wholeNumberStartsOnDecimal } from "@/lib/domain/startingValueFit";
 import { type ValidationError, validationError } from "../errors";
 
-export function wholeNumberStartsOnDecimal(
-	doc: BlueprintDoc,
-): ValidationError[] {
+export function wholeNumberStartRule(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
@@ -46,7 +39,10 @@ export function wholeNumberStartsOnDecimal(
 				);
 				if (ctx === undefined) continue;
 				if (
-					scalarDataType(typeOf(field.default_value, ctx)?.data) !== "decimal"
+					!wholeNumberStartsOnDecimal(
+						field,
+						scalarDataType(typeOf(field.default_value, ctx)?.data),
+					)
 				)
 					continue;
 				const preload = fieldPreload(field);
