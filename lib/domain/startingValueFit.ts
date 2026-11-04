@@ -14,7 +14,7 @@
  * `text` (`expression/ruleSets.ts::agreedStorageType`).
  *
  * On a follow-up or close form that opens one case, a question that saves
- * to that case opens on its value (`casePreload.ts::writerOffersPreload`),
+ * to that case opens on its value (`casePreload.ts::saveOffersPreload`),
  * and starting it blank instead is no remedy: a blank answer is saved as
  * blank and clears the case's value (`caseBlocks.ts::updateBlock`, HQ's
  * `XFormCaseBlock.add_case_updates`, Core's `CaseXmlParser.updateCase`).

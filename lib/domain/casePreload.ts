@@ -60,10 +60,8 @@ export function fieldPreload(
 
 /**
  * Whether a write of `property` by `fieldUuid` to the form's own case should
- * be born with that preload: a one-case follow-up or close form, a write of
- * the own case without `via` and not to its owner (`owner_id`, whichever
- * slot holds it), a field that is not a capture, holds no
- * `calculate` and no `default_value`, and is of a kind that holds a default.
+ * be born with that preload: it finds the field's form and module in `doc`
+ * and asks `saveOffersPreload`.
  */
 export function writerOffersPreload(
 	doc: Pick<
@@ -94,10 +92,13 @@ export function writerOffersPreload(
 }
 
 /**
- * `writerOffersPreload` over what it reads, for a caller that holds the
- * field, its form's type and its module rather than the document (the
- * builder's "Saves to" row): the one rule for which save is offered the
- * case's value as its starting value.
+ * The one rule for which save is offered the case's value as its starting
+ * value, over the field, its form's type and its module: a one-case follow-up
+ * or close form (`ownSaveOpensOneCase`), a write of the own case without
+ * `via` and not to its owner (`owner_id`, whichever slot holds it), by a
+ * field that is not a capture, holds no `calculate` and no `default_value`,
+ * and is of a kind that holds a default. The builder's "Saves to" row asks
+ * it directly; the planner asks it through `writerOffersPreload`.
  */
 export function saveOffersPreload(save: {
 	readonly field: Field;
@@ -116,8 +117,19 @@ export function saveOffersPreload(save: {
 		("default_value" in field && field.default_value !== undefined)
 	)
 		return false;
-	if (module.caseType === undefined) return false;
-	return formOpensWithOneCase(formType, caseSelectionCardinality(module));
+	return ownSaveOpensOneCase(formType, module);
+}
+
+/** Whether a form of `formType` in `module` opens one case of the module's
+ *  type, the one its own saves write. */
+export function ownSaveOpensOneCase(
+	formType: FormType,
+	module: Pick<Module, "caseType" | "caseListConfig">,
+): boolean {
+	return (
+		module.caseType !== undefined &&
+		formOpensWithOneCase(formType, caseSelectionCardinality(module))
+	);
 }
 
 /**

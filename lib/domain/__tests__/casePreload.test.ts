@@ -288,8 +288,18 @@ describe("saveOffersPreload", () => {
 		expect(offers(text, { module: severalModule })).toBe(false);
 	});
 
-	it("offers none to a capture, nor to a question that holds a calculation or a starting value", () => {
+	it("offers none on a module with no case type, nor to a write with no property", () => {
+		expect(offers(text, { module: { ...module, caseType: undefined } })).toBe(
+			false,
+		);
+		expect(offers(text, { property: "" })).toBe(false);
+	});
+
+	it("offers none to a capture, a kind that holds no starting value, nor a question that holds a calculation or a starting value", () => {
 		expect(offers({ ...text, kind: "image" } as Field)).toBe(false);
+		expect(offers({ uuid: PHONE, kind: "label", id: "phone" } as Field)).toBe(
+			false,
+		);
 		expect(
 			offers({
 				...text,

@@ -31,16 +31,15 @@ import {
 	type CasePropertyDataType,
 	type CaseType,
 	type CaseWriteVia,
-	caseSelectionCardinality,
 	type Field,
 	type FieldCaseWriteView,
 	type FieldCaseWriteViewKey,
 	type Form,
 	fieldCaseWriteViewKey,
 	fieldPreload,
-	formOpensWithOneCase,
 	humanizeId,
 	type Module,
+	ownSaveOpensOneCase,
 	type RelationStep,
 	saveOffersPreload,
 } from "@/lib/domain";
@@ -342,17 +341,23 @@ function preloadLine(
 	input: CaseWriteRowInput,
 ): CaseWritePreloadLine | undefined {
 	const { view, field, form, module } = input;
-	// The line is about a save to this form's case itself: a write through
-	// `via` reaches another case, whatever destination a view gives it.
-	if (view.destination !== "own" || view.via !== undefined || view.link)
+	// The line is about a save to this form's case itself. An `own` view
+	// carries no `via` (caseWriteViews makes such a write `ancestor`); the
+	// check is defensive.
+	const caseType = module.caseType;
+	if (
+		view.destination !== "own" ||
+		view.via !== undefined ||
+		view.link ||
+		caseType === undefined
+	)
 		return undefined;
 	const preload = fieldPreload(field);
 	if (
 		preload !== undefined &&
-		module.caseType !== undefined &&
-		preload.caseType === module.caseType &&
+		preload.caseType === caseType &&
 		preload.property === view.property &&
-		formOpensWithOneCase(form.type, caseSelectionCardinality(module))
+		ownSaveOpensOneCase(form.type, module)
 	) {
 		return {
 			line: OPENS_WITH_CASE_VALUE_LINE,
@@ -392,7 +397,7 @@ function preloadLine(
 						kind: "term",
 						term: {
 							kind: "form-case",
-							caseType: module.caseType,
+							caseType,
 							property: view.property,
 						},
 					},
