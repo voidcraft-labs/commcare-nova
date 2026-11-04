@@ -29,6 +29,27 @@ export function entryDatumCaseKey(
 	return ref === undefined ? `placeholder:${datumId}` : datumRefKey(ref);
 }
 
+/**
+ * Numbers the keys of an entry's new-case datums, met in entry order. An
+ * entry can give several new cases of one type a datum (an advanced form's
+ * open actions, a basic form's subcases outside a repeat), and each needs its
+ * own id, so the first datum of a key keeps it plain (`new-child-case:<type>`)
+ * and each later one takes its position among them (`new-child-case:<type>:1`,
+ * `:2`, …). The entry's session and the submission number the same datums
+ * in the same order, so they derive the same ids.
+ */
+export function entryNewCaseKeyNumbering(): (
+	ref: Extract<DatumRef, { kind: "new-case" | "new-child-case" }>,
+) => string {
+	const seen = new Map<string, number>();
+	return (ref) => {
+		const key = datumRefKey(ref);
+		const earlier = seen.get(key) ?? 0;
+		seen.set(key, earlier + 1);
+		return earlier === 0 ? key : `${key}:${earlier}`;
+	};
+}
+
 /** The case id the datum keyed `key` holds in entry `entryKey` of app `appId`. */
 export function entryDatumCaseId(
 	appId: string,

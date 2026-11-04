@@ -72,6 +72,7 @@ import {
 	attachCaseOperationData,
 	bindLookupFilterFieldPaths,
 	buildCaseOperations,
+	type CaseOperationDataChild,
 	caseScalarTextValueCalculation,
 	caseScalarTextValueGuard,
 	caseWriteSiblingPaths,
@@ -117,6 +118,10 @@ import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import {
+	type AdvancedGeneratedNode,
+	planFormCaseWire,
+} from "../casePlacementPlan";
+import {
 	entryDatumIdResolver,
 	entryDatumIds,
 	formLinkProjectionContext,
@@ -124,7 +129,7 @@ import {
 import { lookupOptionsNodeset } from "../lookupOptions";
 import { placedBasic } from "../placement";
 import { w } from "../xpath/wire/builders";
-import { InstanceSink } from "../xpath/wire/instances";
+import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
 import { fieldBindType } from "./bindType";
@@ -556,6 +561,53 @@ export interface BuildXFormOptions {
 }
 
 /**
+ * The owner nodes of an advanced form (`casePlacementPlan.ts::
+ * AdvancedGeneratedNode`): one Hidden Value per open action whose owner
+ * CommCare HQ's build would not set as the operation states it, which the
+ * action names as its `owner_id`. Each is appended to its scope, after
+ * every authored and generated child there, and carries a calculate and no
+ * control: the worker, `instance('commcaresession')/session/context/userid`,
+ * or no owner, `'-'`.
+ */
+function buildOwnerNodes(
+	nodes: readonly AdvancedGeneratedNode[],
+	context: WireElementContext,
+): {
+	readonly dataChildren: readonly CaseOperationDataChild[];
+	readonly binds: readonly Element[];
+} {
+	const dataChildren: CaseOperationDataChild[] = [];
+	const binds: Element[] = [];
+	for (const node of nodes) {
+		dataChildren.push({
+			parentPath: node.scope,
+			element: el(node.name, {}),
+			placement: "append",
+		});
+		binds.push(
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: node.scope.child(node.name).toWire(),
+						calculate:
+							node.value === "acting-user"
+								? w.instance(sessionInstance(), [
+										w.step("session"),
+										w.step("context"),
+										w.step("userid"),
+									])
+								: w.str("-"),
+					},
+				},
+				context,
+			),
+		);
+	}
+	return { dataChildren, binds };
+}
+
+/**
  * `setvalues` ordered by where each target stands in the primary instance,
  * an attribute at its element. Setvalues on one element keep their order.
  */
@@ -940,6 +992,17 @@ export function buildXFormSource(
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
 		binds.push(...caseOperations.binds);
 		setvalues.push(...caseOperations.setvalues);
+	}
+
+	// An advanced form's owner nodes, the Hidden Values its open actions
+	// name as their `owner_id`, each the last child of its scope.
+	const caseWire = planFormCaseWire(doc, formUuid, {
+		attachmentTarget: opts.attachmentTarget ?? null,
+	});
+	if (caseWire.kind === "advanced") {
+		const owners = buildOwnerNodes(caseWire.generated, context);
+		attachCaseOperationData(dataEl, owners.dataChildren);
+		binds.push(...owners.binds);
 	}
 
 	const modelChildren: ChildNode[] = [

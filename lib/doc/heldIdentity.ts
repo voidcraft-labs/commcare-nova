@@ -1,7 +1,7 @@
 /**
  * Whether a document, or one of its forms, holds an identity a publish
- * recorded: a case operation's placement, a form's own close placement, or
- * a query repeat's placement. Most apps hold none, and every reader that
+ * recorded: a case operation's placement, a form's own close placement, a
+ * query repeat's placement, or a menu's held kind. Most apps hold none, and every reader that
  * pays for held identities (the move planners, the whole-module validation
  * scope) asks here first. One walk per document object, memoized: documents
  * are replaced, never changed in place.
@@ -45,7 +45,10 @@ export function formHoldsPlacement(doc: BlueprintDoc, formUuid: Uuid): boolean {
 	return formsHoldingPlacement(doc).has(formUuid);
 }
 
-/** Whether the document holds any placement. */
+/** Whether the document holds any placement or any menu's kind. */
 export function documentHoldsIdentity(doc: BlueprintDoc): boolean {
-	return formsHoldingPlacement(doc).size > 0;
+	return (
+		formsHoldingPlacement(doc).size > 0 ||
+		Object.values(doc.modules).some((module) => module.heldKind !== undefined)
+	);
 }

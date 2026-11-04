@@ -34,6 +34,7 @@ import {
 	planFeatureUse,
 } from "@/lib/publish/planFeatures";
 import { fieldTakesCaseChoices } from "./caseOptions";
+import { planFormCaseWire } from "./casePlacementPlan";
 import { deliverUnitTakesDefaultEntity } from "./connectDefaults";
 import {
 	buildConnectSlugMap,
@@ -42,7 +43,6 @@ import {
 } from "./connectSlugs";
 import { formLinkProjectionContext } from "./formLinkProjection";
 import { formsReadingLocationsFixture } from "./locations/readsLocationsFixture";
-import { appPlacements } from "./placement";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { formEmitsSaveToCase } from "./xform/caseOps";
 
@@ -256,18 +256,26 @@ export function requiredPlanPrivileges(
 		),
 	]);
 
+	/* Each form's one wire plan, as the emitter writes it. */
+	const wirePlan = (formUuid: Uuid) =>
+		planFormCaseWire(doc, formUuid, { attachmentTarget });
+
 	/* `child_cases`: HQ's Case Management page keeps a form's child cases
 	 * un-editable without it (`add_ons.py::_ADD_ONS["subcases"]`, whose
 	 * `used_in_form` reads the `subcases` list's length). The list holds each
-	 * basic subcase placement and, beside an extension child a field writes,
-	 * HQ's inert subcase (`casePlacementPlan.ts`). */
+	 * basic subcase placement (`casePlacementPlan.ts`). An advanced form asks
+	 * nothing of its own: HQ's build checks only the worker's record
+	 * (`helpers/validators.py::ApplicationValidator._check_subscription`),
+	 * and the advanced Case Management page reads no add-on privilege
+	 * (`static/app_manager/js/forms/advanced/case_config_ui.js`). */
 	add(
 		"child_cases",
-		forms.flatMap(({ formUuid }) =>
-			linkContext.formActions(formUuid).subcases.length > 0
+		forms.flatMap(({ formUuid }) => {
+			const plan = wirePlan(formUuid);
+			return plan.kind === "basic" && plan.actions.subcases.length > 0
 				? [`${formName(doc, formUuid)} creates or updates a child case.`]
-				: [],
-		),
+				: [];
+		}),
 	);
 
 	/* `form_link_workflow`: HQ's form settings page posts no link without it
@@ -288,15 +296,13 @@ export function requiredPlanPrivileges(
 	/* `save_to_case`: HQ loads Vellum's `saveToCase` plugin only under it
 	 * (`views/formdesigner.py::_get_vellum_plugins`), so a save in the form
 	 * builder discards the case binds of every Save to Case block. Asked for
-	 * each form some placement of which is Save to Case and whose source
-	 * writes that block. */
-	const placements = appPlacements(doc);
+	 * each form whose plan holds a Save to Case block, of a basic or an
+	 * advanced form alike, and whose source writes that block. */
 	add(
 		"save_to_case",
 		forms.flatMap(({ formUuid }) =>
-			[...(placements.get(formUuid)?.placements.values() ?? [])].some(
-				(planned) => planned.placement.kind === "save-to-case",
-			) && formEmitsSaveToCase(doc, formUuid, linkContext)
+			wirePlan(formUuid).saveToCase.length > 0 &&
+			formEmitsSaveToCase(doc, formUuid, linkContext)
 				? [
 						`${formName(doc, formUuid)} writes its case changes as Save to Case blocks.`,
 					]

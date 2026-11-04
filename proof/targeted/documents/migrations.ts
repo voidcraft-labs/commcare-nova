@@ -31,12 +31,15 @@
  *   and file questions each save a link to their file on the case. Its
  *   retained A was published from the image question's attachment-mode
  *   write, under `MM_CASE_PROPERTIES`.
- * - `targeted-migration-extension-children` (defect 24): a registration
- *   writing an extension case and then a child case through field writes;
- *   a second registration writing an extension case, with a form link
- *   carrying the new extension case into a follow-up of its own menu; and
- *   a case-list-only menu of the child cases, which every created case type
- *   has.
+ * - `targeted-migration-extension-children` (defect 24), migrated: a
+ *   registration creating an extension case, held in the Save to Case block
+ *   its published A keeps it in, and then a child case, which moves up to
+ *   the first basic subcase now that no inert extension subcase stands
+ *   before it; a second registration creating an extension case, with a
+ *   form link carrying the new extension case into a follow-up of its own
+ *   menu, so the case is an advanced open action and its menu is advanced;
+ *   and a case-list-only menu of the child cases, which every created case
+ *   type has.
  * - `targeted-migration-query-repeats` (defect 25): a query repeat over the
  *   case list at the root, holding model iteration as the cutover writes it
  *   for the published app; one in a user repeat whose query reads the row's
@@ -780,19 +783,27 @@ export function migrationAttachment() {
 export function migrationExtensionChildren() {
 	const id = "targeted-migration-extension-children";
 	const uuid = (name: string) => targetedUuid(id, name);
+	const register = uuid("register");
+	const enroll = uuid("enroll");
 	const episodes = uuid("episodes");
 	const review = uuid("review");
-	const name = (key: string, caseTypeName: string, label: string) =>
+	const name = (key: string, label: string) =>
 		f({
 			kind: "text",
 			uuid: uuid(key),
 			id: key.replaceAll("-", "_"),
 			label: proseText(label),
-			caseWrite: { caseType: caseTypeName, property: "case_name" },
 		});
+	/** The case `key`'s answer named before the migration. */
+	const named = (key: string, caseTypeName: string): FieldWriteFact => ({
+		fieldUuid: uuid(key),
+		caseType: caseTypeName,
+		property: "case_name",
+		capture: false,
+	});
 	const nameColumn = (key: string) =>
 		plainColumn(uuid(`${key}-name-column`), "case_name", "Name");
-	const doc = buildDoc({
+	const built = buildDoc({
 		appId: id,
 		appName: "Episodes and contacts",
 		// Declared for Web Apps and Android, as a new app is.
@@ -810,13 +821,13 @@ export function migrationExtensionChildren() {
 				caseListConfig: caseListOf([nameColumn("patients")]),
 				forms: [
 					{
-						uuid: uuid("register"),
+						uuid: register,
 						name: "Register",
 						type: "registration",
 						fields: [
-							name("patient-name", "patient", "Patient name"),
-							name("episode-name", "episode", "Episode name"),
-							name("contact-name", "contact", "Contact name"),
+							name("patient-name", "Patient name"),
+							name("episode-name", "Episode name"),
+							name("contact-name", "Contact name"),
 						],
 					},
 				],
@@ -828,7 +839,7 @@ export function migrationExtensionChildren() {
 				caseListConfig: caseListOf([nameColumn("enrollment")]),
 				forms: [
 					{
-						uuid: uuid("enroll"),
+						uuid: enroll,
 						name: "Enroll",
 						type: "registration",
 						formLinks: [
@@ -851,8 +862,8 @@ export function migrationExtensionChildren() {
 							},
 						],
 						fields: [
-							name("enrolled-name", "patient", "Patient name"),
-							name("enrolled-episode", "episode", "Episode name"),
+							name("enrolled-name", "Patient name"),
+							name("enrolled-episode", "Episode name"),
 						],
 					},
 				],
@@ -882,6 +893,54 @@ export function migrationExtensionChildren() {
 			},
 		],
 	});
+	// Each case a question named, as an operation (classes C1 and C2): the
+	// episode a create with an extension link to the form's own case, the
+	// contact a create with a child link.
+	const migrated = migrateFieldWrites(
+		built,
+		new Map([
+			[
+				register,
+				[
+					named("patient-name", "patient"),
+					named("episode-name", "episode"),
+					named("contact-name", "contact"),
+				],
+			],
+			[
+				enroll,
+				[
+					named("enrolled-name", "patient"),
+					named("enrolled-episode", "episode"),
+				],
+			],
+		]),
+		new Map(),
+	);
+	const own = (operation: CaseOperation) => operation.action === "own";
+	const creates = (caseType: string) => (operation: CaseOperation) =>
+		operation.action === "create" && operation.caseType === caseType;
+	// Register's episode, published in its Save to Case block and carried by
+	// no link, is held at that block's path (M1), and its contact, which A
+	// kept as `subcase_1` behind the inert extension subcase, at the index it
+	// moves up to (M2). Enroll's episode is carried by its link, so it opens
+	// as an advanced open action and its menu turns advanced (M1, M3): the
+	// cutover holds nothing of that menu, and the next publish records it.
+	// Every other case change is held where A keeps it (class C8).
+	const doc = heldAt(migrated, [
+		[register, own, { kind: "basic", slot: "own" }],
+		[
+			register,
+			creates("episode"),
+			saveToCase(["nova_subcases", "nova_subcase_0"]),
+		],
+		[
+			register,
+			creates("contact"),
+			{ kind: "basic", slot: "subcase", index: 0 },
+		],
+		[review, own, { kind: "basic", slot: "own" }],
+	]);
 	return witness({
 		id,
 		rows: ["24"],

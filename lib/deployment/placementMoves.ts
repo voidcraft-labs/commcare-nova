@@ -1,6 +1,7 @@
 import "server-only";
 
 import { produce } from "immer";
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { appPlacements, planPlacements } from "@/lib/commcare/placement";
 import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
@@ -181,9 +182,10 @@ function heldSaveToCaseTargets(
  * The `save-to-case` offer: every held Save to Case block moved to the Case
  * Management slot the planner gives it once the hold is gone, all of them or
  * none. A partial move changes submission paths and still needs Save to Case,
- * so it buys nothing. It never puts a new case of its module's own type in a
- * basic subcase, which a project space that drops such links would refuse
- * next.
+ * so it buys nothing. It never changes a menu's kind, which would move every
+ * placement of its forms, and never puts a new case of its module's own type
+ * in a basic subcase, which a project space that drops such links would
+ * refuse next.
  */
 function saveToCaseOffer(doc: BlueprintDoc): PlacementMoveOffer | null {
 	const targets = heldSaveToCaseTargets(doc);
@@ -196,6 +198,15 @@ function saveToCaseOffer(doc: BlueprintDoc): PlacementMoveOffer | null {
 		});
 	});
 	if (sameTypeBasicChildCases(cleared).length > 0) return null;
+	// A menu whose kind the move changes moves every placement of its forms.
+	if (
+		doc.moduleOrder.some(
+			(moduleUuid) =>
+				emittedModuleKind(cleared, moduleUuid) !==
+				emittedModuleKind(doc, moduleUuid),
+		)
+	)
+		return null;
 
 	const moved: CaseChangeHold[] = [];
 	for (const target of targets) {

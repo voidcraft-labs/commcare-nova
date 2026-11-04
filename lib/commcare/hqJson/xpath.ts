@@ -1,6 +1,13 @@
 /** HQ's expression fields retain their trees and interpolation mode until the
  * complete application crosses this boundary. Public HQ values contain text. */
-import type { HqApplication, HqForm, HqFormLink, HqModule } from "../types";
+import type {
+	HqAdvancedForm,
+	HqAdvancedModule,
+	HqApplication,
+	HqForm,
+	HqFormLink,
+	HqModule,
+} from "../types";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr, WireMode } from "../xpath/wire/tree";
 
@@ -28,6 +35,9 @@ export type HqLinkXPath = HqXPath;
 export type HqApplicationTree = HqApplication<HqXPath, HqLinkXPath>;
 export type HqModuleTree = HqModule<HqXPath, HqLinkXPath>;
 export type HqFormTree = HqForm<HqXPath, HqLinkXPath>;
+/** An advanced menu's tree; of its own keys only `form_filter` holds an expression. */
+export type HqAdvancedModuleTree = HqAdvancedModule<HqXPath, HqLinkXPath>;
+export type HqAdvancedFormTree = HqAdvancedForm<HqXPath, HqLinkXPath>;
 export type HqFormLinkTree = HqFormLink<HqLinkXPath>;
 
 export function hqXPathText(value: HqXPath): string {

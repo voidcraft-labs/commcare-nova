@@ -11,6 +11,7 @@ import type {
 	IdentityMoveReport,
 	IdentityMoveSubject,
 } from "@/lib/doc/identityMoves";
+import type { ModuleKindMoveReason } from "@/lib/doc/moduleKindMoves";
 import {
 	type BlueprintDoc,
 	ownRecordValue,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/domain";
 import { describeCaseOperation } from "@/lib/domain/caseOperationDescription";
 import {
+	advancedKindBlockerSentence,
 	placementIneligibilitySentence,
 	placementLabelWords,
 } from "@/lib/domain/placementCopy";
@@ -27,7 +29,21 @@ import {
 const EXPORT_COLUMNS_SENTENCE =
 	"From your next publish, CommCare HQ's exports show these answers under new columns.";
 
+/** What a menu's move also changes where the menu selects a parent case. */
+const CHOSEN_CASES_RENAMED_SENTENCE =
+	"Its forms also read the cases chosen through its parent case under new names.";
+
 const quoted = (words: string): string => `“${words}”`;
+
+/** Why a menu's kind moves, in one sentence: a blocker's is the one the
+ *  gate's `HELD_PLACEMENT_INEXPRESSIBLE` finding for the menu reads too. In
+ *  step 5 the one case change only an advanced menu holds is the open
+ *  action of a create an after-submit link carries. */
+function moduleKindMoveReasonSentence(reason: ModuleKindMoveReason): string {
+	if (reason === "advanced-change")
+		return "A form in it now saves a case change only an advanced menu can.";
+	return advancedKindBlockerSentence(reason);
+}
 
 function formWords(doc: BlueprintDoc, formUuid: Uuid): string {
 	return ownRecordValue(doc.forms, formUuid)?.name ?? "";
@@ -93,6 +109,8 @@ export function identityMoveReasonSentence(
 				}
 			}
 		}
+		case "module-kind":
+			return moduleKindMoveReasonSentence(reason.reason);
 		default: {
 			const _exhaustive: never = reason;
 			return _exhaustive;
@@ -100,12 +118,21 @@ export function identityMoveReasonSentence(
 	}
 }
 
+/** Whether the move renames the session values a menu's forms read the
+ *  cases chosen through its parent case by. */
+export function identityMoveRenamesChosenCases(move: IdentityMove): boolean {
+	return move.reason.source === "module-kind" && move.reason.chosenCasesRenamed;
+}
+
 /** The whole statement of one move, as a tool result says it. */
 export function identityMoveSentence(
 	doc: BlueprintDoc,
 	move: IdentityMove,
 ): string {
-	return `${identitySubjectName(doc, move.subject)} moves from ${placementLabelWords(move.from)} to ${placementLabelWords(move.to)}. ${identityMoveReasonSentence(doc, move)} ${EXPORT_COLUMNS_SENTENCE}`;
+	const renamed = identityMoveRenamesChosenCases(move)
+		? ` ${CHOSEN_CASES_RENAMED_SENTENCE}`
+		: "";
+	return `${identitySubjectName(doc, move.subject)} moves from ${placementLabelWords(move.from)} to ${placementLabelWords(move.to)}. ${identityMoveReasonSentence(doc, move)}${renamed} ${EXPORT_COLUMNS_SENTENCE}`;
 }
 
 /** One move as a tool result carries it. */

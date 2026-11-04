@@ -294,6 +294,9 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
 	FORM_LINK_DATUM_TARGET_COLLISION: "soundness",
+	// A link hands its target a new case that no session value carries
+	// (`rules/advancedModule.ts`).
+	FORM_LINK_NEEDS_NEW_CASE_DATUM: "soundness",
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: "soundness",
 	FORM_LINK_SELECTION_CARDINALITY: "soundness",
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: "soundness",
@@ -357,6 +360,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// document would move without stating it, share with another change,
 	// or name an authored node over.
 	HELD_PLACEMENT_INEXPRESSIBLE: "soundness",
+	CASE_PLACEMENT_KIND: "soundness",
 	CASE_PLACEMENT_SHARED: "soundness",
 	HELD_BLOCK_PATH_TAKEN: "soundness",
 	// ── Field-level ──────────────────────────────────────────────────
@@ -488,6 +492,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HQJSON_BAD_CASE_LIST_FORM: "oracle",
 	HQJSON_BAD_UPDATE_MODE: "oracle",
 	HQJSON_BAD_SUBCASE_RELATIONSHIP: "oracle",
+	HQJSON_BAD_AUTO_SELECT_MODE: "oracle",
 	HQJSON_BAD_DETAIL_DISPLAY: "oracle",
 	HQJSON_BAD_TYPE: "oracle",
 	HQJSON_BAD_SORT_ELEMENT: "oracle",

@@ -1207,11 +1207,16 @@ def test_each_publish_the_observation_reads_keys_the_local_part(tmp_path):
 JUDGMENT = """
 import json, sys
 from proof.checks import manifest_usage
-from proof.checks.corpus import load, corpus_root
+from proof.checks.corpus import load, corpus_root, load_controls
 from proof.observe.record import DocumentRecords
 
 records = DocumentRecords.load(sys.argv[2])
-document = load(corpus_root()).document(sys.argv[3])
+# The document compared is a corpus document or, where the register names only fixed entries, a retained control
+# of the same id, whose inputs are its own.
+if sys.argv[4] == "control":
+    document = next(control for control in load_controls() if control.id == sys.argv[3])
+else:
+    document = load(corpus_root()).document(sys.argv[3])
 judged = manifest_usage.manifest_differences(document, records)
 print(json.dumps(sorted(json.dumps(d.as_json(), sort_keys=True) for d in judged)))
 """
@@ -1229,7 +1234,7 @@ def test_the_judge_gives_records_read_back_where_hq_cannot_be_imported_what_it_g
     here = sorted(
         json.dumps(d.as_json(), sort_keys=True) for d in manifest_usage.manifest_differences(document, records)
     )
-    ran = _refusing(JUDGMENT, str(records.save(tmp_path / "records")), document.id)
+    ran = _refusing(JUDGMENT, str(records.save(tmp_path / "records")), document.id, document.kind)
     assert ran.returncode == 0, ran.stderr
     assert json.loads(ran.stdout) == here
     assert here, f"{document.id} gives the manifest judge no difference, so nothing is compared."

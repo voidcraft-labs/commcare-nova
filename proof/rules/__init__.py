@@ -99,6 +99,7 @@ from proof.rules import (  # noqa: E402
     itext_value_order,
     lookup_fields_unshown,
     model_order,
+    open_action_blanks,
     preload_condition,
     profile_custom_properties,
     profile_features_users,
@@ -140,6 +141,7 @@ RULES: tuple[SpellingRule, ...] = (
     condition_operator_default.RULE,
     form_link_fallback.RULE,
     subcase_empty_strings.RULE,
+    open_action_blanks.RULE,
     # A built profile.
     profile_unread_properties.RULE,
     # The address of a request a reader sent HQ.

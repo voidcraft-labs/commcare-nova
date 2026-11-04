@@ -3,17 +3,29 @@
  * form's case changes in CommCare HQ (`CaseOperation.placement`,
  * `Form.ownClosePlacement`). A hold is an identity no author chooses, so each
  * rule refuses a document that would move or duplicate one without saying
- * so. All three are soundness, located at the form.
+ * so. All four are soundness, located at the form, but for a menu's held
+ * kind, located at the menu.
  *
  * - `HELD_PLACEMENT_INEXPRESSIBLE`: a hold the document no longer lets its
  *   subject keep (`placement.ts::planPlacements(...).inexpressible`). The
  *   plan still places the subject, so every emitter stays total; the batch
- *   that strands a hold commits only with the hold's move beside it.
+ *   that strands a hold commits only with the hold's move beside it. Its
+ *   `module-kind` subject is a menu CommCare HQ holds as an advanced menu
+ *   that a blocker now keeps from being one (`Module.heldKind`).
+ * - `CASE_PLACEMENT_KIND`: a held case action (`advanced`) in a form of a
+ *   menu emitted as an ordinary menu, or a held Case Management slot in a
+ *   form of an advanced menu (`moduleKind.ts::emittedModuleKind`). HQ
+ *   reads a basic form's `FormActions` and an advanced form's
+ *   `AdvancedFormActions` (`models/forms.py::Form.actions`,
+ *   `AdvancedForm.actions`), so neither kind of form holds the other's
+ *   place. Like the hold above, the plan places the change as if unheld.
  * - `CASE_PLACEMENT_SHARED`: two subjects of one form holding one place,
  *   except a close holding the basic place of the create it closes, which
  *   is HQ's own `close_condition` on that subcase.
  * - `HELD_BLOCK_PATH_TAKEN`: an authored name equal to a segment of a held
- *   Save to Case path in the namespace that segment stands in. The
+ *   Save to Case path in the namespace that segment stands in, or to the
+ *   element HQ's build appends for a held slot or action (`subcase_<i>`,
+ *   `commcare_usercase`, `case_<tag>`) where it appends it. The
  *   allocator (`xform/generatedNodes.ts::planGeneratedNodes`) steps every
  *   generated name around a taken one but never moves a held segment, and
  *   an authored name is written as it is, so the two would be one element
@@ -24,6 +36,7 @@
  *   one of them and move the published block or the answer.
  */
 
+import { advancedCaseBlockName } from "@/lib/commcare/advancedTags";
 import {
 	type InexpressibleHold,
 	type PlacementSubject,
@@ -34,11 +47,22 @@ import {
 	type CaseOperation,
 	type CasePlacement,
 	formConnectIds,
+	type Module,
 	orderedCaseOperations,
 	placementIneligibilitySentence,
 	type Uuid,
 } from "@/lib/domain";
+import { advancedKindBlockers } from "@/lib/domain/advancedModule";
+import {
+	subcaseBlockName,
+	USERCASE_BLOCK_NAME,
+} from "@/lib/domain/basicCaseSlots";
 import { suffixUntilFree } from "@/lib/domain/idSlug";
+import {
+	advancedKindBlockerSentence,
+	placementLabel,
+	placementLabelWords,
+} from "@/lib/domain/placementCopy";
 import {
 	editorSafeQuestionId,
 	RESERVED_CONNECT_BLOCK_IDS,
@@ -67,6 +91,14 @@ export function heldPlacementInexpressibleMessage(
 	reasonSentence: string,
 ): string {
 	return `CommCare HQ keeps ${subjectWords} where your last publish put it, and this change can't keep it there. ${reasonSentence} Make the change again to see where it moves and confirm it.`;
+}
+
+export function casePlacementKindMessage(
+	subjectWords: string,
+	placementWords: string,
+	menuWords: string,
+): string {
+	return `CommCare HQ keeps ${subjectWords} in ${placementWords}, which a form in ${menuWords} can't use. Make the change again to see where it moves and confirm it.`;
 }
 
 export function casePlacementSharedMessage(
@@ -144,6 +176,18 @@ function placementError(
 	);
 }
 
+/** The form kind a hold's first reason says the form now is: a hold whose
+ *  menu kind changed under it (`module-advanced`, `module-basic`) is the
+ *  kind rule's, every other the inexpressibility rule's. */
+function changedFormKind(
+	hold: InexpressibleHold,
+): "basic" | "advanced" | undefined {
+	const first = hold.reasons[0].reason;
+	if (first === "module-advanced") return "advanced";
+	if (first === "module-basic") return "basic";
+	return undefined;
+}
+
 function inexpressibleFindings(
 	ctx: PlacementRuleContext,
 	inexpressible: readonly InexpressibleHold[],
@@ -155,6 +199,27 @@ function inexpressibleFindings(
 				? ctx.operations.find((op) => op.uuid === subject.operationUuid)
 				: undefined;
 		const subjectWords = heldSubjectWords(hold.subject, operation);
+		const moduleKind = changedFormKind(hold);
+		if (moduleKind !== undefined) {
+			const placementWords = placementLabelWords(placementLabel(hold.held));
+			const menuWords = placementLabelWords(
+				moduleKind === "advanced" ? "advanced-menu" : "ordinary-menu",
+			);
+			return placementError(
+				ctx,
+				"CASE_PLACEMENT_KIND",
+				casePlacementKindMessage(subjectWords, placementWords, menuWords),
+				operation,
+				{
+					subject: JSON.stringify(hold.subject),
+					held: JSON.stringify(hold.held),
+					moduleKind,
+					subjectWords,
+					placementWords,
+					menuWords,
+				},
+			);
+		}
 		const sentence = placementIneligibilitySentence(hold.reasons[0].reason);
 		return placementError(
 			ctx,
@@ -387,6 +452,183 @@ function blockPathFindings(
 	return errors;
 }
 
+/**
+ * The element HQ's build appends for a held Case Management slot or case
+ * action, and the repeat whose rows hold it (the data root where absent):
+ * a basic subcase's `subcase_<i>`, the worker's `commcare_usercase`, an
+ * action's `case_<tag>`. A block HQ writes at `case` (the own slot, a
+ * repeat row's only subcase or open action) names nothing a question can
+ * take, since `case` is reserved. A close sharing its create's place is
+ * read at the create.
+ */
+function heldAppendedName(
+	ctx: PlacementRuleContext,
+	hold: Hold,
+): { readonly name: string; readonly repeat: Uuid | undefined } | undefined {
+	const { placement, operation } = hold;
+	const target = operation?.action === "close" ? operation.target : undefined;
+	const created =
+		target?.kind === "op"
+			? ctx.operations.find((op) => op.uuid === target.opUuid)
+			: operation;
+	const repeat =
+		created?.action === "create" ? created.forEach?.repeat : undefined;
+	if (placement.kind === "basic") {
+		if (placement.slot === "subcase")
+			return { name: subcaseBlockName(placement.index), repeat };
+		if (placement.slot === "usercase")
+			return { name: USERCASE_BLOCK_NAME, repeat: undefined };
+		return undefined;
+	}
+	if (placement.kind === "advanced" && placement.row !== true)
+		return { name: advancedCaseBlockName(placement.tag), repeat };
+	return undefined;
+}
+
+/**
+ * `HELD_BLOCK_PATH_TAKEN` over the names HQ's build appends: an authored
+ * question, or at the root a Connect block, named as the element a held
+ * slot or action is written at. HQ's build appends that element without
+ * looking (`xform.py::XForm._create_casexml`, `_add_usercase`,
+ * `get_action_path`), and the planner never moves a held one, so the form
+ * would hold the name twice: the question's bind would select the block
+ * too, and Core reads no single value from its path (part 02's G3, N1).
+ * The suggestion steps around every name of the scope, appended ones
+ * included.
+ */
+function appendedNameFindings(
+	ctx: PlacementRuleContext,
+	holds: readonly Hold[],
+): ValidationError[] {
+	const { doc, formUuid } = ctx;
+	const byScope = new Map<Uuid | undefined, Map<string, Hold>>();
+	for (const hold of holds) {
+		const appended = heldAppendedName(ctx, hold);
+		if (appended === undefined) continue;
+		const names = byScope.get(appended.repeat) ?? new Map<string, Hold>();
+		if (!names.has(appended.name)) names.set(appended.name, hold);
+		byScope.set(appended.repeat, names);
+	}
+	const errors: ValidationError[] = [];
+	for (const [repeat, names] of byScope) {
+		const questions = (doc.fieldOrder[repeat ?? formUuid] ?? []).flatMap(
+			(uuid) => {
+				const field = doc.fields[uuid];
+				return field === undefined ? [] : [field];
+			},
+		);
+		const connectIds =
+			repeat === undefined ? [...formConnectIds(doc, formUuid)] : [];
+		const scopeTaken = new Set<string>([
+			...questions.map((field) => field.id),
+			...connectIds,
+			...names.keys(),
+		]);
+		for (const field of questions) {
+			const hold = names.get(field.id);
+			if (hold === undefined) continue;
+			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
+			const suggestion = suffixUntilFree(
+				editorSafeQuestionId(field.id),
+				scopeTaken,
+			);
+			errors.push(
+				validationError(
+					"HELD_BLOCK_PATH_TAKEN",
+					"form",
+					heldBlockPathTakenMessage(field.id, subjectWords, suggestion),
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid,
+						formName: ctx.formName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
+					{
+						held: JSON.stringify(hold.subject),
+						name: field.id,
+						suggestion,
+						takenBy: "question",
+						subjectWords,
+					},
+				),
+			);
+		}
+		for (const id of connectIds) {
+			const hold = names.get(id);
+			if (hold === undefined) continue;
+			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
+			const suggestion = suffixUntilFree(
+				editorSafeQuestionId(id, RESERVED_CONNECT_BLOCK_IDS),
+				scopeTaken,
+			);
+			errors.push(
+				validationError(
+					"HELD_BLOCK_PATH_TAKEN",
+					"form",
+					heldBlockPathTakenMessage(id, subjectWords, suggestion),
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid,
+						formName: ctx.formName,
+					},
+					{
+						held: JSON.stringify(hold.subject),
+						name: id,
+						suggestion,
+						takenBy: "connect",
+						subjectWords,
+					},
+				),
+			);
+		}
+	}
+	return errors;
+}
+
+/** How the finding names a menu whose advanced kind is held. */
+export function heldModuleKindSubjectWords(moduleName: string): string {
+	return `the menu “${moduleName}” as an advanced menu`;
+}
+
+/**
+ * The `module-kind` subject of `HELD_PLACEMENT_INEXPRESSIBLE`, a module
+ * rule located at the menu: CommCare HQ holds the menu as an advanced
+ * menu (`Module.heldKind`) and something now keeps it from being one
+ * (`lib/domain/advancedModule.ts::advancedKindBlockers`). The reason
+ * sentence is the first blocker's, the one its `module-kind` move states.
+ */
+export function heldModuleKindInexpressible(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	if (mod.heldKind !== "advanced") return [];
+	const blockers = advancedKindBlockers(doc, moduleUuid);
+	const first = blockers[0];
+	if (first === undefined) return [];
+	const subjectWords = heldModuleKindSubjectWords(mod.name);
+	const sentence = advancedKindBlockerSentence(first.kind);
+	return [
+		validationError(
+			"HELD_PLACEMENT_INEXPRESSIBLE",
+			"module",
+			heldPlacementInexpressibleMessage(subjectWords, sentence),
+			{ moduleUuid, moduleName: mod.name },
+			{
+				subject: JSON.stringify({ kind: "module-kind", moduleUuid }),
+				held: JSON.stringify("advanced"),
+				reasons: JSON.stringify(blockers.map((blocker) => blocker.kind)),
+				reason: first.kind,
+				subjectWords,
+				sentence,
+			},
+		),
+	];
+}
+
 /** Every held-placement finding of `formUuid`. A form that holds no
  *  placement has none. */
 export function validateCasePlacements(
@@ -411,5 +653,6 @@ export function validateCasePlacements(
 		...inexpressibleFindings(ctx, planPlacements(doc, formUuid).inexpressible),
 		...sharedFindings(ctx, holds),
 		...blockPathFindings(ctx, holds),
+		...appendedNameFindings(ctx, holds),
 	];
 }

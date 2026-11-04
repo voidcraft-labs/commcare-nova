@@ -1773,13 +1773,14 @@ written here in the pull request that holds it.
   worker's record, meets the element HQ appends to the data root with no existence check
   (`xform.py::XForm._create_casexml`, the subcase loop; `_add_usercase`), and
   `lib/domain/questionId.ts::RESERVED_QUESTION_IDS` reserves only `case` for this reason; from step 5
-  `case_<tag>` joins the class. *Step 5:* subject to pull request 7's first push over
-  `targeted-root-case-block-names` (the bar, proof 3 and a `CaseOperationRuntimeTest` scenario; the
-  plan's advanced-modules G3): if HQ's build or Core refuses the form, or a case write is lost or binds
-  to the question, pull request 7 makes such a slot ineligible (`appended-name-taken`, the operation
-  takes Save to Case) and refuses a held placement whose name a question takes
-  (`HELD_BLOCK_PATH_TAKEN`); if both nodes stay apart and every write lands, it is recorded here as a
-  claim corrected.
+  `case_<tag>` joins the class. *Step 5:* pull request 7's first push over
+  `targeted-root-case-block-names` found the collision (G3 below, outcome A), so pull request 7 makes
+  an unheld slot whose name an authored name takes where HQ appends it ineligible
+  (`lib/domain/basicCaseSlots.ts::appendedNameTaken`, reason `appended-name-taken`; the change takes
+  Save to Case), steps a derived advanced tag around the names of an open action's repeat rows as it
+  already did around root names (`lib/commcare/advancedTags.ts::allocateAdvancedTags`), and refuses a
+  question named like the element of a held slot or tag (`HELD_BLOCK_PATH_TAKEN`, offering the next
+  free id).
 - **A worker property whose slug starts with `_` may not be writable by a basic form.**
   `lib/domain/users.ts::USER_PROPERTY_SLUG_PATTERN` admits a leading underscore, and HQ checks
   `usercase_update`'s keys through `validate_property`, which requires a leading letter
@@ -1814,6 +1815,50 @@ written here in the pull request that holds it.
   `scripts/lib/hqRoundTripCaseWrites/catalog.ts`, each naming its relation by schema and name, held by
   `catalog.postgres.test.ts` over an App Test namespace decoy that precedes the live row in a compacted
   heap.
+
+**Pull request 7's gated runs.** Pull request 7 (advanced modules and extension child cases) records
+part 02's claims C1 to C5 and Nova defects N1 and N2 in the bullets above: C1 is "A parent selection in
+an advanced module lists other children", C2 "The research's advanced refusals miss two shapes", C3
+"HQ owns an extension-only advanced open action by `-`", C4 "HQ's third CommTrack trigger is
+unreachable from a Nova export", C5 "HQ's advanced page tags each new action with the module's case
+type", N1 "A root question named like a block HQ's build appends collides with it" and N2 "A worker
+property whose slug starts with `_` may not be writable by a basic form". Four of the plan's runs
+settle what it leaves open, each recorded here from the records of the pull request's first push of
+the lane, which stand as its evidence:
+
+- **G2, HQ keeps Nova's advanced JSON.** Proof 4 (HQ's editors) over every document holding an
+  advanced form (`targeted-advanced-module`, `targeted-extension-carried`,
+  `targeted-advanced-child-module`, `targeted-advanced-held-kind`, `case-extension-registration`),
+  through HQ's advanced case management, module settings and form settings pages.
+  Outcome: recorded from the first push.
+- **G3, a question named like the block HQ's build appends** (N1). The bar, proof 3 and a
+  `CaseOperationRuntimeTest` scenario over `targeted-root-case-block-names`, at the pins.
+  Outcome: **A** (Actions run 41505876754, pull request 7's first push). HQ's build accepted both forms
+  (the bar's record holds no difference), and proof 3's case blocks agreed between Nova's local
+  injection and HQ's build. Each form then held its question's name twice: HQ's built "Register
+  household" (`native/case/root-case-block-names.m0f0.hq.xml`) has two `subcase_0` children of the data
+  root, the question's empty one and the one holding the member's `case`, and the question's one bind,
+  `<bind type="xsd:string" nodeset="/data/subcase_0"/>`, names both; "Check household" (`m0f1`) has two
+  `commcare_usercase` children the same way. Core counted both `/data/subcase_0` nodes on the local
+  path. A bind attaches to every node its nodeset expands to
+  (`commcare-core XFormParser.java::applyInstanceProperties`), so the question's type, and any
+  condition, required flag or calculation it carries, would bind to the case block too, and a read of
+  the question's path meets two nodes, which Core refuses as a value
+  (`XPathNodeset.java::unpack`, "XPath nodeset has more than one node"). The manifest refused form 0.1
+  with the value class `commcare-usercase-beside-usercase-updates` (REFUSED, unrepresentable identity).
+  The scenario's later assertions did not decide on this push (a predicate spelling of the harness and
+  a fault opening HQ's build, each fixed beside this record), so the outcome rests on the case write
+  binding to the question. The fix is the *Step 5* line of N1 above; the document now witnesses the
+  fallback, and the scenario asserts one element of each name, holding the question's answer, beside
+  both case writes landing.
+- **G4, a worker property whose slug starts with `_`** (N2). The bar and proof 3 over
+  `targeted-worker-underscore-write`; until it is recorded,
+  `lib/commcare/advancedPlacement.ts::workerPropertyNameRefused` answers `false`.
+  Outcome: recorded from the first push.
+- **G6, the owner of an extension-only open action** (C3). `AdvancedFormRuntimeTest` and proof 3's
+  case blocks over `targeted-advanced-module`; until it is recorded, such a create's owner is the
+  generated Hidden Value `nova_owner_<operation id>`.
+  Outcome: recorded from the first push.
 
 **Facts of the lane the stack keeps.**
 

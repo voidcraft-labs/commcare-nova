@@ -57,12 +57,16 @@ export type {
 /**
  * Ordered case set selected by a containing menu. One id is the ordinary
  * parent-first flow; several ids scope a related child list to the union of
- * their direct non-extension children. Server readers validate the whole set
- * against this app, Project, and `caseType` before returning any child.
+ * their direct children. Server readers validate the whole set against this
+ * app, Project, and `caseType` before returning any child.
  */
 export interface ParentCaseSelection {
 	readonly caseType: string;
 	readonly caseIds: readonly string[];
+	/** The index name a menu emitted advanced follows to the parent
+	 *  (`caseSelectionNavigation.ts::parentCaseIndex`); absent, any direct
+	 *  non-extension index (`SelectedParentCases.index`). */
+	readonly index?: string;
 }
 
 /** Why the effective query can return zero rows. Derived at the server query

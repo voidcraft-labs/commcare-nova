@@ -29,11 +29,18 @@
  * one it had never been shown. `hidden_from_menu` beside it says whether the
  * module is off the menu whatever its condition, and each form summary says
  * the same of its form.
+ *
+ * `advanced` says whether CommCare HQ receives the module as an advanced
+ * menu (`lib/commcare/moduleKind.ts::emittedModuleKind`), and `kept` whether
+ * that is because a published app holds it so (`Module.heldKind`). No edit
+ * chooses the kind, so no input carries it.
  */
 
 import type { z } from "zod";
+import { advancedKindReasons } from "@/lib/commcare/moduleKind";
 import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
+	BlueprintDoc,
 	CaseListConfig,
 	CaseSearchConfig,
 	FormIconRef,
@@ -106,6 +113,9 @@ export type GetModuleResult =
 			display_condition: Expression | null;
 			/** True when the module is off the menu, with every form in it. */
 			hidden_from_menu: boolean;
+			/** Present when CommCare HQ receives the module as an advanced
+			 *  menu; `kept` when a published app holds it advanced. */
+			advanced: { kept: boolean } | null;
 			case_list_config: CaseListConfig | null;
 			/** Visible case-list COLUMN uuids, in the order each screen renders them.
 			 *  A column's `field` is its case property and is a different identity. */
@@ -114,6 +124,18 @@ export type GetModuleResult =
 			case_search_config: CaseSearchConfig | null;
 			forms: GetModuleFormSummary[];
 	  };
+
+/** Whether CommCare HQ receives `moduleUuid` as an advanced menu, and
+ *  whether a published app keeps it so: the read `getModule` and the
+ *  snapshot give. */
+export function moduleAdvancedRead(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): { kept: boolean } | null {
+	const reasons = advancedKindReasons(doc, moduleUuid);
+	if (reasons.length === 0) return null;
+	return { kept: reasons.some((reason) => reason.kind === "held") };
+}
 
 export const getModuleTool = {
 	description:
@@ -159,6 +181,7 @@ export const getModuleTool = {
 				audio_label: mod.audioLabel ?? null,
 				display_condition: mod.displayCondition ?? null,
 				hidden_from_menu: mod.hiddenFromMenu === true,
+				advanced: moduleAdvancedRead(doc, moduleUuid),
 				case_list_config: caseListConfig ?? null,
 				results_column_order: resultsColumns
 					.filter((column) => column.visibleInList !== false)

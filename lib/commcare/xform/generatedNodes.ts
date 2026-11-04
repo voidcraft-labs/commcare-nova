@@ -45,7 +45,9 @@
  *   one question its constraint counts by ordinal, its constraint message,
  *   its url, its datetime, its trimmed value, then (a count repeat) its
  *   count; then the scope's containers `nova_operations`, `nova_subcases`,
- *   `nova_selected_cases`. Inside an operations namespace: operations in
+ *   `nova_selected_cases`, then each operation's owner node `nova_owner_` in
+ *   their authored order (`advancedOwnerNodeValue` says which operations
+ *   have one). Inside an operations namespace: operations in
  *   their authored order, each `nova_count_nova_keyed_`, then `nova_keyed_`,
  *   then `nova_condition_`, then guards in the order `type`, `retype`,
  *   `text`; then `nova_condition_update_selected_cases`,
@@ -120,7 +122,8 @@ export type GeneratedNodePurpose =
 	| "keyed-count"
 	| "keyed"
 	| "condition"
-	| "guard";
+	| "guard"
+	| "owner";
 
 export interface GeneratedNode {
 	readonly purpose: GeneratedNodePurpose;
@@ -173,6 +176,12 @@ export interface GeneratedNodePlan {
 	condition(operationUuid: Uuid): string;
 	/** One of an operation's update-only guard blocks. */
 	guard(operationUuid: Uuid, kind: GuardKind): string;
+	/**
+	 * The Hidden Value an advanced open action names as its `owner_id`,
+	 * for a create or a registration's own case whose owner HQ's build would
+	 * not set as the operation states it (`advancedOwnerNodeValue`).
+	 */
+	owner(operationUuid: Uuid): string;
 	/**
 	 * The `n`th source-lowered subcase block: in the operations namespace of
 	 * `operationsScope` when it stands in a selected-cases group, otherwise in
@@ -228,6 +237,46 @@ export function operationGuardKinds(operation: CaseOperation): GuardKind[] {
 }
 
 export { isKeyedRootCreate } from "@/lib/domain/basicCaseSlots";
+
+/**
+ * What the owner node of a create, or of a registration's own case, holds
+ * where the operation becomes an advanced open action: `acting-user` (the
+ * worker, `session/context/userid`), `unowned` (`'-'`), or nothing.
+ *
+ * HQ's build sets an open action's owner to the worker unless its
+ * `case_properties` name `owner_id`, or every index it carries is an
+ * extension (`xform.py::autoset_owner_id_for_advanced_action`), in which case
+ * it writes `-`. So a node is needed exactly where the stated owner is not the
+ * one HQ would set: the worker on a case whose every link is an extension,
+ * and `unowned` on a case with no link or with a child link. An owner read
+ * from a question names that question, and any other owner cannot be an
+ * open action's (`advancedPlacement.ts`'s `owner` clause), so neither takes
+ * a node. Neither does a create keyed by an answer, which is never an open
+ * action (its `keyed` clause).
+ *
+ * The answer reads only the operation, never where it is placed, so the
+ * node's name is the same whichever placement the operation takes.
+ */
+export function advancedOwnerNodeValue(
+	formType: BlueprintDoc["forms"][Uuid]["type"],
+	operation: CaseOperation,
+): "acting-user" | "unowned" | undefined {
+	const opens =
+		operation.action === "own"
+			? formType === "registration"
+			: operation.action === "create" &&
+				operation.target.kind === "new" &&
+				operation.target.idFrom === undefined;
+	if (!opens) return undefined;
+	const owner = operation.owner?.kind ?? "acting-user";
+	const links = operation.links ?? [];
+	const allExtension =
+		links.length > 0 &&
+		links.every((link) => link.relationship === "extension");
+	if (owner === "acting-user") return allExtension ? "acting-user" : undefined;
+	if (owner === "unowned") return allExtension ? undefined : "unowned";
+	return undefined;
+}
 
 /**
  * The trimmed sibling of the question at `path`, which every write of a case
@@ -621,6 +670,24 @@ function allocateGeneratedNodes(
 	);
 	const close = allocateFor(root, OWN_CLOSE, CLOSE);
 
+	// Each owner node is a sibling of the questions of its operation's scope
+	// (the form root, or the create's repeat row), allocated after every other
+	// name of that scope, its containers included, so adding or removing one
+	// renames nothing else.
+	for (const operation of operations) {
+		if (advancedOwnerNodeValue(form.type, operation) === undefined) continue;
+		const scope = fieldScopes.get(scopeOf(operation));
+		if (scope === undefined)
+			throw new Error(
+				`Nova found no scope for the owner node of case operation ${operation.id} in form ${formUuid}. Every operation runs at the form root or in one of its repeats, and each of those has one.`,
+			);
+		record(
+			"owner",
+			operation.uuid,
+			scope.allocate(`nova_owner_${operation.id}`),
+		);
+	}
+
 	const lookup = (
 		purpose: GeneratedNodePurpose,
 		owner: Uuid,
@@ -660,6 +727,7 @@ function allocateGeneratedNodes(
 		keyedCount: (operationUuid) => lookup("keyed-count", operationUuid),
 		condition: (operationUuid) => lookup("condition", operationUuid),
 		guard: (operationUuid, kind) => lookup("guard", operationUuid, kind),
+		owner: (operationUuid) => lookup("owner", operationUuid),
 		subcase: (n, operationsScope) =>
 			operationsScope === undefined
 				? `nova_subcase_${n}`

@@ -17,6 +17,7 @@ import {
 	SEARCH_READING,
 } from "@/lib/domain/expression/temporalType";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import { parentCaseConstraint } from "../caseSelectionNavigation";
 import { previewMenuCaseContext } from "../menuProjection";
 import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
@@ -220,12 +221,11 @@ export async function serverRecordsRead(
 							world.language,
 						),
 					}),
-					parentCase: caseContext.parentCase
-						? {
-								caseType: caseContext.parentCase.caseType,
-								caseIds: caseContext.parentCase.cases.map((row) => row.caseId),
-							}
-						: undefined,
+					parentCase: parentCaseConstraint(
+						world.doc,
+						request.moduleUuid,
+						caseContext.parentCase,
+					),
 					inputValues: registeredCaseId ? undefined : search.inputValues,
 					...(searchCsql !== undefined && { searchCsql }),
 					bindings: {

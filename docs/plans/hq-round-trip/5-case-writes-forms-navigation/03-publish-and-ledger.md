@@ -2428,6 +2428,19 @@ From pull request 6's implementation:
   the edit. Each edit now spreads a new document; the corpus emitted with `--jobs 2` before and after the
   change is identical byte for byte (410 documents), and `heldPlacementEmission.test.ts` reads the fixture's
   document without a copy.
+- **Rule 3's kind clause never decides an offer** (section 7.2, pull request 7). `saveToCaseOffer`
+  (`lib/deployment/placementMoves.ts`) compares `emittedModuleKind` over `D'` and `doc` for every menu
+  and returns `null` where one differs, as rule 3 states, but no admitted document reaches that
+  branch: clearing case-change holds cannot change a menu's kind. A held kind is not a case-change
+  hold and stays. What makes an unheld menu advanced is a carried create a basic form gives no
+  session value (`lib/domain/advancedEntryDatums.ts::computeKindTriggers`), and
+  `lib/domain/basicCaseSlots.ts::basicCaseSlots` ignores a carried create's held Save to Case block
+  when it decides that (the `carried` set it is handed), so the trigger reads no hold either. And the
+  planner keeps no Save to Case hold of a carried create in an advanced menu: it plans the open
+  action (`placement.ts::planPlacements` answers `held: false` there). The clause stays as the plan's guard, and
+  `lib/deployment/__tests__/placementMoves.test.ts` holds the case it admits: a menu held advanced
+  whose extension create's block moves to its open action, the menu staying advanced. No test makes
+  the clause refuse, because no admitted document gives it one.
 
 ---
 

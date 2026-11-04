@@ -127,7 +127,6 @@ HELD_CHECKS = frozenset(
 # here with its step.
 OPEN_DEFECTS = {
     21: 5,
-    24: 5,
     26: 5,
     27: 5,
 }

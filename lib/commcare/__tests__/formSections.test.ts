@@ -2,6 +2,7 @@ import { isTag } from "domhandler";
 import { describe, expect, it } from "vitest";
 import { expandDoc } from "../expander";
 import { containerWireFixture, containerXml } from "./containerWireFixture";
+import { basicForm } from "./hqBasicShape";
 
 describe("section XForm structure (native metadata checked by ContainerRuntimeTest)", () => {
 	it.each(["titled", "untitled", "empty", "nested", "registration"] as const)(
@@ -45,7 +46,7 @@ describe("section XForm structure (native metadata checked by ContainerRuntimeTe
 			}
 			if (scenario === "registration")
 				expect(
-					expandDoc(containerWireFixture(scenario)).modules[0].forms[0].actions
+					basicForm(expandDoc(containerWireFixture(scenario)), 0, 0).actions
 						.open_case.name_update,
 				).toEqual({ question_path: "/data/page/nova_trimmed_answer" });
 		},

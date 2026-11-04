@@ -403,7 +403,9 @@ function holdsWire(doc: BlueprintDoc): void {
 				module.search_config.default_properties.some((property) =>
 					queryCallsRelatedCases(property.defaultValue),
 				) ||
-				(module.search_config.inline_search && module.parent_select.active),
+				(module.search_config.inline_search &&
+					module.doc_type === "Module" &&
+					module.parent_select.active),
 		),
 	});
 }

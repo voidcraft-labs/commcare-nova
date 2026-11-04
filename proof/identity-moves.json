@@ -24,6 +24,54 @@
 		"documents": ["targeted-migration-attachment"]
 	},
 	{
+		"defect": 24,
+		"entity": "app.json",
+		"path": "/modules/*/forms/*/case_references_data/save/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
+		"defect": 24,
+		"entity": "form:0.0",
+		"path": "/case_blocks/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
+		"defect": 24,
+		"entity": "form:0.0",
+		"path": "/questions/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
+		"defect": 24,
+		"entity": "form:1.0",
+		"path": "/case_blocks/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
+		"defect": 24,
+		"entity": "form:1.0",
+		"path": "/case_updates/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
+		"defect": 24,
+		"entity": "form:1.0",
+		"path": "/case_updates/*/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
+		"defect": 24,
+		"entity": "form:1.0",
+		"path": "/questions/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
+		"defect": 24,
+		"entity": "suite.xml",
+		"path": "/entries/*/datums/*",
+		"documents": ["targeted-migration-extension-children"]
+	},
+	{
 		"defect": 25,
 		"entity": "form:0.0",
 		"path": "/questions/*",

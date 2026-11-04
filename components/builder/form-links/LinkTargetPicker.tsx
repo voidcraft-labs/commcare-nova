@@ -6,7 +6,10 @@
 // here, a destination that is gone, or a form that cannot receive the
 // complete case selection) stays visible with its reason rather
 // than disappearing, so the author learns why the obvious choice is not
-// on offer instead of hunting for it.
+// on offer instead of hunting for it. A destination the planner admits
+// but the commit gate would refuse, because the link can't open a case
+// this form creates, says so the same way, in the gate's own sentence
+// (`refusalOf`), before the link is added or saved.
 
 "use client";
 
@@ -36,6 +39,7 @@ export function LinkTargetPickerContent({
 	formUuid,
 	editing,
 	current,
+	refusalOf,
 	onChoose,
 }: {
 	/** The form whose link is being aimed. */
@@ -44,9 +48,24 @@ export function LinkTargetPickerContent({
 	readonly editing: Uuid | undefined;
 	/** The destination the link already has, if any: shown as chosen. */
 	readonly current?: FormLinkTarget;
+	/** Why the commit gate would refuse the link this choice makes, for a
+	 *  destination the target planner admits; `undefined` when it wouldn't. */
+	readonly refusalOf?: (target: FormLinkTarget) => string | undefined;
 	readonly onChoose: (target: FormLinkTarget) => void;
 }) {
 	const { groups, nameOf } = useFormLinkTargetChoices(formUuid, editing);
+	/* One reason per destination, while the list is open: the planner's
+	 * when it refuses, else the gate's. The current destination is already
+	 * the link's, so nothing is asked of it. */
+	const reasonOf = (
+		target: FormLinkTarget,
+		verdict: (typeof groups)[number]["verdict"],
+	) =>
+		verdict.ok
+			? sameTarget(current, target)
+				? undefined
+				: refusalOf?.(target)
+			: targetRefusal(verdict, nameOf);
 
 	return (
 		<div className="max-h-[22rem] space-y-3 overflow-y-auto p-1">
@@ -60,7 +79,7 @@ export function LinkTargetPickerContent({
 						title={`Open the “${group.name}” form list`}
 						detail="The person picks what to do next there"
 						chosen={sameTarget(current, group.target)}
-						reason={targetRefusal(group.verdict, nameOf)}
+						reason={reasonOf(group.target, group.verdict)}
 						onClick={() => onChoose(group.target)}
 					/>
 					{group.forms.map((form) => (
@@ -70,7 +89,7 @@ export function LinkTargetPickerContent({
 							title={`Go to “${form.name}”`}
 							detail="Opens this form next"
 							chosen={sameTarget(current, form.target)}
-							reason={targetRefusal(form.verdict, nameOf)}
+							reason={reasonOf(form.target, form.verdict)}
 							onClick={() => onChoose(form.target)}
 						/>
 					))}

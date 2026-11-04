@@ -2765,6 +2765,15 @@ export const moduleSchema = z.strictObject({
 	 * audio only; there is no video slot here.
 	 */
 	audioLabel: mediaAssetIdSchema.optional(),
+	/**
+	 * Present once a publish or the cutover recorded that CommCare HQ holds
+	 * this menu as an advanced module. Written only by `holdPlacements`; an
+	 * editor clears it only where a blocker leaves it unable to express the
+	 * module (`advancedModule.ts::heldKindExpresses`), or restores it in the
+	 * undo of that move. No mutation payload, tool schema or builder control
+	 * carries it.
+	 */
+	heldKind: z.literal("advanced").optional(),
 });
 export type Module = z.infer<typeof moduleSchema>;
 

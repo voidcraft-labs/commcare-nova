@@ -122,7 +122,7 @@ App Test's evaluation does not read a module's emitted kind.
    `parent_select`, `display_style`, `requires` or `schedule`, `details_module` always written,
    `show_product_stock: false` and `product_program: ""`. Gated run G2 runs HQ's saves over them.
 7. **Tags are the advanced page's spelling:** `load_<case type><n>`, `open_<case type>_<n>`,
-   `autoload_commcare-user<n>`. A held tag is kept; a derived one steps around every tag of the form
+   `autoload_commcare_user<n>`. A held tag is kept; a derived one steps around every tag of the form
    and every name its root data holds.
 8. **HQ's per-action rules are eligibility, never refusals.** Every condition HQ's build or editors
    hold on a load or an open action is a clause of `lib/commcare/advancedPlacement.ts`; an operation
@@ -809,7 +809,7 @@ export function allocateAdvancedTags(input: {
 ```
 
 - A load's derived tag is `load_<its case type><n>`, `n` its position among the form's loads; the
-  worker's load is `autoload_commcare-user<n>`. An open action's is `open_<its case type>_<n>`, `n`
+  worker's load is `autoload_commcare_user<n>`. An open action's is `open_<its case type>_<n>`, `n`
   its position in `open_cases`. (C5: the page uses the module's type for every new action; using the
   action's own type names what the tag holds, and the page keeps any tag its check accepts.)
 - A held tag (an operation's held `{advanced, tag}`) is used as held, before any derived tag is
@@ -820,8 +820,13 @@ export function allocateAdvancedTags(input: {
   ids at the root, Nova's generated root names, the root Connect block ids). Rejected: HQ's
   conversion spelling (`load_<type>_0`, `parent`, `models/modules.py::AdvancedModule.add_insert_form`),
   which is not what a person adding actions on the page produces.
-- A held tag whose `case_<tag>` an authored root question takes is part 01's `HELD_BLOCK_PATH_TAKEN`,
-  under gated run G3's outcome A (section 29); the finding offers the next free question id.
+- A derived open action's tag in a repeat also leaves `case_<tag>` distinct from every name the
+  repeat's rows hold, where HQ's build nests the block when another open action shares the repeat
+  (`xform.py::get_action_path`). G3 found outcome A (section 29), so no derived tag ever meets a
+  question of its block's name.
+- A held tag whose `case_<tag>` an authored question takes where HQ appends it is part 01's
+  `HELD_BLOCK_PATH_TAKEN` (gated run G3, outcome A, section 29); the finding offers the next free
+  question id.
 - Tags never hold `/`: case types exclude it (`lib/commcare/identifierValidation.ts::validateCaseType`),
   and the held tag schema is part 01's `lib/domain/placements.ts::advancedTagSchema` (over
   `XML_ELEMENT_NAME_PATTERN`).
@@ -845,8 +850,8 @@ double-quote rule (HQ's advanced save strips nothing, `views/forms.py::edit_adva
 // as the eligibility of its advanced action (a load, or an open action).
 export type AdvancedIneligibility =
 	| "value-not-a-question" | "write-condition" | "condition-not-stateable" | "name-repeat"
-	| "via-on-indexed-load" | "via-name" | "owner" | "retype" | "link-target" | "link-renamed-load"
-	| "link-repeat" | "repeat-shared" | "type-not-a-menu" | "keyed" | "appended-name-taken"
+	| "via-on-indexed-load" | "owner" | "retype" | "link-target" | "link-renamed-load"
+	| "repeat-shared" | "type-not-a-menu" | "keyed" | "appended-name-taken"
 	| "worker-property-name";
 export function loadIneligibility(doc: BlueprintDoc, formUuid: Uuid, operationUuid: Uuid | "own"): AdvancedIneligibility | undefined;
 export function openActionIneligibility(doc: BlueprintDoc, formUuid: Uuid, operationUuid: Uuid | "own"): AdvancedIneligibility | undefined;
@@ -866,11 +871,10 @@ An `own` arm of a follow-up or close form, an `update` or `close` of a chain cas
 | `write-condition` | a write carries a `condition` | `ConditionalCaseUpdate` holds no condition |
 | `condition-not-stateable` | the close's condition is not stateable or its answer holds `'` | `xform.py::XForm.action_relevance` interpolates the answer unescaped |
 | `via-on-indexed-load` | a write has `via` and the load indexes an earlier load (a chain load after the first) | `helpers/validators.py::IndexedFormBaseValidator.check_case_properties` (`subcase_names`) |
-| `via-name` | a `via` step's identifier fails `^[a-zA-Z][\w_-]*$` (Nova's link identifiers admit a leading `_`, `lib/domain/caseOperationIdentifiers.ts`) | `helpers/validators.py::validate_property` |
 | `owner` | an `owner` that is not absent, `acting-user`, `unowned` or a bare question read (a location term) | the key `owner_id` takes one question path |
 | `retype` | a `retype` | `case_type` is a reserved word (`case-reserved-words.json`) |
 | `link-target` | the operation adds or changes a link (a load's one index is its chain's) | `LoadUpdateAction.case_index` is a single index, set by the chain |
-| `appended-name-taken` | under G3 outcome A only: an authored question at the root is named `case_<the load's tag>` | N1 |
+| `appended-name-taken` | never met (G3 found outcome A): a load's derived tag steps around every root name (section 8), and a question that takes a held tag's `case_<tag>` is `HELD_BLOCK_PATH_TAKEN` | N1 |
 | `worker-property-name` | under G4 outcome A only, the worker's load: a property fails `^[a-zA-Z][\w_-]*$` | N2 |
 
 A chain case is updated or closed through its load only where the operation's target is exactly the
@@ -891,10 +895,9 @@ A `create`, or the `own` arm of a registration:
 | `owner` | as for a load | as for a load |
 | `link-target` | a link's target is neither the own load nor a chain load (`session`, or the session datum of a chain selection) nor an earlier create placed as an open action (`op`), or the link has no target (`target: null`) | the page offers loads and earlier opens as parents (`advanced/actions.js`); `helpers/validators.py` "missing parent tag" |
 | `link-renamed-load` | a link names a load whose datum HQ's child-module alignment renames (`add_parent_datums`, section 13.3) | `xform.py::_create_casexml_advanced` reads the unadjusted variable for an index to a load |
-| `link-repeat` | a link names an open action in a repeat and this create is not in that repeat or inside it | `helpers/validators.py::AdvancedFormValidator.check_actions` ("subcase repeat context") |
 | `repeat-shared` | the create is in a repeat that also holds another create placed as an open action, and fewer than two of them carry indices | `xform.py::get_action_path`, `AdvancedFormActions.count_subcases_per_repeat_context` |
 | `type-not-a-menu` | no module of the app has the create's case type | `xform.py::check_case_type` (`Application.get_case_types`) |
-| `appended-name-taken` | under G3 outcome A only: an authored question at the block's parent is named `case_<the open action's tag>` | N1 |
+| `appended-name-taken` | never met (G3 found outcome A): an open action's derived tag steps around every name at its block's parent (section 8), and a question that takes a held tag's `case_<tag>` is `HELD_BLOCK_PATH_TAKEN` | N1 |
 
 `repeat-shared` is decided over the whole repeat: part 01's procedure, placing creates in operation
 order, keeps an earlier create on its open action and gives a later one Save to Case when the later
@@ -1002,7 +1005,7 @@ question at load (written into the step 6 outline).
 
 1. per load, in order:
    - a chain load: `<datum id="case_id_<tag>" nodeset="instance('casedb')/casedb/case[@case_type='<T>'][@status='open']<the list module's filter><[index/<identifier>=instance('commcaresession')/session/data/<the previous load's datum id>] for a load after the first>" value="./@case_id" detail-select="m<list>_case_short" detail-confirm="m<list>_case_long"/>`, with no `detail-confirm` where a later load indexes this one or the detail is inline, `detail-persistent` and `detail-inline` as the list module's basic entry writes them, and the list module's `autoselect` (false);
-   - the worker's load: `<datum id="case_id_autoload_commcare-user<n>" function="instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/@case_id"/>` and the assertion `count(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]) = 1` with the locale id `case_autoload.usercase.case_missing`, whose text Nova already supplies;
+   - the worker's load: `<datum id="case_id_autoload_commcare_user<n>" function="instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/@case_id"/>` and the assertion `count(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]) = 1` with the locale id `case_autoload.usercase.case_missing`, whose text Nova already supplies;
 2. per open action outside a repeat, in order: `<datum id="case_id_new_<type>_<i>" function="uuid()"/>`;
 3. in a child module, HQ's `add_parent_datums` alignment, which `entrySessionDatums` already mirrors
    for basic forms, applied to the advanced datums: insert the root's first-form datums that need no selection as
@@ -1141,13 +1144,12 @@ it to the home screen" (builder).
 | `owner` | `its owner comes from a place in your organization` | `let the worker who submits it own it` |
 | `link-target` | `it links to a case this form doesn't choose or create first` | `link it to the case this form opens or creates` |
 | `link-renamed-load` | `it links to a case this menu shares with the menu above it` | `link it to this form's own case` |
-| `link-repeat` | `it links to a case created in a repeat it isn't part of` | `create it in that repeat` |
 | `repeat-shared` | `it shares its repeat with another new case that links to nothing` | `link both to a case` |
 | `type-not-a-menu` | `no menu lists ${caseType} cases` | `add a menu for ${caseType} cases` |
-| `appended-name-taken` (G3 outcome A) | `a question at the top of the form takes the name CommCare HQ gives its case block` | `rename that question` |
 
 `keyed` and `via-*` never reach the rule (a keyed create is never carried; a create holds no `via`),
-and `retype` and `worker-property-name` belong to loads.
+`retype` and `worker-property-name` belong to loads, and `appended-name-taken` is no open action's
+clause (G3's outcome A is met by the tag allocator, section 8, and the basic slots, part 01 §12.2).
 
 Every editor meets it at the commit gate: the builder (the link's editor shows the sentence before
 **Add link** or **Save**, through `lib/doc/commitVerdicts.ts`), the SA and MCP (the finding's message
@@ -1168,8 +1170,8 @@ the target (section 23, M1).
 | missing parent tag; tags blank, failing the page's check, holding `/`, or repeated | `check_actions`, `actions.js`, `xform.py` | unrepresentable: tags come from `allocateAdvancedTags` (section 8) |
 | missing relationship question; the `question` relationship | `check_actions` | never written: a Nova link's relationship is `child` or `extension` |
 | case_name required | `check_actions`, `add_create_block` | every create has a name (part 01's `CASE_CREATE_NAME_MISSING`) |
-| subcase repeat context | `check_actions` | eligibility `link-repeat` |
-| `update_case word illegal`, reserved words | `check_case_properties` | Nova's property names (`authoredCasePropertyNameSchema`, `FORBIDDEN_CASE_WRITE_PROPERTIES`) admit none; `via` identifiers, eligibility `via-name`; a worker property, G4 (section 29) |
+| subcase repeat context | `check_actions` | never written: a link to a create in a repeat comes only from a create over that same repeat (`CASE_OPERATION_REPEAT_CORRELATION`) |
+| `update_case word illegal`, reserved words | `check_case_properties` | Nova's property names (`authoredCasePropertyNameSchema`, `FORBIDDEN_CASE_WRITE_PROPERTIES`) admit none; `via` steps are only `parent` and `host` (`CASE_WRITE_VIA_INVALID` reason `step`); a worker property, G4 (section 29) |
 | no parent paths on an indexed action | `check_case_properties` | eligibility `via-on-indexed-load`; a create holds no `via` (part 01's `CASE_WRITE_VIA_INVALID` reason `new-case`) |
 | no case type in action | `check_actions` | unrepresentable |
 | auto-select key, source, case ref, mode | `check_actions`, `actions.js` | the worker's load is the only auto-select (`mode: "usercase"`, which needs none) |
@@ -1752,6 +1754,13 @@ From the research, the outline and the wire brief:
 - **The owner node `nova_owner_<op>`** (section 10): a Nova-named Hidden Value the research's rule
   ("never adds a question") would not add, because the only other spelling leaves the case unowned.
 - **Tags use the action's own case type** (section 8), where the page writes the module's.
+- **A derived tag spells the case type's `-` as `_`** (section 8 writes `autoload_commcare-user<n>`,
+  the page's spelling): the tag names the data-root element `case_<tag>`, and Nova's XForm element
+  names hold no `-` (`lib/commcare/constants.ts::XML_ELEMENT_NAME_REGEX`), so the local `.ccz` path
+  refused `case_autoload_commcare-user<n>` and any tag of a hyphenated case type. The worker's load is
+  `autoload_commcare_user<n>`; HQ's tag check (`actions.js::actionBase.validate`) accepts both, and
+  `n` keeps two types that differ only there distinct. A held tag already holds no `-`
+  (`placements.ts::advancedTagSchema`).
 - **The advanced menu item is admitted only where it lists what the module's list lists** (section
   17), where the brief admitted it everywhere with a statement of the difference.
 
@@ -1769,6 +1778,290 @@ From the research, the outline and the wire brief:
   published apps (part 09 C8).
 - **`planFormCaseWire(doc, formUuid, options?: {attachmentTarget})`** (section 3.1 has no options): a
   basic link write is withheld without a deployment target (part 01 §10.1), so the plan needs it.
+
+From the code at pull request 7's base:
+
+- **`hq-advanced-keys.json` holds HQ's model key sets beside the fixture's** (section 26.1 names
+  the fixture's alone). `tests/data/suite/suite-advanced.json` at the pin is an old document: its
+  advanced menus hold `case_label` and `referral_label`, which `models/modules.py::AdvancedModule`
+  no longer declares, and none of `case_list_form`, `search_config` or most other keys HQ's model
+  declares. So the fixture records both, each with its source path: the keys each kind of object
+  holds in that fixture, and every property each HQ model declares with its bases and mixins
+  (`AdvancedModule`, `AdvancedForm`, `AdvancedFormActions`, `LoadUpdateAction`,
+  `AdvancedOpenCaseAction`, `CaseIndex`, `AutoSelectCase`, `ConditionalCaseUpdate`,
+  `FormActionCondition`, read from `models/*.py` at the pin). `advancedEmission.test.ts` holds
+  the shells to the model's set, with the keys Nova leaves at HQ's default listed by name, and to
+  the fixture's set but for its two retired keys and `show_count`.
+- **The HQ JSON oracle takes `CaseIndex.relationship` at HQ's three choices** (`child`,
+  `extension`, `question`; section 7.3 says the first two): the code it reports,
+  `HQJSON_BAD_SUBCASE_RELATIONSHIP`, is one `proof/native/test_hq_json_oracle.py` holds to HQ's
+  own wrap failing, and HQ loads `question`. Nova's `CaseIndex` type admits only `child` and
+  `extension`. A wrong `auto_select.mode` is a new code, `HQJSON_BAD_AUTO_SELECT_MODE`
+  (`validator/errors.ts`, `validator/gate.ts`), checked at HQ's five `AUTO_SELECT_*` choices.
+- **The advanced oracle probes are not written to the native evidence file**:
+  `test_hq_json_oracle.py::_load` reads every form's basic actions (`actions.open_case` and the
+  rest), which an `AdvancedForm` has none of, so an advanced probe would fail HQ's side for the
+  harness's reason. Its `_load` narrowing on `form_type` is the proof lane's (part 08).
+- **The widened `modules` reaches the local archive and the tests that read basic keys**: `compiler.ts` reads a
+  form's actions through `basicFormActions`, which refuses an advanced form by name (layer 3 gives
+  the archive its advanced case blocks and entries), and the tests reach a basic menu or form
+  through `lib/commcare/__tests__/hqBasicShape.ts`. `HqForm.form_type` is `"module_form"` and
+  `HqModule.module_type` `"basic"`, so `doc_type` and the kind words narrow together.
+  `hqShells.ts` also gives `emptyAdvancedFormActions()` and `noCaseIndex()`, the two shells layer
+  3's builders start from.
+- **`linkCarriedCreates` reads entries through a context with no case actions** (section 4.2 says
+  `formLinkProjectionContext(doc, { entryMetadataOnly: true, moduleKinds: "basic" })`). A form's
+  placements read which creates its links carry (the `carried-create` clause of section 14.5, and
+  `emittedModuleKind`), and the entry datums of that context are built from those placements
+  (`entrySessionDatums` reads the form's actions and the plan's new-case datums), so the plain
+  context recurses into the form being planned. The context therefore takes two hooks,
+  `formActions` (which existed) and `newCaseDatums` (new), and `linkCarriedCreates` gives every form
+  empty actions and no new-case datum: the match reads selection datums only (their ids, types and
+  order, which no case action changes; `selectableDatums` and `alignWithRootMenu` read no action),
+  and the candidate new cases stand in for the new-case datums. A root's computed datums are then
+  absent rather than present and skipped, which `_find_best_match` makes the same answer. The
+  option `moduleKinds: "basic"` still lands, as the context's `moduleKinds` field; with the default
+  hooks it plans each form with `planFormCaseWire(..., { moduleKind: "basic" })`, a new option of
+  that plan.
+- **An automatic link to a menu also carries** (section 4.2 says a form target). HQ matches a
+  module target's frame the same way (`workflow.py::_get_link_frame` runs
+  `_get_datums_matched_to_source` over `_frame_children_for_module`), and a child menu's frame holds
+  its root's common selections, so a candidate the frame matches is carried there too. A flat menu's
+  frame selects nothing and carries nothing.
+- **Two clauses join the advanced eligibility, and an update's condition is `write-condition`**
+  (section 9's tables have neither). `scope`: a change no load takes (its target is no case the
+  form loads, or it is not the form's first worker update) and an update or close that runs in a
+  repeat, where a load runs once (`LoadUpdateAction` has no `repeat_context`).
+  `case-changed-before-create`: an open action another change updates or closes, since HQ's build
+  writes open actions after every Save to Case block (`xform.py::_create_casexml_advanced`), so that
+  change would run on a case not yet created; a close that shares the open action is its
+  `close_condition`, as for a basic subcase. An update with a condition of its own takes Save to
+  Case under `write-condition`: a `LoadUpdateAction` states a condition only for its close
+  (`models/form_actions.py::AdvancedAction`, `close_condition`). Both reasons join
+  `lib/domain/placements.ts::ADVANCED_INELIGIBILITY_REASONS`, and the sentence of
+  `case-changed-before-create` names CommCare HQ instead of Case Management, which it now covers
+  too.
+- **A load takes no owner but one question's answer** (section 9.1's `owner` admits `acting-user` and
+  `unowned`). A load's `owner_id` key names a question path (`check_paths`), and the generated owner
+  node `nova_owner_<op>` is an open action's alone (`xform/generatedNodes.ts::advancedOwnerNodeValue`),
+  so a load's worker or `unowned` owner has no path to name and takes Save to Case.
+- **`link-renamed-load` reads the domain's root alignment** (section 13.3 reads the advanced datum
+  projection of section 13.1, step 3, which layer 3 writes): a chain load is renamed where
+  `lib/domain/entryDatumSupplies.ts::rootSelectionAlignment` matches its menu to a root selection,
+  the same pairing `alignWithRootMenu` renames by. A root whose first form is itself advanced with the
+  same tag would keep the id; that load also falls to Save to Case.
+- **A held advanced placement's expressibility also reads its tag and row**: a tag another action of
+  the form takes, or an action whose tag another change's hold gives, is `scope`; a `row` the
+  repeat no longer gives is `repeat-shared`. A carried create's `row: true` is `carried-create`.
+- **`worker-property-name` is a reason no predicate tries** (`advancedPlacement.ts`'s comment) until
+  gated run G4 shows outcome A on the lane. G3's `appended-name-taken` waited the same way until its
+  run found outcome A (the last bullet of this section).
+- **`placedBasic` covers advanced actions** (`placement.ts`): an advanced action names a case name's
+  `nova_trimmed_` sibling as a basic action does (section 9), so the trimmed set reads both.
+- **The rule-shapes fixture holds Nova's documents, not HQ's actions**: each row of
+  `proof/hq/fixtures/advanced-rule-shapes.json` is a clause with its two forms' case operations,
+  conditions and planned placements, beside the fixture's questions (by uuid, as `/data/` paths) and
+  menus, so `test_advanced_rules.py` builds the HQ side with HQ's own models from the shape and
+  the placement Nova gives it.
+- **The menu's move carries its renaming fact on its reason** (section 21 gives "the move the facts"):
+  `IdentityMoveReason`'s `module-kind` arm is `{source, reason: ModuleKindMoveReason,
+  chosenCasesRenamed}`, read from the document the move lands in, and the builder's row
+  (`lib/doc/hooks/useIdentityMoveRows.ts`) and the tool sentence read it there rather than from the
+  live document, which is the one before the edit. `IdentityMoveSubject` stays identity alone, as
+  `identityMoveReportSchema` serves it.
+- **A carried create's move is stated from the kind change, not a hold change**
+  (`lib/doc/moduleKindMoves.ts::carriedCreateKindMoves`): the menu holds nothing of its own, and
+  `withIdentityMoves` reports `identityMovesBetween(doc, final)`, so `identityMovesBetween` states the
+  move for every menu that holds no kind in `after`, whose forms hold a placement in `before`, and
+  that `emittedModuleKind` reads basic before and advanced after; a redo of the change states it the
+  same way. A menu whose kind `after` holds is advanced by its hold (a recording, or a restore, which
+  states nothing) and is no move.
+- **The blockers' four sentences have one owner**: `lib/doc/identityMoveCopy.ts` words `advanced-change`
+  and reads the four blocker sentences from `lib/domain/placementCopy.ts::advancedKindBlockerSentence`,
+  which the gate's `HELD_PLACEMENT_INEXPRESSIBLE` finding for a menu reads too, so the two cannot
+  drift. The sentence `Its forms also read the cases chosen through its parent case under new
+  names.` joins `identityMoveSentence` (pull request 5 wrote it only in the dialog row).
+- **`documentHoldsIdentity` counts a held kind** (`lib/doc/heldIdentity.ts`, beside the form walk):
+  a document whose one hold is a formless menu's kind (Directory in
+  `lib/doc/__tests__/moduleKindMoveFixture.ts`) still reaches the planner.
+- **Root alignment covers an advanced entry's loads, and its open actions' datums follow it**
+  (section 13.1, step 3, applies it to every advanced datum). HQ aligns the datums
+  `get_datum_meta_assertions_advanced` returns, the loads alone, and appends the new cases'
+  datums after it (`entries.py::EntriesHelper.configure_entry_advanced_form` extends with
+  `get_new_case_id_datums_meta` after `add_parent_datums`), so `formLinkProjection.ts::
+  advancedEntrySessionDatums` does the same: an open action's datum is never renamed and never
+  displaces a root placeholder.
+- **A load keeps `detail-confirm` where an open action indexes it** (section 13.1 drops it where a
+  later load indexes it). `get_manual_datum` reads `actions_meta_by_parent_tag[tag]`, which
+  `AdvancedFormActions._action_meta` fills loads first and open actions after, the last writer
+  kept, so a chain load an open action also indexes keeps its confirmation. The projection reads
+  the plan's `open_cases[].case_indices` for it.
+- **The worker's load renames to `<id>_None` on a collision with a root datum**: HQ's
+  `add_parent_datums` suffixes a colliding id with the datum's `FormDatumMeta.case_type`, which is
+  `None` for an auto-selected load (`get_datum_meta_assertions_advanced`), though its function names
+  `commcare-user`, which the frame reads (`workflow.py::WorkflowDatumMeta.case_type`). `SessionDatum`
+  carries both (`alignmentSuffix`, `caseType`).
+- **A child menu aligns with an advanced form-less root as with a basic one**: HQ aligns a child
+  with its root's first form and with nothing where the root has none
+  (`EntriesHelper._get_first_forms_datums`); Nova's basic projection stands that nothing in with
+  the root's browse selection, whose id coincides with the child's. An advanced root's browse datum
+  is `case_id_case_<type>` (section 17), which would rename the child's datum where HQ renames
+  nothing, so the alignment reads the root's basic browse selection
+  (`formLinkProjection.ts::basicCaseListSessionDatums`).
+- **The advanced case list entry is written for a form-less menu only** (`caseListOnly`, section
+  17's one shape in pull request 7). An advanced menu with forms keeps its basic browse projection,
+  which `caseListStepDatumId` reads for the ids a case list's filter prints.
+- **The new case a `uuid()` datum mints is kept by the datum, not its id**
+  (`FormLinkProjectionContext.newCaseSources`), so a create's datum that root alignment renames
+  still supplies its `new-case` or `new-child-case`, and a root's placeholder of the same id
+  supplies nothing in the child.
+- **The local injection finds each load's aligned datum by the load's tag on the entry's datum**
+  (section 12 names "the load's datum id, after alignment"). `SessionDatum.advancedLoadTag` is set
+  by `session.ts::deriveAdvancedLoadDatums` and survives the rename `add_parent_datums` makes;
+  `compiler.ts` reads the last datum of each tag, as HQ's `adjusted_datums` dict comprehension keeps
+  the last (`xform.py::_create_casexml_advanced`), since a root's datums copied ahead of the form's
+  own may carry a root form's tag.
+- **The compiler's link context reads no basic actions of an advanced form**: its `formActions`
+  callback answers an `AdvancedForm` with `emptyFormActions()`, and the advanced entry reads the
+  plan's loads and new cases instead (`session.ts::deriveSessionDatums`'s `advancedLoads` branch),
+  so no reader treats an advanced form's actions as a basic form's.
+- **Each owner node is the last child of its scope** (section 10 names its scope and its allocation
+  order, not its place in the data tree): appended after every authored child and every generated
+  container there (`xform/builder.ts::buildOwnerNodes`), a Hidden Value with a calculate and no
+  control, which HQ's form builder reads anywhere among its parent's data-only children.
+- **`advancedDocArbitrary` places the carried create deterministically** (section 26.3): over each
+  draw it takes the first follow-up of a top-level menu that does not open on its search as the
+  link's target, and the first case-bearing form of another menu's type with a root `case_name`
+  question as the source, with no draw of its own, so the arbitrary reads `suiteDocArbitrary`'s
+  draws unchanged. The create carries no link; its menu is advanced because no basic slot gives it
+  a datum.
+- **A survey of an advanced menu is an `AdvancedForm` with empty actions** (section 7.2 is silent
+  on it): HQ's `AdvancedModule.forms` holds only `AdvancedForm`s, and a survey loads and opens
+  nothing (`expander.ts::advancedActions`).
+- **The plan takes the export's wire identity** (`PlanFormCaseWireOptions.identity`, section 3.1
+  names none): a load's `details_module` is its list menu's HQ `unique_id`, which a target's
+  recorded override can replace (`wireIdentity.ts::targetWireIdentity`), so the plan is made per
+  identity as well as per attachment target, derived where none is given. The expander passes the
+  identity it writes every menu with.
+- **A close that shares an open action adds its final writes to that action's
+  `case_properties`** (section 3.4 names only its `close_condition`): HQ's build writes an open
+  action's create, update and close in one block (`xform.py::_create_casexml_advanced`), so the
+  writes a close states run with it.
+- **A held `nova_subcases` path is written in a group after the scope's authored children**
+  (section 14.3 says "verbatim"): the published wire held that group there, after the scope's
+  authored fields, where the root `nova_operations` group stands first, so `caseOps.ts` writes a
+  held block whose group is the scope's `nova_subcases` name in that place, and no unheld block is
+  placed in it.
+- **`subcaseIsWrittenInSource` does not exist at the base** (section 14.3 says it keeps its
+  several-case branch): `xform/sourceCaseWrites.ts` reads `caseOps.ts::writtenSaveToCaseBlocks`,
+  and the several-case branch is `basicCaseSlots.ts`' `inSource`, which pull request 7 keeps for a
+  field-written child only (`isFieldWrittenChild`, a `child` link). The kept child's block now always
+  stands in the selected case's row and takes `uuid()`; no block reads a session value for its id.
+- **An advanced plan's case name reads the trimmed sibling where the form guards the question**
+  (section 9: "where `caseScalarTextGuards` holds it"): `caseScalarTextGuard.ts` counts every
+  operation but the worker's record as a candidate, and `casePlacementPlan.ts` reads the guard set
+  rather than assuming it, so the plan stays total if the two ever differ.
+- **`CASE_PLACEMENT_KIND` takes the holds whose first reason is the menu's kind** (section 5 adds it
+  beside `HELD_PLACEMENT_INEXPRESSIBLE`): at the base, `placement.ts::placementIneligibility`
+  already answers a held advanced placement in a basic form with `module-basic` and a held basic one
+  in an advanced form with `module-advanced` first, so both rules would name one hold. A hold whose
+  first reason is either is `CASE_PLACEMENT_KIND`'s (`rules/casePlacement.ts::changedFormKind`), every
+  other `HELD_PLACEMENT_INEXPRESSIBLE`'s. `CASE_PLACEMENT_KIND` joins
+  `lib/doc/placementHolds.ts::PLACEMENT_CONFLICT_CODES`, so a publish's conflict replays an edit
+  that meets it as it does the others. The menu-kind arm of `HELD_PLACEMENT_INEXPRESSIBLE` is a
+  module rule (`heldModuleKindInexpressible` in `MODULE_RULES`), located at the menu.
+- **`menuName` is the target's menu where HQ offers it, else the menu above it**: part 06's
+  `nearestOfferedMenu` does not exist at the base, so `rules/advancedModule.ts::offeredMenuFor`
+  reads HQ's own offer (`views/forms.py::_get_linkable_forms_context`: a top-level menu, or a child
+  whose parent lists the source's parent's case type). Every top-level menu is offered, so the home
+  screen wording is reached only where the target's menu is gone, which other rules refuse; its
+  copy is held by a pure assertion.
+- **The cause table is total over every open action clause**: `AdvancedIneligibility` also holds
+  `scope`, `case-changed-before-create`, `keyed`, `via-on-indexed-load`, `retype` and
+  `worker-property-name`. `case-changed-before-create` reaches the rule (a later update or close of
+  the carried create) and reads "another case change in the form updates or closes it, which
+  CommCare HQ would do before creating it" / "save those values when it is created"; the others
+  never reach it (a carried create opens a case, runs in no repeat and holds no key) and carry a
+  sentence each so the switch stays total. Section 15's rows are verbatim, the forms-read-search row
+  in its pull request 7 wording, the quotes straight as the section writes them. `name-repeat`,
+  `link-renamed-load`, `repeat-shared`, `type-not-a-menu`, `appended-name-taken` and
+  the narrowed case list menu item reach no document the gate admits in pull request 7 (a carried
+  create's name in another repeat is `value-not-a-question` first, a create in a repeat is never
+  carried, the menu item stands beside no form before pull request 10, G3 has not run), so
+  `advancedModule.test.ts` holds their clauses directly and the reachable causes through
+  `mutationCommitVerdict`.
+- **`FORM_LINK_DATUMS_INCOMPLETE` leaves the carried case to `FORM_LINK_NEEDS_NEW_CASE_DATUM`**: an
+  automatic link whose carried create gets no session value also leaves the destination's datum of
+  that type unmatched, so both rules would refuse one edit. `rules/form.ts::formLinkValidation`
+  drops an unsatisfied datum whose case type the new rule names for that link, and still names
+  every other.
+- **The commit gate takes the whole document for any batch that changes a menu's kind**
+  (section 5's last bullet lists the edits). `incrementalValidationScope.ts` takes the absolute
+  gate for a held kind, a form's links, and, in a form with links, an operation added, removed or
+  reordered or its links, repeat or target; `commitVerdicts.ts::menuKindsChanged` takes it for every
+  other batch whose candidate emits a shared menu as another kind (a selection, a filter, Search,
+  the parent selection), so the bounded footprints those edits keep stay exact. A form's otherwise
+  (`postSubmit`) decides no carried create and keeps its footprint.
+- **The carried create's key rides the program's existing map, not a seed field** (section 20,
+  "The id of a carried create"). At the base, `lib/case-store/submission.ts::CaseOperationProgram.
+  entryCaseKeys` (operation uuid → datum key) already carries the key the envelope derives through
+  `entryDatumCaseId`, and no `SubmissionCaseSeed` type exists. `buildSubmissionOperationProgram`
+  (in `lib/preview/engine/caseDataBindingHelpers.ts`) now fills that map from
+  `planFormCaseWire(doc, form).datums`, every create the plan gives a datum whatever its placement,
+  in place of the registration's own case and the first root basic subcase of each type. The keys
+  are numbered by `lib/domain/entryCaseIdentity.ts::entryNewCaseKeyNumbering`: the first datum of a
+  key keeps it plain and the n-th later one takes `:<n>` (`new-child-case:visit:1`), so `<i>` counts
+  the earlier datums of the same key, not the datum id's suffix. `entrySessionData` numbers the
+  entry's datums the same way, which it had to: it keyed every datum of one type by the plain key, so
+  two datums of a type held one id. The first datum of each key derives the same id as before, so
+  `RUNTIME_VERSION` does not move. A create a several-case form makes once per selected case
+  (`caseOperationRunsPerSelectedCase`) is not named even where the plan gives it a datum, because one
+  id cannot name a case per selected case; at the base the first such root subcase was named, so a
+  batch of two asked for two cases under one id. Evidence:
+  `lib/preview/engine/__tests__/entryNamedCreates.test.ts`.
+- **The index rides `ParentCaseSelection`, built in one helper the screens and App Tests share**
+  (section 20, "Preview plays the derived chain"). `lib/preview/caseSelectionNavigation.ts` held only
+  the Results row action, and `lib/preview/app-tests/navigation.ts` builds no list read (App Tests
+  read lists through `engine/serverSearchRead.ts::serverRecordsRead` and Details through
+  `app-tests/details.ts`). The parent constraint is built at six sites, so
+  `caseSelectionNavigation.ts::parentCaseConstraint` now builds it for all of them, with `index` from
+  `parentCaseIndex`: `lib/domain/advancedEntryDatums.ts::menuEmittedAdvanced` (the domain twin of
+  `emittedModuleKind`, since `lib/preview` outside `engine` may not import `lib/commcare`) and the
+  chain's one name from `lib/domain/advancedModule.ts::advancedChainIndex`.
+  `engine/caseDataBindingTypes.ts::ParentCaseSelection` gains `index?`, and the case-data cache key
+  (`hooks/useCaseDataBinding.ts`) names it. `app-tests/navigation.ts` and `entrySessionData.ts`'s
+  datum reading needed no change. HQ's two filters, at the pin:
+  `corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_parent_filter` and
+  `get_parent_filter_by_ref_id`. Evidence: `lib/preview/__tests__/caseSelectionNavigation.test.ts`.
+- **`via-name` and `link-repeat` are not clauses**: no admitted document reaches either. The gate
+  admits only `parent` and `host` as a step of a save to the case above (`CASE_WRITE_VIA_INVALID`
+  reason `step`), and both are in HQ's property grammar (`helpers/validators.py::validate_property`).
+  A link to a create in a repeat comes only from a create over exactly that repeat
+  (`validator/rules/caseOperations.ts::validateRepeatReference`, `CASE_OPERATION_REPEAT_CORRELATION`),
+  which is always inside it, so HQ's "subcase repeat context" (`check_actions`) never fires.
+
+- **Section 24.5's lane tests, as built** (pull request 7): `AdvancedFormRuntimeTest` derives what each
+  case must hold from the form's own advanced actions in the HQ import body and opens each form from
+  its suite entry through Core's session (`proof/native/core/SuiteFormRun.java`); G6 is its assertion
+  that a case an open action creates as an extension is owned by the worker. `test_advanced_rules.py`
+  builds each avoided shape from the accepted twin's HQ export with the clause changed on the action the
+  fixture names, and needs each twin of `advanced-rule-shapes.json` to be a document Nova admits, which
+  the producer refuses by name otherwise. Part 08's Departures hold the detail.
+- **G3's outcome A reaches the basic slots alone, so no row joins `advanced-rule-shapes.json`**
+  (pull request 7). The run (section 29; `harness-findings.md`, N1) found the collision, so an unheld
+  basic subcase whose `subcase_<i>` an authored name at its scope takes, and an unheld worker's update
+  beside a root `commcare_usercase`, take Save to Case (`lib/domain/basicCaseSlots.ts::appendedNameTaken`,
+  read by `basicCaseSlots` and `lib/commcare/placement.ts`). An advanced action never meets it: every
+  derived tag already steps around the names where HQ appends its `case_<tag>` (section 8, which the
+  run extends to an open action's repeat rows), so the clause would have no refused twin, and the
+  fixture's rows are advanced actions' twins (`test_advanced_rules.py` asserts the accepted twin's
+  action). The reason leaves `ADVANCED_INELIGIBILITY_REASONS` and section 15's table; it stays in
+  part 01's tuple for the basic slots. A held slot or tag keeps its name, and the gate refuses the
+  question instead (`HELD_BLOCK_PATH_TAKEN`, `validator/rules/casePlacement.ts::appendedNameFindings`):
+  making the hold inexpressible would let an edit's move carry the published block away, where only a
+  rename keeps it. Evidence: `lib/commcare/__tests__/placement.test.ts` ("a question named like the
+  block HQ's build appends"), `validator/rules/__tests__/casePlacement.test.ts`,
+  `advancedTags.test.ts`, and `targeted-root-case-block-names`, which now witnesses the fallback.
 
 ---
 
@@ -1844,6 +2137,8 @@ its validation of the built form), proof 3 (Core's and Formplayer's case blocks)
 - Outcome B, both nodes stay apart and every case write lands: no clause and no rule; N1 is recorded as
   a claim corrected; `allocateAdvancedTags` still steps around root names (it costs nothing and keeps
   HQ's injected names distinct).
+- Run on pull request 7's first push (Actions run 41505876754): outcome A. Section 27 records how it
+  landed, and `harness-findings.md` records N1 with the run's records.
 
 **G4. A worker property whose slug starts with `_`.** Where: pull request 7's lane on its first push
 over `targeted-worker-underscore-write`: the bar (HQ's build of both forms), proof 3 (the worker's case

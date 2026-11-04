@@ -103,7 +103,8 @@ describe("caseOperationSchema", () => {
 		for (const facet of [
 			{ writes: [{ ...write, via: [] }] },
 			{ writes: [{ ...write, onlyIfChanged: false }] },
-			{ placement: { kind: "advanced", tag: "load_visit" } },
+			{ placement: { kind: "load", tag: "load_visit" } },
+			{ placement: { kind: "advanced", tag: "load visit" } },
 		]) {
 			expect(
 				caseOperationSchema.safeParse({

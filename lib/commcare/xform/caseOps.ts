@@ -569,7 +569,8 @@ function sharedRowSibling(
 
 /**
  * The generated siblings the form's case changes read, by data path: each
- * node a basic action names (`planFormCaseWire`'s `FormActions`) and each a
+ * node a basic or an advanced action names (`planFormCaseWire`'s actions,
+ * an advanced open action's owner node among them) and each a
  * several-case form's shared update reads. The XForm builder writes a
  * capture's link node and a date and time's text node only where one of
  * them reads it.
@@ -582,16 +583,26 @@ export function caseWriteSiblingPaths(
 ): ReadonlySet<string> {
 	const plan = planFormCaseWire(doc, formUuid, { attachmentTarget });
 	const paths = new Set<string>();
-	const { actions } = plan;
-	const named = [
-		actions.open_case.name_update.question_path,
-		...Object.values(actions.update_case.update),
-		...Object.values(actions.usercase_update.update),
-		...actions.subcases.flatMap((subcase) => [
-			subcase.name_update.question_path,
-			...Object.values(subcase.case_properties),
-		]),
-	];
+	const named =
+		plan.kind === "advanced"
+			? [
+					...plan.actions.load_update_cases.flatMap((load) =>
+						Object.values(load.case_properties),
+					),
+					...plan.actions.open_cases.flatMap((open) => [
+						open.name_update.question_path,
+						...Object.values(open.case_properties),
+					]),
+				]
+			: [
+					plan.actions.open_case.name_update.question_path,
+					...Object.values(plan.actions.update_case.update),
+					...Object.values(plan.actions.usercase_update.update),
+					...plan.actions.subcases.flatMap((subcase) => [
+						subcase.name_update.question_path,
+						...Object.values(subcase.case_properties),
+					]),
+				];
 	for (const entry of named) {
 		const path = typeof entry === "string" ? entry : entry.question_path;
 		if (path) paths.add(path);
@@ -799,9 +810,19 @@ export function buildCaseOperations(
 		const name = names.get("block") as string;
 		const keyed = names.get("keyed");
 		const condition = names.get("condition");
+		// A held path that names the scope's `nova_subcases` group (where a
+		// published app keeps an extension child) is written verbatim in that
+		// group, which stands after the scope's authored children, as it did
+		// when the app was published. No unheld block is placed there.
+		const keptInSubcases =
+			selected === undefined &&
+			block.held &&
+			operationsName === generatedNodes.subcases(block.scope);
 		return {
 			...(selected !== undefined && { selected }),
-			group: operationsGroupAt(parentPath, operationsName),
+			group: keptInSubcases
+				? subcasesGroupAt(parentPath, operationsName)
+				: operationsGroupAt(parentPath, operationsName),
 			...(keyed !== undefined && { keyed }),
 			...(condition !== undefined && { condition }),
 			name,
@@ -866,6 +887,7 @@ export function buildCaseOperations(
 		operationIds: bindOperationPaths(priorCreates, basicCreateIds, targetPath),
 		rootCaseIdWireExpr: selectedCaseRef,
 		caseProperty: formCasePropertyResolver(moduleCaseType, selectedCaseRef),
+		datumId: expressions.datumId,
 		userPropertySlugs,
 		organizationLevels,
 		...(lookupNaming !== undefined && {
@@ -909,58 +931,44 @@ export function buildCaseOperations(
 			: condition;
 	};
 
-	// The children a field writes that keep the bytes beside HQ's subcase
-	// (`nova_subcases/nova_subcase_<n>`, or `nova_operations/nova_subcase_<n>`
-	// in a several-case form's selected-case row), so their locations are
-	// known before any operation that names them.
-	const extensionCreates = new Map(
+	// The children a field writes in a several-case form that keep the bytes
+	// beside HQ's subcase (`nova_operations/nova_subcase_<n>` in the
+	// selected-case row), so their locations are known before any operation
+	// that names them.
+	const keptChildren = new Map(
 		basicSubcases
 			.filter((subcase) => subcase.inSource)
 			.map((subcase) => [subcase.operationUuid, subcase]),
 	);
-	/** Where a kept child's block stands: in the scope's `nova_subcases`
-	 *  group, or in a several-case form the selected-case row's operations
+	/** Where a kept child's block stands: the selected-case row's operations
 	 *  group, whose site the block's path names. */
 	const keptChildSite = (
 		block: SaveToCaseBlock,
 	): {
 		readonly group: GeneratedGroup;
 		readonly name: string;
-		readonly selected?: SelectedScope;
+		readonly selected: SelectedScope;
 	} => {
-		if (
-			saveToCaseBlockShape(doc, formUuid, block.subject).includes(
-				"selected-cases",
-			)
-		) {
-			const site = siteOf(block);
-			return {
-				group: site.group,
-				name: site.name,
-				...(site.selected !== undefined && { selected: site.selected }),
-			};
-		}
-		const [groupName, blockName] = block.path;
-		return {
-			group: subcasesGroupAt(block.scope, groupName),
-			name: blockName ?? "",
-		};
+		const site = siteOf(block);
+		if (site.selected === undefined)
+			throw new Error(
+				`The child case a question of form ${formUuid} saves to is kept beside CommCare HQ's subcase outside a row of the selected cases. Only a form whose menu selects several cases keeps one, and there it runs once per selected case.`,
+			);
+		return { group: site.group, name: site.name, selected: site.selected };
 	};
-	const extensionLocations = new Map<Uuid, OperationLocation>();
-	for (const [uuid] of extensionCreates) {
+	const keptChildLocations = new Map<Uuid, OperationLocation>();
+	for (const [uuid] of keptChildren) {
 		const block = blockOf.get(uuid);
 		const operation = operationByUuid.get(uuid);
 		if (block === undefined || operation === undefined) continue;
 		const site = keptChildSite(block);
-		extensionLocations.set(uuid, {
+		keptChildLocations.set(uuid, {
 			operation,
 			repeat: operation.forEach?.repeat,
 			authoredParentPath: block.scope,
-			parentPath: site.selected?.itemPath ?? block.scope,
+			parentPath: site.selected.itemPath,
 			casePath: site.group.path.child(site.name).child("case"),
-			...(site.selected !== undefined && {
-				selectedCaseIdPath: site.selected.idPath,
-			}),
+			selectedCaseIdPath: site.selected.idPath,
 		});
 	}
 	const severalOwn = operations.find(
@@ -974,7 +982,7 @@ export function buildCaseOperations(
 	);
 
 	for (const [operationIndex, operation] of operations.entries()) {
-		for (const [uuid, location] of extensionLocations)
+		for (const [uuid, location] of keptChildLocations)
 			if (
 				operations.findIndex((candidate) => candidate.uuid === uuid) <
 				operationIndex
@@ -983,7 +991,7 @@ export function buildCaseOperations(
 		const block = blockOf.get(operation.uuid);
 		if (
 			block === undefined ||
-			extensionCreates.has(operation.uuid) ||
+			keptChildren.has(operation.uuid) ||
 			operation === severalOwn
 		)
 			continue;
@@ -1713,7 +1721,7 @@ export function buildCaseOperations(
 		}
 		if (create) priorCreates.set(operation.uuid, location);
 	}
-	for (const [uuid, location] of extensionLocations)
+	for (const [uuid, location] of keptChildLocations)
 		priorCreates.set(uuid, location);
 
 	// The own case of a several-case form is one shared answer applied to
@@ -1913,16 +1921,17 @@ export function buildCaseOperations(
 		);
 	}
 
-	// An extension child a field writes keeps today's wire (part 02 §14.4
-	// of the step plan): HQ's basic build ignores a subcase's relationship,
-	// so HQ's action stays inert and its active create is this block, at
-	// the same index and with the same session datum. Its rows read the
-	// nodes the inert action names; its condition, when it has one, is its
-	// Open Case Condition.
+	// A child a field writes in a several-case form keeps its wire (part 01
+	// departure 27): HQ's build writes no subcase in a form of a menu that
+	// selects several cases, so its active create is this block in each
+	// selected case's row, at the subcase's index. Its rows read the nodes
+	// the subcase names; its id is a new one per row; its condition, when it
+	// has one, is its Open Case Condition.
 	for (const subcase of basicSubcases) {
 		if (!subcase.inSource) continue;
-		const location = extensionLocations.get(subcase.operationUuid);
-		const action = plan.actions.subcases[subcase.index];
+		const location = keptChildLocations.get(subcase.operationUuid);
+		const action =
+			plan.kind === "basic" ? plan.actions.subcases[subcase.index] : undefined;
 		if (location === undefined || action === undefined) continue;
 		const operation = location.operation;
 		const block = blockOf.get(subcase.operationUuid);
@@ -1935,7 +1944,7 @@ export function buildCaseOperations(
 		const indexId = action.reference_id || "parent";
 		const propertyEntries = Object.entries(action.case_properties);
 		group.children.push(
-			saveToCaseBlock(blockName ?? "", action.case_type, [
+			saveToCaseBlock(blockName, action.case_type, [
 				el("create", {}, [
 					el("case_type", {}),
 					el("case_name", {}),
@@ -1966,37 +1975,18 @@ export function buildCaseOperations(
 				: source.toWire();
 		};
 		const namePath = createPath.child("case_name");
-		const datum = plan.datums.find(
-			(candidate) => candidate.operationUuid === subcase.operationUuid,
+		binds.push(
+			xel(
+				"bind",
+				{
+					xpath: {
+						nodeset: casePath.attr("case_id").toWire(),
+						calculate: w.call("uuid"),
+					},
+				},
+				context,
+			),
 		);
-		if (inRepeat || selected !== undefined || datum === undefined) {
-			binds.push(
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: casePath.attr("case_id").toWire(),
-							calculate: w.call("uuid"),
-						},
-					},
-					context,
-				),
-			);
-		} else {
-			setvalues.push(
-				xel(
-					"setvalue",
-					{
-						attributes: { event: "xforms-ready" },
-						xpath: {
-							ref: casePath.attr("case_id").toWire(),
-							value: sessionDatum(datum.id),
-						},
-					},
-					context,
-				),
-			);
-		}
 		if (operation.condition !== undefined) {
 			binds.push(
 				xel(
@@ -2015,9 +2005,7 @@ export function buildCaseOperations(
 								bindingsAt(
 									casePath,
 									location.repeat,
-									selected === undefined
-										? selectedCaseIdRef
-										: originalContextWirePath(casePath, selected.idPath),
+									originalContextWirePath(casePath, selected.idPath),
 								),
 							),
 						},
@@ -2081,19 +2069,11 @@ export function buildCaseOperations(
 				{
 					xpath: {
 						nodeset: indexPath.child(indexId).toWire(),
-						calculate:
-							selected !== undefined
-								? // The selected case of the row the block stands in.
-									originalContextWirePath(
-										indexPath.child(indexId),
-										selected.idPath,
-									)
-								: registration
-									? // The form's own new case: the datum its entry mints
-										// the id into, which HQ's build also sets the create
-										// block's id from, or its own block's id.
-										ownCreateIdAt(indexPath.child(indexId))
-									: selectedCaseIdRef,
+						// The selected case of the row the block stands in.
+						calculate: originalContextWirePath(
+							indexPath.child(indexId),
+							selected.idPath,
+						),
 					},
 				},
 				context,

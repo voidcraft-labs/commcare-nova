@@ -5,9 +5,8 @@
  * (`commcare-hq/.../app_manager/xform.py::XFormCaseBlock`) so the local CCZ
  * pipeline injects the `<case>` / `<subcase_n>` transaction blocks (plus the
  * matching `<bind>` and `<setvalue>` elements) that the mobile runtime needs
- * to read and write the case database. Extensions and several-case actions
- * instead ride source XForms through `caseOps.ts`; see `subcaseWire.ts` for
- * the HQ compatibility lowering and retained navigation metadata.
+ * to read and write the case database. Every other case change rides the
+ * source XForm through `caseOps.ts`, as a Save to Case block.
  *
  * The emitter CONSTRUCTS `domhandler` element trees (via the shared helpers
  * in `elementBuilders.ts`) and splices them into the form's parsed DOM, then
@@ -54,8 +53,10 @@ import {
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
-import { newCaseIdDatumId } from "@/lib/commcare/session";
-import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
+import {
+	newCaseIdDatumId,
+	subcaseSessionDatumId,
+} from "@/lib/commcare/session";
 import { SESSION_USERCASE_ID } from "@/lib/commcare/usercaseWire";
 import {
 	appendChildren,

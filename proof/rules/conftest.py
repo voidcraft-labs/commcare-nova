@@ -70,7 +70,9 @@ DOCUMENTS = (
     "case-operation-sequence",
     "expander-conditional-required-generates-required-xpath-ae4797f7-0",
     "nested-menu-parent",
+    "nested-menu-registration-children",
     "standard-case-reads",
+    "targeted-advanced-module",
     "targeted-sync-on-form-entry",
     "tile-boxed",
 )

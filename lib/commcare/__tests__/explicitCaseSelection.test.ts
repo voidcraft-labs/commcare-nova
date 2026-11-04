@@ -13,6 +13,7 @@ import {
 	formLinkProjectionContext,
 } from "../formLinkProjection";
 import { runValidation } from "../validator/runner";
+import { basicModule } from "./hqBasicShape";
 
 const FIRST = testUuid("first-parent"),
 	SECOND = testUuid("second-parent"),
@@ -153,7 +154,7 @@ describe("explicit parent record selection", () => {
 				form,
 			).filter((datum) => datum.nodeset !== undefined),
 		).toHaveLength(1);
-		expect(expandDoc(doc).modules[2].parent_select.active).toBe(false);
+		expect(basicModule(expandDoc(doc), 2).parent_select.active).toBe(false);
 		expect(
 			previewMenuCaseContext(
 				{ ...doc, caseTypes: doc.caseTypes ?? [] },
@@ -176,7 +177,7 @@ describe("explicit parent record selection", () => {
 		if (!selected.ok) return;
 		const next = selected.nextDoc;
 		const wire = expandDoc(next);
-		expect(wire.modules[2].parent_select.module_id).toBe(
+		expect(basicModule(wire, 2).parent_select.module_id).toBe(
 			wire.modules[1].unique_id,
 		);
 		expect(
@@ -207,7 +208,7 @@ describe("explicit parent record selection", () => {
 		);
 		expect(flat.ok).toBe(true);
 		if (flat.ok)
-			expect(expandDoc(flat.nextDoc).modules[2].parent_select.active).toBe(
+			expect(basicModule(expandDoc(flat.nextDoc), 2).parent_select.active).toBe(
 				false,
 			);
 	});

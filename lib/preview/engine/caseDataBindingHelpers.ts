@@ -56,6 +56,7 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import { planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
@@ -85,6 +86,7 @@ import {
 	type CaseType,
 	type Column,
 	caseListColumnRuns,
+	caseOperationRunsPerSelectedCase,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
 	caseWriteValueField,
@@ -100,12 +102,12 @@ import {
 	TIME_SINCE_UNIT_DAYS,
 	type Uuid,
 } from "@/lib/domain";
-import { rootBasicSubcaseCreates } from "@/lib/domain/basicCaseSlots";
 import {
 	CAPTURE_EXTENSIONS_BY_KIND,
 	captureContentType,
 	committedCapturePath,
 } from "@/lib/domain/captureFormats";
+import { entryNewCaseKeyNumbering } from "@/lib/domain/entryCaseIdentity";
 import type { Expression, Term } from "@/lib/domain/expression";
 import {
 	walkExpressionNodes,
@@ -2047,7 +2049,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	for (const [field, value] of Object.entries(session.context)) {
 		if (value !== undefined) sessionContext.set(field, value);
 	}
-	const entryCaseKeys = entryNamedCreates(doc, formUuid, form.type, own?.uuid);
+	const entryCaseKeys = entryNamedCreates(doc, formUuid);
 	return {
 		...ordinaryStructure,
 		program: {
@@ -2172,32 +2174,46 @@ function viaDestinationTypes(
 
 /**
  * The creates the committed entry's session names, by operation uuid, with
- * the key of the datum holding each one's id (`entryCreatedCaseKeys`): a
- * registration's own case (`new-case`), and for each `new-child-case:<type>`
- * the first basic subcase of that type at the form's root
- * (`lib/domain/basicCaseSlots.ts::rootBasicSubcaseCreates`), the create the
- * wire's datum of that type names.
+ * the key of the datum holding each one's id: every create the form's wire
+ * plan gives a session datum (`casePlacementPlan.ts::planFormCaseWire`'s
+ * `datums`), whatever its placement. That is a registration's own case
+ * (`new-case`), each basic subcase outside a repeat, and each open action
+ * outside a repeat of a form its menu emits advanced (`new-child-case:<type>`
+ * for the first of a type, `new-child-case:<type>:<i>` for a later one,
+ * `entryNewCaseKeyNumbering`). The keys are numbered in the plan's order,
+ * which is the entry's (`entryCreatedCaseKeys`); a key the entry does not
+ * hold names nothing, so its create keeps a fresh id. So does a create a
+ * several-case form makes once per selected case: one id cannot name each.
  */
 function entryNamedCreates(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	formType: FormType,
-	ownUuid: Uuid | undefined,
 ): ReadonlyMap<Uuid, string> {
-	const keys = entryCreatedCaseKeys(doc, formUuid);
+	const keys = new Set(entryCreatedCaseKeys(doc, formUuid));
 	const named = new Map<Uuid, string>();
-	if (ownUuid === undefined) return named;
-	if (formType === "registration" && keys.has("new-case"))
-		named.set(ownUuid, "new-case");
-	const taken = new Set<string>();
-	for (const { operationUuid, caseType } of rootBasicSubcaseCreates(
-		doc,
-		formUuid,
-	)) {
-		const key = `new-child-case:${caseType}`;
-		if (!keys.has(key) || taken.has(key)) continue;
-		taken.add(key);
-		named.set(operationUuid, key);
+	const owningModule = owningModuleForForm(doc, formUuid);
+	const several =
+		owningModule !== undefined &&
+		caseSelectionCardinality(owningModule) === "multiple";
+	const operations = new Map(
+		(doc.forms[formUuid]?.caseOperations ?? []).map((operation) => [
+			operation.uuid,
+			operation,
+		]),
+	);
+	const newCaseKey = entryNewCaseKeyNumbering();
+	for (const datum of planFormCaseWire(doc, formUuid).datums) {
+		if (datum.ref.kind !== "new-case" && datum.ref.kind !== "new-child-case")
+			continue;
+		const key = newCaseKey(datum.ref);
+		const operation = operations.get(datum.operationUuid);
+		if (
+			several &&
+			operation !== undefined &&
+			caseOperationRunsPerSelectedCase(operation)
+		)
+			continue;
+		if (keys.has(key)) named.set(datum.operationUuid, key);
 	}
 	return named;
 }

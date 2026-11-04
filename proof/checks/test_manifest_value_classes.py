@@ -848,7 +848,7 @@ def test_csql_comparisons_by_what_stands_on_their_value_side(hq, manifest, core_
         # The device's today(), quoted: only the run time knows it, but Core always writes it as a date.
         "today": "concat('due <= \"', today(), '\"')",
         # A related case's property: eulxml builds the path with "/", which is no CSQL operator.
-        "ancestor": "concat(\"parent/@case_id = '\", /data/p, \"'\")",
+        "ancestor": 'concat("parent/@case_id = \'", /data/p, "\'")',
         # A unit only the run time knows names no unit of its own.
         "unit": "concat('within-distance(gps, ', \"'0 0'\", ', 200, \"', /data/u, '\")')",
     }
@@ -1830,6 +1830,49 @@ def _settings_and_forms():
                 "schema:ConditionalCaseUpdate.question_path",
                 f"{update}/update/note/question_path",
             ),
+            # An advanced load takes no repeat question; an open action none outside its own repeat.
+            refused(
+                "app",
+                _advanced_app([_load("load_patient_0", case_properties={"note": _update("/data/rep/name")})]),
+                "schema:ConditionalCaseUpdate.question_path",
+                "/modules/0/forms/0/actions/load_update_cases/0/case_properties/note/question_path",
+            ),
+            refused(
+                "app",
+                _advanced_app(
+                    opens=[
+                        _open(
+                            "open_visit_0",
+                            name_update=_update("/data/q"),
+                            case_properties={"note": _update("/data/rep/name")},
+                        )
+                    ]
+                ),
+                "schema:ConditionalCaseUpdate.question_path",
+                "/modules/0/forms/0/actions/open_cases/0/case_properties/note/question_path",
+            ),
+            # The advanced pickers offer labels, and an open action in a repeat that repeat's questions.
+            accepted(
+                "app",
+                _advanced_app([_load("load_patient_0", case_properties={"note": _update("/data/t")})]),
+                "schema:ConditionalCaseUpdate.question_path",
+                "/modules/0/forms/0/actions/load_update_cases/0/case_properties/note/question_path",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    opens=[
+                        _open(
+                            "open_visit_0",
+                            repeat_context="/data/rep",
+                            name_update=_update("/data/rep/name"),
+                            case_properties={"note": _update("/data/q")},
+                        )
+                    ]
+                ),
+                "schema:ConditionalCaseUpdate.question_path",
+                "/modules/0/forms/0/actions/open_cases/0/name_update/question_path",
+            ),
         ),
         "forms-and-case-writes/update-from-an-upload-question-attachment-mode": (
             refused(
@@ -2046,6 +2089,442 @@ def _settings_and_forms():
     }
 
 
+def _load(tag, **fields):
+    return {"doc_type": "LoadUpdateAction", "case_type": "patient", "case_tag": tag, **fields}
+
+
+def _open(tag, **fields):
+    return {"doc_type": "AdvancedOpenCaseAction", "case_type": "visit", "case_tag": tag, **fields}
+
+
+def _index(tag, **fields):
+    return {"doc_type": "CaseIndex", "tag": tag, **fields}
+
+
+def _advanced_app(loads=(), opens=(), modules_before=(), **module):
+    """An app whose advanced menu (after ``modules_before``) holds one advanced form (unique_id ``f``) with these
+    loads and open actions, its XForm being QUESTIONS (a repeat ``/data/rep`` holding ``name``)."""
+    form = {
+        "doc_type": "AdvancedForm",
+        "unique_id": "f",
+        "actions": {"doc_type": "AdvancedFormActions", "load_update_cases": list(loads), "open_cases": list(opens)},
+    }
+    advanced = {"doc_type": "AdvancedModule", "unique_id": "m", "case_type": "patient", "forms": [form], **module}
+    return _with_forms(_app([*modules_before, advanced]), f=QUESTIONS)
+
+
+def _shadow_app(source_loads, extra_loads):
+    """An app whose advanced menu holds the advanced form ``f`` with these loads and the mirror form ``s`` of it whose
+    ``extra_actions`` hold ``extra_loads``."""
+    app = _advanced_app(source_loads)
+    shadow = {
+        "doc_type": "ShadowForm",
+        "unique_id": "s",
+        "shadow_parent_form_id": "f",
+        "extra_actions": {"doc_type": "AdvancedFormActions", "load_update_cases": list(extra_loads), "open_cases": []},
+    }
+    app["modules"][0]["forms"].append(shadow)
+    return app
+
+
+def _advanced_actions():
+    """The classes of an advanced form's loads and open actions, each read in the action a use sits in."""
+    loads = "/modules/0/forms/0/actions/load_update_cases"
+    opens = "/modules/0/forms/0/actions/open_cases"
+    load_tag, open_tag = "schema:LoadUpdateAction.case_tag", "schema:AdvancedOpenCaseAction.case_tag"
+    household = _load("load_household_0", case_type="household")
+    linked = _load("load_patient_1", case_index=_index("load_household_0"))
+    worker = _load("usercase", auto_select={"doc_type": "AutoSelectCase", "mode": "usercase", "value_key": ""})
+    in_repeat = {"repeat_context": "/data/rep", "name_update": _update("/data/rep/name")}
+    to_household = {"case_indices": [_index("load_household_0")]}
+    # A child menu under a basic case-selecting root of the same type: HQ gives its load the root's ``case_id``.
+    root = _module([_form_json("case")], unique_id="r")
+    child_menu = {"root_module_id": "r"}
+    renamed_index = "/modules/1/forms/0/actions/open_cases/0/case_indices/0/tag"
+    question = {"relationship": "question", "relationship_question": "/data/q"}
+    by_case = {"doc_type": "AutoSelectCase", "mode": "case", "value_key": "parent"}
+    extra = "/modules/0/forms/1/extra_actions/load_update_cases"
+    return {
+        "forms-and-case-writes/an-auto-select-load-with-a-blank-mode-or-a-blank-case-type": (
+            refused(
+                "app",
+                _advanced_app([{**worker, "case_type": ""}]),
+                "schema:LoadUpdateAction.case_type",
+                f"{loads}/0/case_type",
+            ),
+            refused(
+                "app",
+                _advanced_app([{**worker, "auto_select": {**worker["auto_select"], "mode": ""}}]),
+                "schema:AutoSelectCase.mode",
+                f"{loads}/0/auto_select/mode",
+            ),
+            accepted("app", _advanced_app([worker]), "schema:AutoSelectCase.mode", f"{loads}/0/auto_select/mode"),
+            # A load that does not select its case itself takes its case type from its list.
+            accepted(
+                "app",
+                _advanced_app([_load("load_patient_0", case_type="")]),
+                "schema:LoadUpdateAction.case_type",
+                f"{loads}/0/case_type",
+            ),
+        ),
+        "forms-and-case-writes/auto-select-mode-case-naming-itself-a-later-load-or-an-open": (
+            refused(
+                "app",
+                _advanced_app(
+                    [household, _load("load_patient_1", auto_select={**by_case, "value_source": "load_patient_1"})]
+                ),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/1/auto_select/value_source",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    [household, _load("load_patient_1", auto_select={**by_case, "value_source": "load_household_0"})]
+                ),
+                "schema:AutoSelectCase.value_source",
+                f"{loads}/1/auto_select/value_source",
+            ),
+            accepted("app", _advanced_app([worker]), "schema:AutoSelectCase.mode", f"{loads}/0/auto_select/mode"),
+        ),
+        "forms-and-case-writes/show-product-stock-true-or-a-non-empty-product-program": (
+            refused(
+                "app",
+                _advanced_app([_load("load_patient_0", show_product_stock=True)]),
+                "schema:LoadUpdateAction.show_product_stock",
+                f"{loads}/0/show_product_stock",
+            ),
+            refused(
+                "app",
+                _advanced_app([_load("load_patient_0", product_program="p")]),
+                "schema:LoadUpdateAction.product_program",
+                f"{loads}/0/product_program",
+            ),
+            # The advanced editor's new load: ``show_product_stock`` false and a blank ``product_program``.
+            accepted(
+                "app",
+                _advanced_app([_load("load_patient_0", product_program="", show_product_stock=False)]),
+                "schema:LoadUpdateAction.product_program",
+                f"{loads}/0/product_program",
+            ),
+        ),
+        "forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non": (
+            refused(
+                "app",
+                _shadow_app([_load("load_patient_0")], [_load("load_patient_0", show_product_stock=True)]),
+                "schema:LoadUpdateAction.show_product_stock",
+                f"{extra}/0/show_product_stock",
+            ),
+            accepted(
+                "app",
+                _shadow_app([_load("load_patient_0")], [_load("load_patient_0")]),
+                "schema:AdvancedFormActions.load_update_cases",
+                extra,
+            ),
+            # A load of an advanced form's own is ``commtrack-on``'s.
+            accepted(
+                "app",
+                _advanced_app([_load("load_patient_0", show_product_stock=True)]),
+                "schema:LoadUpdateAction.show_product_stock",
+                f"{loads}/0/show_product_stock",
+            ),
+        ),
+        "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": (
+            refused(
+                "app",
+                _shadow_app(
+                    [_load("load_patient_0", case_properties={"note": _update("/data/q")})], [_load("load_other_0")]
+                ),
+                "schema:AdvancedFormActions.load_update_cases",
+                extra,
+            ),
+            # A source load the source XForm neither reads nor writes through may be left out.
+            accepted(
+                "app",
+                _shadow_app([_load("load_patient_0")], [_load("load_other_0")]),
+                "schema:AdvancedFormActions.load_update_cases",
+                extra,
+            ),
+            accepted(
+                "app",
+                _shadow_app(
+                    [_load("load_patient_0", case_properties={"note": _update("/data/q")})], [_load("load_patient_0")]
+                ),
+                "schema:AdvancedFormActions.load_update_cases",
+                extra,
+            ),
+            accepted("app", _advanced_app([household]), "schema:AdvancedFormActions.load_update_cases", loads),
+        ),
+        "forms-and-case-writes/a-load-or-open-action-s-case-tag-containing-which-the-advanced": (
+            refused("app", _advanced_app([_load("load/patient")]), load_tag, f"{loads}/0/case_tag"),
+            refused("app", _advanced_app(opens=[_open("open/visit")]), open_tag, f"{opens}/0/case_tag"),
+            accepted("app", _advanced_app([_load("load_patient_0")]), load_tag, f"{loads}/0/case_tag"),
+        ),
+        "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action": (
+            refused("app", _advanced_app([_load("")]), load_tag, f"{loads}/0/case_tag"),
+            refused("app", _advanced_app(opens=[_open("")]), open_tag, f"{opens}/0/case_tag"),
+            # The editor checks no tag of a load that selects its case itself.
+            accepted("app", _advanced_app([{**worker, "case_tag": ""}]), load_tag, f"{loads}/0/case_tag"),
+            accepted("app", _advanced_app([_load("load_patient_0")]), load_tag, f"{loads}/0/case_tag"),
+        ),
+        "forms-and-case-writes/case-tag-of-a-non-auto-select-action-failing-actions-js": (
+            refused("app", _advanced_app([_load("0patient")]), load_tag, f"{loads}/0/case_tag"),
+            # JavaScript's ``$`` matches no trailing newline, so the editor refuses this tag.
+            refused("app", _advanced_app([_load("patient\n")]), load_tag, f"{loads}/0/case_tag"),
+            # One tag on a load and an open action: the open action's is the second the page counts.
+            refused("app", _advanced_app([household], [_open("load_household_0")]), open_tag, f"{opens}/0/case_tag"),
+            accepted("app", _advanced_app([{**worker, "case_tag": "0user"}]), load_tag, f"{loads}/0/case_tag"),
+            accepted("app", _advanced_app([household], [_open("open_visit_0")]), open_tag, f"{opens}/0/case_tag"),
+        ),
+        "forms-and-case-writes/loadupdateaction-preload-or-case-properties-property-with-on-a": (
+            refused(
+                "app",
+                _advanced_app([household, {**linked, "case_properties": {"parent/name": _update("/data/q")}}]),
+                "schema:LoadUpdateAction.case_properties",
+                f"{loads}/1/case_properties",
+            ),
+            refused(
+                "app",
+                _advanced_app([household, {**linked, "preload": {"/data/q": "parent/name"}}]),
+                "schema:LoadUpdateAction.preload",
+                f"{loads}/1/preload",
+            ),
+            # The same parent write on a load with no index is a write HQ's builder resolves.
+            accepted(
+                "app",
+                _advanced_app(
+                    [household, _load("load_patient_1", case_properties={"parent/name": _update("/data/q")})]
+                ),
+                "schema:LoadUpdateAction.case_properties",
+                f"{loads}/1/case_properties",
+            ),
+        ),
+        "forms-and-case-writes/loadupdateaction-case-index-on-an-auto-selected-load-or-on-the": (
+            refused(
+                "app",
+                _advanced_app([{**linked, "case_index": _index("open_visit_0")}], [_open("open_visit_0")]),
+                "schema:LoadUpdateAction.case_index",
+                f"{loads}/0/case_index",
+            ),
+            refused(
+                "app",
+                _advanced_app([household, {**worker, "case_index": _index("load_household_0")}]),
+                "schema:LoadUpdateAction.case_index",
+                f"{loads}/1/case_index",
+            ),
+            accepted(
+                "app", _advanced_app([household, linked]), "schema:LoadUpdateAction.case_index", f"{loads}/1/case_index"
+            ),
+        ),
+        "forms-and-case-writes/loadupdateaction-case-index-tag-naming-a-load-other-than-the-one": (
+            refused(
+                "app",
+                _advanced_app([household, _load("load_patient_1"), {**linked, "case_tag": "load_patient_2"}]),
+                "schema:CaseIndex.tag",
+                f"{loads}/2/case_index/tag",
+            ),
+            accepted("app", _advanced_app([household, linked]), "schema:CaseIndex.tag", f"{loads}/1/case_index/tag"),
+        ),
+        "forms-and-case-writes/advancedopencaseaction-case-properties-key-with-parent-p": (
+            refused(
+                "app",
+                _advanced_app(opens=[_open("open_visit_0", case_properties={"parent/name": _update("/data/q")})]),
+                "schema:AdvancedOpenCaseAction.case_properties",
+                f"{opens}/0/case_properties",
+            ),
+            accepted(
+                "app",
+                _advanced_app(opens=[_open("open_visit_0", case_properties={"name": _update("/data/q")})]),
+                "schema:AdvancedOpenCaseAction.case_properties",
+                f"{opens}/0/case_properties",
+            ),
+        ),
+        "forms-and-case-writes/two-or-more-open-actions-whose-repeat-context-is-one-repeat": (
+            refused(
+                "app",
+                _advanced_app([household], [_open("open_visit_0", **in_repeat), _open("open_visit_1", **in_repeat)]),
+                "schema:AdvancedOpenCaseAction.repeat_context",
+                f"{opens}/1/repeat_context",
+            ),
+            # Two indexed open actions in the repeat: HQ nests each block under its own ``case_<tag>``.
+            accepted(
+                "app",
+                _advanced_app(
+                    [household],
+                    [
+                        _open("open_visit_0", **in_repeat, **to_household),
+                        _open("open_visit_1", **in_repeat, **to_household),
+                    ],
+                ),
+                "schema:AdvancedOpenCaseAction.repeat_context",
+                f"{opens}/1/repeat_context",
+            ),
+        ),
+        "forms-and-case-writes/advancedopencaseaction-repeat-context-other-than-the-name": (
+            refused(
+                "app",
+                _advanced_app(
+                    opens=[_open("open_visit_0", name_update=_update("/data/q"), repeat_context="/data/rep")]
+                ),
+                "schema:AdvancedOpenCaseAction.repeat_context",
+                f"{opens}/0/repeat_context",
+            ),
+            accepted(
+                "app",
+                _advanced_app(opens=[_open("open_visit_0", **in_repeat)]),
+                "schema:AdvancedOpenCaseAction.repeat_context",
+                f"{opens}/0/repeat_context",
+            ),
+        ),
+        "forms-and-case-writes/advancedopencaseaction-case-indices-naming-its-own-or-a-later": (
+            refused(
+                "app",
+                _advanced_app(
+                    opens=[_open("open_visit_0", case_indices=[_index("open_visit_1")]), _open("open_visit_1")]
+                ),
+                "schema:CaseIndex.tag",
+                f"{opens}/0/case_indices/0/tag",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    opens=[_open("open_visit_0"), _open("open_visit_1", case_indices=[_index("open_visit_0")])]
+                ),
+                "schema:CaseIndex.tag",
+                f"{opens}/1/case_indices/0/tag",
+            ),
+        ),
+        "forms-and-case-writes/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames": (
+            refused(
+                "app",
+                _advanced_app(
+                    [_load("load_patient_0")],
+                    [_open("open_visit_0", case_indices=[_index("load_patient_0")])],
+                    modules_before=[root],
+                    **child_menu,
+                ),
+                "schema:CaseIndex.tag",
+                renamed_index,
+            ),
+            # Under a root of another case type HQ keeps the load's own datum id.
+            accepted(
+                "app",
+                _advanced_app(
+                    [_load("load_patient_0")],
+                    [_open("open_visit_0", case_indices=[_index("load_patient_0")])],
+                    modules_before=[{**root, "case_type": "household"}],
+                    **child_menu,
+                ),
+                "schema:CaseIndex.tag",
+                renamed_index,
+            ),
+        ),
+        "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": (
+            refused(
+                "app",
+                _advanced_app(
+                    [household],
+                    [
+                        _open(
+                            "open_visit_0",
+                            case_indices=[
+                                _index("load_household_0", **{**question, "relationship_question": "/data/rep/name"})
+                            ],
+                        )
+                    ],
+                ),
+                "schema:CaseIndex.relationship_question",
+                f"{opens}/0/case_indices/0/relationship_question",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    [household], [_open("open_visit_0", case_indices=[_index("load_household_0", **question)])]
+                ),
+                "schema:CaseIndex.relationship_question",
+                f"{opens}/0/case_indices/0/relationship_question",
+            ),
+        ),
+        "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (
+            refused(
+                "app",
+                _advanced_app(
+                    opens=[
+                        _open("open_visit_0"),
+                        _open("open_visit_1", case_indices=[_index("open_visit_0", **question)]),
+                    ]
+                ),
+                "schema:CaseIndex.relationship",
+                f"{opens}/1/case_indices/0/relationship",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    [household], [_open("open_visit_0", case_indices=[_index("load_household_0", **question)])]
+                ),
+                "schema:CaseIndex.relationship",
+                f"{opens}/0/case_indices/0/relationship",
+            ),
+        ),
+        "forms-and-case-writes/caseindex-relationship-question-on-an-index-to-a-load-that": (
+            refused(
+                "app",
+                _advanced_app(
+                    [household],
+                    [
+                        _open("open_visit_0"),
+                        _open(
+                            "open_visit_1",
+                            case_indices=[_index("open_visit_0"), _index("load_household_0", **question)],
+                        ),
+                    ],
+                ),
+                "schema:CaseIndex.relationship",
+                f"{opens}/1/case_indices/1/relationship",
+            ),
+            # The index to the load first: HQ writes its binds on the child's own block.
+            accepted(
+                "app",
+                _advanced_app(
+                    [household],
+                    [
+                        _open("open_visit_0"),
+                        _open(
+                            "open_visit_1",
+                            case_indices=[_index("load_household_0", **question), _index("open_visit_0")],
+                        ),
+                    ],
+                ),
+                "schema:CaseIndex.relationship",
+                f"{opens}/1/case_indices/0/relationship",
+            ),
+        ),
+        "forms-and-case-writes/an-advanced-open-action-indexed-to-an-open-action-that-has-a-neither": (
+            refused(
+                "app",
+                _advanced_app(
+                    opens=[
+                        _open("open_visit_0", **in_repeat),
+                        _open("open_visit_1", repeat_context="/data/rep2", case_indices=[_index("open_visit_0")]),
+                    ]
+                ),
+                "schema:CaseIndex.tag",
+                f"{opens}/1/case_indices/0/tag",
+            ),
+            accepted(
+                "app",
+                _advanced_app(
+                    opens=[
+                        _open("open_visit_0", **in_repeat),
+                        _open("open_visit_1", **in_repeat, case_indices=[_index("open_visit_0")]),
+                    ]
+                ),
+                "schema:CaseIndex.tag",
+                f"{opens}/1/case_indices/0/tag",
+            ),
+        ),
+    }
+
+
 def _search_and_menus():
     config = "/modules/0/search_config"
     prompts = f"{config}/properties/0"
@@ -2065,6 +2544,22 @@ def _search_and_menus():
 
     def plain(**module):
         return _module(unique_id=module.pop("unique_id", "p"), **module)
+
+    def product_app(short=None, long_columns=(), header=None, **column):
+        """An advanced menu whose product details are the ones ``AdvancedModule.new_module`` writes, but for
+        ``short``'s detail settings, the long detail's columns and the product column's ``header`` and fields."""
+        product = {
+            **_column(model="product"),
+            "header": header or {"en": "Product"},
+            "useXpathExpression": False,
+            **column,
+        }
+        pair = {
+            "doc_type": "DetailPair",
+            "short": {"doc_type": "Detail", "display": "short", "columns": [product], **(short or {})},
+            "long": {"doc_type": "Detail", "display": "long", "columns": list(long_columns)},
+        }
+        return details(_module(doc_type="AdvancedModule", product_details=pair))
 
     multi = {"short": {"multi_select": True}}
     return {
@@ -2456,6 +2951,43 @@ def _search_and_menus():
             ),
             accepted(
                 "app", columns_app(_column(model="case")), "schema:DetailColumn.model", f"{short}/columns/0/model"
+            ),
+            # The product column HQ's new advanced menu writes is its product details', judged whole there.
+            accepted(
+                "app",
+                product_app(),
+                "schema:DetailColumn.model",
+                "/modules/0/product_details/short/columns/0/model",
+            ),
+        ),
+        "menus-and-case-lists/advancedmodule-product-details-differing-from-the-default": (
+            refused(
+                "app", product_app(field="code"), "schema:AdvancedModule.product_details", "/modules/0/product_details"
+            ),
+            refused(
+                "app",
+                product_app(header={"en": "Item"}),
+                "schema:AdvancedModule.product_details",
+                "/modules/0/product_details",
+            ),
+            refused(
+                "app",
+                product_app(short={"sort_elements": [{"doc_type": "SortElement", "field": "name"}]}),
+                "schema:AdvancedModule.product_details",
+                "/modules/0/product_details",
+            ),
+            refused(
+                "app",
+                product_app(long_columns=[_column(model="product")]),
+                "schema:AdvancedModule.product_details",
+                "/modules/0/product_details",
+            ),
+            # ``AdvancedModule.new_module``'s, as Nova writes it: a column graph HQ reads only of a graph column.
+            accepted(
+                "app",
+                product_app(graph_configuration=None),
+                "schema:AdvancedModule.product_details",
+                "/modules/0/product_details",
             ),
         ),
         "menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case": (
@@ -3815,7 +4347,13 @@ def _data_binds_and_itext():
     }
 
 
-SHAPES = {**_questions(), **_settings_and_forms(), **_search_and_menus(), **_data_binds_and_itext()}
+SHAPES = {
+    **_questions(),
+    **_settings_and_forms(),
+    **_advanced_actions(),
+    **_search_and_menus(),
+    **_data_binds_and_itext(),
+}
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
 UNSETTLED = {
@@ -3944,35 +4482,14 @@ KNOWN_GAPS = frozenset(
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",
         "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
-        "forms-and-case-writes/a-load-or-open-action-s-case-tag-containing-which-the-advanced",
-        "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent",
         "forms-and-case-writes/advancedform-schedule-with-enabled-true-visits-transition",
-        "forms-and-case-writes/advancedopencaseaction-case-indices-naming-its-own-or-a-later",
-        "forms-and-case-writes/advancedopencaseaction-case-properties-key-with-parent-p",
-        "forms-and-case-writes/advancedopencaseaction-repeat-context-other-than-the-name",
-        "forms-and-case-writes/an-advanced-open-action-indexed-to-an-open-action-that-has-a-neither",
-        "forms-and-case-writes/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames",
-        "forms-and-case-writes/an-auto-select-load-with-a-blank-mode-or-a-blank-case-type",
-        "forms-and-case-writes/auto-select-mode-case-naming-itself-a-later-load-or-an-open",
-        "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action",
-        "forms-and-case-writes/case-tag-of-a-non-auto-select-action-failing-actions-js",
-        "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat",
-        "forms-and-case-writes/caseindex-relationship-question-on-an-index-to-a-load-that",
-        "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an",
         "forms-and-case-writes/custom-assertions-form-non-empty",
-        "forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non",
         "forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes",
-        "forms-and-case-writes/loadupdateaction-case-index-on-an-auto-selected-load-or-on-the",
-        "forms-and-case-writes/loadupdateaction-case-index-tag-naming-a-load-other-than-the-one",
-        "forms-and-case-writes/loadupdateaction-preload-or-case-properties-property-with-on-a",
         "forms-and-case-writes/shadow-parent-form-id-naming-a-basic-form-or-another-shadowform",
         "forms-and-case-writes/show-count-true",
-        "forms-and-case-writes/show-product-stock-true-or-a-non-empty-product-program",
-        "forms-and-case-writes/two-or-more-open-actions-whose-repeat-context-is-one-repeat",
         "forms-and-case-writes/unknown-form-doc-type",
         "menus-and-case-lists/a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding",
         "menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
-        "menus-and-case-lists/advancedmodule-product-details-differing-from-the-default",
         "menus-and-case-lists/attachment-name-with-any-other-format",
         "menus-and-case-lists/auto-select-case-true-on-a-basic-module-an-advanced-form-s-load",
         "menus-and-case-lists/callout-with-no-extras-or-no-responses",

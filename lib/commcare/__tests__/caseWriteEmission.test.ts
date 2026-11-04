@@ -16,6 +16,7 @@ import {
 	fieldCaseWriteViews,
 	proseText,
 } from "@/lib/domain";
+import { basicForm } from "./hqBasicShape";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { xpathEvidence } from "./xpathEvidence";
 
@@ -54,7 +55,7 @@ function exported(doc: BlueprintDoc) {
 	);
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const hq = expandDoc(doc);
-	const form = hq.modules[0].forms[0];
+	const form = basicForm(hq, 0, 0);
 	const source = hq._attachments[`${form.unique_id}.xml`];
 	if (typeof source !== "string") throw new Error("Missing HQ source");
 	const zip = new AdmZip(

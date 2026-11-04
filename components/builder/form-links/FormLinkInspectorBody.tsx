@@ -36,7 +36,7 @@ import { hiddenTargetLine, pinsFallbackSentence } from "./afterSubmitCopy";
 import { LinkTargetPickerContent } from "./LinkTargetPicker";
 import { linkLead } from "./linkSentence";
 import { makeOtherwiseUnavailableReason, removalQuestion } from "./refusalCopy";
-import { retargetDropsCarriedValues, retargetLink } from "./seeds";
+import { retargetDropsCarriedValues, retargetLink, seedTarget } from "./seeds";
 import { useLinkSentenceContext } from "./useLinkSentenceContext";
 
 export function FormLinkInspectorBody({
@@ -134,6 +134,12 @@ export function FormLinkInspectorBody({
 						link={link}
 						lead={lead}
 						canEdit={canEdit}
+						refusalOf={(target) =>
+							view.newCaseRefusal(
+								retargetLink(link, seedTarget(view, target)),
+								link,
+							)
+						}
 						onChoose={(target) => {
 							const next = retargetLink(link, {
 								target,
@@ -230,12 +236,14 @@ function TargetControl({
 	link,
 	lead,
 	canEdit,
+	refusalOf,
 	onChoose,
 }: {
 	readonly formUuid: Uuid;
 	readonly link: FormLink;
 	readonly lead: string;
 	readonly canEdit: boolean;
+	readonly refusalOf: (target: FormLinkTarget) => string | undefined;
 	readonly onChoose: (target: FormLinkTarget) => void;
 }) {
 	const [open, setOpen] = useState(false);
@@ -263,6 +271,7 @@ function TargetControl({
 					formUuid={formUuid}
 					editing={link.uuid}
 					current={link.target}
+					refusalOf={refusalOf}
 					onChoose={(target) => {
 						setOpen(false);
 						onChoose(target);

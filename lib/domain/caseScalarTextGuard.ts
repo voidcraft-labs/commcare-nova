@@ -51,9 +51,9 @@ const derived = new WeakMap<GuardDoc, Map<Uuid, FormCaseScalarText>>();
 
 /**
  * Which of a form's operations a basic action carries, where the caller knows
- * (`lib/commcare/placement.ts::placedBasic`). Without it, every save to the
- * form's own case or to a child case under it counts, the candidates a basic
- * action may carry, as the generated-node names are reserved.
+ * (`lib/commcare/placement.ts::placedBasic`). Without it, every save but the
+ * worker's record counts, the candidates a basic or an advanced action may
+ * carry, as the generated-node names are reserved.
  */
 export interface CaseScalarTextOptions {
 	readonly placedBasic?: (operationUuid: Uuid) => boolean;
@@ -61,9 +61,11 @@ export interface CaseScalarTextOptions {
 
 /**
  * Every question of `formUuid` a case name or an external id reads through a
- * basic action, mapped to its check. It covers the form's own case (a create,
- * a rename or an update, a several-case update included) and every child case
- * it creates beneath it; the worker's own record keeps neither value. A Hidden
+ * basic or an advanced action, mapped to its check. A basic action covers the
+ * form's own case (a create, a rename or an update, a several-case update
+ * included) and every child case it creates beneath it; an advanced action
+ * covers the case it opens or loads; the worker's own record keeps neither
+ * value. A Hidden
  * Value is among them: it takes the trimmed sibling, and no runtime checks a
  * constraint on it.
  */
@@ -129,13 +131,16 @@ function deriveFormCaseScalarText(
 	);
 	for (const [fieldUuid, views] of formCaseWriteViews(doc, formUuid)) {
 		for (const view of views) {
-			// Only a basic action reads the trimmed sibling: the form's own case
-			// and a child case under it. Any other operation is a Save to Case
-			// block, which trims and checks its own values
-			// (`nova_guard_<operation id>_text`). The worker's record keeps
-			// neither value, and a capture's link is refused as either
-			// (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
-			if (view.destination !== "own" && view.destination !== "child") continue;
+			// Only a basic or an advanced action reads the trimmed sibling. Any
+			// other operation is a Save to Case block, which trims and checks its
+			// own values (`nova_guard_<operation id>_text`). The worker's record
+			// keeps neither value, and a capture's link is refused as either
+			// (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`). Where the caller knows
+			// the placement it decides; otherwise every operation that could
+			// take an action is a candidate: a basic action carries only the own
+			// case and a child under it, and an advanced form's open and load
+			// actions carry a case of any destination.
+			if (view.destination === "worker-record") continue;
 			if (placedBasic !== undefined && !placedBasic(view.operationUuid))
 				continue;
 			if (view.link) continue;

@@ -25,12 +25,14 @@ from proof.rules.conftest import (
 )
 from proof.rules.subcase_empty_strings import RULE
 
-DOCUMENT = "case-extension-registration"
+DOCUMENT = "nested-menu-registration-children"
+# Its registration, the first form of its second menu, opens its own case and one child at the form's root.
+MODULE, FORM = 1, 0
 
 
 def _subcases(reference_id, repeat_context=None):
     def change(doc):
-        subcases = doc["modules"][0]["forms"][0]["actions"]["subcases"]
+        subcases = doc["modules"][MODULE]["forms"][FORM]["actions"]["subcases"]
         assert subcases, "the form opens no subcase"
         for subcase in subcases:
             subcase["reference_id"] = reference_id

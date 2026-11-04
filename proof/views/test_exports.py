@@ -1,4 +1,4 @@
-"""Defects 24 and 30: the columns HQ's form export gives Nova's forms, and what a worker's submission puts in them.
+"""Defects 24 and 30: the columns HQ's form export gave Nova's forms, and what a worker's submission put in them.
 
 Contract: HQ's form export is made from the app's builds and fed by the forms
 index (``export/models/new.py::FormExportDataSchema.generate_schema_from_builds``,
@@ -7,12 +7,13 @@ get_export_file``, which reads the forms HQ's form pillow indexed as its
 receiver saved them). So the columns are what HQ's build of Nova's form
 holds, not what the author wrote:
 
-- **defect 30**: a repeat counted by a hidden value gains a second node,
-  ``nova_count_<repeat>``, which holds the same count (``targeted-repeat-count-copy``):
-  its own column, beside the hidden value's, holding the count;
-- **defect 24**: an extension child case is written twice, an active Save to
+- **defect 30**: a repeat counted by a hidden value gained a second node,
+  ``nova_count_<repeat>``, which held the same count (the retained control
+  ``targeted-repeat-count-copy``): its own column, beside the hidden value's,
+  holding the count;
+- **defect 24**: an extension child case was written twice, an active Save to
   Case block and an inert basic subcase beside it with ``condition: never``
-  (``case-extension-registration``): the inert subcase's
+  (the retained control ``case-extension-registration-after-13``): the inert subcase's
   ``form.subcase_<i>.case.*`` columns are there, and empty in every row of
   a submission that made the extension case; and HQ's Case Management save
   resets the inert subcase's relationship to child, so the export of the
@@ -24,7 +25,9 @@ column present but never filled, which a count's value or an empty
 subcase's emptiness tells apart; and a save that changes nothing of the
 export, which the saved app's own export shows.
 
-Each document is published as Nova publishes it and released as HQ's
+Both defects are fixed in step 5, so no corpus document holds either shape; each
+is read on the retained control that keeps the export from before its fix, as
+its fixed register entries are. Each control is published as Nova publishes it and released as HQ's
 Releases page releases one (and, for the second, again after HQ's own Case
 Management page saved it); its worker walks every form with Formplayer,
 served by HQ's own views, in one run whose submissions stay in HQ; and HQ's
@@ -37,7 +40,7 @@ import hashlib
 import json
 from contextlib import contextmanager, nullcontext
 
-DOCUMENTS = ("targeted-repeat-count-copy", "case-extension-registration")
+CONTROLS = ("targeted-repeat-count-copy", "case-extension-registration-after-13")
 # HQ's export writes this for a value the submission does not hold (``export/const.py::MISSING_VALUE``).
 MISSING = "---"
 
@@ -83,11 +86,11 @@ def _columns(table, needle):
 
 
 def test_a_repeat_counted_by_a_hidden_value_exports_a_second_column_holding_the_count(
-    hq, core_runner, formplayer_runner, view_documents, tmp_path
+    hq, core_runner, formplayer_runner, view_controls, tmp_path
 ):
     from proof.webapps import hq as webapps_hq
 
-    document = view_documents[DOCUMENTS[0]]
+    document = view_controls[CONTROLS[0]]
     with webapps_hq.project(document) as project:
         with project.released(formplayer_runner, label="count") as served:
             app = served.doc
@@ -105,13 +108,13 @@ def test_a_repeat_counted_by_a_hidden_value_exports_a_second_column_holding_the_
 
 
 def test_an_extension_case_exports_empty_inert_subcase_columns_whose_index_path_moves_after_hqs_save(
-    hq, core_runner, formplayer_runner, editor_driver, view_documents, tmp_path
+    hq, core_runner, formplayer_runner, editor_driver, view_controls, tmp_path
 ):
     from proof.editors import pages
     from proof.hq import operations
     from proof.webapps import hq as webapps_hq
 
-    document = view_documents[DOCUMENTS[1]]
+    document = view_controls[CONTROLS[1]]
     found = {}
     with webapps_hq.project(document) as project:
         form_id = operations.held_app(project.unit, project.app_id).modules[0].forms[0].unique_id

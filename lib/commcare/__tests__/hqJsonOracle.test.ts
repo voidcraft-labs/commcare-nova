@@ -64,6 +64,12 @@ import {
 	type HqApplicationTree,
 	serializeHqApplication,
 } from "../hqJson/xpath";
+import {
+	advancedApp,
+	advancedAppTree,
+	advancedForm,
+} from "./advancedActionsFixture";
+import { asBasicModule } from "./hqBasicShape";
 
 const nativeRecords: {
 	test: string;
@@ -195,7 +201,7 @@ function baselineApp(): HqApplication {
 
 /** The single module of a baseline app (every negative reaches into it). */
 function moduleOf(app: HqApplication): HqModule {
-	return app.modules[0];
+	return asBasicModule(app.modules[0]);
 }
 
 // ── Clean baseline ─────────────────────────────────────────────────
@@ -1222,5 +1228,147 @@ describe("HQ-JSON oracle — search prompt children", () => {
 		expect(codes(validateHqJson(sortless))).toEqual([
 			"HQJSON_BAD_SEARCH_ITEMSET",
 		]);
+	});
+});
+
+// ── Advanced menus ─────────────────────────────────────────────────
+
+/**
+ * The advanced probes are checked without being written to the native
+ * evidence file: `proof/native/test_hq_json_oracle.py` loads each probe's
+ * forms by the basic form's actions.
+ */
+function advancedCodes(app: HqApplication): ValidationErrorCode[] {
+	return checkHqJson(app).map((finding) => finding.code);
+}
+
+function advancedModuleOf(app: HqApplication) {
+	const module = app.modules[0];
+	if (module?.doc_type !== "AdvancedModule")
+		throw new Error("The advanced fixture's menu is an advanced menu.");
+	return module;
+}
+
+function advancedFormOf(app: HqApplication) {
+	const form = advancedModuleOf(app).forms[0];
+	if (form === undefined) throw new Error("The advanced menu has a form.");
+	return form;
+}
+
+describe("HQ-JSON oracle — advanced menus", () => {
+	it("accepts an advanced menu and form with every load, create, index and automatic choice Nova writes", () => {
+		expect(advancedCodes(advancedApp())).toEqual([]);
+	});
+
+	it("accepts an advanced menu beside a basic one", () => {
+		const tree = advancedAppTree();
+		tree.modules.push(baselineTree().modules[0]);
+		expect(advancedCodes(serializeHqApplication(tree))).toEqual([]);
+	});
+
+	it("flags a CaseIndex relationship outside HQ's choices, on a create and on a load", () => {
+		const app = advancedApp();
+		const { actions } = advancedFormOf(app);
+		const create = actions.open_cases[0];
+		const load = actions.load_update_cases[1];
+		if (create === undefined || load === undefined)
+			throw new Error("The fixture holds a create and an indexed load.");
+		(create.case_indices[0] as { relationship: string }).relationship =
+			"sibling";
+		(load.case_index as { relationship: string }).relationship = "cousin";
+		expect(advancedCodes(app)).toEqual([
+			"HQJSON_BAD_SUBCASE_RELATIONSHIP",
+			"HQJSON_BAD_SUBCASE_RELATIONSHIP",
+		]);
+	});
+
+	it("flags an automatic choice in a mode outside HQ's choices", () => {
+		const app = advancedApp();
+		const worker = advancedFormOf(app).actions.load_update_cases[2];
+		if (worker?.auto_select == null)
+			throw new Error("The fixture's worker load chooses automatically.");
+		(worker.auto_select as { mode: string }).mode = "location";
+		expect(advancedCodes(app)).toEqual(["HQJSON_BAD_AUTO_SELECT_MODE"]);
+	});
+
+	it("flags a load's close condition and a create's open condition outside HQ's types", () => {
+		const app = advancedApp();
+		const { actions } = advancedFormOf(app);
+		const load = actions.load_update_cases[0];
+		const create = actions.open_cases[0];
+		if (load === undefined || create === undefined)
+			throw new Error("The fixture holds a load and a create.");
+		load.close_condition.type = "maybe" as "never";
+		create.open_condition.operator = "~=";
+		expect(advancedCodes(app)).toEqual([
+			"HQJSON_BAD_CONDITION_TYPE",
+			"HQJSON_BAD_CONDITION_OPERATOR",
+		]);
+	});
+
+	it("flags an update mode outside HQ's choices on a create's name and a load's property", () => {
+		const app = advancedApp();
+		const { actions } = advancedFormOf(app);
+		const create = actions.open_cases[0];
+		const load = actions.load_update_cases[0];
+		if (create === undefined || load?.case_properties.visited === undefined)
+			throw new Error("The fixture holds a create and a written load.");
+		(create.name_update as { update_mode: string }).update_mode = "never";
+		(load.case_properties.visited as { update_mode: string }).update_mode =
+			"sometimes";
+		expect(advancedCodes(app)).toEqual([
+			"HQJSON_BAD_UPDATE_MODE",
+			"HQJSON_BAD_UPDATE_MODE",
+		]);
+	});
+
+	it("flags an advanced form in a basic menu, and a basic form in an advanced menu", () => {
+		const inBasic = baselineTree();
+		const basic = inBasic.modules[0];
+		if (basic?.doc_type !== "Module")
+			throw new Error("The baseline's menu is basic.");
+		(basic.forms as unknown[]).push(advancedForm());
+		const inAdvanced = advancedAppTree();
+		const advanced = inAdvanced.modules[0];
+		if (advanced?.doc_type !== "AdvancedModule")
+			throw new Error("The advanced fixture's menu is advanced.");
+		(advanced.forms as unknown[]).push(basic.forms[0]);
+		expect(advancedCodes(serializeHqApplication(inBasic))).toEqual([
+			"HQJSON_BAD_FORM_DOC_TYPE",
+		]);
+		expect(advancedCodes(serializeHqApplication(inAdvanced))).toEqual([
+			"HQJSON_BAD_FORM_DOC_TYPE",
+		]);
+	});
+
+	it("flags a form_type or module_type that disagrees with its doc_type", () => {
+		const formType = advancedApp();
+		(advancedFormOf(formType) as { form_type: string }).form_type =
+			"module_form";
+		const moduleType = advancedApp();
+		(advancedModuleOf(moduleType) as { module_type: string }).module_type =
+			"basic";
+		expect(advancedCodes(formType)).toEqual(["HQJSON_BAD_FORM_DOC_TYPE"]);
+		expect(advancedCodes(moduleType)).toEqual(["HQJSON_BAD_MODULE_DOC_TYPE"]);
+	});
+
+	it("flags the keys an advanced menu and form do not write", () => {
+		const app = advancedApp();
+		Object.assign(advancedModuleOf(app), {
+			parent_select: { active: false, relationship: "parent", module_id: null },
+			display_style: "list",
+		});
+		Object.assign(advancedFormOf(app), { requires: "case" });
+		expect(advancedCodes(app)).toEqual([
+			"HQJSON_UNWRITTEN_KEY",
+			"HQJSON_UNWRITTEN_KEY",
+			"HQJSON_UNWRITTEN_KEY",
+		]);
+	});
+
+	it("checks the product list's details as it checks the case details", () => {
+		const app = advancedApp();
+		advancedModuleOf(app).product_details.short.display = "medium" as "short";
+		expect(advancedCodes(app)).toEqual(["HQJSON_BAD_DETAIL_DISPLAY"]);
 	});
 });

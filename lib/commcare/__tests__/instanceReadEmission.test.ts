@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
+import { allForms } from "./hqBasicShape";
 import { INSTANCE_READS, instanceReadFixture } from "./instanceReadFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
@@ -183,9 +184,9 @@ describe("a link's reads are declared on its source entry", () => {
 
 	it("prints a link's table read with the suite's fixture id", () => {
 		const { hq, entryOf } = suite(false);
-		const links = hq.modules
-			.flatMap((module) => module.forms)
-			.flatMap((form) => form.form_links.map((link) => link.xpath));
+		const links = allForms(hq).flatMap((form) =>
+			form.form_links.map((link) => link.xpath),
+		);
 		expect(links).toEqual([
 			"count(instance('item-list:regions')/regions_list/regions) > 0",
 			"count(instance('results:inline')/results/case[not(commcare_is_related_case = true())]) > 1",

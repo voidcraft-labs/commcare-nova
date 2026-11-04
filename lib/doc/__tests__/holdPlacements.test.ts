@@ -12,12 +12,13 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import {
 	type Mutation,
 	mutationSchema,
 	type PlacementHoldEntry,
 } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	holdFixture,
 	OWN,
@@ -37,6 +38,13 @@ function apply(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 
 function hold(...holds: PlacementHoldEntry[]): Mutation {
 	return { kind: "holdPlacements", holds };
+}
+
+function moduleKindHold(
+	moduleUuid: Uuid,
+	placement: "advanced" | null,
+): PlacementHoldEntry {
+	return { target: "module-kind", moduleUuid, placement };
 }
 
 describe("holdPlacements", () => {
@@ -179,6 +187,56 @@ describe("holdPlacements", () => {
 				),
 			]),
 		).toThrow();
+	});
+
+	it("sets and clears a menu's held kind", () => {
+		const { doc } = holdFixture();
+		const moduleUuid = doc.moduleOrder[0];
+		const set = apply(doc, [hold(moduleKindHold(moduleUuid, "advanced"))]);
+		expect(set.targetAdmissionIssue).toBeUndefined();
+		expect(set.nextDoc.modules[moduleUuid]?.heldKind).toBe("advanced");
+		// The menu's kind is read first, ahead of its forms' holds.
+		expect([...readPlacementHolds(set.nextDoc).keys()]).toEqual([
+			`module-kind:${moduleUuid}`,
+		]);
+
+		const cleared = apply(set.nextDoc, [
+			hold(moduleKindHold(moduleUuid, null)),
+		]);
+		expect(Object.hasOwn(cleared.nextDoc.modules[moduleUuid], "heldKind")).toBe(
+			false,
+		);
+		expect(cleared.nextDoc.modules[moduleUuid]).toEqual(
+			doc.modules[moduleUuid],
+		);
+	});
+
+	it("refuses a menu's held kind on a menu that is not there, or a kind that is not advanced", () => {
+		const { doc } = holdFixture();
+		const missing = apply(doc, [
+			hold(moduleKindHold(testUuid("missing"), "advanced")),
+		]);
+		expect(missing.targetAdmissionIssue).toBe(true);
+		expect(missing.nextDoc).toBe(doc);
+		// A menu removed earlier in the batch is no longer a target.
+		const moduleUuid = doc.moduleOrder[doc.moduleOrder.length - 1];
+		const removed = apply(doc, [
+			{ kind: "removeModule", uuid: moduleUuid },
+			hold(moduleKindHold(moduleUuid, "advanced")),
+		]);
+		expect(removed.targetAdmissionIssue).toBe(true);
+		expect(
+			mutationSchema.safeParse({
+				kind: "holdPlacements",
+				holds: [
+					{
+						target: "module-kind",
+						moduleUuid: doc.moduleOrder[0],
+						placement: "basic",
+					},
+				],
+			}).success,
+		).toBe(false);
 	});
 
 	it("keeps the later hold where two mutations of one batch hold one target", () => {

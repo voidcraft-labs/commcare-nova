@@ -28,6 +28,7 @@ import { serializeXml } from "../serializeXml";
 import { buildStackElement, derivePostSubmitStack } from "../session";
 import { runValidation } from "../validator/runner";
 import { w } from "../xpath/wire/builders";
+import { basicModule } from "./hqBasicShape";
 import {
 	admitNestedDoc,
 	followupNestedDoc,
@@ -401,7 +402,7 @@ describe("ordinary nested-menu wire projection", () => {
 		]);
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
-		expect(hq.modules[1].parent_select).toEqual({
+		expect(basicModule(hq, 1).parent_select).toEqual({
 			active: true,
 			relationship: "parent",
 			module_id: hq.modules[0].unique_id,

@@ -1007,7 +1007,7 @@ in `proof/native/families.py::CORE_CLASSES` under their family and their produce
 | 3 | `ContainerRuntimeTest` (`container`) | count placement, nested, under a later-relevant group and reading an answer, on local and HQ-regenerated forms: rows follow the query as the form is filled in; a row's answers stay at its position while its id follows the record now at its place (part 04's design, its notice `repeat-rows-follow-query`); a shrink leaves rows not relevant and absent from the submission, and growth back restores them with their answers; per-outer-row ids; model iteration in Vellum's spelling initializes at load. Part 04's G2 is this class's run. Catches a row id read against the template before the row exists |
 | 3 | `RepeatCountRuntimeTest` (`expression`, new) | a count from a Hidden Value calculating an integer written directly into `jr:count`, an `int(expr)` count, and the retained control of a fractional count through the old `nova_count_` node all count the same rows (`org/javarosa/xpath/expr/FunctionUtils.java::toInt`). Catches a direct count Core reads as a fraction |
 | 4 | `CaseOperationRuntimeTest` (`case`) | part 01's G1 order cases (a Save to Case update and link naming a case a later basic block creates, both paths) and an `onlyIfChanged` write (the edit expression evaluated over a native case instance); the own arm's create and close under conditions. Catches a basic placement Core applies after a block that reads its case |
-| 7 | `CaseOperationRuntimeTest` (`case`) | an extension link on a created operation at the root and in a repeat; `CaseXmlParser` stores the extension index with `relationship="extension"`; part 02's G3 scenario, HQ's build of `targeted-root-case-block-names` opened in Core and submitted. Catches an extension link written as a child index, and a case write lost to a question named like the block HQ appends |
+| 7 | `CaseOperationRuntimeTest` (`case`) | an extension link on a created operation at the root and in a repeat; `CaseXmlParser` stores the extension index with `relationship="extension"`; part 02's G3 scenario, HQ's build of `targeted-root-case-block-names` opened in Core and submitted: each form holds the question's answer in an element of its name with no case block, beside the element HQ appends for the block, and the case write lands. Catches an extension link written as a child index, a case write lost to a question named like the block HQ appends, and an answer overwritten by the case block |
 | 7 | `AdvancedFormRuntimeTest` (`case`, new) and `proof/native/test_advanced_emission.py` | HQ regenerates an advanced form (`corehq/apps/app_manager/xform.py::XForm._create_casexml_advanced`, `suite_xml/sections/entries.py::EntriesHelper.get_datum_meta_assertions_advanced`) of `targeted-advanced-module`; Core's `SuiteParser` and `XFormParser` read both paths; Core opens each form from its suite session with the loads' datums, submits, and the case blocks apply: each load updates the case its datum names, the household closes, the open actions create with their indices (the `extension` one with `relationship="extension"`) and owners, the usercase load updates the worker's case, and the extension case's owner is the one part 02's G6 observes. `test_advanced_emission.py` holds HQ's `_create_casexml_advanced` and `get_datum_meta_assertions_advanced` over Nova's HQ import body equal, element for element, to the local `.ccz`, with `validate_app` returning no error. Catches a datum id or block path Nova's local suite writes differently from HQ's build |
 | 11 | `FormLinkRuntimeTest` (`form-link`) | today's completion test, which asserts only the first true link and its carried case, becomes part 06's `completionRunsEveryDestinationThatHoldsInTheAuthorsOrder` (part 06 §13.5): over the wire fixture's scenarios, the new `this-form`, `chain` and `carried-held` among them, each submission's commands read in order on the local suite and HQ's regenerated one, asserting the order part 06's G1 observes on Core; new `aSelfLinkStartsTheFormAgain` and `aCarriedCaseNotOnTheDevicePushesNoFrame` (the guard false, the otherwise frame instead); `absentSourceRaisesAndEmptySourceNeverPromptsForTargetCase` keeps its automatic half and asserts the guard leaves no frame for a blank value. `proof/native/test_navigation_emission.py`: HQ's `xpath` and fallback bytes equal the local `if` bytes for every scenario. Catches the emission's reversal lost on one path |
 
@@ -1102,8 +1102,11 @@ manifest check reports `/undecided/`, which the register refuses.
   the flag for Nova's shape) the entry's reason is corrected with that run as evidence, as part 03
   records the claim, and the reader answers not in the class for Nova's shape in any configuration.
 - **Pull request 11, form links**: `failing-link-checks`.
-- The auto-select classes need no reader in step 5: no Nova document emits auto-select but the usercase
-  load.
+- The auto-select classes each have a reader in `proof/checks/manifest_value_classes.py` from pull
+  request 7: Nova emits auto-select only on the worker's load (`usercase`), but every class the
+  manifest names must be read to classify that load, so the readers say not in the class for every
+  other mode (`_auto_select_blank_mode_or_case_type`, `_auto_select_case_not_an_earlier_load` and
+  their peers).
 
 ### 7.3 Gate entries
 
@@ -1853,6 +1856,117 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   gives D (1) and D′ (2), which a `.ccz` stamps into its profile, so the record moves no archive
   byte and every document's D and D′ stay comparable across the record. `RepublishCapture` carries
   `placements` too: a migration witness's first Nova publish is its republish over the retained A.
+- **`targeted-worker-underscore-write` is not written, so pull request 7 adds five documents**
+  (pull request 7). A form's write to the worker's record is a case operation write, and its
+  `property` parses through `lib/domain/casePropertyName.ts::authoredCasePropertyNameSchema`
+  (`^[A-Za-z][A-Za-z0-9_-]*$`), so a write of `_visits` is refused before any rule, and the gate
+  refuses the document as data that is not canonical. Only the worker property's slug admits the
+  leading `_` (`lib/domain/users.ts::USER_PROPERTY_SLUG_PATTERN`). So N2 (part 02 §2) cannot occur in
+  a Nova document, G4 has no document to run over, and the clause `worker-property-name` has nothing
+  to refuse. The corpus holds 415 documents (a fixed floor of 383 beside the default fuzz sample of
+  32), the count §5.1 gives under G4's outcome B, for this other cause.
+- **`targeted-root-case-block-names` witnessed G3's run, and now witnesses its outcome A** (pull
+  request 7). On the first push (Actions run 41505876754) the member create took `subcase_0` beside
+  the question `subcase_0`, and the worker update took the usercase slot beside the question
+  `commcare_usercase`; the records found outcome A (part 02 §29, `harness-findings.md`'s N1). From
+  then on neither slot is eligible (`lib/domain/basicCaseSlots.ts::appendedNameTaken`), so both
+  changes take Save to Case beside their questions, and the `CaseOperationRuntimeTest` scenario holds
+  one element of each name, the question's answer in it, and both case writes landing.
+- **`targeted-extension-carried`'s uncarried create stands in a second, basic menu** (pull request
+  7). A carried create makes its own menu advanced, where every create is an open action, so the
+  uncarried extension create is kept in `nova_operations` with a `uuid()` id only in a basic menu:
+  "Refer client" in Clients, a menu of the same case type beside Enrollment.
+- **`targeted-advanced-child-module`'s carried create has no link** (pull request 7). A link from a
+  create in the child menu to the household names the load whose datum the alignment renames
+  (`link-renamed-load`), so that create would take Save to Case. Carried, it would then have no
+  datum, and `FORM_LINK_NEEDS_NEW_CASE_DATUM` would refuse the document. The carried visit links
+  nothing, and the note, which no link carries, holds the link that falls to Save to Case.
+- **`targeted-advanced-module`'s registration indexes no household** (pull request 7). A registration
+  asks for no case (`entries.py::get_case_datums_basic_module` adds the parent selection only where
+  the form requires a case), so "Register patient" creates its patient unlinked. The Households menu's
+  follow-up "Add patient" creates the patients its child links name, and so the list under a household
+  holds cases the app made.
+- **`extensionCaseFixture.ts` needs no source change** (pull request 7, §4.2's row 7). Its writes are
+  `buildDoc`'s field-write sugar, lowered by `planFieldCaseWrite` into create operations with an
+  `extension` link to the form's own case. So its documents already hold operations, and
+  `case-extension-registration`'s Patients menu is emitted advanced by its own link (its patient and
+  episode open as `open_patient_0` and `open_episode_1`).
+- **`targeted-migration-extension-children` holds every unit its A carries** (pull request 7). M1
+  holds Register's episode at `nova_subcases/nova_subcase_0`. M2 holds the contact at the index it
+  moves up to (`subcase` 0). Class C8 holds Register's and Review's own cases in the basic own slot,
+  as the case-writes witness holds its own. Enrollment holds nothing (M3).
+- **The corpus count is held over the fixed floor** (pull request 7). `test_corpus.py` held no count
+  before this pull request. `test_the_corpus_emits_every_document_its_sources_name` holds the emitted
+  documents less the fuzz sample to 383, so a run whose `PROOF_CORPUS_SAMPLE` asks for another sample
+  holds the same floor.
+- **`project-space-setting/Domain.commtrack_enabled` keeps `effects: []`** (pull request 7). §7.3
+  writes its effects from G4's sensitivity run, which only the lane makes. Until that run, the
+  committed value is the one today's corpus gave.
+- **Two of §7.2's value classes get no reader** (pull request 7). `tag-names-no-action`
+  (`forms-and-case-writes/case-index-tag-naming-no-action`, "`missing parent tag`"),
+  `breaks-case-list-form-rules` and the menus class
+  `menus-and-case-lists/case-list-form-missing-not-a-registration-form-toggle-off-or` (§7.2's
+  "classes of ... that an advanced module reaches") are each refused only for `not-hq-buildable`
+  (`proof/checks/manifest_usage.py::Entry.refused_by_hq_build`), which §7.2's own exception leaves to
+  the bar, and `test_every_reader_reads_a_refused_entry_that_names_a_value_class` refuses a reader for
+  such an entry. The other fifteen classes have readers and shapes (`_advanced_actions`), and leave
+  `KNOWN_GAPS`. `load-with-renamed-datum` follows HQ's `add_parent_datums` over a basic root (no
+  parent selection, one case) or an advanced root; any other root reads as undecided.
+- **The extension scenarios' HQ step regenerates whole forms** (pull request 7). §6.1 names the new
+  classes only; `proof/native/steps/case_emission.py::_extension` built `_create_casexml` alone and
+  `test_case_emission.py::_check_extension` asserted the inert `never` subcase (two `relevant="false()"`
+  blocks per scenario) that this pull request removes, and the registration scenario is now an advanced
+  form, which `_create_casexml` cannot build. The step now regenerates each extension form whole
+  (`hq_support.regenerate_form`, which dispatches `add_case_and_meta_advanced` for an advanced form),
+  and the check holds the two extension indices on both paths, no inert transaction, and HQ's new-case
+  datums equal to the local suite's. `registration.whole.hq.xml` is `registration.hq.xml`, and
+  `CaseCaptureRuntimeTest` reads the registration's own case at `case_open_patient_0/case`.
+- **`AdvancedFormRuntimeTest` reads its expectations from the HQ import body's advanced actions**
+  (pull request 7). §6.1 lists what each case must hold; the class derives each from the form's own
+  `LoadUpdateAction` and `AdvancedOpenCaseAction` (HQ's vocabulary) over Core's evaluation of the
+  filled form, opens each form from its suite entry through Core's own session
+  (`proof/native/core/SuiteFormRun.java`, shared with `CaseOperationRuntimeTest`'s new scenarios), and
+  first holds that the document holds a closing load, the worker's load, an extension index and two
+  indexed open actions in one repeat, so a document that lost a shape fails by name. The producer
+  imports `targeted-advanced-module` and `targeted-root-case-block-names` from
+  `proof/targeted/documents/advancedModules.ts` and seeds one case of each declared type
+  (`<name>.cases.json`).
+- **`proof/hq/test_advanced_rules.py` builds the avoided shape from the accepted twin's export**
+  (pull request 7). §6.2 asks for an app built with HQ's own models in the avoided shape: the test
+  imports Nova's accepted export (the `advanced-rules` family) and changes the one action the fixture's
+  accepted placement names, then holds HQ's answer by its kind: a `validate_app` error, a
+  `CaseError` from `_create_casexml_advanced`, two open actions' blocks at one path, a datum
+  `add_parent_datums` renames, a property HQ's model lacks, a value class the manifest check reads,
+  or, for `condition-not-stateable`, a runtime meaning only Core shows. The fixture's twins must be
+  documents Nova admits for their export to exist, and every row's are
+  (`lib/commcare/__tests__/advancedPlacement.test.ts`, "twins are admitted"); the producer still
+  refuses by name any twin the gate refuses. One clause has no twins: `via-on-indexed-load`'s refused
+  shape is a document the gate refuses (`CASE_WRITE_VIA_INVALID`, reason `placement`), so the fixture
+  lists it under `unreachable` with that code and the test gives it no HQ side, since the gate's own
+  test holds the refusal. `via-name` and `link-repeat` left Nova's predicates (part 02 §27), and
+  their HQ sides left the test with them. `test_every_hq_side_is_a_clause_the_fixture_holds` holds
+  `HQ_SIDE`'s keys equal to the fixture's clauses, so a clause dropped from the predicates cannot
+  leave its HQ side reading as evidence.
+- **The views export test reads retained controls** (pull request 7, and defect 30's half from pull
+  request 3). `proof/views/test_exports.py` read the inert subcase on `case-extension-registration`
+  and the `nova_count_` column on `targeted-repeat-count-copy`, both fixed shapes no document holds
+  now; each test reads the control that keeps the pre-fix export
+  (`case-extension-registration-after-13`, `targeted-repeat-count-copy`), through a new
+  `proof/views/conftest.py::CONTROLS`.
+- **`proof/identity-moves.json` stays `[]` in this pull request's first push** (G6, §5.2 item 4). The
+  moves of `targeted-migration-extension-children` are written from that witness's proof 1 evidence
+  after the push: expected, the `subcase_<i>` path and session datum of Register's `contact` child that
+  moves up to `subcase_0`, and Enrollment's case block paths (`/data/case` to `/data/case_<tag>/case`)
+  and datums (`case_id` to `case_id_load_<type><n>`), each scoped to that witness alone.
+  The first push's run (G6, outcome B) showed those and two more, each read against part 09's notice
+  and written as a defect 24 move on the witness alone: Register's episode, held in its Save to Case
+  block, gains that block's text guard (`nova_guard_<operation>_text`, its `case_references_data`
+  save and its questions) and loses `nova_trimmed_episode_name`, since the inert subcase that trimmed
+  its name goes (an added block and a generated node, no published block or answer that moves, so
+  part 09's notice needs no cause for them); and every unit of Enroll moves, its Save to Case
+  episode and basic blocks becoming `case_open_<tag>` blocks with their case updates and questions,
+  as the module turns advanced (M3's cause, `module-made-advanced`). Enroll is a registration, so its
+  datums are new-case datums its entry already held, and none of them moves.
 
 ## What other parts read from this one
 

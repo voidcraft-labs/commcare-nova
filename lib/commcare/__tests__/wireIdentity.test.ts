@@ -12,6 +12,7 @@ import {
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import type { BlueprintDoc, Form, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain";
+import { allForms } from "./hqBasicShape";
 import {
 	admitNoMatchesDoc,
 	HOST_MODULE,
@@ -95,7 +96,7 @@ describe("derived wire identity", () => {
 		}
 		// Each form's XForm is stored under its id and carries its `xmlns`.
 		const hq = expandDoc(doc);
-		for (const form of hq.modules.flatMap((module) => module.forms)) {
+		for (const form of allForms(hq)) {
 			expect(hq._attachments[`${form.unique_id}.xml`]).toContain(
 				`xmlns="${form.xmlns}"`,
 			);

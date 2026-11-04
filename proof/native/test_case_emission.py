@@ -1,30 +1,34 @@
 """HQ's case lowering keeps what Nova's case exports write, and the forms it regenerates are whole.
 
 Contract: HQ imports Nova's case exports and builds their case blocks with its
-own classes, and what it builds keeps Nova's meaning: both extension indices
-of each scenario with their exact attributes, the redundant subcase blocks
-Nova marks ``never`` inactive (``relevant="false()"``), the new-case datums
-HQ allocates (all ``uuid()``, with the registration link matching the first
-new extension), the owner preload, the worker-record writes with the
-usercase datum and its assertion as the local suite carries them (known
-XPath carriers compare as HQ's parser's complete expression trees), and whole
-capture and operation forms free of editor attributes, which Core then runs
-(``CaseCaptureRuntimeTest``, ``CaseOperationRuntimeTest``), each operation
-form's blocks inside one ``nova_operations`` group whose body control HQ
-keeps. The local form's case blocks stand where HQ's build puts them
-(``xform.py::XForm._create_casexml``): the data node's children, and each
-repeat item's that holds a case block, in the order HQ's regenerated form
-holds them, every subcase before the form's own case, and a single repeat
-subcase's block first in its item; and each block's ``<update>`` and
-``<attachment>`` children in HQ's name order
-(``xform.py::XFormCaseBlock.add_case_updates``). The plausible failures: HQ's basic case
-builder dropping ``relationship="extension"`` (it ignores
-``OpenSubCaseAction.relationship``), an active redundant transaction, a datum
-allocation or link match that no longer lines up with Nova's suite, a
-regenerated form Core cannot run, a group HQ's form builder reads as a Hidden
-Value because no control names it, and a local block in another place than
-HQ's, which Core applies in another order (``XmlFormRecordProcessor.process``),
-and a local update whose properties stand in another order than HQ's.
+own classes, and what it builds keeps Nova's meaning: each extension child
+case is one create whose index carries ``relationship="extension"``, as a Save
+to Case block in a basic form and as an advanced open action in the
+registration whose link carries the new episode, with the same attributes in
+HQ's form and Nova's local one, and no inert transaction beside it (no block
+HQ disables with ``relevant="false()"``, which Nova wrote before step 5); the
+new-case datums HQ allocates are the ones Nova's local suite works out (all
+``uuid()``, the registration link matching the new episode's); the owner
+preload; the worker-record writes with the usercase datum and its assertion as
+the local suite carries them (known XPath carriers compare as HQ's parser's
+complete expression trees); and whole capture and operation forms free of
+editor attributes, which Core then runs (``CaseCaptureRuntimeTest``,
+``CaseOperationRuntimeTest``), each operation form's blocks inside one
+``nova_operations`` group whose body control HQ keeps. The local form's case
+blocks stand where HQ's build puts them (``xform.py::XForm._create_casexml``):
+the data node's children, and each repeat item's that holds a case block, in
+the order HQ's regenerated form holds them, every subcase before the form's own
+case, and a single repeat subcase's block first in its item; and each block's
+``<update>`` and ``<attachment>`` children in HQ's name order
+(``xform.py::XFormCaseBlock.add_case_updates``). The plausible failures: an
+extension index HQ's build writes as a child index (its basic case builder
+ignores ``OpenSubCaseAction.relationship``), an inert transaction written
+again, a datum allocation or link match that no longer lines up with Nova's
+suite, a regenerated form Core cannot run, a group HQ's form builder reads as
+a Hidden Value because no control names it, and a local block in another
+place than HQ's, which Core applies in another order
+(``XmlFormRecordProcessor.process``), and a local update whose properties
+stand in another order than HQ's.
 
 The relation-instance forms HQ regenerates for ``RelationInstanceRuntimeTest``
 have no HQ check of their own: the checks publish and build those documents
@@ -82,18 +86,11 @@ def _child_orders(tree):
 
 
 def _write_orders(tree):
-    """The children of each case block's ``<update>`` and ``<attachment>``, one entry per block, sorted. A block HQ
-    disables (``relevant="false()"``) is left out: it is an inert subcase the local form does not write (defect 24).
-    The local form names and places a repeat's one remaining subcase as HQ does a single one (``case``, first in its
-    item) where HQ numbers it among the inert ones, so blocks are matched by what they write, not by path or place."""
+    """The children of each case block's ``<update>`` and ``<attachment>``, one entry per block, sorted, so blocks
+    are matched by what they write, not by path or place."""
     data = _data(tree)
-    disabled = set(tree.xpath('//x:model/x:bind[@relevant="false()"]/@nodeset', namespaces=NAMESPACES))
     orders = []
     for block in data.iter(f"{{{NAMESPACES['cx']}}}case"):
-        steps = [etree.QName(step).localname for step in reversed(list(block.iterancestors()))]
-        path = "/" + "/".join([*steps[steps.index(etree.QName(data).localname) :], "case"])
-        if path in disabled:
-            continue
         orders.append(
             {
                 part: _names(element)
@@ -112,22 +109,10 @@ def _same_write_orders(record):
     return native
 
 
-def _expected_datum_ids(scenario):
-    if scenario == "multiple-repeat":
-        return []
-    if scenario in ("repeat", "query"):
-        return ["case_id_new_patient_0"]
-    offset = int(scenario == "registration")
-    return (["case_id_new_patient_0"] if offset else []) + [
-        f"case_id_new_{name}_{i + offset}" for i, name in enumerate(["episode", "visit", "consent"])
-    ]
-
-
-def _block_path(node):
-    """The data path of the case block holding ``node``, as a bind's nodeset names it."""
-    (block,) = node.xpath("ancestor::cx:case[1]", namespaces=NAMESPACES)
-    steps = [etree.QName(element).localname for element in block.iterancestors()]
-    return "/" + "/".join([*steps[: steps.index("instance")][::-1], "case"])
+def _extension_indexes(tree):
+    """Each extension index of a form's case blocks, by its attributes, sorted."""
+    nodes = tree.xpath('//cx:index/*[@relationship="extension"]', namespaces=NAMESPACES)
+    return sorted((dict(node.attrib) for node in nodes), key=lambda attributes: json.dumps(attributes, sort_keys=True))
 
 
 def _check_extension(record):
@@ -136,33 +121,20 @@ def _check_extension(record):
         assert record["ownerPreloadValues"] == [OWNER_PRELOAD]
     tree = etree.fromstring(record["native"])
     local = etree.fromstring(record["local"])
-    indexes = tree.xpath('//cx:index/*[@relationship="extension"]', namespaces=NAMESPACES)
-    local_indexes = local.xpath('//cx:index/*[@relationship="extension"]', namespaces=NAMESPACES)
-    assert len(indexes) == len(local_indexes) == 2, scenario
-    assert [dict(node.attrib) for node in indexes] == [dict(node.attrib) for node in local_indexes], scenario
-    disabled = tree.xpath('//x:model/x:bind[@relevant="false()"]/@nodeset', namespaces=NAMESPACES)
-    # The episode's photo saves a link to its file: one update in the episode's active block, never an
-    # attachment. HQ's form also carries the photo in the inert block it disables, which runs nothing.
+    # The episode and the consent extend the patient, in HQ's form as in Nova's.
+    indexes = _extension_indexes(tree)
+    assert len(indexes) == 2 and indexes == _extension_indexes(local), (scenario, indexes)
     for form in (tree, local):
+        # No inert transaction: a block HQ disables would be a second, unused write of an extension case.
+        assert form.xpath('//x:model/x:bind[@relevant="false()"]', namespaces=NAMESPACES) == [], scenario
+        # The episode's photo saves a link to its file: one update, never an attachment.
         assert form.xpath("//cx:attachment", namespaces=NAMESPACES) == [], scenario
-        photos = [
-            photo
-            for photo in form.xpath("//cx:update/cx:photo", namespaces=NAMESPACES)
-            if _block_path(photo) not in disabled
-        ]
-        assert len(photos) == 1, scenario
-    prefix = "/data/records/item" if scenario == "query" else "/data/records" if scenario == "repeat" else "/data"
-    expected_disabled = (
-        [] if scenario in ("multiple", "multiple-repeat") else [f"{prefix}/subcase_0/case", f"{prefix}/subcase_2/case"]
-    )
-    assert disabled == expected_disabled, (scenario, disabled)
-    # The data node's children in HQ's order: ``_create_casexml`` writes no meta block, and the subcase blocks HQ
-    # disables are the inert ones Nova's local form leaves out (defect 24).
-    inert = {path.split("/")[2] for path in disabled if path.count("/") == 3}
-    order = _names(_data(tree), inert)
-    assert _names(_data(local), {"meta"}) == order, (scenario, order)
-    expected_ids = _expected_datum_ids(scenario)
-    assert record["datumIds"] == expected_ids, scenario
+        assert len(form.xpath("//cx:update/cx:photo", namespaces=NAMESPACES)) == 1, scenario
+    # The data node's children in HQ's order, the meta block HQ's build writes among them.
+    order = _names(_data(tree))
+    assert _names(_data(local)) == order, (scenario, order)
+    # HQ allocates exactly the new-case datums Nova's local suite works out.
+    assert record["datumIds"] == record["localDatumIds"], (scenario, record["datumIds"], record["localDatumIds"])
     assert all(function == "uuid()" for function in record["datumFunctions"]), scenario
     if scenario == "registration":
         assert record["linkSourceId"] is not None
@@ -170,9 +142,8 @@ def _check_extension(record):
     return {
         "scenario": scenario,
         "inputSha256": record["inputSha256"],
-        "extensionIndexes": [dict(node.attrib) for node in indexes],
-        "disabledNativeTransactions": disabled,
-        "nativeCreateDatums": expected_ids,
+        "extensionIndexes": indexes,
+        "nativeCreateDatums": record["datumIds"],
         "nativeLinkSourceId": record["linkSourceId"],
         "nativeOwnerPreload": (record["ownerPreloadValues"] or [None])[0],
         "nativeDataOrder": order,

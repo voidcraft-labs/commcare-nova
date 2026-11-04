@@ -182,7 +182,8 @@ export interface CaseOperationProgram {
 	/**
 	 * Creates the entry's session names, by operation uuid, each with the key
 	 * of the `uuid()` datum that holds its id (`new-case`,
-	 * `new-child-case:<type>`): the form read that id while it ran
+	 * `new-child-case:<type>`, `new-child-case:<type>:<i>` for a later case of
+	 * one type): the form read that id while it ran
 	 * (`lib/domain/entryCaseIdentity.ts`), so the case is created with it.
 	 * Server-derived from the committed entry's datums.
 	 */

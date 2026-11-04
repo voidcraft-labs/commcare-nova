@@ -39,6 +39,7 @@ import type {
 	OwnClosePlacement,
 	Uuid,
 } from "@/lib/domain";
+import { heldKindExpresses } from "@/lib/domain/advancedModule";
 import {
 	PLACEMENT_CHANGE_REFUSAL,
 	placementChangeRefusal,
@@ -399,5 +400,96 @@ describe("placementChangeRefusal", () => {
 			// The move of UPDATE is decided; the two gains are not.
 			toJustify: [opKey(formUuid, OWN), queryRepeatKey],
 		});
+	});
+});
+
+describe("placementChangeRefusal on a menu's held kind", () => {
+	const kindHold = (
+		moduleUuid: Uuid,
+		placement: "advanced" | null,
+	): PlacementHoldEntry => ({ target: "module-kind", moduleUuid, placement });
+	const kindKey = (moduleUuid: Uuid) =>
+		placementTargetKey({ target: "module-kind", moduleUuid });
+
+	/** The fixture's menu, held advanced where `held` says so. */
+	function menuFixture(held: boolean) {
+		const fixture = holdFixture((d) => {
+			if (held) d.modules[d.moduleOrder[0]].heldKind = "advanced";
+		});
+		const moduleUuid = fixture.doc.moduleOrder[0];
+		// Nothing keeps the fixture's menu from being advanced.
+		expect(heldKindExpresses(fixture.doc, moduleUuid)).toBe(true);
+		return { ...fixture, moduleUuid };
+	}
+
+	/** Several cases at once, which no advanced menu offers. */
+	const chooseSeveral = (moduleUuid: Uuid): Mutation => ({
+		kind: "setCaseListMeta",
+		uuid: moduleUuid,
+		patch: { selection: { kind: "multiple", maximum: 10 } },
+	});
+
+	it("admits a publish or a migration setting and clearing it", () => {
+		for (const kind of ["publish-placement", "blueprint-migration"] as const) {
+			const unheld = menuFixture(false);
+			expect(
+				judge(
+					unheld.doc,
+					[hold(kindHold(unheld.moduleUuid, "advanced"))],
+					NO_RECORDED_HOLDS,
+					kind,
+				),
+			).toEqual({ refusal: null, toJustify: [] });
+			const held = menuFixture(true);
+			expect(
+				judge(
+					held.doc,
+					[hold(kindHold(held.moduleUuid, null))],
+					NO_RECORDED_HOLDS,
+					kind,
+				),
+			).toEqual({ refusal: null, toJustify: [] });
+		}
+	});
+
+	it("refuses an editor setting it where no recording wrote it", () => {
+		const { doc, moduleUuid } = menuFixture(false);
+		expect(
+			judge(doc, [hold(kindHold(moduleUuid, "advanced"))], NO_RECORDED_HOLDS),
+		).toEqual({
+			refusal: PLACEMENT_CHANGE_REFUSAL,
+			toJustify: [kindKey(moduleUuid)],
+		});
+	});
+
+	it("refuses an editor clearing it while the menu can still be advanced", () => {
+		const { doc, moduleUuid } = menuFixture(true);
+		const recorded = recordedOf(kindHold(moduleUuid, "advanced"));
+		expect(judge(doc, [hold(kindHold(moduleUuid, null))], recorded)).toEqual({
+			refusal: PLACEMENT_CHANGE_REFUSAL,
+			toJustify: [kindKey(moduleUuid)],
+		});
+	});
+
+	it("admits an editor clearing it where the same batch keeps the menu from being advanced", () => {
+		const { doc, moduleUuid } = menuFixture(true);
+		expect(
+			judge(
+				doc,
+				[chooseSeveral(moduleUuid), hold(kindHold(moduleUuid, null))],
+				NO_RECORDED_HOLDS,
+			),
+		).toEqual({ refusal: null, toJustify: [] });
+	});
+
+	it("admits an editor restoring the recorded kind, and refuses it with no recording", () => {
+		const { doc, moduleUuid } = menuFixture(false);
+		const batch = [hold(kindHold(moduleUuid, "advanced"))];
+		expect(
+			judge(doc, batch, recordedOf(kindHold(moduleUuid, "advanced"))),
+		).toEqual({ refusal: null, toJustify: [kindKey(moduleUuid)] });
+		expect(judge(doc, batch, NO_RECORDED_HOLDS).refusal).toBe(
+			PLACEMENT_CHANGE_REFUSAL,
+		);
 	});
 });

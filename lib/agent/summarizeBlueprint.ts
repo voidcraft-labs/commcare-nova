@@ -53,6 +53,7 @@ import {
 	ADVANCED_SLOT_NAMES,
 	DISPLAY_SLOT_NAMES,
 } from "./tools/case-search-config/shared";
+import { moduleAdvancedRead } from "./tools/getModule";
 
 /**
  * Render a field and its children as nested bullet lines. Shows `id`,
@@ -405,13 +406,20 @@ function summarizeModule(
 	const mod = doc.modules[moduleUuid];
 	if (!mod) return `${indent}- Missing module [uuid ${moduleUuid}]`;
 	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
+	const advanced = moduleAdvancedRead(doc, moduleUuid);
+	const advancedInfo =
+		advanced === null
+			? ""
+			: advanced.kept
+				? " [advanced, kept]"
+				: " [advanced]";
 	const listOnly = mod.caseListOnly ? " [case list only]" : "";
 	const offTheMenu = mod.hiddenFromMenu === true ? " [off the menu]" : "";
 	const parentInfo =
 		mod.parentModuleUuid === undefined
 			? " [top-level menu]"
 			: ` [child menu of uuid ${mod.parentModuleUuid}]`;
-	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${listOnly}${offTheMenu}`;
+	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listOnly}${offTheMenu}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(indentBlock(caseList, indent));

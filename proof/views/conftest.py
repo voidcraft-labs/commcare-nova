@@ -15,7 +15,6 @@ import pytest
 # Every corpus document a test of this package reads, by id, and no other.
 DOCUMENTS = (
     "case-capture-query",
-    "case-extension-registration",
     "case-list-inline",
     "expander-expanddoc-hq-json-projection-case-search-4d53ba11-0",
     "location-direct",
@@ -23,8 +22,10 @@ DOCUMENTS = (
     "media-only",
     "search-multiple",
     "targeted-hq-side-state",
-    "targeted-repeat-count-copy",
 )
+# Every retained control a test of this package reads, by id: the export of a document from before the fix of a
+# defect whose harm a view shows, which keeps showing it.
+CONTROLS = ("case-extension-registration-after-13", "targeted-repeat-count-copy")
 
 
 class _Named(dict):
@@ -48,6 +49,21 @@ def view_documents():
             " views tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+
+@pytest.fixture(scope="session")
+def view_controls():
+    """The retained controls ``CONTROLS`` names, by id; a test of a control ``proof/controls/`` lacks fails."""
+    from proof.checks import corpus
+
+    found = {control.id: control for control in corpus.load_controls() if control.id in CONTROLS}
+    missing = sorted(set(CONTROLS) - set(found))
+    if missing:
+        pytest.fail(
+            f"proof/controls holds no {missing}, which proof/views/conftest.py::CONTROLS names as the controls the"
+            " views tests read. Name controls proof/controls holds."
+        )
+    return found
 
 
 @dataclass(frozen=True)

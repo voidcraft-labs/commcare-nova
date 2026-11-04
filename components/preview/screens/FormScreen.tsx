@@ -67,6 +67,7 @@ import {
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "@/lib/preview/afterSubmitRouting";
+import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
 import type { SetvalueRefusalDetails } from "@/lib/preview/engine/answerCast";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import {
@@ -612,15 +613,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 		readsSearchResults && searchState?.kind !== "completed";
 	const searchParentCase = useMemo(
 		() =>
-			menuCaseContext.parentCase === undefined
-				? undefined
-				: {
-						caseType: menuCaseContext.parentCase.caseType,
-						caseIds: menuCaseContext.parentCase.cases.map(
-							(selected) => selected.caseId,
-						),
-					},
-		[menuCaseContext.parentCase],
+			parentCaseConstraint(
+				menuSource.doc,
+				moduleUuid,
+				menuCaseContext.parentCase,
+			),
+		[menuSource.doc, moduleUuid, menuCaseContext.parentCase],
 	);
 	const searchResults = useSearchResultsSnapshot({
 		enabled: readsSearchResults,
@@ -668,13 +666,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 		explicitCases === undefined &&
 		menuCaseContext.selectedCase === undefined;
 	const autoSelectParentCase = useMemo(() => {
-		const parentSelection = menuCaseContext.parentCase;
-		if (!autoSelectCase || parentSelection === undefined) return undefined;
-		return {
-			caseType: parentSelection.caseType,
-			caseIds: parentSelection.cases.map((selectedCase) => selectedCase.caseId),
-		};
-	}, [autoSelectCase, menuCaseContext.parentCase]);
+		if (!autoSelectCase) return undefined;
+		return parentCaseConstraint(
+			menuSource.doc,
+			moduleUuid,
+			menuCaseContext.parentCase,
+		);
+	}, [autoSelectCase, menuSource.doc, moduleUuid, menuCaseContext.parentCase]);
 	const autoCases = useCases({
 		appId,
 		caseType: autoSelectCase ? mod?.caseType : undefined,

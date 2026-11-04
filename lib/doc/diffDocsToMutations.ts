@@ -69,8 +69,9 @@ import type {
  *      most one trailing `holdPlacements`, naming each target whose held
  *      value differs from what the batch before it leaves held. No other
  *      payload carries a held slot (an operation's `placement`, a form's
- *      `ownClosePlacement`, a query repeat's `placement`), so a target born
- *      in the diff arrives unheld and is held here.
+ *      `ownClosePlacement`, a query repeat's `placement`, a menu's
+ *      `heldKind`), so a target born in the diff arrives unheld and is held
+ *      here.
  *
  * The commit gate validates only the final candidate, so an intermediate
  * invalid state across the batch is fine; the one hard rule is that no
@@ -395,6 +396,9 @@ const MODULE_PATCH_SKIP = new Set<string>([
 	"order",
 	"caseListConfig",
 	"caseSearchConfig",
+	// A menu's held kind is written by `holdPlacements` alone, never by a
+	// module patch.
+	"heldKind",
 ]);
 const FORM_PATCH_SKIP = new Set<string>([
 	"entryPoint",
@@ -680,7 +684,7 @@ export function diffDocsToMutations(
 				.toReversed()
 				.find((candidate) => availableRoots.has(candidate));
 			rootModuleAdds.push(
-				addModuleMutation(cloneEntity(module), after ?? null),
+				addModuleMutation(unheldModule(module), after ?? null),
 			);
 			availableRoots.add(uuid);
 		} else {
@@ -690,7 +694,7 @@ export function diffDocsToMutations(
 				.toReversed()
 				.find((candidate) => available.has(candidate));
 			childModuleAdds.push(
-				addModuleMutation(cloneEntity(module), after ?? null),
+				addModuleMutation(unheldModule(module), after ?? null),
 			);
 			available.add(uuid);
 			availableChildren.set(parent, available);
@@ -1251,6 +1255,15 @@ function diffCaseOperations(
 }
 
 /**
+ * A born module as `addModule` carries it: without its held kind. A new
+ * module starts unheld; `holdPlacements` alone writes a hold.
+ */
+function unheldModule(module: Module): Module {
+	const { heldKind: _held, ...rest } = cloneEntity(module);
+	return rest;
+}
+
+/**
  * A born form as `addForm` carries it: without a held placement, its own
  * close's or any operation's. A new form starts unheld; `holdPlacements`
  * alone writes a hold.
@@ -1282,10 +1295,11 @@ function unheldField(field: Field): Field {
 
 /**
  * Every held-placement target of `doc`, keyed by target key, with what it
- * holds (`null` for none), in document order: modules in `moduleOrder`, their
- * forms in `formOrder`, and for each form its operations in array order, its
- * own close, then its query repeats in field order. This is the order
- * `lib/doc/placementHolds.ts::readPlacementHolds` reads holds in.
+ * holds (`null` for none), in document order: modules in `moduleOrder`, each
+ * module's kind, then its forms in `formOrder`, and for each form its
+ * operations in array order, its own close, then its query repeats in field
+ * order. This is the order `lib/doc/placementHolds.ts::readPlacementHolds`
+ * reads holds in.
  */
 function placementTargetsOf(
 	doc: BlueprintDoc,
@@ -1294,6 +1308,13 @@ function placementTargetsOf(
 	const add = (entry: PlacementHoldEntry) =>
 		targets.set(placementTargetKey(entry), entry);
 	for (const moduleUuid of doc.moduleOrder) {
+		const module = ownRecordValue(doc.modules, moduleUuid);
+		if (module !== undefined)
+			add({
+				target: "module-kind",
+				moduleUuid,
+				placement: module.heldKind ?? null,
+			});
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			const form = ownRecordValue(doc.forms, formUuid);
 			if (form === undefined) continue;

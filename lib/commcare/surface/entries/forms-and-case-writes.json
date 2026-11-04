@@ -359,8 +359,9 @@
 		"item": "`AdvancedForm`",
 		"surfaceKeys": ["schema:AdvancedForm", "schema:FormBase.doc_type"],
 		"valueClass": "advanced-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: derived: every form of a module emitted as advanced (\"Case writes\"), its selected cases held as `Form.caseSelections` (Advanced form actions)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: every form of a module emitted as advanced, its loads its module's parent selection (`lib/commcare/advancedSelections.ts`); no stored selection list",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4096,7 +4097,7 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits it today in its inert `never` subcase, `subcaseWire.ts::hqCaseActions`: defect 24)",
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -4160,8 +4161,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova writes an inert `never` placeholder beside each extension child's Save to Case block today: save-breaking; defect 24 removes it)",
-			"markers": ["save-breaking"]
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4641,8 +4642,9 @@
 			"schema:AdvancedFormActions.load_update_cases"
 		],
 		"valueClass": "advanced-form-selections",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.caseSelections[]`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: one load per menu of the form's parent selection, root first, the last the form's own case, then the worker's load where the form's update of the worker's record takes it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4666,8 +4668,9 @@
 		"item": "`LoadUpdateAction.case_tag` without `/`",
 		"surfaceKeys": ["schema:LoadUpdateAction.case_tag"],
 		"valueClass": "tag-without-slash",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSelections[].tag` (session var `case_id_<tag>`, which HQ renames in child modules, `entries.py::add_parent_datums`; wrapper element `case_<tag>`, which is submission identity)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived `load_<case type><n>` or `autoload_commcare_user<n>` (`lib/commcare/advancedTags.ts`), held in each operation's `{advanced, tag}` placement once published (session var `case_id_<tag>`, which HQ renames in child modules, `entries.py::add_parent_datums`; wrapper element `case_<tag>`, which is submission identity)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4781,8 +4784,9 @@
 		"item": "`LoadUpdateAction.case_type`",
 		"surfaceKeys": ["schema:LoadUpdateAction.case_type"],
 		"valueClass": "selection-case-type",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSelections[].caseType`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: the case type of the load's menu in the parent selection, `commcare-user` for the worker's load",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4806,8 +4810,9 @@
 		"item": "`LoadUpdateAction.details_module`",
 		"surfaceKeys": ["schema:LoadUpdateAction.details_module"],
 		"valueClass": "list-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSelections[].listModule`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: the load's menu in the parent selection",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4884,8 +4889,9 @@
 			"schema:ConditionalCaseUpdate.question_path"
 		],
 		"valueClass": "selection-writes",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `caseOperations` update targeting the selection, placement the load action",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the writes of a `caseOperations` change of the loaded case (the form's own case, or an update whose target is the case chosen in that menu), placement the load",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4947,8 +4953,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "own-selection-close",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the form's close in an advanced form: `Form.type: close` with its `closeCondition`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form's close in an advanced form: `Form.type: close` with its `closeCondition`, in a stateable shape",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4978,8 +4985,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "other-selection-close",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `caseOperations` close targeting the selection, placement the load action",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a `caseOperations` close whose target is the case chosen in that menu of the parent selection, placement the load",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5008,8 +5016,9 @@
 			"schema:CaseIndex.relationship"
 		],
 		"valueClass": "load-child-of-previous-load",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSelections[].childOf {selection, index}`, the selection being the one before (the editor links a load only to the previous load)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: each load after the first indexes the one before it, under the one index name the app's child links between the two case types use, `parent` where none does (`lib/domain/advancedModule.ts::advancedChainIndex`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5203,11 +5212,14 @@
 		"item": "`auto_select {mode: usercase}`",
 		"surfaceKeys": [
 			"schema:LoadUpdateAction.auto_select",
-			"schema:AutoSelectCase.mode"
+			"schema:AutoSelectCase.mode",
+			"schema:AutoSelectCase.value_source",
+			"schema:AutoSelectCase.value_key"
 		],
 		"valueClass": "auto-select-usercase",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: usercase}`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: the worker's load, where the form's update of the worker's record takes it (every write one question's answer outside a repeat, with no condition, `via` or `onlyIfChanged`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5472,8 +5484,9 @@
 			"schema:AdvancedOpenCaseAction.case_type"
 		],
 		"valueClass": "registration-own-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the registration's own case, with its open and close conditions on the form",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the registration's own case, with its open and close conditions on the form",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5502,8 +5515,9 @@
 			"schema:AdvancedOpenCaseAction.case_type"
 		],
 		"valueClass": "other-open-action",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a `caseOperations` create, placement the open action and its tag",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a `caseOperations` create, placement the open action and its tag",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5530,8 +5544,9 @@
 			"schema:ConditionalCaseUpdate.question_path"
 		],
 		"valueClass": "open-action-name",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the create's name",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the create's name, one question's answer",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5558,8 +5573,9 @@
 			"schema:ConditionalCaseUpdate.question_path"
 		],
 		"valueClass": "open-action-writes",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the create's writes",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the create's writes, each one question's answer",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5650,8 +5666,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "open-action-close",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: on a registration's own case, `Form.closeCondition`; on any other opened case, a `caseOperations` close targeting that create, placement the open action",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: on a registration's own case, `Form.closeCondition`; on any other opened case, a `caseOperations` close of that create sharing its open action, in a stateable shape",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5675,8 +5692,9 @@
 		"item": "`AdvancedOpenCaseAction.repeat_context` equal to the name question's innermost repeat, where that repeat holds one open action, or at least two with `case_indices`",
 		"surfaceKeys": ["schema:AdvancedOpenCaseAction.repeat_context"],
 		"valueClass": "name-question-repeat-own-block",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the create's `forEach`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the create's `forEach`, the repeat its name question stands in",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5756,8 +5774,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "open-action-condition",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: on a registration's own case, `Form.openCondition`; on any other, the create's condition",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: on a registration's own case, `Form.openCondition`; on any other, the create's condition, in a stateable shape",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5786,8 +5805,9 @@
 			"schema:CaseIndex.relationship"
 		],
 		"valueClass": "open-action-links",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the create's links",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6046,8 +6066,9 @@
 			"schema:CaseIndex.tag"
 		],
 		"valueClass": "inside-parent-repeat",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the create's links and `forEach`, except the shared-block shape (two open actions in one repeat, fewer than two indexed): HQ builds it, and the child indexes the parent case of its own row (executed in Core); the editor's `validate_subcase` warning never runs, since it loops over `case_indices.length`, which is 0 on a knockout observable array (`advanced/actions.js`; executed)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the create's links and `forEach`, except the shared-block shape (two open actions in one repeat, fewer than two indexed): HQ builds it, and the child indexes the parent case of its own row (executed in Core); the editor's `validate_subcase` warning never runs, since it loops over `case_indices.length`, which is 0 on a knockout observable array (`advanced/actions.js`; executed)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

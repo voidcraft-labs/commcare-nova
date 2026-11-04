@@ -11,7 +11,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Module types AdvancedModule, Advanced form actions, Shadow forms)",
+		"content": "HELD (Module types AdvancedModule, the Advanced form actions Nova places), HELD-NEW (the other Advanced form actions, Shadow forms)",
 		"contentEntries": [
 			"menus-and-case-lists/advancedmodule",
 			"forms-and-case-writes/advancedform",
@@ -2538,7 +2538,12 @@
 			"kind": "confirmation",
 			"cell": "by asking the person to confirm, that CommTrack is off in the project space (defect 20)"
 		},
-		"effects": [],
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]"
+			}
+		],
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "publish-checks",

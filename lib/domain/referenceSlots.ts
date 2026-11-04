@@ -1375,6 +1375,10 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].placement.slot": "discriminator",
 	"caseOperations[].placement.index": "config",
 	"caseOperations[].placement.path": "wire-token",
+	// An advanced action's tag is the element name HQ writes its block at
+	// (`case_<tag>`); `row` is a flag.
+	"caseOperations[].placement.tag": "wire-token",
+	"caseOperations[].placement.row": "config",
 	"ownClosePlacement.kind": "discriminator",
 	"ownClosePlacement.path": "wire-token",
 	"connect.learn_module.id": "declaration",
@@ -1403,6 +1407,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	name: "display-text",
 	caseListOnly: "config",
 	hiddenFromMenu: "config",
+	// The kind a publish recorded: one literal, written only by holds.
+	heldKind: "config",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",

@@ -85,7 +85,11 @@ function parentCaseSelectionKey(
 ): string {
 	return parentCase === undefined
 		? "no-parent"
-		: JSON.stringify([parentCase.caseType, ...parentCase.caseIds]);
+		: JSON.stringify([
+				parentCase.caseType,
+				parentCase.index ?? null,
+				...parentCase.caseIds,
+			]);
 }
 
 /** Mutation hooks also render in a few provider-light tests. In a live builder,

@@ -83,12 +83,17 @@ def import_source(raw: bytes, domain: str):
 
 
 def regenerate_form(form, domain: str) -> bytes:
-    """The form's source with HQ's case and meta blocks, as HQ's build writes them before rendering."""
+    """The form's source with HQ's case and meta blocks, as HQ's build writes them before rendering: an advanced
+    form's by its advanced actions (``AdvancedForm.add_stuff_to_xform``), any other's by its form actions
+    (``Form.add_stuff_to_xform``)."""
     from corehq.apps.app_manager.xform import XForm
     from lxml import etree
 
     xform = XForm(form.source, domain=domain)
-    xform.add_case_and_meta(form)
+    if form.form_type == "advanced_form":
+        xform.add_case_and_meta_advanced(form)
+    else:
+        xform.add_case_and_meta(form)
     xform.strip_vellum_ns_attributes()
     return etree.tostring(xform.xml)
 

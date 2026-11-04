@@ -38,6 +38,8 @@ import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 
 /**
  * HQ's basic `FormActions` for `formUuid`: `planFormCaseWire`'s actions.
+ * A form of a menu emitted advanced has `AdvancedFormActions` instead, which
+ * its plan holds, so asking this of one throws.
  *
  * A capture's link write names its `nova_url_<question>` sibling, never the
  * capture: HQ's build turns an update whose question path is an upload
@@ -52,7 +54,12 @@ export function buildFormActions(
 	formUuid: Uuid,
 	attachmentTarget: AttachmentUrlTarget | null = null,
 ): FormActions {
-	return planFormCaseWire(doc, formUuid, { attachmentTarget }).actions;
+	const plan = planFormCaseWire(doc, formUuid, { attachmentTarget });
+	if (plan.kind === "advanced")
+		throw new Error(
+			"This form is emitted as an advanced form; read its advanced actions.",
+		);
+	return plan.actions;
 }
 
 /**

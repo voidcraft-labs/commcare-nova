@@ -76,22 +76,32 @@ import {
 	rootSelectionAlignment,
 	type Uuid,
 } from "@/lib/domain";
+import { carriedCreates } from "@/lib/domain/advancedEntryDatums";
 import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
-import { planFormCaseWire } from "./casePlacementPlan";
+import {
+	type AdvancedFormCaseWirePlan,
+	type PlannedNewCaseDatum,
+	planFormCaseWire,
+} from "./casePlacementPlan";
 import { caseTypeDepthMap } from "./caseTypeDepths";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
 import { moduleExpressionContexts } from "./expressionContext";
-import { buildFormActions } from "./formActions";
+import { emptyFormActions } from "./hqShells";
 import {
 	type LookupWireNaming,
 	lookupTypeIndexFromNaming,
 } from "./lookup/naming";
+import { emittedModuleKind } from "./moduleKind";
 import { ownCaseOperationFindings } from "./ownCaseOperationFindings";
 import {
+	type AdvancedLoadDatumInput,
+	advancedLoadDatumId,
+	deriveAdvancedCaseListDatum,
 	deriveCaseSelectionDatum,
 	deriveSessionDatums,
+	newCaseFunctionDatums,
 	type SessionDatum,
 	type StackQueryData,
 	sessionDatumRequiresSelection,
@@ -215,7 +225,17 @@ export interface FormLinkProjectionContext {
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
+	/**
+	 * `emitted`: each module's entries are projected as the emitter writes
+	 * that module. `basic`: every module's entries are projected as a basic
+	 * module's, so a reader of this context never asks a module's kind; the
+	 * kind reads which creates the links carry (`linkCarriedCreates`), which
+	 * reads entries through such a context.
+	 */
+	readonly moduleKinds: "emitted" | "basic";
 	readonly formActions: (formUuid: Uuid) => FormActions;
+	/** The new cases each form's entry gives a datum, in HQ's order. */
+	readonly newCaseDatums: (formUuid: Uuid) => readonly PlannedNewCaseDatum[];
 	/**
 	 * Where a capture's case-bound link resolves, as the context's caller
 	 * hands it to the emitter (`expandDoc`'s `attachmentTarget`); null writes
@@ -281,8 +301,11 @@ export function formLinkProjectionContext(
 		readonly attachmentTarget?: AttachmentUrlTarget | null;
 		readonly lookupNaming?: LookupWireNaming;
 		readonly workerProperty?: WireTermBindings["workerProperty"];
+		readonly moduleKinds?: "basic";
 		/** Already-expanded actions, when the caller has them (the compiler). */
 		readonly formActions?: (formUuid: Uuid) => FormActions;
+		/** The new cases each entry gives a datum, when the caller has them. */
+		readonly newCaseDatums?: (formUuid: Uuid) => readonly PlannedNewCaseDatum[];
 	} = {},
 ): FormLinkProjectionContext {
 	const moduleOrder = projectedModulePreorder(doc);
@@ -293,20 +316,21 @@ export function formLinkProjectionContext(
 		formOrder[moduleUuid] = formUuids;
 		for (const formUuid of formUuids) moduleOf.set(formUuid, moduleUuid);
 	}
-	const cache = new Map<Uuid, FormActions>();
+	const plan = (formUuid: Uuid) =>
+		planFormCaseWire(doc, formUuid, {
+			attachmentTarget: opts.attachmentTarget ?? null,
+			...(opts.moduleKinds === "basic" && { moduleKind: "basic" as const }),
+		});
+	// An advanced form has no basic actions: its entry reads its loads and
+	// new cases, never a basic action.
 	const formActions =
 		opts.formActions ??
 		((formUuid: Uuid): FormActions => {
-			const held = cache.get(formUuid);
-			if (held !== undefined) return held;
-			const built = buildFormActions(
-				doc,
-				formUuid,
-				opts.attachmentTarget ?? null,
-			);
-			cache.set(formUuid, built);
-			return built;
+			const planned = plan(formUuid);
+			return planned.kind === "basic" ? planned.actions : emptyFormActions();
 		});
+	const newCaseDatums =
+		opts.newCaseDatums ?? ((formUuid: Uuid) => plan(formUuid).datums);
 	return {
 		expressionDoc: opts.expressionDoc ?? doc,
 		entryMetadataOnly: opts.entryMetadataOnly === true,
@@ -319,7 +343,9 @@ export function formLinkProjectionContext(
 		runtimeTarget: opts.runtimeTarget,
 		moduleOrder,
 		formOrder,
+		moduleKinds: opts.moduleKinds ?? "emitted",
 		formActions,
+		newCaseDatums,
 		attachmentTarget: opts.attachmentTarget ?? null,
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
 		...(opts.workerProperty === undefined
@@ -620,10 +646,15 @@ function alignWithRootMenu(
 	const alignment = rootSelectionAlignment(doc, entry);
 	const parent = alignment.parentEntry;
 	if (parent === undefined) return current;
+	// HQ aligns a child entry with its root's first form and with nothing
+	// where the root has none (`EntriesHelper._get_first_forms_datums`). A
+	// form-less root's basic browse selection is that nothing under the
+	// child's own ids, so an advanced root's browse entry, whose datum HQ
+	// names after the case type, is read as the basic one it stands for.
 	const parentDatums =
 		parent.kind === "form"
 			? entrySessionDatums(doc, ctx, parent.module, parent.form)
-			: caseListSessionDatums(doc, ctx, parent.module);
+			: basicCaseListSessionDatums(doc, ctx, parent.module);
 	for (const issue of alignment.boundMismatches)
 		ctx.onHqSelectionBoundMismatch?.(issue);
 	if (alignment.parentSelectionConflict)
@@ -632,14 +663,15 @@ function alignWithRootMenu(
 	const parentIds = new Set(parentDatums.map((datum) => datum.id));
 	for (const datum of current) {
 		if (parentIds.has(datum.id))
-			datum.id = `${datum.id}_${datum.caseType ?? "child"}`;
+			datum.id = `${datum.id}_${datum.alignmentSuffix ?? datum.caseType ?? "child"}`;
 	}
 	const remaining = [...current];
 	const prefix: SessionDatum[] = [];
 	for (const parentDatum of parentDatums) {
 		if (parentDatum.query !== undefined) continue;
 		if (!sessionDatumRequiresSelection(parentDatum)) {
-			const inherited = { ...parentDatum };
+			// The copy is a placeholder: HQ asserts only the form's own loads.
+			const { assertion: _rootAssertion, ...inherited } = parentDatum;
 			ctx.fromParentModuleDatums.add(inherited);
 			const grouping = ctx.tileGroupingSources.get(parentDatum);
 			if (grouping !== undefined)
@@ -683,8 +715,25 @@ export function entrySessionDatums(
 	const form = doc.forms[formUuid];
 	const mod = doc.modules[moduleUuid];
 	if (form === undefined || mod === undefined) return [];
+	if (ctx.moduleKinds === "emitted") {
+		const plan = planFormCaseWire(doc, formUuid, {
+			attachmentTarget: ctx.attachmentTarget,
+		});
+		if (plan.kind === "advanced") {
+			const aligned = advancedEntrySessionDatums(
+				doc,
+				ctx,
+				moduleUuid,
+				formUuid,
+				plan,
+			);
+			ctx.entryDatums.set(formUuid, aligned);
+			return aligned;
+		}
+	}
 	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 	const selectionDatums = selectableDatums(doc, ctx, moduleUuid, form.type);
+	const newCases = ctx.newCaseDatums(formUuid);
 	const datums = deriveSessionDatums({
 		expressions: moduleExpressionContexts(doc, moduleUuid, ctx.lookupNaming),
 		formType: form.type,
@@ -692,9 +741,7 @@ export function entrySessionDatums(
 		...(caseType !== "" && { caseType }),
 		caseSelectionDatums: selectionDatums,
 		actions: ctx.formActions(formUuid),
-		newCases: planFormCaseWire(doc, formUuid, {
-			attachmentTarget: ctx.attachmentTarget,
-		}).datums,
+		newCases,
 		...(mod.caseListConfig?.tile?.grouping !== undefined && {
 			tileGrouping: mod.caseListConfig.tile.grouping,
 		}),
@@ -726,6 +773,135 @@ export function entrySessionDatums(
 	return aligned;
 }
 
+/**
+ * The entry of a form of an advanced menu, as HQ's build writes it
+ * (`suite_xml/sections/entries.py::EntriesHelper.
+ * configure_entry_advanced_form`):
+ *
+ * 1. each load's datum, in load order (`session.ts::
+ *    deriveAdvancedLoadDatums`): a load chosen from its list module's list,
+ *    after the first chosen under the one before it by its index name, and
+ *    the worker's own record, selected on its own;
+ * 2. aligned with the root menu's first form as `add_parent_datums` aligns
+ *    them (`alignWithRootMenu`), the loads alone;
+ * 3. then each new case an open action outside a repeat creates, in
+ *    `open_cases` order, as the plan gives them (`casePlacementPlan.ts`'s
+ *    `datums`), after the alignment, as HQ appends them
+ *    (`get_new_case_id_datums_meta` runs after `add_parent_datums`).
+ *
+ * No query datum is written (a menu whose forms read its search is never
+ * advanced) and no grouped tile companion (HQ's advanced entry writes none).
+ *
+ * A load keeps its list's `detail-confirm` unless a later load is chosen
+ * under it and no open action indexes it: HQ reads the last action that
+ * names the load as its parent, open actions after loads
+ * (`AdvancedFormActions._action_meta`, `by_parent_tag`), and drops the
+ * confirmation only where that is a load (`get_manual_datum`).
+ */
+function advancedEntrySessionDatums(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+	plan: AdvancedFormCaseWirePlan,
+): readonly SessionDatum[] {
+	const { loads } = plan;
+	const indexedByOpen = new Set(
+		plan.actions.open_cases.flatMap((open) =>
+			open.case_indices.map((index) => index.tag),
+		),
+	);
+	const position = new Map(loads.map((load, index) => [load.tag, index]));
+	// The load datums, the chain's at their chain positions, as they stand:
+	// read when a filter that reads a case chosen
+	// earlier in the chain renders, which is again after root alignment.
+	let made: readonly SessionDatum[] = [];
+	const inputs = loads.map((load, index): AdvancedLoadDatumInput => {
+		const list =
+			load.listModule === null ? undefined : doc.modules[load.listModule];
+		const indexed =
+			load.index === undefined ? undefined : position.get(load.index.tag);
+		const chosenUnder =
+			load.index === undefined || indexed === undefined
+				? undefined
+				: { load: indexed, identifier: load.index.identifier };
+		if (list === undefined || load.listModule === null)
+			return {
+				tag: load.tag,
+				caseType: load.caseType,
+				...(chosenUnder !== undefined && { index: chosenUnder }),
+			};
+		const listModule = load.listModule;
+		const indexedByLater = loads.some((other) => other.index?.tag === load.tag);
+		const hasDetailScreen = (list.caseListConfig?.columns ?? []).some(
+			(column) => column.visibleInDetail !== false,
+		);
+		const listIndex = moduleIndexOf(ctx, listModule);
+		const datumId = (ref: DatumRef): string | undefined => {
+			if (ref.kind !== "selected-case") return undefined;
+			for (let earlier = 0; earlier < index; earlier++) {
+				const other = loads[earlier];
+				const datum = made[earlier];
+				if (other === undefined || other.listModule === null) continue;
+				if (
+					other.listModule === ref.module ||
+					(datum !== undefined &&
+						ctx.alignedSelectionSources.get(datum) === ref.module)
+				)
+					return datum?.id ?? advancedLoadDatumId(other.tag);
+			}
+			return undefined;
+		};
+		return {
+			tag: load.tag,
+			caseType: load.caseType,
+			list: {
+				moduleIndex: listIndex,
+				caseListFilter: list.caseListConfig?.filter,
+				excludedOwnerIds: list.caseSearchConfig?.excludedOwnerIds,
+				expressions: moduleExpressionContexts(
+					doc,
+					listModule,
+					ctx.lookupNaming,
+				),
+				...(ctx.lookupNaming !== undefined && {
+					lookupNaming: ctx.lookupNaming,
+				}),
+				...(list.caseListConfig?.tile?.persistOnForms === true && {
+					persistentDetailId: `m${listIndex}_case_short`,
+				}),
+				detailConfirm:
+					hasDetailScreen && (!indexedByLater || indexedByOpen.has(load.tag)),
+				entryMetadataOnly: ctx.entryMetadataOnly,
+				datumId,
+			},
+			...(chosenUnder !== undefined && { index: chosenUnder }),
+		};
+	});
+	const loadDatums = deriveSessionDatums({
+		formType: doc.forms[formUuid]?.type ?? "followup",
+		moduleIndex: moduleIndexOf(ctx, moduleUuid),
+		expressions: moduleExpressionContexts(doc, moduleUuid, ctx.lookupNaming),
+		advancedLoads: inputs,
+	});
+	made = loadDatums;
+	loads.forEach((load, index) => {
+		const datum = loadDatums[index];
+		if (datum === undefined || load.listModule === null) return;
+		ctx.selectionSourceModules.set(datum, load.listModule);
+		ctx.chainDatumIds.set(datum, datum.id);
+	});
+	const aligned = alignWithRootMenu(
+		doc,
+		ctx,
+		{ kind: "form", module: moduleUuid, form: formUuid },
+		loadDatums,
+	);
+	const newCases = ctx.newCaseDatums(formUuid);
+	const created = newCaseFunctionDatums(newCases);
+	return withInlineSearchQueries(doc, ctx, [...aligned, ...created]);
+}
+
 /** A physical session datum and the domain identities it supplies. */
 export interface EntryDatumId {
 	readonly id: string;
@@ -751,16 +927,25 @@ export function entryDatumIds(
 		formUuid === undefined
 			? caseListSessionDatums(doc, ctx, moduleUuid)
 			: entrySessionDatums(doc, ctx, moduleUuid, formUuid);
-	// The new cases HQ gives a datum (`casePlacementPlan.ts`'s `datums`): the
-	// own case a registration opens, and each basic subcase outside a repeat,
-	// by the id its position gives it.
-	const newCaseRefs = new Map<string, DatumRef>(
-		(formUuid === undefined
+	// A load chosen from a list supplies its list module's selected case; a
+	// load of the worker's record the worker's record; each new case's datum
+	// (`casePlacementPlan.ts`'s `datums`: the case a registration opens,
+	// `new-case`, and each basic subcase or open action outside a repeat,
+	// `new-child-case`) the case it creates. So the rows of a menu emitted
+	// advanced supply what the same menu's basic rows do, under other ids.
+	// A new case is the datum that holds its planned id after root
+	// alignment: the form's case block reads that id
+	// (`models/forms.py::FormBase.session_var_for_action`,
+	// `xform.py::_create_casexml_advanced` over `case_session_var`), so where
+	// the root's placeholder of the same id renames the form's own datum
+	// (`entries.py::EntriesHelper.add_parent_datums`), the placeholder mints
+	// the case and the renamed datum is read by nothing.
+	const newCaseRefs = new Map(
+		formUuid === undefined
 			? []
-			: planFormCaseWire(doc, formUuid, {
-					attachmentTarget: ctx.attachmentTarget,
-				}).datums
-		).map((datum) => [datum.id, datum.ref] as const),
+			: ctx
+					.newCaseDatums(formUuid)
+					.map((created) => [created.id, created.ref] as const),
 	);
 	const rows = datums.map((datum): EntryDatumId => {
 		const refs: DatumRef[] = [];
@@ -771,7 +956,7 @@ export function entryDatumIds(
 			refs.push({ kind: "selected-case", module: source });
 			if (aligned !== undefined && aligned !== source)
 				refs.push({ kind: "selected-case", module: aligned });
-		} else if (datum.id === USERCASE_DATUM_ID) {
+		} else if (datum.id === USERCASE_DATUM_ID || datum.workerRecord === true) {
 			refs.push({ kind: "worker-record" });
 		} else if (grouping !== undefined) {
 			refs.push({ kind: "tile-group-parents", module: grouping });
@@ -900,8 +1085,47 @@ export function selectedCaseSessionDatum(
 		);
 }
 
-/** Root-aware datum list for a case-list-only browse entry. */
+/**
+ * The datum list of a menu's case list entry. A form-less menu emitted
+ * advanced (one whose kind is held and whose forms are gone) writes HQ's
+ * advanced case list entry, one datum over every open case of its type
+ * (`session.ts::deriveAdvancedCaseListDatum`); every other menu its basic
+ * browse entry (`basicCaseListSessionDatums`).
+ */
 export function caseListSessionDatums(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): readonly SessionDatum[] {
+	const mod = doc.modules[moduleUuid];
+	if (
+		ctx.moduleKinds === "emitted" &&
+		mod?.caseListOnly === true &&
+		mod.caseType &&
+		emittedModuleKind(doc, moduleUuid) === "advanced"
+	) {
+		const moduleIndex = moduleIndexOf(ctx, moduleUuid);
+		const datum = deriveAdvancedCaseListDatum({
+			caseType: mod.caseType,
+			moduleIndex,
+			expressions: moduleExpressionContexts(doc, moduleUuid, ctx.lookupNaming),
+			hasDetailScreen: (mod.caseListConfig?.columns ?? []).some(
+				(column) => column.visibleInDetail !== false,
+			),
+			...(mod.caseListConfig?.tile?.persistOnForms === true && {
+				persistentDetailId: `m${moduleIndex}_case_short`,
+			}),
+			entryMetadataOnly: ctx.entryMetadataOnly,
+		});
+		ctx.selectionSourceModules.set(datum, moduleUuid);
+		ctx.chainDatumIds.set(datum, datum.id);
+		return [datum];
+	}
+	return basicCaseListSessionDatums(doc, ctx, moduleUuid);
+}
+
+/** Root-aware datum list for a case-list-only browse entry of a basic menu. */
+function basicCaseListSessionDatums(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
@@ -2117,4 +2341,33 @@ export function projectFormLinks(
 		};
 	});
 	return { links: projected, fallback: guards.fallback };
+}
+
+// ── Creates a link carries ───────────────────────────────────────────────
+
+/**
+ * The creates of `formUuid` that its after-submit links carry into a
+ * target, each with the first link that carries it, in operation order: the
+ * operations whose new case a link's target receives as its session datum.
+ * The domain's one answer (`lib/domain/advancedEntryDatums.ts::
+ * carriedCreates`), which the entry's session values read too, so the
+ * placements, the menu's kind and the supplies cannot disagree.
+ */
+export function carriedCreateLinks(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlyMap<Uuid, Uuid> {
+	return carriedCreates(doc, formUuid);
+}
+
+/**
+ * The creates of `formUuid` that its after-submit links carry into a target:
+ * the operations whose new case a link's target receives as its session
+ * datum, in operation order (`carriedCreateLinks`).
+ */
+export function linkCarriedCreates(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): ReadonlySet<Uuid> {
+	return new Set(carriedCreates(doc, formUuid).keys());
 }

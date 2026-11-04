@@ -7,17 +7,19 @@
  *
  * A form that writes to its case, as every follow-up does, opens on one:
  * `session` is the form's command and the id of the case it is opened on,
- * which the form's case block reads. The block reads the id alone and
+ * which the form's case block reads. A form that creates a case reads the
+ * new case's id from the session value its entry makes, so its session
+ * gives that value under the datum's id. The block reads the id alone and
  * nothing of the case, so no restore is needed.
  */
 
 import type { Uuid } from "@/lib/domain";
 import type { Expectation } from "../expected";
 
-/** The form's command and the case it is opened on. */
+/** The form's command and the case it is opened on, where it opens on one. */
 export interface HeldSession {
 	readonly command: string;
-	readonly caseId: string;
+	readonly caseId?: string;
 	/** Further session values the form reads, beside its case. */
 	readonly data?: Readonly<Record<string, string>>;
 }
@@ -38,7 +40,10 @@ export function answerHeld(
 			...(session !== undefined && {
 				session: {
 					command: session.command,
-					data: { case_id: session.caseId, ...session.data },
+					data: {
+						...(session.caseId !== undefined && { case_id: session.caseId }),
+						...session.data,
+					},
 				},
 			}),
 			answers: [{ path, value }],

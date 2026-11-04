@@ -23,6 +23,7 @@ import {
 	type OperationScenario,
 	operationScenarios,
 } from "./caseOperationFixture";
+import { basicForm } from "./hqBasicShape";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { xpathEvidence } from "./xpathEvidence";
 
@@ -477,9 +478,9 @@ it.each(operationScenarios)(
 					"defaulted_at",
 					"visible_at",
 				]) {
-					const questionPath =
-						hq.modules[0].forms[0].actions.update_case.update[property]
-							.question_path;
+					const questionPath = basicForm(hq, 0, 0).actions.update_case.update[
+						property
+					].question_path;
 					expect(bind(`/data/${property}`).type).toBe("xsd:dateTime");
 					// HQ's ordinary update must read a string carrier that exists in
 					// both source and device forms, not the date-valued question.

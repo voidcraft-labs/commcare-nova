@@ -151,6 +151,16 @@ def _child_case(factory, module, form):
     factory.form_opens_case(form, case_type="visit", is_subcase=True)
 
 
+def _advanced_child_case(factory, module, form):
+    """A child case opened by a form of an advanced module: its Case Management page
+    (``partials/forms/case_config_advanced.html``) reads no add-on privilege, though ``_ADD_ONS["subcases"]``
+    counts every form that is not a ``module_form`` as using child cases."""
+    advanced, opening = factory.new_advanced_module("households", "household")
+    factory.form_requires_case(opening, "household")
+    factory.form_opens_case(opening, case_type="member", is_subcase=True)
+    opening.source = source()
+
+
 def _case_sharing(factory, module, form):
     factory.app.case_sharing = True
 
@@ -230,6 +240,7 @@ CASES = [
     ("custom_intents", _custom_intent, ["CUSTOM_INTENTS"], False),
     ("templated_intents", _templated_intent, ["TEMPLATED_INTENTS"], False),
     ("child_cases", _child_case, ["CHILD_CASES"], False),
+    ("child_cases_of_an_advanced_form", _advanced_child_case, [], False),
     ("case_sharing_groups", _case_sharing, ["CASE_SHARING_GROUPS"], False),
     ("locations_instance", _locations_instance, ["LOCATIONS"], False),
     ("locations_read_in_a_link_condition", _locations_link_condition, ["LOCATIONS", "FORM_LINK_WORKFLOW"], False),

@@ -1,33 +1,54 @@
 /**
  * Where CommCare HQ keeps each case change of a form: a slot of the form's
- * Case Management settings (a basic slot) or a Save to Case block in the
- * form's source. The placement decides wire facts, so it lives here, and
- * every emitter reads it through `casePlacementPlan.ts::planFormCaseWire`.
+ * Case Management settings (a basic slot), a load or an open action of an
+ * advanced form's case actions, or a Save to Case block in the form's
+ * source. The placement decides wire facts, so it lives here, and every
+ * emitter reads it through `casePlacementPlan.ts::planFormCaseWire`.
  *
- * A form's subjects are its case operations and, where it cannot share the
- * own arm's place, its own close. Each subject keeps a held placement
- * (`CaseOperation.placement`, `Form.ownClosePlacement`) while that placement
- * still expresses it, and otherwise takes the first eligible of a basic slot
- * and a Save to Case block, in the form's operation order. Which of the own
- * arm and the creates take a basic slot is the domain's one answer
+ * A form's kind is its menu's (`moduleKind.ts::emittedModuleKind`): a form
+ * of a basic menu tries a basic slot, a form of an advanced menu an
+ * advanced action (`advancedPlacement.ts`), and each falls back to Save to
+ * Case. A form's subjects are its case operations and, where it cannot
+ * share the own arm's place, its own close. Each subject keeps a held
+ * placement (`CaseOperation.placement`, `Form.ownClosePlacement`) while that
+ * placement still expresses it, and otherwise takes the first eligible
+ * place, in the form's operation order. Which of the own arm and the creates
+ * take a basic slot is the domain's one answer
  * (`lib/domain/basicCaseSlots.ts::basicCaseSlots`), which the entry's
- * session values read too; this module adds the worker's record, the closes
- * and every Save to Case path. Save to Case is always eligible, so every
- * operation has a place.
+ * session values read too; this module adds the worker's record, the
+ * closes, the advanced actions and every Save to Case path. Save to Case is
+ * always eligible, so every operation has a place.
+ *
+ * A create an after-submit link carries into another form
+ * (`lib/domain/advancedEntryDatums.ts::carriedCreates`) needs a session datum, which
+ * a Save to Case block never gives it, so a held block no longer expresses
+ * it (`carried-create`).
  *
  * Pure, and memoized per document object (documents are replaced, never
  * changed in place) and per options, as `planGeneratedNodes` is.
  */
 
-import type {
-	BlueprintDoc,
-	CaseOperation,
-	CasePlacement,
-	PlacementIneligibility,
-	SaveToCasePlacement,
-	Uuid,
+import {
+	type AdvancedPlacement,
+	type BlueprintDoc,
+	type CaseOperation,
+	type CasePlacement,
+	formConnectIds,
+	type PlacementIneligibility,
+	type SaveToCasePlacement,
+	type Uuid,
 } from "@/lib/domain";
 import {
+	type AdvancedLoadRef,
+	advancedLoadChain,
+	advancedLoadOf,
+	carriedCreates,
+	loadClause,
+	openActionClause,
+	opensCase,
+} from "@/lib/domain/advancedEntryDatums";
+import {
+	appendedNameTaken,
 	basicCaseSlots,
 	type CaseSlotFacts,
 	type ConditionScope,
@@ -37,11 +58,19 @@ import {
 	type PlannedBasicSubcase,
 	type StatedCondition,
 	SUBJECT_CANNOT_HOLD,
+	sameTypeExclusions,
+	sharingCloses,
 	stateCondition,
 	subcaseReasons,
+	USERCASE_BLOCK_NAME,
 	usercaseSlotReasons,
 } from "@/lib/domain/basicCaseSlots";
 import type { Expression } from "@/lib/domain/expression/types";
+import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
+import { openActionViewBefore } from "./advancedPlacement";
+import type { PlannedLoad } from "./advancedSelections";
+import { allocateAdvancedTags } from "./advancedTags";
+import { emittedModuleKind } from "./moduleKind";
 import { collectFieldLocations, saveToCaseBlockShape } from "./xform/caseOps";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 import { planGeneratedNodes } from "./xform/generatedNodes";
@@ -69,8 +98,10 @@ export interface PlannedPlacement {
 	readonly placement: CasePlacement;
 	/** The subject's stored placement, kept because it still expresses it. */
 	readonly held: boolean;
-	/** A close sharing another operation's place: a basic subcase's
-	 *  `close_condition`, or the own close written in the own arm's place. */
+	/** A subject sharing another operation's place: a close as a basic
+	 *  subcase's or an open action's `close_condition`, the own close written
+	 *  in the own arm's place, or a later change of a case an advanced load
+	 *  already carries a change of, which names the first. */
 	readonly sharesWith?: Uuid;
 }
 
@@ -90,20 +121,44 @@ export interface InexpressibleHold {
 	];
 }
 
+/** One open action of an advanced form, in `open_cases` order. */
+export interface PlannedOpenAction {
+	readonly tag: string;
+	/** The create, or the registration's own arm. */
+	readonly operationUuid: Uuid;
+	readonly caseType: string;
+	/** The `forEach` repeat it runs in; absent at the form root. */
+	readonly repeat?: Uuid;
+	/** Written at its repeat row's own `case`: the repeat holds fewer than
+	 *  two open actions with indices (`xform.py::get_action_path`). */
+	readonly row: boolean;
+}
+
+/** An advanced form's actions, each by the tag its placements hold. */
+export interface AdvancedFormActionsPlan {
+	readonly loads: readonly PlannedLoad[];
+	readonly opens: readonly PlannedOpenAction[];
+}
+
 export interface FormPlacements {
-	/** Every form is a basic form until advanced modules are emitted. */
-	readonly formKind: "basic";
+	/** The form's kind, its menu's unless the options fix it. */
+	readonly formKind: "basic" | "advanced";
 	readonly placements: ReadonlyMap<PlacementSubjectKey, PlannedPlacement>;
+	/** An advanced form's loads and open actions. */
+	readonly advanced?: AdvancedFormActionsPlan;
 	/** Every held subject the plan could not keep where it is held, in the
 	 *  form's subject order: its operations, then its own close. */
 	readonly inexpressible: readonly InexpressibleHold[];
 }
 
 export interface PlanPlacementsOptions {
-	/** Fixes the form kind. Only `basic` exists until advanced modules are
-	 *  emitted. */
-	readonly moduleKind?: "basic";
-	/** Operations kept out of every basic slot. */
+	/** Fixes the form kind, so `moduleKind.ts::emittedModuleKind` can ask
+	 *  what a basic form would give without asking itself. Absent: the
+	 *  kind its menu is emitted as. */
+	readonly moduleKind?: "basic" | "advanced";
+	/** Operations kept out of every basic slot and every advanced action,
+	 *  besides the unheld creates of the menu's own case type, which always
+	 *  are. */
 	readonly excludeBasic?: ReadonlySet<Uuid>;
 }
 
@@ -167,10 +222,15 @@ function saveToCaseReasons(
 // ── The procedure ───────────────────────────────────────────────────────
 
 interface CorePlan {
+	readonly formKind: "basic" | "advanced";
 	readonly placements: ReadonlyMap<PlacementSubjectKey, PlannedPlacement>;
 	readonly subcases: readonly PlannedBasicSubcase[];
 	readonly ownBasic: boolean;
 	readonly sharers: ReadonlyMap<Uuid, CaseOperation>;
+	readonly advanced?: AdvancedFormActionsPlan;
+	/** An advanced form's action tags, each with the operation whose hold
+	 *  gave it, where one did. */
+	readonly advancedTags?: ReadonlyMap<string, Uuid | undefined>;
 }
 
 interface CoreOptions {
@@ -178,6 +238,8 @@ interface CoreOptions {
 	/** Plans this operation in a basic subcase slot where it is eligible,
 	 *  whatever the exclusions say. */
 	readonly forceBasic?: Uuid;
+	/** The creates an after-submit link carries into another form. */
+	readonly carried: ReadonlySet<Uuid>;
 }
 
 function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
@@ -185,6 +247,7 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 	const nodes = planGeneratedNodes(f.doc, f.formUuid);
 	const slots = basicCaseSlots(f.doc, f.formUuid, {
 		exclude: options.exclude,
+		carried: options.carried,
 		...(options.forceBasic !== undefined && {
 			forceBasic: options.forceBasic,
 		}),
@@ -233,9 +296,14 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 						? { placement: op.placement, held: true }
 						: undefined
 					: keepSaveToCase(asSubject(op), op.placement);
+			// An unheld update takes the slot only where no author's name
+			// stands at the `commcare_usercase` HQ's build appends; a held
+			// one keeps it, and the gate refuses the name.
 			const planned =
 				kept ??
-				(!excluded(op.uuid) && eligible
+				(!excluded(op.uuid) &&
+				eligible &&
+				!appendedNameTaken(f, USERCASE_BLOCK_NAME, undefined)
 					? {
 							placement: { kind: "basic", slot: "usercase" } as const,
 							held: false,
@@ -260,19 +328,17 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 						? FormPath.root()
 						: (repeatRowPath(f.doc, f.formUuid, op.forEach.repeat) ??
 							FormPath.root());
-				// In a several-case form the block runs once per selected case,
-				// in the selected-case row's operations group, named in the
-				// operations namespace of its authored scope.
-				const path: SaveToCasePlacement["path"] = f.severalCases
-					? [
-							nodes.selectedCases(scope),
-							"item",
-							nodes.operations(
-								scope.child(nodes.selectedCases(scope)).child("item"),
-							),
-							nodes.subcase(subcase.index, scope),
-						]
-					: [nodes.subcases(scope), nodes.subcase(subcase.index)];
+				// The block runs once per selected case, in the selected-case
+				// row's operations group, named in the operations namespace of
+				// its authored scope.
+				const path: SaveToCasePlacement["path"] = [
+					nodes.selectedCases(scope),
+					"item",
+					nodes.operations(
+						scope.child(nodes.selectedCases(scope)).child("item"),
+					),
+					nodes.subcase(subcase.index, scope),
+				];
 				placements.set(op.uuid, {
 					placement: {
 						kind: "save-to-case",
@@ -365,7 +431,7 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 					: { placement: derivedPath(ownCloseSubject), held: false }),
 		);
 	}
-	return { placements, subcases, ownBasic, sharers };
+	return { formKind: "basic", placements, subcases, ownBasic, sharers };
 }
 
 function ownCloseReasons(
@@ -456,7 +522,350 @@ function derivedSaveToCase(
 	};
 }
 
+// ── The advanced procedure ──────────────────────────────────────────────
+
+/** Where an advanced form's change stands: a load or an open action, by
+ *  position. */
+type AdvancedSlot =
+	| { readonly kind: "load"; readonly index: number }
+	| { readonly kind: "open"; readonly index: number };
+
+interface ActionState {
+	/** The tag a kept hold gives the action. */
+	held?: string;
+	/** The first change placed on the action. */
+	first?: Uuid;
+}
+
+/**
+ * Every element name of the form's data root a case block HQ appends must
+ * not take (`case_<tag>`): its root questions' ids, its root Connect block
+ * ids and the first segment of every held Save to Case path at the root.
+ * Nova's generated names all start `nova_`, so none is a `case_` name.
+ */
+function advancedRootNames(f: CaseSlotFacts): ReadonlySet<string> {
+	const names = new Set<string>(formConnectIds(f.doc, f.formUuid));
+	for (const uuid of f.doc.fieldOrder[f.formUuid] ?? []) {
+		const field = f.doc.fields[uuid];
+		if (field !== undefined) names.add(field.id);
+	}
+	for (const op of f.operations)
+		if (
+			op.placement?.kind === "save-to-case" &&
+			op.placement.repeat === undefined
+		)
+			names.add(op.placement.path[0]);
+	const ownClose = f.form.ownClosePlacement;
+	if (ownClose !== undefined) names.add(ownClose.path[0]);
+	return names;
+}
+
+/** Every name the rows of `repeat` hold: its questions' ids and the first
+ *  segment of each Save to Case block held there. */
+function advancedRowNames(f: CaseSlotFacts, repeat: Uuid): ReadonlySet<string> {
+	const names = new Set<string>();
+	for (const uuid of f.doc.fieldOrder[repeat] ?? []) {
+		const field = f.doc.fields[uuid];
+		if (field !== undefined) names.add(field.id);
+	}
+	for (const op of f.operations)
+		if (op.placement?.kind === "save-to-case" && op.placement.repeat === repeat)
+			names.add(op.placement.path[0]);
+	return names;
+}
+
+/**
+ * The procedure in a form of an advanced menu. In operation order, each
+ * change keeps a held Save to Case block that still expresses it; else, if
+ * it is not excluded, takes the load its target names or an open action,
+ * where `advancedPlacement.ts` admits it; else takes Save to Case. A close of
+ * a create placed on an open action shares that action. Then the actions are
+ * tagged (`allocateAdvancedTags`): the chain's loads, the worker's, then the
+ * open actions, a kept hold's tag first.
+ */
+function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
+	const nodes = planGeneratedNodes(f.doc, f.formUuid);
+	const chain = advancedLoadChain(f.doc, f.formUuid);
+	const excluded = new Set([...options.exclude, ...sameTypeExclusions(f)]);
+	const sharers = sharingCloses(f);
+	const sharedBy = new Map<Uuid, Uuid>();
+	for (const [createUuid, close] of sharers)
+		sharedBy.set(close.uuid, createUuid);
+
+	const loads: Array<
+		ActionState & {
+			readonly caseType: string;
+			readonly worker: boolean;
+			readonly listModule: Uuid | null;
+			readonly identifier?: string;
+		}
+	> = chain.map((load) => ({
+		caseType: load.caseType,
+		worker: false,
+		listModule: load.moduleUuid,
+		...(load.identifier !== undefined && { identifier: load.identifier }),
+	}));
+	const opens: Array<
+		ActionState & {
+			readonly operationUuid: Uuid;
+			readonly caseType: string;
+			readonly repeat: Uuid | undefined;
+			readonly indexed: boolean;
+		}
+	> = [];
+	const view = new Map<
+		Uuid,
+		{ readonly repeat: Uuid | undefined; readonly indexed: boolean }
+	>();
+	const usedHeld = new Set<string>();
+	const onAction = new Map<
+		Uuid,
+		{ readonly slot: AdvancedSlot; readonly sharesWith?: Uuid }
+	>();
+	const elsewhere = new Map<Uuid, PlannedPlacement>();
+	const asSubject = (op: CaseOperation): PlacementSubject => ({
+		kind: "operation",
+		operationUuid: op.uuid,
+	});
+	const attach = (
+		op: CaseOperation,
+		slot: AdvancedSlot,
+		state: ActionState,
+	): void => {
+		const held = op.placement;
+		if (
+			held?.kind === "advanced" &&
+			state.held === undefined &&
+			!usedHeld.has(held.tag)
+		) {
+			state.held = held.tag;
+			usedHeld.add(held.tag);
+		}
+		onAction.set(op.uuid, {
+			slot,
+			...(state.first !== undefined && { sharesWith: state.first }),
+		});
+		state.first ??= op.uuid;
+	};
+	let workerLoad: number | undefined;
+	const loadIndex = (ref: AdvancedLoadRef): number => {
+		if (ref.kind === "chain") return ref.index;
+		if (workerLoad === undefined) {
+			workerLoad = loads.length;
+			loads.push({
+				caseType: USERCASE_CASE_TYPE,
+				worker: true,
+				listModule: null,
+			});
+		}
+		return workerLoad;
+	};
+
+	for (const op of f.operations) {
+		const createUuid = sharedBy.get(op.uuid);
+		const shared =
+			createUuid === undefined ? undefined : onAction.get(createUuid);
+		if (createUuid !== undefined && shared?.slot.kind === "open") {
+			onAction.set(op.uuid, { slot: shared.slot, sharesWith: createUuid });
+			continue;
+		}
+		const held = op.placement;
+		if (
+			held?.kind === "save-to-case" &&
+			!options.carried.has(op.uuid) &&
+			saveToCaseReasons(f, asSubject(op), held).length === 0
+		) {
+			elsewhere.set(op.uuid, { placement: held, held: true });
+			continue;
+		}
+		if (!excluded.has(op.uuid) || options.forceBasic === op.uuid) {
+			const load = advancedLoadOf(f, op);
+			if (load !== undefined && loadClause(f, op, load) === undefined) {
+				const index = loadIndex(load);
+				const state = loads[index];
+				if (state !== undefined) {
+					attach(op, { kind: "load", index }, state);
+					continue;
+				}
+			}
+			if (
+				opensCase(f, op) &&
+				openActionClause(f, op, { opens: view }) === undefined
+			) {
+				const repeat = op.action === "create" ? op.forEach?.repeat : undefined;
+				const indexed = (op.links ?? []).length > 0;
+				const state: (typeof opens)[number] = {
+					operationUuid: op.uuid,
+					caseType:
+						op.action === "create" ? op.caseType : (f.module?.caseType ?? ""),
+					repeat,
+					indexed,
+				};
+				opens.push(state);
+				view.set(op.uuid, { repeat, indexed });
+				attach(op, { kind: "open", index: opens.length - 1 }, state);
+				continue;
+			}
+		}
+		elsewhere.set(op.uuid, {
+			placement: derivedSaveToCase(f, asSubject(op), nodes),
+			held: false,
+		});
+	}
+
+	const tags = allocateAdvancedTags({
+		loads: loads.map((load) => ({
+			caseType: load.caseType,
+			worker: load.worker,
+			...(load.held !== undefined && { held: load.held }),
+		})),
+		opens: opens.map((open) => ({
+			caseType: open.caseType,
+			...(open.held !== undefined && { held: open.held }),
+			...(open.repeat !== undefined && {
+				rowNames: advancedRowNames(f, open.repeat),
+			}),
+		})),
+		rootNames: advancedRootNames(f),
+	});
+	const indexedIn = new Map<Uuid, number>();
+	for (const open of opens)
+		if (open.repeat !== undefined && open.indexed)
+			indexedIn.set(open.repeat, (indexedIn.get(open.repeat) ?? 0) + 1);
+	const plannedOpens: PlannedOpenAction[] = opens.map((open, index) => ({
+		tag: tags.opens[index] ?? "",
+		operationUuid: open.operationUuid,
+		caseType: open.caseType,
+		...(open.repeat !== undefined && { repeat: open.repeat }),
+		row: open.repeat !== undefined && (indexedIn.get(open.repeat) ?? 0) < 2,
+	}));
+	const plannedLoads: PlannedLoad[] = loads.map((load, index) => {
+		const previous =
+			index > 0 && !load.worker ? tags.loads[index - 1] : undefined;
+		return {
+			tag: tags.loads[index] ?? "",
+			caseType: load.caseType,
+			listModule: load.listModule,
+			...(previous !== undefined &&
+				load.identifier !== undefined && {
+					index: { tag: previous, identifier: load.identifier },
+				}),
+			own: !load.worker && index === chain.length - 1,
+			worker: load.worker,
+		};
+	});
+	const actionPlacement = (slot: AdvancedSlot): AdvancedPlacement => {
+		if (slot.kind === "load")
+			return { kind: "advanced", tag: plannedLoads[slot.index]?.tag ?? "" };
+		const open = plannedOpens[slot.index];
+		return {
+			kind: "advanced",
+			tag: open?.tag ?? "",
+			...(open?.row === true && { row: true as const }),
+		};
+	};
+
+	const placements = new Map<PlacementSubjectKey, PlannedPlacement>();
+	for (const op of f.operations) {
+		const action = onAction.get(op.uuid);
+		if (action === undefined) {
+			const planned = elsewhere.get(op.uuid);
+			if (planned !== undefined) placements.set(op.uuid, planned);
+			continue;
+		}
+		const placement = actionPlacement(action.slot);
+		placements.set(op.uuid, {
+			placement,
+			held:
+				op.placement !== undefined && samePlacement(op.placement, placement),
+			...(action.sharesWith !== undefined && {
+				sharesWith: action.sharesWith,
+			}),
+		});
+	}
+
+	// The own close: its own held block first; else the own arm's action,
+	// as the load's or the open action's `close_condition`, where the
+	// condition can be stated; else the own arm's Save to Case block; else a
+	// close-only block.
+	if (f.closesOwn && f.own !== undefined) {
+		const own = f.own;
+		const held = f.form.ownClosePlacement;
+		const ownPlanned = placements.get(own.uuid);
+		const keptHeld =
+			held !== undefined &&
+			ownCloseReasons(f, { kind: "save-to-case", path: held.path }).length === 0
+				? {
+						placement: { kind: "save-to-case", path: held.path } as const,
+						held: true,
+					}
+				: undefined;
+		const shares =
+			ownPlanned !== undefined &&
+			(ownPlanned.placement.kind === "advanced"
+				? stateCondition(f, f.form.closeCondition, {
+						own: false,
+						repeat: undefined,
+					}).reasons.length === 0
+				: ownPlanned.placement.kind === "save-to-case" && !f.severalCases);
+		placements.set(
+			"own-close",
+			keptHeld ??
+				(shares && ownPlanned !== undefined
+					? {
+							placement: ownPlanned.placement,
+							held: false,
+							sharesWith: own.uuid,
+						}
+					: {
+							placement: derivedSaveToCase(f, { kind: "own-close" }, nodes),
+							held: false,
+						}),
+		);
+	}
+
+	const advancedTags = new Map<string, Uuid | undefined>();
+	const holderOf = (state: ActionState): Uuid | undefined =>
+		state.held === undefined
+			? undefined
+			: f.operations.find(
+					(op) =>
+						op.placement?.kind === "advanced" &&
+						op.placement.tag === state.held &&
+						onAction.has(op.uuid),
+				)?.uuid;
+	loads.forEach((load, index) => {
+		advancedTags.set(plannedLoads[index]?.tag ?? "", holderOf(load));
+	});
+	opens.forEach((open, index) => {
+		advancedTags.set(plannedOpens[index]?.tag ?? "", holderOf(open));
+	});
+	return {
+		formKind: "advanced",
+		placements,
+		subcases: [],
+		ownBasic: false,
+		sharers,
+		advanced: { loads: plannedLoads, opens: plannedOpens },
+		advancedTags,
+	};
+}
+
 // ── The readers ─────────────────────────────────────────────────────────
+
+/** The kind `formUuid` is planned as: `moduleKind` where given, else the
+ *  kind its menu is emitted as. */
+function formKindOf(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	moduleKind: PlanPlacementsOptions["moduleKind"],
+): "basic" | "advanced" {
+	if (moduleKind !== undefined) return moduleKind;
+	const moduleUuid = caseSlotFacts(doc, formUuid).moduleUuid;
+	return moduleUuid === undefined
+		? "basic"
+		: emittedModuleKind(doc, moduleUuid);
+}
 
 const plans = new WeakMap<BlueprintDoc, Map<string, CorePlan>>();
 
@@ -466,8 +875,9 @@ function corePlan(
 	options: PlanPlacementsOptions | undefined,
 	forceBasic?: Uuid,
 ): CorePlan {
+	const kind = formKindOf(doc, formUuid, options?.moduleKind);
 	const exclude = [...(options?.excludeBasic ?? [])].sort();
-	const key = `${formUuid}\u0000${options?.moduleKind ?? "basic"}\u0000${exclude.join(",")}\u0000${forceBasic ?? ""}`;
+	const key = `${formUuid}\u0000${kind}\u0000${exclude.join(",")}\u0000${forceBasic ?? ""}`;
 	let forms = plans.get(doc);
 	if (forms === undefined) {
 		forms = new Map();
@@ -475,10 +885,14 @@ function corePlan(
 	}
 	const known = forms.get(key);
 	if (known !== undefined) return known;
-	const plan = planCore(caseSlotFacts(doc, formUuid), {
+	const f = caseSlotFacts(doc, formUuid);
+	const core: CoreOptions = {
 		exclude: new Set(exclude),
+		carried: new Set(carriedCreates(doc, formUuid).keys()),
 		...(forceBasic !== undefined && { forceBasic }),
-	});
+	};
+	const plan =
+		kind === "advanced" ? planAdvancedCore(f, core) : planCore(f, core);
 	forms.set(key, plan);
 	return plan;
 }
@@ -529,14 +943,20 @@ function formInexpressibleHolds(
 	return found;
 }
 
-/** Where each case change of `formUuid` is kept in CommCare HQ. */
+/**
+ * Where each case change of `formUuid` is kept in CommCare HQ. The
+ * inexpressible holds are found when first read: finding them asks what
+ * each hold's menu kind is, and the menu kind asks for plans of a basic
+ * form (`moduleKind.ts`), which never read them.
+ */
 export function planPlacements(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	options?: PlanPlacementsOptions,
 ): FormPlacements {
+	const kind = formKindOf(doc, formUuid, options?.moduleKind);
 	const exclude = [...(options?.excludeBasic ?? [])].sort();
-	const key = `${formUuid}\u0000${options?.moduleKind ?? "basic"}\u0000${exclude.join(",")}`;
+	const key = `${formUuid}\u0000${kind}\u0000${exclude.join(",")}`;
 	let forms = formPlans.get(doc);
 	if (forms === undefined) {
 		forms = new Map();
@@ -544,50 +964,66 @@ export function planPlacements(
 	}
 	const known = forms.get(key);
 	if (known !== undefined) return known;
+	const core = corePlan(doc, formUuid, { ...options, moduleKind: kind });
+	let inexpressible: readonly InexpressibleHold[] | undefined;
 	const plan: FormPlacements = {
-		formKind: "basic",
-		placements: corePlan(doc, formUuid, options).placements,
-		inexpressible: formInexpressibleHolds(doc, formUuid),
+		formKind: core.formKind,
+		placements: core.placements,
+		...(core.advanced !== undefined && { advanced: core.advanced }),
+		get inexpressible() {
+			inexpressible ??= formInexpressibleHolds(doc, formUuid);
+			return inexpressible;
+		},
 	};
 	forms.set(key, plan);
 	return plan;
 }
 
 /**
- * Whether a basic action carries the operation `operationUuid` of `formUuid`,
- * or the own case's change, wherever it is placed: the questions such an
- * action reads a case name or an external id from take the trimmed sibling
- * (`lib/domain/caseScalarTextGuard.ts`), where any other Save to Case block
- * trims and checks its own values.
+ * Whether a basic or an advanced action carries the operation
+ * `operationUuid` of `formUuid`, or the own case's change, wherever it is
+ * placed: the questions such an action reads a case name or an external id
+ * from take the trimmed sibling (`lib/domain/caseScalarTextGuard.ts`), where
+ * any other Save to Case block trims and checks its own values.
  */
 export function placedBasic(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): (operationUuid: Uuid) => boolean {
 	const { placements } = planPlacements(doc, formUuid);
-	// An inert subcase (an extension child, or a child of a several-case
-	// form) keeps its place in `subcases` while its create is a block in the
-	// source, so its action still names the question's trimmed sibling, as
-	// the own case's change does in a several-case form, whose wrapper per
-	// selected case reads it.
+	// An inert subcase (a child of a several-case form) keeps its place in
+	// `subcases` while its create is a block in the source, so its action
+	// still names the question's trimmed sibling, as the own case's change
+	// does in a several-case form, whose wrapper per selected case reads it.
 	const subcases = new Set(
 		planBasicSubcases(doc, formUuid).map((subcase) => subcase.operationUuid),
 	);
 	const own = doc.forms[formUuid]?.caseOperations?.find(
 		(operation) => operation.action === "own",
 	)?.uuid;
-	return (operationUuid) =>
-		operationUuid === own ||
-		placements.get(operationUuid)?.placement.kind === "basic" ||
-		subcases.has(operationUuid);
+	return (operationUuid) => {
+		const kind = placements.get(operationUuid)?.placement.kind;
+		return (
+			operationUuid === own ||
+			kind === "basic" ||
+			kind === "advanced" ||
+			subcases.has(operationUuid)
+		);
+	};
 }
 
-/** The basic subcases of `formUuid`, in `subcases` index order. */
+/** The basic subcases of `formUuid`, in `subcases` index order; none in a
+ *  form of an advanced menu, unless `moduleKind` fixes the form as basic. */
 export function planBasicSubcases(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
+	moduleKind?: "basic",
 ): readonly PlannedBasicSubcase[] {
-	return corePlan(doc, formUuid, undefined).subcases;
+	return corePlan(
+		doc,
+		formUuid,
+		moduleKind === undefined ? undefined : { moduleKind },
+	).subcases;
 }
 
 const appPlans = new WeakMap<BlueprintDoc, ReadonlyMap<Uuid, FormPlacements>>();
@@ -606,6 +1042,8 @@ export function appPlacements(
 	appPlans.set(doc, all);
 	return all;
 }
+
+const CARRIED_CREATE: PlacementIneligibility = { reason: "carried-create" };
 
 /**
  * Why `placement` cannot express `subject` on the document as it stands,
@@ -626,8 +1064,39 @@ export function placementIneligibility(
 		throw new Error(
 			`Nova was asked where the case change ${subject.operationUuid} of form ${formUuid} can be kept, and the form holds no such change.`,
 		);
+	const kind = formKindOf(doc, formUuid, undefined);
+	const carried = carriedCreates(doc, formUuid).has(operation.uuid);
 	if (placement.kind === "save-to-case")
-		return saveToCaseReasons(f, subject, placement);
+		return [
+			...saveToCaseReasons(f, subject, placement),
+			...(carried ? [CARRIED_CREATE] : []),
+		];
+	if (placement.kind === "advanced")
+		return advancedPlacementReasons(doc, f, operation, placement, {
+			kind,
+			carried,
+		});
+	const reasons = basicPlacementReasons(doc, formUuid, f, operation, placement);
+	// A carried create keeps a session datum in a basic form only as the
+	// registration's own case or a subcase at the form root.
+	const keepsDatum =
+		(placement.slot === "own" && f.registration) ||
+		(placement.slot === "subcase" && operation.forEach === undefined);
+	return [
+		...(kind === "advanced" ? [{ reason: "module-advanced" as const }] : []),
+		...reasons,
+		...(carried && !keepsDatum ? [CARRIED_CREATE] : []),
+	];
+}
+
+/** Why a basic slot cannot express `operation`, the menu's kind aside. */
+function basicPlacementReasons(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	f: CaseSlotFacts,
+	operation: CaseOperation,
+	placement: Extract<CasePlacement, { kind: "basic" }>,
+): PlacementIneligibility[] {
 	if (operation.action === "close")
 		return sharedCloseReasons(doc, formUuid, f, operation, placement);
 	switch (placement.slot) {
@@ -642,13 +1111,11 @@ export function placementIneligibility(
 		}
 		case "subcase":
 		case "subcase-row": {
-			const plan = corePlan(doc, formUuid, undefined);
-			const reasons = subcaseReasons(
-				f,
-				operation,
-				{ ownBasic: plan.ownBasic, sharers: plan.sharers },
-				"child",
-			);
+			const plan = corePlan(doc, formUuid, { moduleKind: "basic" });
+			const reasons = subcaseReasons(f, operation, {
+				ownBasic: plan.ownBasic,
+				sharers: plan.sharers,
+			});
 			if (reasons.some((r) => r.reason === "scope")) return reasons;
 			const others = plan.subcases.filter(
 				(s) => s.operationUuid !== operation.uuid,
@@ -686,6 +1153,66 @@ export function placementIneligibility(
 }
 
 /**
+ * Why `placement`, a load or an open action, cannot express `operation`:
+ * a form of a basic menu has none (`module-basic`); else the first clause
+ * of `advancedPlacement.ts` that holds; else a tag another action of the
+ * form takes, or the tag of an action whose place another change's hold
+ * gives (`scope`), and a repeat shape the action no longer has
+ * (`repeat-shared`). A carried create keeps its session datum only on an
+ * open action outside a repeat.
+ */
+function advancedPlacementReasons(
+	doc: BlueprintDoc,
+	f: CaseSlotFacts,
+	operation: CaseOperation,
+	placement: AdvancedPlacement,
+	{ kind, carried }: { kind: "basic" | "advanced"; carried: boolean },
+): PlacementIneligibility[] {
+	if (kind === "basic") return [{ reason: "module-basic" }];
+	const plan = corePlan(doc, f.formUuid, { moduleKind: "advanced" });
+	const planned = plan.placements.get(operation.uuid);
+	const sharedCreate = [...plan.sharers].find(
+		([, close]) => close.uuid === operation.uuid,
+	)?.[0];
+	if (
+		sharedCreate !== undefined &&
+		planned?.sharesWith === sharedCreate &&
+		planned.placement.kind === "advanced"
+	)
+		return samePlacement(planned.placement, placement)
+			? []
+			: [SUBJECT_CANNOT_HOLD];
+	const load = advancedLoadOf(f, operation);
+	const clause =
+		load !== undefined
+			? loadClause(f, operation, load)
+			: opensCase(f, operation)
+				? openActionClause(
+						f,
+						operation,
+						openActionViewBefore(doc, f, operation),
+					)
+				: "scope";
+	if (clause !== undefined) return [{ reason: clause }];
+	const reasons: PlacementIneligibility[] = [];
+	const tags = plan.advancedTags ?? new Map<string, Uuid | undefined>();
+	if (planned?.placement.kind === "advanced") {
+		const planTag = planned.placement.tag;
+		const holder = tags.get(planTag);
+		if (
+			placement.tag !== planTag &&
+			(tags.has(placement.tag) ||
+				(holder !== undefined && holder !== operation.uuid))
+		)
+			reasons.push(SUBJECT_CANNOT_HOLD);
+		if ((placement.row === true) !== (planned.placement.row === true))
+			reasons.push({ reason: "repeat-shared" });
+	} else if (tags.has(placement.tag)) reasons.push(SUBJECT_CANNOT_HOLD);
+	if (carried && placement.row === true) reasons.push(CARRIED_CREATE);
+	return reasons;
+}
+
+/**
  * Why a close cannot hold the basic subcase place `placement`. A close keeps
  * a basic place only by sharing the place of the create it closes (HQ's
  * `close_condition`), so it expresses exactly the place the plan shares;
@@ -698,9 +1225,11 @@ function sharedCloseReasons(
 	formUuid: Uuid,
 	f: CaseSlotFacts,
 	close: CaseOperation,
-	placement: Exclude<CasePlacement, SaveToCasePlacement>,
+	placement: Extract<CasePlacement, { kind: "basic" }>,
 ): PlacementIneligibility[] {
-	const planned = corePlan(doc, formUuid, undefined).placements.get(close.uuid);
+	const planned = corePlan(doc, formUuid, {
+		moduleKind: "basic",
+	}).placements.get(close.uuid);
 	if (
 		planned?.sharesWith !== undefined &&
 		samePlacement(planned.placement, placement)
@@ -729,10 +1258,11 @@ function sharedCloseReasons(
 				: { reason },
 		);
 	if (reasons.length > 0) return reasons;
-	const createReasons = placementIneligibility(
+	const createReasons = basicPlacementReasons(
 		doc,
 		formUuid,
-		{ kind: "operation", operationUuid: create.uuid },
+		f,
+		create,
 		placement,
 	);
 	return createReasons.length > 0
@@ -751,8 +1281,9 @@ export function placementExpresses(
 
 /**
  * The placements eligible for `subject` on the document as it stands,
- * simplest first: a basic slot, then Save to Case, each with the index or
- * path the procedure would give it.
+ * simplest first: a basic slot in a basic form, or the advanced action the
+ * plan gives it in an advanced form, then Save to Case, each with the
+ * index, tag or path the procedure would give it.
  */
 export function placementCandidates(
 	doc: BlueprintDoc,
@@ -780,24 +1311,28 @@ export function placementCandidates(
 		planned.placement.kind === "save-to-case"
 			? planned.placement
 			: derivedSaveToCase(f, subject, nodes);
+	if (plan.formKind === "advanced")
+		return planned.placement.kind === "advanced"
+			? [planned.placement, saveToCase]
+			: [saveToCase];
 	const basic: CasePlacement[] = [];
 	if (operation.action === "own" && ownSlotReasons(f, operation).length === 0)
 		basic.push({ kind: "basic", slot: "own" });
 	if (
 		isWorkerRecordUpdate(operation) &&
 		f.operations.find(isWorkerRecordUpdate)?.uuid === operation.uuid &&
-		usercaseSlotReasons(f, operation).length === 0
+		usercaseSlotReasons(f, operation).length === 0 &&
+		(planned.placement.kind === "basic" ||
+			!appendedNameTaken(f, USERCASE_BLOCK_NAME, undefined))
 	)
 		basic.push({ kind: "basic", slot: "usercase" });
 	if (operation.action === "create") {
 		if (planned.placement.kind === "basic") basic.push(planned.placement);
 		else if (
-			subcaseReasons(
-				f,
-				operation,
-				{ ownBasic: plan.ownBasic, sharers: plan.sharers },
-				"child",
-			).length === 0
+			subcaseReasons(f, operation, {
+				ownBasic: plan.ownBasic,
+				sharers: plan.sharers,
+			}).length === 0
 		) {
 			const forced = corePlan(
 				doc,

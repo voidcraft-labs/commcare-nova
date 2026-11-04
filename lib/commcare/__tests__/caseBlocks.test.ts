@@ -29,6 +29,7 @@ import { type CaseOperation, proseText } from "@/lib/domain";
 import { w } from "../xpath/wire/builders";
 import { sessionInstance } from "../xpath/wire/instances";
 import { caseOperationFixture } from "./caseOperationFixture";
+import { basicForm } from "./hqBasicShape";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(nodes: Element[]): Element {
@@ -409,7 +410,7 @@ function bothExports(
 ) {
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const hq = expandDoc(doc, attachmentTarget && { attachmentTarget });
-	const form = hq.modules[0].forms[formIndex];
+	const form = basicForm(hq, 0, formIndex);
 	const source = hq._attachments[`${form.unique_id}.xml`];
 	if (typeof source !== "string") throw new Error("Missing form source");
 	const zip = new AdmZip(

@@ -927,7 +927,10 @@ it("resolves attachment writes from persisted deployments on the selected server
 			const parts = blocks(result);
 			const hq = importedApp(result);
 			const xform = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
-			const update = hq.modules[0].forms[0].actions.update_case;
+			const form = hq.modules[0].forms[0];
+			if (form.doc_type !== "Form")
+				throw new Error("The capture form is in a basic menu.");
+			const update = form.actions.update_case;
 			if (linked) {
 				expect(update.update).toMatchObject({
 					photo_url: {

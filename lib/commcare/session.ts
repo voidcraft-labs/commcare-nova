@@ -49,7 +49,7 @@ import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
 } from "./suite/case-list/nodesetFilter";
-import type { FormActions } from "./types";
+import type { FormActions, OpenSubCaseAction } from "./types";
 import {
 	USERCASE_DATUM_ID,
 	USERCASE_ID_FUNCTION,
@@ -129,6 +129,35 @@ export interface SessionDatum {
 	 * the nodeset string.
 	 */
 	caseType?: string;
+	/**
+	 * The suffix HQ's `add_parent_datums` gives this datum's id where a root
+	 * menu's first form holds a datum of the same id: its `FormDatumMeta.
+	 * case_type`, which is `None` for an advanced form's auto-selected load
+	 * though the datum's function names `commcare-user`
+	 * (`suite_xml/sections/entries.py::EntriesHelper.
+	 * get_datum_meta_assertions_advanced`). Absent, the suffix is `caseType`.
+	 * Not rendered.
+	 */
+	alignmentSuffix?: string;
+	/** The datum reads the submitting worker's own record (an advanced
+	 *  form's load of it, which HQ selects on its own). Not rendered. */
+	workerRecord?: true;
+	/**
+	 * The tag of the advanced form's load this datum chooses the case of,
+	 * kept through HQ's child-module alignment, which may rename the datum:
+	 * the local case blocks read the load's case id from the datum the entry
+	 * gives it (`_create_casexml_advanced`'s `adjusted_datums`). Not rendered.
+	 */
+	advancedLoadTag?: string;
+	/**
+	 * The assertion the entry carries for this datum, after `<session>`: an
+	 * advanced form's load of the worker's record is stopped at the door
+	 * where the restore holds no such record, as HQ's
+	 * `EntriesHelper.get_auto_select_datums_and_assertions` writes it. A
+	 * child menu's copy of a root datum carries none, since HQ asserts only
+	 * the form's own loads.
+	 */
+	assertion?: { readonly test: WireExpr; readonly localeId: string };
 	/**
 	 * For a function datum whose function reads other session values:
 	 * re-renders `function` with every `session/data/<id>` reference
@@ -411,6 +440,14 @@ export function deriveCaseSelectionDatum(args: {
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
 	readonly parentSelection?: SessionDatum;
+	/**
+	 * The one index name the case is chosen under `parentSelection` by: an
+	 * advanced form's load lists the cases indexed to the earlier load under
+	 * that name (`EntriesHelper.get_parent_filter_by_ref_id`). Absent, a
+	 * basic selection lists the cases indexed to it under any index that is
+	 * not an extension.
+	 */
+	readonly parentIndex?: string;
 	readonly detailConfirm?: boolean;
 	readonly maxSelectValue?: number;
 	/** Where the selectable cases come from: the device's casedb, or the
@@ -496,19 +533,24 @@ export function deriveCaseSelectionDatum(args: {
 				]),
 			]);
 		const parentFilter =
-			parentSelection.maxSelectValue === undefined
-				? w.eq(parentIndexes(), sessionRef(parentSelection.id))
-				: w.gt(
-						w.call("count", [
-							parentIndexes([
-								w.call("selected", [
-									joinedSelectedCaseIds(parentSelection.id),
-									w.context([w.self()]),
+			args.parentIndex !== undefined
+				? w.eq(
+						w.context([w.step("index"), w.step(args.parentIndex)]),
+						sessionRef(parentSelection.id),
+					)
+				: parentSelection.maxSelectValue === undefined
+					? w.eq(parentIndexes(), sessionRef(parentSelection.id))
+					: w.gt(
+							w.call("count", [
+								parentIndexes([
+									w.call("selected", [
+										joinedSelectedCaseIds(parentSelection.id),
+										w.context([w.self()]),
+									]),
 								]),
 							]),
-						]),
-						w.num(0),
-					);
+							w.num(0),
+						);
 		return w.path(
 			base.root,
 			base.steps.map((step, index) =>
@@ -542,6 +584,38 @@ export function deriveCaseSelectionDatum(args: {
  */
 export function newCaseIdDatumId(caseType: string): string {
 	return `case_id_new_${validateCaseType(caseType)}_0`;
+}
+
+/**
+ * The id of the function datum a basic subcase outside a repeat mints its
+ * case's id into: `case_id_new_<type>_<i>`, `i` its position in the form's
+ * `subcases`, plus one where the form also opens its own case
+ * (`models/forms.py::FormBase.session_var_for_action`). Every basic subcase
+ * is a child case, so the position counts child creates alone.
+ */
+export function subcaseSessionDatumId(
+	subcase: Pick<OpenSubCaseAction, "case_type">,
+	index: number,
+	opensCase: boolean,
+): string {
+	return `case_id_new_${validateCaseType(subcase.case_type)}_${index + (opensCase ? 1 : 0)}`;
+}
+
+/**
+ * The id of the datum an advanced form's load reads its case from:
+ * `case_id_<tag>` (`models/form_actions.py::LoadUpdateAction.case_session_var`).
+ */
+export function advancedLoadDatumId(tag: string): string {
+	return `case_id_${tag}`;
+}
+
+/**
+ * The one datum of an advanced menu's case list entry:
+ * `case_id_case_<type>` (`suite_xml/sections/entries.py::
+ * EntriesHelper.entry_for_module`, the `AdvancedModule` arm).
+ */
+export function advancedCaseListDatumId(caseType: string): string {
+	return `case_id_case_${validateCaseType(caseType)}`;
 }
 
 /**
@@ -610,9 +684,147 @@ export interface SessionDatumsInput {
 	/** Pre-projected selectable datums. Nested child menus use this to carry
 	 * their parent-select chain and root-menu datum alignment. */
 	readonly caseSelectionDatums?: readonly SessionDatum[];
+	/**
+	 * Present for a form of an advanced menu: its loads, in
+	 * `load_update_cases` order. The entry is then HQ's advanced entry
+	 * (`suite_xml/sections/entries.py::EntriesHelper.
+	 * configure_entry_advanced_form`): one datum per load, then the new
+	 * cases' datums, and neither the basic selection, the worker's
+	 * `usercase_id` nor a grouped tile's companion.
+	 */
+	readonly advancedLoads?: readonly AdvancedLoadDatumInput[];
+}
+
+/** One load of an advanced form, as its datum needs it. */
+export interface AdvancedLoadDatumInput {
+	readonly tag: string;
+	readonly caseType: string;
+	/** Where the case is chosen from; absent for the worker's own record,
+	 *  which the entry selects on its own. */
+	readonly list?: {
+		/** The list module's position, which names its details. */
+		readonly moduleIndex: number;
+		readonly caseListFilter?: Expression;
+		readonly excludedOwnerIds?: Expression;
+		readonly expressions: ModuleExpressionContexts;
+		readonly lookupNaming?: LookupWireNaming;
+		readonly persistentDetailId?: string;
+		/** Whether the entry shows the case's details before going on. */
+		readonly detailConfirm: boolean;
+		readonly entryMetadataOnly?: boolean;
+		readonly datumId?: (ref: DatumRef) => string | undefined;
+	};
+	/** The earlier load this one is chosen under, by its position in the
+	 *  list, and the index name that joins them. */
+	readonly index?: { readonly load: number; readonly identifier: string };
+}
+
+/**
+ * The datums of an advanced form's loads, in order
+ * (`EntriesHelper.get_datum_meta_assertions_advanced`):
+ *
+ * - a load chosen from a list is `<datum id="case_id_<tag>">` over the open
+ *   cases of its type, narrowed by the list module's filter and, for a load
+ *   chosen under an earlier one, by `[index/<identifier> = <that load's
+ *   datum>]` (`get_parent_filter_by_ref_id`), with the list module's
+ *   details (`get_manual_datum`);
+ * - the worker's load is a function datum over the worker's own record,
+ *   with the assertion that the restore holds exactly one
+ *   (`get_auto_select_datums_and_assertions`, `AUTO_SELECT_USERCASE`).
+ */
+export function deriveAdvancedLoadDatums(
+	loads: readonly AdvancedLoadDatumInput[],
+): SessionDatum[] {
+	const datums: SessionDatum[] = [];
+	for (const load of loads) {
+		const id = advancedLoadDatumId(load.tag);
+		if (load.list === undefined) {
+			datums.push({
+				id,
+				function: USERCASE_ID_FUNCTION,
+				caseType: load.caseType,
+				alignmentSuffix: "None",
+				workerRecord: true,
+				advancedLoadTag: load.tag,
+				assertion: {
+					test: USERCASE_MISSING_ASSERT_TEST,
+					localeId: USERCASE_MISSING_LOCALE_ID,
+				},
+			});
+			continue;
+		}
+		const parent =
+			load.index === undefined ? undefined : datums[load.index.load];
+		const datum = deriveCaseSelectionDatum({
+			id,
+			caseType: load.caseType,
+			moduleIndex: load.list.moduleIndex,
+			caseListFilter: load.list.caseListFilter,
+			excludedOwnerIds: load.list.excludedOwnerIds,
+			expressions: load.list.expressions,
+			lookupNaming: load.list.lookupNaming,
+			persistentDetailId: load.list.persistentDetailId,
+			detailConfirm: load.list.detailConfirm,
+			entryMetadataOnly: load.list.entryMetadataOnly,
+			datumId: load.list.datumId,
+			...(parent !== undefined &&
+				load.index !== undefined && {
+					parentSelection: parent,
+					parentIndex: load.index.identifier,
+				}),
+		});
+		datum.parentSelection = parent;
+		datum.advancedLoadTag = load.tag;
+		datums.push(datum);
+	}
+	return datums;
+}
+
+/** The `uuid()` datums of the new cases HQ gives one, in its order. */
+export function newCaseFunctionDatums(
+	newCases: readonly { readonly id: string; readonly caseType: string }[],
+): SessionDatum[] {
+	return newCases.map((created) => ({
+		id: created.id,
+		function: w.call("uuid"),
+		caseType: created.caseType,
+	}));
+}
+
+/**
+ * The one datum of an advanced menu's case list entry: every open case of
+ * the menu's type, with the menu's details, and no filter, no case chosen
+ * before it and no alignment with a root menu
+ * (`EntriesHelper.entry_for_module`, the `AdvancedModule` arm). The menu
+ * item is admitted on an advanced menu only where its basic list holds the
+ * same cases (`lib/domain/advancedModule.ts::advancedKindBlockers`,
+ * `case-list-menu-item-narrowed`).
+ */
+export function deriveAdvancedCaseListDatum(args: {
+	readonly caseType: string;
+	readonly moduleIndex: number;
+	readonly expressions: ModuleExpressionContexts;
+	readonly hasDetailScreen: boolean;
+	readonly persistentDetailId?: string;
+	readonly entryMetadataOnly?: boolean;
+}): SessionDatum {
+	return deriveCaseSelectionDatum({
+		id: advancedCaseListDatumId(args.caseType),
+		caseType: args.caseType,
+		moduleIndex: args.moduleIndex,
+		expressions: args.expressions,
+		persistentDetailId: args.persistentDetailId,
+		detailConfirm: args.hasDetailScreen,
+		entryMetadataOnly: args.entryMetadataOnly,
+	});
 }
 
 export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
+	if (args.advancedLoads !== undefined)
+		return [
+			...deriveAdvancedLoadDatums(args.advancedLoads),
+			...newCaseFunctionDatums(args.newCases ?? []),
+		];
 	const {
 		formType,
 		moduleIndex,
@@ -675,15 +887,9 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 
 	// (2) and (3): the new cases HQ gives a datum, in its order
 	// (`EntriesHelper.get_new_case_id_datums_meta`): the own case where
-	// `open_case` is active, then every basic subcase outside a repeat,
-	// `condition: never` included, which is how an extension child's source
-	// block keeps the id HQ's datum gives it (`casePlacementPlan.ts`).
-	for (const created of newCases ?? [])
-		datums.push({
-			id: created.id,
-			function: w.call("uuid"),
-			caseType: created.caseType,
-		});
+	// `open_case` is active, then every basic subcase outside a repeat, as
+	// the form's plan numbers them (`casePlacementPlan.ts`).
+	datums.push(...newCaseFunctionDatums(newCases ?? []));
 
 	// (4) The grouped-tile companion datum. CCHQ emits it from
 	// `commcare-hq/.../suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`,
@@ -969,14 +1175,20 @@ export function deriveEntryDefinition(
 					},
 				]),
 	];
-	const assertions = datums.some((datum) => datum.id === USERCASE_DATUM_ID)
-		? [
-				{
-					test: USERCASE_MISSING_ASSERT_TEST,
-					localeId: USERCASE_MISSING_LOCALE_ID,
-				},
-			]
-		: undefined;
+	const entryAssertions = [
+		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID)
+			? [
+					{
+						test: USERCASE_MISSING_ASSERT_TEST,
+						localeId: USERCASE_MISSING_LOCALE_ID,
+					},
+				]
+			: []),
+		...datums.flatMap((datum) =>
+			datum.assertion === undefined ? [] : [datum.assertion],
+		),
+	];
+	const assertions = entryAssertions.length > 0 ? entryAssertions : undefined;
 	const instances = entryInstances(
 		datums,
 		operations,

@@ -8,6 +8,7 @@ import { slotContext } from "@/lib/domain/expression/context";
 import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
+import { parentCaseConstraint } from "../caseSelectionNavigation";
 import {
 	type ColumnDisplayContext,
 	projectColumnDisplay,
@@ -75,12 +76,11 @@ export async function appTestDetails(
 		...(searched
 			? { searchPopulation: { heldBy: context.restoreScope } }
 			: { restoreScope: context.restoreScope }),
-		parentCase: selected.parentCase
-			? {
-					caseType: selected.parentCase.caseType,
-					caseIds: selected.parentCase.cases.map((row) => row.caseId),
-				}
-			: undefined,
+		parentCase: parentCaseConstraint(
+			context.doc,
+			screen.moduleUuid,
+			selected.parentCase,
+		),
 	});
 	const project = appTestCellProjector(
 		context,

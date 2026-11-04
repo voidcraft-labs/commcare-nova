@@ -13,6 +13,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
 import { caseCaptureFixture, caseCaptureScenarios } from "./caseCaptureFixture";
+import { basicForm } from "./hqBasicShape";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function one(elements: Element[]): Element {
@@ -60,7 +61,7 @@ for (const scenario of caseCaptureScenarios) {
 				doc,
 				withTarget ? { attachmentTarget: target } : undefined,
 			);
-			const firstForm = hq.modules[0].forms[0];
+			const firstForm = basicForm(hq, 0, 0);
 			const sourceXml = hq._attachments[`${firstForm.unique_id}.xml`];
 			if (typeof sourceXml !== "string") throw new Error("Missing source form");
 			const source = formTree(sourceXml);

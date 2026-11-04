@@ -1516,3 +1516,53 @@ describe("scoped commits over held placements", () => {
 		).toBe(true);
 	});
 });
+
+describe("edits that decide a menu's kind", () => {
+	/* Which creates a form's links carry decides its menu's kind and the
+	 * session values its entry gives, which links from other forms read, so
+	 * a held kind, a link, and a new case change of a form with links each
+	 * take the absolute gate; a new case change of a form without links
+	 * keeps its bounded footprint. */
+	it("takes the absolute gate for a held menu kind, a link, and a linked form's case changes", () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		expect(
+			incrementalValidationScope(doc, [
+				{
+					kind: "holdPlacements",
+					holds: [{ target: "module-kind", moduleUuid, placement: "advanced" }],
+				} as Mutation,
+			]),
+		).toBeUndefined();
+		const link: Mutation = {
+			kind: "addFormLink",
+			formUuid,
+			link: {
+				uuid: testUuid("kind-scope-link"),
+				target: { type: "module", moduleUuid },
+			},
+		};
+		expect(incrementalValidationScope(doc, [link])).toBeUndefined();
+
+		const removeOwn: Mutation = {
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "remove",
+				uuid: ownCaseUuidFor(formUuid),
+			},
+		} as Mutation;
+		expect(incrementalValidationScope(doc, [removeOwn])).not.toBeUndefined();
+		const linked = structuredClone(doc);
+		linked.forms[formUuid] = {
+			...linked.forms[formUuid],
+			formLinks: [
+				{
+					uuid: testUuid("kind-scope-held-link"),
+					target: { type: "module", moduleUuid },
+				},
+			],
+		};
+		expect(actualScope(linked, [removeOwn], linked)).toBeUndefined();
+	});
+});

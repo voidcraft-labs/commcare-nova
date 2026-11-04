@@ -130,8 +130,9 @@
 			"schema:AdvancedModule"
 		],
 		"valueClass": "advanced-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: derived: a module is emitted as advanced exactly when one of its forms holds case selections beyond what a basic form expresses (`Form.caseSelections`, Advanced form actions; \"Case writes\") or holds an operation placed on an advanced action (\"Case writes\"), its case list or detail holds several address columns or a detail tile row across tabs (rows below), its case type is `commcare-user` (the usercase list module), it holds `Module.autoSelectSingle`, or it was published or imported as advanced (a module's kind is then held like a placement, so an advanced module that no longer needs it, such as one of surveys, stays advanced until an edit needs a basic module, \"Case writes\"); no `parent_select`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived, never chosen: a module is emitted as advanced where a create one of its forms makes is carried by an after-submit link into a form of the new case's type and a basic form would give that case no session value, or where its kind is held (`Module.heldKind`, which the publish that first sends it advanced records, so a module that no longer needs it stays advanced), and no kind blocker holds (`lib/domain/advancedModule.ts::advancedKindBlockers`: several cases chosen, forms reading the search, a narrowed case list menu item, a parent selection linked under two index names); no `parent_select`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1738,6 +1739,29 @@
 			"markers": []
 		},
 		"gates": ["project-space-setting/Domain.commtrack_enabled"]
+	},
+	{
+		"id": "menus-and-case-lists/module-case-list-show-false-on-an-advancedmodule",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`Module.case_list.show: false` on an `AdvancedModule`",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list",
+			"schema:CaseList",
+			"schema:CaseList.show"
+		],
+		"valueClass": "hidden-on-an-advanced-module",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: default: HQ builds the case list menu item only where `case_list.show` is true (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, `suite_xml/sections/menus.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`case_list.show: false`",
+			"markers": []
+		},
+		"gates": []
 	},
 	{
 		"id": "menus-and-case-lists/module-case-list-label-lang",

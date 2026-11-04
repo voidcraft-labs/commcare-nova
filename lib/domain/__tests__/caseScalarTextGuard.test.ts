@@ -176,9 +176,12 @@ it("includes a Hidden Value source, which takes the trimmed sibling", () => {
 	expect(byId(doc, caseScalarTextGuards(doc, FORM))).not.toHaveProperty("name");
 });
 
-it("leaves a create under no case of the form to the block that saves it", () => {
-	// Unlinked, the visit is a Save to Case block, which trims and checks the
-	// name it writes itself.
+it("reserves an unlinked create's name, which an advanced open action reads, until the placement decides", () => {
+	// Unlinked, the visit takes no basic action: in a basic form it is a Save
+	// to Case block, which trims and checks its own name, and in an advanced
+	// form an open action, which reads the question's trimmed sibling. With
+	// no placement known, its question is a candidate, so the generated-node
+	// names hold a sibling for either.
 	const doc = app("registration");
 	const form = doc.forms[FORM];
 	const visit = form?.caseOperations?.find(
@@ -190,9 +193,18 @@ it("leaves a create under no case of the form to the block that saves it", () =>
 	expect(byId(doc, caseScalarTextGuards(doc, FORM))).toEqual({
 		name: "reject",
 		external: "allow",
+		visit_name: "reject",
+	});
+	// Placed in a Save to Case block, it takes no sibling.
+	const placedBasic = (operationUuid: Uuid) => operationUuid !== VISIT;
+	expect(byId(doc, caseScalarTextGuards(doc, FORM, { placedBasic }))).toEqual({
+		name: "reject",
+		external: "allow",
 	});
 	expect(
-		[...caseCreateNameFields(doc, FORM)].map((uuid) => doc.fields[uuid]?.id),
+		[...caseCreateNameFields(doc, FORM, { placedBasic })].map(
+			(uuid) => doc.fields[uuid]?.id,
+		),
 	).toEqual(["name"]);
 });
 

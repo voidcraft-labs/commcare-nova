@@ -23,6 +23,10 @@ const BASIC: readonly CasePlacement[] = [
 	{ kind: "basic", slot: "subcase", index: 2 },
 	{ kind: "basic", slot: "subcase-row" },
 ];
+const ADVANCED: readonly CasePlacement[] = [
+	{ kind: "advanced", tag: "load_visit0" },
+	{ kind: "advanced", tag: "open_visit_1", row: true },
+];
 const SAVE_TO_CASE: readonly CasePlacement[] = [
 	{ kind: "save-to-case", path: ["save_visit"] },
 	{ kind: "save-to-case", repeat: REPEAT, path: ["nova_subcases", "visit"] },
@@ -32,6 +36,12 @@ describe("placementLabel", () => {
 	it("names every Case Management slot Case Management", () => {
 		for (const placement of BASIC) {
 			expect(placementLabel(placement)).toBe("case-management");
+		}
+	});
+
+	it("names every advanced load and open action the form's case actions", () => {
+		for (const placement of ADVANCED) {
+			expect(placementLabel(placement)).toBe("case-actions");
 		}
 	});
 
@@ -51,7 +61,7 @@ describe("placementLabel", () => {
 
 describe("placementLine", () => {
 	it("says the change is kept where the published app has it only when held", () => {
-		for (const placement of [...BASIC, ...SAVE_TO_CASE]) {
+		for (const placement of [...BASIC, ...ADVANCED, ...SAVE_TO_CASE]) {
 			const line = placementLine(placement);
 			expect(line.endsWith(HELD_PLACEMENT_SUFFIX)).toBe(false);
 			expect(placementLine(placement, false)).toBe(line);

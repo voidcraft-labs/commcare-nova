@@ -440,8 +440,10 @@ function allocateCreateIdentities(
 			continue;
 		}
 		// A case the entry's session names takes the id the form read as
-		// `session/data/<datum>` while it ran. The builder names only creates
-		// that run once per submission, so the id is never reused.
+		// `session/data/<datum>` while it ran, whatever its placement: every
+		// create the form's wire plan gives a datum. Each has its own key, and
+		// the builder names only creates outside a repeat, so no id is reused
+		// within one submission.
 		const entryCaseKey = program.entryCaseKeys?.get(operation.uuid);
 		if (entryCaseKey !== undefined) {
 			allocations.set(index, {

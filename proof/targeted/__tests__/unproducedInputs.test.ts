@@ -31,25 +31,27 @@
  *   the read from before the refusal, and the lane observes what HQ does
  *   with it.
  * - **Defect 20's `product_id` datum** (under CommTrack). HQ gives it only
- *   to an advanced module: the case list menu item of an `AdvancedModule`,
- *   and an advanced form whose last load action shows product stock
- *   (`suite_xml/sections/entries.py`, both branches under
- *   `isinstance(module, AdvancedModule)` and `form.actions.
- *   get_load_update_actions`). Nova's HQ module is a `Module` by its type
- *   (`lib/commcare/types.ts`, `doc_type: "Module"`), and a document that
- *   holds both features HQ's branches read (a module that is only its case
- *   list, whose menu item HQ shows, and a form that loads a case) exports a
- *   basic module with basic actions, so neither branch is reached. The
- *   accepted counterpart is the case list menu item itself, which the
- *   export does show.
+ *   to an advanced module: the entry of an `AdvancedModule`'s case list
+ *   menu item, and an advanced form whose last load shows product stock
+ *   (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module` and
+ *   `::configure_entry_advanced_form`, both under `isinstance(module,
+ *   AdvancedModule)`). Nova exports a menu advanced where an after-submit
+ *   link carries a create a basic form gives no datum
+ *   (`lib/commcare/moduleKind.ts`), but writes no case list menu item
+ *   beside an advanced menu's forms (part 02 §17) and no load that shows
+ *   product stock (`LoadUpdateAction.show_product_stock` is `false` by its
+ *   type), so neither branch is reached. The accepted counterparts are the
+ *   advanced menu itself and a case list menu item on a basic menu, which
+ *   the export does write.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, CaseOperation, FormLink } from "@/lib/domain";
 import { plainColumn, proseText } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 
 const ID = "targeted-unproduced-inputs";
@@ -61,6 +63,9 @@ const uuid = (name: string) => targetedUuid(ID, name);
 interface HqForm {
 	readonly actions?: {
 		readonly subcases?: readonly { readonly case_type: string }[];
+		readonly load_update_cases?: readonly {
+			readonly show_product_stock: boolean;
+		}[];
 	};
 }
 interface HqApp {
@@ -256,21 +261,36 @@ describe("a form that reads the session's supply point", () => {
 });
 
 describe("defect 20's product_id datum", () => {
-	it("is reached by no export: a case list menu item and a form that loads a case export a basic module", () => {
+	const OWN = uuid("own");
+	const VISIT = uuid("visit");
+	const name = {
+		kind: "term",
+		term: { kind: "field", uuid: uuid("name") },
+	} as Expression;
+
+	/** A household registration that creates a visit of the household, and a
+	 *  link that carries the visit to its review form, which makes the
+	 *  Households menu advanced; beside it a menu that is only a case list. */
+	function stock(): BlueprintDoc {
 		const doc = buildDoc({
 			appId: ID,
 			appName: "Stock",
 			caseTypes: [
 				{
-					name: "client",
+					name: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+				{
+					name: "visit",
+					parent_type: "household",
 					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 			modules: [
 				{
 					uuid: uuid("list-only"),
-					name: "Client list",
-					caseType: "client",
+					name: "Household list",
+					caseType: "household",
 					caseListOnly: true,
 					caseListConfig: caseListOf([
 						plainColumn(uuid("list-name"), "case_name", "Name"),
@@ -279,15 +299,38 @@ describe("defect 20's product_id datum", () => {
 				},
 				{
 					uuid: uuid("module"),
-					name: "Clients",
-					caseType: "client",
+					name: "Households",
+					caseType: "household",
 					caseListConfig: caseListOf([
-						plainColumn(uuid("name"), "case_name", "Name"),
+						plainColumn(uuid("household-name"), "case_name", "Name"),
 					]),
 					forms: [
 						{
 							uuid: uuid("form"),
-							name: "Visit",
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									uuid: uuid("name"),
+									id: "name",
+									label: proseText("Name"),
+								}),
+							],
+						},
+					],
+				},
+				{
+					uuid: uuid("visits"),
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: caseListOf([
+						plainColumn(uuid("visit-name"), "case_name", "Name"),
+					]),
+					forms: [
+						{
+							uuid: uuid("review"),
+							name: "Review",
 							type: "followup",
 							fields: [
 								f({
@@ -302,22 +345,68 @@ describe("defect 20's product_id datum", () => {
 				},
 			],
 		});
-		const app = exported(doc);
-		// The case list menu item HQ's first branch keys on is shown ...
+		const operations = [
+			{ uuid: OWN, id: "household", action: "own", name },
+			{
+				uuid: VISIT,
+				id: "visit",
+				action: "create",
+				caseType: "visit",
+				target: { kind: "new" },
+				name,
+				links: [
+					{
+						identifier: "parent",
+						targetType: "household",
+						target: { kind: "op", opUuid: OWN },
+						relationship: "extension",
+					},
+				],
+			},
+		] as CaseOperation[];
+		const links: FormLink[] = [
+			{
+				uuid: uuid("link"),
+				target: {
+					type: "form",
+					moduleUuid: uuid("visits"),
+					formUuid: uuid("review"),
+				},
+			},
+		];
+		doc.forms[uuid("form")] = {
+			...doc.forms[uuid("form")],
+			caseOperations: operations,
+			formLinks: links,
+		};
+		return doc;
+	}
+
+	it("is reached by no export: an advanced menu writes no case list menu item beside its forms and no load that shows product stock", () => {
+		const app = exported(stock());
+		// The accepted counterparts: the carried create makes its menu
+		// advanced, and the basic menu that is only a case list shows its
+		// menu item ...
+		expect(app.modules.map((module) => module.doc_type)).toEqual([
+			"Module",
+			"AdvancedModule",
+			"Module",
+		]);
 		expect(app.modules.map((module) => module.case_list?.show)).toEqual([
 			true,
 			false,
+			false,
 		]);
-		// ... on a basic module, and the form that loads a case does so with basic actions, so HQ's advanced branches,
-		// the only ones that add the datum, are never reached.
-		expect(app.modules.map((module) => module.doc_type)).toEqual([
-			"Module",
-			"Module",
-		]);
+		// ... while no advanced menu shows one beside its forms, and no load
+		// of an advanced form shows product stock: HQ's two branches that add
+		// the datum are never reached.
 		for (const module of app.modules) {
-			for (const form of module.forms) {
-				expect(form.actions).not.toHaveProperty("load_update_cases");
-			}
+			if (module.doc_type !== "AdvancedModule") continue;
+			expect(module.forms.length).toBeGreaterThan(0);
+			expect(module.case_list?.show).toBe(false);
+			for (const form of module.forms)
+				for (const load of form.actions?.load_update_cases ?? [])
+					expect(load.show_product_stock).toBe(false);
 		}
 	});
 });
