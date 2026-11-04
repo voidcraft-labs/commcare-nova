@@ -416,10 +416,14 @@ A Hidden Value that saves to a case property is a typed writer
 `lib/domain/expression/inference.ts::hiddenWriterVerdicts`): each value it can
 end with must be write-assignable to the property's agreed type
 (`lib/domain/expression/ruleSets.ts::isWriteAssignable`: storage assignability,
-plus a `format-date` fixed to `%Y-%m-%d` into a date property), a date and
-time whose clock may be gone cannot write a date-and-time property, and Hidden
-Values that alone type a property must agree (`int` with `decimal` on
-`decimal`, `text` with `single_select` on `text`). Each disagreeing writer is
+plus a `format-date` fixed to `%Y-%m-%d` into a date property) where that type
+is one a loading question casts, so text it can't read stops the form
+(`lib/domain/casePropertyTypes.ts::CASTING_PROPERTY_TYPES`: dates, times,
+numbers, locations), or several choices, which a case keeps as a list; a text
+or single choice property takes any value's text. A date and time whose clock
+may be gone cannot write a date-and-time property, and Hidden Values that alone
+type a property must agree (`int` with `decimal` on `decimal`, `text` with
+`single_select` on `text`) where one of them names a type a question casts. Each disagreeing writer is
 `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the field. A blank `''` fits every
 property, and a starting value that reads the case's own value of the
 property (a preload) types as that property, so it holds no opinion.

@@ -45,7 +45,10 @@ import type {
 	CaseType,
 	PersistableDoc,
 } from "../blueprint";
-import type { CasePropertyDataType } from "../casePropertyTypes";
+import {
+	CASTING_PROPERTY_TYPES,
+	type CasePropertyDataType,
+} from "../casePropertyTypes";
 import { caseDataTypeForFieldKind } from "../caseTypes";
 import { formOfField } from "../fieldForm";
 import type { Field, HiddenField } from "../fields";
@@ -182,12 +185,13 @@ export interface ExpressionInference {
 
 /** Why a Hidden Value writer disagrees with the property it writes. */
 export type HiddenWriterFindingReason =
-	/** An output is not storage-assignable to the property's type. */
+	/** An output is not write-assignable to the property's type, one every
+	 * result must fit (`FITTED_PROPERTY_TYPES`). */
 	| "type"
 	/** An output whose clock may be gone writes a date-and-time property. */
 	| "clock-lost"
 	/** Only Hidden Values type the property, and they (or this one's own
-	 * outputs) name different types. */
+	 * outputs) name different types, one of them a type a question casts. */
 	| "hidden-disagreement";
 
 export interface HiddenWriterFinding {
@@ -350,8 +354,10 @@ export function inferenceFingerprint(doc: PersistableDoc): string {
 
 /**
  * Each Hidden Value writer that disagrees with the property it writes, with
- * the outputs that disagree. A property no fact types holds no finding except
- * Hidden-only disagreement.
+ * the outputs that disagree. A result that does not fit is a finding only
+ * where the property's type is one every result must fit
+ * (`FITTED_PROPERTY_TYPES`). A property no fact types holds no finding
+ * except a Hidden-only disagreement that names a type a question casts.
  */
 export function hiddenWriterVerdicts(
 	doc: PersistableDoc,
@@ -364,8 +370,10 @@ export function hiddenWriterVerdicts(
 			?.get(writer.property) ?? { type: undefined, origin: undefined };
 		const findings: HiddenWriterFinding[] = [];
 		if (property.type !== undefined) {
+			const fitted = FITTED_PROPERTY_TYPES.has(property.type);
 			for (const output of writer.outputs) {
 				if (
+					fitted &&
 					output.type !== undefined &&
 					!isWriteAssignable(output.type, property.type, output.isoDateText)
 				)
@@ -383,7 +391,12 @@ export function hiddenWriterVerdicts(
 			}
 		} else if (
 			property.writersDisagree !== true &&
-			hiddenOnlyDisagreement(inference, writer)
+			// A disagreement among text and choices leaves the property
+			// untyped, which every one of those values is read back as; one
+			// that names a type a question casts can stop a form.
+			[...(hiddenOnlyDisagreement(inference, writer) ?? [])].some((type) =>
+				CASTING_PROPERTY_TYPES.has(type),
+			)
 		) {
 			for (const output of writer.outputs)
 				if (output.type !== undefined)
@@ -398,12 +411,21 @@ export function hiddenWriterVerdicts(
 	return verdicts;
 }
 
+/** The types a Hidden-only disagreement names, where there is one: the
+ * writer's own results where they disagree, else every opinion of the
+ * property's Hidden Value writers. */
 function hiddenOnlyDisagreement(
 	inference: ExpressionInference,
 	writer: HiddenOpinion,
-): boolean {
-	if (!writer.outputs.some((output) => output.type !== undefined)) return false;
-	if (writer.outputsDisagree) return true;
+): ReadonlySet<CasePropertyDataType> | undefined {
+	if (!writer.outputs.some((output) => output.type !== undefined))
+		return undefined;
+	if (writer.outputsDisagree)
+		return new Set(
+			writer.outputs.flatMap((output) =>
+				output.type === undefined ? [] : [output.type],
+			),
+		);
 	const opinions = new Set<CasePropertyDataType>();
 	for (const other of inference.hiddenOpinions.values())
 		if (
@@ -412,8 +434,26 @@ function hiddenOnlyDisagreement(
 			other.opinion !== undefined
 		)
 			opinions.add(other.opinion);
-	return agreedStorageType(opinions) === undefined && opinions.size > 1;
+	return opinions.size > 1 && agreedStorageType(opinions) === undefined
+		? opinions
+		: undefined;
 }
+
+/**
+ * The property types every result of a Hidden Value that saves there must
+ * fit. A follow-up question that fills itself from a date, time, number or
+ * location property casts the saved text through its own answer class, and
+ * text that class can't read stops the form (`CASTING_PROPERTY_TYPES`). A
+ * list of choices is kept by Nova's case store as a list
+ * (`lib/case-store/postgres/submissionEnvelope.ts::
+ * storageValueFromEvaluation`), which holds no other text. Text and a single
+ * choice take whatever text a result gives, so a result of another kind
+ * saved there reaches its readers as that text and stops nothing.
+ */
+const FITTED_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
+	...CASTING_PROPERTY_TYPES,
+	"multi_select",
+]);
 
 /** A persisted document carries no `fieldParent`; slot contexts need it. */
 function withFieldParent(doc: PersistableDoc): BlueprintDoc {

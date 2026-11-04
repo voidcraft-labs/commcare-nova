@@ -988,8 +988,7 @@ describe("editField — demotions", () => {
 	it("text → hidden as the last typed writer pins the undeclared property to text", async () => {
 		// The converted Hidden Value holds no type opinion until it has a
 		// value, so the pin freezes the entry at the type its rows already
-		// hold: a later value of another type meets writer agreement
-		// instead of retyping the property.
+		// hold: a later value of another type can't retype the property.
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -1056,16 +1055,14 @@ describe("editField — demotions", () => {
 			conversion: { caseProperty: { declaredType: "text" } },
 		});
 
+		// A date saved to the text property is kept as its text, which every
+		// reader of text takes, so it is admitted and the property stays text.
 		const dated = await h.runTool(editFieldTool, {
 			...address(doc, "visit_note"),
 			updates: { kind: "hidden", calculate: today() },
 		});
-		expect(dated.result).toHaveProperty("error");
-		if (!("error" in dated.result))
-			throw new Error("A date was saved over the pinned text property.");
-		expect(dated.result.error).toContain(
-			'saves a date to "visit_note" on "patient", which holds text',
-		);
+		if ("error" in dated.result) throw new Error(dated.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		expect(declared()).toBe("text");
 		const texted = await h.runTool(editFieldTool, {
 			...address(doc, "visit_note"),

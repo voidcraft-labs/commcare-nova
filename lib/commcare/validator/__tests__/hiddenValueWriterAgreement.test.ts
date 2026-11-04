@@ -413,7 +413,7 @@ describe("one finding per writer, its consequence told by the property's type", 
 		).toEqual([]);
 	});
 
-	it("names several choices apart from text, and tells what a choice property's readers get", () => {
+	it("names several choices apart from text, and tells that a case keeps a list of choices", () => {
 		const errors = validate(
 			doc({
 				properties: [
@@ -429,50 +429,72 @@ describe("one finding per writer, its consequence told by the property's type", 
 					reason: "type",
 					valueType: "text",
 					propertyType: "multi_select",
-					consequence: "wrong-kind",
+					consequence: "holds-choices",
 				}),
 			}),
 		]);
 		expect(errors[0].message).toBe(
-			'Hidden value "tag" in "Register" saves text to "tags" on "patient", which holds several choices (as the case type declares it). Forms and case lists that read "tags" would get text where they expect several choices. You can change the calculation so it gives several choices, or save it to another property.',
+			'Hidden value "tag" in "Register" saves text to "tags" on "patient", which holds several choices (as the case type declares it). Each case keeps "tags" as a list of choices, which can\'t hold text. You can change the calculation so it gives several choices, or save it to another property.',
 		);
 	});
 
-	it("tells a choice property's readers get a number, beside a whole-number property's form that stops", () => {
-		const choice = validate(
-			doc({
-				properties: [
-					{ name: "stage", label: "Stage", data_type: "single_select" },
-				],
-				register: [hidden("count", { calculate: "1 + 1" }, "stage")],
-			}),
-		);
-		expect(choice).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({
-					valueType: "int",
-					consequence: "wrong-kind",
+	// A text or single choice property takes whatever text a result gives,
+	// so only a property a question casts, or a list of choices, refuses a
+	// value of another kind.
+	it.each([
+		{ calculate: "1 + 1", type: "single_select", refused: false },
+		{ calculate: "today()", type: "text", refused: false },
+		{ calculate: "#form/tags", type: "text", refused: false },
+		{ calculate: "1.5", type: "int", refused: true },
+		{ calculate: "'many'", type: "decimal", refused: true },
+		{ calculate: "'noon'", type: "time", refused: true },
+		{ calculate: "'here'", type: "geopoint", refused: true },
+		{ calculate: "'open'", type: "multi_select", refused: true },
+	] satisfies {
+		calculate: string;
+		type: NonNullable<Properties[number]["data_type"]>;
+		refused: boolean;
+	}[])(
+		"judges $calculate saved to a $type property refused: $refused",
+		({ calculate, type, refused }) => {
+			const errors = validate(
+				doc({
+					properties: [{ name: "kept", label: "Kept", data_type: type }],
+					register: [
+						f({
+							kind: "multi_select",
+							id: "tags",
+							label: "Tags",
+							options: [
+								{ value: "vip", label: "VIP" },
+								{ value: "urgent", label: "Urgent" },
+							],
+						}),
+						hidden("value", { calculate }, "kept"),
+					],
 				}),
-			}),
-		]);
-		expect(choice[0].message).toContain(
-			'Forms and case lists that read "stage" would get a whole number where they expect a choice.',
-		);
-		const whole = validate(
-			doc({
-				properties: [{ name: "score", label: "Score", data_type: "int" }],
-				register: [hidden("half", { calculate: "1.5" }, "score")],
-			}),
-		);
-		expect(whole).toEqual([
-			expect.objectContaining({
-				details: expect.objectContaining({ consequence: "stops-form" }),
-			}),
-		]);
-		expect(whole[0].message).toContain(
-			"would stop when it opens on a value that isn't a whole number",
-		);
-	});
+			);
+			expect(errors).toEqual(
+				refused
+					? [
+							expect.objectContaining({
+								code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+								details: expect.objectContaining({
+									reason: "type",
+									propertyType: type,
+									consequence:
+										type === "multi_select" ? "holds-choices" : "stops-form",
+								}),
+							}),
+						]
+					: [],
+			);
+			if (refused && type !== "multi_select")
+				expect(errors[0].message).toContain(
+					"would stop when it opens on a value that isn't",
+				);
+		},
+	);
 });
 
 describe("Hidden Values that alone type a property", () => {
@@ -538,28 +560,42 @@ describe("Hidden Values that alone type a property", () => {
 		).toBe("text");
 	});
 
-	it("keeps a several-choice copy apart from text, which storage keeps out of it", () => {
-		const errors = validate(
-			doc({
-				register: [
-					f({
-						kind: "multi_select",
-						id: "tags",
-						label: "Tags",
-						options: [
-							{ value: "vip", label: "VIP" },
-							{ value: "urgent", label: "Urgent" },
-						],
-					}),
-					hidden("copy", { calculate: "#form/tags" }, "stage_note"),
-				],
-				followUp: [hidden("words", { calculate: "'vip'" }, "stage_note")],
-			}),
-		);
-		expect(errors.map(({ code, details }) => [code, details?.reason])).toEqual([
-			["HIDDEN_VALUE_WRITER_TYPE_MISMATCH", "hidden-disagreement"],
-			["HIDDEN_VALUE_WRITER_TYPE_MISMATCH", "hidden-disagreement"],
-		]);
+	it("leaves a several-choice copy beside text untyped, which every reader takes as text", () => {
+		const tags = f({
+			kind: "multi_select",
+			id: "tags",
+			label: "Tags",
+			options: [
+				{ value: "vip", label: "VIP" },
+				{ value: "urgent", label: "Urgent" },
+			],
+		});
+		const built = doc({
+			register: [
+				tags,
+				hidden("copy", { calculate: "#form/tags" }, "stage_note"),
+			],
+			followUp: [hidden("words", { calculate: "'vip'" }, "stage_note")],
+		});
+		expect(validate(built)).toEqual([]);
+		expect(
+			inferExpressionTypes(built)
+				.caseTypes.find((type) => type.name === "patient")
+				?.properties.find((property) => property.name === "stage_note")
+				?.data_type,
+		).toBeUndefined();
+		// One writer's own several-choice and text results, the same way.
+		const own = doc({
+			register: [
+				tags,
+				hidden(
+					"either",
+					{ calculate: "if(#form/flag = 'yes', #form/tags, 'none')" },
+					"stage_note",
+				),
+			],
+		});
+		expect(validate(own)).toEqual([]);
 	});
 
 	it("reports each Hidden writer of a disagreement", () => {

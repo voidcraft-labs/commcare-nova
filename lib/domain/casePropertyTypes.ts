@@ -117,6 +117,19 @@ export const ORDERED_DATA_TYPES: ReadonlySet<string> = new Set([
 	"datetime",
 ]);
 
+/**
+ * The property types whose question casts the saved text through its own
+ * answer class when a form fills it from the case, and stops the form on
+ * text the class can't read (`SetValueAction.java::processAction` →
+ * `AnswerDataFactory.templateByDataType(...).cast`: `DateData`,
+ * `DateTimeData`, `TimeData`, `IntegerData`, `DecimalData` and
+ * `GeoPointData` throw `IllegalArgumentException`). Text and both choice
+ * classes take any text (`StringData.cast`, `SelectOneData.cast`,
+ * `SelectMultiData.cast`).
+ */
+export const CASTING_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> =
+	new Set(["date", "datetime", "time", "int", "decimal", "geopoint"]);
+
 // ── Per-shape predicates ──────────────────────────────────────────
 //
 // Each predicate accepts the structural `{ data_type? }` shape so

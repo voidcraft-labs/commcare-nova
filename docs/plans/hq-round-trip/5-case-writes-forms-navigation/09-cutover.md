@@ -2099,6 +2099,18 @@ writer converging exactly the planned differences (G7).
   writers agree (`FIELD_KIND_WRITERS_DISAGREE`, the inferred property type, and the writer opinions a case
   operation's write reads) on the one of their types that holds every other
   (`ruleSets.ts::agreedStorageType`), the join Hidden Values already used.
+- **A Hidden Value's result of another kind is refused only where it would break a reader** (the advisory
+  scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an
+  operation saves its answer to, so a calculation `main` admitted beside an operation, giving several choices
+  into a text property or text and several choices from different results, met
+  `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the head. `inference.ts::hiddenWriterVerdicts` now refuses a result
+  that does not fit only where the property is a type a loading question casts
+  (`casePropertyTypes.ts::CASTING_PROPERTY_TYPES`, moved from the rule: a date, time, number or location,
+  whose text a question can't read stops the form) or several choices, which Nova's case store keeps as a
+  list and can't hold other text in; and a Hidden-only disagreement only where it names a type a question
+  casts. A text or single choice property takes any result's text. Several choices stay refused although
+  no question stops on them, because Nova's own submission path refuses a value that is not a list there
+  (`submissionEnvelope.ts::storageValueFromEvaluation`), as `main`'s operation check did.
 
 ## Executed during planning
 
