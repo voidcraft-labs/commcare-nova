@@ -510,7 +510,7 @@ describe("writer opinions beside a case operation's write", () => {
 		// Without a declaration the question and the decimal question beside it
 		// agree on decimal, and the operation's decimal fits it too.
 		const undeclared = withFollowUpWrites(
-			doc({ register: [amount], followUp: [count], properties }),
+			doc({ register: [count], followUp: [amount], properties }),
 			[{ property: "amount", value: literalValue(1.5) }],
 		);
 		expect(propertyType(undeclared, "amount")).toBe("decimal");
