@@ -82,7 +82,10 @@ import type { FieldCaseWriteDestination } from "@/lib/doc/fieldCaseWriteMutation
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCasePlacements } from "@/lib/doc/hooks/useCasePlacements";
-import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import {
+	useEffectiveCaseTypes,
+	usePropertyAgreedType,
+} from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoiceVerdicts } from "@/lib/doc/hooks/useCaseWriteChoices";
 import { useFieldCaseWrites } from "@/lib/doc/hooks/useFieldCaseWrites";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -320,14 +323,9 @@ function useRowModel(
 	const propertyLabel = usePropertyLabel();
 	const sentenceContext = useOperationSentenceContext(context?.form.uuid);
 	const operation = useCaseOperation(context?.form.uuid, view?.operationUuid);
-	const caseTypes = useEffectiveCaseTypes();
+	const propertyType = usePropertyAgreedType(view?.caseType, view?.property);
 	return useMemo(() => {
 		if (view === undefined || context === null) return undefined;
-		const propertyType = caseTypes
-			.find((caseType) => caseType.name === view.caseType)
-			?.properties.find(
-				(property) => property.name === view.property,
-			)?.data_type;
 		return caseWriteRowModel({
 			view,
 			field,
@@ -349,7 +347,7 @@ function useRowModel(
 		propertyLabel,
 		operation,
 		sentenceContext,
-		caseTypes,
+		propertyType,
 		placement,
 		onlyIfChangedVerdict,
 	]);

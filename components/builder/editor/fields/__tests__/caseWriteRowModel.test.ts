@@ -17,12 +17,12 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
-	effectiveCaseTypes,
 	type Field,
 	type FieldCaseWriteView,
 	fieldCaseWriteViewKey,
 	fieldCaseWriteViews,
 	humanizeId,
+	propertyAgreedType,
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -166,10 +166,8 @@ function rowOf(
 		throw new Error("The fixture question saves its answer nowhere.");
 	const formUuid = view.formUuid;
 	const moduleUuid = doc.moduleOrder[0];
-	// The property's type as the editor reads it, from the effective catalog.
-	const propertyType = effectiveCaseTypes(doc)
-		.find((caseType) => caseType.name === view.caseType)
-		?.properties.find((property) => property.name === view.property)?.data_type;
+	// The property's type as the editor reads it (`usePropertyAgreedType`).
+	const propertyType = propertyAgreedType(doc, view.caseType, view.property);
 	return caseWriteRowModel({
 		view,
 		field: doc.fields[fieldUuid] as Field,

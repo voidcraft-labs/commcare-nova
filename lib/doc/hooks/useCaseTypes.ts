@@ -14,9 +14,11 @@
 "use client";
 
 import {
+	type CasePropertyDataType,
 	type CaseType,
 	effectiveCaseTypes,
 	materializableCaseTypes,
+	propertyAgreedType,
 } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
@@ -42,6 +44,23 @@ export function useCaseTypes(): CaseType[] {
  */
 export function useEffectiveCaseTypes(): readonly CaseType[] {
 	return useBlueprintDoc((s) => effectiveCaseTypes(s));
+}
+
+/**
+ * The type a property's values can be: its declaration, else the one its
+ * writers agree on (`lib/domain/startingValueFit.ts::propertyAgreedType`,
+ * the reading the "Saves to" planner judges a starting value by); undefined
+ * where nothing types it. Memoized per doc through the inference fixpoint.
+ */
+export function usePropertyAgreedType(
+	caseType: string | undefined,
+	property: string | undefined,
+): CasePropertyDataType | undefined {
+	return useBlueprintDoc((s) =>
+		caseType === undefined || property === undefined
+			? undefined
+			: propertyAgreedType(s, caseType, property),
+	);
 }
 
 /**
