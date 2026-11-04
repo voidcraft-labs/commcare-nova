@@ -561,12 +561,15 @@ function linkCaptureWrites(
 					continue;
 				// A standard property CommCare keeps as the case's own value, in
 				// which the validator's `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`
-				// refuses a link; a name is the operation's `name`, above.
+				// refuses a link. A name is filed as `case-name` wherever it is
+				// met, though a write of `case_name` is reserved and stops above,
+				// and a case's name is the operation's `name`, judged first.
 				if (isWritableStandardCaseProperty(write.property)) {
-					const what = write.property === "case_name" ? "name" : "external id";
+					const name = write.property === "case_name";
+					const what = name ? "name" : "external id";
 					place(
 						capture,
-						"external-id",
+						name ? "case-name" : "external-id",
 						`“${operation.id}” in “${form.name}” saves the file “${question(capture)}” captures as the case's ${what}. Nova now saves a capture as a link to its file, and CommCare keeps a case's ${what} as its own text. You can save the file to a property of its own.`,
 					);
 					continue;
