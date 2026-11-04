@@ -42,7 +42,9 @@ export function formPrintContext(
 	const form = context.form;
 	const names = referenceNames(scope.doc);
 	const projection =
-		form === undefined ? undefined : formNodeProjection(scope.doc, form);
+		form === undefined
+			? undefined
+			: formNodeProjection(scope.doc, form, { surface: "authoring" });
 	const datums =
 		form === undefined
 			? []

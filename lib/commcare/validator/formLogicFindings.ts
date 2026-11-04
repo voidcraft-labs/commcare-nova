@@ -13,6 +13,7 @@ import {
 	dayOnlyRefusalCopy,
 	expressionContextAtPath,
 	formComparisonOperandTypes,
+	repeatCountTypeWords,
 	type ScalarType,
 	scalarDataType,
 	typeOf,
@@ -63,6 +64,7 @@ export interface FormLogicFinding {
 		| "SEARCH_RESULTS_NOT_SUPPLIED"
 		| "SEARCH_RESULTS_READ_INVALID"
 		| "LOCATIONS_READ_NEEDS_ORGANIZATION"
+		| "REPEAT_COUNT_TYPE"
 	>;
 	readonly message: string;
 	readonly slot?: SlotContextRef;
@@ -217,6 +219,63 @@ function repeatCrossed(
 	const uuid = error.several.repeat;
 	const id = ctx?.form?.fields.get(uuid)?.id;
 	return id === undefined ? undefined : { uuid, id };
+}
+
+/** The reasons the checker gives a repeat count that isn't a whole number
+ * (`typeChecker.ts::repeatCountRefusal`). */
+const REPEAT_COUNT_REASONS: ReadonlySet<string> = new Set([
+	"whole-number-count",
+	"count-choice-not-whole",
+	"count-choices-unknown",
+]);
+/** A refused repeat count, named by its repeat and, where it reads a single
+ * select, by that select. Core reads a count as
+ * `IntegerData().cast(count.uncast())`, so a count that isn't whole stops the
+ * form. */
+function repeatCountFinding(
+	error: CheckError,
+	ctx: ExpressionContext | undefined,
+):
+	| {
+			readonly message: string;
+			readonly details: Record<string, string>;
+	  }
+	| undefined {
+	if (error.reason === undefined || !REPEAT_COUNT_REASONS.has(error.reason))
+		return undefined;
+	const count = error.repeatCount ?? {};
+	const repeatId =
+		ctx?.slot.entity === "field"
+			? ctx.form?.fields.get(ctx.slot.uuid)?.id
+			: undefined;
+	const repeat = repeatId ?? "this repeat";
+	const select = count.selectId ?? "a single-answer question";
+	const details: Record<string, string> = {
+		reason: error.reason,
+		...(repeatId === undefined ? {} : { repeatId }),
+		...(count.type === undefined ? {} : { countType: count.type }),
+		...(count.selectId === undefined ? {} : { select: count.selectId }),
+		...(count.select === undefined ? {} : { selectUuid: count.select }),
+		...(count.value === undefined ? {} : { value: count.value }),
+		...(count.source === undefined ? {} : { source: count.source }),
+	};
+	switch (error.reason) {
+		case "count-choice-not-whole":
+			return {
+				details,
+				message: `"${repeat}" counts its rows from "${select}", and the choice "${count.value ?? ""}" isn't a whole number, so CommCare would stop the form when a worker picks it. You can give that choice a whole-number value, or wrap the count in int(...).`,
+			};
+		case "count-choices-unknown":
+			return {
+				details,
+				message: `"${repeat}" counts its rows from "${select}", whose choices come from ${count.source === "lookup" ? "a data table" : "the worker's cases"}, so Nova can't tell that each one is a whole number. You can wrap the count in int(...) to keep its whole part.`,
+			};
+		default:
+			return {
+				details,
+				message: `The count for "${repeat}" can be ${repeatCountTypeWords(count.type)}, and a repeat needs a whole number of rows. CommCare stops the form at a count that isn't whole. You can wrap the count in int(...) to keep its whole part.`,
+			};
+	}
 }
 
 export function formLogicFinding(
@@ -589,6 +648,14 @@ export function formLogicFinding(
 					? `${owner.slotSubject} shows an answer from every entry of ${entries}, where it can show only one. CommCare stops the form when there's more than one. You can move this question into the repeat, or show a hidden value that counts or joins the entries.`
 					: `${owner.slotSubject} reads an answer from every entry of ${entries} in a place that needs one value. CommCare stops the form when there's more than one. You can count the entries, join them, or read one entry, like the first.`;
 			}
+			break;
+		}
+		case "expected-value": {
+			const count = repeatCountFinding(error, ctx);
+			if (count === undefined) break;
+			code = "REPEAT_COUNT_TYPE";
+			message = count.message;
+			details = count.details;
 			break;
 		}
 		case "datetime-literal-precision": {

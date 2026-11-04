@@ -88,6 +88,10 @@ import {
 	type InstanceRoot,
 } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
+import {
+	type CountPlacementRowNames,
+	countPlacementRowPieces,
+} from "./countPlacementRow";
 import { datetimeCaseValueExpression } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
 import type { FormExpressionEmission } from "./formExpressions";
@@ -364,6 +368,23 @@ export function formEmitsSaveToCase(
 	);
 }
 
+/** The generated nodes of a selected-cases iteration in the count placement:
+ * the wrapper's ids and count, and each row's id and index. */
+type SelectedCountPlacement = CountPlacementRowNames;
+
+/** The count placement's names for the selected-cases iteration named
+ * `name`, spelled as a query repeat's (`queryRepeatNames.ts`). Nothing
+ * authored shares either namespace: the wrapper holds only `item` beside
+ * them, and the row only its operations group. */
+function selectedCountPlacementNames(name: string): SelectedCountPlacement {
+	return {
+		ids: `nova_query_ids_${name}`,
+		count: `nova_query_count_${name}`,
+		id: `nova_query_id_${name}`,
+		index: `nova_query_index_${name}`,
+	};
+}
+
 /** Build every operation block for one form. Pure: returned DOM nodes are
  * orphaned until `attachCaseOperationData` places them in the primary
  * instance tree.
@@ -424,12 +445,16 @@ export function buildCaseOperations(
 		}
 	}
 
+	/** One selected-cases iteration. At the form root it is model iteration
+	 * (`@ids`, `@count`, the row's `@id`); inside a repeat it is the count
+	 * placement (`countPlacement`), whose row id is a child node. */
 	interface SelectedScope {
 		readonly authoredParentPath: FormPath;
 		readonly name: string;
 		readonly containerPath: FormPath;
 		readonly itemPath: FormPath;
 		readonly idPath: FormPath;
+		readonly countPlacement?: SelectedCountPlacement;
 	}
 	const selectedScopes = new Map<string, SelectedScope>();
 	const selectedScopeAt = (authoredParentPath: FormPath): SelectedScope => {
@@ -439,12 +464,20 @@ export function buildCaseOperations(
 		const name = generatedNodes.selectedCases(authoredParentPath);
 		const containerPath = authoredParentPath.child(name);
 		const itemPath = containerPath.queryBoundIteration();
+		const countPlacement =
+			authoredParentPath.segments().length === 1
+				? undefined
+				: selectedCountPlacementNames(name);
 		const scope = {
 			authoredParentPath,
 			name,
 			containerPath,
 			itemPath,
-			idPath: itemPath.attr("id"),
+			idPath:
+				countPlacement === undefined
+					? itemPath.attr("id")
+					: itemPath.child(countPlacement.id),
+			...(countPlacement !== undefined && { countPlacement }),
 		};
 		selectedScopes.set(key, scope);
 		return scope;
@@ -1605,6 +1638,21 @@ export function buildCaseOperations(
 			throw new Error(
 				"Selected-case iteration needs the entry's selected-case instance.",
 			);
+		if (scope.countPlacement !== undefined) {
+			emitSelectedCountPlacement(
+				scope,
+				scope.countPlacement,
+				groupControl(group),
+				el(group.name, {}, group.children),
+				selectedCasesInstanceId,
+				context,
+				binds,
+				setvalues,
+				dataChildren,
+				bodyChildren,
+			);
+			continue;
+		}
 		binds.push(
 			xel(
 				"bind",
@@ -1617,12 +1665,13 @@ export function buildCaseOperations(
 				context,
 			),
 		);
-		const nested = !atRoot(scope.authoredParentPath);
+		// Model iteration stands at the form root alone, so it fills its ids
+		// and count as the form loads.
 		setvalues.push(
 			xel(
 				"setvalue",
 				{
-					attributes: { event: nested ? "jr-insert" : "xforms-ready" },
+					attributes: { event: "xforms-ready" },
 					xpath: {
 						ref: idsPath.toWire(),
 						value: joinedSelectedCaseIds(selectedCasesInstanceId),
@@ -1633,7 +1682,7 @@ export function buildCaseOperations(
 			xel(
 				"setvalue",
 				{
-					attributes: { event: nested ? "jr-insert" : "xforms-ready" },
+					attributes: { event: "xforms-ready" },
 					xpath: {
 						ref: countPath.toWire(),
 						value: w.call("count-selected", [idsPath.toWire()]),
@@ -1686,7 +1735,6 @@ export function buildCaseOperations(
 			),
 		});
 		bodyChildren.push({
-			...(nested && { parentRepeatPath: scope.authoredParentPath }),
 			placement: "append",
 			// A repeat's wrapper group carries no `ref`, as HQ's form builder
 			// writes it (`mugs/types/group.js`, `writeControlRefAttr: null`).
@@ -1713,6 +1761,133 @@ export function buildCaseOperations(
 		setvalues,
 		bodyChildren,
 	};
+}
+
+/**
+ * A selected-cases iteration inside a repeat, in the count placement a query
+ * repeat takes there (`builder.ts::buildQueryRepeat`):
+ *
+ *   <nova_selected_cases>
+ *     <nova_query_ids_nova_selected_cases/> <nova_query_count_nova_selected_cases/>
+ *     <item jr:template="">
+ *       <nova_query_id_nova_selected_cases/> <nova_query_index_nova_selected_cases/> <nova_operations>…</nova_operations>
+ *     </item>
+ *   </nova_selected_cases>
+ *
+ * Model iteration cannot stand there: its `@current_index` counts the rows of
+ * every outer row, so a second outer row reads an index past its own ids
+ * (`questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind`).
+ * Here every read is relative to the outer row: the ids and count are
+ * calculates in the wrapper, each row's index and id are the count
+ * placement's (`countPlacementRow.ts`), and a row past the end is not
+ * relevant (`position()`, which names no trigger, so the row's condition is
+ * not its own trigger: `XPathConditional.java::getExprsTriggersAccumulator`).
+ */
+function emitSelectedCountPlacement(
+	scope: {
+		readonly authoredParentPath: FormPath;
+		readonly name: string;
+		readonly containerPath: FormPath;
+		readonly itemPath: FormPath;
+		readonly idPath: FormPath;
+	},
+	names: SelectedCountPlacement,
+	operationsControl: Element,
+	operationsData: Element,
+	selectedCasesInstanceId: string,
+	context: WireElementContext,
+	binds: Element[],
+	setvalues: Element[],
+	dataChildren: CaseOperationDataChild[],
+	bodyChildren: CaseOperationBodyChild[],
+): void {
+	const idsPath = scope.containerPath.child(names.ids);
+	const countPath = scope.containerPath.child(names.count);
+	const generatedBind = (
+		path: FormPath,
+		calculate: WireExpr,
+		type?: "xsd:int",
+	): Element =>
+		xel(
+			"bind",
+			{
+				...(type === undefined ? {} : { attributes: { type } }),
+				xpath: {
+					nodeset: path.toWire(),
+					"vellum:nodeset": path.toWire("hashtag"),
+					calculate,
+				},
+			},
+			context,
+		);
+	const guard = w.lt(
+		w.call("position"),
+		w.context([w.parent(), w.step(names.count)]),
+	);
+	binds.push(
+		generatedBind(idsPath, joinedSelectedCaseIds(selectedCasesInstanceId)),
+		generatedBind(
+			countPath,
+			w.call("count-selected", [w.context([w.parent(), w.step(names.ids)])]),
+			"xsd:int",
+		),
+		xel(
+			"bind",
+			{
+				xpath: {
+					"vellum:nodeset": scope.itemPath.toWire("hashtag"),
+					nodeset: scope.itemPath.toWire(),
+					relevant: guard,
+					"vellum:relevant": guard,
+				},
+			},
+			context,
+		),
+	);
+	const row = countPlacementRowPieces(scope.itemPath, names, context);
+	binds.push(...row.binds);
+	setvalues.push(...row.setvalues);
+	dataChildren.push({
+		parentPath: scope.authoredParentPath,
+		placement: "append",
+		element: el(scope.name, {}, [
+			el(names.ids, {}),
+			el(names.count, {}),
+			el("item", { "jr:template": "" }, [
+				el(names.id, {}),
+				el(names.index, {}),
+				operationsData,
+			]),
+		]),
+	});
+	bodyChildren.push({
+		parentRepeatPath: scope.authoredParentPath,
+		placement: "append",
+		// The wrapper's own group carries its `ref` and nothing else, so HQ's
+		// form builder reads it as a plain Group around a Repeat named `item`;
+		// the repeat's group carries none, as the form builder writes it.
+		element: xel(
+			"group",
+			{ xpath: { ref: scope.containerPath.toWire() } },
+			context,
+			[
+				el("group", {}, [
+					xel(
+						"repeat",
+						{
+							attributes: { "jr:noAddRemove": "true()" },
+							xpath: {
+								nodeset: scope.itemPath.toWire(),
+								"jr:count": countPath.toWire(),
+							},
+						},
+						context,
+						[operationsControl],
+					),
+				]),
+			],
+		),
+	});
 }
 
 /** Attach operation groups under `/data` or their exact repeat template. */

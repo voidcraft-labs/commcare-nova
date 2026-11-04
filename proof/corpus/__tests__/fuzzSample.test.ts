@@ -23,7 +23,7 @@ import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema } from "@/lib/domain";
+import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import {
 	DEFAULT_CORPUS_SEED,
 	DEFAULT_EXPRESSION_SAMPLE_SIZE,
@@ -56,6 +56,22 @@ function asWritten(sampled: SampledDocument): unknown {
 		),
 	);
 }
+
+/**
+ * Each step 5 shape a draw could hold that the cutover maps in a stored app,
+ * read from the drawn document and the codes its validation raises, so the
+ * observation is the gate's and not the mapping's own planner. Pull requests
+ * that make another drawn shape inadmissible add theirs here.
+ */
+const STEP_5_SHAPES: readonly {
+	readonly name: string;
+	readonly heldBy: (doc: BlueprintDoc, codes: ReadonlySet<string>) => boolean;
+}[] = [
+	{
+		name: "a repeat count that isn't a whole number",
+		heldBy: (_doc, codes) => codes.has("REPEAT_COUNT_TYPE"),
+	},
+];
 
 function draw(sampleSize: number, sampleSeed = seed): SampledDocument[] {
 	return sampleFuzzDocuments({
@@ -141,6 +157,30 @@ describe("the corpus's fuzz sample", () => {
 			expect.arrayContaining(["model_date", "model_time"]),
 		);
 		expect(split.filter((field) => field.kind === "datetime")).toEqual([]);
+	});
+
+	it("maps each step 5 shape of a draw as the cutover maps a stored app", () => {
+		const sample = sampleFuzzDocuments({
+			size: 24,
+			seed: DEFAULT_CORPUS_SEED,
+			manifestFor,
+		});
+		for (const sampled of sample) {
+			const doc = hydratePersistedBlueprint(
+				blueprintDocSchema.parse((asWritten(sampled) as { doc: unknown }).doc),
+			);
+			const codes = new Set(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+					(finding) => finding.code,
+				),
+			);
+			expect(
+				STEP_5_SHAPES.filter((shape) => shape.heldBy(doc, codes)).map(
+					(shape) => shape.name,
+				),
+				sampled.document.id,
+			).toEqual([]);
+		}
 	});
 
 	afterAll(() => {

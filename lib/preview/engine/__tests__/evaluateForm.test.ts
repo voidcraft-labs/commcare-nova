@@ -648,7 +648,7 @@ it("uses the running Search's date-range values in a no-matches registration", a
 	);
 });
 
-it("continues an entry without rerunning defaults or rematerializing its query rows", async () => {
+it("continues an entry without rerunning defaults, its query rows following the answer they read", async () => {
 	const doc = await createEvaluationApp(
 		[
 			{
@@ -751,20 +751,25 @@ it("continues an entry without rerunning defaults or rematerializing its query r
 		{
 			formUuid,
 			caseIds: ["pump"],
-			answers: [{ path: "parts[1]/condition", value: "Replace" }],
+			answers: [{ path: "parts[0]/condition", value: "Replace" }],
 		},
 		{ ...context, entry: changed.entry },
 	);
 	expect(resumed.fields.find((field) => field.path === "token")?.value).toBe(
 		opened.fields.find((field) => field.path === "token")?.value,
 	);
+	// The query reads an answer, so its rows follow it: the entry keeps both
+	// rows, and the one past the end of the new result leaves the form.
 	expect(
 		resumed.fields
 			.filter((field) => field.path.endsWith("/part_id"))
-			.map((field) => field.value),
-	).toEqual(["rotor", "seal"]);
+			.map((field) => [field.participates, field.value]),
+	).toEqual([
+		[true, "rotor"],
+		[false, undefined],
+	]);
 	expect(
-		resumed.fields.find((field) => field.path === "parts[1]/condition")?.value,
+		resumed.fields.find((field) => field.path === "parts[0]/condition")?.value,
 	).toBe("Replace");
 	expect(resumed.entry?.entryKey).toBe(opened.entry?.entryKey);
 });

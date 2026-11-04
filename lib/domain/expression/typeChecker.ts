@@ -222,6 +222,17 @@ export interface CheckError {
 		readonly feature: PlatformFeatureId;
 		readonly platform: Platform;
 	};
+	/** On `expected-value` in a repeat count (reasons `whole-number-count`,
+	 * `count-choice-not-whole`, `count-choices-unknown`): the count's type,
+	 * or the single select it reads with its first value that isn't whole or
+	 * where its choices come from. */
+	readonly repeatCount?: {
+		readonly type?: ScalarType;
+		readonly select?: Uuid;
+		readonly selectId?: string;
+		readonly value?: string;
+		readonly source?: "lookup" | "cases";
+	};
 }
 export interface InstantRefusal {
 	readonly comparison: "ordering" | "equality";
@@ -737,9 +748,108 @@ export function checkExpression(
 		errors.push(manyValuesError(outcome.type.several, [], ctx));
 	if (expectation.kind === "assignment")
 		assignmentErrors(expression, ctx, expectation.destinations, errors);
+	if (expectation.kind === "repeat-count") {
+		const refused = repeatCountRefusal(expression, outcome, ctx);
+		if (refused !== undefined) errors.push(refused);
+	}
 	if (ctx.slot.entity === "field" && ctx.slot.slot === "default_value")
 		checkChoiceDefault(expression, ctx, errors);
 	return { type: outcome.type, errors };
+}
+
+/** The whole numbers Core's `IntegerData.cast` (`Integer.parseInt`) reads that
+ * Nova admits as a choice value a count reads: ASCII digits with an optional
+ * sign, inside Java's `int` range. A literal choice value, not XPath. */
+const WHOLE_CHOICE_VALUE = /^[+-]?[0-9]+$/;
+export function isWholeChoiceValue(value: string): boolean {
+	if (!WHOLE_CHOICE_VALUE.test(value)) return false;
+	const number = Number(value);
+	return number >= -2147483648 && number <= 2147483647;
+}
+
+/** What a count that isn't whole can be, in a person's words. */
+export function repeatCountTypeWords(type: ScalarType | undefined): string {
+	switch (type) {
+		case "decimal":
+			return "a decimal number";
+		case "text":
+			return "text";
+		case "multi_select":
+			return "a list of choices";
+		case "date":
+			return "a date";
+		case "datetime":
+			return "a date and time";
+		case "time":
+			return "a time";
+		case "boolean":
+			return "true or false";
+		case "geopoint":
+			return "a location";
+		case "_any":
+			return "any kind of value";
+		default:
+			return "a value that isn't a whole number";
+	}
+}
+
+/** A repeat's count is a whole number: Core reads it as
+ * `IntegerData().cast(count.uncast())` (`FormEntryModel.createModelForGroup`,
+ * `FormDef.canCreateRepeat`), and anything `Integer.parseInt` cannot read stops
+ * the form. An `int` result is whole; so is a read of a single select whose
+ * inline choices are each whole-number text, in any spelling. */
+function repeatCountRefusal(
+	expression: Expression,
+	outcome: CheckOutcome,
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	const data = scalarDataType(outcome.type?.data);
+	if (data === "int") return undefined;
+	if (outcome.type === undefined && outcome.errors.length > 0) return undefined;
+	const term = expression.kind === "term" ? expression.term : undefined;
+	const select =
+		term?.kind === "field" &&
+		term.filters === undefined &&
+		term.role === undefined
+			? ctx.form?.fields.get(term.uuid)
+			: undefined;
+	if (select?.kind === "single_select" && select.choices !== undefined) {
+		const choices = select.choices;
+		if (choices.kind !== "inline")
+			return {
+				path: [],
+				code: "expected-value",
+				reason: "count-choices-unknown",
+				message: `This count reads "${select.id}", whose choices come from ${choices.kind === "lookup" ? "a data table" : "the worker's cases"}, so Nova can't tell that each one is a whole number. You can wrap the count in int(...) to keep its whole part.`,
+				repeatCount: {
+					select: select.uuid,
+					selectId: select.id,
+					source: choices.kind,
+				},
+			};
+		const notWhole = choices.options.find(
+			(option) => !isWholeChoiceValue(option.value),
+		);
+		if (notWhole === undefined) return undefined;
+		return {
+			path: [],
+			code: "expected-value",
+			reason: "count-choice-not-whole",
+			message: `This count reads "${select.id}", and its choice "${notWhole.value}" isn't a whole number, so CommCare would stop the form when a worker picks it. You can give that choice a whole-number value, or wrap the count in int(...).`,
+			repeatCount: {
+				select: select.uuid,
+				selectId: select.id,
+				value: notWhole.value,
+			},
+		};
+	}
+	return {
+		path: [],
+		code: "expected-value",
+		reason: "whole-number-count",
+		message: `This count can be ${repeatCountTypeWords(data)}, and a repeat needs a whole number of rows. CommCare stops the form at a count that isn't whole. You can wrap the count in int(...) to keep its whole part.`,
+		repeatCount: data === undefined ? {} : { type: data },
+	};
 }
 
 /** Internal writer inference has no authored profile. It still needs the
@@ -2935,18 +3045,9 @@ function inferTerm(
 					term.node.role === "query-position"
 				)
 					return severalNodes(nodes("int", "number"), several);
-				const expression = form.expressionAt({
-					entity: "field",
-					uuid: term.node.repeat,
-					slot: "repeat_count",
-				});
-				const countType = isExpression(expression)
-					? infer(expression, ctx).type
-					: undefined;
-				return severalNodes(
-					nodes(scalarDataType(countType?.data) ?? "decimal", "number"),
-					several,
-				);
+				// A count is a whole number (`repeatCountRefusal`), held under
+				// its carrier's `xsd:int` or read directly as one.
+				return severalNodes(nodes("int", "number"), several);
 			}
 			if (
 				term.node.kind === "connect-learn" &&

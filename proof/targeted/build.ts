@@ -19,6 +19,14 @@
  * admits over D, and what it commits must be exactly D′ as written. That
  * batch is the document's edit (`CorpusDocument.edit`).
  *
+ * A query repeat's held placement (`placement`, `HELD_FIELD_KEYS`) is no
+ * editor's choice, and no mutation an editor sends writes one: a publish
+ * records it, or a migration writes it for an app already published. A
+ * document written with one (a migration witness, holding what the cutover
+ * writes for its published app) is planned without it, and the hold is then
+ * laid on the committed document as the migration writes it, which the gate
+ * must admit whole. An edit never changes a hold.
+ *
  * Every identity a document holds is named from the document's id
  * (`targetedUuid`), never drawn from `buildDoc`'s counter, so a targeted
  * document is the same whatever was built before it in the process.
@@ -38,6 +46,7 @@ import {
 	type PersistableDoc,
 	type Uuid,
 } from "@/lib/domain";
+import type { QueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	type CorpusDocument,
@@ -117,6 +126,43 @@ function firstDifference(a: unknown, b: unknown, path = ""): string {
 	return path === "" ? "/" : path;
 }
 
+/** The placement each query repeat of `doc` holds, by its uuid. */
+function heldPlacements(doc: BlueprintDoc): Map<Uuid, QueryRepeatPlacement> {
+	const holds = new Map<Uuid, QueryRepeatPlacement>();
+	for (const field of Object.values(doc.fields)) {
+		if (
+			field.kind === "repeat" &&
+			field.repeat_mode === "query_bound" &&
+			field.placement !== undefined
+		)
+			holds.set(field.uuid, field.placement);
+	}
+	return holds;
+}
+
+/** `doc` with each query repeat holding the placement `holds` names, and the
+ * others holding none. */
+function withPlacements(
+	doc: BlueprintDoc,
+	holds: ReadonlyMap<Uuid, QueryRepeatPlacement>,
+): BlueprintDoc {
+	if (holds.size === 0 && heldPlacements(doc).size === 0) return doc;
+	const fields = Object.create(null) as BlueprintDoc["fields"];
+	for (const [uuid, field] of Object.entries(doc.fields) as [
+		Uuid,
+		BlueprintDoc["fields"][Uuid],
+	][]) {
+		if (field.kind !== "repeat" || field.repeat_mode !== "query_bound") {
+			fields[uuid] = field;
+			continue;
+		}
+		const { placement: _held, ...unheld } = field;
+		const placement = holds.get(uuid);
+		fields[uuid] = placement === undefined ? unheld : { ...unheld, placement };
+	}
+	return { ...doc, fields };
+}
+
 /**
  * `to` as Nova's diff planner makes it from `from` and Nova's commit gate
  * admits it: the batch and the document committed. Throws, naming what
@@ -129,9 +175,13 @@ function planned(
 	lookup: LookupFixtureDataSnapshot | undefined,
 	authored?: readonly Mutation[],
 ): { readonly mutations: Mutation[]; readonly committed: PersistableDoc } {
-	const mutations = authored ?? diffDocsToMutations(from, to);
+	const holds = heldPlacements(to);
+	const unheld = new Map<Uuid, QueryRepeatPlacement>();
+	const planFrom = withPlacements(from, unheld);
+	const mutations =
+		authored ?? diffDocsToMutations(planFrom, withPlacements(to, unheld));
 	const verdict = mutationCommitVerdict(
-		from,
+		planFrom,
 		mutations,
 		lookupContextOf(lookup),
 	);
@@ -144,7 +194,24 @@ function planned(
 				)}), so it is not a document an editor could make; change what it holds.`,
 		);
 	}
-	const committed = storedDocument(verdict.nextDoc);
+	let next = verdict.nextDoc;
+	if (holds.size > 0) {
+		// The holds as a migration writes them, admitted whole.
+		const held = mutationCommitVerdict(
+			withPlacements(next, holds),
+			[],
+			lookupContextOf(lookup),
+		);
+		if (!held.ok) {
+			throw new Error(
+				`Nova's commit gate refused the placements ${subject} holds (${held.findings
+					.map((finding) => `${finding.code}: ${finding.message}`)
+					.join("; ")}); hold only a placement its query repeat can take.`,
+			);
+		}
+		next = held.nextDoc;
+	}
+	const committed = storedDocument(next);
 	const written = storedDocument(to);
 	if (!isDeepStrictEqual(committed, written)) {
 		throw new Error(
@@ -173,6 +240,14 @@ export function targetedDocument(spec: TargetedSpec): CorpusDocument {
 		spec.doc,
 		spec.lookup,
 	);
+	if (
+		spec.edit !== undefined &&
+		!isDeepStrictEqual(heldPlacements(spec.doc), heldPlacements(spec.edit))
+	) {
+		throw new Error(
+			`The edit of the targeted document ${spec.id} changes a query repeat's held placement, which no editor's edit writes; hold the same placements in both documents.`,
+		);
+	}
 	const edit =
 		spec.edit === undefined
 			? undefined

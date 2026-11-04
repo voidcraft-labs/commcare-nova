@@ -431,3 +431,44 @@ it("joins a date question and a time question into a date and time a case saves,
 		caseWrite: { caseType: "visit", property: "visited_at" },
 	});
 });
+
+it("counts a repeat by a whole number, wrapping a decimal count in int(...)", async () => {
+	expect(guide).toContain(
+		"A count must be a whole number: an integer question, a single choice whose values are whole numbers, a hidden value whose calculation is a whole number, or an expression wrapped in int(...).",
+	);
+	const { h } = await fixture();
+	expect(
+		await h.call("addFields", {
+			formUuid: "Check",
+			fields: [{ kind: "decimal", id: "size", label: "Household size" }],
+		}),
+	).toMatchObject({ ok: true });
+	const addCounted = (id: string, count: string) =>
+		h.call("addFields", {
+			formUuid: "Check",
+			fields: [
+				{
+					kind: "repeat",
+					id,
+					label: "Rooms",
+					repeat: { mode: "count_bound", count },
+				},
+			],
+		});
+	// A decimal count stops the form in CommCare, so the gate refuses it and
+	// names the int(...) the guide teaches.
+	expect(await addCounted("halves", "#form/size div 2")).toMatchObject({
+		error: expect.stringMatching(
+			new RegExp(
+				`^${GATE_REFUSAL}[\\s\\S]*wrap the count in int\\(\\.\\.\\.\\)`,
+			),
+		),
+	});
+	expect(await addCounted("rooms", "int(#form/size div 2)")).toMatchObject({
+		ok: true,
+	});
+	const rooms = Object.values(h.currentDoc().fields).find(
+		(candidate) => candidate.id === "rooms",
+	);
+	expect(rooms).toMatchObject({ kind: "repeat", repeat_mode: "count_bound" });
+});

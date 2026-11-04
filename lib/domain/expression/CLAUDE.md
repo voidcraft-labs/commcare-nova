@@ -277,6 +277,16 @@ never stored raw-XPath validation codes. There is no printed-source checker.
 - `parent` is the only relation identifier the `CaseType.parent_type` graph can
   infer. Every custom saved index name needs an explicit `throughCaseType` /
   `ofCaseType`; never pretend a custom index follows the `parent_type` graph.
+- A repeat count's expectation is a whole number: `int`, or a read of a single
+  select whose inline choices are whole numbers (ASCII digits with an optional
+  sign, inside Java's `int` range, the part of `Integer.parseInt` Nova admits).
+  Anything else is `expected-value` reason `whole-number-count` (with
+  `CheckError.repeatCount.type`), `count-choice-not-whole` (the select and its
+  first value that isn't whole) or `count-choices-unknown` (a select whose
+  choices come from a data table or cases). A read of a count repeat's
+  `count-result` is `int`.
+- A query repeat's `relevant` evaluates at its row (`{kind: "field", uuid}`),
+  in both placements, so a stored condition prints relative to the row.
 - `count(self)` is the cardinality of the current row: `1` without a filter, or
   `1`/`0` according to its `where`.
 - `case-list-search-text` is a value arm, not a `Term`: it names no identity,

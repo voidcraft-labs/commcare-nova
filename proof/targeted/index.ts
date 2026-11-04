@@ -72,7 +72,12 @@ import {
 import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { platformDeclaration } from "./documents/platformDeclaration";
 import { previewAndroidRenders } from "./documents/previewAndroidRenders";
-import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
+import {
+	queryRepeatPlacements,
+	queryRepeatPlaces,
+	repeatCountCopy,
+	repeatCountWhole,
+} from "./documents/repeats";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
 	listFirstPlaces,
@@ -168,6 +173,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	migrationFormLinks,
 	migrationGroupsPreloads,
 	migrationRepeatCounts,
+	queryRepeatPlacements,
+	repeatCountWhole,
 ];
 
 /** Every targeted document, in a fixed order. */

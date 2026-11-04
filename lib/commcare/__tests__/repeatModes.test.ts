@@ -24,9 +24,11 @@ describe("repeat wire structure (actual entry and row identities checked by Cont
 		const counts =
 			scenario === "path"
 				? ["/data/size"]
-				: scenario === "cousins"
-					? ["/data/one/nova_count_items", "/data/two/nova_count_items"]
-					: ["/data/nova_count_items"];
+				: scenario === "hidden-count"
+					? ["/data/desired"]
+					: scenario === "cousins"
+						? ["/data/one/nova_count_items", "/data/two/nova_count_items"]
+						: ["/data/nova_count_items"];
 		expect(elements("repeat").map((e) => e.attribs["jr:count"])).toEqual(
 			counts,
 		);
@@ -47,20 +49,26 @@ describe("repeat wire structure (actual entry and row identities checked by Cont
 					]
 				: [],
 		);
-		if (scenario !== "path")
+		// An int question and an int-calculated Hidden Value are named
+		// directly, with no carrier.
+		if (scenario === "path" || scenario === "hidden-count")
+			expect(
+				elements("bind").filter((e) =>
+					e.attribs.nodeset.endsWith("nova_count_items"),
+				),
+			).toEqual([]);
+		else
 			for (const [index, path] of counts.entries()) {
 				expect(
 					elements("bind").find((e) => e.attribs.nodeset === path)?.attribs,
 				).toMatchObject({
 					type: "xsd:int",
 					calculate:
-						scenario === "hidden-count"
-							? "/data/desired"
-							: scenario === "expression"
-								? "/data/size + 2"
-								: scenario === "cousins" && index === 1
-									? "5"
-									: "3",
+						scenario === "expression"
+							? "/data/size + 2"
+							: scenario === "cousins" && index === 1
+								? "5"
+								: "3",
 				});
 			}
 	});

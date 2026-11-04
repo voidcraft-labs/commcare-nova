@@ -16,7 +16,11 @@ import { AppAccessError, resolveAppScopeInTransaction } from "./appAccess";
 import { loadAppInTransaction } from "./apps";
 import { type AppDatabase, withAppTx } from "./pg";
 
-export const RUNTIME_VERSION = 17;
+/** The App Test runtime a journey was started under. A journey pins its
+ * document, so a runtime that reads that document differently (version 18:
+ * query repeats, repeat counts and case operations) refuses to continue a
+ * journey started under an earlier one (`lib/preview/app-tests/CLAUDE.md`). */
+export const RUNTIME_VERSION = 18;
 const MAX_STEPS = 200;
 const MAX_ACTIVE_TESTS = 8;
 type JsonRecord = Record<string, unknown>;

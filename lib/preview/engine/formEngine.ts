@@ -88,6 +88,10 @@ import type {
 	ProseSlotRef,
 } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
+import {
+	effectiveQueryRepeatPlacement,
+	type QueryRepeatPlacement,
+} from "@/lib/domain/queryRepeatPlacement";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
@@ -173,6 +177,7 @@ import { defaultPreviewDevice, type PreviewDevice } from "./previewDevice";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
 import {
+	type CascadeChange,
 	type ExpressionEvaluationPaths,
 	type InitializationExpression,
 	TriggerDag,
@@ -764,6 +769,14 @@ export class FormEngine {
 	 * whole-form screen, a group's or a question's path on Android. */
 	private activeScreenPath: string | undefined;
 	private initializationStates: EngineStoreState | undefined;
+	/** The states the last initialization program left: each condition it
+	 * ran, which `publishInitializedSections` publishes. */
+	private lastInitializationStates: EngineStoreState | undefined;
+	/** Answers a worker-backed entry has shown but not yet applied to the
+	 * instance: `settleValueChangesAsync` applies each after its request's
+	 * opening pass (`beginRequest`), which reads the instance as it was
+	 * before the request. */
+	private stagedValues = new Map<string, string>();
 	private initializationContext: XPathInitializationContext | undefined;
 	private readonly presentationLanguage: LanguageTag | undefined;
 	/** The search answers a no-matches form reads; empty outside an admitted
@@ -892,7 +905,8 @@ export class FormEngine {
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states);
-		this.evaluateAllInto();
+		this.commitInitialization();
+		this.settleLiveRepeats();
 		this.enterFirstScreen();
 	}
 
@@ -910,8 +924,12 @@ export class FormEngine {
 			node === undefined
 				? undefined
 				: { instanceId: node.instanceId, path: node.path };
-		const currentValues = new Map(this.instance.xpathValueEntries());
 		const currentRelevance = this.effectiveRelevanceByPath(stateOverrides);
+		const currentValues = new Map(
+			this.instance.xpathValueEntries(
+				(relevancePath) => currentRelevance.get(relevancePath) ?? true,
+			),
+		);
 		const currentRepeatCounts = new Map(
 			this.instance.xpathRepeatCountEntries(),
 		);
@@ -1097,7 +1115,8 @@ export class FormEngine {
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states, true);
-		await this.settleAsync(evaluateAsync);
+		await this.commitInitializationAsync(evaluateAsync);
+		await this.settleLiveRepeatsAsync(evaluateAsync);
 		await this.enterFirstScreenAsync(evaluateAsync);
 	}
 
@@ -1119,11 +1138,16 @@ export class FormEngine {
 		evaluateAsync: FormEngineAsyncEvaluator,
 		beforeInsertion?: () => void,
 	): Promise<void> {
-		const affected = this.requestWork(paths);
-		await this.evaluatePathsIntoAsync(
-			affected.values,
+		await this.beginRequestAsync(evaluateAsync);
+		for (const path of paths) {
+			const value = this.stagedValues.get(path);
+			if (value === undefined) continue;
+			this.instance.set(path, value);
+			this.stagedValues.delete(path);
+		}
+		await this.evaluateWorkAsync(
+			this.cascadeWork(paths.map((anchor) => ({ anchor }))),
 			evaluateAsync,
-			affected.required,
 		);
 		const updates: EngineStoreState = {};
 		for (const path of paths) {
@@ -1197,13 +1221,14 @@ export class FormEngine {
 		const checkpoint = this.entryCheckpoint();
 		let index: number;
 		try {
+			await this.beginRequestAsync(evaluateAsync);
 			index = await this.insertRepeatRowAsync(repeatPath, evaluateAsync);
 		} catch (error) {
 			this.refuseInsert(repeatPath, checkpoint, error);
 			return undefined;
 		}
 		this.clearInsertRefusal(repeatPath);
-		await this.settleAsync(evaluateAsync);
+		await this.settleLiveRepeatsAsync(evaluateAsync);
 		return index;
 	}
 
@@ -1213,7 +1238,7 @@ export class FormEngine {
 		repeatPath: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<number> {
-		const index = this.insertRepeatRow(repeatPath);
+		const index = this.addRowInstance(repeatPath);
 		const prefix = `${repeatPath}[${index}]`;
 		const children = this.findTreeNode(repeatPath)?.children ?? [];
 		await this.initializeModelAsync(
@@ -1222,12 +1247,7 @@ export class FormEngine {
 			prefix,
 			repeatPath,
 		);
-		const updates: EngineStoreState = {};
-		for (const path of Object.keys(this.store.getState())) {
-			if (path.startsWith(`${prefix}/`)) updates[path] = DEFAULT_ENGINE_STATE;
-		}
-		this.initStatesInto(updates, children, prefix);
-		this.store.setState(updates);
+		await this.commitInitializationAsync(evaluateAsync);
 		return index;
 	}
 
@@ -1236,15 +1256,25 @@ export class FormEngine {
 		index: number,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
+		if (this.instance.getRepeatCount(repeatPath) <= 1) return;
+		await this.beginRequestAsync(evaluateAsync);
 		this.removeRepeat(repeatPath, index);
-		await this.settleAsync(evaluateAsync);
+		await this.evaluateWorkAsync(
+			this.cascadeWork([{ anchor: `${repeatPath}[${index}]` }]),
+			evaluateAsync,
+		);
+		await this.settleLiveRepeatsAsync(evaluateAsync);
 	}
 
 	/** Set a value and trigger recalculation cascade. Only changed paths
 	 *  are written to the store — Zustand's shallow merge keeps unchanged
 	 *  paths' references stable, so their subscribers skip re-rendering. */
 	setValue(path: string, value: string): void {
-		this.instance.set(path, value);
+		if (this.asyncRuntime) this.stagedValues.set(path, value);
+		else {
+			this.beginRequest();
+			this.instance.set(path, value);
+		}
 
 		const updates: EngineStoreState = {};
 		const current = this.store.getState()[path];
@@ -1252,10 +1282,10 @@ export class FormEngine {
 			updates[path] = { ...current, value, edited: true };
 		}
 
-		/* Cascade: re-evaluate expressions for all affected paths (every path,
-		 * where the platform recalculates per request). Only paths whose state
-		 * actually changed are included in the update. */
-		const affected = this.requestWork([path]);
+		/* Cascade: re-evaluate what the answer reaches, narrowed to it as
+		 * Core narrows it. Only paths whose state actually changed are
+		 * included in the update. */
+		const affected = this.cascadeWork([{ anchor: path }]);
 		this.evaluateWorkInto(affected, updates);
 
 		/* Re-validate the changed field itself */
@@ -1286,6 +1316,7 @@ export class FormEngine {
 		const checkpoint = this.entryCheckpoint();
 		let index: number;
 		try {
+			this.beginRequest();
 			index = this.insertRepeatRow(repeatPath);
 		} catch (error) {
 			this.refuseInsert(repeatPath, checkpoint, error);
@@ -1311,34 +1342,24 @@ export class FormEngine {
 		this.recordInsertRefusal(repeatPath, error.details);
 	}
 
-	private insertRepeatRow(repeatPath: string): number {
+	/** Add a row to the instance, before anything in it is set. */
+	private addRowInstance(repeatPath: string): number {
 		const newIndex = this.instance.addRepeatInstance(repeatPath);
 		this.ensureRepeatInstanceKeys(repeatPath, newIndex + 1);
-		const instancePrefix = `${repeatPath}[${newIndex}]`;
+		return newIndex;
+	}
 
+	/** Make a row as Core's `FormDef.java::createNewRepeat` does: the row's
+	 * starting values (its `jr-insert` setvalues), then what the new row
+	 * triggers and what it roots, each narrowed to the row
+	 * (`initializeScope` with the repeat as `insertedPath`). Older rows keep
+	 * what they calculated when they were made. */
+	private insertRepeatRow(repeatPath: string): number {
+		const newIndex = this.addRowInstance(repeatPath);
 		const children = this.findTreeNode(repeatPath)?.children ?? [];
-		this.initializeModel(children, instancePrefix, repeatPath);
-		const updates: EngineStoreState = {};
-		this.initStatesInto(updates, children, instancePrefix);
-		const newLeafPaths = Object.keys(updates);
-		// Bump `repeatCount` on the repeat's own state — this is what
-		// repeat-container subscribers observe to re-render with the new
-		// cardinality; the per-instance child states above are keyed by
-		// their concrete `[N]/...` paths.
-		const repeatState = this.store.getState()[repeatPath];
-		if (repeatState) {
-			updates[repeatPath] = { ...repeatState, repeatCount: newIndex + 1 };
-		}
-
-		if (Object.keys(updates).length > 0) {
-			this.store.setState(updates);
-		}
-
-		/* Existing instances can depend on cardinality, but their one-time
-		 * defaults and membership snapshots remain intact. */
-		this.evaluateRepeatCascade(`${repeatPath}[`, newLeafPaths);
+		this.initializeModel(children, `${repeatPath}[${newIndex}]`, repeatPath);
+		this.commitInitialization();
 		this.settleLiveRepeats();
-
 		return newIndex;
 	}
 
@@ -1346,6 +1367,7 @@ export class FormEngine {
 	removeRepeat(repeatPath: string, index: number): void {
 		const count = this.instance.getRepeatCount(repeatPath);
 		if (count <= 1) return;
+		this.beginRequest();
 
 		const currentState = this.store.getState();
 		const updates: EngineStoreState = {};
@@ -1414,54 +1436,79 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 
-		/* Re-evaluate the surviving instances — `position()` and
-		 * renumbered sibling values shift — plus every outside dependent. */
-		const survivingLeaves: string[] = [];
-		for (const [key] of this.instance.entries()) {
-			if (key.startsWith(`${repeatPath}[`)) survivingLeaves.push(key);
-		}
-		this.evaluateRepeatCascade(`${repeatPath}[`, survivingLeaves);
+		/* Core cascades from the removed row's reference
+		 * (`FormDef.java::deleteRepeat` → `triggerTriggerables(deleteRef)`):
+		 * what reads the repeat runs, narrowed to that place, which now holds
+		 * the row after the removed one. The rows after it keep what they
+		 * calculated at their old places. */
+		this.evaluateWork(
+			this.cascadeWork([{ anchor: `${repeatPath}[${index}]` }]),
+		);
 		this.settleLiveRepeats();
 	}
 
 	/**
-	 * Evaluate every DAG node inside a repeat's subtree (all paths under
-	 * `subtreePrefix`) plus everything outside it that depends on the given
-	 * leaf paths — one multi-seed BFS, since per-leaf walks re-derive the
-	 * same generic dependents. Runs after instance cardinality changes,
-	 * where the instances' own expressions AND cross-repeat dependents
-	 * both need a fresh pass.
+	 * Open a request. Web Apps recalculates as Formplayer does: every request
+	 * loads the form session again, and Core runs every triggerable over it
+	 * before the request's own change (`session/FormSession.java` →
+	 * `FormDef.initialize(false, …)` → `initAllTriggerables`), so a calculate
+	 * reading `now()`, `random()` or `uuid()` changes after an unrelated
+	 * answer, and every value a narrowed cascade left behind is current again
+	 * before the change. The change then cascades as on Android
+	 * (`cascadeWork`), so the response that made a row shows what the row's
+	 * making calculated. Android keeps what earlier changes left.
 	 */
-	private evaluateRepeatCascade(
-		subtreePrefix: string,
-		leafPaths: string[],
-	): void {
-		const subtree: string[] = [];
-		for (const path of this.dag.getAllPaths(this.repeatCounts)) {
-			if (path.startsWith(subtreePrefix)) subtree.push(path);
-		}
-		const affected = this.requestWork(leafPaths);
-		this.evaluateWork({
-			values: [...new Set([...subtree, ...affected.values])],
-			required: [...new Set([...subtree, ...affected.required])],
-		});
+	private beginRequest(): void {
+		if (this.rules.recalculation !== "every-request") return;
+		this.evaluateWork(this.dag.getAllWork(this.repeatCounts));
 	}
 
-	/**
-	 * The work a worker's request runs. Web Apps recalculates as Formplayer
-	 * does: every request rebuilds the form session and Core runs every
-	 * triggerable (`FormDef.initialize(false, …)` → `initAllTriggerables`), so
-	 * a calculate reading `now()`, `random()` or `uuid()` changes after an
-	 * unrelated answer. Android re-evaluates what the change reaches.
-	 * Document edits and default re-evaluation are authoring, not a worker's
-	 * request, and keep the affected work.
-	 */
-	private requestWork(
-		changedPaths: readonly string[],
+	private async beginRequestAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		if (this.rules.recalculation !== "every-request") return;
+		await this.evaluateWorkAsync(
+			this.dag.getAllWork(this.repeatCounts),
+			evaluateAsync,
+		);
+	}
+
+	/** The work a request's changes cascade to on either platform, each node
+	 * narrowed to the change as Core narrows it (`TriggerDag.getCascadeWork`). */
+	private cascadeWork(
+		changes: readonly CascadeChange[],
 	): ExpressionEvaluationPaths {
-		return this.rules.recalculation === "every-request"
-			? this.dag.getAllWork(this.repeatCounts)
-			: this.dag.getAffectedWork(changedPaths, this.repeatCounts);
+		return this.dag.getCascadeWork(changes, this.repeatCounts);
+	}
+
+	/** Publish what an initialization program left and run the on-demand
+	 * pass. The program has run every calculation and condition as Core runs
+	 * them, each new row's narrowed to the row, so nothing here runs one
+	 * again: running them over every row would give each older row what the
+	 * newest one read. */
+	private commitInitialization(): void {
+		this.publishInitializedSections();
+		this.evaluateWork(this.presentationWork());
+	}
+
+	private async commitInitializationAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		this.publishInitializedSections();
+		await this.evaluateWorkAsync(this.presentationWork(), evaluateAsync);
+	}
+
+	/** Every required condition, wording, choice list and validation, and
+	 * every wording a removed reference left resolved. */
+	private presentationWork(): ExpressionEvaluationPaths {
+		const work = this.dag.getPresentationWork(this.repeatCounts);
+		const resolved = Object.entries(this.store.getState()).flatMap(
+			([path, state]) => (this.hasResolvedProse(state) ? [path] : []),
+		);
+		return {
+			...work,
+			presentation: [...new Set([...(work.presentation ?? []), ...resolved])],
+		};
 	}
 
 	/** The midnight a day number counts from on this engine's platform,
@@ -1482,7 +1529,7 @@ export class FormEngine {
 	 */
 	prepareSubmit(): void {
 		if (this.rules.recalculation !== "every-request") return;
-		this.evaluateWork(this.requestWork([]));
+		this.evaluateWork(this.dag.getAllWork(this.repeatCounts));
 	}
 
 	/** Worker-backed `prepareSubmit`. */
@@ -1490,7 +1537,7 @@ export class FormEngine {
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
 		if (this.rules.recalculation !== "every-request") return;
-		const work = this.requestWork([]);
+		const work = this.dag.getAllWork(this.repeatCounts);
 		await this.evaluatePathsIntoAsync(
 			work.values,
 			evaluateAsync,
@@ -2336,7 +2383,12 @@ export class FormEngine {
 						const target = walk(
 							node.children ?? [],
 							`${instancePath}[${index}]`,
-							effective,
+							this.repeatRowRelevant(
+								node.field,
+								instancePath,
+								index,
+								states[instancePath],
+							),
 							nextAncestors,
 						);
 						if (target !== undefined) return target;
@@ -2429,7 +2481,17 @@ export class FormEngine {
 	effectivelyVisiblePaths(
 		states: Readonly<EngineStoreState> = this.store.getState(),
 	): ReadonlySet<string> {
+		return this.effectiveRelevance(states).visible;
+	}
+
+	/** The visible field paths, and each repeat row's own effective
+	 * relevance keyed by its concrete path. */
+	private effectiveRelevance(states: Readonly<EngineStoreState>): {
+		visible: ReadonlySet<string>;
+		rows: ReadonlyMap<string, boolean>;
+	} {
 		const visible = new Set<string>();
+		const rows = new Map<string, boolean>();
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
 			prefix: string,
@@ -2443,7 +2505,17 @@ export class FormEngine {
 				if (node.field.kind === "repeat") {
 					const count = this.instance.getRepeatCount(fieldPath);
 					for (let index = 0; index < count; index++) {
-						walk(node.children ?? [], `${fieldPath}[${index}]`, effective);
+						const rowPath = `${fieldPath}[${index}]`;
+						const rowRelevant =
+							effective &&
+							this.repeatRowRelevant(
+								node.field,
+								fieldPath,
+								index,
+								states[fieldPath],
+							);
+						rows.set(rowPath, rowRelevant);
+						walk(node.children ?? [], rowPath, rowRelevant);
 					}
 				} else if (node.children) {
 					walk(node.children, fieldPath, effective);
@@ -2451,10 +2523,15 @@ export class FormEngine {
 			}
 		};
 		walk(this.tree, "/data", true);
-		return visible;
+		return { visible, rows };
 	}
 
-	/** Effective main-instance relevance keyed by every runtime field path.
+	/** Effective main-instance relevance keyed by every runtime field path
+	 * and every repeat row. A row is its own node in the instance, and one
+	 * that is not relevant (a query repeat's condition false at it, or a
+	 * count-placement row past the end of the result) drops out of every
+	 * nodeset that selects it, so `count()` reads only the relevant rows
+	 * (Core `XPathLazyNodeset.java::performEvaluation`).
 	 * `stateOverrides` is the not-yet-committed prefix of an in-flight DAG
 	 * cascade, so later expressions in the same worker revision observe a
 	 * container that an earlier expression just hid or showed. */
@@ -2466,10 +2543,11 @@ export class FormEngine {
 			(stateOverrides === undefined
 				? this.store.getState()
 				: { ...this.store.getState(), ...stateOverrides });
-		const visible = this.effectivelyVisiblePaths(states);
-		return new Map(
-			Object.keys(states).map((path) => [path, visible.has(path)] as const),
-		);
+		const { visible, rows } = this.effectiveRelevance(states);
+		return new Map([
+			...Object.keys(states).map((path) => [path, visible.has(path)] as const),
+			...rows,
+		]);
 	}
 
 	/**
@@ -2710,7 +2788,12 @@ export class FormEngine {
 				const iterations = scopeFor(node.field.uuid as string);
 				if (!node.children || !relevant.has(path)) continue;
 				const instanceCount = this.instance.getRepeatCount(path);
+				const repeatState = this.store.getState()[path];
 				for (let i = 0; i < instanceCount; i++) {
+					// A row that is not relevant has no iteration: its case
+					// blocks are left out of the submission with it.
+					if (!this.repeatRowRelevant(node.field, path, i, repeatState))
+						continue;
 					const enclosing = [...inherited, ...level];
 					const own = collectLevel(node.children, `${path}[${i}]`, enclosing);
 					iterations.push([...enclosing, ...own]);
@@ -2808,7 +2891,12 @@ export class FormEngine {
 				if (f.kind === "repeat") {
 					const count = this.instance.getRepeatCount(fieldPath);
 					for (let i = 0; i < count; i++) {
-						walk(node.children ?? [], `${fieldPath}[${i}]`, effective);
+						walk(
+							node.children ?? [],
+							`${fieldPath}[${i}]`,
+							effective &&
+								this.repeatRowRelevant(f, fieldPath, i, states[fieldPath]),
+						);
 					}
 					continue;
 				}
@@ -3366,6 +3454,9 @@ export class FormEngine {
 	): void {
 		for (const path of work.values) {
 			this.evaluateAndCollect(path, updates);
+		}
+		for (const path of work.presentation ?? []) {
+			this.evaluateAndCollect(path, updates, "presentation");
 		}
 		for (const path of work.required) {
 			this.evaluateAndCollect(path, updates, "required");
@@ -3951,7 +4042,8 @@ export class FormEngine {
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states, true);
-		this.evaluateAllInto();
+		this.commitInitialization();
+		this.settleLiveRepeats();
 		this.enterFirstScreen();
 	}
 
@@ -4059,6 +4151,38 @@ export class FormEngine {
 
 	// ── Private: expression evaluation ───────────────────────────────
 
+	/** The row a work path names when it is a row of a query repeat, whose
+	 * condition the cascade narrowed to that row (`TriggerDag.narrowed`). */
+	private queryConditionRow(
+		path: string,
+	): { repeatPath: string; index: number } | undefined {
+		if (!path.endsWith("]")) return undefined;
+		const open = path.lastIndexOf("[");
+		const repeatPath = path.slice(0, open);
+		if (!this.isQueryRepeatPath(repeatPath)) return undefined;
+		return { repeatPath, index: Number(path.slice(open + 1, -1)) };
+	}
+
+	/** Write one row's condition into its query repeat's `rowConditions`. */
+	private writeRowCondition(
+		row: { repeatPath: string; index: number },
+		relevant: boolean,
+		updates: EngineStoreState,
+	): void {
+		const current =
+			updates[row.repeatPath] ?? this.store.getState()[row.repeatPath];
+		if (current === undefined) return;
+		const rowConditions = Array.from(
+			{ length: this.instance.getRepeatCount(row.repeatPath) },
+			(_, index) =>
+				index === row.index
+					? relevant
+					: (current.rowConditions?.[index] ?? true),
+		);
+		if (booleanListsEqual(rowConditions, current.rowConditions)) return;
+		updates[row.repeatPath] = { ...current, rowConditions };
+	}
+
 	// Required is metadata: a rule may read the answer or a calculation that
 	// reads that answer without creating a value cycle. Every batch therefore
 	// evaluates values/relevance first and required flags in a final pass.
@@ -4066,12 +4190,26 @@ export class FormEngine {
 		path: string,
 		updates: EngineStoreState,
 		evaluateAsync: FormEngineAsyncEvaluator,
-		phase: "values" | "required" = "values",
+		phase: EvaluationPhase = "values",
 	): Promise<void> {
+		const row = this.queryConditionRow(path);
+		if (row !== undefined) {
+			if (phase !== "values") return;
+			const source = this.dag
+				.getExpressions(row.repeatPath)
+				.find(({ type }) => type === "relevant")?.expr;
+			if (source === undefined) return;
+			this.writeRowCondition(
+				row,
+				toBoolean(await evaluateAsync(source, path)),
+				updates,
+			);
+			return;
+		}
 		const current = updates[path] ?? this.store.getState()[path];
 		if (!current) return;
 		const expressions = this.expressionsForEvaluation(path, current).filter(
-			({ type }) => (type === "required") === (phase === "required"),
+			({ type }) => inPhase(type, phase),
 		);
 		if (expressions.length === 0) return;
 
@@ -4084,6 +4222,7 @@ export class FormEngine {
 		let resolvedHelp = current.resolvedHelp;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
+		let rowConditions = current.rowConditions;
 		let hasValidation = false;
 
 		for (const { type, expr } of expressions) {
@@ -4103,6 +4242,23 @@ export class FormEngine {
 					break;
 				}
 				case "relevant": {
+					if (this.isQueryRepeatPath(path)) {
+						// A query repeat's condition belongs to each of its rows.
+						const next: boolean[] = [];
+						for (
+							let index = 0;
+							index < this.instance.getRepeatCount(path);
+							index++
+						)
+							next.push(
+								toBoolean(await evaluateAsync(expr, `${path}[${index}]`)),
+							);
+						if (!booleanListsEqual(next, rowConditions)) {
+							rowConditions = next;
+							changed = true;
+						}
+						break;
+					}
 					const next = toBoolean(await evaluateAsync(expr, path));
 					if (next !== visible) {
 						visible = next;
@@ -4215,6 +4371,7 @@ export class FormEngine {
 					resolvedHelp,
 					resolvedOptionLabels,
 					choices,
+					rowConditions,
 				};
 			}
 		}
@@ -4230,6 +4387,7 @@ export class FormEngine {
 				resolvedHelp,
 				resolvedOptionLabels,
 				choices,
+				rowConditions,
 			};
 		}
 		if (hasValidation) {
@@ -4242,10 +4400,23 @@ export class FormEngine {
 		}
 	}
 
+	private async evaluateWorkAsync(
+		work: ExpressionEvaluationPaths,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		await this.evaluatePathsIntoAsync(
+			work.values,
+			evaluateAsync,
+			work.required,
+			work.presentation,
+		);
+	}
+
 	private async evaluatePathsIntoAsync(
 		paths: readonly string[],
 		evaluateAsync: FormEngineAsyncEvaluator,
 		requiredPaths: readonly string[] = paths,
+		presentationPaths: readonly string[] = [],
 	): Promise<void> {
 		const updates: EngineStoreState = {};
 		const evaluateWithUpdates = ((
@@ -4261,6 +4432,14 @@ export class FormEngine {
 			)) as FormEngineAsyncEvaluator;
 		for (const path of paths) {
 			await this.evaluateAndCollectAsync(path, updates, evaluateWithUpdates);
+		}
+		for (const path of presentationPaths) {
+			await this.evaluateAndCollectAsync(
+				path,
+				updates,
+				evaluateWithUpdates,
+				"presentation",
+			);
 		}
 		for (const path of requiredPaths) {
 			await this.evaluateAndCollectAsync(
@@ -4280,14 +4459,28 @@ export class FormEngine {
 	private evaluateAndCollect(
 		path: string,
 		updates: EngineStoreState,
-		phase: "values" | "required" = "values",
+		phase: EvaluationPhase = "values",
 	): void {
 		if (this.asyncRuntime) return;
+		const row = this.queryConditionRow(path);
+		if (row !== undefined) {
+			if (phase !== "values") return;
+			const source = this.dag
+				.getExpressions(row.repeatPath)
+				.find(({ type }) => type === "relevant")?.expr;
+			if (source === undefined) return;
+			this.writeRowCondition(
+				row,
+				toBoolean(evaluate(source, this.createEvalContext(path, updates))),
+				updates,
+			);
+			return;
+		}
 		const current = updates[path] ?? this.store.getState()[path];
 		if (!current) return;
 
 		const expressions = this.expressionsForEvaluation(path, current).filter(
-			({ type }) => (type === "required") === (phase === "required"),
+			({ type }) => inPhase(type, phase),
 		);
 		if (expressions.length === 0) return;
 
@@ -4301,6 +4494,7 @@ export class FormEngine {
 		let resolvedHelp = current.resolvedHelp;
 		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
+		let rowConditions = current.rowConditions;
 		let hasValidation = false;
 
 		for (const { type, expr } of expressions) {
@@ -4317,6 +4511,24 @@ export class FormEngine {
 					break;
 				}
 				case "relevant": {
+					if (this.isQueryRepeatPath(path)) {
+						// A query repeat's condition belongs to each of its rows.
+						const next = Array.from(
+							{ length: this.instance.getRepeatCount(path) },
+							(_, index) =>
+								toBoolean(
+									evaluate(
+										expr,
+										this.createEvalContext(`${path}[${index}]`, updates),
+									),
+								),
+						);
+						if (!booleanListsEqual(next, rowConditions)) {
+							rowConditions = next;
+							changed = true;
+						}
+						break;
+					}
 					const v = toBoolean(evaluate(expr, ctx));
 					if (v !== visible) {
 						visible = v;
@@ -4438,6 +4650,7 @@ export class FormEngine {
 					resolvedHelp,
 					resolvedOptionLabels,
 					choices,
+					rowConditions,
 				};
 			}
 		}
@@ -4453,6 +4666,7 @@ export class FormEngine {
 				resolvedHelp,
 				resolvedOptionLabels,
 				choices,
+				rowConditions,
 			};
 		}
 
@@ -4741,12 +4955,14 @@ export class FormEngine {
 
 			if (isContainer(f)) {
 				const insertRefusal = this.repeatInsertRefusals.get(path);
+				const queryResultCount = this.queryResultCount(f, path);
 				states[path] =
 					f.kind === "repeat"
 						? {
 								...this.initialContainerState(path, f.kind),
 								repeatCount: this.instance.getRepeatCount(path),
 								...(insertRefusal === undefined ? {} : { insertRefusal }),
+								...(queryResultCount === undefined ? {} : { queryResultCount }),
 							}
 						: this.initialContainerState(path, f.kind);
 				if (node.children) {
@@ -4932,20 +5148,7 @@ export class FormEngine {
 				field.repeat_mode === "query_bound" &&
 				(!healing || this.pendingSectionRepeats.has(path))
 			) {
-				const result = yield {
-					source: this.expressionSource(field, "ids_query") ?? "",
-					path,
-					nodeset: true,
-					carrier: {
-						parentPath: path.slice(0, path.lastIndexOf("/")),
-						name: field.id,
-						attributes: { ids: "", count: "", current_index: "" },
-						attribute: "ids",
-					},
-				};
-				const ids = isAsyncNodesetValues(result)
-					? result.values
-					: javaRosaSplitOnSpaces(xpathToString(result));
+				const ids = yield* this.readQueryIds(field, path);
 				snapshots.set(path, { count: ids.length, ids });
 			}
 		}
@@ -4973,22 +5176,28 @@ export class FormEngine {
 			}
 		}
 		if (insertedPath) {
+			// What the new row triggers, then what it roots, each narrowed to
+			// the row (`FormDef.java::createNewRepeat`: `triggerTriggerables`
+			// of the row, then `initTriggerablesRootedBy`, which leaves out
+			// what the row's `jr-insert` setvalues already ran).
 			yield* this.initializeExpressions(
-				this.dag.getAffectedInitialization([insertedPath], this.repeatCounts),
+				this.dag.getAffectedInitialization([prefix], this.repeatCounts),
 				calculated,
 			);
-		}
-		yield* this.initializeExpressions(
-			this.dag
-				.getAllPaths(this.repeatCounts)
-				.filter((path) => path.startsWith(`${prefix}/`))
-				.flatMap((path) => this.dag.initializationExpressions(path))
-				.filter(
-					({ path, type }) =>
-						insertedPath === undefined || !calculated.has(`${path}:${type}`),
-				),
-			calculated,
-		);
+			yield* this.initializeExpressions(
+				this.dag
+					.getRootedInitialization(prefix, this.repeatCounts)
+					.filter(({ path, type }) => !calculated.has(`${path}:${type}`)),
+				calculated,
+			);
+		} else
+			yield* this.initializeExpressions(
+				this.dag
+					.getAllPaths(this.repeatCounts)
+					.filter((path) => path.startsWith(`${prefix}/`))
+					.flatMap((path) => this.dag.initializationExpressions(path)),
+				calculated,
+			);
 		for (const { node, path } of fields) {
 			if (node.field.kind !== "repeat") continue;
 			if (healing && !this.pendingSectionRepeats.has(path)) {
@@ -5022,10 +5231,249 @@ export class FormEngine {
 				)
 			) {
 				this.pendingSectionRepeats.set(path, snapshot);
+			} else if (snapshot.ids !== undefined) {
+				yield* this.materializeQueryResult(node, path, snapshot.ids, true);
 			} else {
 				yield* this.materializeInitializedRepeat(node, path, snapshot);
 			}
 		}
+	}
+
+	/** A query repeat's ids, evaluated at its wrapper's `@ids` as the XForm
+	 * evaluates the query in both placements. A scalar result splits as
+	 * Core's `DataUtil.splitOnSpaces` splits it. */
+	private *readQueryIds(
+		field: Field & { kind: "repeat" },
+		path: string,
+	): Generator<InitializationRead, readonly string[], InitializationValue> {
+		const result = yield {
+			source: this.expressionSource(field, "ids_query") ?? "",
+			path,
+			nodeset: true,
+			carrier: {
+				parentPath: path.slice(0, path.lastIndexOf("/")),
+				name: field.id,
+				attributes: { ids: "", count: "", current_index: "" },
+				attribute: "ids",
+			},
+		};
+		return isAsyncNodesetValues(result)
+			? result.values
+			: javaRosaSplitOnSpaces(xpathToString(result));
+	}
+
+	/** Where a query repeat's rows come from: model iteration takes them when
+	 * the form opens, the count placement follows its query
+	 * (`lib/domain/queryRepeatPlacement.ts`). */
+	private queryPlacement(field: Field): QueryRepeatPlacement {
+		const form = this.expressions.context({
+			entity: "field",
+			uuid: field.uuid,
+			slot: "ids_query",
+		}).form;
+		if (form === undefined)
+			throw new Error("The query repeat has no owning form.");
+		return effectiveQueryRepeatPlacement(form, field.uuid);
+	}
+
+	private isQueryRepeatPath(path: string): boolean {
+		if (path.endsWith("]")) return false;
+		const field = this.findField(path);
+		return field?.kind === "repeat" && field.repeat_mode === "query_bound";
+	}
+
+	/** The number of records a count-placement query repeat's current result
+	 * holds (its wrapper's `@count`), or undefined for any other repeat and
+	 * before its first result. */
+	private queryResultCount(
+		field: Field,
+		repeatPath: string,
+	): number | undefined {
+		if (
+			field.kind !== "repeat" ||
+			field.repeat_mode !== "query_bound" ||
+			this.queryPlacement(field) !== "count"
+		)
+			return undefined;
+		const count = this.instance.elementAttributesAt(repeatPath).count;
+		return count === undefined || count === "" ? undefined : Number(count);
+	}
+
+	/** Whether a row of a count-placement query repeat sits at or past the end
+	 * of the current result. Such a row is not relevant, as the emitted guard
+	 * `position() < ../nova_query_count_r` makes it: its answers stay in the
+	 * form, it is not submitted and it has no case-operation iteration. A row
+	 * of any other repeat is never beyond its result. */
+	queryRowBeyondResult(path: string): boolean {
+		const open = path.lastIndexOf("[");
+		if (open < 0 || !path.endsWith("]")) return false;
+		const repeatPath = path.slice(0, open);
+		const index = Number(path.slice(open + 1, -1));
+		const field = this.findField(repeatPath);
+		if (field === undefined) return false;
+		const count = this.queryResultCount(field, repeatPath);
+		return count !== undefined && index >= count;
+	}
+
+	/** A repeat row's own relevance: the query repeat's condition evaluated at
+	 * the row, and, in the count placement, the row's place in the result. */
+	private repeatRowRelevant(
+		field: Field,
+		repeatPath: string,
+		index: number,
+		state: FieldState | undefined,
+	): boolean {
+		if (state?.rowConditions?.[index] === false) return false;
+		const count = this.queryResultCount(field, repeatPath);
+		return count === undefined || index < count;
+	}
+
+	/** Write a query repeat's result: set the wrapper's `@ids` and `@count`,
+	 * give each existing row of the count placement the id at its stored
+	 * place (blank past the end), run what those reach, then grow rows up to
+	 * the count (never removing one) when `grow`. Returns whether anything
+	 * changed.
+	 *
+	 * The result is written before any row is made. Core computes the count
+	 * placement's ids, count and row ids in the cascade of the answer the
+	 * query reads, before a new row exists (`FormDef.java::createNewRepeat`
+	 * runs later), so a new row is within the result, and relevant, while
+	 * its own starting values are set, and what reads the result runs before
+	 * the new rows are there. */
+	private *materializeQueryResult(
+		node: FieldTreeNode,
+		path: string,
+		ids: readonly string[],
+		grow: boolean,
+	): Generator<InitializationRead, boolean, InitializationValue> {
+		let changed = this.writeQueryWrapper(path, ids);
+		if (
+			node.field.kind === "repeat" &&
+			this.queryPlacement(node.field) === "count"
+		)
+			for (let index = 0; index < this.instance.getRepeatCount(path); index++) {
+				const rowPath = `${path}[${index}]`;
+				const current = this.instance.elementAttributesAt(rowPath);
+				const id = ids[index] ?? "";
+				const position = String(index);
+				if (current.id === id && current.index === position) continue;
+				this.instance.setElementAttributes(rowPath, {
+					...current,
+					id,
+					index: position,
+				});
+				changed = true;
+			}
+		if (changed)
+			yield* this.initializeExpressions(
+				this.dag.getAffectedInitialization([`${path}/@ids`], this.repeatCounts),
+				new Set(),
+			);
+		if (grow && ids.length > this.instance.getRepeatCount(path))
+			changed =
+				(yield* this.materializeInitializedRepeat(node, path, {
+					count: ids.length,
+					ids,
+				})) || changed;
+		return changed;
+	}
+
+	/** A new query row's `@id` and `@index`, as its `jr-insert` setvalues give
+	 * them. The count placement stores the row's own place, `position(..)`,
+	 * while the new row is relevant. Model iteration reads
+	 * `int(@current_index)`, the relevant rows before the new one, since the
+	 * setvalue runs before `@current_index` is calculated again
+	 * (`FormDef.java::createNewRepeat`), and an earlier row a condition hides
+	 * leaves it short: the new row then takes an earlier row's place and
+	 * record. */
+	private newRowIdentity(
+		field: Field,
+		path: string,
+		index: number,
+		ids: readonly string[],
+	): Record<string, string> {
+		let place = index;
+		if (this.queryPlacement(field) === "model-iteration") {
+			const relevance = this.effectiveRelevanceByPath();
+			place = 0;
+			for (let row = 0; row < index; row++)
+				if (relevance.get(`${path}[${row}]`) ?? true) place += 1;
+		}
+		return { id: ids[place] ?? "", index: String(place) };
+	}
+
+	/** Set a query repeat's wrapper attributes for `ids`. Returns whether
+	 * either changed. The wrapper's `@current_index` is no stored value: the
+	 * instance counts the relevant rows as it is read
+	 * (`DataInstance.relevantRowCount`). */
+	private writeQueryWrapper(path: string, ids: readonly string[]): boolean {
+		const wrapper = { ids: ids.join(" "), count: String(ids.length) };
+		const current = this.instance.elementAttributesAt(path);
+		if (current.ids === wrapper.ids && current.count === wrapper.count)
+			return false;
+		this.instance.setElementAttributes(path, wrapper);
+		return true;
+	}
+
+	/** Follow a count-placement query repeat's query once, as the settle loop
+	 * does after every change to a dependency of the query. */
+	refreshQueryRepeat(path: string): void {
+		if (this.asyncRuntime)
+			throw new Error("A query refresh requires the asynchronous evaluator.");
+		const node = this.findTreeNode(path);
+		const field = node?.field;
+		if (
+			node === undefined ||
+			field?.kind !== "repeat" ||
+			field.repeat_mode !== "query_bound" ||
+			this.queryPlacement(field) !== "count"
+		)
+			throw new Error(
+				`${path} is not a query repeat whose rows follow its query.`,
+			);
+		if (
+			!this.runInitialization(
+				this.followQuery(node, path, this.queryRowsMayGrow(path)),
+			)
+		)
+			return;
+		this.commitInitialization();
+		this.settleLiveRepeats();
+	}
+
+	/** Read the query and write its result. Rows wait for their root
+	 * section's page to be entered before they grow, as a count-bound
+	 * repeat's do; the ids of rows that exist follow the query wherever the
+	 * worker is, since the XForm computes them with calculates. */
+	private *followQuery(
+		node: FieldTreeNode,
+		path: string,
+		entered: boolean,
+		beforeInsertion?: () => void,
+	): Generator<InitializationRead, boolean, InitializationValue> {
+		if (node.field.kind !== "repeat") return false;
+		const ids = yield* this.readQueryIds(node.field, path);
+		if (entered) {
+			this.pendingSectionRepeats.delete(path);
+			if (ids.length > this.instance.getRepeatCount(path)) beforeInsertion?.();
+		} else if (ids.length > this.instance.getRepeatCount(path))
+			this.pendingSectionRepeats.set(path, { count: ids.length, ids });
+		else this.pendingSectionRepeats.delete(path);
+		return yield* this.materializeQueryResult(node, path, ids, entered);
+	}
+
+	/** A root section's rows grow only once its page is entered. */
+	private queryRowsMayGrow(path: string): boolean {
+		const section = this.tree.find(
+			(root) =>
+				root.field.kind === "section" &&
+				path.startsWith(`/data/${root.field.id}/`),
+		);
+		return (
+			section === undefined ||
+			this.allSectionsEntered ||
+			section.field.uuid === this.activeSectionUuid
+		);
 	}
 
 	/** The calculation's context is a sibling of the repeat, including when
@@ -5040,19 +5488,31 @@ export class FormEngine {
 		const result = yield { source, path, carrier: { parentPath, name } };
 		if (isAsyncNodesetValues(result))
 			throw new Error("Expected a scalar count.");
-		const form = this.expressions.context({
+		const countContext = this.expressions.context({
 			entity: "field",
 			uuid: field.uuid,
 			slot: "repeat_count",
-		}).form;
+		});
+		const form = countContext.form;
 		if (form === undefined)
 			throw new Error("The repeat count has no owning form.");
-		const direct =
-			directRepeatCountReference(field.repeat_count, form.fields) !== undefined;
+		// An integer question, an integer single select and a Hidden Value
+		// calculated as a whole number are named by `jr:count` directly and read
+		// by the lexical rule; every other count reads its `xsd:int` carrier.
+		const direct = directRepeatCountReference(
+			field.repeat_count,
+			form,
+			countContext.facts,
+		);
 		// Numeric inputs retain incomplete keystrokes until blur. Core only sees
 		// committed integer answers; do not turn a draft such as "-" into a crash.
-		if (direct && !readNumericAnswer("int", xpathToString(result)).ok) return 0;
-		return materializedRepeatCount(direct, result);
+		if (
+			direct !== undefined &&
+			form.fields.get(direct)?.kind === "int" &&
+			!readNumericAnswer("int", xpathToString(result)).ok
+		)
+			return 0;
+		return materializedRepeatCount(direct !== undefined, result);
 	}
 
 	/** Visit only the current page. Existing rows are never replayed or removed.
@@ -5077,7 +5537,38 @@ export class FormEngine {
 					field.uuid === this.activeSectionUuid);
 			if (!visible.has(path)) continue;
 			if (field.kind === "repeat") {
-				if (field.repeat_mode === "count_bound") {
+				if (
+					field.repeat_mode === "query_bound" &&
+					this.queryPlacement(field) === "count"
+				) {
+					grew =
+						(yield* this.followQuery(
+							node,
+							path,
+							inEnteredScope,
+							beforeInsertion,
+						)) || grew;
+				} else if (
+					field.repeat_mode === "query_bound" &&
+					inEnteredScope &&
+					!this.pendingSectionRepeats.has(path)
+				) {
+					// Model iteration's membership is fixed when the form opens,
+					// and its `@count` with it; a row its condition kept from
+					// being made is made once the condition holds at its place
+					// (`rowPromptRelevant`).
+					const written = this.instance.elementAttributesAt(path).ids;
+					const ids =
+						written === undefined ? [] : javaRosaSplitOnSpaces(written);
+					if (ids.length > this.instance.getRepeatCount(path)) {
+						beforeInsertion?.();
+						grew =
+							(yield* this.materializeInitializedRepeat(node, path, {
+								count: ids.length,
+								ids,
+							})) || grew;
+					}
+				} else if (field.repeat_mode === "count_bound") {
 					const count = yield* this.readLiveRepeatCount(field, path);
 					if (!inEnteredScope) {
 						if (count > this.instance.getRepeatCount(path))
@@ -5126,10 +5617,8 @@ export class FormEngine {
 		if (this.asyncRuntime || this.growingLiveRepeats) return;
 		this.growingLiveRepeats = true;
 		try {
-			while (this.runInitialization(this.growLiveRepeats())) {
-				this.publishInitializedSections();
-				this.evaluateAllInto();
-			}
+			while (this.runInitialization(this.growLiveRepeats()))
+				this.commitInitialization();
 		} finally {
 			this.growingLiveRepeats = false;
 		}
@@ -5177,10 +5666,8 @@ export class FormEngine {
 				),
 				evaluateAsync,
 			)
-		) {
-			this.publishInitializedSections();
-			await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
-		}
+		)
+			await this.commitInitializationAsync(evaluateAsync);
 		this.refuseOwnerRowWithoutPlace();
 	}
 
@@ -5199,13 +5686,17 @@ export class FormEngine {
 			index++
 		) {
 			this.instance.setRepeatCount(path, index + 1);
+			if (!(yield* this.rowPromptRelevant(node.field, path, index))) {
+				this.instance.setRepeatCount(path, index);
+				break;
+			}
 			try {
 				yield* this.initializeScope(
 					node.children ?? [],
 					`${path}[${index}]`,
 					path,
 					snapshot.ids
-						? { id: snapshot.ids[index] ?? "", index: String(index) }
+						? this.newRowIdentity(node.field, path, index, snapshot.ids)
 						: undefined,
 				);
 			} catch (error) {
@@ -5232,9 +5723,37 @@ export class FormEngine {
 		return this.instance.getRepeatCount(path) > before;
 	}
 
-	/** Query membership is captured at form start; count targets are live. Row
-	 * insertion is delayed until the section is visited; its nested actions
-	 * then see answers entered on previous pages. */
+	/** Whether form entry makes a query repeat's row at `index`. Core's walk
+	 * reaches a row that is not made yet as a prompt for it, and makes it only
+	 * where the repeat's condition holds at that row's place
+	 * (`FormEntryModel.java::isIndexRelevant` → `FormDef.isRepeatRelevant`,
+	 * before `FormEntryController.java::getAdjacentIndex` expands it); one
+	 * that does not hold steps past the repeat (`incrementHelper` exits a
+	 * repeat whose row does not exist), so no later row is made in that walk.
+	 * The row is in the instance, empty, while its condition is read here, as
+	 * the unmade row reads in Core: its own values blank, `position()` its
+	 * place. */
+	private *rowPromptRelevant(
+		field: Field,
+		path: string,
+		index: number,
+	): Generator<InitializationRead, boolean, InitializationValue> {
+		if (field.kind !== "repeat" || field.repeat_mode !== "query_bound")
+			return true;
+		const condition = this.dag
+			.getExpressions(path)
+			.find(({ type }) => type === "relevant")?.expr;
+		if (condition === undefined) return true;
+		const value = yield { source: condition, path: `${path}[${index}]` };
+		if (isAsyncNodesetValues(value))
+			throw new Error("Expected a scalar row condition.");
+		return toBoolean(value);
+	}
+
+	/** A model-iteration query repeat's membership is captured at form start;
+	 * count targets and a count-placement query are live. Row insertion is
+	 * delayed until the section is visited; its nested actions then see
+	 * answers entered on previous pages. */
 	private *initializeSection(
 		sectionUuid: Uuid,
 	): Generator<InitializationRead, void, InitializationValue> {
@@ -5253,28 +5772,59 @@ export class FormEngine {
 				continue;
 			const node = this.findTreeNode(path);
 			if (!node) throw new Error("Section repeat is unavailable.");
-			const current =
-				node.field.kind === "repeat" && node.field.repeat_mode === "count_bound"
-					? { count: yield* this.readLiveRepeatCount(node.field, path) }
-					: snapshot;
-			yield* this.materializeInitializedRepeat(node, path, current);
+			const field = node.field;
+			if (field.kind === "repeat" && field.repeat_mode === "query_bound") {
+				// Model iteration keeps the membership the form opened with; the
+				// count placement reads its query again as the page is entered.
+				const ids =
+					this.queryPlacement(field) === "count"
+						? yield* this.readQueryIds(field, path)
+						: (snapshot.ids ?? []);
+				yield* this.materializeQueryResult(node, path, ids, true);
+			} else {
+				const current =
+					field.kind === "repeat" && field.repeat_mode === "count_bound"
+						? { count: yield* this.readLiveRepeatCount(field, path) }
+						: snapshot;
+				yield* this.materializeInitializedRepeat(node, path, current);
+			}
 			this.pendingSectionRepeats.delete(path);
 		}
 	}
 
+	/** Publish the instance and what the last initialization program
+	 * computed: each value, row and repeat count, and each condition it ran
+	 * (`lastInitializationStates`), over the states the store holds. */
 	private publishInitializedSections(): void {
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
 		const previous = this.store.getState();
+		const computed = this.lastInitializationStates;
+		this.lastInitializationStates = undefined;
 		for (const [path, state] of Object.entries(states)) {
 			if (previous[path])
 				states[path] =
 					state.repeatCount === undefined
 						? { ...previous[path], value: state.value }
 						: withInsertRefusal(
-								{ ...previous[path], repeatCount: state.repeatCount },
+								{
+									...previous[path],
+									repeatCount: state.repeatCount,
+									queryResultCount: state.queryResultCount,
+								},
 								state.insertRefusal,
 							);
+			const ran = computed?.[path];
+			if (ran !== undefined) {
+				const published = states[path] ?? state;
+				states[path] = {
+					...published,
+					visible: ran.visible,
+					...(ran.rowConditions === undefined
+						? {}
+						: { rowConditions: ran.rowConditions }),
+				};
+			}
 		}
 		this.store.setState(states, true);
 	}
@@ -5309,8 +5859,7 @@ export class FormEngine {
 		this.activeSectionUuid = sectionUuid;
 		while (this.pendingRepeatsInSection(sectionUuid).length > 0) {
 			this.runInitialization(this.initializeSection(sectionUuid));
-			this.publishInitializedSections();
-			this.evaluateAllInto();
+			this.commitInitialization();
 		}
 		this.settleLiveRepeats();
 		const resolved = resolveCurrentPage(
@@ -5333,8 +5882,7 @@ export class FormEngine {
 				this.initializeSection(sectionUuid),
 				evaluateAsync,
 			);
-			this.publishInitializedSections();
-			await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
+			await this.commitInitializationAsync(evaluateAsync);
 		}
 		await this.settleLiveRepeatsAsync(evaluateAsync);
 		const resolved = resolveCurrentPage(
@@ -5400,8 +5948,57 @@ export class FormEngine {
 			const source = this.dag
 				.getExpressions(path)
 				.find((entry) => entry.type === type)?.expr;
+			const row =
+				type === "relevant" ? this.queryConditionRow(path) : undefined;
+			if (row !== undefined) {
+				// One row's condition, where the change named that row.
+				const condition = this.dag
+					.getExpressions(row.repeatPath)
+					.find((entry) => entry.type === "relevant")?.expr;
+				if (condition === undefined) continue;
+				const value = yield { source: condition, path };
+				if (isAsyncNodesetValues(value))
+					throw new Error("Expected a scalar row condition.");
+				if (this.initializationStates) {
+					const current =
+						this.initializationStates[row.repeatPath] ?? DEFAULT_ENGINE_STATE;
+					this.initializationStates[row.repeatPath] = {
+						...current,
+						rowConditions: Array.from(
+							{ length: this.instance.getRepeatCount(row.repeatPath) },
+							(_, index) =>
+								index === row.index
+									? toBoolean(value)
+									: (current.rowConditions?.[index] ?? true),
+						),
+					};
+				}
+				calculated.add(`${path}:${type}`);
+				continue;
+			}
 			const field = this.findField(path);
 			if (source === undefined || field === undefined) continue;
+			if (type === "relevant" && this.isQueryRepeatPath(path)) {
+				// A query repeat's condition belongs to each of its rows.
+				const rowConditions: boolean[] = [];
+				for (
+					let index = 0;
+					index < this.instance.getRepeatCount(path);
+					index++
+				) {
+					const value = yield { source, path: `${path}[${index}]` };
+					if (isAsyncNodesetValues(value))
+						throw new Error("Expected a scalar row condition.");
+					rowConditions.push(toBoolean(value));
+				}
+				if (this.initializationStates)
+					this.initializationStates[path] = {
+						...(this.initializationStates[path] ?? DEFAULT_ENGINE_STATE),
+						rowConditions,
+					};
+				calculated.add(`${path}:${type}`);
+				continue;
+			}
 			const value = yield { source, path };
 			if (isAsyncNodesetValues(value))
 				throw new Error("Expected a scalar initialization value.");
@@ -5461,6 +6058,7 @@ export class FormEngine {
 			}
 			return step.value;
 		} finally {
+			this.lastInitializationStates = this.initializationStates;
 			this.initializationStates = undefined;
 			this.initializationContext = undefined;
 		}
@@ -5505,6 +6103,7 @@ export class FormEngine {
 			}
 			return step.value;
 		} finally {
+			this.lastInitializationStates = this.initializationStates;
 			this.initializationStates = undefined;
 			this.initializationContext = undefined;
 		}
@@ -5995,6 +6594,33 @@ function coerceValueForProperty(
 }
 
 /** A repeat's state carrying exactly the given insert refusal. */
+/** Which of a path's expressions a pass runs: every calculation, condition,
+ * wording, choice list and validation (`values`); only the on-demand ones,
+ * wording, choices and validation (`presentation`); or only `required`. */
+type EvaluationPhase = "values" | "presentation" | "required";
+
+function inPhase(type: string, phase: EvaluationPhase): boolean {
+	if (phase === "required") return type === "required";
+	if (type === "required") return false;
+	return (
+		phase === "values" ||
+		type === "output" ||
+		type === "choices" ||
+		type === "validation"
+	);
+}
+
+function booleanListsEqual(
+	left: readonly boolean[],
+	right: readonly boolean[] | undefined,
+): boolean {
+	return (
+		right !== undefined &&
+		left.length === right.length &&
+		left.every((value, index) => value === right[index])
+	);
+}
+
 function withInsertRefusal(
 	state: FieldState,
 	insertRefusal: SetvalueRefusalDetails | undefined,

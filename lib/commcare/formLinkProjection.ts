@@ -1949,7 +1949,7 @@ export function projectFormLinkSessionExpression(
 	return toWire(expression, {
 		target: "suite",
 		types,
-		form: formNodeProjection(doc, structure),
+		form: formNodeProjection(doc, structure, { surface: "wire" }),
 		bindings: {
 			workerProperty: ctx.workerProperty,
 			datumId: entryDatumIdResolver(

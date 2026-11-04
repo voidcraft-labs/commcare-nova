@@ -211,7 +211,7 @@ moves and MCP's `accept_placement_moves`, the refusal's `placement_moves`, every
 **Part 04, questions (pull requests 3, 5, 9).** A query repeat's `placement?: "model-iteration" |
 "count"`, a stored slot from pull request 3 written by nothing until pull request 5's
 `holdPlacements` (decision R2); `lib/domain/queryRepeatPlacement.ts::queryRepeatPlacementNeeds` (needs
-`nested`, `query-reads-answers`, `ancestor-condition-changes`), `effectiveQueryRepeatPlacement` and
+`nested`, `query-reads-answers`, `row-condition`, `ancestor-condition-changes`), `effectiveQueryRepeatPlacement` and
 `queryRepeatPlacementExpresses`; `QUERY_REPEAT_MODEL_ITERATION_SHAPE` (pull request 5);
 `lib/doc/queryRepeatPlacement.ts::planQueryRepeatPlacementMoves(candidate)` (pull request 5), whose
 move reasons are those needs and whose facts part 04 §1.7 gives; a count placement's rows keep their
@@ -384,6 +384,7 @@ fails to compile (`identityMoveReasonSentence(move)`, a switch over `IdentityMov
 | `case-placement` (part 01) | the `PLACEMENT_INELIGIBILITY_REASONS` (`module-advanced`, `module-basic`, `several-cases`, `value-computed`, `write-condition`, `links`, `condition-apostrophe`, `subcase-index` and the rest of part 01 §12.8) | `placementIneligibilitySentence(reason)`, part 01 §12.8's table, for example `One of its values is now a calculation, which Case Management can't save.` |
 | `query-repeat` (part 04) | `nested` | `It now sits inside “<outer repeat>”.` |
 | | `query-reads-answers` | `Its query now reads an answer.` |
+| | `row-condition` | `It now shows on a condition.` |
 | | `ancestor-condition-changes` | `“<group>” around it now shows on a condition that can change while the form is filled in.` |
 | `module-kind` (part 02) | `several-cases` | `It now lets workers choose several cases, which an advanced menu can't do.` |
 | | `forms-read-search` | `Its forms now read the search, which an advanced menu can't do.` (pull request 7, where the blocker reads today's inline Search first: `It now opens on its Search screen with its forms reading the search, which an advanced menu can't do.`) |
@@ -1913,6 +1914,8 @@ written:
 | "Files by pull request", pull request 2, names the builder's two editor files only | pull request 2 also drops `mode` from `CaseSelectionReviewDialog.tsx` and `CaseListConfigWorkspace.tsx` (`CaseSelectionAttachmentAnswer`), whose several-case review sentence keeps only its link wording | both import `CaptureCaseWriteMode`, which pull request 2 deletes |
 | §3.2 pull request 2 names the row and the guidance only | the destination menu's header line drops ", not the file itself" and reads `Saves a link to the attached file`; the capture row's text is the trigger's first line, with the `#<case-type>/<property>` reference kept beneath it | "not the file itself" contrasted a choice that no longer exists |
 | §9 names `editField.test.ts` for the strict-schema refusal | `fixDissolution.test.ts`'s "attachment destination without a mode" block, which asserted that a capture with no `mode` is refused, now asserts the reverse on the add arm, the edit arm and the domain field schema: the plain destination is admitted and a `mode` refused on a capture and on a text field | that block's premise is what pull request 2 removes; keeping the three surfaces in one place is what catches one of them drifting from the others |
+| §4.3 places `rows` on `getField` (`lib/agent/tools/getField.ts`) | pull request 3 computes `rows` in the one field read projection, `lib/agent/authoring/fieldBehavior.ts::queryRepeatRows` beside `effectiveFieldBehavior`, which `output.ts`'s field projector spreads onto every field it reads, so `getField` (the field and a container's children) and `getForm`'s field list both carry it; `summarizeBlueprint.ts` reads the same helper. `getField.ts` is unchanged | `lib/agent/authoring/CLAUDE.md`: tool bodies return canonical values and `output.ts` is the only place a read becomes authored content, so a read fact added in the tool body would be a second owner, and a query repeat inside a group would read without it |
+| §4.3 adds `rows` and (pull request 5) `rowsKept` to the read, and names no change for the stored `placement` | pull request 3's field projector removes `placement` from every field read (`output.ts`, the repeat branch) | the projector passes every schema key through, so a held placement would reach the model as a key no edit accepts (`HELD_FIELD_KEYS`); reads use the shapes edits accept, and `rows` states the placement |
 
 ## 9. Tests
 
@@ -2403,7 +2406,7 @@ where your published app has it` sits beside part 03's copy; the plugin's senten
 (§6).
 
 **Part 04.** `planQueryRepeatPlacementMoves` returns its needs (`nested`, `query-reads-answers`,
-`ancestor-condition-changes`) as the `query-repeat` source's reasons, worded by §2.3 from part 04
+`row-condition`, `ancestor-condition-changes`) as the `query-repeat` source's reasons, worded by §2.3 from part 04
 §1.7's facts; the dialog row of §2.4 replaces Q-QR-5's builder copy; part 04 §8.4's pull request 3
 text stands, and this part adds in pull request 5 only `Once published, a query repeat keeps that
 choice, and an edit that would change it says so in identityMoves.`; the Rows editor states a row's

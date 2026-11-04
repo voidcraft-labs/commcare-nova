@@ -11,8 +11,8 @@
 //      multiplicity scopes: the root scope first, then each repeat
 //      scope iteration-major. Form-level operations run once per
 //      authored iteration; only session-targeted operations add the
-//      selected-case inner axis, matching the nested model repeat the
-//      XForm emitter builds.
+//      selected-case inner axis, matching the selected-cases iteration
+//      the XForm emitter builds in each scope.
 //   2. **Allocate** every create identity in TypeScript before any
 //      evaluation: generated ids mint `uuidv7()`; authored keys run
 //      `deriveAuthoredCaseId` (the same versioned contract the XForm

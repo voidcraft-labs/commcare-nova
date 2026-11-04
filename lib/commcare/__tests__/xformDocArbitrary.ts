@@ -22,13 +22,16 @@
  */
 
 import * as fc from "fast-check";
+import { Immer } from "immer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	resolveCaseListConfig,
 	resolveDocExpressions,
 } from "@/lib/__tests__/docHelpers";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { applyMutations } from "@/lib/doc/mutations";
 import { declaredForContent } from "@/lib/doc/platformDeclaration";
+import { planRepeatCountWraps } from "@/lib/doc/repeatCountWraps";
 import {
 	type BlueprintDoc,
 	type CaseType,
@@ -1418,26 +1421,52 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// it doesn't collide with field-mint id sequencing.
 	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
-	// The declaration is mapped after the draw, with no further random call:
-	// the platforms the drawn content runs on (`declaredForContent`).
+	// The cutover's mappings and the declaration are applied after the draw,
+	// with no further random call: each step 5 shape as the cutover maps a
+	// stored app (`mappedAsTheCutoverMaps`), then the platforms the drawn
+	// content runs on (`declaredForContent`).
 	return declaredForContent(
-		resolveArbitraryDocument({
-			appId: "fuzz-app",
-			appName: "Fuzz App",
-			connectType: spec.connectType,
-			appSettings: { ...NEW_APP_SETTINGS },
-			caseTypes,
-			modules,
-			forms,
-			fields,
-			moduleOrder,
-			formOrder,
-			fieldOrder,
-			// Resolution builds ancestry before binding the drawn expression source.
-			fieldParent: {},
-			...(logo ? { logo } : {}),
-		}),
+		mappedAsTheCutoverMaps(
+			resolveArbitraryDocument({
+				appId: "fuzz-app",
+				appName: "Fuzz App",
+				connectType: spec.connectType,
+				appSettings: { ...NEW_APP_SETTINGS },
+				caseTypes,
+				modules,
+				forms,
+				fields,
+				moduleOrder,
+				formOrder,
+				fieldOrder,
+				// Resolution builds ancestry before binding the drawn expression source.
+				fieldParent: {},
+				...(logo ? { logo } : {}),
+			}),
+		),
 	);
+}
+
+const UNFROZEN = new Immer({ autoFreeze: false });
+
+/**
+ * A drawn document with each step 5 shape mapped as the cutover maps a
+ * stored app, through the planner the cutover calls, so a draw the gate now
+ * refuses is admitted without drawing again (`proof/CLAUDE.md`, "An existing
+ * fuzz sample keeps its draws"). Today that is one mapping: a count the
+ * checker refuses as not a whole number is wrapped in `int(...)`
+ * (`planRepeatCountWraps`). A document holding none of the shapes is returned
+ * as it came. Every generator calls it before `declaredForContent`. It is a
+ * pure function of the drawn document, called inside the arbitrary's `.map`,
+ * so it makes no random call; the proof lane's frozen comparison of the
+ * sample is what notices a changed draw.
+ */
+export function mappedAsTheCutoverMaps(doc: BlueprintDoc): BlueprintDoc {
+	const wraps = planRepeatCountWraps(doc);
+	if (wraps.length === 0) return doc;
+	return UNFROZEN.produce(doc, (draft) => {
+		applyMutations(draft, wraps);
+	});
 }
 
 /**

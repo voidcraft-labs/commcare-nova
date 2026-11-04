@@ -139,7 +139,7 @@ export function liveCountEntryDoc(withCaseEffects = false) {
 												id: "computed",
 												label: proseText("Computed checks"),
 												repeat_mode: "count_bound",
-												repeat_count: "#form/second/items/size + 0.7",
+												repeat_count: "int(#form/second/items/size + 0.7)",
 												children: [
 													f({
 														kind: "text",

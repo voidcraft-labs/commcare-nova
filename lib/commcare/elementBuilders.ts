@@ -25,7 +25,7 @@ const XPATH_ATTRIBUTES = {
 	],
 	setvalue: ["ref", "value", "vellum:ref"],
 	output: ["ref", "value", "vellum:value"],
-	repeat: ["nodeset", "jr:count", "vellum:jr__count"],
+	repeat: ["nodeset", "jr:count", "vellum:nodeset", "vellum:jr__count"],
 	group: ["ref", "function"],
 	input: ["ref"],
 	select: ["ref"],

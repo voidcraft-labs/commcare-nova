@@ -3,6 +3,7 @@ import type { CaseWrite, FieldKind, RepeatMode } from "../fields";
 import type { FormEntry, FormLinkTarget, FormType } from "../forms";
 import type { LookupTableId } from "../lookupIds";
 import { moduleUuidOfForm } from "../postSubmit";
+import type { QueryRepeatPlacement } from "../queryRepeatPlacement";
 import { ownRecordValue } from "../records";
 import { expressionSlotValue } from "../referenceSlots";
 import type { Uuid } from "../uuid";
@@ -33,6 +34,13 @@ export interface FormStructureField {
 	readonly parent: Uuid;
 	readonly caseWrite?: CaseWrite;
 	readonly repeatMode?: RepeatMode;
+	/** A query repeat's held placement (its stored `placement`), absent where
+	 * it holds none. */
+	readonly heldQueryPlacement?: QueryRepeatPlacement;
+	/** A Hidden Value's value slot, absent where it holds neither. A field
+	 * holding both (`HIDDEN_VALUE_BOTH_SOURCES` refuses it) reads `calculate`,
+	 * the value it ends with. */
+	readonly hiddenValueSource?: "calculate" | "default_value";
 	readonly choices?: FormStructureChoices;
 	readonly proseSlots?: readonly ("label" | "hint" | "help" | "validate_msg")[];
 }
@@ -117,6 +125,18 @@ export function formStructure(
 					? { caseWrite: field.caseWrite }
 					: {}),
 				...(field.kind === "repeat" ? { repeatMode: field.repeat_mode } : {}),
+				...(field.kind === "repeat" &&
+				field.repeat_mode === "query_bound" &&
+				field.placement !== undefined
+					? { heldQueryPlacement: field.placement }
+					: {}),
+				...(field.kind === "hidden"
+					? field.calculate !== undefined
+						? { hiddenValueSource: "calculate" as const }
+						: field.default_value !== undefined
+							? { hiddenValueSource: "default_value" as const }
+							: {}
+					: {}),
 				...(choices === undefined
 					? {}
 					: {

@@ -29,7 +29,7 @@ public class ContainerRuntimeTest {
     if(!"commcaresession".equals(instance.getInstanceId()))throw new AssertionError(instance.getInstanceId());
     TreeElement root=node("session",null), context=node("context",null), data=node("data",null);
     for(String key:new String[]{"deviceid","username","userid","appversion"})context.addChild(node(key,"fixture-"+key));
-    context.addChild(node("drift","0"));data.addChild(node("case_id_new_patient_0","new-patient"));
+    context.addChild(node("drift","0"));data.addChild(node("case_id_new_patient_0","new-patient"));data.addChild(node("case_id_new_household_0","new-household"));
     root.addChild(context);root.addChild(data);
     InstanceUtils.setUpInstanceRoot(root,instance.getInstanceId(),new InstanceBase(instance.getInstanceId()));
     return new ConcreteInstanceRoot(root);
@@ -55,8 +55,23 @@ public class ContainerRuntimeTest {
    if(event==FormEntryController.EVENT_PROMPT_NEW_REPEAT&&user&&!created){controller.newRepeat();created=true;}
   }
  }
+ /** The first node `path` names, relevant or not: an evaluated nodeset leaves out every node that is not relevant
+  * (`XPathLazyNodeset.performEvaluation`), and a row past the end of a query's result is one, while
+  * `EvaluationContext.expandReference` keeps it. */
  private static org.javarosa.core.model.instance.TreeReference ref(FormDef form,String path)throws Exception {
-  return ((org.javarosa.xpath.XPathNodeset)org.javarosa.xpath.XPathParseTool.parseXPath(path).eval(form.getMainInstance(),form.getEvaluationContext())).getRefAt(0);
+  java.util.Vector<org.javarosa.core.model.instance.TreeReference> refs=held(form,path);
+  assertFalse(path+" names no node",refs.isEmpty());
+  return refs.elementAt(0);
+ }
+ /** Every node `path` names, relevant or not (`ref`). */
+ private static java.util.Vector<org.javarosa.core.model.instance.TreeReference> held(FormDef form,String path)throws Exception {
+  return form.getEvaluationContext().expandReference(((org.javarosa.xpath.expr.XPathPathExpr)org.javarosa.xpath.XPathParseTool.parseXPath(path)).getReference());
+ }
+ /** The value the instance holds at `path`, which an XPath read gives as blank where the node is not relevant
+  * (`XPathPathExpr.getRefValue`). */
+ private static String stored(FormDef form,String path)throws Exception {
+  org.javarosa.core.model.data.IAnswerData value=form.getMainInstance().resolveReference(ref(form,path)).getValue();
+  return value==null?"":value.uncast().getString();
  }
  private static void answer(FormDef form,String path,String value)throws Exception {form.setValue(new StringData(value),ref(form,path));}
  private static int confirm(FormParseInit parsed,String path,String value)throws Exception {
@@ -346,11 +361,20 @@ public class ContainerRuntimeTest {
   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(second[0].getIndex(),new StringData("retained")));
   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(first[0].getIndex(),new StringData("north")));
   controller.jumpToIndex(secondPage);
+  // The nested query reads the area, so its rows follow it (part 04 §1.5): the north area's two assets have their
+  // rows, the first keeps its answer at its place, and the new row's default reads its own id, set when the row is
+  // made, before any calculate runs (`FormDef.createNewRepeat`). Preview's journey and browser tests hold the same.
   second=controller.getQuestionPrompts();
-  assertEquals(1,second.length);assertEquals("retained",second[0].getAnswerText());
+  assertEquals(2,second.length);
+  assertEquals("retained",second[0].getAnswerText());assertEquals("tap",second[1].getAnswerText());
  }
+ /** `container-hidden-count`'s `jr:count` names the Hidden Value `desired` directly, since its calculate is an
+  * integer (part 04 §2.4), so Core reads the Hidden Value's own data: an integral result is `IntegerData` whatever
+  * the bind's type (`Recalculate.wrapData`), and a fraction is `DecimalData`, which `IntegerData.cast` refuses.
+  * Each calculate is swapped in by hand; the fractional one is what Nova's validator refuses as a count
+  * (`REPEAT_COUNT_TYPE`), and a fraction is counted only through a carrier (`RepeatCountRuntimeTest`'s control). */
  @Test public void hiddenCalculationCountTypes()throws Exception {
-  String[][] cases={{"2.7","2.0"},{"true()","1.0"},{"false()","0.0"},{"'2.7'","invalid"},{"'2'","2.0"},{"''","0.0"},{"number('')","0.0"}};
+  String[][] cases={{"2.7","invalid"},{"true()","1.0"},{"false()","0.0"},{"'2.7'","invalid"},{"'2'","2.0"},{"''","0.0"},{"number('')","0.0"}};
   for(String[] item:cases) {
    String calculate=item[0];
    javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
@@ -370,6 +394,210 @@ public class ContainerRuntimeTest {
     catch(org.javarosa.xpath.XPathTypeMismatchException error){actual="invalid";}
     assertEquals(calculate,item[1],actual);
    }
+  }
+ }
+
+ // Part 04's gated run G2: Core's reading of a query repeat in each placement. A query repeat whose rows can
+ // follow an answer is written in the count placement (part 04 §1.5): `nova_query_ids_<r>` and
+ // `nova_query_count_<r>` in the wrapper, each row's 0-based place `nova_query_index_<r>` set from `position(..)`
+ // when the row is made, its id set then too and calculated as
+ // `if(../nova_query_index_<r> < ../../nova_query_count_<r>, selected-at(../../nova_query_ids_<r>, ../nova_query_index_<r>), '')`,
+ // and the row relevant only while `position() < ../nova_query_count_<r>`. One that cannot is written in model
+ // iteration, HQ's form builder's own spelling (part 04 §1.4).
+
+ /** Each row of `generic` the entry steps onto, keyed by its repeat multiplicities, with `expression` read at the
+  * row the moment the controller first reaches it: right after `FormDef.createNewRepeat` made it, before any
+  * other answer changes. */
+ private static java.util.Map<String,String> enterReading(FormParseInit parsed,String generic,String expression)throws Exception {
+  java.util.Map<String,String> read=new java.util.LinkedHashMap<>();
+  FormDef form=parsed.getFormDef();
+  FormEntryController controller=parsed.getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+  int steps=0,event;
+  while((event=controller.stepToNextEvent())!=FormEntryController.EVENT_END_OF_FORM){
+   if(++steps>400)throw new AssertionError("Entry did not terminate");
+   if(event!=FormEntryController.EVENT_REPEAT)continue;
+   org.javarosa.core.model.instance.TreeReference row=controller.getModel().getFormIndex().getReference();
+   if(!generic.equals(row.genericize().toString(false)))continue;
+   StringBuilder key=new StringBuilder();
+   for(int level=0;level<row.size();level++)if("item".equals(row.getName(level)))key.append(key.length()==0?"":"/").append(row.getMultiplicity(level));
+   read.putIfAbsent(key.toString(),String.valueOf(ExprEvalUtils.xpathEval(new org.javarosa.core.model.condition.EvaluationContext(form.getEvaluationContext(),row),expression)));
+  }
+  return read;
+ }
+ private static boolean relevant(FormDef form,String path)throws Exception {return form.getMainInstance().resolveReference(ref(form,path)).isRelevant();}
+ /** The instance a submission carries (`XFormSerializingVisitor` leaves out every node that is not relevant). */
+ private static String submission(FormDef form)throws Exception {
+  return new String(new org.javarosa.model.xform.XFormSerializingVisitor().serializeInstance(form.getMainInstance()),java.nio.charset.StandardCharsets.UTF_8);
+ }
+ private static int caseCreates(String xml)throws Exception {
+  javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+  org.w3c.dom.Document submitted=factory.newDocumentBuilder().parse(new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+  return submitted.getElementsByTagNameNS("http://commcarehq.org/case/transaction/v2","create").getLength();
+ }
+
+ /** Model iteration in the form builder's spelling: the `xforms-ready` setvalues fill `@ids` and `@count` as the
+  * form loads, before any entry, and each row's `jr-insert` setvalues give it `@index` from `@current_index`
+  * before the bind recomputes it (`FormDef.createNewRepeat` fires `jr-insert` before calculates), then `@id`.
+  * Catches a spelling Core does not initialize at load (rows never made) or an index read after the recompute
+  * (every id shifted by one). */
+ @Test public void modelIterationInTheFormBuildersSpellingInitializesAtLoad()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("query",source);FormDef form=parsed.getFormDef();
+   assertEquals("a b c",eval(form,"string(/data/items/@ids)"));
+   assertEquals(3.0,eval(form,"number(/data/items/@count)"));
+   assertEquals(0.0,eval(form,"number(/data/empty_items/@count)"));
+   assertEquals(0.0,eval(form,"count(/data/items/item)"));
+   java.util.Map<String,String> ids=enterReading(parsed,"/data/items/item","string(@id)");
+   assertEquals(java.util.Map.of("0","a","1","b","2","c"),ids);
+   for(int row=1;row<=3;row++)assertEquals("row "+row,(double)(row-1),eval(form,"number(/data/items/item["+row+"]/@index)"));
+   assertEquals(3.0,eval(form,"number(/data/items/@current_index)"));
+   assertEquals("a b c",eval(form,"join(' ', /data/items/item/item_id)"));
+   assertEquals(0.0,eval(form,"count(/data/empty_items/item)"));
+  }
+ }
+
+ /** `container-query-follows`: the `members` query reads the form's `order` answer, and each row creates a member
+  * case. Rows are made up to the count, and each new row's 0-based place is stored as it is made, so the row's id,
+  * index and the rows made so far hold at once. Then, with an answer at each place:
+  * a shrink of the result hides the rows past its end and leaves them, their answers and their case blocks out of
+  * the submission without removing them; growth back shows them again with their answers; and a reorder moves the
+  * ids by position while each answer stays at its position (part 04 §1.5, the notice `repeat-rows-follow-query`).
+  * Catches a row id read against the template before the row exists (G2's outcome B1), a guard that hides
+  * nothing or submits hidden rows (B2), ids that keep the record a row was made for (C), and a row id that cannot
+  * be calculated once its row is hidden (`position(..)` there names no node and throws). */
+ @Test public void queryRowsFollowTheResultAndAnswersKeepTheirPosition()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("query-follows",source);FormDef form=parsed.getFormDef();
+   String rows="/data/members/item";
+   assertEquals("full",eval(form,"string(/data/order)"));
+   assertEquals(java.util.Map.of("0","a","1","b","2","c"),enterReading(parsed,rows,"string(nova_query_id_members)"));
+   parsed=load("query-follows",source);form=parsed.getFormDef();
+   assertEquals(java.util.Map.of("0","0","1","1","2","2"),enterReading(parsed,rows,"string(ordinal)"));
+   parsed=load("query-follows",source);form=parsed.getFormDef();
+   assertEquals(java.util.Map.of("0","1","1","2","2","3"),enterReading(parsed,rows,"string(made)"));
+   assertEquals(3.0,eval(form,"count("+rows+")"));
+   assertEquals("a b c",eval(form,"join(' ', "+rows+"/record)"));
+   // Each row keeps the rows made as of its own making: a new row recounts the position node, and Core narrows the
+   // calculates that read it to the row that changed (`FormDef.evaluateTriggerable`, `Triggerable.narrowContextBy`),
+   // as it does for model iteration's `@current_index`.
+   assertEquals("1 2 3",eval(form,"join(' ', "+rows+"/made)"));
+   answer(form,"/data/case_name","Home");
+   String[] places={"first","second","third"},names={"Ama","Kofi","Esi"};
+   for(int row=1;row<=3;row++){answer(form,rows+"["+row+"]/note",places[row-1]);answer(form,rows+"["+row+"]/case_name",names[row-1]);}
+   String xml=submission(form);
+   assertEquals(4,caseCreates(xml));
+   for(String place:places)assertTrue(place,xml.contains(place));
+
+   answer(form,"/data/order","short");enter(parsed,false);
+   // Lowering the count removes no row; an XPath count reads only the relevant ones.
+   assertEquals("lowering the count removes no row",3,held(form,rows).size());
+   assertEquals(1.0,eval(form,"count("+rows+")"));
+   assertTrue(relevant(form,rows+"[1]"));assertFalse(relevant(form,rows+"[2]"));assertFalse(relevant(form,rows+"[3]"));
+   assertEquals("a",eval(form,"string("+rows+"[1]/record)"));
+   assertEquals("",eval(form,"string("+rows+"[2]/nova_query_id_members)"));
+   assertEquals("an answer past the end stays in the form","third",stored(form,rows+"[3]/note"));
+   assertEquals("and reads blank while its row is hidden","",eval(form,"string("+rows+"[3]/note)"));
+   xml=submission(form);
+   assertEquals("the household and the one member still in the result",2,caseCreates(xml));
+   assertTrue(xml.contains("first"));assertFalse(xml.contains("second"));assertFalse(xml.contains("third"));
+   assertFalse(xml.contains("Kofi"));assertFalse(xml.contains("Esi"));
+
+   answer(form,"/data/order","full");enter(parsed,false);
+   assertEquals(3.0,eval(form,"count("+rows+")"));
+   for(int row=1;row<=3;row++)assertTrue("row "+row,relevant(form,rows+"["+row+"]"));
+   assertEquals("a b c",eval(form,"join(' ', "+rows+"/record)"));
+   assertEquals("first second third",eval(form,"join(' ', "+rows+"/note)"));
+   xml=submission(form);
+   assertEquals(4,caseCreates(xml));
+   for(String place:places)assertTrue(place,xml.contains(place));
+
+   answer(form,"/data/order","reverse");enter(parsed,false);
+   assertEquals("c b a",eval(form,"join(' ', "+rows+"/nova_query_id_members)"));
+   assertEquals("c b a",eval(form,"join(' ', "+rows+"/record)"));
+   assertEquals("first second third",eval(form,"join(' ', "+rows+"/note)"));
+   assertEquals("Ama Kofi Esi",eval(form,"join(' ', "+rows+"/case_name)"));
+   assertEquals("0 1 2",eval(form,"join(' ', "+rows+"/ordinal)"));
+   assertEquals(4,caseCreates(submission(form)));
+  }
+ }
+
+ /** `container-query-hidden-row`: two repeats over `a b c` whose condition shows the first row on `first` (yes as the
+  * form opens) and every later row on `later` (blank). Form entry reaches a row that is not made yet as a prompt and
+  * makes it only where the condition holds at its place (`FormEntryModel.isIndexRelevant` → `FormDef.isRepeatRelevant`,
+  * expanded by `FormEntryController.getAdjacentIndex`); one that does not hold steps past the repeat
+  * (`FormEntryModel.incrementHelper` exits a repeat whose row does not exist), so the first walk makes the first row
+  * alone. With `first` no and `later` yes, the next walk makes the other two while the first is hidden. `held` holds
+  * model iteration: a new row takes `@index` from `int(@current_index)` at `jr-insert` (`FormDef.createNewRepeat` fires
+  * `jr-insert` before any calculate), and `@current_index` is `count(/data/held/item)`, which reads only the relevant
+  * rows (`XPathLazyNodeset.performEvaluation`), so the second row takes index 0 and the first row's record `a`, the
+  * third index 1 and `b`, and `c` is in no row. `counted` takes the placement Nova's rule gives a repeat with a
+  * condition, the count placement, whose rows store their place from `position(..)` as they are made, so each keeps
+  * its own record. Catches a rule that writes a repeat with a condition in model iteration. */
+ @Test public void aRowMadeWhileAnEarlierOneIsHiddenTakesItsRecordInModelIterationButNotTheCountPlacement()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("query-hidden-row",source);FormDef form=parsed.getFormDef();enter(parsed,false);
+   String held="/data/held/item",counted="/data/counted/item";
+   assertEquals("a row its condition hides at its prompt is not made, nor any after it",1,held(form,held).size());
+   assertEquals(1,held(form,counted).size());
+   answer(form,"/data/first","no");answer(form,"/data/later","yes");enter(parsed,false);
+   assertEquals(3,held(form,held).size());
+   assertFalse(relevant(form,held+"[1]"));
+   assertEquals("a a b",stored(form,held+"[1]/@id")+" "+stored(form,held+"[2]/@id")+" "+stored(form,held+"[3]/@id"));
+   assertEquals("0 0 1",stored(form,held+"[1]/@index")+" "+stored(form,held+"[2]/@index")+" "+stored(form,held+"[3]/@index"));
+   assertEquals("a b",eval(form,"join(' ', "+held+"/record)"));
+   assertEquals(3,held(form,counted).size());
+   assertFalse(relevant(form,counted+"[1]"));
+   assertEquals("0 1 2",stored(form,counted+"[1]/nova_query_index_counted")+" "+stored(form,counted+"[2]/nova_query_index_counted")+" "+stored(form,counted+"[3]/nova_query_index_counted"));
+   assertEquals("b c",eval(form,"join(' ', "+counted+"/record)"));
+  }
+ }
+
+ /** `container-query-nested-gated`: a count-placement `sites` query under a group shown only once `show` is yes,
+  * and in each site a count-placement `plots` query reading that site's record. Nothing is made while the group
+  * is not relevant; once it is, each site's rows are made with the ids of its own query, read on their first
+  * evaluation (an absolute count inside a repeat resolves within the current outer row, `XFormParser`'s
+  * `getAbsRef`). Catches ids computed across every outer row (a nested model iteration's failure, part 04 §1.2)
+  * and a repeat left empty under a group that turns relevant during entry. */
+ @Test public void nestedCountPlacementUnderALaterRelevantGroupGivesEachOuterRowItsOwnIds()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("query-nested-gated",source);FormDef form=parsed.getFormDef();
+   enter(parsed,false);
+   assertEquals(0.0,eval(form,"count(/data/page/sites/item)"));
+   answer(form,"/data/show","yes");
+   assertEquals(java.util.Map.of("0","s1","1","s2"),enterReading(parsed,"/data/page/sites/item","string(nova_query_id_sites)"));
+   parsed=load("query-nested-gated",source);form=parsed.getFormDef();answer(form,"/data/show","yes");
+   assertEquals(java.util.Map.of("0/0","p1","0/1","p2","1/0","p3"),enterReading(parsed,"/data/page/sites/item/plots/item","string(nova_query_id_plots)"));
+   assertEquals("s1 s2",eval(form,"join(' ', /data/page/sites/item/site)"));
+   assertEquals(2.0,eval(form,"count(/data/page/sites/item[1]/plots/item)"));
+   assertEquals(1.0,eval(form,"count(/data/page/sites/item[2]/plots/item)"));
+   assertEquals("p1 p2",eval(form,"join(' ', /data/page/sites/item[1]/plots/item/plot)"));
+   assertEquals("p3",eval(form,"join(' ', /data/page/sites/item[2]/plots/item/plot)"));
+  }
+ }
+
+ /** `container-init-add`'s `assets` is a count placement in each `visits` row, its query reading that row's
+  * `zone`: a change in one outer row shrinks that row's results alone, its hidden rows keep their answers out of
+  * the submission, and the change back restores them. Catches a nested count whose guard or ids leave the outer
+  * row. */
+ @Test public void aNestedCountPlacementShrinksAndGrowsWithinItsOuterRow()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("init-add",source);FormDef form=parsed.getFormDef();enter(parsed,true);
+   String assets="/data/visits[1]/assets/item";
+   assertEquals("pump tap",eval(form,"join(' ', "+assets+"/row_id)"));
+   answer(form,assets+"[1]/note","pump checked");answer(form,assets+"[2]/note","tap checked");
+   answer(form,"/data/visits[1]/zone","south");enter(parsed,false);
+   assertEquals(2,held(form,assets).size());
+   assertEquals(1.0,eval(form,"count("+assets+")"));
+   assertEquals("tap checked",stored(form,assets+"[2]/note"));
+   assertEquals("tank",eval(form,"string("+assets+"[1]/row_id)"));
+   assertEquals("pump checked",eval(form,"string("+assets+"[1]/note)"));
+   assertFalse(relevant(form,assets+"[2]"));
+   String xml=submission(form);
+   assertTrue(xml.contains("pump checked"));assertFalse(xml.contains("tap checked"));
+   answer(form,"/data/visits[1]/zone","north");enter(parsed,false);
+   assertTrue(relevant(form,assets+"[2]"));
+   assertEquals("pump tap",eval(form,"join(' ', "+assets+"/row_id)"));
+   assertTrue(submission(form).contains("tap checked"));
   }
  }
 }

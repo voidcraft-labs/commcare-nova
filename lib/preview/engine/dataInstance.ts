@@ -12,6 +12,8 @@ import type {
 import { XPathDate, type XPathValue } from "@/lib/preview/xpath/types";
 import { type CoreAnswerType, coreAnswerType } from "./answerCast";
 import type { FieldTreeNode } from "./fieldTree";
+import { stripIndices } from "./instancePaths";
+import { previewQueryWrapperName } from "./queryWrapperName";
 
 /** JavaRosa-shaped scalar value of one held answer, by the data type Core
  * gives its node (`answerCast.ts::coreAnswerType`, from the field's bind):
@@ -96,6 +98,13 @@ function restoreCalculatedScalar(
 
 interface XPathTemplateNode {
 	readonly name: string;
+	/** The path segment the engine keys the node's values by, where it
+	 * differs from its element name: a query repeat's wrapper is named apart
+	 * from its rows and keyed by the repeat's own path. */
+	readonly pathName?: string;
+	/** A query repeat's wrapper, whose `@current_index` counts the relevant
+	 * rows beside it. */
+	readonly queryWrapper?: true;
 	/** The data type Core gives the node, which decides how it reads. */
 	readonly answerType: CoreAnswerType;
 	readonly repeat: boolean;
@@ -143,6 +152,9 @@ export class DataInstance {
 		Readonly<Record<string, string>>
 	>();
 	private xpathTemplate: readonly XPathTemplateNode[] = [];
+	/** The index-free paths of the query repeats, whose wrappers hold
+	 * `@ids`, `@count` and the computed `@current_index`. */
+	private queryRepeatPaths = new Set<string>();
 	private rootAttributes: Readonly<Record<string, string>>;
 
 	constructor(
@@ -188,6 +200,34 @@ export class DataInstance {
 		caseTypes: readonly CaseType[] = [],
 	): void {
 		this.xpathTemplate = xpathTemplateFromFields(tree, caseTypes);
+		this.queryRepeatPaths = new Set();
+		const walk = (nodes: readonly FieldTreeNode[], prefix: string): void => {
+			for (const node of nodes) {
+				const path = `${prefix}/${node.field.id}`;
+				if (
+					node.field.kind === "repeat" &&
+					node.field.repeat_mode === "query_bound"
+				)
+					this.queryRepeatPaths.add(path);
+				walk(node.children ?? [], path);
+			}
+		};
+		walk(tree, "/data");
+	}
+
+	/** The rows of a repeat that are relevant: a query wrapper's
+	 * `@current_index`. Model iteration calculates it as `count(<rows>)` and
+	 * the count placement's position node as `count(../item)`, and Core drops
+	 * a row that is not relevant from that nodeset
+	 * (`XPathLazyNodeset.java::performEvaluation`). */
+	relevantRowCount(
+		repeatPath: string,
+		isRelevant: (path: string) => boolean,
+	): number {
+		let rows = 0;
+		for (let index = 0; index < this.getRepeatCount(repeatPath); index++)
+			if (isRelevant(`${repeatPath}[${index}]`)) rows += 1;
+		return rows;
 	}
 
 	/** Initialize from a field tree, creating an entry for each non-structural field. */
@@ -462,7 +502,9 @@ export class DataInstance {
 	/** Values addressable by the XPath worker, including runtime attributes. A
 	 * calculated Date is named by its answer text, which changes exactly when
 	 * the held value does; its value itself crosses through the node. */
-	xpathValueEntries(): [string, string | number | boolean][] {
+	xpathValueEntries(
+		isRelevant: (path: string) => boolean = () => true,
+	): [string, string | number | boolean][] {
 		return [
 			...[...this.data].map(
 				([path, raw]): [string, string | number | boolean] => {
@@ -478,7 +520,24 @@ export class DataInstance {
 					([name, value]) => [`${path}/@${name}`, value] as [string, string],
 				),
 			),
+			...[...this.elementAttributes.keys()].flatMap(
+				(path): [string, string][] =>
+					this.isQueryWrapperPath(path)
+						? [
+								[
+									`${path}/@current_index`,
+									String(this.relevantRowCount(path, isRelevant)),
+								],
+							]
+						: [],
+			),
 		];
+	}
+
+	/** Whether a concrete path is a query repeat's wrapper (the repeat's own
+	 * path, never one of its rows). */
+	isQueryWrapperPath(path: string): boolean {
+		return !path.endsWith("]") && this.queryRepeatPaths.has(stripIndices(path));
 	}
 
 	/** Repeat cardinality is topology even when the retained `[0]` template
@@ -514,18 +573,33 @@ function xpathTemplateFromFields(
 	tree: readonly FieldTreeNode[],
 	caseTypes: readonly CaseType[],
 ): readonly XPathTemplateNode[] {
-	return tree.map((node) => ({
-		name: node.field.id,
-		answerType: coreAnswerType(
-			fieldBindType(node.field, caseTypes),
-			node.field.kind,
-		),
-		repeat: node.field.kind === "repeat",
-		children: xpathTemplateFromFields(node.children ?? [], caseTypes),
-		...(node.field.kind === "repeat" && node.field.repeat_mode === "query_bound"
-			? { attributes: { id: "", index: "" } }
-			: {}),
-	}));
+	return tree.flatMap((node): XPathTemplateNode[] => {
+		const query =
+			node.field.kind === "repeat" && node.field.repeat_mode === "query_bound";
+		const own: XPathTemplateNode = {
+			name: node.field.id,
+			answerType: coreAnswerType(
+				fieldBindType(node.field, caseTypes),
+				node.field.kind,
+			),
+			repeat: node.field.kind === "repeat",
+			children: xpathTemplateFromFields(node.children ?? [], caseTypes),
+			...(query ? { attributes: { id: "", index: "" } } : {}),
+		};
+		if (!query) return [own];
+		return [
+			{
+				name: previewQueryWrapperName(node.field.id),
+				pathName: node.field.id,
+				queryWrapper: true,
+				answerType: "untyped",
+				repeat: false,
+				children: [],
+				attributes: { ids: "", count: "", current_index: "" },
+			},
+			own,
+		];
+	});
 }
 
 class FormXPathInstance implements XPathInstance {
@@ -613,8 +687,8 @@ class FormXPathNode implements XPathNode {
 				continue;
 			const unindexedPath =
 				this.path === "/"
-					? `/${template.name}`
-					: `${this.path}/${template.name}`;
+					? `/${template.pathName ?? template.name}`
+					: `${this.path}/${template.pathName ?? template.name}`;
 			const count = template.repeat
 				? this.instance.data.getRepeatCount(unindexedPath)
 				: 1;
@@ -634,8 +708,8 @@ class FormXPathNode implements XPathNode {
 			.map((template) => {
 				const unindexedPath =
 					this.path === "/"
-						? `/${template.name}`
-						: `${this.path}/${template.name}`;
+						? `/${template.pathName ?? template.name}`
+						: `${this.path}/${template.pathName ?? template.name}`;
 				return this.childNode(template, unindexedPath, 0);
 			});
 	}
@@ -644,6 +718,15 @@ class FormXPathNode implements XPathNode {
 		return Object.entries({
 			...this.attributeSpecs,
 			...this.instance.data.elementAttributesAt(this.path),
+			...(this.template?.queryWrapper
+				? {
+						current_index: String(
+							this.instance.data.relevantRowCount(this.path, (path) =>
+								this.instance.relevance(path),
+							),
+						),
+					}
+				: {}),
 		})
 			.filter(([attributeName]) =>
 				name === undefined || name === "*" ? true : attributeName === name,

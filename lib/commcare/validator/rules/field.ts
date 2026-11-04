@@ -1,4 +1,3 @@
-import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 /**
  * Field-level validation rules.
  *
@@ -356,24 +355,6 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 					"EMPTY_REPEAT_COUNT",
 					"field",
 					`Field "${field.id}" in "${ctx.formName}" is a count-bound repeat but has no \`repeat_count\` expression. Set it to an XPath that resolves to the number of iterations, a hashtag reference like \`#form/desired_count\` for a user-supplied count, or a literal like \`5\` for a fixed count.`,
-					{ ...loc, field: "repeat_count" },
-					{ field: "repeat_count" },
-				),
-			);
-			return errors;
-		}
-		const target = directRepeatCountReference(
-			expr,
-			new Map(
-				Object.values(ctx.doc.fields).map((field) => [field.uuid, field]),
-			),
-		);
-		if (target !== undefined && ctx.doc.fields[target]?.kind !== "int") {
-			errors.push(
-				validationError(
-					"REPEAT_COUNT_TYPE",
-					"field",
-					`The count for "${field.id}" needs an integer question or an explicit numeric expression, such as int(number(...)).`,
 					{ ...loc, field: "repeat_count" },
 					{ field: "repeat_count" },
 				),

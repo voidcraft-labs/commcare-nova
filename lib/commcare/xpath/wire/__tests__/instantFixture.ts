@@ -195,7 +195,7 @@ export function instantFixture(
 	const structure = formStructure(doc, FORM);
 	if (form === undefined || record === undefined || structure === undefined)
 		throw new Error("The instant fixture's slots are missing.");
-	const projection = formNodeProjection(doc, structure);
+	const projection = formNodeProjection(doc, structure, { surface: "wire" });
 	// The follow-up form reads its own `visit` case as the XForm emitter does.
 	const formCaseProperty = formCasePropertyRead({
 		formType: "followup",

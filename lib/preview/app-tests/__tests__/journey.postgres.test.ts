@@ -1961,11 +1961,15 @@ it("visits form pages using retained entry state before allowing submission", {
 		kind: "answer",
 		answers: [{ path: "first/zone", value: "north" }],
 	});
-	expect(await step({ kind: "pageNext" })).toMatchObject({
+	/* The nested query reads an answer, so its rows follow it: back on the
+	 * page, the north area's two assets have their rows, the first row's
+	 * answer stays at its place, and the new row starts from its own id. */
+	const returned = await step({ kind: "pageNext" });
+	expect(returned).toMatchObject({
 		questions: expect.arrayContaining([
 			expect.objectContaining({
 				path: "second/rounds[0]/assets",
-				repeatCount: 1,
+				repeatCount: 2,
 			}),
 			expect.objectContaining({
 				path: "second/rounds[0]/assets[0]/note",
@@ -1973,6 +1977,14 @@ it("visits form pages using retained entry state before allowing submission", {
 			}),
 		]),
 	});
+	expect(returned.questions).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				path: "second/rounds[0]/assets[1]/note",
+				value: "tap",
+			}),
+		]),
+	);
 	expect(await step({ kind: "submit" })).toMatchObject({
 		savedInTest: true,
 		effects: {

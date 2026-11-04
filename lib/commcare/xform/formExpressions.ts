@@ -1,6 +1,7 @@
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import {
 	type ExpressionContext,
+	expressionFacts,
 	referencedCountResults,
 	slotContext,
 } from "@/lib/domain/expression/context";
@@ -70,7 +71,7 @@ export function formExpressionEmission(
 	const form = formStructure(expressionDoc, formUuid);
 	if (form === undefined)
 		throw new Error(`Form ${formUuid} has no complete expression structure.`);
-	const projection = formNodeProjection(doc, form);
+	const projection = formNodeProjection(doc, form, { surface: "wire" });
 	const lookup = lookupTypeIndexFromNaming(naming) ?? new Map();
 	const contexts = new Map<string, ExpressionContext>();
 	const context = (slot: SlotContextRef): ExpressionContext => {
@@ -106,6 +107,7 @@ export function formExpressionEmission(
 		counts: planRepeatCountCarriers(
 			form,
 			referencedCountResults(expressionDoc, formUuid),
+			expressionFacts(expressionDoc),
 		),
 		context,
 		lower,

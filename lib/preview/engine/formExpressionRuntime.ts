@@ -39,18 +39,27 @@ import {
 import { expressionAt } from "@/lib/domain/expressionSource";
 import type { ProseReferencePart } from "@/lib/domain/prose";
 import type { PreviewLookupData } from "./lookupEvaluation";
+import { previewQueryWrapperName } from "./queryWrapperName";
 
 /** The current Preview instance stores query rows directly beneath their
- * authored repeat name. Keep that physical projection private to this runtime;
- * native emission and admission always use the complete form-node graph. */
+ * authored repeat name, `@id` and `@index` on each row, in both placements:
+ * it projects the authoring surface, which spells model iteration and the
+ * count placement alike. The wrapper's `@ids`, `@count` and `@current_index`
+ * sit on the wrapper, a sibling element of the rows named by
+ * `previewQueryWrapperName`. The engine keys every runtime value by the
+ * repeat's own path, so `readPaths: true` names the wrapper by the repeat's
+ * id instead: the dependency graph's spelling of a read. Keep that physical
+ * projection private to this runtime; native emission and admission always
+ * use the complete form-node graph on the wire surface. */
 export function previewFormNodeProjection(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
+	options: { readonly readPaths?: boolean } = {},
 ): FormNodeProjection {
 	const form = formStructure(doc, formUuid);
 	if (form === undefined)
 		throw new Error(`Form ${formUuid} has no expression structure.`);
-	const native = formNodeProjection(doc, form);
+	const native = formNodeProjection(doc, form, { surface: "authoring" });
 	const path = (node: FormNodeRef) =>
 		native.graph.path(node)?.filter((part, index, parts) => {
 			const next = parts[index + 1];
@@ -68,10 +77,12 @@ export function previewFormNodeProjection(
 		parent: (node) => path(node)?.at(-2),
 	};
 	const step: FormNodeProjection["step"] = (node) => {
-		if (node.kind !== "field" || node.role !== undefined)
-			return native.step(node);
+		if (node.kind !== "field") return native.step(node);
 		const field = form.fields.get(node.uuid);
-		return field === undefined ? undefined : { name: field.id };
+		if (field === undefined) return undefined;
+		if (node.role === "query-wrapper" && options.readPaths !== true)
+			return { name: previewQueryWrapperName(field.id) };
+		return { name: field.id };
 	};
 	return {
 		graph,
@@ -159,6 +170,10 @@ export interface FormExpressionRuntime {
 	readonly doc: BlueprintDoc;
 	readonly formUuid: Uuid;
 	readonly projection: FormNodeProjection;
+	/** The engine's path for a read: the projection's path with a query
+	 * repeat's wrapper named by the repeat's own id, where the engine keys
+	 * the wrapper's attributes. */
+	readPath(node: FormNodeRef): string | undefined;
 	context(slot: SlotContextRef): ExpressionContext;
 	/** The slot's stored tree, for reads that decide by its shape. */
 	expression(slot: ExpressionSlotRef): Expression | undefined;
@@ -186,6 +201,7 @@ export function formExpressionRuntime(
 	bindings: WireTermBindings,
 ): FormExpressionRuntime {
 	const projection = previewFormNodeProjection(doc, formUuid);
+	const reads = previewFormNodeProjection(doc, formUuid, { readPaths: true });
 	const contexts = new Map<string, ExpressionContext>();
 	const context = (slot: SlotContextRef): ExpressionContext => {
 		const key = JSON.stringify(slot);
@@ -206,8 +222,9 @@ export function formExpressionRuntime(
 	const lower = (expression: Expression, slot: SlotContextRef): string => {
 		for (const { node } of formReads(expression)) {
 			if (
-				(node.kind === "field" && node.role === "query-wrapper") ||
-				(node.kind !== "field" && node.kind !== "repeat-row")
+				node.kind !== "field" &&
+				node.kind !== "repeat-row" &&
+				!(node.kind === "repeat" && node.role !== "count-result")
 			)
 				throw new Error(
 					`Preview cannot yet evaluate the generated form node ${formNodeKey(node)}.`,
@@ -239,6 +256,7 @@ export function formExpressionRuntime(
 		doc,
 		formUuid,
 		projection,
+		readPath: (node) => reads.path(node)?.toXPath(),
 		context,
 		lower,
 		expression: (slot) => expressionAt(doc, slot),

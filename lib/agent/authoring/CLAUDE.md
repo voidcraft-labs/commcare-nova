@@ -251,8 +251,9 @@ authorized and real. Results identify scenario evaluation and project ordinary
 case values; they do not prove storage, additional case operations or device behavior.
 
 The fields guide describes live counts: increases add rows; decreases retain
-created rows, answers, and case operations. Query ID snapshots remain captured
-at form start or nested row insertion. Section rows are inserted on first entry
+created rows, answers, and case operations; a count is a whole number. A query
+repeat's rows are set when the form opens or follow the query, by its
+placement, which a publish keeps. Section rows are inserted on first entry
 in Preview and disposable journeys; returning to a page retains those rows and
 answers.
 Journey observations expose available sections and refuse answers on another

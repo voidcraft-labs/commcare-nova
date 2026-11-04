@@ -151,6 +151,8 @@ CORE_CLASSES = {
     "OperationRelevanceRuntimeTest": "case",
     "PredicateRuntimeTest": "predicate",
     "RelationInstanceRuntimeTest": "relation-instance",
+    # The whole-number counts Nova admits, and the fractional carrier they replaced, on one local form.
+    "RepeatCountRuntimeTest": "expression",
     "RowPredicateCurrentRuntimeTest": "expression",
     "SearchPromptRuntimeTest": "prompt",
     "SearchRuntimeTest": "search",

@@ -505,7 +505,7 @@ function relativeReads(
 		const form = context.form;
 		const start = context.contextNode;
 		if (form === undefined || start === undefined) return undefined;
-		const projection = formNodeProjection(doc, form);
+		const projection = formNodeProjection(doc, form, { surface: "authoring" });
 		const { graph } = projection;
 		let node: FormNodeRef | undefined = start;
 		for (const step of steps) {

@@ -35,6 +35,7 @@ import {
 	caseTileLayoutSchema,
 	columnSchema,
 	columnSortSchema,
+	fieldHoldsHeldKey,
 	fieldKinds,
 	fieldPatchSchemaByKind,
 	fieldSchema,
@@ -563,6 +564,16 @@ type UpdateFieldArm = {
  * Override the domain partial's generic nullable slot here so the canonical
  * mutation envelope rejects both `null` and the empty string.
  */
+/**
+ * `addField`'s field: any field, holding no key in `HELD_FIELD_KEYS`. A held
+ * identity (a query repeat's `placement`) is no author's choice, so a new or
+ * duplicated field starts unheld.
+ */
+const addFieldFieldSchema = fieldSchema.refine(
+	(field) => !fieldHoldsHeldKey(field),
+	"A new field can't hold a query repeat's placement, since no edit chooses where a published repeat's rows come from. Leave out `placement`, and the repeat takes the placement its shape gives.",
+);
+
 function fieldPatchWithValidId<S extends z.ZodRawShape>(
 	schema: z.ZodObject<S>,
 ) {
@@ -938,7 +949,7 @@ function createMutationSchema({
 		z.strictObject({
 			kind: z.literal("addField"),
 			parentUuid: uuidSchema,
-			field: fieldSchema,
+			field: addFieldFieldSchema,
 			/** The sibling this field follows under `parentUuid`, or `null` for
 			 *  first. Absent appends — the common case, and distinct from `null`
 			 *  so "add at the top" stays expressible. */

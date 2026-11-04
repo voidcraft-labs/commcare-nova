@@ -1,6 +1,7 @@
 /** Typed expression plans compose a separate random stream over the suite generator.
  * Resolving a plan never draws again: missing targets are the only skipped plans.
  */
+import { isDeepStrictEqual } from "node:util";
 import * as fc from "fast-check";
 import {
 	type BlueprintDoc,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/domain/expression/walk";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
+import { mappedAsTheCutoverMaps } from "./xformDocArbitrary";
 
 export const EXPRESSION_SHAPES = [
 	"reference",
@@ -605,9 +607,32 @@ export const expressionDocArbitrary: fc.Arbitrary<BlueprintDoc> = fc
 			const landing = applyPlan(doc, plan);
 			if (landing) applied.push(landing);
 		}
-		landings.set(doc, applied);
-		return doc;
+		// Each step 5 shape is mapped as the cutover maps a stored app, with no
+		// further draw. A mapped field is a new object, so each landing is found
+		// again in its slot of the mapped document: a wrapped count holds the
+		// drawn tree as its argument.
+		const mapped = mappedAsTheCutoverMaps(doc);
+		landings.set(
+			mapped,
+			mapped === doc
+				? applied
+				: applied.flatMap((landing) => relocated(mapped, landing)),
+		);
+		return mapped;
 	});
+
+/** The landing's tree as the mapped document holds it in the same slot, or
+ * nothing where the slot no longer holds it. */
+function relocated(doc: BlueprintDoc, landing: Landing): Landing[] {
+	const expression = expressionSlotValue(doc, landing.slot);
+	if (expression === undefined) return [];
+	let found: Expression | undefined;
+	walkExpressionNodes(expression, (node) => {
+		if (found === undefined && isDeepStrictEqual(node, landing.expression))
+			found = node;
+	});
+	return found === undefined ? [] : [{ ...landing, expression: found }];
+}
 
 /** Only shapes still present in an actual owning slot count as sample coverage. */
 export function landedExpressionShapes(

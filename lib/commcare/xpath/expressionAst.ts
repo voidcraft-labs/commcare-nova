@@ -575,7 +575,9 @@ export function parseFormExpression(
 			scope.sourceProjection ??
 			(context.form === undefined
 				? undefined
-				: formNodeProjection(scope.doc, context.form)),
+				: formNodeProjection(scope.doc, context.form, {
+						surface: "authoring",
+					})),
 		bind,
 		term,
 		remember,
