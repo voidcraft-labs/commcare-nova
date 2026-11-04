@@ -17,6 +17,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
+	effectiveCaseTypes,
 	type Field,
 	type FieldCaseWriteView,
 	fieldCaseWriteViewKey,
@@ -35,6 +36,8 @@ import {
 	SAVE_ONLY_IF_CHANGED_LABEL,
 	SAVE_ONLY_IF_CHANGED_LINE,
 	STARTS_BLANK_LINE,
+	STARTS_BLANK_ON_DECIMAL_LINE,
+	STARTS_BLANK_OUTSIDE_CHOICES_LINE,
 } from "../caseWriteRowModel";
 
 const NICKNAME = testUuid("row-nickname");
@@ -163,6 +166,10 @@ function rowOf(
 		throw new Error("The fixture question saves its answer nowhere.");
 	const formUuid = view.formUuid;
 	const moduleUuid = doc.moduleOrder[0];
+	// The property's type as the editor reads it, from the effective catalog.
+	const propertyType = effectiveCaseTypes(doc)
+		.find((caseType) => caseType.name === view.caseType)
+		?.properties.find((property) => property.name === view.property)?.data_type;
 	return caseWriteRowModel({
 		view,
 		field: doc.fields[fieldUuid] as Field,
@@ -170,6 +177,7 @@ function rowOf(
 		module: doc.modules[moduleUuid],
 		propertyLabel: (_caseType, property) => humanizeId(property),
 		operationDescription: () => "Update the case this form opened",
+		...(propertyType !== undefined && { propertyType }),
 	});
 }
 
@@ -259,27 +267,27 @@ describe("the preload line", () => {
 		const doc = fixture("followup");
 		const row = rowOf(doc, NICKNAME);
 		expect(row.preload?.line).toBe(OPENS_WITH_CASE_VALUE_LINE);
-		expect(row.preload?.action.label).toBe("Start blank instead");
-		expect(row.preload?.action.mutation).toMatchObject({
+		expect(row.preload?.action?.label).toBe("Start blank instead");
+		expect(row.preload?.action?.mutation).toMatchObject({
 			kind: "updateField",
 			uuid: NICKNAME,
 			patch: { default_value: null },
 		});
-		expect(admitted(doc, row.preload?.action.mutation)).toEqual([]);
+		expect(admitted(doc, row.preload?.action?.mutation)).toEqual([]);
 	});
 
 	it("starts blank with no starting value, and Open with the case's current value sets the read", () => {
 		const opened = fixture("close");
-		const start = rowOf(opened, NICKNAME).preload?.action.mutation;
+		const start = rowOf(opened, NICKNAME).preload?.action?.mutation;
 		const doc = produce(opened, (draft) => {
 			if (start !== undefined) applyMutations(draft, [start]);
 		});
 		const row = rowOf(doc, NICKNAME);
 		expect(row.preload?.line).toBe(STARTS_BLANK_LINE);
-		expect(row.preload?.action.label).toBe(
+		expect(row.preload?.action?.label).toBe(
 			"Open with the case's current value",
 		);
-		expect(row.preload?.action.mutation).toMatchObject({
+		expect(row.preload?.action?.mutation).toMatchObject({
 			kind: "updateField",
 			uuid: NICKNAME,
 			patch: {
@@ -293,7 +301,56 @@ describe("the preload line", () => {
 				},
 			},
 		});
-		expect(admitted(doc, row.preload?.action.mutation)).toEqual([]);
+		expect(admitted(doc, row.preload?.action?.mutation)).toEqual([]);
+	});
+
+	it("offers no case value to a question that can't open on what its property holds", () => {
+		// A whole-number question on a decimal property, and a choice question
+		// on a text one, each with no starting value: opening either on the
+		// case's value can stop the form, so the line says why and offers
+		// nothing to commit.
+		const shaped = (
+			dataType: "decimal" | "text",
+			reshape: (field: Field) => Field,
+		) =>
+			produce(fixture("close"), (draft) => {
+				const nickname = draft.caseTypes
+					?.find((type) => type.name === "patient")
+					?.properties.find((property) => property.name === "nickname");
+				if (nickname !== undefined) nickname.data_type = dataType;
+				const field = reshape(draft.fields[NICKNAME] as Field);
+				if ("default_value" in field) field.default_value = undefined;
+				draft.fields[NICKNAME] = field;
+			});
+		const whole = rowOf(
+			shaped("decimal", (field) => ({ ...field, kind: "int" }) as Field),
+			NICKNAME,
+		).preload;
+		expect(whole?.line).toBe(STARTS_BLANK_ON_DECIMAL_LINE);
+		expect(whole?.action).toBeUndefined();
+		const choice = rowOf(
+			shaped(
+				"text",
+				(field) =>
+					({
+						...field,
+						kind: "single_select",
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: testUuid("row-choice-a"),
+									value: "a",
+									label: proseText("A"),
+								},
+							],
+						},
+					}) as Field,
+			),
+			NICKNAME,
+		).preload;
+		expect(choice?.line).toBe(STARTS_BLANK_OUTSIDE_CHOICES_LINE);
+		expect(choice?.action).toBeUndefined();
 	});
 
 	it("says nothing over another starting value or a calculation", () => {

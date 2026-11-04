@@ -20,12 +20,15 @@
 // the case's value exactly when its `default_value` is the `form-case`
 // read of the property it saves (`lib/domain/casePreload.ts::fieldPreload`).
 // So the line's action is an ordinary edit of that slot, which the commit
-// gate judges like every other.
+// gate judges like every other. A question that can't open on the values
+// its property can hold (`lib/domain/startingValueFit.ts`) is offered no
+// such action, and its line says why.
 
 import type { FormCasePlacementView } from "@/lib/doc/casePlacements";
 import type { FieldCaseWriteDestination as CaseWriteDestinationChoice } from "@/lib/doc/fieldCaseWriteMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	type CasePropertyDataType,
 	type CaseType,
 	type CaseWriteVia,
 	caseSelectionCardinality,
@@ -44,6 +47,10 @@ import {
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
+	choiceStartsOutsideItsChoices,
+	wholeNumberStartsOnDecimal,
+} from "@/lib/domain/startingValueFit";
+import {
 	type CaseWriteGuidance,
 	caseWriteGuidance,
 } from "./caseWritePresentation";
@@ -53,6 +60,12 @@ export const OPENS_WITH_CASE_VALUE_LINE =
 	"Opens with the case's current value.";
 export const STARTS_BLANK_LINE =
 	"Starts blank, and saving it blank clears the case's value.";
+/** Why a whole-number question on a property that can hold decimal numbers
+ *  is offered no starting value from the case. */
+export const STARTS_BLANK_ON_DECIMAL_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which can be a decimal number. A decimal question can.`;
+/** Why a choice question on a property that can hold other text is offered
+ *  no starting value from the case. */
+export const STARTS_BLANK_OUTSIDE_CHOICES_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which can be text that isn't one of its choices. A text question can.`;
 
 export const SAVE_ONLY_IF_CHANGED_LABEL = "Save only if changed";
 export const SAVE_ONLY_IF_CHANGED_LINE =
@@ -79,8 +92,9 @@ export interface CaseWriteOnlyIfChangedSwitch {
 
 export interface CaseWritePreloadLine {
 	readonly line: string;
-	/** The ghost button under the line, and the one edit it commits. */
-	readonly action: {
+	/** The ghost button under the line, and the one edit it commits; absent
+	 *  where the question can't open on the case's value. */
+	readonly action?: {
 		readonly label: string;
 		readonly mutation: Mutation;
 	};
@@ -114,6 +128,9 @@ export interface CaseWriteRowInput {
 	/** Where CommCare HQ keeps each case change of the form
 	 *  (`lib/doc/casePlacements.ts::formCasePlacementView`). */
 	readonly placement?: FormCasePlacementView;
+	/** The type the written property's values can be (its declaration, else
+	 *  the one its writers agree on); absent where nothing types it. */
+	readonly propertyType?: CasePropertyDataType;
 	/** The verdict `caseWriteChoiceVerdict` gives the switch's destination
 	 *  (`onlyIfChangedDestination`) replacing this row's write. */
 	readonly onlyIfChangedVerdict?:
@@ -301,7 +318,9 @@ function chainLabel(caseType: string, via: CaseWriteVia): string {
  *   - exactly the case's value of the written property: it opens with it,
  *     and "Start blank instead" clears the starting value;
  *   - no starting value and no calculation: it starts blank, and "Open with
- *     the case's current value" sets the starting value to that read;
+ *     the case's current value" sets the starting value to that read, unless
+ *     the question can't open on the values the property can hold, where the
+ *     line says why and offers nothing;
  *   - any other starting value, or a calculation: no line.
  */
 function preloadLine(
@@ -342,6 +361,10 @@ function preloadLine(
 		"default_value" in field && field.default_value !== undefined;
 	const hasCalculation = "calculate" in field && field.calculate !== undefined;
 	if (hasDefault || hasCalculation) return undefined;
+	if (wholeNumberStartsOnDecimal(field, input.propertyType))
+		return { line: STARTS_BLANK_ON_DECIMAL_LINE };
+	if (choiceStartsOutsideItsChoices(field, input.propertyType))
+		return { line: STARTS_BLANK_OUTSIDE_CHOICES_LINE };
 	return {
 		line: STARTS_BLANK_LINE,
 		action: {

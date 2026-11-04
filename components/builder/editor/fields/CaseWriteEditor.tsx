@@ -320,8 +320,14 @@ function useRowModel(
 	const propertyLabel = usePropertyLabel();
 	const sentenceContext = useOperationSentenceContext(context?.form.uuid);
 	const operation = useCaseOperation(context?.form.uuid, view?.operationUuid);
+	const caseTypes = useEffectiveCaseTypes();
 	return useMemo(() => {
 		if (view === undefined || context === null) return undefined;
+		const propertyType = caseTypes
+			.find((caseType) => caseType.name === view.caseType)
+			?.properties.find(
+				(property) => property.name === view.property,
+			)?.data_type;
 		return caseWriteRowModel({
 			view,
 			field,
@@ -333,6 +339,7 @@ function useRowModel(
 					? undefined
 					: operationSentence(operation, sentenceContext).lead,
 			...(placement !== undefined && { placement }),
+			...(propertyType !== undefined && { propertyType }),
 			...(onlyIfChangedVerdict !== undefined && { onlyIfChangedVerdict }),
 		});
 	}, [
@@ -342,6 +349,7 @@ function useRowModel(
 		propertyLabel,
 		operation,
 		sentenceContext,
+		caseTypes,
 		placement,
 		onlyIfChangedVerdict,
 	]);
@@ -981,17 +989,19 @@ function DestinationRow({
 					>
 						{model.preload.line}
 					</p>
-					<Button
-						type="button"
-						variant="ghost"
-						onClick={() => {
-							if (model.preload !== undefined)
-								commit([model.preload.action.mutation]);
-						}}
-						className="-ml-2"
-					>
-						{model.preload.action.label}
-					</Button>
+					{model.preload.action !== undefined && (
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => {
+								const action = model.preload?.action;
+								if (action !== undefined) commit([action.mutation]);
+							}}
+							className="-ml-2"
+						>
+							{model.preload.action.label}
+						</Button>
+					)}
 				</div>
 			)}
 
