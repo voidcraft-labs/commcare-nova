@@ -177,6 +177,22 @@ describe("writerOffersPreload", () => {
 		).toBe(true);
 	});
 
+	it("offers none to a write of the case's owner", () => {
+		const doc = app({
+			type: "followup",
+			fields: [phone],
+			operations: [
+				{
+					uuid: OWN,
+					id: "patient",
+					action: "own",
+					writes: [{ property: "owner_id", value: read(PHONE) }],
+				},
+			],
+		});
+		expect(writerOffersPreload(doc, PHONE, "owner_id")).toBe(false);
+	});
+
 	it("offers none on a registration, a several-case form or through `via`", () => {
 		expect(
 			writerOffersPreload(

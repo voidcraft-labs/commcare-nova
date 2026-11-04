@@ -13,6 +13,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { formCasePlacementView } from "@/lib/doc/casePlacements";
 import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
@@ -367,12 +368,24 @@ describe("the preload line", () => {
 	});
 
 	it("says nothing on a save to the case's owner", () => {
-		const doc = fixture("close");
-		const view = fieldCaseWriteViews(doc, NICKNAME)[0];
+		// The question's save moves to the owner through the planner, as the
+		// row's own picker does.
+		const opened = fixture("close");
+		const view = fieldCaseWriteViews(opened, NICKNAME)[0];
 		if (view === undefined) throw new Error("The question saves nothing.");
-		expect(
-			rowOf(doc, NICKNAME, { ...view, property: "owner_id" }).preload,
-		).toBeUndefined();
+		const plan = planFieldCaseWrite(
+			opened,
+			NICKNAME,
+			{ caseType: "patient", property: "owner_id" },
+			{ replace: fieldCaseWriteViewKey(view) },
+		);
+		if (!plan.ok) throw new Error(plan.message);
+		const doc = produce(opened, (draft) => {
+			applyMutations(draft, [...plan.mutations]);
+		});
+		const owner = fieldCaseWriteViews(doc, NICKNAME)[0];
+		expect(owner?.property).toBe("owner_id");
+		expect(rowOf(doc, NICKNAME).preload).toBeUndefined();
 	});
 
 	it("says nothing off this form's case or on a registration", () => {

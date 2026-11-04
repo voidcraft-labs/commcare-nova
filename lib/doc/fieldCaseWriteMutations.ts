@@ -930,7 +930,7 @@ export function planFieldCaseWrite(
 		removed.some(
 			(view) =>
 				view.destination === "own" &&
-				view.slot !== "owner" &&
+				view.property !== "owner_id" &&
 				view.via === undefined &&
 				view.property === property,
 		);
