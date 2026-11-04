@@ -15,7 +15,7 @@ import {
 	planFieldMoveCaseWrites,
 	STARTS_BLANK_NOTE,
 	saveNewCaseNameFirstMessage,
-	startsBlankClearsNote,
+	startsBlankOpensOnNote,
 } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -940,21 +940,21 @@ describe("planFieldCaseWrite: the starting value", () => {
 				COUNT,
 				"tally",
 				"visits",
-				`Starts blank now, so leaving it blank clears the case's "visits". You can have it open with the case's current value instead: set its starting value to #case/visits.`,
+				`Starts blank now, since it no longer saves to the case value it opened with. You can have it open with the case's current "visits" instead: set its starting value to #case/visits.`,
 			],
 			[
 				"a whole-number question on a decimal property",
 				COUNT,
 				"tally",
 				"weight",
-				`Starts blank now, so leaving it blank clears the case's "weight".`,
+				STARTS_BLANK_NOTE,
 			],
 			[
 				"a choice question on a text property",
 				STAGE,
 				"stage",
 				"remark",
-				`Starts blank now, so leaving it blank clears the case's "remark".`,
+				STARTS_BLANK_NOTE,
 			],
 		] as const)(
 			"leaves a kept save blank, with the note, for %s",
@@ -971,20 +971,14 @@ describe("planFieldCaseWrite: the starting value", () => {
 			},
 		);
 
-		it("names every value a blank answer clears", () => {
-			expect(
-				startsBlankClearsNote([
-					`the case's "a"`,
-					`the worker's "b"`,
-					`"c" on the case above it`,
-				]),
-			).toBe(
-				`Starts blank now, so leaving it blank clears the case's "a", the worker's "b" and "c" on the case above it.`,
+		it("names the starting value its note offers by the property", () => {
+			expect(startsBlankOpensOnNote("visits")).toBe(
+				`${STARTS_BLANK_NOTE} You can have it open with the case's current "visits" instead: set its starting value to #case/visits.`,
 			);
 		});
 
-		// The worker's record exists, so a blank answer saved there clears it.
-		it("says a blank answer clears the worker's value when its save moves there", () => {
+		// A save off the form's case offers no starting value from it.
+		it("says only that it starts blank when its save moves to the worker's record", () => {
 			const doc = visit();
 			const saved = land(
 				doc,
@@ -999,12 +993,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 				{ caseType: "commcare-user", property: "visit_count" },
 				{ replace: keyOf(saved, COUNT) },
 			);
-			expect(moved).toMatchObject({
-				ok: true,
-				notes: [
-					`Starts blank now, so leaving it blank clears the worker's "visit_count".`,
-				],
-			});
+			expect(moved).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
 		});
 
 		// A save to a case the form creates clears nothing, so a born save
