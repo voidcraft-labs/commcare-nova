@@ -86,8 +86,8 @@ export type FieldCaseWritePlan =
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
-/** What a result says when the starting value born for a save goes with it;
- *  `startsBlankNote` says when. */
+/** What a result says when the starting value born for a save goes with it,
+ *  always for a Hidden Value; `startsBlankNote` says when. */
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
 
@@ -119,8 +119,9 @@ function startsBlankNote(
 		return STARTS_BLANK_NOTE;
 	const opensOn = fieldCaseWriteViews(after, field.uuid).find(
 		(view) =>
-			// This form's saves, as the planner reads them. A write through
-			// `via` is an `ancestor` view, never `own`.
+			// `fieldCaseWriteViews` lists the views of every form the index
+			// lists; the planner reads this form's. A write through `via` is
+			// an `ancestor` view, never `own`.
 			view.formUuid === ctx.formUuid &&
 			view.destination === "own" &&
 			view.slot !== "owner" &&
