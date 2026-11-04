@@ -323,15 +323,10 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 		]);
 	});
 
-	// `main` ran a close of a case it retyped first only where the retype
-	// ran (`caseOperationConditionalGuardUuids`), so the form's close keeps
-	// the retype's condition beside the close's own.
-	it("keeps the condition of a retype the close follows", () => {
-		const graduated = equals(
-			{ kind: "term", term: { kind: "field", uuid: at("note") } },
-			"graduated",
-		);
-		const before = planted(fixture.doc, (doc) => {
+	/** The fixture with the Retire form's close following a conditional
+	 *  retype of its case to `alumnus`, the close's condition `condition`. */
+	const retyped = (condition: Expression, graduated: Expression) =>
+		planted(fixture.doc, (doc) => {
 			doc.caseTypes?.push({
 				name: "alumnus",
 				parent_type: "household",
@@ -341,7 +336,7 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 			const close = retire?.caseOperations?.[0];
 			if (close?.action !== "close") throw new Error("No Retire close.");
 			close.caseType = "alumnus";
-			close.condition = equals(prop("note", undefined, "alumnus"), "retired");
+			close.condition = condition;
 			retire.caseOperations = [
 				{
 					uuid: at("retire-graduate"),
@@ -355,12 +350,86 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 				close,
 			];
 		});
-		const result = writesIntoOperations(before, fixture.facts);
+	const graduated = equals(
+		{ kind: "term", term: { kind: "field", uuid: at("note") } },
+		"graduated",
+	);
+
+	// `main` ran a close of a case it retyped first only where the retype
+	// ran (`caseOperationConditionalGuardUuids`), so the form's close keeps
+	// the retype's condition beside the close's own.
+	it("keeps the condition of a retype the close follows", () => {
+		const own = equals(
+			{ kind: "term", term: { kind: "field", uuid: at("note") } },
+			"retired",
+		);
+		const result = writesIntoOperations(retyped(own, graduated), fixture.facts);
 		expect(result.blockers).toEqual([]);
 		expect(formOf(result.doc, at("retire")).closeCondition).toEqual({
 			kind: "and",
-			clauses: [equals(formCase("member", "note"), "retired"), graduated],
+			clauses: [own, graduated],
 		});
+	});
+
+	// After the retype the operation reads its case as `alumnus`, whose
+	// properties the form's read of the case as `member` need not name.
+	it("stops the app where the close reads its case under the type a retype gave it", () => {
+		const result = writesIntoOperations(
+			retyped(equals(prop("note", undefined, "alumnus"), "retired"), graduated),
+			fixture.facts,
+		);
+		expect(
+			result.blockers.map(({ code, findingCodes }) => [code, findingCodes]),
+		).toEqual([["own-close-condition-reads-case", ["retyped-case"]]]);
+	});
+
+	// Only kinds the form's close condition holds pass; a read of the row's
+	// own link is the blocker, not a failure the gate finds later.
+	it("stops the app where the condition reads something only a case change has", () => {
+		const result = writesIntoOperations(
+			leaving({
+				kind: "eq",
+				left: {
+					kind: "term",
+					term: { kind: "case-index", identifier: "parent" },
+				},
+				right: { kind: "term", term: { kind: "literal", value: "" } },
+			}),
+			fixture.facts,
+		);
+		expect(
+			result.blockers.map(({ code, findingCodes }) => [code, findingCodes]),
+		).toEqual([["own-close-condition-reads-case", ["case-change-value"]]]);
+	});
+
+	// `reachableCaseTypes` stops at a type it met, so a case type that is its
+	// own parent is read at one depth, the loaded case's: a read one parent
+	// up names a case the form's walk can't, and is refused.
+	it("stops the app where the parent read names a case the form's walk can't reach", () => {
+		const selfParenting = planted(
+			leaving(
+				equals(
+					prop("standing", {
+						kind: "ancestor",
+						via: [{ identifier: "parent" }],
+					}),
+					"moved",
+				),
+			),
+			(doc) => {
+				const member = doc.caseTypes?.find((type) => type.name === "member");
+				if (member === undefined) throw new Error("No member type.");
+				member.parent_type = "member";
+				member.properties.push({
+					name: "standing",
+					label: proseText("Standing"),
+				});
+			},
+		);
+		const result = writesIntoOperations(selfParenting, fixture.facts);
+		expect(
+			result.blockers.map(({ code, findingCodes }) => [code, findingCodes]),
+		).toEqual([["own-close-condition-reads-case", ["linked-case"]]]);
 	});
 });
 
