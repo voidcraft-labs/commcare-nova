@@ -63,6 +63,27 @@ export function isValueStorageAssignable(
 }
 
 /**
+ * The one type a property's writers agree on: the type of theirs that every
+ * one of them is storage-assignable to (`isValueStorageAssignable`), so
+ * `int` and `decimal` agree on `decimal` (an integer fits decimal storage).
+ * `text` and `single_select` are assignable each to the other, since both
+ * are stored as the same text, and agree on `text`. Undefined where no
+ * such type exists, as for `multi_select` beside any other type: storage
+ * keeps text out of a list of choices, and a list is no one choice or
+ * number.
+ */
+export function agreedStorageType(
+	types: Iterable<CasePropertyDataType>,
+): CasePropertyDataType | undefined {
+	const named = [...new Set(types)];
+	const holdsEvery = named.filter((candidate) =>
+		named.every((type) => isValueStorageAssignable(type, candidate)),
+	);
+	if (holdsEvery.length === 1) return holdsEvery[0];
+	return holdsEvery.includes("text") ? "text" : undefined;
+}
+
+/**
  * Whether a writer's result can be saved to a destination: storage
  * assignability, plus an ISO date text (`isoDateText`: a `format-date` with
  * the fixed pattern `%Y-%m-%d`, `datePattern.ts::isIsoDateText`) into a

@@ -16,6 +16,7 @@ import {
 	formOpensWithOneCase,
 	hiddenWriterBlankNote,
 	proseText,
+	saveOffersPreload,
 	type Uuid,
 	writerOffersPreload,
 } from "@/lib/domain";
@@ -177,6 +178,31 @@ describe("writerOffersPreload", () => {
 		).toBe(true);
 	});
 
+	it("offers none to a write of the case's owner", () => {
+		const doc = app({
+			type: "followup",
+			fields: [phone],
+			operations: [
+				{
+					uuid: OWN,
+					id: "patient",
+					action: "own",
+					writes: [{ property: "owner_id", value: read(PHONE) }],
+				},
+			],
+		});
+		expect(writerOffersPreload(doc, PHONE, "owner_id")).toBe(false);
+		// The owner slot holds it the same.
+		const slotted = app({
+			type: "close",
+			fields: [phone],
+			operations: [
+				{ uuid: OWN, id: "patient", action: "own", owner: read(PHONE) },
+			],
+		});
+		expect(writerOffersPreload(slotted, PHONE, "owner_id")).toBe(false);
+	});
+
 	it("offers none on a registration, a several-case form or through `via`", () => {
 		expect(
 			writerOffersPreload(
@@ -227,6 +253,67 @@ describe("writerOffersPreload", () => {
 		expect(writerOffersPreload(doc, PHOTO, "phone")).toBe(false);
 		expect(writerOffersPreload(doc, CALCULATED, "phone")).toBe(false);
 		expect(writerOffersPreload(doc, DEFAULTED, "phone")).toBe(false);
+	});
+});
+
+describe("saveOffersPreload", () => {
+	// The rule over a field, its form's type and its module, as the builder's
+	// "Saves to" row asks it with no document.
+	const followup = app({ type: "followup", fields: [] });
+	const module = followup.modules[followup.moduleOrder[0]];
+	const several = app({ type: "followup", fields: [], severalCases: true });
+	const severalModule = several.modules[several.moduleOrder[0]];
+	const text = { uuid: PHONE, kind: "text", id: "phone" } as Field;
+	const offers = (
+		field: Field,
+		overrides: Partial<Parameters<typeof saveOffersPreload>[0]> = {},
+	) =>
+		saveOffersPreload({
+			field,
+			property: "phone",
+			formType: "followup",
+			module,
+			...overrides,
+		});
+
+	it("offers the case's value to a plain write on a one-case loading form", () => {
+		expect(offers(text)).toBe(true);
+		expect(offers(text, { formType: "close" })).toBe(true);
+	});
+
+	it("offers none to the owner, through `via`, on a registration or a several-case form", () => {
+		expect(offers(text, { property: "owner_id" })).toBe(false);
+		expect(offers(text, { via: [{ identifier: "parent" }] })).toBe(false);
+		expect(offers(text, { formType: "registration" })).toBe(false);
+		expect(offers(text, { module: severalModule })).toBe(false);
+	});
+
+	it("offers none on a module with no case type, nor to a write with no property", () => {
+		expect(offers(text, { module: { ...module, caseType: undefined } })).toBe(
+			false,
+		);
+		expect(offers(text, { property: "" })).toBe(false);
+	});
+
+	it("offers none to a capture, a kind that holds no starting value, nor a question that holds a calculation or a starting value", () => {
+		expect(offers({ ...text, kind: "image" } as Field)).toBe(false);
+		expect(offers({ uuid: PHONE, kind: "label", id: "phone" } as Field)).toBe(
+			false,
+		);
+		expect(
+			offers({
+				...text,
+				default_value: { kind: "term", term: { kind: "literal", value: "x" } },
+			} as Field),
+		).toBe(false);
+		expect(
+			offers({
+				uuid: PHONE,
+				kind: "hidden",
+				id: "phone",
+				calculate: { kind: "term", term: { kind: "literal", value: "x" } },
+			} as Field),
+		).toBe(false);
 	});
 });
 

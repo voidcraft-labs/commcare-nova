@@ -531,7 +531,13 @@ table and place a Project maps on a project space holds one resource baseline
 (`project_space_resource_baselines`), keyed by the HQ resource, so two apps of
 a Project that map one table share it. A read that fails records `unread`,
 which always stops the next publish and offers the discard, because nothing
-says what Nova's last push left.
+says what Nova's last push left. A published deployment whose baseline Nova
+could not read keeps the placement Nova's emission gave each case change and
+query repeat when step 5's cutover ran, held, so a later publish moves no
+published path (`placements-kept-unread`); a query repeat whose rule gives the
+count placement is the one exception, and takes it. A deployment whose live
+app mapping is marked remote-missing counts as published, since CommCare HQ's
+submissions keep their `xmlns`.
 
 One refusal, `hq_changed`, lists every change of every kind, and a discard
 names each resource back with the digest of HQ's state as the refusal showed

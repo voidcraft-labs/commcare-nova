@@ -41,14 +41,17 @@ import {
 	type FieldCaseWriteViewKey,
 	type Form,
 	fieldCaseWriteViews,
+	fieldPreload,
 	formOfField,
 	isCaptureField,
 	moduleUuidOfForm,
 	type OwnCaseOperation,
 	ownCaseOperationId,
 	sameCaseWriteKey,
+	startingValueMisfit,
 	USERCASE_CASE_TYPE,
 	type Uuid,
+	valueKindPhrase,
 	writerOffersPreload,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
@@ -82,6 +85,105 @@ export type FieldCaseWritePlan =
  *  as the question's starting value. */
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
+
+/** What a result says when the starting value born for a save goes with it;
+ *  `startsBlankOpensOnNote` follows it with the starting value that opens the
+ *  question where `startsBlankNote` finds one. */
+export const STARTS_BLANK_NOTE =
+	"Starts blank now, since it no longer saves to the case value it opened with.";
+
+/**
+ * `STARTS_BLANK_NOTE` with the next step, where the question still saves to
+ * `property` of its form's case and can open on its value.
+ */
+export function startsBlankOpensOnNote(property: string): string {
+	return `${STARTS_BLANK_NOTE} You can have it open with the case's current ${q(property)} instead: set its starting value to #case/${property}.`;
+}
+
+/**
+ * What a result says when the starting value born for a save goes with it:
+ * the question starts blank, and where it still saves to a property of its
+ * form's case it can open on (`casePreload.ts::writerOffersPreload`,
+ * `startingValueFit.ts`), the starting value that opens it there. `after`
+ * is the document with the form's planned operations and the question
+ * without its starting value. A Hidden Value gets the plain note; what an
+ * empty one saves is `casePreload.ts::hiddenWriterBlankNote`'s, which the
+ * editing tools and the builder's value control show.
+ */
+function startsBlankNote(
+	after: BlueprintDoc,
+	field: Field,
+	ctx: CaseWriteFormContext,
+): string {
+	const caseType = ctx.moduleCaseType;
+	if (field.kind === "hidden" || caseType === undefined)
+		return STARTS_BLANK_NOTE;
+	const opensOn = fieldCaseWriteViews(after, field.uuid).find(
+		(view) =>
+			// The views are read through the document's index from before the
+			// plan, which may list other forms; the planner reads this form's.
+			// A write through `via` is an `ancestor` view, never `own`.
+			view.formUuid === ctx.formUuid &&
+			view.destination === "own" &&
+			writerOffersPreload(after, field.uuid, view.property) &&
+			startingValueMisfit(after, field, caseType, view.property) === undefined,
+	)?.property;
+	return opensOn === undefined
+		? STARTS_BLANK_NOTE
+		: startsBlankOpensOnNote(opensOn);
+}
+
+/** `field` without its starting value. */
+function withoutDefault(field: Field): Field {
+	if (!("default_value" in field)) return field;
+	const { default_value: _default, ...rest } = field;
+	return rest as Field;
+}
+
+/**
+ * The refusal for a save to the form's own case on a one-case loading form
+ * where the question can't open on the case's value
+ * (`lib/domain/startingValueFit.ts`). Starting it blank is no way out: a
+ * blank answer saves blank and clears the case's value. Undefined where the
+ * question fits.
+ *
+ * Only the whole-number misfit is also the gate's
+ * (`WHOLE_NUMBER_STARTS_ON_DECIMAL`). A choice misfit is read from the
+ * property's type, and a writer of a text-typed property, a Hidden Value
+ * most often, may give only values among the question's choices, so the
+ * gate can't refuse a choice question's starting value on its type alone;
+ * the value-level guarantee is issue #856's. Here it refuses only a choice
+ * question's own new save, which would be born opening on the property, as
+ * `main` refused a choice question's save to a text property
+ * (`fieldKindMatchesPropertyType`'s declared-type check there).
+ */
+function startingValueRefusal(
+	doc: BlueprintDoc,
+	field: Field,
+	formName: string,
+	caseType: string,
+	property: string,
+): string | undefined {
+	const misfit = startingValueMisfit(doc, field, caseType, property);
+	if (misfit === undefined) return undefined;
+	const subject = `"${field.id}" in "${formName}" can't save to "${property}", because it would open on the case's value`;
+	const blank = "Leaving it blank would clear the case's value.";
+	const offers =
+		"CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer";
+	switch (misfit.kind) {
+		case "whole-number-on-decimal":
+			return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. ${blank} You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
+		case "several-choices":
+			return `${subject}, which can be several choices at once, more than a single-choice question takes, and ${offers}. ${blank} You can make "${field.id}" a multiple-choice question, or save it to a property that holds a single choice.`;
+		case "outside-choices": {
+			const fitting =
+				field.kind === "single_select"
+					? "a property that holds a single choice"
+					: "a property that holds choices";
+			return `${subject}, which can be ${valueKindPhrase(misfit.type)} that isn't one of its choices, and ${offers}. ${blank} You can make "${field.id}" a text question, or save it to ${fitting}.`;
+		}
+	}
+}
 
 /** The refusal for removing the only name a registration gives its case. */
 export const NEW_CASE_NEEDS_NAME_MESSAGE =
@@ -770,7 +872,21 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * A new save to the form's own case on a follow-up or close form that opens
  * one case is born with the case's current value as the question's starting
  * value, when the question holds none yet (`writerOffersPreload`); the
- * result's `notes` say so.
+ * result's `notes` say so. Where the question can't open on the case's
+ * value, a whole-number question on a property that holds decimal numbers
+ * or a choice question on one that can hold values outside its choices
+ * (`lib/domain/startingValueFit.ts`), a new save, or a save moved to another
+ * property, is refused, since starting it blank would clear the case's
+ * value.
+ *
+ * Only a new or moved save is born a starting value or refused for one. A
+ * save the question keeps, whether a flip of "Save only if changed", a
+ * whole replace naming it or a removal of another save keeps it, keeps its
+ * standing: it is neither refused nor born one, and the gate judges
+ * whatever starting value the question holds. A starting value born for a
+ * save the plan removes or moves goes with it, and the `notes` say the
+ * question starts blank, with the starting value that opens it on a save to
+ * its form's case it can open on (`startsBlankNote`).
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -808,6 +924,44 @@ export function planFieldCaseWrite(
 	for (const view of removed) removeViewWrite(draft, view);
 
 	let preload: { readonly property: string } | undefined;
+	/** A removed save that read its own case's `property` directly, the save
+	 *  a born starting value belongs to. */
+	const removesOwnSave = (property: string) =>
+		removed.some(
+			(view) =>
+				view.destination === "own" &&
+				view.via === undefined &&
+				view.property === property,
+		);
+	/* A replace that keeps a property the question saves to, as a flip of
+	 * "Save only if changed" or a whole replace naming one of its saves
+	 * does, leaves that save standing: the planner neither refuses it for
+	 * its starting value, which would block edits that don't touch one, nor
+	 * bears it one, and the gate still judges whatever starting value the
+	 * question holds. */
+	const keepsProperty =
+		destination !== null &&
+		destination.via === undefined &&
+		destination.caseType === ctx.moduleCaseType &&
+		removesOwnSave(destination.property);
+	/* A starting value the planner bore for a save it now removes or moves
+	 * reads that save's property, so it is the question's no longer. The
+	 * starting value of a save the replace keeps stays. */
+	const born = fieldPreload(field);
+	const bornOfRemoved =
+		born !== undefined &&
+		born.caseType === ctx.moduleCaseType &&
+		removesOwnSave(born.property) &&
+		!(keepsProperty && born.property === destination?.property);
+	const offerDoc: BlueprintDoc = bornOfRemoved
+		? {
+				...doc,
+				fields: {
+					...doc.fields,
+					[fieldUuid]: withoutDefault(field),
+				},
+			}
+		: doc;
 	if (destination !== null) {
 		const resolved = resolveDestination(ctx, field, destination);
 		const value = fieldAnswerValue(field);
@@ -839,12 +993,25 @@ export function planFieldCaseWrite(
 					}),
 				});
 				refusal = saveOn(draft, own, saved);
+				// A save the case can't take says so before its starting value.
+				if (refusal !== undefined) break;
+				// Only a new or moved save is born a starting value, or refused.
 				if (
-					saved.slot !== "owner" &&
+					!keepsProperty &&
 					destination.via === undefined &&
-					writerOffersPreload(doc, fieldUuid, destination.property)
-				)
+					ctx.moduleCaseType !== undefined &&
+					writerOffersPreload(offerDoc, fieldUuid, destination.property)
+				) {
+					const unfit = startingValueRefusal(
+						doc,
+						field,
+						ctx.form.name,
+						ctx.moduleCaseType,
+						destination.property,
+					);
+					if (unfit !== undefined) return { ok: false, message: unfit };
 					preload = { property: destination.property };
+				}
 				break;
 			}
 		}
@@ -871,6 +1038,29 @@ export function planFieldCaseWrite(
 			},
 		} as Mutation);
 		notes.push(OPENS_WITH_CASE_VALUE_NOTE);
+	} else if (bornOfRemoved) {
+		draft.mutations.push({
+			kind: "updateField",
+			uuid: fieldUuid,
+			targetKind: field.kind,
+			patch: { default_value: null },
+		} as Mutation);
+		notes.push(
+			startsBlankNote(
+				{
+					...offerDoc,
+					forms: {
+						...offerDoc.forms,
+						[ctx.formUuid]: {
+							...offerDoc.forms[ctx.formUuid],
+							caseOperations: draft.operations,
+						},
+					},
+				},
+				field,
+				ctx,
+			),
+		);
 	}
 	return { ok: true, mutations: draft.mutations, notes };
 }

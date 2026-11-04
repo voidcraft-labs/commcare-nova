@@ -266,6 +266,129 @@ describe("noticeDialogSections", () => {
 		]);
 	});
 
+	it("groups four cutovers' notices, the case-writes notice's kept, moved and stopped lines in order and its document lines in step order", () => {
+		const fieldOps = {
+			deploymentId: "01992000-0000-7000-8000-000000000001",
+			server: "production",
+			domain: "field-ops",
+		} as const;
+		const form = {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Register member",
+		} as const;
+		const caseWrites: AppMigrationNotice = {
+			id: "case-writes",
+			cutover: "hq-round-trip-case-writes",
+			createdAt: "2026-11-10T09:00:00.000Z",
+			entries: [
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "group-shows-one-per-screen",
+					entity: {
+						type: "field",
+						uuid: "01992000-0000-7000-8000-0000000000e1",
+						nameAtMigration: "Household",
+					},
+					detail: { form: "Register member" },
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "deployment",
+					reason: "case-attachments-stop",
+					deployment: fieldOps,
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "form-link-target-moved",
+					entity: form,
+					detail: {
+						from: "Follow-up",
+						to: "Members",
+						cause: "carried-not-a-case",
+					},
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "deployment",
+					reason: "form-data-paths-move",
+					deployment: fieldOps,
+					detail: { forms: "1" },
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "form-became-close-form",
+					entity: form,
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "deployment",
+					reason: "placements-kept-unread",
+					deployment: fieldOps,
+				}),
+			],
+		};
+		const platforms: AppMigrationNotice = {
+			id: "platforms",
+			cutover: "hq-round-trip-platforms",
+			createdAt: "2026-11-02T09:00:00.000Z",
+			entries: [
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "platforms-declared",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: { runsOn: "android", causes: "datetime-question" },
+				}),
+			],
+		};
+		const expressions: AppMigrationNotice = {
+			id: "expressions",
+			cutover: "hq-round-trip-expressions",
+			createdAt: "2026-10-21T09:00:00.000Z",
+			entries: [
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "expressions-respelled",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: { count: "2" },
+				}),
+			],
+		};
+		const sections = noticeDialogSections(
+			[
+				caseWrites,
+				platforms,
+				expressions,
+				notice("emission", [documentEntry("a")]),
+			],
+			NAMES,
+		);
+		expect(
+			sections.map((section) => [section.noticeId, section.cutover]),
+		).toEqual([
+			["case-writes", "hq-round-trip-case-writes"],
+			["platforms", "hq-round-trip-platforms"],
+			["expressions", "hq-round-trip-expressions"],
+			["emission", "hq-round-trip-emission"],
+		]);
+		const [first] = sections;
+		expect(
+			first?.groups.map((group) =>
+				group.kind === "deployment" ? group.heading : group.reason,
+			),
+		).toEqual([
+			"At the next publish to field-ops",
+			"form-became-close-form",
+			"form-link-target-moved",
+			"group-shows-one-per-screen",
+		]);
+		expect(first?.groups[0]?.lines.map((line) => line.text)).toEqual([
+			"Nova couldn't read the app field-ops last received, so it kept where every form of this app saves its case changes there. Publishing again keeps them in the same places.",
+			"The next publish to field-ops moves where one form of this app saves some of its answers or case changes, because Nova changed how it writes them. CommCare HQ's form exports show those columns under their new names from then on.",
+			"From the next publish to field-ops, this app saves a link to each captured file where it saved the file on the case. Files already on cases stay, and CommCare HQ's case exports gain a column for each link.",
+		]);
+		expect(first?.groups[2]?.lines.map((line) => line.text)).toEqual([
+			"Register member: its destination Follow-up now opens Members, the menu that holds it, because the value it carried isn't a case Follow-up can open. Workers choose the case there.",
+		]);
+	});
+
 	it("gives one section per notice, in the order the store returns them", () => {
 		const sections = noticeDialogSections(
 			[

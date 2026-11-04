@@ -688,9 +688,14 @@ function validateWrites(
 			);
 		}
 		const read = caseWriteValueField(write.value);
-		if (read?.link === true && write.property === "external_id")
+		if (read?.link === true && isWritableStandardCaseProperty(write.property))
 			errors.push(
-				captureStandardPropertyError(ctx, operation, read.field, "external_id"),
+				captureStandardPropertyError(
+					ctx,
+					operation,
+					read.field,
+					write.property,
+				),
 			);
 		const fieldOwnsAssignment = fieldJudgesItsOwnType(ctx, write.value);
 		const writerTypes =

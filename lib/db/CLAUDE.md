@@ -221,15 +221,16 @@ concurrent same-batch retry that races past the read is caught by the constraint
 and converges on the deduped result). A blueprint-shape migration converts every replayable app change; no runtime
 reader accepts an alternate stored dialect. Advancing the fold horizon is not a
 route a future migration can simply take: the admit routine
-`nova_admit_app_change_fold_baseline_insert` accepts exactly five identities —
+`nova_admit_app_change_fold_baseline_insert` accepts exactly six identities:
 the frozen `fold-baseline:canonical-identity-foundation` marker and the
 sequence-one `genesis:<app_id>`, the paired
 `fold-baseline:unified-authoring` / `system:unified-authoring` operator cutover,
 the paired `fold-baseline:hq-round-trip-emission` /
-`system:hq-round-trip-emission` operator cutover, and the paired
+`system:hq-round-trip-emission` operator cutover, the paired
 `fold-baseline:hq-round-trip-expressions` / `system:hq-round-trip-expressions`
-operator cutover, each of the last two starting each app from the document its
-transform yields.
+operator cutover, and the paired `fold-baseline:hq-round-trip-case-writes` /
+`system:hq-round-trip-case-writes` operator cutover, each of the last three
+starting each app from the document its transform yields.
 The `unified-authoring` cutover repairs incomplete historical SQL projections by
 starting from the unchanged canonical document, preserving old rows and refusing
 live holders.
@@ -261,6 +262,14 @@ leaves every earlier row parseable, so it wrote no fold baseline. Each app it
 changed carries one ordinary `blueprint-migration` row, batch
 `hq-round-trip-platforms:<app_id>` by `system:hq-round-trip-platforms`,
 written through `appendSyntheticBatchInTransaction` like any synthetic batch.
+
+The `hq-round-trip-case-writes` horizon takes the `hq-round-trip-expressions`
+horizon's route: a field's case write (with a capture's attachment mode), a
+form's no-matches entry, a module's case-list flag and Search first are keys the
+head schema no longer holds, and a form's structured close condition is a shape
+it no longer parses, so no earlier document parses and no earlier mutation that
+carries one replays; each app starts from its
+`fold-baseline:hq-round-trip-case-writes` row.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction

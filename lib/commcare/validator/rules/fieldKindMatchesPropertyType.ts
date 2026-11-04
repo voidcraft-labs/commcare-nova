@@ -1,9 +1,23 @@
 /**
  * Rule: every form field whose answer a case operation saves (the field's
  * "Saves to", `lib/domain/caseWriteViews.ts::formCaseWriteViews`) saves to a
- * case property whose declared `data_type` matches the field's `kind`.
- * Multiple writers (multiple fields saving to the same `(case_type,
- * property_name)` tuple) must agree on the kind they map to.
+ * case property whose declared `data_type` can hold the values the field's
+ * `kind` gives. Multiple writers (multiple fields saving to the same
+ * `(case_type, property_name)` tuple) must agree on one type that holds
+ * every one of theirs.
+ *
+ * A declared type holds a kind's values where it is the kind's own type, or
+ * where the declaration stores them and every reader the declaration
+ * describes reads them back (`declaredTypeHolds`): an `int` answer as a
+ * `decimal`, and a `single_select` answer as `text`. The reverse directions
+ * stay apart although storage takes them: a `decimal` property's readers
+ * include decimal questions, which read a whole number fine, but a `text`
+ * question's free text saved to a declared choice property reaches a choice
+ * question that starts on it with a value it may not offer, which Web Apps
+ * can't open. Writers of an undeclared property agree on the one type of
+ * theirs that holds them all (`ruleSets.ts::agreedStorageType`: `int` with
+ * `decimal` on `decimal`, `text` with `single_select` on `text`), the type
+ * inference gives the property.
  *
  * App-scoped because the multi-writer disagreement check is by
  * definition cross-form: a `text` field and an `int` field that both
@@ -18,8 +32,8 @@
  * `lib/domain/caseTypes.ts::caseDataTypeForFieldKind`, the single
  * table this rule and the reducer-side catalog sync both consult, so
  * the data type a writer stamps into the catalog and the data type
- * this rule expects can never disagree. Coercion paths (e.g. `text`
- * field → `int` property) are explicitly rejected; `hidden` and the
+ * this rule reads can never disagree. Every other coercion path (e.g.
+ * `text` field → `int` property) is rejected; `hidden` and the
  * capture kinds are skipped, because neither pins a value type from the
  * kind alone. A Hidden Value is a typed writer whose type is inferred from
  * its value, judged by `hiddenValueWriterAgreement.ts`; a capture saves a
@@ -38,13 +52,27 @@ import {
 	isWritableStandardCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
+import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
 import { type ValidationError, validationError } from "../errors";
 
+/** Whether a property declared `declared` holds the values a question of
+ *  a kind giving `given` saves: its own type, an integer as a decimal, a
+ *  choice as text. */
+function declaredTypeHolds(
+	given: CasePropertyDataType,
+	declared: CasePropertyDataType,
+): boolean {
+	return (
+		given === declared ||
+		(given === "int" && declared === "decimal") ||
+		(given === "single_select" && declared === "text")
+	);
+}
+
 /**
- * Per-field-kind → expected case-property `data_type`. Thin alias over
- * the locked domain table (`caseDataTypeForFieldKind`) named for this
- * rule's reading: the data type a writer of this kind is EXPECTED to
- * agree with. `undefined` means the kind is skipped at this rule layer
+ * Per-field-kind → the case-property `data_type` its values have. Thin
+ * alias over the locked domain table (`caseDataTypeForFieldKind`) named
+ * for this rule's reading: the data type a writer of this kind gives. `undefined` means the kind is skipped at this rule layer
  * (a Hidden Value's type comes from its value, which
  * `hiddenValueWriterAgreement.ts` judges, and captures are mode-dependent).
  */
@@ -124,13 +152,16 @@ export function fieldKindMatchesPropertyType(
 			const expected = expectedDataType(writer.kind);
 			if (expected === undefined) continue; // skipped kind — see expectedDataType
 
-			// (a) Mismatch against the property's declared data_type.
-			if (declaredType !== undefined && declaredType !== expected) {
+			// (a) A declared data_type that can't hold the field's values.
+			if (
+				declaredType !== undefined &&
+				!declaredTypeHolds(expected, declaredType)
+			) {
 				errors.push(
 					validationError(
 						"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 						"field",
-						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but that property's declared data_type is "${declaredType}". A ${writer.kind} field writes "${expected}"-shaped values; either change the field's kind, change the property's data_type, or change where the field saves.`,
+						`Field "${writer.fieldId}" in "${writer.formName}" is of kind "${writer.kind}" and saves to case property "${propertyName}" on case type "${caseType}", but that property's declared data_type is "${declaredType}", which can't hold the "${expected}" values a field of kind "${writer.kind}" gives. You can change the field's kind, change the property's data_type, or change where the field saves.`,
 						{
 							moduleUuid: writer.moduleUuid,
 							moduleName: writer.moduleName,
@@ -152,16 +183,19 @@ export function fieldKindMatchesPropertyType(
 		}
 
 		// (b) Cross-writer disagreement — one error per writer in
-		// the disagreeing set. Disagreement means the set of expected
-		// data types across all writers has more than one entry; the
-		// rule reports each writer so authors can see every site that
+		// the disagreeing set. Disagreement means no one of the writers'
+		// data types holds every other (`agreedStorageType`); the rule
+		// reports each writer so authors can see every site that
 		// participates in the conflict.
 		const expectedTypes = new Set<CasePropertyDataType>();
 		for (const writer of writers) {
 			const expected = expectedDataType(writer.kind);
 			if (expected !== undefined) expectedTypes.add(expected);
 		}
-		if (expectedTypes.size > 1) {
+		if (
+			expectedTypes.size > 1 &&
+			agreedStorageType(expectedTypes) === undefined
+		) {
 			const sortedTypes = [...expectedTypes].sort();
 			for (const writer of writers) {
 				const expected = expectedDataType(writer.kind);
@@ -170,7 +204,7 @@ export function fieldKindMatchesPropertyType(
 					validationError(
 						"FIELD_KIND_WRITERS_DISAGREE",
 						"field",
-						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but other fields in this app save to the same property with a different shape (${sortedTypes.map((t) => `"${t}"`).join(" / ")}). Pick one shape across every field that writes to "${propertyName}", or change where the conflicting fields save.`,
+						`Field "${writer.fieldId}" in "${writer.formName}" is of kind "${writer.kind}" and saves to case property "${propertyName}" on case type "${caseType}", but the fields in this app that save there give values no one type can hold (${sortedTypes.map((t) => `"${t}"`).join(" / ")}). You can give every field that saves to "${propertyName}" a kind one type holds, or change where the conflicting fields save.`,
 						{
 							moduleUuid: writer.moduleUuid,
 							moduleName: writer.moduleName,

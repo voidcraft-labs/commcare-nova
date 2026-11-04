@@ -20,29 +20,35 @@
 // the case's value exactly when its `default_value` is the `form-case`
 // read of the property it saves (`lib/domain/casePreload.ts::fieldPreload`).
 // So the line's action is an ordinary edit of that slot, which the commit
-// gate judges like every other.
+// gate judges like every other. A question that can't open on the values
+// its property can hold (`lib/domain/startingValueFit.ts`) is offered no
+// such action, and its line says why.
 
 import type { FormCasePlacementView } from "@/lib/doc/casePlacements";
 import type { FieldCaseWriteDestination as CaseWriteDestinationChoice } from "@/lib/doc/fieldCaseWriteMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	type CasePropertyDataType,
 	type CaseType,
 	type CaseWriteVia,
-	caseSelectionCardinality,
 	type Field,
 	type FieldCaseWriteView,
 	type FieldCaseWriteViewKey,
 	type Form,
 	fieldCaseWriteViewKey,
-	fieldKindDeclaresKey,
 	fieldPreload,
-	formOpensWithOneCase,
 	humanizeId,
-	isCaptureField,
 	type Module,
+	ownSaveOpensOneCase,
 	type RelationStep,
+	saveOffersPreload,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import {
+	STARTING_VALUE_MISFIT_SENTENCES,
+	type StartingValueMisfit,
+	startingValueMisfitOfType,
+} from "@/lib/domain/startingValueFit";
 import {
 	type CaseWriteGuidance,
 	caseWriteGuidance,
@@ -53,6 +59,22 @@ export const OPENS_WITH_CASE_VALUE_LINE =
 	"Opens with the case's current value.";
 export const STARTS_BLANK_LINE =
 	"Starts blank, and saving it blank clears the case's value.";
+/** Why a whole-number question on a property that can hold decimal numbers
+ *  is offered no starting value from the case. */
+export const STARTS_BLANK_ON_DECIMAL_LINE = `${STARTS_BLANK_LINE} ${STARTING_VALUE_MISFIT_SENTENCES["whole-number-on-decimal"]}`;
+/** Why a choice question on a property that can hold other values than
+ *  choices, such as text, is offered no starting value from the case. */
+export const STARTS_BLANK_OUTSIDE_CHOICES_LINE = `${STARTS_BLANK_LINE} ${STARTING_VALUE_MISFIT_SENTENCES["outside-choices"]}`;
+/** Why a single-choice question on a multiple-choice property is offered no
+ *  starting value from the case. */
+export const STARTS_BLANK_ON_SEVERAL_CHOICES_LINE = `${STARTS_BLANK_LINE} ${STARTING_VALUE_MISFIT_SENTENCES["several-choices"]}`;
+/** The line for each way a question can't open on its property's value, as
+ *  `startingValueMisfitOfType` classifies it. */
+const MISFIT_LINES: Record<StartingValueMisfit["kind"], string> = {
+	"whole-number-on-decimal": STARTS_BLANK_ON_DECIMAL_LINE,
+	"several-choices": STARTS_BLANK_ON_SEVERAL_CHOICES_LINE,
+	"outside-choices": STARTS_BLANK_OUTSIDE_CHOICES_LINE,
+};
 
 export const SAVE_ONLY_IF_CHANGED_LABEL = "Save only if changed";
 export const SAVE_ONLY_IF_CHANGED_LINE =
@@ -79,8 +101,9 @@ export interface CaseWriteOnlyIfChangedSwitch {
 
 export interface CaseWritePreloadLine {
 	readonly line: string;
-	/** The ghost button under the line, and the one edit it commits. */
-	readonly action: {
+	/** The ghost button under the line, and the one edit it commits; absent
+	 *  where the question can't open on the case's value. */
+	readonly action?: {
 		readonly label: string;
 		readonly mutation: Mutation;
 	};
@@ -114,6 +137,9 @@ export interface CaseWriteRowInput {
 	/** Where CommCare HQ keeps each case change of the form
 	 *  (`lib/doc/casePlacements.ts::formCasePlacementView`). */
 	readonly placement?: FormCasePlacementView;
+	/** The type the written property's values can be (its declaration, else
+	 *  the one its writers agree on); absent where nothing types it. */
+	readonly propertyType?: CasePropertyDataType;
 	/** The verdict `caseWriteChoiceVerdict` gives the switch's destination
 	 *  (`onlyIfChangedDestination`) replacing this row's write. */
 	readonly onlyIfChangedVerdict?:
@@ -301,29 +327,37 @@ function chainLabel(caseType: string, via: CaseWriteVia): string {
  *   - exactly the case's value of the written property: it opens with it,
  *     and "Start blank instead" clears the starting value;
  *   - no starting value and no calculation: it starts blank, and "Open with
- *     the case's current value" sets the starting value to that read;
+ *     the case's current value" sets the starting value to that read, unless
+ *     the question can't open on the values the property can hold, where the
+ *     line says why and offers nothing;
  *   - any other starting value, or a calculation: no line.
+ *
+ * A save to the case's owner is offered no starting value from it, so with
+ * none it shows no line; one that already opens on the owner shows the first
+ * line like any other. Which save is offered one is
+ * `casePreload.ts::saveOffersPreload`, the rule the planner reads too.
  */
 function preloadLine(
 	input: CaseWriteRowInput,
 ): CaseWritePreloadLine | undefined {
 	const { view, field, form, module } = input;
+	// The line is about a save to this form's case itself. An `own` view
+	// carries no `via` (caseWriteViews makes such a write `ancestor`); the
+	// check is defensive.
+	const caseType = module.caseType;
 	if (
 		view.destination !== "own" ||
-		view.slot === "owner" ||
 		view.via !== undefined ||
 		view.link ||
-		module.caseType === undefined ||
-		isCaptureField(field) ||
-		!fieldKindDeclaresKey(field.kind, "default_value") ||
-		!formOpensWithOneCase(form.type, caseSelectionCardinality(module))
+		caseType === undefined
 	)
 		return undefined;
 	const preload = fieldPreload(field);
 	if (
 		preload !== undefined &&
-		preload.caseType === module.caseType &&
-		preload.property === view.property
+		preload.caseType === caseType &&
+		preload.property === view.property &&
+		ownSaveOpensOneCase(form.type, module)
 	) {
 		return {
 			line: OPENS_WITH_CASE_VALUE_LINE,
@@ -338,10 +372,18 @@ function preloadLine(
 			},
 		};
 	}
-	const hasDefault =
-		"default_value" in field && field.default_value !== undefined;
-	const hasCalculation = "calculate" in field && field.calculate !== undefined;
-	if (hasDefault || hasCalculation) return undefined;
+	if (
+		!saveOffersPreload({
+			field,
+			property: view.property,
+			via: view.via,
+			formType: form.type,
+			module,
+		})
+	)
+		return undefined;
+	const misfit = startingValueMisfitOfType(field, input.propertyType);
+	if (misfit !== undefined) return { line: MISFIT_LINES[misfit.kind] };
 	return {
 		line: STARTS_BLANK_LINE,
 		action: {
@@ -355,7 +397,7 @@ function preloadLine(
 						kind: "term",
 						term: {
 							kind: "form-case",
-							caseType: module.caseType,
+							caseType,
 							property: view.property,
 						},
 					},

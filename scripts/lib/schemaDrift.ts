@@ -161,8 +161,22 @@ export async function computeSchemaDrift(
 		.where("app_id", "=", appId)
 		.where("is_active", "=", true)
 		.execute();
-	const storedByType = new Map(storedRows.map((r) => [r.case_type, r.schema]));
+	return compareStoredSchemas(
+		blueprint,
+		new Map(storedRows.map((r) => [r.case_type, r.schema])),
+	);
+}
 
+/**
+ * `computeSchemaDrift`'s comparison over rows already read: each active
+ * stored schema, by case type, against the schema `blueprint` derives.
+ * Pure, so a caller holding the rows in memory gets the same answer the
+ * drift scan and the drift writer get.
+ */
+export function compareStoredSchemas(
+	blueprint: PersistableDoc,
+	storedByType: ReadonlyMap<string, unknown>,
+): CaseTypeDrift[] {
 	const drifts: CaseTypeDrift[] = [];
 	// The catalog the storage boundary writes rows from, so the worker's own
 	// case is compared against `usercaseCaseType` even where a document also

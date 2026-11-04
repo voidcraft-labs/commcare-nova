@@ -870,9 +870,20 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 				property: "tags",
 				valueType: "text",
 				propertyType: "multi_select",
+				consequence: "holds-choices",
+			},
+			'"visit_check" saves text to "tags", which holds several choices. Each case keeps it as a list of choices, which can\'t hold that. You can change its calculation to give several choices, or save it somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "type",
+				property: "stage_note",
+				valueType: "date",
+				propertyType: "text",
 				consequence: "wrong-kind",
 			},
-			'"visit_check" saves text to "tags", which holds several choices. Forms and case lists that read it would get the wrong kind of value. You can change its calculation to give several choices, or save it somewhere else.',
+			'"visit_check" saves a date to "stage_note", which holds text. Forms and case lists that read it would get the wrong kind of value. You can change its calculation to give text, or save it somewhere else.',
 		],
 		[
 			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",

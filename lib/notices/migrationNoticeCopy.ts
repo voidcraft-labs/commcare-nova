@@ -13,6 +13,7 @@
  */
 
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import type { OtherwiseDestination } from "@/lib/domain/forms";
 import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain/modules";
 import {
 	isReservedName,
@@ -225,6 +226,27 @@ const FORM_ID_REPOINT =
 /** "the previous screen" or "its module": where a moved destination went. */
 function formerDestination(from: string | undefined): string {
 	return from === "module" ? "its module" : "the previous screen";
+}
+
+/**
+ * Where workers go when no destination of a form applies, by the built-in
+ * place a form's Otherwise names (`detail.toDestination`, `detail.from`).
+ */
+export const OTHERWISE_DESTINATION_WORDS = {
+	firstMenu: "the first menu",
+	module: "this form's menu",
+	parentMenu: "the menu above this form's menu",
+	previous: "the screen before the form",
+} as const satisfies Readonly<Record<OtherwiseDestination, string>>;
+
+/** The words for a built-in Otherwise place, or undefined where Nova doesn't know it. */
+function otherwiseDestinationWords(
+	destination: string | undefined,
+): string | undefined {
+	return destination !== undefined &&
+		Object.hasOwn(OTHERWISE_DESTINATION_WORDS, destination)
+		? OTHERWISE_DESTINATION_WORDS[destination as OtherwiseDestination]
+		: undefined;
 }
 
 /** "this module" or "this form", for the item a notice entry names. */
@@ -952,6 +974,234 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is the capture question; `detail.form` names its form and
+	 * `detail.property` the case property its link is saved in. */
+	"capture-saves-link": (entry: DocumentNoticeEntry, ctx) => {
+		const property = entry.detail?.property;
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				property === undefined
+					? ": it now saves a link to the file on the case, where it saved the file itself. Files already saved on cases stay there."
+					: `: it now saves a link to the file in ${property}, where it saved the file itself on the case. Files already saved on cases stay there.`,
+			),
+		]);
+	},
+	/* The entity is the capture question; `detail.form` names its form and
+	 * `detail.property` the case property a case operation saved its answer
+	 * to, the file's name, where it now saves the link. */
+	"capture-saves-link-not-name": (entry: DocumentNoticeEntry, ctx) => {
+		const property = entry.detail?.property;
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				property === undefined
+					? ": it now saves a link to the file on the case, where it saved the file's name. Cases saved before keep the name."
+					: `: it now saves a link to the file in ${property}, where it saved the file's name. Cases saved before keep the name.`,
+			),
+		]);
+	},
+	/* The entity is the follow-up form that is now a close form. */
+	"form-became-close-form": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				" is now a close form, because one of its case changes already closed its case. Its close condition says when, and workers see no difference.",
+			),
+		]),
+	/* The entity is the form; `detail.links` counts the destinations whose
+	 * condition Nova wrote out in full. */
+	"form-links-conditions-written": (entry: DocumentNoticeEntry, ctx) => {
+		const links = countOf(entry.detail?.links);
+		const which =
+			links === undefined ? "" : links === 1 ? "one of " : `${links} of `;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: Nova wrote out the full condition of ${which}its after-submit destinations, so the same one runs as before.`,
+			),
+		]);
+	},
+	/* The entity is the form; `detail.to` names the destination its
+	 * Otherwise now opens, or `detail.toDestination` is the built-in place it
+	 * now goes (an `OtherwiseDestination`); `detail.from` is the built-in
+	 * place it replaced, which CommCare HQ doesn't offer there. A
+	 * `toDestination` Nova doesn't know reads as where the form's Otherwise
+	 * says, and a `from` it doesn't know as the place it was set to. */
+	"form-link-otherwise-set": (entry: DocumentNoticeEntry, ctx) => {
+		const detail = entry.detail ?? {};
+		const to = detail.to ?? otherwiseDestinationWords(detail.toDestination);
+		const goes =
+			to === undefined
+				? "workers now go where its Otherwise says"
+				: `workers now go to ${to}, set as the form's Otherwise`;
+		const after =
+			detail.from === undefined
+				? ". That is where they went before."
+				: `, because CommCare HQ doesn't offer ${
+						otherwiseDestinationWords(detail.from) ?? "the place it was set to"
+					} there.`;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(`: when no destination applies, ${goes}${after}`),
+		]);
+	},
+	/* The entity is the form whose After submit setting never ran. */
+	"after-submit-destination-dropped": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				": its After submit setting never ran, because one of its destinations always did, so Nova removed it.",
+			),
+		]),
+	/* The entity is the form holding the link; `detail.from` names the
+	 * destination it opened and `detail.to` the menu holding it that it now
+	 * opens. `detail.cause` is `carried-not-a-case` where the value the link
+	 * carried isn't a case its destination can open; any other cause reads as
+	 * the line without it. */
+	"form-link-target-moved": (entry: DocumentNoticeEntry, ctx) => {
+		const { from, to, cause } = entry.detail ?? {};
+		const named = from !== undefined && to !== undefined;
+		const rest =
+			cause === "carried-not-a-case"
+				? named
+					? `: its destination ${from} now opens ${to}, the menu that holds it, because the value it carried isn't a case ${from} can open. Workers choose the case there.`
+					: ": one of its destinations now opens the menu that holds it, because the value it carried isn't a case that destination can open. Workers choose the case there."
+				: named
+					? `: its destination ${from} now opens ${to}, which holds it, because CommCare HQ can't link to ${from} from here. Workers open ${from} from ${to}.`
+					: ": one of its destinations now opens the menu that holds it, because CommCare HQ can't link there from here.";
+		return noticeLine([entityPart(entry.entity, ctx), text(rest)]);
+	},
+	/* The entity is the form holding the link; `detail.to` names the
+	 * destination that is gone. */
+	"form-link-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const to = entry.detail?.to;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				to === undefined
+					? ": one of its destinations is gone, because CommCare HQ can't link there from here and the menu that holds it is hidden. Workers can still open it from its own menu."
+					: `: its destination ${to} is gone, because CommCare HQ can't link to ${to} from here and the menu that holds it is hidden. Workers can still open ${to} from its own menu.`,
+			),
+		]);
+	},
+	/* The entity is the form holding the link; `detail.to` names the menu it
+	 * opens. */
+	"form-link-datums-dropped": (entry: DocumentNoticeEntry, ctx) => {
+		const to = entry.detail?.to;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`: ${to === undefined ? "one of its destinations" : `its destination ${to}`} no longer carries cases, because a menu reads none.`,
+			),
+		]);
+	},
+	/* The entity is the module now made advanced; `detail.caseType` names the
+	 * case type its forms create for the next form. */
+	"module-made-advanced": (entry: DocumentNoticeEntry, ctx) => {
+		const caseType = entry.detail?.caseType;
+		const module = entityPart(entry.entity, ctx);
+		return noticeLine([
+			module,
+			text(
+				`${module.text.endsWith("s") ? "'" : "'s"} forms now create each new ${caseType === undefined ? "" : `${caseType} `}case so the next form can open it. CommCare HQ shows this menu as an advanced menu from the next publish.`,
+			),
+		]);
+	},
+	/* The entity is the form holding the link; `detail.to` names the menu
+	 * workers now go to (absent for the app home) and `detail.caseType` the
+	 * new case's type. */
+	"form-link-goes-to-menu": (entry: DocumentNoticeEntry, ctx) => {
+		const { to, caseType } = entry.detail ?? {};
+		const newCase = `the new ${caseType === undefined ? "" : `${caseType} `}case`;
+		return noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				to === undefined
+					? `: after it, workers now go to the app home and open ${newCase} from its menu, because CommCare HQ can't take that case straight to the next form in this menu.`
+					: `: after it, workers now go to ${to} and choose ${newCase} there, because CommCare HQ can't take that case straight to the next form in this menu.`,
+			),
+		]);
+	},
+	/* The entity is the question; `detail.form` names its form and
+	 * `detail.property` the case property its starting value now reads. */
+	"starting-value-reads-case": (entry: DocumentNoticeEntry, ctx) => {
+		const property = entry.detail?.property;
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: its starting value now reads ${property === undefined ? "its case property" : `the case's ${property}`}, which you can change. That is what workers already saw, because the case's value replaced it when the form opened.`,
+			),
+		]);
+	},
+	/* The entity is the question whose value is set when the form opens;
+	 * `detail.form` names its form and `detail.reads` the question it reads. */
+	"load-time-value-reads-case": (entry: DocumentNoticeEntry, ctx) => {
+		const reads = entry.detail?.reads;
+		const question = reads ?? "that question";
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: when the form opens, it now reads ${reads ?? "a question"} after ${question} takes the case's value. Before, it read the starting value ${question} had before the case's value replaced it.`,
+			),
+		]);
+	},
+	/* The entity is the module; `detail.opensOn` is `search` or `results`,
+	 * what it now opens on in Web Apps. Any other value reads as `search`. */
+	"menu-opens-on-search": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			entityPart(entry.entity, ctx),
+			text(
+				`${
+					entry.detail?.opensOn === "results"
+						? " now opens on the cases its search finds in Web Apps, and workers can search again from there."
+						: " now opens on its Search screen in Web Apps, and workers see the case list after they search."
+				} CommCare HQ no longer offers the case list first for a menu that searches in Web Apps. On Android it still opens on the case list.`,
+			),
+		]),
+	/* The entity is the query repeat; `detail.form` names its form. */
+	"repeat-rows-follow-query": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				": its rows now follow its query as the form is filled in, where they were the records found when the form opened.",
+			),
+		]),
+	/* The entity is the count repeat; `detail.form` names its form. */
+	"repeat-count-whole-number": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				": its count is now written as int(...), so it always counts a whole number of rows. Workers see the same rows wherever the count was already whole.",
+			),
+		]),
+	/* The entity is the count repeat; `detail.form` names its form and
+	 * `detail.hidden` the hidden value it now reads its count from. */
+	"repeat-count-node-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const hidden = entry.detail?.hidden;
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: it now reads its count straight from ${hidden ?? "the value that holds it"}, so its submissions no longer carry a copy of that count. CommCare HQ's form exports stop filling that column from your next publish.`,
+			),
+		]);
+	},
+	/* The entity is the group; `detail.form` names its form. */
+	"group-shows-one-per-screen": (entry: DocumentNoticeEntry, ctx) =>
+		noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				": on Android its questions now show one per screen, so workers can add rows to the repeat inside it. Web Apps shows them as before.",
+			),
+		]),
 	/* The entity is the lookup table; `detail.from` and `detail.to` its old
 	 * and new export tag. The word is the one the old tag holds. */
 	"lookup-tag-renamed": (entry: DocumentNoticeEntry, ctx) => {
@@ -1265,6 +1515,42 @@ export const MIGRATION_NOTICE_COPY = {
 				`The next publish to ${projectSpace(entry)} moves the form data that Nova adds to each form to new names, once. Form exports in CommCare HQ show those columns under the new names from then on.`,
 			),
 		]),
+	/* No `detail`: the deployment's baseline is one Nova couldn't read. */
+	"placements-kept-unread": (entry) =>
+		noticeLine([
+			text(
+				`Nova couldn't read the app ${projectSpace(entry)} last received, so it kept where every form of this app saves its case changes there. Publishing again keeps them in the same places.`,
+			),
+		]),
+	/* `detail.forms` counts the forms with a move and `detail.causes` holds
+	 * the comma-joined cause ids. Only `module-made-advanced` adds a
+	 * sentence; every other cause is told by the count alone. */
+	"form-data-paths-move": (entry: DeploymentNoticeEntry) => {
+		const forms = countOf(entry.detail?.forms);
+		const where =
+			forms === undefined
+				? "some forms of this app save some of their answers or case changes"
+				: forms === 1
+					? "one form of this app saves some of its answers or case changes"
+					: `${forms} forms of this app save some of their answers or case changes`;
+		const advanced = detailIds(entry.detail?.causes).includes(
+			"module-made-advanced",
+		)
+			? " CommCare HQ shows a menu of this app as an advanced menu from then on."
+			: "";
+		return noticeLine([
+			text(
+				`The next publish to ${projectSpace(entry)} moves where ${where}, because Nova changed how it writes them. CommCare HQ's form exports show those columns under their new names from then on.${advanced}`,
+			),
+		]);
+	},
+	/* `detail.properties` counts the case properties that held a file. */
+	"case-attachments-stop": (entry) =>
+		noticeLine([
+			text(
+				`From the next publish to ${projectSpace(entry)}, this app saves a link to each captured file where it saved the file on the case. Files already on cases stay, and CommCare HQ's case exports gain a column for each link.`,
+			),
+		]),
 	"expressions-sent-at-next-publish": (entry) =>
 		noticeLine([
 			text(
@@ -1333,7 +1619,9 @@ export const MIGRATION_NOTICE_COPY = {
 	 * `flat-location-fixture`, `connect-forwarder`, `form-entry-sync-off` and
 	 * `commtrack-off` where each is asked,
 	 * and `detail.capabilities` the capability ids the probe newly checks,
-	 * each comma-joined and absent where empty. Each is named in today's
+	 * `same-type-child-links` among them, each comma-joined and absent where
+	 * empty. `commtrack-off` and `same-type-child-links` each add the sentence
+	 * that says why. Each is named in today's
 	 * words, in the order every surface lists them; an id Nova no longer
 	 * knows is left out. */
 	"next-publish-asks-more": (entry: DeploymentNoticeEntry) => {
@@ -1578,6 +1866,8 @@ export const MIGRATION_NOTICE_LEADS = {
 		`Nova changed how it stores and checks expressions on ${day}. Here is what that means for this app.`,
 	"hq-round-trip-platforms": (day: string) =>
 		`On ${day}, Nova started recording where each app runs: in Web Apps, on Android, or both. Here is what that means for this app.`,
+	"hq-round-trip-case-writes": (day: string) =>
+		`On ${day}, Nova changed how it stores what forms save to cases, where workers go after a form, and how some questions are counted and shown. Here is what that means for this app.`,
 } satisfies Readonly<Record<MigrationNoticeCutover, (day: string) => string>>;
 
 export function noticeLead(

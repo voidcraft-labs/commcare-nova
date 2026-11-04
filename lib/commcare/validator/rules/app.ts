@@ -44,6 +44,7 @@ import { ORGANIZATION_RULES } from "./organization";
 import { platformFeatureAvailability } from "./platforms";
 import { selectPreloadWriterOptions } from "./selectPreloadWriterOptions";
 import { USER_RULES } from "./users";
+import { wholeNumberStartRule } from "./wholeNumberStart";
 import { authoredXmlText } from "./xmlText";
 
 function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
@@ -384,71 +385,6 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 }
 
 /**
- * Every case type a form creates beneath its own case needs a module of its
- * own: a created case with no module has no case list to appear in, so it is
- * invisible to every user. Keyed on the creates, not on the catalog: a planned
- * record (committed by `generateSchema` ahead of its module) is legal on its
- * own, and the finding fires only once a form would create cases nobody can
- * open. This is also what sequences a build: a case type's own module must
- * land before any other module's forms create cases of it. A create counts
- * when it is a child of the form's own case: its one link is a `parent` link
- * to that case (`session` on a loading form, the own arm on a registration),
- * the shape a field's "Saves to" writes for a child case.
- */
-function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
-	const errors: ValidationError[] = [];
-	const moduleCaseTypes = new Set(
-		doc.moduleOrder
-			.map((uuid) => doc.modules[uuid].caseType)
-			.filter((v): v is string => Boolean(v)),
-	);
-
-	const writtenTypes = new Set<string>();
-	for (const moduleUuid of doc.moduleOrder) {
-		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
-			const form = doc.forms[formUuid];
-			if (form === undefined) continue;
-			const own = form.caseOperations?.find(
-				(operation) => operation.action === "own",
-			);
-			if (own === undefined) continue;
-			for (const operation of form.caseOperations ?? []) {
-				if (operation.action !== "create") continue;
-				const links = operation.links ?? [];
-				const target = links[0]?.target;
-				const toOwnCase =
-					form.type === "registration"
-						? target?.kind === "op" && target.opUuid === own.uuid
-						: target?.kind === "session";
-				if (
-					links.length === 1 &&
-					links[0]?.identifier === "parent" &&
-					toOwnCase
-				)
-					writtenTypes.add(operation.caseType);
-			}
-		}
-	}
-
-	for (const written of writtenTypes) {
-		if (moduleCaseTypes.has(written)) continue;
-		const parent = doc.caseTypes?.find(
-			(ct) => ct.name === written,
-		)?.parent_type;
-		errors.push(
-			validationError(
-				"MISSING_CHILD_CASE_MODULE",
-				"app",
-				`Cases of type "${written}"${parent ? ` (child of "${parent}")` : ""} are created by forms, but there is no module to display them. CommCare requires every case type to have a module. Add one with case_type "${written}" (a case-list-only module is enough) and configure its case list columns so users can see these cases.`,
-				{},
-				{ caseType: written },
-			),
-		);
-	}
-	return errors;
-}
-
-/**
  * Connect ids must be unique across the whole app.
  *
  * A connect id (`learn_module` / `assessment` / `deliver_unit` / `task`)
@@ -628,7 +564,6 @@ export const APP_RULES = [
 	emptyAppName,
 	validTranslationOverlays,
 	reservedCaseTypeName,
-	childCaseTypeMissingModule,
 	duplicateConnectIds,
 	connectNoParticipatingForms,
 	// A case list registration slot naming a form outside its module.
@@ -644,6 +579,9 @@ export const APP_RULES = [
 	// and readers across every form.
 	hiddenValueWriterAgreement,
 	selectPreloadWriterOptions,
+	// A whole-number question starting on a decimal value: the property's
+	// type comes from writers in every form.
+	wholeNumberStartRule,
 	// Who runs the app: the user-data property catalog, the roles built on
 	// it, and the personas that act as those roles. App-scoped because none
 	// of the three belongs to a module or a form.

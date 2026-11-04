@@ -1,0 +1,314 @@
+{
+	"appId": "f57fba2c-2c44-5980-aa42-bd0274befa5c",
+	"appName": "Close reads cases",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "household",
+			"properties": [
+				{
+					"name": "case_name",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "case_name"
+							}
+						]
+					}
+				},
+				{
+					"name": "standing",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "standing"
+							}
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "member",
+			"parent_type": "household",
+			"properties": [
+				{
+					"name": "case_name",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "case_name"
+							}
+						]
+					}
+				},
+				{
+					"name": "note",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "note"
+							}
+						]
+					}
+				}
+			]
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false
+	},
+	"modules": {
+		"3b51aa8b-e56c-53b7-a4c0-c9ada569747b": {
+			"uuid": "3b51aa8b-e56c-53b7-a4c0-c9ada569747b",
+			"id": "households",
+			"name": "Households",
+			"caseType": "household",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "2d729167-80be-5c53-a14e-3d15ab5a8a57",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"listColumnOrder": ["2d729167-80be-5c53-a14e-3d15ab5a8a57"],
+				"detailColumnOrder": ["2d729167-80be-5c53-a14e-3d15ab5a8a57"],
+				"searchInputs": []
+			}
+		},
+		"1bd3ef10-bc61-55a4-a3d6-6282db246f80": {
+			"uuid": "1bd3ef10-bc61-55a4-a3d6-6282db246f80",
+			"id": "members",
+			"name": "Members",
+			"caseType": "member",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "2e7292fa-81be-5de6-ae4e-385cac5a8bea",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"listColumnOrder": ["2e7292fa-81be-5de6-ae4e-385cac5a8bea"],
+				"detailColumnOrder": ["2e7292fa-81be-5de6-ae4e-385cac5a8bea"],
+				"searchInputs": []
+			}
+		}
+	},
+	"forms": {
+		"02d256c0-8438-5c8c-a76f-cc8af3fce390": {
+			"uuid": "02d256c0-8438-5c8c-a76f-cc8af3fce390",
+			"id": "register",
+			"name": "Register",
+			"type": "registration"
+		},
+		"1cb8feb9-4a8a-568d-aeb9-68eb40fd7929": {
+			"uuid": "1cb8feb9-4a8a-568d-aeb9-68eb40fd7929",
+			"id": "add_member",
+			"name": "Add member",
+			"type": "followup"
+		},
+		"ad5d4fc0-e91d-5994-a30b-9f12d8ec3f10": {
+			"uuid": "ad5d4fc0-e91d-5994-a30b-9f12d8ec3f10",
+			"id": "leave",
+			"name": "Leave",
+			"type": "followup",
+			"caseOperations": [
+				{
+					"uuid": "350222cd-bd6e-5a81-a958-0afb835a87fd",
+					"id": "leave_household",
+					"action": "close",
+					"caseType": "member",
+					"target": {
+						"kind": "session"
+					},
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "prop",
+								"caseType": "member",
+								"property": "standing",
+								"via": {
+									"kind": "ancestor",
+									"via": [
+										{
+											"identifier": "parent"
+										}
+									]
+								}
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "moved"
+							}
+						}
+					}
+				}
+			]
+		},
+		"14951df6-ae1f-520a-a918-47a0272073a6": {
+			"uuid": "14951df6-ae1f-520a-a918-47a0272073a6",
+			"id": "retire",
+			"name": "Retire",
+			"type": "followup",
+			"caseOperations": [
+				{
+					"uuid": "6a77ba0f-a438-5d43-a68f-102d04ca095f",
+					"id": "retire_member",
+					"action": "close",
+					"caseType": "member",
+					"target": {
+						"kind": "session"
+					},
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "prop",
+								"caseType": "member",
+								"property": "note"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "retired"
+							}
+						}
+					}
+				}
+			]
+		}
+	},
+	"fields": {
+		"909f52e6-7665-5a7a-a7ba-0a8435e7db76": {
+			"uuid": "909f52e6-7665-5a7a-a7ba-0a8435e7db76",
+			"kind": "text",
+			"id": "name",
+			"caseWrite": {
+				"caseType": "household",
+				"property": "case_name"
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Name"
+					}
+				]
+			}
+		},
+		"33244df5-09da-5fe9-a286-920f3b025c45": {
+			"uuid": "33244df5-09da-5fe9-a286-920f3b025c45",
+			"kind": "text",
+			"id": "standing",
+			"caseWrite": {
+				"caseType": "household",
+				"property": "standing"
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Standing"
+					}
+				]
+			}
+		},
+		"3e097171-24fe-57b5-ab54-7e9b2660b801": {
+			"uuid": "3e097171-24fe-57b5-ab54-7e9b2660b801",
+			"kind": "text",
+			"id": "member_name",
+			"caseWrite": {
+				"caseType": "member",
+				"property": "case_name"
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Member name"
+					}
+				]
+			}
+		},
+		"f04f7b19-a151-532d-a79f-19d327be6369": {
+			"uuid": "f04f7b19-a151-532d-a79f-19d327be6369",
+			"kind": "text",
+			"id": "reason",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Reason"
+					}
+				]
+			}
+		},
+		"94ffa13d-0661-5b99-a9ec-3f173a9648ad": {
+			"uuid": "94ffa13d-0661-5b99-a9ec-3f173a9648ad",
+			"kind": "text",
+			"id": "note",
+			"caseWrite": {
+				"caseType": "member",
+				"property": "note"
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			}
+		}
+	},
+	"moduleOrder": [
+		"3b51aa8b-e56c-53b7-a4c0-c9ada569747b",
+		"1bd3ef10-bc61-55a4-a3d6-6282db246f80"
+	],
+	"formOrder": {
+		"3b51aa8b-e56c-53b7-a4c0-c9ada569747b": [
+			"02d256c0-8438-5c8c-a76f-cc8af3fce390",
+			"1cb8feb9-4a8a-568d-aeb9-68eb40fd7929"
+		],
+		"1bd3ef10-bc61-55a4-a3d6-6282db246f80": [
+			"ad5d4fc0-e91d-5994-a30b-9f12d8ec3f10",
+			"14951df6-ae1f-520a-a918-47a0272073a6"
+		]
+	},
+	"fieldOrder": {
+		"02d256c0-8438-5c8c-a76f-cc8af3fce390": [
+			"909f52e6-7665-5a7a-a7ba-0a8435e7db76",
+			"33244df5-09da-5fe9-a286-920f3b025c45"
+		],
+		"1cb8feb9-4a8a-568d-aeb9-68eb40fd7929": [
+			"3e097171-24fe-57b5-ab54-7e9b2660b801"
+		],
+		"ad5d4fc0-e91d-5994-a30b-9f12d8ec3f10": [
+			"f04f7b19-a151-532d-a79f-19d327be6369"
+		],
+		"14951df6-ae1f-520a-a918-47a0272073a6": [
+			"94ffa13d-0661-5b99-a9ec-3f173a9648ad"
+		]
+	}
+}

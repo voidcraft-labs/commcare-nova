@@ -118,8 +118,9 @@ these strings verbatim. The names of code another pull request lands are that pa
     reproduces the heap order behind step 4's postcondition fix (sections 15 and 21.2).
 12. **Its own Job**, `commcare-nova-hq-round-trip-case-writes`, whose stored arguments are its dry run; no
     media bucket, no KMS key, no CommCare HQ read (section 18).
-13. **The notice** gains cutover `hq-round-trip-case-writes`, its lead, seventeen document reasons
-    (decision 13's sixteen, which hold C9's `form-became-close-form`, and part 06's `form-link-removed`) and three
+13. **The notice** gains cutover `hq-round-trip-case-writes`, its lead, eighteen document reasons
+    (decision 13's sixteen, which hold C9's `form-became-close-form`, part 06's `form-link-removed` and the
+    stored capture reads' `capture-saves-link-not-name`, section 7.4) and three
     deployment reasons, extends
     `next-publish-asks-more` with `commtrack-off` and `same-type-child-links`, and reuses `unsaved-assistant-work-discarded` and `deep-links-need-republish` (section 17).
 14. **No version of its own.** Pull request 3 moves `RUNTIME_VERSION` to 18 and the authoring pull
@@ -516,30 +517,32 @@ export function structurePhase(raw: RawDocument): { readonly persisted: unknown;
 | 4 | `field-writes-lifted` | structure | every field's `caseWrite` leaves the field into `LiftedFacts.fieldWrites`; the frozen preload, label and placement rules have read the raw document as read, before step 1 | `frozen/*` | none | none |
 | 5 | `search-first-lifted` | structure | every stored `caseSearchConfig.searchFirst` leaves into `LiftedFacts.searchFirst` | raw JSON only | none | none |
 | | head parse | | `blueprintDocSchema.parse`, then `lib/doc/fieldParent.ts::hydratePersistedBlueprint` | | `structure-parse` | |
-| 6 | `writes-into-operations` | semantics | C9, C1 to C3 (with C4, C5 values and part 02's extension creates), C10 (section 7.4) | `lib/doc/fieldWriteOperations.ts::operationsFromFieldWrites` | `transform-admission`, `own-close-in-repeat` | `form-became-close-form` |
+| 6 | `writes-into-operations` | semantics | stored capture reads, C9, C1 to C3 (with C4, C5 values and part 02's extension creates), C10 (section 7.4) | `lib/doc/fieldWriteOperations.ts::operationsFromFieldWrites`, `lib/doc/caseOperationOrder.ts::caseOperationConditionalGuardUuids` | `transform-admission`, `capture-write-unlinkable`, `own-close-in-repeat`, `own-close-condition-reads-case` | `capture-saves-link-not-name`, `form-became-close-form` |
 | 7 | `form-link-semantics` | semantics | L1 to L6 with L4's removal (L8 under part 06's G2 outcome B) | `lib/doc/formLinkSemanticsMap.ts::mapFormLinkSemantics` | none (the map is total, section 7.5) | `form-links-conditions-written`, `form-link-otherwise-set`, `after-submit-destination-dropped`, `form-link-target-moved`, `form-link-removed`, `form-link-datums-dropped` |
 | 8 | `extension-children` | semantics | part 02's M1 to M3: carried creates, the retargets, the held kind left to the next publish (section 7.6) | `lib/commcare/formLinkProjection.ts::linkCarriedCreates`, `lib/domain/advancedModule.ts::advancedKindBlockers`, `lib/commcare/moduleKind.ts::emittedModuleKind`, `lib/domain/formLinkTargets.ts::menuTargetOffered` and `nearestOfferedMenu` | `transform-admission` | `module-made-advanced`, `form-link-goes-to-menu` |
 | 9 | `explicit-preloads` | semantics | C7 | `lib/doc/explicitPreloads.ts::planExplicitPreloads` | `transform-admission` | `starting-value-reads-case`, `load-time-value-reads-case` |
 | 10 | `search-workflow` | semantics | part 05's M1 | `lib/doc/searchWorkflowPlan.ts::authoredSearchWorkflow` | `transform-admission` | `menu-opens-on-search` |
-| 11 | `query-repeat-placement` | semantics | Q1: the effective placement; holds are step 14's | `effectiveQueryRepeatPlacement`, `queryRepeatPlacementNeeds` (part 04) | none | `repeat-rows-follow-query` |
+| 11 | `query-repeat-placement` | semantics | Q1: the effective placement; holds are step 15's | `effectiveQueryRepeatPlacement`, `queryRepeatPlacementNeeds` (part 04) | none | `repeat-rows-follow-query` |
 | 12 | `repeat-counts` | semantics | Q2's wrap; Q3's notice | `lib/doc/repeatCountWraps.ts::planRepeatCountWraps`, `lib/domain/repeatCount.ts::directRepeatCountReference` | `transform-admission` | `repeat-count-whole-number`, `repeat-count-node-removed` |
 | 13 | `field-list-flags` | semantics | Q4 | `lib/doc/groupFieldLists.ts::planGroupFieldLists` with the frozen label rule | `transform-admission` | `group-shows-one-per-screen` |
-| 14 | `placements` | semantics | section 8: every hold the published deployments give | `lib/commcare/hq/publishedCaseBlocks.ts::publishedCaseBlocks`, `lib/commcare/placement.ts::planPlacements`, `lib/doc/placementHolds.ts::holdExpresses`, `lib/commcare/casePlacementPlan.ts::planFormCaseWire` | `baseline-unreadable`, `placement-path-mismatch` | none (section 9's lines carry it) |
-| 15 | `judge-target` | | section 7.13 | | `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-unplanned`, `not-idempotent` | none |
-| 16 | `deployment-lines` | | writes nothing; selects each live deployment's lines (section 9) | | none | `deep-links-need-republish`, `placements-kept-unread`, `form-data-paths-move`, `case-attachments-stop`, `next-publish-asks-more` |
+| 14 | `blank-comparisons` | semantics | a refused comparison of an answer with `''` becomes a blank test (section 7.12) | `lib/domain/referenceSlots.ts::rewriteExpressionSlotValues`, `lib/domain/expression/typeChecker.ts::checkExpression` | none | none |
+| 15 | `placements` | semantics | section 8: every hold the published deployments give | `lib/commcare/hq/publishedCaseBlocks.ts::publishedCaseBlocks`, `lib/commcare/placement.ts::planPlacements`, `lib/doc/placementHolds.ts::holdExpresses`, `lib/commcare/casePlacementPlan.ts::planFormCaseWire` | `baseline-unreadable`, `placement-path-mismatch` | none (section 9's lines carry it) |
+| 16 | `judge-target` | | section 7.14 | | `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-unplanned`, `not-idempotent` | none |
+| 17 | `deployment-lines` | | writes nothing; selects each live deployment's lines (section 9) | | none | `deep-links-need-republish`, `placements-kept-unread`, `form-data-paths-move`, `case-attachments-stop`, `next-publish-asks-more` |
 
 **Order.** Every structure step runs before the head parse, because the head schema cannot read any of
 the keys they remove. Within semantics: operations exist (6) before links are mapped (7), because the
 map's invariants and `linkCarriedCreates` read operations; links are mapped (7) before extension
 placement (8), part 06's order (§14.2: "the map before the extension retargets"); preloads (9) read the
-own arm step 6 wrote; the placement step (14) runs last over every unit in place.
+own arm step 6 wrote; the blank comparisons (14) follow every step that can change what an answer types as;
+the placement step (15) runs last over every unit in place.
 
 **The cutover brief's fixed point dissolves into this order.** The brief ran its steps 6 and 8 as a fixed
 point because a retarget might change which links carry a case. Part 06 holds that `linkCarriedCreates`
 answers the same before and after `mapFormLinkSemantics` (the map changes targets and datums only of menu
 targets, which carry no created case), and part 02's retargets target menus `nearestOfferedMenu` gives and
 drop carried values, which neither adds a carried create nor breaks an invariant the map left. So one
-ordered pass is the fixed point; step 15's `not-idempotent` check holds it per app.
+ordered pass is the fixed point; step 16's `not-idempotent` check holds it per app.
 
 ### 7.1 `renamed-concepts` (structure; part 05 §14)
 
@@ -591,14 +594,46 @@ line carrying the Zod issue codes and their paths (entity ids and keys, never va
 
 In this order, per form:
 
+0. **Stored capture reads.** A stored operation's write whose whole value is a bare read of a capture
+   question saved the captured file's name at `main`; the head saves a capture only as the link to its file.
+   The write's value becomes `{ kind: "term", term: { kind: "capture-link", field } }` through an
+   `update-write` patch (change `capture-write-linked`), and the question gets one
+   `capture-saves-link-not-name` per form and property (field, `detail.form`, `detail.property`), as C5's
+   `capture-saves-link` is one per question. A write to a reserved property is left to the gate's own
+   `CASE_OPERATION_RESERVED_PROPERTY`. Where the link can't be saved, the blocker `capture-write-unlinkable`
+   names the place: a case's name (`case-name`) or a standard property CommCare keeps as the case's own text
+   (`external-id`, the validator's `isWritableStandardCaseProperty`, which `CAPTURE_CASE_WRITE_STANDARD_PROPERTY`
+   reads), or a property whose type holds no text (`property-type`, the inferred type, which the rewrite leaves
+   unchanged since a capture's answer and its link both hold no type opinion). The author's remedy is to save
+   the file to a property of its own in today's builder.
 1. **C9** (part 01 class (a); production holds the shape, so C9 rewrites forms at the window, section 19.1). For each `followup` or `close` form holding
    `close` operations whose target is `{ kind: "session" }`:
    - an operation with `forEach` is the blocker `own-close-in-repeat` (its close would run once per row,
      which no close condition states); the author's remedy is to remove the operation and set the form's
      close condition in today's builder;
+   - each operation's term is its condition and-ed with each condition it inherits from a conditional
+     retype of the case before it (`lib/doc/caseOperationOrder.ts::caseOperationConditionalGuardUuids`,
+     the guard `main`'s emission gave it), each read in its own operation's row and written in the form's
+     vocabulary: a `prop` read of the row (no `via`, or `self`) becomes `{ kind: "form-case", caseType:
+     <module's case type>, property }`, and one through parent links to the case at that many hops above
+     it becomes `form-case` of that case's type, which `lib/commcare/xform/formCaseRead.ts` prints as the
+     same `index/parent` walk. The rewrite follows the checker's row scopes (`expressionChildContext`): a
+     table lookup's filter captures the row it is made in, so its reads of the case are rewritten too, and a
+     form node's filters keep the row; a query's rows (cases, table rows, locations, selected cases), a
+     projection's value and a relation walk (a `count`, `exists` or `missing` over a relation, whose
+     `where` reads the cases it reaches) stay as they are, and so do the form's answers. A read of a case
+     of another type (`other-case`), through another link (`linked-case`), or of a case a retype before
+     the operation gave another type (`retyped-case`, which any read of that row is, its index links and
+     relation walks included) can't be written so. The checker then judges each term in the form's
+     `form_close_condition` slot as the gate does (`rules/form.ts`, `semanticCheckErrors`; a form with no
+     such slot throws, since every form in a module has one): a term it admits moves, and one it refuses
+     (finding code `check:<code>`) carries the checker's own sentences. Each
+     refusal is the blocker `own-close-condition-reads-case`, whose remedy is to rewrite the condition over
+     the form's answers, its case and the cases above it, or to remove the operation and set the form's
+     close condition;
    - the form's type becomes `close`, and its `closeCondition` becomes the `or` (`lib/domain/expression/
      reduction.ts::reduceOr`) of the close it already had (a close form's own: absent means every
-     submission) and each such operation's `condition` (absent means every submission); any absent term
+     submission) and each such operation's term (absent means every submission); any absent term
      makes the whole absent;
    - each such operation without `writes` is removed;
    - each such operation with `writes` becomes an `update` operation on `{ kind: "session" }` with the same
@@ -760,11 +795,35 @@ gets `group-shows-one-per-screen` (field, `detail.form`). A section holding a us
 gate at `main` and at the head alike, so the brief's `section-holds-user-repeat` guard is not a code of
 its own: such a document meets `target-gate`.
 
-### 7.12 `placements` (semantics)
+### 7.12 `blank-comparisons` (semantics)
+
+At `main` a Hidden Value that no field's own Saves to wrote was untyped, so a case operation's condition
+could compare it with the blank text `''`. The head types it by the operations that save it (part 01,
+decision 32), and the checker then refuses the comparison of a number, date, time or location with text
+(`CASE_OPERATION_EXPRESSION_TYPE`, `incompatible-values`). Over every expression slot of every question,
+form and menu, each comparison the checker refuses whose operands are a bare read of an answer and `''`
+becomes a blank test: `eq(x, '')` (either order) `is-blank(x)`, and `neq(x, '')` `not(is-blank(x))`.
+
+On a device the two ask the same of every value but a yes/no. Core reads the node as `""` when blank or not
+relevant, a `Double` for a number, a `Date` for a date, and a `String` otherwise
+(`XPathPathExpr.java::unpackValue`); `XPathEqExpr.java::testEquality` compares a `Double` with `''` as
+numbers, `''` reading as `NaN` (`FunctionUtils.java::toNumeric`), and a `Date` or a `String` as text, so
+only the blank read equals `''`, exactly where `is-blank`'s `string-length(string(x)) = 0` holds. A
+`Boolean` equals `''` when false, where its text is `"false"`, so the step rewrites only an answer that
+never holds one: a visible question; a Hidden Value without a calculation (a starting value is cast
+through its bind's class, `SetValueAction.java::processAction`); and one whose calculation's every result
+types as a value other than yes/no, or reads such an answer (`Recalculate.java::wrapData` makes a
+`BooleanData` only of a `Boolean` result under Nova's binds). Any other comparison stays and meets
+`target-gate`, the author's to rewrite. The step writes the registered slots in place
+(`lib/domain/referenceSlots.ts::rewriteExpressionSlotValues`), since no one mutation addresses an expression
+by its slot; the same condition runs, so it plans `blank-test-written` and no notice. It runs after every
+step that can change what an answer types as.
+
+### 7.13 `placements` (semantics)
 
 Section 8.
 
-### 7.13 `judge-target`
+### 7.14 `judge-target`
 
 Over the document every step left:
 
@@ -1309,7 +1368,9 @@ and deleting it again.
 | Code | Meaning | Remedy |
 |---|---|---|
 | `renamed-concept-conflict` | a module holds two no-matches forms, a document `main`'s gate never admitted | a data repair: remove one form's no-matches entry in today's builder |
+| `capture-write-unlinkable` | a stored operation saves a capture's bare answer as a case's name or external id, or to a property whose type holds no text, where the head's link to the file can't be saved (section 7.4, clause 0) | the author's: save the file to a property of its own in today's builder |
 | `own-close-in-repeat` | a follow-up's `close` operation on the form's own case runs once per repeat row | the author's: remove that operation and set the form's close condition (a close form) in today's builder |
+| `own-close-condition-reads-case` | a `close` operation on the form's own case, or a retype it follows, has a condition the form's close condition can't hold: one reading another type's case, one linked other than through parent links or its case under a type a retype gave it, or one the checker refuses in that slot, in the checker's words (section 7.4) | the author's: rewrite the condition over the form's answers, its case and the cases above it, or remove the operation and set the form's close condition in today's builder |
 | `baseline-unreadable` | a published deployment's stored baseline fails gunzip, its digest or its parse (section 8.1); production holds none today | a data repair: refresh that deployment, which reads CommCare HQ again (part 03's remedy); then the dry run repeats |
 | `structure-parse`, `transform-admission`, `placement-path-mismatch`, `target-parse`, `case-schema-unplanned`, `not-idempotent` | a defect of the stack | fixed in the pull request that owns the step, with the review rule of section 21.3 |
 | `target-gate`, `target-export-readiness` | the target fails the absolute gate or export readiness; the line carries the finding codes and `details.reason` | the author's where the finding is about the app (its message names the move; the rules below); a defect of the stack where a step should have changed it |
@@ -1345,9 +1406,10 @@ Stops that are not an app's: `holder`, `app-changed`, `baseline-changed`, `diges
 `NOTICE_ENTITY_TYPES` is unchanged: every line names a module, form or field, and a link or an operation
 is named in `detail`. `lib/notices/store.ts` reads the table tolerantly, so earlier rows keep rendering.
 
-`DOCUMENT_NOTICE_REASONS` gains seventeen reasons after `media-not-played-removed` and before
+`DOCUMENT_NOTICE_REASONS` gains eighteen reasons after `media-not-played-removed` and before
 `lookup-tag-renamed`, in step order (decision 13 of step 5's plan, which holds C9's `form-became-close-form`, section 7.4,
-with part 06's `form-link-removed`, section 7.5): `capture-saves-link`,
+with part 06's `form-link-removed`, section 7.5, and the stored capture reads' `capture-saves-link-not-name`,
+section 7.4): `capture-saves-link`, `capture-saves-link-not-name`,
 `form-became-close-form`, `form-links-conditions-written`, `form-link-otherwise-set`,
 `after-submit-destination-dropped`, `form-link-target-moved`, `form-link-removed`,
 `form-link-datums-dropped`, `module-made-advanced`, `form-link-goes-to-menu`,
@@ -1383,6 +1445,7 @@ screen**).
 | Reason | Entity | `detail` | Copy |
 |---|---|---|---|
 | `capture-saves-link` | field | `form`, `property` | "{form}, {Question}: it now saves a link to the file in {property}, where it saved the file itself on the case. Files already saved on cases stay there." Without `property`: "…it now saves a link to the file on the case, where it saved the file itself. …" |
+| `capture-saves-link-not-name` (section 7.4) | field | `form`, `property` | "{form}, {Question}: it now saves a link to the file in {property}, where it saved the file's name. Cases saved before keep the name." Without `property`: "…it now saves a link to the file on the case, where it saved the file's name. …" |
 | `form-became-close-form` (section 7.4) | form | none | "{Form} is now a close form, because one of its case changes already closed its case. Its close condition says when, and workers see no difference." |
 | `form-links-conditions-written` | form | `links` | "{Form}: Nova wrote out the full condition of {links} of its after-submit destinations, so the same one runs as before." With `links` 1: "…of one of its after-submit destinations…"; without: "…of its after-submit destinations…" |
 | `form-link-otherwise-set` | form | `to` or `toDestination`; `from` (L6) | "{Form}: when no destination applies, workers now go to {to}, set as the form's Otherwise. That is where they went before." With `from`: "{Form}: when no destination applies, workers now go to {to}, set as the form's Otherwise, because CommCare HQ doesn't offer {from} there." `toDestination` and `from` read through `OTHERWISE_DESTINATION_WORDS`: `firstMenu` "the first menu", `module` "this form's menu", `parentMenu` "the menu above this form's menu", `previous` "the screen before the form"; an unknown word reads "where its Otherwise says" |
@@ -1748,7 +1811,7 @@ What stays, the cutover's trace:
   (immutable history);
 - `lib/domain/caseWriteOperationIdentity.ts` and the `lib/doc` planners of decision 3 with their tests (the
   fuzz mapping and step 6's import read them);
-- the cutover id, its lead, the seventeen document reasons, the three deployment reasons, the two
+- the cutover id, its lead, the eighteen document reasons, the three deployment reasons, the two
   `next-publish-asks-more` ids and `OTHERWISE_DESTINATION_WORDS` (stored rows render for good);
 - each app's `fold-baseline:hq-round-trip-case-writes` row and its baseline snapshot;
 - `lib/commcare/hq/publishedCaseBlocks.ts` (part 03) and the witnesses' retained reads
@@ -1850,6 +1913,311 @@ writer converging exactly the planned differences (G7).
   `eq(field, answer)`: the head checker refuses a single-value comparison of a repeat answer in
   `form_close_condition` (`many-values`), and the existential count is the meaning `main`'s close
   read had (part 08's case-writes witness holds it).
+
+- **C9 rewrites the document directly, not through a mutation batch** (section 7.4): turning a `close`
+  into an `update` with the same uuid is a removal and a fresh claim of that uuid, which
+  `lib/doc/mutationIdentityAdmission.ts::mutationIdentityAdmissionIssue` refuses (no claim but a form
+  link's reintroduces a removed identity), and no operation patch changes an action
+  (`lib/doc/types.ts::caseOperationPatchSchemaFor` omits `action`). `steps/writesIntoOperations.ts`
+  replaces the form in place, the converted operation keeping its position, and `judge-target`'s gate
+  holds the result as it holds every step's. C1 to C3 and C10 still apply through
+  `prepareMutationCandidate`.
+- **C10 removes an emptied `update`, never a `close`**: "an operation left with no write, name, owner,
+  link, rename or retype" lists an update's facets; a close with no write still closes, so removing it
+  would drop a close. On a registration the own case is the own arm (`{ kind: "op" }`,
+  `lib/doc/fieldCaseWriteMutations.ts::ownCaseLinkTarget`), so an operation reaching it through an
+  expression target is C11's, not C10's.
+- **`extension-children` asks the gate's own rule which carried creates to retarget**
+  (`lib/commcare/validator/rules/advancedModule.ts::formLinkNeedsNewCaseDatum`), read again after every
+  retarget, rather than retargeting every carried create of a module `advancedKindBlockers` blocks: the
+  rule also refuses a carried create an advanced form cannot open (`openActionIneligibility`, part 02
+  §23's `ineligible` cause), and it skips the carried creates a basic form already gives a session value
+  (a registration's own case on its basic slot, a basic subcase at the root), which need no change. A
+  carried create is listed (`carried-create`, or `non-extension-carried-create` apart) only where it is
+  one of `lib/domain/advancedEntryDatums.ts::advancedKindTriggers`'s, for the same reason. The otherwise
+  link, which `planFormLinkUpdate` and `planFormLinkRemove` do not address, is retargeted or cleared
+  through `planSetOtherwise`, the production edit for that slot; a link found again after its retarget
+  (a condition reading the new case) is removed.
+- **The per-step cases of the first three semantic steps sit in `__tests__/stepsCasesLinks.test.ts`**, not
+  `transform.test.ts`, so the steps' tasks own disjoint files.
+- **Section 9's readable moves read the head's HQ import file** (`expandDoc` under the deployment's
+  `targetWireIdentity(overrides)`, lookup tables named by `identityLookupWireNaming`, which no block path
+  reads) through `publishedCaseBlocks`, the reader the baseline is read by, where the plan named
+  `planFormCaseWire` alone: a baseline carries each operation's `nova_guard_<id>_<kind>` blocks, which
+  `FormCaseWirePlan.saveToCase` does not list, so the plan alone would count every guard as moved. Section
+  8.4's verification reads `planFormCaseWire` as written (`placements.ts::emitsAt`).
+- **C11's class covers the form's other basic slots** whose `placementIneligibility` is `own-not-basic`
+  (its subcases and the worker's record), not the own arm alone: once the own arm leaves the basic own
+  slot no basic subcase can stay, so holding them would be `placement-path-mismatch` on every C11
+  registration with a child (shown on `targeted-migration-case-writes`' Register with a planted change of
+  its new case). They move with the own arm, cause `case-changed-before-create`.
+- **The inert basic subcase `main` wrote beside each extension's Save to Case block** leaves the wire with
+  cause `extension-case-moved` (on a readable baseline, its block no longer written; on an unknown one,
+  every extension unit not of another class): no cause of section 9 names it otherwise, and it is part
+  02's extension change. On `targeted-migration-extension-children`'s HQ read this gives
+  `subcase-renumbered`, `extension-case-moved` and `module-made-advanced` over two forms
+  (`deployments.test.ts`); proof 1 on the witness (G9) remains the check that each move is named.
+- **Two unheld classes beside section 8.5's**, each with cause `placement-simplified`: `merged`, a
+  field-write bucket that joined an operation the form already held (`operationsFromFieldWrites`' join),
+  which is that operation's own unit; and `gone`, a unit the target holds nothing for (an operation C10
+  removed, or a form or query repeat that left). Neither has a hold target, so neither is
+  `placement-path-mismatch`. A unit no readable baseline carries, with no unknown baseline, is
+  `not-carried`.
+- **A renumbered child under an unknown baseline is left unheld** at the head's index: the plan holds it
+  at the head's index only where a baseline carried it at the old one, and an unknown baseline carries
+  nothing Nova read.
+- **The placement step reads the raw document and the app's `mutation_seq`** beside the target, the facts
+  and the deployments: C9's removed operations are read from the raw document (the own close takes the
+  first removed one's path), and the frozen check of section 8.6 compares `pushedRevision` with the
+  sequence. Where `main` also wrote that form's own close apart, the `own-close` unit's placement is the
+  one held, since one own close keeps one path. It takes step 8's carried creates as an input
+  (`PlacementInput.carriedCreates`), because a retargeted create is no longer one `linkCarriedCreates`
+  returns.
+- **The frozen check's block side skips the inert extension subcase and model-iteration rows**: the first
+  reaches no unit (section 8.2), and a row only a query repeat unit can name (the several-case form's
+  selected-cases repeat is model iteration too, and is no unit).
+- **G4, outcome A**: every placement class of section 8.2 has a read in `proof/hq-reads/` whose block
+  `publishedCaseBlocks` finds: the basic own slot, the worker's record, a root subcase by index and a
+  repeat's row subcase (`targeted-migration-case-writes`' Register and Visit), Save to Case blocks at the
+  root, keyed, under a condition and in a repeat with their guards, the own close in `nova_condition_close`,
+  C9's removed operation's path, the several-case form's selected-cases block (the same read), the
+  extension's `nova_subcases` block beside its inert subcase (`targeted-migration-extension-children`), and
+  three model-iteration rows (`targeted-migration-query-repeats`). `placements.test.ts` reads them as
+  written.
+- **`placement-path-mismatch` is planted as today's placement the head cannot express** (the own case as a
+  basic subcase): the verification arm cannot be reached by a consistent document, since `holdExpresses`
+  and `planFormCaseWire` read one placement plan; the step keeps it as the stack's backstop.
+- **`next-publish-asks-more`'s `planFeatures` compares Save to Case alone**, the plan's "in practice": today's
+  placements say whether any unit stood in a Save to Case block, and nothing of today's emission says
+  which other features its last publish confirmed.
+- **`StepContext` carries three fields more than section 7 lists**: `liveDeployments` (every live
+  deployment, published or not, which step 17's `deep-links-need-republish` names and section 8.1's
+  published list does not hold), `mutationSeq` (the frozen check's sequence, a `PlacementInput` field)
+  and `discardsPrivateWork` (which `entriesForApp` needs to end the notice and `AppTransform` returns).
+  The Project's lookup naming is derived from `lookupContext` rather than carried.
+- **Idempotence counts edits, not reports**: step 8's `carried-create`, `non-extension-carried-create`
+  and `module-made-advanced` describe the head's derivation of a document no step changed ("a carried
+  create needs no stored change", section 7.6), so a second application reports them again; the check
+  refuses every other change kind and a moved digest. Its inner run judges nothing and writes no
+  deployment line (its structure phase cannot lift what the first run read, an attachment write's mode
+  among them, so its own schema comparison would misname a planned difference), and it runs only over a
+  target the gate, export readiness and the schema comparison admit, since the steps' emission-reading
+  planners are not defined over a refused one.
+- **A blocked app is judged without idempotence**, and a `target-parse` refusal ends the judgement: the
+  remaining steps would change a document a blocker left, and the gate is not defined over one the head
+  schema refuses. The head parse's own refusal judges nothing, since no document exists to judge. A
+  blocked app plans no hold, path move or notice entry; its changes up to the blocker stay in the plan.
+- **`derivation-drift` is a property both sides carry whose derived spec moved** (`refined` or
+  `retyped`): `main`'s derivation is not in the tree, and runbook step 1(a)'s zero drift scan makes the
+  stored rows `main`'s. A property gained or lost, a missing row of any type but the claim's, and a
+  stored spec no arm emits are `case-schema-unplanned`, each finding code the difference's kind and
+  never a property name.
+- **`compareStoredSchemas`**: `scripts/lib/schemaDrift.ts::computeSchemaDrift` now reads its rows and
+  calls this pure comparison, its loop unchanged, so the judgement compares `ctx.storedSchemas` with the
+  drift writer's own computation.
+- **Three witness specs are compared modulo two things the cutover writes**: `targeted-migration-
+  search-workflow`, `-form-links` and `-attachment` build each own case with `buildDoc`'s identity
+  rather than `caseWriteOperationUuid`'s, and leave every hold to the record their first publish over A
+  writes. The transform's target equals each of those specs without the own case's uuid and the holds,
+  and B (the HQ application of the document as its first publish over A records it) is byte-equal for
+  all eight; the other five equal their specs exactly. Rewriting the three specs through
+  `migrateFieldWrites` and `heldAt` would move their corpus documents, which this pull request does not.
+- **The plan carries no field for an unreadable baseline's cause**: section 8.1 enters "every `unknown` or
+  `unreadable` one's `why`" in the digest, and section 10.2's `AppPlan.deployments` has only `baseline`,
+  `sourceDigest` and `observedAt`. An unknown baseline's cause is its `baseline` value (`unread`,
+  `absent`), and an unreadable one's enters through its app's `baseline-unreadable` blocker, whose finding
+  codes name it (`baseline-unreadable:<why>`, `placements.ts`). So the digest moves with each cause, and
+  the plan keeps section 10.2's shape.
+- **The placement postcondition of section 14 runs step 15 again** (`placements.ts::placements`) over
+  the stored target, the raw carriers the blocking scan proved unchanged, and the deployments read under
+  its locks. It requires no blocker, no hold left to write (the digest unchanged) and exactly the plan's
+  `held`, sources included. That repeats section 8.4's emission check, and proves each `carried` hold is
+  still carried by a locked baseline, through the production rule rather than a restated one.
+  `transform.ts::transformApp` now also returns the step's counts and the carried creates step 8 found
+  (`PlacementTrace`), which the report's `placements` line and that re-run read.
+- **The writer's `lock` step sets `lock_timeout` before it takes the advisory lock**, step 3's order, so a
+  second run waits 15 seconds for the first and stops as `lock-timeout`. Section 13 lists the two the
+  other way round.
+- **The blocker refusal's sentence** is the writer's own, since section 13 gives none: "The plan holds
+  blockers in {n} apps ({codes}), so the cutover wrote nothing. Resolve each by the remedy its code names
+  in the dry run's blocker lines, then run the dry run again and pass its digest."
+- **The writer's `already-applied` stop is its own error** (`CutoverAlreadyAppliedError`, code
+  `already-applied`), not a stop code, because section 10.3 makes `already-applied` an outcome rather than
+  a `stopped` reason. A `partially-applied` ledger under the locks throws `ledger.ts::partiallyApplied`.
+- **`next-publish-asks-more`'s `commtrack-off` and `same-type-child-links` were already rendered**:
+  pull request 8 added both sentences (`dad3cf3c`, `lib/notices/migrationNoticeCopy.ts`, the renderer's
+  `settings.includes("commtrack-off")` and `capabilities.includes("same-type-child-links")` arms), so pull
+  request 14 checked that the reason's renderer reads them as section 17.2 writes and changed nothing there.
+- **The `lib/deployment/CLAUDE.md` "Baselines" sentence** (the unread baseline's held placements,
+  `placements-kept-unread`, the query repeat exception and a remote-missing mapping counted as published) is
+  marked 14 in part 10 §7.8 but missing from part 10 §2's file list for pull request 14; pull request 14
+  writes it, since the contract describes the behavior this pull request's writer leaves.
+- **The shared interfaces live in `types.ts`**, `LiftedFacts` among them, where section 6's layout gives
+  `types.ts` the registries alone: the structure phase, the steps, `placements.ts`, `deployments.ts`,
+  `judge.ts` and `transform.ts` all read them, and one module beneath them keeps the tasks' files disjoint
+  and the import graph acyclic. `structure.ts` re-exports `LiftedFacts`, the structure phase's output.
+- **The question and search steps' cases sit in `__tests__/stepsQuestionsSearch.test.ts`** beside
+  `stepsCasesLinks.test.ts` and `transform.test.ts`: `explicit-preloads`, `search-workflow`,
+  `query-repeat-placement`, `repeat-counts` and `field-list-flags`, so each per-step suite has one owner and
+  `transform.test.ts` keeps the whole transform's order, judged stop and idempotence.
+- **`oldShape.ts`'s tests read each pre-step fixture through `__tests__/rawFixture.ts`**, a helper the
+  Tests section does not list: it lays a fixture out as the carriers the cutover reads (the `apps` root
+  columns as text and one `blueprint_entities` row per entity, as `lib/db/blueprintRows.ts::decomposeBlueprint`
+  does, without its head schema parse) and hands them to `oldShape.ts::readRawDocument`, so every suite
+  meets a document the way the transform does.
+- **G2 ran during pull request 14's implementation, outcome A**, where Written and not yet run puts it in
+  the pull request's CI: `containerArtifacts.test.ts`'s self-contained-bundle test runs
+  `hq-round-trip-case-writes.cjs --help` with no `node_modules` and passes, and esbuild's metafile for the
+  `maintenance-build` line lists `pg-native` as the bundle's one external package and no `sharp` or `@img`
+  input. The bundle line stands without `--external:sharp`, stage `maintenance` takes no `COPY --from=deps`
+  line, and runbook step 1(b) adds no `require("sharp")` check. The pull request's CI runs the same test
+  again.
+
+- **The fold horizon migration runs as two `sql` calls**, one per `CREATE OR REPLACE FUNCTION`, where
+  `20261020000000` ran both in one: `lib/case-store/CLAUDE.md`'s one-statement rule. Each body is
+  `20261020000000`'s with the `public.` prefix on its name and the one case-writes arm; no later migration
+  redefines either function. `lib/agent/change-set/__tests__/foldHorizonFixture.ts` gains
+  `writeHqRoundTripCaseWritesHorizon`, sharing one write with the expressions horizon's, since the extended
+  `preHorizonReads.postgres.test.ts` has no other way to write the sixth horizon.
+- **`parseHead` takes the app id** (`parseHead(appId, persisted)`): `oldShape.ts::RawDocument` carries none and
+  `lib/domain/blueprint.ts`'s schema requires one; the structure phase's `persisted` is the rewritten
+  `RawDocument`, assembled by `oldShape.ts::rawDocumentAssembly`.
+- **A module with two no-matches forms moves the first in `formOrder`** and drops the others' `entry` keys
+  beside `renamed-concept-conflict`, so the rest of the document is still judged; the blocker already leaves
+  the app with no target. **An empty stored no-matches label is dropped**: `caseListRegistrationFormSchema`
+  requires a non-empty label, and at `main` an empty one read as the form's name, as an absent one does.
+- **`LiftedFacts.fieldWrites` holds an entry for every form**, empty where nothing writes, so C1 gives every
+  case form its own arm. **`structure-parse` finding codes** are `<zod code>:<path>`, with the sorted keys of
+  an unrecognized-keys issue appended; no value or message is kept.
+- **`LiftedFacts.todaysPlacements` is keyed by `placementUnitKey(formUuid, unit)`** (`<formUuid>|<unit>`),
+  since section 8.2's unit keys `own`, `usercase` and `own-close` repeat across forms, and **`TodaysPlacement`
+  carries `guards`**, the `nova_guard_<id>_<kind>` blocks `main` wrote beside an operation, which `facts.json`
+  lists under the operation's unit. `PlannedChange.kind` is a string each step module spells, since this part
+  enumerates no registry of change kinds.
+- **The frozen placements of a several-case form** give a child bucket only its Save to Case placement under
+  `nova_selected_cases/item`: HQ writes no basic case block in a multi-select menu (commcare-hq
+  `corehq/apps/app_manager/xform.py::XForm._create_casexml` turns `default_case_management` off when
+  `module.is_multi_select()`). A URL-mode capture counts as an own-case writer of such a form, as a publish
+  with an attachment target emitted it. No fixture holds either shape. `frozen/rawForms.ts` holds the raw
+  reads the four frozen copies share.
+- **What a question or search step records as a change**: only what it writes (`starting-value-written`,
+  `workflow-written`, `count-wrapped`, `field-list-set`); `load-time-value-reads-case`,
+  `repeat-rows-follow-query`, `repeat-count-node-removed`, `group-shows-one-per-screen` and row 6's
+  `menu-opens-on-search` are notice entries alone, so the judgement's idempotence compares the digest and the
+  edits, never the notice. `starting-value-reads-case` is written only where a starting value was replaced
+  (part 01 §22 C7). `search-workflow` skips a menu whose stored search already holds `workflow` or
+  `formsReadSearch`, which `main` could not store. `repeat-count-node-removed` names only a direct,
+  unmaterialized count into a Hidden Value (part 04 §7.1 Q3), and the count wrap reads the Project's lookup
+  types through `lookupTypeIndex(ctx.lookupContext)`.
+- **The notice's missing details read a general phrase** where section 17.2 gives none: "one of its
+  destinations" for a link with no `to`, "its case property" for a starting value with no property, "the
+  value that holds it" for a count node with no hidden name, "the new case" with no case type; an unknown
+  Otherwise word reads "where its Otherwise says" without the "set as the form's Otherwise" clause, and an
+  unknown `from` reads "the place it was set to". `repeat-count-whole-number`'s copy names the expression
+  `int(...)`, which the copy test's voice check exempts as an expression, not an ellipsis.
+- **`notice.ts::entriesForApp` drops exact duplicate lines** (by `canonicalJsonText`) beside one
+  `module-made-advanced` per module, and **`nextPublishAsksMore` takes `PlanFeatureId[]`**:
+  `lib/publish/planFeatures.ts` has no `save_to_case` id, and the Save to Case privilege is
+  `advanced-case-actions`.
+- **Catalog reads name what a missing object lives on** (`public.<table>` for a constraint, `public` for a
+  relation or routine, `this database` for a schema), throw where a map read's reg* resolves and no row
+  answers, and leave aggregates out of `schemaRoutines` (`pg_get_functiondef` refuses them).
+  `classifyApplied` reads markers without the horizon migration as `partially-applied` and the horizon over a
+  fleet of no apps as `already-applied`. `SettleOutcome` gains `failed`, since the exported
+  `reapStaleDesignSessionRun` returns `"failed"`, and `holders.ts` reads the session lease columns from
+  `lib/db/actorGenerationGate.ts::DESIGN_SESSION_LEASE_COLUMNS`.
+- **The fleet read**: live deployments exclude a mapping CommCare HQ reported missing, as steps 3 and 4 did,
+  while published ones include it (section 8.1); an app discards private work where it has an open workspace,
+  an open change set or an active candidate (section 3's three kinds). Entry points are read from the
+  document, which holds them. The report prints design-session ids as counts only, gives each path-move cause
+  its deployments and their forms, counts the drift scan from the planned schema changes, and owns its
+  always-printed `outcome` line (`report.ts::reported`); `databaseImage` orders rows by their text
+  (`COLLATE "C"`).
+- **The modes take a `RunDependencies` object** (the ledger and marker reads, the fleet snapshot, the holder
+  census, the reapers, the writer), so `run.test.ts` drives every mode with the real `planFleet` and a
+  database handle that throws on use. The dry run and the scan also exit 1 on a blocker or a holder, as step
+  4's did; a failed postcondition reports the class `postcondition`; `--debug-details` also prints the holds,
+  path moves, notice entries and schema changes. `__tests__/storedSchemas.ts` seeds the stored case schemas
+  the scan and holders tests share.
+- **An operation unit held at a basic subcase reads its rows through its `forEach` repeat**
+  (`placements.ts::emitsAt`): a second application over a target whose child create the first held at
+  `subcase-row` under an unknown baseline reads that create as an operation unit, whose key names no repeat,
+  so the verification found its block nowhere and the judgement refused every such app as `not-idempotent`.
+  `transform.test.ts` holds the case for an `unread` and an `absent` baseline.
+- **`MISSING_CHILD_CASE_MODULE` is removed** (the advisory scan's first blocker class). The rule refused a
+  form that creates child cases of a type no module lists. `main` counted only a field's own `caseWrite` as
+  such a create, while the head counts every create operation, so every create a person authored as an
+  operation at `main` met the rule for the first time at `target-gate`. CommCare HQ's app validator asks a
+  subcase for its case type and nothing more (`corehq/apps/app_manager/helpers/validators.py::
+  FormValidator.check_actions`), so the rule answered no wire fact. The gate stays the one arbiter for
+  all three editors, so no editor refuses the shape on its own either. A planned record still needs no
+  module, and removing a type's last module still retires its record or names what still uses the type
+  (`lib/doc/caseTypeRetirement.ts`).
+- **A question's kind fits a declared integer-to-decimal or choice-to-text property** (the second class). The
+  head counts every operation write whose value is a question's bare answer as that question's Saves to, and
+  `FIELD_KIND_PROPERTY_TYPE_MISMATCH` asked an exact match of kind and declared type, where `main` held the
+  same write, as an operation's, to `ruleSets.ts::isWriteAssignable`: an integer into a decimal property and
+  a single select into a text one were admitted at `main` and refused at the head. The kind rule now also
+  admits exactly those two directions (`fieldKindMatchesPropertyType.ts::declaredTypeHolds`), whose values
+  the declared type's readers read back; free text into a declared choice property stays refused, since a
+  choice question starting on it may meet a value it doesn't offer. Writers of an undeclared property agree
+  (`FIELD_KIND_WRITERS_DISAGREE`, the inferred property type, and the writer opinions a case operation's
+  write reads) on the one of their types that holds every other (`ruleSets.ts::agreedStorageType`), the join
+  Hidden Values already used. Since an integer writer beside a decimal one makes the property hold decimal
+  numbers, a whole-number question can't start on it: `IntegerData.cast` reads its starting value with
+  `Integer.parseInt` and stops the form on `2.5`. The new rule `WHOLE_NUMBER_STARTS_ON_DECIMAL`
+  (`lib/commcare/validator/rules/wholeNumberStart.ts`) refuses an integer question whose starting value
+  types as a decimal. Starting such a question blank is no remedy, since a blank answer on a one-case form
+  saves blank and clears the case's value (`lib/commcare/xform/caseBlocks.ts::updateBlock`, HQ's
+  `XFormCaseBlock.add_case_updates`, Core's `CaseXmlParser.updateCase`), so `planFieldCaseWrite` refuses a
+  new save whose question can't open on the case's value (`lib/domain/startingValueFit.ts`), a choice
+  question on a property that can hold values outside its choices included, and C7's
+  `planExplicitPreloads` writes main's starting values unchanged for the rule to judge. The choice misfit
+  has no gate rule: it is read from the property's type, and a text-typed writer, a Hidden Value most
+  often, may give only values among the question's choices, so a rule on the type alone would refuse
+  forms that work; the value-level guarantee is issue #856's.
+- **A Hidden Value's branches are held to the property only where one would break a reader** (the advisory
+  scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an
+  operation saves its answer to, so a calculation `main` admitted beside an operation, giving several choices
+  and a blank from different branches into a text property, or text and several choices into an untyped
+  one, met `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the head. `inference.ts::hiddenWriterVerdicts` now holds
+  every branch to the property only where it is a type a loading question casts
+  (`casePropertyTypes.ts::CASTING_PROPERTY_TYPES`, moved from the rule: a date, time, number or location,
+  whose text a question can't read stops the form) or several choices, which Nova's case store keeps as a
+  list and can't hold other text in. A text or single choice property takes whatever text one branch gives,
+  so it judges the Hidden Value by its whole inferred value through `isWriteAssignable`, as `main` judged
+  the operation that saved it and as an operation's own write still is: a date saved to a text property
+  stays refused, and a calculation whose branches agree on no one type is admitted. A Hidden-only
+  disagreement is refused only where it names a type a question casts.
+- **Step `blank-comparisons` is added** (section 7.12, step 14; placements, the judgement and the
+  deployment lines become 15 to 17). Decision 32 types a Hidden Value saved to a number, date, time or
+  location property as that type, so a case operation condition comparing it with `''`, which `main` admitted
+  over the untyped value, met `incompatible-values`. The step rewrites each such refused comparison as a
+  blank test, which a device runs identically for every value but a yes/no (section 7.12's proof), and
+  leaves an answer that can hold a yes/no to `target-gate`.
+- **Stored capture reads become links** (section 7.4, clause 0; the advisory scan's capture class). The
+  head saves a capture only as the link to its file, and an operation authored at `main` whose write saved
+  a capture's bare answer, the file's name, met the checker's `capture-answer` refusal. The step writes the
+  link in its place, with the new document reason `capture-saves-link-not-name`, and makes the new blocker
+  `capture-write-unlinkable` of a place where the link can't be saved: a case's name or external id
+  (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY` at the head) or a property whose type holds no text. The rewrite
+  leaves every inferred property type as it was, since a capture's answer and its link both hold no type
+  opinion (`inference.ts::writerOfValue`). The fixture `pre-step-capture-answer-written` holds the shape.
+- **C9 reads its conditions as the form does, and keeps a retype's guard** (section 7.4; the advisory scan's
+  close class). The form's close condition refuses a `prop` read through a relation (`typeChecker.ts::
+  termAdmission`, `prop-relation`) and reads no row, so C9 writes each read of the operation's row, and of a
+  case above it through parent links, as `form-case`, and asks the head's checker whether the form's close
+  condition holds the result, as the gate asks of that slot: a term it admits moves, and one it refuses is
+  the new blocker `own-close-condition-reads-case` in the checker's own words, rather than a failure
+  `target-gate` finds. A read of the row after a retype is refused
+  too: the operation reads it under the retyped type, whose properties the form's read under the module's
+  type need not name. Each close's term also takes the condition of a
+  conditional retype it followed (`caseOperationConditionalGuardUuids`), which `main`'s emission made its
+  guard; a read of the fleet found no such close, nor a close over a question in a repeat (C6's
+  departure above), and the fixture `pre-step-close-reads-cases` holds the own and the parent read. The
+  head's case-operation emission printed no `form-case` read, so a close form whose close condition reads
+  its case and whose close is a Save to Case close stopped emission: `lib/commcare/xform/caseOps.ts`
+  now binds the form's read (`formCaseRead.ts::formCasePropertyRead`) where it prints the own close.
 
 ## Executed during planning
 
@@ -2039,5 +2407,5 @@ stands: `scripts/lib/schemaDrift.ts::computeSchemaDrift`, `schema-drift.cjs`, th
 | 06, form links (11) | section 7.5's mapping, `OTHERWISE_DESTINATION_WORDS`, `form-link-removed` registered after `form-link-target-moved` with §14.4's copy, and no form-link blocker; under part 06's G2 outcome B, L8's `cause: "carried-not-a-case"` rendered with §19.2's sentence on `form-link-target-moved`; the retargets of section 7.6 written through `planFormLinkUpdate` and `planFormLinkRemove` |
 | 07, authoring (12, 13) | the control names section 17.2 uses; that no tool carries a sentence for work begun before the cutover |
 | 08, proof (1, 2) | the fixtures of section 5.2 beside its witnesses (`pre-step-own-close-operation` holding C9's writes and `forEach` arms, which the case-writes witness does not), `facts.json`, `digests.json` and the two tests in pull request 1; the capture test's deletion in pull request 2; `transform.test.ts`'s planner test and `placements.test.ts` over `proof/hq-reads`; G4 and G9 as this part's landing of its G1 and G6; for `harness-findings.md`, "Found while planning step 5": step 4's test read constraints and columns by name (section 21.2), the publish-placement kind is a trigger, and the `previous` refusal's HQ function (section 2) |
-| 10, stack and contracts (14 to 16) | the files above; `lib/db/CLAUDE.md`'s six identities in pull request 14; the deployment paragraph; section 22's trace for "Step 5 is done", whose seventeen document reasons include `form-link-removed` and `form-became-close-form`; the blocker list of section 16, which holds `baseline-unreadable` and no form-link blocker; that pull request 1 changes no `lib` or `app` file (check 5) and pull request 2 deletes the capture test; the review rule |
+| 10, stack and contracts (14 to 16) | the files above; `lib/db/CLAUDE.md`'s six identities in pull request 14; the deployment paragraph; section 22's trace for "Step 5 is done", whose eighteen document reasons include `form-link-removed`, `form-became-close-form` and `capture-saves-link-not-name`; the blocker list of section 16, which holds `baseline-unreadable` and no form-link blocker; that pull request 1 changes no `lib` or `app` file (check 5) and pull request 2 deletes the capture test; the review rule |
 | **For the outlines** | Step 6 (import): its drift merge inherits the unread rule, and it reads placements from HQ's own source through `publishedCaseBlocks`, needing no frozen classifier, because an imported app has no Nova emission before it; the witnesses' retained reads stay for its tests. Step 7: nothing from this part |

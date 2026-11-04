@@ -13,7 +13,9 @@ import {
 	OPENS_WITH_CASE_VALUE_NOTE,
 	planFieldCaseWrite,
 	planFieldMoveCaseWrites,
+	STARTS_BLANK_NOTE,
 	saveNewCaseNameFirstMessage,
+	startsBlankOpensOnNote,
 } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -501,6 +503,672 @@ describe("planFieldCaseWrite: the starting value", () => {
 				kind: "term",
 				term: { kind: "form-case", caseType: "household", property: "note" },
 			},
+		});
+	});
+
+	// A question that can't open on the case's value is refused the save: a
+	// whole-number question on a property that holds decimals stops the form
+	// as it opens, and starting it blank instead would clear the case's value
+	// on every submission that leaves it alone.
+	describe("a question that can't open on the case's value", () => {
+		const COUNT = testUuid("saves-fup-count");
+		const STAGE = testUuid("saves-fup-stage");
+		const TAGS = testUuid("saves-fup-tags");
+		const NOTE = testUuid("saves-fup-note");
+		const visit = () =>
+			buildDoc({
+				caseTypes: [
+					{
+						name: "household",
+						properties: [
+							{ name: "weight", label: "Weight", data_type: "decimal" },
+							{ name: "visits", label: "Visits", data_type: "int" },
+							{ name: "tally", label: "Tally", data_type: "int" },
+							{ name: "remark", label: "Remark", data_type: "text" },
+							{ name: "stage", label: "Stage" },
+							{ name: "tags", label: "Tags", data_type: "multi_select" },
+							{ name: "level", label: "Level", data_type: "single_select" },
+						],
+					},
+					{
+						name: "visit_log",
+						parent_type: "household",
+						relationship: "child",
+						properties: [{ name: "count", label: "Count", data_type: "int" }],
+					},
+				],
+				modules: [
+					{
+						name: "Households",
+						caseType: "household",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "hh_name",
+										caseWrite: { caseType: "household", property: "case_name" },
+									}),
+								],
+							},
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({ uuid: COUNT, kind: "int", id: "count" }),
+									f({ uuid: NOTE, kind: "text", id: "note" }),
+									f({
+										uuid: STAGE,
+										kind: "single_select",
+										id: "stage",
+										options: [
+											{ value: "open", label: "Open" },
+											{ value: "closed", label: "Closed" },
+										],
+									}),
+									f({
+										uuid: TAGS,
+										kind: "multi_select",
+										id: "tags",
+										options: [
+											{ value: "open", label: "Open" },
+											{ value: "closed", label: "Closed" },
+										],
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+
+		it("refuses a whole-number question on a decimal property, and bears a fitting one's starting value", () => {
+			const doc = visit();
+			expect(
+				refusal(
+					planFieldCaseWrite(doc, COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			).toBe(
+				`"count" in "Visit" can't save to "weight", because it would open on the case's value, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. Leaving it blank would clear the case's value. You can make "count" a decimal question, or save it to a property that holds whole numbers.`,
+			);
+			expect(
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
+		});
+
+		it("refuses a choice question on a property that can hold values outside its choices, and bears one on a choice property", () => {
+			const doc = visit();
+			expect(
+				refusal(
+					planFieldCaseWrite(doc, STAGE, {
+						caseType: "household",
+						property: "remark",
+					}),
+				),
+			).toBe(
+				`"stage" in "Visit" can't save to "remark", because it would open on the case's value, which can be text that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a text question, or save it to a property that holds a single choice.`,
+			);
+			// Several choices at once attach to no one choice of a single-choice
+			// question (`Selection.java::attachChoice`).
+			expect(
+				refusal(
+					planFieldCaseWrite(doc, STAGE, {
+						caseType: "household",
+						property: "tags",
+					}),
+				),
+			).toBe(
+				`"stage" in "Visit" can't save to "tags", because it would open on the case's value, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a multiple-choice question, or save it to a property that holds a single choice.`,
+			);
+			expect(
+				refusal(
+					planFieldCaseWrite(doc, TAGS, {
+						caseType: "household",
+						property: "remark",
+					}),
+				),
+			).toMatch(/or save it to a property that holds choices\.$/);
+			// A choice property holds choices; which choices may share one is a
+			// question of its own, so the planner doesn't refuse.
+			for (const [question, property] of [
+				[STAGE, "stage"],
+				[STAGE, "level"],
+				[TAGS, "tags"],
+			] as const)
+				expect(
+					planFieldCaseWrite(doc, question, {
+						caseType: "household",
+						property,
+					}),
+				).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
+			// A multiple-choice question would open on a single choice as a
+			// selection of one, but a single-choice property can't store its
+			// answer, which the gate refuses.
+			const several = planFieldCaseWrite(doc, TAGS, {
+				caseType: "household",
+				property: "level",
+			});
+			if (!several.ok) throw new Error(several.message);
+			const verdict = mutationCommitVerdict(
+				doc,
+				several.mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(
+				verdict.ok ? [] : verdict.findings.map(({ code }) => code),
+			).toEqual(["FIELD_KIND_PROPERTY_TYPE_MISMATCH"]);
+		});
+
+		// A save the case can't take says why before any starting value.
+		it("says a save is taken before saying the question can't open on its value", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			);
+			const [view] = fieldCaseWriteViews(saved, COUNT);
+			if (view === undefined) throw new Error("The question saves nothing.");
+			const taken = commit(saved, [
+				{
+					kind: "updateForm",
+					uuid: view.formUuid,
+					patch: {},
+					caseOperationPatch: {
+						operation: "add-write",
+						uuid: view.operationUuid,
+						value: {
+							property: "weight",
+							value: { kind: "term", term: { kind: "literal", value: 2.5 } },
+						},
+					},
+				} as Mutation,
+			]);
+			expect(
+				refusal(
+					planFieldCaseWrite(taken, COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			).toMatch(/already saves another value to weight\./);
+		});
+
+		/** The replace key of the question's one save to the household. */
+		const keyOf = (doc: BlueprintDoc, uuid: Uuid) => {
+			const [view] = fieldCaseWriteViews(doc, uuid);
+			if (view === undefined) throw new Error("The question saves nothing.");
+			return {
+				operationUuid: view.operationUuid,
+				slot: view.slot,
+				key: { property: view.property },
+			};
+		};
+		const startingValues = (plan: FieldCaseWritePlan) =>
+			plan.ok
+				? plan.mutations.filter(
+						(mutation) =>
+							mutation.kind === "updateField" &&
+							"default_value" in mutation.patch,
+					)
+				: [];
+
+		// A flip of "Save only if changed" keeps the property, so it touches no
+		// starting value: one an existing save to a decimal property never had
+		// is not refused, and one the planner bore is neither borne again nor
+		// named again.
+		it("lets a save keep its property while its switch flips, touching no starting value", () => {
+			const decimalDoc = buildDoc({
+				caseTypes: [
+					{
+						name: "household",
+						properties: [
+							{ name: "weight", label: "Weight", data_type: "decimal" },
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Households",
+						caseType: "household",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "hh_name",
+										caseWrite: { caseType: "household", property: "case_name" },
+									}),
+								],
+							},
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({
+										uuid: COUNT,
+										kind: "int",
+										id: "count",
+										caseWrite: { caseType: "household", property: "weight" },
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			expect(decimalDoc.fields[COUNT]).not.toHaveProperty("default_value");
+			const flipped = planFieldCaseWrite(
+				decimalDoc,
+				COUNT,
+				{ caseType: "household", property: "weight", onlyIfChanged: true },
+				{ replace: keyOf(decimalDoc, COUNT) },
+			);
+			expect(flipped).toMatchObject({ ok: true, notes: [] });
+			expect(startingValues(flipped)).toEqual([]);
+			land(decimalDoc, flipped);
+
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			);
+			const again = planFieldCaseWrite(
+				saved,
+				COUNT,
+				{ caseType: "household", property: "visits", onlyIfChanged: true },
+				{ replace: keyOf(saved, COUNT) },
+			);
+			expect(again).toMatchObject({ ok: true, notes: [] });
+			expect(startingValues(again)).toEqual([]);
+		});
+
+		// A save to the case's owner is born no starting value, with or
+		// without Save only if changed.
+		it("bears no starting value for a save to the case's owner", () => {
+			const doc = visit();
+			for (const onlyIfChanged of [{}, { onlyIfChanged: true as const }]) {
+				const plan = planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "owner_id",
+					...onlyIfChanged,
+				});
+				expect(plan).toMatchObject({ ok: true, notes: [] });
+				expect(startingValues(plan)).toEqual([]);
+			}
+		});
+
+		// A starting value that reads the owner belongs to the owner save, as
+		// one an earlier document holds can: it goes with that save.
+		it("clears a starting value that reads the owner with the owner save", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, NOTE, {
+					caseType: "household",
+					property: "owner_id",
+				}),
+			);
+			expect(saved.fields[NOTE]).not.toHaveProperty("default_value");
+			const opensOnOwner = commit(saved, [
+				{
+					kind: "updateField",
+					uuid: NOTE,
+					targetKind: "text",
+					patch: {
+						default_value: {
+							kind: "term",
+							term: {
+								kind: "form-case",
+								caseType: "household",
+								property: "owner_id",
+							},
+						},
+					},
+				} as Mutation,
+			]);
+			const stop = planFieldCaseWrite(opensOnOwner, NOTE, null);
+			expect(stop).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+			expect(land(opensOnOwner, stop).fields[NOTE]).not.toHaveProperty(
+				"default_value",
+			);
+		});
+
+		// A starting value born for a save goes with the save it read.
+		it("clears a born starting value with the save it read, and keeps one the author wrote", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			);
+			const stop = planFieldCaseWrite(saved, COUNT, null);
+			expect(stop).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+			expect(STARTS_BLANK_NOTE).toBe(
+				"Starts blank now, since it no longer saves to the case value it opened with.",
+			);
+			const removed = land(saved, stop);
+			expect(removed.fields[COUNT]).not.toHaveProperty("default_value");
+			const authored = commit(saved, [
+				{
+					kind: "updateField",
+					uuid: COUNT,
+					targetKind: "int",
+					patch: {
+						default_value: {
+							kind: "term",
+							term: { kind: "literal", value: 3 },
+						},
+					},
+				} as Mutation,
+			]);
+			const keep = planFieldCaseWrite(authored, COUNT, null);
+			expect(keep).toMatchObject({ ok: true, notes: [] });
+			const kept = land(authored, keep);
+			expect(kept.fields[COUNT]).toMatchObject({
+				default_value: { kind: "term", term: { kind: "literal", value: 3 } },
+			});
+		});
+
+		/** `doc` with `question` saving to `born` first, which bears its
+		 *  starting value, and then also to `kept`. */
+		const savingTwice = (
+			question: Uuid,
+			born: string,
+			kept: string,
+		): BlueprintDoc => {
+			const doc = visit();
+			const once = land(
+				doc,
+				planFieldCaseWrite(doc, question, {
+					caseType: "household",
+					property: born,
+				}),
+			);
+			const [view] = fieldCaseWriteViews(once, question);
+			if (view === undefined) throw new Error("The question saves nothing.");
+			const twice = commit(once, [
+				{
+					kind: "updateForm",
+					uuid: view.formUuid,
+					patch: {},
+					caseOperationPatch: {
+						operation: "add-write",
+						uuid: view.operationUuid,
+						value: {
+							property: kept,
+							value: { kind: "term", term: { kind: "field", uuid: question } },
+						},
+					},
+				} as Mutation,
+			]);
+			expect(
+				fieldCaseWriteViews(twice, question).map((saved) => saved.property),
+			).toEqual([born, kept]);
+			expect(twice.fields[question]).toMatchObject({
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "household", property: born },
+				},
+			});
+			return twice;
+		};
+		/** The two plans that keep only `kept`: a whole replace naming it, and
+		 *  a removal of the save to `dropped`. */
+		const keepingOnly = (
+			doc: BlueprintDoc,
+			question: Uuid,
+			kept: string,
+			dropped: string,
+		) => {
+			const dropView = fieldCaseWriteViews(doc, question).find(
+				(saved) => saved.property === dropped,
+			);
+			if (dropView === undefined) throw new Error("No save to drop.");
+			return [
+				planFieldCaseWrite(doc, question, {
+					caseType: "household",
+					property: kept,
+				}),
+				planFieldCaseWrite(doc, question, null, {
+					replace: {
+						operationUuid: dropView.operationUuid,
+						slot: dropView.slot,
+						key: { property: dropped },
+					},
+				}),
+			] as const;
+		};
+
+		// A whole replace naming one of the question's saves keeps that save
+		// and its starting value.
+		it("keeps the starting value of a save a whole replace keeps", () => {
+			const doc = savingTwice(COUNT, "tally", "visits");
+			const keepsTally = planFieldCaseWrite(doc, COUNT, {
+				caseType: "household",
+				property: "tally",
+			});
+			expect(keepsTally).toMatchObject({ ok: true, notes: [] });
+			expect(startingValues(keepsTally)).toEqual([]);
+			expect(land(doc, keepsTally).fields[COUNT]).toMatchObject({
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "household", property: "tally" },
+				},
+			});
+		});
+
+		// A save the question keeps keeps its standing: the starting value
+		// born for the save the plan drops goes and the kept save is born
+		// none, whether a whole replace names it or a removal of the other
+		// leaves it. The note says the question starts blank, and names the
+		// starting value where the question can open on the kept save's
+		// value.
+		it.each([
+			[
+				"a whole-number question on a fitting property",
+				COUNT,
+				"tally",
+				"visits",
+				`Starts blank now, since it no longer saves to the case value it opened with. You can have it open with the case's current "visits" instead: set its starting value to #case/visits.`,
+			],
+			[
+				"a whole-number question on a decimal property",
+				COUNT,
+				"tally",
+				"weight",
+				STARTS_BLANK_NOTE,
+			],
+			[
+				"a choice question on a text property",
+				STAGE,
+				"stage",
+				"remark",
+				STARTS_BLANK_NOTE,
+			],
+		] as const)(
+			"leaves a kept save blank, with the note, for %s",
+			(_what, question, born, kept, note) => {
+				const doc = savingTwice(question, born, kept);
+				for (const plan of keepingOnly(doc, question, kept, born)) {
+					expect(plan).toMatchObject({ ok: true, notes: [note] });
+					const next = land(doc, plan);
+					expect(
+						fieldCaseWriteViews(next, question).map((saved) => saved.property),
+					).toEqual([kept]);
+					expect(next.fields[question]).not.toHaveProperty("default_value");
+				}
+			},
+		);
+
+		it("names the starting value its note offers by the property", () => {
+			expect(startsBlankOpensOnNote("visits")).toBe(
+				`${STARTS_BLANK_NOTE} You can have it open with the case's current "visits" instead: set its starting value to #case/visits.`,
+			);
+		});
+
+		// A save off the form's case offers no starting value from it.
+		it("says only that it starts blank when its save moves to the worker's record", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			);
+			const moved = planFieldCaseWrite(
+				saved,
+				COUNT,
+				{ caseType: "commcare-user", property: "visit_count" },
+				{ replace: keyOf(saved, COUNT) },
+			);
+			expect(moved).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+		});
+
+		// A save off the form's case offers no starting value from it, so a
+		// born save moved to a case the form creates says only that the
+		// question starts blank.
+		it("says only that it starts blank when its save moves to a case the form creates", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, STAGE, {
+					caseType: "household",
+					property: "stage",
+				}),
+			);
+			const moved = planFieldCaseWrite(
+				saved,
+				STAGE,
+				{ caseType: "visit_log", property: "case_name" },
+				{ replace: keyOf(saved, STAGE) },
+			);
+			expect(moved).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+			expect(land(saved, moved).fields[STAGE]).not.toHaveProperty(
+				"default_value",
+			);
+		});
+
+		// A move is a new save to its property, so a move to a property the
+		// question can't open on is refused as a new save there is, while the
+		// question keeps another save.
+		it("refuses a move to a property the question can't open on, as a new save there", () => {
+			const doc = savingTwice(COUNT, "tally", "visits");
+			const tally = fieldCaseWriteViews(doc, COUNT).find(
+				(saved) => saved.property === "tally",
+			);
+			if (tally === undefined) throw new Error("No save to tally.");
+			const moved = refusal(
+				planFieldCaseWrite(
+					doc,
+					COUNT,
+					{ caseType: "household", property: "weight" },
+					{
+						replace: {
+							operationUuid: tally.operationUuid,
+							slot: tally.slot,
+							key: { property: "tally" },
+						},
+					},
+				),
+			);
+			expect(moved).toBe(
+				refusal(
+					planFieldCaseWrite(visit(), COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			);
+		});
+
+		// The refusal is about where the question opens: moving a save it
+		// doesn't open on leaves its starting value reading the save it keeps,
+		// so a move to a property it couldn't open on is admitted.
+		it("admits a move of a save the question doesn't open on", () => {
+			const doc = savingTwice(COUNT, "tally", "visits");
+			const visits = fieldCaseWriteViews(doc, COUNT).find(
+				(saved) => saved.property === "visits",
+			);
+			if (visits === undefined) throw new Error("No save to visits.");
+			const moved = planFieldCaseWrite(
+				doc,
+				COUNT,
+				{ caseType: "household", property: "weight" },
+				{
+					replace: {
+						operationUuid: visits.operationUuid,
+						slot: visits.slot,
+						key: { property: "visits" },
+					},
+				},
+			);
+			expect(moved).toMatchObject({ ok: true, notes: [] });
+			expect(land(doc, moved).fields[COUNT]).toMatchObject({
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "household", property: "tally" },
+				},
+			});
+		});
+
+		// The starting value the planner bore reads the property it saved to,
+		// so a save moved elsewhere takes its own, or is refused where the
+		// question can't open on the new property's value.
+		it("moves a born starting value with the save, and refuses the move where it can't open", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			);
+			const moved = land(
+				saved,
+				planFieldCaseWrite(saved, COUNT, {
+					caseType: "household",
+					property: "tally",
+				}),
+			);
+			expect(moved.fields[COUNT]).toMatchObject({
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "household", property: "tally" },
+				},
+			});
+			expect(
+				refusal(
+					planFieldCaseWrite(moved, COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			).toContain('"count" in "Visit" can\'t save to "weight"');
 		});
 	});
 

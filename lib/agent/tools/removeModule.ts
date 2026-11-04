@@ -11,9 +11,8 @@
  * batch retires the record — or, when the type is still referenced
  * elsewhere, the call fails naming each reference and the repair
  * (`lib/doc/caseTypeRetirement.ts`, the shared planner the builder UI
- * consults too). Without the cascade, removing a child case type's
- * module would introduce `MISSING_CHILD_CASE_MODULE` with no
- * satisfiable repair in the direction the user is going.
+ * consults too). Without the cascade, the record of a type nothing uses
+ * any more would linger in the catalog as a stale plan.
  *
  * Like `removeForm`, the tool tolerates an already-missing module UUID. Rather
  * than returning an error (which would poison the SA's follow-up

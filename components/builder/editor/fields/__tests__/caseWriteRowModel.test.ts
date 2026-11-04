@@ -13,6 +13,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { formCasePlacementView } from "@/lib/doc/casePlacements";
 import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
@@ -22,6 +23,7 @@ import {
 	fieldCaseWriteViewKey,
 	fieldCaseWriteViews,
 	humanizeId,
+	propertyAgreedType,
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -35,6 +37,9 @@ import {
 	SAVE_ONLY_IF_CHANGED_LABEL,
 	SAVE_ONLY_IF_CHANGED_LINE,
 	STARTS_BLANK_LINE,
+	STARTS_BLANK_ON_DECIMAL_LINE,
+	STARTS_BLANK_ON_SEVERAL_CHOICES_LINE,
+	STARTS_BLANK_OUTSIDE_CHOICES_LINE,
 } from "../caseWriteRowModel";
 
 const NICKNAME = testUuid("row-nickname");
@@ -163,6 +168,8 @@ function rowOf(
 		throw new Error("The fixture question saves its answer nowhere.");
 	const formUuid = view.formUuid;
 	const moduleUuid = doc.moduleOrder[0];
+	// The property's type as the editor reads it (`usePropertyAgreedType`).
+	const propertyType = propertyAgreedType(doc, view.caseType, view.property);
 	return caseWriteRowModel({
 		view,
 		field: doc.fields[fieldUuid] as Field,
@@ -170,6 +177,7 @@ function rowOf(
 		module: doc.modules[moduleUuid],
 		propertyLabel: (_caseType, property) => humanizeId(property),
 		operationDescription: () => "Update the case this form opened",
+		...(propertyType !== undefined && { propertyType }),
 	});
 }
 
@@ -259,27 +267,27 @@ describe("the preload line", () => {
 		const doc = fixture("followup");
 		const row = rowOf(doc, NICKNAME);
 		expect(row.preload?.line).toBe(OPENS_WITH_CASE_VALUE_LINE);
-		expect(row.preload?.action.label).toBe("Start blank instead");
-		expect(row.preload?.action.mutation).toMatchObject({
+		expect(row.preload?.action?.label).toBe("Start blank instead");
+		expect(row.preload?.action?.mutation).toMatchObject({
 			kind: "updateField",
 			uuid: NICKNAME,
 			patch: { default_value: null },
 		});
-		expect(admitted(doc, row.preload?.action.mutation)).toEqual([]);
+		expect(admitted(doc, row.preload?.action?.mutation)).toEqual([]);
 	});
 
 	it("starts blank with no starting value, and Open with the case's current value sets the read", () => {
 		const opened = fixture("close");
-		const start = rowOf(opened, NICKNAME).preload?.action.mutation;
+		const start = rowOf(opened, NICKNAME).preload?.action?.mutation;
 		const doc = produce(opened, (draft) => {
 			if (start !== undefined) applyMutations(draft, [start]);
 		});
 		const row = rowOf(doc, NICKNAME);
 		expect(row.preload?.line).toBe(STARTS_BLANK_LINE);
-		expect(row.preload?.action.label).toBe(
+		expect(row.preload?.action?.label).toBe(
 			"Open with the case's current value",
 		);
-		expect(row.preload?.action.mutation).toMatchObject({
+		expect(row.preload?.action?.mutation).toMatchObject({
 			kind: "updateField",
 			uuid: NICKNAME,
 			patch: {
@@ -293,7 +301,57 @@ describe("the preload line", () => {
 				},
 			},
 		});
-		expect(admitted(doc, row.preload?.action.mutation)).toEqual([]);
+		expect(admitted(doc, row.preload?.action?.mutation)).toEqual([]);
+	});
+
+	it("offers no case value to a question that can't open on what its property holds", () => {
+		// A whole-number question on a decimal property, a choice question on
+		// a text one, and a single-choice question on a multiple-choice one,
+		// each with no starting value: opening any on the case's value can
+		// stop the form, so the line says why and offers nothing to commit.
+		const shaped = (
+			dataType: "decimal" | "text" | "multi_select",
+			reshape: (field: Field) => Field,
+		) =>
+			produce(fixture("close"), (draft) => {
+				const nickname = draft.caseTypes
+					?.find((type) => type.name === "patient")
+					?.properties.find((property) => property.name === "nickname");
+				if (nickname !== undefined) nickname.data_type = dataType;
+				const field = reshape(draft.fields[NICKNAME] as Field);
+				if ("default_value" in field) field.default_value = undefined;
+				draft.fields[NICKNAME] = field;
+			});
+		const whole = rowOf(
+			shaped("decimal", (field) => ({ ...field, kind: "int" }) as Field),
+			NICKNAME,
+		).preload;
+		expect(whole?.line).toBe(STARTS_BLANK_ON_DECIMAL_LINE);
+		expect(whole?.action).toBeUndefined();
+		const singleChoice = (field: Field) =>
+			({
+				...field,
+				kind: "single_select",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("row-choice-a"),
+							value: "a",
+							label: proseText("A"),
+						},
+					],
+				},
+			}) as Field;
+		const choice = rowOf(shaped("text", singleChoice), NICKNAME).preload;
+		expect(choice?.line).toBe(STARTS_BLANK_OUTSIDE_CHOICES_LINE);
+		expect(choice?.action).toBeUndefined();
+		const several = rowOf(
+			shaped("multi_select", singleChoice),
+			NICKNAME,
+		).preload;
+		expect(several?.line).toBe(STARTS_BLANK_ON_SEVERAL_CHOICES_LINE);
+		expect(several?.action).toBeUndefined();
 	});
 
 	it("says nothing over another starting value or a calculation", () => {
@@ -307,6 +365,69 @@ describe("the preload line", () => {
 		});
 		expect(rowOf(doc, NICKNAME).preload).toBeUndefined();
 		expect(rowOf(fixture("followup"), COMPUTED).preload).toBeUndefined();
+	});
+
+	it("offers no case value to a save to the case's owner, and shows one it already opens on", () => {
+		// The question's save moves to the owner through the planner and the
+		// commit gate, as the row's own picker does.
+		const opened = fixture("close");
+		const view = fieldCaseWriteViews(opened, NICKNAME)[0];
+		if (view === undefined) throw new Error("The question saves nothing.");
+		const plan = planFieldCaseWrite(
+			opened,
+			NICKNAME,
+			{ caseType: "patient", property: "owner_id" },
+			{ replace: fieldCaseWriteViewKey(view) },
+		);
+		if (!plan.ok) throw new Error(plan.message);
+		const moved = mutationCommitVerdict(
+			opened,
+			[...plan.mutations],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!moved.ok) throw new Error("The gate refused the move.");
+		const doc = moved.nextDoc;
+		expect(fieldCaseWriteViews(doc, NICKNAME)[0]?.property).toBe("owner_id");
+		expect(rowOf(doc, NICKNAME).preload).toBeUndefined();
+		// A starting value that already reads the owner is shown, and can go.
+		const opensOnOwner = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: NICKNAME,
+					targetKind: "text",
+					patch: {
+						default_value: {
+							kind: "term",
+							term: {
+								kind: "form-case",
+								caseType: "patient",
+								property: "owner_id",
+							},
+						},
+					},
+				} as Parameters<typeof applyMutations>[1][number],
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!opensOnOwner.ok) throw new Error("The gate refused the start.");
+		const shown = rowOf(opensOnOwner.nextDoc, NICKNAME).preload;
+		expect(shown?.line).toBe(OPENS_WITH_CASE_VALUE_LINE);
+		expect(shown?.action?.label).toBe("Start blank instead");
+		// Start blank instead is admitted, and leaves no offer behind.
+		const action = shown?.action;
+		if (action === undefined) throw new Error("No action to take.");
+		const cleared = mutationCommitVerdict(
+			opensOnOwner.nextDoc,
+			[action.mutation],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!cleared.ok) throw new Error("The gate refused Start blank instead.");
+		expect(cleared.nextDoc.fields[NICKNAME]).not.toHaveProperty(
+			"default_value",
+		);
+		expect(rowOf(cleared.nextDoc, NICKNAME).preload).toBeUndefined();
 	});
 
 	it("says nothing off this form's case or on a registration", () => {

@@ -159,7 +159,10 @@ function caseListRootDoc(childCaseType: "household" | "visit"): BlueprintDoc {
 	);
 }
 
-function peerWriters(property: string): BlueprintDoc {
+function peerWriters(
+	property: string,
+	kind: "int" | "single_select" = "int",
+): BlueprintDoc {
 	return valid(
 		buildDoc({
 			appName: "Peer writers",
@@ -184,9 +187,15 @@ function peerWriters(property: string): BlueprintDoc {
 						type: "followup",
 						fields: [
 							f({
-								kind: "int",
+								kind,
 								id: property,
 								caseWrite: { caseType: "patient", property },
+								...(kind === "single_select" && {
+									options: [
+										{ value: "low", label: "Low" },
+										{ value: "high", label: "High" },
+									],
+								}),
 							}),
 						],
 					},
@@ -591,11 +600,38 @@ describe("evaluateCommit", () => {
 		]);
 	});
 
-	it("reports both conflicting writers after a kind change in one module", () => {
+	// An integer and a decimal writer agree on decimal, which holds both, but
+	// the integer question can't then open on the property's value.
+	it("admits one module's writer made decimal beside the other's integer, which can't start on it", () => {
 		const doc = peerWriters("score");
 		const [first, second] = Object.values(doc.fields);
+		const convert: Mutation = {
+			kind: "convertField",
+			uuid: first.uuid,
+			toKind: "decimal",
+		};
+		const refused = gateCommit(doc, [convert]);
+		expect(codes(refused)).toEqual(["WHOLE_NUMBER_STARTS_ON_DECIMAL"]);
+		if (refused.ok) throw new Error("Expected the starting value refused");
+		expect(refused.findings[0]?.location.fieldUuid).toBe(second.uuid);
+		expect(
+			gateCommit(doc, [
+				convert,
+				{
+					kind: "updateField",
+					uuid: second.uuid,
+					targetKind: "int",
+					patch: { default_value: null },
+				} as Mutation,
+			]).ok,
+		).toBe(true);
+	});
+
+	it("reports both conflicting writers after a kind change in one module", () => {
+		const doc = peerWriters("score", "single_select");
+		const [first, second] = Object.values(doc.fields);
 		const verdict = gateCommit(doc, [
-			{ kind: "convertField", uuid: first.uuid, toKind: "decimal" },
+			{ kind: "convertField", uuid: first.uuid, toKind: "multi_select" },
 		]);
 		expect(codes(verdict)).toEqual([
 			"FIELD_KIND_WRITERS_DISAGREE",

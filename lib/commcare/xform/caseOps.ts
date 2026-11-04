@@ -84,6 +84,7 @@ import type {
 	FormExpressionSlotRef,
 	PropertyRef,
 } from "@/lib/domain/expression/types";
+import { caseTypeDepthMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import {
@@ -107,6 +108,7 @@ import {
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
+import { formCasePropertyRead } from "./formCaseRead";
 import type { FormExpressionEmission } from "./formExpressions";
 import { FormPath, originalContextWirePath } from "./formPath";
 import {
@@ -923,6 +925,26 @@ export function buildCaseOperations(
 		uuid: formUuid,
 		slot: "form_close_condition",
 	};
+	/** The form's read of its own case and the cases above it
+	 * (`formCaseRead.ts`), from the session's case: the one case-operation
+	 * slot that is form logic, the own close's condition, reads the case as
+	 * the form's own binds do. No operation slot reads a row through it. */
+	const ownCaseRead = formCasePropertyRead({
+		formType: form.type,
+		caseTypeDepths: caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []),
+		moduleCaseType,
+		selectedCaseId: selectedCaseIdRef,
+	});
+	/** The own close's condition, printed with the bindings of its place and
+	 *  the form's read of its case. */
+	const printOwnClose = (
+		condition: Expression,
+		bindings: WireTermBindings,
+	): WireExpr =>
+		printAt(condition, closeConditionSlot, {
+			...bindings,
+			formCaseProperty: ownCaseRead,
+		});
 	/** The own close's condition, or `undefined` where it closes every time. */
 	const ownCloseCondition = (): Expression | undefined => {
 		const condition = form.closeCondition;
@@ -1461,10 +1483,9 @@ export function buildCaseOperations(
 						{
 							xpath: {
 								nodeset: closePath.toWire(),
-								relevant: emitExpression(
+								relevant: printOwnClose(
 									condition,
-									closePath,
-									closeConditionSlot,
+									operationBindings(closePath),
 								),
 							},
 						},
@@ -2106,6 +2127,9 @@ export function buildCaseOperations(
 						{
 							xpath: {
 								nodeset: closePath.toWire(),
+								// A form over several cases reads none of them as its
+								// own (`MULTI_SELECT_SHARED_CASE_EXPRESSION`), so the
+								// condition holds no form read to bind.
 								relevant: printAt(
 									condition,
 									closeConditionSlot,
@@ -2151,9 +2175,8 @@ export function buildCaseOperations(
 						{
 							xpath: {
 								nodeset: conditionPath.toWire(),
-								relevant: printAt(
+								relevant: printOwnClose(
 									condition,
-									closeConditionSlot,
 									bindingsAt(conditionPath, undefined, selectedCaseIdRef),
 								),
 							},

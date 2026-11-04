@@ -65,6 +65,7 @@ export * from "./referenceSlots";
 export * from "./searchRuntimeValidationMessages";
 export * from "./selectOptionValue";
 export * from "./standardCaseProperties";
+export * from "./startingValueFit";
 export * from "./temporalValues";
 export * from "./translationFill";
 export * from "./translationUnits";

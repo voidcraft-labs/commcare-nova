@@ -262,18 +262,10 @@ describe("unwritten property derivation", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(cleared.ok ? [] : cleared.findings).toEqual([]);
-		// Stopping the save keeps the starting value it was born with (the
-		// case's current value), so the question now reads the property twice.
+		// Stopping the save takes the starting value it was born with (the
+		// case's current value), so the property is read where it was before.
 		expect(saved.notes).toEqual(["Opens with the case's current value."]);
-		expect(unwrittenProperties(cleared.nextDoc)).toEqual([
-			{
-				...before[0],
-				reads: [
-					{ carrier: FIELD, entity: "field", slot: "default_value" },
-					...(before[0]?.reads ?? []),
-				],
-			},
-		]);
+		expect(unwrittenProperties(cleared.nextDoc)).toEqual(before);
 	});
 	it("counts explicit case-operation writes as in-app writers", () => {
 		const doc = orderDoc();

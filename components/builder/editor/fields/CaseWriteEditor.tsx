@@ -82,7 +82,10 @@ import type { FieldCaseWriteDestination } from "@/lib/doc/fieldCaseWriteMutation
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCasePlacements } from "@/lib/doc/hooks/useCasePlacements";
-import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import {
+	useEffectiveCaseTypes,
+	usePropertyAgreedType,
+} from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoiceVerdicts } from "@/lib/doc/hooks/useCaseWriteChoices";
 import { useFieldCaseWrites } from "@/lib/doc/hooks/useFieldCaseWrites";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -320,6 +323,7 @@ function useRowModel(
 	const propertyLabel = usePropertyLabel();
 	const sentenceContext = useOperationSentenceContext(context?.form.uuid);
 	const operation = useCaseOperation(context?.form.uuid, view?.operationUuid);
+	const propertyType = usePropertyAgreedType(view?.caseType, view?.property);
 	return useMemo(() => {
 		if (view === undefined || context === null) return undefined;
 		return caseWriteRowModel({
@@ -333,6 +337,7 @@ function useRowModel(
 					? undefined
 					: operationSentence(operation, sentenceContext).lead,
 			...(placement !== undefined && { placement }),
+			...(propertyType !== undefined && { propertyType }),
 			...(onlyIfChangedVerdict !== undefined && { onlyIfChangedVerdict }),
 		});
 	}, [
@@ -342,6 +347,7 @@ function useRowModel(
 		propertyLabel,
 		operation,
 		sentenceContext,
+		propertyType,
 		placement,
 		onlyIfChangedVerdict,
 	]);
@@ -981,17 +987,19 @@ function DestinationRow({
 					>
 						{model.preload.line}
 					</p>
-					<Button
-						type="button"
-						variant="ghost"
-						onClick={() => {
-							if (model.preload !== undefined)
-								commit([model.preload.action.mutation]);
-						}}
-						className="-ml-2"
-					>
-						{model.preload.action.label}
-					</Button>
+					{model.preload.action !== undefined && (
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => {
+								const action = model.preload?.action;
+								if (action !== undefined) commit([action.mutation]);
+							}}
+							className="-ml-2"
+						>
+							{model.preload.action.label}
+						</Button>
+					)}
 				</div>
 			)}
 

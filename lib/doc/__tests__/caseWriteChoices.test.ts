@@ -199,7 +199,7 @@ describe("caseWriteChoiceVerdict", () => {
 		expect(mismatch.ok).toBe(false);
 		if (!mismatch.ok) {
 			expect(mismatch.reason).toMatch(
-				/date|data type|shape|type doesn't match/i,
+				/set up to hold a kind of value this field doesn't give/i,
 			);
 		}
 	});

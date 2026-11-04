@@ -595,7 +595,132 @@ const REAL_ENTRIES = {
 		...deploymentEntry("next-publish-asks-web-apps"),
 		detail: { to: "off" },
 	},
+	"capture-saves-link": fieldEntry("capture-saves-link", "Photo", {
+		form: "Visit",
+		property: "photo_link",
+	}),
+	"capture-saves-link-not-name": fieldEntry(
+		"capture-saves-link-not-name",
+		"Photo",
+		{ form: "Visit", property: "photo_link" },
+	),
+	"form-became-close-form": formEntry("form-became-close-form"),
+	"form-links-conditions-written": formEntry("form-links-conditions-written", {
+		links: "2",
+	}),
+	"form-link-otherwise-set": formEntry("form-link-otherwise-set", {
+		toDestination: "module",
+		from: "previous",
+	}),
+	"after-submit-destination-dropped": formEntry(
+		"after-submit-destination-dropped",
+	),
+	"form-link-target-moved": formEntry("form-link-target-moved", {
+		from: "Follow-up",
+		to: "Members",
+		cause: "carried-not-a-case",
+	}),
+	"form-link-removed": formEntry("form-link-removed", { to: "Follow-up" }),
+	"form-link-datums-dropped": formEntry("form-link-datums-dropped", {
+		to: "Members",
+	}),
+	"module-made-advanced": {
+		kind: "document",
+		reason: "module-made-advanced",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Households",
+		},
+		detail: { caseType: "member" },
+	},
+	"form-link-goes-to-menu": formEntry("form-link-goes-to-menu", {
+		to: "Members",
+		caseType: "member",
+	}),
+	"starting-value-reads-case": fieldEntry(
+		"starting-value-reads-case",
+		"Card number",
+		{ form: "Visit", property: "card_number" },
+	),
+	"load-time-value-reads-case": fieldEntry(
+		"load-time-value-reads-case",
+		"Card label",
+		{ form: "Visit", reads: "card_number" },
+	),
+	"menu-opens-on-search": {
+		kind: "document",
+		reason: "menu-opens-on-search",
+		entity: {
+			type: "module",
+			uuid: "01992000-0000-7000-8000-0000000000a1",
+			nameAtMigration: "Households",
+		},
+		detail: { opensOn: "search" },
+	},
+	"repeat-rows-follow-query": fieldEntry(
+		"repeat-rows-follow-query",
+		"Medicines",
+		{ form: "Visit" },
+	),
+	"repeat-count-whole-number": fieldEntry(
+		"repeat-count-whole-number",
+		"Children",
+		{ form: "Visit" },
+	),
+	"repeat-count-node-removed": fieldEntry(
+		"repeat-count-node-removed",
+		"Children",
+		{ form: "Visit", hidden: "child_count" },
+	),
+	"group-shows-one-per-screen": fieldEntry(
+		"group-shows-one-per-screen",
+		"Household",
+		{ form: "Visit" },
+	),
+	"placements-kept-unread": deploymentEntry("placements-kept-unread"),
+	"form-data-paths-move": {
+		...deploymentEntry("form-data-paths-move"),
+		detail: { forms: "2", causes: "module-made-advanced" },
+	},
+	"case-attachments-stop": {
+		...deploymentEntry("case-attachments-stop"),
+		detail: { properties: "1" },
+	},
 } as const;
+
+function formEntry<const R extends string>(
+	reason: R,
+	detail?: Readonly<Record<string, string>>,
+) {
+	return {
+		kind: "document",
+		reason,
+		entity: {
+			type: "form",
+			uuid: "01992000-0000-7000-8000-0000000000b1",
+			nameAtMigration: "Register member",
+		},
+		...(detail && { detail }),
+	} as const;
+}
+
+function fieldEntry<const R extends string>(
+	reason: R,
+	nameAtMigration: string,
+	detail: Readonly<Record<string, string>>,
+) {
+	return {
+		kind: "document",
+		reason,
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e1",
+			nameAtMigration,
+		},
+		detail,
+	} as const;
+}
 
 function deploymentEntry<const R extends string>(reason: R) {
 	return {
@@ -670,11 +795,12 @@ describe("migrationNoticeEntrySchema", () => {
 });
 
 describe("the cutovers that write notices", () => {
-	it("are the emission, the expressions and the platforms cutovers, each with its own lead", () => {
+	it("are the emission, the expressions, the platforms and the case-writes cutovers, each with its own lead", () => {
 		expect(MIGRATION_NOTICE_CUTOVERS).toEqual([
 			"hq-round-trip-emission",
 			"hq-round-trip-expressions",
 			"hq-round-trip-platforms",
+			"hq-round-trip-case-writes",
 		]);
 		expect(migrationNoticeCutoverSchema.safeParse("other").success).toBe(false);
 		const day = { locale: "en-GB", timeZone: "UTC" } as const;
@@ -693,6 +819,11 @@ describe("the cutovers that write notices", () => {
 		).toBe(
 			"On 2 November, Nova started recording where each app runs: in Web Apps, on Android, or both. Here is what that means for this app.",
 		);
+		expect(
+			noticeLead("hq-round-trip-case-writes", "2026-11-10T09:00:00.000Z", day),
+		).toBe(
+			"On 10 November, Nova changed how it stores what forms save to cases, where workers go after a form, and how some questions are counted and shown. Here is what that means for this app.",
+		);
 	});
 });
 
@@ -700,11 +831,11 @@ describe("the reasons' order", () => {
 	const at = (reason: string) =>
 		(DOCUMENT_NOTICE_REASONS as readonly string[]).indexOf(reason);
 
-	it("puts the expressions cutover's step reasons after the emission cutover's, in step order, before lookup-tag-renamed", () => {
+	it("puts the expressions cutover's step reasons after the emission cutover's, in step order", () => {
 		expect(
 			DOCUMENT_NOTICE_REASONS.slice(
 				at("android-form-lists-setting-stored"),
-				at("lookup-tag-renamed") + 1,
+				at("repeat-read-takes-first-row") + 1,
 			),
 		).toEqual([
 			"android-form-lists-setting-stored",
@@ -713,10 +844,6 @@ describe("the reasons' order", () => {
 			"expressions-respelled",
 			"case-property-declared",
 			"repeat-read-takes-first-row",
-			"platforms-declared",
-			"datetime-question-split",
-			"media-not-played-removed",
-			"lookup-tag-renamed",
 		]);
 	});
 
@@ -724,14 +851,13 @@ describe("the reasons' order", () => {
 		expect(
 			DOCUMENT_NOTICE_REASONS.slice(
 				at("repeat-read-takes-first-row"),
-				at("lookup-tag-renamed") + 1,
+				at("media-not-played-removed") + 1,
 			),
 		).toEqual([
 			"repeat-read-takes-first-row",
 			"platforms-declared",
 			"datetime-question-split",
 			"media-not-played-removed",
-			"lookup-tag-renamed",
 		]);
 		const deployment = DEPLOYMENT_NOTICE_REASONS as readonly string[];
 		expect(
@@ -743,6 +869,49 @@ describe("the reasons' order", () => {
 			"next-publish-asks-before-overwriting",
 			"next-publish-asks-web-apps",
 			"next-publish-asks-more",
+		]);
+	});
+
+	it("puts the case-writes cutover's step reasons in step order after the platforms cutover's, before lookup-tag-renamed, and its kept, moved and stopped lines between the once-only moves and the expression changes", () => {
+		expect(
+			DOCUMENT_NOTICE_REASONS.slice(
+				at("media-not-played-removed"),
+				at("lookup-tag-renamed") + 1,
+			),
+		).toEqual([
+			"media-not-played-removed",
+			"capture-saves-link",
+			"capture-saves-link-not-name",
+			"form-became-close-form",
+			"form-links-conditions-written",
+			"form-link-otherwise-set",
+			"after-submit-destination-dropped",
+			"form-link-target-moved",
+			"form-link-removed",
+			"form-link-datums-dropped",
+			"module-made-advanced",
+			"form-link-goes-to-menu",
+			"starting-value-reads-case",
+			"load-time-value-reads-case",
+			"menu-opens-on-search",
+			"repeat-rows-follow-query",
+			"repeat-count-whole-number",
+			"repeat-count-node-removed",
+			"group-shows-one-per-screen",
+			"lookup-tag-renamed",
+		]);
+		const deployment = DEPLOYMENT_NOTICE_REASONS as readonly string[];
+		expect(
+			deployment.slice(
+				deployment.indexOf("data-paths-move-once"),
+				deployment.indexOf("expressions-sent-at-next-publish") + 1,
+			),
+		).toEqual([
+			"data-paths-move-once",
+			"placements-kept-unread",
+			"form-data-paths-move",
+			"case-attachments-stop",
+			"expressions-sent-at-next-publish",
 		]);
 	});
 
@@ -772,11 +941,10 @@ describe("the reasons' order", () => {
 		const deployment = DEPLOYMENT_NOTICE_REASONS as readonly string[];
 		expect(
 			deployment.slice(
-				deployment.indexOf("data-paths-move-once"),
+				deployment.indexOf("expressions-sent-at-next-publish"),
 				deployment.indexOf("deep-links-need-republish") + 1,
 			),
 		).toEqual([
-			"data-paths-move-once",
 			"expressions-sent-at-next-publish",
 			"deep-links-need-republish",
 		]);
@@ -797,6 +965,40 @@ describe("the reasons' order", () => {
 			"repeat-read-takes-first-row",
 			"case-property-type-now-known",
 		]);
+	});
+
+	it("orders a case-writes notice's entries in step order, whichever order they were stored in", () => {
+		const documentReasons = DOCUMENT_NOTICE_REASONS.slice(
+			DOCUMENT_NOTICE_REASONS.indexOf("capture-saves-link"),
+			DOCUMENT_NOTICE_REASONS.indexOf("group-shows-one-per-screen") + 1,
+		);
+		const deploymentReasons = [
+			"deep-links-need-republish",
+			"placements-kept-unread",
+			"form-data-paths-move",
+			"case-attachments-stop",
+			"next-publish-asks-more",
+		] as const;
+		const expected = [
+			"placements-kept-unread",
+			"form-data-paths-move",
+			"case-attachments-stop",
+			"deep-links-need-republish",
+			"next-publish-asks-more",
+			...documentReasons,
+			"unsaved-assistant-work-discarded",
+		];
+		const stored = [
+			...documentReasons,
+			...deploymentReasons,
+			"unsaved-assistant-work-discarded" as const,
+		].map((reason) => REAL_ENTRIES[reason]);
+		for (const order of [stored, [...stored].reverse()]) {
+			const entries = migrationNoticeEntriesSchema.parse(order);
+			expect(orderNoticeEntries(entries).map((entry) => entry.reason)).toEqual(
+				expected,
+			);
+		}
 	});
 
 	it("orders a platforms notice's entries: its Web Apps question before the confirmations, its document lines in step order", () => {

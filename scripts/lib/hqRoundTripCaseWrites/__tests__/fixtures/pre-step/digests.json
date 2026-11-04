@@ -1,5 +1,7 @@
 {
-	"facts.json": "df9ba5c412bb6588514646a6266245801f7ad0919d5fb24d97d71badb2ad8565",
+	"facts.json": "3bcc358f6fca7636d24bcdcb2d41140ee96f777b7a129f0aa476bf55f0ce4cf3",
+	"pre-step-capture-answer-written.json": "a34b2e59f15c79341909032e6519b08a4ee49bfbf463eba162deac09fd59965d",
+	"pre-step-close-reads-cases.json": "d991d7e406f6d1588f29f29c010ee878901a6f852ac29ffd70eff245c8042e04",
 	"pre-step-duplicate-own-write.json": "7517010f604b232520c16105c7d59677fed9dfad9cf32c822afeb77c9fcdf430",
 	"pre-step-otherwise-unoffered.json": "db9c037c084a914ec0e92861e4dd06656b2e7f1c79ed7ecc303cd40b6b78f934",
 	"pre-step-own-close-operation.json": "8ca73cf118d66c4570da8b2caf98da0889a11de7bcc0126c87846d04b4e339da",

@@ -774,6 +774,134 @@ it("writes a close the Case Management tab cannot state as a Save to Case close"
 	}
 });
 
+// A close condition is form logic, which reads the form's case and each case
+// above it as `#<type>/<property>`. The Case Management tab can state no such
+// read, so the close is a Save to Case close, and its condition reads the
+// case as the form's own binds do: from the session's case, one
+// `index/parent` hop per level up.
+it("writes a close condition that reads the form's case or a case above it as the form's own read", () => {
+	const visitClose = (condition: string) =>
+		buildDoc({
+			appName: "Case writes",
+			caseTypes: [
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: ["case_name", "summary"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+				{
+					name: "patient",
+					properties: ["case_name", "outcome"].map((name) => ({
+						name,
+						label: proseText(name),
+					})),
+				},
+			],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Wrap up",
+							type: "close",
+							fields: [f({ kind: "text", id: "note" })],
+							closeCondition: condition,
+						},
+					],
+				},
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListMenuItem: {},
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [],
+				},
+			],
+		});
+	const session = "instance('commcaresession')/session/data/case_id";
+	for (const [condition, read] of [
+		[
+			"#visit/summary = 'done'",
+			`instance('casedb')/casedb/case[@case_id = ${session}]/summary`,
+		],
+		[
+			"#patient/outcome = 'done'",
+			`instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = ${session}]/index/parent]/outcome`,
+		],
+	] as const) {
+		const { actions, source, local } = bothExports(visitClose(condition));
+		expect(actions.close_case.condition.type).toBe("never");
+		const base = "/data/nova_operations/nova_condition_close";
+		for (const form of [source, local])
+			expect(form.bind(base)).toEqual({
+				nodeset: base,
+				relevant: `${read} = 'done'`,
+			});
+	}
+});
+
+// The form's read of its case binds only where the own close's condition is
+// printed. An operation slot is record logic, which the checker never lets
+// hold a form read; one planted there finds no binding rather than reading
+// through the row the operation stands on.
+it("prints no form read of the case in a selected case's operation slot", () => {
+	const doc = buildDoc({
+		appName: "Case writes",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: ["case_name", "outcome", "note"].map((name) => ({
+					name,
+					label: proseText(name),
+				})),
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
+					selection: { kind: "multiple", maximum: 5 },
+				},
+				forms: [
+					{
+						name: "Review",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", ...write("note") })],
+					},
+				],
+			},
+		],
+	});
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const own = Object.values(doc.forms)[0]?.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	const noteWrite = own?.writes?.[0];
+	if (noteWrite === undefined) throw new Error("The form saves no note.");
+	noteWrite.condition = {
+		kind: "eq",
+		left: {
+			kind: "term",
+			term: { kind: "form-case", caseType: "patient", property: "outcome" },
+		},
+		right: { kind: "term", term: { kind: "literal", value: "done" } },
+	};
+	expect(() => expandDoc(doc)).toThrow(
+		"Selected form record is unavailable in this expression context.",
+	);
+});
+
 it("keeps a statable close on HQ's close action", () => {
 	const doc = patientApp(
 		"close",

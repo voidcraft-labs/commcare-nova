@@ -1,6 +1,74 @@
 {
 	"format": "hq-round-trip-case-writes-pre-step-facts-1",
 	"fixtures": {
+		"pre-step-capture-answer-written": {
+			"placements": [
+				{
+					"formUuid": "a1e8bb63-ba08-5faf-ad32-a03506280a13",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "afc0051e-ada8-5a12-a124-2f58d21a884e",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "afc0051e-ada8-5a12-a124-2f58d21a884e",
+					"unit": "operation:24425fc8-6bd6-52bc-a5e7-c5be901ce6f8",
+					"emitted": "save-to-case:root:nova_operations/save_photo"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"pre-step-close-reads-cases": {
+			"placements": [
+				{
+					"formUuid": "02d256c0-8438-5c8c-a76f-cc8af3fce390",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "1cb8feb9-4a8a-568d-aeb9-68eb40fd7929",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "1cb8feb9-4a8a-568d-aeb9-68eb40fd7929",
+					"unit": "child:member:root",
+					"emitted": "basic-subcase:0"
+				},
+				{
+					"formUuid": "ad5d4fc0-e91d-5994-a30b-9f12d8ec3f10",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "ad5d4fc0-e91d-5994-a30b-9f12d8ec3f10",
+					"unit": "operation:350222cd-bd6e-5a81-a958-0afb835a87fd",
+					"emitted": "save-to-case:root:nova_operations/nova_condition_leave_household/leave_household"
+				},
+				{
+					"formUuid": "14951df6-ae1f-520a-a918-47a0272073a6",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "14951df6-ae1f-520a-a918-47a0272073a6",
+					"unit": "operation:6a77ba0f-a438-5d43-a68f-102d04ca095f",
+					"emitted": "save-to-case:root:nova_operations/nova_condition_retire_member/retire_member"
+				}
+			],
+			"preloadedWriters": {
+				"14951df6-ae1f-520a-a918-47a0272073a6": [
+					"94ffa13d-0661-5b99-a9ec-3f173a9648ad"
+				]
+			},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
 		"pre-step-duplicate-own-write": {
 			"placements": [
 				{

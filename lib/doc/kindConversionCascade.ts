@@ -4,10 +4,10 @@
  *
  * A case property has ONE type, derived from its writers (declared
  * `data_type` winning when present), and the commit gate holds that
- * line: `FIELD_KIND_WRITERS_DISAGREE` rejects two typed writers of
- * different kinds, `FIELD_KIND_PROPERTY_TYPE_MISMATCH` rejects a typed
- * writer that contradicts a declared type. So a kind conversion that
- * changes the property's data type can never land one field at a time —
+ * line: `FIELD_KIND_WRITERS_DISAGREE` rejects typed writers whose kinds
+ * no one type holds, `FIELD_KIND_PROPERTY_TYPE_MISMATCH` rejects a typed
+ * writer a declared type can't hold. So a kind conversion that changes
+ * the property's data type in general can't land one field at a time —
  * the first converted writer disagrees with its unconverted peers, and
  * a declared type can't be corrected by any field edit. The subject of
  * such a conversion is the PROPERTY, and the plan makes that literal:

@@ -726,12 +726,6 @@ const USER_MESSAGE_BY_CODE: Record<
 				return "A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.";
 		}
 	},
-	MISSING_CHILD_CASE_MODULE: (e) => {
-		const ct = det(e, "caseType", "");
-		return ct
-			? `Your forms create ${q(ct)} cases, but there's no module showing them yet. Add a module for ${q(ct)}.`
-			: "Some of your forms create child cases that have nowhere to show. Add a module for that case type.";
-	},
 	CONNECT_ID_DUPLICATE: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
@@ -1139,9 +1133,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 	},
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, but its type doesn't match how that property is set up. Change the field's type, or save it somewhere else.`,
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which is set up to hold a kind of value this field doesn't give. You can change the field's type, or save it somewhere else.`,
 	FIELD_KIND_WRITERS_DISAGREE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} in a different format than the other fields that use it. Change this one to match them, or save it somewhere else.`,
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} a kind of value that can't sit beside what the other fields that save there give. You can change this one to match them, or save it somewhere else.`,
 	HIDDEN_VALUE_WRITER_TYPE_MISMATCH: (e) => {
 		const field = q(fieldName(e));
 		const property = q(det(e, "property", "a case property"));
@@ -1162,12 +1156,20 @@ const USER_MESSAGE_BY_CODE: Record<
 				const consequence =
 					e.details?.consequence === "stops-form"
 						? " A form that fills a question from it would stop when it opens."
-						: e.details?.consequence === "wrong-kind"
-							? " Forms and case lists that read it would get the wrong kind of value."
-							: "";
+						: e.details?.consequence === "holds-choices"
+							? " Each case keeps it as a list of choices, which can't hold that."
+							: e.details?.consequence === "wrong-kind"
+								? " Forms and case lists that read it would get the wrong kind of value."
+								: "";
 				return `${field} saves ${value} to ${property}, which holds ${valueKindPluralPhrase(wanted)}.${consequence} You can change ${source} to give ${wanted === undefined ? "the same kind" : valueKindPhrase(wanted)}, or save it somewhere else.`;
 			}
 		}
+	},
+	WHOLE_NUMBER_STARTS_ON_DECIMAL: (e) => {
+		const property = e.details?.property;
+		return property === undefined
+			? `${q(fieldName(e))} starts on a value that can be a decimal number, and the form would stop when a whole-number question opens on one. You can make it a decimal question, or wrap its starting value in int(...) to keep the whole part.`
+			: `${q(fieldName(e))} starts on the case's ${q(property)}, which holds decimal numbers, and the form would stop when a whole-number question opens on one. You can make it a decimal question, or start it on the whole part with int(...).`;
 	},
 	SELECT_PRELOAD_WRITE_NOT_AN_OPTION: (e) => {
 		const writer =

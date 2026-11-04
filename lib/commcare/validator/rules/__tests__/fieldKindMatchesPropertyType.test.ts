@@ -4,6 +4,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	blueprintDocSchema,
 	type CasePropertyDataType,
+	effectiveCaseTypes,
 	fieldCaseWriteViews,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -33,7 +34,7 @@ describe("case writer type admission", () => {
 		{ kind: "time", type: "time" },
 		{ kind: "geopoint", type: "geopoint" },
 	] satisfies { kind: FieldSpec["kind"]; type: CasePropertyDataType }[])(
-		"$kind writer agrees only with its concrete $type catalog type",
+		"$kind writer fits its own $type catalog type and not a location",
 		({ kind, type }) => {
 			const base = admittedCaseListDoc({
 				fields: [
@@ -55,7 +56,7 @@ describe("case writer type admission", () => {
 			});
 			for (const declared of [
 				type,
-				type === "text" ? "int" : "text",
+				type === "geopoint" ? "int" : "geopoint",
 			] satisfies CasePropertyDataType[]) {
 				const doc = checked({
 					...base,
@@ -76,13 +77,74 @@ describe("case writer type admission", () => {
 				expect(errors.map((error) => error.code)).toEqual(
 					declared === type ? [] : [mismatch],
 				);
-				if (errors.length)
+				if (errors.length) {
 					expect(errors[0].details).toMatchObject({
 						expectedDataType: type,
 						declaredDataType: declared,
 						property: "value",
 					});
+					// The kind is named as a word, so no article has to fit it.
+					expect(errors[0].message).toContain(
+						`Field "value" in "Register" is of kind "${kind}" and saves to case property "value"`,
+					);
+				}
 			}
+		},
+	);
+	// A declared type holds an integer as a decimal and a choice as text,
+	// which its readers read back; free text saved to a declared choice
+	// property would reach a choice question that starts on it with a value
+	// it may not offer.
+	it.each([
+		{ kind: "int", declared: "decimal", fits: true },
+		{ kind: "single_select", declared: "text", fits: true },
+		{ kind: "text", declared: "single_select", fits: false },
+		{ kind: "barcode", declared: "single_select", fits: false },
+		{ kind: "decimal", declared: "int", fits: false },
+		{ kind: "multi_select", declared: "text", fits: false },
+		{ kind: "text", declared: "multi_select", fits: false },
+		{ kind: "single_select", declared: "multi_select", fits: false },
+		{ kind: "date", declared: "datetime", fits: false },
+		{ kind: "int", declared: "text", fits: false },
+	] satisfies {
+		kind: FieldSpec["kind"];
+		declared: CasePropertyDataType;
+		fits: boolean;
+	}[])(
+		"a $kind writer into a declared $declared property fits: $fits",
+		({ kind, declared, fits }) => {
+			const base = admittedCaseListDoc({
+				fields: [
+					f({
+						kind,
+						id: "value",
+						label: "Value",
+						...(kind === "single_select" || kind === "multi_select"
+							? {
+									options: [
+										{ value: "a", label: "A" },
+										{ value: "b", label: "B" },
+									],
+								}
+							: {}),
+						caseWrite: { caseType: "patient", property: "value" },
+					}),
+				],
+			});
+			const doc = checked({
+				...base,
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{ name: "value", label: proseText("Value"), data_type: declared },
+						],
+					},
+				],
+			});
+			expect(findings(doc).map((error) => error.code)).toEqual(
+				fits ? [] : [mismatch],
+			);
 		},
 	);
 	it.each(["case_name", "external_id"])(
@@ -119,41 +181,103 @@ describe("case writer type admission", () => {
 			]);
 		},
 	);
-	it("attributes cross-form disagreement to every writer and admits agreement", () => {
-		const spec = (id: string) =>
-			f({
-				kind: "int",
-				id,
-				label: "Weight",
-				caseWrite: { caseType: "patient", property: "weight" },
+	// Writers agree on the one of their types that holds every other: an
+	// integer and a decimal on decimal, a choice and text on text. Where none
+	// does, each writer is a finding.
+	it.each([
+		{ first: "int", second: "decimal", agreed: "decimal" },
+		{ first: "single_select", second: "text", agreed: "text" },
+		{ first: "int", second: "text", agreed: undefined },
+		{ first: "single_select", second: "multi_select", agreed: undefined },
+	] satisfies {
+		first: FieldSpec["kind"];
+		second: FieldSpec["kind"];
+		agreed: CasePropertyDataType | undefined;
+	}[])(
+		"a $first writer and a $second writer in another form agree on $agreed",
+		({
+			first,
+			second,
+			agreed,
+		}: {
+			first: FieldSpec["kind"];
+			second: FieldSpec["kind"];
+			agreed: CasePropertyDataType | undefined;
+		}) => {
+			const spec = (id: string, kind: FieldSpec["kind"]) =>
+				f({
+					kind,
+					id,
+					label: "Weight",
+					...(kind === "single_select"
+						? {
+								options: [
+									{ value: "a", label: "A" },
+									{ value: "b", label: "B" },
+								],
+							}
+						: {}),
+					caseWrite: { caseType: "patient", property: "weight" },
+				});
+			// Admitted with both writers of the first kind, then the later one
+			// takes the second kind.
+			const base = admittedCaseListDoc({
+				fields: [spec("initial", first)],
+				additionalForms: [
+					{
+						name: "Followup",
+						type: "followup",
+						fields: [spec("updated", first)],
+					},
+				],
 			});
-		const base = admittedCaseListDoc({
-			fields: [spec("initial")],
-			additionalForms: [
-				{ name: "Followup", type: "followup", fields: [spec("updated")] },
-			],
-		});
-		const writers = Object.values(base.fields).filter((field) =>
-			fieldCaseWriteViews(base, field.uuid).some(
-				(view) => view.property === "weight",
-			),
-		);
-		const later = writers.find((field) => field.id === "updated");
-		if (later?.kind !== "int") throw new Error("Missing later writer");
-		const candidate = checked({
-			...base,
-			fields: {
-				...base.fields,
-				[later.uuid]: { ...later, kind: "decimal" as const },
-			},
-		});
-		expect(
-			findings(candidate).map((error) => ({
-				code: error.code,
-				uuid: error.location.fieldUuid,
-			})),
-		).toEqual(writers.map((writer) => ({ code: disagree, uuid: writer.uuid })));
-	});
+			const later = Object.values(base.fields).find(
+				(field) => field.id === "updated",
+			);
+			if (later === undefined) throw new Error("Missing later writer");
+			// A choice's source stays with a choice kind, and leaves any other.
+			const { optionsSource, ...plain } = later as typeof later & {
+				optionsSource?: unknown;
+			};
+			const doc = checked({
+				...base,
+				fields: {
+					...base.fields,
+					[later.uuid]: {
+						...plain,
+						kind: second,
+						...(second === "single_select" || second === "multi_select"
+							? { optionsSource }
+							: {}),
+					} as typeof later,
+				},
+			});
+			const writers = Object.values(doc.fields).filter((field) =>
+				fieldCaseWriteViews(doc, field.uuid).some(
+					(view) => view.property === "weight",
+				),
+			);
+			expect(writers.map((writer) => writer.kind).sort()).toEqual(
+				[first, second].sort(),
+			);
+			expect(
+				findings(doc).map((error) => ({
+					code: error.code,
+					uuid: error.location.fieldUuid,
+				})),
+			).toEqual(
+				agreed === undefined
+					? writers.map((writer) => ({ code: disagree, uuid: writer.uuid }))
+					: [],
+			);
+			expect(
+				effectiveCaseTypes(doc)
+					.find((type) => type.name === "patient")
+					?.properties.find((property) => property.name === "weight")
+					?.data_type,
+			).toBe(agreed);
+		},
+	);
 	it("collects a nested group writer and leaves a calculate-driven hidden writer to expression typing", () => {
 		const base = admittedCaseListDoc({
 			fields: [

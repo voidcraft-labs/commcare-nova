@@ -8,11 +8,14 @@
  * default, the emitter writes it as the question's default setvalue, and the
  * preview engine runs it in its place among the defaults.
  *
- * `writerOffersPreload` is when a new write to the form's own case is born
- * with that default (`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite`):
- * on a follow-up or close form that opens one case, a write of the own case
- * with no `via`, by a field that is not a capture and holds neither a
- * calculation nor a default yet. A person removes it like any default.
+ * `saveOffersPreload` is the one rule for when a new write to the form's own
+ * case is born with that default: on a follow-up or close form that opens
+ * one case, a write of the own case with no `via`, to any property but its
+ * owner, by a field that is not a capture and holds neither a calculation
+ * nor a default yet. The planner reads it through `writerOffersPreload`
+ * (`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite`), which finds
+ * the field's form and module in the document, and the builder's "Saves to"
+ * row calls it directly. A person removes the default like any other.
  */
 
 import type { BlueprintDoc } from "./blueprint";
@@ -28,6 +31,7 @@ import {
 import {
 	type CaseSelectionCardinality,
 	caseSelectionCardinality,
+	type Module,
 } from "./modules";
 import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
@@ -56,9 +60,8 @@ export function fieldPreload(
 
 /**
  * Whether a write of `property` by `fieldUuid` to the form's own case should
- * be born with that preload: a one-case follow-up or close form, a write of
- * the own case without `via`, a field that is not a capture, holds no
- * `calculate` and no `default_value`, and is of a kind that holds a default.
+ * be born with that preload: it finds the field's form and module in `doc`
+ * and asks `saveOffersPreload`.
  */
 export function writerOffersPreload(
 	doc: Pick<
@@ -69,24 +72,64 @@ export function writerOffersPreload(
 	property: string,
 	via?: CaseWriteVia,
 ): boolean {
-	if (via !== undefined || property.length === 0) return false;
 	const field = Object.hasOwn(doc.fields, fieldUuid)
 		? doc.fields[fieldUuid]
 		: undefined;
-	if (field === undefined || isCaptureField(field)) return false;
+	if (field === undefined) return false;
+	const formUuid = formOfField(doc, fieldUuid);
+	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
+	if (formUuid === undefined || form === undefined) return false;
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (module === undefined) return false;
+	return saveOffersPreload({
+		field,
+		property,
+		via,
+		formType: form.type,
+		module,
+	});
+}
+
+/**
+ * The one rule for which save is offered the case's value as its starting
+ * value, over the field, its form's type and its module: a one-case follow-up
+ * or close form (`ownSaveOpensOneCase`), a write of the own case without
+ * `via` and not to its owner (`owner_id`, whichever slot holds it), by a
+ * field that is not a capture, holds no `calculate` and no `default_value`,
+ * and is of a kind that holds a default. The builder's "Saves to" row asks
+ * it directly; the planner asks it through `writerOffersPreload`.
+ */
+export function saveOffersPreload(save: {
+	readonly field: Field;
+	readonly property: string;
+	readonly via?: CaseWriteVia;
+	readonly formType: FormType;
+	readonly module: Pick<Module, "caseType" | "caseListConfig">;
+}): boolean {
+	const { field, property, via, formType, module } = save;
+	if (via !== undefined || property.length === 0 || property === "owner_id")
+		return false;
+	if (isCaptureField(field)) return false;
 	if (!fieldKindDeclaresKey(field.kind, "default_value")) return false;
 	if (
 		("calculate" in field && field.calculate !== undefined) ||
 		("default_value" in field && field.default_value !== undefined)
 	)
 		return false;
-	const formUuid = formOfField(doc, fieldUuid);
-	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
-	if (formUuid === undefined || form === undefined) return false;
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	if (module?.caseType === undefined) return false;
-	return formOpensWithOneCase(form.type, caseSelectionCardinality(module));
+	return ownSaveOpensOneCase(formType, module);
+}
+
+/** Whether a form of `formType` in `module` opens one case of the module's
+ *  type, the one its own saves write. */
+export function ownSaveOpensOneCase(
+	formType: FormType,
+	module: Pick<Module, "caseType" | "caseListConfig">,
+): boolean {
+	return (
+		module.caseType !== undefined &&
+		formOpensWithOneCase(formType, caseSelectionCardinality(module))
+	);
 }
 
 /**
