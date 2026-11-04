@@ -1246,86 +1246,101 @@ test("native publish answers a confirmation refusal with the same rows, and With
 	await expect(upload).toBeDisabled();
 });
 
-test("asks whether CommCare Supply is off for a form whose label names the session's supply point", async ({
-	page,
-}) => {
-	/*
-	 * What the check reports for an app on Android alone whose Restock form
-	 * has a label holding the session's supply point text, word for word as
-	 * `commtrackReasons` names it over the emitted source
-	 * (lib/commcare/__tests__/planPrivileges.test.ts). The check reads
-	 * server-only modules, so the route answers with its report here.
-	 */
-	const reason =
-		"Restock holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.";
-	const checks = {
-		plan_features: [],
-		flat_location_fixture: null,
-		connect_forwarder: null,
-		form_entry_sync_off: null,
-		commtrack_off: {
-			label: COMMTRACK_OFF.label,
-			consequence: COMMTRACK_OFF.consequence,
-			reasons: [reason],
-			where_missing: COMMTRACK_OFF.whereMissing,
-			state: "needs_confirmation" as const,
-		},
-		placement_moves: null,
-	};
-	const sent: Record<string, unknown>[] = [];
-	await open(page);
-	/* Registered after open's, so it is the answer the next check reads. */
-	await page.route("**/publishing/compatibility?*", (route) =>
-		route.fulfill({
-			json: { ok: true, report: report("alpha"), confirmations: checks },
-		}),
-	);
-	await page.route("**/api/commcare/upload", (route) => {
-		sent.push(route.request().postDataJSON());
-		return route.fulfill({
-			json: {
-				success: true,
-				hq_app_action: "created",
-				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
-				warnings: [],
-				deployment: landedView([
-					{
-						kind: "commtrack-off",
-						subject: "commtrack-off",
-						confirmedByName: "Ada",
-						confirmedAt: "2026-10-01T12:00:00Z",
-					},
-				]).deployment,
-				setup_artifact: landedView([]).artifact,
-				preview_project_space: "alpha",
-				logo_step: null,
-			} satisfies PublishResponseBody,
+/*
+ * What the check reports, word for word as `commtrackReasons` names it
+ * (lib/commcare/__tests__/planPrivileges.test.ts): a form of an app on
+ * Android alone whose Restock form has a label holding the session's supply
+ * point text, and an advanced menu, Households, whose case list is its own
+ * menu item beside its forms, whose entry CommCare HQ's build gives a
+ * product step under CommCare Supply. The check reads server-only modules,
+ * so the route answers with its report here.
+ */
+for (const { subject, reason } of [
+	{
+		subject: "a form whose label names the session's supply point",
+		reason:
+			"Restock holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
+	},
+	{
+		subject: "an advanced menu whose case list is its own menu item",
+		reason:
+			"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.",
+	},
+]) {
+	test(`asks whether CommCare Supply is off for ${subject}`, async ({
+		page,
+	}) => {
+		const checks = {
+			plan_features: [],
+			flat_location_fixture: null,
+			connect_forwarder: null,
+			form_entry_sync_off: null,
+			commtrack_off: {
+				label: COMMTRACK_OFF.label,
+				consequence: COMMTRACK_OFF.consequence,
+				reasons: [reason],
+				where_missing: COMMTRACK_OFF.whereMissing,
+				state: "needs_confirmation" as const,
+			},
+			placement_moves: null,
+		};
+		const sent: Record<string, unknown>[] = [];
+		await open(page);
+		/* Registered after open's, so it is the answer the next check reads. */
+		await page.route("**/publishing/compatibility?*", (route) =>
+			route.fulfill({
+				json: { ok: true, report: report("alpha"), confirmations: checks },
+			}),
+		);
+		await page.route("**/api/commcare/upload", (route) => {
+			sent.push(route.request().postDataJSON());
+			return route.fulfill({
+				json: {
+					success: true,
+					hq_app_action: "created",
+					url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+					warnings: [],
+					deployment: landedView([
+						{
+							kind: "commtrack-off",
+							subject: "commtrack-off",
+							confirmedByName: "Ada",
+							confirmedAt: "2026-10-01T12:00:00Z",
+						},
+					]).deployment,
+					setup_artifact: landedView([]).artifact,
+					preview_project_space: "alpha",
+					logo_step: null,
+				} satisfies PublishResponseBody,
+			});
 		});
+		await page
+			.getByRole("button", { name: "Check again", exact: true })
+			.click();
+		const upload = page.getByRole("button", { name: "Upload", exact: true });
+		await expect(
+			page.getByText(COMMTRACK_OFF.question("alpha"), { exact: true }),
+		).toBeVisible();
+		await expect(page.getByText(reason, { exact: true })).toBeVisible();
+		await expect(upload).toBeDisabled();
+		await page
+			.getByRole("checkbox", {
+				name: `${COMMTRACK_OFF.confirmLabel} ${COMMTRACK_OFF.label}`,
+			})
+			.check();
+		await expect(upload).toBeEnabled();
+		await upload.click();
+		/* The record the publish landed with holds the answer, and offers it back. */
+		await expect(
+			page.getByRole("button", {
+				name: `Withdraw ${COMMTRACK_OFF.label}`,
+				exact: true,
+			}),
+		).toBeVisible();
+		expect(sent).toHaveLength(1);
+		expect(sent[0].confirm).toEqual([{ kind: "commtrack-off" }]);
 	});
-	await page.getByRole("button", { name: "Check again", exact: true }).click();
-	const upload = page.getByRole("button", { name: "Upload", exact: true });
-	await expect(
-		page.getByText(COMMTRACK_OFF.question("alpha"), { exact: true }),
-	).toBeVisible();
-	await expect(page.getByText(reason, { exact: true })).toBeVisible();
-	await expect(upload).toBeDisabled();
-	await page
-		.getByRole("checkbox", {
-			name: `${COMMTRACK_OFF.confirmLabel} ${COMMTRACK_OFF.label}`,
-		})
-		.check();
-	await expect(upload).toBeEnabled();
-	await upload.click();
-	/* The record the publish landed with holds the answer, and offers it back. */
-	await expect(
-		page.getByRole("button", {
-			name: `Withdraw ${COMMTRACK_OFF.label}`,
-			exact: true,
-		}),
-	).toBeVisible();
-	expect(sent).toHaveLength(1);
-	expect(sent[0].confirm).toEqual([{ kind: "commtrack-off" }]);
-});
+}
 
 test("native publish below the CommCare version floor links to the app whose settings raise it", async ({
 	page,

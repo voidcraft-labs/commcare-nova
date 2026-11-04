@@ -18,6 +18,7 @@ import type {
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { loadEntryPointOtherCasesAction } from "@/lib/preview/entryPointLaunchAction";
+import { useCaseDataRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	useEntryPointLaunch,
 	useEntryPointPreviewSetup,
@@ -25,7 +26,6 @@ import {
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 import {
 	useAppId,
-	usePreviewClaimedCaseIds,
 	usePreviewDevice,
 	usePreviewPersonaUuid,
 	usePreviewPlatformRules,
@@ -165,8 +165,9 @@ function EntryPointCasePicker(props: {
 	const id = useId();
 	const [page, setPage] = useState(0);
 	const parentKey = JSON.stringify(props.parentCase);
-	/* A claimed case is held, so the picker offers it like any other. */
-	const claimedCaseIds = usePreviewClaimedCaseIds(props.personaUuid);
+	/* A claimed case is a case row the worker's restore holds, so the picker
+	 * offers it like any other; a claim's write reads the picker again. */
+	const caseDataRevision = useCaseDataRevision(appId, props.caseType);
 	const device = usePreviewDevice();
 	const reloadToken = useMemo(
 		() => [
@@ -176,7 +177,7 @@ function EntryPointCasePicker(props: {
 			props.personaUuid,
 			parentKey,
 			page,
-			claimedCaseIds,
+			caseDataRevision,
 			device.platform,
 		],
 		[
@@ -186,7 +187,7 @@ function EntryPointCasePicker(props: {
 			props.personaUuid,
 			parentKey,
 			page,
-			claimedCaseIds,
+			caseDataRevision,
 			device.platform,
 		],
 	);
@@ -200,7 +201,6 @@ function EntryPointCasePicker(props: {
 								appId,
 								caseType: props.caseType,
 								personaUuid: props.personaUuid,
-								claimedCaseIds: [...claimedCaseIds],
 								parentCase: props.parentCase,
 								page: { offset: page * 50, limit: 50 },
 								device: withNavigationWidth(device),
@@ -235,7 +235,6 @@ function EntryPointCasePicker(props: {
 								appId,
 								caseType: props.caseType,
 								personaUuid: props.personaUuid,
-								claimedCaseIds: [...claimedCaseIds],
 								parentCase: props.parentCase,
 								page: { offset: otherPage * 50, limit: 50 },
 								device: withNavigationWidth(device),

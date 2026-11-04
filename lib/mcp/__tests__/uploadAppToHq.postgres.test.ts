@@ -1529,9 +1529,10 @@ it.each([
 					expect(application.profile.properties).not.toHaveProperty(
 						"cc-index-case-search-results",
 					);
+					// A search with no workflow stored opens on Search first.
 					expect(application.modules[0].search_config).toMatchObject({
 						properties: [],
-						auto_launch: false,
+						auto_launch: true,
 						default_search: false,
 						inline_search: false,
 					});

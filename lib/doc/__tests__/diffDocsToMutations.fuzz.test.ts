@@ -380,7 +380,7 @@ function endpoint(spec: Endpoint): BlueprintDoc {
 				id: `module_${index}`,
 				name: `Module ${index} ${spec.text}`,
 				caseType: "patient",
-				...(forms.length === 0 ? { caseListOnly: true } : {}),
+				...(forms.length === 0 ? { caseListMenuItem: {} } : {}),
 				...(spec.nested && position === indices.length - 1 && position > 0
 					? { parentModuleUuid: testUuid(`independent-module-${indices[0]}`) }
 					: {}),

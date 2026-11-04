@@ -15,14 +15,17 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-here": [
 		"expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
 	],
-	"search-first": [
+	"forms-read-search": [
 		"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
+		"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
 		"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
+		"case-search/inline-search-default-search-on-a-module-with-visible-inputs",
 		"menus-and-case-lists/inline-search-in-a-parent-select-module-hq-adds-xpath-query",
 		"menus-and-case-lists/case-list-form-on-a-search-first-host-pointing-at-a-registration",
 		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
 		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
+	"list-first": ["case-search/list-first-where-web-apps-is-declared"],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
 		"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
@@ -92,6 +95,8 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"case-list-menu-item": [
 		"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true",
+		"menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms",
+		"menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",
 	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
@@ -116,6 +121,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"barcode-search-field": ["case-search/appearance-barcode-scan"],
 	"hidden-search-field": [
 		"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+	],
+	"search-first": [
+		"case-search/workflow-search-first-auto-launch-true-default-search-false",
 	],
 	search: [
 		"case-search/the-generated-search-round-trip-remote-request-query-results",
@@ -180,7 +188,7 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 	"application-and-settings/30-properties-cc-label-required-questions-with-asterisk":
 		SEEDED_PROFILE_PROPERTY,
 	"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false":
-		"The list-first search an Android-only app carries; derived from the declaration.",
+		"The wire form of list first in an app that declares Android only, which no Web App reads; `list-first` states list first's readings.",
 	"expressions-and-data/commcaresession-jr-instance-session":
 		"The session instance itself; each context field's feature states its difference.",
 	"expressions-and-data/lookup-table-rows-in-the-local-archive-suite":

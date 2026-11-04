@@ -503,6 +503,7 @@ export function mutationTargetsInvalid(
 			}
 			case "renameModule":
 			case "setModuleMedia":
+			case "setCaseListMenuItem":
 				if (!modules.has(m.uuid)) return true;
 				break;
 			case "addForm":

@@ -92,3 +92,25 @@ describe.each(REFUSABLE)("%s", (feature) => {
 			).toEqual([plantedUse(fixture, doc)]);
 		});
 });
+
+describe("the search workflow's rows", () => {
+	it("refuses list first and Forms read the search, and never search first", () => {
+		expect(REFUSABLE).toEqual(
+			expect.arrayContaining(["list-first", "forms-read-search"]),
+		);
+		expect(REFUSABLE).not.toContain("search-first");
+		expect(unavailablePlatform("list-first", PLATFORMS)).toBe("web-apps");
+		expect(unavailablePlatform("forms-read-search", PLATFORMS)).toBe("android");
+	});
+
+	/** Search first reads ignored on Android, never unavailable, so the menu
+	 *  that holds it is admitted on every declaration. */
+	for (const runsOnlyOn of DECLARATIONS)
+		it(`admits a menu that searches first, declaring ${runsOnlyOn ?? "both"}`, () => {
+			const doc = declared(
+				PLATFORM_FEATURE_FIXTURES["search-first"].with(),
+				runsOnlyOn,
+			);
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		});
+});

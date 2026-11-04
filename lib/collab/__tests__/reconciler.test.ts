@@ -1367,7 +1367,7 @@ describe("reconciler", () => {
 					id: "m2",
 					name: "Added",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

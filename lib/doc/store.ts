@@ -490,6 +490,7 @@ function affectsCaseWriteProjection(
 		case "moveModule":
 		case "renameModule":
 		case "setModuleMedia":
+		case "setCaseListMenuItem":
 		case "renameForm":
 		case "setFormMedia":
 		case "addEntryPoint":

@@ -1,12 +1,15 @@
 /**
  * SA tool: `setCaseSearchAdvanced` — set the advanced cluster of a
- * module's case-search config (today, the rare owner-availability
- * `excludedOwnerIds` slot). The value is global: it may read session/current-
- * user values and Search answers, but never a case property or relationship
- * because it resolves before a case is selected.
+ * module's case-search config: the rare owner-availability
+ * `excludedOwnerIds` slot, what the menu opens on (`searchWorkflow`, stored
+ * as `workflow` with search first absent), and whether its forms read the
+ * search (`formsReadSearch`). The owner value is global: it may read
+ * session/current-user values and Search answers, but never a case property
+ * or relationship because it resolves before a case is selected.
  *
- * Every slot is required-and-nullable on the SA boundary: `null` clears,
- * non-null sets. The tool computes a whole editor projection so the display
+ * Every slot is required on the SA boundary. `excludedOwnerIds` and
+ * `formsReadSearch` are nullable (`null` clears); `searchWorkflow` always
+ * names one workflow. The tool computes a whole editor projection so the display
  * cluster round-trips byte-identically, then `updateModuleMutations` splits
  * it into final fresh-state per-slot writes.
  *
@@ -16,9 +19,10 @@
  */
 
 import type { z } from "zod";
-import { planSearchTakeawayDependents } from "@/lib/doc/searchNoMatchesDependents";
+import { planSearchTakeawayDependents } from "@/lib/doc/searchReadDependents";
 import {
 	type CaseSearchConfig,
+	isOrdinaryCaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
@@ -36,12 +40,11 @@ import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,
-	applyClusterPatch,
 	collapseUnauthoredCaseSearchConfig,
 	pickDisplayCluster,
 	setCaseSearchAdvancedBodySchema,
-	slotsSetByInput,
 	snapshotCaseSearchConfig,
+	storedSearchWorkflow,
 } from "./shared";
 
 export const setCaseSearchAdvancedInputSchema = moduleAddressSchema
@@ -55,8 +58,7 @@ export type SetCaseSearchAdvancedInput = z.infer<
 /**
  * Success result. `advancedSlotsSet` is the structured discriminator
  * the SA reads to confirm which slots landed non-null without re-
- * parsing the prose message; empty array means every advanced slot
- * was cleared.
+ * parsing the prose message; `searchWorkflow` is always among them.
  */
 export interface SetCaseSearchAdvancedSuccess {
 	ok: true;
@@ -70,7 +72,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set or clear the excluded-owner rule. It can use fixed owners, worker values and Search answers before record selection.",
+		"Set the excluded-owner rule, what the menu opens on, and whether its forms read the search. The owner rule can use fixed owners, worker values and Search answers before record selection.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,
@@ -88,64 +90,72 @@ export const setCaseSearchAdvancedTool = {
 			}
 			const { moduleUuid, module: mod } = address;
 
-			// Preserve the display cluster, layer the advanced patch on
-			// top. Both halves key off the same slot tuples; partition
-			// assertions in `shared.ts` catch cluster-home omissions at
-			// compile time.
-			const existing = snapshotCaseSearchConfig(mod);
-			const advancedPatch = applyClusterPatch(input, ADVANCED_SLOT_NAMES);
-			const clearingOwnerOnly =
-				existing !== undefined &&
-				"searchActionEnabled" in existing &&
-				advancedPatch.excludedOwnerIds === undefined;
-			const addingFirstOwnerRule =
-				existing === undefined &&
-				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
-				advancedPatch.excludedOwnerIds !== undefined;
-			const ownerOnlyModule =
-				addingFirstOwnerRule ||
-				(existing !== undefined && isOwnerOnlyCaseSearchConfig(existing));
-			const keepOwnerOnly =
-				advancedPatch.excludedOwnerIds !== undefined && ownerOnlyModule;
-			// An owner-only module has no Search action to open on, whether the
-			// call keeps its owner rule or clears it in the same breath: clearing
-			// leaves no config at all, so a `searchFirst` riding along would be
-			// dropped while the result still named it as set.
-			if (ownerOnlyModule && advancedPatch.searchFirst === true) {
+			if (
+				input.searchWorkflow === "listFirst" &&
+				input.formsReadSearch === true
+			) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error: `Module "${mod.name}" only limits which cases are available and has no Search action, so it cannot open on Search. Add a search input first, then turn Search first on.`,
+						error: `Module "${mod.name}" can't open on its case list while its forms read the search, because the search runs as a form opens only after the worker searched. Choose searchFirst or skipToResults, or set formsReadSearch to null.`,
 					},
 				};
 			}
-			const nextExcludedOwnerIds = advancedPatch.excludedOwnerIds;
-			const nextConfigCandidate: CaseSearchConfig = keepOwnerOnly
-				? {
-						searchActionEnabled: false,
-						excludedOwnerIds: nextExcludedOwnerIds,
-					}
-				: {
-						...pickDisplayCluster(existing),
-						...advancedPatch,
-					};
+			// Preserve the display cluster, layer the advanced slots on top.
+			// Search first is the stored absence of `workflow`.
+			const existing = snapshotCaseSearchConfig(mod);
+			const excludedOwnerIds = input.excludedOwnerIds ?? undefined;
+			const workflow = storedSearchWorkflow(input.searchWorkflow);
+			const formsReadSearch = input.formsReadSearch === true;
+			const clearingOwnerOnly =
+				existing !== undefined &&
+				"searchActionEnabled" in existing &&
+				excludedOwnerIds === undefined;
+			const addingFirstOwnerRule =
+				existing === undefined &&
+				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
+				excludedOwnerIds !== undefined;
+			const ownerOnlyModule =
+				addingFirstOwnerRule ||
+				(existing !== undefined && isOwnerOnlyCaseSearchConfig(existing));
+			const keepOwnerOnly = excludedOwnerIds !== undefined && ownerOnlyModule;
+			// An owner-only module has no Search action to open on, whether the
+			// call keeps its owner rule or clears it in the same breath: clearing
+			// leaves no config at all, so a workflow or formsReadSearch riding
+			// along would be dropped while the result still named it as set.
+			if (ownerOnlyModule && (workflow !== undefined || formsReadSearch)) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: {
+						error: `Module "${mod.name}" only limits which cases are available and has no Search action, so there is no search for it to open on or for its forms to read. Add a search input first, then choose what the menu opens on.`,
+					},
+				};
+			}
+			const nextConfigCandidate: CaseSearchConfig =
+				keepOwnerOnly && excludedOwnerIds !== undefined
+					? { searchActionEnabled: false, excludedOwnerIds }
+					: {
+							...pickDisplayCluster(existing),
+							...(excludedOwnerIds !== undefined && { excludedOwnerIds }),
+							...(workflow !== undefined && { workflow }),
+							...(formsReadSearch && { formsReadSearch: true as const }),
+						};
 			const nextConfig = clearingOwnerOnly
 				? undefined
 				: collapseUnauthoredCaseSearchConfig(existing, nextConfigCandidate);
 
-			/* A no-matches registration form needs the module to keep opening
-			 * on Search; the shared planner refuses and names the form
-			 * (`searchNoMatchesDependents.ts`). */
-			const opensOnSearch = (config: CaseSearchConfig | undefined): boolean =>
-				config !== undefined &&
-				!isOwnerOnlyCaseSearchConfig(config) &&
-				config.searchFirst === true;
-			if (opensOnSearch(existing) && !opensOnSearch(nextConfig)) {
+			/* A case list registration form needs the menu's forms to keep
+			 * reading the search; the shared planner refuses and names the form
+			 * (`searchReadDependents.ts`). */
+			const formsRead = (config: CaseSearchConfig | undefined): boolean =>
+				isOrdinaryCaseSearchConfig(config) && config.formsReadSearch === true;
+			if (formsRead(existing) && !formsRead(nextConfig)) {
 				const dependents = planSearchTakeawayDependents(
 					doc,
 					moduleUuid,
-					nextConfig === undefined ? "search" : "search-first",
+					nextConfig === undefined ? "search" : "forms-read-search",
 				);
 				if (dependents.kind === "blocked") {
 					return {
@@ -172,9 +182,11 @@ export const setCaseSearchAdvancedTool = {
 				};
 			}
 
-			// Derive the message from the same slot tuple. A new entry
-			// on `ADVANCED_SLOT_NAMES` flows through verbatim.
-			const advancedSlotsSet = slotsSetByInput(input, ADVANCED_SLOT_NAMES);
+			// Every slot the call stated with a value; `searchWorkflow` is
+			// always stated.
+			const advancedSlotsSet = ADVANCED_SLOT_NAMES.filter(
+				(slot) => input[slot] !== null,
+			);
 
 			return {
 				kind: "mutate" as const,

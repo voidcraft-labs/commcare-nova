@@ -222,14 +222,14 @@ describe("search input envelope scope", () => {
 		},
 	);
 	it.each([
-		{ searchFirst: true, codes: [] },
-		{ searchFirst: false, codes: [bare] },
+		{ formsReadSearch: true, codes: [] },
+		{ formsReadSearch: false, codes: [bare] },
 	])(
-		"a calculated column reading a Search field when the module opens on its search: $searchFirst",
-		({ searchFirst, codes }) => {
-			// A module that opens on its search reaches its list only through the
-			// inline query, which keeps the answers; an ordinary search's list is
-			// also the module's own case list, where they don't exist.
+		"a calculated column reading a Search field when the menu's forms read the search: $formsReadSearch",
+		({ formsReadSearch, codes }) => {
+			// A menu whose forms read the search reaches its list only through
+			// the inline query, which keeps the answers; an ordinary search's
+			// list is also the module's own case list, where they don't exist.
 			const errors = findings(
 				configured((config, module) => {
 					const column = calculatedColumn(
@@ -240,10 +240,10 @@ describe("search input envelope scope", () => {
 					config.columns.push(column);
 					config.listColumnOrder.push(column.uuid);
 					config.detailColumnOrder.push(column.uuid);
-					module.caseSearchConfig = searchFirst ? { searchFirst } : {};
+					module.caseSearchConfig = formsReadSearch ? { formsReadSearch } : {};
 				}),
 			);
-			// Search first brings its own declaration and module findings; only
+			// Forms read the search brings its own declaration and module findings; only
 			// this rule's verdict is the subject here.
 			expect(
 				errors.map((error) => error.code).filter((code) => code === bare),

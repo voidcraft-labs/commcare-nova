@@ -100,7 +100,7 @@ import {
 	type RegisterActionContext,
 } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildInlineClaimPost } from "@/lib/commcare/suite/case-search/claim";
-import { moduleIsSearchFirst } from "@/lib/commcare/suite/case-search/inlineSearch";
+import { moduleUsesInlineSearch } from "@/lib/commcare/suite/case-search/inlineSearch";
 import {
 	NEVER_RELEVANT,
 	NO_MATCHES_RELEVANCY,
@@ -133,6 +133,7 @@ import {
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
 	makeTranslationUnitId,
+	moduleHasCaseListMenuItem,
 	moduleParent,
 	projectedModulePreorder,
 	type Uuid,
@@ -140,6 +141,7 @@ import {
 } from "@/lib/domain";
 import {
 	caseListFormLabelUnit,
+	caseListMenuItemLabelUnit,
 	emissionPlan,
 	type SyntheticModule,
 } from "./emissionPlan";
@@ -212,9 +214,7 @@ function newCaseDatumId(
  * as the session value of the host's FIRST menu form's datum of the same
  * case type (`case-list-form-suite-parent-child-basic.xml`). HQ matches
  * against that one form and drops a selection datum it cannot match, so a
- * host without menu forms offers function datums alone; the validator
- * refuses a no-matches form on such a host when its case type selects a
- * parent first (`SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM`).
+ * host without menu forms offers function datums alone.
  */
 function registerActionFor(
 	doc: BlueprintDoc,
@@ -453,21 +453,23 @@ export function compileCcz(
 				: hqMod.case_type;
 		const hqForms = hqMod.forms;
 		const caseSearchConfig = effectiveCaseSearchConfig(mod);
-		const noMatches = plan.noMatchesFormOf.get(moduleUuid);
+		const noMatches = plan.caseListRegistrationOf.get(moduleUuid);
 		// Owner exclusion belongs to case availability, not to the presence of
 		// a remote Search action. Read the raw authored slot so an owner-only
 		// module still narrows its ordinary `casedb` list even when
 		// `effectiveCaseSearchConfig` intentionally disables remote Search.
 		const excludedOwnerIds = mod.caseSearchConfig?.excludedOwnerIds;
-		// A search-first module runs its search inside each entry: no
-		// `<remote-request>`, no Search action on the list (so no display
-		// condition to emit), no `m{N}_search_*` details, and every
+		// A menu whose forms read the search runs its search inside each
+		// entry: no `<remote-request>`, no Search action on the list (so no
+		// display condition to emit), no `m{N}_search_*` details, and every
 		// case-loading datum reads `results:inline`.
-		const searchFirst = moduleIsSearchFirst(mod);
-		const searchButtonDisplayCondition = searchFirst
+		const formsReadSearch = moduleUsesInlineSearch(mod);
+		const searchButtonDisplayCondition = formsReadSearch
 			? undefined
 			: caseSearchConfig?.searchButtonDisplayCondition;
-		const caseSource = searchFirst ? ("results:inline" as const) : undefined;
+		const caseSource = formsReadSearch
+			? ("results:inline" as const)
+			: undefined;
 		// A no-matches form's synthetic module is never relevant; the Register
 		// action's push reaches its entry regardless
 		// (`CommCareSession.performPushInner`).
@@ -491,7 +493,7 @@ export function compileCcz(
 		// stay on screen above the module's forms, every case-loading datum in
 		// the module names the short detail as its persistent detail; Web Apps
 		// then renders that tile in its sticky region above the form. The same
-		// attribute rides the `caseListOnly` browse entry, matching CCHQ
+		// attribute rides the case list menu entry, matching CCHQ
 		// (`commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.get_detail_persistent_attr`
 		// is consulted for the form entry and the case-list command alike).
 		const persistentTileDetailId =
@@ -504,7 +506,7 @@ export function compileCcz(
 		// `entries.py::EntriesHelper.get_case_datums_basic_module`, which
 		// calls `get_extra_case_id_datums` only under `if form:` and only
 		// with a non-null case-selection datum — so a registration form's
-		// entry and the `caseListOnly` browse entry below never carry it.
+		// entry and the case list menu entry below never carry it.
 		const tileGrouping = mod.caseListConfig?.tile?.grouping;
 
 		// Case detail definitions — emitted only when the module has a case
@@ -540,7 +542,7 @@ export function compileCcz(
 		//
 		// Both detail titles reference cchq.case. The compiler registers the
 		// value in every locale table; Core has no built-in mapping for this id.
-		// The Register action a search-first host mounts on its case list
+		// The Register action a host whose forms read the search mounts on its case list
 		// (`DetailContributor.add_register_action`): the no-matches form's
 		// command in its hidden module, the target entry's computed datums,
 		// and `return_to`, relevant only when the inline search found nothing.
@@ -549,11 +551,14 @@ export function compileCcz(
 				? undefined
 				: registerActionFor(doc, linkContext, noMatches);
 		if (noMatches !== undefined) {
-			const label = doc.forms[noMatches.formUuid];
 			appStrings[`case_list_form.m${mIdx}`] =
-				label?.entry?.label ?? label?.name ?? "";
+				authoredDoc.modules[noMatches.hostModuleUuid]?.caseListRegistrationForm
+					?.label ??
+				doc.forms[noMatches.formUuid]?.name ??
+				"";
 			appStringUnits[`case_list_form.m${mIdx}`] = caseListFormLabelUnit(
 				authoredDoc,
+				noMatches.hostModuleUuid,
 				noMatches.formUuid,
 			);
 		}
@@ -563,7 +568,7 @@ export function compileCcz(
 		// forms never select a case.
 		if (caseType && synthetic === undefined) {
 			const searchShort =
-				caseSearchConfig !== undefined && !searchFirst
+				caseSearchConfig !== undefined && !formsReadSearch
 					? buildShortDetail({
 							module: mod,
 							moduleIndex: mIdx,
@@ -575,7 +580,7 @@ export function compileCcz(
 						})
 					: undefined;
 			const searchLong =
-				caseSearchConfig !== undefined && !searchFirst
+				caseSearchConfig !== undefined && !formsReadSearch
 					? buildLongDetail({
 							module: mod,
 							moduleIndex: mIdx,
@@ -603,7 +608,7 @@ export function compileCcz(
 			// branch-doubling at the detail emitter — `searchAction`
 			// is `undefined` when no case-search config is present.
 			const remoteRequestEmission =
-				caseSearchConfig && !searchFirst
+				caseSearchConfig && !formsReadSearch
 					? buildRemoteRequest({
 							runtimeTarget: opts.runtimeTarget,
 							module: { ...mod, caseSearchConfig },
@@ -639,6 +644,7 @@ export function compileCcz(
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
+						multiSelect: mod.caseListConfig?.selection?.kind === "multiple",
 						...(searchButtonDisplayCondition !== undefined && {
 							displayCondition: searchButtonDisplayCondition,
 						}),
@@ -669,7 +675,7 @@ export function compileCcz(
 			// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`.
 			// The search-target short detail does NOT carry an
 			// `<action>` element — the search results screen IS the
-			// action's destination. A search-first module has no separate
+			// action's destination. A menu whose forms read the search has no separate
 			// results screen: its case details ARE the results.
 			if (searchShort !== undefined && searchLong !== undefined) {
 				rememberDetail(searchShort);
@@ -809,12 +815,12 @@ export function compileCcz(
 				moduleUuid,
 				formUuid,
 			);
-			// The claim `<post>` of a search-first module's case-requiring
-			// entry (`EntriesHelper.include_post_in_entry`): a picked case
+			// The claim `<post>` of a case-requiring entry in a menu whose
+			// forms read the search (`EntriesHelper.include_post_in_entry`): a picked case
 			// the device does not hold yet is claimed before the form opens.
 			// Under a selected parent every other case datum is offered too.
 			const post =
-				searchFirst && ownCaseDatumId !== undefined
+				formsReadSearch && ownCaseDatumId !== undefined
 					? buildInlineClaimPost({
 							runtimeTarget: opts.runtimeTarget,
 							sessionVar: ownCaseDatumId,
@@ -965,54 +971,47 @@ export function compileCcz(
 			menuCommands.push(menuCommand);
 		}
 
-		// Case-list-browse command for a `caseListOnly` module. CCHQ emits
-		// a standalone case-list command + entry from its
-		// `if module.case_list.show:` block (`entries.py`) when a module
-		// shows its case list without an attached form — the shape Nova's
-		// expander stamps as `case_list.show = true`. The local `.ccz`
-		// compiler emits the matching command + entry so a directly-installed
-		// archive reaches the case list (without this, a `caseListOnly`
-		// module's `<menu>` carries zero commands and the case list is
-		// unreachable on-device, diverging from the HQ-regenerated suite).
+		// The case list menu entry (`Module.caseListMenuItem`). CCHQ emits
+		// a case-list command + entry from its `if module.case_list.show:`
+		// block (`entries.py::EntriesHelper.entry_for_module`) and lists the
+		// command after the menu's form commands (`menus.py`), the shape
+		// Nova's expander stamps as `case_list.show = true`. The local `.ccz`
+		// emits the matching command + entry, in the same place, so a
+		// directly-installed archive reaches the case list as the
+		// HQ-regenerated suite does.
 		//
 		// Guarded on a present case type the same way the per-form case
-		// path is — a `caseListOnly` module with no case type has no case
-		// list to browse (and the validator's `caseListOnlyNoCaseType` rule
-		// rejects that state upstream).
-		if (mod.caseListOnly && caseType) {
+		// path is: an entry with no case type has no case list to browse
+		// (and the validator refuses that state upstream).
+		if (moduleHasCaseListMenuItem(mod) && caseType) {
 			// The case-list command's display node. A bare
-			// `<text><locale id="case_lists.m{N}"/></text>` when the module
-			// carries no case-list menu media, or a `<display>` wrapping the
-			// text + `<text form="image|audio">` media locales when it does
-			// — the same builder the form / module nav nodes use, here fed
-			// the case-list link's `icon` / `audioLabel` slots. This is the
-			// render target the expander's `case_list.media_*` stamping
-			// always implied but the local path previously had nowhere to
-			// land.
+			// `<text><locale id="case_lists.m{N}"/></text>` when the entry
+			// carries no media, or a `<display>` wrapping the text +
+			// `<text form="image|audio">` media locales when it does — the
+			// same builder the form / module nav nodes use, here fed the
+			// entry's `icon` / `audioLabel`, the media the expander stamps
+			// as `case_list.media_*`.
 			const caseListNav = buildNavMenuNode(
 				`case_lists.m${mIdx}`,
-				mod.caseListConfig?.icon,
-				mod.caseListConfig?.audioLabel,
+				mod.caseListMenuItem?.icon,
+				mod.caseListMenuItem?.audioLabel,
 				assets,
 				"compileCcz case-list command",
 			);
-			// The command's base label resolves to the module name —
-			// matching CCHQ's `case_list.label = { en: mod.name }` shell
-			// stamping in `expander.ts`. Its media locales (when present)
-			// merge in alongside.
-			appStrings[`case_lists.m${mIdx}`] = modName;
-			appStringUnits[`case_lists.m${mIdx}`] = makeTranslationUnitId(
-				"module",
-				moduleUuid,
-				"name",
-			);
+			// The command's label is the entry's own label, else the module
+			// name, matching the expander's `case_list.label`. Its media
+			// locales (when present) merge in alongside.
+			appStrings[`case_lists.m${mIdx}`] =
+				mod.caseListMenuItem?.label ?? modName;
+			appStringUnits[`case_lists.m${mIdx}`] = caseListMenuItemLabelUnit(mod);
 			Object.assign(appStrings, caseListNav.strings);
 
-			// The browse entry: no `<form>`, a `case_id` datum carrying both
-			// detail-select + detail-confirm, and the same instance
-			// accumulation the form entry uses (the browse entry is the sole
-			// loader of `m{N}_case_short` / `m{N}_case_long` in a formless
-			// module). Calc-column expressions + the case-list filter +
+			// The case list entry: no `<form>`, the datums a case-loading form
+			// of the menu takes (HQ's `configure_entry_module_form` with no
+			// form; an advanced menu's one `case_id_case_<type>` datum), and
+			// the same instance accumulation the form entry uses (it is the
+			// sole loader of `m{N}_case_short` / `m{N}_case_long` in a
+			// formless module). Calc-column expressions + the case-list filter +
 			// any search-button display condition are read from the module
 			// exactly as the per-form path reads them.
 			const browseDatums = caseListSessionDatums(doc, linkContext, moduleUuid);

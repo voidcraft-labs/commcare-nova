@@ -1,7 +1,7 @@
 import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	type BlueprintDoc,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	type Uuid,
 } from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
@@ -260,11 +260,11 @@ export function prepareEntryPointLaunch(args: {
 	}
 	const target = item.target;
 	/* Web Apps' claim frame posts a claim for every chosen case before it
-	 * navigates, except in a module that opens on its search; Android keeps
+	 * navigates, except in a menu whose forms read the search; Android keeps
 	 * only the last command and never reaches the claim. */
 	const claimCaseIds =
 		args.rules.entryPointClaims === "posted" &&
-		!moduleOpensOnSearch(args.doc.modules[target.moduleUuid])
+		!moduleFormsReadSearch(args.doc.modules[target.moduleUuid])
 			? required.flatMap(
 					(requirement) =>
 						menuSelections[requirement.moduleUuid]?.cases.map(

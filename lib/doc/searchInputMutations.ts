@@ -14,7 +14,7 @@ import {
 	searchInputScreenExpressions,
 } from "@/lib/domain";
 import { type CheckPath, walkInputRefs } from "@/lib/domain/expression";
-import { searchAnswerFieldDependents } from "./searchNoMatchesDependents";
+import { searchAnswerFieldDependents } from "./searchReadDependents";
 
 type SearchInputOccurrencePaths = readonly [CheckPath, ...CheckPath[]];
 
@@ -66,8 +66,9 @@ export type SearchInputRemovalDependency =
 			readonly columnUuid: Uuid;
 			readonly paths: SearchInputOccurrencePaths;
 	  }
-	/** A form field reading the answer as `#search/<name>` (the no-matches
-	 * registration form's carried answers). */
+	/** A form field reading the answer as `#search/<name>` (a case list
+	 * registration form's carried answers, or a field of a form whose menu's
+	 * forms read the search). */
 	| {
 			readonly kind: "form-field";
 			readonly label: string;

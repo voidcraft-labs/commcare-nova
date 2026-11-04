@@ -28,9 +28,8 @@
 //     SEARCH prompts do support `required_msg` via formplayer's
 //     `DisplayElement`, but that's a separate surface Nova doesn't model.)
 //
-// `caseListConfig.icon` / `audioLabel` ARE walked, but only for
-// `caseListOnly` modules — that's the one shape where CCHQ emits a
-// case-list menu command for the icon to land on (see the walk below).
+// `caseListMenuItem.icon` / `audioLabel` are walked wherever the module holds
+// the entry: CCHQ emits the case list menu command they land on exactly then.
 
 import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
@@ -208,31 +207,27 @@ export function* walkAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 			};
 		}
 
-		// Case-list-link menu media: the icon / audio on the "open case
-		// list" command. CCHQ emits that command only when
-		// `case_list.show` is true, which Nova sets solely for
-		// `caseListOnly` modules (see `expander.ts`'s gate) — so the media
-		// has a render target only there. Walking it on a non-caseListOnly
-		// module would bundle bytes no command references.
-		if (mod.caseListOnly) {
-			if (mod.caseListConfig?.icon) {
-				yield {
-					assetId: mod.caseListConfig.icon,
-					slotKind: "image",
-					location: { kind: "case_list_icon", moduleUuid, moduleName },
-				};
-			}
-			if (mod.caseListConfig?.audioLabel) {
-				yield {
-					assetId: mod.caseListConfig.audioLabel,
-					slotKind: "audio",
-					location: {
-						kind: "case_list_audio_label",
-						moduleUuid,
-						moduleName,
-					},
-				};
-			}
+		// The case list menu entry's media: the icon / audio on the "open
+		// case list" command, which CCHQ emits for the entry
+		// (`case_list.show`).
+		const item = mod.caseListMenuItem;
+		if (item?.icon) {
+			yield {
+				assetId: item.icon,
+				slotKind: "image",
+				location: { kind: "case_list_icon", moduleUuid, moduleName },
+			};
+		}
+		if (item?.audioLabel) {
+			yield {
+				assetId: item.audioLabel,
+				slotKind: "audio",
+				location: {
+					kind: "case_list_audio_label",
+					moduleUuid,
+					moduleName,
+				},
+			};
 		}
 		const columns = mod.caseListConfig?.columns ?? [];
 		for (const column of columns) {
@@ -473,8 +468,7 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<IconRef> {
 /**
  * Every asset id PRESENT in the doc — the superset {@link collectAssetRefs} would
  * yield if nothing were render-gated. It adds the one gated slot the gated walk
- * omits: `caseListConfig.icon` / `audioLabel` on NON-`caseListOnly` modules and
- * image-map rows on fully off-screen, unsorted saved columns. Those don't
+ * omits: image-map rows on fully off-screen, unsorted saved columns. Those don't
  * render today (so the validator/manifest rightly ignore them), but they
  * PERSIST in the doc and {@link remapAssetRefs} rewrites them un-gated — so a
  * move must copy + repoint them too, or making the carrier active later would
@@ -485,11 +479,6 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<IconRef> {
 export function collectAuthoredAssetRefs(doc: BlueprintDoc): Set<IconRef> {
 	const ids = collectAssetRefs(doc);
 	for (const mod of Object.values(doc.modules)) {
-		if (!mod.caseListOnly) {
-			if (mod.caseListConfig?.icon) ids.add(mod.caseListConfig.icon);
-			if (mod.caseListConfig?.audioLabel)
-				ids.add(mod.caseListConfig.audioLabel);
-		}
 		for (const column of mod.caseListConfig?.columns ?? []) {
 			if (column.kind !== "image-map") continue;
 			for (const row of column.mapping) ids.add(row.assetId);
@@ -526,26 +515,6 @@ export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
 		const mod = doc.modules[moduleUuid];
 		if (!mod) continue;
 		const moduleName = mod.name;
-		if (!mod.caseListOnly) {
-			if (mod.caseListConfig?.icon) {
-				yield {
-					assetId: mod.caseListConfig.icon,
-					slotKind: "image",
-					location: { kind: "case_list_icon", moduleUuid, moduleName },
-				};
-			}
-			if (mod.caseListConfig?.audioLabel) {
-				yield {
-					assetId: mod.caseListConfig.audioLabel,
-					slotKind: "audio",
-					location: {
-						kind: "case_list_audio_label",
-						moduleUuid,
-						moduleName,
-					},
-				};
-			}
-		}
 		for (const column of mod.caseListConfig?.columns ?? []) {
 			if (column.kind !== "image-map" || caseListColumnTextShows(column)) {
 				continue;
@@ -611,14 +580,9 @@ export function remapAssetRefs(
 			if (!mod) continue;
 			if (mod.icon) mod.icon = remapModuleIcon(mod.icon);
 			if (mod.audioLabel) mod.audioLabel = remapUploaded(mod.audioLabel);
-			if (mod.caseListConfig?.icon) {
-				mod.caseListConfig.icon = remapModuleIcon(mod.caseListConfig.icon);
-			}
-			if (mod.caseListConfig?.audioLabel) {
-				mod.caseListConfig.audioLabel = remapUploaded(
-					mod.caseListConfig.audioLabel,
-				);
-			}
+			const item = mod.caseListMenuItem;
+			if (item?.icon) item.icon = remapModuleIcon(item.icon);
+			if (item?.audioLabel) item.audioLabel = remapUploaded(item.audioLabel);
 			for (const column of mod.caseListConfig?.columns ?? []) {
 				if (column.kind !== "image-map") continue;
 				for (const row of column.mapping) {

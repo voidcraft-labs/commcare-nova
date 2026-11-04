@@ -203,7 +203,9 @@ describe("SA tool path — column atomic ops", () => {
 	it("returns Elm-style error when an update targets an unknown column uuid", async () => {
 		const doc = buildDoc({
 			appId: APP_ID,
-			modules: [{ name: "Patients", caseType: "patient", caseListOnly: true }],
+			modules: [
+				{ name: "Patients", caseType: "patient", caseListMenuItem: {} },
+			],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
 		const moduleUuid = doc.moduleOrder[0];
@@ -834,7 +836,7 @@ describe("sort-priority collision admission", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(colFirstUuid, "case_name", "Patient"),

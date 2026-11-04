@@ -177,12 +177,15 @@ export function applyFormMutation(
 		}
 		case "removeForm": {
 			if (draft.forms[mut.uuid] === undefined) return;
-			// Find which module owns this form, remove from its order.
+			// Find which module owns this form, remove from its order. A module
+			// whose case list offered this form stops offering it in the same
+			// step, so its slot never names a form that is gone.
 			for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
 				const idx = formList.indexOf(mut.uuid);
 				if (idx !== -1) {
 					formList.splice(idx, 1);
 					draft.formOrder[modUuid as keyof typeof draft.formOrder] = formList;
+					clearCaseListRegistrationNaming(draft, modUuid, mut.uuid);
 					break;
 				}
 			}
@@ -207,10 +210,16 @@ export function applyFormMutation(
 			// sequence at the named placement. Same-module and cross-module are one
 			// path: the source removal is a no-op when the source IS the target,
 			// because `spliceAfter` removes the uuid before re-inserting it.
+			// A form that leaves its module leaves that module's case list too: it
+			// becomes a menu form of its destination. A same-module reorder keeps
+			// the slot.
 			for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
 				if (modUuid === mut.toModuleUuid) continue;
 				const idx = formList.indexOf(mut.uuid);
-				if (idx !== -1) formList.splice(idx, 1);
+				if (idx !== -1) {
+					formList.splice(idx, 1);
+					clearCaseListRegistrationNaming(draft, modUuid, mut.uuid);
+				}
 			}
 			draft.formOrder[mut.toModuleUuid] = spliceAfter(
 				draft.formOrder[mut.toModuleUuid] ?? [],
@@ -519,5 +528,18 @@ export function applyFormMutation(
 			else form.audioLabel = mut.audioLabel;
 			return;
 		}
+	}
+}
+
+/** Delete `moduleUuid`'s case list registration slot when it names
+ * `formUuid`, the form leaving the module. */
+function clearCaseListRegistrationNaming(
+	draft: Draft<BlueprintDoc>,
+	moduleUuid: string,
+	formUuid: string,
+): void {
+	const mod = draft.modules[moduleUuid];
+	if (mod?.caseListRegistrationForm?.formUuid === formUuid) {
+		delete mod.caseListRegistrationForm;
 	}
 }

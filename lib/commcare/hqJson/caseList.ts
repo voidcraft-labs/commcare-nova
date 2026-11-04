@@ -62,6 +62,7 @@ import {
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	casePropertyShowsOptionLabels,
+	declaresWebApps,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	imageMapShowsImages,
@@ -737,16 +738,17 @@ function buildSearchConfigDocument(
 	expressions: ModuleExpressionContexts,
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
+	runsInWebApps: boolean,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
 	// CCHQ-default baseline lives in one file (any future CCHQ
 	// upstream default change is a one-edit fix).
-	const config = caseSearchConfigShell(localization.languages);
+	const config = caseSearchConfigShell(localization.languages, runsInWebApps);
 	const wire =
-		caseSearchConfig === undefined || caseListConfig === undefined
+		caseSearchConfig === undefined
 			? undefined
-			: searchWireShape(caseListConfig, caseSearchConfig);
+			: searchWireShape(caseSearchConfig);
 	// Core's answer instance is named after the query's storage instance.
 	// Keep the HQ prompt rules, query operands and owner exclusion on the
 	// same instance that the local suite's Search session supplies.
@@ -832,19 +834,19 @@ function buildSearchConfigDocument(
 	}
 
 	// `searchWireShape`'s three-flag `WireShape` projects onto the
-	// persisted CCHQ slots. The shape is one for every platform the
-	// app declares: the HQ JSON ships one form
-	// and the web entry point is where CCHQ regenerates the suite from it.
-	// Without this projection, `auto_launch` and `default_search`
-	// would stay at the shell defaults and CCHQ's runtime would never
-	// reach skip-to-results — the entire `searchWireShape`
-	// decision tree would be dead code on the production upload path.
-	// Nova's own suite-XML emitter drives local rendering on every
-	// platform.
-	if (wire !== undefined && caseListConfig !== undefined) {
+	// persisted CCHQ slots: the authored workflow's spelling, one for
+	// every platform the app declares. The HQ JSON ships one form and the
+	// web entry point is where CCHQ regenerates the suite from it, so
+	// without this projection `auto_launch` and `default_search` would
+	// stay at the shell defaults and HQ's build would list first whatever
+	// the author chose. The local suite spells the same workflow from the
+	// same config (`remoteRequest.ts`, `inlineSearch.ts`).
+	if (wire !== undefined) {
 		config.auto_launch = wire.autoLaunch;
 		config.default_search = wire.defaultSearch;
 		config.inline_search = wire.inlineSearch;
+	}
+	if (wire !== undefined && caseListConfig !== undefined) {
 		config.include_all_related_cases = searchNeedsSupportingCases(
 			caseListConfig,
 			expressions,
@@ -994,6 +996,7 @@ export function projectCaseListForHq(
 		expressions,
 		lookupNaming,
 		caseListStepDatumId(doc, mod.uuid, "id"),
+		declaresWebApps(doc),
 	);
 
 	return { caseDetails: pair, searchConfig };

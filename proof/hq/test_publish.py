@@ -743,8 +743,8 @@ def test_a_build_made_before_its_media_installs_on_android(hq, documents):
 
 # A .ccz made for one project space --------------------------------------------------------------------------
 
-# The list-first scenario of the case list fixture: it runs on both platforms, so Nova makes a local archive of
-# it, and its searching menu gives the suite the query URLs the archive tests resolve.
+# The local scenario of the case list fixture: it runs on both platforms, so Nova makes a local archive of it,
+# and its searching menu gives the suite the query URLs the archive tests resolve.
 ARCHIVE_DOCUMENT = "case-list-local"
 WORKER_PASSWORD = "proof-worker-password"
 # The four profile properties a local archive names its server, project space and app by.

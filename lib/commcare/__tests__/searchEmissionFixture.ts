@@ -9,6 +9,7 @@ import {
 	NEW_APP_SETTINGS,
 	proseText,
 	simpleSearchInputDef,
+	visibleSearchInputs,
 } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -29,7 +30,8 @@ const PARENT_COLUMN = testUuid("00000000-0000-4000-8000-0000000a0002");
 
 export function inlineDoc(
 	options: {
-		readonly caseListOnly?: boolean;
+		/** The menu is its case list alone: the entry and no forms. */
+		readonly bareCaseList?: boolean;
 		readonly multiSelect?: boolean;
 	} = {},
 ): BlueprintDoc {
@@ -54,16 +56,16 @@ export function inlineDoc(
 	}
 	return buildDoc({
 		appName: "Inline",
-		// Search first runs in Web Apps alone.
+		// A menu whose forms read the search runs in Web Apps alone.
 		appSettings: WEB_APPS_ONLY,
 		modules: [
 			{
 				name: "Followup",
 				caseType: "patient",
 				caseListConfig: config,
-				caseSearchConfig: { searchFirst: true },
-				...(options.caseListOnly === true
-					? { caseListOnly: true }
+				caseSearchConfig: { formsReadSearch: true },
+				...(options.bareCaseList === true
+					? { caseListMenuItem: {} }
 					: {
 							forms: [
 								{
@@ -119,9 +121,14 @@ export function registrationLinkDoc(
 ): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = options.searchInputs ?? [nameInput()];
+	// With nothing to fill in, the search runs as the menu opens.
+	const workflow =
+		visibleSearchInputs(config.searchInputs).length === 0
+			? { workflow: "skipToResults" as const }
+			: {};
 	return buildDoc({
 		appName: "Inline",
-		// Search first runs in Web Apps alone.
+		// A menu whose forms read the search runs in Web Apps alone.
 		appSettings: WEB_APPS_ONLY,
 		modules: [
 			{
@@ -129,7 +136,7 @@ export function registrationLinkDoc(
 				name: "Followup",
 				caseType: "patient",
 				caseListConfig: config,
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { ...workflow, formsReadSearch: true },
 				forms: [
 					{
 						uuid: FOLLOWUP_FORM,
@@ -188,14 +195,14 @@ export function parentSelectDoc(): BlueprintDoc {
 	config.searchInputs = [nameInput()];
 	const doc = buildDoc({
 		appName: "Inline",
-		// Search first runs in Web Apps alone.
+		// A menu whose forms read the search runs in Web Apps alone.
 		appSettings: WEB_APPS_ONLY,
 		modules: [
 			{
 				name: "Followup",
 				caseType: "patient",
 				caseListConfig: config,
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				forms: [
 					{ name: "Untitled Form", type: "followup", fields: [question1()] },
 				],
@@ -269,7 +276,7 @@ export function searchEmissionFixture(
 			],
 		});
 	const doc = inlineDoc({
-		caseListOnly: scenario === "browse",
+		bareCaseList: scenario === "browse",
 		multiSelect: scenario === "multiple" || scenario === "remote-multiple",
 	});
 	const module = doc.modules[doc.moduleOrder[0]];
@@ -294,6 +301,12 @@ export function searchEmissionFixture(
 				term(literal("now")),
 			),
 		];
+	// With nothing to fill in, the search runs as the menu opens.
+	if (scenario === "automatic" || scenario === "hidden")
+		module.caseSearchConfig = {
+			workflow: "skipToResults",
+			formsReadSearch: true,
+		};
 	if (scenario === "advanced") {
 		const id = testUuid("note-input");
 		config.searchInputs = [

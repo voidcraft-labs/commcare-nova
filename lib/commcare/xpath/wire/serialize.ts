@@ -274,6 +274,13 @@ export function serializeWire(
 				instances.addOne(node.root.decl);
 				root = `instance(${printLiteral(node.root.decl.id, mode)})`;
 				break;
+			case "next-input":
+				if (mode.target !== "suite")
+					throw new Error(
+						"The chosen cases of a multi-select list's auto-launch condition cannot be read outside a suite slot.",
+					);
+				root = `instance(${printLiteral("next_input", mode)})`;
+				break;
 			case "hq-case":
 				if (mode.target !== "hq-json" || mode.interpolation !== "case")
 					throw new Error(

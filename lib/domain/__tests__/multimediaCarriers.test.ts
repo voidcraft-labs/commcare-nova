@@ -204,26 +204,36 @@ describe("module schema — icon + audioLabel", () => {
 		expect(parsed.icon).toBeUndefined();
 	});
 
-	it("caseListConfig parses with icon + audioLabel", () => {
+	it("caseListMenuItem parses with icon + audioLabel, and a case list holds neither", () => {
 		const parsed = moduleSchema.parse({
 			uuid: "20000000-0000-4000-8000-000000000001",
 			id: "patient_registration",
 			name: "Patient registration",
-			caseListConfig: {
-				columns: [],
-				listColumnOrder: [],
-				detailColumnOrder: [],
-				searchInputs: [],
+			caseListMenuItem: {
 				icon: "00000000-0000-4000-8000-000000000003",
 				audioLabel: "00000000-0000-4000-8000-000000000004",
 			},
 		});
-		expect(parsed.caseListConfig?.icon).toBe(
+		expect(parsed.caseListMenuItem?.icon).toBe(
 			"00000000-0000-4000-8000-000000000003",
 		);
-		expect(parsed.caseListConfig?.audioLabel).toBe(
+		expect(parsed.caseListMenuItem?.audioLabel).toBe(
 			"00000000-0000-4000-8000-000000000004",
 		);
+		expect(
+			moduleSchema.safeParse({
+				uuid: "20000000-0000-4000-8000-000000000001",
+				id: "patient_registration",
+				name: "Patient registration",
+				caseListConfig: {
+					columns: [],
+					listColumnOrder: [],
+					detailColumnOrder: [],
+					searchInputs: [],
+					icon: "00000000-0000-4000-8000-000000000003",
+				},
+			}).success,
+		).toBe(false);
 	});
 });
 

@@ -4,67 +4,108 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import { useId, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
-import {
-	type Form,
-	formEntersFromMenu,
-	isNoMatchesForm,
-	moduleOpensOnSearch,
-	type Uuid,
-} from "@/lib/domain";
+import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
+import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { type Form, moduleFormsReadSearch, type Uuid } from "@/lib/domain";
 import { platformPickerLine, platformRefusal } from "@/lib/domain/platforms";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { selectableSegmentCls } from "@/lib/styles";
 import { cn } from "@/lib/utils";
 import {
-	NoMatchesFormReviewDialog,
-	useNoMatchesFormEntry,
-} from "../noMatchesFormReview";
+	CaseListRegistrationReviewDialog,
+	planCaseListRegistrationChoice,
+	useCaseListRegistration,
+} from "../caseListRegistrationReview";
 
-export interface NoMatchesFormSettingProps {
+export interface CaseListRegistrationSettingProps {
 	readonly moduleUuid: Uuid;
 }
 
 /**
  * What Results offers after a search finds nothing: only the notice, or a
- * registration form that opens with the search's answers (the module's
- * no-matches form, `Form.entry`). Offering a form is reviewed first
- * because it changes what people see: the module opens on Search, and the
- * form leaves the menu. The choice is one setting of the Search canvas so
- * the whole search-before-register shape reads in one place.
+ * registration form that opens with the search's answers (the menu's case
+ * list registration form, `Module.caseListRegistrationForm`). Offering a
+ * form is reviewed first because it changes what people see: the menu's
+ * forms read the search, and the form leaves the menu. The choice is one
+ * setting of the Search canvas so the whole search-before-register shape
+ * reads in one place.
+ *
+ * The offer is disabled with a reason, never withheld: where a platform the
+ * app runs on can't have forms read the search, with that platform's line;
+ * where the gate refuses every way of offering a form, with the gate's
+ * sentence for the new form's batch. A stored offer shows as it is.
  */
-export function NoMatchesFormSetting({
+export function CaseListRegistrationSetting({
 	moduleUuid,
-}: NoMatchesFormSettingProps) {
+}: CaseListRegistrationSettingProps) {
 	const canEdit = useCanEdit();
 	const navigate = useNavigate();
 	const mod = useModule(moduleUuid);
 	const forms = useOrderedForms(moduleUuid);
-	const entry = useNoMatchesFormEntry(moduleUuid);
+	const entry = useCaseListRegistration(moduleUuid);
 	const [choosing, setChoosing] = useState(false);
 	const choiceName = useId();
-	const current = forms.find(isNoMatchesForm);
+	const slot = mod?.caseListRegistrationForm;
+	const current =
+		slot === undefined
+			? undefined
+			: forms.find((form) => form.uuid === slot.formUuid);
 	const candidates = forms.filter(
-		(form) => form.type === "registration" && formEntersFromMenu(form),
+		(form) => form.type === "registration" && form.uuid !== slot?.formUuid,
 	);
 	const offering = current !== undefined || choosing;
-	/* Offering a form turns Search first on, which a platform the app runs
-	 * on may not run: the choice is withheld with that platform's line. A
-	 * stored offer shows as it is. */
 	const platforms = useDeclaredPlatforms();
-	const searchFirstRefusal = platformRefusal("search-first", platforms);
-	const offerWithheld = !offering && searchFirstRefusal !== undefined;
-	const actionLabel = current?.entry?.label ?? current?.name;
+	const platformLine = platformRefusal("forms-read-search", platforms);
+	/* Each way of offering a form: a new one, or an existing registration
+	 * form leaving the menu. The offer is withheld only when the gate
+	 * refuses all of them. */
+	const plan = useCallback(
+		(doc: BlueprintDoc) => {
+			const batches: Record<string, readonly Mutation[]> = {};
+			const create = planCaseListRegistrationChoice(doc, moduleUuid, {
+				kind: "create",
+			});
+			if (create !== null) batches.create = create.mutations;
+			const registration = doc.modules[moduleUuid]?.caseListRegistrationForm;
+			for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+				if (
+					formUuid === registration?.formUuid ||
+					doc.forms[formUuid]?.type !== "registration"
+				)
+					continue;
+				const existing = planCaseListRegistrationChoice(doc, moduleUuid, {
+					kind: "existing",
+					formUuid,
+				});
+				if (existing !== null) batches[formUuid] = existing.mutations;
+			}
+			return batches;
+		},
+		[moduleUuid],
+	);
+	const gate = useOfferedBatchRefusals<string>(
+		plan,
+		canEdit && current === undefined && platformLine === undefined,
+	);
+	const arms = ["create", ...candidates.map((form) => form.uuid)];
+	const gateRefusal = arms.every((arm) => gate[arm] !== undefined)
+		? (gate.create ?? gate[arms[1] ?? "create"])
+		: undefined;
+	const offerRefusal =
+		platformLine !== undefined ? platformPickerLine(platformLine) : gateRefusal;
+	const offerWithheld = !offering && offerRefusal !== undefined;
+	const actionLabel = slot?.label ?? current?.name;
 	const help =
 		current === undefined
 			? "Results shows the notice when nothing matches. Offer a registration form so people can register what they searched for."
 			: `Results offers “${actionLabel}” when nothing matches. It opens “${current.name}” with the search's answers${
-					current.entry?.label === undefined ? "" : ", named after the action"
+					slot?.label === undefined ? "" : ", named after the action"
 				}.`;
 
 	const offer = (origin: HTMLElement) => {
@@ -86,10 +127,13 @@ export function NoMatchesFormSetting({
 	};
 
 	return (
-		<section aria-labelledby="no-matches-heading" data-no-matches-setting>
+		<section
+			aria-labelledby="case-list-registration-heading"
+			data-case-list-registration-setting
+		>
 			<div className="mb-4">
 				<h2
-					id="no-matches-heading"
+					id="case-list-registration-heading"
 					className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 				>
 					When no cases match
@@ -164,9 +208,9 @@ export function NoMatchesFormSetting({
 								className="sr-only"
 							/>
 							Offer a registration form
-							{offerWithheld && searchFirstRefusal !== undefined && (
+							{offerWithheld && (
 								<span className="text-center text-xs leading-snug text-nova-text-muted">
-									{platformPickerLine(searchFirstRefusal)}
+									{offerRefusal}
 								</span>
 							)}
 						</label>
@@ -249,10 +293,10 @@ export function NoMatchesFormSetting({
 						</div>
 					)}
 
-					{(mod === undefined || !moduleOpensOnSearch(mod)) && (
+					{(mod === undefined || !moduleFormsReadSearch(mod)) && (
 						<p className="mt-4 text-[13px] leading-relaxed text-nova-text-muted">
-							Offering a form turns Search first on: people search before they
-							see any cases.
+							Offering a form turns on Forms read the search: each form in this
+							menu runs the search as it opens.
 						</p>
 					)}
 				</div>
@@ -266,7 +310,7 @@ export function NoMatchesFormSetting({
 			)}
 
 			{entry.review !== null && (
-				<NoMatchesFormReviewDialog
+				<CaseListRegistrationReviewDialog
 					review={entry.review}
 					finalFocus={entry.finalFocus}
 					onCancel={entry.cancel}

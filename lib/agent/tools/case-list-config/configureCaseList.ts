@@ -7,7 +7,8 @@
  */
 
 import { z } from "zod";
-import { planSearchTakeawayDependents } from "@/lib/doc/searchNoMatchesDependents";
+import { withWorkflowAfterInputChange } from "@/lib/doc/caseSearchConfigPatchMutations";
+import { planSearchTakeawayDependents } from "@/lib/doc/searchReadDependents";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
@@ -32,10 +33,13 @@ import {
 	collapseUnauthoredCaseSearchConfig,
 	DISPLAY_SLOT_NAMES,
 	type DisplaySlotName,
+	formsReadSearchInputSchema,
 	pickAdvancedCluster,
 	pickSearchActionIntent,
+	searchWorkflowInputSchema,
 	setCaseSearchDisplayBodySchema,
 	snapshotCaseSearchConfig,
+	storedSearchWorkflow,
 } from "../case-search-config/shared";
 import {
 	applyToDoc,
@@ -86,12 +90,15 @@ export const configureCaseListInputSchema = z
 				"Replacement always-on case-list filter. null clears it; omission leaves it unchanged. Ordinary case lists already omit closed cases.",
 			),
 		...configureSearchDisplaySchema.shape,
-		searchFirst: z
-			.literal(true)
-			.nullable()
+		searchWorkflow: searchWorkflowInputSchema
 			.optional()
 			.describe(
-				"`true` makes the module open on its Search screen with no browse list (Results exist only after a completed search); `null` returns it to browse-then-search; omission leaves it unchanged. Same rules as setCaseSearchAdvanced.searchFirst.",
+				"Same as setCaseSearchAdvanced.searchWorkflow; omission keeps it.",
+			),
+		formsReadSearch: formsReadSearchInputSchema
+			.optional()
+			.describe(
+				"Same as setCaseSearchAdvanced.formsReadSearch; omission keeps it.",
 			),
 		resultsColumnOrder: z
 			.array(uuidInputSchema)
@@ -126,7 +133,8 @@ export const configureCaseListInputSchema = z
 		if (
 			input.columns === undefined &&
 			input.searchInputs === undefined &&
-			input.searchFirst === undefined &&
+			input.searchWorkflow === undefined &&
+			input.formsReadSearch === undefined &&
 			!("filter" in input) &&
 			displaySlots.length === 0 &&
 			input.resultsColumnOrder === undefined &&
@@ -136,7 +144,7 @@ export const configureCaseListInputSchema = z
 			ctx.addIssue({
 				code: "custom",
 				message:
-					"Configure at least one case-list resource: columns, search inputs, filter, search display, Search first, or an order.",
+					"Configure at least one case-list resource: columns, search inputs, filter, search display, what the menu opens on, whether its forms read the search, or an order.",
 			});
 		}
 	});
@@ -187,31 +195,63 @@ function displayMutations(mod: Module, input: SearchDisplayInput): Mutation[] {
 	});
 }
 
-/** Turn Search first on or off, keeping every other Search setting. */
-function searchFirstMutations(
+/**
+ * Set what the menu opens on and whether its forms read the search, each
+ * where the call states it, keeping every other Search setting. Search first
+ * is the stored absence of `workflow`.
+ */
+function searchWorkflowMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	mod: Module,
-	searchFirst: true | null,
+	input: Pick<ConfigureCaseListInput, "searchWorkflow" | "formsReadSearch">,
 ): { readonly mutations: Mutation[] } | { readonly error: string } {
 	const existing = snapshotCaseSearchConfig(mod);
 	if (existing !== undefined && isOwnerOnlyCaseSearchConfig(existing)) {
-		if (searchFirst === null) return { mutations: [] };
+		if (
+			(input.searchWorkflow === undefined ||
+				input.searchWorkflow === "searchFirst") &&
+			input.formsReadSearch !== true
+		)
+			return { mutations: [] };
 		return {
-			error: `Module "${mod.name}" only limits which cases are available and has no Search action, so it cannot open on Search. Add a search input first, then turn Search first on.`,
+			error: `Module "${mod.name}" only limits which cases are available and has no Search action, so there is no search for it to open on or for its forms to read. Add a search input first, then choose what the menu opens on.`,
 		};
 	}
-	if (searchFirst === null && existing?.searchFirst === true) {
+	const workflow =
+		input.searchWorkflow === undefined
+			? existing?.workflow
+			: storedSearchWorkflow(input.searchWorkflow);
+	const formsReadSearch =
+		input.formsReadSearch === undefined
+			? existing?.formsReadSearch === true
+			: input.formsReadSearch === true;
+	if (workflow === "listFirst" && formsReadSearch) {
+		return {
+			error:
+				input.searchWorkflow === "listFirst"
+					? `Module "${mod.name}" can't open on its case list while its forms read the search, because the search runs as a form opens only after the worker searched. Set formsReadSearch to null in the same call, or choose searchFirst or skipToResults.`
+					: `Module "${mod.name}" opens on its case list (listFirst), where its forms can't read the search. Set searchWorkflow to searchFirst or skipToResults in the same call, then turn formsReadSearch on.`,
+		};
+	}
+	if (existing?.formsReadSearch === true && !formsReadSearch) {
 		const dependents = planSearchTakeawayDependents(
 			doc,
 			moduleUuid,
-			"search-first",
+			"forms-read-search",
 		);
 		if (dependents.kind === "blocked") return { error: dependents.message };
 	}
-	const { searchFirst: _current, ...rest } = existing ?? {};
-	const candidate: CaseSearchConfig =
-		searchFirst === true ? { ...rest, searchFirst: true } : rest;
+	const {
+		workflow: _workflow,
+		formsReadSearch: _formsReadSearch,
+		...rest
+	} = existing ?? {};
+	const candidate: CaseSearchConfig = {
+		...rest,
+		...(workflow !== undefined && { workflow }),
+		...(formsReadSearch && { formsReadSearch: true as const }),
+	};
 	return {
 		mutations: updateModuleMutations(mod, {
 			caseSearchConfig:
@@ -302,21 +342,24 @@ export const configureCaseListTool = {
 			if (hasCompleteSearchDisplay(input)) {
 				append(displayMutations(workingModule, input));
 			}
-			if (input.searchFirst !== undefined) {
-				const searchFirst = searchFirstMutations(
+			if (
+				input.searchWorkflow !== undefined ||
+				input.formsReadSearch !== undefined
+			) {
+				const workflow = searchWorkflowMutations(
 					doc,
 					moduleUuid,
 					workingModule,
-					input.searchFirst,
+					input,
 				);
-				if ("error" in searchFirst) {
+				if ("error" in workflow) {
 					return {
 						kind: "mutate",
 						mutations: [],
-						result: { error: searchFirst.error },
+						result: { error: workflow.error },
 					};
 				}
-				append(searchFirst.mutations);
+				append(workflow.mutations);
 			}
 
 			for (const [order, surface] of [
@@ -353,9 +396,15 @@ export const configureCaseListTool = {
 				append(result.mutations);
 			}
 
+			// A call that leaves a search with nothing to fill in and no chosen
+			// workflow, where the menu had a Search field to fill in or no
+			// search, opens the menu on its results; a call that states the
+			// workflow keeps the one it states.
 			const commit = await guardedMutate(
 				ctx,
-				mutations,
+				input.searchWorkflow === undefined
+					? withWorkflowAfterInputChange(doc, mutations)
+					: mutations,
 				`module:${moduleUuid}:caseList:configure`,
 			);
 			if (!commit.ok) {

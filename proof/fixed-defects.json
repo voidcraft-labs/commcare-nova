@@ -9250,5 +9250,341 @@
 		"artifact": "editor:vellum@*",
 		"path": "/modules/*/forms/*/questions/*/repeat_count/mug-repeat_count-error/Repeat Count is required.",
 		"control": "targeted-labelled-group-repeat"
+	},
+	{
+		"id": "d21-search-first-app-search-config-auto-launch",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "app.json@case list@*",
+		"path": "/modules/*/search_config/auto_launch",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-blocks-c660",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "case_blocks@case list@*",
+		"path": "/runs/*/blocks",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-blocks-d0d9",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "case_blocks@case list@*",
+		"path": "/runs/*/cases",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-blocks-refusal",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "case_blocks@case list@*",
+		"path": "/runs/*/refusal",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-blocks-fb79",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "case_blocks@case list@*",
+		"path": "/runs/*/submitted",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-suite-action-auto-launch",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "suite.xml@case list@*",
+		"path": "/suite/detail[@id=*]/action[*]/@auto_launch",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-unreplayable-ec6d",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/end/submitted/unreplayable",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-script",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/script/*",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-autolaunched",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/autoLaunched",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-badges",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/badges",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-7431",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/caseDb",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-casedetail",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/caseDetail",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-choices",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/choices",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-chosen",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/chosen",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-defaultsearch",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/defaultSearch",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-events",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/events",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-hidden",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/hidden",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-prompts",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/prompts",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-root",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/root",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-screen",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/screen",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-stackaftersubmit",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/stackAfterSubmit",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-a9f0",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/submission",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-title",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/title",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-unreplayable-638a",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/unreplayable",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-search-first-trace-xmlns",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/xmlns",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-formplayer-case-list-response-type",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/response/type",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-formplayer-case-list-submit-nextscreen-type",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "formplayer@case list@*",
+		"path": "/runs/*/steps/*/submit/nextScreen/type",
+		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-end-empty-menu-unreplayable",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/end/empty-menu/unreplayable",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-end-no-cases-script-ended",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/end/no-cases/script-ended",
+		"control": "case-list-match-none"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*",
+		"control": "case-operation-query"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-datum",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/datum",
+		"control": "tile-grouped-search"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-requests",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/requests",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-trace-case-list-trace-step",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "trace@case list@*",
+		"path": "/runs/*/trace/*/step",
+		"control": "tile-grouped-search"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*",
+		"kind": "added",
+		"control": "targeted-list-first-places"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs-viewport",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/viewport",
+		"kind": "changed",
+		"control": "targeted-list-first-places"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs-viewport-removed",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/viewport",
+		"kind": "removed",
+		"control": "targeted-list-first-places"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-screens-kind",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/screens/*/kind",
+		"control": "targeted-list-first-web-apps"
 	}
 ]

@@ -186,7 +186,7 @@ describe("a move reflects on the wire", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						columns: [
 							plainColumn(c1, "case_name", "Name"),

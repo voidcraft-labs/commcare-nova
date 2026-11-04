@@ -2,14 +2,17 @@
  * The search wire shape (`searchWireShape.ts`), and the platform table's
  * restatement of it.
  *
- * Contract: one shape for every platform an app declares. Search first is
- * HQ's inline search, prompted or not by whether a worker has a visible
- * field to answer; otherwise an effective filter with nothing to answer
- * skips to results, and anything else opens the list first. The platform
- * table's `skip-to-results` and `search-first` detectors restate those two
- * arms over the domain (`lib/domain/platformUses.ts`), so they hold exactly
- * where the emitted shape says, or a difference the builder states and the
- * gate refuses would drift from what the wire does.
+ * Contract: the three flags spell the authored workflow, one shape for every
+ * platform an app declares. `auto_launch` is off only for list first,
+ * `default_search` is on only for skip to results, and `inline_search` is
+ * exactly Forms read the search; list first beside Forms read the search is
+ * unrepresentable. The case list's filter and inputs choose nothing: a
+ * search that has a filter and nothing to fill in spells its stored
+ * workflow like any other. The platform table's `list-first`,
+ * `search-first`, `skip-to-results` and `forms-read-search` detectors
+ * restate those rows over the domain (`lib/domain/platformUses.ts`), so they
+ * hold exactly where the emitted shape says, or a difference the builder
+ * states and the gate refuses would drift from what the wire does.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,20 +22,14 @@ import {
 	type CaseListConfig,
 	effectiveCaseSearchConfig,
 	hiddenSearchInputDef,
+	NEW_APP_SETTINGS,
 	type OrdinaryCaseSearchConfig,
+	ordinaryCaseSearchConfigSchema,
 	platformFeatureUses,
 	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import {
-	and,
-	eq,
-	literal,
-	matchAll,
-	matchNone,
-	prop,
-	term,
-} from "@/lib/domain/expression";
+import { eq, literal, matchNone, prop, term } from "@/lib/domain/expression";
 import { searchWireShape } from "../searchWireShape";
 
 const visible = simpleSearchInputDef(
@@ -48,79 +45,100 @@ const hidden = hiddenSearchInputDef(
 	"Context",
 	term(literal("North")),
 );
-const noLaunch = {
-	autoLaunch: false,
-	defaultSearch: false,
-	inlineSearch: false,
-};
-const autoRemote = {
-	autoLaunch: true,
-	defaultSearch: true,
-	inlineSearch: false,
-};
-const autoInline = {
-	autoLaunch: true,
-	defaultSearch: true,
-	inlineSearch: true,
-};
-const promptedInline = {
-	autoLaunch: true,
-	defaultSearch: false,
-	inlineSearch: true,
-};
 
-const FILTERS = [
-	["none", undefined, noLaunch],
-	["true", matchAll(), noLaunch],
-	["folded true", and(matchAll(), matchAll()), noLaunch],
-	["false", matchNone(), autoRemote],
-	["condition", eq(prop("patient", "status"), literal("open")), autoRemote],
-] as const;
-const INPUTS = [[], [hidden], [visible], [hidden, visible]];
+/** Each admitted spelling of the workflow, with the flags it writes. */
+const ROWS: readonly (readonly [
+	string,
+	OrdinaryCaseSearchConfig,
+	{ autoLaunch: boolean; defaultSearch: boolean; inlineSearch: boolean },
+])[] = [
+	[
+		"list first",
+		{ workflow: "listFirst" },
+		{ autoLaunch: false, defaultSearch: false, inlineSearch: false },
+	],
+	[
+		"search first",
+		{},
+		{ autoLaunch: true, defaultSearch: false, inlineSearch: false },
+	],
+	[
+		"search first, forms read the search",
+		{ formsReadSearch: true },
+		{ autoLaunch: true, defaultSearch: false, inlineSearch: true },
+	],
+	[
+		"skip to results",
+		{ workflow: "skipToResults" },
+		{ autoLaunch: true, defaultSearch: true, inlineSearch: false },
+	],
+	[
+		"skip to results, forms read the search",
+		{ workflow: "skipToResults", formsReadSearch: true },
+		{ autoLaunch: true, defaultSearch: true, inlineSearch: true },
+	],
+];
 
-it.each(FILTERS)(
-	"projects the first screen from %s filtering",
-	(_name, filter, unprompted) => {
-		for (const inputs of INPUTS) {
-			const list = caseListConfig([{ field: "case_name", header: "Name" }]);
-			list.filter = filter;
-			list.searchInputs = inputs;
-			const before = structuredClone(list);
-			// Only the visible input changes whether the worker has something to answer.
-			const prompted = inputs.includes(visible);
-			expect(searchWireShape(list, {})).toEqual(
-				prompted ? noLaunch : unprompted,
-			);
-			expect(searchWireShape(list, { searchFirst: true })).toEqual(
-				prompted ? promptedInline : autoInline,
-			);
-			expect(list).toEqual(before);
-		}
-	},
-);
+it.each(ROWS)("spells %s", (_name, config, flags) => {
+	const before = structuredClone(config);
+	expect(searchWireShape(config)).toEqual(flags);
+	// The other settings of the search choose nothing.
+	expect(
+		searchWireShape({
+			...config,
+			searchScreenTitle: "Find a patient",
+			excludedOwnerIds: term(literal("owner-x")),
+		}),
+	).toEqual(flags);
+	expect(config).toEqual(before);
+});
+
+it("refuses list first beside Forms read the search", () => {
+	const parsed = ordinaryCaseSearchConfigSchema.safeParse({
+		workflow: "listFirst",
+		formsReadSearch: true,
+	});
+	expect(parsed.success).toBe(false);
+	expect(parsed.error?.issues.map((issue) => issue.path)).toEqual([
+		["formsReadSearch"],
+	]);
+	for (const [, config] of ROWS)
+		expect(ordinaryCaseSearchConfigSchema.safeParse(config).success).toBe(true);
+});
 
 describe("the platform table's restatement", () => {
-	/** Every module the matrix draws: each filter, each set of inputs, with
-	 * and without Search first. */
+	const FILTERS = [
+		["no filter", undefined],
+		["a narrowing filter", eq(prop("patient", "status"), literal("open"))],
+		["a filter that holds nothing", matchNone()],
+	] as const;
+	const INPUTS = [[], [hidden], [visible]];
+
+	/** Every module the matrix draws: each filter, each set of inputs, each
+	 *  workflow row. List first is admitted only where Web Apps is not
+	 *  declared, so every module is drawn in an app that runs on Android
+	 *  alone and in one that runs in Web Apps alone where it admits it. */
 	const modules = FILTERS.flatMap(([name, filter]) =>
 		INPUTS.flatMap((inputs) =>
-			[{}, { searchFirst: true as const }].map(
-				(search: OrdinaryCaseSearchConfig) => {
-					const list: CaseListConfig = caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]);
-					list.filter = filter;
-					list.searchInputs = inputs;
-					return { name, list, search };
-				},
-			),
+			ROWS.map(([row, search]) => {
+				const list: CaseListConfig = caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]);
+				list.filter = filter;
+				list.searchInputs = inputs;
+				return { name: `${row}, ${name}`, list, search };
+			}),
 		),
 	);
 
-	it("finds skip-to-results and Search first exactly where the wire shape emits them", () => {
+	it("finds each workflow exactly where the wire shape emits it", () => {
 		for (const { name, list, search } of modules) {
 			const doc = buildDoc({
 				appName: "Search shape",
+				appSettings: {
+					...NEW_APP_SETTINGS,
+					runsOnlyOn: search.workflow === "listFirst" ? "android" : "web-apps",
+				},
 				modules: [
 					{
 						name: "Patients",
@@ -142,23 +160,31 @@ describe("the platform table's restatement", () => {
 			const module = Object.values(doc.modules)[0];
 			const effective =
 				module === undefined ? undefined : effectiveCaseSearchConfig(module);
-			if (effective === undefined || module?.caseListConfig === undefined)
+			if (effective === undefined)
 				throw new Error("The module holds no search.");
-			const shape = searchWireShape(module.caseListConfig, effective);
+			const shape = searchWireShape(effective);
 			const found = new Set(
 				platformFeatureUses(doc, {
-					features: new Set(["skip-to-results", "search-first"]),
+					features: new Set([
+						"list-first",
+						"search-first",
+						"skip-to-results",
+						"forms-read-search",
+					]),
 				}).map((use) => use.feature),
 			);
-			expect([name, search, found.has("skip-to-results")]).toEqual([
+			expect([name, [...found].sort()]).toEqual([
 				name,
-				search,
-				shape.autoLaunch && shape.defaultSearch && !shape.inlineSearch,
-			]);
-			expect([name, search, found.has("search-first")]).toEqual([
-				name,
-				search,
-				shape.inlineSearch,
+				[
+					...(!shape.autoLaunch ? ["list-first"] : []),
+					...(shape.inlineSearch ? ["forms-read-search"] : []),
+					...(shape.autoLaunch && !shape.defaultSearch && !shape.inlineSearch
+						? ["search-first"]
+						: []),
+					...(shape.defaultSearch && !shape.inlineSearch
+						? ["skip-to-results"]
+						: []),
+				].sort(),
 			]);
 		}
 	});

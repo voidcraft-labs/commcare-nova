@@ -29,7 +29,7 @@ describe("case workspace visual-QA seed", () => {
 
 		const module = doc.modules[CASE_WORKSPACE_SEED.moduleUuid];
 		expect(module).toBeDefined();
-		expect(module?.caseListOnly).toBe(true);
+		expect(module?.caseListMenuItem).toEqual({});
 		const searchConfig = module?.caseSearchConfig;
 		expect(
 			searchConfig === undefined || isOwnerOnlyCaseSearchConfig(searchConfig)
@@ -110,6 +110,7 @@ describe("case workspace visual-QA seed", () => {
 			firstCase: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.moduleUuid}/cases/${CASE_ID}`,
 			tileResults: `/build/${APP_ID}/${tile.moduleUuid}/results`,
 			groupedResults: `/build/${APP_ID}/${CASE_WORKSPACE_SEED.grouped.moduleUuid}/results`,
+			tileModule: `/build/${APP_ID}/${tile.moduleUuid}`,
 			tileForm: `/build/${APP_ID}/${tile.formUuid}`,
 			projectData: `/build/${APP_ID}/project-data`,
 			// A selected field serializes as its own uuid, so the smoke's deep

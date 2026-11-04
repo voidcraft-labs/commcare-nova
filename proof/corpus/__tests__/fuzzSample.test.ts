@@ -28,9 +28,11 @@ import {
 	blueprintDocSchema,
 	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
+	declaresWebApps,
 	fieldCaseWriteViews,
 	fieldKindDeclaresKey,
 	fieldPreload,
+	moduleSearchWorkflow,
 	moduleUuidOfForm,
 } from "@/lib/domain";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
@@ -99,6 +101,12 @@ function opensWithCaseValueUnstated(doc: BlueprintDoc): boolean {
 	});
 }
 
+/** The written document's stored entities, read before the schema parses them. */
+interface WrittenShapes {
+	readonly fields?: Record<string, object>;
+	readonly modules?: Record<string, { readonly caseSearchConfig?: object }>;
+}
+
 /**
  * Each step 5 shape a draw could hold that the cutover maps in a stored app,
  * read from the drawn document as the writer writes it (`written`, before
@@ -112,7 +120,7 @@ const STEP_5_SHAPES: readonly {
 	readonly heldBy: (
 		doc: BlueprintDoc,
 		codes: ReadonlySet<string>,
-		written: { readonly fields?: Record<string, object> },
+		written: WrittenShapes,
 	) => boolean;
 }[] = [
 	{
@@ -139,6 +147,23 @@ const STEP_5_SHAPES: readonly {
 		heldBy: (doc) =>
 			labelledGroups(doc).some(
 				(group) => !group.holdsUserRepeat && group.fieldList !== true,
+			),
+	},
+	{
+		name: "a search that opens on its case list where Web Apps is declared",
+		heldBy: (doc) =>
+			declaresWebApps(doc) &&
+			Object.values(doc.modules).some(
+				(module) => moduleSearchWorkflow(module) === "listFirst",
+			),
+	},
+	{
+		name: "a search that stores searchFirst",
+		heldBy: (_doc, _codes, written) =>
+			Object.values(written.modules ?? {}).some(
+				(module) =>
+					module.caseSearchConfig !== undefined &&
+					Object.hasOwn(module.caseSearchConfig, "searchFirst"),
 			),
 	},
 ];
@@ -272,8 +297,9 @@ describe("the corpus's fuzz sample", () => {
 		});
 		let saving = 0;
 		let oneScreen = 0;
+		let searching = 0;
 		for (const sampled of sample) {
-			const written = (asWritten(sampled) as { doc: { fields?: object } }).doc;
+			const written = (asWritten(sampled) as { doc: WrittenShapes }).doc;
 			const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(written));
 			const codes = new Set(
 				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
@@ -281,13 +307,9 @@ describe("the corpus's fuzz sample", () => {
 				),
 			);
 			expect(
-				STEP_5_SHAPES.filter((shape) =>
-					shape.heldBy(
-						doc,
-						codes,
-						written as { fields?: Record<string, object> },
-					),
-				).map((shape) => shape.name),
+				STEP_5_SHAPES.filter((shape) => shape.heldBy(doc, codes, written)).map(
+					(shape) => shape.name,
+				),
 				sampled.document.id,
 			).toEqual([]);
 			if (
@@ -301,11 +323,16 @@ describe("the corpus's fuzz sample", () => {
 			oneScreen += labelledGroups(doc).filter(
 				(group) => group.fieldList === true,
 			).length;
+			searching += Object.values(doc.modules).filter(
+				(module) => moduleSearchWorkflow(module) !== undefined,
+			).length;
 		}
 		// The drawn saves are there, as operations: the mapping kept them.
 		expect(saving).toBeGreaterThan(0);
 		// The drawn labelled groups are there, each on one screen.
 		expect(oneScreen).toBeGreaterThan(0);
+		// The drawn searches are there, each with the workflow the mapping gave it.
+		expect(searching).toBeGreaterThan(0);
 		// The mapping draws nothing: a smaller draw is the start of a larger one.
 		const written = new Map(
 			sample.map((sampled) => [sampled.document.id, asWritten(sampled)]),

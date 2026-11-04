@@ -66,7 +66,7 @@ function fixture(fields: FieldSpec[], types: string[]) {
 			...types.map((name) => ({
 				name,
 				caseType: name,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: list(),
 				forms: [],
 			})),

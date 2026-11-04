@@ -11,6 +11,7 @@ import {
 	fieldKinds,
 	formLinkTargetSchema,
 	formRootFieldIds,
+	moduleUuidOfForm,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -28,7 +29,6 @@ import {
 	type FormExpressionSlotRef,
 	formLinkDatumNameSchema,
 } from "@/lib/domain/expression/types";
-import { formEntrySchema } from "@/lib/domain/forms";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	expressionSlotKey,
@@ -291,6 +291,49 @@ function fieldSlot(
 	return undefined;
 }
 
+/**
+ * The document an `updateForm` call's expressions bind against: where the
+ * call sets or clears the form's registration from the case list, the
+ * module's slot as the call leaves it, so a `#search/` read in the same call
+ * resolves exactly where the committed form will resolve it.
+ */
+function withPendingCaseListRegistration(
+	toolName: string,
+	input: Input,
+	doc: BlueprintDoc,
+	formUuid: Uuid | undefined,
+): BlueprintDoc {
+	if (
+		toolName !== "updateForm" ||
+		formUuid === undefined ||
+		input.case_list_registration === undefined
+	)
+		return doc;
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (moduleUuid === undefined || module === undefined) return doc;
+	const { caseListRegistrationForm: current, ...rest } = module;
+	if (input.case_list_registration === null)
+		return current?.formUuid === formUuid
+			? { ...doc, modules: { ...doc.modules, [moduleUuid]: rest } }
+			: doc;
+	const label = object.parse(input.case_list_registration).label;
+	return {
+		...doc,
+		modules: {
+			...doc.modules,
+			[moduleUuid]: {
+				...rest,
+				caseListRegistrationForm: {
+					kind: "after-empty-search",
+					formUuid,
+					...(typeof label === "string" && { label }),
+				},
+			},
+		},
+	};
+}
+
 /** A call-local declaration view, never an incomplete document. It carries
  * final identities and memoizes the production parser for pending slots. */
 export function prepareFormAuthoring(args: {
@@ -302,8 +345,13 @@ export function prepareFormAuthoring(args: {
 	lookup(): LookupDefinitionIndex;
 }) {
 	const { toolName, input, ctx } = args;
-	const doc = ctx.snapshot.doc;
 	const formUuid = args.formUuid;
+	const doc = withPendingCaseListRegistration(
+		toolName,
+		input,
+		ctx.snapshot.doc,
+		formUuid,
+	);
 	const connect = stageConnect(toolName, input, doc);
 	const forms = new Map<Uuid, FormStructure>();
 	const sources = new Map<
@@ -519,21 +567,6 @@ export function prepareFormAuthoring(args: {
 		}
 		const result: FormStructure = {
 			...saved,
-			...(uuid !== formUuid ||
-			toolName !== "updateForm" ||
-			input.entry === undefined
-				? {}
-				: {
-						entry:
-							input.entry === null
-								? undefined
-								: formEntrySchema.parse({
-										...object.parse(input.entry),
-										...(object.parse(input.entry).label === null
-											? { label: undefined }
-											: {}),
-									}),
-					}),
 			fields,
 			fieldOrder: order,
 			links,

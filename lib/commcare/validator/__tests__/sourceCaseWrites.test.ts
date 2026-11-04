@@ -134,7 +134,7 @@ function formDoc(shape: Shape): BlueprintDoc {
 			...["visit", "household_member"].map((caseType) => ({
 				name: caseType,
 				caseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

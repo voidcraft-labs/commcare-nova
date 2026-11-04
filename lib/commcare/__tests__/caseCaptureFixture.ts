@@ -139,7 +139,7 @@ export function caseCaptureFixture(
 						{
 							name: "Wounds",
 							caseType: "wound",
-							caseListOnly: true,
+							caseListMenuItem: {},
 							caseListConfig: caseListConfig([
 								{ field: "case_name", header: "Name" },
 							]),

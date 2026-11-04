@@ -39,6 +39,7 @@ import {
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import { AUTOMATION_RULES } from "./automations";
+import { caseListRegistrationFormInModule } from "./case-search/caseListRegistration";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { hiddenValueWriterAgreement } from "./hiddenValueWriterAgreement";
 import { ORGANIZATION_RULES } from "./organization";
@@ -672,6 +673,8 @@ export const APP_RULES = [
 	circularFormLinks,
 	duplicateConnectIds,
 	connectNoParticipatingForms,
+	// A case list registration slot naming a form outside its module.
+	caseListRegistrationFormInModule,
 	// A feature the app holds that a platform it declares cannot run.
 	platformFeatureAvailability,
 	// Cross-form rule — multi-writer disagreement detection requires the

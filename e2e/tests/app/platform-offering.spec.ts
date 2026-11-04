@@ -12,17 +12,17 @@ test("a choice Android can't run is offered disabled, with its line", {
 	const seed = seedFor(scenario, "workspace");
 	const routes = seed.caseWorkspace.routes;
 
-	// Search settings: Search first.
+	// Search settings: Forms read the search.
 	await openBuilder(page, routes.search);
 	await expect(
 		page.getByRole("heading", { name: "Search", level: 1 }),
 	).toBeVisible({ timeout: 20_000 });
 	await page.locator("[data-case-search-panel]").click();
-	const searchFirst = page.locator("[data-search-first-setting]");
+	const formsReadSearch = page.locator("[data-forms-read-search]");
 	await expect(
-		searchFirst.getByRole("switch", { name: /^Search first/ }),
+		formsReadSearch.getByRole("switch", { name: /^Forms read the search/ }),
 	).toBeDisabled();
-	await expect(searchFirst).toContainText(ANDROID_PICKER_LINE);
+	await expect(formsReadSearch).toContainText(ANDROID_PICKER_LINE);
 
 	// The Last visit Search field's Date picker type.
 	await page
@@ -47,17 +47,19 @@ test("a choice Android can't run is offered disabled, with its line", {
 	);
 });
 
-test("a change that strands search first lists it", {
-	tag: "@seed:search-first",
+test("a change that strands forms that read the search lists it", {
+	tag: "@seed:forms-read-search",
 }, async ({ scenario, page }) => {
-	const seed = seedFor(scenario, "search-first");
-	const fixture = seed.searchFirst;
+	const seed = seedFor(scenario, "forms-read-search");
+	const fixture = seed.formsReadSearch;
 	await openBuilder(page, fixture.routes.results);
 	await page.getByRole("button", { name: "App settings", exact: true }).click();
 	await page.locator('[data-platform-choice="both"]').click();
 	const block = page.locator("[data-platform-refusal]");
 	await expect(block).toContainText(/Android can't run/);
-	const row = block.locator("li").filter({ hasText: "opens on Search first" });
+	const row = block
+		.locator("li")
+		.filter({ hasText: "has its forms read the search" });
 	await row.getByRole("button", { name: /^Open / }).click();
 	await expect(page).toHaveURL(
 		new URL(fixture.routes.searchConfig, page.url()).toString(),

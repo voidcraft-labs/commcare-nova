@@ -1,33 +1,38 @@
 // components/builder/detail/formSettings/FormEntrySection.tsx
 //
 // How a registration form is reached: from the module menu, or from
-// Results after a search finds nothing (the module's no-matches form,
-// `Form.entry`). On a no-matches form this row also says what the missing
-// display-condition row would have said: it is never on a menu. Its
-// restricted after-submit destination is also named here. The action's
-// label and the carried answers are edited
-// here, next to the form they belong to.
+// Results after a search finds nothing (the menu's case list registration
+// form, `Module.caseListRegistrationForm`). On that form this row also says
+// what the missing display-condition row would have said: it is never on a
+// menu. Its restricted after-submit destination is also named here. The
+// action's label and the carried answers are edited here, next to the form
+// they belong to.
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
-	NoMatchesFormReviewDialog,
-	useNoMatchesFormEntry,
-} from "@/components/builder/case-list-config/noMatchesFormReview";
+	CaseListRegistrationReviewDialog,
+	planCaseListRegistrationChoice,
+	useCaseListRegistration,
+} from "@/components/builder/case-list-config/caseListRegistrationReview";
 import { Button } from "@/components/shadcn/button";
+import {
+	carrySearchAnswersMutations,
+	caseListRegistrationMutations,
+} from "@/lib/doc/caseListRegistrationForm";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
-import { carrySearchAnswersMutations } from "@/lib/doc/searchNoMatchesForm";
+import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import {
 	caseSelectionCardinality,
 	effectiveCaseSearchConfig,
-	isNoMatchesForm,
 	menuFormUuidsOf,
 } from "@/lib/domain";
 import { platformPickerLine, platformRefusal } from "@/lib/domain/platforms";
@@ -46,14 +51,35 @@ export function FormEntrySection({
 	const forms = useOrderedForms(moduleUuid);
 	const docApi = useBlueprintDocApi();
 	const { inline } = useBlueprintMutations();
-	const entry = useNoMatchesFormEntry(moduleUuid);
-	/* Opening a form from an empty search turns Search first on, which a
-	 * platform the app runs on may not run: the offer is withheld with that
-	 * platform's line. */
-	const searchFirstRefusal = platformRefusal(
-		"search-first",
+	const entry = useCaseListRegistration(moduleUuid);
+	/* Opening a form from an empty search turns on Forms read the search,
+	 * which a platform the app runs on may not run: the offer is disabled
+	 * with that platform's line, else with the gate's sentence for this
+	 * form's batch. */
+	const platformLine = platformRefusal(
+		"forms-read-search",
 		useDeclaredPlatforms(),
 	);
+	const slot = mod?.caseListRegistrationForm;
+	const plan = useCallback(
+		(doc: BlueprintDoc) => {
+			const planned = planCaseListRegistrationChoice(doc, moduleUuid, {
+				kind: "existing",
+				formUuid,
+			});
+			return planned === null ? {} : { offer: planned.mutations };
+		},
+		[formUuid, moduleUuid],
+	);
+	const gate = useOfferedBatchRefusals<"offer">(
+		plan,
+		canEdit &&
+			form?.type === "registration" &&
+			slot === undefined &&
+			platformLine === undefined,
+	);
+	const offerRefusal =
+		platformLine !== undefined ? platformPickerLine(platformLine) : gate.offer;
 	const [carried, setCarried] = useState("");
 	const [carryRefusal, setCarryRefusal] = useState<string | undefined>(
 		undefined,
@@ -61,7 +87,7 @@ export function FormEntrySection({
 
 	if (form === undefined || mod === undefined || form.type !== "registration")
 		return null;
-	const noMatches = isNoMatchesForm(form);
+	const noMatches = slot?.formUuid === formUuid;
 	const searchAction =
 		mod.caseType !== undefined &&
 		effectiveCaseSearchConfig({
@@ -72,18 +98,21 @@ export function FormEntrySection({
 	// the row exists to explain an entry or to offer one.
 	if (!noMatches && !searchAction) return null;
 	const other = forms.find(
-		(candidate) => candidate.uuid !== formUuid && isNoMatchesForm(candidate),
+		(candidate) =>
+			candidate.uuid !== formUuid && candidate.uuid === slot?.formUuid,
 	);
 	const hostKeepsMenuForms =
 		menuFormUuidsOf(docApi.getState(), moduleUuid).length > 0;
 
 	const setLabel = (value: string) =>
-		inline.updateForm(formUuid, {
-			entry: {
-				kind: "search-no-matches",
-				...(value.trim().length > 0 ? { label: value.trim() } : {}),
-			},
-		});
+		inline.commitMany(
+			caseListRegistrationMutations(
+				docApi.getState(),
+				moduleUuid,
+				formUuid,
+				value.trim().length > 0 ? { label: value.trim() } : {},
+			),
+		);
 	const carryAnswers = () => {
 		setCarryRefusal(undefined);
 		const mutations = carrySearchAnswersMutations(
@@ -156,13 +185,13 @@ export function FormEntrySection({
 					{canEdit ? (
 						<InlineField
 							label="Results action label"
-							value={form.entry?.label ?? ""}
+							value={slot?.label ?? ""}
 							placeholder={form.name}
 							onChange={setLabel}
 						/>
 					) : (
 						<p className="text-[13px] text-nova-text-secondary">
-							Results action: {form.entry?.label ?? form.name}
+							Results action: {slot?.label ?? form.name}
 						</p>
 					)}
 					{canEdit && (
@@ -200,7 +229,7 @@ export function FormEntrySection({
 						<Button
 							type="button"
 							variant="outline"
-							disabled={searchFirstRefusal !== undefined}
+							disabled={offerRefusal !== undefined}
 							onClick={(event) =>
 								entry.request(
 									{ kind: "existing", formUuid },
@@ -211,9 +240,9 @@ export function FormEntrySection({
 						>
 							Open after a search finds no matches
 						</Button>
-						{searchFirstRefusal !== undefined && (
+						{offerRefusal !== undefined && (
 							<p className="text-[13px] leading-relaxed text-nova-text-muted">
-								{platformPickerLine(searchFirstRefusal)}
+								{offerRefusal}
 							</p>
 						)}
 					</div>
@@ -221,7 +250,7 @@ export function FormEntrySection({
 			)}
 
 			{entry.review !== null && (
-				<NoMatchesFormReviewDialog
+				<CaseListRegistrationReviewDialog
 					review={entry.review}
 					finalFocus={entry.finalFocus}
 					onCancel={entry.cancel}

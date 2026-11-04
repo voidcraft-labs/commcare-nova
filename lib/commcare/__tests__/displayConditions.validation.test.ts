@@ -258,7 +258,7 @@ describe("case-operation-only display-condition values", () => {
 });
 
 describe("form display-condition validation", () => {
-	it("keeps a followup's selected-case condition when its module has a no-matches registration", () => {
+	it("keeps a followup's selected-case condition when its module has a case list registration form", () => {
 		const doc = buildDoc({
 			caseTypes: [{ name: "patient", properties: [] }],
 			modules: [
@@ -268,12 +268,13 @@ describe("form display-condition validation", () => {
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
-					caseSearchConfig: { searchFirst: true },
+					caseSearchConfig: { formsReadSearch: true },
+					caseListRegistrationForm: { formUuid: "dc-register-patient" },
 					forms: [
 						{
+							uuid: "dc-register-patient",
 							name: "Register patient",
 							type: "registration",
-							entry: { kind: "search-no-matches" },
 							fields: [
 								f({
 									id: "patient_name",

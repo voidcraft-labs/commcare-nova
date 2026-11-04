@@ -122,6 +122,177 @@ stack and contracts.
   not inside the cutover's fleet transaction (part 09's departure from this part's brief, adopted, §14).
 - From step 4: the Android detail of a case list menu entry shows Done (C5); the case list menu item's Web
   Apps reading is re-read by G1 rather than assumed (C2).
+- From implementation (pull request 10, the case store): the claim's `host` index is written by the
+  envelope's identifier-keyed writer `submissionEnvelope.ts::applyLinkEffect` (now exported), because the
+  store's insert core writes only a `parent` edge; `releaseClaims` returns `{ released: 0 }` where the
+  claim type's schema row is missing rather than refusing, since only `claimCases`, which needs that row,
+  writes a claim; the store's write fence (`authorizeCaseMutationInTransaction`) requires `edit`, so a
+  viewer's claim through a `view` Server Action (§10.4) is refused by the store as every other Preview
+  write of a viewer is; and G6's "plus the claim row" is exact only where the host is held: the claim row
+  is in the closure exactly when its host is (a live host makes its open extensions live), so a claim of a
+  closed host nothing holds is itself not held, which the old seed had no row to show. Every graph's
+  other cases match the old seeded closure (outcome A), which `restoreScopeClaims.postgres.test.ts`
+  computes as the graph's closure with the chosen case owned.
+- From implementation (pull request 10, the emission): `hqNestedSelection.ts` inspects the case list
+  entry of every module holding `caseListMenuItem` (`moduleHasCaseListMenuItem`), not only a bare case
+  list (§8.2's table says bare): the entry exists beside forms on both paths (`entries.py::
+  EntriesHelper.entry_for_module`), and where every form of the module is a registration its datums are
+  the only selection HQ's nested alignment could miss, so inspecting it is what "follows actual selection
+  datums" means (`lib/export/CLAUDE.md`). `formLinkProjection.ts` held one `caseListOnly` read, the
+  advanced arm of `caseListSessionDatums`, which takes the item reader with part 02 §17 (the advanced
+  entry beside forms); the formless-root alignment §8.2 names lives in `lib/domain`'s
+  `rootSelectionAlignment`. `hqJson/caseList.ts` writes `auto_launch` / `default_search` /
+  `inline_search` wherever the effective search config exists, its `caseListConfig` absent included, as
+  the local suite spells the same workflow over an empty case list (`remoteRequest.ts`), so the two paths
+  agree on a search stored without a case list. `emissionPlan.ts::EmissionPlan.noMatchesFormOf` is
+  renamed `caseListRegistrationOf`, `caseListFormLabelUnit` takes the host module, and
+  `caseListMenuItemLabelUnit` is the item's label unit shared by `expander.ts` and `compiler.ts`.
+  `noMatchesEmission.test.ts` is renamed `caseListRegistrationEmission.test.ts`; the fixture options
+  `caseListOnly` of `noMatchesWireFixture.ts`, `nestedMenuWireFixture.ts::followupNestedDoc` and
+  `searchEmissionFixture.ts::inlineDoc` are renamed `bareCaseList`. The fixtures built without a workflow
+  (`expander.test.ts::buildHqProjectionDoc`, `csqlCompositionFixture.ts`) take M1's output through one
+  test helper, `lib/commcare/__tests__/authoredSearchWorkflowFixture.ts::withAuthoredSearchWorkflows`,
+  rather than an edit per module. `menu-is-bare-case-list` is reached by no validator finding: a bare
+  case list's one form is its registration form, whose `CASE_LIST_REGISTRATION_HAS_NAVIGATION` holds its
+  after-submit destination, so `validationRules.test.ts` holds the reason through
+  `postSubmitNotOfferedReason` and that finding.
+- From implementation (pull request 10, Preview navigation): G1 is written as outcome B before its
+  reader run reads, as the pins favor (formplayer `session/MenuSession.java::getNextScreen`,
+  `isViewCommand` → `stepBack`): `caseListMenuItemSelection` is `"step-back" | "device-home"`,
+  `CaseListMenuItemRoute` holds only those two arms, and `formlessReturned` leaves `runtimeMessages.ts`;
+  the reader run can still move it to outcome A or C. `caseListMenuItemRoute.ts` also holds
+  `caseListMenuItemDetailAction(rules)`, the detail's Continue or Android's `detailDone`, so the screen
+  and App Tests read the detail from one place. `caseListStep` takes one optional argument §11.2 does not
+  name, `searchReopened`: Search again on a skip-to-results menu must open the Search screen, which rule 4
+  alone would skip again (the step stays `results` and the default search runs again); the Web Apps
+  client asks for the query screen with a forced manual search
+  (`MenuSessionRunnerService.java::handleQueryScreen`, `autoSearch` is `doDefaultSearch() &&
+  !forceManualSearch`). "Opened from the entry" is derived, not a stored navigation fact: a list is
+  opened from the case list menu entry where the module holds the item, no form or parent request seeded
+  it and it is a bare case list or a forms-first menu, the one way such a menu reaches its list with no
+  form chosen; a case-first menu's no-form list is the menu's own case selection. The claim at a form's
+  entry posts where the form is chosen (`CaseListScreen.openFormWithCases`, and `ModuleScreen` for a
+  case-first menu with child menus whose case was chosen first), awaited before the form opens, rather
+  than in `FormScreen`, so the form opens on a device that already holds the case instead of reading it as
+  missing while the claim lands; `FormScreen` reads `moduleFormsReadSearch` for its search reads. With
+  the entry listed in a case-first menu the case list's form menu never skips to a lone form, since Core's
+  menu then holds two commands. `lib/routing/topologyRecovery.ts::formerParentRecovery` takes the current
+  document's `modules`, `forms` and `formOrder` (`moduleIsBareCaseListDestination` reads the module's menu
+  forms now), so `lib/doc/hooks/useDocEntityMaps.ts` also returns `formOrder` and
+  `components/builder/LocationRecoveryEffect.tsx` passes it.
+- From implementation (pull request 10, Preview claims): the three claim actions answer every refusal
+  `resolveAuthorizedPreviewContext` gives (`PreviewUnavailableResult`, so `platform-unavailable` and
+  `language-unavailable` beside §10.4's `persona-unavailable`), since a claim takes the device and the
+  context checks it. The store's write fence (`authorizeCaseMutationInTransaction`, `edit`) refuses a
+  viewer's claim and release with `AppAccessError("insufficient_role")`, which the actions answer as
+  `refused` with a sentence saying a viewer can't write the app's case data rather than §10.4's retry
+  sentence or the IDOR-safe "App not found." (any other access refusal), and `launchEntryPointAction`
+  answers a viewer's Web Apps launch that claims the same way; a `CaseNotFoundError` from the launch's
+  claim (a chosen case deleted between its read and the claim) refuses the launch with a sentence asking
+  to choose the cases again. `useClaimSearchedCases()` takes no arguments: the app, the running worker,
+  the device and the document's case types come from the session and doc stores, as every other
+  running-app hook reads them; `ClaimOutcome` is the action's result plus `superseded`, where the app,
+  the Project scope or the worker changed while the claim posted. `inFlightCaseIds` holds a claim's ids
+  from its start until a device snapshot read after it lands (or at once for a claim that changed
+  nothing on the device), never longer, so a released or closed claim cannot leave a menu condition
+  waiting. `searchClaims.ts` gains the shared posting rules both runtimes read
+  (`claimPostsAtResult`, the inverse of `moduleFormsReadSearch`, and `formEntryClaimChoices`, the form
+  entry's claim for a case-loading form of a menu whose forms read the search with
+  `parentSelectClaimChoices`), and `claimableCaseIds` posts each id once. An entry point launch that
+  claimed invalidates every effective case type in `useEntryPointLaunch`, as a claim at the result does.
+  `searchEvaluation.ts` returns `workflow` and `formsReadSearch` in place of `searchFirst` and
+  `hasVisibleInputs`, and `serverSearchRead.ts` hides Results where `caseListStep` with nothing
+  submitted is `search`. App Tests: the records screen carries `openedFrom: "case-list-menu-item"` where
+  the menu's entry opened it, the menu observation lists the entry as `caseListEntry` after the forms
+  (its own label when set, else the module's localized name), and the `records` action chooses it; a
+  Details screen of an entry's list adds `continueLabel` (`detailDone` on Android). The Android re-read
+  after a claim that created nothing is implemented in `postAppTestClaims` but has no journey test: a
+  journey's claimable ids come from a search read in the same step against the live restore, so a claim
+  whose ids are all already claimed is not reachable through journey actions. The journey test "opens
+  the results of a search with no visible field" (renamed from "opens browse-first Results") reads
+  `results`, since §7.2's planner writes `skipToResults` there; the mixed-module inline chooser test
+  removes the module's `caseListMenuItem`, whose list is now a view command, to keep its subject.
+- From implementation (pull request 10, the doc layer): `workflowAfterInputChangeMutations` is not
+  appended inside `caseSearchConfigPatchMutations`, which reads two configs and no document, and is the
+  per-setting planner `diffDocsToMutations` reproduces a stored target with: appending there would make
+  an autosave or a replay write a `skipToResults` its target does not hold. The same file exports the
+  composer `withWorkflowAfterInputChange(doc, mutations)`, which applies the batch and appends the
+  planner for each module whose Search fields or settings the batch edits; the builder's workspace and
+  the agent's Search helpers call it (`searchInputMutations.ts::searchInputUpdateMutation` and the
+  operations in `caseSearchConfigMutations.ts` are single-mutation builders the diff uses too, so they
+  append nothing). Setting a case type on a formless module gives it `caseListMenuItem: {}`, and
+  clearing the type takes it off, through the planners `scaffolds.ts::caseTypeSetPatch` /
+  `caseTypeClearPatch` and `modulePatchMutations`, which commits an authored `caseListMenuItem` as one
+  `setCaseListMenuItem`, not as an `updateModule` reducer side effect (`lib/doc/CLAUDE.md`: a cascade
+  is an explicit granular mutation, never a reducer's); `updateModule.patch` omits `caseListMenuItem`,
+  so the item has one writing kind. `setCaseListMenuItem`'s footprint is the module and its child
+  modules with their forms and every form holding links, since the entry through the list supplies a
+  session (`entryDatumSupplies.ts`, the browse supply) a link into the module reads. A case list
+  registration finding names its form in `details.formName` beside `formUuid` (a one-line edit of
+  `rules/case-search/caseListRegistration.ts`), so the builder's sentence can name it.
+  `caseListRegistrationMutations` plans nothing to clear a form the slot does not name. `moduleFormHostMutations`
+  seeds the `Name` column of any module with a case type and no column, since it no longer has a flag
+  to gate on. The wire-identity half of `searchWorkflowPlan.test.ts` reads the raw old fields from the
+  fixture JSON and lifts the retired shapes itself (a field's `caseWrite` through
+  `fieldWriteOperations.ts::operationsFromFieldWrites`, `searchFirst` through `authoredSearchWorkflow`,
+  `caseListOnly`, a form's `entry`), because part 09's raw reader is pull request 14's; it compares
+  each module's `search_config` with `main`'s recorded arm and, for the witness, with the retained A
+  capture's `app_file`. Part 10 §7.7's `searchWorkflowPlan.ts` bullet says `authoredSearchWorkflow`
+  writes `skipToResults` after an input change; that is `workflowAfterInputChangeMutations`, so
+  `lib/doc/CLAUDE.md` gives each its own sentence.
+- From implementation (pull request 10, the gated runs): the pull request is written with each reading the
+  by-hand reader run (part 08 §8.4, row 10) settles, each kept in one place so the run's verdict moves it
+  once. G1 is outcome B, the step-back, as formplayer's `session/MenuSession.java::getNextScreen` reads
+  (`isViewCommand` → `stepBack`, line 270), held in `lib/preview/caseListMenuItemRoute.ts::
+  caseListMenuItemSelection` over `PreviewPlatformRules.caseListMenuItemSelection`. Android's detail of the
+  entry's list shows Done (`EntityDetailActivity.java`, `select.detail.bypass`; `EntitySelectActivity.java`
+  `mViewMode`), held in `caseListMenuItemRoute.ts::caseListMenuItemDetailAction` over
+  `PreviewPlatformRules.caseListMenuItemDetail`. G2 is outcome A: no walk stop is added and no stop changes
+  cause, so `proof/walk-stops.json` is unchanged, and `search-first` and `skip-to-results` keep their Android
+  reading (`lib/domain/platforms.ts`). G3 is outcome A: `targeted-search-workflow*` hold every workflow with
+  no `SEARCH_WORKFLOW_NOT_KEPT_*` code. G4 is outcome A: `caseListStep` shows the Search screen with only its
+  button for search first with no visible field (§11.2). Each stands until the run reads.
+- From implementation (pull request 10, the corpus): beside the list-first menus of documents that declare
+  Web Apps, two fuzz documents that declare Android only, `fuzz-expression-20260930-3` and
+  `fuzz-suite-20260930-3`, turn `auto_launch` on in their first menu (app JSON and suite), because §13.4 has
+  each `lowerToDoc` map its draw with `declaresWebApps: true` before `declaredForContent` narrows the
+  declaration, so §13.4's "every source's bytes are unchanged except the list-first menus of documents that
+  declare Web Apps" holds for every source but these two. A device never reads `auto_launch` (G2's outcome A
+  reading), so their Android records are expected to stay `main`'s; the reader run holds that. The six
+  expander documents named for `caseListOnly`'s tests take the renamed tests' ids
+  (`expander-case-list-menu-item-*`), with the same documents under them.
+- From implementation (pull request 10, schema drift): `scripts/lib/schemaDrift.ts::computeSchemaDrift`
+  reports the claim type's missing row (`missingRow: true`, no properties) on an app saved before this pull
+  request, as M6 plans, since `buildCaseTypeMap` now lists `commcare-case-claim` and the loop skips only the
+  worker's own case. The drift and index-convergence tests seed the claim row an app saved after this pull
+  request holds, and `scripts/lib/__tests__/schemaDrift.postgres.test.ts` holds the missing row and its
+  convergence on its own.
+- From implementation (pull request 10, a comment at the base): `lib/commcare/compiler.ts::registerActionFor`
+  said the validator refuses a registration form offered on a host without menu forms whose case type
+  selects a parent first, naming `SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM`, a code no validator at the
+  base or the head defines. The clause is dropped, so the comment says only what HQ's build does with such a
+  host; whether that shape needs a refusal is left open for pull request 11's review of the Register action.
+- From implementation (pull request 10, the multi-select auto-launch): this part turns `auto_launch` on for
+  a search-first menu whose case list selects several cases (`search-remote-multiple` among §13's flips),
+  where the base's local suite wrote HQ's single-select expression for every menu. HQ's build writes
+  `AUTO_LAUNCH_EXPRESSIONS["multi-select"]` where `module.is_multi_select()`
+  (`suite_xml/sections/details.py::DetailContributor._get_auto_launch_expression`, pinned by
+  `tests/test_suite_multi_select_case_list.py::test_multi_select_case_list_auto_launch`), and a
+  multi-select screen evaluates the condition with the chosen cases as the `next_input` instance and sets no
+  `$next_input` variable (`commcare-core/src/cli/java/org/commcare/util/screen/MultiSelectEntityScreen.java::getAutoLaunchEvaluationContext`).
+  So `shortDetail.ts` writes the multi-select expression where `selection.kind === "multiple"`, the
+  condition `hqJson/caseList.ts` writes `multi_select` under, through a suite-only wire root, `next-input`,
+  that prints `instance('next_input')` and adds no declaration; the suite oracle admits `next_input` in an
+  `<action auto_launch>` alone (`suiteOracle.test.ts` pairs it with the same read in `relevant`, refused).
+  Without it the local archive and HQ's build would hold two spellings of one action.
+- From implementation (pull request 10, the browser lane): two `case-workspace-surface.spec.ts` journeys
+  still expected the base's stored Search config after the last field leaves and after a zero-input Search
+  is enabled; §7.2's planner writes `workflow: "skipToResults"` in both batches, and the canvas heading is
+  "Results can open automatically", so the journeys now assert both. In the app lane,
+  `authed.spec.ts`'s empty-Results step opened Preview on Results, but its menu now searches first, so
+  the step submits its one search ("Nobody") from the Search screen and holds both readings there; and
+  `case-list-menu-item.spec.ts` waited for a PUT holding `"caseListMenuItem":{}`, where the switch's
+  command is `setCaseListMenuItem { item: {} }`, so it waits for that command's kind.
 - None from the stack: the decisions' order holds, and the advanced module's case list menu item lands
   in this pull request with part 02's readers (§19).
 
@@ -485,7 +656,7 @@ follows a parent case chosen first." `moduleRequiresNoMatchesRegistration` is re
 	channel: "structure",
 	webApps: {
 		reading: "unavailable",
-		note: "CommCare HQ no longer offers the case list first for a menu that searches, and turns it to Search first when the menu's case list is saved there",
+		note: "a menu that searches can't open on its case list first, and CommCare HQ turns such a menu to Search first when its case list is saved there",
 		remedy: "You can open the menu on Search first, which Android still opens on its case list.",
 	},
 	android: { reading: "runs" },

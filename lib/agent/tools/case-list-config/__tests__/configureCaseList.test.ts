@@ -84,7 +84,7 @@ describe("configureCaseList", () => {
 		);
 	});
 
-	it("sets and clears Search first as the only requested resource", async () => {
+	it("sets and clears Forms read the search as the only requested resource", async () => {
 		const doc = makeCaseListDoc();
 		const form = doc.forms[FORM_A];
 		if (!form) throw new Error("Missing form");
@@ -92,27 +92,28 @@ describe("configureCaseList", () => {
 		doc.modules[MOD_A].caseSearchConfig = {
 			searchScreenTitle: "Find a patient",
 		};
-		// Search first runs in Web Apps alone.
+		// Forms that read the search run in Web Apps alone.
 		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 		const h = makeCaseListFixture(doc);
 		const enabled = await h.runTool(configureCaseListTool, {
 			moduleUuid: MOD_A,
-			searchFirst: true,
+			formsReadSearch: true,
 		});
 		expect(enabled.result).not.toHaveProperty("error");
 		expect(enabled.result).toHaveProperty("ok", true);
 		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toEqual({
 			searchScreenTitle: "Find a patient",
-			searchFirst: true,
+			formsReadSearch: true,
 		});
 		const disabled = await h.runTool(configureCaseListTool, {
 			moduleUuid: MOD_A,
-			searchFirst: null,
+			formsReadSearch: null,
 		});
 		expect(disabled.result).not.toHaveProperty("error");
 		expect(disabled.result).toHaveProperty("ok", true);
-		// Turning Search first off preserves the after-submit destination the
-		// worker saw while it was enabled; the reducer pins that default explicitly.
+		// Turning Forms read the search off preserves the after-submit
+		// destination the worker saw while it was on; the reducer pins that
+		// default explicitly.
 		expect(toPersistableDoc(h.currentDoc())).toEqual(
 			toPersistableDoc({
 				...doc,
@@ -123,6 +124,66 @@ describe("configureCaseList", () => {
 			}),
 		);
 		expect(h.recordMutations).toHaveBeenCalledTimes(2);
+	});
+
+	it("stores each workflow, with search first as the absent value", async () => {
+		const cases = [
+			["skipToResults", "web-apps", "skipToResults"],
+			["listFirst", "android", "listFirst"],
+			["searchFirst", "web-apps", undefined],
+		] as const;
+		for (const [searchWorkflow, runsOnlyOn, stored] of cases) {
+			const doc = makeCaseListDoc();
+			const form = doc.forms[FORM_A];
+			if (!form) throw new Error("Missing form");
+			form.type = "followup";
+			doc.modules[MOD_A].caseSearchConfig = {
+				searchScreenTitle: "Find a patient",
+				workflow: "skipToResults",
+			};
+			doc.appSettings = { ...doc.appSettings, runsOnlyOn };
+			const h = makeCaseListFixture(doc);
+			const result = await h.runTool(configureCaseListTool, {
+				moduleUuid: MOD_A,
+				searchWorkflow,
+			});
+			expect(result.result).toHaveProperty("ok", true);
+			expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toEqual({
+				searchScreenTitle: "Find a patient",
+				...(stored !== undefined && { workflow: stored }),
+			});
+		}
+	});
+
+	it("refuses a menu that opens on its case list while its forms read the search", async () => {
+		const doc = makeCaseListDoc();
+		const form = doc.forms[FORM_A];
+		if (!form) throw new Error("Missing form");
+		form.type = "followup";
+		doc.modules[MOD_A].caseSearchConfig = { formsReadSearch: true };
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
+		const h = makeCaseListFixture(doc);
+		for (const input of [
+			{ searchWorkflow: "listFirst", formsReadSearch: true },
+			{ searchWorkflow: "listFirst" },
+		] as const) {
+			const result = await h.runTool(configureCaseListTool, {
+				moduleUuid: MOD_A,
+				...input,
+			});
+			expect(result.result).toHaveProperty("error");
+			expect(result.mutations).toEqual([]);
+		}
+		expect(h.recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("refuses the retired searchFirst key at the schema", () => {
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				searchFirst: true,
+			}).success,
+		).toBe(false);
 	});
 
 	it("uses the targeted display tool's root field shape", () => {

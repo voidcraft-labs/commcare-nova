@@ -17,6 +17,12 @@
  * declare is shown disabled with the reason, never hidden. The trigger's
  * icon is the platform's glyph, so the header band still fits at 320px
  * without a control of its own.
+ *
+ * Under Running as, **Release claimed cases** shows while the running worker
+ * holds cases it claimed from a search (counted each time the menu opens):
+ * choosing it closes those claims, so their device no longer holds them
+ * unless the worker holds them another way. It is builder chrome, never part
+ * of the simulated app.
  */
 "use client";
 
@@ -24,7 +30,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerBrowser from "@iconify-icons/tabler/browser";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDeviceMobile from "@iconify-icons/tabler/device-mobile";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AppTestHistory } from "@/components/builder/AppTestHistory";
 import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { Button } from "@/components/shadcn/button";
@@ -40,6 +46,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
+import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useWorkerReadiness } from "@/lib/doc/hooks/useWorkerReadiness";
 import { asUuid } from "@/lib/domain";
 import {
@@ -50,6 +57,11 @@ import {
 	type Platform,
 	platformDeclarationPhrase,
 } from "@/lib/domain/platforms";
+import {
+	countClaimedCasesAction,
+	releaseClaimedCasesAction,
+} from "@/lib/preview/engine/caseDataBinding";
+import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
@@ -60,8 +72,32 @@ import {
 	useSetPreviewPersonaUuid,
 	useSetPreviewPlatform,
 } from "@/lib/session/hooks";
+import { showToast } from "@/lib/ui/toastStore";
 
 const AS_ME = "Preview as me";
+
+/** The menu item's label for `count` claimed cases. */
+export function releaseClaimedCasesLabel(count: number): string {
+	return count === 1
+		? "Release 1 claimed case"
+		: `Release ${count} claimed cases`;
+}
+
+/** The success toast for `count` released cases: its title, then its line. */
+export function releasedClaimedCasesToast(
+	count: number,
+): readonly [string, string] {
+	return [
+		`Released ${count} ${count === 1 ? "case" : "cases"} this worker claimed from a search`,
+		"Their device no longer holds them, unless the worker holds them another way.",
+	];
+}
+
+/** The failure toast: its title, then its line. */
+const RELEASE_FAILED_TOAST = [
+	"Couldn't release the claimed cases",
+	"Try again in a moment.",
+] as const;
 
 /** Each platform's glyph and the line under its name in Runs on. */
 const PLATFORM_CHOICES: Readonly<
@@ -107,6 +143,54 @@ function PreviewIdentityMenuBody() {
 	const declared = declaredPlatforms({ appSettings });
 	const platform = usePreviewPlatform();
 	const setPlatform = useSetPreviewPlatform();
+	const caseTypes = useEffectiveCaseTypes();
+	/* The running worker's open claims, read each time the menu opens. The
+	 * read names the worker it asked about, so an answer for a worker the
+	 * menu no longer runs as is dropped. */
+	const [claims, setClaims] = useState<{
+		readonly worker: string;
+		readonly count: number;
+	}>();
+	const claimRead = useRef(0);
+	const worker = selected ?? "";
+	const claimedCount = claims?.worker === worker ? claims.count : 0;
+	const readClaims = () => {
+		if (appId === undefined) return;
+		const read = ++claimRead.current;
+		void countClaimedCasesAction({
+			appId,
+			...(selected !== undefined && { personaUuid: selected }),
+		})
+			.then((result) => {
+				if (read !== claimRead.current) return;
+				setClaims({
+					worker,
+					count: result.kind === "count" ? result.count : 0,
+				});
+			})
+			.catch(() => {
+				if (read === claimRead.current) setClaims(undefined);
+			});
+	};
+	const releaseClaims = () => {
+		if (appId === undefined) return;
+		claimRead.current++;
+		void releaseClaimedCasesAction({
+			appId,
+			...(selected !== undefined && { personaUuid: selected }),
+		})
+			.then((result) => {
+				if (result.kind !== "released") {
+					showToast("error", ...RELEASE_FAILED_TOAST);
+					return;
+				}
+				setClaims({ worker, count: 0 });
+				for (const caseType of caseTypes)
+					invalidateCaseData(appId, caseType.name);
+				showToast("info", ...releasedClaimedCasesToast(result.released));
+			})
+			.catch(() => showToast("error", ...RELEASE_FAILED_TOAST));
+	};
 
 	const active =
 		selected === undefined
@@ -119,7 +203,11 @@ function PreviewIdentityMenuBody() {
 
 	return (
 		<>
-			<DropdownMenu>
+			<DropdownMenu
+				onOpenChange={(open) => {
+					if (open) readClaims();
+				}}
+			>
 				<DropdownMenuTrigger
 					aria-label={`Running as ${currentLabel} ${inPlatform(platform)}. Change who Preview runs as or where.`}
 					render={
@@ -231,6 +319,11 @@ function PreviewIdentityMenuBody() {
 								</DropdownMenuRadioItem>
 							))}
 						</DropdownMenuRadioGroup>
+						{appId !== undefined && claimedCount > 0 && (
+							<DropdownMenuItem onClick={releaseClaims}>
+								{releaseClaimedCasesLabel(claimedCount)}
+							</DropdownMenuItem>
+						)}
 						{appId ? (
 							<DropdownMenuItem onClick={() => setShowTests(true)}>
 								Test journeys

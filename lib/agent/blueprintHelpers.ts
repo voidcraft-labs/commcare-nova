@@ -66,7 +66,6 @@ import type {
 import {
 	asUuid,
 	fieldKinds,
-	formEntersFromMenu,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
 	slugifyId,
@@ -122,7 +121,7 @@ export interface NewModuleInput {
 	parentModuleUuid?: Uuid;
 	parentCaseModuleUuid?: Uuid;
 	caseType?: string;
-	caseListOnly?: boolean;
+	caseListMenuItem?: Module["caseListMenuItem"];
 	purpose?: string;
 	caseListConfig?: Module["caseListConfig"];
 }
@@ -151,8 +150,8 @@ export function addModuleMutations(input: NewModuleInput): Mutation[] {
 			parentCaseModuleUuid: input.parentCaseModuleUuid,
 		}),
 		...(input.caseType !== undefined && { caseType: input.caseType }),
-		...(input.caseListOnly !== undefined && {
-			caseListOnly: input.caseListOnly,
+		...(input.caseListMenuItem !== undefined && {
+			caseListMenuItem: input.caseListMenuItem,
 		}),
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.caseListConfig !== undefined && {
@@ -569,7 +568,6 @@ export interface NewFormInput {
 	type: FormType;
 	purpose?: string;
 	postSubmit?: PostSubmitDestination;
-	entry?: Form["entry"];
 }
 
 /** Build an empty form under an existing module. Its questions are separate
@@ -603,7 +601,6 @@ export function addFormMutations(
 		type: input.type,
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
-		...(input.entry !== undefined && { entry: input.entry }),
 		...(own !== undefined && { caseOperations: [own] }),
 	};
 	return [
@@ -612,9 +609,7 @@ export function addFormMutations(
 		...(own !== undefined && caseType !== undefined
 			? declareCaseTypeMutations(doc, caseType)
 			: []),
-		...(formEntersFromMenu(form)
-			? moduleFormHostMutations(doc, moduleUuid)
-			: []),
+		...moduleFormHostMutations(doc, moduleUuid),
 		// The form appends; `moveForm` is how the SA reorders one.
 		{ kind: "addForm", moduleUuid, form },
 	];

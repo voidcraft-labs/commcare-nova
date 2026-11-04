@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { type BlueprintDoc, fieldSchema, type Module } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	fieldSchema,
+	type Module,
+	makeTranslationUnitId,
+} from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import {
 	combineNavigationVisibility,
 	inheritedModuleVisibility,
 	previewCaseDescendantModuleUuids,
+	previewCaseListMenuEntry,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
 	previewModuleVisibility,
@@ -323,6 +329,101 @@ describe("Preview menu projection", () => {
 				caseType: "household",
 				moduleUuid: OTHER_ROOT,
 			},
+		});
+	});
+
+	describe("the case list menu entry", () => {
+		const REGISTER_FORM = testUuid("register-form");
+		/** OTHER_ROOT with a registration beside its follow-up: forms-first. */
+		function formsFirst(
+			item: NonNullable<Module["caseListMenuItem"]>,
+		): BlueprintDoc {
+			const doc = source();
+			doc.modules[OTHER_ROOT].caseListMenuItem = item;
+			doc.forms[REGISTER_FORM] = {
+				uuid: REGISTER_FORM,
+				id: "register",
+				name: "Register",
+				type: "registration",
+			};
+			doc.formOrder[OTHER_ROOT] = [OTHER_ROOT_FORM, REGISTER_FORM];
+			return doc;
+		}
+
+		it("is listed after a forms-first menu's forms under the module's name, opening the case list", () => {
+			const doc = formsFirst({});
+			expect(
+				previewCaseListMenuEntry(doc, OTHER_ROOT, {
+					isCaseFirst: false,
+					hasSelectedCase: false,
+				}),
+			).toEqual({
+				labelUnitId: makeTranslationUnitId("module", OTHER_ROOT, "name"),
+				label: doc.modules[OTHER_ROOT].name,
+				icon: undefined,
+				audioLabel: undefined,
+				action: "open-case-list",
+			});
+		});
+
+		it("takes the entry's own label unit and icon when the item holds them", () => {
+			const doc = formsFirst({
+				label: "All visits",
+				icon: "nova-icon:household",
+			});
+			expect(
+				previewCaseListMenuEntry(doc, OTHER_ROOT, {
+					isCaseFirst: false,
+					hasSelectedCase: false,
+				}),
+			).toMatchObject({
+				labelUnitId: makeTranslationUnitId(
+					"module",
+					OTHER_ROOT,
+					"case-list-menu-item-label",
+				),
+				label: "All visits",
+				icon: "nova-icon:household",
+			});
+		});
+
+		it("lists nothing for a bare case list, whose menu is its list", () => {
+			const doc = source();
+			doc.modules[OTHER_ROOT].caseListMenuItem = {};
+			doc.formOrder[OTHER_ROOT] = [];
+			delete doc.forms[OTHER_ROOT_FORM];
+			expect(
+				previewCaseListMenuEntry(doc, OTHER_ROOT, {
+					isCaseFirst: false,
+					hasSelectedCase: false,
+				}),
+			).toBeUndefined();
+		});
+
+		it("lists nothing for a module without the item", () => {
+			expect(
+				previewCaseListMenuEntry(source(), OTHER_ROOT, {
+					isCaseFirst: false,
+					hasSelectedCase: false,
+				}),
+			).toBeUndefined();
+		});
+
+		it("is listed in a case-first menu only once the case is chosen, as the selection itself", () => {
+			const doc = source();
+			doc.modules[OTHER_ROOT].caseListMenuItem = {};
+			expect(
+				previewCaseListMenuEntry(doc, OTHER_ROOT, {
+					isCaseFirst: true,
+					hasSelectedCase: false,
+				}),
+			).toBeUndefined();
+			expect(
+				previewCaseListMenuEntry(doc, OTHER_ROOT, {
+					isCaseFirst: true,
+					hasSelectedCase: true,
+				}),
+			).toMatchObject({ action: "selection" });
 		});
 	});
 });

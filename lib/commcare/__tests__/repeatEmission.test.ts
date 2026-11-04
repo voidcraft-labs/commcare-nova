@@ -496,7 +496,7 @@ describe("a query repeat in the count placement", () => {
 					{
 						name: "Members",
 						caseType: "member",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: list(),
 						forms: [],
 					},

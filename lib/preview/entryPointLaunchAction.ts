@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { CaseNotFoundError } from "@/lib/case-store";
 import {
 	AppAccessError,
 	resolveAuthorizedAppSnapshot,
@@ -31,8 +32,6 @@ const requestSchema = z.strictObject({
 			}),
 		)
 		.max(100),
-	/** The chosen worker's claims; the context checks their shape. */
-	claimedCaseIds: z.array(z.string()).max(1000).optional(),
 	/** The device Preview runs on; the context parses and checks it. */
 	device: z.unknown().optional(),
 });
@@ -43,9 +42,6 @@ export async function launchEntryPointAction(input: {
 	personaUuid?: string;
 	expectedSeq: number;
 	selections: readonly EntryPointSelection[];
-	/** The chosen worker's claims (`lib/session/previewClaims.ts`): a
-	 *  claimed case is held, so the launch's device snapshot holds it. */
-	claimedCaseIds?: readonly string[];
 	/** The device Preview runs on (`previewDevice.ts`), plain JSON. */
 	device?: PreviewDevice;
 }): Promise<EntryPointLaunchResult> {
@@ -60,7 +56,6 @@ export async function launchEntryPointAction(input: {
 		const context = await resolveAuthorizedPreviewContext({
 			appId: args.appId,
 			personaUuid: args.personaUuid,
-			claimedCaseIds: args.claimedCaseIds,
 			required: "view",
 			loadBlueprint: true,
 			device: args.device,
@@ -91,8 +86,8 @@ export async function launchEntryPointAction(input: {
 				: undefined,
 		]);
 		/* A chosen case the worker's restore does not hold, read with its
-		 * index edges as a claim of it would deliver it. The claim seeds only
-		 * a case of this app in the bound Project, so nothing else is read. */
+		 * direct index edges as a claim of it would deliver it: the exact rows
+		 * of this app in the bound Project, so nothing else is read. */
 		const held = new Set(database.rows.map((row) => row.case_id));
 		const outside = [
 			...new Set(
@@ -130,10 +125,36 @@ export async function launchEntryPointAction(input: {
 				message:
 					"The app changed while the entry point was loading. Try again.",
 			};
+		/* Web Apps' claim frame posts the launch's claims before it navigates
+		 * (`endpoints.py::EndpointsHelper._add_claim_frame`): claim rows for
+		 * the worker, written after the last authorization check so a launch
+		 * this action refuses claims nothing. Android never reaches the claim,
+		 * so `claimCaseIds` is empty there. */
+		if (
+			result.kind === "ready" &&
+			rules.entryPointClaims === "posted" &&
+			result.claimCaseIds.length > 0
+		)
+			await context.store.claimCases({
+				appId: args.appId,
+				caseIds: result.claimCaseIds,
+			});
 		return result;
 	} catch (error) {
 		if (error instanceof AppAccessError)
-			return { kind: "refused", message: "App not found." };
+			return {
+				kind: "refused",
+				message:
+					error.reason === "insufficient_role"
+						? "In Web Apps this entry point claims the chosen cases for the worker, which writes to the app's case data, and a viewer of this Project can't write there. A Project admin can give you edit access, or you can try it running as Android."
+						: "App not found.",
+			};
+		if (error instanceof CaseNotFoundError)
+			return {
+				kind: "refused",
+				message:
+					"One of the chosen cases was removed from the app's case data, so it can't be opened. Choose the cases again.",
+			};
 		reportUnexpectedActionError("launchEntryPoint", error, {
 			appId: args.appId,
 		});
@@ -153,19 +174,10 @@ async function readNotHeldCases(
 ): Promise<CaseDatabaseSnapshot> {
 	if (caseIds.length === 0) return { rows: [], indices: [] };
 	const wanted = new Set(caseIds);
-	const claimed = await readCaseDatabaseSnapshot(context.store, {
-		appId,
-		restoreScope: {
-			...context.restoreScope,
-			claimedCaseIds: [
-				...(context.restoreScope.claimedCaseIds ?? []),
-				...caseIds,
-			],
-		},
-	});
+	const patch = await context.store.readCaseDatabasePatch({ appId, caseIds });
 	return {
-		rows: claimed.rows.filter((row) => wanted.has(row.case_id)),
-		indices: claimed.indices.filter((index) => wanted.has(index.case_id)),
+		rows: patch.rows.filter((row) => wanted.has(row.case_id)),
+		indices: patch.indices.filter((index) => wanted.has(index.case_id)),
 	};
 }
 
@@ -180,7 +192,6 @@ export async function loadEntryPointOtherCasesAction(input: {
 	appId: string;
 	caseType: string;
 	personaUuid?: string;
-	claimedCaseIds?: readonly string[];
 	parentCase?: ParentCaseSelection;
 	page: { offset: number; limit: number };
 	device?: PreviewDevice;
@@ -189,7 +200,6 @@ export async function loadEntryPointOtherCasesAction(input: {
 		const context = await resolveAuthorizedPreviewContext({
 			appId: input.appId,
 			personaUuid: input.personaUuid,
-			claimedCaseIds: input.claimedCaseIds,
 			required: "view",
 			loadBlueprint: true,
 			device: input.device,

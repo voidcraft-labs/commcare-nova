@@ -397,10 +397,10 @@ describe("CASE_PLACEMENT_KIND", () => {
 });
 
 describe("HELD_PLACEMENT_INEXPRESSIBLE for a menu's held kind", () => {
-	const searchFirst = (doc: BlueprintDoc) => {
+	const formsReadSearch = (doc: BlueprintDoc) => {
 		doc.modules[HOUSEHOLDS] = {
 			...doc.modules[HOUSEHOLDS],
-			caseSearchConfig: { searchFirst: true },
+			caseSearchConfig: { formsReadSearch: true },
 		};
 	};
 
@@ -408,12 +408,12 @@ describe("HELD_PLACEMENT_INEXPRESSIBLE for a menu's held kind", () => {
 		const { doc } = advancedFixture({
 			formType: "followup",
 			operations: () => [advancedOwn()],
-			configure: searchFirst,
+			configure: formsReadSearch,
 		});
 		const [finding, ...more] = findings(doc, "HELD_PLACEMENT_INEXPRESSIBLE");
 		expect(more).toEqual([]);
 		expect(finding?.message).toBe(
-			"CommCare HQ keeps the menu “Households” as an advanced menu where your last publish put it, and this change can't keep it there. It now opens on its Search screen with its forms reading the search, which an advanced menu can't do. Make the change again to see where it moves and confirm it.",
+			"CommCare HQ keeps the menu “Households” as an advanced menu where your last publish put it, and this change can't keep it there. Its forms now read the search, which an advanced menu can't do. Make the change again to see where it moves and confirm it.",
 		);
 		expect(finding?.location).toEqual({
 			moduleUuid: HOUSEHOLDS,

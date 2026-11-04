@@ -189,6 +189,7 @@ function baselineTree(): HqApplicationTree {
 		[form],
 		detail,
 		["en"],
+		true,
 	);
 
 	return applicationShell("Clinic", [module], {}, { cloudcareEnabled: true });
@@ -217,6 +218,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 			[],
 			detailPair([detailColumn("name", "Name")]),
 			["en"],
+			true,
 		);
 		child.root_module_id = root.unique_id;
 		child.parent_select = {
@@ -266,7 +268,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: {
 							columns: [name, age],
 							// Results shows Name then Age; Details shows them the other
@@ -331,7 +333,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: {
 							columns: [name, sortOnly],
 							searchInputs: [],
@@ -391,7 +393,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: {
 							columns: [status, hidden],
 							searchInputs: [],

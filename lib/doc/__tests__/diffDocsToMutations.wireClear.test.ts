@@ -120,7 +120,7 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						columns: [
 							plainColumn(testUuid("filter-column"), "case_name", "Name"),
@@ -192,7 +192,7 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 
 		const next = produce(prev, (d) => {
 			delete d.modules[moduleUuid].caseType;
-			delete d.modules[moduleUuid].caseListOnly;
+			delete d.modules[moduleUuid].caseListMenuItem;
 			delete d.modules[moduleUuid].caseListConfig;
 		});
 

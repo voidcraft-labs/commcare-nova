@@ -83,12 +83,17 @@ export interface PreviewPlatformRules {
 	 *  `proof/android/test_navigation.py` reads it off a device). Preview saves
 	 *  nothing for a form that changes such a case (`unheldCaseSubmit.ts`). */
 	readonly entryPointUnheldCaseSubmit: "submits" | "not-processed";
-	/** Choosing a case in a module with a case list and no forms. Formplayer
-	 *  `MenuSessionRunnerService.java::advanceSessionWithSelections` →
-	 *  "Redirecting after sync" → `apps:currentApp`; Android
+	/** Where choosing a case from a case list menu entry lands. Web Apps:
+	 *  Formplayer `session/MenuSession.java::getNextScreen` steps a view
+	 *  command back (`isViewCommand` → `stepBack`) and asks for the next
+	 *  screen again, so the screen before the choice shows; Android:
 	 *  `HomeScreenBaseActivity.java::handleNoFormFromSessionNav` →
-	 *  `terminateSession` → `refreshUI`. */
-	readonly formlessCaseListSelection: "back-to-root-menu" | "device-home";
+	 *  `terminateSession`. */
+	readonly caseListMenuItemSelection: "step-back" | "device-home";
+	/** The button on a case list menu entry's case detail. Android shows Done in
+	 *  view mode (`EntityDetailActivity.java`, `select.detail.bypass`), whose
+	 *  result leaves the list showing; Web Apps shows Continue. */
+	readonly caseListMenuItemDetail: "continue" | "done";
 	/** Android follows every claim with a sync (manifest
 	 *  `case-search/the-generated-search-round-trip-remote-request-query-results`). */
 	readonly claimThenSync: boolean;
@@ -124,10 +129,11 @@ export interface PreviewPlatformRules {
 	 *  `activities/QueryRequestActivity.java::processSuccess` shows a toast and
 	 *  stays on the search. */
 	readonly zeroSearchResults: "results" | "stay-on-search";
-	/** Skip to results (manifest
-	 *  `case-search/workflow-skip-to-default-results-auto-launch-true-default-search`;
-	 *  Android never reads `auto_launch`). */
-	readonly skipToResults: boolean;
+	/** Whether the case list's Search action launches on its own: search first
+	 *  and skip to results. Core's cli `EntityScreen.evaluateAutoLaunch`, which
+	 *  Formplayer runs; commcare-android holds no reader of `auto_launch`, so it
+	 *  opens the worker's list first, with the Search action. */
+	readonly searchActionAutoLaunch: boolean;
 	/** `here()`'s value. Formplayer `util/FormplayerHereFunctionHandler.java::eval`
 	 *  gives two numbers; Android `utils/AndroidHereFunctionHandler.java::toGeoPointData`
 	 *  four, Core `GeoPointData.java::fillArray` flooring altitude and accuracy
@@ -215,7 +221,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		entryPointClaims: "posted",
 		entryPointCaseNotHeld: "claimed",
 		entryPointUnheldCaseSubmit: "submits",
-		formlessCaseListSelection: "back-to-root-menu",
+		caseListMenuItemSelection: "step-back",
+		caseListMenuItemDetail: "continue",
 		claimThenSync: false,
 		tileGrouping: "grouped",
 		tileBorderShading: true,
@@ -226,7 +233,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hiddenSearchFieldWithDefault: "hidden",
 		barcodeSearchField: "text",
 		zeroSearchResults: "results",
-		skipToResults: true,
+		searchActionAutoLaunch: true,
 		hereValue: "lat-lon",
 		formScreens: "one-screen",
 		recalculation: "every-request",
@@ -257,7 +264,8 @@ export const PREVIEW_PLATFORM_RULES = {
 		entryPointClaims: "none",
 		entryPointCaseNotHeld: "opens-blank",
 		entryPointUnheldCaseSubmit: "not-processed",
-		formlessCaseListSelection: "device-home",
+		caseListMenuItemSelection: "device-home",
+		caseListMenuItemDetail: "done",
 		claimThenSync: true,
 		tileGrouping: "flat",
 		tileBorderShading: false,
@@ -268,7 +276,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hiddenSearchFieldWithDefault: "editable",
 		barcodeSearchField: "scan-or-text",
 		zeroSearchResults: "stay-on-search",
-		skipToResults: false,
+		searchActionAutoLaunch: false,
 		hereValue: "lat-lon-alt-acc",
 		formScreens: "field-list-or-question",
 		recalculation: "on-change",

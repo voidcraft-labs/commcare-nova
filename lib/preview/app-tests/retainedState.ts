@@ -6,16 +6,20 @@ import type { CaseDatabaseSnapshot } from "../engine/xpathInstances";
 import { AppTestActionError } from "./errors";
 import type { AppTestSessionState, AppTestState } from "./types";
 
-/** A session as a checkpoint stores it: one retained before claims existed
- *  has no `claimedCaseIds`. */
-type StoredAppTestSession = Omit<AppTestSessionState, "claimedCaseIds"> & {
+/** A session as a checkpoint stores it: one retained while claims were
+ *  session state may still carry `claimedCaseIds`. A claim is now a claim row
+ *  in the journey's namespace, so the list is read and dropped. */
+type StoredAppTestSession = AppTestSessionState & {
 	readonly claimedCaseIds?: readonly string[];
 };
 
 /** Stored checkpoints are server-produced, versioned by the session contract.
  * Rehydrate only database timestamps and fields a later contract added; user
  * answers remain exact strings. */
-function restoreSession(state: StoredAppTestSession): AppTestSessionState {
+function restoreSession({
+	claimedCaseIds: _sessionClaims,
+	...state
+}: StoredAppTestSession): AppTestSessionState {
 	const restore = (snapshot: CaseDatabaseSnapshot): CaseDatabaseSnapshot => ({
 		...snapshot,
 		rows: snapshot.rows.map((row) => ({
@@ -48,8 +52,6 @@ function restoreSession(state: StoredAppTestSession): AppTestSessionState {
 					: entry;
 	return {
 		...state,
-		// A session retained before claims existed has claimed nothing.
-		claimedCaseIds: state.claimedCaseIds ?? [],
 		deviceCases: restore(state.deviceCases),
 		screen: screen(state.screen),
 		history: state.history.map(screen),

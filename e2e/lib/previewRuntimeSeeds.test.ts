@@ -7,7 +7,11 @@ import { makeAssetRecord } from "@/lib/commcare/validator/rules/media/__tests__/
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema, moduleOpensOnSearch } from "@/lib/domain";
+import {
+	blueprintDocSchema,
+	moduleFormsReadSearch,
+	moduleSearchWorkflow,
+} from "@/lib/domain";
 import {
 	type Expression,
 	ifExpr,
@@ -88,18 +92,20 @@ describe("Preview runtime smoke seeds", () => {
 		).toBe(true);
 	});
 
-	it("opens the claim module on Search", () => {
+	it("opens the claim module on Search, and its forms read the search", () => {
 		const module =
 			buildSearchClaimBlueprint(APP_ID).modules[SEARCH_CLAIM_SEED.moduleUuid];
 		if (module === undefined) throw new Error("module missing");
-		expect(moduleOpensOnSearch(module)).toBe(true);
+		expect(moduleSearchWorkflow(module)).toBe("searchFirst");
+		expect(moduleFormsReadSearch(module)).toBe(true);
 	});
 
 	it("has its form read what the search found, so it opens only after a search", () => {
 		const doc = buildSearchResultsBlueprint(APP_ID);
 		const module = doc.modules[SEARCH_RESULTS_SEED.moduleUuid];
 		if (module === undefined) throw new Error("module missing");
-		expect(moduleOpensOnSearch(module)).toBe(true);
+		expect(moduleSearchWorkflow(module)).toBe("searchFirst");
+		expect(moduleFormsReadSearch(module)).toBe(true);
 		const [formUuid] = doc.formOrder[SEARCH_RESULTS_SEED.moduleUuid] ?? [];
 		if (formUuid === undefined) throw new Error("form missing");
 		expect(formReadsSearchResults(doc, formUuid)).toBe(true);

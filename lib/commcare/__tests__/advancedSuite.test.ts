@@ -413,7 +413,7 @@ describe("an advanced menu's case list entry", () => {
 		delete doc.fieldOrder[UNDER_TEST];
 		doc.modules[MEMBERS] = {
 			...doc.modules[MEMBERS],
-			caseListOnly: true,
+			caseListMenuItem: {},
 			parentCaseModuleUuid: undefined,
 		};
 		expect(emittedModuleKind(doc, MEMBERS)).toBe("advanced");

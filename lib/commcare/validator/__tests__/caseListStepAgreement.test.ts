@@ -29,6 +29,7 @@ import {
 } from "@/lib/domain/entryDatumSupplies";
 import { datumRefKey } from "@/lib/domain/expression/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain/forms";
+import { moduleHasCaseListMenuItem } from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
 
 /** The ids each entry reaching `module`'s list prints for the choices made
@@ -44,11 +45,11 @@ function printedBeforeList(
 			const candidate = doc.forms[uuid];
 			return (
 				candidate !== undefined &&
-				candidate.entry === undefined &&
+				doc.modules[owner].caseListRegistrationForm?.formUuid !== uuid &&
 				CASE_LOADING_FORM_TYPES.has(candidate.type)
 			);
 		});
-		if (form === undefined && doc.modules[owner].caseListOnly !== true)
+		if (form === undefined && !moduleHasCaseListMenuItem(doc.modules[owner]))
 			return [];
 		const rows = entryDatumIds(doc, ctx, owner, form);
 		const own = rows.findIndex((row) =>

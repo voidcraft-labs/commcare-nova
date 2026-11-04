@@ -36,7 +36,6 @@ import {
 	formRootTakenIds,
 	formTypeLabels,
 	isConnectLearnConfig,
-	isNoMatchesForm,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
@@ -59,7 +58,6 @@ import {
 	semanticCheckErrors,
 } from "../lookupTypeContext";
 import { formLinkNeedsNewCaseDatum } from "./advancedModule";
-import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
 import { validateCaseOperations } from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
 import { validateCasePlacements } from "./casePlacement";
@@ -457,6 +455,16 @@ const DESTINATION_PHRASE: Readonly<
 };
 
 /** The sentence each reason gives, before the offered list. */
+/** Some module's case list registration slot names the form. */
+function namedByCaseListRegistration(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): boolean {
+	return Object.values(doc.modules).some(
+		(mod) => mod.caseListRegistrationForm?.formUuid === formUuid,
+	);
+}
+
 function notOfferedSentence(
 	reason: PostSubmitNotOfferedReason,
 	formName: string,
@@ -470,9 +478,9 @@ function notOfferedSentence(
 			return `"${formName}" goes to the previous screen after submit, but "${moduleName}" selects several cases, and CommCare has no previous screen to return to there.`;
 		case "parent-selects-several":
 			return `"${formName}" goes to ${phrase} after submit, but "${moduleName}" sits under "${parentName}", which selects several cases.`;
-		case "menu-opens-on-search":
-			return `"${formName}" goes to the previous screen after submit, but "${moduleName}" opens on Search, and CommCare can't go back to the previous screen there.`;
-		case "menu-is-case-list-only":
+		case "menu-forms-read-search":
+			return `"${formName}" goes to the previous screen after submit, but "${moduleName}" has its forms read the search, and CommCare can't go back to the previous screen there.`;
+		case "menu-is-bare-case-list":
 			return `"${formName}" goes to its module after submit, but "${moduleName}" is a case list with no forms, so there is no form list to land on.`;
 		case "no-parent-menu":
 			return `"${formName}" goes to the parent module after submit, but "${moduleName}" has no parent module.`;
@@ -488,8 +496,9 @@ function notOfferedSentence(
  * enum is a shape finding; a stored destination the form's module does not
  * offer (`postSubmitDestinationsAdmitted`) is `POST_SUBMIT_NOT_OFFERED`,
  * naming the first reason that withholds it. An absent slot is never
- * refused, since its default is always offered. A no-matches form's one
- * explicit destination is `searchNoMatchesEntry`'s to judge.
+ * refused, since its default is always offered. A case list registration
+ * form's one explicit destination is `caseListRegistrationForm`'s to judge
+ * (`case-search/caseListRegistration.ts`).
  */
 function postSubmitValidation(
 	doc: BlueprintDoc,
@@ -513,7 +522,7 @@ function postSubmitValidation(
 			),
 		];
 	}
-	if (isNoMatchesForm(form)) return [];
+	if (mod.caseListRegistrationForm?.formUuid === ctx.formUuid) return [];
 
 	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, dest);
 	if (reason === undefined) return [];
@@ -710,15 +719,15 @@ function formLinkValidation(
 					details,
 				),
 			);
-		} else if (isNoMatchesForm(targetForm)) {
+		} else if (namedByCaseListRegistration(doc, link.target.formUuid)) {
 			// The form lives only behind the Register action on Results; the
 			// wire has no menu command for it, so a link cannot open it.
 			targetsResolve = false;
 			errors.push(
 				validationError(
-					"FORM_LINK_TARGET_NO_MATCHES_FORM",
+					"FORM_LINK_TARGET_CASE_LIST_REGISTRATION_FORM",
 					"form",
-					`"${ctx.formName}" ${label} targets "${targetForm.name}" in "${targetMod.name}", which opens only after a search finds no matches and is on no menu. Target the module instead so the worker searches, or another form.`,
+					`"${ctx.formName}" ${label} targets "${targetForm.name}" in "${targetMod.name}", which opens only when a search finds nothing and is on no menu. You can target the menu instead, so the worker searches, or another form.`,
 					loc,
 					details,
 				),
@@ -864,7 +873,7 @@ function formLinkValidation(
 				validationError(
 					"FORM_LINK_SEARCH_CASE_UNREPRESENTABLE",
 					"form",
-					`"${ctx.formName}" ${label} assigns a different case to a destination that opens on Search. CommCare would fetch the previous case before applying this assignment. Automatic case matching can carry the case this form selected or created; removing the manual assignment lets Nova check that match. Another option is a destination that opens on its case list.`,
+					`"${ctx.formName}" ${label} assigns a different case to a destination whose forms read the search. CommCare would fetch the previous case before applying this assignment. Automatic case matching can carry the case this form selected or created; removing the manual assignment lets Nova check that match. Another option is a destination whose forms read their own case.`,
 					loc,
 					{ ...details, datumIds: link.unrepresentableQueryDatums.join(", ") },
 				),
@@ -1133,7 +1142,6 @@ export function runFormRules(
 	errors.push(...rootFieldNamesConnectBlock(doc, ctx));
 	errors.push(...tooManyAttachments(doc, ctx));
 	errors.push(...postSubmitValidation(doc, form, ctx, mod));
-	errors.push(...searchNoMatchesEntry(doc, form, formUuid, moduleUuid));
 	errors.push(...formLinkSelectionCardinality(doc, form, mod, ctx));
 	errors.push(...formLinkValidation(doc, form, ctx, lookupTables));
 	errors.push(...hiddenMenuLinkTargets(doc, form, baseLocation(ctx)));

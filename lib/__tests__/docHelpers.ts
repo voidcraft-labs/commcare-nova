@@ -143,7 +143,6 @@ export interface FormSpec {
 	closeCondition?: string | Expression;
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
-	entry?: Form["entry"];
 	/** Authored with string conditions/datum XPaths (the concise spec
 	 *  shape); `buildDoc` parses them against the assembled form. A link's
 	 *  `uuid` is auto-minted when the spec omits it, like a field's. */
@@ -203,7 +202,10 @@ export interface ModuleSpec {
 	id?: string;
 	name: string;
 	caseType?: string;
-	caseListOnly?: boolean;
+	caseListMenuItem?: Module["caseListMenuItem"];
+	/** The module's case list registration form, named by its form spec's
+	 *  `uuid` label (resolved through `testUuid`). */
+	caseListRegistrationForm?: { formUuid: string; label?: string };
 	parentCaseModuleUuid?: string;
 	purpose?: string;
 	displayCondition?: Module["displayCondition"];
@@ -340,8 +342,17 @@ export function buildDoc(
 			...(modSpec.parentCaseModuleUuid !== undefined && {
 				parentCaseModuleUuid: testUuid(modSpec.parentCaseModuleUuid),
 			}),
-			...(modSpec.caseListOnly !== undefined && {
-				caseListOnly: modSpec.caseListOnly,
+			...(modSpec.caseListMenuItem !== undefined && {
+				caseListMenuItem: modSpec.caseListMenuItem,
+			}),
+			...(modSpec.caseListRegistrationForm !== undefined && {
+				caseListRegistrationForm: {
+					kind: "after-empty-search" as const,
+					formUuid: testUuid(modSpec.caseListRegistrationForm.formUuid),
+					...(modSpec.caseListRegistrationForm.label !== undefined && {
+						label: modSpec.caseListRegistrationForm.label,
+					}),
+				},
 			}),
 			...(modSpec.purpose !== undefined && { purpose: modSpec.purpose }),
 			...(modSpec.displayCondition !== undefined && {
@@ -366,7 +377,6 @@ export function buildDoc(
 				name: formSpec.name,
 				type: formSpec.type,
 				...(formSpec.purpose !== undefined && { purpose: formSpec.purpose }),
-				...(formSpec.entry !== undefined && { entry: formSpec.entry }),
 				...(formSpec.displayCondition !== undefined && {
 					displayCondition: formSpec.displayCondition,
 				}),

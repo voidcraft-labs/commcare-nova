@@ -89,7 +89,9 @@ it.each(searchEmissionScenarios)(
 			template: "case",
 		});
 		expect(hq.modules[0].search_config.inline_search).toBe(!remote);
-		expect(hq.modules[0].search_config.auto_launch).toBe(!remote);
+		// Every scenario searches first or skips to its results: the remote
+		// ones are search first whose forms read their own case.
+		expect(hq.modules[0].search_config.auto_launch).toBe(true);
 		expect(hq.modules[0].search_config.default_search).toBe(automatic);
 		expect(one(one(one(query, "title"), "text"), "locale").attributes).toEqual({
 			id: "case_search.m0.inputs",
@@ -477,3 +479,66 @@ it("writes both search labels under every wire code, blank where nothing is auth
 		en: "Look up a patient",
 	});
 });
+
+// A search first over a list that selects several cases auto-launches on
+// HQ's multi-select expression, byte for byte as
+// `tests/test_suite_multi_select_case_list.py::test_multi_select_case_list_auto_launch`
+// pins it: a multi-select screen reads the chosen cases as the
+// `next_input` instance and sets no `$next_input` variable, so the
+// single-select expression would read an unbound variable there. The
+// instance is the screen's own, so the detail declares none.
+it("auto-launches a multi-select search first on HQ's multi-select expression", () => {
+	const { suite, hq } = exported(searchEmissionFixture("remote-multiple"));
+	expect(hq.modules[0].case_details.short.multi_select).toBe(true);
+	expect(hq.modules[0].search_config.auto_launch).toBe(true);
+	const caseShort = onlyXml(
+		xmlChildren(suite, "detail").filter(
+			(node) => node.attributes.id === "m0_case_short",
+		),
+	);
+	expect(one(caseShort, "action").attributes.auto_launch).toBe(
+		"count(instance('next_input')/results/value) = 0 or count(instance('next_input')/results/value[count(instance('casedb')/casedb/case[@case_id = current()/.]) = 0]) > 0",
+	);
+	for (const node of xmlChildren(suite, "entry"))
+		expect(
+			xmlChildren(node, "instance").map((decl) => decl.attributes.id),
+		).not.toContain("next_input");
+});
+
+// A search first whose forms read their own case is the remote request with
+// HQ's single-select auto-launch on the case list's Search action
+// (`suite_xml/sections/details.py::DetailContributor._get_auto_launch_expression`,
+// `AUTO_LAUNCH_EXPRESSIONS["single-select"]`): nothing runs before Search,
+// and no entry holds the inline query or its results instance.
+it.each(["remote", "remote-defaults"] as const)(
+	"opens %s on its Search screen without the inline shape",
+	(scenario) => {
+		const { suite, hq } = exported(searchEmissionFixture(scenario));
+		expect(hq.modules[0].search_config).toMatchObject({
+			auto_launch: true,
+			default_search: false,
+			inline_search: false,
+		});
+		const query = one(
+			one(onlyXml(xmlChildren(suite, "remote-request")), "session"),
+			"query",
+		);
+		expect(query.attributes.default_search).toBe("false");
+		const caseShort = onlyXml(
+			xmlChildren(suite, "detail").filter(
+				(node) => node.attributes.id === "m0_case_short",
+			),
+		);
+		expect(one(caseShort, "action").attributes.auto_launch).toBe(
+			"$next_input = '' or count(instance('casedb')/casedb/case[@case_id = $next_input]) = 0",
+		);
+		for (const node of xmlChildren(suite, "entry")) {
+			const session = xmlChildren(node, "session");
+			for (const held of session)
+				expect(xmlChildren(held, "query")).toEqual([]);
+			expect(
+				xmlChildren(node, "instance").map((decl) => decl.attributes.id),
+			).not.toContain("results:inline");
+		}
+	},
+);

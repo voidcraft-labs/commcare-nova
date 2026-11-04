@@ -853,7 +853,7 @@ interface ResolvedInstance {
 	readonly closes: boolean;
 }
 
-interface ResolvedLink {
+export interface ResolvedLink {
 	readonly identifier: string;
 	readonly relationship: "child" | "extension";
 	readonly targetType: string;
@@ -2457,7 +2457,11 @@ async function setOwner(
  * identifier also maintains the denormalized first-parent column the
  * read paths walk.
  */
-async function applyLinkEffect(
+/** The identifier-keyed index writer: replaces `caseId`'s edge under
+ *  `link.identifier` (a null target removes it), and keeps the denormalized
+ *  `parent_case_id` in step for a `parent` index. A search claim's `host`
+ *  index is written here too (`PostgresCaseStore.claimCases`). */
+export async function applyLinkEffect(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	appId: string,

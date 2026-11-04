@@ -267,9 +267,9 @@ const english = {
 	deviceHomeSync: "Sync with server",
 	deviceHomeLastSync: "You last synced with the server: {time}",
 	deviceHomeLogOut: "Log out of CommCare",
-	// Web Apps' notice after a case list with no forms
-	// ("Redirecting after sync").
-	formlessReturned: "Synced and back at the app's first screen",
+	// Android's case detail opened from a case list menu entry
+	// (`select.detail.bypass`).
+	detailDone: "Done",
 	// Android's form screens (`form.entry.finish.button`, `repeat.dialog.*`).
 	finish: "Finish",
 	repeatGoBack: "Go back",
@@ -583,7 +583,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	deviceHomeSync: "Sincronizar con el servidor",
 	deviceHomeLastSync: "Última sincronización con el servidor: {time}",
 	deviceHomeLogOut: "Cerrar sesión en CommCare",
-	formlessReturned: "Sincronizado y de vuelta en la primera pantalla",
+	detailDone: "Listo",
 	finish: "Terminar",
 	repeatGoBack: "Volver",
 	repeatAddNew: "¿Agregar un nuevo {label}?",

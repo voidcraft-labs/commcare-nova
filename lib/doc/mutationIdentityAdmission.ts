@@ -400,6 +400,7 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "renameModule":
 		case "updateModule":
 		case "setModuleMedia":
+		case "setCaseListMenuItem":
 		case "removeForm":
 		case "moveForm":
 		case "renameForm":

@@ -33,7 +33,7 @@ describe("module hierarchy shared tools", () => {
 			parentModuleUuid,
 			name: "Follow-up",
 			case_type: "visit",
-			case_list_only: true,
+			case_list_menu_item: {},
 		});
 		if ("error" in created.result) throw new Error(created.result.error);
 		expect(created.result.parentModuleUuid).toBe(parentModuleUuid);

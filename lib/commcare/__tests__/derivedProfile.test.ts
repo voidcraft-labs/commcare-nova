@@ -36,7 +36,7 @@ function appWithSearch(search: "none" | "explicit" | "input" | "owner-only") {
 			{
 				name: "Patients",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: list,
 				...(search === "explicit" && { caseSearchConfig: {} }),
 				...(search === "owner-only" && {

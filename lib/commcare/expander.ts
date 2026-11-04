@@ -71,7 +71,8 @@ import {
 	declaresWebApps,
 	effectivePostSubmit,
 	makeTranslationUnitId,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
+	moduleHasCaseListMenuItem,
 	moduleParent,
 	projectedModulePreorder,
 	type Uuid,
@@ -80,6 +81,7 @@ import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
 import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
+	caseListMenuItemLabelUnit,
 	emissionPlan,
 	searchAnswersOf,
 } from "./emissionPlan";
@@ -278,11 +280,10 @@ export function expandDoc(
 		);
 		const formUuids = sortedFormOrder[moduleUuid] ?? [];
 		const synthetic = plan.synthetic.get(moduleUuid);
-		const noMatches = plan.noMatchesFormOf.get(moduleUuid);
+		const noMatches = plan.caseListRegistrationOf.get(moduleUuid);
 
-		// A module "has cases" when it owns a case type AND either runs as
-		// a case-list-only module (no forms) or carries at least one
-		// non-survey form. Surveys are the only form type that never
+		// A module "has cases" when it owns a case type AND either lists its
+		// case list as a menu entry or carries at least one non-survey form. Surveys are the only form type that never
 		// touches case state. `moduleCaseTypeForActions` is that rule's one
 		// home; the link projection gates the same way.
 		const caseType = moduleCaseTypeForActions(doc, moduleUuid);
@@ -333,8 +334,8 @@ export function expandDoc(
 				// reachable-case-type depth map matches the deep validator's accept
 				// map, which builds from `mod.caseType` directly.
 				...(mod.caseType && { moduleCaseType: mod.caseType }),
-				// The no-matches form and every form of a module that opens on
-				// its search read the menu's Search answers from the inline
+				// The case list registration form and every form of a menu
+				// whose forms read the search read the menu's Search answers from the inline
 				// query's input instance.
 				...(synthetic !== undefined
 					? {
@@ -343,7 +344,7 @@ export function expandDoc(
 								synthetic.hostModuleUuid,
 							),
 						}
-					: moduleOpensOnSearch(mod)
+					: moduleFormsReadSearch(mod)
 						? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
 						: {}),
 				...(ownCaseDatumId !== undefined &&
@@ -519,6 +520,7 @@ export function expandDoc(
 					caseDetails,
 					localization.defaultLanguage,
 					localization.languages,
+					declaresWebApps(doc),
 				)
 			: moduleShell(
 					moduleUniqueIds[mIdx],
@@ -527,6 +529,7 @@ export function expandDoc(
 					forms.filter((form): form is HqFormTree => form.doc_type === "Form"),
 					caseDetails,
 					localization.languages,
+					declaresWebApps(doc),
 				);
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
@@ -565,7 +568,11 @@ export function expandDoc(
 				doc_type: "CaseListForm",
 				form_id: formId,
 				label: localization.textMap(
-					caseListFormLabelUnit(authoredDoc, noMatches.formUuid),
+					caseListFormLabelUnit(
+						authoredDoc,
+						noMatches.hostModuleUuid,
+						noMatches.formUuid,
+					),
 				),
 				post_form_workflow: "case_list",
 				relevancy_expression: hqXPath(NO_MATCHES_RELEVANCY),
@@ -585,9 +592,9 @@ export function expandDoc(
 		);
 		shell.media_image = moduleMedia.media_image;
 		shell.media_audio = moduleMedia.media_audio;
-		// `case_list.media_image` / `media_audio` are stamped below, inside
-		// the `caseListOnly` block — that's the only shape where CCHQ emits
-		// a case-list menu command for the icon to land on.
+		// `case_list.media_image` / `media_audio` are stamped below, with
+		// the case list menu entry: the only shape where CCHQ emits a
+		// case-list menu command for the icon to land on.
 
 		// Overlay the projected `search_config` onto the shell. The
 		// shell carries CCHQ defaults; the projection brings authored
@@ -600,13 +607,16 @@ export function expandDoc(
 			shell.search_config = projection.searchConfig;
 		}
 
-		// `case_list_only` modules need `case_list.show = true` so HQ
-		// doesn't reject them with "no forms or case list" — CommCare
-		// requires either forms or a visible case list per module.
-		if (mod.caseListOnly) {
+		// The case list menu entry (`Module.caseListMenuItem`) is HQ's
+		// `case_list.show`: its own command after the menu's form commands
+		// (`suite_xml/sections/menus.py`, `entries.py::EntriesHelper.entry_for_module`).
+		// A menu with no forms holds it, since HQ refuses a menu with
+		// neither forms nor a shown case list. Its label is the entry's own
+		// label when authored, else the module's name.
+		if (moduleHasCaseListMenuItem(mod)) {
 			shell.case_list.show = true;
 			shell.case_list.label = localization.textMap(
-				makeTranslationUnitId("module", moduleUuid, "name"),
+				caseListMenuItemLabelUnit({ ...mod, uuid: moduleUuid }),
 			);
 			// Case-list-link menu media — same dict shape as the module
 			// home-tile media above. CCHQ renders it on the case-list
@@ -615,8 +625,8 @@ export function expandDoc(
 			// Empty dicts on the media-OFF path (`assets` undefined), so
 			// byte-free output is unchanged.
 			const caseListMedia = buildNavMediaDicts(
-				mod.caseListConfig?.icon,
-				mod.caseListConfig?.audioLabel,
+				mod.caseListMenuItem?.icon,
+				mod.caseListMenuItem?.audioLabel,
 				assets,
 				"expandDoc case-list media",
 				localization.languages,

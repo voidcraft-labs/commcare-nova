@@ -408,8 +408,13 @@ def search_compiles(unit, trace, operation, *, core_runner=None, suite=None):
     ``_xpath_query`` (a step's ``params`` and each request it made) with the case types the request names, and of
     each one the build's suite sends whatever a run gives it (``literal_queries``, where ``suite`` names its
     bytes), in one operation of the unit; ``[]`` where there is none."""
-    wanted = set() if suite is None else literal_queries(core_runner, suite)
+    # Each query as the trace records it, with the value the device sends in place of each runner mark (a date
+    # today() made is recorded as the clock's mark, "@clock:today"): HQ compiles the sent value, and the record
+    # keys the query by its marked text, which stays the same from run to run.
+    literal = set() if suite is None else literal_queries(core_runner, suite)
+    wanted = {(query, case_types): query for query, case_types in literal}
     for run in (trace or {}).get("runs") or []:
+        tokens = _tokens(run or {})
         for step in (run or {}).get("trace") or []:
             if not isinstance(step, dict):
                 continue
@@ -419,13 +424,13 @@ def search_compiles(unit, trace, operation, *, core_runner=None, suite=None):
                     continue
                 case_types = tuple(sorted(str(value) for value in params.get(CASE_TYPE_KEY) or []))
                 for query in params.get(XPATH_QUERY_KEY) or []:
-                    wanted.add((str(query), case_types))
+                    wanted.setdefault((str(query), case_types), _replace_all(str(query), tokens))
     if not wanted:
         return []
     found = []
-    with operation("csql-compile", digest(sorted(wanted)).encode()):
-        for query, case_types in sorted(wanted):
-            found.append({"query": query, "caseTypes": list(case_types), **csql_compile(unit, query, case_types)})
+    with operation("csql-compile", digest(sorted(wanted.items())).encode()):
+        for (query, case_types), sent in sorted(wanted.items()):
+            found.append({"query": query, "caseTypes": list(case_types), **csql_compile(unit, sent, case_types)})
     return found
 
 

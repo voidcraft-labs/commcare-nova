@@ -177,7 +177,7 @@ export interface SessionDatum {
 	/** The immediately preceding selection in a parent-select chain. */
 	parentSelection?: SessionDatum;
 	/**
-	 * Present on the `<query>` session child of a search-first module. The
+	 * Present on the `<query>` session child of a menu whose forms read the search. The
 	 * datum's `id` is the storage instance the search fills
 	 * (`results:inline`), which is also the id HQ's end-of-form workflow
 	 * gives the frame child it derives from it (`workflow.py::WorkflowQueryMeta`).
@@ -187,7 +187,7 @@ export interface SessionDatum {
 }
 
 /**
- * The search a search-first module runs inside its entries, immediately
+ * The search a menu whose forms read the search runs inside its entries, immediately
  * before the case datum that reads its results (CCHQ's
  * `EntriesHelper.add_remote_query_datums`).
  */
@@ -259,7 +259,7 @@ export interface StackQueryData {
 export type StackChild =
 	| { type: "command"; value: WireExpr }
 	| { type: "datum"; id: string; value: WireExpr }
-	/** A frame step that fetches cases into a search-first module's
+	/** A frame step that fetches cases into the results of a menu whose forms read the search,
 	 *  results instance before the datum that selects one (HQ
 	 *  `WorkflowQueryMeta.to_stack_datum`). */
 	| {
@@ -297,9 +297,9 @@ export interface StackOperation {
  *   - **Form entry** — carries `formXmlns`, so `buildEntryElement`
  *     emits a `<form>` child naming the XForm the entry launches.
  *     Built by `deriveEntryDefinition`.
- *   - **Case-list-browse entry** — the `caseListOnly` module's
- *     standalone case-list command (CCHQ's `case_list.show=true`
- *     block at `entries.py`'s `if module.case_list.show:`). It loads
+ *   - **Case list entry** — the case list menu entry's command
+ *     (`Module.caseListMenuItem`, CCHQ's `case_list.show=true` block at
+ *     `entries.py`'s `if module.case_list.show:`). It loads
  *     a case into the case-list/-detail screens but launches no form,
  *     so `formXmlns` is omitted and `buildEntryElement` skips the
  *     `<form>` child. Built by `deriveCaseListEntryDefinition`.
@@ -312,7 +312,7 @@ export interface EntryDefinition {
 	/** The XForm xmlns the entry launches. Omitted for the case-list-browse entry, which loads a case but launches no form. */
 	formXmlns?: string;
 	/**
-	 * The claim `<post>` of a search-first module's case-requiring entry:
+	 * The claim `<post>` of a case-requiring entry of a menu whose forms read the search:
 	 * fires when the worker picks a result the device does not yet hold
 	 * (`EntriesHelper.add_post_to_entry`). Sits between `<form>` and
 	 * `<command>` on the wire.
@@ -342,7 +342,7 @@ export interface EntryDefinition {
  *
  * The single source for this string across both case-loading entry
  * shapes — the form entry's `case_id` datum
- * (`deriveSessionDatums`) and the `caseListOnly` browse entry's
+ * (`deriveSessionDatums`) and the case list entry's
  * `case_id` datum (`deriveCaseListEntryDefinition`). Keeping it in one
  * place stops the two from drifting on the `[@case_type][@status]`
  * predicate order or the availability-filter append rule.
@@ -451,7 +451,7 @@ export function deriveCaseSelectionDatum(args: {
 	readonly detailConfirm?: boolean;
 	readonly maxSelectValue?: number;
 	/** Where the selectable cases come from: the device's casedb, or the
-	 *  results of a search-first module's own search. */
+	 *  results of the own search of a menu whose forms read the search. */
 	readonly caseSource?: "casedb" | "results:inline";
 	/** The owner frame algorithm needs identity and presence, not XPath. */
 	readonly entryMetadataOnly?: boolean;
@@ -1100,7 +1100,7 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly projectedSessionDatums?: readonly SessionDatum[];
 	/** Dependencies from the exact rendered details and menu command this entry evaluates. */
 	readonly additionalInstances?: readonly InstanceDecl[];
-	/** The claim post of a search-first module's case-requiring entry. */
+	/** The claim post of a case-requiring entry of a menu whose forms read the search. */
 	readonly post?: EntryPost;
 	/**
 	 * HQ's case-list-form return frame (`CaseListFormWorkflow`): the one
@@ -1210,14 +1210,18 @@ export function deriveEntryDefinition(
 }
 
 /**
- * Build the `EntryDefinition` for a `caseListOnly` module's standalone
- * case-list-browse command.
+ * Build the `EntryDefinition` for a case list menu entry's command
+ * (`Module.caseListMenuItem`).
  *
- * CCHQ emits this entry from the `if module.case_list.show:` block at
- * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py`
- * whenever a module's case list is shown without an attached form — the
- * exact shape Nova's `expander.ts` stamps as `case_list.show = true` for
- * `caseListOnly` modules. The rendered fixture is
+ * CCHQ emits this entry from the `if module.case_list.show:` block of
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::EntriesHelper.entry_for_module`
+ * whenever a module's case list is a menu entry, beside its forms or alone,
+ * the shape Nova's `expander.ts` stamps as `case_list.show = true`. For a
+ * basic module its datums are those a case-loading form of the module gets
+ * (`configure_entry_module_form` with no form, its inline query included
+ * where the forms read the search); for an advanced module the one
+ * `case_id_case_<type>` datum. The caller passes them as `projectedDatums`
+ * (`formLinkProjection.ts::caseListSessionDatums`). The rendered fixture is
  * `commcare-hq/corehq/apps/app_manager/tests/data/suite/call-center.xml`:
  * an `<entry>` with NO `<form>`, a `<command id="m{N}-case-list">`, the
  * `casedb` instance, and a single `case_id` session datum that browses
@@ -1471,8 +1475,7 @@ export function buildStackElement(
  * constructed tree's shape is the on-wire shape.
  *
  * The `<form>` child is emitted only when `entry.formXmlns` is set. A
- * form entry always carries it; the `caseListOnly` case-list-browse
- * entry omits it (CCHQ's `case_list.show` block at `entries.py` builds
+ * form entry always carries it; the case list entry omits it (CCHQ's `case_list.show` block at `entries.py` builds
  * an `<entry>` with no `<form>`, per the `call-center.xml` fixture) —
  * the entry loads a case but launches no form.
  *

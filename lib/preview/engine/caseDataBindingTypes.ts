@@ -209,6 +209,38 @@ export type LoadPersonaOwnedCaseCountResult =
 	| PreviewUnavailableResult;
 
 /**
+ * Result of `claimSearchedCasesAction`: the running worker claimed the cases
+ * it chose from a search. `created` names the hosts this call claimed and
+ * `alreadyClaimed` the hosts the worker already held a claim on, both in the
+ * order the caller sent them. `case-gone` is a chosen case the app's case
+ * data no longer holds; nothing was claimed.
+ */
+export type ClaimSearchedCasesResult =
+	| {
+			kind: "claimed";
+			created: readonly string[];
+			alreadyClaimed: readonly string[];
+	  }
+	| { kind: "case-gone"; message: string }
+	| { kind: "refused"; message: string }
+	| { kind: "unauthenticated" }
+	| PreviewUnavailableResult;
+
+/** Result of `releaseClaimedCasesAction`: how many claims it closed. */
+export type ReleaseClaimedCasesResult =
+	| { kind: "released"; released: number }
+	| { kind: "refused"; message: string }
+	| { kind: "unauthenticated" }
+	| PreviewUnavailableResult;
+
+/** Result of `countClaimedCasesAction`: the running worker's open claims. */
+export type CountClaimedCasesResult =
+	| { kind: "count"; count: number }
+	| { kind: "refused"; message: string }
+	| { kind: "unauthenticated" }
+	| PreviewUnavailableResult;
+
+/**
  * Result of `conversionImpactAction` — the consent preview for a
  * failable kind conversion. The `impact` arm IS the store's
  * `ConversionImpact` (counts computed with the migration's own cast

@@ -94,7 +94,7 @@ it.each([
 			expect(verdict.ok).toBe(false);
 			if (verdict.ok) throw new Error("Unsafe Search handover committed");
 			expect(userFacingErrors(verdict.findings)).toEqual([
-				'In "Untitled Form", the link to "Untitled Form" assigns a different case to a destination that opens on Search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination that opens on its case list.',
+				'In "Untitled Form", the link to "Untitled Form" assigns a different case to a destination whose forms read the search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination whose forms read their own case.',
 			]);
 			expect(
 				verdict.findings.map((finding) => [

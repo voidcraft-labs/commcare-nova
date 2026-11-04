@@ -24,7 +24,12 @@ describe("case-search-config author schema boundaries", () => {
 		[
 			"advanced",
 			setCaseSearchAdvancedTool.inputSchema,
-			{ moduleUuid: MODULE_UUID, excludedOwnerIds: null, searchFirst: null },
+			{
+				moduleUuid: MODULE_UUID,
+				excludedOwnerIds: null,
+				searchWorkflow: "searchFirst",
+				formsReadSearch: null,
+			},
 		],
 		[
 			"display",
@@ -64,7 +69,8 @@ describe("case-search-config author schema boundaries", () => {
 				kind: "term",
 				term: { kind: "literal", value: "owner-a owner-b" },
 			},
-			searchFirst: true,
+			searchWorkflow: "skipToResults",
+			formsReadSearch: true,
 		});
 		expect(result.success).toBe(true);
 	});
@@ -73,19 +79,28 @@ describe("case-search-config author schema boundaries", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 			moduleUuid: MODULE_UUID,
 			excludedOwnerIds: null,
-			searchFirst: null,
+			searchWorkflow: "searchFirst",
+			formsReadSearch: null,
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it("setCaseSearchAdvanced: searchFirst admits only true or null", () => {
-		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
-			moduleUuid: MODULE_UUID,
-			excludedOwnerIds: null,
-			searchFirst: false,
-		});
-		expect(result.success).toBe(false);
-	});
+	it.each([
+		{ searchWorkflow: "searchFirst", formsReadSearch: false },
+		{ searchWorkflow: null, formsReadSearch: null },
+		{ searchWorkflow: "openOnSearch", formsReadSearch: null },
+		{ searchFirst: true, searchWorkflow: "searchFirst", formsReadSearch: null },
+	])(
+		"setCaseSearchAdvanced: refuses %o, outside the workflow and Forms read the search slots",
+		(slots) => {
+			const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
+				moduleUuid: MODULE_UUID,
+				excludedOwnerIds: null,
+				...slots,
+			});
+			expect(result.success).toBe(false);
+		},
+	);
 
 	it.each([
 		{
@@ -106,7 +121,8 @@ describe("case-search-config author schema boundaries", () => {
 			const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 				moduleUuid: MODULE_UUID,
 				excludedOwnerIds: expression,
-				searchFirst: null,
+				searchWorkflow: "searchFirst",
+				formsReadSearch: null,
 			});
 			expect(result.success).toBe(false);
 			if (result.success) return;
@@ -124,7 +140,8 @@ describe("case-search-config author schema boundaries", () => {
 				term(literal(" ")),
 				term(input(testUuid("owner_ids"))),
 			),
-			searchFirst: null,
+			searchWorkflow: "searchFirst",
+			formsReadSearch: null,
 		});
 		expect(result.success).toBe(true);
 	});

@@ -1224,7 +1224,7 @@ const PRELOAD_SOURCE = buildDoc({
 		{
 			name: "Visits",
 			caseType: "visit",
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 			forms: [],
 		},

@@ -53,12 +53,8 @@ is explanatory and never substitutes for rename Phase A's locked recheck.
 read. It applies the bound worker's restore closure across every retained case
 type, including types no longer present in the active Blueprint, and returns
 the visible rows plus their direct parent/custom index edges under one
-repeatable-read transaction. Its only caller-supplied ids are the worker's
-claims (`RestoreScope.claimedCaseIds`: searched cases the worker chose that its
-restore did not hold). Each seeds the fixpoint only if it is a case of this app
-in the bound Project, checked id by id in SQL, so an id of another app, another
-Project or no case seeds nothing and never refuses the rest; both endpoints of
-every edge are re-fenced by app and bound Project in SQL.
+repeatable-read transaction. Both endpoints of every edge are re-fenced by app
+and bound Project in SQL.
 Each edge persists `target_case_type`, matching Core's
 `CaseIndex.mTargetCaseType`: the type is captured when the relationship is
 written and never re-derived from the target row on read, so a later target
@@ -342,15 +338,11 @@ is the rule, carries the citations, and is pinned against all 45 graphs of HQ's
 own `case_relationship_tests.json` — the oracle is that FILE, not `livequery.py`'s
 module docstring, whose eighth example the pinned fixtures contradict.
 
-**A claim seeds it too.** `RestoreScope.claimedCaseIds` carries the worker's
-claims, and `compileRestoreScope.ts` seeds the fixpoint with each claimed case,
-carrying its own openness, which is the closure HQ's claim gives less the claim
-row: HQ's `commcare-case-claim` case is an owned open seed whose one extension
-hop reaches the chosen case, so an open claimed case becomes live, and a closed
-one relays nothing, as a closed host kills a real claim. The seed reads
-`cases`, so a claimed id of another app or Project never enters the scope. The
-store writes no claim row. `sql/__tests__/restoreScopeClaims.postgres.test.ts`
-holds the rule over HQ's graphs with a claim added.
+**A claim is a row.** A search's claim is a `commcare-case-claim` case the store holds
+(`CaseStore.claimCases`): open, owned by the worker, with a `host` extension index to the chosen case, so
+the fixpoint's ordinary rules make it and its host live. `releaseClaims` closes a worker's claims, and a
+sample-data replace deletes the claims of the hosts it deletes. `sql/__tests__/restoreScopeClaims.postgres.test.ts`
+holds it over HQ's graphs with a real claim row.
 
 **A search reads past it.** `QueryArgs.searchPopulation { heldBy }` is HQ's
 case search population (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`):

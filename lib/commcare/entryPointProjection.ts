@@ -1,8 +1,8 @@
 /** HQ EndpointsHelper projection. Computed datums remain runtime-owned. */
 import {
 	type BlueprintDoc,
+	caseListRegistrationFormOf,
 	type EntryPointTarget,
-	isNoMatchesForm,
 	type Uuid,
 } from "@/lib/domain";
 import { emissionPlan } from "./emissionPlan";
@@ -50,8 +50,7 @@ export function projectEntryPoint(
 ): EntryPointProjection {
 	if (
 		target.kind === "form" &&
-		doc.forms[target.formUuid] &&
-		isNoMatchesForm(doc.forms[target.formUuid])
+		caseListRegistrationFormOf(doc, target.moduleUuid) === target.formUuid
 	)
 		throw new Error(
 			"Registration after an empty search cannot be opened through a deep link.",
@@ -65,13 +64,6 @@ export function projectEntryPoint(
 	if (!mod) throw new Error("The entry point destination is missing.");
 	let frame: FrameChild[];
 	if (target.kind === "form") {
-		if (
-			doc.forms[target.formUuid] &&
-			isNoMatchesForm(doc.forms[target.formUuid])
-		)
-			throw new Error(
-				"Registration after an empty search cannot be opened through a deep link.",
-			);
 		if (
 			!doc.forms[target.formUuid] ||
 			!doc.formOrder[target.moduleUuid]?.includes(target.formUuid)

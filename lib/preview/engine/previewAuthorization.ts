@@ -25,7 +25,6 @@ import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { declaredPlatforms } from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
 import type { LookupScope } from "@/lib/lookup/types";
-import { PREVIEW_CLAIMS_LIMIT } from "@/lib/session/previewClaims";
 import { schemaHealingCaseStore } from "./caseDataBindingHelpers";
 import {
 	previewAsMe,
@@ -106,8 +105,8 @@ export type AuthorizedPreviewContext =
 			 * make the client's copy quietly wrong, and `samePreviewIdentity`
 			 * would then compare a field only one side can fill.
 			 *
-			 * It carries the worker's claims the caller sent, so every read
-			 * bound by it holds the cases the worker chose from a search.
+			 * The worker's claims are case rows it owns, so the scope's owned
+			 * seed already holds them and their hosts.
 			 */
 			restoreScope: RestoreScope;
 	  };
@@ -121,43 +120,9 @@ export const PLATFORM_UNAVAILABLE_MESSAGE =
 export const PREVIEW_LANGUAGE_UNAVAILABLE_MESSAGE =
 	"This app no longer has the language Preview is showing. Choose another language and try again.";
 
-const CASE_ID_MAX_LENGTH = 255;
-
-/**
- * Check a client's claimed case ids at the trust boundary. A claim can only
- * widen a device read to cases of this app in the member's own Project, which
- * the store fences per id in SQL, so the check here is shape: a plain array of
- * distinct, non-empty ids of at most 255 characters, at most
- * {@link PREVIEW_CLAIMS_LIMIT} of them. A malformed list refuses the read,
- * never shrinks silently into a different one.
- */
-export function previewClaimedCaseIds(value: unknown): readonly string[] {
-	if (value === undefined) return [];
-	if (
-		!Array.isArray(value) ||
-		value.length > PREVIEW_CLAIMS_LIMIT ||
-		value.some(
-			(id) =>
-				typeof id !== "string" ||
-				id.length === 0 ||
-				id.length > CASE_ID_MAX_LENGTH,
-		) ||
-		new Set(value).size !== value.length
-	) {
-		throw new Error(
-			`Preview sent the cases this worker claimed in a shape it cannot read. It expects a list of up to ${PREVIEW_CLAIMS_LIMIT} distinct case ids, each 1 to ${CASE_ID_MAX_LENGTH} characters. Check the caller that builds \`claimedCaseIds\` from the session's \`previewClaims\`.`,
-		);
-	}
-	return value as readonly string[];
-}
-
 export async function resolveAuthorizedPreviewContext(args: {
 	readonly appId: string;
 	readonly personaUuid?: string;
-	/** The worker's claims from the session (`lib/session/previewClaims.ts`),
-	 *  client input checked by {@link previewClaimedCaseIds}. They seed the
-	 *  returned `restoreScope`. */
-	readonly claimedCaseIds?: unknown;
 	readonly required: AppCapability;
 	/** Submission program derivation needs the committed blueprint even while
 	 * previewing as the signed-in member. Persona selection implies a load. */
@@ -166,7 +131,6 @@ export async function resolveAuthorizedPreviewContext(args: {
 	 *  `previewDeviceInput`; a supplied device implies a blueprint load. */
 	readonly device?: unknown;
 }): Promise<AuthorizedPreviewContext> {
-	const claimedCaseIds = previewClaimedCaseIds(args.claimedCaseIds);
 	const suppliedDevice =
 		args.device === undefined ? undefined : previewDeviceInput(args.device);
 	const session = await getSession();
@@ -275,7 +239,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 		store,
 	});
 
-	const ownedScope = await resolveRestoreScope({
+	const restoreScope = await resolveRestoreScope({
 		appId: args.appId,
 		identity: identityOnRecord,
 		blueprint,
@@ -284,10 +248,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 		kind: "ready",
 		identity: identityOnRecord,
 		device,
-		restoreScope:
-			claimedCaseIds.length === 0
-				? ownedScope
-				: { ...ownedScope, claimedCaseIds },
+		restoreScope,
 		store,
 		scope: {
 			projectId: access.projectId,

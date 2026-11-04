@@ -117,6 +117,9 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"CONNECT_ID_DUPLICATE",
 	"CONNECT_NO_PARTICIPATING_FORMS",
 	"PLATFORM_FEATURE_UNAVAILABLE",
+	// A move scoped to another module can strand a case list registration
+	// slot, so its backstop runs as an app rule.
+	"CASE_LIST_REGISTRATION_FORM_NOT_IN_MODULE",
 	"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 	"FIELD_KIND_WRITERS_DISAGREE",
 	"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",

@@ -128,7 +128,7 @@ function caseListRootDoc(childCaseType: "household" | "visit"): BlueprintDoc {
 				{
 					name: "Households",
 					caseType: "household",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -793,10 +793,13 @@ describe("evaluateCommit — an edit that strands an instance read", () => {
 			.map((finding) => finding.location.fieldId);
 	}
 	/** Check in counts what Find patient's search found; the module has
-	 * no no-matches form, so Search first is the only supply. */
+	 * no case list registration form, so Forms read the search is the only
+	 * supply. */
 	function searchReadDoc(): BlueprintDoc {
 		const doc = instanceReadsDoc();
 		doc.formOrder[reads.find] = [reads.checkIn, reads.note];
+		const { caseListRegistrationForm: _, ...find } = doc.modules[reads.find];
+		doc.modules[reads.find] = find;
 		delete doc.forms[reads.register];
 		delete doc.fieldOrder[reads.register];
 		for (const field of Object.values(doc.fields))
@@ -808,13 +811,13 @@ describe("evaluateCommit — an edit that strands an instance read", () => {
 
 	it.each<[string, Mutation[]]>([
 		[
-			"turning Search first off",
+			"turning Forms read the search off",
 			[
 				{
 					kind: "updateModule",
 					uuid: reads.find,
 					patch: {},
-					caseSearchConfigPatch: { searchFirst: null },
+					caseSearchConfigPatch: { formsReadSearch: null },
 				},
 			],
 		],

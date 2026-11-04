@@ -29,6 +29,10 @@ export function csqlStaticQuoteFixture(selected: "safe" | "unsafe") {
 		switchExpr(term(literal(null)), [switchCase(literal(""), chosen)], dead),
 		ifExpr(eq(literal(0), literal(0.0000000000001)), chosen, dead),
 	];
+	// A filter with nothing to fill in runs its search as the menu opens.
+	doc.modules[doc.moduleOrder[0]].caseSearchConfig = {
+		workflow: "skipToResults",
+	};
 	config.searchInputs = [];
 	config.filter = and(
 		eq(prop("patient", "first_name"), first),

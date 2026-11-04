@@ -318,7 +318,8 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"datetime-question": "date-and-time questions",
 	"case-list-here": "case-list columns that read the worker's location",
 	"case-list-search-text": "reads of the case list's search text",
-	"search-first": "menus that use Search first",
+	"forms-read-search": "menus whose forms read the search",
+	"list-first": "menus that open on their case list first",
 	"several-cases": "menus that choose several cases",
 	"search-field-single-date": "date search fields",
 	"search-field-multiple-choice": "multiple-choice search fields",
@@ -326,12 +327,23 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"connect-app": "CommCare Connect",
 };
 
+/** Cause ids a stored notice row may carry that no current feature reads
+ *  `unavailable` with: step 4's cutover wrote `search-first` for the inline
+ *  shape, which step 5 renamed `forms-read-search`. Read after
+ *  `PLATFORM_CAUSE_WORDS`, so a stored row renders as it did. */
+export const HISTORICAL_PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> =
+	{
+		"search-first": "menus that use Search first",
+	};
+
 /** "its date-and-time questions and date search fields", or "part of it". */
 function causePhrase(causes: string | undefined): string {
 	const words = detailIds(causes).flatMap((id) =>
 		Object.hasOwn(PLATFORM_CAUSE_WORDS, id)
 			? [PLATFORM_CAUSE_WORDS[id] as string]
-			: [],
+			: Object.hasOwn(HISTORICAL_PLATFORM_CAUSE_WORDS, id)
+				? [HISTORICAL_PLATFORM_CAUSE_WORDS[id] as string]
+				: [],
 	);
 	return words.length === 0 ? "part of it" : `its ${joinedNames(words)}`;
 }

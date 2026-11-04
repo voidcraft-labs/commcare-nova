@@ -76,7 +76,7 @@ export function nativeLookupRelations(naming: LookupWireNaming) {
 				uuid: moduleUuid,
 				name: "Lookup relations",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: { columns, searchInputs: [] },
 			},
 		],

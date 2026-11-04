@@ -40,8 +40,12 @@ describe("each refusable structural feature in the builder's words", () => {
 			'"answer" asks for a date and time, which Web Apps can\'t show. You can ask for the date and the time separately, or set the app to run only on Android in App settings.',
 		],
 		[
-			"search-first",
-			"\"Patients\" opens on Search first, which on Android can't open a case the phone doesn't hold. You can turn Search first off, or set the app to run only in Web Apps in App settings.",
+			"forms-read-search",
+			"\"Patients\" has its forms read the search, which on Android can't open a case the phone doesn't hold. You can turn off Forms read the search, or set the app to run only in Web Apps in App settings.",
+		],
+		[
+			"list-first",
+			'"Patients" opens on its case list first, which CommCare HQ no longer offers in Web Apps. You can open it on Search first, or set the app to run only on Android in App settings.',
 		],
 		[
 			"several-cases",

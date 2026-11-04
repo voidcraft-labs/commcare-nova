@@ -67,6 +67,7 @@ import {
 import {
 	caseSearchConfigPatchMutations,
 	clearCaseSearchConfigSettingsMutations,
+	withWorkflowAfterInputChange,
 } from "@/lib/doc/caseSearchConfigPatchMutations";
 import {
 	type CaseSelectionTransition,
@@ -82,10 +83,7 @@ import {
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import {
-	useIsBareCaseListModule,
-	useIsCaseFirstModule,
-} from "@/lib/doc/hooks/useModuleIds";
+import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
@@ -110,7 +108,9 @@ import {
 	isOwnerOnlyCaseSearchConfig,
 	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
+	searchWorkflow,
 	type TileCell,
+	visibleSearchInputs,
 } from "@/lib/domain";
 import {
 	type Expression,
@@ -513,7 +513,6 @@ function useController(target: CaseListWorkspaceTarget | null) {
 
 	const mod = useModule(moduleUuid);
 	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
-	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
 	/* The EFFECTIVE view: the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
@@ -539,10 +538,12 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		? effectiveCaseSearchConfig(mod)
 		: undefined;
 	const boundaryVerdicts = useCaseWorkspaceBoundaryVerdicts(moduleUuid);
+	/* A menu that opens on the cases its search finds, with nothing to fill
+	 * in: Results first and no visible Search field. */
 	const opensResultsAutomatically =
 		effectiveSearchConfig !== undefined &&
-		config.searchInputs.length === 0 &&
-		effectiveFilterForEmission(config.filter) !== undefined;
+		visibleSearchInputs(config.searchInputs).length === 0 &&
+		searchWorkflow(effectiveSearchConfig) === "skipToResults";
 
 	// ── Selection ──
 	const [sel, setSel] = useState<WorkspaceSelection | null>(null);
@@ -947,14 +948,18 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		[commitMany, moduleUuid, searchConfig],
 	);
 	const configureSearchAction = useCallback(() => {
-		const outcome = commitMany([
-			enableCaseSearchMutation(
-				requireRetainedModuleUuid(moduleUuid),
-				searchConfig,
-			),
-		]);
+		/* Search with nothing to fill in opens on its results: the planner
+		 * writes Results first in the same batch. */
+		const outcome = commitMany(
+			withWorkflowAfterInputChange(docApi.getState(), [
+				enableCaseSearchMutation(
+					requireRetainedModuleUuid(moduleUuid),
+					searchConfig,
+				),
+			]),
+		);
 		if (outcome.ok) setSel({ type: "search-panel" });
-	}, [commitMany, moduleUuid, searchConfig]);
+	}, [commitMany, docApi, moduleUuid, searchConfig]);
 	const editSearchButtonCondition = useCallback(
 		(focusNewCondition = false) => {
 			if (focusNewCondition) {
@@ -1174,13 +1179,16 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		// Carry the existing identity; array position already owns display order.
 		const current = config.searchInputs.find((input) => input.uuid === uuid);
 		if (current === undefined) return;
-		commitMany([
-			searchInputUpdateMutation(
-				requireRetainedModuleUuid(moduleUuid),
-				current,
-				withPreservedIdentity(current, next),
-			),
-		]);
+		// Hiding the last visible field opens the menu on its results.
+		commitMany(
+			withWorkflowAfterInputChange(docApi.getState(), [
+				searchInputUpdateMutation(
+					requireRetainedModuleUuid(moduleUuid),
+					current,
+					withPreservedIdentity(current, next),
+				),
+			]),
+		);
 	};
 	const removeInput = (uuid: SearchInputDef["uuid"]) => {
 		const orderedInputs = [...config.searchInputs];
@@ -1216,7 +1224,10 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				}),
 			);
 		}
-		const outcome = commitMany(mutations);
+		// Removing the last visible field opens the menu on its results.
+		const outcome = commitMany(
+			withWorkflowAfterInputChange(docApi.getState(), mutations),
+		);
 		if (!outcome.ok) return;
 		setInputRemovalReview(null);
 
@@ -1368,14 +1379,16 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		// established per-type match default.
 		const seed = seedSearchInputForProperty(config, property, projectProse);
 		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
-		const outcome = commitMany([
-			enableCaseSearchMutation(retainedModuleUuid, searchConfig),
-			{
-				kind: "addSearchInput",
-				moduleUuid: retainedModuleUuid,
-				searchInput: seed,
-			},
-		]);
+		const outcome = commitMany(
+			withWorkflowAfterInputChange(docApi.getState(), [
+				enableCaseSearchMutation(retainedModuleUuid, searchConfig),
+				{
+					kind: "addSearchInput",
+					moduleUuid: retainedModuleUuid,
+					searchInput: seed,
+				},
+			]),
+		);
 		// Never select an identity the gate refused to create. The gate can still
 		// reject a concurrent structural edit even though the seed was valid when
 		// this interaction began.
@@ -1387,14 +1400,16 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		// its expression.
 		const seed = seedHiddenSearchInput(config);
 		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
-		const outcome = commitMany([
-			enableCaseSearchMutation(retainedModuleUuid, searchConfig),
-			{
-				kind: "addSearchInput",
-				moduleUuid: retainedModuleUuid,
-				searchInput: seed,
-			},
-		]);
+		const outcome = commitMany(
+			withWorkflowAfterInputChange(docApi.getState(), [
+				enableCaseSearchMutation(retainedModuleUuid, searchConfig),
+				{
+					kind: "addSearchInput",
+					moduleUuid: retainedModuleUuid,
+					searchInput: seed,
+				},
+			]),
+		);
 		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
 	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
@@ -1904,7 +1919,6 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				openSearchCondition({ kind: "input", uuid, slot }),
 			onEditSearchButtonCondition: editSearchButtonCondition,
 			searchSettingsHasError: searchButtonConditionBroken,
-			canOpenOnSearch: isCaseFirst || isBareCaseList,
 			onHideColumn: hideColumnFromSurface,
 			onDeleteColumn: deleteColumn,
 			onRemoveInput: removeInput,
@@ -2400,7 +2414,11 @@ export function CaseListWorkspaceCanvas() {
 								hasSearchSurface={config.searchInputs.length > 0}
 								hasSearchAction={effectiveSearchConfig !== undefined}
 								opensResultsAutomatically={opensResultsAutomatically}
-								searchFirst={effectiveSearchConfig?.searchFirst === true}
+								{...(effectiveSearchConfig !== undefined && {
+									workflow: searchWorkflow(effectiveSearchConfig),
+									formsReadSearch:
+										effectiveSearchConfig.formsReadSearch === true,
+								})}
 								onMoveInput={moveInput}
 								searchSettingsHasError={searchButtonConditionBroken}
 								{...(moduleUuid === undefined ? {} : { moduleUuid })}
@@ -2525,8 +2543,6 @@ interface ResolveInspectorArgs {
 	) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
-	/** The module's first screen selects a case, so it may open on Search. */
-	readonly canOpenOnSearch: boolean;
 	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
 	readonly onDeleteColumn: (
 		surface: CaseDisplaySurface,
@@ -2666,8 +2682,10 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						}
 						opensResultsAutomatically={
 							sortedInputs.length === 1 &&
-							args.searchConfig !== undefined &&
-							effectiveFilterForEmission(config.filter) !== undefined
+							opensOnResultsAfterFinalInput(
+								args.searchConfig,
+								effectiveFilterForEmission(config.filter) !== undefined,
+							)
 						}
 						preservesAssignedCaseRule={
 							sortedInputs.length === 1 &&
@@ -2697,10 +2715,6 @@ function resolveInspector(args: ResolveInspectorArgs): {
 				caseListConfig: config,
 				caseSearchConfig: args.searchConfig,
 			});
-			const opensResultsAutomatically =
-				effectiveSearch !== undefined &&
-				!hasVisibleSearchScreen &&
-				effectiveFilterForEmission(config.filter) !== undefined;
 			return {
 				kicker: hasVisibleSearchScreen ? "Search screen" : "More settings",
 				title: hasVisibleSearchScreen
@@ -2716,10 +2730,8 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						knownInputs={config.searchInputs}
 						hasVisibleSearchScreen={hasVisibleSearchScreen}
 						hasSearchAction={effectiveSearch !== undefined}
-						opensResultsAutomatically={opensResultsAutomatically}
 						onEditDisplayCondition={args.onEditSearchButtonCondition}
 						searchSettingsHasError={args.searchSettingsHasError}
-						canOpenOnSearch={args.canOpenOnSearch}
 					/>
 				),
 			};
@@ -3249,5 +3261,26 @@ export function WorkspaceTabs({
 				</div>
 			</ContentFrame>
 		</div>
+	);
+}
+
+/**
+ * Whether removing the last Search field leaves a menu that opens on its
+ * results: its search survives the removal (`caseSearchConfigAfterFinalInputRemoval`)
+ * and does not open on its case list, so the workflow planner writes Results
+ * first where it was search first.
+ */
+function opensOnResultsAfterFinalInput(
+	config: CaseSearchConfig | undefined,
+	hasCasesAvailableCondition: boolean,
+): boolean {
+	const next = caseSearchConfigAfterFinalInputRemoval(
+		config,
+		hasCasesAvailableCondition,
+	);
+	return (
+		next !== undefined &&
+		!isOwnerOnlyCaseSearchConfig(next) &&
+		searchWorkflow(next) !== "listFirst"
 	);
 }

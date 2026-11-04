@@ -62,6 +62,8 @@ import type {
 	CaseType,
 } from "@/lib/domain";
 import {
+	CASE_CLAIM_CASE_TYPE,
+	CASE_CLAIM_HOST_INDEX,
 	CASE_SCALAR_PROPERTY_NAMES,
 	casePropertyDataTypes,
 	prepareCaseScalarTextValue,
@@ -90,6 +92,7 @@ import {
 	CasePropertyHasSavedValuesError,
 	CaseTypeNotInBlueprintError,
 	ParkedValueNotFoundError,
+	requireClaimCaseIds,
 	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
 } from "../errors";
@@ -159,6 +162,7 @@ import {
 import { withCaseSchemaIndexDdlLock } from "./schemaIndexLock";
 import { retireCaseTypeSchemasPhaseA } from "./schemaRetirement";
 import {
+	applyLinkEffect,
 	executeSubmissionEnvelope,
 	type SubmissionEnvelopeHost,
 } from "./submissionEnvelope";
@@ -1147,7 +1151,6 @@ export class PostgresCaseStore implements CaseStore {
 				appId: args.appId,
 				projectId,
 				ownerIds: args.restoreScope.ownerIds,
-				claimedCaseIds: args.restoreScope.claimedCaseIds,
 			});
 			let rowQuery = rowRestore.creator
 				.selectFrom("cases as c")
@@ -1175,7 +1178,6 @@ export class PostgresCaseStore implements CaseStore {
 				appId: args.appId,
 				projectId,
 				ownerIds: args.restoreScope.ownerIds,
-				claimedCaseIds: args.restoreScope.claimedCaseIds,
 			});
 			let indexQuery = indexRestore.creator
 				.selectFrom("case_indices as ci")
@@ -2495,6 +2497,145 @@ export class PostgresCaseStore implements CaseStore {
 			.execute();
 	}
 
+	async claimCases(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+	}): Promise<{
+		readonly created: readonly string[];
+		readonly alreadyClaimed: readonly string[];
+	}> {
+		requireClaimCaseIds(args.caseIds);
+		const projectId = this.requireProjectId();
+		const ownerId = this.requireOwnerId();
+		const caseIds = [...args.caseIds].sort();
+		return await this.dataTransaction(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
+			// The claim row's schema lock, before any row lock. A missing row
+			// refuses here with `SchemaNotSyncedError`, which a healing store
+			// answers by materializing it.
+			await this.lockValidators(trx, args.appId, [CASE_CLAIM_CASE_TYPE]);
+			// Existence only, open or closed (`cleanup.py::get_first_claims`).
+			// Locking each host in case id order is what makes two claims of one
+			// host serialize, whatever order their callers named the ids in.
+			const hosts = await trx
+				.selectFrom("cases as host")
+				.select(["host.case_id", "host.case_type", "host.case_name"])
+				.where("host.app_id", "=", args.appId)
+				.where("host.project_id", "=", projectId)
+				.where("host.case_id", "in", caseIds)
+				.orderBy("host.case_id", "asc")
+				.forUpdate()
+				.execute();
+			const hostById = new Map(hosts.map((row) => [row.case_id, row]));
+			const missing = caseIds.find((caseId) => !hostById.has(caseId));
+			if (missing !== undefined) throw new CaseNotFoundError(missing);
+
+			// HQ's existing claim: an open claim-type case the worker owns whose
+			// extension index targets the host (`get_first_claims`).
+			const held = await trx
+				.selectFrom("case_indices as claim_edge")
+				.innerJoin("cases as claim", (join) =>
+					join
+						.onRef("claim.case_id", "=", "claim_edge.case_id")
+						.on("claim.app_id", "=", args.appId)
+						.on("claim.project_id", "=", projectId),
+				)
+				.select("claim_edge.ancestor_id")
+				.where("claim_edge.depth", "=", 1)
+				.where("claim_edge.identifier", "=", CASE_CLAIM_HOST_INDEX)
+				.where("claim_edge.relationship", "=", "extension")
+				.where("claim_edge.ancestor_id", "in", caseIds)
+				.where("claim.case_type", "=", CASE_CLAIM_CASE_TYPE)
+				.where("claim.owner_id", "=", ownerId)
+				.where("claim.status", "is distinct from", "closed")
+				.execute();
+			const claimed = new Set(held.map((row) => row.ancestor_id));
+
+			const host = this.submissionEnvelopeHost();
+			const created: string[] = [];
+			const alreadyClaimed: string[] = [];
+			for (const caseId of caseIds) {
+				if (claimed.has(caseId)) {
+					alreadyClaimed.push(caseId);
+					continue;
+				}
+				const target = hostById.get(caseId);
+				if (target === undefined) throw new CaseNotFoundError(caseId);
+				// HQ's claim block (`cleanup.py::claim_case`): named after the
+				// host, owned by the worker, no properties.
+				const claimId = await host.insertCase(trx, {
+					appId: args.appId,
+					seed: {
+						caseType: CASE_CLAIM_CASE_TYPE,
+						caseName: target.case_name,
+						properties: {},
+					},
+					ownerId,
+				});
+				await applyLinkEffect(trx, host, args.appId, claimId, {
+					identifier: CASE_CLAIM_HOST_INDEX,
+					relationship: "extension",
+					targetType: target.case_type,
+					targetCaseId: target.case_id,
+				});
+				created.push(caseId);
+			}
+			return { created, alreadyClaimed };
+		});
+	}
+
+	async releaseClaims(args: {
+		readonly appId: string;
+	}): Promise<{ readonly released: number }> {
+		const projectId = this.requireProjectId();
+		const ownerId = this.requireOwnerId();
+		return await this.dataTransaction(async (trx) => {
+			await this.authorizeMutation(trx, args.appId);
+			await this.lockRelationshipWrites(trx, args.appId);
+			// The claim type's schema lock before any row lock, as `close` takes
+			// its case's. Only `claimCases` writes a claim row, and it requires
+			// the schema row, so an app without one holds no claim to release.
+			const schema = await trx
+				.selectFrom("case_type_schemas")
+				.select("case_type_schemas.case_type")
+				.where("case_type_schemas.app_id", "=", args.appId)
+				.where("case_type_schemas.case_type", "=", CASE_CLAIM_CASE_TYPE)
+				.where("case_type_schemas.is_active", "=", true)
+				.forShare()
+				.executeTakeFirst();
+			if (schema === undefined) return { released: 0 };
+			// `close`'s lifecycle write, over every open claim at once.
+			const result = await trx
+				.updateTable("cases as c")
+				.set({
+					closed_on: sql<Date>`coalesce(c.closed_on, now())`,
+					modified_on: sql<Date>`case when c.closed_on is null then now() else c.modified_on end`,
+					status: "closed",
+				})
+				.where("c.app_id", "=", args.appId)
+				.where("c.project_id", "=", projectId)
+				.where("c.case_type", "=", CASE_CLAIM_CASE_TYPE)
+				.where("c.owner_id", "=", ownerId)
+				.where("c.status", "is distinct from", "closed")
+				.executeTakeFirst();
+			return { released: Number(result.numUpdatedRows) };
+		});
+	}
+
+	async countClaims(args: { readonly appId: string }): Promise<number> {
+		const row = await this.db
+			.selectFrom("cases as c")
+			.select((eb) => eb.fn.countAll<string>().as("claims"))
+			.where("c.app_id", "=", args.appId)
+			.where("c.project_id", "=", this.requireProjectId())
+			.where("c.case_type", "=", CASE_CLAIM_CASE_TYPE)
+			.where("c.owner_id", "=", this.requireOwnerId())
+			.where("c.status", "is distinct from", "closed")
+			.executeTakeFirstOrThrow();
+		return Number(row.claims);
+	}
+
 	async traverse(args: {
 		appId: string;
 		caseId: string;
@@ -3776,6 +3917,45 @@ export class PostgresCaseStore implements CaseStore {
 			 * parent. `case_indices` has no FK, so remove both outgoing edges from
 			 * reset rows and tenant-local incoming/derived edges to those rows
 			 * before the parent rows disappear. */
+			/* A claim of a deleted case means nothing and its `host` edge would
+			 * dangle, so the claim rows go with their hosts, before the detach
+			 * below reads which edges remain. */
+			const claimsOfResetCases = await trx
+				.selectFrom("case_indices as claim_edge")
+				.innerJoin("cases as claim", (join) =>
+					join
+						.onRef("claim.case_id", "=", "claim_edge.case_id")
+						.on("claim.app_id", "=", args.appId)
+						.on("claim.project_id", "=", this.requireProjectId()),
+				)
+				.select("claim.case_id")
+				.distinct()
+				.where("claim.case_type", "=", CASE_CLAIM_CASE_TYPE)
+				.where("claim_edge.depth", "=", 1)
+				.where("claim_edge.identifier", "=", CASE_CLAIM_HOST_INDEX)
+				.where("claim_edge.ancestor_id", "in", resetCaseIds())
+				.execute();
+			if (claimsOfResetCases.length > 0) {
+				const claimIds = claimsOfResetCases.map((row) => row.case_id);
+				await trx
+					.deleteFrom("case_indices")
+					.where((eb) =>
+						eb.or([
+							eb("case_id", "in", claimIds),
+							eb.and([
+								eb("ancestor_id", "in", claimIds),
+								eb("case_id", "in", tenantCaseIds()),
+							]),
+						]),
+					)
+					.execute();
+				await trx
+					.deleteFrom("cases")
+					.where("app_id", "=", args.appId)
+					.where("project_id", "=", this.requireProjectId())
+					.where("case_id", "in", claimIds)
+					.execute();
+			}
 			await trx
 				.deleteFrom("case_indices")
 				.where((eb) =>
@@ -4988,7 +5168,6 @@ export class PostgresCaseStore implements CaseStore {
 					appId,
 					projectId: this.requireProjectId(),
 					ownerIds: scope.ownerIds,
-					claimedCaseIds: scope.claimedCaseIds,
 				});
 	}
 

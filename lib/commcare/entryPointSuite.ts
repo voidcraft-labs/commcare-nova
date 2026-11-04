@@ -10,7 +10,7 @@ import {
 	sessionDataRef,
 } from "./formLinkProjection";
 import { runtimeUrls } from "./runtimeTarget";
-import { moduleIsSearchFirst } from "./suite/case-search/inlineSearch";
+import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { w } from "./xpath/wire/builders";
 import { InstanceSink, selectedCasesInstance } from "./xpath/wire/instances";
 import { caseById } from "./xpath/wire/rowScope";
@@ -120,7 +120,7 @@ export function buildEntryPointSuite(
 			p.requiredSelections.map((s) => [s.argumentId, s]),
 		);
 		const pushes: Element[] = [];
-		if (!moduleIsSearchFirst(doc.modules[target.moduleUuid]))
+		if (!moduleUsesInlineSearch(doc.modules[target.moduleUuid]))
 			for (const selection of p.requiredSelections) {
 				pushes.push(
 					el("push", {}, [

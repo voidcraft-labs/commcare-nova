@@ -166,7 +166,7 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 				{
 					name: "Members",
 					caseType: "member",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: list(),
 					forms: [],
 				},

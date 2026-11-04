@@ -12,7 +12,7 @@ import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
 import { planPlacements } from "@/lib/commcare/placement";
-import { searchNoMatchesEntry } from "@/lib/commcare/validator/rules/case-search/searchNoMatches";
+import { caseListRegistrationForm } from "@/lib/commcare/validator/rules/case-search/caseListRegistration";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { buildXForm } from "@/lib/commcare/xform/builder";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -22,7 +22,6 @@ import {
 	type DatumRef,
 	datumRefKey,
 	entryDatumSupplies,
-	type Form,
 	type Uuid,
 } from "@/lib/domain";
 import { gt, literal } from "@/lib/domain/expression/builders";
@@ -143,18 +142,23 @@ describe("a registration whose own arm takes Save to Case", () => {
 
 	it("is refused as a form opened after a search finds nothing", () => {
 		const { doc, formUuid, moduleUuid } = fixture();
-		const form: Form = {
-			...doc.forms[formUuid],
-			entry: { kind: "search-no-matches" },
+		const host = {
+			...doc.modules[moduleUuid],
+			caseListRegistrationForm: {
+				kind: "after-empty-search" as const,
+				formUuid,
+			},
 		};
-		const findings = searchNoMatchesEntry(
-			doc,
-			form,
-			formUuid,
-			moduleUuid,
-		).filter((f) => f.code === "SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION");
+		const findings = caseListRegistrationForm(host, moduleUuid, {
+			...doc,
+			modules: { ...doc.modules, [moduleUuid]: host },
+		}).filter((f) => f.code === "CASE_LIST_REGISTRATION_NOT_REGISTRATION");
 		expect(findings).toHaveLength(1);
-		expect(findings[0].details).toEqual({ reason: "own-case-save-to-case" });
+		expect(findings[0].details).toEqual({
+			formUuid,
+			formName: doc.forms[formUuid]?.name,
+			reason: "own-case-save-to-case",
+		});
 	});
 });
 

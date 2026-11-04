@@ -140,7 +140,7 @@ describe("a data table read in form logic, Connect or a link", () => {
 		async (mode) => {
 			const fixture = instanceReadFixture();
 			const { table, rows } = fixture;
-			// The fixture's several-case and search-first menus run in Web Apps
+			// The fixture's several-case menus and menus whose forms read the search run in Web Apps
 			// alone and its Connect app on Android alone, so no export holds all
 			// three; the export of its Connect app keeps the menu that reads the
 			// table and runs on Android.

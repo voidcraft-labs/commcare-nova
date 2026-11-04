@@ -203,7 +203,7 @@ describe("case type retirement from admitted workflows", () => {
 			id: "more_visits",
 			name: "More visits",
 			caseType: "visit",
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 		};
 		doc.moduleOrder.push(other);
@@ -223,7 +223,7 @@ describe("case type retirement from admitted workflows", () => {
 					uuid: VISIT,
 					name: "Visits",
 					caseType: "visit",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

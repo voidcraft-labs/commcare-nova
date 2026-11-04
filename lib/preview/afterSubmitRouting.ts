@@ -21,7 +21,11 @@ import type {
 	PostSubmitDestination,
 	Uuid,
 } from "@/lib/domain";
-import { type ModuleLanding, moduleLanding } from "@/lib/domain";
+import {
+	type ModuleLanding,
+	moduleIsBareCaseList,
+	moduleLanding,
+} from "@/lib/domain";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import type {
 	AfterSubmitChoice,
@@ -273,7 +277,7 @@ export function afterSubmitRoute(args: {
 			caseSelections,
 			landing: moduleLanding({
 				isCaseFirst: args.caseFirstModules.has(moduleUuid),
-				isBareCaseList: doc.modules[moduleUuid]?.caseListOnly === true,
+				isBareCaseList: moduleIsBareCaseList(doc, moduleUuid),
 				hasSelectedCase:
 					args.hasSelectedCase?.(moduleUuid, caseSelections) ?? false,
 				hasChildren: Object.values(doc.modules).some(

@@ -64,6 +64,59 @@ describe("each feature's detector", () => {
 	}
 });
 
+describe("the search workflow and the case list menu entry", () => {
+	it("finds a case list menu entry beside the menu's forms", () => {
+		const doc = PLATFORM_FEATURE_FIXTURES["case-list-menu-item"].without();
+		const module = doc.modules[FIXTURE_MODULE];
+		if (module === undefined) throw new Error("The fixture has no module.");
+		module.caseListMenuItem = {};
+		expect(doc.formOrder[FIXTURE_MODULE]?.length).toBeGreaterThan(0);
+		expect(platformFeatureUses(doc, only("case-list-menu-item"))).toEqual([
+			{
+				feature: "case-list-menu-item",
+				owner: { kind: "module", moduleUuid: FIXTURE_MODULE },
+				site: { kind: "slot", slot: "caseListMenuItem" },
+			},
+		]);
+	});
+
+	it("names one feature for a menu whose forms read the search, never search, search first or results first", () => {
+		const doc = PLATFORM_FEATURE_FIXTURES["forms-read-search"].with();
+		for (const workflow of [undefined, "skipToResults"] as const) {
+			const module = doc.modules[FIXTURE_MODULE];
+			if (module === undefined) throw new Error("The fixture has no module.");
+			module.caseSearchConfig = {
+				formsReadSearch: true,
+				...(workflow !== undefined && { workflow }),
+			};
+			const features = platformFeatureUses(doc)
+				.filter((use) => use.owner.kind === "module")
+				.map((use) => use.feature);
+			expect(features).toContain("forms-read-search");
+			expect(features).not.toContain("search");
+			expect(features).not.toContain("search-first");
+			expect(features).not.toContain("skip-to-results");
+		}
+	});
+
+	it("reads list first, search first and results first from the authored workflow alone", () => {
+		const doc = PLATFORM_FEATURE_FIXTURES["skip-to-results"].without();
+		const module = doc.modules[FIXTURE_MODULE];
+		if (module === undefined) throw new Error("The fixture has no module.");
+		// A filter and no visible field: results first only when authored.
+		expect(platformFeatureUses(doc, only("skip-to-results"))).toEqual([]);
+		expect(
+			platformFeatureUses(doc, only("search-first")).map((use) => use.feature),
+		).toEqual(["search-first"]);
+		module.caseSearchConfig = { workflow: "listFirst" };
+		expect(
+			platformFeatureUses(doc, {
+				features: new Set(["list-first", "search-first", "search"]),
+			}).map((use) => use.feature),
+		).toEqual(["list-first", "search"]);
+	});
+});
+
 /** The node a use's path names inside its slot's stored expression, by the
  * walk that names every node's path. */
 function nodeAt(expression: Expression, path: readonly (string | number)[]) {

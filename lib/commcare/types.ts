@@ -650,7 +650,8 @@ interface HqModuleBase<XPath> {
 	/**
 	 * HQ `CaseListForm` (`models/modules.py`): the registration form the
 	 * Register action on the case list opens. Nova emits it only for a
-	 * search-first host with a no-matches form; every other module keeps
+	 * host whose forms read the search and that names a case list
+	 * registration form (`Module.caseListRegistrationForm`); every other module keeps
 	 * the null shell.
 	 */
 	case_list_form: {

@@ -262,6 +262,29 @@ describe("suite wire parser checks and explicit static joins", () => {
 			]);
 		}
 	});
+	it("reads next_input as the screen's own instance only in an action's auto-launch condition", () => {
+		const session =
+			'<session><datum id="d" nodeset="/x" value="./@id" detail-select="d"/></session>';
+		const chosen = "count(instance('next_input')/results/value) = 0";
+		const action = (attribute: "auto_launch" | "relevant") =>
+			`<action ${attribute}="${chosen}"><display><text>Search</text></display><stack><push><mark/></push></stack></action>`;
+		expect(
+			codes(
+				suiteWire(
+					detailWire(`${fieldWire()}${action("auto_launch")}`) +
+						entryWire(session),
+				),
+			),
+		).toEqual([]);
+		expect(
+			codes(
+				suiteWire(
+					detailWire(`${fieldWire()}${action("relevant")}`) +
+						entryWire(session),
+				),
+			),
+		).toEqual(["SUITE_MISSING_INSTANCE"]);
+	});
 	it("keeps fixture data, prose and stack query URLs out of the read set", () => {
 		const fixtureData =
 			'<fixture id="table"><items><xpath function="instance(\'lookup\')/items"/></items></fixture>';

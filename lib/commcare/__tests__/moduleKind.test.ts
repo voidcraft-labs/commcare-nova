@@ -154,7 +154,7 @@ describe("emittedModuleKind", () => {
 			menu: "households",
 			block: (doc) =>
 				patchModule(doc, HOUSEHOLDS, {
-					caseSearchConfig: { searchFirst: true },
+					caseSearchConfig: { formsReadSearch: true },
 				}),
 			twin: (doc) => patchModule(doc, HOUSEHOLDS, { caseSearchConfig: {} }),
 		},
@@ -165,14 +165,14 @@ describe("emittedModuleKind", () => {
 				const config = doc.modules[HOUSEHOLDS].caseListConfig;
 				if (config !== undefined)
 					patchModule(doc, HOUSEHOLDS, {
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: {
 							...config,
 							filter: isBlank(prop("household", "case_name")),
 						},
 					});
 			},
-			twin: (doc) => patchModule(doc, HOUSEHOLDS, { caseListOnly: true }),
+			twin: (doc) => patchModule(doc, HOUSEHOLDS, { caseListMenuItem: {} }),
 		},
 		{
 			name: "a chain whose types link under two names",
@@ -227,7 +227,9 @@ describe("emittedModuleKind", () => {
 	it("keeps a menu basic where a blocker meets the create a link carries", () => {
 		const doc = carriedDoc("extension", {
 			configure: (d) =>
-				patchModule(d, HOUSEHOLDS, { caseSearchConfig: { searchFirst: true } }),
+				patchModule(d, HOUSEHOLDS, {
+					caseSearchConfig: { formsReadSearch: true },
+				}),
 		});
 		expect(emittedModuleKind(doc, HOUSEHOLDS)).toBe("basic");
 	});
@@ -305,7 +307,7 @@ describe("advancedModulesWithCaseListMenuItem", () => {
 						uuid: "kind-browse",
 						name: "Households",
 						caseType: "household",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: caseListConfig([
 							{ field: "case_name", header: "Name" },
 						]),
@@ -351,5 +353,18 @@ describe("advancedModulesWithCaseListMenuItem", () => {
 		const doc = advancedFixture({ formType: "followup" }).doc;
 		expect(emittedModuleKind(doc, HOUSEHOLDS)).toBe("advanced");
 		expect(advancedModulesWithCaseListMenuItem(doc)).toEqual([]);
+	});
+
+	it("returns an advanced menu whose case list menu item sits beside its forms", () => {
+		const base = advancedFixture({ formType: "followup" }).doc;
+		const doc = {
+			...base,
+			modules: {
+				...base.modules,
+				[HOUSEHOLDS]: { ...base.modules[HOUSEHOLDS], caseListMenuItem: {} },
+			},
+		};
+		expect(emittedModuleKind(doc, HOUSEHOLDS)).toBe("advanced");
+		expect(advancedModulesWithCaseListMenuItem(doc)).toEqual([HOUSEHOLDS]);
 	});
 });

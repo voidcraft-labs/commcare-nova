@@ -56,11 +56,11 @@ function withDatetimeQuestion(doc: BlueprintDoc): BlueprintDoc {
 	});
 }
 
-function withSearchFirst(doc: BlueprintDoc): BlueprintDoc {
+function withFormsReadSearch(doc: BlueprintDoc): BlueprintDoc {
 	return produce(doc, (draft) => {
 		const module = draft.modules[FIXTURE_MODULE];
 		if (module === undefined) throw new Error("No fixture module.");
-		module.caseSearchConfig = { searchFirst: true };
+		module.caseSearchConfig = { formsReadSearch: true };
 	});
 }
 
@@ -105,6 +105,7 @@ describe("planContentDeclaration, by the content's platforms", () => {
 		["a date-and-time question", "datetime-question"],
 		["here() in a calculated column", "case-list-here"],
 		["a Connect app", "connect-app"],
+		["a menu that opens on its case list first", "list-first"],
 	] as const)("declares Android only for %s", (_label, feature) => {
 		const doc = fixture(feature);
 		const plan = planContentDeclaration(doc);
@@ -122,7 +123,7 @@ describe("planContentDeclaration, by the content's platforms", () => {
 	});
 
 	it.each([
-		["Search first", "search-first"],
+		["forms that read the search", "forms-read-search"],
 		["several cases", "several-cases"],
 		["a single-date Search field", "search-field-single-date"],
 	] as const)("declares Web Apps only for %s", (_label, feature) => {
@@ -157,8 +158,8 @@ describe("planContentDeclaration, by the content's platforms", () => {
 		if (plan.kind === "declared") expectAdmitted(doc, plan.mutations);
 	});
 
-	it("declares Search first beside a date-and-time question Web Apps only, with the question split", () => {
-		const doc = withDatetimeQuestion(fixture("search-first"));
+	it("declares forms that read the search beside a date-and-time question Web Apps only, with the question split", () => {
+		const doc = withDatetimeQuestion(fixture("forms-read-search"));
 		const question = doc.fieldOrder[FIXTURE_FORM]?.[0] as Uuid;
 		const plan = planContentDeclaration(doc);
 		const split = planDatetimeSplits(doc);
@@ -166,7 +167,7 @@ describe("planContentDeclaration, by the content's platforms", () => {
 		expect(plan).toEqual({
 			kind: "declared",
 			runsOnlyOn: "web-apps",
-			causes: ["search-first"],
+			causes: ["forms-read-search"],
 			mutations: [
 				{ kind: "setAppSettings", settings: { runsOnlyOn: "web-apps" } },
 				...split.mutations,
@@ -195,19 +196,19 @@ describe("planContentDeclaration, by the content's platforms", () => {
 
 	it.each([
 		[
-			"Search first beside here() in a calculated column",
-			() => withSearchFirst(fixture("case-list-here")),
+			"forms that read the search beside here() in a calculated column",
+			() => withFormsReadSearch(fixture("case-list-here")),
 			["case-list-here"],
-			["search-first"],
+			["forms-read-search"],
 		],
 		[
-			"a Connect app with Search first",
+			"a Connect app whose forms read the search",
 			() =>
-				produce(fixture("search-first"), (draft) => {
+				produce(fixture("forms-read-search"), (draft) => {
 					draft.connectType = "learn";
 				}),
 			["connect-app"],
-			["search-first"],
+			["forms-read-search"],
 		],
 	] as const)(
 		"leaves %s to the author, running on neither",
@@ -233,7 +234,7 @@ describe("a second application", () => {
 	it.each([
 		["Android only", () => fixture("datetime-question")],
 		["Web Apps only", () => fixture("several-cases")],
-		["the split", () => withDatetimeQuestion(fixture("search-first"))],
+		["the split", () => withDatetimeQuestion(fixture("forms-read-search"))],
 	])("plans nothing after %s", (_label, build) => {
 		const once = declaredForContent(build());
 		expect(planContentDeclaration(once)).toMatchObject({ mutations: [] });

@@ -1,6 +1,6 @@
 /**
- * useSearchResultsSnapshot — what a search-first module's completed search
- * returned, for a form of that module that reads it.
+ * useSearchResultsSnapshot — what the completed search of a menu whose forms
+ * read the search returned, for a form of that menu that reads it.
  *
  * The read is the completed attempt's own Results read without a page window
  * (`loadSearchResultsSnapshotAction`), so the form reads the cases Results
@@ -35,7 +35,6 @@ import type {
 } from "@/lib/preview/engine/xpathInstances";
 import {
 	useAccessPhase,
-	usePreviewClaimedCaseIds,
 	usePreviewDevice,
 	usePreviewPersonaUuid,
 } from "@/lib/session/hooks";
@@ -86,8 +85,8 @@ export function searchResultsLoadState(
 /**
  * The identity of one snapshot load, or `undefined` while no load can start.
  * The device's runtime values are part of it unless the search is the one
- * case the no-matches form registered, whose read sends none; any other
- * search's load waits until its values are ready.
+ * case the case list registration form registered, whose read sends none; any
+ * other search's load waits until its values are ready.
  */
 export function searchResultsSnapshotKey(args: {
 	readonly ready: boolean;
@@ -140,7 +139,6 @@ export function useSearchResultsSnapshot(args: {
 }): { readonly state: SearchResultsSnapshotState; readonly retry: () => void } {
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
-	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
 	const device = usePreviewDevice();
 	const [retries, setRetries] = useState(0);
 	const module =
@@ -194,14 +192,12 @@ export function useSearchResultsSnapshot(args: {
 		deviceValues.kind === "ready" ? deviceValues.value : undefined;
 	const latest = useRef({
 		...args,
-		claimedCaseIds,
 		personaUuid,
 		csqlRuntime,
 		device,
 	});
 	latest.current = {
 		...args,
-		claimedCaseIds,
 		personaUuid,
 		csqlRuntime,
 		device,
@@ -236,7 +232,7 @@ export function useSearchResultsSnapshot(args: {
 			blueprint: toRscSerializableDoc(input.doc),
 			caseListConfig: mod.caseListConfig,
 			excludedOwnerIdsExpression: mod.caseSearchConfig?.excludedOwnerIds,
-			/* After the no-matches form registers a case, the search is that
+			/* After the case list registration form registers a case, the search is that
 			 * one case, as the wire's return frame keys it. */
 			...(search.registeredCaseId === undefined
 				? { inputValues: { ...search.answers } }
@@ -254,7 +250,6 @@ export function useSearchResultsSnapshot(args: {
 			...(input.personaUuid === undefined
 				? {}
 				: { personaUuid: input.personaUuid }),
-			claimedCaseIds: [...input.claimedCaseIds],
 			device: withNavigationWidth(input.device),
 		}).then(
 			(loaded) => {

@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	carryVisit,
@@ -21,7 +22,7 @@ import {
 	moveFixture,
 	verdict,
 } from "@/lib/doc/__tests__/placementMoveFixture";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 import { expectAdmittedDoc } from "./admittedFixture";
@@ -223,5 +224,98 @@ describe("summarizeBlueprint — how CommCare HQ receives a menu", () => {
 			expectAdmittedDoc(publishedBasic(kindFixture(), HOUSEHOLDS)),
 		])
 			expect(moduleHeader(doc, "Households")).not.toContain("[advanced");
+	});
+});
+
+describe("summarizeBlueprint — the menu's case list and search", () => {
+	/** A patient menu with the case list in it beside its follow-up, a
+	 *  search whose forms read it, and a registration from the case list. */
+	function searchingDoc(workflow?: "skipToResults"): BlueprintDoc {
+		return expectAdmittedDoc(
+			buildDoc({
+				appName: "Clinic",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: proseText("Name") }],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListMenuItem: {},
+						caseListConfig: {
+							...caseListConfig([{ field: "case_name", header: "Name" }]),
+							searchInputs: [
+								simpleSearchInputDef(
+									testUuid("summary-name-search"),
+									"name",
+									"Name",
+									"text",
+									"case_name",
+								),
+							],
+						},
+						caseSearchConfig: {
+							formsReadSearch: true,
+							...(workflow !== undefined && { workflow }),
+						},
+						caseListRegistrationForm: {
+							formUuid: "summary-registration",
+							label: "Register a new patient",
+						},
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({ id: "notes", kind: "text", label: proseText("Notes") }),
+								],
+							},
+							{
+								uuid: "summary-registration",
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({
+										id: "name",
+										kind: "text",
+										label: proseText("Name"),
+										caseWrite: { caseType: "patient", property: "case_name" },
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+		);
+	}
+
+	it("marks a menu that shows its case list as its own item", () => {
+		const header = summarizeBlueprint(searchingDoc())
+			.split("\n")
+			.find((line) => line.includes('- Module "Patients"'));
+		expect(header).toContain(" [case list in menu]");
+	});
+
+	it("names the menu's registration from the case list with its button text", () => {
+		expect(summarizeBlueprint(searchingDoc()).split("\n")).toContain(
+			'    case list registration: Register ("Register a new patient")',
+		);
+	});
+
+	it("says what the menu opens on, then that its forms read the search", () => {
+		const lines = (doc: BlueprintDoc) =>
+			summarizeBlueprint(doc)
+				.split("\n")
+				.filter((line) => line.includes("case_search:"));
+		expect(lines(searchingDoc())).toEqual([
+			"    case_search: display={none} advanced={none} workflow=searchFirst, forms read it",
+		]);
+		expect(lines(searchingDoc("skipToResults"))).toEqual([
+			"    case_search: display={none} advanced={none} workflow=skipToResults, forms read it",
+		]);
 	});
 });

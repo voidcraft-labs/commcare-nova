@@ -2347,25 +2347,6 @@ export const caseListConfigSchema = z
 		 * layout. See `caseTileLayoutSchema`.
 		 */
 		tile: caseTileLayoutSchema.optional(),
-		/**
-		 * Image for the "Open case list" affordance — the menu link from
-		 * the module's home screen that opens the case list. Emits ONLY on
-		 * `caseListOnly` modules: that's the one shape where a standalone
-		 * case-list command exists to host the icon (the local `.ccz`
-		 * command `<display>`, the HQ `case_list.media_image` dict). On a
-		 * module with forms there's no standalone case-list command, so the
-		 * slot is a no-op there. The bytes are collected by the
-		 * `mediaRefs.ts` walk under the same `caseListOnly` gate.
-		 */
-		icon: moduleIconRefSchema.optional(),
-		/**
-		 * Audio prompt for the case-list link. Same `caseListOnly`-only
-		 * emission shape as `icon` above (local command `<display>` +
-		 * HQ `case_list.media_audio`). Menu affordances carry image +
-		 * audio only — there is no video slot (unlike a question
-		 * message, which can carry all three).
-		 */
-		audioLabel: mediaAssetIdSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
 		const columnUuids = config.columns.map((column) => column.uuid);
@@ -2588,53 +2569,72 @@ export const CASE_SEARCH_BUTTON_LABEL = "Search All Cases";
 // they live on `caseListConfig` as the single source for both
 // screens.
 
-export const ordinaryCaseSearchConfigSchema = z.strictObject({
-	// Owner-availability slot.
-	// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
-	// space-separated list of owner ids whose cases are excluded from every
-	// Results path. It may use literals, session/current-user values, Search
-	// answers, and pure calculations over those values. It cannot read a case
-	// property or relationship because no case row exists in this global
-	// evaluation context. The document-aware gate checks that semantic scope.
-	// Rare in practice; the builder owns it beside Cases available.
-	//
-	// Wire-name continuity: at suite-XML emission time the slot
-	// translates to CCHQ's literal wire field
-	// `commcare_blacklisted_owner_ids` per
-	// `commcare-hq/corehq/apps/case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`.
-	// The wire token is a CCHQ-controlled vocabulary; Nova's
-	// authoring vocabulary is `excludedOwnerIds`. The translation
-	// lives at `lib/commcare/suite/case-search/searchSession.ts`.
-	excludedOwnerIds: valueSchema.optional(),
+export const ordinaryCaseSearchConfigSchema = z
+	.strictObject({
+		// Owner-availability slot.
+		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
+		// space-separated list of owner ids whose cases are excluded from every
+		// Results path. It may use literals, session/current-user values, Search
+		// answers, and pure calculations over those values. It cannot read a case
+		// property or relationship because no case row exists in this global
+		// evaluation context. The document-aware gate checks that semantic scope.
+		// Rare in practice; the builder owns it beside Cases available.
+		//
+		// Wire-name continuity: at suite-XML emission time the slot
+		// translates to CCHQ's literal wire field
+		// `commcare_blacklisted_owner_ids` per
+		// `commcare-hq/corehq/apps/case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`.
+		// The wire token is a CCHQ-controlled vocabulary; Nova's
+		// authoring vocabulary is `excludedOwnerIds`. The translation
+		// lives at `lib/commcare/suite/case-search/searchSession.ts`.
+		excludedOwnerIds: valueSchema.optional(),
 
-	// Display labels for the search screen. The runtime renders the
-	// subtitle through a markdown formatter; the title is plain text.
-	// The search button's text is `CASE_SEARCH_BUTTON_LABEL`, never
-	// authored. `searchButtonDisplayCondition` controls whether the case
-	// list's Search action is relevant. When the web wire auto-launches
-	// an input-free filtered search, an irrelevant action cannot launch;
-	// otherwise the same predicate simply hides the manual Search action.
-	// It never filters Results rows itself.
-	//
-	// Empty strings are rejected — every text input on the editor
-	// drops the slot to `undefined` when the user clears it, so
-	// "presence with empty body" is a structurally invalid state.
-	// Both wire emitters and preview share Nova's friendly defaults.
-	// Rejecting empty keeps the contract simple: present means useful
-	// authored copy; clearing a control removes the override.
-	searchScreenTitle: z.string().min(1).optional(),
-	searchScreenSubtitle: z.string().min(1).optional(),
-	searchButtonDisplayCondition: conditionSchema.optional(),
+		// Display labels for the search screen. The runtime renders the
+		// subtitle through a markdown formatter; the title is plain text.
+		// The search button's text is `CASE_SEARCH_BUTTON_LABEL`, never
+		// authored. `searchButtonDisplayCondition` controls whether the case
+		// list's Search action is relevant. When the web wire auto-launches
+		// an input-free filtered search, an irrelevant action cannot launch;
+		// otherwise the same predicate simply hides the manual Search action.
+		// It never filters Results rows itself.
+		//
+		// Empty strings are rejected — every text input on the editor
+		// drops the slot to `undefined` when the user clears it, so
+		// "presence with empty body" is a structurally invalid state.
+		// Both wire emitters and preview share Nova's friendly defaults.
+		// Rejecting empty keeps the contract simple: present means useful
+		// authored copy; clearing a control removes the override.
+		searchScreenTitle: z.string().min(1).optional(),
+		searchScreenSubtitle: z.string().min(1).optional(),
+		searchButtonDisplayCondition: conditionSchema.optional(),
 
-	// Search first: the module opens on the Search screen and Results
-	// exist only after a completed search; the browse list goes away.
-	// Presence IS the switch (`true` or absent), so an app that never
-	// turned it on serializes byte-identically to one that cannot. On
-	// the wire this is CommCare's inline-search shape
-	// (`lib/commcare/suite/case-search/searchWireShape.ts`), which only an
-	// app that runs in Web Apps only holds (`search-first`).
-	searchFirst: z.literal(true).optional(),
-});
+		/**
+		 * What a worker sees first when this menu searches. Absent is search
+		 * first: the Search screen in Web Apps, which Android ignores and opens
+		 * the case list. `skipToResults` runs the search as the menu opens and
+		 * shows its matches; `listFirst` shows the worker's case list with a
+		 * Search action, admitted only where Web Apps is not declared
+		 * (`platforms.ts`, `list-first`). `searchWorkflow` is the one reader.
+		 */
+		workflow: z.enum(["listFirst", "skipToResults"]).optional(),
+		/**
+		 * The search runs as each case form of the menu opens, so the forms read
+		 * what the worker searched for (`#search/`) and what it found
+		 * (`results:inline`). CommCare's inline search. Presence is the switch.
+		 * Only with search first or skip to results; unavailable on Android
+		 * (`forms-read-search`). `moduleFormsReadSearch` is the one reader.
+		 */
+		formsReadSearch: z.literal(true).optional(),
+	})
+	.refine(
+		(config) =>
+			!(config.workflow === "listFirst" && config.formsReadSearch === true),
+		{
+			path: ["formsReadSearch"],
+			error:
+				"A menu that opens on its case list can't have its forms read the search. Choose Search first or Results first, or turn off Forms read the search.",
+		},
+	);
 
 export const ownerOnlyCaseSearchConfigSchema = z.strictObject({
 	/**
@@ -2671,7 +2671,8 @@ export function caseSearchConfigHasAuthoredSettings(
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
-		config.searchFirst !== undefined
+		config.workflow !== undefined ||
+		config.formsReadSearch !== undefined
 	);
 }
 
@@ -2715,11 +2716,12 @@ export function caseSearchConfigAfterFinalInputRemoval(
 		searchScreenSubtitle: _subtitle,
 		...action
 	} = config;
-	// Search first survives its last visible input: the module still opens
-	// on Search, which then runs on its own (`default_search`).
+	// The workflow and Forms read the search survive the last input: the
+	// menu keeps opening as the author chose.
 	const hasSearchActionSetting =
 		action.searchButtonDisplayCondition !== undefined ||
-		action.searchFirst !== undefined;
+		action.workflow !== undefined ||
+		action.formsReadSearch !== undefined;
 	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };
@@ -2728,6 +2730,30 @@ export function caseSearchConfigAfterFinalInputRemoval(
 }
 
 // ── Module ───────────────────────────────────────────────────────
+
+/** The module's case list as a menu entry of its own. */
+export const caseListMenuItemSchema = z.strictObject({
+	/** The entry's label. Absent is the module's name, with its translations. */
+	label: z.string().min(1).optional(),
+	/** The entry's image in the menu. */
+	icon: moduleIconRefSchema.optional(),
+	/** The entry's spoken label, played in audio-prompt mode. */
+	audioLabel: mediaAssetIdSchema.optional(),
+});
+export type CaseListMenuItem = z.infer<typeof caseListMenuItemSchema>;
+
+/** A registration form the module's case list offers. */
+export const caseListRegistrationFormSchema = z.strictObject({
+	/** When the case list offers it. Step 5's one arm: after a search finds nothing. */
+	kind: z.literal("after-empty-search"),
+	/** A registration form of this module, on no menu. */
+	formUuid: uuidSchema,
+	/** The Register action's label. Absent is the form's name. */
+	label: z.string().min(1).optional(),
+});
+export type CaseListRegistrationForm = z.infer<
+	typeof caseListRegistrationFormSchema
+>;
 
 export const moduleSchema = z.strictObject({
 	entryPoint: entryPointSchema.optional(),
@@ -2740,7 +2766,18 @@ export const moduleSchema = z.strictObject({
 	/** Select a parent record from this module before selecting this module's records. */
 	parentCaseModuleUuid: uuidSchema.optional(),
 	caseType: z.string().optional(),
-	caseListOnly: z.boolean().optional(),
+	/**
+	 * The module's case list as its own menu entry, after its forms (HQ's
+	 * order), opening the case list without a form. Presence is the switch.
+	 * A module with a case type and no forms holds it; beside forms it is
+	 * the author's choice.
+	 */
+	caseListMenuItem: caseListMenuItemSchema.optional(),
+	/**
+	 * A registration form of this module the case list offers, on no menu.
+	 * The form stays in the module's `formOrder`.
+	 */
+	caseListRegistrationForm: caseListRegistrationFormSchema.optional(),
 	purpose: z.string().optional(),
 	/**
 	 * Optional home-menu visibility rule. Module navigation has no current
@@ -2787,17 +2824,6 @@ export type Module = z.infer<typeof moduleSchema>;
  * receives Nova's friendly defaults. A case-list filter by itself does NOT turn
  * on search; it remains the always-on "Cases available" rule.
  */
-/**
- * Whether the module opens on its Search screen instead of a browse list
- * (`caseSearchConfig.searchFirst`). Results exist only after a completed
- * search, and every case-loading entry runs that search first.
- */
-export function moduleOpensOnSearch(
-	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
-): boolean {
-	return effectiveCaseSearchConfig(module)?.searchFirst === true;
-}
-
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
 ): OrdinaryCaseSearchConfig | undefined {
@@ -2809,6 +2835,42 @@ export function effectiveCaseSearchConfig(
 	throw new Error(
 		"Owner-only case-search provenance reached runtime with Search inputs.",
 	);
+}
+
+export const SEARCH_WORKFLOWS = [
+	"listFirst",
+	"searchFirst",
+	"skipToResults",
+] as const;
+export type SearchWorkflow = (typeof SEARCH_WORKFLOWS)[number];
+
+/** What a worker sees first when this search runs; absent is search first. */
+export function searchWorkflow(
+	config: OrdinaryCaseSearchConfig,
+): SearchWorkflow {
+	return config.workflow ?? "searchFirst";
+}
+
+/** The module's workflow, or undefined where it has no effective ordinary search. */
+export function moduleSearchWorkflow(
+	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
+): SearchWorkflow | undefined {
+	const config = effectiveCaseSearchConfig(module);
+	return config === undefined ? undefined : searchWorkflow(config);
+}
+
+/** The menu's forms read the search: CommCare's inline search. */
+export function moduleFormsReadSearch(
+	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
+): boolean {
+	return effectiveCaseSearchConfig(module)?.formsReadSearch === true;
+}
+
+/** The menu lists the case list as its own entry. */
+export function moduleHasCaseListMenuItem(
+	module: Pick<Module, "caseListMenuItem">,
+): boolean {
+	return module.caseListMenuItem !== undefined;
 }
 
 export type ModuleKindMetadata = {

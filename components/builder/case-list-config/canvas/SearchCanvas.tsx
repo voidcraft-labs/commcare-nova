@@ -44,8 +44,10 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	isStandardCaseListProperty,
 	type SearchInputDef,
+	type SearchWorkflow,
 	searchInputDefault,
 	type Uuid,
+	visibleSearchInputs,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
 import {
@@ -57,13 +59,17 @@ import { PreviewMarkdown } from "@/lib/markdown";
 import { useCanEdit } from "@/lib/session/hooks";
 import { LIST_ROW_CLS } from "@/lib/styles";
 import {
+	SEARCH_WORKFLOW_CHOICES,
+	searchWorkflowCanvasLines,
+} from "../inspector/searchWorkflowModel";
+import {
 	resolveRows,
 	rowHasStructuralError,
 	searchInputIcon,
 } from "../searchInputResolution";
 import type { WorkspaceSelection } from "../workspaceSelection";
+import { CaseListRegistrationSetting } from "./CaseListRegistrationSetting";
 import { AddGhostButton, AuthoredDragPreviewLabel } from "./canvasChrome";
-import { NoMatchesFormSetting } from "./NoMatchesFormSetting";
 
 export interface SearchCanvasProps {
 	readonly searchInputs: readonly SearchInputDef[];
@@ -90,10 +96,13 @@ export interface SearchCanvasProps {
 	readonly opensResultsAutomatically?: boolean;
 	/** A Search-action setting is invalid and needs a findable repair mark. */
 	readonly searchSettingsHasError?: boolean;
-	/** The module opens on Search: no browse list, Results only after a search. */
-	readonly searchFirst?: boolean;
-	/** The module whose Search this is; the no-matches setting plans against
-	 *  it. Absent while the URL is still resolving. */
+	/** What a worker sees first when the menu opens; absent where the module
+	 *  has no Search action. */
+	readonly workflow?: SearchWorkflow;
+	/** The menu's forms read the search. */
+	readonly formsReadSearch?: boolean;
+	/** The module whose Search this is; the registration setting plans
+	 *  against it. Absent while the URL is still resolving. */
 	readonly moduleUuid?: Uuid;
 }
 
@@ -113,7 +122,8 @@ export function SearchCanvas({
 	hasSearchAction,
 	opensResultsAutomatically = false,
 	searchSettingsHasError = false,
-	searchFirst = false,
+	workflow,
+	formsReadSearch = false,
 	moduleUuid,
 }: SearchCanvasProps) {
 	const canEdit = useCanEdit();
@@ -187,6 +197,25 @@ export function SearchCanvas({
 		onMoveInput(input.uuid, targetIndex);
 	};
 
+	/* What the menu does with this Search, in the words of When this menu
+	 * opens: the chosen workflow's line under the heading, and the
+	 * consequence of a Search screen with nothing to fill in or a saved
+	 * Search button condition beside the screen. */
+	const workflowLine =
+		workflow === undefined || !searchActionEnabled
+			? undefined
+			: SEARCH_WORKFLOW_CHOICES.find((choice) => choice.workflow === workflow)
+					?.line;
+	const canvasLines =
+		workflow === undefined || !searchActionEnabled
+			? []
+			: searchWorkflowCanvasLines({
+					workflow,
+					hasVisibleField: visibleSearchInputs(searchInputs).length > 0,
+					hasButtonCondition:
+						enabledSearchConfig?.searchButtonDisplayCondition !== undefined,
+					formsReadSearch,
+				});
 	const title =
 		enabledSearchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
 	const subtitle = enabledSearchConfig?.searchScreenSubtitle;
@@ -202,8 +231,8 @@ export function SearchCanvas({
 						Search
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-						{searchFirst
-							? "People search before they see any cases. Results shows only what a search finds."
+						{workflowLine !== undefined
+							? workflowLine
 							: canEdit
 								? "Choose how people narrow cases before selecting one"
 								: "People narrow cases here before selecting one"}
@@ -239,7 +268,11 @@ export function SearchCanvas({
 						data-search-settings-state={
 							searchSettingsHasError ? "needs-attention" : "ready"
 						}
-						data-search-first={searchFirst ? "true" : undefined}
+						data-search-workflow={
+							searchActionEnabled && workflow !== undefined
+								? workflow
+								: undefined
+						}
 						className={`rounded-2xl border p-4 transition-colors ${
 							panelSelected
 								? "border-nova-violet bg-nova-surface/25"
@@ -273,23 +306,23 @@ export function SearchCanvas({
 											</span>
 										)}
 									</div>
-									{searchEnabled ? (
-										subtitle !== undefined && (
-											<div className="mt-1 preview-markdown text-[13px] text-nova-text-muted">
-												<PreviewMarkdown>{subtitle}</PreviewMarkdown>
-											</div>
-										)
-									) : (
-										<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
-											{opensResultsAutomatically
-												? "Cases available still decides which cases people see"
-												: searchActionEnabled
-													? "People continue without entering search information"
-													: canEdit
-														? "Add a field to let people narrow cases before Results"
-														: "Results opens without asking for search information"}
-										</p>
-									)}
+									{searchEnabled
+										? subtitle !== undefined && (
+												<div className="mt-1 preview-markdown text-[13px] text-nova-text-muted">
+													<PreviewMarkdown>{subtitle}</PreviewMarkdown>
+												</div>
+											)
+										: canvasLines.length === 0 && (
+												<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
+													{opensResultsAutomatically
+														? "Cases available still decides which cases people see"
+														: searchActionEnabled
+															? "People continue without entering search information"
+															: canEdit
+																? "Add a field to let people narrow cases before Results"
+																: "Results opens without asking for search information"}
+												</p>
+											)}
 								</div>
 							</div>
 							{canEdit && searchEnabled ? (
@@ -316,6 +349,19 @@ export function SearchCanvas({
 								</Button>
 							) : null}
 						</div>
+
+						{canvasLines.length > 0 && (
+							<div className="space-y-1 px-1 pb-2" data-search-workflow-lines>
+								{canvasLines.map((line) => (
+									<p
+										key={line}
+										className="text-[13px] leading-relaxed text-nova-text-muted"
+									>
+										{line}
+									</p>
+								))}
+							</div>
+						)}
 
 						<p
 							role="status"
@@ -407,7 +453,7 @@ export function SearchCanvas({
 				{moduleUuid !== undefined &&
 					searchActionEnabled &&
 					currentCaseType !== "" && (
-						<NoMatchesFormSetting moduleUuid={moduleUuid} />
+						<CaseListRegistrationSetting moduleUuid={moduleUuid} />
 					)}
 			</div>
 		</ContentFrame>

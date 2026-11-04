@@ -154,6 +154,10 @@ export function csqlFunctionFixture() {
 			eq(tableColumn(tableId, columns[0].id), literal("baseline")),
 		);
 	};
+	// A filter with nothing to fill in runs its search as the menu opens.
+	doc.modules[doc.moduleOrder[0]].caseSearchConfig = {
+		workflow: "skipToResults",
+	};
 	config.searchInputs = [];
 	config.filter = and(
 		eq(prop("patient", "visit_date"), dateCoerce(value("date_text"))),

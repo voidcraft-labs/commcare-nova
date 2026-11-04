@@ -5,9 +5,9 @@
 // `updateModule` (the inline flavor, so a rejection renders beside the control
 // instead of only as a toast). The born-valid shaping lives in the
 // `caseTypeSetPatch` / `caseTypeClearPatch` builders (`lib/doc/scaffolds`):
-// setting a type seeds a "Name" column (and makes a formless module a viewer),
-// clearing drops the case-list config AND the `caseListOnly` flag (so a module
-// with forms becomes a survey). `updateModule` itself declares a brand-new type
+// setting a type seeds a "Name" column (and gives a formless module its case
+// list in its menu, `caseListMenuItem`), clearing drops the case-list config
+// AND the case list menu entry (so a module with forms becomes a survey). `updateModule` itself declares a brand-new type
 // in the catalog and runs the case-type retirement cascade. A change the gate
 // refuses surfaces inline: clearing the type while case forms still need it,
 // or clearing a FORMLESS viewer (a module with neither forms nor a case list is

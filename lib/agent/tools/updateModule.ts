@@ -1,8 +1,8 @@
 /**
  * SA tool: `updateModule` — patch module-level metadata.
  *
- * Module-scoped patches: display name, `case_type`, the display condition and
- * `hiddenFromMenu`. The case-type
+ * Module-scoped patches: display name, `case_type`, the display condition,
+ * `hiddenFromMenu` and the case list menu item. The case-type
  * slot is the SA's repair path when the commit gate rejects adding a
  * case form to a module that never declared one (`NO_CASE_TYPE` names
  * exactly this fix) — without it the only correction would be
@@ -48,6 +48,8 @@ import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
 import {
 	asUuid,
 	findAuthoredBlueprintIdentity,
+	menuFormUuidsOf,
+	moduleHasCaseListMenuItem,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -65,6 +67,10 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
+import {
+	caseListMenuItemFromInput,
+	caseListMenuItemInputSchema,
+} from "./shared/caseListMenuItem";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
@@ -113,6 +119,12 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.describe(
 				"true takes the module and every form in it off the menu, null puts it back, omission keeps it. Off the menu, its forms open on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point.",
 			),
+		case_list_menu_item: caseListMenuItemInputSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Shows the case list as its own item in this menu, beside its forms or alone. Needs a case type. null removes it, which a menu with no forms refuses. Leave it out to keep it.",
+			),
 	})
 	.strict();
 
@@ -124,12 +136,13 @@ export type UpdateModuleResult =
 			columns: Array<{ uuid: Uuid }>;
 			retiredCaseType?: string;
 			hiddenFromMenu?: boolean;
+			caseListMenuItem?: boolean;
 	  })
 	| { error: string };
 
 export const updateModuleTool = {
 	description:
-		"Update a module's name, case type, parent-record selection, or visibility.",
+		"Update a module's name, case type, parent-record selection, visibility, or whether its menu shows the case list as its own item.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
@@ -144,6 +157,7 @@ export const updateModuleTool = {
 			displayCondition,
 			hiddenFromMenu,
 			parentCaseModuleUuid,
+			case_list_menu_item,
 		} = input;
 		try {
 			if (
@@ -151,7 +165,8 @@ export const updateModuleTool = {
 				case_type == null &&
 				displayCondition === undefined &&
 				hiddenFromMenu === undefined &&
-				parentCaseModuleUuid === undefined
+				parentCaseModuleUuid === undefined &&
+				case_list_menu_item === undefined
 			) {
 				return {
 					kind: "mutate" as const,
@@ -172,6 +187,32 @@ export const updateModuleTool = {
 				};
 			}
 			const { moduleUuid, module: mod } = address;
+
+			/* The case list menu item lists the module's cases, so it needs the
+			 * case type this call leaves; and a menu with no forms is its case
+			 * list, so the item is how it opens. */
+			if (case_list_menu_item != null && (case_type ?? mod.caseType) == null) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: {
+						error: `Module "${mod.name}" has no case type, so it has no case list to show in its menu. Set case_type in the same call, then show the case list as its own item.`,
+					},
+				};
+			}
+			if (
+				case_list_menu_item === null &&
+				mod.caseListMenuItem !== undefined &&
+				menuFormUuidsOf(doc, moduleUuid).length === 0
+			) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: {
+						error: `Module "${mod.name}" has no forms on its menu, so its case list is the only item it opens and can't be removed. Add a form to the module first with createForm, or remove the module with removeModule.`,
+					},
+				};
+			}
 
 			/* Case-type retirement: a case-type change can leave the OLD type's
 			 * record with no owning module. When nothing else references the
@@ -272,6 +313,23 @@ export const updateModuleTool = {
 								hiddenFromMenu === true,
 							),
 						]),
+				/* Omission keeps the item; an object sets it, keeping its media, and
+				 * null takes it off the menu. */
+				...(case_list_menu_item === undefined
+					? []
+					: [
+							{
+								kind: "setCaseListMenuItem" as const,
+								uuid: moduleUuid,
+								item:
+									case_list_menu_item === null
+										? null
+										: caseListMenuItemFromInput(
+												case_list_menu_item,
+												mod.caseListMenuItem,
+											),
+							},
+						]),
 				// Each column follows the one before it, so the seeded set lands in
 				// the order the SA wrote it.
 				...(seedColumns ?? []).map((column, index, all) =>
@@ -316,6 +374,9 @@ export const updateModuleTool = {
 					}),
 					...(hiddenFromMenu !== undefined && {
 						hiddenFromMenu: newMod.hiddenFromMenu === true,
+					}),
+					...(case_list_menu_item !== undefined && {
+						caseListMenuItem: moduleHasCaseListMenuItem(newMod),
 					}),
 					columns: (seedColumns ?? []).map((column) => ({
 						uuid: column.uuid,

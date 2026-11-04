@@ -148,9 +148,10 @@ export const ModuleCard = memo(function ModuleCard({
 				 * under them stayed flat, which reads as a dead row with restless
 				 * decorations rather than a row you can click. */
 				className={`group flex min-h-11 items-center justify-between gap-1.5 py-1.5 pe-3 transition-colors ${isSubmenu ? "ps-4" : "ps-2"} ${locked ? "text-nova-text-secondary" : "cursor-pointer hover:bg-nova-violet/[0.06]"}`}
-				// A childless `caseListOnly` module IS its case list. Once it owns
-				// child menus, this row must open the module screen that exposes
-				// them; its separate Cases row still opens Results.
+				// A bare case list (its case list in its menu, no menu forms and
+				// no child menus) IS its case list. Once it owns forms or child
+				// menus, this row opens the module screen that lists them; its
+				// separate Cases row still opens Results.
 				onClick={() =>
 					onSelect(
 						isBareCaseList

@@ -186,7 +186,7 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 				id: "patients",
 				name: ids.moduleName,
 				caseType: ids.caseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: {
 					columns: [
 						plainColumn(ids.columns.patientName, "case_name", "Patient", {
@@ -450,7 +450,7 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 				id: "visit_group",
 				name: "Visits by household",
 				caseType: ids.grouped.visitCaseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: {
 					// The heading is one row deep, drawn from the group's first
 					// visit. Its cell reads the HOUSEHOLD's village through the
@@ -718,6 +718,8 @@ export interface CaseWorkspaceRoutes {
 	readonly tileResults: string;
 	/** The grouped tile module's Results list. */
 	readonly groupedResults: string;
+	/** The tile-laid-out module's own screen, which lists its forms. */
+	readonly tileModule: string;
 	/** The follow-up form that carries the module's persistent tile. */
 	readonly tileForm: string;
 	/** The Project data workspace's table list. */
@@ -751,6 +753,10 @@ export function caseWorkspaceRoutes(
 		groupedResults: buildUrl(basePath, {
 			kind: "cases",
 			moduleUuid: CASE_WORKSPACE_SEED.grouped.moduleUuid,
+		}),
+		tileModule: buildUrl(basePath, {
+			kind: "module",
+			moduleUuid: CASE_WORKSPACE_SEED.tile.moduleUuid,
 		}),
 		tileForm: buildUrl(basePath, {
 			kind: "form",

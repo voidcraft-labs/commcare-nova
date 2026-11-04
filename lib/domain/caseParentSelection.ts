@@ -1,12 +1,13 @@
 import type { BlueprintDoc } from "./blueprint";
 import { CASE_FORM_TYPES } from "./forms";
+import { moduleHasCaseListMenuItem } from "./modules";
 import type { Uuid } from "./uuid";
 
 function selectsCases(doc: BlueprintDoc, uuid: Uuid): boolean {
 	const module = doc.modules[uuid];
 	return (
 		!!module?.caseType &&
-		(module.caseListOnly === true ||
+		(moduleHasCaseListMenuItem(module) ||
 			(doc.formOrder[uuid] ?? []).some((id) => {
 				const form = doc.forms[id];
 				return form !== undefined && CASE_FORM_TYPES.has(form.type);

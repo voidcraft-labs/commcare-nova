@@ -56,6 +56,7 @@ function app(
 		[form()],
 		detailPair([]),
 		["en"],
+		true,
 	);
 	edit(module);
 	return serializeHqApplication(
@@ -194,6 +195,7 @@ function advancedApp(
 		detailPair([detailColumn("name", "Name")]),
 		"en",
 		["en"],
+		true,
 	);
 	edit(module);
 	return serializeHqApplication(

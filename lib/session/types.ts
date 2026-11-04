@@ -45,18 +45,19 @@ export interface PreviewCaseChoice {
 	readonly caseId: string;
 	readonly caseName?: string;
 	/** Chosen from a search's Results while the worker's device does not hold
-	 *  it: the claim CommCare posts for this choice adds it to the worker's
-	 *  claims (`./previewClaims.ts`). Absent for a case the device holds. */
+	 *  it: the claim CommCare posts for this choice writes a claim row
+	 *  (`claimSearchedCasesAction`), so the worker's device holds it from then
+	 *  on. Absent for a case the device holds. */
 	readonly claimable?: true;
 }
 
 export interface PreviewCaseTarget {
 	formUuid: Uuid;
 	cases?: readonly PreviewCaseChoice[];
-	/** The Register action that opened a no-matches registration form: the
+	/** The Register action that opened a case list registration form: the
 	 * host module's search and the attempt it was offered on. Absent on every
 	 * other way into a form, which is what lets the form screen refuse a
-	 * direct URL (`components/preview/screens/noMatchesForm.ts`). */
+	 * direct URL (`lib/preview/caseListRegistration.ts`). */
 	searchLaunch?: PreviewSearchLaunch;
 	/** Post-submit local-device world carried by a direct form link. A fresh
 	 * restore may omit a case the device just closed, but the linked form still
@@ -71,7 +72,7 @@ export interface PreviewCaseTarget {
 	/** A form link opened the form. A form of a module that opens on its
 	 * search then reads each Search field's starting value, not the module's
 	 * last search, as Web Apps rebuilds a linked form's query step
-	 * (`noMatchesForm.ts::formSearchAnswers`). */
+	 * (`caseListRegistration.ts::formSearchAnswers`). */
 	openedByLink?: true;
 }
 

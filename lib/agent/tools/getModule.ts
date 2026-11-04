@@ -30,6 +30,12 @@
  * module is off the menu whatever its condition, and each form summary says
  * the same of its form.
  *
+ * `searchWorkflow` and `formsReadSearch` say what the menu opens on and
+ * whether its forms read the search, as the search tools state them;
+ * `caseListMenuItem` and `caseListRegistrationForm` read the module's two
+ * case list slots, and each form summary's `opensFromCaseList` names the
+ * registration form.
+ *
  * `advanced` says whether CommCare HQ receives the module as an advanced
  * menu (`lib/commcare/moduleKind.ts::emittedModuleKind`), and `kept` whether
  * that is because a published app holds it so (`Module.heldKind`). No edit
@@ -47,11 +53,14 @@ import type {
 	FormType,
 	MediaAssetId,
 	ModuleIconRef,
+	SearchWorkflow,
 	Uuid,
 } from "@/lib/domain";
 import {
 	childModuleUuids,
 	moduleDestination,
+	moduleFormsReadSearch,
+	moduleSearchWorkflow,
 	orderedColumns,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
@@ -80,10 +89,11 @@ export interface GetModuleFormSummary {
 	icon: FormIconRef | null;
 	audio_label: MediaAssetId | null;
 	/**
-	 * How the form is reached. `null` is a menu form; `search-no-matches`
-	 * is offered on Results only after a search finds nothing.
+	 * True when the form is its menu's registration from the case list
+	 * (`caseListRegistrationForm`): offered on the results after a search
+	 * finds nothing, and on no menu.
 	 */
-	entry: { kind: "search-no-matches"; label?: string } | null;
+	opensFromCaseList: boolean;
 	/** True when the form is off the menu (`hiddenFromMenu`). */
 	hidden_from_menu: boolean;
 }
@@ -122,6 +132,16 @@ export type GetModuleResult =
 			results_column_order: Uuid[];
 			details_column_order: Uuid[];
 			case_search_config: CaseSearchConfig | null;
+			/** What the menu opens on, or `null` where it has no search. */
+			searchWorkflow: SearchWorkflow | null;
+			/** True when the menu's forms read the search. */
+			formsReadSearch: boolean;
+			/** The case list as its own menu item; `label` null uses the
+			 *  module's name. */
+			caseListMenuItem: { label: string | null } | null;
+			/** The menu's registration from the case list; `label` null uses
+			 *  the form's name. */
+			caseListRegistrationForm: { formUuid: Uuid; label: string | null } | null;
 			forms: GetModuleFormSummary[];
 	  };
 
@@ -190,6 +210,19 @@ export const getModuleTool = {
 					.filter((column) => column.visibleInDetail !== false)
 					.map((column) => column.uuid),
 				case_search_config: caseSearchConfig ?? null,
+				searchWorkflow: moduleSearchWorkflow(mod) ?? null,
+				formsReadSearch: moduleFormsReadSearch(mod),
+				caseListMenuItem:
+					mod.caseListMenuItem === undefined
+						? null
+						: { label: mod.caseListMenuItem.label ?? null },
+				caseListRegistrationForm:
+					mod.caseListRegistrationForm === undefined
+						? null
+						: {
+								formUuid: mod.caseListRegistrationForm.formUuid,
+								label: mod.caseListRegistrationForm.label ?? null,
+							},
 				forms: formUuids.map((fUuid) => {
 					const f = doc.forms[fUuid];
 					return {
@@ -199,7 +232,7 @@ export const getModuleTool = {
 						fieldCount: countFieldsUnder(doc, fUuid),
 						icon: f?.icon ?? null,
 						audio_label: f?.audioLabel ?? null,
-						entry: f?.entry ?? null,
+						opensFromCaseList: mod.caseListRegistrationForm?.formUuid === fUuid,
 						hidden_from_menu: f?.hiddenFromMenu === true,
 					};
 				}),

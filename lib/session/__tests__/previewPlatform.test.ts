@@ -2,7 +2,7 @@
  * Preview's platform facts, through the store's own actions over a real doc
  * store: the lifetimes of `previewPlatform`, `previewAtDeviceHome` and
  * `previewDeviceSyncedAt`, the navigation reset of a platform change, and an
- * entry-point launch's claims landing under its worker.
+ * entry-point launch landing under its worker.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -10,7 +10,6 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { NEW_APP_SETTINGS } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
-import { claimsFor, previewClaimsWorker } from "../previewClaims";
 import { createBuilderSessionStore } from "../store";
 
 function stores(runsOnlyOn?: Platform) {
@@ -72,10 +71,9 @@ describe("setPreviewing", () => {
 });
 
 describe("setPreviewPlatform", () => {
-	it("clears the running navigation, keeps the claims and opens Android at home", () => {
+	it("clears the running navigation and opens Android at home", () => {
 		const { session } = stores();
 		session.getState().setPreviewing(true, { atHome: false });
-		session.getState().addPreviewClaims(["claimed-case"]);
 		session.getState().setPreviewCaseTarget({
 			formUuid: testUuid("platform-form"),
 			cases: [{ caseId: "picked" }],
@@ -84,14 +82,12 @@ describe("setPreviewPlatform", () => {
 			caseType: "patient",
 			cases: [{ caseId: "picked", caseName: "Asha", caseProperties: {} }],
 		});
-		const claims = session.getState().previewClaims;
 		session.getState().setPreviewPlatform("android");
 		const state = session.getState();
 		expect(state.previewPlatform).toBe("android");
 		expect(state.previewCaseTarget).toBeUndefined();
 		expect(state.previewMenuCaseSelections).toEqual({});
 		expect(state.previewSearchStates).toEqual({});
-		expect(state.previewClaims).toBe(claims);
 		expect(state.previewAtDeviceHome).toBe(true);
 		expect(state.previewDeviceSyncedAt).toBeTypeOf("number");
 		session.getState().setPreviewPlatform("web-apps");
@@ -154,39 +150,23 @@ describe("installEntryPointLaunch", () => {
 		ignoreDisplayConditions: false,
 	});
 
-	it("keeps a launch's claims under its worker when the launch changes worker", () => {
+	it("installs the launch under its worker, off the device home", () => {
 		const { session } = stores();
-		session.getState().addPreviewClaims(["member-claim"]);
+		session.getState().setPreviewing(true, { atHome: true });
 		const persona = testUuid("platform-launch-persona");
-		session.getState().installEntryPointLaunch(launch(persona), ["launched"]);
+		session.getState().installEntryPointLaunch(launch(persona));
 		const state = session.getState();
-		expect(
-			claimsFor(
-				state.previewClaims,
-				"platform-app",
-				previewClaimsWorker(persona),
-			),
-		).toEqual(["launched"]);
-		expect(
-			claimsFor(
-				state.previewClaims,
-				"platform-app",
-				previewClaimsWorker(undefined),
-			),
-		).toEqual([]);
+		expect(state.previewPersonaUuid).toBe(persona);
+		expect(state.previewEntryPointLaunch?.personaUuid).toBe(persona);
+		expect(state.previewCaseTarget).toEqual(launch(persona).formTarget);
 		expect(state.previewAtDeviceHome).toBe(false);
 	});
 
-	it("adds a launch's claims to the same worker's claims", () => {
-		const { session } = stores();
-		session.getState().addPreviewClaims(["member-claim"]);
-		session.getState().installEntryPointLaunch(launch(), ["launched"]);
-		expect(
-			claimsFor(
-				session.getState().previewClaims,
-				"platform-app",
-				previewClaimsWorker(undefined),
-			),
-		).toEqual(["member-claim", "launched"]);
+	it("advances Android's last sync on a launch", () => {
+		const { session } = stores("android");
+		session.getState().setPreviewing(true, { atHome: true });
+		session.getState().markPreviewDeviceSynced(1);
+		session.getState().installEntryPointLaunch(launch());
+		expect(session.getState().previewDeviceSyncedAt).toBeGreaterThan(1);
 	});
 });

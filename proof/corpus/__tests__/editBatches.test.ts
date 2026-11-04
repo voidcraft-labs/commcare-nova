@@ -507,13 +507,13 @@ describe("turning Connect on", () => {
 			),
 		).toBe(false);
 
-		const searchFirst = stored(
+		const readsSearch = stored(
 			"search-inline",
 			searchEmissionFixture("inline"),
 		);
 		const refused = admitEditBatch(
-			searchFirst,
-			mutationsOf(proposals(searchFirst)[0]),
+			readsSearch,
+			mutationsOf(proposals(readsSearch)[0]),
 		);
 		expect(refused.ok).toBe(false);
 		if (!refused.ok)

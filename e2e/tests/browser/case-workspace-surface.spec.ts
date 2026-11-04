@@ -301,13 +301,19 @@ test("native last Search field removal reviews copy and preserves independent as
 	const after = await savedModule(page);
 	expect(after.caseListConfig.searchInputs).toEqual([]);
 	expect(after.caseListConfig.columns).toEqual(before.caseListConfig.columns);
+	// With nothing left to fill in, the menu opens on Results first in the
+	// same batch (`withWorkflowAfterInputChange`).
 	expect(after.caseSearchConfig).toEqual({
 		excludedOwnerIds: before.caseSearchConfig.excludedOwnerIds,
 		searchButtonDisplayCondition:
 			before.caseSearchConfig.searchButtonDisplayCondition,
+		workflow: "skipToResults",
 	});
 	await expect(
-		page.getByText("Search is available from Results", { exact: true }),
+		page.getByRole("heading", {
+			name: "Results can open automatically",
+			exact: true,
+		}),
 	).toBeVisible();
 });
 test("native Search date-range conversion keeps the saved default until confirmation", async ({
@@ -858,13 +864,20 @@ test("native zero-input Search action becomes intentional only when its settings
 		exact: true,
 	});
 	await configure.press("Enter");
-	expect((await savedModule(page)).caseSearchConfig).toEqual({});
+	// A Search with no field opens the menu on Results first
+	// (`withWorkflowAfterInputChange`).
+	expect((await savedModule(page)).caseSearchConfig).toEqual({
+		workflow: "skipToResults",
+	});
 	expect((await savedModule(page)).caseListConfig.searchInputs).toEqual([]);
 	await expect(
 		page.getByRole("textbox", { name: "Title", exact: true }),
 	).toHaveCount(0);
 	await expect(
-		page.getByText("Search is available from Results", { exact: true }),
+		page.getByRole("heading", {
+			name: "Results can open automatically",
+			exact: true,
+		}),
 	).toBeVisible();
 	await page
 		.getByRole("button", { name: "Close properties", exact: true })

@@ -70,15 +70,12 @@ import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource
 import { useViewerPositionMoves } from "@/lib/preview/hooks/useViewerPosition";
 import {
 	useAccessPhase,
-	usePreviewClaimedCaseIds,
 	usePreviewDevice,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import { viewerPositionStore } from "@/lib/session/viewerPosition";
-
-const NO_CLAIMS: readonly string[] = [];
 
 function parentCaseSelectionKey(
 	parentCase: ParentCaseSelection | undefined,
@@ -173,9 +170,9 @@ type LoadingState<T extends { kind: string }> =
  * authenticated Server Action so session-backed values (notably the current
  * worker id) resolve authoritatively before the local query is composed.
  *
- * The worker's claims (`lib/session/previewClaims.ts`) ride every read: they
- * widen the restore of a device read and decide which rows of a search's
- * population the device already holds.
+ * The worker's claims are case rows it owns, so the server's restore holds
+ * them: a device read includes the claimed cases, and a search's population
+ * marks them held. A claim invalidates the case data revision, which re-reads.
  *
  * A list whose Results show a column that reads `here()` sends the viewer's
  * latest position with each read and records it as the one the list shows
@@ -269,7 +266,6 @@ export function useCases(args: {
 	 * the query returns (owner-scoped rules, session-backed prompt values),
 	 * so it must re-fire the load, not reuse another worker's rows. */
 	const personaUuid = usePreviewPersonaUuid();
-	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
 	/* The device Preview runs on: its platform's search checks, tile
 	 * grouping and session values decide what the read returns. */
 	const device = usePreviewDevice();
@@ -283,7 +279,8 @@ export function useCases(args: {
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. A new
 	 * claim is no such boundary: it only adds a case the device holds, so it
-	 * re-reads through the reload token and the settled rows stay on screen. */
+	 * re-reads through the case data revision and the settled rows stay on
+	 * screen. */
 	const requestIdentity = ready
 		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${deviceKey}`
 		: "";
@@ -300,7 +297,6 @@ export function useCases(args: {
 			caseTypes,
 			caseDataRevision,
 			positionKey,
-			claimedCaseIds,
 			csqlRuntime,
 			chosenCaseIds,
 		],
@@ -316,7 +312,6 @@ export function useCases(args: {
 			caseTypes,
 			caseDataRevision,
 			positionKey,
-			claimedCaseIds,
 			csqlRuntime,
 			chosenCaseIds,
 		],
@@ -363,7 +358,6 @@ export function useCases(args: {
 										: { offset: pageOffset, limit: pageLimit },
 								viewerTimeZone: viewerTimeZone(),
 								personaUuid,
-								claimedCaseIds: [...claimedCaseIds],
 								...(search && { search }),
 								...(csqlRuntime !== undefined && { csqlRuntime }),
 								...(chosenCaseIds !== undefined && { chosenCaseIds }),
@@ -656,7 +650,7 @@ export function useCaseData(args: {
 	 *  latest position. It is not part of the read's identity: like Android's
 	 *  Details, the row does not re-read as the position moves. */
 	positionScreen?: "list" | "detail";
-	/** A search-first module's completed search answers, which its list and
+	/** The completed search answers of a menu whose forms read the search, which its list and
 	 *  detail columns read from the inline query's input instance. */
 	searchAnswers?: Readonly<Record<string, string>>;
 }): {
@@ -693,10 +687,6 @@ export function useCaseData(args: {
 	 * calculated columns that read the session, so two personas asking for
 	 * the same row are two different requests. */
 	const personaUuid = usePreviewPersonaUuid();
-	/* A device-scoped read holds the worker's claimed cases, so it cannot
-	 * forget them; any other read is the tenant and sends none. */
-	const workerClaims = usePreviewClaimedCaseIds(personaUuid);
-	const claimedCaseIds = deviceScoped === true ? workerClaims : NO_CLAIMS;
 	const device = usePreviewDevice();
 	const deviceKey = previewDeviceKey(device);
 	const ready = Boolean(
@@ -707,7 +697,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${claimedCaseIds.join(",")}\u0000${deviceKey}\u0000${searchAnswersKey}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${deviceKey}\u0000${searchAnswersKey}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -763,7 +753,6 @@ export function useCaseData(args: {
 									? undefined
 									: toRscSerializableDoc(blueprint),
 								moduleUuid,
-								[...claimedCaseIds],
 								search,
 								sendsPosition
 									? viewerPositionStore.getState().latestLocation()

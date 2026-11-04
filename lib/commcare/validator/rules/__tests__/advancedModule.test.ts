@@ -218,8 +218,8 @@ function patchModule(
 	doc.modules[uuid] = { ...doc.modules[uuid], ...patch(doc.modules[uuid]) };
 }
 
-/** Members lists its cases on their own: a menu chosen under a search-first
- *  menu would read its search. */
+/** Members lists its cases on their own: a menu chosen under a menu whose
+ *  forms read the search would read its search. */
 function flatMembers(doc: BlueprintDoc): void {
 	const { parentCaseModuleUuid: _, ...members } = doc.modules[MEMBERS];
 	doc.modules[MEMBERS] = members;
@@ -310,17 +310,17 @@ describe("a menu something keeps from being advanced", () => {
 		admitted(app());
 	});
 
-	it("refuses a link from a menu that opens on its Search screen", () => {
-		const searchFirst = (doc: BlueprintDoc) => {
+	it("refuses a link from a menu whose forms read the search", () => {
+		const formsReadSearch = (doc: BlueprintDoc) => {
 			flatMembers(doc);
 			patchModule(doc, HOUSEHOLDS, () => ({
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 			}));
 		};
-		expect(refusal(app(searchFirst))).toEqual(
+		expect(refusal(app(formsReadSearch))).toEqual(
 			voices(
-				`"Households" opens on its Search screen, which CommCare HQ can't keep while handing a new case on`,
-				`turn Search first off in "Households"`,
+				`the forms in "Households" read its search, which CommCare HQ can't keep while handing a new case on`,
+				`turn off Forms read the search in "Households"`,
 			),
 		);
 		admitted(app(flatMembers));

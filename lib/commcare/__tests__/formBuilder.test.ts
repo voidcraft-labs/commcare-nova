@@ -192,7 +192,7 @@ describe("the case-write projection", () => {
 						{
 							name: "Referrals",
 							caseType: "referral",
-							caseListOnly: true,
+							caseListMenuItem: {},
 							caseListConfig: caseListConfig([
 								{ field: "case_name", header: "Name" },
 							]),

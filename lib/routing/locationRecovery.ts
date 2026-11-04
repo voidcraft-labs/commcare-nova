@@ -1,3 +1,4 @@
+import type { BlueprintDoc } from "@/lib/domain";
 import {
 	isRetiredAuthoringPath,
 	type LocationDoc,
@@ -16,12 +17,12 @@ export function advanceLocationRecovery(
 	previous: PreviousLocationTopology | undefined,
 	segments: readonly string[],
 	location: Location,
-	doc: LocationDoc,
+	doc: LocationDoc & Pick<BlueprintDoc, "formOrder">,
 ): { topology: PreviousLocationTopology | undefined; replacement?: Location } {
 	// Retired bookmarks remain unresolved, as on the server route.
 	if (isRetiredAuthoringPath(segments)) return { topology: previous };
 	const target =
-		formerParentRecovery(segments, previous, doc.modules) ??
+		formerParentRecovery(segments, previous, doc) ??
 		recoverLocation(location, doc);
 	const canonical = serializePath(target);
 	const matches =

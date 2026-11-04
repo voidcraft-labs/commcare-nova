@@ -82,8 +82,8 @@ After whole-document validation, the two HQ modes also run
 cannot preserve a related-case selection from several parent cases, or a root
 selection reused by a same-case child whose maximum is smaller. Both receive
 `HQ_NESTED_SELECTION_UNREPRESENTABLE` before media bytes resolve. The check
-follows actual selection datums, including case-list-only entries and catalog
-ancestor chains; registration or survey forms without those selections are
+follows actual selection datums, including case list menu item entries,
+advanced loads, and catalog ancestor chains; registration or survey forms without those selections are
 unaffected. These are target limitations, never document admission rules. Local
 CCZ emits the set-membership parent filter and distinct child selection and is
 covered by native Core runtime proof. A `.ccz` is made for a reached deployment

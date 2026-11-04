@@ -36,6 +36,9 @@ export interface DocEntityMaps {
 	modules: Readonly<Record<Uuid, Module>>;
 	forms: Readonly<Record<Uuid, Form>>;
 	fields: Readonly<Record<Uuid, Field>>;
+	/** Each module's forms in order, which says whether a module is a bare
+	 *  case list (`moduleIsBareCaseList`). */
+	formOrder: Readonly<Record<Uuid, Uuid[]>>;
 }
 
 export function useDocEntityMaps(): DocEntityMaps {
@@ -43,5 +46,6 @@ export function useDocEntityMaps(): DocEntityMaps {
 		modules: s.modules,
 		forms: s.forms,
 		fields: s.fields,
+		formOrder: s.formOrder,
 	}));
 }

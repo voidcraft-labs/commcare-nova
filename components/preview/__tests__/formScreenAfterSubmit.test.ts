@@ -75,7 +75,7 @@ const doc = buildDoc({
 			uuid: "mod-browse",
 			name: "Browse",
 			caseType: "patient",
-			caseListOnly: true,
+			caseListMenuItem: {},
 		},
 		{
 			uuid: "mod-menu",

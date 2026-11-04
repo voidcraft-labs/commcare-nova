@@ -7,6 +7,7 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import {
+	CASE_CLAIM_CASE_TYPE,
 	type CaseType,
 	type PersistableDoc,
 	USERCASE_CASE_TYPE,
@@ -99,14 +100,18 @@ describe("materializeCaseStoreSchemas — a survey-only app", () => {
 		// case is NOT derived from what was declared: HQ gives every worker a
 		// usercase whatever the app collects, `#user/<prop>` reads it through a
 		// `casedb` join rather than a projection, and a persona exists on an app
-		// with no case types at all. So this app has exactly one case type, and
-		// it is the one nobody authored.
+		// with no case types at all. So this app's case types are the two nobody
+		// authored: the worker's own, and the search claim's, which any app's
+		// Preview may write.
 		await materializeCaseStoreSchemas({
 			appId: APP_ID,
 			blueprint: makeBlueprint(null),
 		});
 		expect(withSchemaContextMock).toHaveBeenCalledTimes(1);
-		expect(await materializedTypes()).toEqual([USERCASE_CASE_TYPE]);
+		expect(await materializedTypes()).toEqual([
+			CASE_CLAIM_CASE_TYPE,
+			USERCASE_CASE_TYPE,
+		]);
 	});
 
 	it("treats an empty caseTypes array the same as null", async () => {
@@ -117,7 +122,10 @@ describe("materializeCaseStoreSchemas — a survey-only app", () => {
 			blueprint: makeBlueprint([]),
 		});
 		expect(withSchemaContextMock).toHaveBeenCalledTimes(1);
-		expect(await materializedTypes()).toEqual([USERCASE_CASE_TYPE]);
+		expect(await materializedTypes()).toEqual([
+			CASE_CLAIM_CASE_TYPE,
+			USERCASE_CASE_TYPE,
+		]);
 	});
 });
 
@@ -160,8 +168,10 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 		);
 		// `commcare-user` rides along with every app: HQ gives every worker a
 		// usercase whatever the app collects, so it is materialized
-		// unconditionally rather than derived from what was declared.
+		// unconditionally rather than derived from what was declared, and so
+		// does the search claim's type.
 		expect(schemaRows.rows.map((r) => r.case_type)).toEqual([
+			"commcare-case-claim",
 			"commcare-user",
 			"patient",
 			"visit",
@@ -277,9 +287,10 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 		} finally {
 			vi.useRealTimers();
 		}
-		// Retried to the budget (3 attempts) then swallowed — for `patient` and
-		// again for the worker's own case, which this store fails too.
-		expect(throwingApply).toHaveBeenCalledTimes(6);
+		// Retried to the budget (3 attempts) then swallowed — for `patient`,
+		// the worker's own case and the search claim's, which this store
+		// fails too.
+		expect(throwingApply).toHaveBeenCalledTimes(9);
 		const missing = await dbHandle.pool.query(
 			"SELECT case_type FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
 			[APP_ID, "patient"],

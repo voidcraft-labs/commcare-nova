@@ -11,6 +11,11 @@ function module(uuid: Uuid, name: string, extra: Partial<Module> = {}): Module {
 	return { uuid, id: name.toLowerCase(), name, ...extra };
 }
 
+/** The surviving document: these menus, none of them holding forms. */
+function current(modules: Readonly<Record<Uuid, Module>>) {
+	return { modules, forms: {}, formOrder: {} };
+}
+
 describe("formerParentRecovery", () => {
 	it("recovers a remotely deleted child form to its surviving former parent", () => {
 		const previousModules = {
@@ -24,14 +29,14 @@ describe("formerParentRecovery", () => {
 					location: { kind: "form", moduleUuid: CHILD, formUuid: FORM },
 					modules: previousModules,
 				},
-				{ [PARENT]: previousModules[PARENT] },
+				current({ [PARENT]: previousModules[PARENT] }),
 			),
 		).toEqual({ kind: "module", moduleUuid: PARENT });
 	});
 
 	it("recovers to Results when the surviving parent is a bare case list", () => {
 		const parent = module(PARENT, "Care", {
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseType: "client",
 		});
 		const child = module(CHILD, "Visits", { parentModuleUuid: PARENT });
@@ -42,14 +47,14 @@ describe("formerParentRecovery", () => {
 					location: { kind: "module", moduleUuid: CHILD },
 					modules: { [PARENT]: parent, [CHILD]: child },
 				},
-				{ [PARENT]: parent },
+				current({ [PARENT]: parent }),
 			),
 		).toEqual({ kind: "cases", moduleUuid: PARENT });
 	});
 
-	it("recovers to the menu when a case-list-only parent still has a child", () => {
+	it("recovers to the menu when a bare case list parent still has a child", () => {
 		const parent = module(PARENT, "Care", {
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseType: "client",
 		});
 		const deleted = module(CHILD, "Visits", { parentModuleUuid: PARENT });
@@ -68,10 +73,10 @@ describe("formerParentRecovery", () => {
 						[survivingChildUuid]: survivingChild,
 					},
 				},
-				{
+				current({
 					[PARENT]: parent,
 					[survivingChildUuid]: survivingChild,
-				},
+				}),
 			),
 		).toEqual({ kind: "module", moduleUuid: PARENT });
 	});
@@ -85,7 +90,7 @@ describe("formerParentRecovery", () => {
 					location: { kind: "module", moduleUuid: PARENT },
 					modules: { [PARENT]: root },
 				},
-				{},
+				current({}),
 			),
 		).toEqual({ kind: "home" });
 	});
@@ -100,7 +105,7 @@ describe("formerParentRecovery", () => {
 					location: { kind: "module", moduleUuid: CHILD },
 					modules: { [PARENT]: parent, [CHILD]: child },
 				},
-				{ [PARENT]: parent },
+				current({ [PARENT]: parent }),
 			),
 		).toBeUndefined();
 	});

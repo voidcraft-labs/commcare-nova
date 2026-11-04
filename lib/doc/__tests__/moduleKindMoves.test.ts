@@ -95,7 +95,7 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 					kind: "updateModule",
 					uuid: VISITS,
 					patch: {},
-					caseSearchConfigPatch: { searchFirst: true },
+					caseSearchConfigPatch: { formsReadSearch: true },
 				} as Mutation,
 			],
 		},
@@ -209,7 +209,7 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 			"From your next publish, CommCare HQ's exports show these answers under new columns.";
 		expect(sentences).toEqual([
 			`${lead} It now lets workers choose several cases, which an advanced menu can't do. ${exports}`,
-			`${lead} It now opens on its Search screen with its forms reading the search, which an advanced menu can't do. ${exports}`,
+			`${lead} Its forms now read the search, which an advanced menu can't do. ${exports}`,
 			`${lead} Its case list in the menu now has a filter or a parent case, which an advanced menu would leave out. ${exports}`,
 			`${lead} Its cases now link to their parent case under more than one name. ${exports}`,
 			`${lead} A form in it now saves a case change only an advanced menu can. ${exports}`,
@@ -308,7 +308,7 @@ describe("the undo of a menu's move", () => {
 				kind: "updateModule",
 				uuid: VISITS,
 				patch: {},
-				caseSearchConfigPatch: { searchFirst: true },
+				caseSearchConfigPatch: { formsReadSearch: true },
 			} as Mutation,
 		];
 		const forward = withIdentityMoves(base, edit);
@@ -317,14 +317,14 @@ describe("the undo of a menu's move", () => {
 		expect(
 			placementChangeRefusal(base, moved.nextDoc, "autosave", recorded),
 		).toBeNull();
-		// The inverse turns Search first off again and puts back every hold
+		// The inverse turns Forms read the search off again and puts back every hold
 		// the publish recorded.
 		const inverse = admitMutationBatch([
 			{
 				kind: "updateModule",
 				uuid: VISITS,
 				patch: {},
-				caseSearchConfigPatch: { searchFirst: null },
+				caseSearchConfigPatch: { formsReadSearch: null },
 			} as Mutation,
 			holds(...([...recorded.values()] as PlacementHoldEntry[])),
 		]);

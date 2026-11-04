@@ -57,6 +57,7 @@ import {
 	toExpression,
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
+import { withAuthoredSearchWorkflows } from "./authoredSearchWorkflowFixture";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { captureExpanderEvidence } from "./expanderEvidence";
 import { basicForm, basicModule } from "./hqBasicShape";
@@ -3225,9 +3226,9 @@ describe("unquoted string literal detection", () => {
 
 // ── Child Case Type Module Requirement ─────────────────────────────────
 
-// ── case_list_only Validation ──────────────────────────────────────────
+// ── Case list menu item admission ──────────────────────────────────────
 
-describe("case-list-only admission", () => {
+describe("case list menu item admission", () => {
 	function browseDoc(withForm = false) {
 		return buildDoc({
 			caseTypes: [{ name: "thing", properties: [] }],
@@ -3235,7 +3236,7 @@ describe("case-list-only admission", () => {
 				{
 					name: "Things",
 					caseType: "thing",
-					caseListOnly: !withForm,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -3252,19 +3253,22 @@ describe("case-list-only admission", () => {
 			],
 		});
 	}
-	it.each(["forms", "case-type", "browse-flag"] as const)(
+	it("admits the entry beside forms", () => {
+		const doc = browseDoc(true);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(expandDoc(doc).modules[0].case_list.show).toBe(true);
+	});
+	it.each(["case-type", "menu-item"] as const)(
 		"refuses removing the %s invariant from an admitted workflow",
 		(fault) => {
-			const doc = browseDoc(fault === "forms");
+			const doc = browseDoc();
 			expandDoc(doc);
 			const module = doc.modules[doc.moduleOrder[0]];
-			if (fault === "forms") module.caseListOnly = true;
-			else if (fault === "case-type") delete module.caseType;
-			else delete module.caseListOnly;
+			if (fault === "case-type") delete module.caseType;
+			else delete module.caseListMenuItem;
 			const codes = {
-				forms: "CASE_LIST_ONLY_HAS_FORMS",
-				"case-type": "CASE_LIST_ONLY_NO_CASE_TYPE",
-				"browse-flag": "NO_FORMS_OR_CASE_LIST",
+				"case-type": "CASE_LIST_MENU_ITEM_NO_CASE_TYPE",
+				"menu-item": "NO_FORMS_OR_CASE_LIST",
 			};
 			expect(
 				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((finding) => ({
@@ -3276,10 +3280,10 @@ describe("case-list-only admission", () => {
 	);
 });
 
-// ── case_list_only Expansion ───────────────────────────────────────────
+// ── Case list menu item expansion ──────────────────────────────────────
 
-describe("case_list_only expansion", () => {
-	it("sets case_list.show on case_list_only modules", () => {
+describe("case list menu item expansion", () => {
+	it("sets case_list.show on a module with the case list menu item", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -3307,7 +3311,7 @@ describe("case_list_only expansion", () => {
 				{
 					name: "Services",
 					caseType: "service",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					forms: [],
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
@@ -3332,14 +3336,14 @@ describe("case_list_only expansion", () => {
 		expect(hq.modules[0].case_list.show).toBe(false);
 	});
 
-	it("sets case_type on case_list_only modules", () => {
+	it("sets case_type on a bare case list module", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
 				{
 					name: "Services",
 					caseType: "service",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					forms: [],
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
@@ -3361,7 +3365,7 @@ describe("case_list_only expansion", () => {
 		expect(hq.modules[0].case_type).toBe("service");
 	});
 
-	it("emits the chosen parent selector for a case-list-only module", () => {
+	it("emits the chosen parent selector for a bare case list module", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -3389,7 +3393,7 @@ describe("case_list_only expansion", () => {
 				{
 					name: "Services",
 					caseType: "service",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					forms: [],
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
@@ -4131,6 +4135,23 @@ function buildHqProjectionDoc(
 		HQ_PROJECTION_PATIENT_CASE_TYPE,
 	],
 	appSettings?: AppSettings,
+) {
+	// The search takes the workflow the cutover gives a menu that had none.
+	return withAuthoredSearchWorkflows(
+		buildHqProjectionDocSpec(
+			caseListConfig,
+			caseSearchConfig,
+			caseTypes,
+			appSettings,
+		),
+	);
+}
+
+function buildHqProjectionDocSpec(
+	caseListConfig: CaseListConfigSpec,
+	caseSearchConfig: Module["caseSearchConfig"],
+	caseTypes: NonNullable<DocSpec["caseTypes"]>,
+	appSettings: AppSettings | undefined,
 ) {
 	return buildDoc({
 		appName: "HQ Projection",
@@ -4998,8 +5019,9 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		expect(searchConfig.default_properties).toEqual([
 			{ property: "_xpath_query", defaultValue: "'match-all()'" },
 		]);
-		expect(searchConfig.auto_launch).toBe(false);
-		expect(searchConfig.default_search).toBe(false);
+		// A search with nothing to fill in runs as the menu opens.
+		expect(searchConfig.auto_launch).toBe(true);
+		expect(searchConfig.default_search).toBe(true);
 		expect(searchConfig.inline_search).toBe(false);
 	});
 
@@ -5450,8 +5472,9 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					},
 					// Explicitly enable the rare filter-only search surface. Without
 					// this marker the same rule is only the on-device list filter and
-					// correctly does not create `_xpath_query` configuration.
-					caseSearchConfig: {},
+					// correctly does not create `_xpath_query` configuration. With
+					// nothing to fill in, the search runs as the menu opens.
+					caseSearchConfig: { workflow: "skipToResults" },
 					forms: [
 						{
 							name: "Follow-up",

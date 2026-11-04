@@ -95,6 +95,8 @@ export const w = {
 	instance: (decl: InstanceDecl, steps: readonly WireStep[] = []) =>
 		path({ k: "instance", decl }, steps),
 	current: (steps: readonly WireStep[] = []) => path({ k: "current" }, steps),
+	nextInput: (steps: readonly WireStep[] = []) =>
+		path({ k: "next-input" }, steps),
 	context: (steps: readonly WireStep[] = []) => path({ k: "context" }, steps),
 	hqCase: (steps: readonly WireStep[] = []) => path({ k: "hq-case" }, steps),
 	form: (

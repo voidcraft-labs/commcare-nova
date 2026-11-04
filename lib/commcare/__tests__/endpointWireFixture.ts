@@ -108,7 +108,7 @@ export function endpointWireFixture(
 	if (scenario === "multiple")
 		module.caseListConfig.selection = { kind: "multiple", maximum: 5 };
 	if (scenario === "inline") {
-		module.caseSearchConfig = { searchFirst: true };
+		module.caseSearchConfig = { formsReadSearch: true };
 		module.caseListConfig.searchInputs = [
 			simpleSearchInputDef(
 				testUuid("endpoint-search"),

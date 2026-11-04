@@ -3,6 +3,7 @@ import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
 import {
 	PLATFORM_FEATURE_IDS,
 	PLATFORMS,
+	type PlatformFeatureId,
 	platformBehavior,
 } from "@/lib/domain/platforms";
 import {
@@ -17,6 +18,7 @@ import {
 } from "../migrationNotice";
 import {
 	entityPart,
+	HISTORICAL_PLATFORM_CAUSE_WORDS,
 	keyReaderNoticeLine,
 	MCP_NOTICE_DISMISSED,
 	MIGRATION_NOTICE_LEADS,
@@ -2149,6 +2151,25 @@ describe("the platforms cutover's lines", () => {
 			[...unavailable].sort(),
 		);
 		for (const words of Object.values(PLATFORM_CAUSE_WORDS)) assertVoice(words);
+	});
+
+	it("keep the words of a cause id a stored row may carry and no feature reads unavailable with", () => {
+		const unavailable = new Set(
+			PLATFORM_FEATURE_IDS.filter((id) =>
+				PLATFORMS.some(
+					(platform) =>
+						platformBehavior(id, platform).reading === "unavailable",
+				),
+			),
+		);
+		for (const id of Object.keys(HISTORICAL_PLATFORM_CAUSE_WORDS))
+			expect(unavailable.has(id as PlatformFeatureId)).toBe(false);
+		for (const words of Object.values(HISTORICAL_PLATFORM_CAUSE_WORDS))
+			assertVoice(words);
+		// Step 4's stored rows name the inline shape `search-first`.
+		expect(declared({ runsOn: "web-apps", causes: "forms-read-search" })).toBe(
+			"This app now runs in Web Apps only, because Android can't run its menus whose forms read the search. Nova no longer offers a CCZ of it to install on phones. If workers use it on Android too, you can change those and then set it to run on Android as well, in App settings.",
+		);
 	});
 
 	it("say an app now runs on Android only, naming what Web Apps can't run", () => {

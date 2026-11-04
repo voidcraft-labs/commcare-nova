@@ -42,6 +42,7 @@ export type AppTestCaseStore = Pick<
 	| "insert"
 	| "update"
 	| "applySubmission"
+	| "claimCases"
 >;
 
 /** The caller holds live app + membership + test-session locks BEFORE entry.

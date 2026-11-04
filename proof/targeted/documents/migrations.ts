@@ -7,12 +7,17 @@
  * shapes `main` stored, until the pull request that lands the witness's
  * migration rewrites it to what the migration gives the app.
  *
- * - `targeted-migration-search-workflow` (defects 21 and 29): a list-first
- *   search with a visible input; a search-first module with a visible
- *   input; a search whose filter is effective with no input visible, which
- *   Nova derives as skip to results; a search-first module with a
- *   no-matches registration form; and a case-list-only module. Declared Web
- *   Apps, where search first runs.
+ * - `targeted-migration-search-workflow` (defects 21 and 29), migrated:
+ *   Visits, once list first with a visible input, now opens on Search
+ *   first; Clinics, once inline search first with a visible input, now
+ *   searches first with its forms reading the search; Sites, whose effective
+ *   filter with no input visible Nova derived as skip to results, now skips
+ *   to results as authored; Registry, once inline search first with a
+ *   no-matches registration form, now has its forms read the search and
+ *   offers that form as its case list registration form, the form staying in
+ *   the menu's form order and on no menu; and Reports, once a case-list-only
+ *   menu, now lists its case list as a menu entry. Declared Web Apps, where
+ *   forms read the search.
  * - `targeted-migration-case-writes` (defect 22), migrated: a registration
  *   whose own case saves its name and village, with a child created at the
  *   root and one in a repeat; a follow-up whose own case saves a note, with
@@ -236,7 +241,7 @@ export function migrationSearchWorkflow() {
 	const doc = buildDoc({
 		appId: id,
 		appName: "Search workflows",
-		// Search first runs in Web Apps alone.
+		// Forms that read the search run in Web Apps alone (`forms-read-search`).
 		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		caseTypes: [
 			caseType("visit"),
@@ -266,7 +271,7 @@ export function migrationSearchWorkflow() {
 				uuid: uuid("clinics"),
 				name: "Clinics",
 				caseType: "clinic",
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				caseListConfig: caseListOf([nameColumn("clinic")], {
 					searchInputs: [nameInput("clinic")],
 				}),
@@ -283,7 +288,7 @@ export function migrationSearchWorkflow() {
 				uuid: uuid("sites"),
 				name: "Sites",
 				caseType: "site",
-				caseSearchConfig: {},
+				caseSearchConfig: { workflow: "skipToResults" },
 				caseListConfig: caseListOf([nameColumn("site")], {
 					filter: eq(prop("site", "standing"), literal("active")),
 				}),
@@ -300,7 +305,8 @@ export function migrationSearchWorkflow() {
 				uuid: uuid("registry"),
 				name: "Registry",
 				caseType: "person",
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: { formUuid: uuid("register-person") },
 				caseListConfig: caseListOf([nameColumn("person")], {
 					searchInputs: [nameInput("person")],
 				}),
@@ -315,7 +321,6 @@ export function migrationSearchWorkflow() {
 						uuid: uuid("register-person"),
 						name: "Register person",
 						type: "registration",
-						entry: { kind: "search-no-matches" },
 						fields: [
 							f({
 								kind: "text",
@@ -332,7 +337,7 @@ export function migrationSearchWorkflow() {
 				uuid: uuid("reports"),
 				name: "Reports",
 				caseType: "report",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListOf([nameColumn("report")]),
 				forms: [],
 			},
@@ -566,7 +571,7 @@ export function migrationCaseWrites() {
 					uuid: uuid("members-list"),
 					name: "Members",
 					caseType: "member",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListOf([nameColumn("members-list")]),
 					forms: [],
 				},
@@ -574,7 +579,7 @@ export function migrationCaseWrites() {
 					uuid: uuid("heads-list"),
 					name: "Heads",
 					caseType: "head",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListOf([nameColumn("heads-list")]),
 					forms: [],
 				},
@@ -890,7 +895,7 @@ export function migrationExtensionChildren() {
 				uuid: uuid("contacts"),
 				name: "Contacts",
 				caseType: "contact",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListOf([nameColumn("contacts")]),
 				forms: [],
 			},

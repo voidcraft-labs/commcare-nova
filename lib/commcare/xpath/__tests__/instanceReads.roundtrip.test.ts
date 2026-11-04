@@ -197,7 +197,7 @@ describe("secondary-instance reads in form logic", () => {
 		const parseIn = (source: string) =>
 			parseFormExpression(source, { doc: searchDoc, slot, lookup });
 		/* What the XForm printer writes for a Search answer
-		 * (`noMatchesEmission.test.ts` pins those bytes). */
+		 * (`caseListRegistrationEmission.test.ts` pins those bytes). */
 		const wire =
 			"instance('search-input:results:inline')/input/field[@name = 'district']";
 		const read = parseIn(wire);

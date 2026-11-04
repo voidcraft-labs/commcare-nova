@@ -32,7 +32,11 @@ import {
 	type Form,
 	orderedCaseOperations,
 } from "./forms";
-import { caseSelectionCardinality, type Module } from "./modules";
+import {
+	caseSelectionCardinality,
+	type Module,
+	moduleHasCaseListMenuItem,
+} from "./modules";
 import type {
 	CasePlacement,
 	PlacementIneligibility,
@@ -798,7 +802,7 @@ export function moduleCaseTypeForActions(
 	if (mod === undefined || !mod.caseType) return "";
 	const formUuids = doc.formOrder[moduleUuid] ?? [];
 	const hasCases =
-		mod.caseListOnly === true ||
+		moduleHasCaseListMenuItem(mod) ||
 		formUuids.some((formUuid) => doc.forms[formUuid]?.type !== "survey");
 	return hasCases ? mod.caseType : "";
 }

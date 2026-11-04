@@ -715,7 +715,7 @@ describe("disjoint collection edits merge", () => {
 						name: "Patients",
 						caseType: "patient",
 						caseListConfig: config,
-						caseListOnly: true,
+						caseListMenuItem: {},
 					},
 				],
 			}),
@@ -1176,7 +1176,7 @@ describe("diff — case-list presence transition", () => {
 				modules: [
 					{
 						name: "M",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseType: "patient",
 						caseListConfig: caseListConfig([
 							{ field: "case_name", header: "Name" },
@@ -1362,7 +1362,7 @@ describe("case-search marker merges", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						...caseListConfig([{ field: "case_name", header: "Name" }]),
 						searchInputs: [
@@ -1997,7 +1997,7 @@ describe("Search-input identity merges", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: config,
 				},
 			],

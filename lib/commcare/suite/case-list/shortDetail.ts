@@ -62,9 +62,9 @@
 // runtime renders as the "Search Cases" button on top of the case
 // list. The action's `auto_launch` attribute carries the wire
 // expression CCHQ chooses based on `WireShape.autoLaunch`:
-// `false()` when off; the canonical
-// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS["single-select"]`
-// expression when on. The `<action>` element only mounts on the
+// `false()` when off; when on, the canonical
+// `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS`
+// expression for a list that selects several cases or one. The `<action>` element only mounts on the
 // case-target detail (the `m{N}_case_short` wire id); the search-
 // target detail (`m{N}_search_short`) carries no `<action>` because
 // the search results screen is itself the action's destination.
@@ -141,6 +141,9 @@ import type {
  */
 export interface SearchActionContext {
 	readonly autoLaunch: boolean;
+	/** The case list selects several cases, so an auto-launch reads the
+	 * multi-select expression. */
+	readonly multiSelect: boolean;
 	readonly displayCondition?: Expression;
 }
 
@@ -148,7 +151,7 @@ export interface SearchActionContext {
  * The Register action CCHQ mounts on `m{N}_case_short` for a module's
  * `case_list_form` (`DetailContributor.get_case_list_form_action`): it
  * pushes the target form's command, the target entry's computed datums,
- * and `return_to`. Nova emits it only for a search-first host, where its
+ * and `return_to`. Nova emits it only for a host whose forms read the search, where its
  * relevancy reads the inline results instance, so the `relevant`
  * attribute is always present (HQ emits it under
  * `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, the capability the publish path
@@ -188,6 +191,42 @@ const AUTO_LAUNCH_SINGLE_SELECT_EXPR = w.or(
 );
 
 /**
+ * The `auto_launch` XPath expression CCHQ uses for a module whose case
+ * list selects several cases (`module.is_multi_select()`, which reads
+ * `case_details.short.multi_select`, the flag `hqJson/caseList.ts` writes
+ * for `selection.kind === "multiple"`). Lifted from
+ * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS["multi-select"]`
+ * and pinned by `tests/test_suite_multi_select_case_list.py::test_multi_select_case_list_auto_launch`.
+ * A multi-select screen evaluates it with the chosen cases as the
+ * `next_input` instance and sets no `$next_input` variable
+ * (`commcare-core/src/cli/java/org/commcare/util/screen/MultiSelectEntityScreen.java::getAutoLaunchEvaluationContext`),
+ * so the single-select expression would read an unbound variable there.
+ */
+const AUTO_LAUNCH_MULTI_SELECT_EXPR = (() => {
+	const chosen = () => w.nextInput([w.step("results"), w.step("value")]);
+	const unknownChosen = w.nextInput([
+		w.step("results"),
+		w.step("value", [
+			w.eq(
+				w.call("count", [
+					w.instance(caseDbInstance(), [
+						w.step("casedb"),
+						w.step("case", [
+							w.eq(w.context([w.attr("case_id")]), w.current([w.self()])),
+						]),
+					]),
+				]),
+				w.num(0),
+			),
+		]),
+	]);
+	return w.or(
+		w.eq(w.call("count", [chosen()]), w.num(0)),
+		w.gt(w.call("count", [unknownChosen]), w.num(0)),
+	);
+})();
+
+/**
  * Compose the suite-XML `<detail>` block for one module's case-list
  * short detail. Returns the concatenated XML plus the locale-id →
  * header-string map the surrounding compiler threads into
@@ -219,7 +258,7 @@ export function buildShortDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
-	/** The Register action of a search-first host with a no-matches form;
+	/** The Register action of a host whose forms read the search with a no-matches form;
 	 *  case target only, like `searchAction`. */
 	readonly registerAction?: RegisterActionContext;
 	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
@@ -511,11 +550,11 @@ function buildRegisterActionBlock(
  *
  * The `auto_launch` attribute carries an XPath expression. CCHQ's
  * convention from `details.py::AUTO_LAUNCH_EXPRESSIONS`: `false()`
- * when off; the single-select expression `$next_input = '' or
+ * when off; when on, the multi-select expression for a case list that
+ * selects several cases and the single-select expression `$next_input = '' or
  * count(instance('casedb')/casedb/case[@case_id=$next_input]) = 0`
- * when on. Nova emits the single-select form because Nova's authoring
- * surface does not expose multi-select case selection (the
- * multi-select wire shape is a CCHQ-specific runtime affordance).
+ * otherwise, as `_get_auto_launch_expression` chooses by
+ * `module.is_multi_select()`.
  *
  * `redo_last="false"` ships unconditionally. CCHQ's
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::DetailContributor._get_action_kwargs`
@@ -538,9 +577,11 @@ function buildSearchActionBlock(
 	lookupNaming?: LookupWireNaming,
 ): Element {
 	const moduleId = `m${moduleIndex}`;
-	const autoLaunchExpr = searchAction.autoLaunch
-		? AUTO_LAUNCH_SINGLE_SELECT_EXPR
-		: w.call("false", []);
+	const autoLaunchExpr = !searchAction.autoLaunch
+		? w.call("false", [])
+		: searchAction.multiSelect
+			? AUTO_LAUNCH_MULTI_SELECT_EXPR
+			: AUTO_LAUNCH_SINGLE_SELECT_EXPR;
 
 	// The single-select action's XPath attributes are distinct from its
 	// literal redo_last flag.

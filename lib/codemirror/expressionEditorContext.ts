@@ -310,7 +310,8 @@ function caseRelations(doc: BlueprintDoc): ReadonlyMap<string, Set<string>> {
  * the parser binds against and the checker admits by: the Project's tables,
  * places when the app has levels, the chosen cases only in the questions of
  * a several-case form, the search's results only where the entry carries
- * the inline query, a no-matches form's search fields, the session values
+ * the inline query, a case list registration form's search fields and
+ * those of a menu whose forms read the search, the session values
  * the entry supplies, the case catalog, worker information, the questions
  * a relative step reaches and a static select's choices.
  */
@@ -397,7 +398,7 @@ function slotReads(
 					},
 				}),
 		...(chosen === undefined ? {} : { selectedCases: chosen.id }),
-		...(searchedType === undefined || form?.noMatchesForm
+		...(searchedType === undefined || form?.caseListRegistrationForm
 			? {}
 			: {
 					searchResults: {
@@ -407,8 +408,8 @@ function slotReads(
 						})),
 					},
 				}),
-		...(form?.noMatchesForm ||
-		(form?.searchFirstModule === true && context.profile.scope === "form")
+		...(form?.caseListRegistrationForm ||
+		(form?.formsReadSearchModule === true && context.profile.scope === "form")
 			? { searchInputs: form.searchInputs.map((input) => input.name) }
 			: {}),
 		sessionData: [

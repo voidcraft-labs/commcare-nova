@@ -20,6 +20,7 @@ import {
 	fieldReferenceSlotsFor,
 	formLinkSelectionIsCompatible,
 	type Module,
+	moduleIsBareCaseList,
 	readSlotValues,
 	type Uuid,
 } from "@/lib/domain";
@@ -83,7 +84,7 @@ export function multiSelectTopology(
 		isBatchConsumer(doc.forms[formUuid]),
 	);
 	const compatibleChildConsumer =
-		module.caseListOnly === true &&
+		moduleIsBareCaseList(doc, moduleUuid) &&
 		doc.moduleOrder.some((childUuid) => {
 			const child = doc.modules[childUuid];
 			if (

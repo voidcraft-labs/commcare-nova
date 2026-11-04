@@ -169,8 +169,8 @@ CommCare HQ keeps published answers, and `saveWork` repeats every move of the
 work it saves. No tool asks a confirmation for a move.
 
 Domain behavior remains with its owning planners and shared tools: case-list
-selection and search, no-matches registration, form links, automations, media,
-lookup data, and localization. Consult `docs/architecture/complex-apps.md` and the
+selection and search, registration from the case list, form links, automations,
+media, lookup data, and localization. Consult `docs/architecture/complex-apps.md` and the
 relevant domain subtree before changing these contracts. New capability is one
 shared operation, not separate implementations for each client.
 

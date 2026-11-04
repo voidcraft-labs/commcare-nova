@@ -252,7 +252,7 @@ describe("entry point Preview admission", () => {
 		delete input.doc.fieldOrder[F];
 		delete input.doc.forms[F];
 		input.doc.formOrder[M] = [];
-		input.doc.modules[M].caseListOnly = true;
+		input.doc.modules[M].caseListMenuItem = {};
 		input.doc.modules[M].entryPoint = { uuid: E, id: "patients" };
 		input.selections = [];
 		expect(launch(input)).toMatchObject({

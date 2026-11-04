@@ -26,12 +26,14 @@ export const HOUSEHOLD_MODULE = testUuid(
 );
 
 /**
- * A search-first "Patients" module with one prompt `patient_name`, one
- * followup menu form, and one no-matches registration form whose name
- * field defaults to `#search/patient_name`.
+ * A "Patients" module whose forms read the search, with one prompt
+ * `patient_name`, one followup menu form, and one case list registration
+ * form offered after an empty search, whose name field defaults to
+ * `#search/patient_name`. `bareCaseList` drops the followup form and lists
+ * the case list as the menu's entry.
  */
 export function noMatchesDoc(
-	options: { readonly label?: string; readonly caseListOnly?: boolean } = {},
+	options: { readonly label?: string; readonly bareCaseList?: boolean } = {},
 ): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = [
@@ -47,10 +49,6 @@ export function noMatchesDoc(
 		uuid: REGISTER_FORM,
 		name: "Register patient",
 		type: "registration" as const,
-		entry: {
-			kind: "search-no-matches" as const,
-			...(options.label !== undefined && { label: options.label }),
-		},
 		fields: [
 			f({
 				uuid: NAME_FIELD,
@@ -64,8 +62,8 @@ export function noMatchesDoc(
 	};
 	const doc = buildDoc({
 		appName: "Registry",
-		// The no-matches form lives in a search-first module, and Search first
-		// runs in Web Apps alone.
+		// The registration form lives in a menu whose forms read the search,
+		// which runs in Web Apps alone.
 		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		modules: [
 			{
@@ -73,9 +71,13 @@ export function noMatchesDoc(
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: config,
-				caseSearchConfig: { searchFirst: true },
-				...(options.caseListOnly === true
-					? { caseListOnly: true, forms: [registerForm] }
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: {
+					formUuid: REGISTER_FORM,
+					...(options.label !== undefined && { label: options.label }),
+				},
+				...(options.bareCaseList === true
+					? { caseListMenuItem: {}, forms: [registerForm] }
 					: {
 							forms: [
 								{
@@ -118,7 +120,7 @@ export function noMatchesWireFixture(
 	scenario: (typeof noMatchesWireScenarios)[number],
 ) {
 	let doc = noMatchesDoc({
-		caseListOnly: scenario === "bare" || scenario === "parent-bare",
+		bareCaseList: scenario === "bare" || scenario === "parent-bare",
 	});
 	if (scenario === "parent" || scenario === "parent-bare") {
 		const base = doc;
@@ -131,9 +133,10 @@ export function noMatchesWireFixture(
 					uuid: HOUSEHOLD_MODULE,
 					id: "households",
 					name: "Households",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseType: "household",
 					caseSearchConfig: undefined,
+					caseListRegistrationForm: undefined,
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

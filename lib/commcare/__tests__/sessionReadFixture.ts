@@ -201,7 +201,7 @@ function buildSessionReadFixture({
 					uuid: uuid("notes"),
 					name: "Notes",
 					caseType: "note",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: list("note"),
 					forms: [],
 				},

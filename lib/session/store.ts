@@ -58,11 +58,6 @@ import {
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
-import {
-	addClaims,
-	type PreviewClaims,
-	previewClaimsWorker,
-} from "./previewClaims";
 import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
@@ -299,13 +294,6 @@ export interface BuilderSessionState {
 	 *  Leaving Preview clears it before edit-mode case tools return, so a
 	 *  hidden running identity can never influence authoring data surfaces. */
 	previewPersonaUuid: string | undefined;
-
-	/** The cases this Preview worker claimed from a search
-	 *  (`./previewClaims.ts`), keyed by app and worker. Home, Clear form and
-	 *  an engine reset keep them, because a claim on HQ outlives the task; a
-	 *  change of worker, leaving Preview, a confirmed Project change and
-	 *  `reset()` drop them. */
-	previewClaims: PreviewClaims | undefined;
 
 	/** The platform the author chose under Runs on; `undefined` is "the
 	 *  default". Never stored and never in the URL: the platform Preview plays
@@ -673,18 +661,14 @@ export interface BuilderSessionState {
 	 *  - Same value: no-op (guards against double-entry that would overwrite
 	 *    the stash with `{ stashed: false }` values). */
 	setPreviewing: (on: boolean, at?: { readonly atHome: boolean }) => void;
-	/** Install an entry point's launch and, under the launch's worker in the
-	 *  same `set`, the cases its claim frame claims (Web Apps), so a launch
-	 *  as another worker keeps its claim. */
-	installEntryPointLaunch: (
-		launch: EntryPointPreviewLaunch,
-		claimCaseIds?: readonly string[],
-	) => void;
+	/** Install an entry point's launch under the launch's worker. Its claims
+	 *  are case rows the launch action already wrote (Web Apps). */
+	installEntryPointLaunch: (launch: EntryPointPreviewLaunch) => void;
 	/** Choose the platform Preview plays. Clears the running navigation
 	 *  (an open entry is not carried across: one platform's entry under the
 	 *  other's paging and session values would show a state no worker can
-	 *  reach), keeps the worker's claims, and opens Android on its home
-	 *  screen. The caller navigates home. */
+	 *  reach) and opens Android on its home screen. The caller navigates
+	 *  home. */
 	setPreviewPlatform: (platform: Platform) => void;
 	/** Show or leave Android's home screen. */
 	setPreviewAtDeviceHome: (atHome: boolean) => void;
@@ -695,9 +679,6 @@ export interface BuilderSessionState {
 	 *  member. Changing identity mid-session drops the case target: the
 	 *  case one worker picked is not the case the next one is looking at. */
 	setPreviewPersonaUuid: (personaUuid: string | undefined) => void;
-	/** Add searched cases the current worker chose to that worker's claims.
-	 *  The app and the worker come from the session, never from the caller. */
-	addPreviewClaims: (caseIds: readonly string[]) => void;
 
 	/** Update which field has focus. No-ops when the value is unchanged to
 	 *  avoid unnecessary subscriber notifications. */
@@ -909,7 +890,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					| undefined,
 				previewSearchStates: {} as Readonly<Record<string, PreviewSearchState>>,
 				previewPersonaUuid: undefined as string | undefined,
-				previewClaims: undefined as PreviewClaims | undefined,
 				previewPlatform: undefined as Platform | undefined,
 				previewAtDeviceHome: false,
 				previewDeviceSyncedAt: undefined as number | undefined,
@@ -1110,7 +1090,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewParentCaseRequest: undefined,
 										previewSearchStates: {},
 										previewPersonaUuid: undefined,
-										previewClaims: undefined,
 										previewPlatform: undefined,
 										previewAtDeviceHome: false,
 										previewDeviceSyncedAt: undefined,
@@ -1296,30 +1275,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					return get().connectStash[mode]?.[formUuid];
 				},
 
-				installEntryPointLaunch(
-					launch: EntryPointPreviewLaunch,
-					claimCaseIds: readonly string[] = [],
-				) {
+				installEntryPointLaunch(launch: EntryPointPreviewLaunch) {
 					const s = get();
-					/* A launch as another worker is a change of worker: its claims
-					 * start from none, and the launch's own claims land under it. */
-					const base =
-						launch.personaUuid === s.previewPersonaUuid
-							? s.previewClaims
-							: undefined;
-					const claims =
-						s.appId === undefined || claimCaseIds.length === 0
-							? base
-							: addClaims(
-									base,
-									s.appId,
-									previewClaimsWorker(launch.personaUuid),
-									claimCaseIds,
-								);
 					set({
 						previewing: true,
 						previewPersonaUuid: launch.personaUuid,
-						previewClaims: claims,
 						previewAtDeviceHome: false,
 						previewDeviceSyncedAt: previewRunsOnAndroid(s.previewPlatform)
 							? Date.now()
@@ -1395,7 +1355,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewing: false,
 						previewPersonaUuid: undefined,
-						previewClaims: undefined,
 						/* `previewPlatform` stays: a flip back in keeps the runtime
 						 * the author is checking. */
 						previewAtDeviceHome: false,
@@ -1428,7 +1387,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const android = previewRunsOnAndroid(get().previewPlatform);
 					set({
 						previewPersonaUuid: personaUuid,
-						previewClaims: undefined,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
 						previewEntryPointLaunch: undefined,
@@ -1470,18 +1428,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				markPreviewDeviceSynced(at: number) {
 					set({ previewDeviceSyncedAt: at });
-				},
-
-				addPreviewClaims(caseIds: readonly string[]) {
-					const s = get();
-					if (s.appId === undefined) return;
-					const next = addClaims(
-						s.previewClaims,
-						s.appId,
-						previewClaimsWorker(s.previewPersonaUuid),
-						caseIds,
-					);
-					if (next !== s.previewClaims) set({ previewClaims: next });
 				},
 
 				setActiveFieldId(fieldId: string | undefined) {
@@ -1919,7 +1865,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
 						previewPersonaUuid: undefined,
-						previewClaims: undefined,
 						previewPlatform: undefined,
 						previewAtDeviceHome: false,
 						previewDeviceSyncedAt: undefined,

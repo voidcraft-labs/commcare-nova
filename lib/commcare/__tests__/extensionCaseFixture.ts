@@ -150,7 +150,7 @@ export function extensionCaseFixture(scenario: ExtensionScenario) {
 			...["visit", "consent"].map((caseType) => ({
 				name: caseType,
 				caseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: columns(),
 				forms: [],
 			})),

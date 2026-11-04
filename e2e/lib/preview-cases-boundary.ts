@@ -96,6 +96,10 @@ export async function loadLookupFixtureDataAction(): Promise<never> {
 export async function loadSearchResultsSnapshotAction(): Promise<never> {
 	throw new Error("Unexpected search results request in case layout evidence");
 }
+// No evidence here chooses a searched case the device lacks.
+export async function claimSearchedCasesAction(): Promise<never> {
+	throw new Error("Unexpected search claim in case layout evidence");
+}
 export async function launchEntryPointAction(): Promise<never> {
 	throw new Error("Unexpected entry point launch in case layout evidence");
 }

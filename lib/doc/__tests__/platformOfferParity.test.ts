@@ -19,10 +19,13 @@ import {
 	availableLookupContext,
 	DESTINATIONS_LOOKUP,
 } from "@/lib/__tests__/lookupFixtures";
+import {
+	caseListRegistrationMutations,
+	formsReadSearchOnMutations,
+} from "@/lib/doc/caseListRegistrationForm";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { planCaseSelectionChange } from "@/lib/doc/caseSelectionMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { noMatchesFormEntryMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppSettings,
@@ -62,11 +65,12 @@ function settings(runsOnlyOn: Platform | undefined): AppSettings {
 
 /** A searchable case list with a follow-up form and, unless left out, a
  *  registration form: content every declaration runs. A module whose
- *  registration form stays on its menu can't open on Search, so the Search
- *  first switch is judged without one. */
+ *  registration form stays on its menu can't have its forms read the search,
+ *  so that switch is judged without one. */
 function searchableApp(
 	runsOnlyOn: Platform | undefined,
 	registration: boolean,
+	workflow?: "skipToResults",
 ): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = [
@@ -91,7 +95,7 @@ function searchableApp(
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: config,
-				caseSearchConfig: {},
+				caseSearchConfig: workflow === undefined ? {} : { workflow },
 				forms: [
 					{
 						uuid: VISIT,
@@ -130,7 +134,31 @@ interface OfferingSite {
 	readonly feature: PlatformFeatureId;
 	/** Whether the app holds a registration form on its menu. */
 	readonly registration?: false;
+	/** The workflow the module's search holds before the choice, which every
+	 *  declaration runs; absent is search first. */
+	readonly from?: "skipToResults";
 	readonly batch: (doc: BlueprintDoc) => readonly Mutation[];
+}
+
+/** The Search settings' workflow choice: the per-setting batch its fieldset
+ *  commits for one value, `null` being Search first. */
+function workflowChoice(
+	doc: BlueprintDoc,
+	workflow: "listFirst" | "skipToResults" | null,
+): readonly Mutation[] {
+	const current = doc.modules[MODULE]?.caseSearchConfig ?? {};
+	if ("searchActionEnabled" in current)
+		throw new Error("The module's search is owner-only.");
+	const { workflow: _workflow, ...rest } = current;
+	return caseSearchConfigPatchMutations(MODULE, current, {
+		...rest,
+		...(workflow !== null && { workflow }),
+		...(workflow === "listFirst"
+			? {}
+			: current.formsReadSearch !== undefined && {
+					formsReadSearch: current.formsReadSearch,
+				}),
+	});
 }
 
 const SITES: readonly OfferingSite[] = [
@@ -166,16 +194,26 @@ const SITES: readonly OfferingSite[] = [
 		},
 	},
 	{
-		name: "the Search settings' Search first",
+		name: "the workflow's Search first",
 		feature: "search-first",
+		from: "skipToResults",
+		batch: (doc) => workflowChoice(doc, null),
+	},
+	{
+		name: "the workflow's Results first",
+		feature: "skip-to-results",
+		batch: (doc) => workflowChoice(doc, "skipToResults"),
+	},
+	{
+		name: "the workflow's Case list first",
+		feature: "list-first",
+		batch: (doc) => workflowChoice(doc, "listFirst"),
+	},
+	{
+		name: "the Search settings' Forms read the search",
+		feature: "forms-read-search",
 		registration: false,
-		batch: (doc) => {
-			const current = doc.modules[MODULE]?.caseSearchConfig;
-			return caseSearchConfigPatchMutations(MODULE, current, {
-				...(current ?? {}),
-				searchFirst: true,
-			});
-		},
+		batch: (doc) => formsReadSearchOnMutations(doc, MODULE),
 	},
 	{
 		name: "the Search field's Date picker",
@@ -214,11 +252,13 @@ const SITES: readonly OfferingSite[] = [
 	},
 	{
 		name: "the registration offer after an empty search",
-		feature: "search-first",
-		batch: (doc) =>
-			noMatchesFormEntryMutations(doc, MODULE, REGISTER, {
-				kind: "search-no-matches",
-			}),
+		feature: "forms-read-search",
+		batch: (doc) => caseListRegistrationMutations(doc, MODULE, REGISTER, {}),
+	},
+	{
+		name: "the case list menu item switch beside forms",
+		feature: "case-list-menu-item",
+		batch: () => [{ kind: "setCaseListMenuItem", uuid: MODULE, item: {} }],
 	},
 ];
 
@@ -228,8 +268,10 @@ const PICKER_LINES: Partial<Record<PlatformFeatureId, string>> = {
 		"Not available in Web Apps. You can ask for a date and a time as two questions, or change where this app runs in App settings.",
 	"several-cases":
 		"Not available on Android. You can change where this app runs in App settings.",
-	"search-first":
+	"forms-read-search":
 		"Not available on Android. You can change where this app runs in App settings.",
+	"list-first":
+		"Not available in Web Apps. You can open this menu on Search first, which Android still opens on its case list, or change where this app runs in App settings.",
 	"search-field-single-date":
 		"Not available on Android. You can change where this app runs in App settings.",
 	"search-field-multiple-choice":
@@ -242,7 +284,11 @@ describe("each offering site withholds exactly what the gate refuses", () => {
 	for (const site of SITES)
 		for (const runsOnlyOn of DECLARATIONS)
 			it(`${site.name}, in an app that runs ${runsOnlyOn ?? "on both"}`, () => {
-				const doc = searchableApp(runsOnlyOn, site.registration !== false);
+				const doc = searchableApp(
+					runsOnlyOn,
+					site.registration !== false,
+					site.from,
+				);
 				expect(mutationCommitVerdict(doc, [], LOOKUPS).ok).toBe(true);
 				const refusal = platformRefusal(site.feature, declaredPlatforms(doc));
 				const verdict = mutationCommitVerdict(doc, site.batch(doc), LOOKUPS);

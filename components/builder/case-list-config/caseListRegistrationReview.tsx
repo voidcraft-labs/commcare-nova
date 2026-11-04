@@ -1,14 +1,15 @@
-// components/builder/case-list-config/noMatchesFormReview.tsx
+// components/builder/case-list-config/caseListRegistrationReview.tsx
 //
 // One decision, reachable from two places: which registration form, if
-// any, Results offers after a search finds nothing. The Search canvas's
-// "When no cases match" setting and a registration form's own settings
-// both plan through `lib/doc/searchNoMatchesForm.ts`, review the exact
-// batch against the gate, and name the worker-visible consequences (the
-// module opening on Search, the form leaving the menu) before committing.
-// Clearing is reviewed the same way, because it is not the menu alone that
-// changes: Search first turns off with it, and the starting values the
-// form read from the search go.
+// any, Results offers after a search finds nothing (the menu's
+// `caseListRegistrationForm`). The Search canvas's "When no cases match"
+// setting and a registration form's own settings both plan through
+// `lib/doc/caseListRegistrationForm.ts`, review the exact batch against the
+// gate, and name the worker-visible consequences (the menu's forms reading
+// the search, the form leaving the menu) before committing. Clearing is
+// reviewed the same way, because it is not the menu alone that changes:
+// Forms read the search turns off with it, and the starting values the form
+// read from the search go.
 
 "use client";
 
@@ -25,41 +26,41 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
+import {
+	caseListRegistrationFormMutations,
+	caseListRegistrationMutations,
+	searchAnswerDefaultsOf,
+} from "@/lib/doc/caseListRegistrationForm";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
-import {
-	noMatchesFormEntryMutations,
-	noMatchesRegistrationFormMutations,
-	searchAnswerDefaultsOf,
-} from "@/lib/doc/searchNoMatchesForm";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	caseListRegistrationFormOf,
 	caseSelectionCardinality,
 	menuFormUuidsOf,
-	moduleOpensOnSearch,
-	noMatchesFormOf,
+	moduleFormsReadSearch,
 	type Uuid,
 } from "@/lib/domain";
 
 /** What the person asked Results to offer after an empty search. */
-export type NoMatchesFormChoice =
+export type CaseListRegistrationChoice =
 	/** Nova adds a registration form carrying the search answers. */
 	| { readonly kind: "create" }
 	/** An existing registration form of the module leaves the menu. */
 	| { readonly kind: "existing"; readonly formUuid: Uuid }
-	/** The current no-matches form becomes a menu form again. */
+	/** The current case list registration form becomes a menu form again. */
 	| { readonly kind: "clear" };
 
-export interface NoMatchesFormReview {
-	readonly choice: NoMatchesFormChoice;
+export interface CaseListRegistrationReview {
+	readonly choice: CaseListRegistrationChoice;
 	/** The form Results will offer, or the one returning to the menu. */
 	readonly formName: string;
-	/** Whether the batch turns Search first on for the module. */
-	readonly turnsSearchFirstOn: boolean;
-	/** Whether the batch turns Search first off (a clear on a module that
-	 *  opens on Search). */
-	readonly turnsSearchFirstOff: boolean;
+	/** Whether the batch turns Forms read the search on for the menu. */
+	readonly turnsFormsReadSearchOn: boolean;
+	/** Whether the batch turns Forms read the search off (a clear on a menu
+	 *  whose forms read the search). */
+	readonly turnsFormsReadSearchOff: boolean;
 	/** How many fields lose the starting value they read from the search
 	 *  (a clear). */
 	readonly defaultsCleared: number;
@@ -81,15 +82,17 @@ interface PlannedChoice {
 	readonly formName: string;
 }
 
-function planChoice(
+/** The plan for one choice against `doc`: its exact batch, the form it
+ *  names and that form's name; `null` when the choice names nothing. */
+export function planCaseListRegistrationChoice(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
-	choice: NoMatchesFormChoice,
+	choice: CaseListRegistrationChoice,
 ): PlannedChoice | null {
 	switch (choice.kind) {
 		case "create": {
 			const module = doc.modules[moduleUuid];
-			const planned = noMatchesRegistrationFormMutations(
+			const planned = caseListRegistrationFormMutations(
 				doc,
 				moduleUuid,
 				module && caseSelectionCardinality(module) === "multiple"
@@ -109,23 +112,22 @@ function planChoice(
 			if (form === undefined) return null;
 			return {
 				formUuid: form.uuid,
-				mutations: noMatchesFormEntryMutations(
+				mutations: caseListRegistrationMutations(
 					doc,
 					moduleUuid,
 					choice.formUuid,
-					{
-						kind: "search-no-matches",
-					},
+					{},
 				),
 				formName: form.name,
 			};
 		}
 		case "clear": {
-			const form = noMatchesFormOf(doc, moduleUuid);
+			const formUuid = caseListRegistrationFormOf(doc, moduleUuid);
+			const form = formUuid === undefined ? undefined : doc.forms[formUuid];
 			if (form === undefined) return null;
 			return {
 				formUuid: form.uuid,
-				mutations: noMatchesFormEntryMutations(
+				mutations: caseListRegistrationMutations(
 					doc,
 					moduleUuid,
 					form.uuid,
@@ -143,10 +145,10 @@ function planChoice(
  * freshest document and commits. Every commit and refusal lands in
  * `announcement` / `refusal` for the host's live regions.
  */
-export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
+export function useCaseListRegistration(moduleUuid: Uuid | undefined) {
 	const docApi = useBlueprintDocApi();
 	const { inline } = useBlueprintMutations();
-	const [review, setReview] = useState<NoMatchesFormReview | null>(null);
+	const [review, setReview] = useState<CaseListRegistrationReview | null>(null);
 	const [announcement, setAnnouncement] = useState("");
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const originRef = useRef<HTMLElement | null>(null);
@@ -154,19 +156,21 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 	const describe = useCallback(
 		(
 			doc: BlueprintDoc,
-			choice: NoMatchesFormChoice,
+			choice: CaseListRegistrationChoice,
 			planned: PlannedChoice,
 			blockers: readonly string[],
 			identityMoves: readonly IdentityMove[] = [],
-		): NoMatchesFormReview => {
+		): CaseListRegistrationReview => {
 			if (moduleUuid === undefined) throw new Error("module required");
 			const mod = doc.modules[moduleUuid];
-			const opensOnSearch = mod !== undefined && moduleOpensOnSearch(mod);
+			const formsReadSearch = mod !== undefined && moduleFormsReadSearch(mod);
 			const menuForms = menuFormUuidsOf(doc, moduleUuid).filter(
 				(uuid) => choice.kind !== "existing" || uuid !== choice.formUuid,
 			);
 			const clearing = choice.kind === "clear";
-			const current = clearing ? noMatchesFormOf(doc, moduleUuid) : undefined;
+			const current = clearing
+				? caseListRegistrationFormOf(doc, moduleUuid)
+				: undefined;
 			let firstMenuAfterSubmit =
 				doc.forms[planned.formUuid]?.postSubmit === "firstMenu";
 			for (const mutation of planned.mutations) {
@@ -185,12 +189,12 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 			return {
 				choice,
 				formName: planned.formName,
-				turnsSearchFirstOn: !clearing && !opensOnSearch,
-				turnsSearchFirstOff: clearing && opensOnSearch,
+				turnsFormsReadSearchOn: !clearing && !formsReadSearch,
+				turnsFormsReadSearchOff: clearing && formsReadSearch,
 				defaultsCleared:
 					current === undefined
 						? 0
-						: searchAnswerDefaultsOf(doc, moduleUuid, current.uuid).length,
+						: searchAnswerDefaultsOf(doc, moduleUuid, current).length,
 				hostKeepsMenuForms: menuForms.length > 0,
 				firstMenuAfterSubmit,
 				blockers,
@@ -201,12 +205,12 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 	);
 
 	const request = useCallback(
-		(choice: NoMatchesFormChoice, origin?: HTMLElement | null) => {
+		(choice: CaseListRegistrationChoice, origin?: HTMLElement | null) => {
 			if (moduleUuid === undefined) return;
 			originRef.current = origin ?? null;
 			setRefusal(undefined);
 			const doc = docApi.getState();
-			const planned = planChoice(doc, moduleUuid, choice);
+			const planned = planCaseListRegistrationChoice(doc, moduleUuid, choice);
 			if (planned === null) return;
 			const reviewed = inline.reviewMany([...planned.mutations]);
 			setReview(
@@ -230,7 +234,11 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 		)
 			return;
 		const doc = docApi.getState();
-		const planned = planChoice(doc, moduleUuid, review.choice);
+		const planned = planCaseListRegistrationChoice(
+			doc,
+			moduleUuid,
+			review.choice,
+		);
 		if (planned === null) {
 			setReview(null);
 			setRefusal(
@@ -257,10 +265,10 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 		setReview(null);
 		setAnnouncement(
 			review.choice.kind === "create"
-				? `“${planned.formName}” was added. Results offers it after a search finds nothing, and the module opens on Search.`
+				? `“${planned.formName}” was added. Results offers it after a search finds nothing, and this menu's forms read the search.`
 				: review.choice.kind === "existing"
-					? `Results offers “${planned.formName}” after a search finds nothing, and the module opens on Search.`
-					: `“${planned.formName}” is a menu form again. Results shows only the notice when nothing matches${review.turnsSearchFirstOff ? ", and the module opens on its case list" : ""}.`,
+					? `Results offers “${planned.formName}” after a search finds nothing, and this menu's forms read the search.`
+					: `“${planned.formName}” is a menu form again. Results shows only the notice when nothing matches${review.turnsFormsReadSearchOff ? ", and this menu's forms no longer read the search" : ""}.`,
 		);
 	}, [describe, docApi, inline, moduleUuid, review]);
 
@@ -282,13 +290,13 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
  * Review the choice before the document changes. The controller owns the
  * planning and the commit; this names what people will see.
  */
-export function NoMatchesFormReviewDialog({
+export function CaseListRegistrationReviewDialog({
 	review,
 	finalFocus,
 	onCancel,
 	onConfirm,
 }: {
-	readonly review: NoMatchesFormReview;
+	readonly review: CaseListRegistrationReview;
 	readonly finalFocus: () => HTMLElement | null;
 	readonly onCancel: () => void;
 	readonly onConfirm: () => void;
@@ -322,7 +330,7 @@ export function NoMatchesFormReviewDialog({
 				className="text-left sm:max-w-lg"
 				initialFocus={cancelRef}
 				finalFocus={finalFocus}
-				data-no-matches-review
+				data-case-list-registration-review
 			>
 				<AlertDialogHeader>
 					<AlertDialogTitle className="font-display tracking-tighter">
@@ -346,11 +354,10 @@ export function NoMatchesFormReviewDialog({
 						</ul>
 					) : clearing ? (
 						<div className="space-y-3 text-[13px] leading-5 text-nova-text-secondary">
-							{review.turnsSearchFirstOff && (
+							{review.turnsFormsReadSearchOff && (
 								<p className="rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-3">
-									Search first turns off. A menu registration form cannot open
-									on Search, so the module opens on its case list with a Search
-									button. Existing after-submit choices stay the same.
+									Forms read the search turns off, because a form on the menu
+									can't open from the search.
 								</p>
 							)}
 							{review.defaultsCleared > 0 && (
@@ -367,10 +374,10 @@ export function NoMatchesFormReviewDialog({
 						</div>
 					) : (
 						<div className="space-y-3 text-[13px] leading-5 text-nova-text-secondary">
-							{review.turnsSearchFirstOn && (
+							{review.turnsFormsReadSearchOn && (
 								<p className="rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-3">
-									Search first turns on. People search before they see any
-									cases, and Results shows only what a search finds.
+									Forms read the search turns on. Each form in this menu runs
+									the search as it opens.
 								</p>
 							)}
 							<p className="rounded-xl border border-white/[0.07] bg-nova-surface/20 p-3">

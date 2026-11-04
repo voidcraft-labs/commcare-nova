@@ -1369,17 +1369,17 @@ function termAdmission(
 			"case-data-unavailable",
 			"A form menu can read only the case selected by its own menu.",
 		);
-	// A form reads its menu's Search answers where Core keeps them: the
-	// no-matches form, and the forms of a module that opens on its search,
-	// whose inline query holds `search-input:results:inline`. A form link runs
-	// after the form closes, where they are gone.
+	// A form reads its menu's Search answers where Core keeps them: the case
+	// list registration form, and the forms of a menu whose forms read the
+	// search, whose inline query holds `search-input:results:inline`. A form
+	// link runs after the form closes, where they are gone.
 	if (
 		term.kind === "input" &&
 		ctx.ruleSet === "form" &&
-		!ctx.form?.noMatchesForm &&
-		!(ctx.form?.searchFirstModule === true && profile.scope === "form")
+		!ctx.form?.caseListRegistrationForm &&
+		!(ctx.form?.formsReadSearchModule === true && profile.scope === "form")
 	)
-		return ctx.form?.searchFirstModule === true
+		return ctx.form?.formsReadSearchModule === true
 			? refusal(
 					"search-answer-unavailable",
 					"A form link runs after the form closes, where its menu's Search answers are no longer available.",
@@ -1387,8 +1387,8 @@ function termAdmission(
 				)
 			: refusal(
 					"search-answer-unavailable",
-					"Search answers are available only in the forms of a menu that opens on its search.",
-					"not-search-first",
+					"Search answers are available only in the forms of a menu whose forms read the search.",
+					"not-forms-read-search",
 				);
 
 	if (term.kind === "session-datum") {
@@ -1687,15 +1687,16 @@ function selectedCasesAdmission(
 			);
 }
 
-/** Why a read of a search's results has none: the no-matches form opens
- * only when the search found nothing, a link's source form opens after no
- * search, and any other form's module no longer opens on its search. */
+/** Why a read of a search's results has none: the case list registration
+ * form opens only when the search found nothing, a link's source form opens
+ * after no search, and any other form's menu no longer has its forms read
+ * the search. */
 function searchResultsNotSupplied(ctx: ExpressionContext): CheckError {
-	const reason = ctx.form?.noMatchesForm
+	const reason = ctx.form?.caseListRegistrationForm
 		? "no-matches-form"
 		: ctx.slot.entity === "form" && ctx.slot.slot.startsWith("form_link_")
 			? "link-source"
-			: "not-search-first";
+			: "not-forms-read-search";
 	return refusal(
 		"search-results-not-supplied",
 		reason === "no-matches-form"

@@ -224,7 +224,7 @@ export function ordinaryAuthorityDoc(): {
 			...["visit", "medication_order", "lab_result"].map((caseType) => ({
 				name: caseType,
 				caseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

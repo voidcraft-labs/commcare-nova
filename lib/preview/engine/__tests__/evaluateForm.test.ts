@@ -613,14 +613,15 @@ it("uses the running Search's date-range values in a no-matches registration", a
 			{
 				name: "Patients",
 				caseType: "patient",
-				caseListOnly: true,
-				caseSearchConfig: { searchFirst: true },
+				caseListMenuItem: {},
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: { formUuid: "evaluation-register" },
 				caseListConfig: config,
 				forms: [
 					{
+						uuid: "evaluation-register",
 						name: "Register",
 						type: "registration",
-						entry: { kind: "search-no-matches" },
 						fields: [
 							f({
 								id: "name",

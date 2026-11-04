@@ -46,43 +46,23 @@ app state; the locations are navigation return intents, not durable routing
 state.
 
 `previewSearchStates` is the fourth running fact, keyed by module UUID: the
-completed-search context of a search-first module (`previewSearchState.ts`,
+completed-search context of a module's search (`previewSearchState.ts`,
 reducers only; `setPreviewSearchState(moduleUuid, state | undefined)` stores
 it and clears the entry on `undefined` or `not-searched`). It is written by
 the case-list screen as its query settles and read by the form screen to admit
-the no-matches registration form, and to load the completed attempt's results
-snapshot for a menu form that reads what the search found. `previewCaseTarget.searchLaunch
+the case list registration form, and to load the completed attempt's results
+snapshot for a form of a menu whose forms read the search. `previewCaseTarget.searchLaunch
 { moduleUuid, attempt }` is the launch that opened that form from Results;
 the attempt pins the form to the search it was offered on. Both clear with the
 case facts: entering or leaving Preview, a persona change, `reset()`, and a
 confirmed Project boundary.
-
-`previewClaims` holds the running worker's claims (`previewClaims.ts`, pure
-reducers): one slot `{ appId, worker, caseIds }`, `worker` the persona's uuid
-or `"me"` for the signed-in member, `caseIds` ordered and duplicate-free.
-Choosing a search result the worker's device does not hold (one case, or each
-such case of a several-case selection) adds its id, as HQ's claim adds the case
-to the worker's device; a result row says whether the device holds it
-(`heldOnDevice`), and `lib/preview/searchClaims.ts` decides which choices are
-claimable. `claimsFor` returns none for any other app or worker, so a claim of
-another key is unreadable by construction. Every device-scoped read of that
-worker sends the set as plain JSON `claimedCaseIds`, and the restore scope key
-(`lib/preview/hooks/useRestoreScopeKey.ts`) names it, so the device reads run
-again when it grows. Claims last while the worker, the app's Project and the
-page stay; Home, **Clear form** and an engine reset keep them, because a claim
-on HQ outlives the task. A change of worker (an entry-point launch as another
-worker included), leaving Preview, a confirmed Project change and `reset()`
-drop them. An App Test journey holds its claims in its own state on the server
-(`lib/preview/app-tests/CLAUDE.md`), never here, and never reads these. A
-claimed case is held for an entry-point launch, whose device snapshot sends
-the claims like every other device-scoped read.
 
 Preview plays one platform the app runs on at a time, and four running facts
 carry it. `previewPlatform` is the platform the author chose under **Runs on**,
 `undefined` for the default; it survives a flip out of Preview and back (a flip
 keeps the runtime the author is checking) and is cleared by a confirmed Project
 change and `reset()`. `setPreviewPlatform` clears the running navigation in one
-`set`, keeps the claims, and opens Android on its home screen.
+`set` and opens Android on its home screen.
 `previewAtDeviceHome` says Preview on Android is showing the phone's home
 screen: true when Preview opens on the app's home on Android (`setPreviewing(on,
 { atHome })`, whose `atHome` the preview-mode transition passes because the URL,
@@ -120,7 +100,7 @@ destination has the same scalar/collection cardinality and its authored maximum
 is large enough. A scalar/set transition or a different case type starts a fresh
 target selection. Search, paging, Details, Back, and compatible menu navigation
 retain the set. Home clears the current task's case facts and search context,
-without changing worker identity, authorization or the worker's claims. Preview reset, persona change, Project boundary, or module
+without changing worker identity or authorization. Preview reset, persona change, Project boundary, or module
 removal clears it. A maximum change does not trim it: the running screen holds
 the over-limit set until the worker removes enough cases.
 

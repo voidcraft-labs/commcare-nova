@@ -1,6 +1,6 @@
 /**
  * The after-submit reconciliation that rides a change of menu shape
- * (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`): Search first,
+ * (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`): Forms read the search,
  * the selection mode, `hiddenFromMenu`, the module's parent, the form's
  * module, and whether the form holds links each change what a form is
  * offered or what its absent slot means, so the five reducer arms that
@@ -38,7 +38,7 @@ const CLOSE = testUuid("00000000-0000-4000-8000-0000000c0003");
 const REGISTER = testUuid("00000000-0000-4000-8000-0000000c0004");
 
 function docWith(
-	searchFirst: boolean,
+	formsReadSearch: boolean,
 	postSubmit: {
 		visit?: PostSubmitDestination;
 		close?: PostSubmitDestination;
@@ -89,7 +89,7 @@ function docWith(
 	];
 	const doc = buildDoc({
 		appName: "T",
-		// These cases turn Search first on, which runs in Web Apps alone.
+		// These cases turn Forms read the search on, which runs in Web Apps alone.
 		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		modules: [
 			{
@@ -97,7 +97,7 @@ function docWith(
 				name: "Cases",
 				caseType: "patient",
 				caseListConfig: config,
-				caseSearchConfig: searchFirst ? { searchFirst: true } : {},
+				caseSearchConfig: formsReadSearch ? { formsReadSearch: true } : {},
 				forms: forms.slice(0, 2),
 			},
 			{
@@ -137,17 +137,17 @@ const turnOn: Mutation = {
 	kind: "updateModule",
 	uuid: MODULE,
 	patch: {},
-	caseSearchConfigPatch: { searchFirst: true },
+	caseSearchConfigPatch: { formsReadSearch: true },
 };
 const turnOff: Mutation = {
 	kind: "updateModule",
 	uuid: MODULE,
 	patch: {},
-	caseSearchConfigPatch: { searchFirst: null },
+	caseSearchConfigPatch: { formsReadSearch: null },
 };
 
-describe("Search first and the after-submit slot", () => {
-	it("rewrites an explicit previous to the module when Search first turns on", () => {
+describe("Forms read the search and the after-submit slot", () => {
+	it("rewrites an explicit previous to the module when Forms read the search turns on", () => {
 		const doc = docWith(false, { visit: "previous", close: "app_home" });
 		const next = apply(doc, [turnOn]);
 		expect(next.forms[VISIT]?.postSubmit).toBe("module");
@@ -162,7 +162,7 @@ describe("Search first and the after-submit slot", () => {
 		expect(effectivePostSubmit(next, VISIT)).toBe("module");
 	});
 
-	it("pins the module where the slot was absent when Search first turns off", () => {
+	it("pins the module where the slot was absent when Forms read the search turns off", () => {
 		const doc = docWith(true, { close: "app_home" });
 		expect(effectivePostSubmit(doc, VISIT)).toBe("module");
 		const next = apply(doc, [turnOff]);
@@ -172,7 +172,7 @@ describe("Search first and the after-submit slot", () => {
 		expect(next.forms[REGISTER]?.postSubmit).toBeUndefined();
 	});
 
-	it("keeps automatic Search first after its final prompt is removed and only cascades an explicit clear", () => {
+	it("keeps Forms read the search after its final prompt is removed and only cascades an explicit clear", () => {
 		const doc = docWith(true);
 		const cleared = apply(doc, [
 			{ kind: "updateModule", uuid: MODULE, patch: { caseSearchConfig: null } },
@@ -194,7 +194,7 @@ describe("Search first and the after-submit slot", () => {
 			},
 		]);
 		expect(cleanedUp.modules[MODULE]?.caseSearchConfig).toEqual({
-			searchFirst: true,
+			formsReadSearch: true,
 		});
 		expect(cleanedUp.forms[VISIT]?.postSubmit).toBeUndefined();
 		expect(effectivePostSubmit(cleanedUp, VISIT)).toBe("module");
@@ -383,7 +383,7 @@ describe("setCaseListMeta: the selection mode", () => {
 	});
 });
 
-describe("Search first on a form with links", () => {
+describe("Forms read the search on a form with links", () => {
 	it("moves its explicit previous to module", () => {
 		const doc = nested({ other: "previous" });
 		linkFrom(doc, OTHER_FORM);
@@ -392,7 +392,7 @@ describe("Search first on a form with links", () => {
 				kind: "updateModule",
 				uuid: OTHER,
 				patch: {},
-				caseSearchConfigPatch: { searchFirst: true },
+				caseSearchConfigPatch: { formsReadSearch: true },
 			},
 		]);
 		expect(next.forms[OTHER_FORM].postSubmit).toBe("module");

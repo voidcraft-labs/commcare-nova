@@ -536,8 +536,9 @@
 			"parser:SessionDatumParser/query@default_search"
 		],
 		"valueClass": "search-first",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.workflow: searchFirst`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseSearchConfig.workflow` absent (search first)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED (local list first; Android never reads `auto_launch`)",
@@ -570,13 +571,8 @@
 		],
 		"valueClass": "skip-to-default-results",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived for a module whose search has an effective filter and no visible Search field (`suite/case-search/searchWireShape.ts::searchWireShape`); widen: `caseSearchConfig.workflow: skipToResults`, authored",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`caseSearchConfig.workflow: skipToResults`, authored"
-			}
-		],
+		"dispositionCell": "**HELD**: `caseSearchConfig.workflow: skipToResults`, authored",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (only `<data>` sent; prompts refine in the sidebar) / IGNORED (the local list first; the search action opens the query screen: Android never reads `auto_launch`)",
@@ -622,8 +618,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits this for list-first modules in apps that declare Web Apps today: save-breaking, rewritten to Search First by any Case List save where HQ shows the workflow selector (`cloudcare_enabled`, the `cloudcare` privilege and SYNC_SEARCH_CASE_CLAIM) and CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST is off; those modules move to `workflow: searchFirst`, and the migration names each one)",
-			"markers": ["save-breaking"]
+			"cell": "— (the gate refuses `list-first` where Web Apps is declared)",
+			"markers": []
 		},
 		"gates": ["toggle/CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST"]
 	},
@@ -641,7 +637,7 @@
 		],
 		"valueClass": "list-first-android-only",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseSearchConfig.workflow: listFirst`, valid only in Android-only apps (Nova's non-search-first shape today, apart from a filter with no visible inputs, where Nova derives skip-to-results, which Android ignores)",
+		"dispositionCell": "**HELD**: `caseSearchConfig.workflow: listFirst`, admitted only in an app that declares Android only",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -656,6 +652,35 @@
 		},
 		"emission": {
 			"cell": "`auto_launch: false`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/list-first-where-web-apps-is-declared",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "list first (`auto_launch: false`) in an app that declares Web Apps",
+		"surfaceKeys": [],
+		"noSurfaceKey": "The declaration and `auto_launch` together: an app that declares Web Apps sends `cloudcare_enabled`, where HQ's Case List page shows its workflow selector, which offers no list first without CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST (views/modules.py::get_module_view_context, case_claim.js::searchConfigModel, templates/app_manager/partials/modules/bootstrap3/case_search_properties.html); the wire class is the REFUSED `workflow-legacy-classic-auto-launch-false-in-an-app-with`.",
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseSearchConfig.workflow: listFirst`, refused where Web Apps is declared",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE (a menu that searches can't open on its case list first, and CommCare HQ turns such a menu to Search first when its case list is saved there) / RUNS",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "a menu that searches can't open on its case list first, and CommCare HQ turns such a menu to Search first when its case list is saved there"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "— (the gate refuses `list-first` where Web Apps is declared)",
 			"markers": []
 		},
 		"gates": []
@@ -676,7 +701,7 @@
 		],
 		"valueClass": "inline-search-first-visible-inputs",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `workflow: searchFirst` with `inline` (today's `searchFirst` flag)",
+		"dispositionCell": "**HELD**: `formsReadSearch` with `caseSearchConfig.workflow` absent (search first)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -710,8 +735,9 @@
 			"hq-api:case_fixture"
 		],
 		"valueClass": "inline-search-first-no-visible-inputs",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.workflow: searchFirst` with `inline` (today `default_search` is derived from the absence of visible inputs)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `formsReadSearch` with `caseSearchConfig.workflow` absent (search first)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (same)",
@@ -745,7 +771,7 @@
 		],
 		"valueClass": "inline-skip-to-results-no-visible-inputs",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `workflow: skipToResults` with `inline` (today derived from `searchFirst` with no visible inputs)",
+		"dispositionCell": "**HELD**: `formsReadSearch` with `caseSearchConfig.workflow: skipToResults`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -762,7 +788,7 @@
 			"cell": "all three `true`",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
 		"id": "case-search/inline-search-default-search-on-a-module-with-visible-inputs",
@@ -779,8 +805,9 @@
 			"hq-api:case_fixture"
 		],
 		"valueClass": "inline-skip-to-results-visible-inputs",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.workflow: skipToResults` with `inline`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `formsReadSearch` with `caseSearchConfig.workflow: skipToResults`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (same)",
@@ -796,7 +823,7 @@
 			"cell": "all three `true`",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
 		"id": "case-search/inline-search-true-with-auto-launch-false",

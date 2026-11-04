@@ -512,3 +512,41 @@ export class CasePropertyHasSavedValuesError extends Error {
 		);
 	}
 }
+
+/** The most case ids one claim names. */
+export const CLAIM_CASE_IDS_LIMIT = 1000;
+/** The longest case id a claim names, the `case_id` column's own bound. */
+export const CLAIM_CASE_ID_MAX_LENGTH = 255;
+
+/**
+ * Thrown by `CaseStore.claimCases` before any read when its `caseIds` are not
+ * 1 to {@link CLAIM_CASE_IDS_LIMIT} distinct ids of 1 to
+ * {@link CLAIM_CASE_ID_MAX_LENGTH} characters. The caller that collects the
+ * chosen cases built the list wrong; nothing was claimed.
+ */
+export class ClaimCasesInputError extends Error {
+	readonly name = "ClaimCasesInputError";
+	constructor() {
+		super(
+			"A claim names 1 to 1,000 distinct case ids, each 1 to 255 characters. Check the caller that collects the chosen cases.",
+		);
+	}
+}
+
+/** Refuse a claim's `caseIds` outside the bounds {@link ClaimCasesInputError}
+ *  names. */
+export function requireClaimCaseIds(caseIds: readonly string[]): void {
+	if (
+		caseIds.length === 0 ||
+		caseIds.length > CLAIM_CASE_IDS_LIMIT ||
+		caseIds.some(
+			(id) =>
+				typeof id !== "string" ||
+				id.length === 0 ||
+				id.length > CLAIM_CASE_ID_MAX_LENGTH,
+		) ||
+		new Set(caseIds).size !== caseIds.length
+	) {
+		throw new ClaimCasesInputError();
+	}
+}

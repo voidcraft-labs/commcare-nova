@@ -49,6 +49,9 @@
  *   (`appended-name-taken`), each change takes Save to Case beside its
  *   question, and HQ's build, Core and Formplayer show each question
  *   keeping its answer and each case write landing.
+ * - `targeted-commtrack-advanced`: a menu advanced by a carried create, its
+ *   case list its own menu entry beside its forms, which CommCare Supply
+ *   would give a `product_id` datum, so its publish asks Supply off.
  *
  * Fixed values: each symptom is HQ's build, its editors' saves and Core's
  * case blocks, which no value check reads, so each document carries the
@@ -405,7 +408,7 @@ export function advancedModule() {
 					uuid: uuid("visits-list"),
 					name: "Visits",
 					caseType: "visit",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListOf([nameColumn("visits-list")]),
 					forms: [],
 				},
@@ -696,7 +699,7 @@ export function advancedChildModule() {
 					uuid: uuid("notes"),
 					name: "Notes",
 					caseType: "note",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListOf([nameColumn("notes")]),
 					forms: [],
 				},
@@ -939,7 +942,7 @@ export function rootCaseBlockNames() {
 					uuid: uuid("members"),
 					name: "Members",
 					caseType: "member",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListOf([nameColumn("members")]),
 					forms: [],
 				},
@@ -966,6 +969,134 @@ export function rootCaseBlockNames() {
 					// The member's Save to Case block mints its own id, so the
 					// entry gives the household alone a session value.
 					newCases("m0-f0", "household"),
+				),
+			],
+		},
+	});
+}
+
+const COMMTRACK_ADVANCED = "targeted-commtrack-advanced";
+
+/**
+ * `targeted-commtrack-advanced`: a Patients menu made advanced by its own
+ * content (Enroll patient's `episode` extension case, carried by its link
+ * into Review episode), with its case list as its menu entry beside its
+ * forms, no filter, and the default product details Nova writes for an
+ * advanced menu. CommCare HQ adds a `product_id` datum to that entry's
+ * session where CommCare Supply is on
+ * (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, under
+ * `app.commtrack_enabled`), which Nova does not write, so the publish asks
+ * the person to confirm CommCare Supply is off (`commtrack-off`,
+ * `lib/commcare/planPrivileges.ts::commtrackReasons`) and the verdict
+ * requires it off.
+ */
+export function commtrackAdvanced() {
+	const { uuid, read, text, nameColumn } = namer(COMMTRACK_ADVANCED);
+	const enroll = uuid("enroll");
+	const episodes = uuid("episodes");
+	const review = uuid("review");
+	const enrollOwn = uuid("enroll-own");
+	const enrollOperations: CaseOperation[] = [
+		{
+			uuid: enrollOwn,
+			id: "patient",
+			action: "own",
+			name: read("patient-name"),
+		},
+		{
+			uuid: uuid("open-episode"),
+			id: "episode",
+			action: "create",
+			caseType: "episode",
+			target: { kind: "new" },
+			name: read("episode-name"),
+			links: linkTo(
+				"parent",
+				"patient",
+				{ kind: "op", opUuid: enrollOwn },
+				"extension",
+			),
+		},
+	];
+	const doc = buildDoc(
+		{
+			appId: COMMTRACK_ADVANCED,
+			appName: "Episodes with a case list",
+			caseTypes: [
+				caseType("patient"),
+				caseType("episode", [], { type: "patient", relationship: "extension" }),
+			],
+			modules: [
+				{
+					uuid: uuid("patients"),
+					name: "Patients",
+					caseType: "patient",
+					caseListMenuItem: {},
+					caseListConfig: caseListOf([nameColumn("patients")]),
+					forms: [
+						{
+							uuid: enroll,
+							name: "Enroll patient",
+							type: "registration",
+							formLinks: [
+								{
+									uuid: uuid("open-review"),
+									target: {
+										type: "form" as const,
+										moduleUuid: episodes,
+										formUuid: review,
+									},
+								},
+							],
+							fields: [
+								text("patient-name", "Patient name"),
+								text("episode-name", "Episode name"),
+							],
+						},
+						{
+							uuid: uuid("check"),
+							name: "Check patient",
+							type: "followup",
+							fields: [text("check-note", "Note")],
+						},
+					],
+				},
+				{
+					uuid: episodes,
+					name: "Episodes",
+					caseType: "episode",
+					caseListConfig: caseListOf([nameColumn("episodes")]),
+					forms: [
+						{
+							uuid: review,
+							name: "Review episode",
+							type: "followup",
+							fields: [text("review-note", "Note")],
+						},
+					],
+				},
+			],
+		},
+		(built) => {
+			built.forms[enroll].caseOperations = enrollOperations;
+		},
+	);
+	return targetedDocument({
+		id: COMMTRACK_ADVANCED,
+		rows: [
+			"advanced modules: a case list menu item beside an advanced menu's forms",
+			"20, product_id datum (CommCare Supply)",
+		],
+		doc,
+		expected: {
+			intent: [
+				answerHeld(
+					"patient-name-held",
+					enroll,
+					"/data/patient_name",
+					"Amina",
+					"local",
+					newCases("m0-f0", "patient", "episode"),
 				),
 			],
 		},

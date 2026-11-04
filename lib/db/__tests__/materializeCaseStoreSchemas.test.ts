@@ -65,6 +65,7 @@ describe("schema materialization orchestration", () => {
 			["b", 12],
 			["c", 12],
 			["commcare-user", 12],
+			["commcare-case-claim", 12],
 		]);
 	});
 
@@ -72,7 +73,7 @@ describe("schema materialization orchestration", () => {
 		await materializeCaseStoreSchemas({ appId: "app", blueprint });
 		for (const [args] of applySchemaChange.mock.calls)
 			expect(args).not.toHaveProperty("syncedSeq");
-		expect(applySchemaChange.mock.calls).toHaveLength(4);
+		expect(applySchemaChange.mock.calls).toHaveLength(5);
 	});
 
 	it("surfaces a deterministic failure without retrying or attempting later types", async () => {
@@ -103,7 +104,7 @@ describe("schema materialization orchestration", () => {
 		await vi.runAllTimersAsync();
 		await completed;
 		expect(applySchemaChange.mock.calls.map(([args]) => args.caseType)).toEqual(
-			["a", "b", "b", "b", "c", "commcare-user"],
+			["a", "b", "b", "b", "c", "commcare-user", "commcare-case-claim"],
 		);
 	});
 
@@ -117,7 +118,7 @@ describe("schema materialization orchestration", () => {
 		await vi.runAllTimersAsync();
 		await completed;
 		expect(applySchemaChange.mock.calls.map(([args]) => args.caseType)).toEqual(
-			["a", "a", "b", "c", "commcare-user"],
+			["a", "a", "b", "c", "commcare-user", "commcare-case-claim"],
 		);
 	});
 

@@ -1436,7 +1436,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			id: `m_view_${childType}`,
 			name: `View ${childType}`,
 			caseType: childType,
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseListConfig: resolveCaseListConfig({
 				columns: [plainColumn(minter.uuid("col"), "case_name", "Name")],
 				searchInputs: [],

@@ -1845,7 +1845,7 @@ describe("Builder field commands carry the case writes their fields hold", () =>
 				{
 					name: "Visits",
 					caseType: "visit",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: resolveCaseListConfig({
 						columns: [
 							{

@@ -69,6 +69,7 @@ import type { DistanceUnit } from "@/lib/domain/expression/distance";
 import type { SessionContextField } from "@/lib/domain/expression/types";
 import { distanceSearchProperties } from "../distanceSearches";
 import { runValidation } from "../validator/runner";
+import { withAuthoredSearchWorkflows } from "./authoredSearchWorkflowFixture";
 
 /** One case as HQ's receiver is asked to save it (`CaseBlock` fields). */
 export interface CsqlCase {
@@ -357,7 +358,7 @@ function datetimeEqualityDoc(): BlueprintDoc {
 			};
 		}),
 	});
-	return admitted(doc);
+	return admitted(withAuthoredSearchWorkflows(doc));
 }
 
 const atInstant = [...SEEN_AT_INSTANT];
@@ -477,7 +478,7 @@ function scenarioDoc(
 			};
 		}),
 	});
-	return admitted(doc);
+	return admitted(withAuthoredSearchWorkflows(doc));
 }
 
 /** A fixed condition in an advanced Search input whose answer it never reads. */

@@ -57,7 +57,7 @@ describe("Search-input final mutation shape", () => {
 					uuid: moduleUuid,
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: resolveCaseListConfig({
 						columns: [plainColumn(columnUuid, "case_name", "Patient name")],
 						searchInputs: [

@@ -21,7 +21,7 @@ import {
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	type Module,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 } from "@/lib/domain";
 import { checkExpression, scalarDataType } from "@/lib/domain/expression";
 import {
@@ -106,7 +106,7 @@ export function hqExpressionField(
 					naming: lookupNaming ?? identityLookupWireNaming(),
 					instanceScope: "suite",
 				},
-				...(moduleOpensOnSearch(mod)
+				...(moduleFormsReadSearch(mod)
 					? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
 					: {}),
 			},

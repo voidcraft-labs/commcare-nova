@@ -90,7 +90,7 @@ function fixture(
 						{
 							name: "Visits",
 							caseType: "visit",
-							caseListOnly: true,
+							caseListMenuItem: {},
 							caseListConfig: list(),
 							forms: [],
 						},

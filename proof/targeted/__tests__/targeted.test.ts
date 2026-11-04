@@ -82,6 +82,7 @@ function formsOf(doc: { readonly forms: Record<string, unknown> }) {
 }
 
 describe("the targeted documents", () => {
+	// Builds every targeted document twice, a few seconds on a shared CI runner.
 	it("are the same whatever was built before them", () => {
 		const first = targetedDocuments();
 		// Advance buildDoc's counter, which mints any identity a document leaves out.
@@ -97,7 +98,7 @@ describe("the targeted documents", () => {
 		expect(new Set(first.map((document) => document.id)).size).toBe(
 			TARGETED_DOCUMENTS.length,
 		);
-	});
+	}, 20_000);
 
 	it("name in each expectation a form the document holds and a restore it writes", () => {
 		for (const document of targetedDocuments()) {

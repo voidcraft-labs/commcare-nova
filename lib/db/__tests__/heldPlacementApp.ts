@@ -74,7 +74,7 @@ export function heldPlacementApp(
 			{
 				name: "Kids",
 				caseType: "kid",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

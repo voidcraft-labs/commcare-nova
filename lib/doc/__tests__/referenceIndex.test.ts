@@ -514,7 +514,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(testUuid("search-column"), "case_name", "Name"),
@@ -762,7 +762,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				{
 					name: "Households",
 					caseType: "household",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						columns: [
 							plainColumn(testUuid("relation-column"), "case_name", "Name"),

@@ -90,7 +90,7 @@ function baseDoc(): BlueprintDoc {
 }
 
 describe("caseListModuleMutations", () => {
-	it("commits a born-valid case-list viewer (caseListOnly, no forms)", () => {
+	it("commits a born-valid case-list viewer (its case list as a menu entry, no forms)", () => {
 		const base = baseDoc();
 		const scaffold = caseListModuleMutations(base, { caseType: "patient" });
 		const verdict = mutationCommitVerdict(
@@ -104,7 +104,7 @@ describe("caseListModuleMutations", () => {
 
 		const mod = verdict.nextDoc.modules[scaffold.moduleUuid];
 		expect(mod?.caseType).toBe("patient");
-		expect(mod?.caseListOnly).toBe(true);
+		expect(mod?.caseListMenuItem).toEqual({});
 		expect(mod?.caseListConfig?.columns[0]).toMatchObject({
 			field: "case_name",
 			header: "Name",
@@ -255,7 +255,7 @@ describe("surveyModuleMutations", () => {
 		assertAdmittedDoc(verdict.nextDoc);
 		const mod = verdict.nextDoc.modules[scaffold.moduleUuid];
 		expect(mod?.caseType).toBeUndefined();
-		expect(mod?.caseListOnly).toBeFalsy();
+		expect(mod?.caseListMenuItem).toBeUndefined();
 		expect(verdict.nextDoc.formOrder[scaffold.moduleUuid]).toEqual([
 			scaffold.formUuid,
 		]);
@@ -378,6 +378,11 @@ describe("formScaffoldMutations", () => {
 			);
 			expect(verdict.ok, type).toBe(true);
 			assertAdmittedDoc(verdict.nextDoc);
+			// A form added to a bare case list keeps the menu's entry beside it:
+			// an authored entry is never removed in passing.
+			expect(verdict.nextDoc.modules[cl.moduleUuid]?.caseListMenuItem).toEqual(
+				{},
+			);
 		}
 	});
 
@@ -491,14 +496,14 @@ describe("caseTypeSetPatch", () => {
 		).toBeUndefined();
 	});
 
-	it("makes a formless module a case-list-only viewer with a Name column", () => {
-		// A formless case module is invalid (NO_FORMS_OR_CASE_LIST); the viewer is
-		// the only valid formless+typed shape, and it seeds a Name column like a
-		// born viewer. The caller (updateModule) declares the new type so the
-		// column resolves — see the gate round-trip below.
+	it("gives a formless module its case list as a menu entry with a Name column", () => {
+		// A formless case module with no case list entry is invalid
+		// (NO_FORMS_OR_CASE_LIST); the viewer seeds a Name column like a born
+		// viewer. The caller (updateModule) declares the new type so the column
+		// resolves — see the gate round-trip below.
 		const patch = caseTypeSetPatch(moduleWith(), false, "thing");
 		expect(patch.caseType).toBe("thing");
-		expect(patch.caseListOnly).toBe(true);
+		expect(patch.caseListMenuItem).toEqual({});
 		expect(patch.caseListConfig?.columns[0]).toMatchObject({
 			field: "case_name",
 			header: "Name",
@@ -532,7 +537,7 @@ describe("caseTypeSetPatch", () => {
 		);
 		expect(verdict.ok).toBe(true);
 		assertAdmittedDoc(verdict.nextDoc);
-		expect(verdict.nextDoc.modules[M("s")]?.caseListOnly).toBe(true);
+		expect(verdict.nextDoc.modules[M("s")]?.caseListMenuItem).toEqual({});
 	});
 
 	it("re-typing a viewer to a brand-new type commits clean (one catalog write)", () => {
@@ -566,13 +571,13 @@ describe("caseTypeSetPatch", () => {
 });
 
 describe("caseTypeClearPatch", () => {
-	it("clears the type, the caseListOnly flag, and the case-list + search config", () => {
+	it("clears the type, the case list menu entry, and the case-list + search config", () => {
 		// Dropping caseSearchConfig is load-bearing (a typeless module keeping it
-		// trips caseSearchConfigRequiresCaseType); dropping caseListOnly is too (a
-		// typeless viewer trips CASE_LIST_ONLY_NO_CASE_TYPE).
+		// trips caseSearchConfigRequiresCaseType); dropping the entry is too (an
+		// entry with no case type trips CASE_LIST_MENU_ITEM_NO_CASE_TYPE).
 		expect(caseTypeClearPatch()).toEqual({
 			caseType: undefined,
-			caseListOnly: undefined,
+			caseListMenuItem: undefined,
 			caseListConfig: undefined,
 			caseSearchConfig: undefined,
 		});
@@ -603,7 +608,9 @@ describe("caseTypeClearPatch", () => {
 		);
 		expect(verdict.ok).toBe(true);
 		assertAdmittedDoc(verdict.nextDoc);
-		expect(verdict.nextDoc.modules[moduleUuid]?.caseListOnly).toBeFalsy();
+		expect(
+			verdict.nextDoc.modules[moduleUuid]?.caseListMenuItem,
+		).toBeUndefined();
 		expect(verdict.nextDoc.modules[moduleUuid]?.caseType).toBeUndefined();
 	});
 

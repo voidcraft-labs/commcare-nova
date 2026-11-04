@@ -346,7 +346,7 @@ function buildBlueprint(caseTypes: CaseType[]) {
 			modules: caseTypes.map((type) => ({
 				name: type.name,
 				caseType: type.name,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -2378,6 +2378,9 @@ describe("readCaseData", () => {
 			replaceParkedValue: (a) => store.replaceParkedValue(a),
 			generateSampleData: (a) => store.generateSampleData(a),
 			resetSampleData: (a) => store.resetSampleData(a),
+			claimCases: (a) => store.claimCases(a),
+			releaseClaims: (a) => store.releaseClaims(a),
+			countClaims: (a) => store.countClaims(a),
 		};
 		const result = await readCaseData(flaky, {
 			reading: CASEDB_READING,
@@ -2764,7 +2767,7 @@ describe("applySubmission — registration", () => {
 				{
 					name: "Visits",
 					caseType: "visit",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

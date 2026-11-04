@@ -26,7 +26,8 @@ export type EntryPointLaunchResult =
 			readonly kind: "ready";
 			readonly launch: EntryPointPreviewLaunch;
 			/** The cases the launch claims for its worker (Web Apps' claim
-			 *  frame), installed with the launch in one session write. */
+			 *  frame), already written as claim rows by `launchEntryPointAction`
+			 *  when it answers `ready`; empty on Android. */
 			readonly claimCaseIds: readonly string[];
 			/** The chosen cases the worker's phone lacks, which the form opens
 			 *  without their saved values (Android). */

@@ -60,7 +60,12 @@ export interface WirePath {
 export type WireRoot =
 	| { readonly k: "form"; readonly spelling: "hashtag" | "absolute" }
 	| { readonly k: "context" | "current" | "hq-case" }
-	| { readonly k: "instance"; readonly decl: InstanceDecl };
+	| { readonly k: "instance"; readonly decl: InstanceDecl }
+	/** The chosen cases a multi-select list's auto-launch condition reads,
+	 * `instance('next_input')`. Core builds it into the condition's own
+	 * evaluation context (`MultiSelectEntityScreen::getAutoLaunchEvaluationContext`),
+	 * so no suite element declares it and it adds no declaration. */
+	| { readonly k: "next-input" };
 
 export interface WireStep {
 	readonly axis: "child" | "attribute" | "self" | "parent" | "wildcard";

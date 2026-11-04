@@ -18,7 +18,7 @@ export const SMOKE_PROFILES = [
 	"form-links",
 	"previous-task",
 	"deep-links",
-	"search-first",
+	"forms-read-search",
 	"form-refused",
 	"here-column",
 	"preview-android-media",

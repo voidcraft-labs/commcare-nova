@@ -90,29 +90,6 @@ export const POST_SUBMIT_DESTINATIONS = [
 export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
 
 /**
- * How a form is reached when it is not a menu item. The one kind today is
- * the no-matches registration form: it opens from Results after a search
- * on its module found nothing, carries the search answers, and is listed
- * nowhere else. A form with no `entry` enters from the module menu.
- */
-export const formEntrySchema = z.strictObject({
-	kind: z.literal("search-no-matches"),
-	/** The action's label on Results; the form's name when absent. */
-	label: z.string().min(1).optional(),
-});
-export type FormEntry = z.infer<typeof formEntrySchema>;
-
-/** Whether the form is a menu item of its module. */
-export function formEntersFromMenu(form: Pick<Form, "entry">): boolean {
-	return form.entry === undefined;
-}
-
-/** Whether the form opens from Results after a search found nothing. */
-export function isNoMatchesForm(form: Pick<Form, "entry">): boolean {
-	return form.entry?.kind === "search-no-matches";
-}
-
-/**
  * The one stored and machine-authored navigation vocabulary:
  *   "app_home"   → App home (Android's home screen; in Web Apps the app's first screen)
  *   "firstMenu"  → the app's first menu, which lists its modules
@@ -121,8 +98,8 @@ export function isNoMatchesForm(form: Pick<Form, "entry">): boolean {
  *   "previous"   → the screen before the form (the preceding selection or task)
  */
 export interface PostSubmitMenuShape {
-	/** The module opens on its Search screen (`moduleOpensOnSearch`). */
-	readonly searchFirst?: boolean;
+	/** The menu's forms read the search (`moduleFormsReadSearch`). */
+	readonly formsReadSearch?: boolean;
 	/** The module selects several cases. */
 	readonly multiSelect?: boolean;
 	/** The module's parent selects several cases. */
@@ -136,7 +113,7 @@ export interface PostSubmitMenuShape {
  * Registration and survey go home. A case-loading form (followup, close)
  * takes the first destination its module offers of `previous`, `module`,
  * `firstMenu` (`postSubmit.ts::postSubmitDestinationsOffered`): the screen
- * before the form, unless the module opens on Search, selects several
+ * before the form, unless the module's forms read the search, selects several
  * cases, sits under a parent that does, or is off the menu; then the
  * module's first screen, unless its parent selects several cases or it is
  * off the menu; and otherwise the app's first menu, which is always offered.
@@ -151,7 +128,7 @@ export function defaultPostSubmit(
 	if (
 		!parentOrSelfWithholds &&
 		shape.multiSelect !== true &&
-		shape.searchFirst !== true
+		shape.formsReadSearch !== true
 	) {
 		return "previous";
 	}
@@ -753,15 +730,6 @@ export const formSchema = z.strictObject({
 	ownClosePlacement: ownClosePlacementSchema.optional(),
 	connect: connectConfigSchema.optional(),
 	postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
-	/**
-	 * Present when the form is not a menu item. A no-matches form has a
-	 * fixed after-submit (Results showing the case it registered), so
-	 * only an explicit `firstMenu` is allowed for `postSubmit`; `formLinks`,
-	 * `displayCondition` and `hiddenFromMenu` are refused on it
-	 * by the validator rather than the schema, which keeps the patch and
-	 * clear shapes ordinary.
-	 */
-	entry: formEntrySchema.optional(),
 	/**
 	 * Where the app goes after this form is submitted, checked in order:
 	 * the first link whose condition holds is followed, and `postSubmit`

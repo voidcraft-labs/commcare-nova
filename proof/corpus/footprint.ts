@@ -24,7 +24,7 @@
  *   `lib/commcare/hqShells.ts::applicationShell`);
  * - a form reaches the module(s) holding it on either side, since a
  *   module's wire lists its forms;
- * - a no-matches registration form reaches the synthetic module the
+ * - a case list registration form reaches the synthetic module the
  *   emission plan lowers it into (`lib/commcare/emissionPlan.ts`), and so
  *   does its host module, whose case type and id that module carries.
  *
@@ -41,9 +41,9 @@
  *   registration, follow-up and close forms (`ownCaseType`);
  * - what only its own case datum holds reaches its own case-loading forms
  *   (`detailConfirm`, `groupingConnection`);
- * - the shape a case-loading form's after-submit default reads (opening on
- *   Search, selecting several cases, being off the menu, and its parent
- *   selecting several cases) reaches its own case-loading forms that store
+ * - the shape a case-loading form's after-submit default reads (its forms
+ *   reading the search, selecting several cases, being a bare case list,
+ *   being off the menu, and its parent selecting several cases) reaches its own case-loading forms that store
  *   no destination (`afterSubmitDefault`);
  * - the instances its expressions reach, which its case-loading entries
  *   declare, reach its own case-loading forms (`ownEntryInstances`);
@@ -61,7 +61,7 @@
  *   `include_root_module`);
  * - a module that reads an edited entity through a setting its selection
  *   datum prints as an expression (its case list filter, owner exclusion,
- *   or a search-first module's search inputs: the reference index's slot
+ *   or the search inputs of a module whose forms read the search: the reference index's slot
  *   names which) reaches the datum's entries as a change to it does, since
  *   the entity's name prints into them though the stored setting is
  *   unchanged.
@@ -119,7 +119,7 @@ import {
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
 import type { SessionDatum } from "@/lib/commcare/session";
-import { moduleIsSearchFirst } from "@/lib/commcare/suite/case-search/inlineSearch";
+import { moduleUsesInlineSearch } from "@/lib/commcare/suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { InstanceSink } from "@/lib/commcare/xpath/wire/instances";
@@ -150,6 +150,7 @@ import {
 	locationTargetKey,
 	type Module,
 	moduleParent,
+	moduleSearchWorkflow,
 	postSubmitModuleFacts,
 	projectedModulePreorder,
 	type SearchInputDef,
@@ -170,7 +171,7 @@ export interface WireModule {
 	readonly uuid: string;
 	/** Its forms, in the order the app JSON lists them. */
 	readonly forms: readonly string[];
-	/** Set for the hidden module a no-matches registration form lowers into. */
+	/** Set for the hidden module a case list registration form lowers into. */
 	readonly synthetic?: {
 		readonly hostModuleUuid: string;
 		readonly formUuid: string;
@@ -543,7 +544,7 @@ interface ModuleDerivation {
  *   (`lib/commcare/expander.ts::expandDoc` passes them only with the form's
  *   own case datum, which only a case-loading entry holds);
  * - `parentCaseModuleUuid`: the selection chain itself, and the claim post
- *   of a module that opens on Search (`buildInlineClaimPost`).
+ *   of a module whose forms read the search (`buildInlineClaimPost`).
  *
  * A frame carries each datum's id, case type and maximum.
  *
@@ -586,7 +587,7 @@ const ownCaseType: ModuleDerivation = {
  *
  * - `caseListConfig.filter` and `caseSearchConfig.excludedOwnerIds`: the
  *   datum's nodeset (`caseLoadingNodeset`, `inlineSearchNodeset`), and the
- *   inline search's query of a module that opens on Search
+ *   inline search's query of a module whose forms read the search
  *   (`searchSession.ts::buildSearchQuery`). The nodeset prints no search
  *   input: each is read as the list reads it before any search, with every
  *   input dependency substituted away first
@@ -630,23 +631,24 @@ function promptSettings(input: SearchInputDef): unknown {
 }
 
 /**
- * Whether the module opens on Search (`moduleIsSearchFirst`), and the inline
- * search it then runs in every entry that holds its case selection datum.
- * Opening on Search makes that datum read the inline results
- * (`caseSource`), puts the `<query>` before it
+ * Whether the module's forms read the search (`moduleUsesInlineSearch`,
+ * CommCare's inline search), and the inline search it then runs in every
+ * entry that holds its case selection datum. Reading the search makes that
+ * datum read the inline results (`caseSource`), puts the `<query>` before it
  * (`formLinkProjection.ts::withInlineSearchQueries` over `inlineSearchFor`
  * and `lib/commcare/suite/case-search/inlineSearch.ts::buildInlineSearch`),
  * and makes each of the module's own entries claim the picked case
- * (`buildInlineClaimPost`); what opening on Search does to a form's
- * after-submit default is `afterSubmitDefault`'s. The settings are absent
- * on a module that opens on its list, so turning Search first on or off
- * reaches the holders. The query's element and declared instances read of
- * the module:
+ * (`buildInlineClaimPost`); what it does to a form's after-submit default is
+ * `afterSubmitDefault`'s. The settings are absent on a module whose forms do
+ * not read the search, so turning Forms read the search on or off reaches
+ * the holders. The query's element and declared instances read of the
+ * module:
  *
  * - its search inputs, as their prompts and query clauses write them
- *   (`promptSettings`; `searchWireShape` also counts the visible ones
- *   for `default_search`, and `buildSearchQuery` reads them for its
+ *   (`promptSettings`; `buildSearchQuery` reads them for its
  *   `_xpath_query` clauses, prompt defaults and instances);
+ * - the workflow, which `searchWireShape` spells as the query's
+ *   `default_search` (skip to results runs the search as the entry opens);
  * - whether a calculated column it emits reads a related case, which adds
  *   the supporting-case request (`relatedCaseProjection.ts::searchNeedsSupportingCases`).
  *
@@ -659,20 +661,22 @@ function promptSettings(input: SearchInputDef): unknown {
  * ancestor's are `selectionNames`'s; the search button it drops is
  * `ownEntryInstances`'s.
  *
- * A frame carries the query, but never decides a reach here: a module that
- * opens on Search has neither submenus nor modules selecting under it, and
- * every form it holds loads a case
- * (`lib/commcare/validator/rules/case-search/searchFirst.ts`,
- * `SEARCH_FIRST_UNIQUE_INSTANCE` and `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE`),
- * and what opens it on Search is an edit of that module, whose readers
- * (every link to one of its forms) the footprint holds already.
+ * A frame carries the query, but never decides a reach here: a module whose
+ * forms read the search has neither submenus nor modules selecting under
+ * it, and every form it holds loads a case
+ * (`lib/commcare/validator/rules/case-search/formsReadSearch.ts`,
+ * `FORMS_READ_SEARCH_UNIQUE_INSTANCE` and
+ * `FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE`), and what turns it on is an
+ * edit of that module, whose readers (every link to one of its forms) the
+ * footprint holds already.
  */
 const inlineSearch: ModuleDerivation = {
 	settings: (side, module) => {
-		if (!moduleIsSearchFirst(module)) return undefined;
+		if (!moduleUsesInlineSearch(module)) return undefined;
 		const caseList = module.caseListConfig ?? emptyCaseListConfig();
 		return {
 			prompts: caseList.searchInputs.map(promptSettings),
+			workflow: moduleSearchWorkflow(module),
 			supportingCases: searchNeedsSupportingCases(
 				caseList,
 				moduleExpressionContexts(side.wire, module.uuid, side.lookupNaming),
@@ -703,10 +707,11 @@ const defaultDestinationForms: Holders = (side, moduleUuid) =>
 /**
  * The module's shape as a case-loading form's after-submit default reads it
  * (`lib/domain/postSubmit.ts::postSubmitModuleFacts`, which
- * `defaultPostSubmit` takes): whether it opens on Search, selects several
- * cases or is off the menu, and whether its parent selects several cases.
+ * `defaultPostSubmit` takes): whether its forms read the search, it selects
+ * several cases, is a bare case list or is off the menu, and whether its
+ * parent selects several cases.
  * The default is the first of `previous`, `module` and `firstMenu` the
- * module offers, so a change to any of the four, on the module or on its
+ * module offers, so a change to any of the five, on the module or on its
  * parent, can move the destination its forms' wire holds. No frame carries
  * a destination.
  */
@@ -716,9 +721,10 @@ const afterSubmitDefault: ModuleDerivation = {
 		return facts === undefined
 			? undefined
 			: {
-					searchFirst: facts.searchFirst,
+					formsReadSearch: facts.formsReadSearch,
 					multiSelect: facts.multiSelect,
 					parentMultiSelect: facts.parentMultiSelect,
+					bareCaseList: facts.bareCaseList,
 					offTheMenu: facts.offTheMenu,
 				};
 	},
@@ -763,14 +769,14 @@ const groupingConnection: ModuleDerivation = {
  *
  * - the filter's and the owner exclusion's, each with its search inputs
  *   substituted away as the nodeset reads it;
- * - the search button's display condition's, on a module that does not
- *   open on Search (`compileCcz` drops it on one that does);
+ * - the search button's display condition's, on a module whose forms do
+ *   not read the search (`compileCcz` drops it on one whose forms do);
  * - each emitted calculated column's, under the module's search input
  *   instance (through its own column expression slot).
  *
  * Each comes from the wire serializer with the document's lookup naming,
  * as `compileCcz` passes it. A module's search input instance changes only
- * with its opening on Search, whose forms all load a case.
+ * with its forms reading the search, which all load a case.
  */
 const ownEntryInstances: ModuleDerivation = {
 	settings: (side, module) => {
@@ -803,7 +809,7 @@ const ownEntryInstances: ModuleDerivation = {
 			)
 				.declarations()
 				.map(({ id }) => id);
-		const searchButton = moduleIsSearchFirst(module)
+		const searchButton = moduleUsesInlineSearch(module)
 			? undefined
 			: effectiveCaseSearchConfig(module)?.searchButtonDisplayCondition;
 		const calculated = new Set<string>();
@@ -984,8 +990,8 @@ const MODULE_DERIVATIONS: readonly ModuleDerivation[] = [
  * The reference slots (`lib/domain/referenceSlots.ts::MODULE_REFERENCE_SLOTS`)
  * through which a module's case selection datum prints an expression into
  * the entries that hold it: the filter and owner exclusion
- * (`selectionDatum`), and, for a module that opens on Search, every search
- * input's (its inline search runs inside each such entry). The search
+ * (`selectionDatum`), and, for a module whose forms read the search, every
+ * search input's (its inline search runs inside each such entry). The search
  * button's condition and the calculated columns print into the module's
  * details; only the instances they reach enter its entries
  * (`ownEntryInstances`), and what an expression reads never changes those
@@ -1000,7 +1006,7 @@ function readsIntoSelection(module: Module, slots: readonly string[]): boolean {
 	return slots.some(
 		(slot) =>
 			SELECTION_EXPRESSION_SLOTS.has(slot) ||
-			(slot.startsWith("search_input_") && moduleIsSearchFirst(module)),
+			(slot.startsWith("search_input_") && moduleUsesInlineSearch(module)),
 	);
 }
 

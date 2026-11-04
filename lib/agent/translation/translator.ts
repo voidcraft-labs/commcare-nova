@@ -387,7 +387,8 @@ export function boundedGlossary(
 		"app-name",
 		"module-name",
 		"form-name",
-		"form-entry-label",
+		"case-list-menu-item-label",
+		"case-list-registration-label",
 		"search-screen-title",
 	]);
 	const priority = (entry: TranslationGlossaryEntry) => {

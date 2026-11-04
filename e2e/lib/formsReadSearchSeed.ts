@@ -1,21 +1,24 @@
 /**
- * A module that opens on Search and registers what a search could not find.
+ * A menu whose forms read the search and whose case list registers what a
+ * search could not find.
  *
  * Search before register is one journey with three screens that only a real
- * browser can string together: the Search screen a search-first module
- * opens on (no browse list, no Results heading, no register action yet),
+ * browser can string together: the Search screen the menu opens on (search
+ * first, so no browse list, no Results heading, no register action yet),
  * the Results a completed search lands on (rows, or the "No cases match"
- * notice carrying the register action), and the no-matches registration
+ * notice carrying the register action), and the case list registration
  * form that opens prefilled from the search's answers and returns to
  * Results showing the case it made. The fixture is the smallest shape that
  * exercises every hop: one required visible prompt on the case name, one
  * hidden prompt (the search time, `now()`), one case-loading menu form so
- * the module is case-first, and one registration form born as the module's
- * no-matches form whose name field defaults to `#search/patient_name` and
- * whose hidden field reads `#search/search_time`.
+ * the module is case-first, and one registration form the menu's
+ * `caseListRegistrationForm` names, whose name field defaults to
+ * `#search/patient_name` and whose hidden field reads `#search/search_time`.
+ * The fixture declares only Web Apps, the one platform that runs forms
+ * that read the search.
  *
  * The journey registers a case, so every Playwright attempt gets its own
- * empty app through its native `search-first` profile.
+ * empty app through its native `forms-read-search` profile.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -30,8 +33,8 @@ import { input, now, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
-export const SEARCH_FIRST_SEED = {
-	appName: "Smoke — Search first",
+export const FORMS_READ_SEARCH_SEED = {
+	appName: "Smoke — Forms read the search",
 	moduleName: "Patients",
 	caseType: "patient",
 	moduleUuid: asUuid("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"),
@@ -67,16 +70,18 @@ export const SEARCH_FIRST_SEED = {
 	unmatchedName: "Zzz",
 } as const;
 
-/** The blueprint installed into each search-first fixture app. */
-export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
+/** The blueprint installed into each forms-read-search fixture app. */
+export function buildFormsReadSearchBlueprint(
+	appId = "test-app",
+): BlueprintDoc {
 	const { moduleUuid, columns, searchInputs, prompt, visit, register } =
-		SEARCH_FIRST_SEED;
+		FORMS_READ_SEARCH_SEED;
 	return buildDoc({
 		appId,
-		appName: SEARCH_FIRST_SEED.appName,
+		appName: FORMS_READ_SEARCH_SEED.appName,
 		caseTypes: [
 			{
-				name: SEARCH_FIRST_SEED.caseType,
+				name: FORMS_READ_SEARCH_SEED.caseType,
 				properties: [
 					{
 						name: "last_note",
@@ -89,8 +94,8 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 		modules: [
 			{
 				uuid: moduleUuid,
-				name: SEARCH_FIRST_SEED.moduleName,
-				caseType: SEARCH_FIRST_SEED.caseType,
+				name: FORMS_READ_SEARCH_SEED.moduleName,
+				caseType: FORMS_READ_SEARCH_SEED.caseType,
 				caseListConfig: {
 					columns: [plainColumn(columns.patientName, "case_name", "Patient")],
 					listColumnOrder: [columns.patientName],
@@ -116,13 +121,18 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 						},
 					],
 				},
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: {
+					formUuid: register.formUuid,
+					label: register.actionLabel,
+				},
 				forms: [
 					{
 						uuid: visit.formUuid,
 						name: visit.formName,
-						// Case-loading, so the module is case-first and may open on
-						// Search; the registration form below is not on the menu.
+						// Case-loading, so the module is case-first and its forms may
+						// read the search; the registration form below is not on the
+						// menu.
 						type: "followup",
 						fields: [
 							f({
@@ -131,7 +141,7 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 								id: "visit_note",
 								label: proseText("Visit note"),
 								caseWrite: {
-									caseType: SEARCH_FIRST_SEED.caseType,
+									caseType: FORMS_READ_SEARCH_SEED.caseType,
 									property: "last_note",
 								},
 							}),
@@ -141,7 +151,6 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 						uuid: register.formUuid,
 						name: register.formName,
 						type: "registration",
-						entry: { kind: "search-no-matches", label: register.actionLabel },
 						fields: [
 							f({
 								uuid: register.nameFieldUuid,
@@ -149,7 +158,7 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 								id: "case_name",
 								label: proseText(register.nameFieldLabel),
 								caseWrite: {
-									caseType: SEARCH_FIRST_SEED.caseType,
+									caseType: FORMS_READ_SEARCH_SEED.caseType,
 									property: "case_name",
 								},
 								default_value: term(input(searchInputs.patientName)),
@@ -160,8 +169,8 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 								id: "search_time",
 								default_value: term(input(searchInputs.searchTime)),
 							},
-							// The record name the journey authors: a form a search with
-							// no matches offers names its case from a question's answer
+							// The record name the journey authors: a form the case list
+							// offers after an empty search names its case from a question's answer
 							// as it is, which CommCare HQ's Case Management holds.
 							f({
 								uuid: register.labelFieldUuid,
@@ -177,26 +186,26 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 	});
 }
 
-export interface SearchFirstRoutes {
-	/** The Search authoring canvas, which carries the no-matches setting. */
+export interface FormsReadSearchRoutes {
+	/** The Search authoring canvas, which carries the registration setting. */
 	readonly searchConfig: string;
 	/** The module's Results, which Preview opens on Search. */
 	readonly results: string;
-	/** The no-matches registration form's own URL. */
+	/** The case list registration form's own URL. */
 	readonly registerForm: string;
 }
 
 /** The canonical relative paths the journey opens. */
-export function searchFirstRoutes(appId: string): SearchFirstRoutes {
+export function formsReadSearchRoutes(appId: string): FormsReadSearchRoutes {
 	const basePath = `/build/${appId}`;
-	const moduleUuid = SEARCH_FIRST_SEED.moduleUuid;
+	const moduleUuid = FORMS_READ_SEARCH_SEED.moduleUuid;
 	return {
 		searchConfig: buildUrl(basePath, { kind: "search-config", moduleUuid }),
 		results: buildUrl(basePath, { kind: "cases", moduleUuid }),
 		registerForm: buildUrl(basePath, {
 			kind: "form",
 			moduleUuid,
-			formUuid: SEARCH_FIRST_SEED.register.formUuid,
+			formUuid: FORMS_READ_SEARCH_SEED.register.formUuid,
 		}),
 	};
 }

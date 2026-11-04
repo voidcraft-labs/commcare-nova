@@ -24,7 +24,6 @@ import {
 } from "./expression/context";
 import { serverOnlySearchSlot } from "./expression/profiles";
 import { walkSearchRuntimeValues } from "./expression/searchRuntimeValues";
-import { effectiveFilterForEmission } from "./expression/simplify";
 import { scalarDataType, typeOf } from "./expression/typeChecker";
 import type {
 	CheckPath,
@@ -40,10 +39,11 @@ import {
 	isHiddenSearchInput,
 	isVisibleSearchInput,
 	type Module,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
+	moduleHasCaseListMenuItem,
+	moduleSearchWorkflow,
 	type SearchInputDef,
 	tileCellFor,
-	visibleSearchInputs,
 } from "./modules";
 import {
 	expressionLeafFeature,
@@ -395,17 +395,25 @@ function moduleUses(
 	const owner: PlatformFeatureOwner = { kind: "module", moduleUuid };
 	const list = module.caseListConfig;
 	const search = effectiveCaseSearchConfig(module);
-	const opensOnSearch = moduleOpensOnSearch(module);
+	const workflow = moduleSearchWorkflow(module);
+	// A menu whose forms read the search is one finding: the reads of what was
+	// searched for and found in its forms, and its case list registration
+	// form, ride on it.
+	const formsReadSearch = moduleFormsReadSearch(module);
 	const own: PlatformFeatureUse[] = [];
-	if (opensOnSearch && wanted("search-first"))
-		own.push(slotUse("search-first", owner, "caseSearchConfig.searchFirst"));
+	if (formsReadSearch && wanted("forms-read-search"))
+		own.push(
+			slotUse("forms-read-search", owner, "caseSearchConfig.formsReadSearch"),
+		);
+	if (workflow === "listFirst" && wanted("list-first"))
+		own.push(slotUse("list-first", owner, "caseSearchConfig.workflow"));
 	if (
 		caseSelectionCardinality(module) === "multiple" &&
 		wanted("several-cases")
 	)
 		own.push(slotUse("several-cases", owner, "caseListConfig.selection"));
-	if (module.caseListOnly === true && wanted("case-list-menu-item"))
-		own.push(slotUse("case-list-menu-item", owner, "caseListOnly"));
+	if (moduleHasCaseListMenuItem(module) && wanted("case-list-menu-item"))
+		own.push(slotUse("case-list-menu-item", owner, "caseListMenuItem"));
 	if (list?.tile?.grouping !== undefined && wanted("tile-grouping"))
 		own.push(slotUse("tile-grouping", owner, "caseListConfig.tile.grouping"));
 	if (
@@ -423,16 +431,16 @@ function moduleUses(
 					: "caseSearchConfig.searchScreenSubtitle",
 			),
 		);
-	if (search !== undefined && !opensOnSearch && wanted("search"))
+	if (workflow === "searchFirst" && !formsReadSearch && wanted("search-first"))
+		own.push(slotUse("search-first", owner, "caseSearchConfig.workflow"));
+	if (search !== undefined && !formsReadSearch && wanted("search"))
 		own.push(slotUse("search", owner, "caseSearchConfig"));
 	if (
-		search !== undefined &&
-		!opensOnSearch &&
-		effectiveFilterForEmission(list?.filter) !== undefined &&
-		visibleSearchInputs(list?.searchInputs ?? []).length === 0 &&
+		workflow === "skipToResults" &&
+		!formsReadSearch &&
 		wanted("skip-to-results")
 	)
-		own.push(slotUse("skip-to-results", owner, "caseListConfig.filter"));
+		own.push(slotUse("skip-to-results", owner, "caseSearchConfig.workflow"));
 
 	const columnOwner = (columnUuid: Uuid): PlatformFeatureOwner => ({
 		kind: "column",

@@ -2,8 +2,10 @@ import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
+import type {} from "../../lib/preview-navigation-client";
 import type {} from "../../lib/preview-platforms-client";
 import type {} from "../../lib/preview-search-client";
+import { NAVIGATION_CASES } from "../../lib/previewNavigationFixture";
 import {
 	PREVIEW_PLATFORM_SCENARIOS,
 	type PreviewPlatformScenarioId,
@@ -19,6 +21,11 @@ import { PLATFORM_IDS } from "../../lib/previewPlatformsFixture";
  *
  * Media requests (`/api/media/<asset>`) are answered with one transparent pixel and
  * counted, so a scenario that draws no media proves it by asking for none.
+ *
+ * The navigation tests at the end run the running app's menus in their own
+ * peer (`preview-navigation-client.tsx`): where a menu that searches first
+ * opens on each platform, and where a case chosen from a case list menu
+ * entry beside forms lands.
  */
 
 test.use({ reducedMotion: "reduce", serviceWorkers: "block" });
@@ -30,6 +37,7 @@ const PIXEL = Buffer.from(
 
 let platformsPeer: Awaited<ReturnType<typeof componentPeer>>;
 let searchPeer: Awaited<ReturnType<typeof componentPeer>>;
+let navigationPeer: Awaited<ReturnType<typeof componentPeer>>;
 
 test.beforeAll(async () => {
 	const boundary = resolve("e2e/lib/preview-section-paging-boundary.ts");
@@ -48,10 +56,37 @@ test.beforeAll(async () => {
 		},
 	);
 	searchPeer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	const navigation = resolve("e2e/lib/preview-navigation-boundary.ts");
+	navigationPeer = await componentPeer(
+		"e2e/lib/preview-navigation-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": navigation,
+			"@/lib/preview/engine/lookupDataBinding": navigation,
+			"@/lib/preview/entryPointLaunchAction": navigation,
+			"@/lib/auth/hooks/useAuth": navigation,
+			"@/lib/lookup/actions": navigation,
+			"@/lib/deployment/actions": navigation,
+			"@/lib/doc/platformChangePreflight": navigation,
+			"@/lib/preview/app-tests/actions": navigation,
+			"@/components/builder/app-setup/AppSetupWorkspace": navigation,
+			"@/components/builder/case-operations/CaseOperationDetailCanvas":
+				navigation,
+			"@/components/builder/case-operations/CaseOperationsCanvas": navigation,
+			"@/components/builder/conditions/DisplayConditionCanvas": navigation,
+			"@/components/builder/data-review/DataReviewScreen": navigation,
+			"@/components/builder/form-links/FormLinkDetailCanvas": navigation,
+			"@/components/builder/form-links/FormLinksCanvas": navigation,
+			"@/components/builder/project-data/ProjectDataWorkspace": navigation,
+			"@/components/builder/case-list-config/CaseListConfigWorkspace":
+				navigation,
+		},
+	);
 });
 test.afterAll(async () => {
 	await platformsPeer?.close();
 	await searchPeer?.close();
+	await navigationPeer?.close();
 });
 
 interface Run {
@@ -654,3 +689,171 @@ for (const [id, scenario] of Object.entries(PREVIEW_PLATFORM_SCENARIOS) as [
 		}
 	});
 }
+
+/** Open the navigation peer's fixture as `platform`, on the app's menu. */
+async function openNavigation(
+	page: Page,
+	query: { fixture: string; platform: string; details?: boolean },
+) {
+	await page.setViewportSize({ width: 390, height: 800 });
+	const search = new URLSearchParams({
+		fixture: query.fixture,
+		platform: query.platform,
+	});
+	if (query.details) search.set("details", "");
+	await page.goto(`${navigationPeer.origin}/?${search}`);
+	const main = page.locator("main");
+	await main
+		.getByRole("button", { name: /^Patients\b/ })
+		.click({ timeout: 20_000 });
+	return main;
+}
+
+async function closeNavigation(page: Page) {
+	if (!page.isClosed())
+		await page.evaluate(() => window.previewNavigation?.dispose());
+}
+
+const [FIRST_CASE] = NAVIGATION_CASES;
+
+test("a menu that searches first opens on Search in Web Apps", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "search-first",
+			platform: "web-apps",
+		});
+		await expect(main.getByRole("search", { name: "Search" })).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(
+			main.getByRole("textbox", { name: "Patient name" }),
+		).toBeVisible();
+		await expect(main.getByRole("list", { name: "Cases" })).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("a menu that searches first opens on its case list on Android", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "search-first",
+			platform: "android",
+		});
+		const rows = main
+			.getByRole("list", { name: "Cases", exact: true })
+			.getByRole("listitem");
+		await expect(rows).toHaveCount(NAVIGATION_CASES.length, {
+			timeout: 20_000,
+		});
+		// The worker's own cases show before any search runs.
+		await expect(rows.first()).toContainText(FIRST_CASE);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("in Web Apps a case chosen from the case list entry beside forms shows the screen before it again", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "case-list-entry",
+			platform: "web-apps",
+		});
+		const entry = main.locator("[data-case-list-menu-entry]");
+		await expect(entry).toBeVisible({ timeout: 20_000 });
+		// The entry comes after the menu's forms.
+		const commands = entry.locator("xpath=..").locator(":scope > button");
+		await expect(commands.first()).toContainText("Register");
+		await expect(commands.last()).toHaveAttribute("data-case-list-menu-entry");
+		await entry.click();
+		const choose = main.getByRole("button", {
+			name: `Continue with ${FIRST_CASE}`,
+		});
+		await choose.click({ timeout: 20_000 });
+		// Nothing opens from the entry: the list shows again, nothing chosen.
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+		await expect(choose).toBeVisible();
+		await expect(main.getByRole("button", { name: "Submit" })).toHaveCount(0);
+		await expect(page.getByLabel("At the device home")).toHaveText("false");
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("in Web Apps a case chosen from the entry shows its details, and Continue shows the list again", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "case-list-entry",
+			platform: "web-apps",
+			details: true,
+		});
+		await main.locator("[data-case-list-menu-entry]").click({
+			timeout: 20_000,
+		});
+		const details = main.getByRole("button", {
+			name: `View details for ${FIRST_CASE}`,
+		});
+		await details.click({ timeout: 20_000 });
+		await main.getByRole("button", { name: "Continue", exact: true }).click();
+		await expect(details).toBeVisible();
+		await expect(page.getByLabel("Location")).toHaveText("cases");
+		await expect(main.locator("[data-case-detail-done]")).toHaveCount(0);
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("on Android a case chosen from the entry with no details returns to the phone's home screen", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "case-list-entry",
+			platform: "android",
+		});
+		await main.locator("[data-case-list-menu-entry]").click({
+			timeout: 20_000,
+		});
+		await main
+			.getByRole("button", { name: `Continue with ${FIRST_CASE}` })
+			.click({ timeout: 20_000 });
+		await expect(page.getByLabel("At the device home")).toHaveText("true");
+		await expect(page.getByLabel("Location")).toHaveText("home");
+	} finally {
+		await closeNavigation(page);
+	}
+});
+
+test("on Android a case chosen from the entry shows its details, and Done returns to the list", async ({
+	page,
+}) => {
+	try {
+		const main = await openNavigation(page, {
+			fixture: "case-list-entry",
+			platform: "android",
+			details: true,
+		});
+		await main.locator("[data-case-list-menu-entry]").click({
+			timeout: 20_000,
+		});
+		const details = main.getByRole("button", {
+			name: `View details for ${FIRST_CASE}`,
+		});
+		await details.click({ timeout: 20_000 });
+		const done = main.locator("[data-case-detail-done]");
+		await expect(done).toHaveText("Done");
+		await done.click();
+		await expect(details).toBeVisible();
+		await expect(page.getByLabel("At the device home")).toHaveText("false");
+	} finally {
+		await closeNavigation(page);
+	}
+});

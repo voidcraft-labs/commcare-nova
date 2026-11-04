@@ -587,7 +587,7 @@ describe("ordinary nested-menu wire projection", () => {
 	});
 
 	it("projects root-aware datums for a case-list-only child", () => {
-		const doc = followupNestedDoc({ parentSelect: true, caseListOnly: true });
+		const doc = followupNestedDoc({ parentSelect: true, bareCaseList: true });
 		admitNestedDoc(doc);
 		const hq = expandDoc(doc);
 		const suite = new AdmZip(
@@ -604,7 +604,7 @@ describe("ordinary nested-menu wire projection", () => {
 	});
 
 	it("omits detail-confirm for a nested case list with no Details fields", () => {
-		const doc = followupNestedDoc({ parentSelect: true, caseListOnly: true });
+		const doc = followupNestedDoc({ parentSelect: true, bareCaseList: true });
 		const child = doc.moduleOrder[1];
 		const config = doc.modules[child].caseListConfig;
 		if (config === undefined) throw new Error("missing child case list");

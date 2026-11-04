@@ -142,7 +142,7 @@ export function buildClaimPost(
 	);
 }
 
-/** The claim `<post>` of an inline (search-first) entry and the instances
+/** The claim `<post>` of an inline entry (a menu whose forms read the search) and the instances
  *  its XPath reads. */
 export interface InlineClaimPost {
 	readonly element: Element;
@@ -150,7 +150,7 @@ export interface InlineClaimPost {
 }
 
 /**
- * The claim `<post>` a search-first module's case-requiring entry carries
+ * The claim `<post>` a case-requiring entry of a menu whose forms read the search carries
  * (`EntriesHelper.add_post_to_entry`). Unlike the `<remote-request>` post,
  * it reads the entry's OWN case datum (`case_id`, or the collection
  * `selected_cases`), and under a selected parent it also offers every

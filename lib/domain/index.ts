@@ -8,6 +8,7 @@ export * from "./authoredIdentities";
 export * from "./automations";
 export * from "./blueprint";
 export * from "./builtinIcons";
+export * from "./caseClaim";
 export * from "./caseListOrder";
 export * from "./caseOperationDescription";
 export * from "./caseOperationIdentifiers";

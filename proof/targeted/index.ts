@@ -13,6 +13,7 @@ import {
 	advancedChildModule,
 	advancedHeldKind,
 	advancedModule,
+	commtrackAdvanced,
 	extensionCarried,
 	rootCaseBlockNames,
 } from "./documents/advancedModules";
@@ -20,6 +21,7 @@ import { attributeDisplayCondition } from "./documents/attributeDisplayCondition
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
+import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
 import { caseWritesOneConcept } from "./documents/caseWritesOneConcept";
 import {
@@ -99,6 +101,11 @@ import {
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
+import {
+	searchWorkflow,
+	searchWorkflowAndroid,
+	searchWorkflowInline,
+} from "./documents/searchWorkflows";
 import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { sharedPropertySort } from "./documents/sortKeys";
@@ -198,6 +205,11 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	supplyPointText,
 	fieldListFlags,
 	plainLabels,
+	searchWorkflow,
+	searchWorkflowInline,
+	searchWorkflowAndroid,
+	caseListMenuItem,
+	commtrackAdvanced,
 ];
 
 /** Every targeted document, in a fixed order. */

@@ -10,7 +10,7 @@
  * some declared platform runs `different` or `ignores`: the gate admits no
  * use a declared platform cannot run, so a remedy never shows here. `stated`
  * names a feature to state whatever its reading (the one mount is
- * `search-first` beside a question that reads a Search field). It renders
+ * `forms-read-search` beside a question that reads a Search field). It renders
  * nothing when no feature qualifies, carries no icon and has no dismiss: the
  * difference is a property of the app, not a notice to acknowledge.
  */

@@ -9,10 +9,10 @@
 //      button's visibility at runtime. This rail only summarizes it
 //      (through the shared `ConditionSlotSetting`); the center Search
 //      workbench is its one editing surface.
-//   4. `searchFirst`: the module opens on its Search screen; the browse
-//      list goes away and Results exist only after a search. Offered only
-//      where the commit gate would admit it (a case-first module or a bare
-//      case list), so the switch never invites a refusal.
+//   4. `workflow` and `formsReadSearch`: When this menu opens
+//      (`SearchWorkflowSetting`), what a worker sees first and whether the
+//      menu's forms read the search. Each choice is disabled with its reason
+//      where a declared platform or the gate refuses it, never withheld.
 // The search button's text is not authored: it reads
 // `CASE_SEARCH_BUTTON_LABEL` in every language, and the rail says so.
 // Assigned-case availability is edited only in Results beside the other
@@ -31,7 +31,6 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { type ReactNode, useEffect, useState } from "react";
-import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
@@ -43,7 +42,6 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
-import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
@@ -51,15 +49,18 @@ import {
 	type CaseType,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
+	searchWorkflow,
 	type Uuid,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
-import {
-	type PlatformFeatureId,
-	platformPickerLine,
-	platformRefusal,
-} from "@/lib/domain/platforms";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
+import { SearchWorkflowSetting } from "./SearchWorkflowSetting";
+import {
+	BUTTON_ONLY_SEARCH_SCREEN_LINE,
+	FORMS_READ_SEARCH_NO_BUTTON_LINE,
+	RESULTS_ON_OPEN_LINE,
+} from "./searchWorkflowModel";
 
 export interface SearchPanelInspectorBodyProps {
 	readonly moduleUuid: Uuid | undefined;
@@ -77,24 +78,17 @@ export interface SearchPanelInspectorBodyProps {
 	/** Whether a real Search action exists. Owner-only availability deliberately
 	 * passes false even though it shares the same configuration object. */
 	readonly hasSearchAction?: boolean;
-	/** True only for the actual web auto-launch shape (effective availability
-	 * filter + no inputs), not merely because a search config marker exists. */
-	readonly opensResultsAutomatically?: boolean;
 	/** Opens the Search-action availability condition in the workbench. */
 	readonly onEditDisplayCondition: (focusNewCondition?: boolean) => void;
 	/** The Search-action condition is invalid and needs repair. */
 	readonly searchSettingsHasError?: boolean;
-	/** Whether the module's first screen selects a case (every form works on
-	 *  an existing case, or a case list with no forms), which is what Search
-	 *  first needs. Absent means the switch is withheld. */
-	readonly canOpenOnSearch?: boolean;
 }
 
-/** What the Search screen's platform note can state. */
+/** What the Search screen's platform note can state. Search first's and
+ *  Results first's notes sit under When this menu opens. */
 const SEARCH_PANEL_NOTE_FEATURES: readonly PlatformFeatureId[] = [
 	"search",
 	"search-screen-text",
-	"skip-to-results",
 ];
 
 export function SearchPanelInspectorBody({
@@ -106,10 +100,8 @@ export function SearchPanelInspectorBody({
 	knownInputs = [],
 	hasVisibleSearchScreen = true,
 	hasSearchAction,
-	opensResultsAutomatically = false,
 	onEditDisplayCondition,
 	searchSettingsHasError = false,
-	canOpenOnSearch = false,
 }: SearchPanelInspectorBodyProps) {
 	const expressionContext = useExpressionSlotContext(
 		moduleUuid === undefined
@@ -132,17 +124,12 @@ export function SearchPanelInspectorBody({
 		onChange(setOptionalSlot(value, "searchScreenSubtitle", next));
 	const setDisplayCondition = (next: Expression | undefined) =>
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
-	const searchFirst = value?.searchFirst === true;
-	const platforms = useDeclaredPlatforms();
-	/* Search first a platform the app runs on can't run is offered disabled,
-	 * with that platform's picker line; a stored choice shows as it is. */
-	const searchFirstRefusal = platformRefusal("search-first", platforms);
+	const formsReadSearch = value?.formsReadSearch === true;
+	const workflow = value === undefined ? undefined : searchWorkflow(value);
 	const noteFeatures = useOwnerPlatformFeatures(
 		moduleUuid === undefined ? undefined : { kind: "module", moduleUuid },
 		SEARCH_PANEL_NOTE_FEATURES,
 	);
-	const setSearchFirst = (next: boolean) =>
-		onChange(setOptionalSlot(value, "searchFirst", next ? true : undefined));
 	const searchActionIsActive = hasSearchAction ?? value !== undefined;
 	const advancedIsActive = value?.searchButtonDisplayCondition !== undefined;
 
@@ -173,39 +160,21 @@ export function SearchPanelInspectorBody({
 				</>
 			) : (
 				<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
-					{opensResultsAutomatically
-						? "There's nothing to fill in. Results opens automatically when Search is available, and Cases available decides what people see."
-						: searchActionIsActive
-							? "There's nothing to fill in. Search is available from Results, so people can continue without entering search information."
-							: "People can browse the case list without filling in a Search screen. Add Search from Results when they need a separate continue action."}
+					{!searchActionIsActive
+						? "People can browse the case list without filling in a Search screen. Add Search from Results when they need a separate continue action."
+						: workflow === "skipToResults"
+							? RESULTS_ON_OPEN_LINE
+							: workflow === "searchFirst"
+								? BUTTON_ONLY_SEARCH_SCREEN_LINE
+								: "There's nothing to fill in. Search is available from the case list, so workers can continue without entering search information."}
 				</p>
 			)}
 
-			{searchActionIsActive && (canOpenOnSearch || searchFirst) && (
-				<div data-search-first-setting>
-					<ToggleRow
-						label="Search first"
-						description={
-							searchFirst
-								? "People search before they see any cases. Results shows only what a search finds."
-								: "Open this module on Search instead of a list. Results shows only what a search finds, and its forms return here after submit."
-						}
-						checked={searchFirst}
-						onChange={setSearchFirst}
-						disabledReason={
-							searchFirst || searchFirstRefusal === undefined
-								? undefined
-								: platformPickerLine(searchFirstRefusal)
-						}
-					/>
-					{searchFirst && hasVisibleSearchScreen && (
-						<p className="mt-2 px-1 text-[13px] leading-relaxed text-nova-text-muted">
-							After a form, people return to Search. A search with nothing to
-							fill in runs on its own.
-						</p>
-					)}
-				</div>
-			)}
+			{searchActionIsActive &&
+				moduleUuid !== undefined &&
+				value !== undefined && (
+					<SearchWorkflowSetting moduleUuid={moduleUuid} value={value} />
+				)}
 
 			<PlatformNoteRow features={noteFeatures} className="px-1" />
 
@@ -215,10 +184,10 @@ export function SearchPanelInspectorBody({
 				label="More settings"
 				defaultOpen={false}
 			>
-				{searchFirst && value?.searchButtonDisplayCondition === undefined ? (
+				{formsReadSearch &&
+				value?.searchButtonDisplayCondition === undefined ? (
 					<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
-						This module opens on Search, so there is no Search button to show or
-						hide.
+						{FORMS_READ_SEARCH_NO_BUTTON_LINE}
 					</p>
 				) : (
 					<ConditionSlotSetting

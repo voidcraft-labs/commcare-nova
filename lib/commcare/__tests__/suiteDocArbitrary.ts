@@ -50,6 +50,7 @@
 import * as fc from "fast-check";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { declaredForContent } from "@/lib/doc/platformDeclaration";
+import { authoredSearchWorkflow } from "@/lib/doc/searchWorkflowPlan";
 import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
@@ -83,10 +84,12 @@ import {
 	tileCell,
 	tileGroupHeaderRowChoices,
 	type Uuid,
+	visibleSearchInputs,
 } from "@/lib/domain";
 import {
 	concat,
 	type Expression,
+	effectiveFilterForEmission,
 	eq,
 	input,
 	isBlank,
@@ -568,8 +571,9 @@ interface ModuleGenSpec {
 				defaultSearch: boolean;
 				title: boolean;
 				excludedOwners: boolean;
-				/** Open on Search (inline shape). Applied only where the four
-				 *  search-first rules admit it: every form loads a case, no
+				/** The forms read the search (inline shape), drawn under today's
+				 *  name and mapped through `authoredSearchWorkflow`. Applied only
+				 *  where the rules admit it: every form loads a case, no
 				 *  submenu, and the next module does not select its parent here. */
 				searchFirst: boolean;
 		  };
@@ -846,11 +850,11 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					}),
 		});
 
-		// Search first needs a case-first module. The fuzz oracles nest the
+		// Forms that read the search need a case-first module. The fuzz oracles nest the
 		// second module under the first, and the module after this one may
-		// select its parent from it, so a search-first module is never a root
-		// with submenus and never a parent-select source
-		// (`SEARCH_FIRST_UNIQUE_INSTANCE`).
+		// select its parent from it, so a module whose forms read the search is
+		// never a root with submenus and never a parent-select source
+		// (`FORMS_READ_SEARCH_UNIQUE_INSTANCE`).
 		const nextSelectsParentHere = spec.modules[mIdx + 1]?.isChild === true;
 		const becomesRootOfSubmenu = mIdx === 0 && spec.modules.length > 1;
 		const searchFirst =
@@ -861,6 +865,19 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			) &&
 			!nextSelectsParentHere &&
 			!becomesRootOfSubmenu;
+		// The drawn shape maps as the cutover maps a stored menu's search
+		// (`authoredSearchWorkflow`), with no draw of its own: a draw declares
+		// no platform, which is both, so Web Apps is declared.
+		const workflow = modSpec.searchConfig.present
+			? authoredSearchWorkflow({
+					searchFirst,
+					hasVisibleInput:
+						visibleSearchInputs(caseListConfig.searchInputs).length > 0,
+					hasEffectiveFilter:
+						effectiveFilterForEmission(caseListConfig.filter) !== undefined,
+					declaresWebApps: true,
+				})
+			: undefined;
 		const caseSearchConfig: CaseSearchConfig | undefined = modSpec.searchConfig
 			.present
 			? {
@@ -870,7 +887,12 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					...(modSpec.searchConfig.excludedOwners
 						? { excludedOwnerIds: term(literal("owner-1 owner-2")) }
 						: {}),
-					...(searchFirst ? { searchFirst: true as const } : {}),
+					...(workflow?.workflow !== undefined
+						? { workflow: workflow.workflow }
+						: {}),
+					...(workflow?.formsReadSearch === true
+						? { formsReadSearch: true as const }
+						: {}),
 				}
 			: undefined;
 

@@ -82,18 +82,25 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/date-and-time-xsd-datetime@web-apps":
 		structural("datetime-question"),
 	"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible@android":
-		structural("search-first"),
+		structural("forms-read-search"),
 	"case-search/inline-search-default-search-on-a-module-without-visible-inputs@android":
-		structural("search-first"),
+		structural("forms-read-search"),
 	"menus-and-case-lists/inline-search-in-a-parent-select-module-hq-adds-xpath-query@android":
-		structural("search-first"),
+		structural("forms-read-search"),
 	"menus-and-case-lists/case-list-form-on-a-search-first-host-pointing-at-a-registration@android":
-		structural("search-first"),
-	/* The read is admitted only in a search-first module, which Android refuses. */
+		structural("forms-read-search"),
+	/* The read is admitted only in a menu whose forms read the search, which
+	 * Android refuses. */
 	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module@android":
-		structural("search-first"),
+		structural("forms-read-search"),
 	"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search@android":
-		structural("search-first"),
+		structural("forms-read-search"),
+	"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible@android":
+		structural("forms-read-search"),
+	"case-search/inline-search-default-search-on-a-module-with-visible-inputs@android":
+		structural("forms-read-search"),
+	"case-search/list-first-where-web-apps-is-declared@web-apps":
+		structural("list-first"),
 	"menus-and-case-lists/detail-multi-select@android":
 		structural("several-cases"),
 	"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list@android":
@@ -175,6 +182,10 @@ export const PLATFORM_CELLS: Readonly<
 	),
 	"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true@web-apps":
 		model("case-list-menu-item-web-apps"),
+	"menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms@web-apps":
+		model("case-list-menu-item-web-apps"),
+	"menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule@web-apps":
+		model("case-list-menu-item-web-apps"),
 	"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows@android":
 		model("tiles-flat-android"),
 	"menus-and-case-lists/show-border-show-shading@android": model(
@@ -200,6 +211,8 @@ export const PLATFORM_CELLS: Readonly<
 		model("search-android"),
 	"case-search/workflow-skip-to-default-results-auto-launch-true-default-search@android":
 		model("skip-to-results-android"),
+	"case-search/workflow-search-first-auto-launch-true-default-search-false@android":
+		model("search-first-android"),
 	"forms-and-case-writes/post-form-workflow-default@web-apps": model(
 		"after-submit-home-web-apps",
 	),

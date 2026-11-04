@@ -26,7 +26,11 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import { makeTranslationUnitId, moduleLanding } from "@/lib/domain";
+import {
+	makeTranslationUnitId,
+	moduleIsBareCaseList,
+	moduleLanding,
+} from "@/lib/domain";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -231,16 +235,20 @@ function ModuleListHome() {
 									return;
 								}
 								/* Case-first modules land on the case list (the running
-								 * app hoists the shared case selection); a caseListOnly
-								 * module has no form menu at all, so it too opens straight
-								 * to its case list. `moduleLanding` is the one rule, shared
-								 * with a form's after-submit link to a module. */
+								 * app hoists the shared case selection); a bare case list
+								 * (its case list menu entry and no forms) has no form menu
+								 * at all, so it too opens straight to its case list.
+								 * `moduleLanding` is the one rule, shared with a form's
+								 * after-submit link to a module. */
 								openModuleLanding(
 									navigate,
 									mod.uuid,
 									moduleLanding({
 										isCaseFirst: caseFirstModules.has(mod.uuid),
-										isBareCaseList: mod.caseListOnly === true,
+										isBareCaseList: moduleIsBareCaseList(
+											menuSource.doc,
+											mod.uuid,
+										),
 										hasChildren,
 										hasSelectedCase: menuCaseContext.selectedCase !== undefined,
 									}),

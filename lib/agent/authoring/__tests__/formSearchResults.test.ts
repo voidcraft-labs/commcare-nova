@@ -37,7 +37,7 @@ function searchedForm(shown: boolean) {
 					],
 				},
 				caseSearchConfig: {
-					searchFirst: true,
+					formsReadSearch: true,
 					searchButtonDisplayCondition: eq(
 						literal("a"),
 						literal(shown ? "a" : "b"),

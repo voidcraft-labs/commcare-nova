@@ -36,7 +36,7 @@ const BLUEPRINT = assertAdmittedPreviewDoc(
 			{
 				name: "Patients",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

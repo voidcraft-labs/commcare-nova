@@ -1,16 +1,17 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
+import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import {
 	setFormDisplayConditionMutation,
 	setFormHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
-import { noMatchesFormEntryMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
 import {
 	appConnectIds,
+	caseListRegistrationFormOf,
 	formRootFieldIds,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	POST_SUBMIT_DESTINATIONS,
 } from "@/lib/domain";
 import { conditionSchema } from "@/lib/domain/expression";
@@ -28,16 +29,17 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
+import {
+	CASE_LIST_REGISTRATION_DESCRIPTION,
+	caseListRegistrationEntry,
+	caseListRegistrationInputSchema,
+} from "./shared/caseListRegistration";
 import { enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import {
 	formAddressSchema,
 	resolveFormAddress,
 } from "./shared/entityAddresses";
-import {
-	FORM_ENTRY_DESCRIPTION,
-	formEntryInputSchema,
-} from "./shared/formEntry";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -71,7 +73,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Post-submit destination: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (its normal opening screen), "parentMenu" (the parent module, with its selection kept), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, it opens on Search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. For entry search-no-matches, only explicit firstMenu is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
+				'Post-submit destination: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (its normal opening screen), "parentMenu" (the parent module, with its selection kept), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
 			),
 		connect: connectFormPatchSchema
 			.nullable()
@@ -92,10 +94,12 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"true takes the form off the menu, null puts it back, omission keeps it. Off the menu, the form opens on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions.",
 			),
-		entry: formEntryInputSchema
+		case_list_registration: caseListRegistrationInputSchema
 			.nullable()
 			.optional()
-			.describe(FORM_ENTRY_DESCRIPTION),
+			.describe(
+				`${CASE_LIST_REGISTRATION_DESCRIPTION} null makes it a menu form again, turns formsReadSearch off and removes Search-based starting values; leave it out to keep it.`,
+			),
 	})
 	.strict();
 
@@ -109,15 +113,15 @@ export type UpdateFormResult =
 			hiddenFromMenu?: boolean;
 			postSubmit?: string;
 			navigation?: ReturnType<typeof formNavigation>;
-			entry?: "menu" | "search-no-matches";
-			searchFirst?: boolean;
+			caseListRegistration?: boolean;
+			formsReadSearch?: boolean;
 			clearedSearchDefaults?: string[];
 	  })
 	| { error: string };
 
 export const updateFormTool = {
 	description:
-		"Edit a form's name, purpose, record naming rule, close condition, Connect settings or after-submit navigation.",
+		"Edit a form's name, purpose, record naming rule, close condition, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -135,7 +139,7 @@ export const updateFormTool = {
 			connect,
 			displayCondition,
 			hiddenFromMenu,
-			entry,
+			case_list_registration,
 		} = input;
 		try {
 			const address = resolveFormAddress(doc, {
@@ -166,9 +170,9 @@ export const updateFormTool = {
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
-			if (entry != null) {
-				/* No-matches registration can return to Results or explicitly to the
-				 * app's first menu. */
+			if (case_list_registration != null) {
+				/* A registration from the case list returns to the results or
+				 * explicitly to the app's first menu, and is on no menu. */
 				const effectivePostSubmit =
 					post_submit === undefined ? existing.postSubmit : post_submit;
 				const carried = [
@@ -193,7 +197,7 @@ export const updateFormTool = {
 						kind: "mutate" as const,
 						mutations: [],
 						result: {
-							error: `Form "${existing.name}" cannot open after a search finds no matches while it carries ${carried.join(", ")}: that form can return to Results or First menu and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, hiddenFromMenu: null, remove_form_link) in this call or before, then set entry.`,
+							error: `Form "${existing.name}" can't be its menu's registration from the case list while it carries ${carried.join(", ")}: that form returns to the results or goes to the first menu, and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, hiddenFromMenu: null, remove_form_link) in this call or before, then set case_list_registration.`,
 						},
 					};
 				}
@@ -296,20 +300,19 @@ export const updateFormTool = {
 				...(hiddenFromMenu === undefined
 					? []
 					: [setFormHiddenFromMenuMutation(formUuid, hiddenFromMenu === true)]),
-				/* Setting the entry also opens the module on Search when it does
-				 * not already, in this same batch (`searchNoMatchesForm.ts`). */
-				...(entry === undefined
+				/* Setting the registration from the case list also turns on Forms
+				 * read the search in this same batch; null turns it off and drops
+				 * the starting values read from the search
+				 * (`caseListRegistrationForm.ts`). */
+				...(case_list_registration === undefined
 					? []
-					: noMatchesFormEntryMutations(
+					: caseListRegistrationMutations(
 							doc,
 							module.uuid,
 							formUuid,
-							entry === null
+							case_list_registration === null
 								? null
-								: {
-										kind: entry.kind,
-										...(entry.label != null && { label: entry.label }),
-									},
+								: caseListRegistrationEntry(case_list_registration),
 						)),
 			];
 			if (recordName !== undefined)
@@ -344,7 +347,7 @@ export const updateFormTool = {
 				};
 			}
 			const clearedSearchDefaults =
-				entry === null
+				case_list_registration === null
 					? mutations.flatMap((mutation) =>
 							mutation.kind === "updateField" &&
 							"default_value" in mutation.patch &&
@@ -375,12 +378,10 @@ export const updateFormTool = {
 					...(post_submit !== undefined && {
 						postSubmit: formAfter.postSubmit ?? "form-type-default",
 					}),
-					...(entry !== undefined && {
-						entry:
-							entry === null
-								? ("menu" as const)
-								: ("search-no-matches" as const),
-						searchFirst: moduleOpensOnSearch(newDoc.modules[module.uuid]),
+					...(case_list_registration !== undefined && {
+						caseListRegistration:
+							caseListRegistrationFormOf(newDoc, module.uuid) === formUuid,
+						formsReadSearch: moduleFormsReadSearch(newDoc.modules[module.uuid]),
 					}),
 					...(clearedSearchDefaults.length > 0 && { clearedSearchDefaults }),
 					summary: {

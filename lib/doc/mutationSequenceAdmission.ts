@@ -435,6 +435,7 @@ export function mutationSequenceAdmissionIssue(
 				break;
 			case "renameModule":
 			case "setModuleMedia":
+			case "setCaseListMenuItem":
 			case "setCaseListMeta":
 				break;
 			case "updateModule":

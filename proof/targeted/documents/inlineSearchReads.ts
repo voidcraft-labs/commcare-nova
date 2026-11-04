@@ -2,8 +2,9 @@
  * The forms of a menu that opens on Search reading what the search found
  * (`targeted-inline-search-reads`).
  *
- * "Find patient" opens on Search (an inline search: HQ's query step stays in
- * the form's entry, `suite_xml/sections/entries.py`, so the form reads its
+ * "Find patient" opens on Search and its forms read the search
+ * (`formsReadSearch`, CommCare's inline search: HQ's query step stays in the
+ * form's entry, `suite_xml/sections/entries.py`, so the form reads its
  * results at `instance('results:inline')`). Its "Check in" form counts the
  * patients the search found and reads the chosen patient's district from its
  * own search result, both behind the related-case exclusion HQ's own results
@@ -13,8 +14,8 @@
  * the search answer (`#search/patient_name`), which a form of a module that
  * opens on its search reads from `search-input:results:inline`, and "Find
  * patient"'s list shows the same answer in a calculated column. "Register
- * patient" opens only when the search found nothing and starts its name from
- * the search answer too.
+ * patient", the menu's case list registration form, opens only when the
+ * search found nothing and starts its name from the search answer too.
  *
  * Fixed values: Core's evaluate opens a form with no search behind it, so
  * the hand-fixed value is the plain "Visit" form's answer; the reads of what
@@ -91,7 +92,7 @@ export function inlineSearchReads() {
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Patient search",
-		// Search first runs in Web Apps alone.
+		// Forms that read the search run in Web Apps alone (`forms-read-search`).
 		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		caseTypes: [
 			{
@@ -107,7 +108,8 @@ export function inlineSearchReads() {
 				uuid: module,
 				name: "Find patient",
 				caseType: "patient",
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: { formUuid: uuid("register") },
 				caseListConfig: caseListOf(
 					[
 						plainColumn(uuid("name-column"), "case_name", "Name"),
@@ -181,7 +183,6 @@ export function inlineSearchReads() {
 						uuid: uuid("register"),
 						name: "Register patient",
 						type: "registration",
-						entry: { kind: "search-no-matches" },
 						fields: [
 							f({
 								kind: "text",

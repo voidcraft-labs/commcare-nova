@@ -3,8 +3,7 @@
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import { asUuid, type Mutation, type Uuid } from "@/lib/doc/types";
-import type { MediaAssetId, ModuleIconRef } from "@/lib/domain";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 
 /** Props for the module-appearance section: just the module being edited. */
 interface ModuleAppearanceSectionProps {
@@ -12,38 +11,20 @@ interface ModuleAppearanceSectionProps {
 }
 
 /**
- * The module's two distinct menu surfaces. Every module owns a menu tile
- * (`module.icon` / `audioLabel`) on Home or inside its structural parent. A
- * case-list-only module also owns the link
- * that opens its case list (`caseListConfig.icon` / `audioLabel`). Keeping both
- * here gives appearance one authoring home without collapsing the wire slots.
- * Each edit reconstructs the untouched sibling slot, and clears use explicit
- * JSON-safe `null` sentinels so the SSE wire never drops the intent.
+ * The module's menu tile (`module.icon` / `audioLabel`) on Home or inside its
+ * structural parent. The case list's own menu entry, with its icon and
+ * spoken label, is `CaseListMenuItemSection`. Each edit reconstructs the
+ * untouched sibling slot, and clears use explicit JSON-safe `null` sentinels
+ * so the SSE wire never drops the intent.
  */
 export function ModuleAppearanceSection({
 	moduleUuid,
 }: ModuleAppearanceSectionProps) {
 	const module = useModule(moduleUuid);
 	const parentModule = useModule(module?.parentModuleUuid);
-	const { setModuleMedia, commitMany } = useBlueprintMutations();
+	const { setModuleMedia } = useBlueprintMutations();
 	if (!module) return null;
 	const uuid = asUuid(moduleUuid);
-	const caseListConfig = module.caseListConfig;
-
-	const setCaseListLinkMedia = (
-		icon: ModuleIconRef | undefined,
-		audioLabel: MediaAssetId | undefined,
-	) =>
-		commitMany([
-			{
-				kind: "setCaseListMeta",
-				uuid,
-				patch: {
-					icon: icon ?? null,
-					audioLabel: audioLabel ?? null,
-				},
-			} satisfies Mutation,
-		]);
 
 	return (
 		<div className="space-y-5">
@@ -97,54 +78,6 @@ export function ModuleAppearanceSection({
 					</div>
 				</div>
 			</section>
-
-			{module.caseListOnly && caseListConfig && (
-				<section
-					aria-labelledby={`module-${moduleUuid}-case-link-heading`}
-					className="border-t border-nova-border pt-5"
-				>
-					<h3
-						id={`module-${moduleUuid}-case-link-heading`}
-						className="text-sm font-medium text-nova-text-secondary"
-					>
-						Case list link
-					</h3>
-					<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
-						Shown on the link that opens this case list
-					</p>
-					<div className="mt-3 space-y-2">
-						<div>
-							<span className="mb-1 block text-xs text-nova-text-muted">
-								Icon
-							</span>
-							<SingleAssetSlot
-								value={caseListConfig.icon}
-								kind="image"
-								iconLibrary="module"
-								slotKey={`caselist:${moduleUuid}:icon`}
-								ariaLabel="Case list link icon"
-								onChange={(icon) =>
-									setCaseListLinkMedia(icon, caseListConfig.audioLabel)
-								}
-							/>
-						</div>
-						<div>
-							<span className="mb-1 block text-xs text-nova-text-muted">
-								Spoken label
-							</span>
-							<SingleAssetSlot
-								value={caseListConfig.audioLabel}
-								kind="audio"
-								slotKey={`caselist:${moduleUuid}:audioLabel`}
-								ariaLabel="Case list link spoken label"
-								onChange={(audioLabel) =>
-									setCaseListLinkMedia(caseListConfig.icon, audioLabel)
-								}
-							/>
-						</div>
-					</div>
-				</section>
-			)}
 		</div>
 	);
 }

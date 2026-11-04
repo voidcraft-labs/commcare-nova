@@ -115,6 +115,9 @@ describe("a finding opens the place it names", () => {
 	it("opens a Search feature's finding in the module's Search settings", () => {
 		for (const feature of [
 			"search-first",
+			"skip-to-results",
+			"list-first",
+			"forms-read-search",
 			"search-field-single-date",
 			"search-field-multiple-choice",
 		])
@@ -143,6 +146,29 @@ describe("a finding opens the place it names", () => {
 					),
 				),
 			).toEqual([["openCaseList", MODULE]]);
+	});
+
+	it("opens a case list registration finding at the form it names", () => {
+		expect(
+			opened(
+				finding(
+					"CASE_LIST_REGISTRATION_HAS_NAVIGATION",
+					{ moduleUuid: MODULE },
+					{ formUuid: FORM, formName: "Register patient" },
+				),
+			),
+		).toEqual([["openForm", MODULE, FORM]]);
+	});
+
+	it("opens a Forms read the search finding in the module's Search settings", () => {
+		for (const code of [
+			"FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE",
+			"FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION",
+			"CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH",
+		])
+			expect(
+				opened(finding(code, { moduleUuid: MODULE }, { formUuid: FORM })),
+			).toEqual([["openSearchConfig", MODULE]]);
 	});
 
 	it("opens any other module finding at the module", () => {

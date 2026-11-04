@@ -20,6 +20,7 @@
 
 "use server";
 
+import { z } from "zod";
 import { getSession } from "@/lib/auth-utils";
 import {
 	buildCaseTypeMap,
@@ -98,7 +99,9 @@ import {
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
+	ClaimSearchedCasesResult,
 	ConversionImpactResult,
+	CountClaimedCasesResult,
 	LegacySingleCaseSubmissionMutation,
 	LoadCaseCountResult,
 	LoadCaseDataResult,
@@ -108,6 +111,7 @@ import type {
 	LoadPersonaOwnedCaseCountResult,
 	ParentCaseSelection,
 	PopulateSampleCasesResult,
+	ReleaseClaimedCasesResult,
 	ReplaceParkedValueResult,
 	RestoreParkedValuesResult,
 	SetParkedValuesDismissedResult,
@@ -391,8 +395,6 @@ type RunningCaseReadArgs = {
 	/** The language Preview is showing, which a sort key's option labels
 	 *  and interval text read. */
 	language?: string;
-	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array. */
-	claimedCaseIds?: readonly string[];
 	/** The read is of a search of the module `moduleUuid` names: the Results
 	 *  of a completed search, or a check of cases chosen from them. Submitted
 	 *  `inputValues` say the same. */
@@ -422,7 +424,8 @@ type PreparedRunningCaseRead =
 
 /** Authorize, check the live settings against their module, evaluate the
  * search's checks and its excluded owners, and compose the read. Results and
- * the search snapshot of a search-first module's forms share it, so a form
+ * the search snapshot of the forms of a menu whose forms read the search share
+ * it, so a form
  * reads exactly the cases Results showed for the same search. */
 async function prepareRunningCaseRead(
 	args: RunningCaseReadArgs,
@@ -433,7 +436,6 @@ async function prepareRunningCaseRead(
 	const context = await resolveAuthorizedPreviewContext({
 		appId: args.appId,
 		personaUuid: args.personaUuid,
-		claimedCaseIds: args.claimedCaseIds,
 		required: "view",
 		loadBlueprint: true,
 		device: args.device,
@@ -724,11 +726,11 @@ export async function loadCasesAction(
 }
 
 /**
- * What a search-first module's completed search returned, for its forms to
- * read as `results:inline` (`searchResultsSnapshot.ts`). The arguments are
- * the completed search's own Results read without a page window: the live
- * document and the module's list settings, the answers the worker searched
- * with, the persona and their claims. The read is always the search's
+ * What the completed search of a menu whose forms read the search returned,
+ * for its forms to read as `results:inline` (`searchResultsSnapshot.ts`). The
+ * arguments are the completed search's own Results read without a page
+ * window: the live document and the module's list settings, the answers the
+ * worker searched with, and the persona. The read is always the search's
  * population, so a module with no effective Search has no results to give.
  */
 export async function loadSearchResultsSnapshotAction(
@@ -928,6 +930,140 @@ export async function countCasesOwnedByAction(args: {
 	}
 }
 
+const CLAIM_CASE_GONE_MESSAGE =
+	"This case was removed from the app's case data, so it can't be opened. You can search again to see what's there now.";
+const CLAIM_REFUSED_MESSAGE = "Couldn't open this case. Try again in a moment.";
+const CLAIM_RELEASE_REFUSED_MESSAGE =
+	"Couldn't release the claimed cases. Try again in a moment.";
+const CLAIM_COUNT_REFUSED_MESSAGE =
+	"Couldn't count the claimed cases. Try again in a moment.";
+const CLAIM_VIEWER_MESSAGE =
+	"Opening a case from a search claims it for the worker, which writes to the app's case data, and a viewer of this Project can't write there. A Project admin can give you edit access.";
+const CLAIM_RELEASE_VIEWER_MESSAGE =
+	"Releasing claimed cases writes to the app's case data, and a viewer of this Project can't write there. A Project admin can give you edit access.";
+
+/** A claim action's answer to an authorization refusal: a viewer the store's
+ *  write fence turned away, said so; anything else the IDOR-safe not found. */
+function claimAccessRefusal(
+	err: AppAccessError,
+	viewerMessage: string,
+): { kind: "refused"; message: string } {
+	return {
+		kind: "refused",
+		message:
+			err.reason === "insufficient_role" ? viewerMessage : "App not found.",
+	};
+}
+
+/* The claim actions' plain JSON arguments (a Map, Set or File would make
+ * React encode multipart). The store checks the ids' bounds
+ * (`ClaimCasesInputError`) and the device its shape (`previewDeviceInput`). */
+const claimSearchedCasesArgs = z.object({
+	appId: z.string().min(1),
+	caseIds: z.array(z.string()),
+	personaUuid: z.string().optional(),
+	device: z.unknown().optional(),
+});
+const workerClaimsArgs = z.object({
+	appId: z.string().min(1),
+	personaUuid: z.string().optional(),
+});
+
+/**
+ * Claim the cases the running worker chose from a search, as the claim
+ * request CommCare posts at the chosen result, at a form's entry in a menu
+ * whose forms read the search, or at a Web Apps entry point's launch
+ * (`ota/views.py::claim`). Each claim is a `commcare-case-claim` row the
+ * worker owns with a `host` extension index to the chosen case, so the
+ * worker's restore holds the case from then on. `view` is enough: a claim is
+ * what the running app's navigation does, and a viewer runs Preview.
+ */
+export async function claimSearchedCasesAction(args: {
+	appId: string;
+	caseIds: readonly string[];
+	personaUuid?: string;
+	device?: PreviewDevice;
+}): Promise<ClaimSearchedCasesResult> {
+	try {
+		const parsed = claimSearchedCasesArgs.parse(args);
+		const context = await resolveAuthorizedPreviewContext({
+			appId: parsed.appId,
+			personaUuid: parsed.personaUuid,
+			required: "view",
+			device: parsed.device,
+		});
+		if (context.kind !== "ready") return context;
+		const { created, alreadyClaimed } = await context.store.claimCases({
+			appId: parsed.appId,
+			caseIds: parsed.caseIds,
+		});
+		return { kind: "claimed", created, alreadyClaimed };
+	} catch (err) {
+		if (err instanceof CaseNotFoundError)
+			return { kind: "case-gone", message: CLAIM_CASE_GONE_MESSAGE };
+		if (err instanceof AppAccessError)
+			return claimAccessRefusal(err, CLAIM_VIEWER_MESSAGE);
+		reportUnexpectedActionError("claimSearchedCases", err, {
+			appId: args.appId,
+		});
+		return { kind: "refused", message: CLAIM_REFUSED_MESSAGE };
+	}
+}
+
+/** Close every claim the running worker holds in this app, Release claimed
+ *  cases in the identity menu. A closed claim seeds nothing, so its host
+ *  leaves the worker's device unless the worker holds it another way. */
+export async function releaseClaimedCasesAction(args: {
+	appId: string;
+	personaUuid?: string;
+}): Promise<ReleaseClaimedCasesResult> {
+	try {
+		const parsed = workerClaimsArgs.parse(args);
+		const context = await resolveAuthorizedPreviewContext({
+			appId: parsed.appId,
+			personaUuid: parsed.personaUuid,
+			required: "view",
+		});
+		if (context.kind !== "ready") return context;
+		const { released } = await context.store.releaseClaims({
+			appId: parsed.appId,
+		});
+		return { kind: "released", released };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return claimAccessRefusal(err, CLAIM_RELEASE_VIEWER_MESSAGE);
+		reportUnexpectedActionError("releaseClaimedCases", err, {
+			appId: args.appId,
+		});
+		return { kind: "refused", message: CLAIM_RELEASE_REFUSED_MESSAGE };
+	}
+}
+
+/** How many open claims the running worker holds in this app. */
+export async function countClaimedCasesAction(args: {
+	appId: string;
+	personaUuid?: string;
+}): Promise<CountClaimedCasesResult> {
+	try {
+		const parsed = workerClaimsArgs.parse(args);
+		const context = await resolveAuthorizedPreviewContext({
+			appId: parsed.appId,
+			personaUuid: parsed.personaUuid,
+			required: "view",
+		});
+		if (context.kind !== "ready") return context;
+		const count = await context.store.countClaims({ appId: parsed.appId });
+		return { kind: "count", count };
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "refused", message: "App not found." };
+		reportUnexpectedActionError("countClaimedCases", err, {
+			appId: args.appId,
+		});
+		return { kind: "refused", message: CLAIM_COUNT_REFUSED_MESSAGE };
+	}
+}
+
 /**
  * The consent preview for a failable kind conversion: what retyping
  * `(caseType, property)` to `toType` would do to the stored rows —
@@ -1011,9 +1147,6 @@ export async function loadCaseDataAction(
 	parentCase?: ParentCaseSelection,
 	blueprint?: BlueprintDoc,
 	moduleUuid?: string,
-	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array;
-	 *  read only with `deviceScoped`. */
-	claimedCaseIds?: readonly string[],
 	/** The case was chosen from the Results of a search of `moduleUuid`, so a
 	 *  device-scoped read reads it as the search found it. */
 	search?: boolean,
@@ -1022,7 +1155,7 @@ export async function loadCaseDataAction(
 	viewerLocation?: ViewerLocation | null,
 	/** The device Preview runs on (`previewDevice.ts`), plain JSON. */
 	device?: PreviewDevice,
-	/** A search-first module's completed search answers, plain JSON: what its
+	/** The completed search answers of a menu whose forms read the search, plain JSON: what its
 	 *  detail columns read as `#search/<name>`. */
 	searchAnswers?: Readonly<Record<string, string>>,
 ): Promise<LoadCaseDataResult> {
@@ -1030,7 +1163,6 @@ export async function loadCaseDataAction(
 		const context = await resolveAuthorizedPreviewContext({
 			appId,
 			personaUuid,
-			claimedCaseIds: deviceScoped === true ? claimedCaseIds : undefined,
 			required: "view",
 			loadBlueprint: true,
 			device,
@@ -1119,14 +1251,13 @@ export async function loadCaseDataAction(
 }
 
 /** Load the selected worker's complete device casedb. The client supplies only
- * an app id, an optional persona selector, the worker's claims and whether a
- * form reads places; authorization, committed topology, actor/owner
- * separation, and restore-scope expansion are all server-owned. */
+ * an app id, an optional persona selector and whether a form reads places;
+ * authorization, committed topology, actor/owner separation, and
+ * restore-scope expansion are all server-owned. The worker's claims are case
+ * rows it owns, so the restore holds them and their hosts. */
 export async function loadCaseDatabaseSnapshotAction(
 	appId: string,
 	personaUuid?: string,
-	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array. */
-	claimedCaseIds?: readonly string[],
 	/** Some form reads places (`expressionCaseReads.ts::appReadsPlaces`, over
 	 * the builder's document, which an edit reaches before its save), so the
 	 * snapshot carries the worker's `locations` fixture. Places are the
@@ -1138,7 +1269,6 @@ export async function loadCaseDatabaseSnapshotAction(
 		const context = await resolveAuthorizedPreviewContext({
 			appId,
 			personaUuid,
-			claimedCaseIds,
 			required: "view",
 			loadBlueprint: true,
 		});

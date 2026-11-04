@@ -1,5 +1,6 @@
 /**
- * The wire constants of the no-matches registration form, shared by the
+ * The wire constants of a case list registration form offered after an
+ * empty search (`Module.caseListRegistrationForm`), shared by the
  * local suite compiler and the HQ-JSON expander so the two paths cannot
  * drift (`docs/architecture/complex-apps.md` § Register when nothing matches).
  */

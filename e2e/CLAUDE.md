@@ -97,7 +97,7 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   client and proves another client can still read its session.
 - **Profiles include their own prerequisites.** App-list and delete journeys need
   another active app or destination Project for the UI they assert. Organization,
-  case changes, after-submit, search-first, localization and deep-link journeys
+  case changes, after-submit, forms-read-search, localization and deep-link journeys
   each own the full authored fixture, as do the refused-preload, location-column
   and search-claim Preview journeys (`e2e/lib/previewRuntimeSeeds.ts`). The
   refused preload's record is written straight into `cases`, as an import leaves

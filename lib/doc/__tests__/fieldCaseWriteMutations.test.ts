@@ -170,7 +170,7 @@ function fixture(): BlueprintDoc {
 				{
 					name: "Members",
 					caseType: "member",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

@@ -9,18 +9,19 @@
  *   so neither the list nor its sort reads the refused value.
  * - **here-column**: a case list whose calculated column is a raw `here()`,
  *   which fills from the browser's position and re-reads on Android's rule.
- * - **search-claim**: a search-first module whose one matching record is
- *   owned by a persona other than the one searching, so opening its form
- *   depends on the search's claim bringing the case onto the device.
- * - **search-results**: a search-first module whose form reads what the
- *   search found, so it opens only after a completed search; reached from a
- *   reloaded record link, which keeps no search, it offers the way back to
- *   Search instead.
- * - **search-choice**: a search-first module whose Radius field narrows sites
- *   to those near a point. The journey authors "Depends on a condition" and a
- *   distance read from the Radius answer in that field's condition, then
- *   watches Preview's results change with the Area and Radius answers. Three
- *   sites sit about 1, 6 and 56 kilometers from the point.
+ * - **search-claim**: a menu whose forms read the search and whose one
+ *   matching record is owned by a persona other than the one searching, so
+ *   opening its form depends on the search's claim bringing the case onto
+ *   the device.
+ * - **search-results**: a menu whose form reads what the search found, so it
+ *   opens only after a completed search; reached from a reloaded record
+ *   link, which keeps no search, it offers the way back to Search instead.
+ * - **search-choice**: a menu whose forms read the search and whose Radius
+ *   field narrows sites to those near a point. The journey authors "Depends
+ *   on a condition" and a distance read from the Radius answer in that
+ *   field's condition, then watches Preview's results change with the Area
+ *   and Radius answers. Three sites sit about 1, 6 and 56 kilometers from
+ *   the point.
  *
  * - **preview-android-media**: an app that runs only on Android whose one
  *   question's label carries an AMR recording, which only Android plays, so
@@ -239,7 +240,7 @@ export function buildSearchClaimBlueprint(appId: string): BlueprintDoc {
 						),
 					],
 				},
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				forms: [
 					{
 						name: seed.formName,
@@ -312,7 +313,7 @@ export function buildSearchResultsBlueprint(appId: string): BlueprintDoc {
 						),
 					],
 				},
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				forms: [
 					{
 						name: seed.formName,
@@ -418,7 +419,7 @@ export function buildSearchChoiceBlueprint(appId: string): BlueprintDoc {
 						),
 					],
 				},
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				forms: [
 					{
 						name: "Visit site",

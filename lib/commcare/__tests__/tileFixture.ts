@@ -65,9 +65,15 @@ export function tileFixture(scenario: TileScenario) {
 				caseType: "visit",
 				caseListConfig: config,
 				...(scenario === "grouped-search"
-					? { caseSearchConfig: { searchScreenTitle: "Find a visit" } }
+					? {
+							// Nothing to fill in: the search runs as the menu opens.
+							caseSearchConfig: {
+								searchScreenTitle: "Find a visit",
+								workflow: "skipToResults" as const,
+							},
+						}
 					: {}),
-				...(scenario === "grouped-browse" ? { caseListOnly: true } : {}),
+				...(scenario === "grouped-browse" ? { caseListMenuItem: {} } : {}),
 				forms:
 					scenario === "grouped-browse"
 						? []

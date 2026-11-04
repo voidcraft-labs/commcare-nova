@@ -21,6 +21,7 @@
  */
 
 import type { z } from "zod";
+import { withWorkflowAfterInputChange } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { updateSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -105,7 +106,7 @@ export const updateSearchInputTool = {
 
 			const commit = await guardedMutate(
 				ctx,
-				result.mutations,
+				withWorkflowAfterInputChange(doc, result.mutations),
 				`module:${moduleUuid}:caseList:searchInput:update`,
 			);
 			if (!commit.ok) {
