@@ -2,6 +2,13 @@
  * Step `writes-into-operations` (part 09 §7.4; part 01 §22's C9, C1 to C3
  * and C10, with part 02's extension creates), per form in menu order:
  *
+ * 0. Stored capture reads. A case operation's write whose whole value is a
+ *    capture question's bare answer saved the file's name at `main`; the
+ *    head saves a capture only as the link to its file (`capture-link`), so
+ *    the write's value becomes that link and the question gets
+ *    `capture-saves-link-not-name`. Where the link can't be saved there (a
+ *    case's name, its external id, or a property whose type holds no text)
+ *    it is the blocker `capture-write-unlinkable`, the author's to move.
  * 1. C9. A follow-up or close form's `close` operations of the case it
  *    loads become the form's own close. One under `forEach` is the blocker
  *    `own-close-in-repeat`: its close would run once per row, which no close
@@ -24,9 +31,10 @@
  * Any other `update` of the own case stays an operation (part 01's class
  * (e)): its writes are not folded into the own arm.
  *
- * C9 rewrites the document directly rather than through a mutation batch:
- * turning a `close` into an `update` with the same uuid is a removal and a
- * new claim of that uuid, which mutation admission refuses
+ * Clause 0 applies `update-write` patches, the edit every editor makes to
+ * a write's value. C9 rewrites the document directly rather than through a
+ * mutation batch: turning a `close` into an `update` with the same uuid is
+ * a removal and a new claim of that uuid, which mutation admission refuses
  * (`lib/doc/mutationIdentityAdmission.ts`: no claim reintroduces a removed
  * identity), and no operation patch changes an operation's action. The
  * result is a document the head schema reads, and `judge-target`'s gate
@@ -43,14 +51,19 @@ import {
 	caseWriteKeyOf,
 	type Expression,
 	type Form,
+	isCaptureFieldKind,
 	type OwnCaseOperation,
 	sameCaseWriteKey,
 	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
+import { inferExpressionTypes } from "@/lib/domain/expression/inference";
 import { reduceOr } from "@/lib/domain/expression/reduction";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import { isWriteAssignable } from "@/lib/domain/expression/ruleSets";
+import { valueKindPhrase } from "@/lib/domain/valueKindPhrases";
 import type { MigrationNoticeEntry } from "@/lib/notices/migrationNotice";
-import { formBecameCloseForm } from "../notice";
+import { captureSavesLinkNotName, formBecameCloseForm } from "../notice";
 import type { BlockerPlace, LiftedFacts, PlannedChange } from "../types";
 import {
 	applyStepMutations,
@@ -63,6 +76,7 @@ import {
 /** The change kinds this step plans, as the report's `steps` line counts
  *  them. */
 export const WRITES_INTO_OPERATIONS_CHANGES = [
+	"capture-write-linked",
 	"own-close-folded",
 	"operations-from-field-writes",
 	"duplicate-own-write-removed",
@@ -215,6 +229,136 @@ function foldOwnCloses(form: Form): FoldOutcome {
 	};
 }
 
+// ─── Stored capture reads ─────────────────────────────────────────────────
+
+/** The capture question whose bare answer `value` is, if it is one. */
+function bareCaptureAnswer(
+	doc: BlueprintDoc,
+	value: Expression | undefined,
+): Uuid | undefined {
+	if (value?.kind !== "term" || value.term.kind !== "field") return undefined;
+	const term = value.term;
+	if (term.role !== undefined || term.filters !== undefined) return undefined;
+	const field = doc.fields[term.uuid];
+	return field !== undefined && isCaptureFieldKind(field.kind)
+		? term.uuid
+		: undefined;
+}
+
+/**
+ * What clause 0 found: the `update-write` patches that save each capture's
+ * link where an operation saved its answer, with their changes and lines,
+ * or the places the link can't be saved.
+ */
+interface CaptureLinking {
+	readonly mutations: readonly Mutation[];
+	readonly changes: readonly PlannedChange[];
+	readonly notice: readonly MigrationNoticeEntry[];
+	readonly places: readonly BlockerPlace[];
+}
+
+/**
+ * Clause 0: every stored operation write whose whole value is a capture's
+ * bare answer saves the capture's link instead. A capture named as a case's
+ * name, saved as its external id, or saved to a property whose type holds
+ * no text is the blocker `capture-write-unlinkable`: the link can't be saved
+ * there, and the file's name is no value the head saves.
+ */
+function linkCaptureWrites(
+	doc: BlueprintDoc,
+	order: readonly Uuid[],
+): CaptureLinking {
+	const places: BlockerPlace[] = [];
+	const changes: PlannedChange[] = [];
+	const notice: MigrationNoticeEntry[] = [];
+	const mutations: Mutation[] = [];
+	const catalog = doc.caseTypes ?? [];
+	let propertyTypes:
+		| ReturnType<typeof inferExpressionTypes>["propertyTypes"]
+		| undefined;
+	const question = (uuid: Uuid) => doc.fields[uuid]?.id ?? "a capture";
+	for (const formUuid of order) {
+		const form = doc.forms[formUuid];
+		const place = (fieldUuid: Uuid, findingCode: string, message: string) =>
+			places.push({
+				entity: { kind: "field", uuid: fieldUuid, name: question(fieldUuid) },
+				findingCode,
+				message,
+			});
+		let linked = 0;
+		for (const operation of form.caseOperations ?? []) {
+			// Stored operations at `main` hold no own arm: C1 to C3 make it.
+			if (operation.action === "own") continue;
+			const named = bareCaptureAnswer(doc, operation.name);
+			if (named !== undefined)
+				place(
+					named,
+					"case-name",
+					`“${operation.id}” in “${form.name}” names its case with the file “${question(named)}” captures. Nova now saves a capture as a link to its file, and CommCare keeps a case's name as its own text. You can name the case from another question, and save the file to a property of its own.`,
+				);
+			const caseType = operation.retype ?? operation.caseType;
+			for (const write of operation.writes ?? []) {
+				const capture = bareCaptureAnswer(doc, write.value);
+				if (capture === undefined) continue;
+				if (write.property === "external_id") {
+					place(
+						capture,
+						"external-id",
+						`“${operation.id}” in “${form.name}” saves the file “${question(capture)}” captures as the case's external id. Nova now saves a capture as a link to its file, and CommCare keeps a case's external id as its own text. You can save the file to a property of its own.`,
+					);
+					continue;
+				}
+				const destination = resolveRelationDestination(
+					write.via === undefined
+						? undefined
+						: { kind: "ancestor", via: write.via },
+					caseType,
+					catalog,
+				);
+				propertyTypes ??= inferExpressionTypes(doc).propertyTypes;
+				const type = destination.ok
+					? propertyTypes.get(destination.caseType)?.get(write.property)?.type
+					: undefined;
+				if (type !== undefined && !isWriteAssignable("text", type, false)) {
+					place(
+						capture,
+						"property-type",
+						`“${operation.id}” in “${form.name}” saves the file “${question(capture)}” captures to “${write.property}”, which holds ${valueKindPhrase(type)}. Nova now saves a capture as a link to its file, which is text. You can save the file to a property of its own.`,
+					);
+					continue;
+				}
+				linked++;
+				mutations.push(
+					caseOperationEdit(formUuid, {
+						caseOperationPatch: {
+							operation: "update-write",
+							uuid: operation.uuid,
+							key: caseWriteKeyOf(write),
+							patch: {
+								value: {
+									kind: "term",
+									term: { kind: "capture-link", field: capture },
+								},
+							},
+						},
+					}),
+				);
+				notice.push(
+					captureSavesLinkNotName(
+						{ uuid: capture, name: question(capture) },
+						{ form: form.name, property: write.property },
+					),
+				);
+			}
+		}
+		if (linked > 0)
+			changes.push(
+				change("capture-write-linked", formUuid, { writes: linked }),
+			);
+	}
+	return { mutations, changes, notice, places };
+}
+
 // ─── C10 ──────────────────────────────────────────────────────────────────
 
 function caseOperationEdit(
@@ -306,26 +450,49 @@ export function writesIntoOperations(
 ): WritesIntoOperationsResult {
 	const order = formsInMenuOrder(input);
 
-	/* C9 first, over every form: a form whose close ran per row stops the
-	 * app before any form is rewritten. */
+	/* Clause 0 and C9 first, over every form: a capture the head can't save
+	 * as a link or a form whose close ran per row stops the app before any
+	 * form is rewritten. */
+	const captures = linkCaptureWrites(input, order);
+	/* Clause 0's patches change only write values, which C9 never reads,
+	 * so C9 folds the forms they leave. */
+	const applied =
+		captures.places.length === 0
+			? applyStepMutations(input, captures.mutations)
+			: ({ ok: true, doc: input } as const);
+	if (!applied.ok)
+		return { ...stoppedStep(input, [applied.blocker]), ownCloses: [] };
+	const linked = applied.doc;
 	const inRepeat: BlockerPlace[] = [];
 	const folds = new Map<Uuid, Extract<FoldOutcome, { kind: "folded" }>>();
 	for (const formUuid of order) {
-		const outcome = foldOwnCloses(input.forms[formUuid]);
+		const outcome = foldOwnCloses(linked.forms[formUuid]);
 		if (outcome.kind === "blocked") inRepeat.push(...outcome.places);
 		if (outcome.kind === "folded") folds.set(formUuid, outcome);
 	}
-	if (inRepeat.length > 0)
-		return {
-			...stoppedStep(input, [
-				stepBlocker("own-close-in-repeat", inRepeat.length, [], inRepeat),
-			]),
-			ownCloses: [],
-		};
+	const blockers = [
+		...(captures.places.length > 0
+			? [
+					stepBlocker(
+						"capture-write-unlinkable",
+						captures.places.length,
+						captures.places.flatMap((place) =>
+							place.findingCode === undefined ? [] : [place.findingCode],
+						),
+						captures.places,
+					),
+				]
+			: []),
+		...(inRepeat.length > 0
+			? [stepBlocker("own-close-in-repeat", inRepeat.length, [], inRepeat)]
+			: []),
+	];
+	if (blockers.length > 0)
+		return { ...stoppedStep(input, blockers), ownCloses: [] };
 
-	let doc = input;
-	const changes: PlannedChange[] = [];
-	const notice: MigrationNoticeEntry[] = [];
+	let doc = linked;
+	const changes: PlannedChange[] = [...captures.changes];
+	const notice: MigrationNoticeEntry[] = [...captures.notice];
 	const ownCloses: OwnCloseFold[] = [];
 	for (const formUuid of order) {
 		const folded = folds.get(formUuid);

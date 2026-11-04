@@ -595,6 +595,11 @@ const ENTRIES: Record<
 		form: "Visit",
 		property: "card_photo",
 	}),
+	"capture-saves-link-not-name": documentEntries(
+		"capture-saves-link-not-name",
+		FIELD_ENTITY,
+		{ form: "Visit", property: "card_photo" },
+	),
 	"form-became-close-form": documentEntries(
 		"form-became-close-form",
 		FORM_ENTITY,
@@ -2525,7 +2530,7 @@ describe("the case-writes cutover's lines", () => {
 	});
 
 	it("name an entity by its name today, and a removed one by the name it had", () => {
-		expect(CASE_WRITES_DOCUMENT_REASONS).toHaveLength(17);
+		expect(CASE_WRITES_DOCUMENT_REASONS).toHaveLength(18);
 		const renamed: NoticeRenderContext = {
 			nameOf: (entity) => `${entity.nameAtMigration} today`,
 		};
@@ -2564,6 +2569,22 @@ describe("the case-writes cutover's lines", () => {
 		);
 		expect(render(doc("capture-saves-link", field("Photo")))).toBe(
 			"Photo: it now saves a link to the file on the case, where it saved the file itself. Files already saved on cases stay there.",
+		);
+	});
+
+	it("say a capture an operation saved by its file's name now saves a link, naming the property where it can", () => {
+		expect(
+			render(
+				doc("capture-saves-link-not-name", field("Photo"), {
+					form: "Intake",
+					property: "photo_link",
+				}),
+			),
+		).toBe(
+			"Intake, Photo: it now saves a link to the file in photo_link, where it saved the file's name. Cases saved before keep the name.",
+		);
+		expect(render(doc("capture-saves-link-not-name", field("Photo")))).toBe(
+			"Photo: it now saves a link to the file on the case, where it saved the file's name. Cases saved before keep the name.",
 		);
 	});
 

@@ -1,6 +1,28 @@
 {
 	"format": "hq-round-trip-case-writes-pre-step-facts-1",
 	"fixtures": {
+		"pre-step-capture-answer-written": {
+			"placements": [
+				{
+					"formUuid": "a1e8bb63-ba08-5faf-ad32-a03506280a13",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "afc0051e-ada8-5a12-a124-2f58d21a884e",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "afc0051e-ada8-5a12-a124-2f58d21a884e",
+					"unit": "operation:24425fc8-6bd6-52bc-a5e7-c5be901ce6f8",
+					"emitted": "save-to-case:root:nova_operations/save_photo"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
 		"pre-step-duplicate-own-write": {
 			"placements": [
 				{

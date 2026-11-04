@@ -75,6 +75,7 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"datetime-question-split",
 	"media-not-played-removed",
 	"capture-saves-link",
+	"capture-saves-link-not-name",
 	"form-became-close-form",
 	"form-links-conditions-written",
 	"form-link-otherwise-set",

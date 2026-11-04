@@ -17,6 +17,7 @@ import { renderNoticeEntry } from "@/lib/notices/migrationNoticeCopy";
 import {
 	afterSubmitDestinationDropped,
 	captureSavesLink,
+	captureSavesLinkNotName,
 	caseAttachmentsStop,
 	deepLinksNeedRepublish,
 	entriesForApp,
@@ -95,6 +96,24 @@ describe("document lines", () => {
 				detail: { form: form.name, property: "photo" },
 			},
 			reads: [form.name, field.name, "in photo"],
+		},
+		{
+			name: "capture-saves-link-not-name",
+			entry: captureSavesLinkNotName(field, {
+				form: form.name,
+				property: "photo",
+			}),
+			expected: {
+				kind: "document",
+				reason: "capture-saves-link-not-name",
+				entity: {
+					type: "field",
+					uuid: field.uuid,
+					nameAtMigration: field.name,
+				},
+				detail: { form: form.name, property: "photo" },
+			},
+			reads: [form.name, field.name, "in photo", "the file's name"],
 		},
 		{
 			name: "form-became-close-form",

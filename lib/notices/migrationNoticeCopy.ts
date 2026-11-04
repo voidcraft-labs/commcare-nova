@@ -988,6 +988,21 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is the capture question; `detail.form` names its form and
+	 * `detail.property` the case property a case operation saved its answer
+	 * to, the file's name, where it now saves the link. */
+	"capture-saves-link-not-name": (entry: DocumentNoticeEntry, ctx) => {
+		const property = entry.detail?.property;
+		return noticeLine([
+			...formBeside(entry.detail?.form),
+			entityPart(entry.entity, ctx),
+			text(
+				property === undefined
+					? ": it now saves a link to the file on the case, where it saved the file's name. Cases saved before keep the name."
+					: `: it now saves a link to the file in ${property}, where it saved the file's name. Cases saved before keep the name.`,
+			),
+		]);
+	},
 	/* The entity is the follow-up form that is now a close form. */
 	"form-became-close-form": (entry: DocumentNoticeEntry, ctx) =>
 		noticeLine([

@@ -599,6 +599,11 @@ const REAL_ENTRIES = {
 		form: "Visit",
 		property: "photo_link",
 	}),
+	"capture-saves-link-not-name": fieldEntry(
+		"capture-saves-link-not-name",
+		"Photo",
+		{ form: "Visit", property: "photo_link" },
+	),
 	"form-became-close-form": formEntry("form-became-close-form"),
 	"form-links-conditions-written": formEntry("form-links-conditions-written", {
 		links: "2",
@@ -876,6 +881,7 @@ describe("the reasons' order", () => {
 		).toEqual([
 			"media-not-played-removed",
 			"capture-saves-link",
+			"capture-saves-link-not-name",
 			"form-became-close-form",
 			"form-links-conditions-written",
 			"form-link-otherwise-set",

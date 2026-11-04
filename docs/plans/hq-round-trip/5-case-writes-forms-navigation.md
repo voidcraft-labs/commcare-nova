@@ -609,7 +609,7 @@ One direct maintenance cutover (`docs/architecture/contracts.md`), planned in fu
   (part 09 §16).
 - **A notice on every affected app**, cutover `hq-round-trip-case-writes`, its lead "On ${day}, Nova
   changed how it stores what forms save to cases, where workers go after a form, and how some questions
-  are counted and shown. Here is what that means for this app.", seventeen document reasons, three new
+  are counted and shown. Here is what that means for this app.", eighteen document reasons, three new
   deployment reasons (`placements-kept-unread`, `form-data-paths-move`, `case-attachments-stop`),
   `next-publish-asks-more` extended with `commtrack-off` and `same-type-child-links`, and the reused
   `unsaved-assistant-work-discarded` and `deep-links-need-republish` (part 09 §17).

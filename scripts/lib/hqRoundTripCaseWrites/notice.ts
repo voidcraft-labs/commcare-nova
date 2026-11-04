@@ -153,6 +153,22 @@ export function captureSavesLink(
 	);
 }
 
+/** Step `writes-into-operations`, clause 0: a capture question whose bare
+ *  answer an operation saved, the file's name, now saves its link. */
+export function captureSavesLinkNotName(
+	field: NamedEntity,
+	at: { readonly form: string; readonly property: string },
+): DocumentNoticeEntry {
+	return documentEntry(
+		"capture-saves-link-not-name",
+		entity("field", field),
+		detailOf({
+			form: detailName(at.form),
+			property: detailName(at.property),
+		}),
+	);
+}
+
 /** Step `writes-into-operations` (C9): a follow-up form whose own close ran
  *  through a case operation is now a close form. */
 export function formBecameCloseForm(form: NamedEntity): DocumentNoticeEntry {

@@ -99,6 +99,7 @@ export const BLOCKER_CODES = [
 	"renamed-concept-conflict",
 	"structure-parse",
 	"transform-admission",
+	"capture-write-unlinkable",
 	"own-close-in-repeat",
 	"baseline-unreadable",
 	"placement-path-mismatch",

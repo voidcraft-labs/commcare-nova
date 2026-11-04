@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -212,6 +213,106 @@ describe("writes-into-operations: C9", () => {
 		expect(twice.notice).toEqual([]);
 		expect(twice.doc).toEqual(once.doc);
 	});
+});
+
+describe("writes-into-operations: a capture's answer saved by an operation", () => {
+	const id = "pre-step-capture-answer-written";
+	const fixture = parsed(id);
+	const at = (name: string) => testUuid(`${id}-${name}`);
+	const answer: Expression = {
+		kind: "term",
+		term: { kind: "field", uuid: at("photo") },
+	};
+	/** The fixture with the Snap update's one write changed. */
+	const writing = (
+		edit: (operation: CaseOperation, doc: BlueprintDoc) => void,
+	) =>
+		planted(fixture.doc, (doc) => {
+			const update = doc.forms[at("snap")]?.caseOperations?.[0];
+			if (update === undefined) throw new Error("No Snap update.");
+			edit(update, doc);
+		});
+
+	it("saves the capture's link where it saved the file's name, and names the change", () => {
+		const result = writesIntoOperations(fixture.doc, fixture.facts);
+		expect(result.blockers).toEqual([]);
+		expect(
+			operationOf(formOf(result.doc, at("snap")), at("snap-update")).writes,
+		).toEqual([
+			{
+				property: "photo_name",
+				value: {
+					kind: "term",
+					term: { kind: "capture-link", field: at("photo") },
+				},
+			},
+		]);
+		expect(result.changes[0]).toEqual({
+			step: "writes-into-operations",
+			kind: "capture-write-linked",
+			entityUuid: at("snap"),
+			detail: { writes: 1 },
+		});
+		expect(result.notice).toEqual([
+			{
+				kind: "document",
+				reason: "capture-saves-link-not-name",
+				entity: { type: "field", uuid: at("photo"), nameAtMigration: "photo" },
+				detail: { form: "Snap", property: "photo_name" },
+			},
+		]);
+		expectEntries(result.notice);
+		const twice = writesIntoOperations(result.doc, fixture.facts);
+		expect(twice.changes).toEqual([]);
+		expect(twice.doc).toEqual(result.doc);
+	});
+
+	it.each([
+		[
+			"external-id",
+			(operation: CaseOperation) => {
+				if (operation.writes?.[0]) operation.writes[0].property = "external_id";
+			},
+			"saves the file “photo” captures as the case's external id",
+		],
+		[
+			"property-type",
+			(_operation: CaseOperation, doc: BlueprintDoc) => {
+				const photoName = doc.caseTypes?.[0]?.properties.find(
+					(property) => property.name === "photo_name",
+				);
+				if (photoName) photoName.data_type = "int";
+			},
+			"saves the file “photo” captures to “photo_name”, which holds a whole number",
+		],
+		[
+			"case-name",
+			(operation: CaseOperation) => {
+				operation.name = answer;
+			},
+			"names its case with the file “photo” captures",
+		],
+	] as const)(
+		"stops the app at capture-write-unlinkable where the link can't be saved: %s",
+		(code, edit, sentence) => {
+			const before = writing(edit);
+			const result = writesIntoOperations(before, fixture.facts);
+			expect(result.blockers).toEqual([
+				expect.objectContaining({
+					code: "capture-write-unlinkable",
+					findingCodes: [code],
+					places: [
+						expect.objectContaining({
+							entity: { kind: "field", uuid: at("photo"), name: "photo" },
+							findingCode: code,
+							message: expect.stringContaining(sentence),
+						}),
+					],
+				}),
+			]);
+			expect(result.doc).toBe(before);
+		},
+	);
 });
 
 describe("writes-into-operations: C1 to C3", () => {
