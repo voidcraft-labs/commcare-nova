@@ -517,7 +517,7 @@ export function structurePhase(raw: RawDocument): { readonly persisted: unknown;
 | 4 | `field-writes-lifted` | structure | every field's `caseWrite` leaves the field into `LiftedFacts.fieldWrites`; the frozen preload, label and placement rules have read the raw document as read, before step 1 | `frozen/*` | none | none |
 | 5 | `search-first-lifted` | structure | every stored `caseSearchConfig.searchFirst` leaves into `LiftedFacts.searchFirst` | raw JSON only | none | none |
 | | head parse | | `blueprintDocSchema.parse`, then `lib/doc/fieldParent.ts::hydratePersistedBlueprint` | | `structure-parse` | |
-| 6 | `writes-into-operations` | semantics | stored capture reads, C9, C1 to C3 (with C4, C5 values and part 02's extension creates), C10 (section 7.4) | `lib/doc/fieldWriteOperations.ts::operationsFromFieldWrites` | `transform-admission`, `capture-write-unlinkable`, `own-close-in-repeat` | `capture-saves-link-not-name`, `form-became-close-form` |
+| 6 | `writes-into-operations` | semantics | stored capture reads, C9, C1 to C3 (with C4, C5 values and part 02's extension creates), C10 (section 7.4) | `lib/doc/fieldWriteOperations.ts::operationsFromFieldWrites`, `lib/doc/caseOperationOrder.ts::caseOperationConditionalGuardUuids` | `transform-admission`, `capture-write-unlinkable`, `own-close-in-repeat`, `own-close-condition-reads-case` | `capture-saves-link-not-name`, `form-became-close-form` |
 | 7 | `form-link-semantics` | semantics | L1 to L6 with L4's removal (L8 under part 06's G2 outcome B) | `lib/doc/formLinkSemanticsMap.ts::mapFormLinkSemantics` | none (the map is total, section 7.5) | `form-links-conditions-written`, `form-link-otherwise-set`, `after-submit-destination-dropped`, `form-link-target-moved`, `form-link-removed`, `form-link-datums-dropped` |
 | 8 | `extension-children` | semantics | part 02's M1 to M3: carried creates, the retargets, the held kind left to the next publish (section 7.6) | `lib/commcare/formLinkProjection.ts::linkCarriedCreates`, `lib/domain/advancedModule.ts::advancedKindBlockers`, `lib/commcare/moduleKind.ts::emittedModuleKind`, `lib/domain/formLinkTargets.ts::menuTargetOffered` and `nearestOfferedMenu` | `transform-admission` | `module-made-advanced`, `form-link-goes-to-menu` |
 | 9 | `explicit-preloads` | semantics | C7 | `lib/doc/explicitPreloads.ts::planExplicitPreloads` | `transform-admission` | `starting-value-reads-case`, `load-time-value-reads-case` |
@@ -608,9 +608,20 @@ In this order, per form:
    - an operation with `forEach` is the blocker `own-close-in-repeat` (its close would run once per row,
      which no close condition states); the author's remedy is to remove the operation and set the form's
      close condition in today's builder;
+   - each operation's term is its condition and-ed with each condition it inherits from a conditional
+     retype of the case before it (`lib/doc/caseOperationOrder.ts::caseOperationConditionalGuardUuids`,
+     the guard `main`'s emission gave it), each read in its own operation's row and written in the form's
+     vocabulary: a `prop` read of the row (no `via`, or `self`) becomes `{ kind: "form-case", caseType:
+     <module's case type>, property }`, and one through parent links to the case at that many hops above
+     it becomes `form-case` of that case's type, which `lib/commcare/xform/formCaseRead.ts` prints as the
+     same `index/parent` walk; a read of a case of another type, through another link or of the cases
+     linked below (`count`, `exists`, `missing` along a relation) is the blocker
+     `own-close-condition-reads-case` (finding codes `other-case`, `linked-case`, `related-cases`), whose
+     remedy is to rewrite the condition over the form's answers, its case and the cases above it, or to
+     remove the operation and set the form's close condition;
    - the form's type becomes `close`, and its `closeCondition` becomes the `or` (`lib/domain/expression/
      reduction.ts::reduceOr`) of the close it already had (a close form's own: absent means every
-     submission) and each such operation's `condition` (absent means every submission); any absent term
+     submission) and each such operation's term (absent means every submission); any absent term
      makes the whole absent;
    - each such operation without `writes` is removed;
    - each such operation with `writes` becomes an `update` operation on `{ kind: "session" }` with the same
@@ -1347,6 +1358,7 @@ and deleting it again.
 | `renamed-concept-conflict` | a module holds two no-matches forms, a document `main`'s gate never admitted | a data repair: remove one form's no-matches entry in today's builder |
 | `capture-write-unlinkable` | a stored operation saves a capture's bare answer as a case's name or external id, or to a property whose type holds no text, where the head's link to the file can't be saved (section 7.4, clause 0) | the author's: save the file to a property of its own in today's builder |
 | `own-close-in-repeat` | a follow-up's `close` operation on the form's own case runs once per repeat row | the author's: remove that operation and set the form's close condition (a close form) in today's builder |
+| `own-close-condition-reads-case` | a `close` operation on the form's own case, or a retype it follows, has a condition reading a case the form's close condition can't read: another type's, one linked other than through parent links, or the cases linked below it (section 7.4) | the author's: rewrite the condition over the form's answers, its case and the cases above it, or remove the operation and set the form's close condition in today's builder |
 | `baseline-unreadable` | a published deployment's stored baseline fails gunzip, its digest or its parse (section 8.1); production holds none today | a data repair: refresh that deployment, which reads CommCare HQ again (part 03's remedy); then the dry run repeats |
 | `structure-parse`, `transform-admission`, `placement-path-mismatch`, `target-parse`, `case-schema-unplanned`, `not-idempotent` | a defect of the stack | fixed in the pull request that owns the step, with the review rule of section 21.3 |
 | `target-gate`, `target-export-readiness` | the target fails the absolute gate or export readiness; the line carries the finding codes and `details.reason` | the author's where the finding is about the app (its message names the move; the rules below); a defect of the stack where a step should have changed it |
@@ -2164,6 +2176,17 @@ writer converging exactly the planned differences (G7).
   (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY` at the head) or a property whose type holds no text. The rewrite
   leaves every inferred property type as it was, since a capture's answer and its link both hold no type
   opinion (`inference.ts::writerOfValue`). The fixture `pre-step-capture-answer-written` holds the shape.
+- **C9 reads its conditions as the form does, and keeps a retype's guard** (section 7.4; the advisory scan's
+  close class). The form's close condition refuses a `prop` read through a relation (`typeChecker.ts::
+  termAdmission`, `prop-relation`) and reads no row, so C9 writes each read of the operation's row, and of a
+  case above it through parent links, as `form-case`, and makes the new blocker
+  `own-close-condition-reads-case` of any other read. Each close's term also takes the condition of a
+  conditional retype it followed (`caseOperationConditionalGuardUuids`), which `main`'s emission made its
+  guard; a read of the fleet found no such close, nor a close over a question in a repeat (C6's
+  departure above), and the fixture `pre-step-close-reads-cases` holds the own and the parent read. The
+  head's case-operation emission printed no `form-case` read, so a close form whose close condition reads
+  its case and whose close is a Save to Case close stopped emission: `lib/commcare/xform/caseOps.ts`
+  now binds the form's read (`formCaseRead.ts::formCasePropertyRead`) where it prints the own close.
 
 ## Executed during planning
 

@@ -101,6 +101,7 @@ export const BLOCKER_CODES = [
 	"transform-admission",
 	"capture-write-unlinkable",
 	"own-close-in-repeat",
+	"own-close-condition-reads-case",
 	"baseline-unreadable",
 	"placement-path-mismatch",
 	"target-parse",

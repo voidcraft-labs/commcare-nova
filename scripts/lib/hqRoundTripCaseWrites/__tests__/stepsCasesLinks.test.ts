@@ -21,6 +21,8 @@ import {
 	type Form,
 	type Uuid,
 } from "@/lib/domain";
+import type { PropertyRef } from "@/lib/domain/expression/types";
+import { proseText } from "@/lib/domain/prose";
 import { asUuid } from "@/lib/domain/uuid";
 import {
 	type MigrationNoticeEntry,
@@ -212,6 +214,153 @@ describe("writes-into-operations: C9", () => {
 		expect(twice.changes).toEqual([]);
 		expect(twice.notice).toEqual([]);
 		expect(twice.doc).toEqual(once.doc);
+	});
+});
+
+describe("writes-into-operations: C9 over a condition that reads cases", () => {
+	const id = "pre-step-close-reads-cases";
+	const fixture = parsed(id);
+	const at = (name: string) => testUuid(`${id}-${name}`);
+	const prop = (
+		property: string,
+		via?: PropertyRef["via"],
+		caseType = "member",
+	): Expression => ({
+		kind: "term",
+		term: {
+			kind: "prop",
+			caseType,
+			property,
+			...(via !== undefined && { via }),
+		},
+	});
+	const formCase = (caseType: string, property: string): Expression => ({
+		kind: "term",
+		term: { kind: "form-case", caseType, property },
+	});
+	const equals = (left: Expression, value: string): Expression => ({
+		kind: "eq",
+		left,
+		right: { kind: "term", term: { kind: "literal", value } },
+	});
+	/** The fixture with the Leave form's close condition replaced. */
+	const leaving = (condition: Expression) =>
+		planted(fixture.doc, (doc) => {
+			const close = doc.forms[at("leave")]?.caseOperations?.[0];
+			if (close?.action !== "close") throw new Error("No Leave close.");
+			close.condition = condition;
+		});
+
+	it("reads the loaded case, and the case above it through its parent link, as the form does", () => {
+		const result = writesIntoOperations(fixture.doc, fixture.facts);
+		expect(result.blockers).toEqual([]);
+		// `#household/standing`: one `index/parent` hop, as the form walks.
+		expect(formOf(result.doc, at("leave")).closeCondition).toEqual(
+			equals(formCase("household", "standing"), "moved"),
+		);
+		expect(formOf(result.doc, at("retire")).closeCondition).toEqual(
+			equals(formCase("member", "note"), "retired"),
+		);
+		expect(result.notice.map((entry) => entry.reason)).toEqual([
+			"form-became-close-form",
+			"form-became-close-form",
+		]);
+	});
+
+	it.each([
+		[
+			"linked-case",
+			"a case linked other than through its parent",
+			prop("standing", { kind: "ancestor", via: [{ identifier: "host" }] }),
+		],
+		[
+			"linked-case",
+			"a case below it",
+			prop("standing", { kind: "subcase", identifier: "parent" }),
+		],
+		[
+			"other-case",
+			"a case of another type",
+			prop("standing", undefined, "household"),
+		],
+	] as const)(
+		"stops the app at own-close-condition-reads-case where it reads %s: %s",
+		(reason, _what, read) => {
+			const before = leaving(equals(read, "moved"));
+			const result = writesIntoOperations(before, fixture.facts);
+			expect(result.blockers).toEqual([
+				{
+					code: "own-close-condition-reads-case",
+					count: 1,
+					findingCodes: [reason],
+					places: [
+						{
+							entity: { kind: "form", uuid: at("leave"), name: "Leave" },
+							findingCode: reason,
+							message: expect.stringContaining(
+								"“leave_household” in “Leave” closes the case the form opened when its condition holds",
+							),
+						},
+					],
+				},
+			]);
+			expect(result.doc).toBe(before);
+			expect(result.changes).toEqual([]);
+		},
+	);
+
+	it("stops the app where the condition counts the cases linked to it", () => {
+		const result = writesIntoOperations(
+			leaving({
+				kind: "gt",
+				left: { kind: "count", via: { kind: "subcase", identifier: "parent" } },
+				right: { kind: "term", term: { kind: "literal", value: 0 } },
+			}),
+			fixture.facts,
+		);
+		expect(result.blockers.map((blocker) => blocker.findingCodes)).toEqual([
+			["related-cases"],
+		]);
+	});
+
+	// `main` ran a close of a case it retyped first only where the retype
+	// ran (`caseOperationConditionalGuardUuids`), so the form's close keeps
+	// the retype's condition beside the close's own.
+	it("keeps the condition of a retype the close follows", () => {
+		const graduated = equals(
+			{ kind: "term", term: { kind: "field", uuid: at("note") } },
+			"graduated",
+		);
+		const before = planted(fixture.doc, (doc) => {
+			doc.caseTypes?.push({
+				name: "alumnus",
+				parent_type: "household",
+				properties: [{ name: "note", label: proseText("Note") }],
+			});
+			const retire = doc.forms[at("retire")];
+			const close = retire?.caseOperations?.[0];
+			if (close?.action !== "close") throw new Error("No Retire close.");
+			close.caseType = "alumnus";
+			close.condition = equals(prop("note", undefined, "alumnus"), "retired");
+			retire.caseOperations = [
+				{
+					uuid: at("retire-graduate"),
+					id: "graduate",
+					action: "update",
+					caseType: "member",
+					target: { kind: "session" },
+					retype: "alumnus",
+					condition: graduated,
+				},
+				close,
+			];
+		});
+		const result = writesIntoOperations(before, fixture.facts);
+		expect(result.blockers).toEqual([]);
+		expect(formOf(result.doc, at("retire")).closeCondition).toEqual({
+			kind: "and",
+			clauses: [equals(formCase("member", "note"), "retired"), graduated],
+		});
 	});
 });
 

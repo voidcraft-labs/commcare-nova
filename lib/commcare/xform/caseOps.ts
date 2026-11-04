@@ -84,6 +84,7 @@ import type {
 	FormExpressionSlotRef,
 	PropertyRef,
 } from "@/lib/domain/expression/types";
+import { caseTypeDepthMap } from "../caseTypeDepths";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import {
@@ -107,6 +108,7 @@ import {
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
+import { formCasePropertyRead } from "./formCaseRead";
 import type { FormExpressionEmission } from "./formExpressions";
 import { FormPath, originalContextWirePath } from "./formPath";
 import {
@@ -877,7 +879,11 @@ export function buildCaseOperations(
 	const organizationLevels = organizationLevelsOf(doc);
 	const ownClose = placements.get("own-close");
 
-	/** Bindings of an expression evaluated at `targetPath`, in `repeat`. */
+	const caseTypeDepths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
+	/** Bindings of an expression evaluated at `targetPath`, in `repeat`. A
+	 * form slot printed here, the own close's condition, reads the form's
+	 * case and the cases above it as the form's own binds do
+	 * (`formCaseRead.ts`), from the case the block closes. */
 	const bindingsAt = (
 		targetPath: FormPath,
 		repeat: Uuid | undefined,
@@ -887,6 +893,12 @@ export function buildCaseOperations(
 		operationIds: bindOperationPaths(priorCreates, basicCreateIds, targetPath),
 		rootCaseIdWireExpr: selectedCaseRef,
 		caseProperty: formCasePropertyResolver(moduleCaseType, selectedCaseRef),
+		formCaseProperty: formCasePropertyRead({
+			formType: form.type,
+			caseTypeDepths,
+			moduleCaseType,
+			selectedCaseId: selectedCaseRef,
+		}),
 		datumId: expressions.datumId,
 		userPropertySlugs,
 		organizationLevels,

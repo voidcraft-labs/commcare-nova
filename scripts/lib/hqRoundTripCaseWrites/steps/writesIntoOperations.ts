@@ -15,11 +15,19 @@
  *    condition states. Otherwise the form becomes a close form whose
  *    `closeCondition` is the `or` of the close it already had (a close
  *    form's, absent meaning every submission) and each operation's
- *    condition, any absent term making the whole absent; an operation
- *    without writes is removed, and one with writes becomes an `update` of
- *    the same case with the same uuid, id, condition and writes, so its
- *    Save to Case block keeps its path. A follow-up made a close form gets
- *    `form-became-close-form`.
+ *    condition, any absent term making the whole absent. An operation's term
+ *    is its condition and-ed with each condition it inherited from a
+ *    conditional retype of the case before it
+ *    (`lib/doc/caseOperationOrder.ts::caseOperationConditionalGuardUuids`),
+ *    so the close still runs only where the retype ran. Each term is written
+ *    in the form's own vocabulary: a read of a property of the loaded case
+ *    or of a case above it through its parent links becomes the form's read
+ *    of that case (`form-case`), which prints the same `index/parent` walk.
+ *    A term that reads any other case is the blocker
+ *    `own-close-condition-reads-case`. An operation without writes is
+ *    removed, and one with writes becomes an `update` of the same case with
+ *    the same uuid, id, condition and writes, so its Save to Case block keeps
+ *    its path. A follow-up made a close form gets `form-became-close-form`.
  * 2. C1 to C3. `operationsFromFieldWrites` gives the form the own arm, a
  *    create per child or extension bucket and the worker-record update its
  *    lifted field writes made, with the identities part 09 §10.1 derives.
@@ -41,6 +49,7 @@
  * holds it like every other step's.
  */
 
+import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import { ownCaseLinkTarget } from "@/lib/doc/fieldCaseWriteMutations";
 import { operationsFromFieldWrites } from "@/lib/doc/fieldWriteOperations";
@@ -48,19 +57,23 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	type CaseType,
 	caseWriteKeyOf,
 	type Expression,
 	type Form,
 	isCaptureFieldKind,
 	type OwnCaseOperation,
+	reachableCaseTypes,
 	sameCaseWriteKey,
 	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
 import { inferExpressionTypes } from "@/lib/domain/expression/inference";
-import { reduceOr } from "@/lib/domain/expression/reduction";
+import { reduceAnd, reduceOr } from "@/lib/domain/expression/reduction";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { isWriteAssignable } from "@/lib/domain/expression/ruleSets";
+import type { PropertyRef, Term } from "@/lib/domain/expression/types";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { valueKindPhrase } from "@/lib/domain/valueKindPhrases";
 import type { MigrationNoticeEntry } from "@/lib/notices/migrationNotice";
 import { captureSavesLinkNotName, formBecameCloseForm } from "../notice";
@@ -138,10 +151,158 @@ function withForm(doc: BlueprintDoc, form: Form): BlueprintDoc {
 
 // ─── C9 ───────────────────────────────────────────────────────────────────
 
+/** Why a close condition can't be the form's: what it reads. */
+type CloseReadRefusal = "other-case" | "linked-case" | "related-cases";
+
+type FormRead<T> =
+	| { readonly ok: true; readonly value: T }
+	| { readonly ok: false; readonly reason: CloseReadRefusal };
+
+/** The loaded case a close operation's condition reads as its row. */
+interface LoadedCase {
+	/** The module's case type, which the form reads the case as. */
+	readonly caseType: string;
+	/** The type the operation reads its row as: the module's, or the type a
+	 *  retype before it gave the same case. */
+	readonly rowType: string;
+	readonly catalog: readonly CaseType[];
+	/** Each case type the form reads, by its `index/parent` hops from the
+	 *  loaded case (`reachableCaseTypes`). */
+	readonly depths: ReadonlyMap<string, number>;
+}
+
+/** Nodes whose reads are of their own rows, and reads of the form's answers
+ *  (whose filters read a repeat's rows), which the form reads as the
+ *  operation did. */
+const OWN_ROWS: ReadonlySet<string> = new Set([
+	"cases",
+	"table-rows",
+	"locations",
+	"selected-cases",
+	"project",
+	"table-lookup",
+	"field",
+	"form-node",
+	"repeat-row",
+]);
+
+/** Nodes that walk from the loaded case to the cases linked to it, which no
+ *  form read can state. */
+const RELATED_CASES: ReadonlySet<string> = new Set([
+	"exists",
+	"missing",
+	"count",
+]);
+
+/**
+ * One read of a property of the operation's row as the form's read of the
+ * same case: the loaded case itself, or a case above it whose every step is
+ * a parent link and whose distance matches the form's `index/parent` walk.
+ * Both read the case database as it stood when the form opened, so a retype
+ * before the operation leaves the row the same case.
+ */
+function formCaseRead(ref: PropertyRef, loaded: LoadedCase): FormRead<Term> {
+	const origin = ref.caseType ?? loaded.rowType;
+	if (origin !== loaded.rowType) return { ok: false, reason: "other-case" };
+	const via = ref.via;
+	if (via === undefined || via.kind === "self")
+		return {
+			ok: true,
+			value: {
+				kind: "form-case",
+				caseType: loaded.caseType,
+				property: ref.property,
+			},
+		};
+	// A retyped row's ancestors follow its new type's parents, which the
+	// form's walk from the module's type need not name.
+	if (via.kind !== "ancestor" || loaded.rowType !== loaded.caseType)
+		return { ok: false, reason: "linked-case" };
+	if (via.via.some((step) => step.identifier !== "parent"))
+		return { ok: false, reason: "linked-case" };
+	const destination = resolveRelationDestination(
+		via,
+		loaded.caseType,
+		loaded.catalog,
+	);
+	if (
+		!destination.ok ||
+		loaded.depths.get(destination.caseType) !== via.via.length
+	)
+		return { ok: false, reason: "linked-case" };
+	return {
+		ok: true,
+		value: {
+			kind: "form-case",
+			caseType: destination.caseType,
+			property: ref.property,
+		},
+	};
+}
+
+/** `value`, a close operation's condition or a part of it, with every read
+ *  of its row written as the form's read; a structural copy. */
+function asFormCondition(
+	value: unknown,
+	loaded: LoadedCase,
+): FormRead<unknown> {
+	if (Array.isArray(value)) {
+		const items: unknown[] = [];
+		for (const item of value) {
+			const read = asFormCondition(item, loaded);
+			if (!read.ok) return read;
+			items.push(read.value);
+		}
+		return { ok: true, value: items };
+	}
+	if (value === null || typeof value !== "object") return { ok: true, value };
+	const node = value as { readonly kind?: unknown; readonly via?: unknown };
+	if (node.kind === "prop") return formCaseRead(value as PropertyRef, loaded);
+	if (typeof node.kind === "string" && OWN_ROWS.has(node.kind))
+		return { ok: true, value };
+	if (typeof node.kind === "string" && RELATED_CASES.has(node.kind)) {
+		// A count over an instance reads that instance's rows; one along a
+		// relation walks from the loaded case.
+		const walks =
+			typeof node.via === "object" &&
+			node.via !== null &&
+			"kind" in node.via &&
+			["self", "ancestor", "subcase", "any-relation"].includes(
+				(node.via as { kind: string }).kind,
+			);
+		return walks ? { ok: false, reason: "related-cases" } : { ok: true, value };
+	}
+	const copy: Record<string, unknown> = {};
+	for (const [key, item] of Object.entries(value)) {
+		const read = asFormCondition(item, loaded);
+		if (!read.ok) return read;
+		// A property a match names is a read itself, so it becomes a term.
+		copy[key] =
+			key === "property" &&
+			typeof item === "object" &&
+			item !== null &&
+			(item as { kind?: unknown }).kind === "prop"
+				? { kind: "term", term: read.value }
+				: read.value;
+	}
+	return { ok: true, value: copy };
+}
+
+const CLOSE_READ_SENTENCES: Record<CloseReadRefusal, string> = {
+	"other-case":
+		"a property of a case of another type, which the form's close condition can't name",
+	"linked-case":
+		"a property of a case linked to it other than through its parent links, which the form's close condition can't follow",
+	"related-cases":
+		"the cases linked to it, which the form's close condition can't count or look through",
+};
+
 type FoldOutcome =
 	| { readonly kind: "none" }
 	/** An operation under `forEach`: one place per such operation. */
 	| { readonly kind: "blocked"; readonly places: readonly BlockerPlace[] }
+	/** A close condition the form can't read: one place per operation. */
+	| { readonly kind: "unreadable"; readonly places: readonly BlockerPlace[] }
 	| {
 			readonly kind: "folded";
 			readonly form: Form;
@@ -150,29 +311,94 @@ type FoldOutcome =
 			readonly updates: number;
 	  };
 
-function foldOwnCloses(form: Form): FoldOutcome {
+function foldOwnCloses(doc: BlueprintDoc, form: Form): FoldOutcome {
 	if (form.type !== "followup" && form.type !== "close")
 		return { kind: "none" };
 	const operations = form.caseOperations ?? [];
 	const closes = operations.filter(closesLoadedCase);
 	if (closes.length === 0) return { kind: "none" };
 
+	const place: BlockerPlace = {
+		entity: { kind: "form", uuid: form.uuid, name: form.name },
+	};
 	const inRepeat = closes.filter(
 		(operation) => operation.forEach !== undefined,
 	);
-	if (inRepeat.length > 0) {
-		const place: BlockerPlace = {
-			entity: { kind: "form", uuid: form.uuid, name: form.name },
-		};
+	if (inRepeat.length > 0)
 		return { kind: "blocked", places: inRepeat.map(() => place) };
-	}
+
+	const moduleUuid = moduleUuidOfForm(doc, form.uuid);
+	const caseType =
+		moduleUuid === undefined ? undefined : doc.modules[moduleUuid]?.caseType;
+	const catalog = doc.caseTypes ?? [];
+	const depths = new Map(
+		reachableCaseTypes(caseType, catalog).map((entry) => [
+			entry.name,
+			entry.depth,
+		]),
+	);
+
+	/* Each operation's term: its condition and each condition it inherits
+	 * from a conditional retype before it, absent meaning every submission,
+	 * each read in its own operation's row and written in the form's
+	 * vocabulary. */
+	const guards = caseOperationConditionalGuardUuids(doc, form.uuid);
+	const byUuid = new Map(
+		operations.map((operation) => [operation.uuid, operation]),
+	);
+	const unreadable: BlockerPlace[] = [];
+	const operationTerms: (Expression | undefined)[] = closes.map((operation) => {
+		const sources = [
+			operation,
+			...[...(guards.get(operation.uuid) ?? [])].flatMap((uuid) => {
+				const guard = byUuid.get(uuid);
+				return guard === undefined ? [] : [guard];
+			}),
+		];
+		const clauses: Expression[] = [];
+		let refused: CloseReadRefusal | undefined;
+		for (const source of sources) {
+			if (source.condition === undefined) continue;
+			const read =
+				caseType === undefined
+					? ({ ok: false, reason: "other-case" } as const)
+					: asFormCondition(source.condition, {
+							caseType,
+							rowType: source.caseType,
+							catalog,
+							depths,
+						});
+			if (!read.ok) {
+				refused ??= read.reason;
+				continue;
+			}
+			clauses.push(read.value as Expression);
+		}
+		if (refused !== undefined) {
+			const reason = refused;
+			unreadable.push({
+				...place,
+				findingCode: reason,
+				message: `“${operation.id}” in “${form.name}” closes the case the form opened when its condition holds, and that condition reads ${CLOSE_READ_SENTENCES[reason]}. You can rewrite the condition so it reads only this form's answers, its case or a case above it through its parent links, or remove that case change and close the case from the form instead.`,
+			});
+			return undefined;
+		}
+		if (clauses.length === 0) return undefined;
+		return (
+			reduceAnd(clauses) ?? {
+				kind: "and",
+				clauses: clauses as [Expression, ...Expression[]],
+			}
+		);
+	});
+	if (unreadable.length > 0) return { kind: "unreadable", places: unreadable };
 
 	/* A close form's own close is a term; an absent one, like an absent
-	 * operation condition, means every submission, and makes the whole
+	 * operation term, means every submission, and makes the whole
 	 * condition absent. */
 	const terms: (Expression | undefined)[] = [
 		...(form.type === "close" ? [form.closeCondition] : []),
-		...closes.map((operation) => operation.condition),
+		...operationTerms,
 	];
 	const present = terms.filter(
 		(term): term is Expression => term !== undefined,
@@ -451,8 +677,8 @@ export function writesIntoOperations(
 	const order = formsInMenuOrder(input);
 
 	/* Clause 0 and C9 first, over every form: a capture the head can't save
-	 * as a link or a form whose close ran per row stops the app before any
-	 * form is rewritten. */
+	 * as a link, a form whose close ran per row, or a close condition the
+	 * form can't read stops the app before any form is rewritten. */
 	const captures = linkCaptureWrites(input, order);
 	/* Clause 0's patches change only write values, which C9 never reads,
 	 * so C9 folds the forms they leave. */
@@ -464,10 +690,12 @@ export function writesIntoOperations(
 		return { ...stoppedStep(input, [applied.blocker]), ownCloses: [] };
 	const linked = applied.doc;
 	const inRepeat: BlockerPlace[] = [];
+	const unreadable: BlockerPlace[] = [];
 	const folds = new Map<Uuid, Extract<FoldOutcome, { kind: "folded" }>>();
 	for (const formUuid of order) {
-		const outcome = foldOwnCloses(linked.forms[formUuid]);
+		const outcome = foldOwnCloses(linked, linked.forms[formUuid]);
 		if (outcome.kind === "blocked") inRepeat.push(...outcome.places);
+		if (outcome.kind === "unreadable") unreadable.push(...outcome.places);
 		if (outcome.kind === "folded") folds.set(formUuid, outcome);
 	}
 	const blockers = [
@@ -485,6 +713,18 @@ export function writesIntoOperations(
 			: []),
 		...(inRepeat.length > 0
 			? [stepBlocker("own-close-in-repeat", inRepeat.length, [], inRepeat)]
+			: []),
+		...(unreadable.length > 0
+			? [
+					stepBlocker(
+						"own-close-condition-reads-case",
+						unreadable.length,
+						unreadable.flatMap((place) =>
+							place.findingCode === undefined ? [] : [place.findingCode],
+						),
+						unreadable,
+					),
+				]
 			: []),
 	];
 	if (blockers.length > 0)
