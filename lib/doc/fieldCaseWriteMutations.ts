@@ -93,68 +93,89 @@ export const OPENS_WITH_CASE_VALUE_NOTE =
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
 
-/** The same, for a question a worker answers that still saves its answer to
- *  a case that exists: a blank answer saves blank over the value there. */
-export const STARTS_BLANK_CLEARS_NOTE =
-	"Starts blank now, so leaving it blank clears the values it saves.";
+/**
+ * What a result says, for a question a worker answers, when the starting
+ * value born for a save goes with it and the question still saves to values
+ * that exist: a blank answer clears each of them. `cleared` names them, and
+ * `opensOn`, where given, is a property of its form's case it saves to and
+ * can open on.
+ */
+export function startsBlankClearsNote(
+	cleared: readonly string[],
+	opensOn?: string,
+): string {
+	const lead = `Starts blank now, so leaving it blank clears ${joinWords(cleared)}.`;
+	return opensOn === undefined
+		? lead
+		: `${lead} You can have it open with the case's current value instead: set its starting value to #case/${opensOn}.`;
+}
 
-/** `STARTS_BLANK_CLEARS_NOTE` with the next step, where the question can
- *  open on the current value of `property`, a property of its form's case it
- *  still saves to. */
-export function startsBlankClearsNote(property: string): string {
-	return `${STARTS_BLANK_CLEARS_NOTE} You can have it open with the case's current value instead: set its starting value to #case/${property}.`;
+/** "a", "a and b", "a, b and c". */
+function joinWords(words: readonly string[]): string {
+	if (words.length <= 1) return words.join("");
+	return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 }
 
 /**
- * What a result says when the starting value born for a save goes with it.
- * The question starts blank; where a question a worker answers still saves
- * its answer to a case that exists (the form's case, a case above it, the
- * worker's record), a blank answer saves blank there, and where one of
- * those saves is to its form's case and the question can open on that
- * value, the note names the starting value that does. A save to a case the
- * form creates clears nothing.
+ * What a result says when the starting value born for a save goes with it,
+ * read from what the question saves once the plan is applied (`after`, the
+ * document with the form's planned operations and the question without its
+ * starting value). A blank answer saves blank, so it clears each value that
+ * exists: one on the form's case on a form that opens it, a case above it,
+ * the worker's record, or a case another change updates. A case the form
+ * creates has nothing to clear. A Hidden Value keeps its own note
+ * (`casePreload.ts::hiddenWriterBlankNote`).
  */
 function startsBlankNote(
-	offerDoc: BlueprintDoc,
+	after: BlueprintDoc,
 	field: Field,
-	caseType: string | undefined,
-	kept: readonly FieldCaseWriteView[],
-	destination: FieldCaseWriteDestination | null,
-	keepsProperty: boolean,
+	ctx: CaseWriteFormContext,
+	operations: readonly CaseOperation[],
 ): string {
 	if (field.kind === "hidden") return STARTS_BLANK_NOTE;
-	const ownProperties = [
-		...kept
-			.filter((view) => view.destination === "own" && view.slot !== "owner")
-			.map((view) => ({ property: view.property, via: view.via })),
-		...(destination !== null && keepsProperty
-			? [{ property: destination.property, via: destination.via }]
-			: []),
+	const existing = fieldCaseWriteViews(after, field.uuid).filter((view) => {
+		if (view.destination === "own") return ctx.form.type !== "registration";
+		if (view.destination === "child") return false;
+		if (view.destination === "other")
+			return (
+				operations.find((operation) => operation.uuid === view.operationUuid)
+					?.action !== "create"
+			);
+		// A case above it, or the worker's record.
+		return true;
+	});
+	if (existing.length === 0) return STARTS_BLANK_NOTE;
+	const cleared = [
+		...new Set(
+			existing.map((view) => {
+				const name = q(view.property);
+				switch (view.destination) {
+					case "own":
+						return `the case's ${name}`;
+					case "worker-record":
+						return `the worker's ${name}`;
+					case "ancestor":
+						return `${name} on the case above it`;
+					default:
+						return `${name} on another case`;
+				}
+			}),
+		),
 	];
-	const clearsExisting =
-		kept.some(
-			(view) =>
-				view.destination === "own" ||
-				view.destination === "ancestor" ||
-				view.destination === "worker-record",
-		) ||
-		(destination !== null &&
-			(destination.caseType === caseType ||
-				destination.caseType === USERCASE_CASE_TYPE ||
-				destination.via !== undefined));
-	if (!clearsExisting) return STARTS_BLANK_NOTE;
+	const caseType = ctx.moduleCaseType;
 	const opensOn =
 		caseType === undefined
 			? undefined
-			: ownProperties.find(
-					({ property, via }) =>
-						writerOffersPreload(offerDoc, field.uuid, property, via) &&
-						startingValueMisfit(offerDoc, field, caseType, property) ===
+			: existing.find(
+					(view) =>
+						view.destination === "own" &&
+						view.slot !== "owner" &&
+						view.via === undefined &&
+						writerOffersPreload(after, field.uuid, view.property) &&
+						startingValueMisfit(after, field, caseType, view.property) ===
 							undefined,
-				);
-	return opensOn === undefined
-		? STARTS_BLANK_CLEARS_NOTE
-		: startsBlankClearsNote(opensOn.property);
+				)?.property;
+	return startsBlankClearsNote(cleared, opensOn);
 }
 
 /** `field` without its starting value. */
@@ -909,10 +930,9 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * standing: it is neither refused nor born one, and the gate judges
  * whatever starting value the question holds. A starting value born for a
  * save the plan removes or moves goes with it, and the `notes` say the
- * question starts blank and, where it still saves its answer to a case that
- * exists, that a blank answer clears what it saves, with the starting value
- * that opens it on a kept save to its form's case where it can
- * (`startsBlankNote`).
+ * question starts blank and, where it still saves its answer to values that
+ * exist, that a blank answer clears each one, with the starting value that
+ * opens it on a save to its form's case where it can (`startsBlankNote`).
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -1075,12 +1095,19 @@ export function planFieldCaseWrite(
 		} as Mutation);
 		notes.push(
 			startsBlankNote(
-				offerDoc,
+				{
+					...offerDoc,
+					forms: {
+						...offerDoc.forms,
+						[ctx.formUuid]: {
+							...offerDoc.forms[ctx.formUuid],
+							caseOperations: draft.operations,
+						},
+					},
+				},
 				field,
-				ctx.moduleCaseType,
-				views.filter((view) => !removed.includes(view)),
-				destination,
-				keepsProperty,
+				ctx,
+				draft.operations,
 			),
 		);
 	}

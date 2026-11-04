@@ -77,12 +77,17 @@ describe("case writer type admission", () => {
 				expect(errors.map((error) => error.code)).toEqual(
 					declared === type ? [] : [mismatch],
 				);
-				if (errors.length)
+				if (errors.length) {
 					expect(errors[0].details).toMatchObject({
 						expectedDataType: type,
 						declaredDataType: declared,
 						property: "value",
 					});
+					// The kind is named as a word, so no article has to fit it.
+					expect(errors[0].message).toContain(
+						`Field "value" in "Register" is of kind "${kind}" and saves to case property "value"`,
+					);
+				}
 			}
 		},
 	);
