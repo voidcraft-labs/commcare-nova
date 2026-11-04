@@ -2090,6 +2090,15 @@ writer converging exactly the planned differences (G7).
   all three editors, so no editor refuses the shape on its own either. A planned record still needs no
   module, and removing a type's last module still retires its record or names what still uses the type
   (`lib/doc/caseTypeRetirement.ts`).
+- **A question's kind fits the property it saves to by storage assignability** (the second class). The head
+  counts every operation write whose value is a question's bare answer as that question's Saves to, and
+  `FIELD_KIND_PROPERTY_TYPE_MISMATCH` asked an exact match of kind and declared type, where `main` held the
+  same write, as an operation's, to `ruleSets.ts::isWriteAssignable`: an integer into a decimal property and
+  a single select into a text one were admitted at `main` and refused at the head. The kind rule now asks
+  `isValueStorageAssignable`, the same relation without the ISO date text allowance no answer is, and
+  writers agree (`FIELD_KIND_WRITERS_DISAGREE`, the inferred property type, and the writer opinions a case
+  operation's write reads) on the one of their types that holds every other
+  (`ruleSets.ts::agreedStorageType`), the join Hidden Values already used.
 
 ## Executed during planning
 

@@ -29,9 +29,9 @@
 // The writers' types are one fixpoint, `expression/inference.ts`: a
 // visible question's kind, each case operation's value, and each Hidden
 // Value's value typed in its own slot. A property's type is its
-// declaration, else the one opinion of its visible and operation writers,
-// else the one agreed opinion of its Hidden Value writers. This module is
-// its catalog projection.
+// declaration, else the one type its visible and operation writers agree
+// on, else the one its Hidden Value writers agree on. This module is its
+// catalog projection.
 //
 // **Unknown is honest.** A property whose type nothing pins —
 // writers whose values no fact types (a cycle of copies, a read of an
@@ -115,9 +115,9 @@ export function materializableCaseTypes(
 /**
  * Every concrete type opinion supplied by a writer, grouped by
  * `(caseType, property)`: a visible question's kind, a case operation's
- * value, and a Hidden Value's agreed output type. An operation's or a Hidden
- * Value's value counts as the property's agreed type where it is
- * storage-assignable to it, so a writer that agrees adds no type. A writer
+ * value, and a Hidden Value's agreed output type. Each counts as the
+ * property's agreed type where it is storage-assignable to it, so a writer
+ * that agrees adds no type. A writer
  * whose value no fact types, and a Hidden Value's preloaded starting value,
  * contribute no opinion. Validators use the set size to reject conflicting operation
  * writers before an ambiguous effective type can reach schema

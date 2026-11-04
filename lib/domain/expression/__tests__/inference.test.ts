@@ -487,6 +487,41 @@ describe("writer opinions beside a case operation's write", () => {
 		expect(validate(operationAlone)).toEqual([]);
 	});
 
+	it("counts a question's integer that a decimal property stores as decimal", () => {
+		const count = f({
+			kind: "int",
+			id: "count",
+			label: "Count",
+			caseWrite: { caseType: "patient", property: "amount" },
+		});
+		const declared = [
+			{ name: "amount", label: "Amount", data_type: "decimal" as const },
+		];
+		// The question's integer and the operation's decimal both fit the
+		// decimal property, so the operation meets no conflicting writer.
+		const beside = withFollowUpWrites(
+			doc({ register: [count], properties: declared }),
+			[{ property: "amount", value: literalValue(1.5) }],
+		);
+		expect(
+			inferExpressionTypes(beside).writerOpinions.get("patient")?.get("amount"),
+		).toEqual(new Set(["decimal"]));
+		expect(validate(beside)).toEqual([]);
+		// Without a declaration the question and the decimal question beside it
+		// agree on decimal, and the operation's decimal fits it too.
+		const undeclared = withFollowUpWrites(
+			doc({ register: [amount], followUp: [count], properties }),
+			[{ property: "amount", value: literalValue(1.5) }],
+		);
+		expect(propertyType(undeclared, "amount")).toBe("decimal");
+		expect(
+			inferExpressionTypes(undeclared)
+				.writerOpinions.get("patient")
+				?.get("amount"),
+		).toEqual(new Set(["decimal"]));
+		expect(validate(undeclared)).toEqual([]);
+	});
+
 	it("keeps a Hidden Value's own type where no fact types the property", () => {
 		const raw = doc({
 			register: [hidden("first", { calculate: "'abc'" }, "untyped")],

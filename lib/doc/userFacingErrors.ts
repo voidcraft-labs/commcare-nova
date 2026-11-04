@@ -1133,9 +1133,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 	},
 	FIELD_KIND_PROPERTY_TYPE_MISMATCH: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, but its type doesn't match how that property is set up. Change the field's type, or save it somewhere else.`,
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which is set up to hold a kind of value this field doesn't give. You can change the field's type, or save it somewhere else.`,
 	FIELD_KIND_WRITERS_DISAGREE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} in a different format than the other fields that use it. Change this one to match them, or save it somewhere else.`,
+		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} a kind of value that can't sit beside what the other fields that save there give. You can change this one to match them, or save it somewhere else.`,
 	HIDDEN_VALUE_WRITER_TYPE_MISMATCH: (e) => {
 		const field = q(fieldName(e));
 		const property = q(det(e, "property", "a case property"));

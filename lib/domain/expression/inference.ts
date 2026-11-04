@@ -4,13 +4,14 @@
  *
  * - `H`: each Hidden Value's data type, from the type of its `calculate`, else
  *   its `default_value`, checked in its real slot.
- * - `P`: each `(caseType, property)` type: declared, else the one opinion of
- *   its visible and case-operation writers, else the one agreed opinion of its
- *   Hidden Value writers (`int` and `decimal` agree on `decimal`, `text` and
- *   `single_select` on `text`). A case change's write whose whole value is a
- *   question's answer, a bare read of it or the `capture-link` of a capture,
- *   is that question's write: a visible question's kind types the property,
- *   and a Hidden Value is the typed writer of the first property it saves to.
+ * - `P`: each `(caseType, property)` type: declared, else the one type its
+ *   visible and case-operation writers agree on, else the one its Hidden
+ *   Value writers agree on (`ruleSets.ts::agreedStorageType`: `int` and
+ *   `decimal` agree on `decimal`, `text` and `single_select` on `text`). A
+ *   case change's write whose whole value is a question's answer, a bare read
+ *   of it or the `capture-link` of a capture, is that question's write: a
+ *   visible question's kind types the property, and a Hidden Value is the
+ *   typed writer of the first property it saves to.
  * - `O`: each case-operation write's opinion: its destination's type when the
  *   value is write-assignable to it (`ruleSets.ts::isWriteAssignable`), else
  *   the value's type.
@@ -67,7 +68,7 @@ import {
 } from "./context";
 import { isIsoDateText } from "./datePattern";
 import { resolveRelationDestination } from "./relationDestination";
-import { isWriteAssignable } from "./ruleSets";
+import { agreedStorageType, isWriteAssignable } from "./ruleSets";
 import {
 	ANY_TYPE,
 	type CheckPath,
@@ -139,8 +140,9 @@ export interface PropertyAgreement {
 	/** Undefined when nothing decides it or its writers disagree. */
 	readonly type: CasePropertyDataType | undefined;
 	readonly origin: PropertyTypeOrigin | undefined;
-	/** Its visible or case-operation writers name different types, which their
-	 * own rules report; Hidden Values then hold no opinion of their own. */
+	/** Its visible or case-operation writers name types no one type stores,
+	 * which their own rules report; Hidden Values then hold no opinion of
+	 * their own. */
 	readonly writersDisagree?: true;
 }
 
@@ -159,12 +161,12 @@ export interface ExpressionInference {
 	/** `C`: Hidden Values whose date and time may hold only its day. */
 	readonly clockLost: ReadonlySet<Uuid>;
 	/** Every concrete opinion of every writer kind, by case type and
-	 * property: visible kinds, case operations, and Hidden Values. An operation's or a Hidden Value's opinion is
-	 * the property's agreed type where its value is storage-assignable to it,
-	 * so a writer that agrees adds no type. An operation's value that does not
-	 * fit adds its own type; a Hidden Value's adds none, since
-	 * `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` reports it. A property no fact types
-	 * takes every writer's own type. */
+	 * property: visible kinds, case operations, and Hidden Values. Each one's
+	 * opinion is the property's agreed type where its kind or value is
+	 * storage-assignable to it, so a writer that agrees adds no type. A visible
+	 * kind or an operation's value that does not fit adds its own type; a
+	 * Hidden Value's adds none, since `HIDDEN_VALUE_WRITER_TYPE_MISMATCH`
+	 * reports it. A property no fact types takes every writer's own type. */
 	readonly writerOpinions: ReadonlyMap<
 		string,
 		ReadonlyMap<string, ReadonlySet<CasePropertyDataType>>
@@ -410,7 +412,7 @@ function hiddenOnlyDisagreement(
 			other.opinion !== undefined
 		)
 			opinions.add(other.opinion);
-	return mergeHiddenOpinions(opinions) === undefined && opinions.size > 1;
+	return agreedStorageType(opinions) === undefined && opinions.size > 1;
 }
 
 /** A persisted document carries no `fieldParent`; slot contexts need it. */
@@ -430,26 +432,6 @@ function concreteType(
 	return data === undefined || data === ANY_TYPE || data === "boolean"
 		? undefined
 		: data;
-}
-
-/** The one type Hidden Value opinions agree on: a single type, `int` and
- * `decimal` on `decimal` (an integer fits decimal storage), and `text` and
- * `single_select` on `text` (both are stored as the same text, and a text
- * property takes a choice's value). Every other pair disagrees; a
- * `multi_select` stays apart, since storage keeps text out of it. */
-function mergeHiddenOpinions(
-	opinions: ReadonlySet<CasePropertyDataType>,
-): CasePropertyDataType | undefined {
-	if (opinions.size === 1) return [...opinions][0];
-	if (opinions.size === 2 && opinions.has("int") && opinions.has("decimal"))
-		return "decimal";
-	if (
-		opinions.size === 2 &&
-		opinions.has("text") &&
-		opinions.has("single_select")
-	)
-		return "text";
-	return undefined;
 }
 
 /** Every result an assignment can end with is an ISO date text, as the
@@ -968,7 +950,7 @@ class Inference {
 				output.type === undefined ? [] : [output.type],
 			),
 		);
-		const opinion = mergeHiddenOpinions(typed);
+		const opinion = agreedStorageType(typed);
 		return {
 			expressionType: concreteType(whole),
 			whole,
@@ -1140,11 +1122,12 @@ class Inference {
 			}
 			const opinions = visible.get(key);
 			if (opinions !== undefined && opinions.size > 0) {
-				const [only] = [...opinions];
+				const agreed = agreedStorageType(opinions.keys());
+				const origin = agreed === undefined ? undefined : opinions.get(agreed);
 				result.set(
 					key,
-					opinions.size === 1
-						? { type: only[0], origin: only[1] }
+					agreed !== undefined && origin !== undefined
+						? { type: agreed, origin }
 						: { type: undefined, origin: undefined, writersDisagree: true },
 				);
 				return;
@@ -1153,7 +1136,7 @@ class Inference {
 			const agreed =
 				hiddenEntry === undefined
 					? undefined
-					: mergeHiddenOpinions(hiddenEntry.types);
+					: agreedStorageType(hiddenEntry.types);
 			result.set(
 				key,
 				agreed === undefined || hiddenEntry === undefined
@@ -1275,10 +1258,21 @@ class Inference {
 		};
 		for (const writer of this.fieldWriters) {
 			if (writer.field.kind !== "hidden") {
+				// A visible question's kind is its opinion, and the property's
+				// agreed type where that type stores it, as an operation's is: an
+				// integer question beside a decimal property adds `decimal`.
+				const kindType = caseDataTypeForFieldKind(writer.field.kind);
+				const destination = state.properties.get(
+					propertyKey(writer.caseType, writer.property),
+				)?.type;
 				add(
 					writer.caseType,
 					writer.property,
-					caseDataTypeForFieldKind(writer.field.kind),
+					kindType !== undefined &&
+						destination !== undefined &&
+						isValueStorageAssignable(kindType, destination)
+						? destination
+						: kindType,
 				);
 				continue;
 			}
