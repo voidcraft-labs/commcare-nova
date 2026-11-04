@@ -806,11 +806,11 @@ describe("planFieldCaseWrite: the starting value", () => {
 		// owner slot holds it or a write does, as Save only if changed makes it.
 		it("bears no starting value for a save to the case's owner", () => {
 			const doc = visit();
-			for (const onlyIfChanged of [false, true]) {
+			for (const onlyIfChanged of [{}, { onlyIfChanged: true as const }]) {
 				const plan = planFieldCaseWrite(doc, COUNT, {
 					caseType: "household",
 					property: "owner_id",
-					onlyIfChanged,
+					...onlyIfChanged,
 				});
 				expect(plan).toMatchObject({ ok: true, notes: [] });
 				expect(startingValues(plan)).toEqual([]);
