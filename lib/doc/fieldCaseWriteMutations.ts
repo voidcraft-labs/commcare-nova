@@ -47,6 +47,8 @@ import {
 	moduleUuidOfForm,
 	type OwnCaseOperation,
 	ownCaseOperationId,
+	STARTING_VALUE_MISFIT_SENTENCES,
+	type StartingValueMisfit,
 	sameCaseWriteKey,
 	startingValueMisfit,
 	USERCASE_CASE_TYPE,
@@ -55,6 +57,8 @@ import {
 	writerOffersPreload,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
+import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseOperationMultiplicityScopes } from "./caseOperationOrder";
 import { deepEqual } from "./deepEqual";
 import { descendantFieldUuids } from "./fieldWalk";
@@ -87,9 +91,26 @@ export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
 /** What a result says when the starting value born for a save goes with it
- *  and no other save is born one. */
+ *  and the question no longer saves to its form's case. */
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
+
+/**
+ * What a result says, for each save to its form's case the question keeps,
+ * when the starting value born for another save goes with that save: a
+ * blank answer now clears the kept property, and the question can open
+ * with the case's value, or the sentence the "Saves to" row gives says why
+ * it can't. `label` is the property's author-facing label.
+ */
+function startsBlankOnKeptNote(
+	label: string,
+	misfit: StartingValueMisfit | undefined,
+): string {
+	const lead = `Starts blank now, so leaving it blank clears the case's ${q(label)}.`;
+	return misfit === undefined
+		? `${lead} You can have it open with the case's current value.`
+		: `${lead} ${STARTING_VALUE_MISFIT_SENTENCES[misfit.kind]}`;
+}
 
 /** `field` without its starting value. */
 function withoutDefault(field: Field): Field {
@@ -837,12 +858,15 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * property, is refused, since starting it blank would clear the case's
  * value.
  *
- * A save the question keeps keeps its standing and is never refused for its
- * starting value. A starting value born for a save the plan removes or moves
- * goes with it: a moved save is born its own, and a save the question keeps,
- * whether a whole replace names it or a removal leaves it, is born its own
- * where the question can open on it, and otherwise starts blank. Where the
- * question is left starting blank, the `notes` say so.
+ * Only a new or moved save is born a starting value or refused for one. A
+ * save the question keeps, whether a flip of "Save only if changed", a
+ * whole replace naming it or a removal of another save keeps it, keeps its
+ * standing: it is neither refused nor born one, and the gate judges
+ * whatever starting value the question holds. A starting value born for a
+ * save the plan removes or moves goes with it, and where the question is
+ * then left starting blank the `notes` say what a blank answer clears and
+ * either offer the case's current value or say why the question can't open
+ * on it.
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -880,6 +904,8 @@ export function planFieldCaseWrite(
 	for (const view of removed) removeViewWrite(draft, view);
 
 	let preload: { readonly property: string } | undefined;
+	/** The property of the form's case the destination saves to directly. */
+	let savesOwnCase: string | undefined;
 	/** A removed save that read its own case's `property` directly, the save
 	 *  a born starting value belongs to. */
 	const removesOwnSave = (property: string) =>
@@ -892,9 +918,10 @@ export function planFieldCaseWrite(
 		);
 	/* A replace that keeps a property the question saves to, as a flip of
 	 * "Save only if changed" or a whole replace naming one of its saves
-	 * does, leaves that save standing: the planner never refuses it for its
-	 * starting value, which would block edits that don't touch one, and the
-	 * gate still judges whatever starting value the question holds. */
+	 * does, leaves that save standing: the planner neither refuses it for
+	 * its starting value, which would block edits that don't touch one, nor
+	 * bears it one, and the gate still judges whatever starting value the
+	 * question holds. */
 	const keepsProperty =
 		destination !== null &&
 		destination.via === undefined &&
@@ -951,7 +978,9 @@ export function planFieldCaseWrite(
 				refusal = saveOn(draft, own, saved);
 				// A save the case can't take says so before its starting value.
 				if (refusal !== undefined) break;
-				// A new or moved save is born its own, or refused.
+				if (saved.slot !== "owner" && destination.via === undefined)
+					savesOwnCase = destination.property;
+				// Only a new or moved save is born a starting value, or refused.
 				if (
 					!keepsProperty &&
 					saved.slot !== "owner" &&
@@ -973,34 +1002,6 @@ export function planFieldCaseWrite(
 			}
 		}
 		if (refusal !== undefined) return { ok: false, message: refusal };
-	}
-	/* A save the question keeps, which a whole replace names or a removal
-	 * leaves, would start blank once the starting value born for a save the
-	 * plan drops goes, so it is born its own where the question can open on
-	 * it; otherwise it starts blank, as the notes say. */
-	if (
-		preload === undefined &&
-		bornOfRemoved &&
-		ctx.moduleCaseType !== undefined
-	) {
-		const kept = [
-			...(keepsProperty && destination !== null ? [destination.property] : []),
-			...views
-				.filter(
-					(view) =>
-						!removed.includes(view) &&
-						view.destination === "own" &&
-						view.slot !== "owner" &&
-						view.via === undefined,
-				)
-				.map((view) => view.property),
-		][0];
-		if (
-			kept !== undefined &&
-			writerOffersPreload(offerDoc, fieldUuid, kept) &&
-			startingValueMisfit(doc, field, ctx.moduleCaseType, kept) === undefined
-		)
-			preload = { property: kept };
 	}
 	const refusal = finish(draft);
 	if (refusal !== undefined) return { ok: false, message: refusal };
@@ -1030,7 +1031,39 @@ export function planFieldCaseWrite(
 			targetKind: field.kind,
 			patch: { default_value: null },
 		} as Mutation);
-		notes.push(STARTS_BLANK_NOTE);
+		/* The question now starts blank: each save to its form's case it
+		 * keeps is cleared by a blank answer, which the notes say with what
+		 * the author can do, and one that no longer saves there says so. */
+		const kept = new Set([
+			...(savesOwnCase === undefined ? [] : [savesOwnCase]),
+			...views
+				.filter(
+					(view) =>
+						!removed.includes(view) &&
+						view.destination === "own" &&
+						view.slot !== "owner" &&
+						view.via === undefined,
+				)
+				.map((view) => view.property),
+		]);
+		const caseType = ctx.moduleCaseType;
+		if (caseType === undefined || kept.size === 0)
+			notes.push(STARTS_BLANK_NOTE);
+		else {
+			const properties =
+				doc.caseTypes?.find((type) => type.name === caseType)?.properties ?? [];
+			for (const property of kept)
+				notes.push(
+					startsBlankOnKeptNote(
+						propertyDisplayLabelForName(
+							property,
+							properties,
+							(label) => projectProseTemplate(label, doc).text,
+						),
+						startingValueMisfit(doc, field, caseType, property),
+					),
+				);
+		}
 	}
 	return { ok: true, mutations: draft.mutations, notes };
 }

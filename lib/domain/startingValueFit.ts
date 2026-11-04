@@ -63,6 +63,20 @@ export type StartingValueMisfit =
 	| { readonly kind: "several-choices" }
 	| { readonly kind: "outside-choices"; readonly type: CasePropertyDataType };
 
+/** What a question is told for each way it can't open on its property's
+ *  value: one sentence the builder's "Saves to" row and the planner's notes
+ *  share. */
+export const STARTING_VALUE_MISFIT_SENTENCES: Readonly<
+	Record<StartingValueMisfit["kind"], string>
+> = {
+	"whole-number-on-decimal":
+		"It can't open with that value, which can be a decimal number. A decimal question can.",
+	"several-choices":
+		"It can't open with that value, which can be several choices at once. A multiple-choice question can.",
+	"outside-choices":
+		"It can't open with that value, which may not be one of its choices. A text question can.",
+};
+
 /** Why `field` can't open on a value of type `type`; undefined where it can,
  *  and where nothing types the value. */
 export function startingValueMisfitOfType(

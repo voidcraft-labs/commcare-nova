@@ -921,50 +921,39 @@ describe("planFieldCaseWrite: the starting value", () => {
 			});
 		});
 
-		// A save the question keeps would start blank once the starting value
-		// born for the save it drops goes, so it is born its own, whether a
-		// whole replace names it or a removal leaves it.
-		it("gives a kept save its own starting value where the one the question opened with goes", () => {
-			const doc = savingTwice(COUNT, "tally", "visits");
-			for (const plan of keepingOnly(doc, COUNT, "visits", "tally")) {
-				expect(plan).toMatchObject({
-					ok: true,
-					notes: [OPENS_WITH_CASE_VALUE_NOTE],
-				});
-				const next = land(doc, plan);
-				expect(
-					fieldCaseWriteViews(next, COUNT).map((saved) => saved.property),
-				).toEqual(["visits"]);
-				expect(next.fields[COUNT]).toMatchObject({
-					default_value: {
-						kind: "term",
-						term: {
-							kind: "form-case",
-							caseType: "household",
-							property: "visits",
-						},
-					},
-				});
-			}
-		});
-
-		// An existing save keeps its standing: where the question can't open
-		// on the kept save's value it starts blank, as the note says, whether
-		// a whole replace names the save or a removal leaves it.
+		// A save the question keeps keeps its standing: the starting value
+		// born for the save the plan drops goes, the kept save is born none,
+		// and the note says what a blank answer clears and what the author
+		// can do, whether a whole replace names the kept save or a removal of
+		// the other leaves it.
 		it.each([
+			[
+				"a whole-number question on a fitting property",
+				COUNT,
+				"tally",
+				"visits",
+				`Starts blank now, so leaving it blank clears the case's "Visits". You can have it open with the case's current value.`,
+			],
 			[
 				"a whole-number question on a decimal property",
 				COUNT,
 				"tally",
 				"weight",
+				`Starts blank now, so leaving it blank clears the case's "Weight". It can't open with that value, which can be a decimal number. A decimal question can.`,
 			],
-			["a choice question on a text property", STAGE, "stage", "remark"],
+			[
+				"a choice question on a text property",
+				STAGE,
+				"stage",
+				"remark",
+				`Starts blank now, so leaving it blank clears the case's "Remark". It can't open with that value, which may not be one of its choices. A text question can.`,
+			],
 		] as const)(
 			"leaves a kept save blank, with the note, for %s",
-			(_what, question, born, kept) => {
+			(_what, question, born, kept, note) => {
 				const doc = savingTwice(question, born, kept);
 				for (const plan of keepingOnly(doc, question, kept, born)) {
-					expect(plan).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+					expect(plan).toMatchObject({ ok: true, notes: [note] });
 					const next = land(doc, plan);
 					expect(
 						fieldCaseWriteViews(next, question).map((saved) => saved.property),
@@ -973,6 +962,39 @@ describe("planFieldCaseWrite: the starting value", () => {
 				}
 			},
 		);
+
+		// A move is a new save to its property, so a move to a property the
+		// question can't open on is refused as a new save there is, while the
+		// question keeps another save.
+		it("refuses a move to a property the question can't open on, as a new save there", () => {
+			const doc = savingTwice(COUNT, "tally", "visits");
+			const tally = fieldCaseWriteViews(doc, COUNT).find(
+				(saved) => saved.property === "tally",
+			);
+			if (tally === undefined) throw new Error("No save to tally.");
+			const moved = refusal(
+				planFieldCaseWrite(
+					doc,
+					COUNT,
+					{ caseType: "household", property: "weight" },
+					{
+						replace: {
+							operationUuid: tally.operationUuid,
+							slot: tally.slot,
+							key: { property: "tally" },
+						},
+					},
+				),
+			);
+			expect(moved).toBe(
+				refusal(
+					planFieldCaseWrite(visit(), COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			);
+		});
 
 		// The starting value the planner bore reads the property it saved to,
 		// so a save moved elsewhere takes its own, or is refused where the

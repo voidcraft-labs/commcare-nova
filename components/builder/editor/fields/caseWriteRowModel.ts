@@ -47,6 +47,7 @@ import {
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
+	STARTING_VALUE_MISFIT_SENTENCES,
 	type StartingValueMisfit,
 	startingValueMisfitOfType,
 } from "@/lib/domain/startingValueFit";
@@ -62,13 +63,13 @@ export const STARTS_BLANK_LINE =
 	"Starts blank, and saving it blank clears the case's value.";
 /** Why a whole-number question on a property that can hold decimal numbers
  *  is offered no starting value from the case. */
-export const STARTS_BLANK_ON_DECIMAL_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which can be a decimal number. A decimal question can.`;
+export const STARTS_BLANK_ON_DECIMAL_LINE = `${STARTS_BLANK_LINE} ${STARTING_VALUE_MISFIT_SENTENCES["whole-number-on-decimal"]}`;
 /** Why a choice question on a property that can hold other values than
  *  choices, such as text, is offered no starting value from the case. */
-export const STARTS_BLANK_OUTSIDE_CHOICES_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which may not be one of its choices. A text question can.`;
+export const STARTS_BLANK_OUTSIDE_CHOICES_LINE = `${STARTS_BLANK_LINE} ${STARTING_VALUE_MISFIT_SENTENCES["outside-choices"]}`;
 /** Why a single-choice question on a multiple-choice property is offered no
  *  starting value from the case. */
-export const STARTS_BLANK_ON_SEVERAL_CHOICES_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which can be several choices at once. A multiple-choice question can.`;
+export const STARTS_BLANK_ON_SEVERAL_CHOICES_LINE = `${STARTS_BLANK_LINE} ${STARTING_VALUE_MISFIT_SENTENCES["several-choices"]}`;
 /** The line for each way a question can't open on its property's value, as
  *  `startingValueMisfitOfType` classifies it. */
 const MISFIT_LINES: Record<StartingValueMisfit["kind"], string> = {

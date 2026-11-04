@@ -28,17 +28,25 @@ question alone keeps what was there, and clearing it is a real change. Because
 the case supplies the opening value, Nova does not offer a starting value on
 those questions; the properties pane says so on the question instead.
 
-A question can't save to its case where it couldn't open on the case's value.
-A whole-number question can't save to a property that holds decimal numbers,
-and a choice question can't save to one that can hold values outside its
-choices, such as text, or several choices at once for a single-choice
-question, because CommCare stops the form when the question opens on such a
-value. Starting it blank instead would clear the case's value whenever a worker
-leaves it alone, so Nova offers a question that can open on it: a decimal
-question for decimal numbers, a multiple-choice question for several choices,
-or a text question for other values. Nova also points
-out any starting value of a whole-number question that could be a decimal, and
-you can start it on the whole part with `int(...)`.
+Nova won't add a save to the case, or move one to another property, where
+the question couldn't open on the case's value. A whole-number question can't
+start saving to a property that holds decimal numbers, and a choice question
+can't start saving to one that can hold values outside its choices, such as
+text, or several choices at once for a single-choice question, because
+CommCare stops the form when the question opens on such a value. Starting it
+blank instead would clear the case's value whenever a worker leaves it alone,
+so Nova offers a question that can open on it: a decimal question for decimal
+numbers, a multiple-choice question for several choices, or a text question
+for other values.
+
+A save that already stands keeps its place even when its question starts
+blank, for example after you remove the save its starting value came from.
+Leaving the question blank then clears the case's value on submit. The
+question's Saves to row says so, and offers to open it with the case's current
+value, or says which kind of question could open on it.
+
+Nova also points out any starting value of a whole-number question that could
+be a decimal, and you can start it on the whole part with `int(...)`.
 
 A question that saves to a child case type works differently. Each submission
 creates a new child case, so there is nothing to show yet and the question
