@@ -52,12 +52,11 @@ import {
 	PLATFORMS,
 	type ProseTemplate,
 	plainColumn,
-	propertyAgreedType,
 	proseText,
+	startingValueMisfit,
 	type UserCollections,
 	type Uuid,
 	unavailableUses,
-	wholeNumberStartsOnDecimal,
 	writerOffersPreload,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
@@ -499,6 +498,37 @@ const CATALOG_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 ]);
 
 /**
+ * Whether a generated save's question keeps the starting value
+ * `planExplicitPreloads` gives it. The generators build documents the gate
+ * admits, so they skip the one starting value the gate refuses, a
+ * whole-number question's on a decimal property
+ * (`WHOLE_NUMBER_STARTS_ON_DECIMAL`); the cutover writes that one too, and
+ * the gate then blocks the app. A choice question on a property that can
+ * hold other values keeps its starting value, since only the "Saves to"
+ * planner refuses that, on the property's type, and the gate leaves it to a
+ * value-level check (issue #856). Throws where the saved question isn't in
+ * the document.
+ */
+export function generatedStartingValueAdmitted(
+	doc: BlueprintDoc,
+	write: {
+		readonly fieldUuid: Uuid;
+		readonly caseType: string;
+		readonly property: string;
+	},
+): boolean {
+	const field = doc.fields[write.fieldUuid];
+	if (field === undefined)
+		throw new Error(
+			`A case write names question ${write.fieldUuid}, which isn't in the document.`,
+		);
+	return (
+		startingValueMisfit(doc, field, write.caseType, write.property)?.kind !==
+		"whole-number-on-decimal"
+	);
+}
+
+/**
  * Lower each field's `caseWrite` sugar into the form's case operations,
  * form by form, in data-tree order, each bucket's `case_name` writer first
  * so a new child case is made with its name. Each write is planned by
@@ -514,36 +544,6 @@ const CATALOG_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
  * that opened with their case's value), so a fixture of a shape the gate
  * refuses still states it.
  */
-/**
- * Whether a generated save's question keeps the starting value
- * `planExplicitPreloads` gives it, as the cutover's mapping does: every one
- * but a whole-number question's on a decimal property, which the gate
- * refuses (`WHOLE_NUMBER_STARTS_ON_DECIMAL`), since the generators build
- * documents the gate admits. A choice question on a property that can hold
- * other values keeps its starting value, as the cutover keeps it: only the
- * "Saves to" planner refuses that, on the property's type, while the gate
- * leaves it to a value-level check (issue #856). Throws where the saved
- * question isn't in the document.
- */
-export function generatedStartingValueAdmitted(
-	doc: BlueprintDoc,
-	write: {
-		readonly fieldUuid: Uuid;
-		readonly caseType: string;
-		readonly property: string;
-	},
-): boolean {
-	const field = doc.fields[write.fieldUuid];
-	if (field === undefined)
-		throw new Error(
-			`The generator saves question ${write.fieldUuid}, which isn't in the document.`,
-		);
-	return !wholeNumberStartsOnDecimal(
-		field,
-		propertyAgreedType(doc, write.caseType, write.property),
-	);
-}
-
 function lowerCaseWrites(
 	doc: BlueprintDoc,
 	caseWrites: FixtureCaseWrites,

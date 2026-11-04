@@ -126,15 +126,21 @@ function startingValueRefusal(
 	if (misfit === undefined) return undefined;
 	const subject = `"${field.id}" in "${formName}" can't save to "${property}", because it would open on the case's value`;
 	const blank = "Leaving it blank would clear the case's value.";
-	if (misfit.kind === "whole-number-on-decimal")
-		return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. ${blank} You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
-	if (misfit.type === "multi_select")
-		return `${subject}, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. ${blank} You can make "${field.id}" a multiple-choice question, or save it to a property that holds a single choice.`;
-	const fitting =
-		field.kind === "single_select"
-			? "a property that holds a single choice"
-			: "a property that holds choices";
-	return `${subject}, which can be ${valueKindPhrase(misfit.type)} that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. ${blank} You can make "${field.id}" a text question, or save it to ${fitting}.`;
+	const offers =
+		"CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer";
+	switch (misfit.kind) {
+		case "whole-number-on-decimal":
+			return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. ${blank} You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
+		case "several-choices":
+			return `${subject}, which can be several choices at once, more than a single-choice question takes, and ${offers}. ${blank} You can make "${field.id}" a multiple-choice question, or save it to a property that holds a single choice.`;
+		case "outside-choices": {
+			const fitting =
+				field.kind === "single_select"
+					? "a property that holds a single choice"
+					: "a property that holds choices";
+			return `${subject}, which can be ${valueKindPhrase(misfit.type)} that isn't one of its choices, and ${offers}. ${blank} You can make "${field.id}" a text question, or save it to ${fitting}.`;
+		}
+	}
 }
 
 /** The refusal for removing the only name a registration gives its case. */
@@ -829,7 +835,7 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * with its own, and otherwise it goes and the `notes` say the question
  * starts blank. A save the replace keeps keeps its starting value, and one
  * whose question loses the starting value born for a save the replace drops
- * is born its own where it fits, or starts blank.
+ * is born its own, or refused where it can't open on it.
  * Where the question can't open on the case's value, a whole-number question
  * on a property that holds decimal numbers or a choice question on one that
  * can hold values outside its choices (`lib/domain/startingValueFit.ts`),
@@ -947,8 +953,8 @@ export function planFieldCaseWrite(
 				if (refusal !== undefined) break;
 				/* A kept save whose question loses the starting value born for
 				 * a save the replace drops would start blank, which clears the
-				 * case's value, so it is born its own where that fits and
-				 * otherwise starts blank, as the notes say. */
+				 * case's value, so it is born its own, and is refused where it
+				 * can't open on it, as a new save is. */
 				const keptLosesStart = keepsProperty && bornOfRemoved;
 				if (
 					(!keepsProperty || keptLosesStart) &&
@@ -964,8 +970,8 @@ export function planFieldCaseWrite(
 						ctx.moduleCaseType,
 						destination.property,
 					);
-					if (unfit === undefined) preload = { property: destination.property };
-					else if (!keptLosesStart) return { ok: false, message: unfit };
+					if (unfit !== undefined) return { ok: false, message: unfit };
+					preload = { property: destination.property };
 				}
 				break;
 			}

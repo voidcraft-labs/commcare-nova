@@ -44,7 +44,7 @@ export function wholeNumberStartsOnDecimal(
  * is a design question of its own (issue #856), so choice sets are not
  * compared here.
  */
-export function choiceStartsOutsideItsChoices(
+function choiceStartsOutsideItsChoices(
 	field: Field,
 	type: CasePropertyDataType | undefined,
 ): boolean {
@@ -55,10 +55,28 @@ export function choiceStartsOutsideItsChoices(
 	return type !== "single_select" && type !== "multi_select";
 }
 
-/** Why a question can't open on a property's value. */
+/** Why a question can't open on a property's value: a whole-number question
+ *  on decimal numbers, a single-choice question on several choices at once,
+ *  or a choice question on a type that holds other values than choices. */
 export type StartingValueMisfit =
 	| { readonly kind: "whole-number-on-decimal" }
+	| { readonly kind: "several-choices" }
 	| { readonly kind: "outside-choices"; readonly type: CasePropertyDataType };
+
+/** Why `field` can't open on a value of type `type`; undefined where it can,
+ *  and where nothing types the value. */
+export function startingValueMisfitOfType(
+	field: Field,
+	type: CasePropertyDataType | undefined,
+): StartingValueMisfit | undefined {
+	if (type === undefined) return undefined;
+	if (wholeNumberStartsOnDecimal(field, type))
+		return { kind: "whole-number-on-decimal" };
+	if (!choiceStartsOutsideItsChoices(field, type)) return undefined;
+	return type === "multi_select"
+		? { kind: "several-choices" }
+		: { kind: "outside-choices", type };
+}
 
 /** Why `field` can't open on the value of `caseType`'s `property`, as its
  *  agreed type says; undefined where it can. */
@@ -68,14 +86,11 @@ export function startingValueMisfit(
 	caseType: string,
 	property: string,
 ): StartingValueMisfit | undefined {
-	// A property nothing types holds no opinion.
-	const type = propertyAgreedType(doc, caseType, property);
-	if (type === undefined) return undefined;
-	if (wholeNumberStartsOnDecimal(field, type))
-		return { kind: "whole-number-on-decimal" };
-	if (choiceStartsOutsideItsChoices(field, type))
-		return { kind: "outside-choices", type };
-	return undefined;
+	// The type the checker gives a `#case` read of it, by the same agreement.
+	return startingValueMisfitOfType(
+		field,
+		propertyAgreedType(doc, caseType, property),
+	);
 }
 
 /** The type a property's values can be: its declaration, else the one its

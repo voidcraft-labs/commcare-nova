@@ -47,8 +47,8 @@ import {
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
-	choiceStartsOutsideItsChoices,
-	wholeNumberStartsOnDecimal,
+	type StartingValueMisfit,
+	startingValueMisfitOfType,
 } from "@/lib/domain/startingValueFit";
 import {
 	type CaseWriteGuidance,
@@ -69,6 +69,13 @@ export const STARTS_BLANK_OUTSIDE_CHOICES_LINE = `${STARTS_BLANK_LINE} It can't 
 /** Why a single-choice question on a multiple-choice property is offered no
  *  starting value from the case. */
 export const STARTS_BLANK_ON_SEVERAL_CHOICES_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which can be several choices at once. A multiple-choice question can.`;
+/** The line for each way a question can't open on its property's value, as
+ *  `startingValueMisfitOfType` classifies it. */
+const MISFIT_LINES: Record<StartingValueMisfit["kind"], string> = {
+	"whole-number-on-decimal": STARTS_BLANK_ON_DECIMAL_LINE,
+	"several-choices": STARTS_BLANK_ON_SEVERAL_CHOICES_LINE,
+	"outside-choices": STARTS_BLANK_OUTSIDE_CHOICES_LINE,
+};
 
 export const SAVE_ONLY_IF_CHANGED_LABEL = "Save only if changed";
 export const SAVE_ONLY_IF_CHANGED_LINE =
@@ -364,15 +371,8 @@ function preloadLine(
 		"default_value" in field && field.default_value !== undefined;
 	const hasCalculation = "calculate" in field && field.calculate !== undefined;
 	if (hasDefault || hasCalculation) return undefined;
-	if (wholeNumberStartsOnDecimal(field, input.propertyType))
-		return { line: STARTS_BLANK_ON_DECIMAL_LINE };
-	if (choiceStartsOutsideItsChoices(field, input.propertyType))
-		return {
-			line:
-				input.propertyType === "multi_select"
-					? STARTS_BLANK_ON_SEVERAL_CHOICES_LINE
-					: STARTS_BLANK_OUTSIDE_CHOICES_LINE,
-		};
+	const misfit = startingValueMisfitOfType(field, input.propertyType);
+	if (misfit !== undefined) return { line: MISFIT_LINES[misfit.kind] };
 	return {
 		line: STARTS_BLANK_LINE,
 		action: {

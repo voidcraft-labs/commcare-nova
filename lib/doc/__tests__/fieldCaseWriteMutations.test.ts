@@ -836,7 +836,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 		// A whole replace naming one of the question's saves keeps that save
 		// and its starting value, and the starting value born for a save it
 		// drops goes with that save.
-		it("keeps the starting value of a save a whole replace keeps, and gives a kept save its own where the one it opened with goes", () => {
+		it("keeps the starting value of a save a whole replace keeps, and gives a kept save its own, or refuses it, where the one it opened with goes", () => {
 			const doc = visit();
 			const once = land(
 				doc,
@@ -906,8 +906,9 @@ describe("planFieldCaseWrite: the starting value", () => {
 				},
 			});
 
-			// A kept save whose value the question can't open on stays blank,
-			// as the note says, and is not refused.
+			// A kept save whose value the question can't open on would start
+			// blank, which clears the case's value, so it is refused as a new
+			// save to that property is.
 			const onDecimal = commit(once, [
 				{
 					kind: "updateForm",
@@ -923,19 +924,23 @@ describe("planFieldCaseWrite: the starting value", () => {
 					},
 				} as Mutation,
 			]);
-			const keepsWeight = planFieldCaseWrite(onDecimal, COUNT, {
-				caseType: "household",
-				property: "weight",
-			});
-			expect(keepsWeight).toMatchObject({
-				ok: true,
-				notes: [STARTS_BLANK_NOTE],
-			});
-			const weight = land(onDecimal, keepsWeight);
-			expect(
-				fieldCaseWriteViews(weight, COUNT).map((saved) => saved.property),
-			).toEqual(["weight"]);
-			expect(weight.fields[COUNT]).not.toHaveProperty("default_value");
+			const keepsWeight = refusal(
+				planFieldCaseWrite(onDecimal, COUNT, {
+					caseType: "household",
+					property: "weight",
+				}),
+			);
+			expect(keepsWeight).toBe(
+				refusal(
+					planFieldCaseWrite(visit(), COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			);
+			expect(keepsWeight).toMatch(
+				/^"count" in "Visit" can't save to "weight", because it would open on the case's value, which can be a decimal number/,
+			);
 		});
 
 		// The starting value the planner bore reads the property it saved to,
