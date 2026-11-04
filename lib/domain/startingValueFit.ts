@@ -46,11 +46,11 @@ export function wholeNumberStartsOnDecimal(
  */
 function choiceStartsOutsideItsChoices(
 	field: Field,
-	type: CasePropertyDataType | undefined,
+	type: CasePropertyDataType,
 ): boolean {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return false;
-	if (field.optionsSource.kind !== "inline" || type === undefined) return false;
+	if (field.optionsSource.kind !== "inline") return false;
 	if (field.kind === "single_select") return type !== "single_select";
 	return type !== "single_select" && type !== "multi_select";
 }

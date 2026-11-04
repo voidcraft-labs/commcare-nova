@@ -830,16 +830,19 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * A new save to the form's own case on a follow-up or close form that opens
  * one case is born with the case's current value as the question's starting
  * value, when the question holds none yet (`writerOffersPreload`); the
- * result's `notes` say so. A starting value born for a save the plan
- * removes or moves to another property counts as none: a moved save is born
- * with its own, and otherwise it goes and the `notes` say the question
- * starts blank. A save the replace keeps keeps its starting value, and one
- * whose question loses the starting value born for a save the replace drops
- * is born its own, or refused where it can't open on it.
- * Where the question can't open on the case's value, a whole-number question
- * on a property that holds decimal numbers or a choice question on one that
- * can hold values outside its choices (`lib/domain/startingValueFit.ts`),
- * the save is refused, since starting it blank would clear the case's value.
+ * result's `notes` say so. Where the question can't open on the case's
+ * value, a whole-number question on a property that holds decimal numbers
+ * or a choice question on one that can hold values outside its choices
+ * (`lib/domain/startingValueFit.ts`), a new save, or a save moved to another
+ * property, is refused, since starting it blank would clear the case's
+ * value.
+ *
+ * A save the question keeps keeps its standing and is never refused for its
+ * starting value. A starting value born for a save the plan removes or moves
+ * goes with it: a moved save is born its own, and a save the question keeps,
+ * whether a whole replace names it or a removal leaves it, is born its own
+ * where the question can open on it, and otherwise starts blank. Where the
+ * question is left starting blank, the `notes` say so.
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -889,19 +892,16 @@ export function planFieldCaseWrite(
 		);
 	/* A replace that keeps a property the question saves to, as a flip of
 	 * "Save only if changed" or a whole replace naming one of its saves
-	 * does, leaves that save standing as it was: the planner doesn't refuse
-	 * it for its starting value, which would block edits that don't touch
-	 * one, and bears it none unless the question loses the one born for a
-	 * save the replace drops, and the gate still judges whatever starting
-	 * value the question holds. */
+	 * does, leaves that save standing: the planner never refuses it for its
+	 * starting value, which would block edits that don't touch one, and the
+	 * gate still judges whatever starting value the question holds. */
 	const keepsProperty =
 		destination !== null &&
 		destination.via === undefined &&
 		destination.caseType === ctx.moduleCaseType &&
 		removesOwnSave(destination.property);
 	/* A starting value the planner bore for a save it now removes or moves
-	 * reads that save's property, so it is the question's no longer: a moved
-	 * save is born with its own, and otherwise the old one goes. The
+	 * reads that save's property, so it is the question's no longer. The
 	 * starting value of a save the replace keeps stays. */
 	const born = fieldPreload(field);
 	const bornOfRemoved =
@@ -951,13 +951,9 @@ export function planFieldCaseWrite(
 				refusal = saveOn(draft, own, saved);
 				// A save the case can't take says so before its starting value.
 				if (refusal !== undefined) break;
-				/* A kept save whose question loses the starting value born for
-				 * a save the replace drops would start blank, which clears the
-				 * case's value, so it is born its own, and is refused where it
-				 * can't open on it, as a new save is. */
-				const keptLosesStart = keepsProperty && bornOfRemoved;
+				// A new or moved save is born its own, or refused.
 				if (
-					(!keepsProperty || keptLosesStart) &&
+					!keepsProperty &&
 					saved.slot !== "owner" &&
 					destination.via === undefined &&
 					ctx.moduleCaseType !== undefined &&
@@ -977,6 +973,34 @@ export function planFieldCaseWrite(
 			}
 		}
 		if (refusal !== undefined) return { ok: false, message: refusal };
+	}
+	/* A save the question keeps, which a whole replace names or a removal
+	 * leaves, would start blank once the starting value born for a save the
+	 * plan drops goes, so it is born its own where the question can open on
+	 * it; otherwise it starts blank, as the notes say. */
+	if (
+		preload === undefined &&
+		bornOfRemoved &&
+		ctx.moduleCaseType !== undefined
+	) {
+		const kept = [
+			...(keepsProperty && destination !== null ? [destination.property] : []),
+			...views
+				.filter(
+					(view) =>
+						!removed.includes(view) &&
+						view.destination === "own" &&
+						view.slot !== "owner" &&
+						view.via === undefined,
+				)
+				.map((view) => view.property),
+		][0];
+		if (
+			kept !== undefined &&
+			writerOffersPreload(offerDoc, fieldUuid, kept) &&
+			startingValueMisfit(doc, field, ctx.moduleCaseType, kept) === undefined
+		)
+			preload = { property: kept };
 	}
 	const refusal = finish(draft);
 	if (refusal !== undefined) return { ok: false, message: refusal };

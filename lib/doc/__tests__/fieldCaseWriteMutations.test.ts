@@ -833,19 +833,22 @@ describe("planFieldCaseWrite: the starting value", () => {
 			});
 		});
 
-		// A whole replace naming one of the question's saves keeps that save
-		// and its starting value, and the starting value born for a save it
-		// drops goes with that save.
-		it("keeps the starting value of a save a whole replace keeps, and gives a kept save its own, or refuses it, where the one it opened with goes", () => {
+		/** `doc` with `question` saving to `born` first, which bears its
+		 *  starting value, and then also to `kept`. */
+		const savingTwice = (
+			question: Uuid,
+			born: string,
+			kept: string,
+		): BlueprintDoc => {
 			const doc = visit();
 			const once = land(
 				doc,
-				planFieldCaseWrite(doc, COUNT, {
+				planFieldCaseWrite(doc, question, {
 					caseType: "household",
-					property: "tally",
+					property: born,
 				}),
 			);
-			const [view] = fieldCaseWriteViews(once, COUNT);
+			const [view] = fieldCaseWriteViews(once, question);
 			if (view === undefined) throw new Error("The question saves nothing.");
 			const twice = commit(once, [
 				{
@@ -856,92 +859,120 @@ describe("planFieldCaseWrite: the starting value", () => {
 						operation: "add-write",
 						uuid: view.operationUuid,
 						value: {
-							property: "visits",
-							value: { kind: "term", term: { kind: "field", uuid: COUNT } },
+							property: kept,
+							value: { kind: "term", term: { kind: "field", uuid: question } },
 						},
 					},
 				} as Mutation,
 			]);
 			expect(
-				fieldCaseWriteViews(twice, COUNT).map((saved) => saved.property),
-			).toEqual(["tally", "visits"]);
-			const bornTally = {
+				fieldCaseWriteViews(twice, question).map((saved) => saved.property),
+			).toEqual([born, kept]);
+			expect(twice.fields[question]).toMatchObject({
 				default_value: {
 					kind: "term",
-					term: { kind: "form-case", caseType: "household", property: "tally" },
+					term: { kind: "form-case", caseType: "household", property: born },
 				},
-			};
-			expect(twice.fields[COUNT]).toMatchObject(bornTally);
+			});
+			return twice;
+		};
+		/** The two plans that keep only `kept`: a whole replace naming it, and
+		 *  a removal of the save to `dropped`. */
+		const keepingOnly = (
+			doc: BlueprintDoc,
+			question: Uuid,
+			kept: string,
+			dropped: string,
+		) => {
+			const dropView = fieldCaseWriteViews(doc, question).find(
+				(saved) => saved.property === dropped,
+			);
+			if (dropView === undefined) throw new Error("No save to drop.");
+			return [
+				planFieldCaseWrite(doc, question, {
+					caseType: "household",
+					property: kept,
+				}),
+				planFieldCaseWrite(doc, question, null, {
+					replace: {
+						operationUuid: dropView.operationUuid,
+						slot: dropView.slot,
+						key: { property: dropped },
+					},
+				}),
+			] as const;
+		};
 
-			const keepsTally = planFieldCaseWrite(twice, COUNT, {
+		// A whole replace naming one of the question's saves keeps that save
+		// and its starting value.
+		it("keeps the starting value of a save a whole replace keeps", () => {
+			const doc = savingTwice(COUNT, "tally", "visits");
+			const keepsTally = planFieldCaseWrite(doc, COUNT, {
 				caseType: "household",
 				property: "tally",
 			});
 			expect(keepsTally).toMatchObject({ ok: true, notes: [] });
 			expect(startingValues(keepsTally)).toEqual([]);
-			expect(land(twice, keepsTally).fields[COUNT]).toMatchObject(bornTally);
-
-			// The kept save would start blank, which clears the case's value,
-			// so it is born its own.
-			const keepsVisits = planFieldCaseWrite(twice, COUNT, {
-				caseType: "household",
-				property: "visits",
-			});
-			expect(keepsVisits).toMatchObject({
-				ok: true,
-				notes: [OPENS_WITH_CASE_VALUE_NOTE],
-			});
-			const visits = land(twice, keepsVisits);
-			expect(
-				fieldCaseWriteViews(visits, COUNT).map((saved) => saved.property),
-			).toEqual(["visits"]);
-			expect(visits.fields[COUNT]).toMatchObject({
+			expect(land(doc, keepsTally).fields[COUNT]).toMatchObject({
 				default_value: {
 					kind: "term",
-					term: {
-						kind: "form-case",
-						caseType: "household",
-						property: "visits",
-					},
+					term: { kind: "form-case", caseType: "household", property: "tally" },
 				},
 			});
+		});
 
-			// A kept save whose value the question can't open on would start
-			// blank, which clears the case's value, so it is refused as a new
-			// save to that property is.
-			const onDecimal = commit(once, [
-				{
-					kind: "updateForm",
-					uuid: view.formUuid,
-					patch: {},
-					caseOperationPatch: {
-						operation: "add-write",
-						uuid: view.operationUuid,
-						value: {
-							property: "weight",
-							value: { kind: "term", term: { kind: "field", uuid: COUNT } },
+		// A save the question keeps would start blank once the starting value
+		// born for the save it drops goes, so it is born its own, whether a
+		// whole replace names it or a removal leaves it.
+		it("gives a kept save its own starting value where the one the question opened with goes", () => {
+			const doc = savingTwice(COUNT, "tally", "visits");
+			for (const plan of keepingOnly(doc, COUNT, "visits", "tally")) {
+				expect(plan).toMatchObject({
+					ok: true,
+					notes: [OPENS_WITH_CASE_VALUE_NOTE],
+				});
+				const next = land(doc, plan);
+				expect(
+					fieldCaseWriteViews(next, COUNT).map((saved) => saved.property),
+				).toEqual(["visits"]);
+				expect(next.fields[COUNT]).toMatchObject({
+					default_value: {
+						kind: "term",
+						term: {
+							kind: "form-case",
+							caseType: "household",
+							property: "visits",
 						},
 					},
-				} as Mutation,
-			]);
-			const keepsWeight = refusal(
-				planFieldCaseWrite(onDecimal, COUNT, {
-					caseType: "household",
-					property: "weight",
-				}),
-			);
-			expect(keepsWeight).toBe(
-				refusal(
-					planFieldCaseWrite(visit(), COUNT, {
-						caseType: "household",
-						property: "weight",
-					}),
-				),
-			);
-			expect(keepsWeight).toMatch(
-				/^"count" in "Visit" can't save to "weight", because it would open on the case's value, which can be a decimal number/,
-			);
+				});
+			}
 		});
+
+		// An existing save keeps its standing: where the question can't open
+		// on the kept save's value it starts blank, as the note says, whether
+		// a whole replace names the save or a removal leaves it.
+		it.each([
+			[
+				"a whole-number question on a decimal property",
+				COUNT,
+				"tally",
+				"weight",
+			],
+			["a choice question on a text property", STAGE, "stage", "remark"],
+		] as const)(
+			"leaves a kept save blank, with the note, for %s",
+			(_what, question, born, kept) => {
+				const doc = savingTwice(question, born, kept);
+				for (const plan of keepingOnly(doc, question, kept, born)) {
+					expect(plan).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+					const next = land(doc, plan);
+					expect(
+						fieldCaseWriteViews(next, question).map((saved) => saved.property),
+					).toEqual([kept]);
+					expect(next.fields[question]).not.toHaveProperty("default_value");
+				}
+			},
+		);
 
 		// The starting value the planner bore reads the property it saved to,
 		// so a save moved elsewhere takes its own, or is refused where the
