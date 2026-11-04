@@ -50,7 +50,7 @@ const target = { origin: "https://www.commcarehq.org", domain: "demo-project" };
 
 for (const scenario of caseCaptureScenarios) {
 	for (const withTarget of [true, false]) {
-		it(`${scenario}: routes file and URL writes in the exported form ${withTarget ? "with" : "without"} a published target`, () => {
+		it(`${scenario}: writes every capture as a link in the exported form ${withTarget ? "with" : "without"} a published target`, () => {
 			const doc = caseCaptureFixture(scenario);
 			expect(blueprintDocSchema.safeParse(toPersistableDoc(doc)).success).toBe(
 				true,
@@ -87,18 +87,21 @@ for (const scenario of caseCaptureScenarios) {
 			const update = repeated
 				? firstForm.actions.subcases[0].case_properties
 				: firstForm.actions.update_case.update;
-			expect(update.photo).toEqual({
-				question_path: `${scope}/details/thepicture`,
-				update_mode: "always",
-			});
-			expect(update.scan_url).toEqual(
-				withTarget
-					? {
-							question_path: `${scope}/details/nova_url_scan`,
-							update_mode: "always",
-						}
-					: undefined,
-			);
+			// Each capture's write names its link sibling, never the upload
+			// question HQ's build would turn into an `<attachment>`; with no
+			// target there is no link, and the write is withheld.
+			for (const [property, capture] of [
+				["photo", "thepicture"],
+				["scan_url", "scan"],
+			] as const)
+				expect(update[property]).toEqual(
+					withTarget
+						? {
+								question_path: `${scope}/details/nova_url_${capture}`,
+								update_mode: "always",
+							}
+						: undefined,
+				);
 			expect(firstForm.actions.case_preload.preload).toEqual(
 				scenario === "followup" ? { "/data/full_name": "name" } : {},
 			);
@@ -106,7 +109,7 @@ for (const scenario of caseCaptureScenarios) {
 				const details = child(container(form.data), "details");
 				expect(details.children.filter(isTag).map((e) => e.name)).toEqual(
 					withTarget
-						? ["thepicture", "scan", "nova_url_scan"]
+						? ["thepicture", "nova_url_thepicture", "scan", "nova_url_scan"]
 						: ["thepicture", "scan"],
 				);
 				expect(
@@ -117,56 +120,58 @@ for (const scenario of caseCaptureScenarios) {
 					{ ref: `${scope}/details/thepicture`, mediatype: "image/*" },
 					{ ref: `${scope}/details/scan`, mediatype: "application/*,text/*" },
 				]);
-				if (withTarget) {
-					expect(bind(form.model, `${scope}/details/nova_url_scan`)).toEqual({
-						nodeset: `${scope}/details/nova_url_scan`,
-						type: "xsd:string",
-						calculate: `if(${scope}/details/scan = '', '', concat('https://www.commcarehq.org/a/demo-project/api/form_attachment/v1/', /data/meta/instanceID, '/', ${scope}/details/scan))`,
-						relevant: `count(${scope}/details/scan) > 0`,
-					});
-				} else {
-					expect(
-						findAll(
-							(e) =>
-								Object.values(e.attribs).some((value) =>
-									value.includes("nova_url_scan"),
-								),
-							form.model.children,
-						),
-					).toEqual([]);
+				for (const capture of ["thepicture", "scan"]) {
+					const link = `${scope}/details/nova_url_${capture}`;
+					if (withTarget) {
+						expect(bind(form.model, link)).toEqual({
+							nodeset: link,
+							type: "xsd:string",
+							calculate: `if(${scope}/details/${capture} = '', '', concat('https://www.commcarehq.org/a/demo-project/api/form_attachment/v1/', /data/meta/instanceID, '/', ${scope}/details/${capture}))`,
+							relevant: `count(${scope}/details/${capture}) > 0`,
+						});
+					} else {
+						expect(
+							findAll(
+								(e) =>
+									Object.values(e.attribs).some((value) =>
+										value.includes(`nova_url_${capture}`),
+									),
+								form.model.children,
+							),
+						).toEqual([]);
+					}
 				}
+				expect(
+					findAll((e) => e.name === "attachment", form.data.children),
+				).toEqual([]);
 			}
 			// Case/meta lowering belongs to the archive compiler, not a test helper.
+			// The archive writes a primary case's `<update>` exactly when the
+			// action writes a property, and a child case's always, as HQ's
+			// build does.
 			const transaction = child(container(device.data), "case");
-			expect(
-				child(transaction, "attachment")
-					.children.filter(isTag)
-					.map((e) => ({ name: e.name, attributes: e.attribs })),
-			).toEqual([{ name: "photo", attributes: { src: "", from: "local" } }]);
-			expect(
-				child(transaction, "update")
-					.children.filter(isTag)
-					.map((e) => e.name),
-			).toEqual([
+			const written = [
 				...(scenario === "followup" ? ["case_name"] : []),
-				...(withTarget ? ["scan_url"] : []),
-			]);
-			expect(bind(device.model, `${scope}/case/attachment/photo`)).toEqual({
-				nodeset: `${scope}/case/attachment/photo`,
-				relevant: `count(${scope}/details/thepicture) = 1`,
-			});
-			expect(bind(device.model, `${scope}/case/attachment/photo/@src`)).toEqual(
-				{
-					nodeset: `${scope}/case/attachment/photo/@src`,
-					calculate: `${scope}/details/thepicture`,
-				},
-			);
+				...(withTarget ? ["photo", "scan_url"] : []),
+			];
+			expect(
+				transaction.children
+					.filter(isTag)
+					.filter((e) => e.name === "update")
+					.map((e) => e.children.filter(isTag).map((leaf) => leaf.name)),
+			).toEqual(written.length === 0 && !repeated ? [] : [written]);
 			if (withTarget)
-				expect(bind(device.model, `${scope}/case/update/scan_url`)).toEqual({
-					nodeset: `${scope}/case/update/scan_url`,
-					calculate: `${scope}/details/nova_url_scan`,
-					relevant: `count(${scope}/details/nova_url_scan) > 0`,
-				});
+				for (const [property, capture] of [
+					["photo", "thepicture"],
+					["scan_url", "scan"],
+				] as const)
+					expect(
+						bind(device.model, `${scope}/case/update/${property}`),
+					).toEqual({
+						nodeset: `${scope}/case/update/${property}`,
+						calculate: `${scope}/details/nova_url_${capture}`,
+						relevant: `count(${scope}/details/nova_url_${capture}) > 0`,
+					});
 			const meta = child(device.data, "orx:meta");
 			child(meta, "orx:instanceID");
 			expect(

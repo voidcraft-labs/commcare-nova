@@ -179,7 +179,6 @@ const source = buildDoc({
 							caseWrite: {
 								caseType: "patient",
 								property: "photo_url",
-								mode: "url",
 							},
 						},
 					],

@@ -187,7 +187,7 @@ describe("the default value entry", () => {
 				uuid: FIELD_UUID,
 				id: "capture",
 				label: proseText("Capture"),
-				caseWrite: { caseType: "patient", property: "photo", mode: "url" },
+				caseWrite: { caseType: "patient", property: "photo" },
 			} as Field;
 			expect(defaultValuePlacement(field, ONE_CASE_FOLLOWUP)).toBe("absent");
 		}

@@ -128,9 +128,9 @@ export type FieldKind = (typeof fieldKinds)[number];
 /**
  * The capture kinds — every kind whose answer is an attachment rather
  * than a value the worker types. They share one schema shape (label +
- * hint + required + relevant; no case wiring, no validation, no
- * default) and one wire shape (`<upload mediatype>` over a `binary`
- * bind).
+ * hint + required + relevant + a `caseWrite` that saves a link to the
+ * file; no validation, no default) and one wire shape
+ * (`<upload mediatype>` over a `binary` bind).
  *
  * This tuple is the single home for "which kinds are captures". The
  * reference-slot registry's applicability group, the CommCare emitter's
@@ -256,14 +256,7 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	section: sectionFieldMetadata,
 };
 
-export {
-	CAPTURE_CASE_WRITE_MODES,
-	type CaptureCaseWrite,
-	type CaptureCaseWriteMode,
-	type CaseWrite,
-	captureCaseWriteSchema,
-	caseWriteSchema,
-} from "./base";
+export { type CaseWrite, caseWriteSchema } from "./base";
 export type { RepeatMode };
 // `RepeatMode` (the three `repeat_mode` discriminator literals) comes
 // from `./repeat`, where the `repeatModes` tuple is declared beside the
@@ -568,9 +561,9 @@ export function convertNeedsOptionSeed(
  *   - `single_select` → `text`: `optionsSource` drops; everything else carries.
  *   - Capture subkinds (image/audio/video/signature/file): identity +
  *     label + hint + required + relevant carry over, and so does
- *     `caseWrite` with its `mode` — every capture kind declares the same
- *     destination shape, so a conversion among them keeps saving to the
- *     same place in the same way. No `validate` (not in capture schemas
+ *     `caseWrite` — every capture kind declares the same destination
+ *     shape, so a conversion among them keeps saving the same link to the
+ *     same place. No `validate` (not in capture schemas
  *     today).
  *   - `group` ↔ `repeat`: container; only identity + label + relevant
  *     carry over. Children are untouched — they stay in `fieldOrder`

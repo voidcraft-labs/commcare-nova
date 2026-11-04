@@ -121,6 +121,16 @@ export const containerFieldBase = structuralFieldBase.extend({
  * friendly form question/node name, while this pair is the case type and
  * property written on submit. The complete pair is optional; there is no
  * half-bound state and no inferred property fallback to `Field.id`.
+ *
+ * A capture field (image, audio, video, signature, file) takes this same
+ * destination, and its write saves a link to the submitted file, never
+ * the file. The capture's answer is a file name, so it can never be the
+ * case value; the write reads the generated `nova_url_<question>` node
+ * holding the CommCare HQ address of the file instead. It never names the
+ * capture question itself: CommCare HQ routes an update whose question
+ * path has an `<upload ref>` in the body into an `<attachment>` block,
+ * purely structurally (`corehq/apps/app_manager/xform.py`
+ * `::CaseBlock.add_case_updates`, `::CaseBlock.is_attachment`).
  */
 export interface CaseWrite {
 	caseType: string;
@@ -131,50 +141,6 @@ export const caseWriteSchema = z.strictObject({
 	caseType: z.string().min(1, "Case type must not be empty."),
 	property: authoredCasePropertyNameSchema,
 });
-
-/**
- * How a capture field's answer reaches the case.
- *
- * The mode is a required member of the destination rather than a slot
- * beside it, so a destination with no mode is unrepresentable — the two
- * are one decision. `url` writes a text property holding the CommCare HQ
- * address of the submitted file, built from the submission's own
- * `meta/instanceID` plus the attachment name, so it needs a known
- * deployment target to resolve an origin and a domain.
- *
- * The mode also decides which node the case block reads, which is why it
- * cannot be inferred later. CommCare HQ chooses `<attachment>` over
- * `<update>` purely structurally — if the emitted question path has an
- * `<upload ref>` in the body it becomes an attachment block, with no
- * toggle consulted (`app_manager/xform.py::CaseBlock.add_case_updates`,
- * `::is_attachment`). So URL mode never points at the capture question
- * itself; it points at the node carrying the address.
- *
- * `attachment` makes the opposite choice deliberately: the question path
- * IS the capture question, so the case block carries an `<attachment>`
- * element and CommCare stores the file on the case rather than a link to
- * it. It is the deprecated path and an explicit opt-in, because it only
- * does anything on a project space carrying the `MM_CASE_PROPERTIES`
- * toggle — with the toggle off,
- * `form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_attachments_action`
- * returns before applying anything and the block is discarded without a
- * word. Nothing reads one back inside the app either: Web Apps never
- * displays a case attachment, so the mode's only surfaces are the HQ
- * case page and CommCare Android.
- */
-export const CAPTURE_CASE_WRITE_MODES = ["url", "attachment"] as const;
-
-export type CaptureCaseWriteMode = (typeof CAPTURE_CASE_WRITE_MODES)[number];
-
-export interface CaptureCaseWrite extends CaseWrite {
-	mode: CaptureCaseWriteMode;
-}
-
-export const captureCaseWriteSchema = caseWriteSchema
-	.extend({
-		mode: z.enum(CAPTURE_CASE_WRITE_MODES),
-	})
-	.strict();
 
 /**
  * Input-capable fields additionally carry hint / required / relevant

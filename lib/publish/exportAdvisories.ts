@@ -48,8 +48,7 @@ export interface ExportAdvisory {
 function attachmentLinkProperties(doc: BlueprintDoc): readonly string[] {
 	const properties = new Set<string>();
 	for (const field of Object.values(doc.fields)) {
-		if (!isCaptureField(field)) continue;
-		if (field.caseWrite?.mode !== "url") continue;
+		if (!isCaptureField(field) || field.caseWrite === undefined) continue;
 		properties.add(field.caseWrite.property);
 	}
 	return [...properties].sort();

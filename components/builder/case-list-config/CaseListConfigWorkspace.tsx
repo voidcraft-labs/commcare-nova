@@ -302,7 +302,6 @@ function consequencesForSelection(
 						key: `${form.uuid}:${field.uuid}`,
 						fieldName,
 						formName: form.name,
-						mode: field.caseWrite.mode,
 					});
 				}
 				if (

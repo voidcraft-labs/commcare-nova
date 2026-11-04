@@ -5,8 +5,9 @@
 // with `appearance="signature"` over a `binary` bind; the wire collapses
 // it onto the image control, and `entries.js::getEntry` splits the two
 // back apart on that appearance. No choices and no calculate; the one
-// piece of case wiring is the capture destination, whose mode decides
-// how the drawing reaches the case.
+// piece of case wiring is the ordinary `caseWriteSchema` destination,
+// whose write saves a link to the drawing's file on the case, nothing
+// else.
 //
 // It stays its own Nova kind because every worker-visible property
 // differs from an image: a drawing canvas rather than a file picker, a
@@ -17,7 +18,7 @@ import tablerSignature from "@iconify-icons/tabler/signature";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
-	captureCaseWriteSchema,
+	caseWriteSchema,
 	fieldBaseSchema,
 	formLogicSchema,
 	proseTemplateSchema,
@@ -28,7 +29,7 @@ export const signatureFieldSchema = fieldBaseSchema.extend({
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
-	caseWrite: captureCaseWriteSchema.optional(),
+	caseWrite: caseWriteSchema.optional(),
 });
 
 export type SignatureField = z.infer<typeof signatureFieldSchema>;

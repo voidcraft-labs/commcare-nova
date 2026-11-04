@@ -68,14 +68,18 @@ import {
  * the answer is a file name, and the property carries an address built from
  * it, which lives on the sibling node `captureUrlNodePath` names. Every
  * sibling name is the form's plan of generated nodes', the one the XForm
- * builder writes them from. Routing the
- * update at the capture node instead would make HQ emit an `<attachment>`
- * block rather than an `<update>` child.
+ * builder writes them from. A capture's update never names the capture node
+ * itself: HQ's build turns an update whose question path is an upload
+ * question into an `<attachment>` block rather than an `<update>` child
+ * (`corehq/apps/app_manager/xform.py::XFormCaseBlock.add_case_updates`,
+ * `::is_attachment`), and case processing applies that block only where the
+ * project space has `MM_CASE_PROPERTIES`
+ * (`corehq/form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_attachments_action`).
+ * Nova writes no case attachment.
  *
  * With no deployment target there is no origin and no project space to build
- * an address from, so a URL-mode write is dropped rather than emitted against
- * a guess. Attachment mode deliberately names the upload question because the
- * submitted file, rather than an address, is the case value.
+ * an address from, so a capture's write is withheld rather than emitted
+ * against a guess.
  */
 function caseUpdateQuestionPath(
 	doc: BlueprintDoc,
@@ -93,9 +97,6 @@ function caseUpdateQuestionPath(
 			binding.path,
 		).toXPath();
 	if (!isCaptureField(field)) return binding.path.toXPath();
-	if (field.caseWrite?.mode === "attachment") {
-		return binding.path.toXPath();
-	}
 	if (attachmentTarget === null) return null;
 	return captureUrlNodePath(
 		generatedNodes(),
@@ -324,7 +325,7 @@ export function buildFormActions(
 		}
 
 		// Scalar case values can seed answers. Capture answers name files in
-		// this submission; a stored URL or case attachment is not such a file.
+		// this submission; a stored link is not such a file.
 		if (
 			effectiveCaseSelection === "single" &&
 			casePreload &&

@@ -25,10 +25,10 @@ opens a captured file's link, ``proof/views/test_form_attachment.py``).
   compiler refuses that filter without the flag
   (``case_search/filter_dsl.py::_require_related_lookups_flag``) and compiles
   it with it.
-- Each of the eleven toggles stored as on for one user alone is in neither
+- Each of the ten toggles stored as on for one user alone is in neither
   ``toggles_enabled_for_user`` nor ``toggles_dict`` for that user and the
   project space (``StaticToggle.enabled`` answers false for a namespace the
-  toggle does not declare); stored as on for the project space, all eleven
+  toggle does not declare); stored as on for the project space, all ten
   are in ``toggles_dict``. Each through HQ's own toggle storage and readers,
   with no seam.
 - HQ's project-space list (``api/resources/v0_5.py::UserDomainsResource``)
@@ -60,7 +60,6 @@ PROBED_FLAGS = (
     "SYNC_SEARCH_CASE_CLAIM",
     "CASE_SEARCH_ADVANCED",
     "COMMCARE_CONNECT",
-    "MM_CASE_PROPERTIES",
     "VIEW_FORM_ATTACHMENT",
     "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
     "CUSTOM_PROPERTIES",

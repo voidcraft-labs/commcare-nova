@@ -13,7 +13,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
 import type { CaseSelectionTransition } from "@/lib/doc/caseSelectionMutations";
-import type { CaptureCaseWriteMode, CaseSelection, Uuid } from "@/lib/domain";
+import type { CaseSelection, Uuid } from "@/lib/domain";
 
 export interface CaseSelectionReviewBlocker {
 	readonly key: string;
@@ -32,7 +32,6 @@ export interface CaseSelectionAttachmentAnswer {
 	readonly key: string;
 	readonly fieldName: string;
 	readonly formName: string;
-	readonly mode: CaptureCaseWriteMode;
 }
 
 export interface CaseSelectionReviewDialogProps {
@@ -191,12 +190,10 @@ export function CaseSelectionReviewDialog({
 									key={answer.key}
 									className="rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-3"
 								>
-									“{answer.fieldName}” in “{answer.formName}” saves the{" "}
-									{answer.mode === "url" ? "stored file link" : "file itself"}{" "}
-									to every selected case when someone submits a file. Preview
-									leaves each case's current value unchanged because it does not
-									create{" "}
-									{answer.mode === "url" ? "that link" : "case attachments"}.
+									“{answer.fieldName}” in “{answer.formName}” saves the stored
+									file link to every selected case when someone submits a file.
+									Preview leaves each case's current value unchanged because it
+									does not create that link.
 								</p>
 							))}
 

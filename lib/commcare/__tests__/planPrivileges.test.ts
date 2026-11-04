@@ -392,7 +392,6 @@ function linkOnlySeveralCaseForm(): BlueprintDoc {
 								caseWrite: {
 									caseType: "patient",
 									property: "scan_url",
-									mode: "url",
 								},
 							}),
 						],

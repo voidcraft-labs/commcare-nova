@@ -380,9 +380,8 @@ export const FIELD_REFERENCE_SLOTS = [
 		// The sibling `caseWrite.property` is registered independently as
 		// the name-backed property identity on that case type.
 		//
-		// Capture kinds belong here even though their destination carries
-		// an extra `mode` member: the reference leaves are the same two
-		// paths, and leaving them out would make an app-wide property
+		// Capture kinds belong here too: their destination is the same
+		// pair, and leaving them out would make an app-wide property
 		// rename silently miss every capture writer.
 		appliesTo: [...INPUT_KINDS, ...CAPTURE_KINDS, "hidden"],
 	},
@@ -1308,7 +1307,6 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	repeat_mode: "discriminator",
 	label_media: "media",
 	help_media: "media",
-	"caseWrite.mode": "discriminator",
 	"optionsSource.kind": "discriminator",
 	"optionsSource.options[].uuid": "identity",
 	"optionsSource.options[].value": "data-literal",

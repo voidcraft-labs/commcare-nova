@@ -241,7 +241,7 @@ it("emits an ordinary shared update in both artifacts and limits multiple select
 	).toBeUndefined();
 });
 for (const published of [true, false]) {
-	it(`orders authored effects, shared scalar/file writes and close with ${published ? "a target" : "no target"}`, () => {
+	it(`orders authored effects, shared scalar and link writes and close with ${published ? "a target" : "no target"}`, () => {
 		const doc = fixture(
 			"close",
 			[
@@ -264,20 +264,12 @@ for (const published of [true, false]) {
 				f({
 					kind: "image",
 					id: "photo",
-					caseWrite: {
-						caseType: "patient",
-						property: "photo",
-						mode: "attachment",
-					},
+					caseWrite: { caseType: "patient", property: "photo" },
 				}),
 				f({
 					kind: "image",
 					id: "photo_link",
-					caseWrite: {
-						caseType: "patient",
-						property: "photo_url",
-						mode: "url",
-					},
+					caseWrite: { caseType: "patient", property: "photo_url" },
 				}),
 			],
 			{
@@ -310,9 +302,10 @@ for (const published of [true, false]) {
 				),
 				"case",
 			);
+			// Every capture's write is a link row; no block holds an
+			// `<attachment>`.
 			expect(transaction.children.filter(isTag).map((e) => e.name)).toEqual([
 				"update",
-				"attachment",
 			]);
 			expect(
 				child(transaction, "update")
@@ -322,19 +315,18 @@ for (const published of [true, false]) {
 				"case_name",
 				"note",
 				"external_id",
-				...(published ? ["photo_url"] : []),
+				...(published ? ["photo", "photo_url"] : []),
 			]);
-			expect(child(child(transaction, "attachment"), "photo").attribs).toEqual({
-				src: "",
-				from: "local",
-			});
 			// A name and an external id read the question's trimmed sibling.
 			const writers = [
 				["case_name", "/data/nova_trimmed_full_name"],
 				["note", "/data/note"],
 				["external_id", "/data/nova_trimmed_external_id"],
 				...(published
-					? [["photo_url", "/data/nova_url_photo_link"] as const]
+					? ([
+							["photo", "/data/nova_url_photo"],
+							["photo_url", "/data/nova_url_photo_link"],
+						] as const)
 					: []),
 			] as const;
 			for (const [property, source] of writers)
@@ -356,16 +348,6 @@ for (const published of [true, false]) {
 				});
 				expect(form.bind(`/data/${question}`).constraint).toBe(check);
 			}
-			expect(form.bind(`${scope}/${UPDATE}/case/attachment/photo`)).toEqual({
-				nodeset: `${scope}/${UPDATE}/case/attachment/photo`,
-				relevant: "count(/data/photo) = 1 and string(/data/photo) != ''",
-			});
-			expect(
-				form.bind(`${scope}/${UPDATE}/case/attachment/photo/@src`),
-			).toEqual({
-				nodeset: `${scope}/${UPDATE}/case/attachment/photo/@src`,
-				calculate: "/data/photo",
-			});
 			const close = child(
 				child(form.operations, "nova_close_selected_cases"),
 				"case",

@@ -15,6 +15,7 @@ function app(
 		caseType?: string;
 		closeCondition?: { field: string; answer: string };
 		fields?: ReturnType<typeof f>[];
+		attachmentTarget?: { origin: string; domain: string };
 	} = {},
 ) {
 	const doc = buildDoc({
@@ -51,7 +52,12 @@ function app(
 		],
 	});
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	return buildFormActions(doc, formUuid, options.caseType);
+	return buildFormActions(
+		doc,
+		formUuid,
+		options.caseType,
+		options.attachmentTarget ?? null,
+	);
 }
 
 const nameField = f({
@@ -102,6 +108,41 @@ it("writes an external id as an update row naming the trimmed sibling", () => {
 		},
 	});
 });
+
+it.each(["image", "audio", "video", "signature", "file"] as const)(
+	"writes a %s capture's case write as an update row naming its link sibling, never the upload question",
+	(kind) => {
+		// An update naming the upload question would be an `<attachment>` in
+		// HQ's build (`xform.py::XFormCaseBlock.add_case_updates`,
+		// `::is_attachment`); every capture names the sibling that holds the
+		// link to its file, and with no target there is no link to write.
+		const fields = [
+			nameField,
+			f({
+				kind,
+				id: "capture",
+				caseWrite: { caseType: "patient", property: "evidence" },
+			}),
+		];
+		const linked = app("registration", {
+			caseType: "patient",
+			fields,
+			attachmentTarget: {
+				origin: "https://www.commcarehq.org",
+				domain: "demo-project",
+			},
+		});
+		expect(linked.update_case.update).toEqual({
+			evidence: {
+				question_path: "/data/nova_url_capture",
+				update_mode: "always",
+			},
+		});
+		expect(
+			app("registration", { caseType: "patient", fields }).update_case.update,
+		).toEqual({});
+	},
+);
 
 it("writes close_case never for a condition the Case Management tab cannot state, and if for one it can", () => {
 	const select = f({

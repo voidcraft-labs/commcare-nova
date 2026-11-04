@@ -1,6 +1,5 @@
 import {
 	CASE_LOADING_FORM_TYPES,
-	type CaptureCaseWrite,
 	type CaseWrite,
 	caseSelectionCardinality,
 	caseWriteDestinationClass,
@@ -60,15 +59,13 @@ export function caseWriteGuidance(
 		module: Pick<Module, "caseType" | "caseListConfig">;
 		form: Pick<Form, "type">;
 	} | null,
-	current: CaseWrite | CaptureCaseWrite | undefined,
+	current: CaseWrite | undefined,
 ): {
 	writesEverySelectedCase: boolean;
 	help: string | undefined;
 	warning: boolean;
 } {
 	const savesAttachment = isCaptureField(field);
-	const currentMode =
-		current !== undefined && "mode" in current ? current.mode : "url";
 	const destination =
 		context === null
 			? "none"
@@ -91,9 +88,7 @@ export function caseWriteGuidance(
 		("calculate" in field && field.calculate !== undefined);
 	if (writesEverySelectedCase) {
 		const help = savesAttachment
-			? currentMode === "url"
-				? "This attachment starts blank. When someone submits a file, its stored link updates this information on every selected case. Preview leaves each case's current value because it does not create that stored link."
-				: "This attachment starts blank. When someone submits a file, it updates this information on every selected case. Preview leaves each case's current attachment because it does not create case attachments."
+			? "This attachment starts blank. When someone submits a file, its stored link updates this information on every selected case. Preview leaves each case's current value because it does not create that stored link."
 			: hasStartingAnswer
 				? "This question has a starting value or calculation. When it produces an answer, that answer updates this information on every selected case, even if no one changes it."
 				: "This question starts blank. Any answer someone enters updates this information on every selected case. Leaving it blank keeps each case's current value.";

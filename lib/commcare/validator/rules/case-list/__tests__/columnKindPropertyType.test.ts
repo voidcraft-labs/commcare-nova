@@ -92,50 +92,19 @@ describe("column property semantics at the whole admission gate", () => {
 		]);
 		expect(result[0].details?.resolvedType).toBe("datetime");
 	});
-	const attachment = (mode: "attachment" | "url"): FieldSpec =>
-		f({
-			kind: "image",
-			id: "photo",
-			label: "Photo",
-			caseWrite: { caseType: "patient", property: "photo", mode },
-		});
-	it("reports only the absent scalar slot for attachment-only writers at every column kind", () => {
-		const base = admittedCaseListDoc({ fields: [attachment("attachment")] });
-		for (const column of [
-			plainColumn(id, "photo", "Photo"),
-			phoneColumn(id, "photo", "Phone"),
-		]) {
-			const result = findings(withColumns(base, [column]));
-			expect(result.map((error) => error.code)).toEqual([
-				"CASE_LIST_COLUMN_OVER_ATTACHMENT_SLOT",
-			]);
-			expect(result[0].details?.columnUuid).toBe(id);
-		}
-	});
-	it("admits URL capture and a scalar property written alongside its attachment", () => {
-		const url = admittedCaseListDoc({ fields: [attachment("url")] });
-		expect(
-			findings(withColumns(url, [plainColumn(id, "photo", "Photo")])),
-		).toEqual([]);
-		const scalar = admittedCaseListDoc({
-			fields: [attachment("attachment")],
-			additionalForms: [
-				{
-					name: "Update photo note",
-					type: "followup",
-					fields: [
-						f({
-							kind: "text",
-							id: "photo_note",
-							label: "Note",
-							caseWrite: { caseType: "patient", property: "photo" },
-						}),
-					],
-				},
+	it("admits a column over the property a capture saves its file's link to", () => {
+		const base = admittedCaseListDoc({
+			fields: [
+				f({
+					kind: "image",
+					id: "photo",
+					label: "Photo",
+					caseWrite: { caseType: "patient", property: "photo" },
+				}),
 			],
 		});
 		expect(
-			findings(withColumns(scalar, [plainColumn(id, "photo", "Photo")])),
+			findings(withColumns(base, [plainColumn(id, "photo", "Photo")])),
 		).toEqual([]);
 	});
 });

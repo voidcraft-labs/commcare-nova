@@ -106,7 +106,6 @@ export function searchLookupMediaDocument(
 								caseWrite: {
 									caseType: "patient",
 									property: "scan_url",
-									mode: "url",
 								},
 							}),
 						],

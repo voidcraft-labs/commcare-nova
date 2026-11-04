@@ -1,1 +1,8 @@
-[]
+[
+	{
+		"defect": 23,
+		"entity": "form:0.0",
+		"path": "/questions/*",
+		"documents": ["targeted-migration-attachment"]
+	}
+]

@@ -24,8 +24,9 @@
  *   several cases whose form writes to them. Declared Web Apps, where the
  *   menu selecting several cases opens.
  * - `targeted-migration-attachment` (defect 23): a follow-up whose image
- *   question writes the case in attachment mode, so its project space holds
- *   `MM_CASE_PROPERTIES`, beside a file question writing as a link.
+ *   and file questions each save a link to their file on the case. Its
+ *   retained A was published from the image question's attachment-mode
+ *   write, under `MM_CASE_PROPERTIES`.
  * - `targeted-migration-extension-children` (defect 24): a registration
  *   writing an extension case and then a child case through field writes;
  *   a second registration writing an extension case, with a form link
@@ -538,7 +539,6 @@ export function migrationAttachment() {
 								caseWrite: {
 									caseType: "patient",
 									property: "photo",
-									mode: "attachment",
 								},
 							}),
 							f({
@@ -549,7 +549,6 @@ export function migrationAttachment() {
 								caseWrite: {
 									caseType: "patient",
 									property: "scan",
-									mode: "url",
 								},
 							}),
 							note(uuid("note")),

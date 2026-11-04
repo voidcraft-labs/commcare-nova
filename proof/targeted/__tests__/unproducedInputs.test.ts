@@ -1,7 +1,8 @@
 /**
- * The inputs step 1 left out of the lane as ones no Nova document can hold or
- * no target Nova publishes to can carry, each tried through Nova's planner,
- * commit gate, exports and publish check.
+ * The inputs step 1 left out of the lane as ones no Nova document can hold,
+ * each tried through Nova's planner, commit gate and exports: a basic child
+ * case of its own menu's case type, a form that reads the session's
+ * `supply_point_id`, and defect 20's `product_id` datum.
  *
  * Contract: a claim that Nova cannot produce an input is true only where
  * Nova's own parser, gate or exports say so. The plausible failure is a row
@@ -39,23 +40,11 @@
  *   basic module with basic actions, so neither branch is reached. The
  *   accepted counterpart is the case list menu item itself, which the
  *   export does show.
- * - **Defect 23 without `MM_CASE_PROPERTIES`.** A capture that saves its
- *   file on the case needs the flag, and Nova's publish check
- *   (`lib/deployment/preflight.ts`, through `projectSpaceCompatibilityProbePlan`
- *   and `probeHqProjectSpaceCompatibility`) stops the publish to a project
- *   space whose flags HQ's own domain list says lack it, naming the
- *   capability; the same target with the flag passes. So no app reaches a
- *   project space where HQ would drop the attachment, and the lane checks
- *   none (decision 19).
  */
 
-import type { MockAgent } from "undici";
 import { describe, expect, it } from "vitest";
-import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
-import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import type { BlueprintDoc } from "@/lib/domain";
 import { plainColumn, proseText } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
@@ -327,107 +316,5 @@ describe("defect 20's product_id datum", () => {
 				expect(form.actions).not.toHaveProperty("load_update_cases");
 			}
 		}
-	});
-});
-
-describe("defect 23 without MM_CASE_PROPERTIES", () => {
-	const CREDS = {
-		username: "account",
-		apiKey: "fixture-key",
-		server: "india",
-	} as const;
-	const HOST = "https://india.commcarehq.org";
-	const DOMAINS = "/api/user_domains/v1/?limit=100";
-	const visible = {
-		meta: { total_count: 1 },
-		objects: [{ domain_name: "clinic", project_name: "Clinic" }],
-	};
-	const none = { meta: { total_count: 0 }, objects: [] };
-
-	function attachmentCapture(): BlueprintDoc {
-		const made = targetedDocument({
-			id: ID,
-			rows: ["a dropped input, tried"],
-			doc: buildDoc({
-				appId: ID,
-				appName: "Wounds",
-				caseTypes: [
-					{
-						name: "patient",
-						properties: [
-							{ name: "case_name", label: proseText("Name") },
-							{ name: "photo", label: proseText("Photo") },
-						],
-					},
-				],
-				modules: [
-					{
-						uuid: uuid("module"),
-						name: "Patients",
-						caseType: "patient",
-						caseListConfig: caseListOf([
-							plainColumn(uuid("name"), "case_name", "Name"),
-						]),
-						forms: [
-							{
-								uuid: uuid("form"),
-								name: "Photo",
-								type: "followup",
-								fields: [
-									f({
-										kind: "image",
-										uuid: uuid("photo"),
-										id: "photo",
-										label: proseText("Photo"),
-										caseWrite: {
-											caseType: "patient",
-											property: "photo",
-											mode: "attachment",
-										},
-									}),
-								],
-							},
-						],
-					},
-				],
-			}),
-			expected: { intent: [] },
-		});
-		return made.doc as BlueprintDoc;
-	}
-
-	function target(peer: MockAgent, flagged: boolean) {
-		const asked = (path: string) =>
-			peer.get(HOST).intercept({
-				method: "GET",
-				path,
-				headers: { authorization: "ApiKey account:fixture-key" },
-			});
-		asked(DOMAINS).reply(200, visible);
-		asked(`${DOMAINS}&feature_flag=mm_case_properties`).reply(
-			200,
-			flagged ? visible : none,
-		);
-	}
-
-	it("is a target Nova's publish refuses, naming the capability, and the same target with the flag passes", async () => {
-		const plan = projectSpaceCompatibilityProbePlan(attachmentCapture());
-		expect(plan.capabilities.map((item) => item.capability.id)).toEqual([
-			"case-attachments",
-		]);
-		const refused = await withHttpPeer(async (peer) => {
-			target(peer, false);
-			return probeHqProjectSpaceCompatibility(CREDS, "clinic", plan);
-		});
-		expect(refused.report.status).toBe("blocked");
-		expect(
-			refused.report.status === "blocked" &&
-				refused.report.blockers.map((blocker) => blocker.id),
-		).toEqual(["case-attachments"]);
-		const passed = await withHttpPeer(async (peer) => {
-			target(peer, true);
-			return probeHqProjectSpaceCompatibility(CREDS, "clinic", plan);
-		});
-		expect(passed.report.status).not.toBe("blocked");
 	});
 });

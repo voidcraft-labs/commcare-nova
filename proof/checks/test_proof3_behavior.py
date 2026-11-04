@@ -87,13 +87,14 @@ from pathlib import Path
 import pytest
 from lxml import etree
 
-from proof.checks import casedata, cases, observations, proof2, proof3
+from proof.checks import casedata, cases, corpus, observations, proof2, proof3
 from proof.checks.corpus import Document
 from proof.checks.differences import Difference
 from proof.core.client import CoreRunnerError
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
 from proof.observe import sessions
+from proof.observe.casedata import document_case_database
 from proof.observe.identity import data_namespace
 from proof.observe.record import Blobs
 
@@ -847,12 +848,20 @@ def test_a_case_attachment_is_read_from_the_files_the_device_sends_and_without_t
     assert processed["without"] == processed["without, no files"]
 
 
-def test_a_corpus_document_whose_forms_send_files_is_processed_with_them(hq, core_runner):
-    """A case-extension document's sessions submit a photo its case block attaches: under ``MM_CASE_PROPERTIES``,
-    with the files the device sends, HQ processes every run, where without them HQ refuses each one
-    (``needsFiles``)."""
-    document = next((d for d in cases.load_corpus().emitted if d.id.startswith("case-extension") and d.local_ccz), None)
-    assert document is not None, "The corpus holds no case-extension document, whose forms attach a file."
+# A control retained while a capture could save its file on the case: no emitted document attaches a file, since
+# every capture saves a link to its file, and the control still holds the attachment-mode exports.
+ATTACHING_CONTROL = "case-extension-registration-after-13"
+
+
+def test_a_document_whose_forms_send_files_is_processed_with_them(hq, core_runner):
+    """A retained case-extension control's sessions submit a photo its case block attaches: under
+    ``MM_CASE_PROPERTIES``, with the files the device sends, HQ processes every run, where without them HQ refuses
+    each one (``needsFiles``)."""
+    document = next(
+        (control for control in corpus.load_controls() if control.id == ATTACHING_CONTROL and control.local_ccz),
+        None,
+    )
+    assert document is not None, f"proof/controls holds no {ATTACHING_CONTROL} with a local archive."
     name = next(
         (
             name
@@ -873,7 +882,7 @@ def test_a_corpus_document_whose_forms_send_files_is_processed_with_them(hq, cor
     ]
     assert attaching, f"{document.id}'s sessions submit no form whose case blocks attach a file."
     assert all("needsFiles" not in sent["runs"][index] for index in attaching)
-    database = casedata.case_database(document.document)
+    database = document_case_database(document)
     xmlns = proof3.xmlns_alignment(recorded["local"]["admission"], recorded["baseline"]["admission"])
     with hq_check(document.exports[name].configuration.hq()) as (state, _):
         bare = sessions.processed_runs(state, database, trace, xmlns, files=False)

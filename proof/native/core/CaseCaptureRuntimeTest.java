@@ -126,18 +126,23 @@ public class CaseCaptureRuntimeTest {
             answer(form, scope + "/details/scan", "scan-" + index + ".pdf");
             answer(form, scope + "/details/thepicture", "photo-" + index + ".jpg");
             assertEquals(prefix + "scan-" + index + ".pdf", eval(form, scope + "/case/update/scan_url"));
-            assertEquals("photo-" + index + ".jpg", eval(form, scope + "/case/attachment/photo/@src"));
+            // The picture saves a link to its file, as the scan does; an attachment block left in either path's
+            // case transaction would hand HQ the file itself.
+            assertEquals(prefix + "photo-" + index + ".jpg", eval(form, scope + "/case/update/photo"));
+            assertEquals("No capture writes a case attachment", 0.0, eval(form, "count(" + scope + "/case/attachment)"));
         }
         answer(form, "/data/show", "no");
         for (String scope : scopes) {
             assertEquals(0.0, eval(form, "count(" + scope + "/details/scan)"));
             assertEquals("Hidden capture must preserve the existing case link", 0.0, eval(form, "count(" + scope + "/case/update/scan_url)"));
-            assertEquals(0.0, eval(form, "count(" + scope + "/case/attachment/photo)"));
+            assertEquals("Hidden capture must preserve the existing case link", 0.0, eval(form, "count(" + scope + "/case/update/photo)"));
+            assertEquals(0.0, eval(form, "count(" + scope + "/case/attachment)"));
         }
         String caseNamespace = "http://commcarehq.org/case/transaction/v2";
         Document hiddenSubmission = submission(form);
         assertEquals(0, hiddenSubmission.getElementsByTagNameNS(caseNamespace, "scan_url").getLength());
         assertEquals(0, hiddenSubmission.getElementsByTagNameNS(caseNamespace, "photo").getLength());
+        assertEquals(0, hiddenSubmission.getElementsByTagNameNS(caseNamespace, "attachment").getLength());
         answer(form, "/data/show", "yes");
         for (int index = 0; index < scopes.length; index++) {
             assertEquals(prefix + "scan-" + index + ".pdf", eval(form, scopes[index] + "/case/update/scan_url"));
@@ -147,6 +152,7 @@ public class CaseCaptureRuntimeTest {
         assertEquals("", eval(form, scopes[0] + "/case/update/scan_url"));
         if (scopes.length > 1) assertEquals(prefix + "scan-1.pdf", eval(form, scopes[1] + "/case/update/scan_url"));
         Document clearedSubmission = submission(form);
+        assertEquals("No capture writes a case attachment", 0, clearedSubmission.getElementsByTagNameNS(caseNamespace, "attachment").getLength());
         assertEquals(scopes.length, clearedSubmission.getElementsByTagNameNS(caseNamespace, "scan_url").getLength());
         assertEquals("", clearedSubmission.getElementsByTagNameNS(caseNamespace, "scan_url").item(0).getTextContent());
         if (scopes.length > 1) assertEquals(prefix + "scan-1.pdf", clearedSubmission.getElementsByTagNameNS(caseNamespace, "scan_url").item(1).getTextContent());
@@ -173,8 +179,10 @@ public class CaseCaptureRuntimeTest {
         for (int index = 0; index < 2; index++) {
             ids.add(((org.w3c.dom.Element)active.getElementsByTagNameNS(namespace, "case").item(index)).getAttribute("case_id"));
             assertEquals(prefix + "shared.pdf", active.getElementsByTagNameNS(namespace, "scan_url").item(index).getTextContent());
-            assertEquals("shared.jpg", ((org.w3c.dom.Element)active.getElementsByTagNameNS(namespace, "photo").item(index)).getAttribute("src"));
+            assertEquals(prefix + "shared.jpg", active.getElementsByTagNameNS(namespace, "photo").item(index).getTextContent());
         }
+        // Each selected case gets a link to the picture; an attachment block in either path would hand HQ the file.
+        assertEquals("No capture writes a case attachment", 0, active.getElementsByTagNameNS(namespace, "attachment").getLength());
         assertEquals(new HashSet<>(Arrays.asList("patient-0", "patient-1")), ids);
         answer(form, "/data/show", "no");
         Document hidden = submission(form);

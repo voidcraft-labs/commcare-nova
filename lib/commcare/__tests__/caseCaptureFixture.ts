@@ -18,14 +18,14 @@ export function caseCaptureFixture(
 			id: "thepicture",
 			label: proseText("Photo"),
 			relevant: "#form/show = 'yes'",
-			caseWrite: { caseType: type, property: "photo", mode: "attachment" },
+			caseWrite: { caseType: type, property: "photo" },
 		}),
 		f({
 			kind: "file",
 			id: "scan",
 			label: proseText("Scan"),
 			relevant: "#form/show = 'yes'",
-			caseWrite: { caseType: type, property: "scan_url", mode: "url" },
+			caseWrite: { caseType: type, property: "scan_url" },
 		}),
 	];
 	return buildDoc({

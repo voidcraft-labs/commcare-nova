@@ -232,7 +232,6 @@ function fixture(
 											caseWrite: {
 												caseType: "patient",
 												property: "photo_url",
-												mode: "url",
 											},
 										}),
 									]

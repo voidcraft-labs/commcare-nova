@@ -55,7 +55,7 @@ describe("actual case-write guidance projection", () => {
 			expect(guidance.help).toContain("even if no one changes it");
 		}
 	});
-	it("distinguishes capture link and attachment semantics", () => {
+	it("warns that a capture saves its stored link to every selected case", () => {
 		const image: Field = {
 			kind: "image",
 			id: "photo",
@@ -65,18 +65,10 @@ describe("actual case-write guidance projection", () => {
 		const link = caseWriteGuidance(image, scope, {
 			caseType: "patient",
 			property: "photo",
-			mode: "url",
-		});
-		const attachment = caseWriteGuidance(image, scope, {
-			caseType: "patient",
-			property: "photo",
-			mode: "attachment",
 		});
 		expect(link.help).toContain("its stored link updates");
 		expect(link.help).toContain("does not create that stored link");
-		expect(attachment.help).toContain("does not create case attachments");
 		expect(link.warning).toBe(true);
-		expect(attachment.warning).toBe(true);
 	});
 	it("withholds several-case guidance outside a loading primary-case write", () => {
 		for (const context of [
@@ -207,7 +199,6 @@ describe("what the destination does when the form opens", () => {
 		const guidance = caseWriteGuidance(image, oneCaseFollowup, {
 			caseType: "patient",
 			property: "photo",
-			mode: "url",
 		});
 		expect(guidance.help).toBeUndefined();
 	});
