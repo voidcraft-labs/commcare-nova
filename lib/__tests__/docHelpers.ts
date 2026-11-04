@@ -52,10 +52,12 @@ import {
 	PLATFORMS,
 	type ProseTemplate,
 	plainColumn,
+	propertyAgreedType,
 	proseText,
 	type UserCollections,
 	type Uuid,
 	unavailableUses,
+	wholeNumberStartsOnDecimal,
 	writerOffersPreload,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
@@ -578,12 +580,24 @@ function lowerCaseWrites(
 					})),
 				),
 			);
+			// A whole-number question can't open on a decimal property's value,
+			// which the gate refuses, so it keeps no starting value here.
+			const fits = preloaded.filter((writer) => {
+				const field = work.fields[writer.fieldUuid];
+				return (
+					field === undefined ||
+					!wholeNumberStartsOnDecimal(
+						field,
+						propertyAgreedType(work, writer.caseType, writer.property),
+					)
+				);
+			});
 			work = apply(
 				work,
 				planExplicitPreloads(
 					work,
 					formUuid,
-					preloaded.map((writer) => writer.fieldUuid),
+					fits.map((writer) => writer.fieldUuid),
 				),
 			);
 		}
