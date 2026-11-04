@@ -333,6 +333,10 @@ function chainLabel(caseType: string, via: CaseWriteVia): string {
  *     the question can't open on the values the property can hold, where the
  *     line says why and offers nothing;
  *   - any other starting value, or a calculation: no line.
+ *
+ * A save to the case's owner is offered no starting value from it
+ * (`casePreload.ts::writerOffersPreload`), so with none it shows no line; one
+ * that already opens on the owner shows the first line like any other.
  */
 function preloadLine(
 	input: CaseWriteRowInput,

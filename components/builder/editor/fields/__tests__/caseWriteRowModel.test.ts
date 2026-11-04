@@ -415,6 +415,16 @@ describe("the preload line", () => {
 		const shown = rowOf(opensOnOwner.nextDoc, NICKNAME).preload;
 		expect(shown?.line).toBe(OPENS_WITH_CASE_VALUE_LINE);
 		expect(shown?.action?.label).toBe("Start blank instead");
+		// Start blank instead is admitted, and leaves no offer behind.
+		const action = shown?.action;
+		if (action === undefined) throw new Error("No action to take.");
+		const cleared = mutationCommitVerdict(
+			opensOnOwner.nextDoc,
+			[action.mutation],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!cleared.ok) throw new Error("The gate refused Start blank instead.");
+		expect(rowOf(cleared.nextDoc, NICKNAME).preload).toBeUndefined();
 	});
 
 	it("says nothing off this form's case or on a registration", () => {
