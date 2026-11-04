@@ -86,14 +86,15 @@ describe("case writer type admission", () => {
 			}
 		},
 	);
-	// The relation is storage assignability, the one every case operation's
-	// write is held to: an integer fits a decimal property, and a choice and
-	// text are stored as the same text.
+	// A declared type holds an integer as a decimal and a choice as text,
+	// which its readers read back; free text saved to a declared choice
+	// property would reach a choice question that starts on it with a value
+	// it may not offer.
 	it.each([
 		{ kind: "int", declared: "decimal", fits: true },
 		{ kind: "single_select", declared: "text", fits: true },
-		{ kind: "text", declared: "single_select", fits: true },
-		{ kind: "barcode", declared: "single_select", fits: true },
+		{ kind: "text", declared: "single_select", fits: false },
+		{ kind: "barcode", declared: "single_select", fits: false },
 		{ kind: "decimal", declared: "int", fits: false },
 		{ kind: "multi_select", declared: "text", fits: false },
 		{ kind: "text", declared: "multi_select", fits: false },

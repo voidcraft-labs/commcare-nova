@@ -2141,15 +2141,17 @@ writer converging exactly the planned differences (G7).
   all three editors, so no editor refuses the shape on its own either. A planned record still needs no
   module, and removing a type's last module still retires its record or names what still uses the type
   (`lib/doc/caseTypeRetirement.ts`).
-- **A question's kind fits the property it saves to by storage assignability** (the second class). The head
-  counts every operation write whose value is a question's bare answer as that question's Saves to, and
+- **A question's kind fits a declared integer-to-decimal or choice-to-text property** (the second class). The
+  head counts every operation write whose value is a question's bare answer as that question's Saves to, and
   `FIELD_KIND_PROPERTY_TYPE_MISMATCH` asked an exact match of kind and declared type, where `main` held the
   same write, as an operation's, to `ruleSets.ts::isWriteAssignable`: an integer into a decimal property and
-  a single select into a text one were admitted at `main` and refused at the head. The kind rule now asks
-  `isValueStorageAssignable`, the same relation without the ISO date text allowance no answer is, and
-  writers agree (`FIELD_KIND_WRITERS_DISAGREE`, the inferred property type, and the writer opinions a case
-  operation's write reads) on the one of their types that holds every other
-  (`ruleSets.ts::agreedStorageType`), the join Hidden Values already used.
+  a single select into a text one were admitted at `main` and refused at the head. The kind rule now also
+  admits exactly those two directions (`fieldKindMatchesPropertyType.ts::declaredTypeHolds`), whose values
+  the declared type's readers read back; free text into a declared choice property stays refused, since a
+  choice question starting on it may meet a value it doesn't offer. Writers of an undeclared property agree
+  (`FIELD_KIND_WRITERS_DISAGREE`, the inferred property type, and the writer opinions a case operation's
+  write reads) on the one of their types that holds every other (`ruleSets.ts::agreedStorageType`), the join
+  Hidden Values already used.
 - **A Hidden Value's result of another kind is refused only where it would break a reader** (the advisory
   scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an
   operation saves its answer to, so a calculation `main` admitted beside an operation, giving several choices

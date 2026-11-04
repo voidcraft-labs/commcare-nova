@@ -6,16 +6,18 @@
  * `(case_type, property_name)` tuple) must agree on one type that holds
  * every one of theirs.
  *
- * "Holds" is storage assignability
- * (`lib/domain/expression/ruleSets.ts::isValueStorageAssignable`), the
- * relation every case operation's write is held to
- * (`ruleSets.ts::isWriteAssignable`, whose ISO date text allowance no
- * question's answer is): an `int` answer fits a `decimal` property, and a
- * `single_select` answer and `text` are stored as the same text, so each
- * fits a property of the other. Writers agree on the one type of theirs that
- * holds them all (`ruleSets.ts::agreedStorageType`: `int` with `decimal` on
- * `decimal`, `text` with `single_select` on `text`), the type inference gives
- * the property.
+ * A declared type holds a kind's values where it is the kind's own type, or
+ * where the declaration stores them and every reader the declaration
+ * describes reads them back (`declaredTypeHolds`): an `int` answer as a
+ * `decimal`, and a `single_select` answer as `text`. The reverse directions
+ * stay apart although storage takes them: a `decimal` property's readers
+ * include decimal questions, which read a whole number fine, but a `text`
+ * question's free text saved to a declared choice property reaches a choice
+ * question that starts on it with a value it may not offer, which Web Apps
+ * can't open. Writers of an undeclared property agree on the one type of
+ * theirs that holds them all (`ruleSets.ts::agreedStorageType`: `int` with
+ * `decimal` on `decimal`, `text` with `single_select` on `text`), the type
+ * inference gives the property.
  *
  * App-scoped because the multi-writer disagreement check is by
  * definition cross-form: a `text` field and an `int` field that both
@@ -30,8 +32,8 @@
  * `lib/domain/caseTypes.ts::caseDataTypeForFieldKind`, the single
  * table this rule and the reducer-side catalog sync both consult, so
  * the data type a writer stamps into the catalog and the data type
- * this rule reads can never disagree. Coercion paths storage refuses
- * (e.g. `text` field → `int` property) are rejected; `hidden` and the
+ * this rule reads can never disagree. Every other coercion path (e.g.
+ * `text` field → `int` property) is rejected; `hidden` and the
  * capture kinds are skipped, because neither pins a value type from the
  * kind alone. A Hidden Value is a typed writer whose type is inferred from
  * its value, judged by `hiddenValueWriterAgreement.ts`; a capture saves a
@@ -50,11 +52,22 @@ import {
 	isWritableStandardCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
-import {
-	agreedStorageType,
-	isValueStorageAssignable,
-} from "@/lib/domain/expression/ruleSets";
+import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
 import { type ValidationError, validationError } from "../errors";
+
+/** Whether a property declared `declared` holds the values a question of
+ *  a kind giving `given` saves: its own type, an integer as a decimal, a
+ *  choice as text. */
+function declaredTypeHolds(
+	given: CasePropertyDataType,
+	declared: CasePropertyDataType,
+): boolean {
+	return (
+		given === declared ||
+		(given === "int" && declared === "decimal") ||
+		(given === "single_select" && declared === "text")
+	);
+}
 
 /**
  * Per-field-kind → the case-property `data_type` its values have. Thin
@@ -142,7 +155,7 @@ export function fieldKindMatchesPropertyType(
 			// (a) A declared data_type that can't hold the field's values.
 			if (
 				declaredType !== undefined &&
-				!isValueStorageAssignable(expected, declaredType)
+				!declaredTypeHolds(expected, declaredType)
 			) {
 				errors.push(
 					validationError(
