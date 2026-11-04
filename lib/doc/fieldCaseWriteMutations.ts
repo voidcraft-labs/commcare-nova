@@ -104,6 +104,16 @@ function withoutDefault(field: Field): Field {
  * (`lib/domain/startingValueFit.ts`). Starting it blank is no way out: a
  * blank answer saves blank and clears the case's value. Undefined where the
  * question fits.
+ *
+ * Only the whole-number misfit is also the gate's
+ * (`WHOLE_NUMBER_STARTS_ON_DECIMAL`). A choice misfit is read from the
+ * property's type, and a writer of a text-typed property, a Hidden Value
+ * most often, may give only values among the question's choices, so the
+ * gate can't refuse a choice question's starting value on its type alone;
+ * the value-level guarantee is issue #856's. Here it refuses only a choice
+ * question's own new save, which would be born opening on the property, as
+ * `main` refused a choice question's save to a text property
+ * (`fieldKindMatchesPropertyType`'s declared-type check there).
  */
 function startingValueRefusal(
 	doc: BlueprintDoc,
@@ -119,7 +129,7 @@ function startingValueRefusal(
 	if (misfit.kind === "whole-number-on-decimal")
 		return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. ${blank} You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
 	if (misfit.type === "multi_select")
-		return `${subject}, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. ${blank} You can make "${field.id}" a multiple-choice or text question, or save it to a property that holds a single choice.`;
+		return `${subject}, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. ${blank} You can make "${field.id}" a multiple-choice question, or save it to a property that holds a single choice.`;
 	const fitting =
 		field.kind === "single_select"
 			? "a property that holds a single choice"
@@ -817,7 +827,9 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * result's `notes` say so. A starting value born for a save the plan
  * removes or moves to another property counts as none: a moved save is born
  * with its own, and otherwise it goes and the `notes` say the question
- * starts blank. A save the replace keeps keeps its starting value.
+ * starts blank. A save the replace keeps keeps its starting value, and one
+ * whose question loses the starting value born for a save the replace drops
+ * is born its own where it fits, or starts blank.
  * Where the question can't open on the case's value, a whole-number question
  * on a property that holds decimal numbers or a choice question on one that
  * can hold values outside its choices (`lib/domain/startingValueFit.ts`),
@@ -873,7 +885,8 @@ export function planFieldCaseWrite(
 	 * "Save only if changed" or a whole replace naming one of its saves
 	 * does, leaves that save standing as it was: the planner doesn't refuse
 	 * it for its starting value, which would block edits that don't touch
-	 * one, and bears it none, and the gate still judges whatever starting
+	 * one, and bears it none unless the question loses the one born for a
+	 * save the replace drops, and the gate still judges whatever starting
 	 * value the question holds. */
 	const keepsProperty =
 		destination !== null &&
@@ -930,8 +943,15 @@ export function planFieldCaseWrite(
 					}),
 				});
 				refusal = saveOn(draft, own, saved);
+				// A save the case can't take says so before its starting value.
+				if (refusal !== undefined) break;
+				/* A kept save whose question loses the starting value born for
+				 * a save the replace drops would start blank, which clears the
+				 * case's value, so it is born its own where that fits and
+				 * otherwise starts blank, as the notes say. */
+				const keptLosesStart = keepsProperty && bornOfRemoved;
 				if (
-					!keepsProperty &&
+					(!keepsProperty || keptLosesStart) &&
 					saved.slot !== "owner" &&
 					destination.via === undefined &&
 					ctx.moduleCaseType !== undefined &&
@@ -944,8 +964,8 @@ export function planFieldCaseWrite(
 						ctx.moduleCaseType,
 						destination.property,
 					);
-					if (unfit !== undefined) return { ok: false, message: unfit };
-					preload = { property: destination.property };
+					if (unfit === undefined) preload = { property: destination.property };
+					else if (!keptLosesStart) return { ok: false, message: unfit };
 				}
 				break;
 			}

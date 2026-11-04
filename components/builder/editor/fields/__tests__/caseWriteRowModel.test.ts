@@ -37,6 +37,7 @@ import {
 	SAVE_ONLY_IF_CHANGED_LINE,
 	STARTS_BLANK_LINE,
 	STARTS_BLANK_ON_DECIMAL_LINE,
+	STARTS_BLANK_ON_SEVERAL_CHOICES_LINE,
 	STARTS_BLANK_OUTSIDE_CHOICES_LINE,
 } from "../caseWriteRowModel";
 
@@ -303,12 +304,12 @@ describe("the preload line", () => {
 	});
 
 	it("offers no case value to a question that can't open on what its property holds", () => {
-		// A whole-number question on a decimal property, and a choice question
-		// on a text one, each with no starting value: opening either on the
-		// case's value can stop the form, so the line says why and offers
-		// nothing to commit.
+		// A whole-number question on a decimal property, a choice question on
+		// a text one, and a single-choice question on a multiple-choice one,
+		// each with no starting value: opening any on the case's value can
+		// stop the form, so the line says why and offers nothing to commit.
 		const shaped = (
-			dataType: "decimal" | "text",
+			dataType: "decimal" | "text" | "multi_select",
 			reshape: (field: Field) => Field,
 		) =>
 			produce(fixture("close"), (draft) => {
@@ -326,29 +327,30 @@ describe("the preload line", () => {
 		).preload;
 		expect(whole?.line).toBe(STARTS_BLANK_ON_DECIMAL_LINE);
 		expect(whole?.action).toBeUndefined();
-		const choice = rowOf(
-			shaped(
-				"text",
-				(field) =>
-					({
-						...field,
-						kind: "single_select",
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{
-									uuid: testUuid("row-choice-a"),
-									value: "a",
-									label: proseText("A"),
-								},
-							],
+		const singleChoice = (field: Field) =>
+			({
+				...field,
+				kind: "single_select",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("row-choice-a"),
+							value: "a",
+							label: proseText("A"),
 						},
-					}) as Field,
-			),
-			NICKNAME,
-		).preload;
+					],
+				},
+			}) as Field;
+		const choice = rowOf(shaped("text", singleChoice), NICKNAME).preload;
 		expect(choice?.line).toBe(STARTS_BLANK_OUTSIDE_CHOICES_LINE);
 		expect(choice?.action).toBeUndefined();
+		const several = rowOf(
+			shaped("multi_select", singleChoice),
+			NICKNAME,
+		).preload;
+		expect(several?.line).toBe(STARTS_BLANK_ON_SEVERAL_CHOICES_LINE);
+		expect(several?.action).toBeUndefined();
 	});
 
 	it("says nothing over another starting value or a calculation", () => {

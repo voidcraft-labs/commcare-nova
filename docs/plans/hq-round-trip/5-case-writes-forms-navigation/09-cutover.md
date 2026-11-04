@@ -2171,8 +2171,11 @@ writer converging exactly the planned differences (G7).
   saves blank and clears the case's value (`lib/commcare/xform/caseBlocks.ts::updateBlock`, HQ's
   `XFormCaseBlock.add_case_updates`, Core's `CaseXmlParser.updateCase`), so `planFieldCaseWrite` refuses a
   new save whose question can't open on the case's value (`lib/domain/startingValueFit.ts`), a choice
-  question on a property that can hold values outside its choices included, and C7's `planExplicitPreloads` writes main's
-  starting values unchanged for the rule to judge.
+  question on a property that can hold values outside its choices included, and C7's
+  `planExplicitPreloads` writes main's starting values unchanged for the rule to judge. The choice misfit
+  has no gate rule: it is read from the property's type, and a text-typed writer, a Hidden Value most
+  often, may give only values among the question's choices, so a rule on the type alone would refuse
+  forms that work; the value-level guarantee is issue #856's.
 - **A Hidden Value's branches are held to the property only where one would break a reader** (the advisory
   scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an
   operation saves its answer to, so a calculation `main` admitted beside an operation, giving several choices

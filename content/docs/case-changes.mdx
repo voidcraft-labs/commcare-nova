@@ -34,7 +34,9 @@ and a choice question can't save to one that can hold values outside its
 choices, such as text, or several choices at once for a single-choice
 question, because CommCare stops the form when the question opens on such a
 value. Starting it blank instead would clear the case's value whenever a worker
-leaves it alone, so Nova offers a decimal or text question for that property. Nova also points
+leaves it alone, so Nova offers a question that can open on it: a decimal
+question for decimal numbers, a multiple-choice question for several choices,
+or a text question for other values. Nova also points
 out any starting value of a whole-number question that could be a decimal, and
 you can start it on the whole part with `int(...)`.
 

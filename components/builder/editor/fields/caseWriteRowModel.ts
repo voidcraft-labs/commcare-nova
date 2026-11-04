@@ -63,9 +63,12 @@ export const STARTS_BLANK_LINE =
 /** Why a whole-number question on a property that can hold decimal numbers
  *  is offered no starting value from the case. */
 export const STARTS_BLANK_ON_DECIMAL_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which can be a decimal number. A decimal question can.`;
-/** Why a choice question on a property that can hold values outside its
- *  choices is offered no starting value from the case. */
+/** Why a choice question on a property that can hold other values than
+ *  choices, such as text, is offered no starting value from the case. */
 export const STARTS_BLANK_OUTSIDE_CHOICES_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which may not be one of its choices. A text question can.`;
+/** Why a single-choice question on a multiple-choice property is offered no
+ *  starting value from the case. */
+export const STARTS_BLANK_ON_SEVERAL_CHOICES_LINE = `${STARTS_BLANK_LINE} It can't open with that value, which can be several choices at once. A multiple-choice question can.`;
 
 export const SAVE_ONLY_IF_CHANGED_LABEL = "Save only if changed";
 export const SAVE_ONLY_IF_CHANGED_LINE =
@@ -364,7 +367,12 @@ function preloadLine(
 	if (wholeNumberStartsOnDecimal(field, input.propertyType))
 		return { line: STARTS_BLANK_ON_DECIMAL_LINE };
 	if (choiceStartsOutsideItsChoices(field, input.propertyType))
-		return { line: STARTS_BLANK_OUTSIDE_CHOICES_LINE };
+		return {
+			line:
+				input.propertyType === "multi_select"
+					? STARTS_BLANK_ON_SEVERAL_CHOICES_LINE
+					: STARTS_BLANK_OUTSIDE_CHOICES_LINE,
+		};
 	return {
 		line: STARTS_BLANK_LINE,
 		action: {

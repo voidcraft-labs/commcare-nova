@@ -620,7 +620,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 					}),
 				),
 			).toBe(
-				`"stage" in "Visit" can't save to "tags", because it would open on the case's value, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a multiple-choice or text question, or save it to a property that holds a single choice.`,
+				`"stage" in "Visit" can't save to "tags", because it would open on the case's value, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a multiple-choice question, or save it to a property that holds a single choice.`,
 			);
 			expect(
 				refusal(
@@ -630,13 +630,11 @@ describe("planFieldCaseWrite: the starting value", () => {
 					}),
 				),
 			).toMatch(/or save it to a property that holds choices\.$/);
-			// A choice property holds choices, and a multiple-choice question
-			// opens on one as a selection of one; which choices may share a
-			// property is a question of its own, so the planner doesn't refuse.
+			// A choice property holds choices; which choices may share one is a
+			// question of its own, so the planner doesn't refuse.
 			for (const [question, property] of [
 				[STAGE, "stage"],
 				[STAGE, "level"],
-				[TAGS, "level"],
 				[TAGS, "tags"],
 			] as const)
 				expect(
@@ -645,6 +643,59 @@ describe("planFieldCaseWrite: the starting value", () => {
 						property,
 					}),
 				).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
+			// A multiple-choice question would open on a single choice as a
+			// selection of one, but a single-choice property can't store its
+			// answer, which the gate refuses.
+			const several = planFieldCaseWrite(doc, TAGS, {
+				caseType: "household",
+				property: "level",
+			});
+			if (!several.ok) throw new Error(several.message);
+			const verdict = mutationCommitVerdict(
+				doc,
+				several.mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(
+				verdict.ok ? [] : verdict.findings.map(({ code }) => code),
+			).toEqual(["FIELD_KIND_PROPERTY_TYPE_MISMATCH"]);
+		});
+
+		// A save the case can't take says why before any starting value.
+		it("says a save is taken before saying the question can't open on its value", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "visits",
+				}),
+			);
+			const [view] = fieldCaseWriteViews(saved, COUNT);
+			if (view === undefined) throw new Error("The question saves nothing.");
+			const taken = commit(saved, [
+				{
+					kind: "updateForm",
+					uuid: view.formUuid,
+					patch: {},
+					caseOperationPatch: {
+						operation: "add-write",
+						uuid: view.operationUuid,
+						value: {
+							property: "weight",
+							value: { kind: "term", term: { kind: "literal", value: 2.5 } },
+						},
+					},
+				} as Mutation,
+			]);
+			expect(
+				refusal(
+					planFieldCaseWrite(taken, COUNT, {
+						caseType: "household",
+						property: "weight",
+					}),
+				),
+			).toMatch(/already saves another value to weight\./);
 		});
 
 		/** The replace key of the question's one save to the household. */
@@ -785,7 +836,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 		// A whole replace naming one of the question's saves keeps that save
 		// and its starting value, and the starting value born for a save it
 		// drops goes with that save.
-		it("keeps the starting value of a save a whole replace keeps, and clears one born for a save it drops", () => {
+		it("keeps the starting value of a save a whole replace keeps, and gives a kept save its own where the one it opened with goes", () => {
 			const doc = visit();
 			const once = land(
 				doc,
@@ -830,19 +881,61 @@ describe("planFieldCaseWrite: the starting value", () => {
 			expect(startingValues(keepsTally)).toEqual([]);
 			expect(land(twice, keepsTally).fields[COUNT]).toMatchObject(bornTally);
 
+			// The kept save would start blank, which clears the case's value,
+			// so it is born its own.
 			const keepsVisits = planFieldCaseWrite(twice, COUNT, {
 				caseType: "household",
 				property: "visits",
 			});
 			expect(keepsVisits).toMatchObject({
 				ok: true,
-				notes: [STARTS_BLANK_NOTE],
+				notes: [OPENS_WITH_CASE_VALUE_NOTE],
 			});
 			const visits = land(twice, keepsVisits);
 			expect(
 				fieldCaseWriteViews(visits, COUNT).map((saved) => saved.property),
 			).toEqual(["visits"]);
-			expect(visits.fields[COUNT]).not.toHaveProperty("default_value");
+			expect(visits.fields[COUNT]).toMatchObject({
+				default_value: {
+					kind: "term",
+					term: {
+						kind: "form-case",
+						caseType: "household",
+						property: "visits",
+					},
+				},
+			});
+
+			// A kept save whose value the question can't open on stays blank,
+			// as the note says, and is not refused.
+			const onDecimal = commit(once, [
+				{
+					kind: "updateForm",
+					uuid: view.formUuid,
+					patch: {},
+					caseOperationPatch: {
+						operation: "add-write",
+						uuid: view.operationUuid,
+						value: {
+							property: "weight",
+							value: { kind: "term", term: { kind: "field", uuid: COUNT } },
+						},
+					},
+				} as Mutation,
+			]);
+			const keepsWeight = planFieldCaseWrite(onDecimal, COUNT, {
+				caseType: "household",
+				property: "weight",
+			});
+			expect(keepsWeight).toMatchObject({
+				ok: true,
+				notes: [STARTS_BLANK_NOTE],
+			});
+			const weight = land(onDecimal, keepsWeight);
+			expect(
+				fieldCaseWriteViews(weight, COUNT).map((saved) => saved.property),
+			).toEqual(["weight"]);
+			expect(weight.fields[COUNT]).not.toHaveProperty("default_value");
 		});
 
 		// The starting value the planner bore reads the property it saved to,

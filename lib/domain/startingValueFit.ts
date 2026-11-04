@@ -68,22 +68,14 @@ export function startingValueMisfit(
 	caseType: string,
 	property: string,
 ): StartingValueMisfit | undefined {
+	// A property nothing types holds no opinion.
 	const type = propertyAgreedType(doc, caseType, property);
+	if (type === undefined) return undefined;
 	if (wholeNumberStartsOnDecimal(field, type))
 		return { kind: "whole-number-on-decimal" };
-	if (type !== undefined && choiceStartsOutsideItsChoices(field, type))
+	if (choiceStartsOutsideItsChoices(field, type))
 		return { kind: "outside-choices", type };
 	return undefined;
-}
-
-/** Whether `field` can open on the value of `caseType`'s `property`. */
-export function startingValueFits(
-	doc: PersistableDoc,
-	field: Field,
-	caseType: string,
-	property: string,
-): boolean {
-	return startingValueMisfit(doc, field, caseType, property) === undefined;
 }
 
 /** The type a property's values can be: its declaration, else the one its

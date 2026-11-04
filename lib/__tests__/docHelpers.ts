@@ -52,11 +52,12 @@ import {
 	PLATFORMS,
 	type ProseTemplate,
 	plainColumn,
+	propertyAgreedType,
 	proseText,
-	startingValueFits,
 	type UserCollections,
 	type Uuid,
 	unavailableUses,
+	wholeNumberStartsOnDecimal,
 	writerOffersPreload,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
@@ -513,6 +514,36 @@ const CATALOG_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
  * that opened with their case's value), so a fixture of a shape the gate
  * refuses still states it.
  */
+/**
+ * Whether a generated save's question keeps the starting value
+ * `planExplicitPreloads` gives it, as the cutover's mapping does: every one
+ * but a whole-number question's on a decimal property, which the gate
+ * refuses (`WHOLE_NUMBER_STARTS_ON_DECIMAL`), since the generators build
+ * documents the gate admits. A choice question on a property that can hold
+ * other values keeps its starting value, as the cutover keeps it: only the
+ * "Saves to" planner refuses that, on the property's type, while the gate
+ * leaves it to a value-level check (issue #856). Throws where the saved
+ * question isn't in the document.
+ */
+export function generatedStartingValueAdmitted(
+	doc: BlueprintDoc,
+	write: {
+		readonly fieldUuid: Uuid;
+		readonly caseType: string;
+		readonly property: string;
+	},
+): boolean {
+	const field = doc.fields[write.fieldUuid];
+	if (field === undefined)
+		throw new Error(
+			`The generator saves question ${write.fieldUuid}, which isn't in the document.`,
+		);
+	return !wholeNumberStartsOnDecimal(
+		field,
+		propertyAgreedType(doc, write.caseType, write.property),
+	);
+}
+
 function lowerCaseWrites(
 	doc: BlueprintDoc,
 	caseWrites: FixtureCaseWrites,
@@ -579,15 +610,9 @@ function lowerCaseWrites(
 					})),
 				),
 			);
-			// A question keeps no starting value it can't open on.
-			const fits = preloaded.filter((writer) => {
-				const field = work.fields[writer.fieldUuid];
-				if (field === undefined)
-					throw new Error(
-						`The fixture saves question ${writer.fieldUuid}, which isn't in the document.`,
-					);
-				return startingValueFits(work, field, writer.caseType, writer.property);
-			});
+			const fits = preloaded.filter((writer) =>
+				generatedStartingValueAdmitted(work, writer),
+			);
 			work = apply(
 				work,
 				planExplicitPreloads(

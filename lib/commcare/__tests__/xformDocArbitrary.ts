@@ -25,6 +25,7 @@ import * as fc from "fast-check";
 import { Immer } from "immer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
+	generatedStartingValueAdmitted,
 	resolveCaseListConfig,
 	resolveDocExpressions,
 } from "@/lib/__tests__/docHelpers";
@@ -53,7 +54,6 @@ import {
 	type Module,
 	NEW_APP_SETTINGS,
 	plainColumn,
-	startingValueFits,
 	suffixUntilFree,
 	type Uuid,
 } from "@/lib/domain";
@@ -1555,21 +1555,16 @@ export function mappedAsTheCutoverMaps(
 				caseSelectionCardinality(module) !== "single"
 			)
 				continue;
-			// A question keeps no starting value it can't open on.
-			const fits = (fact: FieldWriteFact) => {
-				const field = mapped.fields[fact.fieldUuid];
-				if (field === undefined)
-					throw new Error(
-						`The generator saves question ${fact.fieldUuid}, which isn't in the document.`,
-					);
-				return startingValueFits(mapped, field, fact.caseType, fact.property);
-			};
 			apply(
 				planExplicitPreloads(
 					mapped,
 					formUuid,
 					facts
-						.filter((fact) => fact.caseType === module.caseType && fits(fact))
+						.filter(
+							(fact) =>
+								fact.caseType === module.caseType &&
+								generatedStartingValueAdmitted(mapped, fact),
+						)
 						.map((fact) => fact.fieldUuid),
 				),
 			);
