@@ -2081,6 +2081,15 @@ writer converging exactly the planned differences (G7).
   `subcase-row` under an unknown baseline reads that create as an operation unit, whose key names no repeat,
   so the verification found its block nowhere and the judgement refused every such app as `not-idempotent`.
   `transform.test.ts` holds the case for an `unread` and an `absent` baseline.
+- **`MISSING_CHILD_CASE_MODULE` is removed** (the advisory scan's first blocker class). The rule refused a
+  form that creates child cases of a type no module lists. `main` counted only a field's own `caseWrite` as
+  such a create, while the head counts every create operation, so every create a person authored as an
+  operation at `main` met the rule for the first time at `target-gate`. CommCare HQ's app validator asks a
+  subcase for its case type and nothing more (`corehq/apps/app_manager/helpers/validators.py::
+  FormValidator.check_actions`), so the rule answered no wire fact. The gate stays the one arbiter for
+  all three editors, so no editor refuses the shape on its own either. A planned record still needs no
+  module, and removing a type's last module still retires its record or names what still uses the type
+  (`lib/doc/caseTypeRetirement.ts`).
 
 ## Executed during planning
 

@@ -8,8 +8,7 @@
  *     direct pin for the one removal the single rule forbids;
  *   - removing a case type's last owning module retires its record in
  *     the SAME committed batch (the cascade is explicit mutations from
- *     the batch-building layer, so the gate never sees
- *     `MISSING_CHILD_CASE_MODULE` and historical event-log replay is
+ *     the batch-building layer, so historical event-log replay is
  *     untouched);
  *   - a removal whose retired type is still referenced fails the call
  *     naming the references, with nothing persisted.
@@ -127,10 +126,8 @@ describe("removeModule", () => {
 	});
 
 	it("retires the removed module's case-type record in the same committed batch", async () => {
-		// "visit" is a child type whose record would otherwise be orphaned —
-		// exactly the shape whose leftover record introduces
-		// MISSING_CHILD_CASE_MODULE. The cascade removes it alongside, so
-		// the batch commits.
+		// "visit" is a child type whose record would otherwise be left with
+		// no module and no use. The cascade removes it in the same batch.
 		const doc = buildDoc({
 			appName: "Clinic",
 			caseTypes: [record("patient"), record("visit", "patient")],

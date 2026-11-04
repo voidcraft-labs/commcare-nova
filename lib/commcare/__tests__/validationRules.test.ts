@@ -662,7 +662,7 @@ describe("case action destinations and repeat scope", () => {
 			]);
 		},
 	);
-	it("admits planned child types but requires a module once forms create them", () => {
+	it("admits planned child types, and forms that create them with no module listing them", () => {
 		const planned = candidate(patient(), (d) => {
 			catalog(d).push({
 				name: "visit",
@@ -676,9 +676,9 @@ describe("case action destinations and repeat scope", () => {
 			delete d.formOrder[childModule];
 			d.moduleOrder = [m];
 		});
-		expect(findings(doc, ["MISSING_CHILD_CASE_MODULE"])).toMatchObject([
-			{ scope: "app", details: { caseType: "visit" } },
-		]);
+		// CommCare HQ has no rule that a created case type have a menu, so a
+		// form may create child cases no module lists.
+		assertAdmittedDoc(doc);
 	});
 	it("refuses a survey that keeps the own case of the form it was", () => {
 		findings(

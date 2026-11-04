@@ -82,7 +82,6 @@ export type ValidityClass =
  *   - The completeness rows are the unfinished-content findings
  *     (NO_MODULES, EMPTY_FORM, MISSING_CASE_LIST_COLUMNS,
  *     CASE_CREATE_NAME_MISSING,
- *     MISSING_CHILD_CASE_MODULE,
  *     the Connect
  *     participation floor + per-block sub-config family).
  *     NO_FORMS_OR_CASE_LIST reads "unfinished"
@@ -115,7 +114,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	EMPTY_APP_NAME: "soundness",
 	APP_TEXT_UNREPRESENTABLE: "soundness",
 	NO_MODULES: "completeness",
-	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
 	PLATFORM_FEATURE_UNAVAILABLE: "soundness",

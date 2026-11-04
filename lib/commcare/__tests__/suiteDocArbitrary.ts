@@ -37,9 +37,8 @@
  *     scopes without generating a validator-invalid context.
  *   - **Parent→child module pairs** — a child module whose case type declares
  *     the parent module's type as `parent_type`, with a registration form on
- *     the child — exercises parent-selected entry/session projection and the
- *     `MISSING_CHILD_CASE_MODULE` validator gate. Basic registration leaves
- *     its new primary unlinked.
+ *     the child — exercises parent-selected entry/session projection. Basic
+ *     registration leaves its new primary unlinked.
  *
  * Like the XForm generator, this is CONSTRUCTIVE (valid by construction), and
  * the fuzz test re-asserts `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0` at the top of every

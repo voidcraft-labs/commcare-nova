@@ -17,10 +17,9 @@
  * and the app silently renames as a side effect of declaring a case
  * type. One slot, one home, no echo contract.
  *
- * Committing records AHEAD of their modules is legal by design: the
- * every-written-type-needs-a-module rule (MISSING_CHILD_CASE_MODULE)
- * keys on form WRITERS, not on the catalog, so a planned record sits
- * clean until a form actually creates cases of it.
+ * Committing records AHEAD of their modules is legal by design: a
+ * planned record needs no module, and a form may create cases of a type
+ * no module lists.
  *
  * Additive over AUTHORED content: a later call may append genuinely new
  * properties to an existing record, but it can never replace an existing

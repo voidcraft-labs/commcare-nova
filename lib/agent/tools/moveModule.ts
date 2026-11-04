@@ -2,9 +2,8 @@
  * SA tool: `moveModule` — reorder or reparent one module in the app's menu.
  *
  * Creation order is not navigation order: a build that lands modules in
- * dependency order (a child case type's viewer before the parent that
- * registers it) still owes the user a menu in the order they read the
- * workflow. This tool emits the doc reducer's `moveModule` mutation — the
+ * the order it designs them still owes the user a menu in the order they
+ * read the workflow. This tool emits the doc reducer's `moveModule` mutation — the
  * same one the builder's menu drag dispatches — so the module keeps its
  * uuid and every reference to it survives.
  *

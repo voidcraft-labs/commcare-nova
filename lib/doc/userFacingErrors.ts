@@ -726,12 +726,6 @@ const USER_MESSAGE_BY_CODE: Record<
 				return "A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.";
 		}
 	},
-	MISSING_CHILD_CASE_MODULE: (e) => {
-		const ct = det(e, "caseType", "");
-		return ct
-			? `Your forms create ${q(ct)} cases, but there's no module showing them yet. Add a module for ${q(ct)}.`
-			: "Some of your forms create child cases that have nowhere to show. Add a module for that case type.";
-	},
 	CONNECT_ID_DUPLICATE: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
