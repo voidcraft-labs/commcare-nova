@@ -2151,7 +2151,12 @@ writer converging exactly the planned differences (G7).
   choice question starting on it may meet a value it doesn't offer. Writers of an undeclared property agree
   (`FIELD_KIND_WRITERS_DISAGREE`, the inferred property type, and the writer opinions a case operation's
   write reads) on the one of their types that holds every other (`ruleSets.ts::agreedStorageType`), the join
-  Hidden Values already used.
+  Hidden Values already used. Since an integer writer beside a decimal one makes the property hold decimal
+  numbers, a whole-number question can't start on it: `IntegerData.cast` reads its starting value with
+  `Integer.parseInt` and stops the form on `2.5`. The new rule `WHOLE_NUMBER_STARTS_ON_DECIMAL`
+  (`lib/commcare/validator/rules/wholeNumberStart.ts`) refuses an integer question whose starting value
+  types as a decimal, and the planners that write a starting value (`planFieldCaseWrite`, and C7's
+  `planExplicitPreloads`) leave such a question blank (`lib/domain/wholeNumberStart.ts`).
 - **A Hidden Value's result of another kind is refused only where it would break a reader** (the advisory
   scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an
   operation saves its answer to, so a calculation `main` admitted beside an operation, giving several choices

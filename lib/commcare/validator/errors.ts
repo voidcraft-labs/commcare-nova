@@ -136,6 +136,7 @@ export type ValidationErrorCode =
 	// that is none of its choices. Both cross forms, so both are app rules.
 	| "HIDDEN_VALUE_WRITER_TYPE_MISMATCH"
 	| "SELECT_PRELOAD_WRITE_NOT_AN_OPTION"
+	| "WHOLE_NUMBER_STARTS_ON_DECIMAL"
 	// Case-search rules. Slot-specific checks read authored
 	// `caseSearchConfig`; structural compatibility checks follow effective
 	// Search, including the markerless-input path that also emits Search.

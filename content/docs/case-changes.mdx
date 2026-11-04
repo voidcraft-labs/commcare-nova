@@ -28,6 +28,12 @@ question alone keeps what was there, and clearing it is a real change. Because
 the case supplies the opening value, Nova does not offer a starting value on
 those questions; the properties pane says so on the question instead.
 
+A whole-number question that saves to a property holding decimal numbers starts
+blank instead, because CommCare stops a form when a whole-number question
+opens on a decimal number. Nova points out any starting value of such a
+question that could be a decimal, and you can make the question a decimal one
+or start it on the whole part with `int(...)`.
+
 A question that saves to a child case type works differently. Each submission
 creates a new child case, so there is nothing to show yet and the question
 starts blank every time.

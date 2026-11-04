@@ -44,6 +44,7 @@ import { ORGANIZATION_RULES } from "./organization";
 import { platformFeatureAvailability } from "./platforms";
 import { selectPreloadWriterOptions } from "./selectPreloadWriterOptions";
 import { USER_RULES } from "./users";
+import { wholeNumberStartsOnDecimal } from "./wholeNumberStart";
 import { authoredXmlText } from "./xmlText";
 
 function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
@@ -578,6 +579,9 @@ export const APP_RULES = [
 	// and readers across every form.
 	hiddenValueWriterAgreement,
 	selectPreloadWriterOptions,
+	// A whole-number question starting on a decimal value: the property's
+	// type comes from writers in every form.
+	wholeNumberStartsOnDecimal,
 	// Who runs the app: the user-data property catalog, the roles built on
 	// it, and the personas that act as those roles. App-scoped because none
 	// of the three belongs to a module or a form.

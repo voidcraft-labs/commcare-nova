@@ -13,6 +13,7 @@ import {
 	OPENS_WITH_CASE_VALUE_NOTE,
 	planFieldCaseWrite,
 	planFieldMoveCaseWrites,
+	STARTS_BLANK_ON_DECIMAL_NOTE,
 	saveNewCaseNameFirstMessage,
 } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -501,6 +502,70 @@ describe("planFieldCaseWrite: the starting value", () => {
 				kind: "term",
 				term: { kind: "form-case", caseType: "household", property: "note" },
 			},
+		});
+	});
+
+	// A whole-number question opening on a decimal number stops the form, so
+	// one saving to a property that holds decimals starts blank, and the gate
+	// admits the save rather than refusing the starting value.
+	it("starts a whole-number question blank where the property holds decimal numbers", () => {
+		const COUNT = testUuid("saves-fup-count");
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "household",
+					properties: [
+						{ name: "weight", label: "Weight", data_type: "decimal" },
+						{ name: "visits", label: "Visits", data_type: "int" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "hh_name",
+									caseWrite: { caseType: "household", property: "case_name" },
+								}),
+							],
+						},
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ uuid: COUNT, kind: "int", id: "count" })],
+						},
+					],
+				},
+			],
+		});
+		const decimal = planFieldCaseWrite(doc, COUNT, {
+			caseType: "household",
+			property: "weight",
+		});
+		expect(decimal).toMatchObject({
+			ok: true,
+			notes: [STARTS_BLANK_ON_DECIMAL_NOTE],
+		});
+		expect(land(doc, decimal).fields[COUNT]).not.toHaveProperty(
+			"default_value",
+		);
+		const whole = planFieldCaseWrite(doc, COUNT, {
+			caseType: "household",
+			property: "visits",
+		});
+		expect(whole).toMatchObject({
+			ok: true,
+			notes: [OPENS_WITH_CASE_VALUE_NOTE],
 		});
 	});
 

@@ -49,6 +49,7 @@ import {
 	sameCaseWriteKey,
 	USERCASE_CASE_TYPE,
 	type Uuid,
+	wholeNumberStartsOnDecimal,
 	writerOffersPreload,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
@@ -82,6 +83,11 @@ export type FieldCaseWritePlan =
  *  as the question's starting value. */
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
+
+/** The note for an integer question saving to a property that holds
+ *  decimal numbers, which it can't open on (`wholeNumberStart.ts`). */
+export const STARTS_BLANK_ON_DECIMAL_NOTE =
+	"Starts blank, because the case's value can be a decimal number, which a whole-number question can't open on.";
 
 /** The refusal for removing the only name a registration gives its case. */
 export const NEW_CASE_NEEDS_NAME_MESSAGE =
@@ -808,6 +814,7 @@ export function planFieldCaseWrite(
 	for (const view of removed) removeViewWrite(draft, view);
 
 	let preload: { readonly property: string } | undefined;
+	let startsBlankOnDecimal = false;
 	if (destination !== null) {
 		const resolved = resolveDestination(ctx, field, destination);
 		const value = fieldAnswerValue(field);
@@ -843,8 +850,21 @@ export function planFieldCaseWrite(
 					saved.slot !== "owner" &&
 					destination.via === undefined &&
 					writerOffersPreload(doc, fieldUuid, destination.property)
-				)
-					preload = { property: destination.property };
+				) {
+					// An integer question opening on a decimal number stops the
+					// form, so it starts blank instead.
+					if (
+						ctx.moduleCaseType !== undefined &&
+						wholeNumberStartsOnDecimal(
+							doc,
+							field,
+							ctx.moduleCaseType,
+							destination.property,
+						)
+					)
+						startsBlankOnDecimal = true;
+					else preload = { property: destination.property };
+				}
 				break;
 			}
 		}
@@ -872,6 +892,7 @@ export function planFieldCaseWrite(
 		} as Mutation);
 		notes.push(OPENS_WITH_CASE_VALUE_NOTE);
 	}
+	if (startsBlankOnDecimal) notes.push(STARTS_BLANK_ON_DECIMAL_NOTE);
 	return { ok: true, mutations: draft.mutations, notes };
 }
 

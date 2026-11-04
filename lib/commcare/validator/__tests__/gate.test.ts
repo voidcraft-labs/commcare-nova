@@ -600,13 +600,29 @@ describe("evaluateCommit", () => {
 		]);
 	});
 
-	// An integer and a decimal writer agree on decimal, which holds both.
-	it("admits one module's writer made decimal beside the other's integer", () => {
+	// An integer and a decimal writer agree on decimal, which holds both, but
+	// the integer question can't then open on the property's value.
+	it("admits one module's writer made decimal beside the other's integer, which can't start on it", () => {
 		const doc = peerWriters("score");
-		const [first] = Object.values(doc.fields);
+		const [first, second] = Object.values(doc.fields);
+		const convert: Mutation = {
+			kind: "convertField",
+			uuid: first.uuid,
+			toKind: "decimal",
+		};
+		const refused = gateCommit(doc, [convert]);
+		expect(codes(refused)).toEqual(["WHOLE_NUMBER_STARTS_ON_DECIMAL"]);
+		if (refused.ok) throw new Error("Expected the starting value refused");
+		expect(refused.findings[0]?.location.fieldUuid).toBe(second.uuid);
 		expect(
 			gateCommit(doc, [
-				{ kind: "convertField", uuid: first.uuid, toKind: "decimal" },
+				convert,
+				{
+					kind: "updateField",
+					uuid: second.uuid,
+					targetKind: "int",
+					patch: { default_value: null },
+				} as Mutation,
 			]).ok,
 		).toBe(true);
 	});

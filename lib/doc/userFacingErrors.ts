@@ -1163,6 +1163,12 @@ const USER_MESSAGE_BY_CODE: Record<
 			}
 		}
 	},
+	WHOLE_NUMBER_STARTS_ON_DECIMAL: (e) => {
+		const property = e.details?.property;
+		return property === undefined
+			? `${q(fieldName(e))} starts on a value that can be a decimal number, and the form would stop when a whole-number question opens on one. You can make it a decimal question, or wrap its starting value in int(...) to keep the whole part.`
+			: `${q(fieldName(e))} starts on the case's ${q(property)}, which holds decimal numbers, and the form would stop when a whole-number question opens on one. You can make it a decimal question, or start it on the whole part with int(...).`;
+	},
 	SELECT_PRELOAD_WRITE_NOT_AN_OPTION: (e) => {
 		const writer =
 			e.location.fieldId !== undefined

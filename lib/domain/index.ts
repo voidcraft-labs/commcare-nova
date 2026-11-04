@@ -72,3 +72,4 @@ export * from "./usercase";
 export * from "./users";
 export * from "./uuid";
 export * from "./valueKindPhrases";
+export * from "./wholeNumberStart";
