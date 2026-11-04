@@ -21,6 +21,14 @@ import {
 	manualImportGuide,
 } from "@/lib/publish/manualImportGuide";
 import {
+	ACCEPT_PLACEMENT_MOVES_LABEL,
+	movedToCaseManagementSentence,
+	type PlacementMoveOfferView,
+	SAVE_TO_CASE_OFFER_HEADING,
+	saveToCaseOfferBody,
+	saveToCaseWhereMissing,
+} from "@/lib/publish/placementMoves";
+import {
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
 	FORM_ENTRY_SYNC_OFF,
@@ -162,6 +170,7 @@ const refusal = {
 		remoteChanges: [],
 		confirmationsNeeded: [],
 		webAppsChange: null,
+		placementMoves: null,
 	},
 	preview_project_space: null,
 } satisfies PublishResponseBody;
@@ -227,6 +236,7 @@ test("native publish lists what changed in CommCare HQ, publishes over each tick
 			remoteChanges: [...remoteChanges],
 			confirmationsNeeded: [],
 			webAppsChange: null,
+			placementMoves: null,
 		},
 		preview_project_space: null,
 	} satisfies PublishResponseBody;
@@ -1145,6 +1155,7 @@ test("native publish answers a confirmation refusal with the same rows, and With
 								remoteChanges: [],
 								confirmationsNeeded: [lookupTables],
 								webAppsChange: null,
+								placementMoves: null,
 							},
 							preview_project_space: null,
 						} satisfies PublishResponseBody)
@@ -1252,6 +1263,7 @@ test("native publish below the CommCare version floor links to the app whose set
 					remoteChanges: [],
 					confirmationsNeeded: [],
 					webAppsChange: null,
+					placementMoves: null,
 				},
 				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
 				preview_project_space: null,
@@ -1290,6 +1302,7 @@ test("native publish says what taking a table over does, and shows a table HQ ho
 				remoteChanges: [],
 				confirmationsNeeded: [],
 				webAppsChange: null,
+				placementMoves: null,
 			},
 			preview_project_space: null,
 		},
@@ -1334,6 +1347,7 @@ test("native publish asks before turning Web Apps on for the app, holds Upload u
 								remoteChanges: [],
 								confirmationsNeeded: [],
 								webAppsChange: change,
+								placementMoves: null,
 							},
 							preview_project_space: null,
 						} satisfies PublishResponseBody)
@@ -1368,6 +1382,117 @@ test("native publish asks before turning Web Apps on for the app, holds Upload u
 	expect(sent).toHaveLength(2);
 	expect(sent[0]).not.toHaveProperty("confirmWebApps");
 	expect(sent[1]).toMatchObject({ confirmWebApps: true });
+});
+
+test("offers to move Save to Case changes and publishes once the person ticks Move them and publish", async ({
+	page,
+}) => {
+	/* The refusal a publish answers for an app whose held Save to Case
+	 * operation a basic slot can express, where the plan's Save to Case is not
+	 * confirmed: the need, and the offer `placementMoveOffer` derives
+	 * (`lib/deployment/__tests__/placementMoves.test.ts` holds the
+	 * derivation). */
+	const sent: Record<string, unknown>[] = [];
+	const saveToCase: DeploymentConfirmationNeeded = {
+		kind: "plan-feature",
+		subject: "advanced-case-actions",
+		label: PLAN_FEATURES["advanced-case-actions"].label,
+		plans: PLAN_FEATURES["advanced-case-actions"].plans,
+		consequence: PLAN_FEATURES["advanced-case-actions"].consequence,
+		reasons: [
+			"Register household saves a case change in a Save to Case block.",
+		],
+		whereMissing: saveToCaseWhereMissing(true, ["Register household"]),
+	};
+	const moveSentence = movedToCaseManagementSentence(
+		"Register household",
+		"makes a new household case",
+	);
+	const offer: PlacementMoveOfferView = {
+		reason: "save-to-case",
+		digest: "a".repeat(64),
+		moves: [
+			{
+				form: "Register household",
+				change: "makes a new household case",
+				sentence: moveSentence,
+			},
+		],
+		asksChildCases: false,
+	};
+	await page.route("**/api/commcare/upload", (route) => {
+		sent.push(route.request().postDataJSON());
+		return route.fulfill({
+			json:
+				sent.length === 1
+					? ({
+							success: false,
+							refusal: {
+								phase: "preflight",
+								failure: {
+									code: "hq_confirmation_needed",
+									message:
+										"“alpha” needs a few things Nova can't check from here. Once you confirm that the project space has each one below, publishing can continue.",
+									details: [],
+								},
+								resourceConflicts: [],
+								remoteChanges: [],
+								confirmationsNeeded: [saveToCase],
+								webAppsChange: null,
+								placementMoves: offer,
+							},
+							placements: { recorded: 1, moved: 0 },
+							preview_project_space: null,
+						} satisfies PublishResponseBody)
+					: ({
+							success: true,
+							hq_app_action: "created",
+							url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+							warnings: [],
+							deployment: null,
+							placements: { recorded: 1, moved: 1 },
+							preview_project_space: "alpha",
+						} satisfies PublishResponseBody),
+		});
+	});
+	await open(page);
+	const upload = page.getByRole("button", { name: "Upload", exact: true });
+	await upload.click();
+	await expect(
+		page.getByRole("heading", {
+			name: SAVE_TO_CASE_OFFER_HEADING,
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(
+		page.getByText(saveToCaseOfferBody(false), { exact: true }),
+	).toBeVisible();
+	await expect(page.getByText(moveSentence, { exact: true })).toBeVisible();
+	const hasIt = page.getByRole("checkbox", {
+		name: "This project space has it Save to Case",
+	});
+	const move = page.getByRole("checkbox", {
+		name: ACCEPT_PLACEMENT_MOVES_LABEL,
+		exact: true,
+	});
+	await expect(move).not.toBeChecked();
+	await expect(upload).toBeDisabled();
+	/* The two boxes answer one question, so ticking one unticks the other. */
+	await hasIt.check();
+	await expect(upload).toBeEnabled();
+	await move.check();
+	await expect(hasIt).not.toBeChecked();
+	await expect(upload).toBeEnabled();
+	await upload.click();
+	await expect(
+		page.getByText("Your app is on CommCare HQ", { exact: true }),
+	).toBeVisible();
+	expect(sent).toHaveLength(2);
+	expect(sent[0]).not.toHaveProperty("acceptPlacementMoves");
+	expect(sent[1]).toMatchObject({
+		confirm: [],
+		acceptPlacementMoves: { reason: "save-to-case", digest: offer.digest },
+	});
 });
 
 test("native CCZ of an app that runs in Web Apps only says why there is none", async ({

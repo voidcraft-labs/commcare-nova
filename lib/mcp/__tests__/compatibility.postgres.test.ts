@@ -9,6 +9,10 @@ import { connectWireFixtures } from "@/lib/commcare/__tests__/connectWireFixture
 import { decrypt } from "@/lib/commcare/encryption";
 import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import {
+	heldPlacementApp,
+	holdOperation,
+} from "@/lib/db/__tests__/heldPlacementApp";
 import { narrowingTo } from "@/lib/deployment/platformNarrowing";
 import { foldDeploymentAttempt } from "@/lib/deployment/store";
 import { plainColumn } from "@/lib/domain";
@@ -176,6 +180,7 @@ function webAppsToConfirm() {
 		flat_location_fixture: null,
 		connect_forwarder: null,
 		form_entry_sync_off: null,
+		placement_moves: null,
 	};
 }
 function report(state: "available" | "missing" | "unverified" | "not_checked") {
@@ -593,6 +598,49 @@ it("asks about the flat location list for an app whose form sets an owner from a
 				],
 				where_missing: FLAT_LOCATION_FIXTURE.whereMissing,
 				state: "needs_confirmation",
+			});
+		});
+	});
+});
+
+it("serves the Save to Case move offer in the words upload_app_to_hq accepts, while Save to Case needs confirming", async () => {
+	const app = heldPlacementApp((a) => {
+		holdOperation(a, a.own.uuid, a.ownSaveToCase);
+		holdOperation(a, a.kid.uuid, a.kidSaveToCase);
+	});
+	await h.seedAppWithBlueprint(app.doc, {
+		id: APP,
+		owner: "creator",
+		projectId: PROJECT,
+	});
+	await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+	await settings();
+	await withHttpPeer(async () => {
+		await asUser(async (client) => {
+			const checked = await payload(client);
+			expect(checked.plan_features).toContainEqual(
+				expect.objectContaining({
+					id: "advanced-case-actions",
+					state: "needs_confirmation",
+				}),
+			);
+			expect(checked.placement_moves).toEqual({
+				reason: "save-to-case",
+				digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+				moves: [
+					{
+						form: "Visit",
+						change: "saves to this form's patient case",
+						sentence:
+							"In Visit, the change that saves to this form's patient case moves from a Save to Case block to Case Management.",
+					},
+					{
+						form: "Visit",
+						change: "makes a new kid case",
+						sentence:
+							"In Visit, the change that makes a new kid case moves from a Save to Case block to Case Management.",
+					},
+				],
 			});
 		});
 	});

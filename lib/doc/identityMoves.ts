@@ -13,6 +13,8 @@
  * moves exactly the holds it strands. `identityMovesBetween` states every
  * move between two documents, so a redo that re-applies a recorded move
  * states it too, and a restore of the hold a recording wrote states none.
+ * `planConflictReplay` plans the edits a placement conflict handed back
+ * over the reloaded document, as one batch.
  *
  * One of the allowlisted `lib/doc` consumers of `lib/commcare` in
  * `biome.json`: whether a held case placement still expresses its change is
@@ -32,17 +34,20 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { documentHoldsIdentity } from "@/lib/doc/heldIdentity";
 import {
+	type AdmittedMutationBatch,
 	admitMutationBatch,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
 import { applyHoldPlacements } from "@/lib/doc/mutations/placements";
 import {
+	admittedHoldChanges,
 	holdChangeRestores,
 	NO_RECORDED_HOLDS,
 	type PlacementHoldChange,
 	placementHoldChanges,
 	placementHoldEntry,
 	placementTargetKey,
+	placementTargetOf,
 	type RecordedPlacementHolds,
 	withHeldPlacement,
 } from "@/lib/doc/placementHolds";
@@ -220,6 +225,112 @@ export function withIdentityMoves(
 			: identityMovesBetween(doc, final.nextDoc, { recorded }),
 		prepared: final,
 	};
+}
+
+/**
+ * The edits a placement conflict handed back, planned again over the
+ * reloaded document: `replay` holds one array per rejected human batch, in
+ * the order they were made, then the queued commands' mutations
+ * (`store.ts::queuedCommandMutations`) as one more array. They are joined
+ * into one batch, which is offered as one edit; where two of them hold one
+ * target, the later hold is the one kept, as applying them in turn would
+ * leave it.
+ *
+ * Of the joined batch's hold changes, only a restore of the hold `recorded`
+ * gives its target survives, and only where `admittedHoldChanges` admits it
+ * over `doc`. Every other hold change either is one the commit kernel would
+ * refuse (dropped, with the content beside it kept), or is a move planned
+ * over the document the edit was composed on, whose destination a publish
+ * may since have taken: `withIdentityMoves` plans every move the content
+ * needs again over `doc`, so each move lands where `doc` leaves room. A
+ * replay whose content strands no hold returns no move.
+ *
+ * A joined batch that mutation admission refuses (a batch-exclusive
+ * command beside others) is returned as it is, with no move; its refusal
+ * is the gate's to give.
+ */
+export function planConflictReplay(
+	doc: BlueprintDoc,
+	replay: readonly (readonly Mutation[])[],
+	recorded: RecordedPlacementHolds,
+): IdentityMovePlan {
+	const joined = laterHoldsKept(replay.flat());
+	let admitted: AdmittedMutationBatch;
+	try {
+		// Cloned before admission: an admitted batch's frozen values carry the
+		// internal markers a fresh admission refuses as not canonical.
+		admitted = admitMutationBatch(structuredClone(joined));
+	} catch (error) {
+		if (error instanceof MutationWireCanonicalityError)
+			return { batch: joined, moves: [] };
+		throw error;
+	}
+	const kept = admittedHoldChanges(doc, admitted, recorded);
+	const restores = keepingRestores(kept, recorded);
+	return withIdentityMoves(
+		doc,
+		restores === kept
+			? kept
+			: admitMutationBatch(structuredClone([...restores])),
+		{ recorded },
+	);
+}
+
+/** `mutations` with each hold entry a later entry of the same target
+ *  replaces left out; a `holdPlacements` left with none is removed. */
+function laterHoldsKept(mutations: readonly Mutation[]): Mutation[] {
+	const seen = new Set<string>();
+	const kept: Mutation[] = [];
+	for (let index = mutations.length - 1; index >= 0; index--) {
+		const mutation = mutations[index];
+		if (mutation.kind !== "holdPlacements") {
+			kept.push(mutation);
+			continue;
+		}
+		const holds: PlacementHoldEntry[] = [];
+		for (let at = mutation.holds.length - 1; at >= 0; at--) {
+			const hold = mutation.holds[at];
+			const key = placementTargetKey(hold);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			holds.unshift(hold);
+		}
+		if (holds.length === mutation.holds.length) kept.push(mutation);
+		else if (holds.length > 0) kept.push({ kind: "holdPlacements", holds });
+	}
+	return kept.reverse();
+}
+
+/** `batch` keeping, of its hold entries, the restores of the hold `recorded`
+ *  gives their target; `batch` itself where every entry is one. */
+function keepingRestores(
+	batch: AdmittedMutationBatch,
+	recorded: RecordedPlacementHolds,
+): readonly Mutation[] {
+	const restores = (entry: PlacementHoldEntry) =>
+		holdChangeRestores(
+			{
+				key: placementTargetKey(entry),
+				target: placementTargetOf(entry),
+				from: null,
+				to: entry.placement,
+			},
+			recorded,
+		);
+	if (
+		batch.every((m) => m.kind !== "holdPlacements" || m.holds.every(restores))
+	)
+		return batch;
+	const kept: Mutation[] = [];
+	for (const mutation of batch) {
+		if (mutation.kind !== "holdPlacements") {
+			kept.push(mutation);
+			continue;
+		}
+		const holds = mutation.holds.filter(restores);
+		if (holds.length > 0) kept.push({ kind: "holdPlacements", holds });
+	}
+	return kept;
 }
 
 /**

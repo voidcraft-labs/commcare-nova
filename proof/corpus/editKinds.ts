@@ -1763,9 +1763,11 @@ function basicOperationHolds(doc: BlueprintDoc) {
 }
 
 /**
- * A document holding a case change in a slot of Case Management. No editor
- * gives birth to one: a hold is written by a publish's recording, and the
- * commit kernel refuses an editor's batch that gains one
+ * A document holding a case change in a slot of Case Management: every
+ * corpus document whose first publish recorded one, since each is edited as
+ * stored after that publish (`./editBatches.ts::afterFirstPublish`). No
+ * editor gives birth to one: a hold is written by a publish's recording, and
+ * the commit kernel refuses an editor's batch that gains one
  * (`lib/db/placementAuthority.ts::placementChangeRefusal`), so a document
  * that holds none proposes nothing.
  */

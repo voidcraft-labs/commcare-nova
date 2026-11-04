@@ -384,6 +384,7 @@ export const PublishPanel = memo(function PublishPanel() {
 						flat_location_fixture: body.flat_location_fixture ?? null,
 						connect_forwarder: body.connect_forwarder ?? null,
 						form_entry_sync_off: body.form_entry_sync_off ?? null,
+						placement_moves: body.placement_moves ?? null,
 					},
 				};
 			} catch (error) {

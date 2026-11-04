@@ -21,11 +21,43 @@ export { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
  * person-to-person findings as its message. The MCP/chat tool's catch returns
  * it in the standard `{ error }` envelope; the auto-save PUT maps it to a 409
  * the builder recovers from by reloading.
+ *
+ * `findingCodes` names the validator findings of a gate refusal (empty for
+ * every other refusal), and `placementRule` marks the kernel's refusal of a
+ * held placement change, so a caller can tell a refusal a recorded placement
+ * caused from any other without reading the prose.
  */
 export class BlueprintCommitRejectedError extends Error {
-	constructor(message: string) {
+	readonly findingCodes: readonly string[];
+	readonly placementRule: boolean;
+
+	constructor(
+		message: string,
+		options?: {
+			readonly findingCodes?: readonly string[];
+			readonly placementRule?: true;
+		},
+	) {
 		super(message);
 		this.name = "BlueprintCommitRejectedError";
+		this.findingCodes = options?.findingCodes ?? [];
+		this.placementRule = options?.placementRule ?? false;
+	}
+}
+
+/**
+ * A publish's placements were emitted from a head that is no longer the app's.
+ * Nothing was written.
+ */
+export class AppHeadMovedError extends Error {
+	constructor(
+		readonly expectedSeq: number,
+		readonly headSeq: number,
+	) {
+		super(
+			`The app's head moved from ${expectedSeq} to ${headSeq} before the publish recorded its placements.`,
+		);
+		this.name = "AppHeadMovedError";
 	}
 }
 

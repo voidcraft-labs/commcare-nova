@@ -2,9 +2,10 @@
  * Held placements and the moves an edit needs
  * (`targeted-held-placement`).
  *
- * A basic menu of patients whose D stands for an app already published, so
- * each of its case changes is held where that publish put it
- * (`lib/commcare/placement.ts::planPlacements`, a hold first):
+ * A basic menu of patients. Its first publish records where it puts each
+ * case change (`proof/corpus/editBatches.ts::firstPublishRecord`, which the
+ * capture returns and the corpus applies to D before planning D′), so D as
+ * stored after that publish holds:
  *
  * - "Update": its own case saves the note, a question's answer as it is, and
  *   is held in Case Management's slot (`update_case`).
@@ -13,19 +14,17 @@
  *   cannot state, so the change is held in the Save to Case block
  *   `nova_operations/patient`.
  *
- * Written D′ adds to Update a write of a computed value (`checked`, the text
- * `yes`), which Case Management's slot cannot hold, so the edit moves
- * Update's own case to the Save to Case block Nova plans for it, and the
- * move is in the batch (`lib/doc/identityMoves.ts::withIdentityMoves`), as
- * every editor's batch carries it. It also removes Weigh's computed write:
- * Case Management could now hold Weigh's change, and its hold keeps it in
- * its block, because a hold that still expresses its change never moves.
- * The commit kernel's rule admits both as an editor's save
+ * The spec writes no hold: the record is the first publish's to give. The
+ * written edit adds to Update a write of a computed value (`checked`, the
+ * text `yes`), and removes Weigh's computed write. Made again over the held
+ * D (`writtenEditOverRecord`), Case Management's slot cannot hold Update's
+ * new write, so the edit moves Update's own case to the Save to Case block
+ * Nova plans for it, and the move is in the batch
+ * (`lib/doc/identityMoves.ts::withIdentityMoves`), as every editor's batch
+ * carries it; Case Management could now hold Weigh's change, and its hold
+ * keeps it in its block, because a hold that still expresses its change
+ * never moves. The commit kernel's rule admits both as an editor's save
  * (`lib/db/placementAuthority.ts::placementChangeRefusal`).
- *
- * D's holds are written here, as the publish that recorded them would; from
- * the pull request that records a first publish's placements, they are the
- * capture's record, the same placements.
  *
  * Fixed values: Weigh opened on the patient Amina, given the weight 2.5,
  * holds `2.5 kg` in its block's `weight_text` write.
@@ -52,23 +51,20 @@ export const OWN_BLOCK: CasePlacement = {
 	path: ["nova_operations", "patient"],
 };
 
-/** Where each form's own case is held. */
+/** Where a form's own case is written as held, where a spec writes one. */
 export interface HeldPlacementHolds {
-	readonly update: CasePlacement;
-	readonly weigh: CasePlacement;
+	readonly update?: CasePlacement;
+	readonly weigh?: CasePlacement;
 }
 
 /**
- * The app before the edit (`edited: false`) and after it, each form's own
- * case held where `holds` says: by default, where the publish D stands for
- * put it and, after the edit, where its moves put it.
+ * The app before the edit (`edited: false`) and after it, as its source
+ * writes it: no hold, unless `holds` writes one, which only a test of a
+ * refused D′ does.
  */
 export function heldPlacementApp(
 	edited: boolean,
-	holds: HeldPlacementHolds = {
-		update: edited ? OWN_BLOCK : OWN_SLOT,
-		weigh: OWN_BLOCK,
-	},
+	holds: HeldPlacementHolds = {},
 ): BlueprintDoc {
 	const update = uuid("update");
 	const weigh = uuid("weigh");
@@ -84,7 +80,7 @@ export function heldPlacementApp(
 					? [{ property: "checked", value: term(literal("yes")) }]
 					: []),
 			],
-			placement: holds.update,
+			...(holds.update !== undefined && { placement: holds.update }),
 		},
 	];
 	const weighOperations: CaseOperation[] = [
@@ -103,7 +99,7 @@ export function heldPlacementApp(
 							},
 						]),
 			],
-			placement: holds.weigh,
+			...(holds.weigh !== undefined && { placement: holds.weigh }),
 		},
 	];
 	return buildDoc(

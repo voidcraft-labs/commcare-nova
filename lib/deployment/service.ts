@@ -25,6 +25,7 @@ import {
 } from "@/lib/commcare/hq/lookupTables";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import { placementsToHold } from "@/lib/commcare/placementHolds";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
@@ -40,9 +41,15 @@ import { assetWirePaths } from "@/lib/media/manifest";
 import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
+import type {
+	AcceptPlacementMoves,
+	PlacementMoveOfferView,
+} from "@/lib/publish/placementMoves";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import type { WebAppsChange } from "@/lib/publish/webApps";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import {
+	asksSaveToCase,
 	confirmationChecks,
 	type ProjectSpaceConfirmationChecks,
 } from "./confirmations";
@@ -61,12 +68,15 @@ import {
 } from "./importApplication";
 import type { PlannedPlacePush } from "./locationResourcePlan";
 import { observeDeployment } from "./observe";
+import { placementMoveOffer, placementMoveOfferView } from "./placementMoves";
+import { recordPublishPlacements } from "./placements";
 import { narrowingTo } from "./platformNarrowing";
 import type { LocationPushPlan, LookupPushPlan } from "./preflight";
 import {
 	CREATED_APP_IS_EMPTY,
 	hqAppSourceReadFailure,
 	type PreflightCheck,
+	type PreflightResult,
 	planLacksWebAppsFailure,
 	publishConfirmationNeeds,
 	remoteAppMissingFailure,
@@ -115,11 +125,14 @@ import type {
 	CanonicalLookupTable,
 	DeploymentAttemptRefusal,
 	DeploymentConfirmationKey,
+	DeploymentConfirmationNeeded,
 	DeploymentFailure,
 	DeploymentRemoteChange,
 	DeploymentResource,
+	DeploymentResourceConflict,
 	DeploymentResourceKind,
 	DeploymentWithResources,
+	PublishPlacements,
 	RemoteChangeDiscard,
 	ResourceBaselineWrite,
 } from "./types";
@@ -154,6 +167,12 @@ interface PublishOutcomeShared {
 	readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport | null;
 	/** The app's page on CommCare HQ, once there is one. */
 	readonly hqAppUrl: string | null;
+	/**
+	 * The placements this attempt recorded as a `publish-placement` change,
+	 * and how many of them an accepted move offer moved; both 0 where it
+	 * recorded nothing.
+	 */
+	readonly placements: PublishPlacements;
 }
 
 /**
@@ -216,6 +235,16 @@ export interface PublishInput {
 	readonly scope: DeploymentScope;
 	readonly doc: BlueprintDoc;
 	readonly compiledAtSeq: number;
+	/** Reads the app's current head again, under the caller's own access check. */
+	readonly reloadHead: () => Promise<{
+		readonly doc: BlueprintDoc;
+		readonly seq: number;
+	}>;
+	/**
+	 * A placement offer a person accepted after a refusal offered it, named
+	 * by its reason and digest. Never defaulted from an earlier attempt.
+	 */
+	readonly acceptPlacementMoves?: AcceptPlacementMoves;
 	readonly appName: string;
 	readonly server: CommCareServer;
 	readonly domain: string;
@@ -497,10 +526,20 @@ export async function projectSpaceConfirmations(
 	doc: BlueprintDoc,
 	target: DeploymentTargetKey | null,
 ): Promise<ProjectSpaceConfirmationChecks> {
-	if (target === null) return confirmationChecks([], []);
+	if (target === null) return confirmationChecks([], [], null);
 	const { needed } = await publishConfirmationNeeds(scope, doc, target);
 	const deployment = await readDeployment(scope, target);
-	return confirmationChecks(needed, deployment?.confirmations ?? []);
+	return confirmationChecks(
+		needed,
+		deployment?.confirmations ?? [],
+		asksSaveToCase(needed) ? saveToCaseOfferView(doc) : null,
+	);
+}
+
+/** The document's `save-to-case` move offer as a person sees it, or `null`. */
+function saveToCaseOfferView(doc: BlueprintDoc): PlacementMoveOfferView | null {
+	const offer = placementMoveOffer(doc, "save-to-case");
+	return offer === null ? null : placementMoveOfferView(offer);
 }
 
 /**
@@ -518,6 +557,12 @@ export async function projectSpaceConfirmations(
  * table or place is pushed, then fills it with the same in-place update a
  * republish sends. The shell holds no menu, so HQ has no form id to re-mint
  * and cannot build it.
+ *
+ * Between preflight and the first write, the publish records where CommCare
+ * HQ keeps each case change and query repeat it carries for the first time,
+ * as one `publish-placement` change at the head preflight read, so every
+ * later publish keeps them there. The document that change leaves is the
+ * one sent, and its sequence is the pushed revision.
  */
 export async function publishAppToHq(
 	input: PublishInput,
@@ -545,104 +590,178 @@ export async function publishAppToHq(
 	const hqAppAction =
 		nextPublishAction(existing) === "updates" ? "updated" : "created";
 
-	const preflight = await runDeploymentPreflight({
-		doc: input.doc,
-		compiledAtSeq: input.compiledAtSeq,
-		mappings: existing?.active ?? [],
-		inPlaceUpdate,
-		adoptResourceIds: input.adoptResourceIds ?? [],
-		discardRemoteChanges: input.discardRemoteChanges ?? [],
-		confirmations: existing?.confirmations ?? [],
-		confirm: input.confirm ?? [],
-		confirmWebApps: input.confirmWebApps,
-		access: {
-			appId: input.scope.appId,
-			projectId: input.scope.projectId,
-			role: input.scope.role,
-			actorUserId: input.scope.actorUserId,
-		},
-		server: input.server,
-		domain: input.domain,
-		now,
-	});
+	let doc = input.doc;
+	let seq = input.compiledAtSeq;
+	let recorded = 0;
+	let moved = 0;
+	const placements = (): PublishPlacements => ({ recorded, moved });
+	/* A stop before anything is sent folds and reports exactly as a blocked
+	 * preflight does, over the document this attempt holds now. */
+	const refuseBeforeSending = (
+		failure: DeploymentFailure,
+		extras: Pick<
+			PreflightRefusalExtras,
+			"checks" | "projectSpaceCompatibility" | "placementMoves"
+		> = { checks: [], projectSpaceCompatibility: null },
+	): Promise<PublishOutcome> =>
+		preflightRefusal(input, target, existing, failure, {
+			...extras,
+			at: now,
+			doc,
+			placements: placements(),
+		});
 
-	if (preflight.ready === null) {
-		/* HQ reported the mapped app gone. That is an answer about the
-		 * target, so it folds as an observation of the mapping preflight
-		 * read, as Check status's would, and the next publish creates. */
-		if (preflight.remoteAppGone !== undefined) {
-			return remoteAppGoneOutcome(
-				input,
-				target,
-				preflight.remoteAppGone,
-				preflight.outcome.failure,
-				{
-					checks: preflight.checks,
-					projectSpaceCompatibility: preflight.projectSpaceCompatibility,
-				},
-			);
+	/* A move offer a person accepted, recorded before preflight: it is a pure
+	 * function of the document, so it needs no read of CommCare HQ, and
+	 * preflight then reads the document that holds it. The offer is derived
+	 * again from the head this attempt holds, so a retry after an attempt
+	 * that already recorded it finds nothing left to move and goes on. */
+	const accepted = input.acceptPlacementMoves;
+	if (accepted !== undefined) {
+		for (let attempt = 1; ; attempt++) {
+			const offer = placementMoveOffer(doc, accepted.reason);
+			if (offer === null) break;
+			if (offer.digest !== accepted.digest) {
+				return refuseBeforeSending(placementMovesChangedFailure(offer), {
+					checks: [],
+					projectSpaceCompatibility: null,
+					placementMoves: placementMoveOfferView(offer),
+				});
+			}
+			const record = await recordPublishPlacements({
+				scope: input.scope,
+				expectedHeadSeq: seq,
+				holds: offer.holds,
+			});
+			if (record.kind === "recorded") {
+				doc = record.doc;
+				seq = record.seq;
+				recorded += record.count;
+				moved = record.count;
+				break;
+			}
+			if (record.kind === "refused") {
+				return refuseBeforeSending(appNotReadyFailure(record.message));
+			}
+			if (attempt === 2)
+				return refuseBeforeSending(APP_CHANGED_WHILE_PUBLISHING);
+			({ doc, seq } = await input.reloadHead());
 		}
-		/* The refusal is the attempt's to report. A target this app has
-		 * never reached keeps NOTHING durable; a target it has reached
-		 * keeps its record, folded only when the refusal is genuinely
-		 * about the target (a publish that never completed) rather than
-		 * about the attempt (a key or draft problem against a live app). */
-		const refusal: DeploymentAttemptRefusal = {
-			phase: "preflight",
-			failure: preflight.outcome.failure,
-			/* Empty unless the refusal WAS a name clash, in which case these
-			 * are the exact resources a person may name back to take over. */
-			resourceConflicts: preflight.conflicts,
-			/* Empty unless the refusal was `hq_changed`, in which case these
-			 * are the changes a person may name back to publish over. */
-			remoteChanges: preflight.remoteChanges ?? [],
-			/* Empty unless the refusal was `hq_confirmation_needed`. Nothing a
-			 * person confirmed is stored by a refused attempt. */
-			confirmationsNeeded: preflight.confirmationsNeeded ?? [],
-			/* Non-null exactly for `hq_web_apps_change`. Nothing was sent. */
-			webAppsChange: preflight.webAppsChange ?? null,
-		};
-		const deployment =
-			existing === null
-				? null
-				: await foldDeploymentAttempt(
-						input.scope,
-						target,
-						"preflight",
-						preflight.outcome,
-					);
-		return {
-			landed: false,
-			refusal,
-			deployment,
-			checks: preflight.checks,
-			/* A target this app has reached still gets its full artifact,
-			 * including which Project data Nova owns there: the refusal
-			 * belongs to this attempt, and none of that stopped being true.
-			 * A first publish that never got there has nothing to describe
-			 * beyond the app itself. */
-			artifact:
-				deployment === null
-					? buildSetupArtifact({
-							doc: input.doc,
-							server: input.server,
-							domain: input.domain,
-							hqAppId: null,
-							locations: await artifactLocations(input.scope),
-						})
-					: await setupArtifactFor(input.scope, deployment, input.doc),
-			warnings: [],
-			projectSpaceCompatibility: preflight.projectSpaceCompatibility,
-			hqAppUrl:
-				deployment === null
-					? null
-					: hqAppUrlFor(
-							input.server,
-							input.domain,
-							activeRemoteApp(deployment)?.remoteId ?? null,
-						),
-		};
 	}
+
+	/* Preflight, then the placements this publish carries for the first
+	 * time, recorded only while the head is still the one preflight read: a
+	 * moved head means preflight read a document that is no longer the app,
+	 * so it runs again over the head as it stands. Three attempts at most,
+	 * so a busy app cannot keep preflight's reads of CommCare HQ going. A
+	 * stop after this keeps the holds, and the next publish carries them. */
+	let preflight: PassedPreflight;
+	for (let attempt = 1; ; attempt++) {
+		const run = await runDeploymentPreflight({
+			doc,
+			compiledAtSeq: seq,
+			mappings: existing?.active ?? [],
+			inPlaceUpdate,
+			adoptResourceIds: input.adoptResourceIds ?? [],
+			discardRemoteChanges: input.discardRemoteChanges ?? [],
+			confirmations: existing?.confirmations ?? [],
+			confirm: input.confirm ?? [],
+			confirmWebApps: input.confirmWebApps,
+			access: {
+				appId: input.scope.appId,
+				projectId: input.scope.projectId,
+				role: input.scope.role,
+				actorUserId: input.scope.actorUserId,
+			},
+			server: input.server,
+			domain: input.domain,
+			now,
+		});
+
+		if (run.ready === null) {
+			/* HQ reported the mapped app gone. That is an answer about the
+			 * target, so it folds as an observation of the mapping preflight
+			 * read, as Check status's would, and the next publish creates. */
+			if (run.remoteAppGone !== undefined) {
+				return remoteAppGoneOutcome(
+					input,
+					target,
+					run.remoteAppGone,
+					run.outcome.failure,
+					{
+						doc,
+						checks: run.checks,
+						projectSpaceCompatibility: run.projectSpaceCompatibility,
+						placements: placements(),
+					},
+				);
+			}
+			/* The refusal is the attempt's to report. A target this app has
+			 * never reached keeps NOTHING durable; a target it has reached
+			 * keeps its record, folded only when the refusal is genuinely
+			 * about the target (a publish that never completed) rather than
+			 * about the attempt (a key or draft problem against a live app). */
+			const confirmationsNeeded = run.confirmationsNeeded ?? [];
+			return preflightRefusal(input, target, existing, run.outcome.failure, {
+				at: run.outcome.at,
+				doc,
+				checks: run.checks,
+				projectSpaceCompatibility: run.projectSpaceCompatibility,
+				placements: placements(),
+				resourceConflicts: run.conflicts,
+				remoteChanges: run.remoteChanges ?? [],
+				confirmationsNeeded,
+				webAppsChange: run.webAppsChange ?? null,
+				/* Where the plan may lack Save to Case, the case changes Nova
+				 * can keep in Case Management instead, which a person may
+				 * accept in place of the confirmation. */
+				placementMoves:
+					run.outcome.failure.code === "hq_confirmation_needed" &&
+					asksSaveToCase(confirmationsNeeded)
+						? saveToCaseOfferView(doc)
+						: null,
+			});
+		}
+
+		const holds = placementsToHold(doc);
+		if (holds.length === 0) {
+			preflight = run;
+			break;
+		}
+		const record = await recordPublishPlacements({
+			scope: input.scope,
+			expectedHeadSeq: seq,
+			holds,
+		});
+		if (record.kind === "recorded") {
+			doc = record.doc;
+			seq = record.seq;
+			recorded += record.count;
+			preflight = run;
+			break;
+		}
+		const ran = {
+			checks: run.checks,
+			projectSpaceCompatibility: run.projectSpaceCompatibility,
+		};
+		if (record.kind === "refused") {
+			return refuseBeforeSending(appNotReadyFailure(record.message), ran);
+		}
+		if (attempt === 3) {
+			return refuseBeforeSending(APP_CHANGED_WHILE_PUBLISHING, ran);
+		}
+		({ doc, seq } = await input.reloadHead());
+	}
+
+	/* The recorded document goes out. The holds are the emitter's own
+	 * derivation, so everything preflight prepared beside the document
+	 * (lookups, media, compatibility, confirmations) stays true, and the HQ
+	 * body comes from the document that holds the placements, under the
+	 * sequence the pushed revision names. */
+	const ready = {
+		...preflight.ready,
+		prepared: { ...preflight.ready.prepared, doc, compiledAtSeq: seq },
+	};
 
 	/* What the landed publish says about the logo, worked out before any
 	 * write: once HQ has imported the app, nothing may fail between the
@@ -650,7 +769,7 @@ export async function publishAppToHq(
 	 * app it made. Only that record writes the offered hash, so the one read
 	 * at the start is the one it replaces. */
 	const logoStep = logoStepFor(
-		preflight.ready.prepared,
+		ready.prepared,
 		existing?.deployment.offeredLogoContentHash ?? null,
 	);
 
@@ -676,7 +795,7 @@ export async function publishAppToHq(
 		appBaseline,
 		confirmedChanges,
 		targetEmptyCaseListText,
-	} = preflight.ready;
+	} = ready;
 	const identity = targetWireIdentity(overrides);
 	const contentGeneration = await beginDeploymentContentWrite(
 		input.scope,
@@ -719,13 +838,14 @@ export async function publishAppToHq(
 					remoteChanges: [],
 					confirmationsNeeded: [],
 					webAppsChange: null,
+					placementMoves: null,
 				},
 				deployment,
 				checks: preflight.checks,
 				artifact: await setupArtifactFor(
 					input.scope,
 					deployment,
-					input.doc,
+					doc,
 					locations,
 				),
 				warnings: [],
@@ -735,6 +855,7 @@ export async function publishAppToHq(
 					input.domain,
 					activeRemoteApp(deployment)?.remoteId ?? null,
 				),
+				placements: placements(),
 			};
 		};
 
@@ -754,8 +875,10 @@ export async function publishAppToHq(
 				mapped,
 				remoteAppMissingFailure(domain),
 				{
+					doc,
 					checks: preflight.checks,
 					projectSpaceCompatibility: preflight.projectSpaceCompatibility,
+					placements: placements(),
 					locations,
 				},
 			);
@@ -1082,7 +1205,7 @@ export async function publishAppToHq(
 			novaResourceId: input.scope.appId,
 			remoteId: result.appId,
 			ownership: "nova-created",
-			pushedRevision: input.compiledAtSeq,
+			pushedRevision: seq,
 			remoteRevision: result.version,
 			uploadedAt: new Date().toISOString(),
 			baseline: pushBaseline.write,
@@ -1101,7 +1224,7 @@ export async function publishAppToHq(
 		entryPointManifest = {
 			generation: contentGeneration,
 			remoteAppId: result.appId,
-			sourceSequence: input.compiledAtSeq,
+			sourceSequence: seq,
 			entries,
 			dependencies: deployment.active.flatMap((resource) =>
 				resource.kind === "lookup-table" || resource.kind === "location"
@@ -1169,15 +1292,11 @@ export async function publishAppToHq(
 					? APP_PREVIEW_NOTE
 					: null,
 			checks: preflight.checks,
-			artifact: await setupArtifactFor(
-				input.scope,
-				deployment,
-				input.doc,
-				locations,
-			),
+			artifact: await setupArtifactFor(input.scope, deployment, doc, locations),
 			warnings,
 			projectSpaceCompatibility: preflight.projectSpaceCompatibility,
 			hqAppUrl: hqAppUrlFor(input.server, domain, result.appId),
+			placements: placements(),
 		};
 	} finally {
 		await finishDeploymentContentWrite(
@@ -1207,8 +1326,11 @@ async function remoteAppGoneOutcome(
 	mapped: DeploymentResource,
 	failure: DeploymentFailure,
 	context: {
+		/** The document this attempt holds, the recorded one where it recorded. */
+		readonly doc: BlueprintDoc;
 		readonly checks: readonly PreflightCheck[];
 		readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport | null;
+		readonly placements: PublishPlacements;
 		readonly locations?: readonly StoredLocation[];
 	},
 ): Promise<PublishOutcome> {
@@ -1229,19 +1351,140 @@ async function remoteAppGoneOutcome(
 			remoteChanges: [],
 			confirmationsNeeded: [],
 			webAppsChange: null,
+			placementMoves: null,
 		},
 		deployment: observed.view,
 		checks: context.checks,
 		artifact: await setupArtifactFor(
 			input.scope,
 			observed.view,
-			input.doc,
+			context.doc,
 			context.locations,
 		),
 		warnings: [],
 		projectSpaceCompatibility: context.projectSpaceCompatibility,
 		hqAppUrl: null,
+		placements: context.placements,
 	};
+}
+
+/** A preflight that passed: its `ready` holds what the publish sends. */
+type PassedPreflight = Exclude<PreflightResult, { readonly ready: null }>;
+
+/** What a refusal before anything is sent reports beside its failure. */
+interface PreflightRefusalExtras {
+	/** When the stop was decided, for the fold of an unreached target. */
+	readonly at: string;
+	/** The document this attempt holds, the recorded one where it recorded. */
+	readonly doc: BlueprintDoc;
+	readonly checks: readonly PreflightCheck[];
+	readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport | null;
+	readonly placements: PublishPlacements;
+	readonly resourceConflicts?: readonly DeploymentResourceConflict[];
+	readonly remoteChanges?: readonly DeploymentRemoteChange[];
+	readonly confirmationsNeeded?: readonly DeploymentConfirmationNeeded[];
+	readonly webAppsChange?: WebAppsChange | null;
+	readonly placementMoves?: PlacementMoveOfferView | null;
+}
+
+/**
+ * A publish refused before anything was sent: a blocked preflight edge, or
+ * a stop while the publish recorded its placements.
+ *
+ * The refusal is the attempt's to report. A target this app has never
+ * reached keeps nothing durable; a target it has reached keeps its record,
+ * folded only when the refusal is genuinely about the target (a publish
+ * that never completed) rather than about the attempt (a key or draft
+ * problem against a live app).
+ */
+async function preflightRefusal(
+	input: PublishInput,
+	target: DeploymentTargetKey,
+	existing: DeploymentWithResources | null,
+	failure: DeploymentFailure,
+	extras: PreflightRefusalExtras,
+): Promise<PublishOutcome> {
+	const refusal: DeploymentAttemptRefusal = {
+		phase: "preflight",
+		failure,
+		/* Empty unless the refusal WAS a name clash, in which case these
+		 * are the exact resources a person may name back to take over. */
+		resourceConflicts: extras.resourceConflicts ?? [],
+		/* Empty unless the refusal was `hq_changed`, in which case these
+		 * are the changes a person may name back to publish over. */
+		remoteChanges: extras.remoteChanges ?? [],
+		/* Empty unless the refusal was `hq_confirmation_needed`. Nothing a
+		 * person confirmed is stored by a refused attempt. */
+		confirmationsNeeded: extras.confirmationsNeeded ?? [],
+		/* Non-null exactly for `hq_web_apps_change`. Nothing was sent. */
+		webAppsChange: extras.webAppsChange ?? null,
+		placementMoves: extras.placementMoves ?? null,
+	};
+	const deployment =
+		existing === null
+			? null
+			: await foldDeploymentAttempt(input.scope, target, "preflight", {
+					status: "failed",
+					at: extras.at,
+					failure,
+				});
+	return {
+		landed: false,
+		refusal,
+		deployment,
+		checks: extras.checks,
+		/* A target this app has reached still gets its full artifact,
+		 * including which Project data Nova owns there: the refusal belongs
+		 * to this attempt, and none of that stopped being true. A first
+		 * publish that never got there has nothing to describe beyond the
+		 * app itself. */
+		artifact:
+			deployment === null
+				? buildSetupArtifact({
+						doc: extras.doc,
+						server: input.server,
+						domain: input.domain,
+						hqAppId: null,
+						locations: await artifactLocations(input.scope),
+					})
+				: await setupArtifactFor(input.scope, deployment, extras.doc),
+		warnings: [],
+		projectSpaceCompatibility: extras.projectSpaceCompatibility,
+		hqAppUrl:
+			deployment === null
+				? null
+				: hqAppUrlFor(
+						input.server,
+						input.domain,
+						activeRemoteApp(deployment)?.remoteId ?? null,
+					),
+		placements: extras.placements,
+	};
+}
+
+/** The stop after three moved heads while the publish recorded its placements. */
+const APP_CHANGED_WHILE_PUBLISHING: DeploymentFailure = {
+	code: "app_changed_while_publishing",
+	message:
+		"This app kept changing while Nova got it ready to publish, so nothing was sent. Publish again once the edits settle.",
+	details: [],
+};
+
+/** The stop for an accepted offer that no longer names what would move. */
+function placementMovesChangedFailure(
+	offer: PlacementMoveOfferView,
+): DeploymentFailure {
+	return {
+		code: "hq_placement_moves_changed",
+		message:
+			"The case changes Nova offered to move have changed since you agreed, so nothing was moved or sent. Here's what would move now.",
+		details: offer.moves.map((move) => move.sentence),
+	};
+}
+
+/** The commit kernel's refusal of a publish's placements, in its own words. */
+function appNotReadyFailure(message: string): DeploymentFailure {
+	return { code: "app_not_ready", message, details: [] };
 }
 
 /**

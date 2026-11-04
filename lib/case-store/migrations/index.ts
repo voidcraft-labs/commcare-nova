@@ -110,6 +110,7 @@ import * as designLookupMaterialization from "./20260829010000_design_lookup_mat
 import * as designLookupHandleKinds from "./20260830000000_design_lookup_handle_kinds";
 import * as hqRoundTripPlatformsAndroidCaptureSize from "./20261101025000_hq_round_trip_platforms_android_capture_size";
 import * as hqRoundTripPlatformsMediaFormatValidated from "./20261101030000_hq_round_trip_platforms_media_format_validated";
+import * as hqRoundTripCaseWritesPublishPlacement from "./20261110000000_hq_round_trip_case_writes_publish_placement";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -226,6 +227,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		hqRoundTripPlatformsAndroidCaptureSize,
 	"20261101030000_hq_round_trip_platforms_media_format_validated":
 		hqRoundTripPlatformsMediaFormatValidated,
+	"20261110000000_hq_round_trip_case_writes_publish_placement":
+		hqRoundTripCaseWritesPublishPlacement,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

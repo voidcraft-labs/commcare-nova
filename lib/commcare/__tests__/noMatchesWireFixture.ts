@@ -154,12 +154,39 @@ export function noMatchesWireFixture(
 			],
 		};
 	}
-	if (scenario === "home" || scenario === "multiple-home")
-		doc.forms[REGISTER_FORM].postSubmit = "firstMenu";
+	// Each edit makes a new document: plans are memoized per document object,
+	// and `noMatchesDoc` has already planned the one it returned.
+	if (scenario === "home" || scenario === "multiple-home") {
+		const base = doc;
+		doc = {
+			...base,
+			forms: {
+				...base.forms,
+				[REGISTER_FORM]: {
+					...base.forms[REGISTER_FORM],
+					postSubmit: "firstMenu",
+				},
+			},
+		};
+	}
 	if (scenario === "multiple-home") {
-		const config = doc.modules[HOST_MODULE].caseListConfig;
+		const base = doc;
+		const host = base.modules[HOST_MODULE];
+		const config = host.caseListConfig;
 		if (!config) throw new Error("Missing search case list");
-		config.selection = { kind: "multiple", maximum: 5 };
+		doc = {
+			...base,
+			modules: {
+				...base.modules,
+				[HOST_MODULE]: {
+					...host,
+					caseListConfig: {
+						...config,
+						selection: { kind: "multiple", maximum: 5 },
+					},
+				},
+			},
+		};
 	}
 	admitNoMatchesDoc(doc);
 	return doc;

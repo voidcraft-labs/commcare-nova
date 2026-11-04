@@ -22,14 +22,23 @@
  *     fault, or a 4xx from the route's own input and authorization gates.
  */
 
+import { sameConfirmationKey } from "@/components/builder/app-setup/publishingSectionModel";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import type {
 	DeploymentAttemptRefusal,
+	DeploymentConfirmationKey,
 	DeploymentConfirmationNeeded,
 	DeploymentFailureCode,
 	DeploymentRemoteChange,
 	DeploymentResourceConflict,
+	PublishPlacements,
 } from "@/lib/deployment/types";
+import {
+	type AcceptPlacementMoves,
+	type PlacementMoveOfferView,
+	SAVE_TO_CASE_OFFER_HEADING,
+	saveToCaseOfferBody,
+} from "@/lib/publish/placementMoves";
 import type { WebAppsChange } from "@/lib/publish/webApps";
 
 /** The logo a landed publish offers for a person to add in CommCare HQ. */
@@ -67,6 +76,12 @@ export interface PublishResponseBody {
 	readonly left_behind?: DeploymentView["leftBehind"];
 	/** Why THIS attempt stopped, from the one publish lifecycle. */
 	readonly refusal?: DeploymentAttemptRefusal | null;
+	/**
+	 * Where CommCare HQ keeps the app's case changes, as this attempt
+	 * recorded it: how many placements it recorded and how many of them an
+	 * accepted move offer moved. Both 0 where it recorded nothing.
+	 */
+	readonly placements?: PublishPlacements;
 	/**
 	 * What Preview may honestly name for `commcare_project` now.
 	 *
@@ -114,6 +129,8 @@ export type PublishOutcome =
 			readonly appPreviewNote: string | null;
 			/** The logo step, for an app with a logo; null otherwise. */
 			readonly logoStep: PublishLogoStepBody | null;
+			/** What this publish recorded of where CommCare HQ keeps its case changes. */
+			readonly placements: PublishPlacements;
 	  }
 	| {
 			readonly kind: "refused";
@@ -161,6 +178,18 @@ export type PublishOutcome =
 			 * publish would make to the app's Web App setting. Null otherwise.
 			 */
 			readonly webAppsChange: WebAppsChange | null;
+			/**
+			 * The case changes Nova can move so the project space can take the
+			 * app, which a person accepts by ticking one box and publishing
+			 * again; null where the refusal offers none.
+			 */
+			readonly placementMoves: PlacementMoveOfferView | null;
+			/**
+			 * What the attempt recorded before it stopped. A refusal after an
+			 * accepted offer can already have moved the changes (`moved > 0`),
+			 * so the next publish starts from the app as it holds them now.
+			 */
+			readonly placements: PublishPlacements;
 			readonly warnings: string[];
 			readonly previewProjectSpace: string | null;
 	  }
@@ -175,6 +204,9 @@ export type PublishOutcome =
 			 */
 			readonly blockedDetail: string | undefined;
 	  };
+
+/** What a response that names no placements recorded: nothing. */
+const NO_PLACEMENTS: PublishPlacements = { recorded: 0, moved: 0 };
 
 export function publishOutcome(
 	responseOk: boolean,
@@ -205,6 +237,7 @@ export function publishOutcome(
 			previewProjectSpace: body.preview_project_space ?? null,
 			appPreviewNote: body.app_preview_note ?? null,
 			logoStep: body.logo_step ?? null,
+			placements: body.placements ?? NO_PLACEMENTS,
 		};
 	}
 	if (responseOk && body.refusal !== undefined && body.refusal !== null) {
@@ -224,6 +257,8 @@ export function publishOutcome(
 			remoteChanges: body.refusal.remoteChanges ?? [],
 			confirmationsNeeded: body.refusal.confirmationsNeeded ?? [],
 			webAppsChange: body.refusal.webAppsChange ?? null,
+			placementMoves: body.refusal.placementMoves ?? null,
+			placements: body.placements ?? NO_PLACEMENTS,
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
 		};
@@ -233,4 +268,105 @@ export function publishOutcome(
 		blockedDetail: body.preflight?.find((check) => check.status === "blocked")
 			?.detail,
 	};
+}
+
+/**
+ * The words of an offer to move case changes, for the reasons the dialog
+ * offers: a heading and a body above the move sentences. Null for a reason
+ * this dialog has no words for, which it then does not offer.
+ */
+export function placementOfferCopy(
+	offer: PlacementMoveOfferView,
+): { readonly heading: string; readonly body: string } | null {
+	switch (offer.reason) {
+		case "save-to-case":
+			return {
+				heading: SAVE_TO_CASE_OFFER_HEADING,
+				body: saveToCaseOfferBody(offer.asksChildCases),
+			};
+		case "same-type-child-links":
+			return null;
+	}
+}
+
+/** Whether a confirmation is the plan's Save to Case, which a
+ *  `save-to-case` move makes unnecessary. */
+function isSaveToCaseConfirmation(key: DeploymentConfirmationKey): boolean {
+	return key.kind === "plan-feature" && key.subject === "advanced-case-actions";
+}
+
+/**
+ * What the person has answered for the next publish: the project-space
+ * confirmations they ticked and the move offer they accepted.
+ *
+ * A `save-to-case` move and "This project space has it" for Save to Case
+ * answer one question two ways (move the changes so the plan needn't have
+ * it, or say the plan has it), so ticking one unticks the other.
+ */
+export interface PublishAnswers {
+	readonly confirmations: readonly DeploymentConfirmationKey[];
+	readonly acceptMoves: AcceptPlacementMoves | null;
+}
+
+/** The answers once a confirmation is ticked or unticked. */
+export function withConfirmation(
+	answers: PublishAnswers,
+	key: DeploymentConfirmationKey,
+	confirmed: boolean,
+): PublishAnswers {
+	const rest = answers.confirmations.filter(
+		(entry) => !sameConfirmationKey(entry, key),
+	);
+	return {
+		confirmations: confirmed ? [...rest, key] : rest,
+		acceptMoves:
+			confirmed &&
+			isSaveToCaseConfirmation(key) &&
+			answers.acceptMoves?.reason === "save-to-case"
+				? null
+				: answers.acceptMoves,
+	};
+}
+
+/** The answers once an offer's box is ticked or unticked. */
+export function withAcceptedMoves(
+	answers: PublishAnswers,
+	offer: PlacementMoveOfferView,
+	accepted: boolean,
+): PublishAnswers {
+	if (!accepted) return { ...answers, acceptMoves: null };
+	return {
+		confirmations:
+			offer.reason === "save-to-case"
+				? answers.confirmations.filter(
+						(entry) => !isSaveToCaseConfirmation(entry),
+					)
+				: answers.confirmations,
+		acceptMoves: { reason: offer.reason, digest: offer.digest },
+	};
+}
+
+/** Whether the accepted answer is this offer, as it was shown. */
+export function acceptsOffer(
+	acceptMoves: AcceptPlacementMoves | null,
+	offer: PlacementMoveOfferView,
+): boolean {
+	return (
+		acceptMoves !== null &&
+		acceptMoves.reason === offer.reason &&
+		acceptMoves.digest === offer.digest
+	);
+}
+
+/**
+ * The confirmation keys a publish still waits on: every one asked, except
+ * Save to Case once a `save-to-case` move is accepted, since the move is
+ * what lets the publish go without it.
+ */
+export function confirmationsStillAsked<
+	T extends { readonly key: DeploymentConfirmationKey },
+>(requests: readonly T[], acceptMoves: AcceptPlacementMoves | null): T[] {
+	return acceptMoves?.reason === "save-to-case"
+		? requests.filter((request) => !isSaveToCaseConfirmation(request.key))
+		: [...requests];
 }

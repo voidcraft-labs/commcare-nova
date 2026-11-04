@@ -51,7 +51,7 @@ import {
 	workersNeedingUsercaseSync,
 	workersWithRemovedUsercases,
 } from "./syncUsercaseRow";
-import type { ClientAppChangeKind } from "./types";
+import type { EditorAppChangeKind } from "./types";
 
 export type { MigrationOutcome } from "./migrationOutcome";
 
@@ -86,7 +86,7 @@ export interface ApplyBlueprintChangeArgs {
 	 * {@link commitGuardedBatch}'s app-locked, freshly-authorized transaction. */
 	readonly batchId: string;
 	/** Which write path is committing — stamped on the durable stream entry. */
-	readonly kind: ClientAppChangeKind;
+	readonly kind: EditorAppChangeKind;
 	/**
 	 * Guarded MUTATION commit: the blueprint write is a transactional
 	 * read-evaluate-write — re-apply `mutations` onto the FRESH stored

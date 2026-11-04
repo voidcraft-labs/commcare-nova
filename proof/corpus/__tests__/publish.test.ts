@@ -28,6 +28,18 @@
  * other than the one Nova's first publish leaves (a stop, or other assumed
  * reads). The observation is the two republishes beside each other.
  *
+ * A first publish records each case change's placement before it sends
+ * anything (`PublishCapture.placements`). Contract: the record names each
+ * operation where the emission puts it, a basic slot and a Save to Case
+ * block alike, it is the record the emitter applies to D
+ * (`afterFirstPublish`), and holding it changes no byte Nova sends: the
+ * republish of the held D is the update of D as authored, and a first
+ * publish of the held D records nothing and sends the same content. The
+ * plausible failures: a record that misses an operation or names another
+ * place (the edit would be planned over holds the publish never wrote), and
+ * a hold whose emission differs from the derived placement (every later
+ * update would read to HQ as a change).
+ *
  * The verdict's `commtrackEnabled` is written exactly where Nova's publish
  * asks that CommCare Supply be off. Nova's publish asks it of no document,
  * so the requirement is stood in by a test's; the plausible failure is a
@@ -48,7 +60,13 @@ import {
 } from "@/lib/deployment/__tests__/publishFixtures";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { parseLookupRevision } from "@/lib/lookup/schema";
+import {
+	heldPlacementApp,
+	OWN_BLOCK,
+	OWN_SLOT,
+} from "../../targeted/documents/heldPlacement";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
+import { afterFirstPublish } from "../editBatches";
 import {
 	capturePublish,
 	commtrackRequirement,
@@ -157,7 +175,6 @@ it("republishes over a retained A, sending an update and no create, over the bas
 	if (captured.status !== "sent") {
 		throw new Error("The first publish of the retained A was refused.");
 	}
-	expect(captured.placements).toEqual([]);
 	const { create, content } = captured.create;
 	const retainedA: RetainedPublish = {
 		create: { request: create.importApp, ownership: create.ownership },
@@ -178,6 +195,9 @@ it("republishes over a retained A, sending an update and no create, over the bas
 		retainedA,
 	});
 	expect(republished.status).toBe("republished");
+	// The migrated document's first publish over A records what the first
+	// publish of the same document records.
+	expect(republished.placements).toEqual(captured.placements);
 	const over = republished.updates.republish;
 	const expected = captured.updates.republish;
 	if (over?.status !== "sent" || expected?.status !== "sent") {
@@ -195,6 +215,76 @@ it("republishes over a retained A, sending an update and no create, over the bas
 	expect(over.assumedSource).toEqual(expected.assumedSource);
 	expect(over.assumedResources).toEqual(expected.assumedResources);
 	expect(over.confirmed).toBeUndefined();
+});
+
+it("records each operation's placement at the first publish and changes no byte of the update it sends again", async () => {
+	const authored = heldPlacementApp(false);
+	const document: PublishDocument = {
+		id: "held-placement",
+		doc: toPersistableDoc(authored),
+		compiledAtSeq: 1,
+	};
+	const published = afterFirstPublish(document.id, authored, undefined);
+	const held: PublishDocument = { ...document, doc: published.doc };
+	const configuration = minimumConfiguration([documentVerdict(document)]);
+	const captured = await capturePublish({
+		create: document,
+		updates: [
+			{ name: "republish", document: held },
+			{ name: "unheld", document },
+		],
+		configuration,
+		seed: DEFAULT_CORPUS_SEED,
+	});
+	if (captured.status !== "sent") {
+		throw new Error("The first publish of the held-placement app was refused.");
+	}
+	const form = (name: string) => {
+		const found = Object.values(authored.forms).find((f) => f.name === name);
+		const operation = found?.caseOperations?.[0];
+		if (found === undefined || operation === undefined)
+			throw new Error(`No form ${name} with its own case.`);
+		return { formUuid: found.uuid, operationUuid: operation.uuid };
+	};
+	// The record names each operation where the emission put it: Update's
+	// own case in Case Management's slot, Weigh's computed write in its Save
+	// to Case block.
+	expect(captured.placements).toEqual([
+		{
+			kind: "holdPlacements",
+			holds: [
+				{ target: "case-operation", ...form("Update"), placement: OWN_SLOT },
+				{ target: "case-operation", ...form("Weigh"), placement: OWN_BLOCK },
+			],
+		},
+	]);
+	expect(captured.placements).toEqual(published.placements);
+	// Holding them changes no byte: the republish of D with its placements
+	// sends what an update of D as authored sends over the same A, and a first
+	// publish of D already holding them records nothing and sends the content
+	// this one sent. (A first publish's content and a republish differ in
+	// themselves: the content import carries the app's profile, which HQ
+	// then holds.)
+	const republish = captured.updates.republish;
+	const unheld = captured.updates.unheld;
+	if (republish?.status !== "sent" || unheld?.status !== "sent")
+		throw new Error("An update over A was not sent.");
+	expect(republish.importApp.body.equals(unheld.importApp.body)).toBe(true);
+	const again = await capturePublish({
+		create: held,
+		updates: [],
+		configuration,
+		seed: DEFAULT_CORPUS_SEED,
+	});
+	if (again.status !== "sent") {
+		throw new Error("The first publish of the held document was refused.");
+	}
+	expect(again.placements).toEqual([]);
+	expect(
+		again.create.content.importApp.body.equals(
+			captured.create.content.importApp.body,
+		),
+	).toBe(true);
 });
 
 it("writes commtrackEnabled only where Nova's publish requires it", () => {

@@ -8,7 +8,9 @@
  *   <out>/inputs.json                 each document's input manifest digest (`./inputs.ts`)
  *   <out>/timings.json                what each part took (the one file that
  *                                     differs between two emissions)
- *   <out>/<id>/document.json          D (stored form) with its lookup snapshot,
+ *   <out>/<id>/document.json          D as stored after its first publish
+ *                                     (the placements it recorded held), with
+ *                                     its lookup snapshot,
  *                                     uploaded media, source and wire placement
  *                                     (`wire.modules`, `wire.languages`)
  *   <out>/<id>/configurations.json    {minimum, maximum, singleFlag}, without
@@ -49,6 +51,14 @@
  * mutation kind the reducer defines, and the fixed floor is the part whose
  * batches the sample's size never changes.
  *
+ * Each admitted document is stored as its first publish leaves it: the
+ * placements that publish records (`./editBatches.ts::firstPublishRecord`,
+ * a pure function of the document, which the capture's first publish
+ * returns and `./entryWriter.ts` holds equal) are applied through Nova's
+ * commit gate before its edit is planned, so D′ is planned over the holds,
+ * as an editor edits a published app, and a targeted document's written
+ * edit is made again over them with the moves they need.
+ *
  * Admission and edit batches run in this process (the fixed floor's batches
  * are balanced across the floor's producer, workforce and expander
  * documents; a targeted document carries only the edit written for it, if
@@ -77,6 +87,7 @@ import {
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
@@ -91,6 +102,7 @@ import {
 	storedDocument,
 } from "./documents";
 import {
+	afterFirstPublish,
 	documentsByKind,
 	EDIT_KINDS,
 	type EditCensus,
@@ -100,6 +112,7 @@ import {
 	type MutationKind,
 	publishFindings,
 	writtenEditBatch,
+	writtenEditOverRecord,
 } from "./editBatches";
 import { emissionEnv, NODE_EMISSION_ARGS, WORKTREE } from "./emissionProcess";
 import { entropySeeded } from "./entropy.mts";
@@ -352,28 +365,68 @@ function editedMedia(
 }
 
 /**
+ * The document as stored after its first publish, which records its
+ * placements before it sends anything (`./publish.ts::capturePublish`): the
+ * record (`firstPublishRecord`, a pure function of the document) applied
+ * through Nova's commit gate, so D′ is planned over the holds, as an editor
+ * edits a published app. A document whose emission derives no placement it
+ * does not hold is stored as written.
+ */
+function firstPublished(
+	authored: CorpusDocument,
+	unrecorded: BlueprintDoc,
+): {
+	document: CorpusDocument;
+	doc: BlueprintDoc;
+	placements: readonly Mutation[];
+} {
+	const { placements, doc } = afterFirstPublish(
+		authored.id,
+		unrecorded,
+		authored.lookup,
+	);
+	if (placements.length === 0) {
+		return { document: authored, doc: unrecorded, placements };
+	}
+	const document: CorpusDocument = { ...authored, doc };
+	return { document, doc: admittedDoc(document), placements };
+}
+
+/**
  * The edit written for a targeted document (`CorpusDocument.edit`) as its
  * batch, D′ held to the admission every corpus document's D is; none for
- * a document without one.
+ * a document without one. Where the first publish recorded placements the
+ * written edit is made again over D as that publish stored it
+ * (`writtenEditOverRecord`), with the moves the holds need.
  */
 function targetedBatch(
 	document: CorpusDocument,
 	doc: BlueprintDoc,
+	placements: readonly Mutation[],
 	seed: number,
 ): KeptEditBatch | undefined {
 	if (document.edit === undefined) return undefined;
+	const written =
+		placements.length === 0
+			? document.edit
+			: (() => {
+					const over = writtenEditOverRecord(
+						document.id,
+						doc,
+						document.edit.mutations,
+						document.lookup,
+					);
+					return {
+						mutations: over.mutations,
+						nextDoc: storedDocument(over.nextDoc),
+					};
+				})();
 	const nextDoc = admittedDoc({
 		...document,
 		id: `${document.id}'s written edit`,
-		doc: document.edit.nextDoc,
+		doc: written.nextDoc,
 	});
-	return writtenEditBatch(
-		document.id,
-		seed,
-		doc,
-		document.edit.mutations,
-		nextDoc,
-	);
+	return writtenEditBatch(document.id, seed, doc, written.mutations, nextDoc);
 }
 
 // ── Writing ──────────────────────────────────────────────────────────
@@ -535,14 +588,26 @@ async function emitPart(
 	const started = performance.now();
 	const perDocument = new Map<string, number>();
 	const refused: RefusedDocument[] = [];
-	const admitted: { document: CorpusDocument; doc: BlueprintDoc }[] = [];
-	for (const document of documents) {
+	const admitted: {
+		/** The document as its source wrote it, before its first publish. */
+		authored: CorpusDocument;
+		/** The document as stored after its first publish. */
+		document: CorpusDocument;
+		/** D, hydrated: `document`'s. */
+		doc: BlueprintDoc;
+		/** What the first publish recorded (`firstPublishRecord`). */
+		placements: readonly Mutation[];
+	}[] = [];
+	for (const authored of documents) {
 		const t = performance.now();
-		const doc = admittedDoc(document);
-		const why = await refusal(publishDocument(document, 1), doc);
-		if (why === undefined) admitted.push({ document, doc });
-		else refused.push({ id: document.id, source: document.source, ...why });
-		perDocument.set(document.id, performance.now() - t);
+		const unrecorded = admittedDoc(authored);
+		const why = await refusal(publishDocument(authored, 1), unrecorded);
+		if (why === undefined) {
+			admitted.push({ authored, ...firstPublished(authored, unrecorded) });
+		} else {
+			refused.push({ id: authored.id, source: authored.source, ...why });
+		}
+		perDocument.set(authored.id, performance.now() - t);
 	}
 
 	// A targeted document's symptom is fixed by what it holds, so it carries
@@ -574,10 +639,11 @@ async function emitPart(
 	const editsRefused: RefusedDocument[] = [];
 	const withoutEdit: string[] = [];
 	const prepared: PreparedEntry[] = [];
-	for (const { document, doc } of admitted) {
+	for (const { authored, document, doc, placements } of admitted) {
 		const t = performance.now();
 		const batch =
-			batchOf.get(document.id) ?? targetedBatch(document, doc, input.seed);
+			batchOf.get(document.id) ??
+			targetedBatch(document, doc, placements, input.seed);
 		let edit: PreparedEdit | undefined;
 		if (batch === undefined) {
 			if (document.source.kind !== "targeted") withoutEdit.push(document.id);
@@ -614,6 +680,8 @@ async function emitPart(
 			document,
 			doc,
 			publish: publishDocument(document, 1),
+			firstPublish: publishDocument(authored, 1),
+			placements,
 			...(edit !== undefined && { edit }),
 		});
 		perDocument.set(

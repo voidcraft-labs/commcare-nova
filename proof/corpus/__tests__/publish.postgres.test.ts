@@ -314,6 +314,10 @@ async function attempt(
 		server: "production",
 		domain: DOMAIN,
 		confirm: CONFIRM_ALL,
+		reloadHead: async () => {
+			const fresh = await loadAppBlueprint(APP, ACTOR, "edit");
+			return { doc: fresh.doc, seq: fresh.app.mutation_seq };
+		},
 		...(confirmed.discardRemoteChanges !== undefined && {
 			discardRemoteChanges: confirmed.discardRemoteChanges,
 		}),
@@ -906,7 +910,14 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	);
 	expect(response.status).toBe(200);
 	const routed = new Uint8Array(await response.arrayBuffer());
-	const local = await localCcz(document, DOMAIN);
+	// The first publish recorded the placements it sent, so the stored app
+	// the route compiles is the held document, one revision on.
+	const held = await storedDocument({
+		...(document.lookup !== undefined && { lookup: document.lookup }),
+		...(document.media !== undefined && { media: document.media }),
+	});
+	expect(held.compiledAtSeq).toBe(document.compiledAtSeq + 1);
+	const local = await localCcz(held, DOMAIN);
 	if (local === null)
 		throw new Error("The app declares Android, and has no CCZ.");
 	// The profile's uniqueid is derived from the app's id and the project

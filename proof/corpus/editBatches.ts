@@ -6,6 +6,10 @@
  * HQ holds. A batch is drawn from one mutation kind the reducer defines
  * (`./editKinds.ts`), targets entities of D, and is kept only when
  *
+ * - planned with the moves its edit needs
+ *   (`lib/doc/identityMoves.ts::withIdentityMoves`), as every editor's batch
+ *   is, D being the document as stored after its first publish, which holds
+ *   the placements that publish recorded (`firstPublishRecord`);
  * - the real commit gate (`lib/doc/commitVerdicts.ts::mutationCommitVerdict`)
  *   admits it against D, under D's own lookup context, so D′ is exactly the
  *   document the gate validated (`verdict.nextDoc`) and the batch is exactly
@@ -35,6 +39,7 @@ import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { lookupSelectSourceRowFindings } from "@/lib/commcare/lookup/selectSourceRows";
 import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
+import { placementsToHold } from "@/lib/commcare/placementHolds";
 import {
 	type ValidationError,
 	validationError,
@@ -48,6 +53,7 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import {
 	extractLookupReferenceTargets,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
@@ -75,7 +81,7 @@ import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import type { MediaFormatKey } from "@/lib/domain/multimedia";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { exportBudgetExcess } from "@/lib/media/exportBudget";
-import { lookupContextOf } from "./documents";
+import { lookupContextOf, storedDocument } from "./documents";
 import {
 	Minter,
 	mintFreshIdentities,
@@ -358,6 +364,66 @@ export function hydrateAdmittedDocument(
 	return doc;
 }
 
+/**
+ * The placements a document's first publish records, as the mutations of
+ * its `publish-placement` change: one `holdPlacements` carrying every
+ * placement the emission of `doc` derives and `doc` does not hold yet
+ * (`lib/commcare/placementHolds.ts::placementsToHold`), or none where it
+ * holds them all. A pure function of the document, so the capture's first
+ * publish (`./publish.ts::capturePublish`) and the emitter, which applies
+ * the record before it plans D′, read the same record.
+ */
+export function firstPublishRecord(doc: BlueprintDoc): readonly Mutation[] {
+	const holds = placementsToHold(doc);
+	return holds.length === 0
+		? []
+		: [{ kind: "holdPlacements", holds: [...holds] }];
+}
+
+/**
+ * `doc` as stored after its first publish: its record applied through
+ * Nova's commit gate under its lookup context, as the publish commits it,
+ * or `doc` itself where the record is empty. A record the gate refuses is
+ * the emitter's own derivation failing over an admitted document, so it
+ * throws, naming the document.
+ */
+export function recordedDocument(
+	id: string,
+	doc: BlueprintDoc,
+	record: readonly Mutation[],
+	lookup: LookupFixtureDataSnapshot | undefined,
+): BlueprintDoc {
+	if (record.length === 0) return doc;
+	const verdict = mutationCommitVerdict(doc, record, lookupContextOf(lookup));
+	if (!verdict.ok) {
+		throw new Error(
+			`Nova's commit gate refused the placements the first publish of ${id} records (${[
+				...new Set(verdict.findings.map((finding) => finding.code)),
+			].join(
+				", ",
+			)}). A publish holds only what the document's emission already derives, so the derivation or the gate is wrong; look at placementsToHold over this document.`,
+		);
+	}
+	return verdict.nextDoc;
+}
+
+/**
+ * The document as stored after its first publish, and what that publish
+ * recorded: `firstPublishRecord` of the admitted, hydrated `doc`, applied by
+ * `recordedDocument`, in stored form.
+ */
+export function afterFirstPublish(
+	id: string,
+	doc: BlueprintDoc,
+	lookup: LookupFixtureDataSnapshot | undefined,
+): { readonly placements: readonly Mutation[]; readonly doc: PersistableDoc } {
+	const placements = firstPublishRecord(doc);
+	return {
+		placements,
+		doc: storedDocument(recordedDocument(id, doc, placements, lookup)),
+	};
+}
+
 /** A corpus document ready to be edited. */
 interface PreparedDocument {
 	readonly input: EditCorpusDocument;
@@ -420,11 +486,18 @@ function judge(
 	mutations: readonly Mutation[],
 ): EditBatchVerdict {
 	const { doc, input } = prepared;
+	// D's holds are what its latest recording wrote (`firstPublishRecord`).
+	const recorded = readPlacementHolds(doc);
 	let verdict: ReturnType<typeof mutationCommitVerdict>;
 	try {
+		// The moves the edit needs, appended as every editor's batch carries
+		// them, so an edit a hold cannot express moves the hold.
+		const { batch } = withIdentityMoves(doc, mutations, { recorded });
+		// Cloned: an admitted batch's frozen values carry the internal markers
+		// a fresh admission refuses as not canonical.
 		verdict = mutationCommitVerdict(
 			doc,
-			mutations,
+			structuredClone(batch),
 			lookupContextOf(input.lookup),
 		);
 	} catch (error) {
@@ -440,12 +513,7 @@ function judge(
 	// latest recording wrote, so a batch may move a hold its edit strands or
 	// restore one, and nothing else.
 	if (
-		placementChangeRefusal(
-			doc,
-			verdict.nextDoc,
-			"autosave",
-			readPlacementHolds(doc),
-		) !== null
+		placementChangeRefusal(doc, verdict.nextDoc, "autosave", recorded) !== null
 	) {
 		return { ok: false, codes: ["kernel:placement-change"] };
 	}
@@ -595,6 +663,56 @@ export function writtenEditBatch(
 		touched,
 		hasReaders: readersOf(doc, nextDoc, touched),
 	};
+}
+
+/**
+ * An edit written for a targeted document over the document it was written
+ * on, made again over D as stored after its first publish (`recordedDocument`):
+ * the written mutations with the moves the record's holds need appended by
+ * `lib/doc/identityMoves.ts::withIdentityMoves`, as an editor's batch over a
+ * published app carries them, admitted by Nova's commit gate and by the
+ * commit kernel's placement rule as an editor's save. Throws, naming the
+ * document and what refused it, when either refuses the batch.
+ */
+export function writtenEditOverRecord(
+	documentId: string,
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+	lookup: LookupFixtureDataSnapshot | undefined,
+): { readonly mutations: readonly Mutation[]; readonly nextDoc: BlueprintDoc } {
+	const recorded = readPlacementHolds(doc);
+	// Cloned before each admission: an admitted batch's frozen values (the
+	// written edit is the batch the gate admitted over the written D) carry
+	// the internal markers a fresh admission refuses as not canonical.
+	const { batch } = withIdentityMoves(doc, structuredClone(mutations), {
+		recorded,
+	});
+	const verdict = mutationCommitVerdict(
+		doc,
+		structuredClone(batch),
+		lookupContextOf(lookup),
+	);
+	if (!verdict.ok) {
+		throw new Error(
+			`Nova's commit gate refused the edit written for ${documentId} once its first publish recorded its placements (${[
+				...new Set(verdict.findings.map((finding) => finding.code)),
+			].join(
+				", ",
+			)}), so no editor could make it of the published app; write an edit the published app takes.`,
+		);
+	}
+	const refusal = placementChangeRefusal(
+		doc,
+		verdict.nextDoc,
+		"autosave",
+		recorded,
+	);
+	if (refusal !== null) {
+		throw new Error(
+			`The commit kernel refused the edit written for ${documentId} as an editor's save once its first publish recorded its placements ("${refusal}"); an edit changes a held placement only by a move its own change needs.`,
+		);
+	}
+	return { mutations: verdict.mutations, nextDoc: verdict.nextDoc };
 }
 
 /** A kind's proposals on one document, and the minter that drew them. */

@@ -29,12 +29,13 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { appendSyntheticBatch } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
+import { buildUrl } from "@/lib/routing/location";
 import { buildSessionStorageState } from "./session";
 
 /**
@@ -130,7 +131,27 @@ export const MP_SEED = {
 	formTwoName: "Visit",
 	fieldFourUuid: "48a2c7e0-6d93-4f16-8b5a-2e3f4a5b6c7d",
 	fieldFourLabel: "Notes",
+
+	/** The case app a publish records placements in: a follow-up form whose
+	 *  own case change no publish has recorded yet. */
+	placementAppName: "Multiplayer — Publish placements",
+	placementModuleUuid: "3c5e7a91-b2d4-4f68-8a1c-9e0f2b4d6a8c",
+	placementModuleName: "Patients",
+	placementFormUuid: "8d1f3b5e-7a92-4c46-b0e8-2f4a6c8e0b1d",
+	placementFormName: "Follow-up visit",
 } as const;
+
+/** The case app's ids, for the publish-placement scenario. */
+export interface PlacementAppManifest {
+	appId: string;
+	moduleUuid: string;
+	moduleName: string;
+	formUuid: string;
+	/** The form's own case change, unheld at seed. */
+	operationUuid: string;
+	/** The builder path of that change, below `/build/{appId}`. */
+	operationPath: string;
+}
 
 /** The concrete ids + names the spec reads (written to `multiplayer.json`). */
 export interface MultiplayerManifest {
@@ -149,6 +170,7 @@ export interface MultiplayerManifest {
 	moduleTwoUuid: string;
 	moduleTwoName: string;
 	fieldFourUuid: string;
+	placement: PlacementAppManifest;
 	userA: { id: string; email: string; name: string };
 	userB: { id: string; email: string; name: string };
 	userC: { id: string; email: string; name: string };
@@ -230,6 +252,54 @@ function buildSeedBlueprint(appId: string): BlueprintDoc {
 								kind: "text",
 								id: "notes",
 								label: MP_SEED.fieldFourLabel,
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/**
+ * The case app of the publish-placement scenario: a follow-up form whose one
+ * write saves the `village` answer as it is, so its own case change takes
+ * the form's Case Management slot and holds nothing. A calculation over that
+ * answer is something Case Management can't save, which an editor's change
+ * then moves to Save to Case.
+ */
+function buildPlacementBlueprint(appId: string): BlueprintDoc {
+	return buildDoc({
+		appId,
+		appName: MP_SEED.placementAppName,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "village", label: "Village" },
+				],
+			},
+		],
+		modules: [
+			{
+				uuid: MP_SEED.placementModuleUuid,
+				name: MP_SEED.placementModuleName,
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: MP_SEED.placementFormUuid,
+						name: MP_SEED.placementFormName,
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "village",
+								label: "Village",
+								caseWrite: { caseType: "patient", property: "village" },
 							}),
 						],
 					},
@@ -376,6 +446,42 @@ export async function seedMultiplayerFixture(args: {
 		authority: { kind: "user", actorUserId: users.userA.id },
 	});
 
+	// The publish-placement scenario's case app, in the same shared Project.
+	const placementApp = await createExplicitBlankApp(
+		users.userA.id,
+		projectId,
+		"mp-seed-placement",
+		{ name: MP_SEED.placementAppName, status: "complete" },
+	);
+	const placementDoc = buildPlacementBlueprint(placementApp.appId);
+	const own = placementDoc.forms[
+		asUuid(MP_SEED.placementFormUuid)
+	]?.caseOperations?.find((operation) => operation.action === "own");
+	if (own === undefined || own.placement !== undefined)
+		throw new Error(
+			"The publish-placement fixture needs a follow-up form whose own case change holds no placement.",
+		);
+	await appendSyntheticBatch({
+		appId: placementApp.appId,
+		expectedBaseSeq: placementApp.baseSeq,
+		targetDoc: toPersistableDoc(placementDoc),
+		authority: { kind: "user", actorUserId: users.userA.id },
+	});
+	const placementAppPath = `/build/${placementApp.appId}`;
+	const placement: PlacementAppManifest = {
+		appId: placementApp.appId,
+		moduleUuid: MP_SEED.placementModuleUuid,
+		moduleName: MP_SEED.placementModuleName,
+		formUuid: MP_SEED.placementFormUuid,
+		operationUuid: own.uuid,
+		operationPath: buildUrl(placementAppPath, {
+			kind: "form-operations",
+			moduleUuid: asUuid(MP_SEED.placementModuleUuid),
+			formUuid: asUuid(MP_SEED.placementFormUuid),
+			operationUuid: own.uuid,
+		}).slice(placementAppPath.length),
+	};
+
 	// ── Emit four storageStates + the manifest ────────────────────────────
 	const stateFiles = {
 		userA: pathJoin(authDir, `state-mp-a${suffix}.json`),
@@ -410,6 +516,7 @@ export async function seedMultiplayerFixture(args: {
 		moduleTwoUuid: asUuid(MP_SEED.moduleTwoUuid),
 		moduleTwoName: MP_SEED.moduleTwoName,
 		fieldFourUuid: asUuid(MP_SEED.fieldFourUuid),
+		placement,
 		userA: users.userA,
 		userB: users.userB,
 		userC: users.userC,

@@ -550,6 +550,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: { ...FIXTURE, state: "needs_confirmation" },
 				connect_forwarder: null,
 				form_entry_sync_off: null,
+				placement_moves: null,
 			},
 			[],
 		);
@@ -572,6 +573,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: null,
 				connect_forwarder: null,
 				form_entry_sync_off: null,
+				placement_moves: null,
 			},
 			[
 				{
@@ -601,6 +603,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: null,
 				connect_forwarder: null,
 				form_entry_sync_off: { ...SYNC, state: "needs_confirmation" },
+				placement_moves: null,
 			},
 			[
 				{
@@ -632,6 +635,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: null,
 				connect_forwarder: null,
 				form_entry_sync_off: { ...SYNC, state: "needs_confirmation" },
+				placement_moves: null,
 			},
 			[
 				{
@@ -685,6 +689,7 @@ describe("what a publish asks a person to confirm", () => {
 			},
 			connect_forwarder: null,
 			form_entry_sync_off: null,
+			placement_moves: null,
 		};
 		const live: DeploymentConfirmation[] = [
 			{

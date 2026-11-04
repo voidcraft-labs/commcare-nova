@@ -16,6 +16,10 @@ import {
 	createReconcilerRuntime as createRuntime,
 	type ReconcilerBrowserEffects,
 } from "@/lib/collab/ReconcilerProvider";
+import type {
+	PlacementConflictReplay,
+	SaveSignal,
+} from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type PlacementHold,
@@ -31,6 +35,10 @@ const reportClientError = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/clientErrorReporter", () => ({ reportClientError }));
 const getLookupManifestAction = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/lookup/actions", () => ({ getLookupManifestAction }));
+const invalidateCaseData = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/preview/hooks/caseDataInvalidation", () => ({
+	invalidateCaseData,
+}));
 
 const SOURCE_MANIFEST = lookupManifestFrameSchema.parse({
 	projectId: "project-source",
@@ -152,6 +160,7 @@ afterEach(() => {
 	FakeEventSource.instances.length = 0;
 	reportClientError.mockReset();
 	getLookupManifestAction.mockReset();
+	invalidateCaseData.mockReset();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
@@ -283,7 +292,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		expect(destinationStream.readyState).toBe(FakeEventSource.CLOSED);
 	});
 
-	it("hands the store the first read's recorded holds, then each reload's in place of them", async () => {
+	it("hands the store the first read's recorded holds, then each reload's beside what it knew of targets the reloaded document does not hold", async () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
 		const docStore = createBlueprintDocStore();
 		const persistedDoc = toPersistableDoc(emptyDoc());
@@ -343,9 +352,14 @@ describe("ReconcilerProvider EventSource ownership", () => {
 				baseSeq: 3,
 			}),
 		);
-		const replaced = new Map([[placementTargetKey(reloadRead), reloadRead]]);
-		expect(docStore.getState().recordedHolds).toEqual(replaced);
-		expect(runtime.reconciler.getSnapshot().recordedHolds).toEqual(replaced);
+		// The empty document holds neither target, so the first read's own
+		// close stays beside the reload's query repeat.
+		const reloaded = new Map<string, PlacementHold>([
+			[placementTargetKey(firstRead), firstRead],
+			[placementTargetKey(reloadRead), reloadRead],
+		]);
+		expect(docStore.getState().recordedHolds).toEqual(reloaded);
+		expect(runtime.reconciler.getSnapshot().recordedHolds).toEqual(reloaded);
 		runtime.suspend();
 	});
 
@@ -1423,5 +1437,147 @@ it("reports an active request failure even when its exception is named AbortErro
 		reloadPending: true,
 		reloadInFlight: false,
 		baseSeq: 21,
+	});
+});
+
+describe("placement conflicts and publish frames", () => {
+	function editorRuntime(doc: BlueprintDoc = emptyDoc()) {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(doc));
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 2, userId: "self" },
+			() => {},
+		);
+		return { docStore, runtime };
+	}
+
+	/** A PUT answered with `putBody` as a 409, and every GET with the app
+	 *  at seq 3. */
+	function stubConflict(putBody: Record<string, unknown>): void {
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string, init?: RequestInit) =>
+				init?.method === "PUT"
+					? Response.json(putBody, { status: 409 })
+					: Response.json({
+							projectId: "project-source",
+							role: "editor",
+							canEdit: true,
+							blueprint: persistedDoc,
+							baseSeq: 3,
+							recordedHolds: [],
+						}),
+			),
+		);
+	}
+
+	it.each([
+		{
+			name: "maps a 409 with reason placement-recorded to the typed outcome",
+			body: {
+				error: "A publish recorded a change.",
+				type: "commit_rejected",
+				reason: "placement-recorded",
+			},
+			conflict: { kind: "conflict", cause: "placement-recorded" },
+			replays: [[[{ kind: "setAppName", name: "Mine" }], []]],
+		},
+		{
+			name: "maps a 409 without that reason to an ordinary conflict",
+			body: { error: "Rejected.", type: "commit_rejected" },
+			conflict: { kind: "conflict" },
+			replays: [],
+		},
+	])("$name", async ({ body, conflict, replays }) => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		stubConflict(body);
+		const { docStore, runtime } = editorRuntime();
+		const handed: PlacementConflictReplay[] = [];
+		const unregister = runtime.registerPlacementConflictHandler((replay) =>
+			handed.push(replay),
+		);
+		runtime.start();
+		docStore.getState().applyMany([{ kind: "setAppName", name: "Mine" }]);
+		const signals: SaveSignal[] = [];
+		runtime.reconciler.dispatchHumanBatch((signal) => signals.push(signal));
+
+		await vi.waitFor(() =>
+			expect(runtime.reconciler.getSnapshot()).toMatchObject({
+				baseSeq: 3,
+				reloadInFlight: false,
+				reloadPending: false,
+			}),
+		);
+		expect(signals.filter((signal) => signal.kind === "conflict")).toEqual([
+			conflict,
+		]);
+		expect(runtime.reconciler.getSnapshot().sentPending).toHaveLength(0);
+		expect(
+			handed.map((replay) =>
+				replay.map((batch) => batch.map((mutation) => ({ ...mutation }))),
+			),
+		).toEqual(replays);
+		unregister();
+		runtime.suspend();
+	});
+
+	it("a holdPlacements frame does not refetch case data", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const doc = emptyDoc();
+		doc.caseTypes = [{ name: "patient", properties: [] }];
+		const { runtime } = editorRuntime(doc);
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+
+		stream.emit(
+			"mutation",
+			JSON.stringify({
+				seq: 3,
+				batchId: "peer-batch",
+				actorId: "peer",
+				kind: "autosave",
+				mutations: [{ kind: "setAppName", name: "Peer" }],
+			}),
+			"3",
+		);
+		// The control: an ordinary structural frame refetches the app's types.
+		expect(invalidateCaseData).toHaveBeenCalledWith("app-1", "patient");
+		invalidateCaseData.mockClear();
+
+		stream.emit(
+			"mutation",
+			JSON.stringify({
+				seq: 4,
+				batchId: "publish-4",
+				actorId: "self",
+				kind: "publish-placement",
+				mutations: [
+					{
+						kind: "holdPlacements",
+						holds: [
+							{
+								target: "own-close",
+								formUuid: "01890f45-0000-7000-8000-0000000000a1",
+								placement: { kind: "save-to-case", path: ["close_case"] },
+							},
+						],
+					},
+				],
+			}),
+			"4",
+		);
+		expect(runtime.reconciler.getSnapshot().baseSeq).toBe(4);
+		expect(invalidateCaseData).not.toHaveBeenCalled();
+		runtime.suspend();
 	});
 });

@@ -12,7 +12,10 @@
  * (`connect_forwarder`) and whether it has sync on form entry turned off
  * (`form_entry_sync_off`), each with its state from the confirmations the
  * deployment there holds, so the dialog shows the rows before the first
- * press instead of after a refusal.
+ * press instead of after a refusal. While Save to Case still needs
+ * confirming it also carries `placement_moves`: the case changes Nova can
+ * move so the app doesn't need Save to Case, which the dialog offers beside
+ * that row.
  */
 
 import type { NextRequest } from "next/server";

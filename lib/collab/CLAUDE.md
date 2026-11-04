@@ -12,8 +12,10 @@ displayed === fold(confirmedDoc, [...sentPending, ...humanUncommitted()])
 
 **`confirmedDoc` advances ONLY via inbound `mutation` frames** — never on a PUT
 200 (advisory; it just records the assigned `seq` on the sent batch so a later
-reload can drop it). The client frame admits exactly `autosave | mcp | chat`;
-`blueprint-migration`, `fold-baseline`, and `project-move` are durable
+reload can drop it). The client frame admits exactly
+`autosave | mcp | chat | publish-placement`; a `publish-placement` frame is
+always remote, so it folds like a peer's change, keeps undo, and sets its holds
+into the recorded holds; `blueprint-migration`, `fold-baseline`, and `project-move` are durable
 server-side change kinds that force reauthorization and a whole-app reload.
 The stream route reads an app's greatest fold baseline above a subscriber's
 cursor before it parses any suffix row, and answers `reload` without parsing a
@@ -34,7 +36,7 @@ A frame is a self-**echo** when `batchId ∈ awaitingEcho`, OR when `kind === "c
 
 ## Reload reconciliation (gap / server-only app change / a PUT 409)
 
-Defer until no PUT is in flight (never GET mid-PUT), GET the fresh blueprint at seq `M`, then drop from `sentPending`/`awaitingEcho` **(a)** every batch with `ackedSeq <= M` (already folded into the fresh doc) and **(b)** an authoritatively rejected human batch plus every later unacknowledged human segment as one causal suffix. Every successor was authored over its predecessor; replaying it after that predecessor failed would reinterpret the user's work. Still-queued commands and local history drop at the same rejection boundary, chat/authoritative segments survive, no successor PUT is sent, and the user is told to redo the discarded edits. Re-fold the remaining segments + queued admitted batches onto the reloaded doc, clear undo, resubscribe at `M`. The read snapshot (`appReadSnapshot.ts`, the GET's contract and the builder page's `initialAccess`) carries `recordedHolds`, the hold each held target's latest recording wrote, read in the snapshot's transaction; the reconciler keeps it beside `confirmedDoc`, replaces it whole on every reload as the first read set it when the reconciler was made, and hands it to the store for undo and redo through `setRecordedPlacementHolds`, so a history step restores a hold only to what that record says. Reseeding is a **suppressed `commitDoc` inside a `beginRemoteApply` bracket, never `store.load()`** — a reload can land while the agent bracket is open (mid-chat-run), and `load()` asserts inside an open bracket.
+Defer until no PUT is in flight (never GET mid-PUT), GET the fresh blueprint at seq `M`, then drop from `sentPending`/`awaitingEcho` **(a)** every batch with `ackedSeq <= M` (already folded into the fresh doc) and **(b)** an authoritatively rejected human batch plus every later unacknowledged human segment as one causal suffix. Every successor was authored over its predecessor; replaying it after that predecessor failed would reinterpret the user's work. Still-queued commands and local history drop at the same rejection boundary, chat/authoritative segments survive, no successor PUT is sent, and the user is told to redo the discarded edits. Re-fold the remaining segments + queued admitted batches onto the reloaded doc, clear undo, resubscribe at `M`. The read snapshot (`appReadSnapshot.ts`, the GET's contract and the builder page's `initialAccess`) carries `recordedHolds`, the hold each held target's latest recording wrote, read in the snapshot's transaction; the reconciler keeps it beside `confirmedDoc`, and on every reload replaces what it knew of each target the reloaded document holds with what the reload read while keeping what it knew of every other target (a publish or a migration records only the targets its document holds, so a change removed earlier in the session keeps its recording for a replayed edit that re-creates it), and hands it to the store for undo and redo through `setRecordedPlacementHolds`, so a history step restores a hold only to what that record says. Reseeding is a **suppressed `commitDoc` inside a `beginRemoteApply` bracket, never `store.load()`** — a reload can land while the agent bracket is open (mid-chat-run), and `load()` asserts inside an open bracket.
 
 ### Recovery-path invariants (the reload/retry/dispose machine — don't regress these)
 
@@ -58,7 +60,14 @@ The current writer protocol distinguishes access changes, rejected commands and
 unusable wire data:
 
 - **409 `commit_rejected`** rejects the human batch and its causal unacknowledged
-  suffix. The reconciler retains authoritative/chat work and reloads.
+  suffix. The reconciler retains authoritative/chat work and reloads. A 409 with
+  `reason: "placement-recorded"` keeps the rejected human batches and the queued
+  commands behind them and, after the reload, hands them to the builder through
+  `onPlacementConflict` (the handler the builder layout registers with
+  `registerPlacementConflictHandler`), which offers them again, re-planned, in
+  `IdentityMoveDialog`. A reload that ends view-only or revoked drops them, and
+  `useAutoSave` shows no toast for this cause, since the builder says what
+  happened.
 - **409 `app_changed` or untyped 409, 403, and 404** preserve the batch and pause
   writes while one authoritative GET resolves the current Project and role.
 - **400 `mutation_wire_canonicality_invalid` with valid safe details, or

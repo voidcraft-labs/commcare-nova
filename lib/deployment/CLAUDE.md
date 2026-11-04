@@ -575,6 +575,12 @@ is. The browser route and MCP's `upload_app_to_hq` both go through it. A
 second path would be a second lifecycle, and the two would drift on the
 first bug fix.
 
+After preflight passes and before anything is sent, a publish records every
+placement its emission derives that the document does not hold, as one
+`publish-placement` change at the head it emitted; where the head moved it
+reads the head again and runs preflight again, three times at most. The
+pushed revision is that change's.
+
 The application JSON a publish imports is assembled only by
 `importApplication.ts::hqImportApplication`, which `publishAppToHq` and the
 proof harness's publish capture (`proof/corpus/publish.ts`) both call, so the
@@ -657,6 +663,90 @@ change and asks. A first publish has one more stop preflight cannot hold, the
 CommCare version of an app HQ has not made yet. It is checked on the read after
 the create, before any Project data is pushed, so a target below the floor
 holds nothing of the publish but an empty app.
+
+## Placements
+
+Where CommCare HQ keeps a case change (a Case Management slot or a Save to
+Case block) and a query repeat's rows is where its answers sit in every
+project space the app is published to, so once a publish has sent one, every
+later publish keeps it there. The document holds that place (`holdPlacements`,
+`lib/doc/placementHolds.ts`), and a publish is what records it.
+
+**Which placements a publish records.**
+`lib/commcare/placementHolds.ts::placementsToHold(doc)` is every placement the
+emission derives and the document does not hold yet, in document order: each
+case operation the plan places unheld, a form's own close where it has a Save
+to Case block of its own, and each query repeat with no placement. Holding
+what the emission already derives changes no byte it sends
+(`lib/commcare/__tests__/heldPlacementEmission.test.ts`).
+
+**The writer.** `placements.ts::recordPublishPlacements` is the only writer of
+the `publish-placement` kind. It commits one `holdPlacements` batch through the
+canonical kernel at an expected head (`commitGuardedBatch`'s
+`expectedHeadSeq`), so it records only while the head is the revision the
+publish emitted; the kernel throws `AppHeadMovedError` otherwise, which it
+answers `head-moved`. A gate refusal answers `refused` with the kernel's
+sentence, logged to Sentry where it carries finding codes, since the holds are
+the emitter's own derivation over a valid document. It never writes an empty
+batch.
+
+**Where the publish records them.** `publishAppToHq` records after preflight
+passes, so a refused publish records nothing it did not need, and before the
+shell create, so no HQ app ever holds content whose placements Nova did not
+record. Where the head moved, it reads the head again through the caller's
+`reloadHead` (under the caller's own access check) and runs preflight over
+it; a third moved head refuses `app_changed_while_publishing` with nothing
+sent. A record the kernel refuses (an initial build still running, for
+instance) is `app_not_ready` with the kernel's sentence. The document the
+change leaves is the one sent: `prepared` takes its `doc` and its sequence,
+which is the deployment's `pushed_revision` and the entry-point manifest's
+`sourceSequence`, so a deep link checked after the publish needs no second
+publish. A stop after the record (the version floor, a refused push, a
+refused import) keeps the holds, and the next publish carries them. Two
+publishes to two project spaces at once record once: the second meets the
+moved head, reads it, finds nothing to hold and sends the same placements.
+`PublishOutcome.placements` says how many holds the attempt recorded and how
+many of them an accepted offer moved.
+
+**Moves a publish offers.** `placementMoves.ts::placementMoveOffer(doc,
+reason)` derives an offer from the document alone, so accepting it asks
+CommCare HQ nothing. The `save-to-case` offer moves every case change held in
+a Save to Case block to the Case Management slot the planner gives it once its
+hold is cleared, all of them or none: it is `null` where none is held there,
+where one such change is not held (an unheld change already takes the
+simplest place), where one would still take a Save to Case block, or where the
+result would put a new case of its module's own type in a basic subcase. Its
+holds are those moves followed by every hold the move planner
+(`withIdentityMoves`) appends for them, each stated in words
+(`describeCaseChange`), and its digest is the canonical JSON digest of the
+reason and each hold's target, current hold and new hold, so an unrelated edit
+keeps it and any change to what moves changes it. An own close moved into
+Case Management shares the own case's block and holds no slot, so its entry
+clears the hold. The offer rides `hq_confirmation_needed` where the needs hold
+Save to Case unconfirmed (`DeploymentAttemptRefusal.placementMoves`), and the
+pre-publish check while that row needs confirming
+(`ProjectSpaceConfirmationChecks.placement_moves`); the need's `whereMissing`
+says whether moving is offered (`lib/publish/placementMoves.ts::saveToCaseWhereMissing`).
+A caller accepting it sends `acceptPlacementMoves`, which the publish applies
+before preflight, at the head it holds: an offer that is now `null` (an
+earlier attempt recorded it) goes on, a different digest refuses
+`hq_placement_moves_changed` with the offer as it stands, and the same digest
+records the moves, after which the Save to Case need drops and the publish
+goes on in the same request. The offer's copy lives in
+`lib/publish/placementMoves.ts`, which client surfaces read.
+
+**What a deployment's baseline holds.**
+`lib/commcare/hq/publishedCaseBlocks.ts::publishedCaseBlocks` reads every case
+block HQ's build of each form writes from a baseline's normalized source,
+keyed by the form's `xmlns`: the basic blocks from each form's `actions` as
+`xform.py::XForm._create_casexml` writes them, the advanced ones as
+`_create_casexml_advanced` does, and each Save to Case block from the form's
+XForm, walked as elements. A source that is not an application gives no
+form, and a form whose `xmlns` or blocks the source does not say is left out,
+never guessed; the caller counts what it left out.
+
+Downloads record nothing: only a publish writes a `publish-placement` change
+(`lib/export/CLAUDE.md`).
 
 ## No lock spans the CommCare HQ round trips
 

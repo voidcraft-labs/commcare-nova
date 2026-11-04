@@ -187,6 +187,46 @@ describe("readRecordedPlacementHolds", () => {
 		);
 	});
 
+	it("a publish-placement row counts as a recording; editor rows never count", async () => {
+		const app = heldPlacementApp((a) =>
+			holdOperation(a, a.own.uuid, a.ownBasic),
+		);
+		const appId = await seed(app);
+		await writeHqRoundTripHorizon(h.db(), appId, "Held placements");
+		await appendChangeRow(h.db(), appId, "publish-placement", [
+			holdPlacements(
+				operationHold(app, app.own.uuid, app.ownSaveToCase),
+				operationHold(app, app.kid.uuid, app.kidSaveToCase),
+			),
+		]);
+		for (const kind of ["autosave", "mcp", "chat"] as const) {
+			await appendChangeRow(h.db(), appId, kind, [
+				holdPlacements(
+					operationHold(app, app.own.uuid, EDITOR_PLACE),
+					operationHold(app, app.kid.uuid, null),
+				),
+			]);
+		}
+
+		expect(
+			await readRecordedPlacementHolds(h.db(), appId, [
+				keyOf(app, app.own.uuid),
+				keyOf(app, app.kid.uuid),
+			]),
+		).toEqual(
+			new Map([
+				[
+					keyOf(app, app.own.uuid),
+					operationHold(app, app.own.uuid, app.ownSaveToCase),
+				],
+				[
+					keyOf(app, app.kid.uuid),
+					operationHold(app, app.kid.uuid, app.kidSaveToCase),
+				],
+			]),
+		);
+	});
+
 	it("issues no query for an empty key list", async () => {
 		const app = heldPlacementApp();
 		const appId = await seed(app);

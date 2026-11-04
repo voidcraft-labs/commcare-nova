@@ -133,6 +133,16 @@
  *                                 no Web Apps. Only the empty app was made,
  *                                 and Nova withdrew the `web-apps` plan
  *                                 feature's confirmation.
+ *  13b. `hq_placement_moves_changed`: the case changes `accept_placement_moves`
+ *                                 named are no longer the ones Nova would
+ *                                 move, because the app changed since the
+ *                                 offer. Nothing was moved or sent;
+ *                                 `placement_moves` is the offer as it
+ *                                 stands now.
+ *  13c. `app_changed_while_publishing`: the app kept changing while Nova
+ *                                 recorded where CommCare HQ keeps its case
+ *                                 changes. Nothing was sent; uploading again
+ *                                 once the edits settle goes on.
  *  14. `hq_upload_failed`:        `importApp` returned a non-success
  *                                 response (HQ rejected the upload or
  *                                 returned 5xx), or CommCare HQ would not
@@ -144,6 +154,15 @@
  * (`not_found` from the ownership pre-gate is also possible but not
  * actionable: it collapses cross-tenant probes to the same shape as
  * a missing app.)
+ *
+ * Placements: the first upload of a case change records where CommCare HQ
+ * keeps it, as a `publish-placement` change to the saved app, before
+ * anything is sent. Every answer the publish gives carries `placements`
+ * (`recorded`, and how many of them `moved` because the caller accepted an
+ * offer) and `placement_moves`: the case changes Nova can move so the
+ * project space can take the app, named by form, change and sentence and
+ * never by wire path, or null. Accepting the offer is
+ * `accept_placement_moves` with its `reason` and `digest`.
  *
  * The closed server catalog (`lib/commcare/servers.ts`, resolved through
  * the stored connection's `server`) is the one SSRF boundary; the resolved
@@ -172,7 +191,13 @@ import {
 	type DeploymentRemoteChange,
 	type DeploymentResourceConflict,
 	PLAN_FEATURE_ID_LIST,
+	type PublishPlacements,
 } from "@/lib/deployment/types";
+import { log } from "@/lib/logger";
+import {
+	acceptPlacementMovesSchema,
+	type PlacementMoveOfferView,
+} from "@/lib/publish/placementMoves";
 import {
 	LOGO_UPLOAD_STEP_TEXT,
 	type PlanFeatureId,
@@ -181,7 +206,7 @@ import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpace
 import type { WebAppsChange } from "@/lib/publish/webApps";
 import { initMcpCall } from "../context";
 import {
-	McpInvalidInputError,
+	type McpErrorType,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
 	toMcpErrorResult,
@@ -237,10 +262,69 @@ export const UPLOAD_ERROR_TAGS = {
 	hq_app_version_below_floor: "hq_app_version_below_floor",
 	/** CommCare HQ made the new app with Web Apps off, so the plan has no Web Apps. */
 	hq_plan_lacks_web_apps: "hq_plan_lacks_web_apps",
+	/** The app kept changing while Nova recorded where CommCare HQ keeps its case changes. */
+	app_changed_while_publishing: "app_changed_while_publishing",
+	/** The case changes the caller accepted moving are no longer the ones Nova would move. */
+	hq_placement_moves_changed: "hq_placement_moves_changed",
 } as const satisfies Record<UploadErrorType, UploadErrorType>;
 
 const CONFIRM_DESCRIPTION =
 	"Send only after an `hq_confirmation_needed` refusal named them and the user said yes to each.";
+
+/**
+ * What every answer says of where CommCare HQ keeps the app's case changes:
+ * the placements this call recorded, and the moves Nova offers, if any. A
+ * move is named by its form, the change in words and the whole sentence a
+ * person reads, never by a wire path.
+ */
+interface PlacementAnswer {
+	readonly placement_moves: PlacementMovesAnswer | null;
+	readonly placements: { readonly recorded: number; readonly moved: number };
+}
+
+/** A move offer as MCP serves it: what a caller shows and what it sends back. */
+export interface PlacementMovesAnswer {
+	readonly reason: PlacementMoveOfferView["reason"];
+	readonly digest: string;
+	readonly moves: readonly {
+		readonly form: string;
+		readonly change: string;
+		readonly sentence: string;
+	}[];
+}
+
+/**
+ * A move offer in MCP's words. `check_project_space_compatibility` serves
+ * the same shape, so the offer a caller saw there is the one it accepts here.
+ */
+export function placementMovesAnswer(
+	offer: PlacementMoveOfferView | null,
+): PlacementMovesAnswer | null {
+	return offer === null
+		? null
+		: {
+				reason: offer.reason,
+				digest: offer.digest,
+				moves: offer.moves.map((move) => ({
+					form: move.form,
+					change: move.change,
+					sentence: move.sentence,
+				})),
+			};
+}
+
+function placementAnswer(
+	placements: PublishPlacements,
+	offer: PlacementMoveOfferView | null,
+): PlacementAnswer {
+	return {
+		placement_moves: placementMovesAnswer(offer),
+		placements: { recorded: placements.recorded, moved: placements.moved },
+	};
+}
+
+/** The answer of a gate that stops before the publish runs: nothing recorded. */
+const NOTHING_RECORDED = placementAnswer({ recorded: 0, moved: 0 }, null);
 
 /**
  * Build an MCP error envelope for a failed upload gate.
@@ -254,9 +338,10 @@ const CONFIRM_DESCRIPTION =
  * model branching) and the user-actionable `message` (for display).
  */
 function makeGateError(
-	errorType: UploadErrorType,
+	errorType: Extract<McpErrorType, UploadErrorType | "invalid_input">,
 	message: string,
 	appId: string,
+	answer: PlacementAnswer,
 ): McpToolErrorResult {
 	return {
 		isError: true,
@@ -267,6 +352,7 @@ function makeGateError(
 					error_type: errorType,
 					message,
 					app_id: appId,
+					...answer,
 				}),
 			},
 		],
@@ -286,6 +372,7 @@ function makeConflictError(
 	message: string,
 	appId: string,
 	conflicts: readonly DeploymentResourceConflict[],
+	answer: PlacementAnswer,
 ): McpToolErrorResult {
 	return {
 		isError: true,
@@ -308,6 +395,7 @@ function makeConflictError(
 					) && {
 						adoption_note: LOOKUP_ADOPTION_NOTE,
 					}),
+					...answer,
 				}),
 			},
 		],
@@ -329,6 +417,7 @@ function makeRemoteChangesError(
 	message: string,
 	appId: string,
 	changes: readonly DeploymentRemoteChange[],
+	answer: PlacementAnswer,
 ): McpToolErrorResult {
 	return {
 		isError: true,
@@ -349,6 +438,7 @@ function makeRemoteChangesError(
 						observed_digest: change.observedDigest,
 						baseline_known: change.baselineKnown,
 					})),
+					...answer,
 				}),
 			},
 		],
@@ -365,6 +455,7 @@ function makeConfirmationError(
 	message: string,
 	appId: string,
 	needed: readonly DeploymentConfirmationNeeded[],
+	answer: PlacementAnswer,
 ): McpToolErrorResult {
 	return {
 		isError: true,
@@ -384,6 +475,7 @@ function makeConfirmationError(
 						reasons: item.reasons,
 						where_missing: item.whereMissing,
 					})),
+					...answer,
 				}),
 			},
 		],
@@ -399,6 +491,7 @@ function makeWebAppsChangeError(
 	message: string,
 	appId: string,
 	change: WebAppsChange,
+	answer: PlacementAnswer,
 ): McpToolErrorResult {
 	return {
 		isError: true,
@@ -414,6 +507,7 @@ function makeWebAppsChangeError(
 						to: change.to,
 						changed_in_hq: change.changedInHq,
 					},
+					...answer,
 				}),
 			},
 		],
@@ -452,6 +546,7 @@ function makeCompatibilityError(
 	message: string,
 	appId: string,
 	report: ProjectSpaceCompatibilityReport,
+	answer: PlacementAnswer,
 ): McpToolErrorResult {
 	return {
 		isError: true,
@@ -463,6 +558,7 @@ function makeCompatibilityError(
 					message,
 					app_id: appId,
 					project_space_compatibility: report,
+					...answer,
 				}),
 			},
 		],
@@ -487,7 +583,7 @@ export function registerUploadAppToHq(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. If the app, a lookup table or a place it publishes changed in CommCare HQ since Nova last published it, the call returns `hq_changed` before sending anything: show the user each entry of `remote_changes` (its `name`, `hq_name` and `parts`, or that Nova couldn't tell what changed when `baseline_known` is false) and send them back in `discard_hq_changes` only for the ones the user said to write over. If the app changed while Nova was publishing its lookup tables and places, `hq_changed` comes after those were sent and before the app's content, with `remote_changes` empty; uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. If the app needs something of the project space that no API key can read (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off) and nobody has confirmed it there, the call returns `hq_confirmation_needed` before sending anything: show the user each entry of `confirmations_needed` (its `label`, `plans`, `consequence`, `reasons` and `where_missing`, what the user can do where the project space lacks it) and send back only the ones the user said the project space has, in `confirm_plan_features`, `confirm_flat_location_fixture`, `confirm_connect_forwarder` and `confirm_form_entry_sync_off`; a confirmation is kept once an upload goes ahead, so resend it with each attempt until one does. If the app's Web App setting on CommCare HQ differs from where the app runs, the call returns `hq_web_apps_change` before sending anything: relay its message, and send `confirm_web_apps` with `web_apps_change.to` only when the user says to change it. If CommCare HQ made the new app with Web Apps off for an app that runs in Web Apps, the call returns `hq_plan_lacks_web_apps`: relay its message, and leave `web-apps` out of `confirm_plan_features` until the user says the plan now includes it. If the app on CommCare HQ is set to a CommCare version below the one Nova's apps need, the call returns `hq_app_version_below_floor` with the app's `url`; relay its message. A success returns the same checked `project_space_compatibility` report, the durable deployment state and `logo_step` (the app's logo, which an upload never sends, with `instructions` to relay when `changed` is true).",
+				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. If the app, a lookup table or a place it publishes changed in CommCare HQ since Nova last published it, the call returns `hq_changed` before sending anything: show the user each entry of `remote_changes` (its `name`, `hq_name` and `parts`, or that Nova couldn't tell what changed when `baseline_known` is false) and send them back in `discard_hq_changes` only for the ones the user said to write over. If the app changed while Nova was publishing its lookup tables and places, `hq_changed` comes after those were sent and before the app's content, with `remote_changes` empty; uploading again lists what changed. A success after such a publish can carry `app_preview_note`; relay it. If the app needs something of the project space that no API key can read (a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off) and nobody has confirmed it there, the call returns `hq_confirmation_needed` before sending anything: show the user each entry of `confirmations_needed` (its `label`, `plans`, `consequence`, `reasons` and `where_missing`, what the user can do where the project space lacks it) and send back only the ones the user said the project space has, in `confirm_plan_features`, `confirm_flat_location_fixture`, `confirm_connect_forwarder` and `confirm_form_entry_sync_off`; a confirmation is kept once an upload goes ahead, so resend it with each attempt until one does. The first upload of a case change records where CommCare HQ keeps it, which changes the saved app (`placements.recorded`); work begun with `begin_work` before then has to begin again. If a refusal carries `placement_moves`, show the user each move's `sentence`, and send `accept_placement_moves` with its `reason` and `digest` only when the user agrees: the move changes where CommCare HQ keeps those answers in every project space the app is published to. `hq_placement_moves_changed` means the offer changed since; show the new one. `app_changed_while_publishing` means the app kept changing while Nova prepared the upload; upload again. If the app's Web App setting on CommCare HQ differs from where the app runs, the call returns `hq_web_apps_change` before sending anything: relay its message, and send `confirm_web_apps` with `web_apps_change.to` only when the user says to change it. If CommCare HQ made the new app with Web Apps off for an app that runs in Web Apps, the call returns `hq_plan_lacks_web_apps`: relay its message, and leave `web-apps` out of `confirm_plan_features` until the user says the plan now includes it. If the app on CommCare HQ is set to a CommCare version below the one Nova's apps need, the call returns `hq_app_version_below_floor` with the app's `url`; relay its message. A success returns the same checked `project_space_compatibility` report, the durable deployment state and `logo_step` (the app's logo, which an upload never sends, with `instructions` to relay when `changed` is true).",
 			inputSchema: z.object({
 				app_id: z
 					.string()
@@ -546,6 +642,11 @@ export function registerUploadAppToHq(
 					.describe(
 						"Send only after an `hq_web_apps_change` refusal, and only the `to` value it named, once the user said to change the setting.",
 					),
+				accept_placement_moves: acceptPlacementMovesSchema
+					.optional()
+					.describe(
+						"Send only after a refusal returned placement_moves, with its reason and digest, once the user agreed to move those case changes.",
+					),
 			}),
 		},
 		async (args, extra): Promise<McpToolSuccessResult | McpToolErrorResult> => {
@@ -587,6 +688,7 @@ export function registerUploadAppToHq(
 							UPLOAD_ERROR_TAGS.hq_not_configured,
 							"CommCare HQ is not configured. Add your HQ credentials in Settings before uploading.",
 							appId,
+							NOTHING_RECORDED,
 						);
 					}
 					const reachable = target.available.map((d) => d.name).join(", ");
@@ -595,12 +697,14 @@ export function registerUploadAppToHq(
 							UPLOAD_ERROR_TAGS.domain_not_authorized,
 							`Your stored CommCare HQ API key can't reach the "${requested}" project space. It reaches: ${reachable}. Pass one of those as \`domain\`, or update your key in Settings.`,
 							appId,
+							NOTHING_RECORDED,
 						);
 					}
 					return makeGateError(
 						UPLOAD_ERROR_TAGS.domain_ambiguous,
 						`Your CommCare HQ API key reaches ${target.available.length} project spaces (${reachable}). Pass \`domain\` to choose which one to upload to.`,
 						appId,
+						NOTHING_RECORDED,
 					);
 				}
 				const targetDomain = target.domain.name;
@@ -649,6 +753,15 @@ export function registerUploadAppToHq(
 						},
 						doc,
 						compiledAtSeq: app.mutation_seq,
+						/* The head again, under the same edit check, where the
+						 * app moved while the publish recorded its placements. */
+						reloadHead: async () => {
+							const head = await loadAppBlueprint(appId, ctx.userId, "edit");
+							return { doc: head.doc, seq: head.app.mutation_seq };
+						},
+						...(args.accept_placement_moves !== undefined && {
+							acceptPlacementMoves: args.accept_placement_moves,
+						}),
 						appName: args.app_name?.trim() || app.app_name,
 						server: target.server,
 						domain: targetDomain,
@@ -706,24 +819,37 @@ export function registerUploadAppToHq(
 					 * failure would shadow this one's. */
 					if (!outcome.landed) {
 						const failure = outcome.refusal.failure;
+						/* What this attempt recorded and offers to move rides
+						 * every refusal: a stop after the record keeps the holds,
+						 * and the saved app changed either way. */
+						const answer = placementAnswer(
+							outcome.placements,
+							outcome.refusal.placementMoves,
+						);
 						/* The boundary gate's findings are `invalid_input`
 						 * because that is what a client branches on to know the
 						 * APP is what needs fixing, not the connection or the
-						 * target. */
+						 * target. Logged as the shared classifier logs an
+						 * invalid input, so a spike against one user shows. */
 						if (failure.code === "app_not_ready") {
-							throw new McpInvalidInputError(
-								`This app isn't ready to upload. Fix these first: ${
-									failure.details.length > 0
-										? failure.details.join(" ")
-										: failure.message
-								}`,
-							);
+							const message = `This app isn't ready to upload. Fix these first: ${
+								failure.details.length > 0
+									? failure.details.join(" ")
+									: failure.message
+							}`;
+							log.warn("[mcp] invalid input", {
+								userId: ctx.userId,
+								appId,
+								message,
+							});
+							return makeGateError("invalid_input", message, appId, answer);
 						}
 						if (failure.code === "hq_not_connected") {
 							return makeGateError(
 								UPLOAD_ERROR_TAGS.hq_not_configured,
 								failure.message,
 								appId,
+								answer,
 							);
 						}
 						if (failure.code === "domain_not_authorized") {
@@ -731,6 +857,7 @@ export function registerUploadAppToHq(
 								UPLOAD_ERROR_TAGS.domain_not_authorized,
 								failure.message,
 								appId,
+								answer,
 							);
 						}
 						if (failure.code === "project_space_incompatible") {
@@ -739,12 +866,14 @@ export function registerUploadAppToHq(
 									UPLOAD_ERROR_TAGS.hq_upload_failed,
 									"Nova couldn't complete the project space compatibility check. Try publishing again.",
 									appId,
+									answer,
 								);
 							}
 							return makeCompatibilityError(
 								failure.message,
 								appId,
 								outcome.projectSpaceCompatibility,
+								answer,
 							);
 						}
 						if (failure.code === "hq_app_state_unknown") {
@@ -752,6 +881,7 @@ export function registerUploadAppToHq(
 								UPLOAD_ERROR_TAGS.hq_app_state_unknown,
 								failure.message,
 								appId,
+								answer,
 							);
 						}
 						/* The mapped HQ app is gone. The generic upload-failed
@@ -763,6 +893,7 @@ export function registerUploadAppToHq(
 								UPLOAD_ERROR_TAGS.remote_app_missing,
 								failure.message,
 								appId,
+								answer,
 							);
 						}
 						/* A name clash on the target's Project data. The envelope
@@ -777,6 +908,7 @@ export function registerUploadAppToHq(
 								failure.message,
 								appId,
 								outcome.refusal.resourceConflicts,
+								answer,
 							);
 						}
 						/* Something this app publishes changed in CommCare HQ
@@ -789,6 +921,7 @@ export function registerUploadAppToHq(
 								failure.message,
 								appId,
 								outcome.refusal.remoteChanges,
+								answer,
 							);
 						}
 						/* What a person has to confirm about the project space.
@@ -800,6 +933,7 @@ export function registerUploadAppToHq(
 								failure.message,
 								appId,
 								outcome.refusal.confirmationsNeeded,
+								answer,
 							);
 						}
 						/* The Web Apps question. The envelope carries the change
@@ -813,6 +947,7 @@ export function registerUploadAppToHq(
 								failure.message,
 								appId,
 								outcome.refusal.webAppsChange,
+								answer,
 							);
 						}
 						/* HQ made the new app with Web Apps off. The person's
@@ -823,6 +958,7 @@ export function registerUploadAppToHq(
 								UPLOAD_ERROR_TAGS.hq_plan_lacks_web_apps,
 								failure.message,
 								appId,
+								answer,
 							);
 						}
 						/* The app's page on CommCare HQ rides along: raising its
@@ -838,10 +974,34 @@ export function registerUploadAppToHq(
 											message: failure.message,
 											app_id: appId,
 											url: outcome.hqAppUrl,
+											...answer,
 										}),
 									},
 								],
 							};
+						}
+						/* The accepted offer no longer names what would move. The
+						 * envelope's `placement_moves` is the offer as it stands
+						 * now, which the caller shows the user afresh; the
+						 * message alone says why. */
+						if (failure.code === "hq_placement_moves_changed") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.hq_placement_moves_changed,
+								failure.message,
+								appId,
+								answer,
+							);
+						}
+						/* The head kept moving while the publish recorded its
+						 * placements. Nothing was sent; the next call goes on
+						 * once the edits settle. */
+						if (failure.code === "app_changed_while_publishing") {
+							return makeGateError(
+								UPLOAD_ERROR_TAGS.app_changed_while_publishing,
+								failure.message,
+								appId,
+								answer,
+							);
 						}
 						/* A table HQ holds with content Nova's push would remove.
 						 * Its own tag because neither an adoption nor a discard
@@ -853,6 +1013,7 @@ export function registerUploadAppToHq(
 								UPLOAD_ERROR_TAGS.hq_table_content_unsupported,
 								[failure.message, ...failure.details].join(" "),
 								appId,
+								answer,
 							);
 						}
 						/* The organization does not fit the target's levels. Its
@@ -868,6 +1029,7 @@ export function registerUploadAppToHq(
 									? `${failure.message} ${failure.details.join(" ")}`
 									: failure.message,
 								appId,
+								answer,
 							);
 						}
 						return makeGateError(
@@ -876,6 +1038,7 @@ export function registerUploadAppToHq(
 								? `${failure.message}\n${failure.details.join("\n")}`
 								: failure.message,
 							appId,
+							answer,
 						);
 					}
 
@@ -925,6 +1088,12 @@ export function registerUploadAppToHq(
 							),
 						),
 						setup_artifact: outcome.artifact,
+						/* What this upload recorded of where CommCare HQ keeps
+						 * the app's case changes. */
+						placements: {
+							recorded: outcome.placements.recorded,
+							moved: outcome.placements.moved,
+						},
 					};
 
 					/* Record the upload success on the event log as a

@@ -193,7 +193,7 @@ async function writeEntry(
 	appId: string,
 	seq: number,
 	opts: {
-		kind?: "autosave" | "chat" | "blueprint-migration";
+		kind?: "autosave" | "chat" | "blueprint-migration" | "publish-placement";
 		runId?: string;
 		mutations?: readonly Mutation[];
 	} = {},
@@ -1212,6 +1212,41 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		]);
 		expect(failures[0]?.id).toBeUndefined();
 		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+	});
+
+	it("delivers a publish-placement row in the suffix as a frame, not a reload", async () => {
+		const appId = await seedApp(3);
+		const holds: Mutation = {
+			kind: "holdPlacements",
+			holds: [
+				{
+					target: "own-close",
+					formUuid: testUuid("published-form"),
+					placement: { kind: "save-to-case", path: ["close_case"] },
+				},
+			],
+		};
+		await writeEntry(appId, 1);
+		await writeEntry(appId, 2, {
+			kind: "publish-placement",
+			mutations: [holds],
+		});
+		await writeEntry(appId, 3);
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (f) => f.filter((x) => x.event === "mutation").length >= 3,
+		});
+
+		expect(frames.some((f) => f.event === "reload")).toBe(false);
+		const mutations = frames.filter((f) => f.event === "mutation");
+		expect(mutations.map((f) => f.id)).toEqual(["2", "3", "4"]);
+		expect(mutations[1]?.data).toMatchObject({
+			seq: GENESIS_SEQ + 2,
+			kind: "publish-placement",
+			mutations: [holds],
+		});
+		expect(mutations[1]?.data).not.toHaveProperty("runId");
 	});
 
 	it("reauthorizes and reloads for a same-Project blueprint migration", async () => {

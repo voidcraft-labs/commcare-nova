@@ -57,6 +57,7 @@ import {
 } from "@/lib/collab/projectScopeReset";
 import {
 	createReconciler,
+	type PlacementConflictReplay,
 	type PutOutcome,
 	type Reconciler,
 	type ReconcilerDeps,
@@ -164,6 +165,13 @@ export interface ReconcilerRuntime {
 	) => () => void;
 	readonly lookupManifestBroker: LookupManifestBroker;
 	readonly projectScopeResetRegistry: ProjectScopeResetRegistry;
+	/** Install the handler a `placement-recorded` 409's dropped edits are
+	 *  handed to after the reload (the builder layout's). One at a time: the
+	 *  latest registration wins, and its cleanup clears only itself. A host
+	 *  that registers none drops the edits, as a reload drops them today. */
+	readonly registerPlacementConflictHandler: (
+		handler: (replay: PlacementConflictReplay) => void,
+	) => () => void;
 }
 
 export interface ReconcilerProviderProps {
@@ -525,6 +533,20 @@ export function createReconcilerRuntime(
 	 *  high-frequency typing stream and never change a property's
 	 *  derived schema, while the structural kinds arrive at click
 	 *  cadence where an occasional needless refetch is cheap. */
+	let placementConflictHandler:
+		| ((replay: PlacementConflictReplay) => void)
+		| undefined;
+	function registerPlacementConflictHandler(
+		handler: (replay: PlacementConflictReplay) => void,
+	): () => void {
+		placementConflictHandler = handler;
+		return () => {
+			if (placementConflictHandler === handler) {
+				placementConflictHandler = undefined;
+			}
+		};
+	}
+
 	function frameMayTouchCaseData(frame: MutationFrame): boolean {
 		return frame.mutations.some((mutation) => {
 			// A held placement changes where HQ keeps a write, never the case
@@ -917,9 +939,17 @@ export function createReconcilerRuntime(
 			return { ok: true, seq: body.seq };
 		}
 		if (res.status === 409) {
-			const body = (await res.json().catch(() => ({}))) as { type?: unknown };
+			const body = (await res.json().catch(() => ({}))) as {
+				type?: unknown;
+				reason?: unknown;
+			};
 			if (body.type === "commit_rejected") {
-				return { ok: false, kind: "commitRejected" };
+				return {
+					ok: false,
+					kind: "commitRejected",
+					reason:
+						body.reason === "placement-recorded" ? "placement-recorded" : null,
+				};
 			}
 			/* `app_changed` is the expected scope race. An untyped 409 is also
 			 * preserved: without the semantic tag it is unsafe to discard a batch. */
@@ -1100,6 +1130,7 @@ export function createReconcilerRuntime(
 			invalidateDocCaseTypes();
 		},
 		scheduleRetry,
+		onPlacementConflict: (replay) => placementConflictHandler?.(replay),
 		onSaveError: (failure) => {
 			// Stable categories group across apps/releases. Entity and sequence
 			// identity stays in structured context, never in the issue message.
@@ -1216,6 +1247,7 @@ export function createReconcilerRuntime(
 		subscribePreviewProjectSpace,
 		lookupManifestBroker,
 		projectScopeResetRegistry,
+		registerPlacementConflictHandler,
 	};
 }
 
@@ -1308,6 +1340,8 @@ export function ReconcilerProvider({
 							runtime.projectScopeResetRegistry.subscribe(cb),
 						isProjectScopeCurrent: (scopeEpoch: number) =>
 							runtime.projectScopeResetRegistry.isCurrent(scopeEpoch),
+						registerPlacementConflictHandler:
+							runtime.registerPlacementConflictHandler,
 					}
 				: null,
 		[runtime],

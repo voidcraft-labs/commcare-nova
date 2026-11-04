@@ -281,8 +281,15 @@ dialog reopen, destination or connected-server change, and on a landed publish, 
 decision from then on. `RemoteChangeChoice` stands beside `ResourceConflictChoice` in
 `PublishDialog.tsx`: where a publish stops on `hq_changed` it lists every
 change made in CommCare HQ since Nova's last push and offers to discard them,
-bound to the digest of the list the person saw. `publishOutcome` carries
-`remoteChanges` and, on the landed arm, `appPreviewNote`. A viewer sees the ladder
+bound to the digest of the list the person saw. Where a refusal carries
+`refusal.placementMoves`, `PlacementMoveChoice` offers to move those Save to
+Case changes to CommCare HQ's Case Management settings with one unticked
+**Move them and publish**, bound to the offer's digest; it and the Save to
+Case row's **This project space has it** answer one question, so ticking one
+unticks the other (`publishOutcome.ts::withAcceptedMoves`, `withConfirmation`),
+and the answer clears after every response. `publishOutcome` carries
+`remoteChanges`, `placementMoves`, `placements` and, on the landed arm,
+`appPreviewNote`. A viewer sees the ladder
 without the button (`canRefresh`), because checking writes what it observed;
 the button is also withheld when the record is one checking cannot answer.
 
@@ -754,7 +761,7 @@ Registry-driven: Zod schemas + kind metadata in `lib/domain/fields/<kind>.ts`, e
 
 Optional expression entries use slot presence: `xpathEntry` and `defaultValueEntry` render an active row whenever the value is not `undefined`. A blank literal default and explicit true or false conditions remain authored expressions and stay visible for editing.
 
-**Identity moves are stated before they commit.** `useBlueprintMutations`, its reviews and the history step run `withIdentityMoves`; a batch that moves where CommCare HQ keeps published answers opens `IdentityMoveDialog` and commits only on Make the change; an undo or a redo carries only the hold changes the kernel admits, restoring a recorded hold or moving one its content strands (`applyHistoryStep` over `recordedHolds`).
+**Identity moves are stated before they commit.** `useBlueprintMutations`, its reviews and the history step run `withIdentityMoves`; a batch that moves where CommCare HQ keeps published answers opens `IdentityMoveDialog` and commits only on Make the change; an undo or a redo carries only the hold changes the kernel admits, restoring a recorded hold or moving one its content strands (`applyHistoryStep` over `recordedHolds`); a publish-placement conflict reopens the dialog with its own lead (`placementConflictReplay.ts::replayAfterPlacementConflict`, which plans the refused edits again over the reloaded document and offers them as one new edit, with **Leave it** to drop them).
 
 **A preload is the field's default, and the Saves to row offers it.** On a writer of a one-case loading form's own case, the row says Opens with the case's current value. with Start blank instead, or Starts blank, and saving it blank clears the case's value. with Open with the case's current value, each one `updateField` of `default_value` (`lib/domain/casePreload.ts::fieldPreload`, `writerOffersPreload`; the row's pure state is `editor/fields/caseWriteRowModel.ts`). The default-value entry shows a preload as its card like any other default, so the rail and the running form read the same slot. Entry `visible` predicates receive `(field, context)`, where `context` is the `FieldEditorContext` (`{module, form}` or `null`) that `FieldEditorPanel` reads ONCE from `useSelectedFormContext()` and threads through `sectionHasContent` / `partitionEditorEntries` / `useSectionActivation` / `FieldEditorSection` (optional prop, `null` by default so a fixture mounting one section compiles). A context-forced entry is an active row, never a pill.
 

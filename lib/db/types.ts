@@ -242,25 +242,45 @@ export interface AppDoc {
 // ── Multiplayer stream ──────────────────────────────────────────────
 
 /**
- * The final durable app-change vocabulary. Browser reconciliation accepts only
- * the first three kinds; the remaining kinds are server-only state
- * transitions that force clients to reauthorize and reload.
+ * The final durable app-change vocabulary. Browser tabs fold the first four
+ * kinds as frames; the remaining kinds are server-only state transitions that
+ * force clients to reauthorize and reload.
  */
 export const APP_CHANGE_KINDS = [
 	"autosave",
 	"mcp",
 	"chat",
+	"publish-placement",
 	"blueprint-migration",
 	"fold-baseline",
 	"project-move",
 ] as const;
 export type AppChangeKind = (typeof APP_CHANGE_KINDS)[number];
 
-export const CLIENT_APP_CHANGE_KINDS = ["autosave", "mcp", "chat"] as const;
-export type ClientAppChangeKind = (typeof CLIENT_APP_CHANGE_KINDS)[number];
+/** The kinds an editor's own batch commits under. */
+export const EDITOR_APP_CHANGE_KINDS = ["autosave", "mcp", "chat"] as const;
+export type EditorAppChangeKind = (typeof EDITOR_APP_CHANGE_KINDS)[number];
+
+/** The kinds a browser tab folds as frames, without a reload. */
+export const COLLABORATION_FRAME_KINDS = [
+	...EDITOR_APP_CHANGE_KINDS,
+	"publish-placement",
+] as const;
+export type CollaborationFrameKind = (typeof COLLABORATION_FRAME_KINDS)[number];
+
+const COLLABORATION_FRAME_KIND_SET: ReadonlySet<string> = new Set(
+	COLLABORATION_FRAME_KINDS,
+);
+
+/** Whether a browser tab folds an app change of `kind` as a frame. */
+export function isCollaborationFrameKind(
+	kind: string,
+): kind is CollaborationFrameKind {
+	return COLLABORATION_FRAME_KIND_SET.has(kind);
+}
 
 export type BlueprintMutationAppChangeKind =
-	| ClientAppChangeKind
+	| CollaborationFrameKind
 	| "blueprint-migration";
 
 interface AppChangeDocBase {

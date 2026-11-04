@@ -95,7 +95,10 @@ import {
 	runBeforeLookupManifestReadTestHook,
 	runBeforeMutationReadTestHook,
 } from "@/lib/db/streamReadTestHooks";
-import type { AppLifecycleStatus } from "@/lib/db/types";
+import {
+	type AppLifecycleStatus,
+	isCollaborationFrameKind,
+} from "@/lib/db/types";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
@@ -446,11 +449,7 @@ function openStream(args: {
 								);
 							}
 							previousSeq = change.seq;
-							if (
-								change.kind === "autosave" ||
-								change.kind === "mcp" ||
-								change.kind === "chat"
-							) {
+							if (isCollaborationFrameKind(change.kind)) {
 								const frame = admitMutationFrame({
 									seq: change.seq,
 									batchId: change.batchId,
@@ -463,7 +462,7 @@ function openStream(args: {
 								});
 								if (frame === null) {
 									throw new Error(
-										"durable client change failed browser-frame admission",
+										"durable collaboration change failed browser-frame admission",
 									);
 								}
 								parsedFrames.push(frame);

@@ -5,7 +5,8 @@
  *
  * A held placement is where CommCare HQ last received a case change (or an
  * own close, or a query repeat's rows), and a recording is what writes one: a
- * `blueprint-migration` row or the fold baseline a cutover wrote. Under an
+ * `publish-placement` row a publish wrote, a `blueprint-migration` row, or the
+ * fold baseline a cutover wrote. Under an
  * editor's kind a hold may change only two ways, decided per target by
  * `lib/doc/placementHolds.ts`, the same per-change decision the builder's
  * history reads through `admittedHoldChanges`, so the tab and the kernel
@@ -39,6 +40,7 @@ export const PLACEMENT_CHANGE_REFUSAL =
  * editor's restore is held to.
  */
 export const PLACEMENT_RECORDING_KINDS = [
+	"publish-placement",
 	"blueprint-migration",
 ] as const satisfies readonly BlueprintMutationAppChangeKind[];
 

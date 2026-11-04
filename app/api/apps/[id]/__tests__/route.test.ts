@@ -276,4 +276,70 @@ describe("PUT /api/apps/[id]", () => {
 			type: "commit_rejected",
 		});
 	});
+
+	it.each([
+		{
+			label: "a held-placement refusal",
+			options: { findingCodes: ["HELD_PLACEMENT_INEXPRESSIBLE"] },
+			reason: "placement-recorded",
+		},
+		{
+			label: "a refusal naming only placement conflicts",
+			options: {
+				findingCodes: [
+					"CASE_PLACEMENT_SHARED",
+					"QUERY_REPEAT_MODEL_ITERATION_SHAPE",
+				],
+			},
+			reason: "placement-recorded",
+		},
+		{
+			label: "a placement rule refusal",
+			options: { placementRule: true as const },
+			reason: "placement-recorded",
+		},
+		{
+			label: "a placement conflict beside another finding",
+			options: {
+				findingCodes: ["HELD_PLACEMENT_INEXPRESSIBLE", "DUPLICATE_FIELD_ID"],
+			},
+			reason: undefined,
+		},
+		{
+			label: "a refusal with no findings",
+			options: undefined,
+			reason: undefined,
+		},
+		{
+			label: "a held block path refusal",
+			options: { findingCodes: ["HELD_BLOCK_PATH_TAKEN"] },
+			reason: undefined,
+		},
+	])(
+		"answers a held-placement refusal and a placement rule refusal with reason placement-recorded, and any other with none: $label",
+		async ({ options, reason }) => {
+			const message = "This change could not be saved.";
+			vi.mocked(applyBlueprintChange).mockRejectedValueOnce(
+				new BlueprintCommitRejectedError(message, options),
+			);
+			const response = await PUT(
+				new Request("http://localhost/api/apps/app-1", {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						batchId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+						mutations: [{ kind: "setAppName", name: "Renamed" }],
+					}),
+				}),
+				params(),
+			);
+
+			expect(response.status).toBe(409);
+			expect(await response.json()).toEqual({
+				error: message,
+				type: "commit_rejected",
+				...(reason === undefined ? {} : { reason }),
+			});
+		},
+	);
 });

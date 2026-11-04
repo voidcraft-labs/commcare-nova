@@ -62,10 +62,20 @@ export type RecordedPlacementHolds = ReadonlyMap<string, PlacementHold>;
 
 export const NO_RECORDED_HOLDS: RecordedPlacementHolds = new Map();
 
-/** The finding codes that mean a held placement no longer expresses its
- *  target: an operation's or an own close's, and a query repeat's. */
+/**
+ * The finding codes that mean a held placement no longer expresses its
+ * target: an operation's or an own close's, a query repeat's, and two case
+ * changes of one form held in one place. The last is what an edit's move
+ * meets where a publish recorded another change in the place the move
+ * takes, which the move planner leaves free only of the holds it can see;
+ * planning the move again over the recorded holds places it elsewhere.
+ * `HELD_BLOCK_PATH_TAKEN` is not one of them: it names an authored name a
+ * held block stands on, which only renaming that question or change
+ * resolves, so no move can.
+ */
 export const PLACEMENT_CONFLICT_CODES: ReadonlySet<string> = new Set([
 	"HELD_PLACEMENT_INEXPRESSIBLE",
+	"CASE_PLACEMENT_SHARED",
 	"QUERY_REPEAT_MODEL_ITERATION_SHAPE",
 ]);
 

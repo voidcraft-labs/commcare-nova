@@ -42,6 +42,7 @@ import {
 	readStoredLookupReferenceTargets,
 	replaceLookupReferenceEdges,
 } from "../lookupReferenceEdges";
+import type { Unadmitted } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
 
@@ -54,9 +55,7 @@ const {
 } = await import("../apps");
 const { createExplicitBlankApp } = await import("../appGenesis");
 const commitGuardedBatch = (
-	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
-		mutations: unknown;
-	},
+	args: Unadmitted<Parameters<typeof commitGuardedBatchOpaque>[0]>,
 ) =>
 	commitGuardedBatchOpaque({
 		...args,

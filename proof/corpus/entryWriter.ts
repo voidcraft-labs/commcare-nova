@@ -20,6 +20,14 @@
  * overlay keys each body writes. Beside the exports the directory holds the
  * HQ import file (`import-file.zip`).
  *
+ * The first publish reads the document as its source wrote it, records its
+ * placements before it sends anything, and sends the document they leave
+ * (`./publish.ts::capturePublish`); the emitter applied the same record to
+ * D before planning D′ (`./emitCorpus.ts`), and a capture that records
+ * anything else stops the emission. So `document.json` is D as stored after
+ * its first publish, the republish of D sends that document, and
+ * `edit/document.json` is it with the batch.
+ *
  * A migration witness whose A is retained (`./inputs.ts::retainedMigrationA`)
  * is captured without a first publish: each configuration's retained files
  * are copied into its `export/<configuration>/` beside the republish Nova
@@ -129,10 +137,19 @@ export interface PreparedEdit {
 
 /** A document ready to write: admitted, with its edit when it keeps one. */
 export interface PreparedEntry {
+	/** The document as stored after its first publish. */
 	readonly document: CorpusDocument;
-	/** D, hydrated. */
+	/** D, hydrated: as stored after its first publish, its placements held. */
 	readonly doc: BlueprintDoc;
+	/** D's publish: what `document.json` holds, and every publish after the first sends. */
 	readonly publish: PublishDocument;
+	/**
+	 * The document as stored before its first publish, which that publish
+	 * reads and records its placements over (`./publish.ts::capturePublish`).
+	 */
+	readonly firstPublish: PublishDocument;
+	/** What the first publish records, which the emitter applied to D. */
+	readonly placements: readonly Mutation[];
 	readonly edit?: PreparedEdit;
 }
 
@@ -587,7 +604,7 @@ export async function writeEntry(
 	const captures = new Map<string, PublishCapture | RepublishCapture>();
 	for (const [name, configuration] of named) {
 		const input = {
-			create: publish,
+			create: entry.firstPublish,
 			updates: [
 				{ name: "republish", document: publish },
 				...(edit !== undefined
@@ -625,6 +642,16 @@ export async function writeEntry(
 		if (stopped !== undefined && document.hqSide?.republish !== "stops") {
 			throw new Error(
 				`Nova's publish of corpus document ${document.id} under its ${name} configuration stopped with ${stopped.code} after a person confirmed every change and table it listed (${JSON.stringify(stopped)}). A confirmed publish proceeds; look at what the confirmation names against what the stop listed.`,
+			);
+		}
+		/* D was stored with the record applied before its edit was planned
+		 * (`./emitCorpus.ts`), so the first publish must record exactly that. */
+		if (
+			capture.status !== "refused" &&
+			JSON.stringify(capture.placements) !== JSON.stringify(entry.placements)
+		) {
+			throw new Error(
+				`Nova's first publish of ${document.id} under its ${name} configuration recorded the placements ${JSON.stringify(capture.placements)}, and the corpus stored D with ${JSON.stringify(entry.placements)} before planning its edit. Both are what the document's emission derives (firstPublishRecord), so the document the capture read is not the one the corpus recorded over; look at what each was given.`,
 			);
 		}
 		captures.set(name, capture);
@@ -809,6 +836,10 @@ export function entryJob(entry: PreparedEntry): unknown {
 	const { document, publish, edit } = entry;
 	return {
 		id: document.id,
+		placements: entry.placements,
+		...(entry.placements.length > 0 && {
+			firstPublishDoc: entry.firstPublish.doc,
+		}),
 		source: document.source,
 		...(document.expected !== undefined && { expected: document.expected }),
 		...(document.files !== undefined && { files: document.files }),
@@ -862,6 +893,8 @@ export function preparedFromJob(job: readonly unknown[]): PreparedEntry[] {
 			hqSide?: HqSideSaves;
 			batch?: PreparedEdit["batch"] & { mutations: Mutation[] };
 			footprint?: Footprint;
+			placements: Mutation[];
+			firstPublishDoc?: PersistableDoc;
 		};
 		const document: CorpusDocument = {
 			id: publish.id,
@@ -879,7 +912,14 @@ export function preparedFromJob(job: readonly unknown[]): PreparedEntry[] {
 			...(raw.hqSide !== undefined && { hqSide: raw.hqSide }),
 		};
 		const doc = hydrate(publish.doc, `the document ${publish.id}`);
-		if (edited === undefined) return { document, doc, publish };
+		const recorded = {
+			firstPublish:
+				raw.firstPublishDoc === undefined
+					? publish
+					: { ...publish, doc: raw.firstPublishDoc },
+			placements: raw.placements,
+		};
+		if (edited === undefined) return { document, doc, publish, ...recorded };
 		if (raw.batch === undefined || raw.footprint === undefined) {
 			throw new Error(
 				`The corpus worker received ${publish.id}'s edited document without its batch and footprint.`,
@@ -889,6 +929,7 @@ export function preparedFromJob(job: readonly unknown[]): PreparedEntry[] {
 			document,
 			doc,
 			publish,
+			...recorded,
 			edit: {
 				batch: raw.batch,
 				nextDoc: hydrate(edited.doc, `${publish.id}'s edited document`),

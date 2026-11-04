@@ -17,10 +17,24 @@ import type {
 	DeploymentRecord,
 } from "@/lib/deployment/types";
 import {
+	type PlacementMoveOfferView,
+	SAVE_TO_CASE_OFFER_HEADING,
+	saveToCaseOfferBody,
+} from "@/lib/publish/placementMoves";
+import {
 	FLAT_LOCATION_FIXTURE,
 	PLAN_FEATURES,
 } from "@/lib/publish/planFeatures";
-import { type PublishResponseBody, publishOutcome } from "../publishOutcome";
+import {
+	acceptsOffer,
+	confirmationsStillAsked,
+	type PublishAnswers,
+	type PublishResponseBody,
+	placementOfferCopy,
+	publishOutcome,
+	withAcceptedMoves,
+	withConfirmation,
+} from "../publishOutcome";
 
 const RECORD: DeploymentRecord = {
 	id: "dep-1",
@@ -68,6 +82,7 @@ const REFUSAL = {
 	remoteChanges: [],
 	confirmationsNeeded: [],
 	webAppsChange: null,
+	placementMoves: null,
 };
 
 describe("a publish that landed", () => {
@@ -89,6 +104,7 @@ describe("a publish that landed", () => {
 			previewProjectSpace: "acme",
 			appPreviewNote: null,
 			logoStep: null,
+			placements: { recorded: 0, moved: 0 },
 		});
 	});
 
@@ -177,6 +193,8 @@ describe("a publish that was refused", () => {
 			remoteChanges: [],
 			confirmationsNeeded: [],
 			webAppsChange: null,
+			placementMoves: null,
+			placements: { recorded: 0, moved: 0 },
 			warnings: ["Review target"],
 			previewProjectSpace: null,
 		});
@@ -236,6 +254,7 @@ describe("a publish that was refused", () => {
 				remoteChanges: [change],
 				confirmationsNeeded: [],
 				webAppsChange: null,
+				placementMoves: null,
 			},
 		});
 		expect(outcome).toMatchObject({
@@ -294,6 +313,7 @@ describe("a publish that was refused", () => {
 				remoteChanges: [],
 				confirmationsNeeded: [],
 				webAppsChange: null,
+				placementMoves: null,
 			},
 			preview_project_space: null,
 		});
@@ -420,5 +440,144 @@ describe("nothing to show", () => {
 			kind: "failure",
 			blockedDetail: undefined,
 		});
+	});
+});
+
+const OFFER: PlacementMoveOfferView = {
+	reason: "save-to-case",
+	digest: "a".repeat(64),
+	moves: [
+		{
+			form: "Register",
+			change: "makes a new household case",
+			sentence:
+				"In Register, the change that makes a new household case moves from a Save to Case block to Case Management.",
+		},
+	],
+	asksChildCases: false,
+};
+const SAVE_TO_CASE = {
+	kind: "plan-feature" as const,
+	subject: "advanced-case-actions" as const,
+};
+const LOOKUP_TABLES = {
+	kind: "plan-feature" as const,
+	subject: "lookup-tables" as const,
+};
+
+describe("where CommCare HQ keeps the case changes", () => {
+	it("carries what a landed publish recorded, and nothing for a response that names none", () => {
+		expect(
+			publishOutcome(true, {
+				success: true,
+				placements: { recorded: 3, moved: 1 },
+			}),
+		).toMatchObject({ kind: "landed", placements: { recorded: 3, moved: 1 } });
+		expect(publishOutcome(true, { success: true })).toMatchObject({
+			kind: "landed",
+			placements: { recorded: 0, moved: 0 },
+		});
+	});
+
+	it("carries the move offer and what the attempt recorded on a refusal", () => {
+		const outcome = publishOutcome(true, {
+			success: false,
+			placements: { recorded: 2, moved: 0 },
+			refusal: {
+				...REFUSAL,
+				failure: {
+					code: "hq_confirmation_needed",
+					message: "Confirm what the project space has.",
+					details: [],
+				},
+				placementMoves: OFFER,
+			},
+		});
+		expect(outcome).toMatchObject({
+			kind: "refused",
+			placementMoves: OFFER,
+			placements: { recorded: 2, moved: 0 },
+		});
+	});
+
+	it("offers no move where a refusal from an older server carries no field", () => {
+		const { placementMoves: _, ...older } = REFUSAL;
+		expect(
+			publishOutcome(true, {
+				success: false,
+				refusal: older as typeof REFUSAL,
+			}),
+		).toMatchObject({
+			kind: "refused",
+			placementMoves: null,
+			placements: { recorded: 0, moved: 0 },
+		});
+	});
+
+	it("words the Save to Case offer with the Child Cases sentence only where a move asks for it", () => {
+		expect(placementOfferCopy(OFFER)).toStrictEqual({
+			heading: SAVE_TO_CASE_OFFER_HEADING,
+			body: saveToCaseOfferBody(false),
+		});
+		expect(placementOfferCopy({ ...OFFER, asksChildCases: true })?.body).toBe(
+			saveToCaseOfferBody(true),
+		);
+		expect(
+			placementOfferCopy({ ...OFFER, reason: "same-type-child-links" }),
+		).toBeNull();
+	});
+});
+
+describe("answering the Save to Case question", () => {
+	const none: PublishAnswers = { confirmations: [], acceptMoves: null };
+
+	it("unticks the plan's Save to Case when the move is accepted, and keeps every other answer", () => {
+		const answers = withAcceptedMoves(
+			{ confirmations: [SAVE_TO_CASE, LOOKUP_TABLES], acceptMoves: null },
+			OFFER,
+			true,
+		);
+		expect(answers).toStrictEqual({
+			confirmations: [LOOKUP_TABLES],
+			acceptMoves: { reason: "save-to-case", digest: OFFER.digest },
+		});
+		expect(acceptsOffer(answers.acceptMoves, OFFER)).toBe(true);
+	});
+
+	it("drops the accepted move when the plan's Save to Case is ticked", () => {
+		const accepted = withAcceptedMoves(none, OFFER, true);
+		expect(withConfirmation(accepted, SAVE_TO_CASE, true)).toStrictEqual({
+			confirmations: [SAVE_TO_CASE],
+			acceptMoves: null,
+		});
+		/* Another confirmation leaves the move alone. */
+		expect(withConfirmation(accepted, LOOKUP_TABLES, true)).toStrictEqual({
+			confirmations: [LOOKUP_TABLES],
+			acceptMoves: accepted.acceptMoves,
+		});
+	});
+
+	it("unticking the move accepts nothing", () => {
+		const accepted = withAcceptedMoves(none, OFFER, true);
+		expect(withAcceptedMoves(accepted, OFFER, false)).toStrictEqual(none);
+	});
+
+	it("reads an accepted answer as this offer only while its digest matches", () => {
+		const accepted = withAcceptedMoves(none, OFFER, true).acceptMoves;
+		expect(acceptsOffer(accepted, { ...OFFER, digest: "b".repeat(64) })).toBe(
+			false,
+		);
+		expect(acceptsOffer(null, OFFER)).toBe(false);
+	});
+
+	it("waits on Save to Case only while no move answers it", () => {
+		const requests = [{ key: SAVE_TO_CASE }, { key: LOOKUP_TABLES }];
+		expect(confirmationsStillAsked(requests, null)).toStrictEqual(requests);
+		expect(
+			confirmationsStillAsked(
+				requests,
+				withAcceptedMoves(none, OFFER, true).acceptMoves,
+			),
+		).toStrictEqual([{ key: LOOKUP_TABLES }]);
 	});
 });

@@ -174,9 +174,12 @@ with a restart instruction rather than an operational failure.
 
 **`app_changes` is permanent history.** It is the durable edit log and realtime
 catch-up source; there is no TTL or prune. Its closed kind set is `autosave`,
-`mcp`, `chat`, `blueprint-migration`, `fold-baseline`, and `project-move`.
-The first four carry a nonempty exactly admitted mutation batch and null
-Project-move columns. `fold-baseline` carries exactly `[]`, null move columns,
+`mcp`, `chat`, `publish-placement`, `blueprint-migration`, `fold-baseline`, and
+`project-move`. The first five carry a nonempty exactly admitted mutation batch
+and null Project-move columns. `publish-placement` is written only by
+`lib/deployment/placements.ts::recordPublishPlacements`, through the canonical
+kernel at an expected head, and holds only `holdPlacements` and no run;
+`nova_admit_app_change_insert` admits the kind set and that shape. `fold-baseline` carries exactly `[]`, null move columns,
 and one matching immutable `app_change_fold_baselines` row whose snapshot,
 digest, Project, sequence, root, and entity freshness are proved in the same
 transaction. `project-move` carries `[]` or the nonempty media-remap batch and
@@ -206,7 +209,7 @@ source/destination continuity, strictly reduces every mutation-bearing row,
 and must end at both the persisted entity projection and `apps.project_id`.
 Lookup admission checks only that final folded document against the final
 Project's current definition snapshot. The browser collaboration wire accepts
-only `autosave | mcp | chat`; the presence of any other kind in a validated
+only `autosave | mcp | chat | publish-placement`; the presence of any other kind in a validated
 suffix forces fresh authorization and a whole-app reload before ordinary
 frames from that suffix are consumed.
 
@@ -1059,11 +1062,11 @@ apps → kernel.
 
 **The kernel decides who may change a held placement.**
 `placementAuthority.ts::placementChangeRefusal` runs over the locked document
-and the batch's candidate before the gate: a migration may change any hold; an
-editor's batch may move a hold the same batch makes inexpressible, or restore
-exactly the hold the target's latest recording wrote (the latest
-`blueprint-migration` row that names it, else the greatest fold baseline's
-snapshot, read by `placementRecords.ts::readRecordedPlacementHolds` under the
+and the batch's candidate before the gate: a publish or a migration may change
+any hold; an editor's batch may move a hold the same batch makes inexpressible,
+or restore exactly the hold the target's latest recording wrote (the latest
+`publish-placement` or `blueprint-migration` row that names it, else the
+greatest fold baseline's snapshot, read by `placementRecords.ts::readRecordedPlacementHolds` under the
 app lock for only the keys `placementChangesToJustify` names); everything else
 is refused with `PLACEMENT_CHANGE_REFUSAL`. The per-change decision is
 `lib/doc/placementHolds.ts`'s, the same one the builder's history step reads.

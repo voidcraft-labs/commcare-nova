@@ -12,7 +12,10 @@
 import { createContext, useContext } from "react";
 import type { PresenceFrame } from "@/lib/collab/presenceTypes";
 import type { ProjectScopeResetSubscriber } from "@/lib/collab/projectScopeReset";
-import type { Reconciler } from "@/lib/collab/reconciler";
+import type {
+	PlacementConflictReplay,
+	Reconciler,
+} from "@/lib/collab/reconciler";
 import type { LookupManifest } from "@/lib/lookup/types";
 
 /** What the provider exposes: the one reconciler, its new-build activation
@@ -59,6 +62,16 @@ export interface ReconcilerContextValue {
 	subscribeProjectScopeReset: (cb: ProjectScopeResetSubscriber) => () => void;
 	/** Guard an async Project-scoped result captured in a reset epoch. */
 	isProjectScopeCurrent: (scopeEpoch: number) => boolean;
+	/** Register the handler a `placement-recorded` 409's dropped edits are
+	 *  handed to once the reload ends with the person still an editor. The
+	 *  builder layout registers one, which offers the edits again with their
+	 *  moves; the latest registration wins, and the returned cleanup clears
+	 *  only that registration. With none registered the edits are dropped.
+	 *  `ReconcilerProvider` always supplies it; a context built outside it
+	 *  (a harness that offers nothing) may leave it out. */
+	registerPlacementConflictHandler?: (
+		handler: (replay: PlacementConflictReplay) => void,
+	) => () => void;
 }
 
 export const ReconcilerContext = createContext<ReconcilerContextValue | null>(

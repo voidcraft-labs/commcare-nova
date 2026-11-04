@@ -41,8 +41,8 @@
  *   case list at the root, holding model iteration as the cutover writes it
  *   for the published app; one in a user repeat whose query reads the row's
  *   answer; and one under a group whose relevance reads an answer. The last
- *   two hold nothing and take the count placement, which the next publish
- *   records.
+ *   two hold nothing in the spec and take the count placement, which the
+ *   republish over A records (the capture's record).
  * - `targeted-migration-form-links` (defect 26): a survey with two
  *   conditional links and an unconditional last one; a survey with a
  *   conditional link and a stored after-submit; and a follow-up in a root
@@ -55,6 +55,15 @@
  * - `targeted-migration-repeat-counts` (defect 30): a repeat counted by a
  *   Hidden Value calculating 2, which its count now names directly, and one
  *   counted by a decimal expression, which the migration wraps in `int(…)`.
+ *
+ * The holds a spec writes are the cutover's, A's placements as the
+ * migration records them (class C8, and the query repeat's model
+ * iteration), so they stay written here whether or not a publish of the
+ * migrated document would derive the same place. Every other placement a
+ * witness's D holds is the capture's record: Nova's first publish of the
+ * migrated document over the retained A records what its emission derives
+ * and nothing holds yet (`proof/corpus/editBatches.ts::firstPublishRecord`),
+ * and the corpus stores D with that record applied.
  *
  * Fixed values: each witness's symptom is HQ's read of its A and proof 1
  * between A and B, which no value check reads, so each carries the check of

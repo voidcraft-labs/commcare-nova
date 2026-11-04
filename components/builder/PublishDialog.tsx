@@ -47,8 +47,13 @@ import {
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import {
+	acceptsOffer,
+	confirmationsStillAsked,
 	type PublishLogoStepBody,
+	placementOfferCopy,
 	publishOutcome,
+	withAcceptedMoves,
+	withConfirmation,
 } from "@/components/builder/publishOutcome";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
@@ -110,6 +115,11 @@ import type {
 import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import type { ManualImportStep } from "@/lib/publish/manualImportGuide";
+import {
+	ACCEPT_PLACEMENT_MOVES_LABEL,
+	type AcceptPlacementMoves,
+	type PlacementMoveOfferView,
+} from "@/lib/publish/placementMoves";
 import {
 	LOGO_UPLOAD_STEP_TEXT,
 	PLAN_FEATURE_CONFIRM_LABEL,
@@ -249,6 +259,8 @@ type PublishStatus =
 			remoteChanges: readonly DeploymentRemoteChange[];
 			/** The Web Apps question, for `hq_web_apps_change`; null otherwise. */
 			webAppsChange: WebAppsChange | null;
+			/** The case changes Nova offers to move; null where it offers none. */
+			placementMoves: PlacementMoveOfferView | null;
 			warnings: string[];
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 	  }
@@ -398,6 +410,16 @@ export function PublishDialog({
 	 * so an answer never outlives the question it answered.
 	 */
 	const [confirmWebApps, setConfirmWebApps] = useState<boolean | null>(null);
+	/**
+	 * The move offer the person accepted, named back by its reason and the
+	 * digest of the moves they were shown, or null. Cleared wherever
+	 * `confirmations` is and after every response: a landed publish or a
+	 * refusal that moved them recorded the moves, and any other refusal is
+	 * answered afresh.
+	 */
+	const [acceptMoves, setAcceptMoves] = useState<AcceptPlacementMoves | null>(
+		null,
+	);
 	const [compatibilityState, setCompatibilityState] =
 		useState<ProjectSpaceCompatibilityState>({
 			type: "loading",
@@ -410,6 +432,7 @@ export function PublishDialog({
 		setDiscardRemoteChanges([]);
 		setConfirmations([]);
 		setConfirmWebApps(null);
+		setAcceptMoves(null);
 	}, [connectionServer]);
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
@@ -477,6 +500,7 @@ export function PublishDialog({
 		setDiscardRemoteChanges([]);
 		setConfirmations([]);
 		setConfirmWebApps(null);
+		setAcceptMoves(null);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setDownloadTargets({ type: "loading" });
@@ -696,6 +720,7 @@ export function PublishDialog({
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
 			setConfirmWebApps(null);
+			setAcceptMoves(null);
 			setTarget(next);
 			setStatus({ type: "idle" });
 		},
@@ -717,6 +742,7 @@ export function PublishDialog({
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
 			setConfirmWebApps(null);
+			setAcceptMoves(null);
 		},
 		[compatibilityDomain, invalidateCompatibilityReport],
 	);
@@ -752,16 +778,31 @@ export function PublishDialog({
 		},
 		[],
 	);
+	/* A Save to Case move and "This project space has it" for Save to Case
+	 * answer one question, so ticking one unticks the other. */
 	const handleConfirmChange = useCallback(
 		(key: DeploymentConfirmationKey, confirmed: boolean) => {
-			setConfirmations((current) => {
-				const rest = current.filter(
-					(entry) => !sameConfirmationKey(entry, key),
-				);
-				return confirmed ? [...rest, key] : rest;
-			});
+			const next = withConfirmation(
+				{ confirmations, acceptMoves },
+				key,
+				confirmed,
+			);
+			setConfirmations(next.confirmations);
+			setAcceptMoves(next.acceptMoves);
 		},
-		[],
+		[confirmations, acceptMoves],
+	);
+	const handleAcceptMovesChange = useCallback(
+		(offer: PlacementMoveOfferView, accepted: boolean) => {
+			const next = withAcceptedMoves(
+				{ confirmations, acceptMoves },
+				offer,
+				accepted,
+			);
+			setConfirmations(next.confirmations);
+			setAcceptMoves(next.acceptMoves);
+		},
+		[confirmations, acceptMoves],
 	);
 	const handleCheckCompatibilityAgain = useCallback(() => {
 		setStatus((current) =>
@@ -813,6 +854,7 @@ export function PublishDialog({
 					discard_remote_changes: discardRemoteChanges,
 					confirm: confirmations,
 					...(confirmWebApps !== null && { confirmWebApps }),
+					...(acceptMoves !== null && { acceptPlacementMoves: acceptMoves }),
 				}),
 				signal: controller.signal,
 			});
@@ -851,6 +893,10 @@ export function PublishDialog({
 			 * invisible in a screenshot: a refused publish must show its
 			 * refusal and record, not a generic failure box. */
 			const outcome = publishOutcome(response.ok, data);
+			/* An accepted move answers the offer one publish made: a landed
+			 * publish, or a refusal that moved them, recorded the moves, and
+			 * any other answer is asked afresh. */
+			setAcceptMoves(null);
 			if (outcome.kind === "failure") {
 				const failure = describeApiFailure(
 					data,
@@ -965,6 +1011,7 @@ export function PublishDialog({
 				resourceConflicts: outcome.resourceConflicts,
 				remoteChanges: outcome.remoteChanges,
 				webAppsChange: outcome.webAppsChange,
+				placementMoves: outcome.placementMoves,
 				warnings: outcome.warnings,
 				projectSpaceCompatibility: serverCompatibility,
 			});
@@ -992,6 +1039,7 @@ export function PublishDialog({
 		discardRemoteChanges,
 		confirmations,
 		confirmWebApps,
+		acceptMoves,
 		compatibilityState,
 		loadProjectSpaceCompatibility,
 		selectedDomain,
@@ -1054,8 +1102,10 @@ export function PublishDialog({
 					status.type === "refused" ? status.confirmationsNeeded : [],
 				)
 			: [];
+	/* An accepted Save to Case move is the other answer to the Save to Case
+	 * row, so that row no longer holds Upload. */
 	const allConfirmationsGiven = everyConfirmationGiven(
-		requestedConfirmations,
+		confirmationsStillAsked(requestedConfirmations, acceptMoves),
 		confirmations,
 	);
 	/* A Web Apps question holds Upload until it is ticked, as an unticked
@@ -1351,6 +1401,19 @@ export function PublishDialog({
 																	: null,
 															)
 														}
+													/>
+												) : null}
+												{/* The case changes Nova can move so this project
+												    space can take the app, accepted by one tick. */}
+												{status.placementMoves !== null && canEdit ? (
+													<PlacementMoveChoice
+														offer={status.placementMoves}
+														accepted={acceptsOffer(
+															acceptMoves,
+															status.placementMoves,
+														)}
+														onAcceptedChange={handleAcceptMovesChange}
+														disabled={isWorking}
 													/>
 												) : null}
 												{status.refusal.code === "hq_app_version_below_floor" &&
@@ -2262,6 +2325,67 @@ function ConfirmationChoice({
 					);
 				})}
 			</ul>
+		</section>
+	);
+}
+
+/**
+ * The case changes a publish offers to move so the project space can take
+ * the app as it is: the offer's heading and body, one row per move, and the
+ * one box that accepts them all. It starts unticked, because a move changes
+ * where CommCare HQ keeps those answers in every project space the app is
+ * published to. A reason the dialog has no words for is not offered.
+ */
+function PlacementMoveChoice({
+	offer,
+	accepted,
+	onAcceptedChange,
+	disabled,
+}: {
+	offer: PlacementMoveOfferView;
+	accepted: boolean;
+	onAcceptedChange: (offer: PlacementMoveOfferView, accepted: boolean) => void;
+	disabled: boolean;
+}) {
+	const copy = placementOfferCopy(offer);
+	if (copy === null) return null;
+	return (
+		<section
+			aria-labelledby="publish-placement-moves-heading"
+			className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3 text-left"
+		>
+			<h4
+				id="publish-placement-moves-heading"
+				className="text-[13px] font-semibold text-nova-text"
+			>
+				{copy.heading}
+			</h4>
+			<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
+				{copy.body}
+			</p>
+			<ul className="mt-2.5 flex flex-col gap-1.5">
+				{offer.moves.map((move, index) => (
+					<li
+						// biome-ignore lint/suspicious/noArrayIndexKey: two changes of one form can read the same sentence, so the text is no key.
+						key={index}
+						className="rounded-lg border border-nova-border bg-nova-well px-3 py-2 text-xs leading-relaxed text-nova-text"
+					>
+						{move.sentence}
+					</li>
+				))}
+			</ul>
+			<label
+				htmlFor="publish-placement-moves"
+				className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+			>
+				<Checkbox
+					id="publish-placement-moves"
+					checked={accepted}
+					disabled={disabled}
+					onCheckedChange={(next) => onAcceptedChange(offer, next === true)}
+				/>
+				<span>{ACCEPT_PLACEMENT_MOVES_LABEL}</span>
+			</label>
 		</section>
 	);
 }

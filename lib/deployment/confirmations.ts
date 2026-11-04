@@ -27,6 +27,10 @@ import {
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
+	type PlacementMoveOfferView,
+	saveToCaseWhereMissing,
+} from "@/lib/publish/placementMoves";
+import {
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
 	FORM_ENTRY_SYNC_OFF,
@@ -34,11 +38,13 @@ import {
 	isPlanFeatureId,
 	PLAN_FEATURES,
 	type PlanFeatureCheck,
+	type PlanFeatureId,
 	PROJECT_SPACE_SETTINGS,
 	type ProjectSpaceSettingCheck,
 	type ProjectSpaceSettingKind,
 	webAppsWhereMissing,
 } from "@/lib/publish/planFeatures";
+import { placementMoveOffer, saveToCaseFormNames } from "./placementMoves";
 import { narrowingTo } from "./platformNarrowing";
 import {
 	confirmationSubject,
@@ -75,10 +81,7 @@ export function requiredConfirmations(
 		plans: feature.plans,
 		consequence: feature.consequence,
 		reasons: feature.reasons,
-		whereMissing:
-			feature.id === "web-apps"
-				? webAppsWhereMissing(narrowingTo(doc, "android"))
-				: null,
+		whereMissing: planFeatureWhereMissing(doc, feature.id, attachmentTarget),
 	}));
 	const fixtureReasons = flatLocationFixtureReasons(doc);
 	if (fixtureReasons.length > 0) {
@@ -117,6 +120,30 @@ export function requiredConfirmations(
 		});
 	}
 	return needed;
+}
+
+/**
+ * What a person can do where the project space lacks a plan feature, for the
+ * features where Nova has something to offer: Web Apps, which an app can do
+ * without by running on Android only, and Save to Case, whose case changes
+ * Nova can move to Case Management where every one of them fits there.
+ */
+function planFeatureWhereMissing(
+	doc: BlueprintDoc,
+	feature: PlanFeatureId,
+	attachmentTarget: AttachmentUrlTarget | null,
+): string | null {
+	switch (feature) {
+		case "web-apps":
+			return webAppsWhereMissing(narrowingTo(doc, "android"));
+		case "advanced-case-actions":
+			return saveToCaseWhereMissing(
+				placementMoveOffer(doc, "save-to-case") !== null,
+				saveToCaseFormNames(doc, attachmentTarget),
+			);
+		default:
+			return null;
+	}
 }
 
 /** The key a caller names back for one need. */
@@ -181,16 +208,37 @@ export interface ProjectSpaceConfirmationChecks {
 	readonly flat_location_fixture: ProjectSpaceSettingCheck | null;
 	readonly connect_forwarder: ProjectSpaceSettingCheck | null;
 	readonly form_entry_sync_off: ProjectSpaceSettingCheck | null;
+	/**
+	 * The case changes Nova can move so the app doesn't need Save to Case,
+	 * while that plan feature still needs confirming; null otherwise.
+	 */
+	readonly placement_moves: PlacementMoveOfferView | null;
+}
+
+/**
+ * Whether the needs still ask for Save to Case: the plan feature a
+ * `save-to-case` move offer answers instead of the person.
+ */
+export function asksSaveToCase(
+	needed: readonly Pick<DeploymentConfirmationNeeded, "kind" | "subject">[],
+): boolean {
+	return needed.some(
+		(need) =>
+			need.kind === "plan-feature" && need.subject === "advanced-case-actions",
+	);
 }
 
 /**
  * Each need as the pre-publish check reports it, with its state from the
  * confirmations in force on the target (none where no deployment exists).
- * The person is named by display name, never by user id.
+ * The person is named by display name, never by user id. `saveToCaseOffer`
+ * is the document's `save-to-case` move offer, reported while Save to Case
+ * still needs confirming.
  */
 export function confirmationChecks(
 	needed: readonly DeploymentConfirmationNeeded[],
 	live: readonly DeploymentConfirmation[],
+	saveToCaseOffer: PlacementMoveOfferView | null,
 ): ProjectSpaceConfirmationChecks {
 	const stateOf = (need: DeploymentConfirmationNeeded) => {
 		const held = live.find((confirmation) => sameSubject(confirmation, need));
@@ -216,26 +264,34 @@ export function confirmationChecks(
 					...stateOf(need),
 				};
 	};
+	const planFeatures = needed.flatMap((need) => {
+		if (need.kind !== "plan-feature" || !isPlanFeatureId(need.subject)) {
+			return [];
+		}
+		return [
+			{
+				id: need.subject,
+				label: need.label,
+				plans: need.plans,
+				consequence: need.consequence,
+				reasons: need.reasons,
+				where_missing: need.whereMissing,
+				...stateOf(need),
+			},
+		];
+	});
 	return {
-		plan_features: needed.flatMap((need) => {
-			if (need.kind !== "plan-feature" || !isPlanFeatureId(need.subject)) {
-				return [];
-			}
-			return [
-				{
-					id: need.subject,
-					label: need.label,
-					plans: need.plans,
-					consequence: need.consequence,
-					reasons: need.reasons,
-					where_missing: need.whereMissing,
-					...stateOf(need),
-				},
-			];
-		}),
+		plan_features: planFeatures,
 		flat_location_fixture: setting("flat-location-fixture"),
 		connect_forwarder: setting("connect-forwarder"),
 		form_entry_sync_off: setting("form-entry-sync-off"),
+		placement_moves: planFeatures.some(
+			(feature) =>
+				feature.id === "advanced-case-actions" &&
+				feature.state === "needs_confirmation",
+		)
+			? saveToCaseOffer
+			: null,
 	};
 }
 
