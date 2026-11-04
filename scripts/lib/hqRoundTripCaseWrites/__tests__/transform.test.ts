@@ -1,6 +1,6 @@
 /**
  * The cutover's whole transform of one app (part 09 §7) and its judgement
- * (§7.13, §12), over the pre-step fixtures read raw from the carriers the
+ * (§7.14, §12), over the pre-step fixtures read raw from the carriers the
  * database holds, and over targets planted where no fixture holds a shape.
  *
  * The per-step cases live beside this file (`stepsCasesLinks.test.ts`,

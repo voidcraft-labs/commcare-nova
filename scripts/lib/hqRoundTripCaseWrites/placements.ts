@@ -1,5 +1,5 @@
 /**
- * Step 14, `placements` (part 09 §8): where a published app keeps each unit
+ * Step 15, `placements` (part 09 §8): where a published app keeps each unit
  * of each form once the cutover has run.
  *
  * A unit is a case operation of the target (the own arm and every operation

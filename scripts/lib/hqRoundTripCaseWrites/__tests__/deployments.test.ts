@@ -1,5 +1,5 @@
 /**
- * Step 16, each live deployment's lines (part 09 §9), over CommCare HQ's
+ * Step 17, each live deployment's lines (part 09 §9), over CommCare HQ's
  * own reads of what Nova published before step 5.
  *
  * Each test starts from a migration witness's pre-step fixture, its HQ read

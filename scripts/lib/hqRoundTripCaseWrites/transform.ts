@@ -5,8 +5,8 @@
  * notice entries, its blockers and its planned case-schema differences.
  *
  * The order is the table's: the structure phase over raw JSON (steps 1 to
- * 5), the head parse, the semantic steps 6 to 13 over the parsed document,
- * the placement step 14, the judgement 15, then the deployment lines 16,
+ * 5), the head parse, the semantic steps 6 to 14 over the parsed document,
+ * the placement step 15, the judgement 16, then the deployment lines 17,
  * which write nothing. A blocker stops the transform at its step: the plan
  * has no target for the app, and the app is still judged over the document
  * the steps before it left, so it is reported with every other blocker the
@@ -27,6 +27,7 @@ import { entriesForApp } from "./notice";
 import type { RawDocument } from "./oldShape";
 import { type PlacementCounts, placements } from "./placements";
 import type { StepResult } from "./steps/apply";
+import { blankComparisonsStep } from "./steps/blankComparisons";
 import { explicitPreloadsStep } from "./steps/explicitPreloads";
 import { extensionChildren } from "./steps/extensionChildren";
 import { fieldListFlagsStep } from "./steps/fieldListFlags";
@@ -51,10 +52,10 @@ import {
 export type { AppTransform, StepContext };
 
 /**
- * What the placement step (14) read and counted beside the target: its
+ * What the placement step (15) read and counted beside the target: its
  * counts, which the report's `placements` line prints, and the creates step
  * 8 found a link carrying, by form, which the writer's postcondition passes
- * when it runs step 14 again over the stored target and the locked
+ * when it runs step 15 again over the stored target and the locked
  * baselines (part 09 §14).
  */
 export interface PlacementTrace {
@@ -62,7 +63,7 @@ export interface PlacementTrace {
 	readonly carriedCreates?: ReadonlyMap<Uuid, ReadonlySet<Uuid>>;
 }
 
-/** One app's transform, with its placement trace where step 14 ran
+/** One app's transform, with its placement trace where step 15 ran
  *  without a blocker. */
 export type TransformedApp = AppTransform & {
 	readonly placement?: PlacementTrace;
@@ -95,7 +96,7 @@ function inRegistryOrder(
 	});
 }
 
-/** The creates step 8 found a link carrying, by form, for step 14. */
+/** The creates step 8 found a link carrying, by form, for step 15. */
 function carriedCreatesByForm(
 	doc: BlueprintDoc,
 	carried: ReadonlySet<Uuid>,
@@ -145,7 +146,7 @@ function deploymentEntries(
 	);
 }
 
-/** Steps 6 to 13 in their order, each over the document the one before it
+/** Steps 6 to 14 in their order, each over the document the one before it
  *  left; the first that meets a blocker stops the run there. */
 function semanticSteps(
 	doc: BlueprintDoc,
@@ -174,6 +175,7 @@ function semanticSteps(
 		(next) => queryRepeatPlacementStep(next),
 		(next) => repeatCountsStep(next, ctx),
 		(next) => fieldListFlagsStep(next, facts),
+		(next) => blankComparisonsStep(next, ctx),
 	];
 	let current = extension.doc;
 	for (const step of later) {
@@ -236,11 +238,11 @@ function run(
 	const facts = structure.facts;
 	if (structure.blockers.length > 0) return judgedStop(head.doc, facts);
 
-	// Steps 6 to 13.
+	// Steps 6 to 14.
 	const semantic = semanticSteps(head.doc, facts, ctx, into);
 	if (semantic.stopped) return judgedStop(semantic.doc, facts);
 
-	// Step 14.
+	// Step 15.
 	const carriedCreates =
 		semantic.carriedCreates === undefined
 			? undefined
@@ -258,7 +260,7 @@ function run(
 	if (placed.blockers.length > 0) return judgedStop(placed.target, facts);
 	const target = placed.target;
 
-	// Step 15.
+	// Step 16.
 	const judgement = judged
 		? judge({
 				target,
@@ -272,7 +274,7 @@ function run(
 		return stopped(judgement.schemaChanges);
 	}
 
-	// Step 16, which the inner run has no use for.
+	// Step 17, which the inner run has no use for.
 	if (!judged)
 		return {
 			target,

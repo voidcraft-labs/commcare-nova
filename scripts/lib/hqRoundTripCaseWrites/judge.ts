@@ -1,5 +1,5 @@
 /**
- * Step 15, `judge-target` (part 09 §7.13 and §12): whether the document the
+ * Step 16, `judge-target` (part 09 §7.14 and §12): whether the document the
  * steps left is one the fleet transaction may write.
  *
  * Over the target, in order:

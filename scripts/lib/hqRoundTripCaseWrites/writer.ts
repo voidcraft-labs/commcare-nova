@@ -592,7 +592,7 @@ async function writeNotices(
 // ─── Step `postconditions` (section 14) ───────────────────────────────────
 
 /**
- * Step 14 again, over the stored target and the deployments the blocking
+ * Step 15 again, over the stored target and the deployments the blocking
  * scan locked: the holds the target carries must be exactly the plan's, the
  * head must emit each at its identity (section 8.4), and each one held
  * because a baseline carried it must still be carried by a locked baseline.

@@ -43,7 +43,7 @@ export interface PlannedWrite {
 	/** The app as the fleet read gave it: its carriers, read raw, and the
 	 *  context every step read, for the writer's placement postcondition. */
 	readonly source: SourceApp;
-	/** The creates a link carried when step 8 ran, by form, as step 14 read
+	/** The creates a link carried when step 8 ran, by form, as step 15 read
 	 *  them. */
 	readonly carriedCreates?: ReadonlyMap<Uuid, ReadonlySet<Uuid>>;
 }
@@ -57,7 +57,7 @@ export interface PlannedFleet {
 	/** Each app's blockers with their `places`, for `--debug-details` on the
 	 *  operator's terminal only; never in the plan, its digest or the report. */
 	readonly blockerPlaces: ReadonlyMap<string, readonly CutoverBlocker[]>;
-	/** Each app's placement counts, where step 14 ran without a blocker. */
+	/** Each app's placement counts, where step 15 ran without a blocker. */
 	readonly placementCounts: ReadonlyMap<string, PlacementCounts>;
 	readonly privateWork: PrivateWorkCensus;
 	readonly holders: HolderCensus;

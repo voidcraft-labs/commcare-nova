@@ -521,25 +521,27 @@ export function structurePhase(raw: RawDocument): { readonly persisted: unknown;
 | 8 | `extension-children` | semantics | part 02's M1 to M3: carried creates, the retargets, the held kind left to the next publish (section 7.6) | `lib/commcare/formLinkProjection.ts::linkCarriedCreates`, `lib/domain/advancedModule.ts::advancedKindBlockers`, `lib/commcare/moduleKind.ts::emittedModuleKind`, `lib/domain/formLinkTargets.ts::menuTargetOffered` and `nearestOfferedMenu` | `transform-admission` | `module-made-advanced`, `form-link-goes-to-menu` |
 | 9 | `explicit-preloads` | semantics | C7 | `lib/doc/explicitPreloads.ts::planExplicitPreloads` | `transform-admission` | `starting-value-reads-case`, `load-time-value-reads-case` |
 | 10 | `search-workflow` | semantics | part 05's M1 | `lib/doc/searchWorkflowPlan.ts::authoredSearchWorkflow` | `transform-admission` | `menu-opens-on-search` |
-| 11 | `query-repeat-placement` | semantics | Q1: the effective placement; holds are step 14's | `effectiveQueryRepeatPlacement`, `queryRepeatPlacementNeeds` (part 04) | none | `repeat-rows-follow-query` |
+| 11 | `query-repeat-placement` | semantics | Q1: the effective placement; holds are step 15's | `effectiveQueryRepeatPlacement`, `queryRepeatPlacementNeeds` (part 04) | none | `repeat-rows-follow-query` |
 | 12 | `repeat-counts` | semantics | Q2's wrap; Q3's notice | `lib/doc/repeatCountWraps.ts::planRepeatCountWraps`, `lib/domain/repeatCount.ts::directRepeatCountReference` | `transform-admission` | `repeat-count-whole-number`, `repeat-count-node-removed` |
 | 13 | `field-list-flags` | semantics | Q4 | `lib/doc/groupFieldLists.ts::planGroupFieldLists` with the frozen label rule | `transform-admission` | `group-shows-one-per-screen` |
-| 14 | `placements` | semantics | section 8: every hold the published deployments give | `lib/commcare/hq/publishedCaseBlocks.ts::publishedCaseBlocks`, `lib/commcare/placement.ts::planPlacements`, `lib/doc/placementHolds.ts::holdExpresses`, `lib/commcare/casePlacementPlan.ts::planFormCaseWire` | `baseline-unreadable`, `placement-path-mismatch` | none (section 9's lines carry it) |
-| 15 | `judge-target` | | section 7.13 | | `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-unplanned`, `not-idempotent` | none |
-| 16 | `deployment-lines` | | writes nothing; selects each live deployment's lines (section 9) | | none | `deep-links-need-republish`, `placements-kept-unread`, `form-data-paths-move`, `case-attachments-stop`, `next-publish-asks-more` |
+| 14 | `blank-comparisons` | semantics | a refused comparison of an answer with `''` becomes a blank test (section 7.12) | `lib/domain/referenceSlots.ts::rewriteExpressionSlotValues`, `lib/domain/expression/typeChecker.ts::checkExpression` | none | none |
+| 15 | `placements` | semantics | section 8: every hold the published deployments give | `lib/commcare/hq/publishedCaseBlocks.ts::publishedCaseBlocks`, `lib/commcare/placement.ts::planPlacements`, `lib/doc/placementHolds.ts::holdExpresses`, `lib/commcare/casePlacementPlan.ts::planFormCaseWire` | `baseline-unreadable`, `placement-path-mismatch` | none (section 9's lines carry it) |
+| 16 | `judge-target` | | section 7.14 | | `target-parse`, `target-gate`, `target-export-readiness`, `case-schema-unplanned`, `not-idempotent` | none |
+| 17 | `deployment-lines` | | writes nothing; selects each live deployment's lines (section 9) | | none | `deep-links-need-republish`, `placements-kept-unread`, `form-data-paths-move`, `case-attachments-stop`, `next-publish-asks-more` |
 
 **Order.** Every structure step runs before the head parse, because the head schema cannot read any of
 the keys they remove. Within semantics: operations exist (6) before links are mapped (7), because the
 map's invariants and `linkCarriedCreates` read operations; links are mapped (7) before extension
 placement (8), part 06's order (§14.2: "the map before the extension retargets"); preloads (9) read the
-own arm step 6 wrote; the placement step (14) runs last over every unit in place.
+own arm step 6 wrote; the blank comparisons (14) follow every step that can change what an answer types as;
+the placement step (15) runs last over every unit in place.
 
 **The cutover brief's fixed point dissolves into this order.** The brief ran its steps 6 and 8 as a fixed
 point because a retarget might change which links carry a case. Part 06 holds that `linkCarriedCreates`
 answers the same before and after `mapFormLinkSemantics` (the map changes targets and datums only of menu
 targets, which carry no created case), and part 02's retargets target menus `nearestOfferedMenu` gives and
 drop carried values, which neither adds a carried create nor breaks an invariant the map left. So one
-ordered pass is the fixed point; step 15's `not-idempotent` check holds it per app.
+ordered pass is the fixed point; step 16's `not-idempotent` check holds it per app.
 
 ### 7.1 `renamed-concepts` (structure; part 05 §14)
 
@@ -760,11 +762,35 @@ gets `group-shows-one-per-screen` (field, `detail.form`). A section holding a us
 gate at `main` and at the head alike, so the brief's `section-holds-user-repeat` guard is not a code of
 its own: such a document meets `target-gate`.
 
-### 7.12 `placements` (semantics)
+### 7.12 `blank-comparisons` (semantics)
+
+At `main` a Hidden Value that no field's own Saves to wrote was untyped, so a case operation's condition
+could compare it with the blank text `''`. The head types it by the operations that save it (part 01,
+decision 32), and the checker then refuses the comparison of a number, date, time or location with text
+(`CASE_OPERATION_EXPRESSION_TYPE`, `incompatible-values`). Over every expression slot of every question,
+form and menu, each comparison the checker refuses whose operands are a bare read of an answer and `''`
+becomes a blank test: `eq(x, '')` (either order) `is-blank(x)`, and `neq(x, '')` `not(is-blank(x))`.
+
+On a device the two ask the same of every value but a yes/no. Core reads the node as `""` when blank or not
+relevant, a `Double` for a number, a `Date` for a date, and a `String` otherwise
+(`XPathPathExpr.java::unpackValue`); `XPathEqExpr.java::testEquality` compares a `Double` with `''` as
+numbers, `''` reading as `NaN` (`FunctionUtils.java::toNumeric`), and a `Date` or a `String` as text, so
+only the blank read equals `''`, exactly where `is-blank`'s `string-length(string(x)) = 0` holds. A
+`Boolean` equals `''` when false, where its text is `"false"`, so the step rewrites only an answer that
+never holds one: a visible question; a Hidden Value without a calculation (a starting value is cast
+through its bind's class, `SetValueAction.java::processAction`); and one whose calculation's every result
+types as a value other than yes/no, or reads such an answer (`Recalculate.java::wrapData` makes a
+`BooleanData` only of a `Boolean` result under Nova's binds). Any other comparison stays and meets
+`target-gate`, the author's to rewrite. The step writes the registered slots in place
+(`lib/domain/referenceSlots.ts::rewriteExpressionSlotValues`), since no one mutation addresses an expression
+by its slot; the same condition runs, so it plans `blank-test-written` and no notice. It runs after every
+step that can change what an answer types as.
+
+### 7.13 `placements` (semantics)
 
 Section 8.
 
-### 7.13 `judge-target`
+### 7.14 `judge-target`
 
 Over the document every step left:
 
@@ -1928,7 +1954,7 @@ writer converging exactly the planned differences (G7).
   placements say whether any unit stood in a Save to Case block, and nothing of today's emission says
   which other features its last publish confirmed.
 - **`StepContext` carries three fields more than section 7 lists**: `liveDeployments` (every live
-  deployment, published or not, which step 16's `deep-links-need-republish` names and section 8.1's
+  deployment, published or not, which step 17's `deep-links-need-republish` names and section 8.1's
   published list does not hold), `mutationSeq` (the frozen check's sequence, a `PlacementInput` field)
   and `discardsPrivateWork` (which `entriesForApp` needs to end the notice and `AppTransform` returns).
   The Project's lookup naming is derived from `lookupContext` rather than carried.
@@ -1965,7 +1991,7 @@ writer converging exactly the planned differences (G7).
   `absent`), and an unreadable one's enters through its app's `baseline-unreadable` blocker, whose finding
   codes name it (`baseline-unreadable:<why>`, `placements.ts`). So the digest moves with each cause, and
   the plan keeps section 10.2's shape.
-- **The placement postcondition of section 14 runs step 14 again** (`placements.ts::placements`) over
+- **The placement postcondition of section 14 runs step 15 again** (`placements.ts::placements`) over
   the stored target, the raw carriers the blocking scan proved unchanged, and the deployments read under
   its locks. It requires no blocker, no hold left to write (the digest unchanged) and exactly the plan's
   `held`, sources included. That repeats section 8.4's emission check, and proves each `carried` hold is
@@ -2111,6 +2137,12 @@ writer converging exactly the planned differences (G7).
   casts. A text or single choice property takes any result's text. Several choices stay refused although
   no question stops on them, because Nova's own submission path refuses a value that is not a list there
   (`submissionEnvelope.ts::storageValueFromEvaluation`), as `main`'s operation check did.
+- **Step `blank-comparisons` is added** (section 7.12, step 14; placements, the judgement and the
+  deployment lines become 15 to 17). Decision 32 types a Hidden Value saved to a number, date, time or
+  location property as that type, so a case operation condition comparing it with `''`, which `main` admitted
+  over the untyped value, met `incompatible-values`. The step rewrites each such refused comparison as a
+  blank test, which a device runs identically for every value but a yes/no (section 7.12's proof), and
+  leaves an answer that can hold a yes/no to `target-gate`.
 
 ## Executed during planning
 

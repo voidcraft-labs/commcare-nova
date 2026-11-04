@@ -1,5 +1,5 @@
 /**
- * Step 14, the placements a published app keeps (part 09 §8), over CommCare
+ * Step 15, the placements a published app keeps (part 09 §8), over CommCare
  * HQ's own reads of what Nova published before step 5.
  *
  * Each migration witness's pre-step fixture is the app as `main` stored it,

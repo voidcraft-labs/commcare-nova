@@ -1,5 +1,5 @@
 /**
- * Step 16, `deployment-lines` (part 09 §9): what each live deployment of an
+ * Step 17, `deployment-lines` (part 09 §9): what each live deployment of an
  * app is told about its next publish. It writes nothing to the document;
  * it reads the target the steps left, with its holds, and what each
  * published deployment's baseline carries, and selects each deployment's
@@ -318,7 +318,7 @@ function attachmentProperties(
 const SAVE_TO_CASE_FEATURE = PLAN_FEATURE_FOR_PRIVILEGE.save_to_case;
 
 /**
- * Step 16 over one app: each live deployment's lines and each published
+ * Step 17 over one app: each live deployment's lines and each published
  * deployment's moves. A deployment whose baseline does not verify gets
  * none: its app meets `baseline-unreadable` and is not written.
  */

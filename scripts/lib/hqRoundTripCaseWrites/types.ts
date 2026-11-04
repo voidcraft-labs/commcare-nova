@@ -84,6 +84,7 @@ export const SEMANTIC_STEPS = [
 	"query-repeat-placement",
 	"repeat-counts",
 	"field-list-flags",
+	"blank-comparisons",
 	"placements",
 	"judge-target",
 	"deployment-lines",
