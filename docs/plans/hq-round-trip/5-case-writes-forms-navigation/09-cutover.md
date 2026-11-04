@@ -2166,7 +2166,7 @@ writer converging exactly the planned differences (G7).
   saves blank and clears the case's value (`lib/commcare/xform/caseBlocks.ts::updateBlock`, HQ's
   `XFormCaseBlock.add_case_updates`, Core's `CaseXmlParser.updateCase`), so `planFieldCaseWrite` refuses a
   new save whose question can't open on the case's value (`lib/domain/startingValueFit.ts`), a choice
-  question on a property holding other values included, and C7's `planExplicitPreloads` writes main's
+  question on a property holding text included, and C7's `planExplicitPreloads` writes main's
   starting values unchanged for the rule to judge.
 - **A Hidden Value's branches are held to the property only where one would break a reader** (the advisory
   scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an

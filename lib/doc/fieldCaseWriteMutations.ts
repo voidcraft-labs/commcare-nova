@@ -114,7 +114,7 @@ function startingValueRefusal(
 	if (wholeNumberStartsOnDecimal(field, type))
 		return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. Leaving it blank would clear the case's value. You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
 	if (choiceStartsOutsideItsChoices(field, type))
-		return `${subject}, which can be ${valueKindPhrase(type)} that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "${field.id}" a text question, or save it to a property only questions with these choices save to.`;
+		return `${subject}, which can be ${valueKindPhrase(type)} that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "${field.id}" a text question, or save it to a property that holds choices.`;
 	return undefined;
 }
 
@@ -806,10 +806,12 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * one case is born with the case's current value as the question's starting
  * value, when the question holds none yet (`writerOffersPreload`); the
  * result's `notes` say so. A starting value born for a save the plan
- * replaces counts as none: the new save is born with its own, or it goes.
+ * removes or moves to another property counts as none: a moved save is born
+ * with its own, and otherwise it goes. A replace that keeps the property
+ * leaves the starting value as it is.
  * Where the question can't open on the case's value, a whole-number question
  * on a property that holds decimal numbers or a choice question on one that
- * holds other values (`lib/domain/startingValueFit.ts`), the save is
+ * holds text (`lib/domain/startingValueFit.ts`), the save is
  * refused, since starting it blank would clear the case's value.
  */
 export function planFieldCaseWrite(
@@ -848,20 +850,33 @@ export function planFieldCaseWrite(
 	for (const view of removed) removeViewWrite(draft, view);
 
 	let preload: { readonly property: string } | undefined;
-	/* A starting value the planner bore for a save it now removes reads the
-	 * old property, so it is the question's no longer: the new save is born
-	 * with its own, or the old one goes. */
-	const born = fieldPreload(field);
-	const bornOfRemoved =
-		born !== undefined &&
-		born.caseType === ctx.moduleCaseType &&
+	/** A removed save that read its own case's `property` directly, the save
+	 *  a born starting value belongs to. */
+	const removesOwnSave = (property: string) =>
 		removed.some(
 			(view) =>
 				view.destination === "own" &&
 				view.slot !== "owner" &&
 				view.via === undefined &&
-				view.property === born.property,
+				view.property === property,
 		);
+	/* A replace that keeps the property it saves to, as a flip of "Save only
+	 * if changed" does, changes nothing about the question's starting value:
+	 * the planner neither refuses it nor bears or clears one. */
+	const keepsProperty =
+		destination !== null &&
+		destination.via === undefined &&
+		destination.caseType === ctx.moduleCaseType &&
+		removesOwnSave(destination.property);
+	/* A starting value the planner bore for a save it now removes or moves
+	 * reads that save's property, so it is the question's no longer: a moved
+	 * save is born with its own, and otherwise the old one goes. */
+	const born = fieldPreload(field);
+	const bornOfRemoved =
+		!keepsProperty &&
+		born !== undefined &&
+		born.caseType === ctx.moduleCaseType &&
+		removesOwnSave(born.property);
 	const offerDoc: BlueprintDoc = bornOfRemoved
 		? {
 				...doc,
@@ -903,6 +918,7 @@ export function planFieldCaseWrite(
 				});
 				refusal = saveOn(draft, own, saved);
 				if (
+					!keepsProperty &&
 					saved.slot !== "owner" &&
 					destination.via === undefined &&
 					ctx.moduleCaseType !== undefined &&
@@ -944,7 +960,7 @@ export function planFieldCaseWrite(
 			},
 		} as Mutation);
 		notes.push(OPENS_WITH_CASE_VALUE_NOTE);
-	} else if (bornOfRemoved && destination !== null)
+	} else if (bornOfRemoved)
 		draft.mutations.push({
 			kind: "updateField",
 			uuid: fieldUuid,

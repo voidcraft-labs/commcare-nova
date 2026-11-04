@@ -34,8 +34,13 @@ export function wholeNumberStartsOnDecimal(
 	return field.kind === "int" && type === "decimal";
 }
 
-/** Whether a choice question with written choices could open on a value of
- *  type `type` that names none of them: any type but its own select type. */
+/**
+ * Whether a choice question with written choices could open on a value of
+ * type `type` that names none of them: a type that holds other text than
+ * choices, such as text. A choice-typed property holds choices; whether two
+ * choice questions with different choices may share one is a design question
+ * of its own (issue #856), so their choice sets are not compared here.
+ */
 export function choiceStartsOutsideItsChoices(
 	field: Field,
 	type: CasePropertyDataType | undefined,
@@ -43,7 +48,7 @@ export function choiceStartsOutsideItsChoices(
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return false;
 	if (field.optionsSource.kind !== "inline" || type === undefined) return false;
-	return type !== field.kind;
+	return type !== "single_select" && type !== "multi_select";
 }
 
 /** The type a property's values can be: its declaration, else the one its
