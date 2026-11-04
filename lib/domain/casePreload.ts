@@ -11,8 +11,9 @@
  * `writerOffersPreload` is when a new write to the form's own case is born
  * with that default (`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite`):
  * on a follow-up or close form that opens one case, a write of the own case
- * with no `via`, by a field that is not a capture and holds neither a
- * calculation nor a default yet. A person removes it like any default.
+ * with no `via`, to any property but its owner, by a field that is not a
+ * capture and holds neither a calculation nor a default yet. A person
+ * removes it like any default.
  */
 
 import type { BlueprintDoc } from "./blueprint";
@@ -57,7 +58,8 @@ export function fieldPreload(
 /**
  * Whether a write of `property` by `fieldUuid` to the form's own case should
  * be born with that preload: a one-case follow-up or close form, a write of
- * the own case without `via`, a field that is not a capture, holds no
+ * the own case without `via` and not to its owner (`owner_id`, whichever
+ * slot holds it), a field that is not a capture, holds no
  * `calculate` and no `default_value`, and is of a kind that holds a default.
  */
 export function writerOffersPreload(
@@ -69,7 +71,8 @@ export function writerOffersPreload(
 	property: string,
 	via?: CaseWriteVia,
 ): boolean {
-	if (via !== undefined || property.length === 0) return false;
+	if (via !== undefined || property.length === 0 || property === "owner_id")
+		return false;
 	const field = Object.hasOwn(doc.fields, fieldUuid)
 		? doc.fields[fieldUuid]
 		: undefined;

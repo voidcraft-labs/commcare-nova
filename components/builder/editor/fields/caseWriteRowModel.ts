@@ -340,7 +340,9 @@ function preloadLine(
 	const { view, field, form, module } = input;
 	if (
 		view.destination !== "own" ||
-		view.slot === "owner" ||
+		// The owner, whichever slot holds it, opens on no case value
+		// (`casePreload.ts::writerOffersPreload`).
+		view.property === "owner_id" ||
 		view.via !== undefined ||
 		view.link ||
 		module.caseType === undefined ||

@@ -366,6 +366,15 @@ describe("the preload line", () => {
 		expect(rowOf(fixture("followup"), COMPUTED).preload).toBeUndefined();
 	});
 
+	it("says nothing on a save to the case's owner", () => {
+		const doc = fixture("close");
+		const view = fieldCaseWriteViews(doc, NICKNAME)[0];
+		if (view === undefined) throw new Error("The question saves nothing.");
+		expect(
+			rowOf(doc, NICKNAME, { ...view, property: "owner_id" }).preload,
+		).toBeUndefined();
+	});
+
 	it("says nothing off this form's case or on a registration", () => {
 		const followup = fixture("followup");
 		expect(rowOf(followup, VISIT_NOTE).preload).toBeUndefined();
