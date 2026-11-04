@@ -47,8 +47,6 @@ import {
 	moduleUuidOfForm,
 	type OwnCaseOperation,
 	ownCaseOperationId,
-	STARTING_VALUE_MISFIT_SENTENCES,
-	type StartingValueMisfit,
 	sameCaseWriteKey,
 	startingValueMisfit,
 	USERCASE_CASE_TYPE,
@@ -57,8 +55,6 @@ import {
 	writerOffersPreload,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
-import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
-import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseOperationMultiplicityScopes } from "./caseOperationOrder";
 import { deepEqual } from "./deepEqual";
 import { descendantFieldUuids } from "./fieldWalk";
@@ -90,27 +86,14 @@ export type FieldCaseWritePlan =
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
-/** What a result says when the starting value born for a save goes with it
- *  and the question no longer saves to its form's case. */
+/** What a result says when the starting value born for a save goes with it. */
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
 
-/**
- * What a result says, for each save to its form's case the question keeps,
- * when the starting value born for another save goes with that save: a
- * blank answer now clears the kept property, and the question can open
- * with the case's value, or the sentence the "Saves to" row gives says why
- * it can't. `label` is the property's author-facing label.
- */
-function startsBlankOnKeptNote(
-	label: string,
-	misfit: StartingValueMisfit | undefined,
-): string {
-	const lead = `Starts blank now, so leaving it blank clears the case's ${q(label)}.`;
-	return misfit === undefined
-		? `${lead} You can have it open with the case's current value.`
-		: `${lead} ${STARTING_VALUE_MISFIT_SENTENCES[misfit.kind]}`;
-}
+/** The same, for a question a worker answers that still saves its answer
+ *  somewhere: a blank answer saves blank there. A Hidden Value's own note
+ *  says what an empty one saves. */
+export const STARTS_BLANK_STILL_SAVES_NOTE = `${STARTS_BLANK_NOTE} Leaving it blank clears what it still saves.`;
 
 /** `field` without its starting value. */
 function withoutDefault(field: Field): Field {
@@ -863,10 +846,9 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * whole replace naming it or a removal of another save keeps it, keeps its
  * standing: it is neither refused nor born one, and the gate judges
  * whatever starting value the question holds. A starting value born for a
- * save the plan removes or moves goes with it, and where the question is
- * then left starting blank the `notes` say what a blank answer clears and
- * either offer the case's current value or say why the question can't open
- * on it.
+ * save the plan removes or moves goes with it, and the `notes` say the
+ * question starts blank and, where it still saves its answer, that a blank
+ * answer clears what it saves.
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -904,8 +886,6 @@ export function planFieldCaseWrite(
 	for (const view of removed) removeViewWrite(draft, view);
 
 	let preload: { readonly property: string } | undefined;
-	/** The property of the form's case the destination saves to directly. */
-	let savesOwnCase: string | undefined;
 	/** A removed save that read its own case's `property` directly, the save
 	 *  a born starting value belongs to. */
 	const removesOwnSave = (property: string) =>
@@ -978,8 +958,6 @@ export function planFieldCaseWrite(
 				refusal = saveOn(draft, own, saved);
 				// A save the case can't take says so before its starting value.
 				if (refusal !== undefined) break;
-				if (saved.slot !== "owner" && destination.via === undefined)
-					savesOwnCase = destination.property;
 				// Only a new or moved save is born a starting value, or refused.
 				if (
 					!keepsProperty &&
@@ -1031,39 +1009,15 @@ export function planFieldCaseWrite(
 			targetKind: field.kind,
 			patch: { default_value: null },
 		} as Mutation);
-		/* The question now starts blank: each save to its form's case it
-		 * keeps is cleared by a blank answer, which the notes say with what
-		 * the author can do, and one that no longer saves there says so. */
-		const kept = new Set([
-			...(savesOwnCase === undefined ? [] : [savesOwnCase]),
-			...views
-				.filter(
-					(view) =>
-						!removed.includes(view) &&
-						view.destination === "own" &&
-						view.slot !== "owner" &&
-						view.via === undefined,
-				)
-				.map((view) => view.property),
-		]);
-		const caseType = ctx.moduleCaseType;
-		if (caseType === undefined || kept.size === 0)
-			notes.push(STARTS_BLANK_NOTE);
-		else {
-			const properties =
-				doc.caseTypes?.find((type) => type.name === caseType)?.properties ?? [];
-			for (const property of kept)
-				notes.push(
-					startsBlankOnKeptNote(
-						propertyDisplayLabelForName(
-							property,
-							properties,
-							(label) => projectProseTemplate(label, doc).text,
-						),
-						startingValueMisfit(doc, field, caseType, property),
-					),
-				);
-		}
+		/* The question now starts blank. Where it still saves its answer, a
+		 * blank answer saves blank there, which the note says. */
+		const stillSaves =
+			destination !== null || views.some((view) => !removed.includes(view));
+		notes.push(
+			stillSaves && field.kind !== "hidden"
+				? STARTS_BLANK_STILL_SAVES_NOTE
+				: STARTS_BLANK_NOTE,
+		);
 	}
 	return { ok: true, mutations: draft.mutations, notes };
 }

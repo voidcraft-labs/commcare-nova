@@ -44,11 +44,13 @@ test("two destinations are authored in order and run one after the other on Andr
 			page.getByRole("button", { name: /^Start this form again/ }),
 		).toBeEnabled();
 		/* The next step loads the page again, which aborts a save still in
-		 * flight: wait for this destination's server receipt first. */
+		 * flight: wait for the server to accept this destination's write
+		 * first (a retried attempt counts once it succeeds). */
 		const destinationSaved = page.waitForResponse((response) => {
 			const request = response.request();
 			return (
 				request.method() === "PUT" &&
+				response.ok() &&
 				new URL(response.url()).pathname === `/api/apps/${fixture.appId}` &&
 				(request.postData() ?? "").includes(followUp.formUuid)
 			);
@@ -56,7 +58,7 @@ test("two destinations are authored in order and run one after the other on Andr
 		await page
 			.getByRole("button", { name: `Go to “${followUp.formName}”` })
 			.click();
-		expect((await destinationSaved).ok()).toBe(true);
+		await destinationSaved;
 		await expect(page).toHaveURL(
 			new RegExp(`/${visit.formUuid}/links/[0-9a-f-]{36}$`),
 		);

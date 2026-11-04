@@ -14,6 +14,7 @@ import {
 	planFieldCaseWrite,
 	planFieldMoveCaseWrites,
 	STARTS_BLANK_NOTE,
+	STARTS_BLANK_STILL_SAVES_NOTE,
 	saveNewCaseNameFirstMessage,
 } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -923,37 +924,35 @@ describe("planFieldCaseWrite: the starting value", () => {
 
 		// A save the question keeps keeps its standing: the starting value
 		// born for the save the plan drops goes, the kept save is born none,
-		// and the note says what a blank answer clears and what the author
-		// can do, whether a whole replace names the kept save or a removal of
-		// the other leaves it.
+		// and the note says a blank answer clears what it still saves,
+		// whether a whole replace names the kept save or a removal of the
+		// other leaves it.
 		it.each([
 			[
 				"a whole-number question on a fitting property",
 				COUNT,
 				"tally",
 				"visits",
-				`Starts blank now, so leaving it blank clears the case's "Visits". You can have it open with the case's current value.`,
 			],
 			[
 				"a whole-number question on a decimal property",
 				COUNT,
 				"tally",
 				"weight",
-				`Starts blank now, so leaving it blank clears the case's "Weight". It can't open with that value, which can be a decimal number. A decimal question can.`,
 			],
-			[
-				"a choice question on a text property",
-				STAGE,
-				"stage",
-				"remark",
-				`Starts blank now, so leaving it blank clears the case's "Remark". It can't open with that value, which may not be one of its choices. A text question can.`,
-			],
+			["a choice question on a text property", STAGE, "stage", "remark"],
 		] as const)(
 			"leaves a kept save blank, with the note, for %s",
-			(_what, question, born, kept, note) => {
+			(_what, question, born, kept) => {
 				const doc = savingTwice(question, born, kept);
+				expect(STARTS_BLANK_STILL_SAVES_NOTE).toBe(
+					"Starts blank now, since it no longer saves to the case value it opened with. Leaving it blank clears what it still saves.",
+				);
 				for (const plan of keepingOnly(doc, question, kept, born)) {
-					expect(plan).toMatchObject({ ok: true, notes: [note] });
+					expect(plan).toMatchObject({
+						ok: true,
+						notes: [STARTS_BLANK_STILL_SAVES_NOTE],
+					});
 					const next = land(doc, plan);
 					expect(
 						fieldCaseWriteViews(next, question).map((saved) => saved.property),
@@ -994,6 +993,36 @@ describe("planFieldCaseWrite: the starting value", () => {
 					}),
 				),
 			);
+		});
+
+		// The refusal is about where the question opens: moving a save it
+		// doesn't open on leaves its starting value reading the save it keeps,
+		// so a move to a property it couldn't open on is admitted.
+		it("admits a move of a save the question doesn't open on", () => {
+			const doc = savingTwice(COUNT, "tally", "visits");
+			const visits = fieldCaseWriteViews(doc, COUNT).find(
+				(saved) => saved.property === "visits",
+			);
+			if (visits === undefined) throw new Error("No save to visits.");
+			const moved = planFieldCaseWrite(
+				doc,
+				COUNT,
+				{ caseType: "household", property: "weight" },
+				{
+					replace: {
+						operationUuid: visits.operationUuid,
+						slot: visits.slot,
+						key: { property: "visits" },
+					},
+				},
+			);
+			expect(moved).toMatchObject({ ok: true, notes: [] });
+			expect(land(doc, moved).fields[COUNT]).toMatchObject({
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "household", property: "tally" },
+				},
+			});
 		});
 
 		// The starting value the planner bore reads the property it saved to,
