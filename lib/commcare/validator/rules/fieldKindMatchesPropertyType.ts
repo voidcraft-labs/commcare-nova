@@ -161,7 +161,7 @@ export function fieldKindMatchesPropertyType(
 					validationError(
 						"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 						"field",
-						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but that property's declared data_type is "${declaredType}", which can't hold the "${expected}" values a ${writer.kind} field gives. You can change the field's kind, change the property's data_type, or change where the field saves.`,
+						`Field "${writer.fieldId}" in "${writer.formName}" is of kind "${writer.kind}" and saves to case property "${propertyName}" on case type "${caseType}", but that property's declared data_type is "${declaredType}", which can't hold the "${expected}" values a field of kind "${writer.kind}" gives. You can change the field's kind, change the property's data_type, or change where the field saves.`,
 						{
 							moduleUuid: writer.moduleUuid,
 							moduleName: writer.moduleName,
@@ -204,7 +204,7 @@ export function fieldKindMatchesPropertyType(
 					validationError(
 						"FIELD_KIND_WRITERS_DISAGREE",
 						"field",
-						`Field "${writer.fieldId}" in "${writer.formName}" is a ${writer.kind} field saving to case property "${propertyName}" on case type "${caseType}", but the fields in this app that save there give values no one type can hold (${sortedTypes.map((t) => `"${t}"`).join(" / ")}). You can give every field that saves to "${propertyName}" a kind one type holds, or change where the conflicting fields save.`,
+						`Field "${writer.fieldId}" in "${writer.formName}" is of kind "${writer.kind}" and saves to case property "${propertyName}" on case type "${caseType}", but the fields in this app that save there give values no one type can hold (${sortedTypes.map((t) => `"${t}"`).join(" / ")}). You can give every field that saves to "${propertyName}" a kind one type holds, or change where the conflicting fields save.`,
 						{
 							moduleUuid: writer.moduleUuid,
 							moduleName: writer.moduleName,

@@ -86,14 +86,76 @@ export type FieldCaseWritePlan =
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
-/** What a result says when the starting value born for a save goes with it. */
+/** What a result says when the starting value born for a save goes with it
+ *  and the question saves nothing to a case that already exists (no save,
+ *  or only a case the form creates), and for a Hidden Value, whose own note
+ *  (`casePreload.ts::hiddenWriterBlankNote`) says what an empty one saves. */
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
 
-/** The same, for a question a worker answers that still saves its answer
- *  somewhere: a blank answer saves blank there. A Hidden Value's own note
- *  says what an empty one saves. */
-export const STARTS_BLANK_STILL_SAVES_NOTE = `${STARTS_BLANK_NOTE} Leaving it blank clears what it still saves.`;
+/** The same, for a question a worker answers that still saves its answer to
+ *  a case that exists: a blank answer saves blank over the value there. */
+export const STARTS_BLANK_CLEARS_NOTE =
+	"Starts blank now, so leaving it blank clears the values it saves.";
+
+/** `STARTS_BLANK_CLEARS_NOTE` with the next step, where the question can
+ *  open on the current value of `property`, a property of its form's case it
+ *  still saves to. */
+export function startsBlankClearsNote(property: string): string {
+	return `${STARTS_BLANK_CLEARS_NOTE} You can have it open with the case's current value instead: set its starting value to #case/${property}.`;
+}
+
+/**
+ * What a result says when the starting value born for a save goes with it.
+ * The question starts blank; where a question a worker answers still saves
+ * its answer to a case that exists (the form's case, a case above it, the
+ * worker's record), a blank answer saves blank there, and where one of
+ * those saves is to its form's case and the question can open on that
+ * value, the note names the starting value that does. A save to a case the
+ * form creates clears nothing.
+ */
+function startsBlankNote(
+	offerDoc: BlueprintDoc,
+	field: Field,
+	caseType: string | undefined,
+	kept: readonly FieldCaseWriteView[],
+	destination: FieldCaseWriteDestination | null,
+	keepsProperty: boolean,
+): string {
+	if (field.kind === "hidden") return STARTS_BLANK_NOTE;
+	const ownProperties = [
+		...kept
+			.filter((view) => view.destination === "own" && view.slot !== "owner")
+			.map((view) => ({ property: view.property, via: view.via })),
+		...(destination !== null && keepsProperty
+			? [{ property: destination.property, via: destination.via }]
+			: []),
+	];
+	const clearsExisting =
+		kept.some(
+			(view) =>
+				view.destination === "own" ||
+				view.destination === "ancestor" ||
+				view.destination === "worker-record",
+		) ||
+		(destination !== null &&
+			(destination.caseType === caseType ||
+				destination.caseType === USERCASE_CASE_TYPE ||
+				destination.via !== undefined));
+	if (!clearsExisting) return STARTS_BLANK_NOTE;
+	const opensOn =
+		caseType === undefined
+			? undefined
+			: ownProperties.find(
+					({ property, via }) =>
+						writerOffersPreload(offerDoc, field.uuid, property, via) &&
+						startingValueMisfit(offerDoc, field, caseType, property) ===
+							undefined,
+				);
+	return opensOn === undefined
+		? STARTS_BLANK_CLEARS_NOTE
+		: startsBlankClearsNote(opensOn.property);
+}
 
 /** `field` without its starting value. */
 function withoutDefault(field: Field): Field {
@@ -847,8 +909,10 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * standing: it is neither refused nor born one, and the gate judges
  * whatever starting value the question holds. A starting value born for a
  * save the plan removes or moves goes with it, and the `notes` say the
- * question starts blank and, where it still saves its answer, that a blank
- * answer clears what it saves.
+ * question starts blank and, where it still saves its answer to a case that
+ * exists, that a blank answer clears what it saves, with the starting value
+ * that opens it on a kept save to its form's case where it can
+ * (`startsBlankNote`).
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -1009,14 +1073,15 @@ export function planFieldCaseWrite(
 			targetKind: field.kind,
 			patch: { default_value: null },
 		} as Mutation);
-		/* The question now starts blank. Where it still saves its answer, a
-		 * blank answer saves blank there, which the note says. */
-		const stillSaves =
-			destination !== null || views.some((view) => !removed.includes(view));
 		notes.push(
-			stillSaves && field.kind !== "hidden"
-				? STARTS_BLANK_STILL_SAVES_NOTE
-				: STARTS_BLANK_NOTE,
+			startsBlankNote(
+				offerDoc,
+				field,
+				ctx.moduleCaseType,
+				views.filter((view) => !removed.includes(view)),
+				destination,
+				keepsProperty,
+			),
 		);
 	}
 	return { ok: true, mutations: draft.mutations, notes };

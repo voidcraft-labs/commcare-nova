@@ -13,9 +13,10 @@ import {
 	OPENS_WITH_CASE_VALUE_NOTE,
 	planFieldCaseWrite,
 	planFieldMoveCaseWrites,
+	STARTS_BLANK_CLEARS_NOTE,
 	STARTS_BLANK_NOTE,
-	STARTS_BLANK_STILL_SAVES_NOTE,
 	saveNewCaseNameFirstMessage,
+	startsBlankClearsNote,
 } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -529,6 +530,12 @@ describe("planFieldCaseWrite: the starting value", () => {
 							{ name: "level", label: "Level", data_type: "single_select" },
 						],
 					},
+					{
+						name: "visit_log",
+						parent_type: "household",
+						relationship: "child",
+						properties: [{ name: "count", label: "Count", data_type: "int" }],
+					},
 				],
 				modules: [
 					{
@@ -923,36 +930,39 @@ describe("planFieldCaseWrite: the starting value", () => {
 		});
 
 		// A save the question keeps keeps its standing: the starting value
-		// born for the save the plan drops goes, the kept save is born none,
-		// and the note says a blank answer clears what it still saves,
-		// whether a whole replace names the kept save or a removal of the
-		// other leaves it.
+		// born for the save the plan drops goes and the kept save is born
+		// none, whether a whole replace names it or a removal of the other
+		// leaves it. The note says a blank answer clears what it saves, and
+		// names the starting value where the question can open on the kept
+		// save's value.
 		it.each([
 			[
 				"a whole-number question on a fitting property",
 				COUNT,
 				"tally",
 				"visits",
+				"Starts blank now, so leaving it blank clears the values it saves. You can have it open with the case's current value instead: set its starting value to #case/visits.",
 			],
 			[
 				"a whole-number question on a decimal property",
 				COUNT,
 				"tally",
 				"weight",
+				"Starts blank now, so leaving it blank clears the values it saves.",
 			],
-			["a choice question on a text property", STAGE, "stage", "remark"],
+			[
+				"a choice question on a text property",
+				STAGE,
+				"stage",
+				"remark",
+				"Starts blank now, so leaving it blank clears the values it saves.",
+			],
 		] as const)(
 			"leaves a kept save blank, with the note, for %s",
-			(_what, question, born, kept) => {
+			(_what, question, born, kept, note) => {
 				const doc = savingTwice(question, born, kept);
-				expect(STARTS_BLANK_STILL_SAVES_NOTE).toBe(
-					"Starts blank now, since it no longer saves to the case value it opened with. Leaving it blank clears what it still saves.",
-				);
 				for (const plan of keepingOnly(doc, question, kept, born)) {
-					expect(plan).toMatchObject({
-						ok: true,
-						notes: [STARTS_BLANK_STILL_SAVES_NOTE],
-					});
+					expect(plan).toMatchObject({ ok: true, notes: [note] });
 					const next = land(doc, plan);
 					expect(
 						fieldCaseWriteViews(next, question).map((saved) => saved.property),
@@ -961,6 +971,35 @@ describe("planFieldCaseWrite: the starting value", () => {
 				}
 			},
 		);
+
+		it("names the starting value its note offers by the property", () => {
+			expect(startsBlankClearsNote("visits")).toBe(
+				`${STARTS_BLANK_CLEARS_NOTE} You can have it open with the case's current value instead: set its starting value to #case/visits.`,
+			);
+		});
+
+		// A save to a case the form creates clears nothing, so a born save
+		// moved there says only that the question starts blank.
+		it("says only that it starts blank when its save moves to a case the form creates", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, STAGE, {
+					caseType: "household",
+					property: "stage",
+				}),
+			);
+			const moved = planFieldCaseWrite(
+				saved,
+				STAGE,
+				{ caseType: "visit_log", property: "case_name" },
+				{ replace: keyOf(saved, STAGE) },
+			);
+			expect(moved).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+			expect(land(saved, moved).fields[STAGE]).not.toHaveProperty(
+				"default_value",
+			);
+		});
 
 		// A move is a new save to its property, so a move to a property the
 		// question can't open on is refused as a new save there is, while the
