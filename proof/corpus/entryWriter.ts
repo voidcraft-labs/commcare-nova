@@ -435,9 +435,10 @@ function footprintEntities(footprint: Footprint): string[] {
  * verdict, in the words `proof/checks/corpus.py::verdict_lacks` uses: each
  * required flag it does not hold, `case search` where a capability needs it
  * off there, `sync cases on form entry off` where the verdict requires the
- * setting off and the configuration has it on, and `CommCare Supply off`
+ * setting off and the configuration has it on, `CommCare Supply off`
  * where the verdict requires CommCare Supply off and the configuration has
- * it on.
+ * it on, and `<flag> off` for each flag its `flagsOff` names that the
+ * configuration holds.
  */
 function verdictLacks(
 	verdict: NovaPublishVerdict,
@@ -459,6 +460,12 @@ function verdictLacks(
 	if (minimum.commtrackEnabled === false && configuration.commtrack) {
 		lacking.push("CommCare Supply off");
 	}
+	lacking.push(
+		...(minimum.flagsOff ?? [])
+			.filter((flag) => configuration.flags.includes(flag))
+			.sort()
+			.map((flag) => `${flag} off`),
+	);
 	return lacking;
 }
 
@@ -515,9 +522,11 @@ export async function writeEntry(
 	await rm(root, { recursive: true, force: true });
 	await mkdir(root, { recursive: true });
 
-	const verdict = novaPublishVerdict(entry.doc);
+	const verdict = novaPublishVerdict(entry.doc, publish);
 	const editVerdict =
-		edit === undefined ? undefined : novaPublishVerdict(edit.nextDoc);
+		edit === undefined
+			? undefined
+			: novaPublishVerdict(edit.nextDoc, edit.publish);
 	const least = minimumConfiguration(
 		editVerdict === undefined ? [verdict] : [verdict, editVerdict],
 	);
@@ -592,6 +601,23 @@ export async function writeEntry(
 				}),
 			}),
 		);
+	}
+	/* And each flag Nova's publish requires off (for D or D′): no
+	 * configuration of the document may turn one on. */
+	const flagsOff = new Set(
+		[verdict, editVerdict].flatMap(
+			(item) => item?.minimumConfiguration.flagsOff ?? [],
+		),
+	);
+	if (retained === undefined) {
+		for (const [name, configuration] of configurationFlags(flags)) {
+			const on = configuration.flags.filter((flag) => flagsOff.has(flag));
+			if (on.length > 0) {
+				throw new Error(
+					`${document.id} turns ${on.join(", ")} on in its ${name} configuration, and Nova's publish requires ${on.length === 1 ? "that flag" : "those flags"} off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
+				);
+			}
+		}
 	}
 	const named =
 		retained === undefined

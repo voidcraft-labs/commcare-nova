@@ -95,10 +95,12 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema, effectiveAppLocalization } from "@/lib/domain";
 import { hqSideState } from "../../targeted/documents/hqSideState";
 import { lookupReservedTags } from "../../targeted/documents/lookupReservedTags";
+import { sameTypeChild } from "../../targeted/documents/sameTypeChild";
 import {
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "../../targeted/documents/searchApps";
+import { supplyPointText } from "../../targeted/documents/supplyPointText";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { type CorpusDocument, lookupContextOf } from "../documents";
@@ -111,7 +113,6 @@ import {
 import { sampleFuzzDocuments } from "../fuzzSample";
 import { producerDocuments } from "../producers";
 import {
-	commtrackRequirement,
 	PLACEHOLDER_APP_ID,
 	PROOF_DOMAIN,
 	PROOF_SERVER,
@@ -634,20 +635,16 @@ describe("the corpus emitter", () => {
 			...arithmetic,
 			projectSettings: { commtrack: true },
 		};
-		// Nova's publish asks no document that CommCare Supply be off, so the
-		// requirement is stood in for the refusal.
-		const requirement = vi
-			.spyOn(commtrackRequirement, "asksCommtrackOff")
-			.mockReturnValue(true);
-		try {
-			await expect(
-				emit(join(root, "supply-on-refused"), [supplied], []),
-			).rejects.toThrow(
-				`${supplied.id} turns CommCare Supply on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
-			);
-		} finally {
-			requirement.mockRestore();
-		}
+		// The supply-point text asks CommCare Supply off.
+		const refused: CorpusDocument = {
+			...supplyPointText(),
+			projectSettings: { commtrack: true },
+		};
+		await expect(
+			emit(join(root, "supply-on-refused"), [refused], []),
+		).rejects.toThrow(
+			`${refused.id} turns CommCare Supply on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
+		);
 		const out = join(root, "supply-on-kept");
 		await emit(out, [supplied], []);
 		const verdict = JSON.parse(
@@ -663,6 +660,37 @@ describe("the corpus emitter", () => {
 			...Object.values(configurations.singleFlag),
 		] as { commtrack: boolean }[]) {
 			expect(configuration.commtrack).toBe(true);
+		}
+	});
+
+	it("refuses a configuration that turns on a flag the verdict needs off, and writes the document's own configurations without it", async () => {
+		const document = sameTypeChild();
+		const refused: CorpusDocument = {
+			...document,
+			singleFlags: ["DONT_INDEX_SAME_CASETYPE"],
+		};
+		await expect(
+			emit(join(root, "flag-off-refused"), [refused], []),
+		).rejects.toThrow(
+			`${refused.id} turns DONT_INDEX_SAME_CASETYPE on in its DONT_INDEX_SAME_CASETYPE configuration, and Nova's publish requires that flag off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
+		);
+		const out = join(root, "flag-off-kept");
+		await emit(out, [document], []);
+		const verdict = JSON.parse(
+			await readFile(join(out, document.id, "verdict.json"), "utf8"),
+		);
+		expect(verdict.minimumConfiguration.flagsOff).toEqual([
+			"DONT_INDEX_SAME_CASETYPE",
+		]);
+		const configurations = JSON.parse(
+			await readFile(join(out, document.id, "configurations.json"), "utf8"),
+		);
+		for (const configuration of [
+			configurations.minimum,
+			configurations.maximum,
+			...Object.values(configurations.singleFlag),
+		] as { flags: string[] }[]) {
+			expect(configuration.flags).not.toContain("DONT_INDEX_SAME_CASETYPE");
 		}
 	});
 

@@ -262,14 +262,17 @@ nothing externally visible has happened.
 nothing and comes before every edge that does. No API key reads a project
 space's plan or its privileges, whether it still sends its flat location list
 (`LocationFixtureConfiguration.sync_flat_fixture`), whether it holds a
-forwarder to CommCare Connect, or whether it syncs cases on form entry, so a
-person confirms each one the app needs:
+forwarder to CommCare Connect, whether it syncs cases on form entry, or whether
+it has CommCare Supply turned off, so a person confirms each one the app needs:
 the plan features `lib/commcare/planPrivileges.ts::requiredPlanFeatures`
 derives from the document and from what this publish sends (a lookup table
 workbook, live places), the flat location list for an app that reads places,
 a Connect forwarder for an app whose forms hold a Connect block, and sync on
 form entry turned off for an Android app with a form that works on a case
-chosen in a menu with Search (`planPrivileges.ts::formEntrySyncReasons`)
+chosen in a menu with Search (`planPrivileges.ts::formEntrySyncReasons`), and
+CommCare Supply turned off for an app with an advanced menu whose case list is
+its own menu item, or a form whose source text names the session's supply
+point (`planPrivileges.ts::commtrackReasons`)
 (`confirmations.ts::requiredConfirmations`). The edge and the pre-publish
 check (`service.ts::projectSpaceConfirmations`, which lists nothing until a
 project space is chosen) read the needs through one helper,
@@ -277,9 +280,9 @@ project space is chosen) read the needs through one helper,
 the ones the publish asks for. It mirrors adoption: the refusal,
 `hq_confirmation_needed`, names each need with its label, plans, consequence
 and reasons, and the caller comes back naming what the person confirmed in
-`confirm`. Confirmations live in `app_deployment_confirmations`, four kinds
+`confirm`. Confirmations live in `app_deployment_confirmations`, five kinds
 (`plan-feature`, `flat-location-fixture`, `connect-forwarder`,
-`form-entry-sync-off`), written only by
+`form-entry-sync-off`, `commtrack-off`), written only by
 the fold of a passed preflight (`foldDeploymentAttempt`'s `confirmations`), so
 a refused publish stores none and the caller resends them; the one exception is
 the resources fold of `hq_plan_lacks_web_apps`, which withdraws the `web-apps`
@@ -732,12 +735,27 @@ Save to Case unconfirmed (`DeploymentAttemptRefusal.placementMoves`), and the
 pre-publish check while that row needs confirming
 (`ProjectSpaceConfirmationChecks.placement_moves`); the need's `whereMissing`
 says whether moving is offered (`lib/publish/placementMoves.ts::saveToCaseWhereMissing`).
-A caller accepting it sends `acceptPlacementMoves`, which the publish applies
+The `same-type-child-links` offer moves each new case of its module's own type
+that stands in a basic subcase
+(`lib/commcare/sameTypeChildCases.ts::sameTypeBasicChildCases`) to the Save to
+Case block the placement planner offers it, with every move that forces (a
+later basic subcase renumbered down), replacing holds that still express
+their targets; a Save to Case block keeps the link between cases of the same
+type whatever the project space says, so the offer never asks for Child
+Cases. It is `null` where no such case stands in a basic subcase, or where a
+forced move would move a block within Save to Case. It rides
+`project_space_incompatible` where the report holds links between cases of
+the same type `missing` or `unverified` (`service.ts::refusalPlacementMoves`).
+Accepted, it needs Save to Case, which the next refusal asks for where it is
+not confirmed, with no `save-to-case` offer, since moving back would make the
+case a same-type basic child again.
+A caller accepting either offer sends `acceptPlacementMoves`, which the publish applies
 before preflight, at the head it holds: an offer that is now `null` (an
 earlier attempt recorded it) goes on, a different digest refuses
 `hq_placement_moves_changed` with the offer as it stands, and the same digest
-records the moves, after which the Save to Case need drops and the publish
-goes on in the same request. The offer's copy lives in
+records the moves, after which preflight runs over the document that holds
+them in the same request: for `save-to-case` the Save to Case need drops, and
+for `same-type-child-links` the capability is no longer required. The offer's copy lives in
 `lib/publish/placementMoves.ts`, which client surfaces read.
 
 **What a deployment's baseline holds.**

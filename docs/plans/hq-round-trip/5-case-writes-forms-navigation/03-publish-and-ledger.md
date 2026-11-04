@@ -2441,6 +2441,68 @@ From pull request 6's implementation:
   `lib/deployment/__tests__/placementMoves.test.ts` holds the case it admits: a menu held advanced
   whose extension create's block moves to its open action, the menu staying advanced. No test makes
   the clause refuse, because no admitted document gives it one.
+- **The `same-type-child-links` reason was already there, so pull request 8 fills its arm** (section 7.3
+  and the files of pull request 8 add the reason). Pull request 6 put it in
+  `lib/publish/placementMoves.ts::PLACEMENT_OFFER_REASONS`, and `lib/deployment/placementMoves.ts::placementMoveOffer`
+  answered it `null` (the departure above). Pull request 8 adds no reason and changes no schema: the
+  arm now returns `sameTypeChildLinksOffer(doc)`. The service's acceptance before preflight hands the
+  accepted reason to `placementMoveOffer` and treats both reasons alike, so it needs no new branch.
+- **The same-type exclusion pull request 8 lifts is the domain's** (the files of pull request 8 name "part
+  01's `lib/commcare/placement.ts` (the same-type exclusion lifted)"). It is
+  `lib/domain/basicCaseSlots.ts::sameTypeExclusions`, which `basicCaseSlots`,
+  `placement.ts::planAdvancedCore` and `lib/domain/advancedEntryDatums.ts::advancedEntryActions` call;
+  pull request 8 removes it and the three calls, the advanced arm included, since
+  `DONT_INDEX_SAME_CASETYPE` touches only a basic subcase's index
+  (`corehq/apps/app_manager/xform.py::XForm._create_casexml`). Part 01's departure 48 holds the
+  evidence.
+- **Two notice and guide tests sit in files section 20 does not name.** The `next-publish-asks-more`
+  lines for `commtrack-off` and `same-type-child-links` are cases of the existing
+  `lib/notices/__tests__/migrationNoticeCopy.test.ts`, beside the line for `form-entry-sync-off`. The
+  import file's two settings-off steps (links between cases of the same type as a step of their own,
+  out of the capabilities step, and CommCare Supply) are held at `hqImportFileGuide`, which decides them,
+  in the new `lib/commcare/multimedia/__tests__/hqImportFileGuideSettingsOff.test.ts`, while
+  `lib/publish/__tests__/manualImportGuide.test.ts` keeps the steps' copy.
+- **The same-type value class reads the configurations an app JSON was sent under.** Section 17 has
+  `own_case_type_where_same_type_unindexed` read the configuration's flags, which no value-class reader
+  was handed. `proof/checks/manifest_value_classes.py::App` takes the configurations, and the class
+  answers True where one turns `DONT_INDEX_SAME_CASETYPE` on, False where none does, and None only where
+  a reading names none; part 08's departures hold how `manifest_usage.py` threads them.
+- **A string literal holding the supply-point text gives no CommCare Supply reason; a label does** (section
+  20's row "a label and a literal holding the text"). The XForm and form builder printers always cut a
+  literal right after `instance(` (`lib/commcare/xpath/wire/serialize.ts::literalPieces`, its
+  `INSTANCE_LITERAL` cut), so a calculate's literal is written `concat('instance',
+  "('commcaresession')/session/data/supply_point_id")`, which no substring test meets, before or after a
+  form-builder save. `commtrackReasons` reads the emission as planned, so it gives no reason for it by
+  construction; `planPrivileges.test.ts` asserts that spelling and that the form gets no reason, and a
+  label's itext text, which is not cut, gives one. Part 08's `targeted-supply-point-text` keeps its literal as
+  the negative half, and G2's outcome A clause about the calculate's attribute cannot hold for a literal Nova
+  writes. `formSourceHoldsSupplyPointText` also reads comments, beside attribute values and text nodes, so it
+  is a superset of HQ's whole-source substring test; Nova writes no comment in a form source.
+- **`commtrackReasons` takes the lookup naming the publish emits under** (section 9 has it expand the doc
+  alone). Expanding with the identity naming carries no column types, so an app comparing a table's value
+  with a date throws in `lib/commcare/xpath/wire/instant.ts::refuseUnlowerable` (the corpus's
+  `function-nested-lookup` did). The naming is threaded through `requiredConfirmations`,
+  `lib/deployment/preflight.ts::publishConfirmationNeeds` (from the export boundary's
+  `prepared.lookupNaming`, and from `service.ts::projectLookupNaming` for the pre-publish check) and
+  `hqImportFileGuide` (`app/api/compile/json/route.ts`, `lib/mcp/tools/compileApp.ts`), files the pull
+  request's list does not name; `proof/corpus/publish.ts::novaPublishVerdict` derives it from the document's
+  own Project data. `planPrivileges.test.ts` holds the regression with a table read in a date comparison.
+- **The dialog words the same-type offer from the refusal's report** (section 7.5 words the offer from the
+  offer). Section 16 picks the body by the capability's state, so
+  `components/builder/publishOutcome.ts::placementOfferCopy(offer, report)` takes the report and answers null
+  where it holds `same-type-child-links` neither missing nor unverified; the heading and the two bodies are
+  `SAME_TYPE_CHILD_LINKS_OFFER_HEADING` and `sameTypeChildLinksOfferBody` in `lib/publish/placementMoves.ts`,
+  beside the save-to-case copy and the new `movedToSaveToCaseSentence`.
+- **A move's sentence follows the change's placement before and after**, not membership in the moved set: a
+  change crossing between Case Management and Save to Case reads the offer's moved sentence, one that stays in
+  Case Management the forced sentence. The save-to-case offer's sentences are unchanged. The same-type offer
+  is null where a forced move only re-paths a change already in a Save to Case block, for which section 16 has
+  no sentence; no document reaches it.
+- **The browser scenario stubs the CommCare Supply check report** (section 20 has it built from a document
+  whose label holds the text). `lib/deployment/confirmations.ts` imports `lib/deployment/placementMoves.ts`,
+  which is `server-only`, so the spec cannot load it. `e2e/tests/browser/publishing.spec.ts` builds the row
+  from `COMMTRACK_OFF` with the reason sentence `commtrackReasons` writes, which `planPrivileges.test.ts`
+  holds against emitted source.
 
 ---
 

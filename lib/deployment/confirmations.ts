@@ -4,7 +4,8 @@
  *
  * No API key reads a project space's plan, whether it still sends its flat
  * location list, whether it holds a forwarder to CommCare Connect, or whether
- * it syncs cases on form entry, so the
+ * it syncs cases on form entry, or whether it has CommCare Supply turned
+ * off, so the
  * person confirms each one the app needs, as they confirm taking over a
  * lookup table: the refusal names what is needed, the caller comes back
  * naming what the person confirmed, and the deployment keeps it until
@@ -17,7 +18,9 @@
  */
 
 import { buildConnectSlugMap } from "@/lib/commcare/connectSlugs";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
+	commtrackReasons,
 	connectForwarderReasons,
 	flatLocationFixtureReasons,
 	formEntrySyncReasons,
@@ -31,6 +34,7 @@ import {
 	saveToCaseWhereMissing,
 } from "@/lib/publish/placementMoves";
 import {
+	COMMTRACK_OFF,
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
 	FORM_ENTRY_SYNC_OFF,
@@ -59,14 +63,18 @@ export type { PlanPrivilegePushes } from "@/lib/commcare/planPrivileges";
  * Everything this app needs a person to confirm about a project space, in
  * the order every surface lists it: the plan features, then the flat
  * location list, then the Connect forwarder, then sync on form entry turned
- * off. `attachmentTarget` is the one a
+ * off, then CommCare Supply turned off. `attachmentTarget` is the one a
  * publish there hands the emitter (`attachmentTarget.ts::attachmentUrlTarget`
- * of its server and project space).
+ * of its server and project space), and `lookupNaming` the naming of the
+ * Project's lookup definitions it emits under (`undefined` for an app that
+ * reads no table), since CommCare Supply is asked about from the app's own
+ * emission.
  */
 export function requiredConfirmations(
 	doc: BlueprintDoc,
 	pushes: PlanPrivilegePushes,
 	attachmentTarget: AttachmentUrlTarget | null,
+	lookupNaming: LookupWireNaming | undefined,
 ): DeploymentConfirmationNeeded[] {
 	const connect = buildConnectSlugMap(doc);
 	const needed: DeploymentConfirmationNeeded[] = requiredPlanFeatures(
@@ -119,6 +127,18 @@ export function requiredConfirmations(
 			whereMissing: formEntrySyncWhereMissing(narrowingTo(doc, "web-apps")),
 		});
 	}
+	const supplyReasons = commtrackReasons(doc, lookupNaming);
+	if (supplyReasons.length > 0) {
+		needed.push({
+			kind: "commtrack-off",
+			subject: "commtrack-off",
+			label: COMMTRACK_OFF.label,
+			plans: "",
+			consequence: COMMTRACK_OFF.consequence,
+			reasons: supplyReasons,
+			whereMissing: COMMTRACK_OFF.whereMissing,
+		});
+	}
 	return needed;
 }
 
@@ -164,6 +184,8 @@ export function confirmationKeyOf(
 			return { kind: "connect-forwarder" };
 		case "form-entry-sync-off":
 			return { kind: "form-entry-sync-off" };
+		case "commtrack-off":
+			return { kind: "commtrack-off" };
 	}
 }
 
@@ -208,6 +230,7 @@ export interface ProjectSpaceConfirmationChecks {
 	readonly flat_location_fixture: ProjectSpaceSettingCheck | null;
 	readonly connect_forwarder: ProjectSpaceSettingCheck | null;
 	readonly form_entry_sync_off: ProjectSpaceSettingCheck | null;
+	readonly commtrack_off: ProjectSpaceSettingCheck | null;
 	/**
 	 * The case changes Nova can move so the app doesn't need Save to Case,
 	 * while that plan feature still needs confirming; null otherwise.
@@ -285,6 +308,7 @@ export function confirmationChecks(
 		flat_location_fixture: setting("flat-location-fixture"),
 		connect_forwarder: setting("connect-forwarder"),
 		form_entry_sync_off: setting("form-entry-sync-off"),
+		commtrack_off: setting("commtrack-off"),
 		placement_moves: planFeatures.some(
 			(feature) =>
 				feature.id === "advanced-case-actions" &&

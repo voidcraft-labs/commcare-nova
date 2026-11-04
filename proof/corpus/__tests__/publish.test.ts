@@ -41,15 +41,18 @@
  * update would read to HQ as a change).
  *
  * The verdict's `commtrackEnabled` is written exactly where Nova's publish
- * asks that CommCare Supply be off. Nova's publish asks it of no document,
- * so the requirement is stood in by a test's; the plausible failure is a
- * verdict that writes the key, or a different value, where the requirement
- * does not hold.
+ * asks that CommCare Supply be off (`requiredConfirmations` holds a
+ * `commtrack-off` need), and `flagsOff` exactly where a capability of the
+ * probe plan needs a flag off, on that capability and in the minimum. The
+ * plausible failures: a verdict that writes either key, or another value,
+ * where the requirement does not hold, misses it where it does, or a
+ * minimum configuration that turns on a flag a verdict needs off.
  */
 
 import { readFile } from "node:fs/promises";
-import { expect, it, vi } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { expect, it } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	wireRow,
 	wireTable,
@@ -59,17 +62,19 @@ import {
 	searchLookupMediaDocument,
 } from "@/lib/deployment/__tests__/publishFixtures";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { type BlueprintDoc, type CaseOperation, proseText } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
 	heldPlacementApp,
 	OWN_BLOCK,
 	OWN_SLOT,
 } from "../../targeted/documents/heldPlacement";
+import { supplyPointTextApp } from "../../targeted/documents/supplyPointText";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { afterFirstPublish } from "../editBatches";
 import {
 	capturePublish,
-	commtrackRequirement,
 	documentVerdict,
 	minimumConfiguration,
 	PROOF_DOMAIN,
@@ -287,26 +292,113 @@ it("records each operation's placement at the first publish and changes no byte 
 	).toBe(true);
 });
 
-it("writes commtrackEnabled only where Nova's publish requires it", () => {
-	const document: PublishDocument = {
-		id: "clinic-visits",
-		doc: toPersistableDoc(clinicVisitsDocument()),
-		compiledAtSeq: 1,
-		media: new Map(),
-	};
-	const without = documentVerdict(document);
-	expect(without.minimumConfiguration).not.toHaveProperty("commtrackEnabled");
-	const requirement = vi
-		.spyOn(commtrackRequirement, "asksCommtrackOff")
-		.mockReturnValue(true);
-	try {
-		const required = documentVerdict(document);
-		expect(requirement).toHaveBeenCalled();
-		expect(required.minimumConfiguration).toEqual({
-			...without.minimumConfiguration,
-			commtrackEnabled: false,
+/** A follow-up on a patient that makes a basic child case of `childType`, linked to the patient. */
+function childApp(childType: "patient" | "visit"): BlueprintDoc {
+	const named = (name: string, parent?: string) => ({
+		name,
+		...(parent !== undefined && { parent_type: parent }),
+		properties: [{ name: "case_name", label: proseText("Name") }],
+	});
+	return buildDoc(
+		{
+			appId: `child-${childType}`,
+			appName: "Patients",
+			caseTypes: [named("patient"), named("visit", "patient")],
+			modules: [
+				{
+					uuid: testUuid("child-patients"),
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: testUuid("child-form"),
+							name: "Add",
+							type: "followup",
+							fields: [
+								f({ kind: "text", uuid: testUuid("child-name"), id: "name" }),
+							],
+						},
+					],
+				},
+				{
+					name: "Visits",
+					caseType: "visit",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Note",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		},
+		(doc) => {
+			doc.forms[testUuid("child-form")].caseOperations = [
+				{
+					uuid: testUuid("child-create"),
+					id: "child",
+					action: "create",
+					caseType: childType,
+					target: { kind: "new" },
+					name: term(formField(testUuid("child-name"))),
+					links: [
+						{
+							identifier: "parent",
+							targetType: "patient",
+							target: { kind: "session" },
+							relationship: "child",
+						},
+					],
+				} as CaseOperation,
+			];
+		},
+	);
+}
+
+it("writes commtrackEnabled and flagsOff only where Nova's publish requires them", () => {
+	const verdictOf = (doc: BlueprintDoc) =>
+		documentVerdict({
+			id: doc.appId,
+			doc: toPersistableDoc(doc),
+			compiledAtSeq: 1,
+			media: new Map(),
 		});
-	} finally {
-		requirement.mockRestore();
-	}
+	// The supply-point text in a label asks CommCare Supply off; an app
+	// without it asks nothing.
+	const supply = verdictOf(supplyPointTextApp()).minimumConfiguration;
+	expect(supply.commtrackEnabled).toBe(false);
+	expect(supply).not.toHaveProperty("flagsOff");
+	const without = verdictOf(clinicVisitsDocument()).minimumConfiguration;
+	expect(without).not.toHaveProperty("commtrackEnabled");
+	expect(without).not.toHaveProperty("flagsOff");
+
+	// A basic child of the menu's own case type needs DONT_INDEX_SAME_CASETYPE
+	// off, on its capability and in the minimum; a child of another type
+	// needs nothing off.
+	const same = verdictOf(childApp("patient"));
+	expect(same.minimumConfiguration.flagsOff).toEqual([
+		"DONT_INDEX_SAME_CASETYPE",
+	]);
+	expect(same.minimumConfiguration).not.toHaveProperty("commtrackEnabled");
+	expect(same.capabilities).toEqual([
+		expect.objectContaining({
+			id: "same-type-child-links",
+			flags: [],
+			flagsOff: ["DONT_INDEX_SAME_CASETYPE"],
+		}),
+	]);
+	const other = verdictOf(childApp("visit"));
+	expect(other.minimumConfiguration).not.toHaveProperty("flagsOff");
+	expect(other.capabilities.some((item) => "flagsOff" in item)).toBe(false);
+	// The minimum turns on no flag a verdict needs off.
+	expect(minimumConfiguration([same, other]).flags).not.toContain(
+		"DONT_INDEX_SAME_CASETYPE",
+	);
 });

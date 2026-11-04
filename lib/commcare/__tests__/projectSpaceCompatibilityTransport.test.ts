@@ -23,6 +23,7 @@ const plan: HqProjectSpaceCompatibilityProbePlan = {
 			featureFlags: [
 				{ id: "case-search-base", slug: "search_claim", namespace: "domain" },
 			],
+			featureFlagsOff: [],
 			runtimeProbes: ["case-search"],
 		},
 	],

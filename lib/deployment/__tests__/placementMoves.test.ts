@@ -10,8 +10,10 @@
  * offer that moves a change the document does not hold, which takes the
  * simplest place already; an offer that leaves a new case of the menu's own
  * type in a basic subcase, which a project space dropping such links would
- * refuse next; and a digest that a person's unrelated edit invalidates, or
- * that a different set of moves keeps.
+ * refuse next; a same-type offer that leaves such a case in a basic subcase,
+ * or misses the later subcase its move renumbers; and a digest that a
+ * person's unrelated edit invalidates, or that a different set of moves
+ * keeps.
  */
 
 import { describe, expect, it } from "vitest";
@@ -34,6 +36,8 @@ import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { placementCandidates, planPlacements } from "@/lib/commcare/placement";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
 import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
+import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type {
 	BlueprintDoc,
 	CaseOperation,
@@ -50,6 +54,7 @@ import {
 
 const OWN_SLOT: CasePlacement = { kind: "basic", slot: "own" };
 const SUBCASE_0: CasePlacement = { kind: "basic", slot: "subcase", index: 0 };
+const SUBCASE_1: CasePlacement = { kind: "basic", slot: "subcase", index: 1 };
 const USERCASE: CasePlacement = { kind: "basic", slot: "usercase" };
 
 const workerUpdate = (key: string, extra: Partial<CaseOperation> = {}) =>
@@ -92,6 +97,16 @@ function held(ownAt?: CasePlacement, kidAt?: CasePlacement) {
 		],
 	});
 }
+
+/** A new patient made from the form's own patient: a case of the menu's own
+ *  type, which a basic subcase links only where the project space keeps
+ *  same-type links. */
+const twin = (t: Form["type"], placement?: CasePlacement) =>
+	({
+		...childCreate("twin", t),
+		caseType: "patient",
+		...(placement !== undefined && { placement }),
+	}) as CaseOperation;
 
 function renamed(doc: BlueprintDoc, appName: string): BlueprintDoc {
 	return { ...doc, appName };
@@ -303,12 +318,6 @@ describe("the save-to-case offer", () => {
 	});
 
 	it("offers nothing that leaves a new case of the menu's own type in a basic subcase", () => {
-		const twin = (t: Form["type"], placement?: CasePlacement) =>
-			({
-				...childCreate("twin", t),
-				caseType: "patient",
-				...(placement !== undefined && { placement }),
-			}) as CaseOperation;
 		const alone = placementFixture("followup", {
 			operations: () => [own({ placement: OWN_BLOCK })],
 		});
@@ -395,6 +404,159 @@ describe("the save-to-case offer", () => {
 		)?.digest;
 		expect(fewer).toBeDefined();
 		expect(fewer).not.toBe(digest);
+	});
+});
+
+describe("the same-type-child-links offer", () => {
+	/** The Save to Case block the planner offers the twin in `doc`. */
+	function twinBlock(doc: BlueprintDoc, formUuid: Uuid): CasePlacement {
+		const block = placementCandidates(doc, formUuid, {
+			kind: "operation",
+			operationUuid: OP("twin"),
+		}).find((candidate) => candidate.kind === "save-to-case");
+		if (block === undefined)
+			throw new Error(
+				"The planner offers every operation a Save to Case block.",
+			);
+		return block;
+	}
+
+	/** `doc` with the offer's holds applied through the production
+	 *  admission and reducer, as a publish records them. */
+	function accepted(doc: BlueprintDoc): BlueprintDoc {
+		const offer = placementMoveOffer(doc, "same-type-child-links");
+		if (offer === null) throw new Error("Expected an offer.");
+		const candidate = prepareMutationCandidate(
+			doc,
+			admitMutationBatch([
+				{ kind: "holdPlacements", holds: structuredClone([...offer.holds]) },
+			]),
+		);
+		expect(candidate.identityAdmissionIssue).toBeUndefined();
+		expect(candidate.targetAdmissionIssue).toBeUndefined();
+		return candidate.nextDoc;
+	}
+
+	const withTwin = (
+		formType: Form["type"],
+		{ held, kidAt }: { held?: boolean; kidAt?: CasePlacement } = {},
+	) =>
+		placementFixture(formType, {
+			operations: (t) => [
+				own(held ? { placement: OWN_SLOT } : {}),
+				twin(t, held ? SUBCASE_0 : undefined),
+				...(kidAt === undefined
+					? []
+					: [childCreate("kid", t, { placement: kidAt })]),
+			],
+		});
+
+	it.each(["followup", "registration"] as const)(
+		"moves a %s's new case of its menu's own type from a basic subcase to a Save to Case block",
+		(formType) => {
+			const { doc, formUuid } = withTwin(formType);
+			expect(sameTypeBasicChildCases(doc)).toMatchObject([
+				{
+					operationUuid: OP("twin"),
+					ownCase: formType === "registration" ? "registers" : "works-on",
+				},
+			]);
+			const offer = placementMoveOffer(doc, "same-type-child-links");
+			expect(offer).toMatchObject({
+				reason: "same-type-child-links",
+				asksChildCases: false,
+				holds: [
+					{
+						target: "case-operation",
+						formUuid,
+						operationUuid: OP("twin"),
+						placement: twinBlock(doc, formUuid),
+					},
+				],
+				moves: [
+					{
+						form: "Under test",
+						change: "makes a new patient case",
+						sentence:
+							"In Under test, the change that makes a new patient case moves from Case Management to a Save to Case block.",
+					},
+				],
+			});
+			expect(offer?.digest).toMatch(/^[0-9a-f]{64}$/);
+			expect(sameTypeBasicChildCases(accepted(doc))).toEqual([]);
+		},
+	);
+
+	it("replaces a hold that still expresses its change", () => {
+		const { doc, formUuid } = withTwin("followup", { held: true });
+		expect(planPlacements(doc, formUuid).placements.get(OP("twin"))).toEqual({
+			placement: SUBCASE_0,
+			held: true,
+		});
+		const after = accepted(doc);
+		expect(sameTypeBasicChildCases(after)).toEqual([]);
+		expect(
+			planPlacements(after, formUuid).placements.get(OP("twin")),
+		).toMatchObject({ placement: { kind: "save-to-case" }, held: true });
+	});
+
+	it("lists the later basic subcase the move renumbers as a forced move", () => {
+		const { doc, formUuid } = withTwin("followup", {
+			held: true,
+			kidAt: SUBCASE_1,
+		});
+		const offer = placementMoveOffer(doc, "same-type-child-links");
+		expect(offer?.holds).toEqual([
+			{
+				target: "case-operation",
+				formUuid,
+				operationUuid: OP("twin"),
+				placement: expect.objectContaining({ kind: "save-to-case" }),
+			},
+			{
+				target: "case-operation",
+				formUuid,
+				operationUuid: OP("kid"),
+				placement: SUBCASE_0,
+			},
+		]);
+		expect(offer?.moves.map((move) => move.sentence)).toEqual([
+			"In Under test, the change that makes a new patient case moves from Case Management to a Save to Case block.",
+			"In Under test, the change that makes a new kid case stays in Case Management, in a new place.",
+		]);
+		expect(offer?.asksChildCases).toBe(false);
+		const after = accepted(doc);
+		expect(sameTypeBasicChildCases(after)).toEqual([]);
+		expect(planPlacements(after, formUuid).placements.get(OP("kid"))).toEqual({
+			placement: SUBCASE_0,
+			held: true,
+		});
+	});
+
+	it("offers nothing where no new case of a menu's own type is in a basic subcase", () => {
+		expect(placementMoveOffer(held().doc, "same-type-child-links")).toBeNull();
+		expect(
+			placementMoveOffer(
+				accepted(withTwin("followup").doc),
+				"same-type-child-links",
+			),
+		).toBeNull();
+	});
+
+	it("keeps its digest under an edit that moves nothing, and changes it with what moves", () => {
+		const { doc } = withTwin("followup", { held: true });
+		const digest = placementMoveOffer(doc, "same-type-child-links")?.digest;
+		expect(digest).toBeDefined();
+		expect(
+			placementMoveOffer(renamed(doc, "Another name"), "same-type-child-links")
+				?.digest,
+		).toBe(digest);
+		const more = placementMoveOffer(
+			withTwin("followup", { held: true, kidAt: SUBCASE_1 }).doc,
+			"same-type-child-links",
+		)?.digest;
+		expect(more).toBeDefined();
+		expect(more).not.toBe(digest);
 	});
 });
 

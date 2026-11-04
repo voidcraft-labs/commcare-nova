@@ -67,7 +67,7 @@ XForms.
 
 The corpus holds the documents its sources name: its fixed floor (the
 producers', workforce, expander and targeted documents, those Nova admits)
-counts what step 5's pull request 7 leaves it, 383 documents, 415 with the
+counts what step 5's pull request 8 leaves it, 385 documents, 417 with the
 default fuzz sample of 32. The plausible failure: a source that silently
 stops emitting a document (a maker dropped from ``TARGETED_DOCUMENTS``, a
 refusal by the gate the emission records instead of failing), which every
@@ -755,12 +755,12 @@ def test_the_corpus_holds_each_search_workflow_and_each_placement():
 
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits. Every pull request that adds or removes a document writes the count its sources then give.
-FIXED_DOCUMENTS = 383
+FIXED_DOCUMENTS = 385
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (415 with the default sample of 32). Catches a source that silently stops
+    the floor plus the sample's size (417 with the default sample of 32). Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)

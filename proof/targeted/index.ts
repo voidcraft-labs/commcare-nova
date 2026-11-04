@@ -87,6 +87,7 @@ import {
 	repeatCountCopy,
 	repeatCountWhole,
 } from "./documents/repeats";
+import { sameTypeChild } from "./documents/sameTypeChild";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
 	listFirstPlaces,
@@ -105,6 +106,7 @@ import {
 	parentFormSelectionFrame,
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
+import { supplyPointText } from "./documents/supplyPointText";
 import { textReads } from "./documents/textReads";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
@@ -191,6 +193,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	advancedChildModule,
 	advancedHeldKind,
 	rootCaseBlockNames,
+	sameTypeChild,
+	supplyPointText,
 ];
 
 /** Every targeted document, in a fixed order. */

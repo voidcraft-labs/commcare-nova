@@ -18,13 +18,20 @@ import type {
 } from "@/lib/deployment/types";
 import {
 	type PlacementMoveOfferView,
+	SAME_TYPE_CHILD_LINKS_OFFER_HEADING,
 	SAVE_TO_CASE_OFFER_HEADING,
+	sameTypeChildLinksOfferBody,
 	saveToCaseOfferBody,
 } from "@/lib/publish/placementMoves";
 import {
 	FLAT_LOCATION_FIXTURE,
 	PLAN_FEATURES,
 } from "@/lib/publish/planFeatures";
+import {
+	type ProjectSpaceCapabilityState,
+	projectSpaceCapabilityUse,
+	projectSpaceCompatibilityForTarget,
+} from "@/lib/publish/projectSpaceCompatibility";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
@@ -515,16 +522,51 @@ describe("where CommCare HQ keeps the case changes", () => {
 	});
 
 	it("words the Save to Case offer with the Child Cases sentence only where a move asks for it", () => {
-		expect(placementOfferCopy(OFFER)).toStrictEqual({
+		expect(placementOfferCopy(OFFER, undefined)).toStrictEqual({
 			heading: SAVE_TO_CASE_OFFER_HEADING,
 			body: saveToCaseOfferBody(false),
 		});
-		expect(placementOfferCopy({ ...OFFER, asksChildCases: true })?.body).toBe(
-			saveToCaseOfferBody(true),
+		expect(
+			placementOfferCopy({ ...OFFER, asksChildCases: true }, undefined)?.body,
+		).toBe(saveToCaseOfferBody(true));
+	});
+
+	it("words the same-type offer by what the refusal's report found for the link", () => {
+		const sameType = { ...OFFER, reason: "same-type-child-links" as const };
+		const reportWith = (
+			state: Exclude<ProjectSpaceCapabilityState, "not_checked">,
+		) =>
+			projectSpaceCompatibilityForTarget(
+				"acme",
+				[
+					{
+						capability: projectSpaceCapabilityUse("same-type-child-links", [
+							"Follow-up makes a visit case linked to the visit case it works on.",
+						]),
+						state,
+					},
+				],
+				[],
+			);
+		expect(placementOfferCopy(sameType, reportWith("missing"))).toStrictEqual({
+			heading: SAME_TYPE_CHILD_LINKS_OFFER_HEADING,
+			body: sameTypeChildLinksOfferBody("missing"),
+		});
+		expect(sameTypeChildLinksOfferBody("missing")).toMatch(
+			/^This project space drops the link/,
 		);
 		expect(
-			placementOfferCopy({ ...OFFER, reason: "same-type-child-links" }),
-		).toBeNull();
+			placementOfferCopy(sameType, reportWith("unverified")),
+		).toStrictEqual({
+			heading: SAME_TYPE_CHILD_LINKS_OFFER_HEADING,
+			body: sameTypeChildLinksOfferBody("unverified"),
+		});
+		expect(sameTypeChildLinksOfferBody("unverified")).toMatch(
+			/^Nova couldn't check whether this project space keeps the link/,
+		);
+		/* Nothing true to say where the link is kept or the report is absent. */
+		expect(placementOfferCopy(sameType, reportWith("available"))).toBeNull();
+		expect(placementOfferCopy(sameType, undefined)).toBeNull();
 	});
 });
 

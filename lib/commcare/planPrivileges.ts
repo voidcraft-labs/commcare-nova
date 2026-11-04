@@ -41,10 +41,15 @@ import {
 	connectConfigWritesBlocks,
 	type ResolvedConnectConfig,
 } from "./connectSlugs";
+import { expandDoc } from "./expander";
 import { formLinkProjectionContext } from "./formLinkProjection";
 import { formsReadingLocationsFixture } from "./locations/readsLocationsFixture";
+import type { LookupWireNaming } from "./lookup/naming";
+import { advancedModulesWithCaseListMenuItem } from "./moduleKind";
+import { DERIVED_WIRE_IDENTITY } from "./wireIdentity";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { formEmitsSaveToCase } from "./xform/caseOps";
+import { formSourceHoldsSupplyPointText } from "./xform/supplyPointText";
 
 /** The privileges a rule below derives, by HQ's slug. */
 export const HQ_PLAN_PRIVILEGE_IDS = [
@@ -395,4 +400,55 @@ export function formEntrySyncReasons(doc: BlueprintDoc): string[] {
 			`${formName(doc, formUuid)} works on a case chosen in ${moduleName}, a menu with Search.`,
 		];
 	});
+}
+
+/**
+ * The reasons CommCare Supply is asked about, in document order. Where a
+ * project space has it on, HQ's build adds steps Nova did not write
+ * (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`): a
+ * `product_id` datum on an advanced menu's case list menu item, and a datum
+ * from the worker's supply point, with assertions, on a form whose stored
+ * source holds `instance('commcaresession')/session/data/supply_point_id`.
+ * No API key reads the setting.
+ *
+ * One sentence per module `moduleKind.ts::advancedModulesWithCaseListMenuItem`
+ * returns, then one per form, in form order, whose emitted HQ source holds
+ * the text in some decoded attribute value, text node or comment
+ * (`xform/supplyPointText.ts::formSourceHoldsSupplyPointText`). The sources
+ * are the app's own emission under `lookupNaming`, the naming of the
+ * Project's definitions the publish or the import file emits under
+ * (`undefined` for an app that reads no table), with no attachment target,
+ * so the text is found wherever it lands: prose in every language, option
+ * labels and literals alike. The naming carries each column's type, which
+ * lowers a comparison of a table's value. HQ's third trigger, a last load's
+ * `show_product_stock`, is never a reason: Nova always writes it false.
+ * Empty for an app with neither.
+ */
+export function commtrackReasons(
+	doc: BlueprintDoc,
+	lookupNaming: LookupWireNaming | undefined,
+): string[] {
+	const menuReasons = advancedModulesWithCaseListMenuItem(doc).map(
+		(moduleUuid) => {
+			const module = doc.modules[moduleUuid];
+			const moduleName = module.name.trim() || module.id;
+			return `${moduleName} shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.`;
+		},
+	);
+	const forms = formsInOrder(doc);
+	if (forms.length === 0) return menuReasons;
+	const sources = expandDoc(doc, {
+		...(lookupNaming !== undefined && { lookupNaming }),
+		attachmentTarget: null,
+	})._attachments;
+	const formReasons = forms.flatMap(({ formUuid }) => {
+		const source =
+			sources[`${DERIVED_WIRE_IDENTITY.formUniqueId(formUuid)}.xml`];
+		return source !== undefined && formSourceHoldsSupplyPointText(source)
+			? [
+					`${formName(doc, formUuid)} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`,
+				]
+			: [];
+	});
+	return [...menuReasons, ...formReasons];
 }

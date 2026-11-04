@@ -75,11 +75,19 @@ function plan(
 			{
 				capability,
 				featureFlags: [baseFlag, ...(advanced ? [advancedFlag] : [])],
+				featureFlagsOff: [],
 				runtimeProbes: ["case-search"],
 			},
 		],
 		advisories: optimization
-			? [{ advisory, featureFlags: [performanceFlag], runtimeProbes: [] }]
+			? [
+					{
+						advisory,
+						featureFlags: [performanceFlag],
+						featureFlagsOff: [],
+						runtimeProbes: [],
+					},
+				]
 			: [],
 	};
 }
@@ -330,6 +338,58 @@ it("a confirmed missing flag takes precedence over unavailable runtime evidence"
 			plan(),
 		);
 		expect(result.capabilities).toEqual([{ capability, state: "missing" }]);
+	});
+});
+
+const sameTypeLinks = projectSpaceCapabilityUse("same-type-child-links", [
+	"Visit makes a patient case linked to the patient case it works on.",
+]);
+const droppedLinksFlag = {
+	id: "same-type-links-dropped",
+	slug: "dont_index_same_casetype",
+	namespace: "domain",
+} as const;
+const DROPPED = `${DOMAINS}&feature_flag=dont_index_same_casetype`;
+
+it.each([
+	{ name: "listed", status: 200, body: visible, state: "missing" },
+	{ name: "absent", status: 200, body: empty, state: "available" },
+	{
+		name: "an unreadable list",
+		status: 400,
+		body: { error: "unknown flag" },
+		state: "unverified",
+	},
+] as const)("reads an off flag inverted: $name is $state", async (scenario) => {
+	await withHttpPeer(async (peer) => {
+		request(peer, DOMAINS).reply(200, visible);
+		request(peer, DROPPED).reply(scenario.status, scenario.body);
+		const result = await probeHqProjectSpaceCompatibility(CREDS, "clinic", {
+			capabilities: [
+				{
+					capability: sameTypeLinks,
+					featureFlags: [],
+					featureFlagsOff: [droppedLinksFlag],
+					runtimeProbes: [],
+				},
+			],
+			advisories: [],
+		});
+		expect(result.capabilities).toEqual([
+			{ capability: sameTypeLinks, state: scenario.state },
+		]);
+		expect(result.report.status).toBe(
+			scenario.state === "available" ? "ready" : "blocked",
+		);
+		for (const privateValue of [
+			"featureFlagsOff",
+			"dont_index_same_casetype",
+			"DONT_INDEX_SAME_CASETYPE",
+		])
+			expect(JSON.stringify(result)).not.toContain(privateValue);
+		expect(urls(peer).sort()).toEqual(
+			[DOMAINS, DROPPED].map((path) => HOST + path).sort(),
+		);
 	});
 });
 

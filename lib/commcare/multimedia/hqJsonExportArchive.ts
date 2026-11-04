@@ -43,9 +43,15 @@ import { sanitizeArchiveMemberName } from "@/lib/utils/sanitize";
 import { appEmitsConnectBlocks } from "../connectSlugs";
 import { distanceSearchProperties } from "../distanceSearches";
 import { readsLocationsFixture } from "../locations/readsLocationsFixture";
+import type { LookupWireNaming } from "../lookup/naming";
 import type { LookupWorkbook } from "../lookup/workbook";
-import { formEntrySyncReasons, requiredPlanFeatures } from "../planPrivileges";
+import {
+	commtrackReasons,
+	formEntrySyncReasons,
+	requiredPlanFeatures,
+} from "../planPrivileges";
 import { requiredProjectSpaceCapabilities } from "../projectSpaceCompatibility";
+import { sameTypeBasicChildCases } from "../sameTypeChildCases";
 import type { HqApplication } from "../types";
 import { COMMCARE_VERSION_FLOOR } from "../versionFloor";
 import type { AttachmentUrlTarget } from "../xform/captureUrlNode";
@@ -97,12 +103,26 @@ function logoMember(
 	return { name: `logo${logo.extension}`, bytes: logo.bytes };
 }
 
+/** The name of each form `sameTypeBasicChildCases` lists, once each, in
+ *  document order. */
+function sameTypeChildFormNames(doc: BlueprintDoc): string[] {
+	const names = sameTypeBasicChildCases(doc).map(({ formUuid }) => {
+		const form = doc.forms[formUuid];
+		return form.name.trim() || form.id;
+	});
+	return [...new Set(names)];
+}
+
 /**
  * The manual-import steps for this file, from the same derivations a
  * publish's own checks read: the capabilities and plan features the document
  * needs, the workbook's tables, the media the bulk upload carries, the logo,
  * whether the app runs in Web Apps, whether the app reads places, whether it sends forms to CommCare Connect,
- * whether a publish would ask that sync on form entry is off, and the properties its searches measure distance on. An import file has no target and sends no places.
+ * whether a publish would ask that sync on form entry or CommCare Supply is off, the forms that make a case linked to a case of their own type, and the properties its searches measure distance on. An import file has no target and sends no places.
+ *
+ * The capabilities step leaves out links between cases of the same type: that
+ * step says Dimagi can turn a feature on, and those links need a setting
+ * Dimagi turns off, so they get a step of their own.
  */
 export function hqImportFileGuide(input: {
 	readonly appName: string;
@@ -111,6 +131,8 @@ export function hqImportFileGuide(input: {
 	readonly lookupWorkbook: LookupWorkbook | undefined;
 	/** The target the app JSON beside it was written for (`expandDoc`'s). */
 	readonly attachmentTarget: AttachmentUrlTarget | null;
+	/** The lookup naming the app JSON beside it was written under (`expandDoc`'s), or `undefined` for an app that reads no table. */
+	readonly lookupNaming: LookupWireNaming | undefined;
 }): readonly ManualImportStep[] {
 	const logo = logoMember(input.doc, input.assets);
 	return manualImportGuide({
@@ -118,9 +140,9 @@ export function hqImportFileGuide(input: {
 		lookupTags: input.lookupWorkbook?.tables.map((table) => table.tag) ?? [],
 		hasMedia: bulkUploadAssets(input.doc, input.assets).size > 0,
 		versionFloor: `${COMMCARE_VERSION_FLOOR.major}.${COMMCARE_VERSION_FLOOR.minor}`,
-		capabilities: requiredProjectSpaceCapabilities(input.doc).map(
-			({ label, reasons }) => ({ label, reasons }),
-		),
+		capabilities: requiredProjectSpaceCapabilities(input.doc)
+			.filter(({ id }) => id !== "same-type-child-links")
+			.map(({ label, reasons }) => ({ label, reasons })),
 		planFeatures: requiredPlanFeatures(
 			input.doc,
 			{ lookupTables: input.lookupWorkbook !== undefined, places: false },
@@ -131,6 +153,8 @@ export function hqImportFileGuide(input: {
 		readsLocations: readsLocationsFixture(input.doc),
 		sendsToConnect: appEmitsConnectBlocks(input.doc),
 		formEntrySync: formEntrySyncReasons(input.doc).length > 0,
+		commtrack: commtrackReasons(input.doc, input.lookupNaming).length > 0,
+		sameTypeChildLinks: sameTypeChildFormNames(input.doc),
 		distanceSearches: distanceSearchProperties(input.doc),
 	});
 }

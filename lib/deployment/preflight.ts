@@ -21,6 +21,7 @@ import {
 	listHqLookupTables,
 	readHqLookupTableRows,
 } from "@/lib/commcare/hq/lookupTables";
+import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
@@ -386,12 +387,15 @@ export interface PreflightInput {
  * push from the same snapshot. The publish sends a lookup table workbook
  * exactly when the app reads a table (the export boundary refuses an app
  * whose tables it cannot push), and its capture links resolve against the
- * target, as `attachmentUrlTarget` hands them to the emitter.
+ * target, as `attachmentUrlTarget` hands them to the emitter. `lookupNaming`
+ * is the naming of the Project's lookup definitions the publish emits
+ * under (`undefined` for an app that reads no table).
  */
 export async function publishConfirmationNeeds(
 	access: PreflightInput["access"],
 	doc: BlueprintDoc,
 	target: DeploymentTargetKey,
+	lookupNaming: LookupWireNaming | undefined,
 ): Promise<{
 	readonly locations: readonly StoredLocation[];
 	readonly places: readonly PlannedPlace[];
@@ -410,6 +414,7 @@ export async function publishConfirmationNeeds(
 				places: places.length > 0,
 			},
 			attachmentUrlTarget(target),
+			lookupNaming,
 		),
 	};
 }
@@ -696,6 +701,7 @@ export async function runDeploymentPreflight(
 		input.access,
 		boundary.prepared.doc,
 		{ server: input.server, domain: input.domain },
+		boundary.prepared.lookupNaming,
 	);
 	const settled = settleConfirmations({
 		needed,

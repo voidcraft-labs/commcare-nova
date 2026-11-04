@@ -191,11 +191,32 @@ export const FORM_ENTRY_SYNC_OFF: ProjectSpaceSettingConfirmation = {
 		"A project space admin can turn it off on the project space's Case Search page in CommCare HQ. It changes every app there: Web Apps then opens their forms without updating the case first.",
 };
 
+/**
+ * Whether the project space has CommCare Supply turned off. Where it is on,
+ * HQ's build adds steps Nova did not write: a product to choose on an
+ * advanced menu's case list menu item, and a datum from the worker's supply
+ * point, with assertions, on a form whose source names the session's supply
+ * point (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`).
+ * No API key reads the setting, and HQ's CommTrack feature flag can differ
+ * from it either way, so a person confirms it.
+ */
+export const COMMTRACK_OFF: ProjectSpaceSettingConfirmation = {
+	label: "CommCare Supply turned off",
+	consequence:
+		"With it on, CommCare HQ adds steps this app doesn't have: an advanced menu's case list asks workers to choose a product first, and a form that names the session's supply point opens only for workers assigned one.",
+	question: (space) =>
+		`Does “${space}” have CommCare Supply turned off? It's off unless Dimagi turned it on for the project space.`,
+	confirmLabel: "It's off",
+	whereMissing:
+		"Only Dimagi Support can turn CommCare Supply off, and that changes every app in the project space. Where it stays on, you can turn off the case list menu item of each advanced menu named here and take the supply point text out of each form named here, and then the setting no longer matters to this app.",
+};
+
 /** The project-space settings a publish asks about, in every surface's order. */
 export const PROJECT_SPACE_SETTING_KINDS = [
 	"flat-location-fixture",
 	"connect-forwarder",
 	"form-entry-sync-off",
+	"commtrack-off",
 ] as const;
 export type ProjectSpaceSettingKind =
 	(typeof PROJECT_SPACE_SETTING_KINDS)[number];
@@ -207,6 +228,7 @@ export const PROJECT_SPACE_SETTINGS: Readonly<
 	"flat-location-fixture": FLAT_LOCATION_FIXTURE,
 	"connect-forwarder": CONNECT_FORWARDER,
 	"form-entry-sync-off": FORM_ENTRY_SYNC_OFF,
+	"commtrack-off": COMMTRACK_OFF,
 };
 
 /** Whether a confirmation is on record for the target, as a check reports it. */

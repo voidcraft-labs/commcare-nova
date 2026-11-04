@@ -46,6 +46,7 @@ from lxml import etree
 
 from proof.checks import manifest_usage
 from proof.checks import manifest_value_classes as classes
+from proof.checks.corpus import Configuration
 from proof.observe import manifest as observed_manifest
 
 
@@ -914,6 +915,8 @@ class Shape:
     media: tuple = ()
     named: bool = True  # whether the class's entry names the key (False: a use of the class the check never sees)
     case_types: dict | None = None  # declared types, supplied beside the recorded export as a retained control's are
+    # The configurations an app JSON was sent under (``App.configurations``), which a flag's class reads.
+    configurations: tuple | None = None
 
 
 def refused(export, source, key, where, **kw):
@@ -929,6 +932,17 @@ def unsettled(export, source, key, where, **kw):
 
 
 ARTIFACTS = {"form": "form:0.0", "app": "app.json", "suite": "local.ccz/suite.xml"}
+# Two project spaces an app JSON is sent to: one with DONT_INDEX_SAME_CASETYPE on, and one with no flag.
+PLAIN = Configuration(
+    name="minimum",
+    flags=(),
+    named_privileges=(),
+    commcare_version="2.57.0",
+    commtrack=False,
+    sync_cases_on_form_entry=False,
+    case_search_enabled=False,
+)
+SAME_TYPE_UNINDEXED = replace(PLAIN, name="DONT_INDEX_SAME_CASETYPE", flags=("DONT_INDEX_SAME_CASETYPE",))
 CASE_NS = "http://commcarehq.org/case/transaction/v2"
 ODKX = "http://opendatakit.org/xforms"
 
@@ -1889,15 +1903,30 @@ def _settings_and_forms():
             ),
         ),
         "forms-and-case-writes/subcase-of-the-module-s-own-case-type-in-a-project-space-with": (
-            unsettled(
+            refused(
                 "app",
                 _app([_module([_form_json(subcases=[_subcase(case_type="patient")])])]),
                 "schema:OpenSubCaseAction.case_type",
                 f"{subcases}/0/case_type",
+                configurations=(SAME_TYPE_UNINDEXED, PLAIN),
+            ),
+            accepted(
+                "app",
+                _app([_module([_form_json(subcases=[_subcase(case_type="patient")])])]),
+                "schema:OpenSubCaseAction.case_type",
+                f"{subcases}/0/case_type",
+                configurations=(PLAIN,),
             ),
             accepted(
                 "app",
                 _app([_module([_form_json(subcases=[_subcase(case_type="child")])])]),
+                "schema:OpenSubCaseAction.case_type",
+                f"{subcases}/0/case_type",
+                configurations=(SAME_TYPE_UNINDEXED,),
+            ),
+            unsettled(
+                "app",
+                _app([_module([_form_json(subcases=[_subcase(case_type="patient")])])]),
                 "schema:OpenSubCaseAction.case_type",
                 f"{subcases}/0/case_type",
             ),
@@ -4356,11 +4385,7 @@ SHAPES = {
 }
 
 # Classes whose refused shape no export holds, by why: the export leaves the class open (None) where it would be in it.
-UNSETTLED = {
-    "forms-and-case-writes/subcase-of-the-module-s-own-case-type-in-a-project-space-with": (
-        "DONT_INDEX_SAME_CASETYPE is the project space's, which no export carries"
-    ),
-}
+UNSETTLED = {}
 # Classes that take every use of their keys, by why: they have no accepted shape.
 EVERY_USE_TAKEN = {
     "questions/authored-orx-pollsensor": (
@@ -4395,7 +4420,7 @@ def _shape_uses(shape, manifest, readings=None):
     if shape.export == "form":
         manifest_usage.xform_uses(shape.source, manifest, artifact, found)
     elif shape.export == "app":
-        manifest_usage.app_json_uses(shape.source, manifest, artifact, found)
+        manifest_usage.app_json_uses(shape.source, manifest, artifact, found, configurations=shape.configurations)
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)
     for document in found.documents:

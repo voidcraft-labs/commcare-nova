@@ -2,7 +2,11 @@ import "server-only";
 
 import { produce } from "immer";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
-import { appPlacements, planPlacements } from "@/lib/commcare/placement";
+import {
+	appPlacements,
+	placementCandidates,
+	planPlacements,
+} from "@/lib/commcare/placement";
 import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { formEmitsSaveToCase } from "@/lib/commcare/xform/caseOps";
@@ -19,6 +23,7 @@ import {
 import {
 	forcedPlacementMoveSentence,
 	movedToCaseManagementSentence,
+	movedToSaveToCaseSentence,
 	type PlacementMoveOfferView,
 	type PlacementMoveView,
 	type PlacementOfferReason,
@@ -63,7 +68,7 @@ export function placementMoveOffer(
 		case "save-to-case":
 			return saveToCaseOffer(doc);
 		case "same-type-child-links":
-			return null;
+			return sameTypeChildLinksOffer(doc);
 	}
 }
 
@@ -222,20 +227,13 @@ function saveToCaseOffer(doc: BlueprintDoc): PlacementMoveOffer | null {
 		);
 	}
 
-	const holds = withForcedMoves(doc, moved);
+	const holds = withForcedMoves(
+		doc,
+		moved,
+		(entry) => entry.placement?.kind !== "save-to-case",
+	);
 	if (holds === null) return null;
-	const movedKeys = new Set(moved.map(placementTargetKey));
-	const moves: PlacementMoveView[] = holds.map((hold) => {
-		const form = formName(doc, hold.formUuid);
-		const change = describeCaseChange(doc, hold);
-		return {
-			form,
-			change,
-			sentence: movedKeys.has(placementTargetKey(hold))
-				? movedToCaseManagementSentence(form, change)
-				: forcedPlacementMoveSentence(form, change),
-		};
-	});
+	const moves = moveViews(doc, holds, movedToCaseManagementSentence);
 	return {
 		reason: "save-to-case",
 		digest: offerDigest(doc, "save-to-case", holds),
@@ -252,16 +250,101 @@ function saveToCaseOffer(doc: BlueprintDoc): PlacementMoveOffer | null {
 }
 
 /**
+ * The `same-type-child-links` offer: every new case of its module's own type
+ * that stands in a basic subcase (`sameTypeBasicChildCases`) moved to the
+ * Save to Case block the allocator gives it, with every move that forces (a
+ * later basic subcase renumbered down, for instance). A Save to Case block
+ * writes the link to the case it was made from whatever the project space's
+ * same-type index setting says, which drops only the basic subcase's
+ * parent index (`corehq/apps/app_manager/xform.py::XForm._create_casexml`,
+ * `index_same_casetype`). It replaces holds that still express their
+ * targets, which only a publish records, and the publish records it. No
+ * move puts a case in a basic subcase, so it never asks for Child Cases.
+ */
+function sameTypeChildLinksOffer(doc: BlueprintDoc): PlacementMoveOffer | null {
+	const children = sameTypeBasicChildCases(doc);
+	if (children.length === 0) return null;
+	const moved: CaseChangeHold[] = children.map((child) => {
+		const block = placementCandidates(doc, child.formUuid, {
+			kind: "operation",
+			operationUuid: child.operationUuid,
+		}).find((candidate) => candidate.kind === "save-to-case");
+		if (block === undefined) {
+			throw new Error(
+				`Nova went to move the new ${child.caseType} case of form ${formName(doc, child.formUuid)} to a Save to Case block, and the placement planner offered it none. Every case change has a Save to Case block it can stand in, so the planner and this offer disagree.`,
+			);
+		}
+		return {
+			target: "case-operation",
+			formUuid: child.formUuid,
+			operationUuid: child.operationUuid,
+			placement: block,
+		};
+	});
+
+	// Each moved change goes to Save to Case. A forced move may go there
+	// too, read as a move out of Case Management; a block moved within Save
+	// to Case has no sentence, so where one is forced the offer is not made.
+	const holds = withForcedMoves(doc, moved, (entry, isMoved) =>
+		entry.placement?.kind === "save-to-case"
+			? isMoved || effectivePlacementOf(doc, entry)?.kind !== "save-to-case"
+			: !isMoved,
+	);
+	if (holds === null) return null;
+	return {
+		reason: "same-type-child-links",
+		digest: offerDigest(doc, "same-type-child-links", holds),
+		moves: moveViews(doc, holds, movedToSaveToCaseSentence),
+		asksChildCases: false,
+		holds,
+	};
+}
+
+/** Where `target` stands in `doc`, held or as the planner places it. */
+function effectivePlacementOf(doc: BlueprintDoc, target: CaseChangeTarget) {
+	return planPlacements(doc, target.formUuid).placements.get(
+		target.target === "own-close" ? "own-close" : target.operationUuid,
+	)?.placement;
+}
+
+/**
+ * Each hold as a person reads it: a change that crosses between Case
+ * Management and a Save to Case block reads `movedSentence`, and one that
+ * stays in Case Management, in a new place, reads the forced-move sentence.
+ */
+function moveViews(
+	doc: BlueprintDoc,
+	holds: readonly CaseChangeHold[],
+	movedSentence: (form: string, change: string) => string,
+): PlacementMoveView[] {
+	return holds.map((hold) => {
+		const form = formName(doc, hold.formUuid);
+		const change = describeCaseChange(doc, hold);
+		const crosses =
+			(effectivePlacementOf(doc, hold)?.kind === "save-to-case") !==
+			(hold.placement?.kind === "save-to-case");
+		return {
+			form,
+			change,
+			sentence: crosses
+				? movedSentence(form, change)
+				: forcedPlacementMoveSentence(form, change),
+		};
+	});
+}
+
+/**
  * `moved` followed by every hold the move planner appends once they apply (a
  * basic subcase renumbered after another joins the list, for instance), each
- * target once with the planner's value where it set one. `null` where a
- * forced move is not a case change in Case Management: the offer would then
- * move something it cannot name as a case change, or still need Save to
- * Case.
+ * target once with the planner's value where it set one. `null` where an
+ * entry is not a case change or `admit` refuses it (`isMoved` is true for
+ * an entry of `moved`): the offer would then move something it cannot name
+ * as a case change, or not move it where the offer is for.
  */
 function withForcedMoves(
 	doc: BlueprintDoc,
 	moved: readonly CaseChangeHold[],
+	admit: (entry: CaseChangeHold, isMoved: boolean) => boolean,
 ): readonly CaseChangeHold[] | null {
 	const plan = withIdentityMoves(doc, [
 		{ kind: "holdPlacements", holds: structuredClone([...moved]) },
@@ -273,19 +356,19 @@ function withForcedMoves(
 			planned.set(placementTargetKey(entry), structuredClone(entry));
 	}
 	const holds: CaseChangeHold[] = [];
-	const settle = (entry: PlacementHoldEntry): boolean => {
+	const settle = (entry: PlacementHoldEntry, isMoved: boolean): boolean => {
 		if (entry.target !== "case-operation" && entry.target !== "own-close")
 			return false;
-		if (entry.placement?.kind === "save-to-case") return false;
+		if (!admit(entry, isMoved)) return false;
 		holds.push(entry);
 		return true;
 	};
 	for (const hold of moved) {
 		const key = placementTargetKey(hold);
-		if (!settle(planned.get(key) ?? hold)) return null;
+		if (!settle(planned.get(key) ?? hold, true)) return null;
 		planned.delete(key);
 	}
-	for (const entry of planned.values()) if (!settle(entry)) return null;
+	for (const entry of planned.values()) if (!settle(entry, false)) return null;
 	return holds;
 }
 

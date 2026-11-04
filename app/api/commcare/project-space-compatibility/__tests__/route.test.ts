@@ -76,6 +76,7 @@ beforeEach(() => {
 		flat_location_fixture: null,
 		connect_forwarder: null,
 		form_entry_sync_off: null,
+		commtrack_off: null,
 		placement_moves: null,
 	});
 	vi.mocked(requireSession).mockResolvedValue({ user: { id: "u1" } } as never);
@@ -116,6 +117,7 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 			flat_location_fixture: null,
 			connect_forwarder: null,
 			form_entry_sync_off: null,
+			commtrack_off: null,
 			placement_moves: null,
 		});
 		expect(vi.mocked(projectSpaceConfirmations).mock.calls[0]?.[2]).toBeNull();
@@ -140,6 +142,7 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 			flat_location_fixture: null,
 			connect_forwarder: null,
 			form_entry_sync_off: null,
+			commtrack_off: null,
 			placement_moves: offer,
 		});
 		const response = await POST(request({ appId: "app-1" }));

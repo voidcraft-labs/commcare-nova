@@ -2,7 +2,8 @@
 the project space's own.
 
 Contract: Nova's publish asks HQ's project-space list, through the
-publisher's own key, whether each flag its app needs is on for the target
+publisher's own key, whether each flag its app needs is on for the target,
+and whether each flag its app needs off is off there
 (``lib/commcare/client.ts::probeHqProjectSpaceCompatibility``, the flags of
 ``lib/commcare/projectSpaceCompatibility.ts::HQ_PRIVATE_FEATURE_FLAG_SYMBOLS``),
 and names a capability, never the flag. The plausible failures: a flag
@@ -25,17 +26,20 @@ opens a captured file's link, ``proof/views/test_form_attachment.py``).
   compiler refuses that filter without the flag
   (``case_search/filter_dsl.py::_require_related_lookups_flag``) and compiles
   it with it.
-- Each of the eleven toggles stored as on for one user alone is in neither
+- Each of the twelve toggles stored as on for one user alone is in neither
   ``toggles_enabled_for_user`` nor ``toggles_dict`` for that user and the
   project space (``StaticToggle.enabled``, and ``PredictablyRandomToggle.enabled``
   for ``SAVE_ONLY_EDITED_FORM_FIELDS``, a ``FeatureRelease``, answer false for
   a namespace the toggle does not declare); stored as on for the project
-  space, all eleven are in ``toggles_dict``. Each through HQ's own toggle storage and readers,
+  space, all twelve are in ``toggles_dict``. Each through HQ's own toggle storage and readers,
   with no seam.
 - HQ's project-space list (``api/resources/v0_5.py::UserDomainsResource``)
   lists the project space for a member and not for another account, with
   and without a ``feature_flag`` filter, and for a member lists it under the
-  filter only when the flag is on for the space.
+  filter only when the flag is on for the space: ``CASE_SEARCH_ADVANCED``, a
+  flag Nova asks on, and ``DONT_INDEX_SAME_CASETYPE``, the deprecated flag
+  Nova asks off (a basic child case of its menu's own type), on for one
+  project space and off for another.
 - No flag read of ``VIEW_FORM_ATTACHMENT`` is recorded while HQ imports and
   builds ``case-capture-followup``, whose case list shows a captured file's
   link.
@@ -46,6 +50,7 @@ from __future__ import annotations
 import dataclasses
 import json
 
+import pytest
 from lxml import etree
 
 from proof.hq import operations
@@ -68,6 +73,7 @@ PROBED_FLAGS = (
     "CASE_LIST_TILE",
     "CASE_LIST_TILE_CUSTOM",
     "SAVE_ONLY_EDITED_FORM_FIELDS",
+    "DONT_INDEX_SAME_CASETYPE",
 )
 LIST = "/api/user_domains/v1/"
 OTHER = "proof-other@example.com"
@@ -172,18 +178,21 @@ def _listed(state, credential, query=""):
     return [entry["domain_name"] for entry in json.loads(answer.body)["objects"]]
 
 
-def test_the_project_space_list_holds_the_space_only_for_a_member_and_under_a_filter_only_with_its_flag(hq):
+@pytest.mark.parametrize("symbol", ["CASE_SEARCH_ADVANCED", "DONT_INDEX_SAME_CASETYPE"])
+def test_the_project_space_list_holds_the_space_only_for_a_member_and_under_a_filter_only_with_its_flag(hq, symbol):
     """HQ's own list and filter (``UserDomainsResource``), its flag read through the configuration: the space is
     listed for a member and never for an account outside it, and under the filter only where the flag is on.
+    ``DONT_INDEX_SAME_CASETYPE`` is the flag Nova's publish requires off, so the filter must name a space it is on
+    for and no other, or Nova reads a space that drops a same-type child's link as one that keeps it.
     That a flag on for the publisher alone is not on for the space is the toggle readers' test above."""
     from corehq import toggles
 
     from proof.hq import redis as hq_redis
 
-    filtered = f"&feature_flag={toggles.CASE_SEARCH_ADVANCED.slug}"
+    filtered = f"&feature_flag={getattr(toggles, symbol).slug}"
     found = {}
     for on in (False, True):
-        configuration = Configuration(flags=frozenset({"CASE_SEARCH_ADVANCED"} if on else ()))
+        configuration = Configuration(flags=frozenset({symbol} if on else ()))
         with hq_check(configuration) as (state, _), hq_redis.shared(None), state.committing(), api_rate_limits(state):
             with state.operation("accounts", b"member-and-other"):
                 member = operations.seed_api_key(state, WEB_USER_USERNAME)

@@ -1,11 +1,11 @@
 /**
  * The basic children of their own menu's case type, which a publish checks
- * the project space indexes. Until a publish can check that, an unheld
- * create of that type takes Save to Case, so only a held one is listed.
- * Catches a publish that misses the check, or asks it of a Save to Case
- * child.
+ * the project space indexes. An unheld create of that type takes a basic
+ * subcase slot like any child, so it is listed as a held one is. Catches a
+ * publish that misses the check, or asks it of a Save to Case child.
  */
 import { describe, expect, it } from "vitest";
+import { planPlacements } from "@/lib/commcare/placement";
 import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
 import type { CaseOperation, Form } from "@/lib/domain";
 import {
@@ -27,10 +27,46 @@ const twin = (
 	}) as CaseOperation;
 
 describe("sameTypeBasicChildCases", () => {
-	it("lists no unheld create of the menu's own type: it takes Save to Case", () => {
-		const { doc } = placementFixture("registration", {
+	it("lists an unheld create of the menu's own type, with what the form does to its own case", () => {
+		const registers = placementFixture("registration", {
 			operations: (t) => [own({ name: read("name") }), twin(t)],
 		});
+		expect(sameTypeBasicChildCases(registers.doc)).toEqual([
+			{
+				formUuid: registers.formUuid,
+				operationUuid: OP("twin"),
+				caseType: "patient",
+				ownCase: "registers",
+			},
+		]);
+		const worksOn = placementFixture("followup", {
+			operations: (t) => [own(), twin(t)],
+		});
+		expect(sameTypeBasicChildCases(worksOn.doc)).toEqual([
+			{
+				formUuid: worksOn.formUuid,
+				operationUuid: OP("twin"),
+				caseType: "patient",
+				ownCase: "works-on",
+			},
+		]);
+	});
+
+	it("lists no create of its own type placed in Save to Case", () => {
+		// A write that carries a condition keeps a create out of every basic slot.
+		const { doc, formUuid } = placementFixture("followup", {
+			operations: (t) => [
+				own(),
+				twin(t, {
+					writes: [
+						{ property: "age", value: read("age"), condition: read("flag") },
+					],
+				}),
+			],
+		});
+		expect(
+			planPlacements(doc, formUuid).placements.get(OP("twin"))?.placement.kind,
+		).toBe("save-to-case");
 		expect(sameTypeBasicChildCases(doc)).toEqual([]);
 	});
 

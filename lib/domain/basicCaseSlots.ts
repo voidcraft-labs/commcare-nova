@@ -803,30 +803,6 @@ export function moduleCaseTypeForActions(
 	return hasCases ? mod.caseType : "";
 }
 
-/**
- * Until a publish can check that a project space keeps a same-type child's
- * parent index, an unheld create of its module's own case type takes Save to
- * Case. No eligibility condition: a held one is kept, and
- * `placementIneligibility` never names it.
- */
-export function sameTypeExclusions(f: CaseSlotFacts): ReadonlySet<Uuid> {
-	const moduleType =
-		f.moduleUuid === undefined
-			? ""
-			: moduleCaseTypeForActions(f.doc, f.moduleUuid);
-	return new Set(
-		f.operations
-			.filter(
-				(op) =>
-					op.action === "create" &&
-					op.placement === undefined &&
-					moduleType !== "" &&
-					op.caseType === moduleType,
-			)
-			.map((op) => op.uuid),
-	);
-}
-
 const slotPlans = new WeakMap<BlueprintDoc, Map<string, BasicCaseSlots>>();
 
 /**
@@ -852,7 +828,7 @@ export function basicCaseSlots(
 	const known = byKey.get(key);
 	if (known !== undefined) return known;
 	const f = caseSlotFacts(doc, formUuid);
-	const exclude = new Set([...sameTypeExclusions(f), ...extra]);
+	const exclude = new Set(extra);
 	const excluded = (uuid: Uuid) =>
 		options.forceBasic !== uuid && exclude.has(uuid);
 

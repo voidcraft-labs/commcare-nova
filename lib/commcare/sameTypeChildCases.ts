@@ -1,9 +1,11 @@
 /**
  * The forms that create, in a basic subcase slot, a child of their own
- * module's case type. HQ's build writes such a child's parent index only
- * where the project space leaves `DONT_INDEX_SAME_CASETYPE` off, HQ's
- * default (`corehq/toggles/__init__.py`), so a publish asks for that
- * setting wherever this list is not empty.
+ * module's case type: an unheld create of that type takes the slot as any
+ * child does, and a held one keeps it. HQ's build writes such a child's
+ * parent index only where the project space leaves `DONT_INDEX_SAME_CASETYPE`
+ * off, HQ's default (`corehq/apps/app_manager/xform.py::XForm._create_casexml`,
+ * `corehq/toggles/__init__.py`), so a publish checks the project space for
+ * the capability `same-type-child-links` wherever this list is not empty.
  *
  * Read from `placement.ts::planPlacements`, so it cannot disagree with the
  * `subcases` the plan emits.

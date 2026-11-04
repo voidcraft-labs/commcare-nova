@@ -39,6 +39,7 @@ import {
 	moduleCaseTypeForActions,
 	parentSelectModuleUuid,
 } from "./formLinkProjection";
+import { sameTypeBasicChildCases } from "./sameTypeChildCases";
 import { moduleIsSearchFirst } from "./suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
 import {
@@ -61,7 +62,8 @@ export type HqPrivateFeatureFlagId =
 	| "related-case-lookups"
 	| "case-tiles"
 	| "custom-case-tiles"
-	| "save-only-edited-answers";
+	| "save-only-edited-answers"
+	| "same-type-links-dropped";
 
 /** Private input to the low-level HQ probe. Never serialize this object. */
 export interface HqPrivateFeatureFlagRequirement {
@@ -73,6 +75,8 @@ export interface HqPrivateFeatureFlagRequirement {
 /**
  * The HQ toggle (`corehq/toggles/__init__.py`) behind each flag the probe
  * checks. Each flag's slug and namespace come from that toggle's gate entry.
+ * A plan names a flag the app needs on in `featureFlags` and one it needs off
+ * in `featureFlagsOff`.
  */
 export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"deep-links": "SESSION_ENDPOINTS",
@@ -86,6 +90,7 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"case-tiles": "CASE_LIST_TILE",
 	"custom-case-tiles": "CASE_LIST_TILE_CUSTOM",
 	"save-only-edited-answers": "SAVE_ONLY_EDITED_FORM_FIELDS",
+	"same-type-links-dropped": "DONT_INDEX_SAME_CASETYPE",
 } as const satisfies Record<HqPrivateFeatureFlagId, string>;
 
 /* Resolved when the module loads, so a flag whose gate entry is missing or
@@ -107,13 +112,17 @@ export type HqProjectSpaceRuntimeProbe = "case-search";
 
 export interface HqProjectSpaceCapabilityProbePlan {
 	readonly capability: ProjectSpaceCapabilityUse;
+	/** Flags the project space must have on. */
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
+	/** Flags the project space must have off. */
+	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
 export interface HqProjectSpaceAdvisoryProbePlan {
 	readonly advisory: ProjectSpaceAdvisoryUse;
 	readonly featureFlags: readonly HqPrivateFeatureFlagRequirement[];
+	readonly featureFlagsOff: readonly HqPrivateFeatureFlagRequirement[];
 	readonly runtimeProbes: readonly HqProjectSpaceRuntimeProbe[];
 }
 
@@ -366,6 +375,21 @@ function moduleRequiresNoMatchesRegistration(
 	);
 }
 
+/**
+ * One reason per create `sameTypeBasicChildCases` lists, in document order:
+ * the form, the case type, and whether the form registers the case the new
+ * one links to or works on one it loads.
+ */
+export function sameTypeChildReasons(doc: BlueprintDoc): string[] {
+	return sameTypeBasicChildCases(doc).map((child) => {
+		const form = doc.forms[child.formUuid];
+		const formName = form.name.trim() || form.id;
+		return child.ownCase === "registers"
+			? `${formName} makes a ${child.caseType} case linked to the ${child.caseType} case it registers.`
+			: `${formName} makes a ${child.caseType} case linked to the ${child.caseType} case it works on.`;
+	});
+}
+
 /** Semantic capabilities and private proof inputs required by this app. */
 export function projectSpaceCompatibilityProbePlan(
 	doc: BlueprintDoc,
@@ -479,6 +503,7 @@ export function projectSpaceCompatibilityProbePlan(
 				"The app has named entry points for authenticated links.",
 			]),
 			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["deep-links"]],
+			featureFlagsOff: [],
 			runtimeProbes: [],
 		});
 	}
@@ -492,6 +517,7 @@ export function projectSpaceCompatibilityProbePlan(
 					? [HQ_PRIVATE_FEATURE_FLAGS["advanced-case-search"]]
 					: []),
 			],
+			featureFlagsOff: [],
 			runtimeProbes: ["case-search"],
 		});
 	}
@@ -509,6 +535,7 @@ export function projectSpaceCompatibilityProbePlan(
 		capabilities.push({
 			capability: projectSpaceCapabilityUse(capability, [...reasons]),
 			featureFlags: flags.map((flag) => HQ_PRIVATE_FEATURE_FLAGS[flag]),
+			featureFlagsOff: [],
 			runtimeProbes: [],
 		});
 	}
@@ -521,6 +548,23 @@ export function projectSpaceCompatibilityProbePlan(
 				...noMatchesReasons,
 			]),
 			featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["no-matches-registration"]],
+			featureFlagsOff: [],
+			runtimeProbes: [],
+		});
+	}
+	/* HQ's build writes a basic subcase's parent index only where
+	 * `DONT_INDEX_SAME_CASETYPE` is off or the child's type differs from the
+	 * form's (`corehq/apps/app_manager/xform.py::XForm._create_casexml`,
+	 * `index_same_casetype`), so a same-type basic child needs the flag off. */
+	const sameTypeReasons = sameTypeChildReasons(doc);
+	if (sameTypeReasons.length > 0) {
+		capabilities.push({
+			capability: projectSpaceCapabilityUse(
+				"same-type-child-links",
+				sameTypeReasons,
+			),
+			featureFlags: [],
+			featureFlagsOff: [HQ_PRIVATE_FEATURE_FLAGS["same-type-links-dropped"]],
 			runtimeProbes: [],
 		});
 	}
@@ -532,6 +576,7 @@ export function projectSpaceCompatibilityProbePlan(
 						...searchReasons,
 					]),
 					featureFlags: [HQ_PRIVATE_FEATURE_FLAGS["large-search-performance"]],
+					featureFlagsOff: [],
 					runtimeProbes: [],
 				},
 			]

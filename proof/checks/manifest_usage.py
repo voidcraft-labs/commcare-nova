@@ -467,16 +467,17 @@ def without_carried(app: dict, hq_side) -> dict:
     return app
 
 
-def app_json_uses(app: dict, manifest: Manifest, artifact: str, found: Uses, carried=None):
+def app_json_uses(app: dict, manifest: Manifest, artifact: str, found: Uses, carried=None, configurations=None):
     """The surface items one app JSON uses, its XForm sources included (by their forms' positions), each parsed form
     keeping the form object that names it (``Form.app_form``), which the value classes read of a form's own case
     actions and type. ``carried`` is the document's ``hq-side.json``, whose saved values the upload carries back
-    from the target and does not use (``without_carried``)."""
+    from the target and does not use (``without_carried``); ``configurations`` are those the app was sent under
+    (``App.configurations``), which a class turned by a project-space flag reads."""
     if not isinstance(app, dict):
         raise ManifestError(f"{artifact} is not a JSON object, so it is no app HQ's import reads.")
     app = without_carried(app, carried)
     root = app.get("doc_type") or "Application"
-    document = App(app, artifact)
+    document = App(app, artifact, configurations)
     found.documents.append(document)
     scope = ((root, app),)
     found.add(f"schema:{root}", artifact, "/", JsonAt(document, scope))
@@ -2040,21 +2041,27 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
             f"The records of {document.id} hold the publishes {sorted(observed['uploads'])}, and the document"
             f" sends {sorted(expected)}."
         )
-    seen = set()
+    sent = {}  # (artifact, ref) -> (the first upload that sent it, the configurations it was sent under)
     for key, ref in sorted(observed["uploads"].items()):
         if document.migration_witness and key.rpartition("/")[2] in ("create", "content"):
             # A witness's first publish is the retained export from before its migration, which Nova's current code
             # did not write: the check judges its republish.
             continue
-        artifact = "edit/app.json" if key.startswith("edit/") else "app.json"
-        if (artifact, ref) in seen:
-            continue
-        seen.add((artifact, ref))
+        edit = key.startswith("edit/")
+        artifact = "edit/app.json" if edit else "app.json"
+        name = key.removeprefix("edit/").rpartition("/")[0]
+        configuration = (document.edit.exports if edit else document.exports)[name].configuration
+        _, configurations = sent.setdefault((artifact, ref), (key, []))
+        if configuration not in configurations:
+            configurations.append(configuration)
+    for (artifact, ref), (key, configurations) in sent.items():
         try:
             app = json.loads(blobs.get(ref))
         except json.JSONDecodeError as error:
             raise ManifestError(f"{document.id}'s {key} app_file is not JSON ({error}).") from error
-        app_json_uses(as_imported(app), manifest, artifact, found, carried=document.hq_side)
+        app_json_uses(
+            as_imported(app), manifest, artifact, found, carried=document.hq_side, configurations=configurations
+        )
     for artifact, entries in sorted(observed["archives"].items()):
         archive_uses({name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found)
     read_observed(found, manifest, Readings.of(blobs.get_json(observed["readings"])))

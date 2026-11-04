@@ -46,6 +46,9 @@ CASE = "http://commcarehq.org/case/transaction/v2"
 
 # The controls Core's XFormParser hands a bind's node to (its control handlers), by local name.
 SELECTS = frozenset({"select", "select1"})
+# The project-space flag under which HQ's build writes no index from a child case to a parent of its own type
+# (``corehq/toggles/__init__.py::DONT_INDEX_SAME_CASETYPE``).
+DONT_INDEX_SAME_CASETYPE = "DONT_INDEX_SAME_CASETYPE"
 
 
 # Where a use sits ------------------------------------------------------------
@@ -856,13 +859,16 @@ class Runtime:
 
 
 class App:
-    """An app JSON as the value classes read it: the document and each form's XForm (``Form``)."""
+    """An app JSON as the value classes read it: the document, each form's XForm (``Form``) and the
+    configurations Nova's publishes sent it under (``proof.checks.corpus.Configuration``; None where the reading
+    was given none), which a class that turns on a project-space flag reads."""
 
     kind = "app"
 
-    def __init__(self, doc, artifact):
+    def __init__(self, doc, artifact, configurations=None):
         self.doc = doc
         self.artifact = artifact
+        self.configurations = None if configurations is None else tuple(configurations)
         self.forms = {}  # a form's unique_id -> Form
         self.readings = None
 
@@ -3403,8 +3409,13 @@ def upload_question(use, manifest):
 
 def own_case_type_where_same_type_unindexed(use, manifest):
     """``forms-and-case-writes/subcase-of-the-module-s-own-case-type-in-a-project-space-with``: a child case of
-    the module's own case type, refused where the project space has DONT_INDEX_SAME_CASETYPE on, which the
-    export does not carry: a child of another type is not in the class, one of the same type is None."""
+    the module's own case type, sent to a project space with DONT_INDEX_SAME_CASETYPE on, where HQ's build
+    writes no index from the child to the case the form updates (``xform.py::XForm._create_casexml``:
+    ``index_same_casetype``). The flag is the project space's, which the export does not carry, so the class
+    reads the configurations the app was sent under (``App.configurations``): a child of another type is not
+    in the class, one of the module's own type is where a configuration turns the flag on, and None where the
+    reading names no configuration. Nova's publish requires the flag off for such a child (its verdict's
+    ``flagsOff``), so no checked configuration of a corpus export turns it on."""
     at, form = _form(use)
     if form is None:
         return None
@@ -3416,7 +3427,12 @@ def own_case_type_where_same_type_unindexed(use, manifest):
         each.get("case_type") == module.get("case_type")
         for each in ([subcase] if subcase is not None else _subcases(form))
     )
-    return None if same else False
+    if not same:
+        return False
+    configurations = at.app.configurations
+    if configurations is None:
+        return None
+    return any(DONT_INDEX_SAME_CASETYPE in configuration.flags for configuration in configurations)
 
 
 def multi_select_case_sharing_without_owner(use, manifest):

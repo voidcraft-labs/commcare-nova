@@ -334,7 +334,9 @@ export async function probeHqProjectSpaceCompatibility(
 	const allPlans = [...plan.capabilities, ...plan.advisories];
 	const privateFlags = new Map<string, HqPrivateFeatureFlagRequirement>();
 	for (const item of allPlans) {
-		for (const flag of item.featureFlags) privateFlags.set(flag.id, flag);
+		for (const flag of [...item.featureFlags, ...item.featureFlagsOff]) {
+			privateFlags.set(flag.id, flag);
+		}
 	}
 	const needsCaseSearchRuntime = allPlans.some((item) =>
 		item.runtimeProbes.includes("case-search"),
@@ -526,6 +528,19 @@ function aggregatePrivateProbeState(
 	const states = plan.featureFlags.map(
 		(flag) => flagResults.get(flag.id) ?? "unverified",
 	);
+	/* A flag the app needs off reads inverted: listed (on) is missing, and
+	 * not listed once the unfiltered list proved the target visible is
+	 * available. An unreadable list stays unverified. */
+	for (const flag of plan.featureFlagsOff) {
+		const state = flagResults.get(flag.id) ?? "unverified";
+		states.push(
+			state === "available"
+				? "missing"
+				: state === "missing"
+					? "available"
+					: "unverified",
+		);
+	}
 	if (plan.runtimeProbes.includes("case-search")) {
 		states.push(caseSearchRuntime?.state ?? "unverified");
 	}

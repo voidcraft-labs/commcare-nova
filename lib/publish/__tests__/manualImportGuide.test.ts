@@ -4,7 +4,10 @@ import {
 	temporalSearchFixture,
 	temporalSearchScenarios,
 } from "@/lib/commcare/__tests__/compilerNavigationFixture";
-import { searchPromptFixture } from "@/lib/commcare/__tests__/searchPromptFixture";
+import {
+	promptLookupNaming,
+	searchPromptFixture,
+} from "@/lib/commcare/__tests__/searchPromptFixture";
 import { hqImportFileGuide } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS,
@@ -35,6 +38,8 @@ const BARE: ManualImportGuideInput = {
 	readsLocations: false,
 	sendsToConnect: false,
 	formEntrySync: false,
+	commtrack: false,
+	sameTypeChildLinks: [],
 	distanceSearches: [],
 };
 
@@ -107,6 +112,7 @@ describe("manualImportGuide", () => {
 			assets: new Map(),
 			lookupWorkbook: undefined,
 			attachmentTarget: null,
+			lookupNaming: undefined,
 		});
 		const step = steps.find((s) => s.kind === "capabilities");
 		if (!step) throw new Error("The guide left out the capabilities step");
@@ -205,6 +211,70 @@ describe("manualImportGuide", () => {
 		});
 	});
 
+	it("asks about links between cases of the same type right after the capabilities, and about CommCare Supply right after sync on form entry, each only where its input holds", () => {
+		const all: ManualImportGuideInput = {
+			...BARE,
+			capabilities: [{ label: "Case search", reasons: ["It searches."] }],
+			planFeatures: [
+				{
+					label: PLAN_FEATURES["lookup-tables"].label,
+					plans: PLAN_FEATURES["lookup-tables"].plans,
+					consequence: PLAN_FEATURES["lookup-tables"].consequence,
+				},
+			],
+			formEntrySync: true,
+			commtrack: true,
+			sameTypeChildLinks: ["Refer a household", "Add a member"],
+			distanceSearches: [
+				{ caseType: "patient", property: "home", moduleNames: ["Find"] },
+			],
+		};
+		expect(kinds(all)).toEqual([
+			"import-app",
+			"commcare-version",
+			"capabilities",
+			"same-type-child-links",
+			"plan-features",
+			"form-entry-sync-off",
+			"commtrack-off",
+			"distance-search",
+		]);
+		expect(kinds({ ...all, sameTypeChildLinks: [] })).not.toContain(
+			"same-type-child-links",
+		);
+		expect(kinds({ ...all, commtrack: false })).not.toContain("commtrack-off");
+		expect(kinds({ ...BARE, commtrack: true })).toEqual([
+			"import-app",
+			"commcare-version",
+			"commtrack-off",
+		]);
+		expect(
+			kinds({ ...BARE, sameTypeChildLinks: ["Refer a household"] }),
+		).toEqual(["import-app", "commcare-version", "same-type-child-links"]);
+		const steps = manualImportGuide(all);
+		expect(steps.find((step) => step.kind === "same-type-child-links")).toEqual(
+			{
+				kind: "same-type-child-links",
+				title: "Links between cases of the same type",
+				lines: [
+					"Refer a household and Add a member make a case linked to a case of the same type. A few older project spaces drop that link, and there those forms lose it.",
+					`It helps to ask Dimagi Support whether this project space keeps it: ${PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL}.`,
+				],
+			},
+		);
+		expect(steps.find((step) => step.kind === "commtrack-off")).toEqual({
+			kind: "commtrack-off",
+			title: "CommCare Supply",
+			lines: [
+				"CommCare HQ adds steps this app doesn't have where the project space has CommCare Supply on.",
+				`It helps to check with Dimagi Support that it's off: ${PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL}. It's off unless Dimagi turned it on.`,
+			],
+		});
+		expect(decodeManualImportGuide(encodeManualImportGuide(steps))).toEqual(
+			steps,
+		);
+	});
+
 	it("tells a person to turn Web Apps off for an Android-only app, after the logo, and says nothing of it for an app that runs in Web Apps", () => {
 		const android: ManualImportGuideInput = {
 			...BARE,
@@ -242,6 +312,7 @@ describe("manualImportGuide", () => {
 			assets: new Map(),
 			lookupWorkbook: undefined,
 			attachmentTarget: null,
+			lookupNaming: promptLookupNaming,
 		});
 		expect(steps.at(-1)?.kind).toBe("distance-search");
 		const step = steps.at(-1);
@@ -272,6 +343,7 @@ describe("manualImportGuide", () => {
 				assets: new Map(),
 				lookupWorkbook: undefined,
 				attachmentTarget: null,
+				lookupNaming: undefined,
 			}).map((item) => item.kind),
 		).not.toContain("distance-search");
 	});

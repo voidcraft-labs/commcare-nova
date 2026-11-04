@@ -761,6 +761,7 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 				{ kind: "plan-feature", subject: "lookup-tables" },
 				{ kind: "connect-forwarder" },
 				{ kind: "form-entry-sync-off" },
+				{ kind: "commtrack-off" },
 			],
 		},
 	);
@@ -791,6 +792,13 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 					confirmed_by: ACTOR,
 					confirmed_at: expect.any(String),
 				},
+				{
+					kind: "commtrack-off",
+					subject: "commtrack-off",
+					label: "CommCare Supply turned off",
+					confirmed_by: ACTOR,
+					confirmed_at: expect.any(String),
+				},
 			]);
 
 			const withdrawn = JSON.parse(
@@ -805,7 +813,7 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 			);
 			expect(
 				withdrawn.confirmations.map((item: { kind: string }) => item.kind),
-			).toEqual(["connect-forwarder", "form-entry-sync-off"]);
+			).toEqual(["connect-forwarder", "form-entry-sync-off", "commtrack-off"]);
 			const withdrawnSync = JSON.parse(
 				resultText(
 					await call(client, WITHDRAW, {
@@ -817,6 +825,20 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 			);
 			expect(
 				withdrawnSync.confirmations.map((item: { kind: string }) => item.kind),
+			).toEqual(["connect-forwarder", "commtrack-off"]);
+			const withdrawnSupply = JSON.parse(
+				resultText(
+					await call(client, WITHDRAW, {
+						app_id: APP,
+						domain: "clinic",
+						kind: "commtrack-off",
+					}),
+				),
+			);
+			expect(
+				withdrawnSupply.confirmations.map(
+					(item: { kind: string }) => item.kind,
+				),
 			).toEqual(["connect-forwarder"]);
 			expect(
 				errorBody(

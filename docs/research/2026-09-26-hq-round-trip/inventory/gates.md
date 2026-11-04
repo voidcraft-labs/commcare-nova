@@ -47,7 +47,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | CUSTOM_ASSERTIONS [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | DATA_REGISTRY [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
-| DONT_INDEX_SAME_CASETYPE [deprecated] | RETIRING · REFUSED where on (see "What is refused") | n/a | flag probe; refuse same-type basic child cases |
+| DONT_INDEX_SAME_CASETYPE [deprecated] | RETIRING · REFUSED where on (see "What is refused") | n/a | flag probe; refuse same-type basic child cases and offer Save to Case |
 | FIXTURE_CASE_SELECTION [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | GRAPH_CREATION [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | HIERARCHICAL_LOCATION_FIXTURE [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
@@ -81,7 +81,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | FACE_CAPTURE [release] | TARGET-OWNED · HELD-NEW (Question types face capture) | n/a | none: it gates only creating the question in Vellum (`core.js`), and HQ reads it nowhere else |
 | COMMCARE_CONNECT [connect division] | TARGET-OWNED · HELD / HELD-NEW (Application: a Connect app; Question types Connect blocks) | n/a | precondition |
 
-Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail, or prints it in a form; whether case search is on (`CaseSearchConfig.enabled`), which Nova's runtime probe reads for an app with case search (`lib/commcare/client.ts::probeCaseSearchRuntime`); and, by asking the person to confirm, since no API reads those settings: that sync on form entry is off for an app that declares Android with a form that works on a case in a module that offers search (defect 20) and that the flat location fixture still syncs for an app that reads locations (Settings and profile); and, at import and publish of an app with an advanced module whose case list menu item is on, or with a form whose source contains the text `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`), by asking the person to confirm, that CommTrack is off in the project space (defect 20).
+Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail, or prints it in a form; whether case search is on (`CaseSearchConfig.enabled`), which Nova's runtime probe reads for an app with case search (`lib/commcare/client.ts::probeCaseSearchRuntime`); and, by asking the person to confirm, since no API reads those settings: that sync on form entry is off for an app that declares Android with a form that works on a case in a module that offers search (defect 20) and that the flat location fixture still syncs for an app that reads locations (Settings and profile); and, at publish of an app with an advanced module whose case list menu item is on, or with a form whose source text, decoded, holds `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`), with import asking the same from step 6, by asking the person to confirm, that CommTrack is off in the project space (defect 20).
 
 ### Removed toggles with document residue
 

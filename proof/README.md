@@ -525,9 +525,8 @@ named here, rather than by every document's checks:
 | Defect 5's 32-character tag | `proof/views/test_lookup_upload.py` | HQ's upload takes a 32-character tag and answers a 33-character one with a 500 (a database error; it checks no length) |
 | Defect 12's inline search, multi-select lists and `exclude` | `proof/views/test_case_list_offers.py` | HQ stores each without `CASE_SEARCH_ADVANCED`, its Case List page holds the control for each only under the flag, and Nova's publish asks for the flag before it sends any of them |
 | Defect 14's `both_fixtures` | `proof/views/test_location_fixture.py` | every app Nova publishes carries `project_default`, so a device's restore and Web Apps' agree: both hold the places where the project space syncs its flat list and neither does where it does not, and on a plan without Locations neither does; `both_fixtures`, written into the stored app, still gives a device the list whatever the project space says while Web Apps follows the project space (finding 69); HQ's Location Fixture page answers 404 without `HIERARCHICAL_LOCATION_FIXTURE` and, with it, turns the list off and on |
-| "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
 | "20, CommTrack" | `proof/targeted/__tests__/unproducedInputs.test.ts`; the control `targeted-supply-point-read`, the manifest check and proof 4 | Nova's parser refuses the session's `supply_point_id` as an unknown datum, which no menu of a Nova app supplies, and a read of a datum the form's entry declares is admitted (finding 68) |
-| Defect 20's `product_id` datum | `proof/targeted/__tests__/unproducedInputs.test.ts` | HQ adds it only to an advanced module; a document holding both features HQ's branches read (a case list menu item, a form that loads a case) exports a basic module with basic actions, so no export reaches it |
+| Defect 20's `product_id` datum | `proof/targeted/__tests__/publishChecks.test.ts` | HQ adds it to an advanced module's case list menu item, and only where CommCare Supply is on (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`), so Nova's publish asks the person to confirm CommCare Supply off (`commtrack-off`) for an app with such a menu item |
 | Defect 12's `VIEW_FORM_ATTACHMENT` | `proof/views/test_form_attachment.py` | a link write's file, submitted by a worker through HQ's receiver, is served by HQ's attachment view to the worker only under the flag, to an administrator either way, and to a web user without Submission History only under the flag |
 | Defect 14's logos on a linked app | `proof/views/test_linked_logos.py` | Nova writes no `logo_refs`, and HQ's own Copy Application view links the app as Nova publishes it; written into the stored app, an entry whose only key is `path` makes the copy fail (`LinkedApplication.reapply_overrides` reads its media object), and the copy succeeds again after the update Nova sends over that entry and over the record HQ's own uploader leaves in that slot |
 | Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
@@ -543,9 +542,8 @@ named here, rather than by every document's checks:
 
 Step 1's exit asks the register for an entry for every row of its defect table
 ("The defect rows", below). Every row now has entries that reproduce on their
-controls or a test of `proof/views` that runs HQ's own page or view; the one
-row that has neither, "12, same-type child", is an input no Nova document
-holds, which a test of Nova's planner and gate shows.
+controls, a document whose checks show it, or a test of `proof/views` that
+runs HQ's own page or view.
 
 ## Running the lane
 
@@ -1257,6 +1255,7 @@ refuses one that does (`proof/corpus/entryWriter.ts`), since a check runs only
 against a target Nova's publish accepts. A document whose verdict requires
 CommCare Supply off (`minimumConfiguration.commtrackEnabled: false`, where
 Nova's publish asks the `commtrack-off` confirmation) may not turn it on.
+A flag a verdict lists in `minimumConfiguration.flagsOff` is never on in its configurations.
 
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
@@ -1643,6 +1642,30 @@ writing the worker's record, the names HQ's build would give the blocks it
 appends for those Case Management slots (part 02's G3, outcome A); neither slot
 is eligible, so each change takes Save to Case, which `CaseOperationRuntimeTest`
 also opens.
+`targeted-same-type-child` holds defect 12's same-type row: a basic menu of
+patients whose "Add twin" follow-up creates a patient linked to the patient
+it works on, in a basic subcase slot. HQ's build writes that link only where
+the project space leaves `DONT_INDEX_SAME_CASETYPE` off
+(`xform.py::XForm._create_casexml`), so Nova's publish checks
+`same-type-child-links` and the form's verdict lists the flag in `flagsOff`.
+Beside it, "Add sibling" carries a write condition, so a Save to Case block is
+its simplest placement: the accepted counterpart, whose link the flag leaves
+alone. Its written D′ gives Add twin the same condition, which moves the
+create to the Save to Case block the `same-type-child-links` offer names
+(`lib/deployment/placementMoves.ts::placementMoveOffer`), and D′'s verdict no
+longer needs the flag off. Configuration sensitivity builds the flag's flip,
+which Nova's publish refuses, and holds its differences to the gate's effects.
+`targeted-supply-point-text` is a survey in English and French that puts
+`instance('commcaresession')/session/data/supply_point_id` in a text
+question's label in both languages and, as a string literal, in a hidden
+value's calculate. HQ's build gives an entry a `supply_point_id` datum where
+the form's source holds that text and CommCare Supply is on
+(`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`). Nova's
+export writes the apostrophes as `&apos;` and a save in HQ's form builder
+writes them plainly, so the publish asks the person to confirm CommCare Supply
+is off (`commtrack-off`) and the verdict holds
+`minimumConfiguration.commtrackEnabled: false`. Proof 4's form builder saves
+and `proof/editors/test_commtrack_supply_point_text.py` read it.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that
@@ -3014,8 +3037,11 @@ table's end (56, 57, 70 and 71), each shown by a targeted document.
 Finding 75, made while step 3 was planned, has its row after them, shown by
 a targeted document.
 
-One row is not reproduced: "12, same-type child", whose input no Nova document
-holds ("Claims held outside a document's checks", above). "20, CommTrack", which step 1
+"12, same-type child", which step 1 left out because no Nova document held
+its input, is a reproduced row: a basic child case of its own menu's type,
+which Nova's publish refuses where the project space has
+`DONT_INDEX_SAME_CASETYPE` and offers to move to a Save to Case placement;
+`targeted-same-type-child` holds it. "20, CommTrack", which step 1
 left out the same way, is a row again: its supply-point part is a read Nova's
 parser refuses as an unknown session datum (`unknown-datum`, finding 68), still
 shown by its control. Recognized identity-bearing session reads reach the
@@ -3048,6 +3074,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 12, related lookups | HQ's compiler raises without `CASE_SEARCH_RELATED_LOOKUPS` (`filter_dsl.py::_require_related_lookups_flag`). Fixed in step 2: the publish asks for the flag before it sends a search that reads related cases | intent (HQ), under the minimum configuration | fixed; still shown by the control `targeted-search-related-lookups` |
 | 12, custom tile | a Case List save under `CASE_LIST_TILE` alone drops the custom tile. Fixed in step 2: the publish asks for `CASE_LIST_TILE` and `CASE_LIST_TILE_CUSTOM` before it sends a tile, so no document has a `CASE_LIST_TILE` configuration | proof 4 under that configuration, then 2 | fixed; still shown by the controls `targeted-custom-tile` and `targeted-custom-tile-explicit-cells` |
 | 12, single-date prompt | a Case List save without `CASE_SEARCH_ADVANCED` drops the date input. Fixed in step 2: the publish asks for the flag before it sends a one-date Search field or one Nova matches by its own filter | proof 4 under the minimum, then 2 | fixed; still shown by the controls `navigation-search-date-add` and `navigation-search-datetime-add` |
+| 12, same-type child | a basic child case of its own menu's type, which Nova's publish refuses where the project space has `DONT_INDEX_SAME_CASETYPE` and offers to move to a Save to Case placement; HQ's build under the flag writes the child no index to the case its form updates (`xform.py::XForm._create_casexml`) | configuration sensitivity (the flag's flip refused, its differences held to the gate's effects, `toggle/DONT_INDEX_SAME_CASETYPE`) | `targeted-same-type-child` |
 | 13, shadows | the saved form's calculate, relevance or constraint holds a predicate on a form path, which Core's parser rejects, so HQ's build fails. Fixed in step 2: a shadow carries `#form/` only, and none is written where a hashtag would be a predicate's base or the head of a longer path | proof 4, then 2 | fixed; still shown by the controls `container-query-conditional` and `container-query-conditional-parent` |
 | 13, guard blocks | the saved form loses each guard's case-id bind, and HQ's case processing refuses the empty id (`AbstractCaseDbCache.get`, "case_id must not be empty"). Fixed in step 2: a guard is an update-only Save to Case block, `nova_guard_<operation>_<kind>`, that writes its case's type to itself, so a save keeps its case id | proof 4, then 3 | fixed; still shown by the controls `case-operation-conditional`, `case-operation-link`, `case-operation-query`, `case-operation-repeat` and `case-operation-sequence`, and on a device by `case-operation-expression-retype` and `case-operation-key` |
 | 13, reserved names | Vellum reports each `__nova_` node as not a valid question id. Fixed in step 2: every generated node is `nova_<purpose>...`, named by one allocator that steps around authored names (`lib/commcare/xform/generatedNodes.ts`) | proof 4 | fixed; still shown by the controls `case-capture-multiple`, `case-extension-multiple-repeat`, `case-extension-registration`, `case-extension-repeat`, `case-operation-query`, `case-operation-sequence`, `container-query-conditional` and `container-query-conditional-parent` |
@@ -5215,12 +5242,12 @@ for a unit its option owns; every module and form and the app's own record for
 a language-catalog or Connect-type edit; the modules holding an edited form;
 the module a no-matches registration form is lowered into, and its host
 module) and every entity whose wire Nova derives from what the batch edits;
-the lane's shards run on amd64, where Android runs beside HQ; the input of one defect row ("12, same-type child")
-cannot come from a Nova document, which a test of Nova's planner and gate
-shows, so it is not reproduced (the same was said of "20, CommTrack", whose
-read Nova's gate admitted: it is a row again, "The defect rows", and from
-step 2 Nova's gate refuses the read, which "Claims held outside a document's
-checks" names the test of); the `hq-api` family
+the lane's shards run on amd64, where Android runs beside HQ; the input of
+the defect rows "12, same-type child" and "20, CommTrack" was once said to
+come from no Nova document, and both are rows again ("The defect rows":
+`targeted-same-type-child` holds the first, and from step 2 Nova's gate
+refuses the second's read, which "Claims held outside a document's checks"
+names the test of); the `hq-api` family
 records each view's decorators
 with their arguments and the module constants a view returns; and the weekly
 pin pull request is opened with the workflow's own token, and the workflow

@@ -36,7 +36,6 @@ import {
 	caseSlotFacts,
 	heldOwnOrCreateBlockExpresses,
 	isWorkerRecordUpdate,
-	sameTypeExclusions,
 	sharingCloses,
 	stateCondition,
 } from "./basicCaseSlots";
@@ -789,9 +788,8 @@ const actions = new WeakMap<BlueprintDoc, Map<Uuid, AdvancedEntryActions>>();
  * advanced form (`placement.ts::planAdvancedCore`): in operation order, a
  * close that shares a create's open action takes no action of its own; a
  * change keeps a held Save to Case block that still expresses it, unless
- * a link carries it; else, unless it is an unheld create of its menu's own
- * type, it takes the load its target names or an open action where the
- * clauses admit it.
+ * a link carries it; else it takes the load its target names or an open
+ * action where the clauses admit it.
  */
 export function advancedEntryActions(
 	doc: BlueprintDoc,
@@ -806,7 +804,6 @@ export function advancedEntryActions(
 	if (known !== undefined) return known;
 	const f = caseSlotFacts(doc, formUuid);
 	const carriedSet = new Set(carriedCreates(doc, formUuid).keys());
-	const excluded = sameTypeExclusions(f);
 	const sharedBy = new Map<Uuid, Uuid>();
 	for (const [createUuid, close] of sharingCloses(f))
 		sharedBy.set(close.uuid, createUuid);
@@ -828,7 +825,6 @@ export function advancedEntryActions(
 				: heldWorkerBlockExpresses(f, op))
 		)
 			continue;
-		if (excluded.has(op.uuid)) continue;
 		const load = advancedLoadOf(f, op);
 		if (load !== undefined && loadClause(f, op, load) === undefined) {
 			if (load.kind === "worker") workerLoad = true;

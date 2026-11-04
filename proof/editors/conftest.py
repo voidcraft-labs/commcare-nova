@@ -57,7 +57,8 @@ TWO_LANGUAGE_APP = "yesno.json"
 # Every corpus document a test of this package reads, by id, and no other: test_view_equivalence.py's
 # CORPUS_SAMPLE, the document test_retained_reads.py saves each page of, the list whose mapping
 # test_mapping_keys.py opens, and the documents the publish gates' page and Vellum tests open
-# (test_version_raise.py, test_plan_features.py and test_gated_pages.py).
+# (test_version_raise.py, test_plan_features.py and test_gated_pages.py), and the document whose form builder save
+# test_commtrack_supply_point_text.py builds with CommCare Supply on and off.
 DOCUMENTS = (
     "case-operation-scalar",
     "case-worker-followup",
@@ -75,6 +76,7 @@ DOCUMENTS = (
     "case-list-inline",
     "search-multiple",
     "targeted-custom-tile",
+    "targeted-supply-point-text",
 )
 
 _TIMINGS: dict[str, list[float]] = {}

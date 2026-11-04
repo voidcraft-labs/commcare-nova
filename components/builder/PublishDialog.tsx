@@ -1408,6 +1408,7 @@ export function PublishDialog({
 												{status.placementMoves !== null && canEdit ? (
 													<PlacementMoveChoice
 														offer={status.placementMoves}
+														report={status.projectSpaceCompatibility}
 														accepted={acceptsOffer(
 															acceptMoves,
 															status.placementMoves,
@@ -2334,20 +2335,24 @@ function ConfirmationChoice({
  * the app as it is: the offer's heading and body, one row per move, and the
  * one box that accepts them all. It starts unticked, because a move changes
  * where CommCare HQ keeps those answers in every project space the app is
- * published to. A reason the dialog has no words for is not offered.
+ * published to. An offer `placementOfferCopy` has no true words for is not
+ * offered.
  */
 function PlacementMoveChoice({
 	offer,
+	report,
 	accepted,
 	onAcceptedChange,
 	disabled,
 }: {
 	offer: PlacementMoveOfferView;
+	/** The refusal's compatibility report, which the same-type offer's body reads. */
+	report: ProjectSpaceCompatibilityReport | undefined;
 	accepted: boolean;
 	onAcceptedChange: (offer: PlacementMoveOfferView, accepted: boolean) => void;
 	disabled: boolean;
 }) {
-	const copy = placementOfferCopy(offer);
+	const copy = placementOfferCopy(offer, report);
 	if (copy === null) return null;
 	return (
 		<section

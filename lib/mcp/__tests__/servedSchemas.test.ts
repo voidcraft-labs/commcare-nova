@@ -209,3 +209,36 @@ it("tells a client what an upload records and what a move offer asks of the user
 		"`placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case.",
 	);
 });
+
+it("serves the CommCare Supply confirmation on upload and withdrawal, and names it in the compatibility check", () => {
+	const upload = (served("upload_app_to_hq").inputSchema as Json).properties;
+	if (!object(upload) || !object(upload.confirm_commtrack_off))
+		throw new Error("upload_app_to_hq serves no confirm_commtrack_off");
+	expect(upload.confirm_commtrack_off.type).toBe("boolean");
+	expect(upload.confirm_commtrack_off.description).toBe(
+		"Send only after an `hq_confirmation_needed` refusal named them and the user said yes to each.",
+	);
+	expect(served("upload_app_to_hq").description).toContain(
+		"(a plan feature, the flat location list, a Connect forwarder, Sync Cases On Form Entry turned off, CommCare Supply turned off)",
+	);
+	expect(served("upload_app_to_hq").description).toContain(
+		"`confirm_form_entry_sync_off` and `confirm_commtrack_off`",
+	);
+
+	const withdraw = (
+		served("withdraw_deployment_confirmation").inputSchema as Json
+	).properties;
+	if (!object(withdraw) || !object(withdraw.kind))
+		throw new Error("withdraw_deployment_confirmation serves no kind");
+	const validateKind = new Ajv2020({
+		strict: false,
+		validateFormats: false,
+	}).compile(withdraw.kind);
+	expect(validateKind("commtrack-off")).toBe(true);
+	expect(validateKind("commcare-supply")).toBe(false);
+	expect(withdraw.kind.description).toContain("`commtrack-off`");
+
+	expect(served("check_project_space_compatibility").description).toContain(
+		"`commtrack_off` says whether the project space's CommCare Supply setting needs confirming, and `placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case.",
+	);
+});

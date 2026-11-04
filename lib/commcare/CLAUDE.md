@@ -225,7 +225,7 @@ links to captured files, Save only answers that changed, registration
 offered after an empty search, choosing several cases at once (a multi-select case list),
 search across related cases (a relation in a search's own filter, supporting
 related cases, or a search-first menu that follows a parent case chosen first),
-and case tiles. Publish names capabilities too, never HQ flag names. At publish
+case tiles, and links between cases of the same type. Publish names capabilities too, never HQ flag names. At publish
 only the publisher's key reads a space's flags: a toggle keyed by project space
 alone is never on for a user (`corehq/toggles/__init__.py::StaticToggle.enabled`),
 so a flag the probe reads as on is the space's own. A project space the key's
@@ -249,7 +249,14 @@ Direct publish preflight checks the selected project space before any remote
 write. Domain-only settings use the `UserDomainsResource` filter. A
 negative result is missing only after the unfiltered endpoint proves the target
 is still visible; transport, shape, namespace, and unknown-setting failures are
-unverified. Current HQ returns the complete unpaginated list with one numeric
+unverified. A flag the app needs off (`DONT_INDEX_SAME_CASETYPE`) is read
+the same way, inverted: a plan names it in `featureFlagsOff`, listed is
+missing, not listed is available, and an unreadable list stays unverified.
+HQ's build writes a basic subcase's parent index to a case of the form's own
+type only while that flag is off
+(`corehq/apps/app_manager/xform.py::XForm._create_casexml`), so
+`sameTypeChildReasons` names each such child for the `same-type-child-links`
+capability. Current HQ returns the complete unpaginated list with one numeric
 `meta.total_count`; the sibling paginator that returns a null count does not own
 this endpoint. Case search has an additional qualified read against the mobile
 Search endpoint, which checks both its base toggle and `CaseSearchConfig.enabled`.
@@ -309,6 +316,13 @@ HQ's build gives such a form's entry a claim that always posts while the
 project space syncs cases on form entry, and Android can't open a form whose
 entry asks for a sync, so publish asks a person to confirm the setting is off
 (`form-entry-sync-off`).
+
+`planPrivileges.ts::commtrackReasons` names each advanced menu whose case list
+is its own menu item and each form whose source, decoded, holds the text
+`instance('commcaresession')/session/data/supply_point_id`: CommCare HQ adds a
+product step after a case is chosen from such a list and gates such a form to
+workers assigned a supply point while CommCare Supply is on, so publish asks a
+person to confirm it is off (`commtrack-off`).
 
 A download checks no project space, so its compatibility is `not_checked`: the HQ import file has no target, and a `.ccz` is made for a project space the app is already published to, whose publish made the check.
 Upstream drift reaches the probe through the weekly pin pull request
