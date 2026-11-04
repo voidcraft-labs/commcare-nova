@@ -12,6 +12,7 @@ import {
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { ownRecordValue } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
 import { captureAppTestSnapshot } from "./capture";
 import {
@@ -176,6 +177,7 @@ export async function startAppTest(
 					history: [],
 					selections: {},
 					deviceCases: { rows: [], indices: [] },
+					afterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 				};
 				const identity = bindAppTestAction(doc, initial, {
 					kind: "identity",
@@ -317,6 +319,9 @@ export async function continueAppTest(
 								history: [],
 								selections: {},
 								deviceCases: { rows: [], indices: [] },
+								/* Another worker is another device's session: nothing
+								 * the last worker's submissions pushed runs for it. */
+								afterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 							}
 						: bound.kind === "language"
 							? {

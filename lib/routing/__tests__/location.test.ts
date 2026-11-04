@@ -241,6 +241,25 @@ describe("Builder location contract", () => {
 		},
 	);
 
+	it("keeps an otherwise link selected and drops it once the Otherwise is no link", () => {
+		const doc = fixture();
+		const otherwiseUuid = testUuid("otherwise-link");
+		doc.forms[form].otherwise = {
+			kind: "link",
+			uuid: otherwiseUuid,
+			target: { type: "this-form" },
+		};
+		const list: Location = {
+			kind: "form-links",
+			moduleUuid: mod,
+			formUuid: form,
+		};
+		const selected: Location = { ...list, linkUuid: otherwiseUuid };
+		expect(recoverLocation(selected, doc)).toBe(selected);
+		doc.forms[form].otherwise = { kind: "destination", destination: "module" };
+		expect(recoverLocation(selected, doc)).toEqual(list);
+	});
+
 	it("keeps a legacy form URL on that form when its field belongs elsewhere", () => {
 		const other = testUuid("other-form");
 		const otherField = testUuid("other-field");

@@ -262,8 +262,8 @@ export function setCalculate(
 		throw new Error("The fixture's Hidden Value is missing.");
 	field.calculate = expression;
 }
-/** Set the after-submit link's condition, with the app home as the
- * fallback when it is false. */
+/** Set the after-submit destination's condition; with no otherwise, the
+ * app home follows when it is false. */
 export function setLinkCondition(
 	doc: BlueprintDoc,
 	expression: Expression,
@@ -271,5 +271,4 @@ export function setLinkCondition(
 	const link = doc.forms[reads.checkIn].formLinks?.[0];
 	if (link === undefined) throw new Error("The link fixture is missing.");
 	link.condition = expression;
-	doc.forms[reads.checkIn].postSubmit = "app_home";
 }

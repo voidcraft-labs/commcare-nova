@@ -219,6 +219,8 @@ export const PLATFORM_CELLS: Readonly<
 	"forms-and-case-writes/post-form-workflow-default@android": model(
 		"after-submit-home-android",
 	),
+	"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once@web-apps":
+		model("after-submit-top-frame-web-apps"),
 	"questions/question-list-unlabelled-when-every-root-field-is-a-section-and@web-apps":
 		model("form-one-screen-web-apps"),
 	"questions/question-list-unlabelled-anywhere-else@web-apps": model(

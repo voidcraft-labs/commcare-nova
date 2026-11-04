@@ -1,22 +1,25 @@
 // components/builder/form-links/afterSubmitCopy.ts
 //
 // Every sentence the after-submit surfaces share, in one place: the
-// settings row, the workspace's terminal row, the chooser, and the
-// announcements all describe the same five built-in destinations and the
-// same "otherwise" idea, and a second spelling of any of them is how one
+// settings row, the workspace's otherwise row, the chooser, the
+// announcements and the toasts all describe the same five built-in
+// destinations and the same Otherwise, and a second spelling of any of them is how one
 // surface ends up contradicting another.
 //
-// Display projections only. Nothing here decides what a form does; the
-// planners in `lib/doc/formLinkMutations.ts` do, and these words describe
-// their answers.
+// Display projections, and the one toast that speaks a commit's reports.
+// Nothing here decides what a form does; the planners in
+// `lib/doc/formLinkMutations.ts` do, and these words describe their answers.
 
-import type {
-	AfterSubmitPlan,
-	FallbackChoice,
-} from "@/lib/doc/formLinkMutations";
+import type { AfterSubmitPlan } from "@/lib/doc/formLinkMutations";
 import type { FormLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
-import type { FormLinkTarget, PostSubmitDestination } from "@/lib/domain";
+import type { FormLinkWriteReports } from "@/lib/doc/hooks/useFormLinks";
+import type {
+	FormLinkTarget,
+	FormOtherwise,
+	PostSubmitDestination,
+} from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
+import { showToast } from "@/lib/ui/toastStore";
 
 /** Where the person goes, as a prepositional phrase: "goes {phrase}". */
 export function destinationPhrase(destination: PostSubmitDestination): string {
@@ -140,91 +143,157 @@ export function hiddenTargetLine(
 			);
 }
 
-/** The chooser's fourth item: a link instead of a built-in destination. */
-export const ELSE_LINK_CHOICE_LABEL = "Another form or module";
+/** The chooser item that points somewhere a built-in destination does not. */
+export const OTHER_TARGET_CHOICE_LABEL = "Another form or module";
 
-/** "to “Visit”" / "to the “Care” form list": where an otherwise link goes. */
-function elseLinkPhrase(destination: {
-	readonly kind: "form" | "module";
-	readonly name: string;
-}): string {
-	return destination.kind === "form"
-		? `to “${destination.name}”`
-		: `to the “${destination.name}” form list`;
+/** The otherwise chooser's item for no otherwise: the app home follows. */
+export const APP_HOME_CHOICE_LABEL = "The app home";
+
+/** Names a link target for a sentence; `undefined` once it is gone. */
+export type TargetNameOf = (target: FormLinkTarget) =>
+	| {
+			readonly kind: "form" | "module" | "this-form";
+			readonly name: string;
+	  }
+	| undefined;
+
+/** "“Visit”" / "the “Care” form list" / "this form again": what a link
+ *  opens, as the object of "Opens" or "to". */
+function targetObject(target: FormLinkTarget, nameOf: TargetNameOf): string {
+	if (target.type === "this-form") return "this form again";
+	const destination = nameOf(target);
+	if (destination === undefined)
+		return "a destination that is no longer in the app";
+	return destination.kind === "module"
+		? `the “${destination.name}” form list`
+		: `“${destination.name}”`;
 }
 
 /**
- * Where the form goes when nothing matched, as the phrase after "goes".
- * `nameOf` resolves a link target to its destination; a target that no
- * longer exists reads as such rather than crashing the sentence.
+ * Where the form goes when no destination that may not run runs, as the
+ * phrase after "Otherwise,": an absent otherwise is the app home.
  */
-function fallbackPhrase(
-	plan: AfterSubmitPlan,
-	nameOf: (
-		target: FormLinkTarget,
-	) => { readonly kind: "form" | "module"; readonly name: string } | undefined,
+export function otherwisePhrase(
+	otherwise: FormOtherwise | undefined,
+	nameOf: TargetNameOf,
 ): string {
-	if (plan.fallback.kind === "post-submit") {
-		return destinationPhrase(plan.fallback.destination);
+	if (otherwise === undefined) return "back to the app home";
+	if (otherwise.kind === "destination") {
+		return destinationPhrase(otherwise.destination);
 	}
-	const destination = nameOf(plan.fallback.link.target);
-	return destination === undefined
-		? "to a destination that is no longer in the app"
-		: elseLinkPhrase(destination);
+	return `to ${targetObject(otherwise.target, nameOf)}`;
 }
 
-/** The settings row's description: what submitting this form does next. */
+/** The otherwise as one sentence: "Otherwise, back to the app home". */
+export function otherwiseSentence(
+	otherwise: FormOtherwise | undefined,
+	nameOf: TargetNameOf,
+): string {
+	return `Otherwise, ${otherwisePhrase(otherwise, nameOf)}`;
+}
+
+/** Whether some destination runs every time: no condition and no carried
+ *  case, so it is not among the destinations that may not run. */
+export function hasEveryTimeDestination(plan: AfterSubmitPlan): boolean {
+	return plan.destinations.some(
+		(link) => !plan.mayNotRun.some((candidate) => candidate.uuid === link.uuid),
+	);
+}
+
+/**
+ * The line under the otherwise row: when it runs, and, while some
+ * destination runs every time, that the otherwise opens before it (CommCare
+ * HQ pushes the otherwise's frame last, so it is on top).
+ */
+export function otherwiseSubtitle(everyTimeDestinationExists: boolean): string {
+	const when = "When no destination with a condition or a carried case runs.";
+	return everyTimeDestinationExists
+		? `${when} It opens before any destination that runs every time.`
+		: when;
+}
+
+/** Where a form without destinations goes: "After submit, the form goes
+ *  to the app home". */
+export function postSubmitSentence(destination: PostSubmitDestination): string {
+	return `After submit, the form goes ${destinationPhrase(destination)}`;
+}
+
+/** The form-settings row's description of what submitting this form does. */
+export interface AfterSubmitSummary {
+	/** "Goes to …", "Opens …" or "Runs n destinations in order". */
+	readonly lead: string;
+	/** "Otherwise, …", while the form may hold an otherwise or holds one. */
+	readonly otherwise: string | undefined;
+}
+
 export function afterSubmitSummary(
 	plan: AfterSubmitPlan,
-	nameOf: Parameters<typeof fallbackPhrase>[1],
-): string {
-	const phrase = fallbackPhrase(plan, nameOf);
-	const count = plan.conditional.length;
-	if (count === 0) {
-		return `When this form is submitted, the person goes ${phrase}.`;
-	}
-	const links = count === 1 ? "1 link" : `${count} links`;
-	return plan.elseLink === undefined
-		? `This form checks ${links} first, and goes ${phrase} when none of them match.`
-		: `This form checks ${links} first, and otherwise goes ${phrase}.`;
+	nameOf: TargetNameOf,
+): AfterSubmitSummary {
+	const count = plan.destinations.length;
+	const only = plan.destinations[0];
+	const lead =
+		plan.postSubmit !== undefined || only === undefined
+			? `Goes ${destinationPhrase(plan.postSubmit?.destination ?? "app_home")}`
+			: count === 1
+				? `Opens ${targetObject(only.target, nameOf)}`
+				: `Runs ${count} destinations in order`;
+	return {
+		lead,
+		otherwise:
+			count > 0 && (plan.otherwise !== undefined || plan.otherwiseOffered)
+				? otherwiseSentence(plan.otherwise, nameOf)
+				: undefined,
+	};
 }
 
-/** The announcement after a fallback commit. */
-export function fallbackChangedAnnouncement(
-	next: FallbackChoice,
-	nameOf: Parameters<typeof fallbackPhrase>[1],
+/** The announcement after the otherwise changes. */
+export function otherwiseChangedAnnouncement(
+	next: FormOtherwise | null,
+	nameOf: TargetNameOf,
 ): string {
-	if (typeof next === "string") {
-		return `Otherwise now goes ${destinationPhrase(next)}.`;
-	}
-	const destination = nameOf(next.target);
-	return destination === undefined
-		? "Otherwise now goes to another form or module."
-		: `Otherwise now goes ${elseLinkPhrase(destination)}.`;
+	return `Otherwise now goes ${otherwisePhrase(next ?? undefined, nameOf)}.`;
+}
+
+/** The announcement after a form without destinations changes where it goes. */
+export function postSubmitChangedAnnouncement(
+	next: PostSubmitDestination,
+): string {
+	return `After submit, this form now goes ${destinationPhrase(next)}.`;
 }
 
 /**
- * What a batch that pinned the fallback says. The planner stored the
- * form's current effective destination explicitly so the result passes
- * the gate; the author hears that it did.
+ * What a committed batch also did, one sentence each, from the planner's
+ * reports (`FormLinkCommitPlan`), for the toast that follows the commit.
  */
-export function pinsFallbackSentence(
-	destination: PostSubmitDestination,
-): string {
-	return `Otherwise now explicitly goes ${destinationPhrase(destination)}.`;
+export function commitReportSentences(reports: FormLinkWriteReports): string[] {
+	const sentences: string[] = [];
+	if (reports.movedToOtherwise !== undefined) {
+		sentences.push("Where this form went after submit is now its Otherwise.");
+	}
+	if (reports.droppedPostSubmit !== undefined) {
+		sentences.push(
+			`This form no longer goes ${destinationPhrase(reports.droppedPostSubmit)} after submit, because its destinations say where it goes now.`,
+		);
+	}
+	if (reports.droppedOtherwise !== undefined) {
+		sentences.push(
+			"This form's Otherwise is gone, because every destination now runs each time.",
+		);
+	}
+	if (
+		reports.otherwiseToPostSubmit !== undefined ||
+		reports.otherwiseToDestination !== undefined
+	) {
+		sentences.push("This form's Otherwise is now where it goes after submit.");
+	}
+	if ((reports.droppedDatums?.length ?? 0) > 0) {
+		sentences.push(
+			"The values it carried were removed, because the new destination doesn't read them.",
+		);
+	}
+	return sentences;
 }
-
-/** The inline question before a built-in destination replaces the otherwise link. */
-export function stopElseLinkQuestion(
-	elseName: string,
-	next: PostSubmitDestination,
-): string {
-	return `Stop going to “${elseName}”? When nothing above matches, the form will go ${destinationPhrase(next)} instead. You can undo this.`;
-}
-
-/** The detail an empty condition is refused with. */
-export const EMPTY_CONDITION_REFUSAL =
-	"A link needs a condition. To send the form here whenever nothing else matched, make it the otherwise link in the panel.";
 
 /** What a carried value's editor is seeded with. */
 export const CARRIED_VALUE_HINT =
@@ -266,4 +335,11 @@ export function carriedAutomaticallyDetail(sourceDatumId: string): string {
 		return "The case this form creates travels with the person.";
 	}
 	return `The “${sourceDatumId}” selection travels with the person.`;
+}
+
+/** Tell the person what a committed batch also did, as one toast. Nothing
+ *  shows when the batch did only what was asked. */
+export function showCommitReportToast(reports: FormLinkWriteReports): void {
+	const sentences = commitReportSentences(reports);
+	if (sentences.length > 0) showToast("info", sentences.join(" "));
 }

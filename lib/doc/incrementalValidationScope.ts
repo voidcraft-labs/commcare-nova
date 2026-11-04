@@ -34,6 +34,7 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	caseListRegistrationFormOf,
+	formLinkEntries,
 	orderedCaseOperations,
 } from "@/lib/domain";
 import { modulesSelectingThrough } from "@/lib/domain/entryDatumSupplies";
@@ -81,7 +82,7 @@ function owningModule(doc: BlueprintDoc, formUuid: Uuid): Uuid | undefined {
  * form-link dependency graph. */
 function addFormLinkSources(doc: BlueprintDoc, scope: MutableScope): void {
 	for (const form of Object.values(doc.forms)) {
-		if ((form.formLinks?.length ?? 0) > 0) scope.formUuids.add(form.uuid);
+		if (formLinkEntries(form).length > 0) scope.formUuids.add(form.uuid);
 	}
 }
 
@@ -341,8 +342,7 @@ function mutationFootprint(
 				break;
 			}
 
-			/* Media and after-submit links mutate only their owning form. Link
-			 * cycles remain covered because cycle detection is app-wide. */
+			/* Media mutates only its owning form. */
 			case "setFormMedia":
 				scope.formUuids.add(mutation.uuid);
 				break;
@@ -407,6 +407,24 @@ function mutationFootprint(
 			case "removeFormLink":
 			case "moveFormLink":
 				return undefined;
+			/* An otherwise link carries creates as a destination does, so a
+			 * change that holds a link on either side takes the whole-document
+			 * gate with the four link kinds. A built-in otherwise changes only
+			 * where its own form goes. A later change of the menu's shape moves
+			 * it to the nearest destination still offered in the same reducer
+			 * step (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`). */
+			case "setFormOtherwise": {
+				const form = doc.forms[mutation.formUuid];
+				if (form === undefined) return undefined;
+				if (
+					form.otherwise?.kind === "link" ||
+					mutation.otherwise?.kind === "link"
+				) {
+					return undefined;
+				}
+				scope.formUuids.add(mutation.formUuid);
+				break;
+			}
 			/* A held placement decides where its form's case changes are
 			 * placed, which reads the whole form and its module (part 01
 			 * §13.3), so the module of each target's form re-runs. */

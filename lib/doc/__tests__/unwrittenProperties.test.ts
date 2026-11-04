@@ -171,7 +171,6 @@ describe("unwritten property derivation", () => {
 					name: "Administer Medication",
 					type: "followup",
 					fields: [f({ kind: "text", id: "note", label: "Note" })],
-					postSubmit: "app_home",
 					formLinks: [
 						{
 							condition: "#medication_order/order_status = 'delivered'",

@@ -364,8 +364,10 @@ public class LookupRuntimeTest {
             Entry entry = suite.getEntry("m0-f0");
             EvaluationContext context = runtime.context(entry.getInstances(null));
             Vector<StackOperation> links = entry.getPostEntrySessionOperations();
-            assertFalse("The place link finds no clinic, hq=" + hq, links.get(0).isOperationTriggered(context));
-            assertTrue("The table link counts its rows, hq=" + hq, links.get(1).isOperationTriggered(context));
+            // Nova emits the destinations in reverse with the otherwise last: the second authored link, the table's,
+            // comes first and holds only when the place link's condition does not.
+            assertFalse("The place link finds no clinic, hq=" + hq, links.get(1).isOperationTriggered(context));
+            assertTrue("The table link counts its rows, hq=" + hq, links.get(0).isOperationTriggered(context));
         }
     }
 }

@@ -610,10 +610,13 @@ menu offers of `previous`, `module`, `firstMenu`
 (`lib/domain/forms.ts::defaultPostSubmit` takes the menu facts `formsReadSearch`,
 `multiSelect`, `parentMultiSelect` and `offTheMenu`;
 `lib/domain/postSubmit.ts::effectivePostSubmit` is the doc-level reader every
-consumer uses). `postSubmitDestinationsOffered` is what HQ's form settings page
+consumer uses for a form without destinations; a form with destinations holds
+no `postSubmit`, `POST_SUBMIT_BESIDE_FORM_LINKS`). `postSubmitDestinationsOffered` is what HQ's form settings page
 offers for the menu's shape, narrowed by Nova's own conditions for a menu that
 is off the menu, and one rule, `POST_SUBMIT_NOT_OFFERED`, refuses a stored
-destination outside `postSubmitDestinationsAdmitted`. Everything HQ's build
+destination outside `postSubmitDestinationsOffered`; `FORM_OTHERWISE_NOT_OFFERED`
+refuses an otherwise outside the same set less `app_home`
+(`otherwiseDestinationsOffered`). Everything HQ's build
 refuses is unoffered (`previous` where exactly one of the menu and its parent
 selects several cases, `previous` in a menu whose forms read the search, `parentMenu`
 with no parent), so the one rule covers the editor and the build. The SA only
@@ -682,37 +685,58 @@ form-link evaluation never guesses either relationship from a case type or id.
 
 ### After-submit links (`form_links`)
 
-`Form.formLinks` is an ordered array of `{uuid, condition?, target, datums?}`;
+`Form.formLinks` is an ordered array of destinations, each `{uuid, condition?,
+target, datums?}`, where `target` is a form, a menu or `this-form`, and
+`Form.otherwise` is where the form goes when no destination that may not run
+runs: a built-in destination or a link (`lib/domain/forms.ts`,
+`lib/domain/afterSubmit.ts::formLinkMayNotRun`); `formLinkEntries` walks the
+destinations then the otherwise link, each with its `role`.
 CommCare's `form_links` spelling and the workflow words live only here. ONE
 projector, `formLinkProjection.ts`, owns everything both paths emit (it imports
 `buildFormActions` from `formActions.ts`, never the expander, so the preview
 engine can reach it too); `session.ts::deriveFormLinkStack` and
 `expander.ts::toHqFormLink` are its two printers.
 
-- **Exclusive guards.** Core executes EVERY true `<create>` and lands on the
-  LAST one (`CommCareSession::executeStackOperations` / `finishAndPop`), and HQ
-  emits authored conditions raw (`workflow.py::_get_link_frame`; fixture
-  `form_link_multiple.xml`: `if="a = 1"`, `if="a = 2"`). "First true link wins"
-  is therefore Nova's to make true: `planFormLinkGuards` builds link i as the
-  tree `c_i and not(c_1) … and not(c_{i-1})`. The serializer parenthesizes
-  `c_i` wherever its precedence needs it, so a top-level `or` cannot fire two
-  frames; the first link prints as the bare `c_i`, byte-identical to HQ's first
-  frame. A TERMINAL unconditional link is
-  the exhaustive else: guard `not(c_1) … and not(c_{n-1})`, no fallback frame.
-  An absent condition is unconditional. The fallback frame
-  is `postSubmit` guarded by `not(g_1) and … and not(g_n)` over the EMITTED
-  guards — HQ's literal `' and '.join(f'not({xpath})')` in `_get_fallback_frame`
-  over the `xpath`s Nova sends, so both paths derive identical bytes —
-  and `app_home` (HQ `default`) emits no frame at all.
-  `formLinkProjection.property.test.ts` proves exactly one guard-or-fallback is
-  true under every assignment; `formLinkParity.test.ts` pins local `<create if>`
-  against HQ `form_links[i].xpath` on one document.
+- **Destinations and the otherwise.** Every destination whose condition holds
+  runs. Core pushes every true `<create>` and pops the last pushed
+  (`CommCareSession::executeStackOperations` / `createFrame`,
+  `finishExecuteAndPop` / `finishAndPop`), running the rest after it on
+  Android; Formplayer drops the rest when it rebuilds the session from the
+  popped frame (`MenuSessionFactory.rebuildSessionFromFrame` resets the
+  session), so Web Apps opens only the top one. HQ emits authored conditions
+  raw (`workflow.py::_get_link_frame`; fixture `form_link_multiple.xml`:
+  `if="a = 1"`, `if="a = 2"`). So `projectAfterSubmit` emits the destinations
+  in reverse array order, the author's first on top. Each link's `if` /
+  `xpath` is its own condition, then one held-case conjunct per carried value
+  on a single-case selection (`formLinkCarriedCaseGuards`, built with
+  `xpath/wire/rowScope.ts::caseById`, over `afterSubmit.ts::guardedLinkDatums`):
+  `count(instance('casedb')/casedb/case[@case_id = V and @case_type = 'T']) > 0`,
+  `V` the value the frame prints into the datum and `T` the selection's case
+  type (no type test where it has none), so a destination whose carried case is not on the device does not open. An
+  absent condition with no guarded value is unconditional (`xpath: ""`). A
+  built-in otherwise is `post_form_workflow_fallback`, its frame guarded by
+  `not(x_1) and … and not(x_n)` over the non-blank emitted `xpath`s (HQ's
+  literal `' and '.join(f'not({condition})')` in `_get_fallback_frame`, so
+  both paths derive identical bytes), so it runs when no destination that may
+  not run does and, pushed last, before every destination that runs every
+  time; HQ builds no fallback frame when every `xpath` is blank, which is why
+  `FORM_OTHERWISE_UNREACHABLE` refuses that shape. A link otherwise is the
+  last `form_links` entry, its `xpath` those same negations followed by its
+  own held-case conjuncts. With no otherwise there is no frame (`default`), and
+  the app home follows. `this-form` emits as a form target naming the source
+  form in its own menu (`lib/domain/formLinkTargets.ts::resolveFormLinkTarget`).
+  `formLinkProjection.property.test.ts` proves the stack pushes exactly the
+  destinations that hold, last first, and the otherwise when none that may
+  not run holds; `formLinkParity.test.ts` pins local `<create if>` against HQ
+  `xpath` byte for byte.
 - **HQ shape.** `form_links[]` is HQ's real `FormLink`:
   `{xpath, form_id, form_module_id, datums}` or `{xpath, module_unique_id,
   datums}` (`xpath: ""` = unconditional). `post_form_workflow` is `"form"` iff
   the form has links (HQ reads links only then); `post_form_workflow_fallback`
-  is the `postSubmit` workflow word when a guarded fallback frame exists, else
-  `null` (`WORKFLOW_FALLBACK_OPTIONS` is `None` — no choice validation). HQ
+  is the built-in otherwise's workflow word, else `null` (a link otherwise, no
+  otherwise, or destinations whose `xpath`s are all blank, where HQ would
+  build no frame; `hqJsonOracle.ts::checkFormLinks` refuses a fallback there)
+  (`WORKFLOW_FALLBACK_OPTIONS` is `None` — no choice validation). HQ
   re-mints form ids only when it creates an app from a body that holds forms
   (`util.py::update_form_unique_ids` rewrites `form_id` with them), and on
   every source read. Nova's create is an empty shell and its update writes ids
@@ -755,7 +779,7 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   whose selection datum no source datum (auto) or no named datum (manual)
   satisfies, and only resolvable frames reach the wire. Nova is deliberately
   stricter than HQ here.
-- **`previous`** — as `postSubmit` AND as the fallback frame — is the source
+- **`previous`**, as `postSubmit` AND as a built-in otherwise, is the source
   entry's own frame children with the last child popped, popping again while
   the child just popped was a non-selection datum (`WORKFLOW_PREVIOUS` arm of
   `_get_static_stack_frame`): `[m, m-f]` for a followup in a forms-first
@@ -797,16 +821,23 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   (`commcare-core .../CaseChildElement.java` installs the id under the
   attribute name; no child element `case_id` exists), in form scope too.
   `deriveEntryDefinition` declares every secondary instance the projected
-  guards, children, datums, fallback guard, and the `previous` frame's datum
-  values use.
-- **Validator** (`rules/form.ts::formLinkValidation`, all soundness):
-  `FORM_LINK_UNREACHABLE` (a link after an unconditional one),
-  `FORM_LINK_NO_FALLBACK` (every link conditional and no EXPLICIT `postSubmit`
-  — the form-type default does not count), `FORM_LINK_DATUMS_INCOMPLETE`,
-  `FORM_LINK_DATUM_UNUSED`, `FORM_LINK_DATUM_TARGET_COLLISION`, plus
-  `TARGET_NOT_FOUND` / `SELF_REFERENCE` /
-  `CIRCULAR` (graph-backed, `lib/domain/formLinkGraph.ts`). Every finding
-  carries `details.linkUuid` and names the destination. The projection runs
+  `xpath`s (conditions and held-case guards), children, datums, fallback
+  `xpath`, and the `previous` frame's datum values use.
+- **Validator** (`rules/form.ts::formLinkValidation` and
+  `otherwiseValidation`, all soundness, over every `formLinkEntries` entry):
+  `FORM_LINK_TARGET_NOT_OFFERED` (a submenu HQ's page does not list,
+  `views/forms.py::_get_linkable_forms_context`, restated as
+  `lib/domain/formLinkTargets.ts::menuTargetOffered`),
+  `FORM_LINK_MENU_DATUMS` (carried values on a menu target),
+  `FORM_LINK_SELF_REFERENCE` (a form target naming its own form; `this-form`
+  is the spelling), `FORM_OTHERWISE_NOT_OFFERED`,
+  `FORM_OTHERWISE_UNREACHABLE` (an otherwise where no destination may not
+  run), `POST_SUBMIT_BESIDE_FORM_LINKS`, `FORM_LINK_DATUMS_INCOMPLETE`,
+  `FORM_LINK_DATUM_UNUSED`, `FORM_LINK_DATUM_TARGET_COLLISION`,
+  `FORM_LINK_SEARCH_CASE_UNREPRESENTABLE`, `FORM_LINK_TARGET_NOT_FOUND`.
+  Cycles are admitted: a worker leaves one by Back or Home. Every finding on
+  a link carries `details.linkUuid` and `details.role` (`destination` or
+  `otherwise`) and names the destination. The projection runs
   only where every target resolves, every expression is session-scope, and
   every form the frame reads has buildable actions — each "no" is a finding
   another rule already owns, which is what keeps this rule total.

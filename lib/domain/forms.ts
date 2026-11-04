@@ -179,6 +179,10 @@ export const formLinkTargetSchema = z.discriminatedUnion("type", [
 		type: z.literal("module"),
 		moduleUuid: uuidSchema,
 	}),
+	/** Start this form again: the source form, in its own menu, wherever the
+	 *  form is. A `form` target naming the source form is refused
+	 *  (`FORM_LINK_SELF_REFERENCE`), so this is the one spelling. */
+	z.strictObject({ type: z.literal("this-form") }),
 ]);
 
 /**
@@ -190,7 +194,8 @@ export const formLinkObjectSchema = z.strictObject({
 	/** Immutable identity: every editor, mutation anchor, and finding
 	 *  addresses the link by it. */
 	uuid: uuidSchema,
-	// An absent condition is unconditional. Blank authored text clears it.
+	/** An absent condition runs the destination every time, unless a carried
+	 *  case is not on the device. Blank authored text clears it. */
 	condition: formLogicSchema.optional(),
 	target: formLinkTargetSchema,
 	/**
@@ -207,6 +212,82 @@ export const formLinkSchema = formLinkObjectSchema.superRefine((link, ctx) =>
 );
 export type FormLink = z.infer<typeof formLinkSchema>;
 export type FormLinkTarget = FormLink["target"];
+
+/** Where a form goes when no destination that may not run runs. `app_home`
+ *  is no value: an absent otherwise is the app home. */
+export const OTHERWISE_DESTINATIONS = [
+	"firstMenu",
+	"module",
+	"parentMenu",
+	"previous",
+] as const satisfies readonly PostSubmitDestination[];
+export type OtherwiseDestination = (typeof OTHERWISE_DESTINATIONS)[number];
+
+/**
+ * The bare otherwise object, before the datum-uniqueness refinement: a
+ * built-in destination, or a link. The mutation layer builds its payload
+ * schema from this shape; everything else uses `formOtherwiseSchema`.
+ */
+export const formOtherwiseObjectSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("destination"),
+		destination: z.enum(OTHERWISE_DESTINATIONS),
+	}),
+	z.strictObject({
+		kind: z.literal("link"),
+		/** Immutable identity, in the same namespace as the form's links:
+		 *  findings and the `form_link_datum_xpath` slot address it by it. */
+		uuid: uuidSchema,
+		target: formLinkTargetSchema,
+		/** As a destination's `datums`: absent matches automatically. */
+		datums: z.array(formLinkDatumSchema).min(1).optional(),
+	}),
+]);
+export const formOtherwiseSchema = formOtherwiseObjectSchema.superRefine(
+	(value, ctx) => {
+		if (value.kind === "link") uniqueFormLinkDatumNames(value.datums, ctx);
+	},
+);
+export type FormOtherwise = z.infer<typeof formOtherwiseSchema>;
+export type FormOtherwiseLink = Extract<FormOtherwise, { kind: "link" }>;
+
+/** One link of a form as every rule, projection and index reads it: each
+ *  destination in order, then the otherwise when it is a link. */
+export type FormLinkEntry =
+	| {
+			readonly role: "destination";
+			readonly link: FormLink;
+			readonly index: number;
+	  }
+	| {
+			readonly role: "otherwise";
+			readonly link: {
+				readonly uuid: Uuid;
+				readonly target: FormLinkTarget;
+				readonly datums?: readonly FormLinkDatum[];
+			};
+	  };
+
+/** Every link of `form`, destinations first in array order, then the
+ *  otherwise link. */
+export function formLinkEntries(
+	form: Pick<Form, "formLinks" | "otherwise">,
+): readonly FormLinkEntry[] {
+	const entries: FormLinkEntry[] = (form.formLinks ?? []).map(
+		(link, index) => ({ role: "destination", link, index }),
+	);
+	const otherwise = form.otherwise;
+	if (otherwise?.kind === "link")
+		entries.push({
+			role: "otherwise",
+			link: {
+				uuid: otherwise.uuid,
+				target: otherwise.target,
+				...(otherwise.datums === undefined ? {} : { datums: otherwise.datums }),
+			},
+		});
+	return entries;
+}
 
 /**
  * A typed case identity used by a form submission operation.
@@ -729,15 +810,30 @@ export const formSchema = z.strictObject({
 	 */
 	ownClosePlacement: ownClosePlacementSchema.optional(),
 	connect: connectConfigSchema.optional(),
+	/**
+	 * Where a form without destinations goes after submit. Refused beside
+	 * `formLinks` (`POST_SUBMIT_BESIDE_FORM_LINKS`); a form with destinations
+	 * says where it goes when none runs with `otherwise`.
+	 */
 	postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 	/**
-	 * Where the app goes after this form is submitted, checked in order:
-	 * the first link whose condition holds is followed, and `postSubmit`
-	 * is where it goes when none does. Array position IS the sequence;
+	 * Where the app goes after this form is submitted. Every destination
+	 * whose condition holds runs, in array order: on Android each after the
+	 * one before it finishes, in Web Apps only the first (`platforms.ts`,
+	 * `after-submit-several-destinations`). A destination with no condition
+	 * and no carried case runs every time. `otherwise` is where the form goes
+	 * when no destination that may not run runs
+	 * (`afterSubmit.ts::formLinkMayNotRun`). Array position is the order;
 	 * each link carries its own uuid. `[]` is not a state: the reducers
 	 * delete the slot when the last link goes.
 	 */
 	formLinks: z.array(formLinkSchema).min(1).optional(),
+	/**
+	 * Present only beside `formLinks`, and only while some destination may
+	 * not run (`FORM_OTHERWISE_UNREACHABLE`). A built-in destination or a
+	 * link; absent, the app home follows.
+	 */
+	otherwise: formOtherwiseSchema.optional(),
 	/** Ordered, typed case effects: what one submission does to the case
 	 *  universe, in the order the runtime applies it. */
 	caseOperations: z.array(caseOperationReadSchema).optional(),

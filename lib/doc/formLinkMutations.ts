@@ -1,79 +1,63 @@
 // lib/doc/formLinkMutations.ts
 //
-// The batch-building planners for a form's after-submit links: what runs
-// when the form is submitted, and how one add / update / remove / move /
-// "otherwise" change becomes a gated batch that the builder, the SA, and
-// the MCP surface all dispatch identically.
+// The batch-building planners for a form's after-submit destinations and
+// its otherwise. Every planner returns a batch the gate admits: the first
+// destination turns the form's after-submit into its otherwise, removing
+// the last destination turns the otherwise back into the form's
+// after-submit, and an edit that leaves no destination that may not run
+// removes the otherwise. Each says what it did, so a tool's message and the
+// builder's toast name it.
 //
-// Two rules every planner keeps, so the document a person sees is always
-// one the validator admits:
-//
-//   - **Valid by construction pins the fallback.** `FORM_LINK_NO_FALLBACK`
-//     refuses a form whose links are all conditional while `postSubmit` is
-//     unset. A planner that produces that shape (the first conditional
-//     link with no otherwise; removing the otherwise while conditional
-//     links remain; turning the otherwise into a conditional link) writes
-//     the form's CURRENT effective destination explicitly in the same
-//     batch, and says so (`pinsFallback`). A person never meets the gate's
-//     refusal; a tool's message names the pin.
-//
-//   - **One "otherwise" model.** `afterSubmitPlan` is the single reader of
-//     what runs when nothing matched: the terminal unconditional link when
-//     one exists, else `postSubmit` (explicit or the form-type default).
-//     The settings row and the workspace's terminal row both consume it;
-//     `planSetFallback` is the single writer for both choosers.
-//
-// Conditionality is the presence of an Expression; an empty source never persists.
+// Every destination whose condition holds runs, in the author's order; the
+// otherwise runs when no destination that may not run
+// (`afterSubmit.ts::formLinkMayNotRun`: a condition, or a carried case the
+// held-case guard tests) runs. So a destination may sit at any position,
+// and a form holds an otherwise only while some destination may not run.
+// Conditionality is the presence of an Expression; an empty source never
+// persists.
 
 import {
-	asUuid,
 	type BlueprintDoc,
 	defaultPostSubmit,
-	defaultPostSubmitOf,
 	effectivePostSubmit,
+	type Form,
 	type FormLink,
 	type FormLinkTarget,
+	type FormOtherwise,
+	type FormOtherwiseLink,
+	findAuthoredBlueprintIdentity,
+	formLinkMayNotRun,
+	moduleUuidOfForm,
+	type OtherwiseDestination,
+	otherwiseDestinationsOffered,
 	type PostSubmitDestination,
+	type PostSubmitNotOfferedReason,
+	postSubmitNotOfferedReason,
 	type Uuid,
 } from "@/lib/domain";
 import { datumRefKey } from "@/lib/domain/expression/types";
 import { deepEqual } from "./deepEqual";
 import {
-	formLinkMoveVerdicts,
 	formLinkRequiredDatums,
 	formLinkTargetVerdict,
 } from "./formLinkReview";
 import type { Mutation } from "./types";
 
-/** Every present canonical expression is a condition, including false. */
-export function formLinkIsConditionalIn(
-	_doc: BlueprintDoc,
-	link: Pick<FormLink, "condition">,
-): boolean {
-	return link.condition !== undefined;
-}
-
-export type AfterSubmitFallback =
-	| {
-			readonly kind: "post-submit";
-			readonly destination: PostSubmitDestination;
-			/** Whether the form stores it, or the form-type default supplies it. */
-			readonly explicit: boolean;
-	  }
-	| { readonly kind: "else-link"; readonly link: FormLink };
-
 export interface AfterSubmitPlan {
-	/** Every link, in the order they are checked. */
-	readonly links: readonly FormLink[];
-	/** The links that carry a condition. */
-	readonly conditional: readonly FormLink[];
-	/** The terminal unconditional link, when one exists. */
-	readonly elseLink: FormLink | undefined;
-	/** What runs when nothing matched. */
-	readonly fallback: AfterSubmitFallback;
-	/** Conditional links exist and no otherwise link does, so the gate
-	 *  requires `postSubmit` to be stored explicitly. */
-	readonly fallbackMustBeExplicit: boolean;
+	/** Every destination, in author order. */
+	readonly destinations: readonly FormLink[];
+	/** The destinations that may not run (`formLinkMayNotRun`). */
+	readonly mayNotRun: readonly FormLink[];
+	readonly otherwise: FormOtherwise | undefined;
+	/** Whether an otherwise may be set now: `mayNotRun.length > 0`. */
+	readonly otherwiseOffered: boolean;
+	/** A form without destinations: its after-submit, stored or default. */
+	readonly postSubmit:
+		| {
+				readonly destination: PostSubmitDestination;
+				readonly explicit: boolean;
+		  }
+		| undefined;
 }
 
 /** What happens after `formUuid` is submitted; `undefined` for a missing form. */
@@ -83,60 +67,67 @@ export function afterSubmitPlan(
 ): AfterSubmitPlan | undefined {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return undefined;
-	const links = form.formLinks ?? [];
-	const conditional = links.filter((link) =>
-		formLinkIsConditionalIn(doc, link),
+	const destinations = form.formLinks ?? [];
+	const mayNotRun = destinations.filter((link) =>
+		formLinkMayNotRun(doc, formUuid, link),
 	);
-	const last = links.at(-1);
-	const elseLink =
-		last !== undefined && !formLinkIsConditionalIn(doc, last)
-			? last
-			: undefined;
-	const fallback: AfterSubmitFallback =
-		elseLink !== undefined
-			? { kind: "else-link", link: elseLink }
-			: {
-					kind: "post-submit",
-					destination:
-						effectivePostSubmit(doc, formUuid) ?? defaultPostSubmit(form.type),
-					explicit: form.postSubmit !== undefined,
-				};
 	return {
-		links,
-		conditional,
-		elseLink,
-		fallback,
-		fallbackMustBeExplicit: conditional.length > 0 && elseLink === undefined,
+		destinations,
+		mayNotRun,
+		otherwise: form.otherwise,
+		otherwiseOffered: mayNotRun.length > 0,
+		postSubmit:
+			destinations.length > 0
+				? undefined
+				: {
+						destination:
+							effectivePostSubmit(doc, formUuid) ??
+							defaultPostSubmit(form.type),
+						explicit: form.postSubmit !== undefined,
+					},
 	};
 }
 
 export type FormLinkRefusal =
 	| { readonly kind: "form-not-found" }
 	| { readonly kind: "link-not-found"; readonly uuid: Uuid }
-	/** The uuid is already a link on this form. */
 	| { readonly kind: "duplicate-uuid"; readonly uuid: Uuid }
 	| { readonly kind: "target-not-found" }
+	/** A `form` target naming the source form. */
 	| { readonly kind: "self-target" }
+	| {
+			readonly kind: "target-not-offered";
+			readonly menuUuid: Uuid;
+			readonly parentUuid: Uuid | undefined;
+	  }
+	| { readonly kind: "menu-carries-values" }
 	| { readonly kind: "selection-cardinality" }
-	| { readonly kind: "cycle"; readonly chain: readonly Uuid[] }
-	/** An otherwise link already exists; change it instead of adding one. */
-	| { readonly kind: "else-exists"; readonly elseUuid: Uuid }
-	/** A conditional link would land after the otherwise link. */
-	| { readonly kind: "after-else"; readonly elseUuid: Uuid }
-	/** An unconditional link would sit above links it must follow. */
-	| { readonly kind: "else-not-last"; readonly blockingUuids: readonly Uuid[] }
-	/** The slot being changed was changed by someone else first. */
+	| { readonly kind: "otherwise-unreachable" }
+	| {
+			readonly kind: "otherwise-not-offered";
+			readonly destination: OtherwiseDestination;
+			readonly reason: PostSubmitNotOfferedReason;
+	  }
+	| { readonly kind: "otherwise-exists" }
+	/** `planMakeDestination` on a form whose otherwise is not a link. */
+	| { readonly kind: "no-otherwise-link" }
 	| { readonly kind: "stale-base" };
 
 export type FormLinkCommitPlan =
 	| {
 			readonly ok: true;
 			readonly mutations: readonly Mutation[];
-			/** Set when the batch also stores `postSubmit` explicitly so the
-			 *  result passes `FORM_LINK_NO_FALLBACK`; names what it stored. */
-			readonly pinsFallback?: PostSubmitDestination;
-			/** Set when a retarget dropped carried values the new destination
-			 *  never reads (they would be `FORM_LINK_DATUM_UNUSED`); names them. */
+			/** The form's after-submit became its otherwise. */
+			readonly movedToOtherwise?: OtherwiseDestination;
+			/** A stored after-submit that would never run again was removed. */
+			readonly droppedPostSubmit?: PostSubmitDestination;
+			/** No destination that may not run remained, so the otherwise went. */
+			readonly droppedOtherwise?: FormOtherwise;
+			/** The last destination left: the otherwise became the form's after-submit. */
+			readonly otherwiseToPostSubmit?: OtherwiseDestination;
+			/** The last destination left: the otherwise link became the sole destination. */
+			readonly otherwiseToDestination?: Uuid;
+			/** Carried values a retarget dropped (a menu, or names the new target does not read). */
 			readonly droppedDatums?: readonly string[];
 	  }
 	| { readonly ok: false; readonly reason: FormLinkRefusal };
@@ -146,57 +137,130 @@ const refuse = (reason: FormLinkRefusal): FormLinkCommitPlan => ({
 	reason,
 });
 
+/* Structural, not textual: the stored document sorts object keys, and a
+ * caller re-sending an unchanged value with another key order must read as
+ * unchanged. */
+const sameJson = (left: unknown, right: unknown): boolean =>
+	deepEqual(left ?? null, right ?? null);
+
 /**
- * The `updateForm` that stores the form's current effective destination,
- * when the resulting link list would otherwise trip `FORM_LINK_NO_FALLBACK`:
- * every resulting link conditional, and nothing stored.
+ * The document as it reads with `formUuid`'s after-submit slots replaced,
+ * for the "may not run" question a planner asks of its own result: a
+ * destination's carried case is guarded by what its target selects, which
+ * reads the whole document. A shallow candidate; it is never stored.
  */
-function fallbackPin(
+function withAfterSubmit(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	resultingLinks: readonly FormLink[],
-): { mutation: Mutation; destination: PostSubmitDestination } | undefined {
+	slots: {
+		readonly formLinks: readonly FormLink[];
+		readonly otherwise: FormOtherwise | undefined;
+	},
+): BlueprintDoc {
 	const form = doc.forms[formUuid];
-	if (form === undefined || form.postSubmit !== undefined) return undefined;
-	if (resultingLinks.length === 0) return undefined;
-	if (!resultingLinks.every((link) => formLinkIsConditionalIn(doc, link))) {
-		return undefined;
-	}
-	const destination =
-		defaultPostSubmitOf(doc, formUuid) ?? defaultPostSubmit(form.type);
-	return {
-		mutation: {
-			kind: "updateForm",
-			uuid: formUuid,
-			patch: { postSubmit: destination },
-		},
-		destination,
+	if (form === undefined) return doc;
+	const {
+		formLinks: _links,
+		otherwise: _otherwise,
+		postSubmit: _postSubmit,
+		...rest
+	} = form;
+	const next: Form = {
+		...rest,
+		...(slots.formLinks.length > 0 && { formLinks: [...slots.formLinks] }),
+		...(slots.otherwise !== undefined && { otherwise: slots.otherwise }),
 	};
+	return { ...doc, forms: { ...doc.forms, [formUuid]: next } };
 }
 
+/** Whether some destination of `links` may not run in `candidate`. */
+function someMayNotRun(
+	candidate: BlueprintDoc,
+	formUuid: Uuid,
+	links: readonly FormLink[],
+): boolean {
+	return links.some((link) => formLinkMayNotRun(candidate, formUuid, link));
+}
+
+/** Whether `uuid` already names something in the document, other than the
+ *  one identity the caller is allowed to keep. */
+function uuidInUse(doc: BlueprintDoc, uuid: Uuid, keeping?: Uuid): boolean {
+	if (keeping !== undefined && uuid === keeping) return false;
+	return findAuthoredBlueprintIdentity(doc, uuid) !== undefined;
+}
+
+/** The refusal for a link of `formUuid` pointing at `target` with `datums`. */
 function targetRefusal(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	editing: Uuid | undefined,
 	target: FormLinkTarget,
-	datums?: FormLink["datums"],
+	datums: FormLink["datums"],
 ): FormLinkRefusal | undefined {
-	const verdict = formLinkTargetVerdict(doc, formUuid, editing, target, datums);
-	if (verdict.ok) return undefined;
-	if (verdict.reason === "cycle") {
-		return { kind: "cycle", chain: verdict.chain };
+	const verdict = formLinkTargetVerdict(doc, formUuid, target, datums);
+	if (!verdict.ok) {
+		switch (verdict.reason) {
+			case "target-not-found":
+				return { kind: "target-not-found" };
+			case "self-target":
+				return { kind: "self-target" };
+			case "not-offered":
+				return {
+					kind: "target-not-offered",
+					menuUuid: verdict.menuUuid,
+					parentUuid: verdict.parentUuid,
+				};
+			case "selection-cardinality":
+			case "selection-case-type":
+				return { kind: "selection-cardinality" };
+		}
 	}
-	return verdict.reason === "selection-case-type"
-		? { kind: "selection-cardinality" }
-		: { kind: verdict.reason };
+	if (target.type === "module" && datums !== undefined) {
+		return { kind: "menu-carries-values" };
+	}
+	return undefined;
+}
+
+/** The `setFormOtherwise null` an edit needs when it leaves no destination
+ *  that may not run beside a stored otherwise. */
+function strandedOtherwise(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	resulting: readonly FormLink[],
+	otherwise: FormOtherwise | undefined,
+): Mutation | undefined {
+	if (otherwise === undefined || resulting.length === 0) return undefined;
+	const candidate = withAfterSubmit(doc, formUuid, {
+		formLinks: resulting,
+		otherwise,
+	});
+	return someMayNotRun(candidate, formUuid, resulting)
+		? undefined
+		: { kind: "setFormOtherwise", formUuid, otherwise: null };
+}
+
+/** A link as its destination form: uuid, target and datums, no condition. */
+function asDestination(link: {
+	readonly uuid: Uuid;
+	readonly target: FormLinkTarget;
+	readonly datums?: FormLink["datums"];
+}): FormLink {
+	return {
+		uuid: link.uuid,
+		target: link.target,
+		...(link.datums !== undefined && { datums: link.datums }),
+	};
 }
 
 /**
- * Add one complete link. `after` is the link it follows (`null` first;
- * absent = the natural place: a conditional link lands just above the
- * otherwise link when one exists, else last; an unconditional link lands
- * last). Pins the fallback when the add introduces the first conditional
- * link with no otherwise.
+ * Add one complete destination. `after` is the destination it follows
+ * (`null` first; absent, last). On a form without destinations the form's
+ * after-submit is settled in the same batch: when the new destination may
+ * not run and the form's effective after-submit is an offered otherwise, it
+ * becomes the otherwise (`movedToOtherwise`), so where the worker goes when
+ * the destination does not run is unchanged; a stored `postSubmit` is
+ * cleared, and reported (`droppedPostSubmit`) when it did not move and a
+ * worker no longer reaches it. On a form with destinations nothing else
+ * changes: adding a destination never strands an otherwise.
  */
 export function planFormLinkAdd(
 	doc: BlueprintDoc,
@@ -206,61 +270,17 @@ export function planFormLinkAdd(
 ): FormLinkCommitPlan {
 	const plan = afterSubmitPlan(doc, formUuid);
 	if (plan === undefined) return refuse({ kind: "form-not-found" });
-	if (plan.links.some((candidate) => candidate.uuid === link.uuid)) {
+	if (uuidInUse(doc, link.uuid)) {
 		return refuse({ kind: "duplicate-uuid", uuid: link.uuid });
 	}
-	const badTarget = targetRefusal(
-		doc,
-		formUuid,
-		undefined,
-		link.target,
-		link.datums,
-	);
+	const badTarget = targetRefusal(doc, formUuid, link.target, link.datums);
 	if (badTarget !== undefined) return refuse(badTarget);
 	if (
 		after !== undefined &&
 		after !== null &&
-		!plan.links.some((candidate) => candidate.uuid === after)
+		!plan.destinations.some((candidate) => candidate.uuid === after)
 	) {
 		return refuse({ kind: "link-not-found", uuid: after });
-	}
-
-	const conditional = formLinkIsConditionalIn(doc, link);
-	let anchor: Uuid | null | undefined = after;
-	if (conditional) {
-		if (anchor === undefined && plan.elseLink !== undefined) {
-			// Just above the otherwise link.
-			const elseIndex = plan.links.indexOf(plan.elseLink);
-			anchor =
-				elseIndex === 0 ? null : (plan.links[elseIndex - 1]?.uuid ?? null);
-		}
-		if (anchor !== undefined && anchor !== null) {
-			const anchorIndex = plan.links.findIndex((l) => l.uuid === anchor);
-			const earlierElse = plan.links
-				.slice(0, anchorIndex + 1)
-				.find((l) => !formLinkIsConditionalIn(doc, l));
-			if (earlierElse !== undefined) {
-				return refuse({ kind: "after-else", elseUuid: earlierElse.uuid });
-			}
-		}
-	} else {
-		if (plan.elseLink !== undefined) {
-			return refuse({ kind: "else-exists", elseUuid: plan.elseLink.uuid });
-		}
-		const last = plan.links.at(-1);
-		const landsLast =
-			anchor === undefined ||
-			(anchor === null && plan.links.length === 0) ||
-			(anchor !== null && anchor === last?.uuid);
-		if (!landsLast) {
-			const anchorIndex =
-				anchor === null ? -1 : plan.links.findIndex((l) => l.uuid === anchor);
-			return refuse({
-				kind: "else-not-last",
-				blockingUuids: plan.links.slice(anchorIndex + 1).map((l) => l.uuid),
-			});
-		}
-		anchor = undefined;
 	}
 
 	const mutations: Mutation[] = [
@@ -268,30 +288,56 @@ export function planFormLinkAdd(
 			kind: "addFormLink",
 			formUuid,
 			link,
-			...(anchor !== undefined && { after: anchor }),
+			...(after !== undefined && { after }),
 		},
 	];
-	const resulting = [...plan.links, link];
-	const pin = fallbackPin(doc, formUuid, resulting);
-	if (pin !== undefined) mutations.push(pin.mutation);
+	if (plan.postSubmit === undefined) return { ok: true, mutations };
+
+	/* The form's first destination: its after-submit leaves `postSubmit`. */
+	const stored = doc.forms[formUuid]?.postSubmit;
+	if (stored !== undefined) {
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: { postSubmit: null },
+		});
+	}
+	const candidate = withAfterSubmit(doc, formUuid, {
+		formLinks: [link],
+		otherwise: undefined,
+	});
+	const mayNotRun = formLinkMayNotRun(candidate, formUuid, link);
+	const destination = plan.postSubmit.destination;
+	const offered: readonly PostSubmitDestination[] =
+		otherwiseDestinationsOffered(doc, formUuid);
+	const moves = mayNotRun && offered.includes(destination);
+	if (moves) {
+		const moved = destination as OtherwiseDestination;
+		mutations.push({
+			kind: "setFormOtherwise",
+			formUuid,
+			otherwise: { kind: "destination", destination: moved },
+		});
+		return { ok: true, mutations, movedToOtherwise: moved };
+	}
+	/* `app_home` beside a destination that may not run is still where the
+	 * worker goes when it does not: an absent otherwise means the app home. */
+	const stillReached = mayNotRun && stored === "app_home";
 	return {
 		ok: true,
 		mutations,
-		...(pin !== undefined && { pinsFallback: pin.destination }),
+		...(stored !== undefined && !stillReached && { droppedPostSubmit: stored }),
 	};
 }
 
-/* Structural, not textual: the stored document sorts object keys, and a
- * caller re-sending an unchanged target with another key order must read
- * as unchanged. */
-const sameJson = (left: unknown, right: unknown): boolean =>
-	deepEqual(left ?? null, right ?? null);
-
 /**
- * Rebase an edited link onto the invocation-time document: only the slots
- * that changed between `base` (what the editor opened) and `next` are
+ * Rebase an edited destination onto the invocation-time document: only the
+ * slots that changed between `base` (what the editor opened) and `next` are
  * written, and a slot someone else changed in between refuses rather than
- * clobbering their edit. A link made unconditional must already be last.
+ * clobbering their edit. A retarget that leaves the carried values alone
+ * drops the ones the new target does not read, every one for a menu
+ * (`droppedDatums`). When the result leaves no destination that may not
+ * run, the otherwise goes in the same batch (`droppedOtherwise`).
  */
 export function planFormLinkUpdate(
 	doc: BlueprintDoc,
@@ -301,8 +347,7 @@ export function planFormLinkUpdate(
 ): FormLinkCommitPlan {
 	const plan = afterSubmitPlan(doc, formUuid);
 	if (plan === undefined) return refuse({ kind: "form-not-found" });
-	const index = plan.links.findIndex((link) => link.uuid === next.uuid);
-	const existing = plan.links[index];
+	const existing = plan.destinations.find((link) => link.uuid === next.uuid);
 	if (existing === undefined || next.uuid !== base.uuid) {
 		return refuse({ kind: "link-not-found", uuid: next.uuid });
 	}
@@ -313,13 +358,13 @@ export function planFormLinkUpdate(
 	}
 	if (changed.length === 0) return { ok: true, mutations: [] };
 
-	/* A retarget that leaves the carried values alone drops the ones the new
-	 * destination never reads: HQ's manual path iterates the TARGET's datums
-	 * and the gate refuses the leftovers (`FORM_LINK_DATUM_UNUSED`), so the
-	 * builder's inspector reseeds them and this planner does the same for a
-	 * caller that names only the target. A name the destination still reads
-	 * is kept; an empty remainder clears the slot; the plan says what went.
-	 * Values the caller sets in the same edit are its own. */
+	/* HQ's manual path iterates the TARGET's datums and the gate refuses the
+	 * leftovers (`FORM_LINK_DATUM_UNUSED`; on a menu, which reads none,
+	 * `FORM_LINK_MENU_DATUMS`), so a caller that names only the target has
+	 * the names its new target does not read dropped, as the builder's
+	 * inspector reseeds them. A name the target still reads is kept; an empty
+	 * remainder clears the slot; the plan says what went. Values the caller
+	 * sets in the same edit are its own. */
 	const target = changed.includes("target") ? next.target : existing.target;
 	const condition = changed.includes("condition")
 		? next.condition
@@ -342,22 +387,23 @@ export function planFormLinkUpdate(
 				datum.id,
 			]),
 		);
+		const keep = (datum: NonNullable<FormLink["datums"]>[number]) =>
+			target.type !== "module" && needed.has(datumRefKey(datum.name));
 		droppedDatums = datums
-			.filter((datum) => !needed.has(datumRefKey(datum.name)))
+			.filter((datum) => !keep(datum))
 			.map(
 				(datum) =>
 					previousNames.get(datumRefKey(datum.name)) ?? "selected record",
 			);
-		const kept = datums.filter((datum) => needed.has(datumRefKey(datum.name)));
-		datums = kept.length > 0 ? kept : undefined;
+		const kept = datums.filter(keep);
+		datums = kept.length > 0 ? (kept as FormLink["datums"]) : undefined;
 	}
 	/* Selection compatibility depends on the FINAL link, not only its target:
-	 * explicit datums switch CommCare from collection matching to scalar manual
-	 * values. Check both retargets and datum-only edits with the values this
-	 * plan will actually store, after dropping values the destination no longer
-	 * reads. */
+	 * explicit datums switch CommCare from collection matching to scalar
+	 * manual values. Check both retargets and datum-only edits with the
+	 * values this plan will actually store. */
 	if (changed.includes("target") || changed.includes("datums")) {
-		const badTarget = targetRefusal(doc, formUuid, next.uuid, target, datums);
+		const badTarget = targetRefusal(doc, formUuid, target, datums);
 		if (badTarget !== undefined) return refuse(badTarget);
 	}
 	const settled: FormLink = {
@@ -366,23 +412,9 @@ export function planFormLinkUpdate(
 		target,
 		...(datums !== undefined && { datums }),
 	};
-	const resulting = plan.links.map((link) =>
+	const resulting = plan.destinations.map((link) =>
 		link.uuid === next.uuid ? settled : link,
 	);
-	const nextConditional = formLinkIsConditionalIn(doc, settled);
-	if (!nextConditional) {
-		const blocking = resulting.slice(index + 1).map((link) => link.uuid);
-		if (blocking.length > 0) {
-			return refuse({ kind: "else-not-last", blockingUuids: blocking });
-		}
-	} else {
-		const earlierElse = resulting
-			.slice(0, index)
-			.find((link) => !formLinkIsConditionalIn(doc, link));
-		if (earlierElse !== undefined) {
-			return refuse({ kind: "after-else", elseUuid: earlierElse.uuid });
-		}
-	}
 
 	const patch: Record<string, unknown> = {};
 	if (changed.includes("condition")) patch.condition = next.condition ?? null;
@@ -398,17 +430,26 @@ export function planFormLinkUpdate(
 			patch: patch as Extract<Mutation, { kind: "updateFormLink" }>["patch"],
 		},
 	];
-	const pin = fallbackPin(doc, formUuid, resulting);
-	if (pin !== undefined) mutations.push(pin.mutation);
+	const clear = strandedOtherwise(doc, formUuid, resulting, plan.otherwise);
+	if (clear !== undefined) mutations.push(clear);
 	return {
 		ok: true,
 		mutations,
-		...(pin !== undefined && { pinsFallback: pin.destination }),
+		...(clear !== undefined &&
+			plan.otherwise !== undefined && { droppedOtherwise: plan.otherwise }),
 		...(droppedDatums.length > 0 && { droppedDatums }),
 	};
 }
 
-/** Remove one link; pins the fallback when the otherwise goes and conditional links remain. */
+/**
+ * Remove one destination. Removing the last one gives the form its
+ * after-submit back: a built-in otherwise becomes its `postSubmit`
+ * (`otherwiseToPostSubmit`), an otherwise link becomes its sole destination
+ * with the same uuid, target and carried values and no condition
+ * (`otherwiseToDestination`), and with no otherwise the form takes its
+ * type's default. Removing the last destination that may not run while
+ * others remain removes the otherwise (`droppedOtherwise`).
+ */
 export function planFormLinkRemove(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -416,24 +457,51 @@ export function planFormLinkRemove(
 ): FormLinkCommitPlan {
 	const plan = afterSubmitPlan(doc, formUuid);
 	if (plan === undefined) return refuse({ kind: "form-not-found" });
-	if (!plan.links.some((link) => link.uuid === uuid)) {
+	if (!plan.destinations.some((link) => link.uuid === uuid)) {
 		return refuse({ kind: "link-not-found", uuid });
 	}
 	const mutations: Mutation[] = [{ kind: "removeFormLink", formUuid, uuid }];
-	const resulting = plan.links.filter((link) => link.uuid !== uuid);
-	const pin = fallbackPin(doc, formUuid, resulting);
-	if (pin !== undefined) mutations.push(pin.mutation);
+	const resulting = plan.destinations.filter((link) => link.uuid !== uuid);
+	const otherwise = plan.otherwise;
+
+	if (resulting.length === 0) {
+		if (otherwise === undefined) return { ok: true, mutations };
+		mutations.push({ kind: "setFormOtherwise", formUuid, otherwise: null });
+		if (otherwise.kind === "destination") {
+			mutations.push({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: { postSubmit: otherwise.destination },
+			});
+			return {
+				ok: true,
+				mutations,
+				otherwiseToPostSubmit: otherwise.destination,
+			};
+		}
+		mutations.push({
+			kind: "addFormLink",
+			formUuid,
+			link: asDestination(otherwise),
+		});
+		return { ok: true, mutations, otherwiseToDestination: otherwise.uuid };
+	}
+
+	const clear = strandedOtherwise(doc, formUuid, resulting, otherwise);
+	if (clear !== undefined) mutations.push(clear);
 	return {
 		ok: true,
 		mutations,
-		...(pin !== undefined && { pinsFallback: pin.destination }),
+		...(clear !== undefined &&
+			otherwise !== undefined && { droppedOtherwise: otherwise }),
 	};
 }
 
 /**
- * Move one link to `toIndex` (its position after the move). The anchor is
- * the link it then follows, so a peer's insert elsewhere cannot shift
- * where it lands; a same-position move is a no-op plan.
+ * Move one destination to `toIndex` (its position after the move). Every
+ * position is admitted. The anchor is the destination it then follows, so a
+ * peer's insert elsewhere cannot shift where it lands; a same-position move
+ * is a no-op plan.
  */
 export function planFormLinkMove(
 	doc: BlueprintDoc,
@@ -443,19 +511,11 @@ export function planFormLinkMove(
 ): FormLinkCommitPlan {
 	const plan = afterSubmitPlan(doc, formUuid);
 	if (plan === undefined) return refuse({ kind: "form-not-found" });
-	const from = plan.links.findIndex((link) => link.uuid === uuid);
+	const from = plan.destinations.findIndex((link) => link.uuid === uuid);
 	if (from < 0) return refuse({ kind: "link-not-found", uuid });
-	const index = Math.max(0, Math.min(toIndex, plan.links.length - 1));
-	const verdict = formLinkMoveVerdicts(doc, formUuid, uuid).get(index);
-	if (verdict !== undefined && !verdict.ok) {
-		return refuse(
-			verdict.reason === "after-else"
-				? { kind: "after-else", elseUuid: verdict.elseUuid }
-				: { kind: "else-not-last", blockingUuids: verdict.blockingUuids },
-		);
-	}
+	const index = Math.max(0, Math.min(toIndex, plan.destinations.length - 1));
 	if (index === from) return { ok: true, mutations: [] };
-	const others = plan.links.filter((link) => link.uuid !== uuid);
+	const others = plan.destinations.filter((link) => link.uuid !== uuid);
 	const after = index === 0 ? null : (others[index - 1]?.uuid ?? null);
 	return {
 		ok: true,
@@ -463,79 +523,126 @@ export function planFormLinkMove(
 	};
 }
 
-export type FallbackChoice =
-	| PostSubmitDestination
-	| {
-			readonly kind: "else-link";
-			readonly target: FormLinkTarget;
-			/** The uuid the new link takes; minted when absent. */
-			readonly uuid?: Uuid;
-	  };
-
 /**
- * Set what runs when nothing matched. A built-in destination is stored
- * EXPLICITLY whenever the form has links (the null-when-default shorthand
- * is refused under conditional links, and an explicit value is what the
- * person chose); with no links at all the shorthand applies. Choosing a
- * built-in destination while an otherwise link exists removes that link in
- * the same batch. The `else-link` arm appends an unconditional link and
- * refuses when one exists.
+ * Set where the form goes when no destination that may not run runs, or
+ * clear it with `null` (the app home then follows). A built-in destination
+ * must be one the form's menu offers (`otherwiseDestinationsOffered`); a link
+ * takes the target rules a destination does, and its uuid is minted by the
+ * caller: a fresh one, or the uuid of the otherwise link being changed.
  */
-export function planSetFallback(
+export function planSetOtherwise(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	next: FallbackChoice,
+	next: FormOtherwise | null,
 ): FormLinkCommitPlan {
 	const plan = afterSubmitPlan(doc, formUuid);
-	const form = doc.forms[formUuid];
-	if (plan === undefined || form === undefined) {
+	if (plan === undefined || moduleUuidOfForm(doc, formUuid) === undefined) {
 		return refuse({ kind: "form-not-found" });
 	}
-	if (typeof next === "string") {
-		const mutations: Mutation[] = [];
-		const remaining =
-			plan.elseLink === undefined
-				? plan.links
-				: plan.links.filter((link) => link.uuid !== plan.elseLink?.uuid);
-		if (plan.elseLink !== undefined) {
-			mutations.push({
-				kind: "removeFormLink",
+	if (next === null) {
+		return {
+			ok: true,
+			mutations:
+				plan.otherwise === undefined
+					? []
+					: [{ kind: "setFormOtherwise", formUuid, otherwise: null }],
+		};
+	}
+	if (sameJson(plan.otherwise, next)) return { ok: true, mutations: [] };
+	if (!plan.otherwiseOffered) return refuse({ kind: "otherwise-unreachable" });
+	if (next.kind === "destination") {
+		const offered = otherwiseDestinationsOffered(doc, formUuid);
+		if (!offered.includes(next.destination)) {
+			const reason = postSubmitNotOfferedReason(
+				doc,
 				formUuid,
-				uuid: plan.elseLink.uuid,
-			});
+				next.destination,
+			);
+			if (reason !== undefined) {
+				return refuse({
+					kind: "otherwise-not-offered",
+					destination: next.destination,
+					reason,
+				});
+			}
 		}
-		const stored =
-			remaining.length > 0 ||
-			next !==
-				(defaultPostSubmitOf(doc, formUuid) ?? defaultPostSubmit(form.type))
-				? next
-				: null;
-		if ((form.postSubmit ?? null) !== stored) {
-			mutations.push({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: { postSubmit: stored },
-			});
+	} else {
+		const keeping =
+			plan.otherwise?.kind === "link" ? plan.otherwise.uuid : undefined;
+		if (uuidInUse(doc, next.uuid, keeping)) {
+			return refuse({ kind: "duplicate-uuid", uuid: next.uuid });
 		}
-		return { ok: true, mutations };
+		const badTarget = targetRefusal(doc, formUuid, next.target, next.datums);
+		if (badTarget !== undefined) return refuse(badTarget);
 	}
-	if (plan.elseLink !== undefined) {
-		return refuse({ kind: "else-exists", elseUuid: plan.elseLink.uuid });
-	}
-	if (
-		next.uuid !== undefined &&
-		plan.links.some((link) => link.uuid === next.uuid)
-	) {
-		return refuse({ kind: "duplicate-uuid", uuid: next.uuid });
-	}
-	const badTarget = targetRefusal(doc, formUuid, undefined, next.target);
-	if (badTarget !== undefined) return refuse(badTarget);
-	const link: FormLink = {
-		uuid: next.uuid ?? asUuid(crypto.randomUUID()),
-		target: next.target,
-	};
 	return {
 		ok: true,
-		mutations: [{ kind: "addFormLink", formUuid, link }],
+		mutations: [{ kind: "setFormOtherwise", formUuid, otherwise: next }],
+	};
+}
+
+/**
+ * Turn a destination into the otherwise link, with the same uuid, target and
+ * carried values; its condition goes. Refused while an otherwise is stored,
+ * and when no OTHER destination may not run, since the otherwise would then
+ * never run.
+ */
+export function planMakeOtherwise(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	linkUuid: Uuid,
+): FormLinkCommitPlan {
+	const plan = afterSubmitPlan(doc, formUuid);
+	if (plan === undefined) return refuse({ kind: "form-not-found" });
+	const link = plan.destinations.find(
+		(candidate) => candidate.uuid === linkUuid,
+	);
+	if (link === undefined)
+		return refuse({ kind: "link-not-found", uuid: linkUuid });
+	if (plan.otherwise !== undefined) return refuse({ kind: "otherwise-exists" });
+	const remaining = plan.destinations.filter(
+		(candidate) => candidate.uuid !== linkUuid,
+	);
+	const otherwise: FormOtherwiseLink = {
+		kind: "link",
+		uuid: link.uuid,
+		target: link.target,
+		...(link.datums !== undefined && { datums: link.datums }),
+	};
+	const candidate = withAfterSubmit(doc, formUuid, {
+		formLinks: remaining,
+		otherwise,
+	});
+	if (!someMayNotRun(candidate, formUuid, remaining)) {
+		return refuse({ kind: "otherwise-unreachable" });
+	}
+	return {
+		ok: true,
+		mutations: [
+			{ kind: "removeFormLink", formUuid, uuid: linkUuid },
+			{ kind: "setFormOtherwise", formUuid, otherwise },
+		],
+	};
+}
+
+/**
+ * Turn the otherwise link into the last destination, with its uuid, target
+ * and carried values and no condition; the otherwise slot clears. Refused
+ * when the otherwise is built-in or absent.
+ */
+export function planMakeDestination(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): FormLinkCommitPlan {
+	const plan = afterSubmitPlan(doc, formUuid);
+	if (plan === undefined) return refuse({ kind: "form-not-found" });
+	const otherwise = plan.otherwise;
+	if (otherwise?.kind !== "link") return refuse({ kind: "no-otherwise-link" });
+	return {
+		ok: true,
+		mutations: [
+			{ kind: "setFormOtherwise", formUuid, otherwise: null },
+			{ kind: "addFormLink", formUuid, link: asDestination(otherwise) },
+		],
 	};
 }

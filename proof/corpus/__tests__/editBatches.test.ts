@@ -757,3 +757,77 @@ describe("the corpus's stand-in media rows", () => {
 		}
 	});
 });
+
+/**
+ * Contract: the corpus's otherwise edit is one an editor can commit, so it
+ * lands only where a destination may not run. The plausible failures: a
+ * generator that sets an otherwise beside destinations that all run every
+ * time (the gate refuses it, `FORM_OTHERWISE_UNREACHABLE`, and the kind lands
+ * on no document), and one that sets the otherwise the form already holds
+ * (a batch that changes nothing).
+ */
+describe("an otherwise", () => {
+	const proposals = (input: EditCorpusDocument) =>
+		EDIT_KIND_GENERATORS.setFormOtherwise({
+			doc: hydrateAdmittedDocument(input),
+			known: uuidTokensOf(input.doc),
+			rng: new Rng(`otherwise\u0000${input.id}`),
+			mint: new Minter(`otherwise\u0000${input.id}`, SEED),
+		});
+	/** The batch the generator proposes for the form named `name`. */
+	const batchFor = (input: EditCorpusDocument, name: string) => {
+		const form = Object.values(input.doc.forms).find(
+			(candidate) => candidate.name === name,
+		);
+		if (form === undefined) throw new Error(`No form ${name}.`);
+		const found = proposals(input).find(
+			(candidate) =>
+				"mutations" in candidate &&
+				candidate.mutations.some(
+					(mutation) =>
+						mutation.kind === "setFormOtherwise" &&
+						mutation.formUuid === form.uuid,
+				),
+		);
+		if (found === undefined || !("mutations" in found))
+			throw new Error(`Expected a batch for ${name}.`);
+		return found.mutations;
+	};
+	const kinds = (mutations: readonly Mutation[]) =>
+		mutations.map((mutation) => mutation.kind);
+
+	it("sets an otherwise only on a form with a conditional link", () => {
+		// A conditional destination beside the menu as its otherwise: the
+		// otherwise changes, and nothing else does.
+		const conditional = stored(
+			"form-link-module",
+			formLinkWireFixture("module"),
+		);
+		const changed = batchFor(conditional, "Register frog");
+		expect(kinds(changed)).toEqual(["setFormOtherwise"]);
+		expect(changed[0]).toMatchObject({ otherwise: { kind: "destination" } });
+		expect(changed[0]).not.toMatchObject({
+			otherwise: { destination: "module" },
+		});
+		expect(admitEditBatch(conditional, changed).ok).toBe(true);
+
+		// Every destination runs every time: no otherwise is reachable, so the
+		// batch first gives the form a destination with a condition.
+		const everyTime = stored(
+			"form-link-unconditional",
+			formLinkWireFixture("unconditional"),
+		);
+		const born = batchFor(everyTime, "Register frog");
+		expect(kinds(born)[0]).toBe("addFormLink");
+		expect(kinds(born).at(-1)).toBe("setFormOtherwise");
+		expect(born[0]).toMatchObject({ link: { condition: {} } });
+		expect(admitEditBatch(everyTime, born).ok).toBe(true);
+		// Without that destination, the gate refuses the otherwise alone.
+		expect(
+			admitEditBatch(
+				everyTime,
+				born.filter((mutation) => mutation.kind === "setFormOtherwise"),
+			).ok,
+		).toBe(false);
+	});
+});

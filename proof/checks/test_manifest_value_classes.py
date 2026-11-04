@@ -1051,6 +1051,19 @@ def _linked(link, target_requires="case", **target_module):
     return _app([_module([source]), _module([target], unique_id="m2", **target_module)])
 
 
+def _root_linked(link, *, root_case_type, target_case_type="visit"):
+    """A form linking to the case form (``f2``) of a child menu (``m2``, of ``target_case_type``) whose root's
+    first form requires a case of ``root_case_type``."""
+    source = {**_form_json("none"), "form_links": [link]}
+    root = {**_module([{**_form_json("case"), "unique_id": "f3"}], unique_id="tp"), "case_type": root_case_type}
+    target = _module([{**_form_json("case"), "unique_id": "f2"}], unique_id="m2", root_module_id="tp")
+    return _app([_module([source]), root, {**target, "case_type": target_case_type}])
+
+
+# A menu that selects its case's parent first, in the linking form's menu (``m``, of case type ``patient``).
+PARENT_SELECT = {"parent_select": {"active": True, "relationship": "parent", "module_id": "m"}, "case_type": "visit"}
+
+
 # A menu's search: one prompt (``util.py::module_offers_search``).
 SEARCHING = {"doc_type": "CaseSearch", "properties": [{"doc_type": "CaseSearchProperty", "name": "name"}]}
 
@@ -1965,6 +1978,22 @@ def _settings_and_forms():
                 "schema:Form.form_links",
                 "/modules/0/forms/0/form_links",
             ),
+            # A target menu that selects the parent first needs that selection too (``parent_id``).
+            refused(
+                "app",
+                _linked(links(datums=[{"name": "case_id", "xpath": case_id}]), **PARENT_SELECT),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            accepted(
+                "app",
+                _linked(
+                    links(datums=[{"name": "parent_id", "xpath": case_id}, {"name": "case_id", "xpath": case_id}]),
+                    **PARENT_SELECT,
+                ),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
             # A target menu that offers search selects its case under the same datum.
             refused(
                 "app",
@@ -1989,6 +2018,35 @@ def _settings_and_forms():
             accepted(
                 "app",
                 _linked(links(datums=[{"name": "case_id", "xpath": case_id}])),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            accepted(
+                "app",
+                _linked(
+                    links(datums=[{"name": "parent_id", "xpath": case_id}, {"name": "case_id", "xpath": case_id}]),
+                    **PARENT_SELECT,
+                ),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            # A child menu's case datum whose id its root's first form holds is renamed for its case type, and
+            # takes the root's id back only where both select one case type (``add_parent_datums``).
+            refused(
+                "app",
+                _root_linked(links(datums=[{"name": "case_id", "xpath": case_id}]), root_case_type="patient"),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            accepted(
+                "app",
+                _root_linked(links(datums=[{"name": "case_id_visit", "xpath": case_id}]), root_case_type="patient"),
+                "schema:Form.form_links",
+                "/modules/0/forms/0/form_links",
+            ),
+            accepted(
+                "app",
+                _root_linked(links(datums=[{"name": "case_id", "xpath": case_id}]), root_case_type="visit"),
                 "schema:Form.form_links",
                 "/modules/0/forms/0/form_links",
             ),

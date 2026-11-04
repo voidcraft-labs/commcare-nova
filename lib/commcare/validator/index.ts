@@ -8,6 +8,7 @@ import {
 	type FieldProseSlotId,
 	type FormLinkExpressionSlotId,
 	fieldRegistry,
+	formLinkEntries,
 	prosePartTerm,
 	proseSurfaceReads,
 	type Uuid,
@@ -262,13 +263,15 @@ export function validateBlueprintDeep(
 						ref.slot === "form_link_condition" ||
 						ref.slot === "form_link_datum_xpath"
 					) {
-						const linkIndex =
-							form.formLinks?.findIndex(
-								(link) => link.uuid === ref.member.linkUuid,
-							) ?? -1;
+						// Indices into `formLinkEntries`: the destinations in
+						// order, then the otherwise link.
+						const entries = formLinkEntries(form);
+						const linkIndex = entries.findIndex(
+							(entry) => entry.link.uuid === ref.member.linkUuid,
+						);
 						const datumIndex =
 							ref.slot === "form_link_datum_xpath"
-								? (form.formLinks?.[linkIndex]?.datums?.findIndex(
+								? (entries[linkIndex]?.link.datums?.findIndex(
 										(datum) =>
 											datumRefKey(datum.name) === datumRefKey(ref.member.datum),
 									) ?? -1)

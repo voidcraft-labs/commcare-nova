@@ -10,7 +10,8 @@ import {
 import type { BlueprintDoc } from "./blueprint";
 import type { FormStructure } from "./expression/formStructure";
 import { type DatumRef, datumRefKey } from "./expression/types";
-import { CASE_LOADING_FORM_TYPES, type FormLinkTarget } from "./forms";
+import type { ResolvedFormLinkTarget } from "./formLinkTargets";
+import { CASE_LOADING_FORM_TYPES } from "./forms";
 import { menuFormUuidsOf, moduleIsCaseFirst } from "./menuForms";
 import { moduleParent } from "./moduleHierarchy";
 import {
@@ -360,10 +361,12 @@ function suppliedAtAdvancedEntry(
 /** A module target contributes its command only. Each ancestor contributes
  * the selections common to every real form entry. Case-loading forms share
  * the same selection chain; a create or survey entry has none, so it ends
- * that common selection prefix. This is the domain half of frame assembly. */
+ * that common selection prefix. This is the domain half of frame assembly.
+ * The target is resolved (`formLinkTargets.ts::resolveFormLinkTarget`), so
+ * `this-form` reads as the source form in its own menu. */
 export function formLinkTargetSupplies(
 	doc: BlueprintDoc,
-	target: FormLinkTarget,
+	target: ResolvedFormLinkTarget,
 ): EntryDatumSupplies {
 	const refs = new Map<string, EntryDatumSupplies["refs"][number]>();
 	const addSelections = (entry: DatumEntry): void => {

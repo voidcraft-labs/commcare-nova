@@ -1,25 +1,29 @@
 /**
  * What removing a form or a module means for the after-submit links that
- * point INTO it — the decision every remove surface consults before it
+ * point INTO it: the decision every remove surface consults before it
  * builds its batch (`useBlueprintMutations.removeForm` / `removeModule`,
- * the SA/MCP `removeForm` / `removeModule` tools).
+ * the SA/MCP `removeForm` / `removeModule` tools). A form's otherwise link
+ * is a link like its destinations: one that points in is a dependent too.
  *
- * The answer is a REFUSAL that names the links, never a cascade. Two
- * reasons. A cascade can itself fail the gate: dropping the link that was a
- * form's terminal "otherwise" re-exposes `FORM_LINK_NO_FALLBACK` on a form
- * the author never touched, so the batch would bounce with a finding about
- * the wrong entity. And a cascade quietly rewrites where OTHER forms send
- * people after submit, which is a behavior change nobody asked for; naming
- * the links puts the choice (retarget or remove) with the person. This is
- * the `userMutations.ts` custom-property pattern: refuse while something
- * still references the thing, say exactly what.
+ * The answer is a REFUSAL that names the links, never a cascade. A cascade
+ * quietly rewrites where OTHER forms send people after submit, which is a
+ * behavior change nobody asked for, and removing a destination can take a
+ * form's otherwise or its after-submit with it; naming the links puts the
+ * choice (retarget or remove) with the person. This is the
+ * `userMutations.ts` custom-property pattern: refuse while something still
+ * references the thing, say exactly what.
  *
- * Links that live ON the removed entity are not dependents — they leave
+ * Links that live ON the removed entity are not dependents: they leave
  * with it (a removed module takes its forms' links; a removed form takes
- * its own, self-links included).
+ * its own, a link that starts it again included).
  */
 
-import type { BlueprintDoc, FormLink, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type FormLinkTarget,
+	formLinkEntries,
+	type Uuid,
+} from "@/lib/domain";
 
 /** One link that would dangle: the form it lives on and the link itself. */
 export interface FormLinkDependent {
@@ -27,6 +31,8 @@ export interface FormLinkDependent {
 	readonly formName: string;
 	readonly moduleName: string;
 	readonly linkUuid: Uuid;
+	/** A destination, or the form's otherwise link. */
+	readonly role: "destination" | "otherwise";
 }
 
 export type FormLinkDependentsPlan =
@@ -62,14 +68,15 @@ export function formLinkDependentsOnRemove(
 	);
 	const removedModule =
 		target.kind === "module" ? target.moduleUuid : undefined;
-	const pointsIn = (link: FormLink): boolean => {
-		if (link.target.type === "form") {
+	/* `this-form` names the link's own form, which stays. */
+	const pointsIn = (target: FormLinkTarget): boolean => {
+		if (target.type === "this-form") return false;
+		if (target.type === "form") {
 			return (
-				removedForms.has(link.target.formUuid) ||
-				link.target.moduleUuid === removedModule
+				removedForms.has(target.formUuid) || target.moduleUuid === removedModule
 			);
 		}
-		return link.target.moduleUuid === removedModule;
+		return target.moduleUuid === removedModule;
 	};
 
 	const dependents: FormLinkDependent[] = [];
@@ -79,13 +86,15 @@ export function formLinkDependentsOnRemove(
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			if (removedForms.has(formUuid)) continue;
 			const form = doc.forms[formUuid];
-			for (const link of form?.formLinks ?? []) {
-				if (!pointsIn(link)) continue;
+			if (form === undefined) continue;
+			for (const entry of formLinkEntries(form)) {
+				if (!pointsIn(entry.link.target)) continue;
 				dependents.push({
 					formUuid,
-					formName: form?.name ?? String(formUuid),
+					formName: form.name,
 					moduleName: mod.name,
-					linkUuid: link.uuid,
+					linkUuid: entry.link.uuid,
+					role: entry.role,
 				});
 			}
 		}
@@ -124,7 +133,13 @@ export function planFormLinkDependentsOnRemove(
 	}
 	const references = [...bySource.values()].map((links) => {
 		const first = links[0];
-		const linkIds = links.map((link) => link.linkUuid).join(", ");
+		const linkIds = links
+			.map((link) =>
+				link.role === "otherwise"
+					? `${link.linkUuid} (its otherwise)`
+					: link.linkUuid,
+			)
+			.join(", ");
 		return `"${first.formName}" in "${first.moduleName}" (form ${first.formUuid}; link${links.length === 1 ? "" : "s"} ${linkIds})`;
 	});
 	const sourceNames = [...bySource.values()].map(
@@ -135,9 +150,21 @@ export function planFormLinkDependentsOnRemove(
 			? sourceNames[0]
 			: `${sourceNames.slice(0, -1).join(", ")} and ${sourceNames.at(-1)}`;
 
+	// A destination is repaired with the link tools, an otherwise link with
+	// set_form_otherwise, so the repair names the tools each link needs.
+	const one = dependents.length === 1;
+	const roles = new Set(dependents.map((dependent) => dependent.role));
+	const destinationRepair =
+		"point it somewhere else with update_form_link, or remove it with remove_form_link";
+	const otherwiseRepair =
+		"point it somewhere else with set_form_otherwise, or clear it with set_form_otherwise null";
+	const repair =
+		roles.size === 2
+			? `for a destination, ${destinationRepair}; for an otherwise link, ${otherwiseRepair}`
+			: `for ${one ? "that link" : "each of those links"}, ${roles.has("otherwise") ? otherwiseRepair : destinationRepair}`;
 	const message =
-		`Cannot remove ${subject}: ${dependents.length === 1 ? "an after-submit link points" : `${dependents.length} after-submit links point`} at it from ${references.join("; ")}. ` +
-		`Point ${dependents.length === 1 ? "that link" : "those links"} somewhere else with update_form_link, or remove ${dependents.length === 1 ? "it" : "them"} with remove_form_link, then remove the ${noun}.`;
+		`Cannot remove ${subject}: ${one ? "an after-submit link points" : `${dependents.length} after-submit links point`} at it from ${references.join("; ")}. ` +
+		`${repair.charAt(0).toUpperCase()}${repair.slice(1)}, then remove the ${noun}.`;
 	const userMessage =
 		`${removedName === undefined ? `This ${noun}` : `"${removedName}"`} can't be removed yet: ${sourceList} ${sourceNames.length === 1 ? "sends" : "send"} people to it after submit. ` +
 		`Point ${dependents.length === 1 ? "that link" : "those links"} somewhere else, or remove ${dependents.length === 1 ? "it" : "them"}, then try again.`;

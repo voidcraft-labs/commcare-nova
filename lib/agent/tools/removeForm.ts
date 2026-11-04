@@ -16,8 +16,9 @@
  * Three exit branches:
  *
  *   - Missing UUID → no mutations, "does not exist, no change" message.
- *   - After-submit links from other forms point at it → `{ error }`
- *     naming each link and the repair (`lib/doc/formLinkDependents.ts`).
+ *   - After-submit links from other forms point at it, a destination or
+ *     an otherwise link → `{ error }` naming each link and the repair
+ *     (`lib/doc/formLinkDependents.ts`).
  *   - Success → human-readable "Successfully removed" summary tagged
  *     `form:M-F`.
  */
@@ -75,8 +76,8 @@ export const removeFormTool = {
 			// it from `forms`.
 			const removedName = form.name;
 
-			/* After-submit links from OTHER forms that point at this one would
-			 * dangle. The shared planner refuses and names every link and the
+			/* After-submit links from OTHER forms that point at this one, their
+			 * destinations and otherwise links alike, would dangle. The shared planner refuses and names every link and the
 			 * repair (`lib/doc/formLinkDependents.ts`) — the builder's remove
 			 * flow consults the same planner, so both surfaces refuse alike. */
 			const dependents = planFormLinkDependentsOnRemove(doc, {

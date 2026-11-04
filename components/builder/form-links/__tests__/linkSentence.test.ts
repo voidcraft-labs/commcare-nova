@@ -4,12 +4,18 @@
 // read the stored link and the plan, and they spell every destination one
 // way across every surface.
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { projectFormExpression } from "@/lib/doc/expressionText";
 import { afterSubmitPlan } from "@/lib/doc/formLinkMutations";
 import { formLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
-import { type FormLink, formLinkDestination } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type FormLink,
+	formLinkDestination,
+	guardedLinkDatums,
+} from "@/lib/domain";
 import {
 	eq,
 	literal,
@@ -20,16 +26,22 @@ import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import {
 	afterSubmitSummary,
 	carriedAutomaticallyDetail,
+	commitReportSentences,
 	destinationDetail,
 	destinationLabel,
 	destinationPhrase,
-	fallbackChangedAnnouncement,
+	hasEveryTimeDestination,
 	hiddenTargetLine,
 	nothingNeededCopy,
-	pinsFallbackSentence,
-	stopElseLinkQuestion,
+	otherwiseChangedAnnouncement,
+	otherwiseSentence,
+	otherwiseSubtitle,
+	postSubmitChangedAnnouncement,
+	postSubmitSentence,
 } from "../afterSubmitCopy";
 import {
+	EVERY_TIME_LINE,
+	HELD_CASE_LINE,
 	type LinkSentenceContext,
 	linkLead,
 	linkSentence,
@@ -41,39 +53,43 @@ import {
 	HOUSEHOLDS,
 	SOURCE,
 	toCare,
+	toInspect,
 	toNote,
 	toVisit,
 	VISIT,
 } from "./fixture";
 
-const context: LinkSentenceContext = {
-	destinationOf: (target) =>
-		target.type === "form"
-			? target.formUuid === testUuid("frm-visit")
-				? { kind: "form", name: "Visit" }
-				: undefined
-			: { kind: "module", name: "Care" },
-	conditionText: (link) =>
-		link.condition === undefined
-			? ""
-			: projectFormExpression(
-					{
-						...fixture(),
-						forms: {
-							...fixture().forms,
-							[SOURCE]: { ...fixture().forms[SOURCE], formLinks: [link] },
+/** The document-backed context `useLinkSentenceContext` builds, over `doc`. */
+function contextOver(doc: BlueprintDoc): LinkSentenceContext {
+	return {
+		destinationOf: (target) => formLinkDestination(doc, SOURCE, target),
+		conditionText: (link) =>
+			link.condition === undefined
+				? ""
+				: projectFormExpression(
+						produce(doc, (draft) => {
+							draft.forms[SOURCE].formLinks = [
+								{
+									uuid: link.uuid,
+									target: link.target,
+									condition: link.condition,
+								},
+							];
+						}),
+						{
+							entity: "form",
+							uuid: SOURCE,
+							slot: "form_link_condition",
+							member: { linkUuid: link.uuid },
 						},
-					},
-					{
-						entity: "form",
-						uuid: SOURCE,
-						slot: "form_link_condition",
-						member: { linkUuid: link.uuid },
-					},
-					link.condition,
-					"unavailable",
-				).text,
-};
+						link.condition,
+						"unavailable",
+					).text,
+		carriesHeldCase: (link) => guardedLinkDatums(doc, SOURCE, link).length > 0,
+	};
+}
+
+const context = contextOver(fixture());
 
 const link = (overrides: Partial<FormLink>): FormLink => ({
 	uuid: testUuid("lnk"),
@@ -85,48 +101,78 @@ describe("linkSentence", () => {
 	it("leads with where the person goes", () => {
 		expect(linkLead(toVisit, context)).toBe("Go to “Visit”");
 		expect(linkLead(toCare, context)).toBe("Open the “Care” form list");
-	});
-
-	it("says when a destination is gone rather than crashing the sentence", () => {
-		expect(linkLead(toNote, context)).toBe(
-			"Go to a form that is no longer in the app",
+		expect(linkLead({ type: "this-form" }, context)).toBe(
+			"Start this form again",
 		);
 	});
 
-	it("reads the condition and the carried values as details", () => {
+	it("says when a destination is gone rather than crashing the sentence", () => {
+		expect(
+			linkLead(
+				{ type: "form", moduleUuid: CARE, formUuid: testUuid("gone") },
+				context,
+			),
+		).toBe("Go to a form that is no longer in the app");
+	});
+
+	it("reads a destination with no condition as running every time", () => {
+		expect(linkSentence(link({}), context)).toEqual({
+			lead: "Go to “Visit”",
+			details: [EVERY_TIME_LINE],
+		});
+		expect(EVERY_TIME_LINE).toBe("Every time");
+	});
+
+	it("reads the condition, then the carried values", () => {
 		const sentence = linkSentence(
 			link({
 				condition: eq(
 					{ kind: "form-case", caseType: "patient", property: "mood" },
 					literal("low"),
 				),
-				datums: [
-					{
-						name: { kind: "selected-case", module: CARE },
-						xpath: term(literal("external-case")),
-					},
-					{
-						name: { kind: "selected-case", module: HOUSEHOLDS },
-						xpath: term(literal("external-case")),
-					},
-				],
 			}),
 			context,
 		);
 		expect(sentence).toEqual({
 			lead: "Go to “Visit”",
-			details: [
-				"When #patient/mood = 'low'",
-				"Carries 2 values worked out here",
-			],
+			details: ["When #patient/mood = 'low'"],
 		});
 		expect(linkSentenceText(sentence)).toBe(
-			"Go to “Visit”: When #patient/mood = 'low', Carries 2 values worked out here",
+			"Go to “Visit”: When #patient/mood = 'low'",
 		);
 	});
 
-	it("has no details for a bare otherwise link", () => {
-		expect(linkSentence(link({}), context)).toEqual({
+	it("adds the held-case line for a destination that carries a case, in place of Every time", () => {
+		const carrying = link({
+			target: toInspect,
+			datums: [
+				{
+					name: { kind: "selected-case", module: HOUSEHOLDS },
+					xpath: term(literal("external-case")),
+				},
+			],
+		});
+		expect(context.carriesHeldCase(carrying)).toBe(true);
+		expect(linkSentence(carrying, context).details).toEqual([
+			HELD_CASE_LINE,
+			"Carries 1 value worked out here",
+		]);
+		expect(HELD_CASE_LINE).toBe(
+			"When the case it carries is on the worker's device",
+		);
+		const conditional = {
+			...carrying,
+			condition: eq(literal(1), literal(1)),
+		};
+		expect(linkSentence(conditional, context).details).toEqual([
+			"When 1 = 1",
+			HELD_CASE_LINE,
+			"Carries 1 value worked out here",
+		]);
+	});
+
+	it("gives the otherwise link no when of its own", () => {
+		expect(linkSentence(link({}), context, "otherwise")).toEqual({
 			lead: "Go to “Visit”",
 			details: [],
 		});
@@ -155,62 +201,148 @@ describe("after-submit copy", () => {
 		);
 	});
 
-	it("summarises a form with no links from its default", () => {
+	it("reads an absent Otherwise as the app home", () => {
+		expect(otherwiseSentence(undefined, context.destinationOf)).toBe(
+			"Otherwise, back to the app home",
+		);
+		expect(
+			otherwiseSentence(
+				{ kind: "destination", destination: "module" },
+				context.destinationOf,
+			),
+		).toBe("Otherwise, to this module's form list");
+		expect(
+			otherwiseSentence(
+				{ kind: "link", uuid: testUuid("o"), target: toCare },
+				context.destinationOf,
+			),
+		).toBe("Otherwise, to the “Care” form list");
+		expect(
+			otherwiseSentence(
+				{ kind: "link", uuid: testUuid("o"), target: { type: "this-form" } },
+				context.destinationOf,
+			),
+		).toBe("Otherwise, to this form again");
+	});
+
+	it("says the Otherwise opens first only while a destination runs every time", () => {
+		expect(otherwiseSubtitle(false)).toBe(
+			"When no destination with a condition or a carried case runs.",
+		);
+		expect(otherwiseSubtitle(true)).toBe(
+			"When no destination with a condition or a carried case runs. It opens before any destination that runs every time.",
+		);
+		const mixed = fixture([
+			{ uuid: "l1", condition: "1 = 1", target: toNote },
+			{ uuid: "l2", target: toVisit },
+		]);
+		const conditionalOnly = fixture([
+			{ uuid: "l1", condition: "1 = 1", target: toNote },
+		]);
+		const planOf = (doc: BlueprintDoc) => {
+			const plan = afterSubmitPlan(doc, SOURCE);
+			if (plan === undefined) throw new Error("no plan");
+			return plan;
+		};
+		expect(hasEveryTimeDestination(planOf(mixed))).toBe(true);
+		expect(hasEveryTimeDestination(planOf(conditionalOnly))).toBe(false);
+	});
+
+	it("summarises a form without destinations from its default", () => {
 		const doc = fixture();
 		const plan = afterSubmitPlan(doc, SOURCE);
 		if (plan === undefined) throw new Error("no plan");
-		expect(afterSubmitSummary(plan, (t) => formLinkDestination(doc, t))).toBe(
-			"When this form is submitted, the person goes to the app home.",
+		expect(afterSubmitSummary(plan, contextOver(doc).destinationOf)).toEqual({
+			lead: "Goes to the app home",
+			otherwise: undefined,
+		});
+		expect(postSubmitSentence("module")).toBe(
+			"After submit, the form goes to this module's form list",
 		);
 	});
 
-	it("counts the conditional links and names the otherwise", () => {
-		const conditionalOnly = fixture(
-			[
+	it("summarises one destination, several, and the Otherwise beside them", () => {
+		const one = fixture([{ uuid: "l1", target: toVisit }]);
+		const onePlan = afterSubmitPlan(one, SOURCE);
+		if (onePlan === undefined) throw new Error("no plan");
+		expect(afterSubmitSummary(onePlan, contextOver(one).destinationOf)).toEqual(
+			{
+				lead: "Opens “Visit”",
+				otherwise: undefined,
+			},
+		);
+		const several = produce(
+			fixture([
 				{ uuid: "l1", condition: "1 = 1", target: toNote },
-				{ uuid: "l2", condition: "2 = 2", target: toVisit },
-			],
-			{ postSubmit: "previous" },
+				{ uuid: "l2", target: toCare },
+			]),
+			(draft) => {
+				draft.forms[SOURCE].otherwise = {
+					kind: "destination",
+					destination: "module",
+				};
+			},
 		);
-		const plan1 = afterSubmitPlan(conditionalOnly, SOURCE);
-		if (plan1 === undefined) throw new Error("no plan");
+		const severalPlan = afterSubmitPlan(several, SOURCE);
+		if (severalPlan === undefined) throw new Error("no plan");
 		expect(
-			afterSubmitSummary(plan1, (t) => formLinkDestination(conditionalOnly, t)),
-		).toBe(
-			"This form checks 2 links first, and goes back to the previous screen when none of them match.",
-		);
-		const withElse = fixture([
-			{ uuid: "l1", condition: "1 = 1", target: toNote },
-			{ uuid: "else", target: toCare },
+			afterSubmitSummary(severalPlan, contextOver(several).destinationOf),
+		).toEqual({
+			lead: "Runs 2 destinations in order",
+			otherwise: "Otherwise, to this module's form list",
+		});
+		const offered = fixture([
+			{ uuid: "l1", condition: "1 = 1", target: { type: "this-form" } },
 		]);
-		const plan2 = afterSubmitPlan(withElse, SOURCE);
-		if (plan2 === undefined) throw new Error("no plan");
+		const offeredPlan = afterSubmitPlan(offered, SOURCE);
+		if (offeredPlan === undefined) throw new Error("no plan");
 		expect(
-			afterSubmitSummary(plan2, (t) => formLinkDestination(withElse, t)),
-		).toBe(
-			"This form checks 1 link first, and otherwise goes to the “Care” form list.",
-		);
+			afterSubmitSummary(offeredPlan, contextOver(offered).destinationOf),
+		).toEqual({
+			lead: "Opens this form again",
+			otherwise: "Otherwise, back to the app home",
+		});
 	});
 
-	it("announces a fallback change and a pinned fallback", () => {
-		expect(fallbackChangedAnnouncement("module", context.destinationOf)).toBe(
-			"Otherwise now goes to this module's form list.",
-		);
+	it("announces what changed", () => {
 		expect(
-			fallbackChangedAnnouncement(
-				{ kind: "else-link", target: toVisit },
+			otherwiseChangedAnnouncement(
+				{ kind: "destination", destination: "previous" },
 				context.destinationOf,
 			),
-		).toBe("Otherwise now goes to “Visit”.");
-		expect(pinsFallbackSentence("app_home")).toBe(
-			"Otherwise now explicitly goes to the app home.",
+		).toBe("Otherwise now goes back to the previous screen.");
+		expect(otherwiseChangedAnnouncement(null, context.destinationOf)).toBe(
+			"Otherwise now goes back to the app home.",
+		);
+		expect(postSubmitChangedAnnouncement("firstMenu")).toBe(
+			"After submit, this form now goes to the app's first menu.",
 		);
 	});
 
-	it("asks before a built-in destination replaces the otherwise link", () => {
-		expect(stopElseLinkQuestion("Visit", "previous")).toBe(
-			"Stop going to “Visit”? When nothing above matches, the form will go back to the previous screen instead. You can undo this.",
-		);
+	it("speaks each commit report as its toast sentence", () => {
+		expect(commitReportSentences({})).toEqual([]);
+		expect(commitReportSentences({ movedToOtherwise: "module" })).toEqual([
+			"Where this form went after submit is now its Otherwise.",
+		]);
+		expect(
+			commitReportSentences({
+				droppedOtherwise: { kind: "destination", destination: "module" },
+			}),
+		).toEqual([
+			"This form's Otherwise is gone, because every destination now runs each time.",
+		]);
+		expect(commitReportSentences({ otherwiseToPostSubmit: "module" })).toEqual([
+			"This form's Otherwise is now where it goes after submit.",
+		]);
+		expect(
+			commitReportSentences({ otherwiseToDestination: testUuid("o") }),
+		).toEqual(["This form's Otherwise is now where it goes after submit."]);
+		expect(commitReportSentences({ droppedPostSubmit: "previous" })).toEqual([
+			"This form no longer goes back to the previous screen after submit, because its destinations say where it goes now.",
+		]);
+		expect(commitReportSentences({ droppedDatums: ["case_id"] })).toEqual([
+			"The values it carried were removed, because the new destination doesn't read them.",
+		]);
 	});
 
 	it("names what travels automatically by its source", () => {
@@ -238,14 +370,14 @@ describe("the line under a link whose target some worker may not see", () => {
 		const doc = fixture();
 		expect(
 			hiddenTargetLine(
-				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				formLinkTargetVisibility(doc, SOURCE, linkTo(toVisit)),
 				false,
 				PLATFORMS,
 			),
 		).toBeUndefined();
 		expect(
 			hiddenTargetLine(
-				formLinkTargetVisibility(doc, linkTo(toCare)),
+				formLinkTargetVisibility(doc, SOURCE, linkTo(toCare)),
 				false,
 				PLATFORMS,
 			),
@@ -258,7 +390,7 @@ describe("the line under a link whose target some worker may not see", () => {
 		doc.modules[CARE].displayCondition = supervisor;
 		expect(
 			hiddenTargetLine(
-				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				formLinkTargetVisibility(doc, SOURCE, linkTo(toVisit)),
 				false,
 				PLATFORMS,
 			),
@@ -267,7 +399,7 @@ describe("the line under a link whose target some worker may not see", () => {
 		);
 		expect(
 			hiddenTargetLine(
-				formLinkTargetVisibility(doc, linkTo(toCare)),
+				formLinkTargetVisibility(doc, SOURCE, linkTo(toCare)),
 				false,
 				PLATFORMS,
 			),
@@ -281,7 +413,7 @@ describe("the line under a link whose target some worker may not see", () => {
 		doc.forms[VISIT].hiddenFromMenu = true;
 		expect(
 			hiddenTargetLine(
-				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				formLinkTargetVisibility(doc, SOURCE, linkTo(toVisit)),
 				false,
 				PLATFORMS,
 			),
@@ -290,7 +422,7 @@ describe("the line under a link whose target some worker may not see", () => {
 		);
 		expect(
 			hiddenTargetLine(
-				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				formLinkTargetVisibility(doc, SOURCE, linkTo(toVisit)),
 				true,
 				PLATFORMS,
 			),
@@ -305,13 +437,13 @@ describe("the line under a link whose target some worker may not see", () => {
 		hidden.modules[CARE].displayCondition = supervisor;
 		const formLine = (platforms: readonly Platform[]) =>
 			hiddenTargetLine(
-				formLinkTargetVisibility(hidden, linkTo(toVisit)),
+				formLinkTargetVisibility(hidden, SOURCE, linkTo(toVisit)),
 				false,
 				platforms,
 			);
 		const moduleLine = (platforms: readonly Platform[]) =>
 			hiddenTargetLine(
-				formLinkTargetVisibility(hidden, linkTo(toCare)),
+				formLinkTargetVisibility(hidden, SOURCE, linkTo(toCare)),
 				false,
 				platforms,
 			);
@@ -332,7 +464,7 @@ describe("the line under a link whose target some worker may not see", () => {
 		offMenu.forms[VISIT].hiddenFromMenu = true;
 		const offLine = (inside: boolean, platforms: readonly Platform[]) =>
 			hiddenTargetLine(
-				formLinkTargetVisibility(offMenu, linkTo(toVisit)),
+				formLinkTargetVisibility(offMenu, SOURCE, linkTo(toVisit)),
 				inside,
 				platforms,
 			);

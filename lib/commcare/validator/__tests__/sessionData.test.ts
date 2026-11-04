@@ -215,7 +215,6 @@ describe("session datum admission", () => {
 				},
 			},
 		];
-		doc.forms[reads.close].postSubmit = "app_home";
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "SESSION_DATUM_NOT_SUPPLIED",
 		);
@@ -260,7 +259,6 @@ describe("session datum admission", () => {
 		doc.forms[reads.close].formLinks = [
 			{ uuid: link, target: { type: "module", moduleUuid: reads.batch } },
 		];
-		doc.forms[reads.close].postSubmit = "app_home";
 		const read = parseFormExpression("#user/closed_count > 1", {
 			doc,
 			lookup: new Map(),

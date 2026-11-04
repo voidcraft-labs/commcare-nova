@@ -26,7 +26,7 @@ import {
 	type LookupValidationContext,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, formLinkEntries } from "@/lib/domain";
 import type { ValidationError, ValidationErrorCode } from "./errors";
 import { validationError } from "./errors";
 import {
@@ -113,7 +113,6 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"RESERVED_CASE_TYPE_NAME",
 	"CASE_PROPERTY_OPTION_VALUE_INVALID",
 	"MISSING_CHILD_CASE_MODULE",
-	"FORM_LINK_CIRCULAR",
 	"CONNECT_ID_DUPLICATE",
 	"CONNECT_NO_PARTICIPATING_FORMS",
 	"PLATFORM_FEATURE_UNAVAILABLE",
@@ -329,32 +328,45 @@ function runDeepValidation(
 						deep.error,
 					);
 				case "form-link-xpath": {
-					const link = doc.forms[deep.formUuid].formLinks?.[deep.indices[0]];
-					if (link === undefined)
+					const entry = formLinkEntries(doc.forms[deep.formUuid])[
+						deep.indices[0]
+					];
+					if (entry === undefined)
 						throw new Error("A form-link finding lost its owning link.");
+					const link = entry.link;
+					// The role tells a surface whether the slot is a
+					// destination's or the otherwise link's.
+					const withRole = (finding: ValidationError): ValidationError => ({
+						...finding,
+						details: { ...finding.details, role: entry.role },
+					});
 					if (deep.slot === "form_link_condition")
-						return presentFormLogicFinding(
+						return withRole(
+							presentFormLogicFinding(
+								doc,
+								{
+									entity: "form",
+									uuid: deep.formUuid,
+									slot: deep.slot,
+									member: { linkUuid: link.uuid },
+								},
+								deep.error,
+							),
+						);
+					const datum = link.datums?.[deep.indices[1]];
+					if (datum === undefined)
+						throw new Error("A form-link finding lost its owning datum.");
+					return withRole(
+						presentFormLogicFinding(
 							doc,
 							{
 								entity: "form",
 								uuid: deep.formUuid,
 								slot: deep.slot,
-								member: { linkUuid: link.uuid },
+								member: { linkUuid: link.uuid, datum: datum.name },
 							},
 							deep.error,
-						);
-					const datum = link.datums?.[deep.indices[1]];
-					if (datum === undefined)
-						throw new Error("A form-link finding lost its owning datum.");
-					return presentFormLogicFinding(
-						doc,
-						{
-							entity: "form",
-							uuid: deep.formUuid,
-							slot: deep.slot,
-							member: { linkUuid: link.uuid, datum: datum.name },
-						},
-						deep.error,
+						),
 					);
 				}
 				case "cycle": {

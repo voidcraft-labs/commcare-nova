@@ -863,7 +863,7 @@ The unified case-list authoring surface has three config tabs (Search / Results 
 
 **Every choice is offered by where the app runs, disabled with a reason, never hidden.** Each offering site asks `platformRefusal(feature, useDeclaredPlatforms())` and shows `platformPickerLine` of it, the table's two-sentence line whose second sentence offers the way forward: Results' Several cases (`canvas/CaseSelectionSetting.tsx`'s `severalRefusal`, from `CaseListCanvas`), When this menu opens's Case list first and Forms read the search (`inspector/SearchWorkflowSetting.tsx`, its reasons in `searchWorkflowModel.ts`), a Search field's Date picker and Multiple choice (`SearchInputEditor`'s `platformRefusals`, before the multiple-choice reason), the case list registration offer and its form-settings twin, and the card editor's "Where you are now", "Case list search text" and the app information menu's "Window width", each offered on the slot's profile alone (`isAuthorableExpressionKind` asks `caseListSearchTextReachable`, `SessionContextMenu` asks `profile.windowWidth`; only the XPath editor's completions filter by platform, through `caseListSearchTextOffered` and `windowWidthOffered`), whose verdict carries the refusing platform (`expressionEditVerdict`'s `platform`, copied by `ExpressionChangeAdmission`) so the value menu shows the builder's picker line rather than the agent's message. A stored choice shows as it is: the gate guarantees no stored use is unavailable on a declared platform. `lib/doc/__tests__/platformOfferParity.test.ts` holds each site's batch to the gate.
 
-**A permanent platform note row states every difference where the author works.** `shared/PlatformNoteRow.tsx` renders `platformSentence(feature, declared)` for each feature the inspected owner's uses reach (`lib/doc/hooks/usePlatformNotes.ts::useOwnerPlatformFeatures`, over the one use detector) that a declared platform runs `different` or `ignores`, only the declared platforms' clauses, muted, with no icon and no dismiss. It is mounted in the field inspector (every feature of the field's uses, and `forms-read-search`'s Web Apps note beside a question that reads a Search field in a form of a menu whose forms read the search), the section inspector (`question-pages`), the after-submit chooser (`after-submit-home`, where App home or First menu is offered), module settings' **Case list in the menu** (`case-list-menu-item`), each deep link (`entry-points`), App settings' saved and incomplete forms and logo, the Search screen panel (`search`, `search-screen-text`, and under When this menu opens `search-first` or `skip-to-results`), each Search field (its hint, its checks, a barcode or hidden field and its values' expression features), each column (`link-column`, `column-hidden-from-results` and its value's expression features), the tile grouping (`tile-grouping`) and a tile cell (`tile-alignment`, `tile-border-and-shading`). Copy that stated a table feature's difference in its own words lost that clause to the row; copy that states a configuration's consequence per platform names only the platforms the app runs on (`formOffTheMenuNote`, `moduleOffTheMenuNote`, `hiddenTargetLine`, `groupingReopenNotice`, `freeTextQuoteMarksHint`).
+**A permanent platform note row states every difference where the author works.** `shared/PlatformNoteRow.tsx` renders `platformSentence(feature, declared)` for each feature the inspected owner's uses reach (`lib/doc/hooks/usePlatformNotes.ts::useOwnerPlatformFeatures`, over the one use detector) that a declared platform runs `different` or `ignores`, only the declared platforms' clauses, muted, with no icon and no dismiss. It is mounted in the field inspector (every feature of the field's uses, and `forms-read-search`'s Web Apps note beside a question that reads a Search field in a form of a menu whose forms read the search), the section inspector (`question-pages`), the after-submit chooser (`after-submit-home`, where App home or First menu is offered), the after-submit list (`after-submit-several-destinations`), module settings' **Case list in the menu** (`case-list-menu-item`), each deep link (`entry-points`), App settings' saved and incomplete forms and logo, the Search screen panel (`search`, `search-screen-text`, and under When this menu opens `search-first` or `skip-to-results`), each Search field (its hint, its checks, a barcode or hidden field and its values' expression features), each column (`link-column`, `column-hidden-from-results` and its value's expression features), the tile grouping (`tile-grouping`) and a tile cell (`tile-alignment`, `tile-border-and-shading`). Copy that stated a table feature's difference in its own words lost that clause to the row; copy that states a configuration's consequence per platform names only the platforms the app runs on (`formOffTheMenuNote`, `moduleOffTheMenuNote`, `hiddenTargetLine`, `groupingReopenNotice`, `freeTextQuoteMarksHint`).
 
 **The media pickers judge a file by where the app runs.** A Library file a platform the app runs on can't play shows as unavailable with `assetUnavailableReason` ("Web Apps can't play MP4 (HEVC)", or "No CommCare app can play this file") and can't be chosen; the Upload tab leaves out of its file filter a format none of whose variants plays on every declared platform, refusing a dropped one with `formatUnavailableReason`; and the account menu's file manager, which belongs to no app, says where each media file plays (`playsOnLine`).
 
@@ -1409,80 +1409,106 @@ module shapes against the validator rule itself):
 
 ## After submit (`form-links/`)
 
-A form's after-submit links are authored on `/{formUuid}/links`, with
-`/{linkUuid}` selecting one — the same selection-carrying URL shape as case
-operations, for the same reason (a link must be sendable; the rail body is keyed
-by it). The form-settings panel's **After submit** row states the whole answer
-(how many links, and where the form goes when none match, from
-`useAfterSubmitPlan`), changes the fallback in place through the shared
-`FallbackChooser`, and hands off to the screen with **Add links / Edit links /
-View links**. Preview from either URL runs the owning form (`PreviewShell`,
-`previewBreadcrumbs.ts`).
+A form's after-submit destinations are authored on `/{formUuid}/links`, with
+`/{linkUuid}` selecting one, a destination or the otherwise link: the same
+selection-carrying URL shape as case operations, for the same reason (a link
+must be sendable; the rail body is keyed by it). The form-settings panel's
+**After submit** row states the whole answer from `useAfterSubmitPlan`
+(`afterSubmitCopy.ts::afterSubmitSummary`): "Goes to <x>" for a form without
+destinations, "Opens <x>" for one destination or "Runs <n> destinations in
+order" for several, and "Otherwise, <y>" beside them while the form may hold
+an Otherwise or holds one. It changes the after-submit of a form without
+destinations, or the Otherwise, in place through the shared
+`OtherwiseChooser`, and hands off to the screen with **Add destinations /
+Edit destinations / View destinations**. Preview from either URL runs the
+owning form (`PreviewShell`, `previewBreadcrumbs.ts`).
 
-**One "otherwise" model.** `afterSubmitPlan` (`lib/doc/formLinkMutations.ts`)
-is the single reader of what runs when nothing matched — the terminal
-unconditional link when one exists, else `postSubmit` explicit or defaulted —
-and `planSetFallback` the single writer. The workspace's terminal row
-(`OtherwiseRow`) is that model on screen: **always last and never draggable**,
-because its position is its meaning. It shows the otherwise link (with a way
-into its detail, where carried values live) or the built-in destination, and
-carries the one `FallbackChooser`. The after-submit pickers offer exactly
-`postSubmitDestinationsOffered` (`useFormLinks().destinationChoices`, which adds
-a stored fallback the form's links keep admitted), with the labels "App home",
-"First menu", "This module", "Parent module: <name>" and "Previous screen"
-(`afterSubmitCopy.ts`). Under a link whose target some worker may not see on
-the menu, the link editor says what each platform the app runs on does
+**Destinations in the author's order, and the Otherwise its own slot.**
+`afterSubmitPlan` (`lib/doc/formLinkMutations.ts`) is the single reader: the
+destinations in author order, the ones that may not run (a condition, or a
+carried case the held-case guard tests), the Otherwise, and whether one is
+offered. The canvas lists the destinations under "After this form, these run
+in order", each row a sentence: "Every time" or "When <condition>", and a row
+that carries a case adds "When the case it carries is on the worker's device"
+(alone, without "Every time", on a row with no condition, since the guard can
+skip it). Every destination whose condition holds runs, on Android each after
+the one before it finishes and in Web Apps only the first, which the
+`after-submit-several-destinations` note row under the list says once there
+are two or more. Any destination may sit at any position, so every row drags
+anywhere. The last row (`OtherwiseRow`) is the Otherwise, **fixed and never
+draggable**, because it is not a position in the order: it shows while the
+form may hold one (`plan.otherwiseOffered`) or holds one, reads "Otherwise,
+<y>" ("Otherwise, back to the app home" when none is stored), and says when it
+runs: "When no destination with a condition or a carried case runs. It opens
+before any destination that runs every time." (the last sentence only while
+such a destination exists). It carries the one `OtherwiseChooser`, which
+writes through `planSetOtherwise`; a form without destinations shows its
+after-submit in the same place through the same chooser. The after-submit
+pickers offer exactly `postSubmitDestinationsOffered`, and the Otherwise
+pickers `otherwiseDestinationsOffered` (the same set less the app home an
+absent Otherwise means), with the labels "App home", "First menu", "This
+module", "Parent module: <name>" and "Previous screen" (`afterSubmitCopy.ts`).
+Under a link whose target some worker may not see on the menu, the link
+editor says what each platform the app runs on does
 (`afterSubmitCopy.ts::hiddenTargetLine(…, platforms)`, from
-`formLinkTargetVisibility`): a
-target form hidden by its condition opens on Android and lands on the module
-that holds it in Web Apps; a target module hidden by its condition opens with
-nothing in it on Android and lands on the app's first screen in Web Apps.
-Choosing a built-in destination while an
-otherwise link exists replaces authored work, so it confirms inline first
-("Stop going to “X”? … You can undo this."). "Another form or module" picks a
-destination right there in the workspace (a new otherwise link through
-`view.add` so a destination needing hand-made values is born complete, or the
-existing one retargeted) and hands off to the workspace from the settings
-popover.
+`formLinkTargetVisibility`): a target form hidden by its condition opens on
+Android and lands on the module that holds it in Web Apps; a target module
+hidden by its condition opens with nothing in it on Android and lands on the
+app's first screen in Web Apps. Choosing a built-in destination while an
+otherwise link exists replaces authored work, so it confirms inline first.
+"Another form or module" picks a destination right there in the workspace (a
+new otherwise link, so a destination needing hand-made values is born
+complete, or the existing one retargeted) and hands off to the workspace from
+the settings popover.
 
-**Adding is chooser-first**: "Go somewhere when a condition is true" or
-"Otherwise go somewhere else" (disabled with its reason when
-`formLinkAddChoices` refuses), then where. A conditional seed carries
-`false()` — a condition that never fires, so the running app is unchanged until
-the author writes the real one — and the detail opens with the editor ready
-(`conditionEditorHint.ts`, a one-shot module hint: not doc state, not URL
-state). A destination whose selection datums this form cannot match
-automatically (`formLinkCarryVerdict` → `manual-required`) is seeded with one
-`''` per required datum so `FORM_LINK_DATUMS_INCOMPLETE` never meets a fresh
-link. An automatic several-case carry has no manual alternative:
-`formLinkManualCarryVerdict` withholds **Work it out here**, because an explicit
-datum map cannot stand in for the complete selected collection. The canvas says
-the selected cases travel together automatically instead.
-`__tests__/formLinkValidByConstruction.test.ts` pins every offered seed,
-retarget, and conversion against `mutationCommitVerdict`.
+**Adding is chooser-first** (**Add a destination**): "Go somewhere every
+time", "Go somewhere when a condition is true", or "Otherwise, go somewhere
+else", the last disabled while nothing might not run with "Give a destination
+a condition first, so there is a time when none runs." (`formLinkAddChoices`),
+then where. A conditional seed carries `false()`, a condition that never
+fires, so the running app is unchanged until the author writes the real one,
+and the detail opens with the editor ready (`conditionEditorHint.ts`, a
+one-shot module hint: not doc state, not URL state). A destination whose
+selection datums this form cannot match automatically (`formLinkCarryVerdict`
+→ `manual-required`) is seeded with one `''` per required datum so
+`FORM_LINK_DATUMS_INCOMPLETE` never meets a fresh link. An automatic
+several-case carry has no manual alternative: `formLinkManualCarryVerdict`
+withholds **Work it out here**, because an explicit datum map cannot stand in
+for the complete selected collection. The canvas says the selected cases
+travel together automatically instead, and a menu target carries no values,
+which the section says. `__tests__/formLinkValidByConstruction.test.ts` pins
+every offered seed, retarget, and conversion against `mutationCommitVerdict`.
 
-**Conditionality is a kind, not a slot.** A conditional link's editor refuses
-an emptied draft (a link needs a condition; the otherwise link is a different
-kind), and the rail converts between kinds explicitly — "Make this the
-otherwise link" (offered only for the last link with no otherwise) and "Give it
-a condition" (which pins the fallback and says so) — so the list never holds a
-link whose kind is ambiguous.
+**A destination's condition is optional, and the Otherwise is a role.** Saving
+an empty condition clears it, so the destination runs every time, and the rail
+offers "Run it every time" and "Give it a condition". "Make this the
+otherwise" turns a destination into the otherwise link with its target and
+carried values (offered by `planMakeOtherwise`'s refusals: an Otherwise
+already stored, or no other destination that may not run), and "Make this a
+destination" turns the otherwise link into the last destination
+(`planMakeDestination`). Each planner report reads as a toast
+(`afterSubmitCopy.ts::commitReportSentences`): "Where this form went after
+submit is now its Otherwise.", "This form's Otherwise is gone, because every
+destination now runs each time.", "This form's Otherwise is now where it goes
+after submit.", and the dropped after-submit and dropped carried values in
+their own sentences.
 
-**Both reorder gestures read ONE map**: `formLinkMoveVerdicts` feeds drag's
-`canDropAtIndex` (captured on the handle's `onPointerDown`) and the keyboard's
+**No position is refused.** The drag takes every landing, and the keyboard's
 `planKeyboardReorder` (`shared/keyboardReorderPlan.ts`, the generic decision
-`case-operations/keyboardMove.ts` delegates to). The conditional links are a
-prefix of the form's link list, so the reorderable indices ARE the planner's
-indices. A refused keyboard move ANNOUNCES why (`role="alert"`); the polite
-region carries only outcomes that did something, including the fallback pin
-("Added a link. Otherwise now explicitly goes …").
+`case-operations/keyboardMove.ts` delegates to) runs with no refusal, as
+`formLinkMoveVerdicts` answers every index ok. The polite region carries the
+outcome of each move.
 
 **Session scope.** Conditions and carried values are evaluated after the form has closed, so the editors build their context from the slot (`lib/codemirror`, `buildExpressionEditorContext`, through `useExpressionEditorContext` with their actual form, link UUID and typed datum identity), whose profile is the session scope. The slot profile supplies the readable case data and withholds form answers after submission; parser, linter and commit gate use the same canonical checker. **AST in the canvas, choice in the
 rail**: the detail owns the condition and the carried values (all-or-nothing,
 one row per required datum, hinted "Give the case id the destination should
-open"); the rail owns the destination (`LinkTargetPicker`, every row offered
-with the target planner's verdict — self, cycle with its named chain, gone),
-the kind, and removal (confirmed inline, naming a pinned fallback). A form the
+open"); the rail owns the destination (`LinkTargetPicker`, **Start this form again**
+first, then every menu and form, each offered with the target planner's
+verdict: a submenu CommCare HQ does not offer from this form's menu is listed
+disabled with "CommCare HQ can't link to this submenu from here. You can choose
+<parent> or a form inside it.", and a target that is gone says so; link
+cycles are admitted, so nothing is disabled for leading back), the kind, and
+removal (confirmed inline, naming what happens to the Otherwise). A form the
 planner admits but the link could not open with a case this form creates is
 disabled before **Add link** or the retarget with
 `FORM_LINK_NEEDS_NEW_CASE_DATUM`'s builder sentence, which names what keeps

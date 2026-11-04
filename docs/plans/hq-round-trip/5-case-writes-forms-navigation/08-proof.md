@@ -2048,6 +2048,31 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   label and an image; `setCaseListMeta`'s image arm writes nothing, because a case list's image is its
   menu entry's. The fixed documents' edits are balanced together, so most fixed documents' edit batches
   and `inputs.json` move with no change to D, as any new kind moves them.
+- **Pull request 11's census and counts** (§4.6, §5.1): `proof/checks/test_corpus.py`'s census reads a
+  self-link (a `form_links[].form_id` equal to its own form's `unique_id`) and an otherwise (a
+  `post_form_workflow_fallback` beside links), and `FIXED_DOCUMENTS` rises from 392 to 398 (the three
+  targeted documents and the three producer documents `form-link-chain`, `form-link-this-form`,
+  `form-link-carried-held`); the lane's first run of pull request 11 confirms the count.
+- **`setFormOtherwise`'s edit on a form without a conditional destination** (§4.4) adds the destination
+  through `planFormLinkAdd`, which turns a stored or default after-submit into the otherwise, so its batch
+  may carry that `setFormOtherwise` before the edit's own, which then sets the next destination the menu
+  offers; `addFormLink`'s third arm sets an otherwise link through `planSetOtherwise`, refused on a form
+  where every destination runs every time.
+- **No value-class reader for `failing-link-checks`** (§7.2, pull request 11): the entry's only reason is
+  `not-hq-buildable`, which `proof/checks/manifest_usage.py::_standing_plan` leaves to the bar without
+  reading `VALUE_CLASSES`; part 06 §13.4 is right.
+- **The offered-targets fixture is `proof/views/fixtures/form-link-targets.json`** (§6.2, pull request 11),
+  not under `lib/commcare/__tests__/fixtures/`: a lane shard's checkout holds only `proof/` and
+  `lib/commcare/surface/`. `proof/views/conftest.py::DOCUMENTS` names `targeted-form-link-otherwise`.
+- **Pull request 11's lane docs** (§9.1, §9.2): `proof/README.md`'s two defect 26 rows (`26` and `26, a
+  link's case value`) each read "Fixed in step 5: …" and name both retained controls, since all 18 fixed
+  entries are held on `targeted-form-links-hidden-and-fallback` (16) and
+  `expander-form-links-emission-forwards-literal-condition-47c96355-0` (2); "Targeted documents" gains the
+  three new documents and the migrated `targeted-form-links-hidden-and-fallback`; "Native proofs" names
+  `FormLinkRuntimeTest`'s three new methods over the ten scenarios; the weekly sample sentence reads
+  "eighteen weeks (for 430)", the corpus `test_corpus.py` gives (398 fixed and the default sample of 32).
+  The timing tables' counts ("398 documents, 86 controls, 30 package groups") stay for pull request 15's
+  refresh from G7, as §9.1 places them.
 
 ## What other parts read from this one
 

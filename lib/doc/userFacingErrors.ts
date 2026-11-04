@@ -263,41 +263,52 @@ function afterSubmitPhrase(destination: string): string {
 }
 
 /**
- * `POST_SUBMIT_NOT_OFFERED`: the reason's sentence, then the destinations
- * the form is offered as the picker labels them. The validator's message
- * says the same with the tool's values.
+ * `POST_SUBMIT_NOT_OFFERED` and `FORM_OTHERWISE_NOT_OFFERED`: the reason's
+ * sentence, then the destinations the form is offered as the picker labels
+ * them. With `details.slot: "otherwise"` the destination is where the form
+ * goes when no destination runs, the offered list holds no App home (an
+ * absent Otherwise is the app home), and the sentence ends with removing
+ * the Otherwise. The validator's message says the same with the tool's
+ * values.
  */
 function postSubmitNotOfferedSentence(e: ValidationError): string {
+	const otherwise = e.details?.slot === "otherwise";
+	const when = otherwise ? "when no destination runs" : "after submit";
 	const form = q(formName(e));
 	const module = q(modName(e));
 	const parentName = det(e, "parentName", "the parent module");
 	const phrase = afterSubmitPhrase(det(e, "destination", "previous"));
-	const offered = (e.details?.offered ?? "app_home,firstMenu")
+	const offered = (
+		e.details?.offered ?? (otherwise ? "firstMenu" : "app_home,firstMenu")
+	)
 		.split(",")
-		.filter((value) => value.length > 0)
+		.filter((value) => value.length > 0 && !(otherwise && value === "app_home"))
 		.map((value) => q(afterSubmitLabel(value, parentName)))
 		.join(", ");
 	const reason = (() => {
 		switch (e.details?.reason) {
 			case "menu-selects-several":
-				return `${form} goes to the previous screen after submit, but ${module} selects several cases, and CommCare has no previous screen to return to there.`;
+				return `${form} goes to the previous screen ${when}, but ${module} selects several cases, and CommCare has no previous screen to return to there.`;
 			case "parent-selects-several":
-				return `${form} goes to ${phrase} after submit, but ${module} sits under ${q(parentName)}, which selects several cases.`;
+				return `${form} goes to ${phrase} ${when}, but ${module} sits under ${q(parentName)}, which selects several cases.`;
 			case "menu-forms-read-search":
-				return `${form} goes to the previous screen after submit, but ${module} has its forms read the search, and CommCare can't go back to the previous screen there.`;
+				return `${form} goes to the previous screen ${when}, but ${module} has its forms read the search, and CommCare can't go back to the previous screen there.`;
 			case "menu-is-bare-case-list":
-				return `${form} goes to its module after submit, but ${module} is a case list with no forms, so there is no form list to land on.`;
+				return `${form} goes to its module ${when}, but ${module} is a case list with no forms, so there is no form list to land on.`;
 			case "no-parent-menu":
-				return `${form} goes to the parent module after submit, but ${module} has no parent module.`;
+				return `${form} goes to the parent module ${when}, but ${module} has no parent module.`;
 			case "menu-off-the-menu":
-				return `${form} goes to ${phrase} after submit, but ${module} is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
+				return `${form} goes to ${phrase} ${when}, but ${module} is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
 			case "parent-off-the-menu":
-				return `${form} goes to the parent module after submit, but ${q(parentName)} is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
+				return `${form} goes to the parent module ${when}, but ${q(parentName)} is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
 			default:
-				return `${form} goes somewhere after submit that ${module} doesn't offer.`;
+				return `${form} goes somewhere ${when} that ${module} doesn't offer.`;
 		}
 	})();
-	return `${reason} Choose one of: ${offered}.`;
+	const choose = `${reason} Choose one of: ${offered}.`;
+	return otherwise
+		? `${choose} You can also remove the Otherwise, and the app home follows.`
+		: choose;
 }
 
 const ENTRY_POINT_ID_PROBLEMS: ReadonlySet<string> =
@@ -367,16 +378,23 @@ const pathLeaf = (path: string): string =>
 	path.slice(path.lastIndexOf("/") + 1);
 
 /**
- * An after-submit link named by where it goes, from the `destination` /
- * `destinationKind` details the form-link rules stamp; "one of the links"
- * when the target is gone.
+ * An after-submit link named by where it goes, from the `role`,
+ * `destination` and `destinationKind` details the form-link rules stamp:
+ * "its Otherwise" for the otherwise link, and "one of the after-submit
+ * links" when a destination's target is gone.
  */
 const formLinkPhrase = (e: ValidationError): string => {
+	if (e.details?.role === "otherwise") return "its Otherwise";
 	const destination = e.details?.destination;
 	if (!destination) return "one of the after-submit links";
-	return e.details?.destinationKind === "module"
-		? `the link to the ${q(destination)} module`
-		: `the link to ${q(destination)}`;
+	switch (e.details?.destinationKind) {
+		case "module":
+			return `the link to the ${q(destination)} module`;
+		case "this-form":
+			return "the link that starts this form again";
+		default:
+			return `the link to ${q(destination)}`;
+	}
 };
 
 /**
@@ -714,8 +732,6 @@ const USER_MESSAGE_BY_CODE: Record<
 			? `Your forms create ${q(ct)} cases, but there's no module showing them yet. Add a module for ${q(ct)}.`
 			: "Some of your forms create child cases that have nowhere to show. Add a module for that case type.";
 	},
-	FORM_LINK_CIRCULAR: () =>
-		"Your after-submit links loop in a circle, so people would get stuck going form to form. Point one of them at a module instead of another form to break the loop.",
 	CONNECT_ID_DUPLICATE: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
@@ -1240,18 +1256,25 @@ const USER_MESSAGE_BY_CODE: Record<
 	INVALID_POST_SUBMIT: (e) =>
 		`${q(formName(e))}'s After Submit setting isn't one of the options. Pick one.`,
 	POST_SUBMIT_NOT_OFFERED: (e) => postSubmitNotOfferedSentence(e),
+	POST_SUBMIT_BESIDE_FORM_LINKS: (e) =>
+		`${q(formName(e))} has destinations and a separate After submit setting, which only a form without destinations uses. You can remove the setting and choose an Otherwise instead.`,
 	FORM_LINK_EMPTY: (e) =>
 		`${q(formName(e))} has after-submit links turned on but none added. Add a link, or turn the setting off.`,
-	FORM_LINK_NO_FALLBACK: (e) =>
-		`${q(formName(e))}'s after-submit links all have conditions, so it needs an otherwise. Choose where people go when none of them match, or add a link without a condition at the end.`,
+	FORM_LINK_TARGET_NOT_OFFERED: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} opens ${q(det(e, "menuName", "that submenu"))}, a submenu CommCare HQ can't link to from here. You can point it at ${q(det(e, "parentName", "the menu that holds it"))}, which holds it, or at a form inside it.`,
+	FORM_LINK_MENU_DATUMS: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries values to ${q(det(e, "menuName", "that module"))}, and a module's form list asks for none. You can remove the carried values, or send the link to a form inside it.`,
+	FORM_OTHERWISE_NOT_OFFERED: (e) => postSubmitNotOfferedSentence(e),
+	FORM_OTHERWISE_UNREACHABLE: (e) =>
+		e.details?.arm === "no-destinations"
+			? `${q(formName(e))}'s Otherwise can never run, because the form has no destinations. You can add a destination, or remove the Otherwise.`
+			: `${q(formName(e))}'s Otherwise can never run, because every destination runs each time. You can give a destination a condition, or remove the Otherwise.`,
 	FORM_LINK_TARGET_NOT_FOUND: (e) =>
 		`An after-submit link in ${q(formName(e))} points to a form or module that's gone. Point it somewhere else, or remove it.`,
 	FORM_LINK_TARGET_CASE_LIST_REGISTRATION_FORM: (e) =>
 		`An after-submit link in ${q(formName(e))} points to a form that only opens when a search finds nothing. You can point it at the menu instead, or remove it.`,
 	FORM_LINK_SELF_REFERENCE: (e) =>
-		`An after-submit link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
-	FORM_LINK_UNREACHABLE: (e) =>
-		`In ${q(formName(e))}, ${formLinkPhrase(e)} can never be used: an earlier link has no condition, so it always wins. Move this link above it, or give that link a condition.`,
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} points back at this form by name. You can choose Start this form again, which keeps working if the form moves.`,
 	FORM_LINK_DATUMS_INCOMPLETE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>

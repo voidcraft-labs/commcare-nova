@@ -315,6 +315,23 @@ the world when ordinary Back returns to that menu, without admitting another
 command. A successful submission with a different routing outcome retires the
 completed task before installing its new destination.
 
+`previewAfterSubmitStack` holds the after-submit frames still to run in the
+running app (`types.ts::PreviewAfterSubmitStack`, an
+`AfterSubmitStackState<PreviewAfterSubmitFrame>` from
+`lib/preview/afterSubmitStack.ts`): on Android the destinations beneath the one
+that opened, each with the several-case selection its link carried fixed when
+the frame was pushed; on Web Apps nothing, since Formplayer opens the frame on
+top alone. `FormScreen` writes it through `setPreviewAfterSubmitStack` after
+each submission's `completeAfterSubmit`. It is ephemeral and never stored. It
+empties wherever `previewTaskContinuation` clears (Preview mode changes both
+ways, a worker change, a platform change, an entry point launch, a confirmed
+Project change, `reset()`), and on `setPreviewAtDeviceHome(true)`, Android's
+session reset when the worker steps back from the root menu. Home
+(`clearPreviewNavigation`) empties it unless its snapshot is the empty landing
+of a frame that opened the app's first screen, since `PreviewShell` calls it on
+every arrival at Home and Core never drops frames beneath an empty snapshot
+(`SessionFrame.java::isSnapshotIncompatible`).
+
 `previewEntryPointLaunch` is a verified local launch intent, never authored data.
 `installEntryPointLaunch` atomically installs Preview mode, selected persona, the
 ordered menu selections and exact form target, and clears unrelated search/parent

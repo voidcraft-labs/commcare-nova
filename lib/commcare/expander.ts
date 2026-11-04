@@ -92,7 +92,7 @@ import {
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
-	projectFormLinks,
+	projectAfterSubmit,
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "./formLinkProjection";
@@ -108,13 +108,14 @@ import { emittedModuleKind } from "./moduleKind";
 import { buildXFormSource } from "./xform/builder";
 
 /**
- * One projected link in HQ's `FormLink` shape. `xpath` carries the
- * exclusive guard the local suite emits (the empty string is HQ's
- * "unconditional"); a form target names the form AND its module because
- * HQ's `workflow.py::_get_link_frame` resolves `form_module_id` first; a
- * module target names the module alone. A dangling target is an invariant
- * violation and aborts projection — silently dropping authored navigation
- * would turn a bad Blueprint into a different app.
+ * One projected link in HQ's `FormLink` shape. `xpath` carries the `if` the
+ * local suite emits (the empty string is HQ's "unconditional"); a form
+ * target names the form AND its module because HQ's
+ * `workflow.py::_get_link_frame` resolves `form_module_id` first; a module
+ * target names the module alone. The target is resolved, so `this-form`
+ * names the source form's own id and its menu's. A dangling target is an
+ * invariant violation and aborts projection — silently dropping authored
+ * navigation would turn a bad Blueprint into a different app.
  */
 function toHqFormLink(
 	link: ProjectedFormLink,
@@ -132,7 +133,7 @@ function toHqFormLink(
 		name: datum.name,
 		xpath: hqXPath(datum.xpath),
 	}));
-	const xpath = link.guard === undefined ? "" : hqXPath(link.guard);
+	const xpath = link.xpath === undefined ? "" : hqXPath(link.xpath);
 	if (target.type === "form") {
 		const formId = formUniqueIdOf.get(target.formUuid);
 		if (formId === undefined) {
@@ -363,17 +364,18 @@ export function expandDoc(
 			});
 			attachments[`${formUniqueId}.xml`] = source.xml;
 
-			// After-submit navigation. With links, HQ reads `form_links` only
-			// under `post_form_workflow = "form"`, and the authored
-			// `postSubmit` becomes the FALLBACK workflow — emitted only when
-			// the projection says a fallback frame is needed (the last link is
-			// conditional); a terminal unconditional link is the exhaustive
-			// else, and HQ's `_get_fallback_frame` is skipped with a `null`.
-			// Without links, `postSubmit` is the workflow itself, as before.
-			const workflow = toHqWorkflow(
-				effectivePostSubmit(doc, formUuid) ?? "app_home",
-			);
-			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
+			// After-submit navigation. With destinations, HQ reads `form_links`
+			// only under `post_form_workflow = "form"`, and a built-in
+			// otherwise is the FALLBACK workflow, whose frame HQ builds over
+			// every non-blank link `xpath` (`_get_fallback_frame`); an
+			// otherwise link is one more `form_links` entry, and with none the
+			// fallback is `null`. Without destinations, the effective
+			// `postSubmit` is the workflow itself.
+			const projectedLinks = projectAfterSubmit(doc, linkContext, formUuid);
+			const postFormWorkflow =
+				projectedLinks === undefined
+					? toHqWorkflow(effectivePostSubmit(doc, formUuid) ?? "app_home")
+					: "form";
 			const hqFormLinks =
 				projectedLinks === undefined
 					? []
@@ -393,9 +395,10 @@ export function expandDoc(
 				effectiveConnect,
 				mod.caseType,
 			);
-			const postFormWorkflow = projectedLinks === undefined ? workflow : "form";
 			const postFormWorkflowFallback =
-				projectedLinks?.fallback.kind === "guarded" ? workflow : null;
+				projectedLinks?.fallback.kind === "built-in"
+					? toHqWorkflow(projectedLinks.fallback.destination)
+					: null;
 			const formShellObj: HqFormTree | HqAdvancedFormTree = advanced
 				? advancedFormShell(
 						formUniqueId,

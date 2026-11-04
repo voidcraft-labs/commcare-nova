@@ -18,10 +18,12 @@ import {
 	caseSelectionMaximum,
 	type Form,
 	fieldReferenceSlotsFor,
+	formLinkEntries,
 	formLinkSelectionIsCompatible,
 	type Module,
 	moduleIsBareCaseList,
 	readSlotValues,
+	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
 import { activeRowScope, slotContext } from "@/lib/domain/expression/context";
@@ -350,14 +352,17 @@ export function multiSelectFormSemantics(
 	return errors;
 }
 
-/** Direct form links can carry a selection only when its full shape fits. */
+/** Direct form links, destinations and the otherwise link alike, can carry
+ *  a selection only when its full shape fits. `this-form` reads as the
+ *  source form in its own menu. */
 export function formLinkSelectionCardinality(
 	doc: BlueprintDoc,
 	form: Form,
 	module: Module,
 	ctx: MultiSelectFormContext,
 ): ValidationError[] {
-	if (!isBatchConsumer(form) || form.formLinks === undefined) return [];
+	const entries = formLinkEntries(form);
+	if (!isBatchConsumer(form) || entries.length === 0) return [];
 
 	const sourceCardinality = caseSelectionCardinality(module);
 	const sourceMaximum = caseSelectionMaximum(module);
@@ -367,10 +372,11 @@ export function formLinkSelectionCardinality(
 	);
 	const errors: ValidationError[] = [];
 	const loc = formLocation(ctx);
-	for (const link of form.formLinks) {
-		if (link.target.type !== "form") continue;
-		const targetModule = doc.modules[link.target.moduleUuid];
-		const targetForm = doc.forms[link.target.formUuid];
+	for (const { role, link } of entries) {
+		const target = resolveFormLinkTarget(doc, ctx.formUuid, link.target);
+		if (target?.type !== "form") continue;
+		const targetModule = doc.modules[target.moduleUuid];
+		const targetForm = doc.forms[target.formUuid];
 		if (targetModule === undefined || !isBatchConsumer(targetForm)) continue;
 		const targetCardinality = caseSelectionCardinality(targetModule);
 		const targetMaximum = caseSelectionMaximum(targetModule);
@@ -399,6 +405,7 @@ export function formLinkSelectionCardinality(
 						loc,
 						{
 							linkUuid: link.uuid,
+							role,
 							expectedCaseType,
 							possibleFinalCaseTypes: [...finalSessionCaseTypes].join(", "),
 						},
@@ -416,6 +423,7 @@ export function formLinkSelectionCardinality(
 				loc,
 				{
 					linkUuid: link.uuid,
+					role,
 					sourceCardinality,
 					targetCardinality,
 					sourceMaximum: String(sourceMaximum),

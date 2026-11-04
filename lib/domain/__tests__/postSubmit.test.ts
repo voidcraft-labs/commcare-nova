@@ -1,8 +1,8 @@
 /**
  * The after-submit offered set and default (`lib/domain/postSubmit.ts`,
  * `forms.ts::defaultPostSubmit`): which destinations each menu shape offers
- * a form, the exemption a form with links has, and that the default is
- * always offered. What each destination does on a device is the proof
+ * a form, the built-in otherwise each offers a form with destinations, and
+ * that the default is always offered. What each destination does on a device is the proof
  * lane's; these prove Nova's own reading of the shapes.
  */
 import fc from "fast-check";
@@ -12,12 +12,16 @@ import {
 	type BlueprintDoc,
 	defaultPostSubmit,
 	defaultPostSubmitOf,
+	effectivePostSubmit,
 	FORM_TYPES,
 	type FormType,
 	type Module,
+	OTHERWISE_DESTINATIONS,
+	type OtherwiseDestination,
+	otherwiseDestinationsOffered,
 	type PostSubmitDestination,
+	type PostSubmitNotOfferedReason,
 	postSubmitDestinationChoices,
-	postSubmitDestinationsAdmitted,
 	postSubmitDestinationsOffered,
 	postSubmitNotOfferedReason,
 } from "@/lib/domain";
@@ -196,31 +200,91 @@ describe("postSubmitDestinationsOffered", () => {
 	});
 });
 
-describe("postSubmitDestinationsAdmitted", () => {
-	it("admits a fallback beside links whatever the several-case reasons withhold", () => {
-		const doc = docOf({
-			multiSelect: true,
-			links: true,
-			postSubmit: "previous",
-		});
-		expect(postSubmitDestinationsAdmitted(doc, form)).toContain("previous");
-		expect(postSubmitNotOfferedReason(doc, form, "previous")).toBeUndefined();
-		expect(postSubmitDestinationChoices(doc, form)).toEqual([
-			"app_home",
+describe("otherwiseDestinationsOffered", () => {
+	const otherwise = (shape: Shape) =>
+		otherwiseDestinationsOffered(docOf({ ...shape, links: true }), form);
+
+	it("is the offered set less app_home, which an absent otherwise means", () => {
+		expect(otherwise({})).toEqual(["firstMenu", "module", "previous"]);
+		expect(otherwise({ parent: {} })).toEqual([
 			"firstMenu",
 			"module",
+			"parentMenu",
 			"previous",
 		]);
 	});
 
-	it("applies every other reason to a form with links", () => {
-		const doc = docOf({ offTheMenu: true, links: true });
-		expect(postSubmitDestinationsAdmitted(doc, form)).toEqual([
-			"app_home",
-			"firstMenu",
-		]);
-		expect(postSubmitNotOfferedReason(doc, form, "parentMenu")).toBe(
+	it.each<[string, Shape, PostSubmitNotOfferedReason, OtherwiseDestination[]]>([
+		[
+			"a menu that selects several",
+			{ multiSelect: true, parent: {} },
+			"menu-selects-several",
+			["firstMenu", "module", "parentMenu"],
+		],
+		[
+			"a parent that selects several",
+			{ parent: { multiSelect: true } },
+			"parent-selects-several",
+			["firstMenu"],
+		],
+		[
+			"a menu whose forms read the search",
+			{ formsReadSearch: true },
+			"menu-forms-read-search",
+			["firstMenu", "module"],
+		],
+		[
+			"a bare case list",
+			{ bareCaseList: true, formType: "registration" },
+			"menu-is-bare-case-list",
+			["firstMenu", "previous"],
+		],
+		[
+			"a menu with no parent",
+			{},
 			"no-parent-menu",
+			["firstMenu", "module", "previous"],
+		],
+		[
+			"a menu off the menu",
+			{ offTheMenu: true, parent: {} },
+			"menu-off-the-menu",
+			["firstMenu", "parentMenu"],
+		],
+		[
+			"a parent off the menu",
+			{ parent: { offTheMenu: true } },
+			"parent-off-the-menu",
+			["firstMenu", "module", "previous"],
+		],
+	])(
+		"under %s withholds what its reason withholds",
+		(_label, shape, reason, expected) => {
+			expect(otherwise(shape)).toEqual(expected);
+			const withheld = OTHERWISE_DESTINATIONS.filter(
+				(destination) => !expected.includes(destination),
+			);
+			expect(withheld.length).toBeGreaterThan(0);
+			expect(
+				withheld.map((destination) =>
+					postSubmitNotOfferedReason(
+						docOf({ ...shape, links: true }),
+						form,
+						destination,
+					),
+				),
+			).toContain(reason);
+		},
+	);
+
+	it("waives no reason for a form with destinations", () => {
+		const doc = docOf({ multiSelect: true, links: true });
+		expect(otherwiseDestinationsOffered(doc, form)).not.toContain("previous");
+		expect(postSubmitNotOfferedReason(doc, form, "previous")).toBe(
+			"menu-selects-several",
+		);
+		expect(postSubmitDestinationChoices(doc, form)).toEqual(
+			postSubmitDestinationsOffered(doc, form),
 		);
 	});
 
@@ -230,6 +294,21 @@ describe("postSubmitDestinationsAdmitted", () => {
 			"menu-selects-several",
 		);
 		expect(postSubmitNotOfferedReason(doc, form, "module")).toBeUndefined();
+	});
+
+	it("leaves the admitted set and its link exemption out of the domain's exports", async () => {
+		const domain = await import("@/lib/domain");
+		expect(Object.keys(domain)).not.toContain("postSubmitDestinationsAdmitted");
+		expect(Object.keys(domain)).toContain("otherwiseDestinationsOffered");
+	});
+});
+
+describe("effectivePostSubmit", () => {
+	it("is the after-submit of a form without destinations only", () => {
+		expect(effectivePostSubmit(docOf({}), form)).toBe("previous");
+		expect(
+			effectivePostSubmit(docOf({ links: true, postSubmit: "module" }), form),
+		).toBeUndefined();
 	});
 });
 

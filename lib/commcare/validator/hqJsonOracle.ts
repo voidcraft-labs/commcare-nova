@@ -486,12 +486,19 @@ function checkFormLinks(
 					loc,
 				),
 			);
-		} else if (!hasLinks) {
+		} else if (
+			!form.form_links.some(
+				(link) => typeof link.xpath === "string" && link.xpath.trim() !== "",
+			)
+		) {
+			// HQ builds the fallback frame over the links' non-blank `xpath`s
+			// and builds none when there is none
+			// (`workflow.py::EndOfFormNavigationWorkflow._get_fallback_frame`).
 			errors.push(
 				validationError(
 					"HQJSON_BAD_POST_FORM_WORKFLOW_FALLBACK",
 					"form",
-					`"${formName}" declares post_form_workflow_fallback="${fallback}" without any form_links; the fallback is read only when a conditional link list ends without a match, so the emitter wrote a value nothing consumes. This is a bug in the app generator.`,
+					`"${formName}" declares post_form_workflow_fallback="${fallback}" without a form link that has a condition; CommCare HQ builds the fallback frame only over links whose xpath is not blank, so the emitter wrote a value nothing consumes. This is a bug in the app generator.`,
 					loc,
 				),
 			);

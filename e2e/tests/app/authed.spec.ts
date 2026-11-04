@@ -3071,21 +3071,22 @@ test.describe("authenticated builder", () => {
 				await page.keyboard.press("ControlOrMeta+Enter");
 			};
 
-			await test.step("the workspace opens with no links and the form's own destination", async () => {
+			await test.step("the workspace opens with no destinations and the form's own after-submit", async () => {
 				await openBuilder(page, fixture.route);
 				await expect(
 					page.getByRole("heading", { name: "After submit", level: 1 }),
 				).toBeVisible({ timeout: 20_000 });
 				await expect(
-					page.getByText("This form has no links yet", { exact: false }),
+					page.getByText("This form has no destinations yet", { exact: false }),
 				).toBeVisible();
 				const otherwise = page.locator("[data-form-link-otherwise]");
-				await expect(otherwise).toContainText("After submit");
-				await expect(otherwise).toContainText("Go to the app home");
+				await expect(otherwise).toContainText(
+					"After submit, the form goes to the app home",
+				);
 			});
 
-			await test.step("adding a conditional link lands on its detail with the editor open", async () => {
-				await page.getByRole("button", { name: "Add a link" }).click();
+			await test.step("adding a conditional destination lands on its detail with the editor open", async () => {
+				await page.getByRole("button", { name: "Add a destination" }).click();
 				await page
 					.getByRole("button", {
 						name: /Go somewhere when a condition is true/,
@@ -3145,12 +3146,12 @@ test.describe("authenticated builder", () => {
 				).toBeVisible();
 			});
 
-			await test.step("the list reads the link as a sentence above the otherwise row", async () => {
+			await test.step("the list reads the destination as a sentence above the otherwise row", async () => {
 				await openBuilder(page, fixture.route);
 				const rows = page
-					.getByRole("list", { name: "Links in the order they are checked" })
+					.getByRole("list", { name: "After this form, these run in order" })
 					.getByRole("listitem");
-				// The link, then the Otherwise row, which is the list's last item.
+				// The destination, then the Otherwise row, the list's last item.
 				await expect(rows).toHaveCount(2);
 				await expect(rows.first()).toContainText(
 					`Go to “${followUp.formName}”`,
@@ -3158,8 +3159,9 @@ test.describe("authenticated builder", () => {
 				await expect(rows.first()).toContainText("When ");
 				await expect(rows.first()).toContainText("last_note = 'Visited'");
 				const otherwise = page.locator("[data-form-link-otherwise]");
-				await expect(otherwise).toContainText("Otherwise");
-				await expect(otherwise).toContainText("Go to the app home");
+				await expect(otherwise).toContainText(
+					"Otherwise, back to the app home",
+				);
 			});
 
 			const submitVisit = async (note: string) => {

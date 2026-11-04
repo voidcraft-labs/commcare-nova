@@ -17,10 +17,9 @@ import {
 import {
 	type FormLinkProjectionContext,
 	formLinkActionsBuildable,
-	formLinkIsConditional,
 	formLinkProjectionContext,
 	formLinkTargetDatumIds,
-	projectFormLinks,
+	projectAfterSubmit,
 } from "@/lib/commcare/formLinkProjection";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
@@ -29,21 +28,26 @@ import {
 	connectDeliverFormHoldsTask,
 	type Field,
 	type Form,
-	type FormLink,
+	type FormLinkEntry,
 	fieldRegistry,
 	formConnectIds,
 	formLinkDestination,
+	formLinkEntries,
+	formOtherwiseReachable,
 	formRootTakenIds,
 	formTypeLabels,
 	isConnectLearnConfig,
 	type Module,
+	menuTargetOffered,
+	otherwiseDestinationsOffered,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	type PostSubmitNotOfferedReason,
-	postSubmitDestinationsAdmitted,
 	postSubmitDestinationsOffered,
 	postSubmitNotOfferedReason,
 	projectProseTemplate,
+	type ResolvedFormLinkTarget,
+	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
@@ -454,7 +458,6 @@ const DESTINATION_PHRASE: Readonly<
 	previous: "the previous screen",
 };
 
-/** The sentence each reason gives, before the offered list. */
 /** Some module's case list registration slot names the form. */
 function namedByCaseListRegistration(
 	doc: BlueprintDoc,
@@ -465,40 +468,50 @@ function namedByCaseListRegistration(
 	);
 }
 
+/** Which slot a withheld destination sits in: a form without destinations'
+ *  `postSubmit`, or a built-in otherwise beside destinations. */
+type NotOfferedSlot = "post-submit" | "otherwise";
+
+/** The sentence each reason gives, before the offered list. */
 function notOfferedSentence(
 	reason: PostSubmitNotOfferedReason,
 	formName: string,
 	moduleName: string,
 	parentName: string,
 	destination: PostSubmitDestination,
+	slot: NotOfferedSlot = "post-submit",
 ): string {
 	const phrase = DESTINATION_PHRASE[destination] ?? destination;
+	const when =
+		slot === "otherwise" ? "when no destination runs" : "after submit";
 	switch (reason) {
 		case "menu-selects-several":
-			return `"${formName}" goes to the previous screen after submit, but "${moduleName}" selects several cases, and CommCare has no previous screen to return to there.`;
+			return `"${formName}" goes to the previous screen ${when}, but "${moduleName}" selects several cases, and CommCare has no previous screen to return to there.`;
 		case "parent-selects-several":
-			return `"${formName}" goes to ${phrase} after submit, but "${moduleName}" sits under "${parentName}", which selects several cases.`;
+			return `"${formName}" goes to ${phrase} ${when}, but "${moduleName}" sits under "${parentName}", which selects several cases.`;
 		case "menu-forms-read-search":
-			return `"${formName}" goes to the previous screen after submit, but "${moduleName}" has its forms read the search, and CommCare can't go back to the previous screen there.`;
+			return `"${formName}" goes to the previous screen ${when}, but "${moduleName}" has its forms read the search, and CommCare can't go back to the previous screen there.`;
 		case "menu-is-bare-case-list":
-			return `"${formName}" goes to its module after submit, but "${moduleName}" is a case list with no forms, so there is no form list to land on.`;
+			return `"${formName}" goes to its module ${when}, but "${moduleName}" is a case list with no forms, so there is no form list to land on.`;
 		case "no-parent-menu":
-			return `"${formName}" goes to the parent module after submit, but "${moduleName}" has no parent module.`;
+			return `"${formName}" goes to the parent module ${when}, but "${moduleName}" has no parent module.`;
 		case "menu-off-the-menu":
-			return `"${formName}" goes to ${phrase} after submit, but "${moduleName}" is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
+			return `"${formName}" goes to ${phrase} ${when}, but "${moduleName}" is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
 		case "parent-off-the-menu":
-			return `"${formName}" goes to the parent module after submit, but "${parentName}" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
+			return `"${formName}" goes to the parent module ${when}, but "${parentName}" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
 	}
 }
 
 /**
- * Post-submit navigation validation. A stored destination outside the
- * enum is a shape finding; a stored destination the form's module does not
- * offer (`postSubmitDestinationsAdmitted`) is `POST_SUBMIT_NOT_OFFERED`,
- * naming the first reason that withholds it. An absent slot is never
- * refused, since its default is always offered. A case list registration
- * form's one explicit destination is `caseListRegistrationForm`'s to judge
- * (`case-search/caseListRegistration.ts`).
+ * Post-submit navigation validation for a form without destinations. A
+ * stored destination outside the enum is a shape finding; a stored
+ * destination the form's module does not offer
+ * (`postSubmitDestinationsOffered`) is `POST_SUBMIT_NOT_OFFERED`, naming the
+ * first reason that withholds it. An absent slot is never refused, since its
+ * default is always offered. A `postSubmit` beside destinations is
+ * `POST_SUBMIT_BESIDE_FORM_LINKS`, which `formLinkValidation` reports. A case
+ * list registration form's one explicit destination is
+ * `caseListRegistrationForm`'s to judge (`case-search/caseListRegistration.ts`).
  */
 function postSubmitValidation(
 	doc: BlueprintDoc,
@@ -522,19 +535,18 @@ function postSubmitValidation(
 			),
 		];
 	}
+	if (form.formLinks !== undefined) return [];
 	if (mod.caseListRegistrationForm?.formUuid === ctx.formUuid) return [];
 
 	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, dest);
 	if (reason === undefined) return [];
-	const parentUuid = mod.parentModuleUuid;
-	const parentName =
-		parentUuid === undefined ? "" : (doc.modules[parentUuid]?.name ?? "");
+	const parentName = parentNameOf(doc, mod);
 	const offered = postSubmitDestinationsOffered(doc, ctx.formUuid);
 	return [
 		validationError(
 			"POST_SUBMIT_NOT_OFFERED",
 			"form",
-			`${notOfferedSentence(reason, ctx.formName, ctx.moduleName, parentName, dest)} Choose one of: ${offered.map((value) => `"${value}"`).join(", ")}.`,
+			`${notOfferedSentence(reason, ctx.formName, ctx.moduleName, parentName ?? "", dest)} Choose one of: ${offered.map((value) => `"${value}"`).join(", ")}.`,
 			loc,
 			{
 				reason,
@@ -542,10 +554,19 @@ function postSubmitValidation(
 				offered: offered.join(","),
 				// The two parent reasons name it, and the builder's "Parent
 				// module: <name>" label reads it wherever the module has one.
-				...(parentUuid !== undefined && { parentName }),
+				...(parentName !== undefined && { parentName }),
 			},
 		),
 	];
+}
+
+/** The name of `mod`'s parent menu, `""` when the parent is gone, and
+ *  `undefined` when it has none. */
+function parentNameOf(doc: BlueprintDoc, mod: Module): string | undefined {
+	const parentUuid = mod.parentModuleUuid;
+	return parentUuid === undefined
+		? undefined
+		: (doc.modules[parentUuid]?.name ?? "");
 }
 
 /**
@@ -585,19 +606,36 @@ export function entryPlanContext(doc: BlueprintDoc): FormLinkProjectionContext {
 /**
  * A link named by where it goes, the way a person finds it in the builder
  * — "the link to “Visit”" rather than "form link 3", which stops meaning
- * anything the moment links are reordered. Position is the fallback for a
- * target that no longer exists.
+ * anything the moment links are reordered. The otherwise link is named as
+ * the otherwise. Position is the fallback for a destination whose target no
+ * longer exists. Every finding on a link carries its `linkUuid` and its
+ * `role`, which `userFacingErrors.ts::formLinkPhrase` reads.
  */
-function formLinkLabel(doc: BlueprintDoc, link: FormLink, index: number) {
-	const destination = formLinkDestination(doc, link.target);
+function formLinkLabel(
+	doc: BlueprintDoc,
+	sourceFormUuid: Uuid,
+	entry: FormLinkEntry,
+) {
+	const destination = formLinkDestination(
+		doc,
+		sourceFormUuid,
+		entry.link.target,
+	);
+	const subject =
+		entry.role === "otherwise" ? "the otherwise link" : "the link";
 	const label =
 		destination === undefined
-			? `form link ${index + 1}`
+			? entry.role === "otherwise"
+				? "the otherwise link"
+				: `form link ${entry.index + 1}`
 			: destination.kind === "form"
-				? `the link to "${destination.name}"`
-				: `the link to the "${destination.name}" module`;
+				? `${subject} to "${destination.name}"`
+				: destination.kind === "module"
+					? `${subject} to the "${destination.name}" module`
+					: `${subject} that starts "${destination.name}" again`;
 	const details: Record<string, string> = {
-		linkUuid: link.uuid,
+		linkUuid: entry.link.uuid,
+		role: entry.role,
 		...(destination !== undefined && {
 			destination: destination.name,
 			destinationKind: destination.kind,
@@ -607,22 +645,31 @@ function formLinkLabel(doc: BlueprintDoc, link: FormLink, index: number) {
 }
 
 /**
- * Form-link validation (per-form). `formLinkProjection.ts` is the ONE
- * reading of what a link emits, and these rules read that same projection,
- * so "valid" means "lands where the author meant" on the local suite and on
- * the HQ upload alike:
+ * Form-link validation (per-form), over every `formLinkEntries` entry: the
+ * destinations and the otherwise link alike. `formLinkProjection.ts` is the
+ * ONE reading of what a link emits, and these rules read that same
+ * projection, so "valid" means "lands where the author meant" on the local
+ * suite and on the HQ upload alike:
  *
  *   - `FORM_LINK_EMPTY` — the schema already refuses an empty list; this is
  *     the backstop for a document that reached the rules another way.
  *   - `FORM_LINK_TARGET_NOT_FOUND` / `FORM_LINK_SELF_REFERENCE` — per link.
- *   - `FORM_LINK_UNREACHABLE` — a link after an unconditional one. The
- *     authoring contract chooses the first matching link, so later links
- *     cannot run. The low-level projector stays total over this refused input.
- *   - `FORM_LINK_NO_FALLBACK` — the last link is conditional and the form
- *     has no EXPLICIT `postSubmit`. The form-type default is what a form
- *     does with no links at all, not a destination the author chose for
- *     "none of these matched"; a terminal unconditional link is the
- *     exhaustive else and satisfies the rule by itself.
+ *     A `form` target naming the source form is the self reference; the
+ *     `this-form` target says the same and keeps meaning it when the form
+ *     moves.
+ *   - `FORM_LINK_TARGET_NOT_OFFERED` — a submenu CommCare HQ's form settings
+ *     page does not list as a target from this form's menu
+ *     (`formLinkTargets.ts::menuTargetOffered`).
+ *   - `FORM_LINK_MENU_DATUMS` — carried values on a menu target, which HQ's
+ *     page edits only under its retiring advanced linking mode.
+ *   - `FORM_OTHERWISE_NOT_OFFERED` — a built-in otherwise the form's menu
+ *     does not offer (`postSubmit.ts::otherwiseDestinationsOffered`).
+ *   - `FORM_OTHERWISE_UNREACHABLE` — an otherwise where no destination may
+ *     not run (`afterSubmit.ts::formOtherwiseReachable`), or beside no
+ *     destinations: HQ builds its fallback frame only over a non-blank link
+ *     `xpath` (`workflow.py::EndOfFormNavigationWorkflow._get_fallback_frame`).
+ *   - `POST_SUBMIT_BESIDE_FORM_LINKS` — a `postSubmit` beside destinations,
+ *     which only a form without destinations reads.
  *   - `FORM_LINK_DATUMS_INCOMPLETE` — a form target needs a case the link
  *     cannot supply. The runtime does NOT prompt for it: HQ's
  *     `_get_datums_matched_to_source` yields an unmatched selection datum
@@ -636,23 +683,25 @@ function formLinkLabel(doc: BlueprintDoc, link: FormLink, index: number) {
  * Distinct identities may name the same root-aligned target selection;
  * `FORM_LINK_DATUM_TARGET_COLLISION` refuses more than one value for it.
  *
- * The remaining datum rules project the links, which is defined only for session-scope
- * expressions whose targets exist; the other findings cover every document
- * where it is not, so the rule stays total. Cycle detection across forms
- * runs at app scope in `circularFormLinks`.
+ * The remaining datum rules project the links, which is defined only for
+ * session-scope expressions whose targets exist; the other findings cover
+ * every document where it is not, so the rule stays total. Link cycles are
+ * admitted: a worker leaves one by Back or Home.
  */
 function formLinkValidation(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
+	mod: Module,
 	lookupTables: LookupTypeIndex = new Map(),
 ): ValidationError[] {
 	const links = form.formLinks;
-	if (links === undefined) return [];
+	const otherwise = form.otherwise;
+	if (links === undefined && otherwise === undefined) return [];
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
 
-	if (links.length === 0) {
+	if (links !== undefined && links.length === 0) {
 		errors.push(
 			validationError(
 				"FORM_LINK_EMPTY",
@@ -664,62 +713,94 @@ function formLinkValidation(
 		return errors;
 	}
 
-	const isConditional = formLinkIsConditional;
+	if (links !== undefined && form.postSubmit !== undefined) {
+		errors.push(
+			validationError(
+				"POST_SUBMIT_BESIDE_FORM_LINKS",
+				"form",
+				`"${ctx.formName}" has after-submit destinations and also sets post_submit, which only a form without destinations uses. Remove post_submit, and set where it goes when no destination runs with set_form_otherwise.`,
+				loc,
+				{ postSubmit: form.postSubmit },
+			),
+		);
+	}
 
+	errors.push(...otherwiseValidation(doc, form, ctx, mod));
+
+	const entries = formLinkEntries(form);
 	let targetsResolve = true;
-	let earlierUnconditional: { label: string } | undefined;
-	links.forEach((link, index) => {
-		const { label, details } = formLinkLabel(doc, link, index);
+	for (const entry of entries) {
+		const { label, details } = formLinkLabel(doc, ctx.formUuid, entry);
+		const target = entry.link.target;
+		if (target.type === "this-form") continue;
 
-		if (earlierUnconditional !== undefined) {
-			errors.push(
-				validationError(
-					"FORM_LINK_UNREACHABLE",
-					"form",
-					`"${ctx.formName}" can never use ${label}: ${earlierUnconditional.label} comes before it and has no condition, so it always wins. Move ${label} above it, or give ${earlierUnconditional.label} a condition.`,
-					loc,
-					details,
-				),
-			);
-		} else if (!isConditional(link)) {
-			earlierUnconditional = { label };
-		}
-
-		const targetMod = doc.modules[link.target.moduleUuid];
+		const targetMod = doc.modules[target.moduleUuid];
 		if (targetMod === undefined) {
 			targetsResolve = false;
 			errors.push(
 				validationError(
 					"FORM_LINK_TARGET_NOT_FOUND",
 					"form",
-					`"${ctx.formName}" ${label} targets module ${link.target.moduleUuid}, which doesn't exist.\n\n` +
+					`"${ctx.formName}" ${label} targets module ${target.moduleUuid}, which doesn't exist.\n\n` +
 						`Update the target to reference an existing module.`,
 					loc,
 					details,
 				),
 			);
-			return;
+			continue;
 		}
-		if (link.target.type !== "form") return;
-		const targetForm = doc.forms[link.target.formUuid];
+		if (target.type === "module") {
+			if (!menuTargetOffered(doc, ctx.moduleUuid, target.moduleUuid)) {
+				const parentName = parentNameOf(doc, targetMod) ?? "";
+				errors.push(
+					validationError(
+						"FORM_LINK_TARGET_NOT_OFFERED",
+						"form",
+						`"${ctx.formName}" ${label} opens "${targetMod.name}", a submenu CommCare HQ doesn't offer as a link target from "${ctx.moduleName}": a submenu is a target only from a submenu whose parent has the same case type as its own parent. Point the link at "${parentName}", which holds it, or at a form inside "${targetMod.name}".`,
+						loc,
+						{
+							...details,
+							targetModuleUuid: target.moduleUuid,
+							menuName: targetMod.name,
+							parentName,
+						},
+					),
+				);
+			}
+			if (entry.link.datums !== undefined) {
+				errors.push(
+					validationError(
+						"FORM_LINK_MENU_DATUMS",
+						"form",
+						`"${ctx.formName}" ${label} carries values to the module "${targetMod.name}", whose form list asks for none. Remove the link's datums, or point it at a form in "${targetMod.name}" that reads them.`,
+						loc,
+						{
+							...details,
+							targetModuleUuid: target.moduleUuid,
+							menuName: targetMod.name,
+						},
+					),
+				);
+			}
+			continue;
+		}
+		const targetForm = doc.forms[target.formUuid];
 		if (
 			targetForm === undefined ||
-			!(doc.formOrder[link.target.moduleUuid] ?? []).includes(
-				link.target.formUuid,
-			)
+			!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)
 		) {
 			targetsResolve = false;
 			errors.push(
 				validationError(
 					"FORM_LINK_TARGET_NOT_FOUND",
 					"form",
-					`"${ctx.formName}" ${label} targets form ${link.target.formUuid} in "${targetMod.name}", which doesn't exist.\n\n` +
+					`"${ctx.formName}" ${label} targets form ${target.formUuid} in "${targetMod.name}", which doesn't exist.\n\n` +
 						`Update the target to reference an existing form.`,
 					loc,
 					details,
 				),
 			);
-		} else if (namedByCaseListRegistration(doc, link.target.formUuid)) {
+		} else if (namedByCaseListRegistration(doc, target.formUuid)) {
 			// The form lives only behind the Register action on Results; the
 			// wire has no menu command for it, so a link cannot open it.
 			targetsResolve = false;
@@ -734,38 +815,34 @@ function formLinkValidation(
 			);
 		}
 		if (
-			link.target.moduleUuid === ctx.moduleUuid &&
-			link.target.formUuid === ctx.formUuid
+			target.moduleUuid === ctx.moduleUuid &&
+			target.formUuid === ctx.formUuid
 		) {
 			errors.push(
 				validationError(
 					"FORM_LINK_SELF_REFERENCE",
 					"form",
-					`"${ctx.formName}" ${label} links back to itself, which would loop the user straight back into this form. Point it at the module menu or another form instead.`,
+					`"${ctx.formName}" ${label} names "${ctx.formName}" itself as a form target. Use the target {"type":"this-form"}, which starts this form again and keeps meaning this form if it moves.`,
 					loc,
 					details,
 				),
 			);
 		}
-	});
+	}
 
-	// An unconditional link anywhere is the exhaustive else (when it is not
-	// last, FORM_LINK_UNREACHABLE already owns that defect); with none, the
-	// form must say explicitly where people go when no condition matches.
-	if (links.every(isConditional) && !form.postSubmit) {
-		errors.push(
-			validationError(
-				"FORM_LINK_NO_FALLBACK",
-				"form",
-				`"${ctx.formName}"'s form links all have conditions and the form sets no post_submit, so nothing says where people go when no condition matches. Set post_submit to one of ${postSubmitDestinationsAdmitted(
-					doc,
-					ctx.formUuid,
-				)
-					.map((value) => `"${value}"`)
-					.join(", ")}, or end the list with an unconditional link.`,
-				loc,
-			),
-		);
+	// The datum rules read the projection of the destinations and the
+	// otherwise link together; without destinations there is no projection,
+	// and `FORM_OTHERWISE_UNREACHABLE` already refuses the otherwise.
+	if (links === undefined) return errors;
+
+	// Every target with `this-form` resolved to this form in its own menu,
+	// the shape the projection's frame readers take.
+	const resolved: { entry: FormLinkEntry; target: ResolvedFormLinkTarget }[] =
+		[];
+	for (const entry of entries) {
+		const target = resolveFormLinkTarget(doc, ctx.formUuid, entry.link.target);
+		if (target === undefined) return errors;
+		resolved.push({ entry, target });
 	}
 
 	// The projection is defined only where every target exists, every
@@ -786,22 +863,27 @@ function formLinkValidation(
 					checkExpression(expression, context).errors.length === 0
 				);
 			}) ||
-		!formLinkActionsBuildable(doc, ctx.formUuid, links)
+		!formLinkActionsBuildable(
+			doc,
+			ctx.formUuid,
+			resolved.map(({ entry, target }) => ({ ...entry.link, target })),
+		)
 	) {
 		return errors;
 	}
 	const entryContext = entryPlanContext(doc);
 	let hasDatumCollision = false;
-	for (const [index, link] of links.entries()) {
-		if (link.datums === undefined) continue;
-		const { label, details } = formLinkLabel(doc, link, index);
-		for (const target of formLinkTargetDatumIds(
+	for (const { entry, target } of resolved) {
+		const datums = entry.link.datums;
+		if (datums === undefined) continue;
+		const { label, details } = formLinkLabel(doc, ctx.formUuid, entry);
+		for (const targetDatum of formLinkTargetDatumIds(
 			doc,
 			entryContext,
-			link.target,
+			target,
 		)) {
-			const targetRefs = new Set(target.refs.map(datumRefKey));
-			const assigned = link.datums.filter((datum) =>
+			const targetRefs = new Set(targetDatum.refs.map(datumRefKey));
+			const assigned = datums.filter((datum) =>
 				targetRefs.has(datumRefKey(datum.name)),
 			);
 			if (assigned.length < 2) continue;
@@ -821,7 +903,7 @@ function formLinkValidation(
 		}
 	}
 	if (hasDatumCollision) return errors;
-	const projected = projectFormLinks(
+	const projected = projectAfterSubmit(
 		doc,
 		projectionContextFor(doc),
 		ctx.formUuid,
@@ -842,11 +924,13 @@ function formLinkValidation(
 		types.add(caseType);
 		refusedNewCases.set(linkUuid, types);
 	}
+	const entryByUuid = new Map(
+		entries.map((entry) => [entry.link.uuid, entry] as const),
+	);
 	for (const link of projected?.links ?? []) {
-		const index = links.findIndex((candidate) => candidate.uuid === link.uuid);
-		const authored = links[index];
-		if (authored === undefined) continue;
-		const { label, details } = formLinkLabel(doc, authored, index);
+		const entry = entryByUuid.get(link.uuid);
+		if (entry === undefined) continue;
+		const { label, details } = formLinkLabel(doc, ctx.formUuid, entry);
 		const refused = refusedNewCases.get(link.uuid);
 		const unsatisfied = [...link.unmatched, ...link.missing].filter(
 			(datum) =>
@@ -860,7 +944,7 @@ function formLinkValidation(
 				validationError(
 					"FORM_LINK_DATUMS_INCOMPLETE",
 					"form",
-					authored.datums === undefined
+					entry.link.datums === undefined
 						? `"${ctx.formName}" ${label} cannot carry the case its destination needs (${datumIds}): nothing this form opens or creates matches it, so CommCare cannot open the destination with the case it needs. Name the value to carry on the link, point it at a form this one can hand a case to, or link to the module's form list so the person picks a case there.`
 						: `"${ctx.formName}" ${label} names values to carry but leaves out one its destination needs (${datumIds}). Name every value the destination form asks for.`,
 					loc,
@@ -881,6 +965,76 @@ function formLinkValidation(
 		}
 	}
 
+	return errors;
+}
+
+/**
+ * The otherwise's own rules: it runs only where some destination may not
+ * run, and a built-in otherwise must be one the form's menu offers. A case
+ * list registration form holds no destinations
+ * (`CASE_LIST_REGISTRATION_HAS_NAVIGATION`), so it holds no otherwise
+ * either.
+ */
+function otherwiseValidation(
+	doc: BlueprintDoc,
+	form: Form,
+	ctx: FormContext,
+	mod: Module,
+): ValidationError[] {
+	const otherwise = form.otherwise;
+	if (otherwise === undefined) return [];
+	const loc = baseLocation(ctx);
+	const errors: ValidationError[] = [];
+	const identity: Record<string, string> = {
+		role: "otherwise",
+		...(otherwise.kind === "link" && { linkUuid: otherwise.uuid }),
+	};
+
+	if (form.formLinks === undefined) {
+		errors.push(
+			validationError(
+				"FORM_OTHERWISE_UNREACHABLE",
+				"form",
+				`"${ctx.formName}" sets an otherwise but has no destinations. Add a destination, or remove the otherwise.`,
+				loc,
+				{ ...identity, arm: "no-destinations" },
+			),
+		);
+	} else if (!formOtherwiseReachable(doc, ctx.formUuid)) {
+		errors.push(
+			validationError(
+				"FORM_OTHERWISE_UNREACHABLE",
+				"form",
+				`"${ctx.formName}" sets an otherwise, but every destination runs each time, so the otherwise never runs. Give a destination a condition or a carried case, or remove the otherwise with set_form_otherwise null.`,
+				loc,
+				{ ...identity, arm: "every-destination-runs" },
+			),
+		);
+	}
+
+	if (otherwise.kind !== "destination") return errors;
+	const destination = otherwise.destination;
+	const offered = otherwiseDestinationsOffered(doc, ctx.formUuid);
+	if (offered.includes(destination)) return errors;
+	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, destination);
+	if (reason === undefined) return errors;
+	const parentName = parentNameOf(doc, mod);
+	errors.push(
+		validationError(
+			"FORM_OTHERWISE_NOT_OFFERED",
+			"form",
+			`${notOfferedSentence(reason, ctx.formName, ctx.moduleName, parentName ?? "", destination, "otherwise")} Choose one of: ${offered.map((value) => `"${value}"`).join(", ")}, or remove the otherwise so the app home follows.`,
+			loc,
+			{
+				...identity,
+				slot: "otherwise",
+				reason,
+				destination,
+				offered: offered.join(","),
+				...(parentName !== undefined && { parentName }),
+			},
+		),
+	);
 	return errors;
 }
 
@@ -1143,7 +1297,7 @@ export function runFormRules(
 	errors.push(...tooManyAttachments(doc, ctx));
 	errors.push(...postSubmitValidation(doc, form, ctx, mod));
 	errors.push(...formLinkSelectionCardinality(doc, form, mod, ctx));
-	errors.push(...formLinkValidation(doc, form, ctx, lookupTables));
+	errors.push(...formLinkValidation(doc, form, ctx, mod, lookupTables));
 	errors.push(...hiddenMenuLinkTargets(doc, form, baseLocation(ctx)));
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(

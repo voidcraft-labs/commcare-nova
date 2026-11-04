@@ -6,12 +6,14 @@
 // parent's selection, whether it is off the menu), so every consumer reads it here
 // rather than pairing `form.postSubmit ?? defaultPostSubmit(form.type)` by
 // hand. The offered set is the one statement of which destinations a form
-// may hold; the validator, the reducers and the builder's pickers all read
-// it.
+// may hold, and, less `app_home`, which built-in otherwise; the validator,
+// the reducers and the builder's pickers all read it.
 
 import type { BlueprintDoc } from "./blueprint";
 import {
 	defaultPostSubmit,
+	OTHERWISE_DESTINATIONS,
+	type OtherwiseDestination,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	type PostSubmitMenuShape,
@@ -62,12 +64,6 @@ const WITHHELD_BY: Readonly<
 	"menu-off-the-menu": ["module", "previous"],
 	"parent-off-the-menu": ["parentMenu"],
 };
-
-/** The two reasons a form that holds links is exempt from. */
-const MULTI_SELECT_REASONS: ReadonlySet<PostSubmitNotOfferedReason> = new Set([
-	"menu-selects-several",
-	"parent-selects-several",
-]);
 
 /** The facts of a form's module the offered set reads. */
 export interface PostSubmitModuleFacts extends PostSubmitMenuShape {
@@ -152,52 +148,38 @@ export function postSubmitDestinationsOffered(
 }
 
 /**
- * The destinations `formUuid` may hold. A form with no links holds what it
- * is offered. A form with links holds `postSubmit` as the fallback after
- * them, and the two several-case reasons do not withhold its fallback: a
- * fallback the settings page does not offer is a later step's to settle,
- * and its documents stay admissible until then. Every other reason applies
- * with or without links.
+ * The built-in otherwise destinations `formUuid` is offered: the offered
+ * after-submit set less `app_home`, which an absent otherwise means. In
+ * `OTHERWISE_DESTINATIONS` order.
  */
-export function postSubmitDestinationsAdmitted(
+export function otherwiseDestinationsOffered(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
-): PostSubmitDestination[] {
-	const facts = factsOfForm(doc, formUuid);
-	if (facts === undefined) return ["app_home", "firstMenu"];
-	const reasons = reasonsThatHold(facts);
-	return destinationsLeft(
-		formHoldsLinks(doc, formUuid)
-			? reasons.filter((reason) => !MULTI_SELECT_REASONS.has(reason))
-			: reasons,
+): OtherwiseDestination[] {
+	const offered = new Set<PostSubmitDestination>(
+		postSubmitDestinationsOffered(doc, formUuid),
+	);
+	return OTHERWISE_DESTINATIONS.filter((destination) =>
+		offered.has(destination),
 	);
 }
 
 /**
- * The destinations a picker lists for `formUuid`: the offered set, plus a
- * stored destination the form's links keep admitted while the module no
- * longer offers it, so the picker can still show what is stored. In
- * `POST_SUBMIT_DESTINATIONS` order.
+ * The destinations a picker lists for `formUuid`: the offered set, in
+ * `POST_SUBMIT_DESTINATIONS` order. A stored destination outside it is a
+ * finding, which the picker shows as it shows any finding.
  */
 export function postSubmitDestinationChoices(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
 ): PostSubmitDestination[] {
-	const offered = postSubmitDestinationsOffered(doc, formUuid);
-	const stored = doc.forms[formUuid]?.postSubmit;
-	if (stored === undefined || offered.includes(stored)) return offered;
-	if (!postSubmitDestinationsAdmitted(doc, formUuid).includes(stored))
-		return offered;
-	return POST_SUBMIT_DESTINATIONS.filter(
-		(destination) => offered.includes(destination) || destination === stored,
-	);
+	return postSubmitDestinationsOffered(doc, formUuid);
 }
 
 /**
  * The first reason, in report order, that withholds `destination` from
- * `formUuid`, or `undefined` while the form may hold it. Reads the admitted
- * set, so a form with links is never refused a fallback for a several-case
- * reason.
+ * `formUuid`, or `undefined` while the form is offered it. Reads the
+ * offered set, for an after-submit destination and an otherwise alike.
  */
 export function postSubmitNotOfferedReason(
 	doc: PostSubmitDoc,
@@ -206,11 +188,8 @@ export function postSubmitNotOfferedReason(
 ): PostSubmitNotOfferedReason | undefined {
 	const facts = factsOfForm(doc, formUuid);
 	if (facts === undefined) return undefined;
-	const exempt = formHoldsLinks(doc, formUuid);
-	return reasonsThatHold(facts).find(
-		(reason) =>
-			!(exempt && MULTI_SELECT_REASONS.has(reason)) &&
-			WITHHELD_BY[reason].includes(destination),
+	return reasonsThatHold(facts).find((reason) =>
+		WITHHELD_BY[reason].includes(destination),
 	);
 }
 
@@ -224,13 +203,18 @@ export function defaultPostSubmitOf(
 	return defaultPostSubmit(form.type, factsOfForm(doc, formUuid) ?? {});
 }
 
-/** Where `formUuid` goes after submit: its stored slot, else its default. */
+/**
+ * Where `formUuid` goes after submit when it has no destinations: its stored
+ * slot, else its default. `undefined` for an unknown form and for a form
+ * that holds `formLinks`, whose after-submit is its destinations and its
+ * `otherwise` (`afterSubmit.ts`).
+ */
 export function effectivePostSubmit(
 	doc: PostSubmitDoc,
 	formUuid: Uuid,
 ): PostSubmitDestination | undefined {
 	const form = doc.forms[formUuid];
-	if (form === undefined) return undefined;
+	if (form === undefined || form.formLinks !== undefined) return undefined;
 	return form.postSubmit ?? defaultPostSubmitOf(doc, formUuid);
 }
 
@@ -242,8 +226,4 @@ function factsOfForm(
 	return moduleUuid === undefined
 		? undefined
 		: postSubmitModuleFacts(doc, moduleUuid);
-}
-
-function formHoldsLinks(doc: PostSubmitDoc, formUuid: Uuid): boolean {
-	return (doc.forms[formUuid]?.formLinks?.length ?? 0) > 0;
 }

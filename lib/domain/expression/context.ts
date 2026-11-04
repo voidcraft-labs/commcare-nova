@@ -14,6 +14,7 @@ import {
 } from "../entryDatumSupplies";
 import { formOfField } from "../fieldForm";
 import type { SelectOption } from "../fields";
+import { resolveFormLinkTarget } from "../formLinkTargets";
 import {
 	caseWriteKeyOf,
 	operationCaseType,
@@ -796,6 +797,17 @@ export function slotContext(
 		) {
 			const link = form.links.get(slot.member.linkUuid);
 			if (link === undefined) return undefined;
+			// The otherwise link has no condition slot.
+			if (slot.slot === "form_link_condition" && link.role === "otherwise")
+				return undefined;
+			// `this-form` is the form this structure reads, in its own menu,
+			// which a prepared form may not hold in the saved document yet.
+			const target = resolveFormLinkTarget(
+				{ formOrder: { [form.moduleUuid]: [form.formUuid] } },
+				form.formUuid,
+				link.target,
+			);
+			if (target === undefined) return undefined;
 			if (
 				slot.slot === "form_link_datum_xpath" &&
 				!link.datums.some(
@@ -823,7 +835,7 @@ export function slotContext(
 					"session",
 				),
 			};
-			targetSupplies = formLinkTargetSupplies(doc, link.target);
+			targetSupplies = formLinkTargetSupplies(doc, target);
 		} else if ("member" in slot && "operationUuid" in slot.member) {
 			if (saved === undefined) return undefined;
 			const member = slot.member;

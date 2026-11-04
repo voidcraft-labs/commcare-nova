@@ -21,12 +21,14 @@ import {
 	caseSearchConfigSchema,
 	fieldSchema,
 	formIconRefSchema,
+	formLinkEntries,
 	formSchema,
 	languageTag,
 	localizedValueSchema,
 	moduleIconRefSchema,
 	moduleUuidOfForm,
 	proseTemplateSchema,
+	resolveFormLinkTarget,
 	translationEntrySchema,
 	translationUnitsById,
 	type Uuid,
@@ -135,6 +137,27 @@ export function authoringEncoders(
 				if (path[1] === "deliver_unit" && path[2] === "entity_name")
 					return { entity: "form", uuid, slot: "deliver_entity_name" };
 			}
+			const otherwise = options.doc.forms[uuid]?.otherwise;
+			if (
+				path[0] === "otherwise" &&
+				otherwise?.kind === "link" &&
+				path[1] === "datums" &&
+				typeof path[2] === "number"
+			) {
+				const datum = records.parse(record.parse(content.otherwise).datums)[
+					path[2]
+				];
+				if (datum !== undefined)
+					return {
+						entity: "form",
+						uuid,
+						slot: "form_link_datum_xpath",
+						member: {
+							linkUuid: otherwise.uuid,
+							datum: formLinkDatumNameSchema.parse(datum.name),
+						},
+					};
+			}
 			if (path[0] === "formLinks" && typeof path[1] === "number") {
 				const projected = records.parse(content.formLinks)[path[1]];
 				const linkUuid = uuidSchema.parse(projected?.uuid);
@@ -191,16 +214,23 @@ export function authoringEncoders(
 			const ref = slotAt(path);
 			if (ref.entity !== "form" || ref.slot !== "form_link_datum_xpath")
 				throw new Error("This form-link datum has no target.");
-			const link = options.doc.forms[ref.uuid]?.formLinks?.find(
-				(link) => link.uuid === ref.member.linkUuid,
-			);
+			const form = options.doc.forms[ref.uuid];
+			const link =
+				form === undefined
+					? undefined
+					: formLinkEntries(form).find(
+							(entry) => entry.link.uuid === ref.member.linkUuid,
+						)?.link;
 			if (link === undefined)
 				throw new Error("The form link is no longer in this app.");
+			const target = resolveFormLinkTarget(options.doc, ref.uuid, link.target);
+			if (target === undefined)
+				throw new Error("The form link's form is in no menu.");
 			const id = entryDatumIdResolver(
 				formLinkTargetDatumIds(
 					options.doc,
 					formLinkProjectionContext(options.doc, { entryMetadataOnly: true }),
-					link.target,
+					target,
 				),
 			)(formLinkDatumNameSchema.parse(value));
 			if (id === undefined)
@@ -281,6 +311,23 @@ interface ReadProjection {
 		slot: "form_open_condition" | "form_close_condition",
 		value: Expression,
 	): string;
+}
+
+/** A projected form's after-submit as getForm reads it: its links as
+ * `destinations`, in the order they run, and an otherwise link addressed by
+ * `linkUuid` as a destination is. */
+function afterSubmitRead(form: Record<string, unknown>) {
+	const { formLinks, otherwise, ...rest } = form;
+	const read = otherwise === undefined ? undefined : record.parse(otherwise);
+	const { uuid, ...link } = read ?? {};
+	return {
+		...rest,
+		...(formLinks !== undefined && { destinations: formLinks }),
+		...(read !== undefined && {
+			otherwise:
+				read.kind === "link" ? { kind: "link", linkUuid: uuid, ...link } : read,
+		}),
+	};
 }
 
 /** The tool's result already is its authored reading form. */
@@ -366,14 +413,16 @@ const readProjectors: {
 				recordName: recordName(form.uuid, data.recordName),
 			}),
 			form: {
-				...record.parse(
-					project(
-						formSchema,
-						{
-							...form,
-							...(operations !== undefined && { caseOperations: operations }),
-						},
-						scope(form.uuid),
+				...afterSubmitRead(
+					record.parse(
+						project(
+							formSchema,
+							{
+								...form,
+								...(operations !== undefined && { caseOperations: operations }),
+							},
+							scope(form.uuid),
+						),
 					),
 				),
 				...(openCondition !== undefined && {

@@ -15,10 +15,11 @@
 
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, type FormSpec, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	contentRunsOn,
+	type FormOtherwise,
 	PLATFORM_FEATURE_IDS,
 	PLATFORMS,
 	type PlatformFeatureId,
@@ -197,6 +198,125 @@ describe("a server search condition", () => {
 		expect(platformFeatureUses(conditionDoc(predicate), only("now"))).toEqual(
 			[],
 		);
+	});
+});
+
+describe("after submit", () => {
+	const MODULE = testUuid("after-submit-module");
+	const FORM = testUuid("after-submit-form");
+	const owner = { kind: "form", moduleUuid: MODULE, formUuid: FORM } as const;
+	const features = new Set<PlatformFeatureId>([
+		"after-submit-home",
+		"after-submit-several-destinations",
+	]);
+
+	/** A survey whose one form holds `formLinks`, with `otherwise` set on
+	 *  the built form where given. */
+	function afterSubmitDoc(
+		formLinks: NonNullable<FormSpec["formLinks"]> | undefined,
+		otherwise?: FormOtherwise,
+	) {
+		return buildDoc(
+			{
+				appName: "After submit",
+				modules: [
+					{
+						uuid: MODULE,
+						name: "Visits",
+						forms: [
+							{
+								uuid: FORM,
+								name: "Visit",
+								type: "survey",
+								...(formLinks === undefined ? {} : { formLinks }),
+								fields: [
+									f({ kind: "text", id: "answer", label: proseText("Answer") }),
+								],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				const form = doc.forms[FORM];
+				if (form !== undefined && otherwise !== undefined)
+					form.otherwise = otherwise;
+			},
+		);
+	}
+	const conditional = {
+		condition: "#form/answer = 'again'",
+		target: { type: "this-form" },
+	} as const;
+	const everyTime = { target: { type: "this-form" } } as const;
+
+	it("reads the app home on postSubmit for a form without destinations", () => {
+		expect(
+			platformFeatureUses(afterSubmitDoc(undefined), { features }),
+		).toEqual([
+			{
+				feature: "after-submit-home",
+				owner,
+				site: { kind: "slot", slot: "postSubmit" },
+			},
+		]);
+	});
+
+	it("reads the app home on the otherwise when a destination may not run and no otherwise is set", () => {
+		expect(
+			platformFeatureUses(afterSubmitDoc([conditional]), { features }),
+		).toEqual([
+			{
+				feature: "after-submit-home",
+				owner,
+				site: { kind: "slot", slot: "otherwise" },
+			},
+		]);
+	});
+
+	it("finds no app home when the otherwise is a built-in destination or every destination runs", () => {
+		expect(
+			platformFeatureUses(
+				afterSubmitDoc([conditional], {
+					kind: "destination",
+					destination: "firstMenu",
+				}),
+				{ features },
+			),
+		).toEqual([]);
+		expect(
+			platformFeatureUses(afterSubmitDoc([everyTime]), { features }),
+		).toEqual([]);
+	});
+
+	it("finds several destinations on formLinks from two destinations, beside the app home", () => {
+		expect(
+			platformFeatureUses(afterSubmitDoc([conditional, conditional]), {
+				features,
+			}),
+		).toEqual([
+			{
+				feature: "after-submit-home",
+				owner,
+				site: { kind: "slot", slot: "otherwise" },
+			},
+			{
+				feature: "after-submit-several-destinations",
+				owner,
+				site: { kind: "slot", slot: "formLinks" },
+			},
+		]);
+		expect(
+			platformFeatureUses(afterSubmitDoc([everyTime, everyTime, everyTime]), {
+				features,
+			}),
+		).toEqual([
+			{
+				feature: "after-submit-several-destinations",
+				owner,
+				site: { kind: "slot", slot: "formLinks" },
+			},
+		]);
 	});
 });
 

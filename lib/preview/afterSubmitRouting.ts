@@ -9,30 +9,36 @@ import type { CaseDatabaseSnapshot } from "./engine/xpathInstances";
 /**
  * The form screen's after-submit routing decision, as a pure function.
  *
- * `evaluateFormLinks` says WHICH link fires (or that none does); this says
- * what the screen does about it: which screen to push, with which case, or
- * that the answer cannot be acted on. The component performs the effect. No
- * React and no DOM, so the whole routing table is checked directly.
+ * `evaluateAfterSubmit` says WHICH frames the submission pushes; this says
+ * what the screen does about one of them: which screen to push, with which
+ * case, or that the answer cannot be acted on, and which session path the
+ * frame installs (`afterSubmitFrameLanding`), which the stack
+ * (`afterSubmitStack.ts`) compares the worker's next submission against.
+ * The component performs the effect. No React and no DOM, so the whole
+ * routing table is checked directly.
  */
 
 import type {
 	BlueprintDoc,
-	FormLink,
+	FormLinkEntry,
 	PostSubmitDestination,
+	ResolvedFormLinkTarget,
 	Uuid,
 } from "@/lib/domain";
 import {
 	type ModuleLanding,
 	moduleIsBareCaseList,
 	moduleLanding,
+	resolveFormLinkTarget,
 } from "@/lib/domain";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
-import type {
-	AfterSubmitChoice,
-	CarriedCase,
-	CarriedSubmission,
-	PostSubmissionCaseData,
-	TargetCaseSelection,
+import {
+	type AfterSubmitFrameChoice,
+	type CarriedCase,
+	type CarriedSubmission,
+	frameChoiceEntry,
+	type PostSubmissionCaseData,
+	type TargetCaseSelection,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import {
 	type PreviewMenuSource,
@@ -41,6 +47,11 @@ import {
 	previewMenuModuleUuids,
 } from "@/lib/preview/menuProjection";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import {
+	type AfterSubmitPathCases,
+	type AfterSubmitPathStep,
+	afterSubmitPath,
+} from "./afterSubmitStack";
 import {
 	formDisplayVisibility,
 	moduleDisplayVisibility,
@@ -127,14 +138,13 @@ export type AfterSubmitTargetVisibility =
  */
 export function afterSubmitTargetVisibility(args: {
 	readonly doc: BlueprintDoc;
-	readonly link: FormLink;
+	readonly target: ResolvedFormLinkTarget;
 	readonly session: PreviewSearchSessionValues;
 	readonly lookup: PreviewLookupStatus;
 	readonly deviceCases: NavigationDeviceCases;
 	readonly caseSelections: readonly TargetCaseSelection[];
 }): AfterSubmitTargetVisibility {
-	const { doc, link } = args;
-	const target = link.target;
+	const { doc, target } = args;
 	const lookupData = args.lookup.kind === "data" ? args.lookup.data : undefined;
 	/* Walk the menus from the top, as Formplayer's frame walk does: the
 	 * first module the menu hides stops it on the module above, so a module
@@ -219,9 +229,20 @@ export interface PreviewTargetCaseCollection {
 	readonly cases: PreviewMenuCaseSelection["cases"];
 }
 
+/** A frame Preview's stack holds: its route, and the several-case selection
+ *  an automatic link carries beside it (`automaticLinkedCaseCollection`),
+ *  both fixed when the frame is pushed, as Core fixes a frame's datums
+ *  (`StackFrameStep.defineStep`). */
+export interface PreviewAfterSubmitFrame {
+	readonly route: AfterSubmitRoute;
+	readonly collection?: PreviewTargetCaseCollection;
+}
+
 export function afterSubmitRoute(args: {
 	readonly previousTask?: () => PreviousTask;
-	readonly choice: AfterSubmitChoice;
+	readonly choice: AfterSubmitFrameChoice;
+	/** The submitted form, which `this-form` names. */
+	readonly sourceFormUuid: Uuid;
 	readonly doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
 	/** Modules whose every form loads a case (`useCaseFirstModuleUuids`). */
 	readonly caseFirstModules: ReadonlySet<Uuid>;
@@ -235,20 +256,31 @@ export function afterSubmitRoute(args: {
 	) => boolean;
 	/** Every case selection the matched target frame installs, already mapped
 	 * to the Preview menu-session module that owns it. */
-	readonly caseSelections: (link: FormLink) => readonly TargetCaseSelection[];
+	readonly caseSelections: (
+		entry: FormLinkEntry,
+	) => readonly TargetCaseSelection[];
 	/** Resolves the case a FORM target opens with; called only for a target
 	 *  the document holds. */
-	readonly carriedCase: (link: FormLink) => CarriedCase;
+	readonly carriedCase: (entry: FormLinkEntry) => CarriedCase;
 	/** The platform Preview plays: whether a target the worker's menu hides
 	 *  opens (Android) or lands where Web Apps' menu walk lands it. */
 	readonly rules: Pick<PreviewPlatformRules, "afterSubmitHiddenTarget">;
 	/** Whether the link's target is on the worker's menu
 	 *  (`afterSubmitTargetVisibility`), read only on Web Apps. */
-	readonly targetVisibility: (link: FormLink) => AfterSubmitTargetVisibility;
+	readonly targetVisibility: (
+		target: ResolvedFormLinkTarget,
+	) => AfterSubmitTargetVisibility;
 }): AfterSubmitRoute {
 	const { choice, doc } = args;
-	if (choice.kind === "fallback") {
-		if (choice.destination === "previous")
+	/* A built-in otherwise is HQ's static fallback frame, the same frame the
+	 * form's after-submit destination builds
+	 * (`workflow.py::_get_fallback_frame` → `_get_static_stack_frame`). */
+	const builtIn =
+		choice.kind === "post-submit" || choice.kind === "otherwise"
+			? choice.destination
+			: undefined;
+	if (builtIn !== undefined) {
+		if (builtIn === "previous")
 			return args.previousTask
 				? { kind: "previous-task", task: args.previousTask() }
 				: {
@@ -256,10 +288,21 @@ export function afterSubmitRoute(args: {
 						reason:
 							"The preceding task was not resolved from the submitted entry.",
 					};
-		return { kind: "post-submit", destination: choice.destination };
+		return { kind: "post-submit", destination: builtIn };
 	}
-	const { link } = choice;
-	const target = link.target;
+	const entry = frameChoiceEntry(choice);
+	if (entry === undefined)
+		return {
+			kind: "unresolvable",
+			reason: "The destination names no link.",
+		};
+	const { link } = entry;
+	const target = resolveFormLinkTarget(doc, args.sourceFormUuid, link.target);
+	if (target === undefined)
+		return {
+			kind: "unresolvable",
+			reason: `form link ${link.uuid} starts its form again, but the form is in no menu`,
+		};
 	const mod = doc.modules[target.moduleUuid];
 	if (mod === undefined) {
 		return {
@@ -270,7 +313,7 @@ export function afterSubmitRoute(args: {
 	/** Enter a module where the home screen would, carrying the frame's
 	 *  selections. */
 	const moduleRoute = (moduleUuid: Uuid): AfterSubmitRoute => {
-		const caseSelections = args.caseSelections(link);
+		const caseSelections = args.caseSelections(entry);
 		return {
 			kind: "module",
 			moduleUuid,
@@ -294,7 +337,7 @@ export function afterSubmitRoute(args: {
 	 * a top-level module. Android reads the frame's commands as they stand
 	 * and opens the target. */
 	if (args.rules.afterSubmitHiddenTarget === "landing") {
-		const visibility = args.targetVisibility(link);
+		const visibility = args.targetVisibility(target);
 		if (visibility === "pending") return { kind: "pending" };
 		if (typeof visibility === "object")
 			return visibility.shownModuleUuid === null
@@ -317,9 +360,117 @@ export function afterSubmitRoute(args: {
 		kind: "form",
 		moduleUuid: target.moduleUuid,
 		formUuid: target.formUuid,
-		carried: args.carriedCase(link),
-		caseSelections: args.caseSelections(link),
+		carried: args.carriedCase(entry),
+		caseSelections: args.caseSelections(entry),
 	};
+}
+
+/** The cases a menu selection map holds for each menu of `moduleUuid`'s
+ *  chain, the selections a static frame keeps. */
+function chainSelectionCases(
+	doc: Pick<BlueprintDoc, "modules" | "moduleOrder">,
+	moduleUuid: Uuid,
+	selections: Readonly<Record<string, PreviewMenuCaseSelection>>,
+): AfterSubmitPathCases[] {
+	const cases: AfterSubmitPathCases[] = [];
+	for (
+		let current: Uuid | null | undefined = moduleUuid;
+		current;
+		current = moduleParent(doc, current)
+	) {
+		const selection = selections[current];
+		if (selection !== undefined)
+			cases.unshift({
+				moduleUuid: current,
+				caseIds: selection.cases.map((choice) => choice.caseId),
+			});
+	}
+	return cases;
+}
+
+/** The selections of a frame's route, one step per module. */
+function routeSelectionCases(
+	caseSelections: readonly TargetCaseSelection[],
+	collection: PreviewTargetCaseCollection | undefined,
+): AfterSubmitPathCases[] {
+	const cases: AfterSubmitPathCases[] = caseSelections.map((selection) => ({
+		moduleUuid: selection.moduleUuid,
+		caseIds: selection.caseId === "" ? [] : [selection.caseId],
+	}));
+	if (collection !== undefined)
+		cases.unshift({
+			moduleUuid: collection.moduleUuid,
+			caseIds: collection.cases.map((choice) => choice.caseId),
+		});
+	return cases;
+}
+
+/**
+ * The steps a frame installs (`afterSubmitStack.ts`, rule 5): a form route
+ * its module chain's menus, a case step per selection it carries, and the
+ * form; a module route its chain's menus and the selections it carries; a
+ * previous-task route the steps of the task it returns to; `firstMenu` and
+ * `app_home` none (HQ's empty `root` frame); `module` and `parentMenu` that
+ * menu's chain and the selections its static frame keeps.
+ */
+export function afterSubmitFrameLanding(args: {
+	readonly doc: Pick<BlueprintDoc, "modules" | "moduleOrder">;
+	readonly route: AfterSubmitRoute;
+	readonly collection?: PreviewTargetCaseCollection;
+	/** The submitted form's menu, which `module` and `parentMenu` name. */
+	readonly sourceModuleUuid: Uuid | undefined;
+	/** The menu selections the static frame keeps, after the submission. */
+	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+}): readonly AfterSubmitPathStep[] {
+	const { doc, route } = args;
+	switch (route.kind) {
+		case "form":
+			return afterSubmitPath(
+				doc,
+				{ moduleUuid: route.moduleUuid, formUuid: route.formUuid },
+				routeSelectionCases(route.caseSelections, args.collection),
+			);
+		case "module":
+			return afterSubmitPath(
+				doc,
+				{ moduleUuid: route.moduleUuid },
+				routeSelectionCases(route.caseSelections, args.collection),
+			);
+		case "previous-task": {
+			const destination = route.task.destination;
+			return destination.kind === "home"
+				? []
+				: afterSubmitPath(
+						doc,
+						{ moduleUuid: destination.moduleUuid },
+						chainSelectionCases(
+							doc,
+							destination.moduleUuid,
+							route.task.selections,
+						),
+					);
+		}
+		case "post-submit": {
+			const moduleUuid =
+				route.destination === "module"
+					? args.sourceModuleUuid
+					: route.destination === "parentMenu" &&
+							args.sourceModuleUuid !== undefined
+						? (doc.modules[args.sourceModuleUuid]?.parentModuleUuid ??
+							undefined)
+						: undefined;
+			return moduleUuid === undefined
+				? []
+				: afterSubmitPath(
+						doc,
+						{ moduleUuid },
+						chainSelectionCases(doc, moduleUuid, args.selections),
+					);
+		}
+		case "unresolvable":
+		case "pending":
+			return [];
+	}
 }
 
 /** Apply a matched target frame to the running menu session without mutating
@@ -450,21 +601,28 @@ export function carriedCasesFromPatch(args: {
  * exact post-submit device snapshot supplies even a case the submission just
  * closed and a fresh restore would omit. */
 export function automaticLinkedCaseCollection(args: {
-	readonly choice: AfterSubmitChoice;
+	readonly choice: AfterSubmitFrameChoice;
 	readonly doc: BlueprintDoc;
 	readonly sourceModuleUuid: Uuid | undefined;
 	readonly sourceFormType: FormType | undefined;
 	readonly submittedCases: readonly PreviewCaseChoice[] | undefined;
 	readonly resultCaseIds: readonly string[];
 	readonly caseDatabase: CaseDatabaseSnapshot;
+	/** The submitted form, which `this-form` names. */
+	readonly sourceFormUuid: Uuid;
 }): PreviewTargetCaseCollection | undefined {
+	const entry = frameChoiceEntry(args.choice);
+	const target =
+		entry === undefined
+			? undefined
+			: resolveFormLinkTarget(args.doc, args.sourceFormUuid, entry.link.target);
 	if (
-		args.choice.kind !== "link" ||
+		entry === undefined ||
 		/* HQ's flat module frame contains only the module command. It does not
 		 * carry a case-selection datum, so entering that module must begin its
 		 * ordinary Results journey instead of inheriting Preview's collection. */
-		args.choice.link.target.type !== "form" ||
-		args.choice.link.datums !== undefined ||
+		target?.type !== "form" ||
+		entry.link.datums !== undefined ||
 		args.sourceModuleUuid === undefined ||
 		args.sourceFormType === undefined ||
 		!CASE_LOADING_FORM_TYPES.has(args.sourceFormType)
@@ -472,7 +630,7 @@ export function automaticLinkedCaseCollection(args: {
 		return undefined;
 	}
 	const sourceModule = args.doc.modules[args.sourceModuleUuid];
-	const targetModule = args.doc.modules[args.choice.link.target.moduleUuid];
+	const targetModule = args.doc.modules[target.moduleUuid];
 	if (
 		sourceModule?.caseListConfig?.selection?.kind !== "multiple" ||
 		targetModule?.caseListConfig?.selection?.kind !== "multiple" ||
@@ -483,7 +641,7 @@ export function automaticLinkedCaseCollection(args: {
 	}
 	if (
 		!CASE_LOADING_FORM_TYPES.has(
-			args.doc.forms[args.choice.link.target.formUuid]?.type ?? "survey",
+			args.doc.forms[target.formUuid]?.type ?? "survey",
 		)
 	) {
 		return undefined;
@@ -519,7 +677,7 @@ export function automaticLinkedCaseCollection(args: {
 		};
 	});
 	return {
-		moduleUuid: args.choice.link.target.moduleUuid,
+		moduleUuid: target.moduleUuid,
 		caseType: sourceModule.caseType,
 		cases,
 	};

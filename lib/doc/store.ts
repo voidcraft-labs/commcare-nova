@@ -500,6 +500,7 @@ function affectsCaseWriteProjection(
 		case "updateFormLink":
 		case "removeFormLink":
 		case "moveFormLink":
+		case "setFormOtherwise":
 		case "setFieldMedia":
 		case "addOption":
 		case "updateOption":

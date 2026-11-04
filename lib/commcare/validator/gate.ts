@@ -285,13 +285,19 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CLOSE_FORM_NO_CASE_TYPE: "soundness",
 	INVALID_POST_SUBMIT: "shape",
 	POST_SUBMIT_NOT_OFFERED: "soundness",
+	// A form with destinations goes where they and its otherwise say; a
+	// `postSubmit` beside them would be a second, unread answer.
+	POST_SUBMIT_BESIDE_FORM_LINKS: "soundness",
 	FORM_LINK_EMPTY: "shape",
 	FORM_LINK_TARGET_NOT_FOUND: "soundness",
 	FORM_LINK_TARGET_CASE_LIST_REGISTRATION_FORM: "soundness",
-	FORM_LINK_CIRCULAR: "soundness",
-	FORM_LINK_NO_FALLBACK: "soundness",
+	// A link CommCare HQ's form settings page would not keep: a submenu it
+	// does not list from here, or carried values on a menu.
+	FORM_LINK_TARGET_NOT_OFFERED: "soundness",
+	FORM_LINK_MENU_DATUMS: "soundness",
 	FORM_LINK_SELF_REFERENCE: "soundness",
-	FORM_LINK_UNREACHABLE: "soundness",
+	FORM_OTHERWISE_NOT_OFFERED: "soundness",
+	FORM_OTHERWISE_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
 	FORM_LINK_DATUM_TARGET_COLLISION: "soundness",

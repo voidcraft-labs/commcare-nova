@@ -154,6 +154,7 @@ import {
 	type FieldPatchFor,
 	type Form,
 	type FormIconRef,
+	type FormOtherwise,
 	type FormType,
 	fieldRegistry,
 	findAuthoredBlueprintIdentity,
@@ -483,6 +484,16 @@ export interface BlueprintMutations {
 	setFormMedia: (
 		uuid: Uuid,
 		media: { icon: FormIconRef | null; audioLabel: MediaAssetId | null },
+	) => CommitOutcome;
+	/**
+	 * Set or clear (`null`) where the form goes when no destination that may
+	 * not run runs. The commit gate refuses an otherwise beside no such
+	 * destination; the planners in `lib/doc/formLinkMutations.ts` pair it
+	 * with the destinations that need it.
+	 */
+	setFormOtherwise: (
+		formUuid: Uuid,
+		otherwise: FormOtherwise | null,
 	) => CommitOutcome;
 	removeForm: (uuid: Uuid) => CommitOutcome;
 
@@ -1558,6 +1569,16 @@ export function createBlueprintMutations(
 							audioLabel: media.audioLabel,
 						},
 					]),
+				);
+			},
+
+			setFormOtherwise(formUuid, otherwise) {
+				if (!get().forms[formUuid]) {
+					warnUnresolved("setFormOtherwise", { uuid: formUuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "setFormOtherwise", formUuid, otherwise }]),
 				);
 			},
 

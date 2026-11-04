@@ -21,7 +21,7 @@ import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
 import { buildEngineInput } from "../engineInput";
 import { entrySessionData } from "../entrySessionData";
 import { FormEngine, type FormEngineAsyncEvaluator } from "../formEngine";
-import { evaluateFormLinks } from "../formLinkEvaluation";
+import { evaluateAfterSubmit } from "../formLinkEvaluation";
 import { previewSessionValues } from "../identity";
 import {
 	formLogicLookupsCovered,
@@ -279,56 +279,46 @@ describe("after-submit links reading secondary instances", () => {
 
 	it("reads a place's name from the source entry's places", () => {
 		const { doc, table } = fixture();
-		const form = doc.forms[INSTANCE_READS.visitForm];
 		// No rows: the table link's count is zero, so the place link decides.
 		const emptyTable = previewLookupData({
 			projectRevision: "1",
 			definitions: [table],
 			rowsByTable: new Map([[table.id, []]]),
 		});
-		const choice = evaluateFormLinks({
-			links: form.formLinks ?? [],
-			fallback: "module",
+		const choices = evaluateAfterSubmit({
 			input: linkInput(doc, INSTANCE_READS.visitForm, {
 				lookupData: emptyTable,
 				caseDatabase: { rows: [], indices: [], locations: [central] },
 			}),
 		});
-		expect(choice).toMatchObject({ kind: "link", index: 1 });
+		expect(choices).toMatchObject([{ kind: "destination", index: 1 }]);
 	});
 
 	it("reads a table under its suite id", () => {
 		const { doc, lookup } = fixture();
-		const form = doc.forms[INSTANCE_READS.visitForm];
-		const choice = evaluateFormLinks({
-			links: form.formLinks ?? [],
-			fallback: "module",
+		const choices = evaluateAfterSubmit({
 			input: linkInput(doc, INSTANCE_READS.visitForm, {
 				lookupData: lookup,
 				caseDatabase: { rows: [], indices: [], locations: [] },
 			}),
 		});
-		expect(choice).toMatchObject({ kind: "link", index: 0 });
+		expect(choices).toMatchObject([{ kind: "destination", index: 0 }]);
 	});
 
 	it("reads what the source entry's search found", () => {
 		const { doc } = fixture();
-		const form = doc.forms[INSTANCE_READS.searchForm];
 		const evaluate = (rows: readonly SearchResultRow[]) =>
-			evaluateFormLinks({
-				links: form.formLinks ?? [],
-				fallback: "module",
+			evaluateAfterSubmit({
 				input: linkInput(doc, INSTANCE_READS.searchForm, {
 					caseDatabase: { rows: [], indices: [] },
 					searchResults: { rows, totalMatches: rows.length },
 				}),
 			});
-		expect(evaluate([searchResult("p-1"), searchResult("p-2")])).toMatchObject({
-			kind: "link",
-			index: 0,
-		});
-		expect(evaluate([searchResult("p-1")])).toMatchObject({
-			kind: "fallback",
-		});
+		expect(evaluate([searchResult("p-1"), searchResult("p-2")])).toMatchObject([
+			{ kind: "destination", index: 0 },
+		]);
+		expect(evaluate([searchResult("p-1")])).not.toContainEqual(
+			expect.objectContaining({ kind: "destination" }),
+		);
 	});
 });

@@ -414,6 +414,8 @@ const FORM_PATCH_SKIP = new Set<string>([
 	// Links diff granularly (`diffFormLinks`); the form patch never carries
 	// the whole array.
 	"formLinks",
+	// The otherwise is set whole by `setFormOtherwise` (`diffFormOtherwise`).
+	"otherwise",
 	// A held placement is written by `holdPlacements` alone, never by a form
 	// patch.
 	"ownClosePlacement",
@@ -796,12 +798,15 @@ export function diffDocsToMutations(
 			});
 		}
 		updates.push(...diffCaseOperations(prevForm, nextForm, uuid));
+		const otherwise = diffFormOtherwise(prevForm, nextForm, uuid);
 		updates.push(
+			...otherwise.beforeLinks,
 			...diffFormLinks(
 				prevForm.formLinks ?? [],
 				nextForm.formLinks ?? [],
 				uuid,
 			),
+			...otherwise.afterLinks,
 		);
 		if (menuMediaChanged(p, n)) {
 			media.push({
@@ -1003,17 +1008,17 @@ const POST_SUBMIT_RECONCILING_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"setCaseListMenuItem",
 	"moveModule",
 	"moveForm",
-	"removeFormLink",
 ]);
 
 /**
- * A menu-shape write reconciles its forms' after-submit destinations as it
- * replays, and the form patches in the batch can run before it (the
- * `setCaseListMeta` and module-order kinds run late). So every form whose
- * destination differs, in the batch's replay (`replayed`), from the target
- * gets one final `updateForm`, which lands the target's slot exactly. A
- * batch with no reconciling write leaves every slot as its own patches set
- * it, so it needs no residual.
+ * A menu-shape write reconciles its forms' after-submit destinations and
+ * built-in otherwise as it replays, and the form patches in the batch can run
+ * before it (the `setCaseListMeta` and module-order kinds run late). So every
+ * form whose destination differs, in the batch's replay (`replayed`), from the
+ * target gets one final `updateForm`, and every form whose otherwise differs
+ * one final `setFormOtherwise`, which land the target's slots exactly. A batch
+ * with no reconciling write leaves every slot as its own patches set it, so it
+ * needs no residual.
  */
 function postSubmitResidual(
 	replayed: BlueprintDoc,
@@ -1028,12 +1033,21 @@ function postSubmitResidual(
 	for (const [formUuid, form] of Object.entries(next.forms)) {
 		const replayedForm = replayed.forms[formUuid];
 		if (replayedForm === undefined) continue;
-		if (replayedForm.postSubmit === form.postSubmit) continue;
-		out.push({
-			kind: "updateForm",
-			uuid: asUuid(formUuid),
-			patch: { postSubmit: form.postSubmit ?? null },
-		});
+		if (replayedForm.postSubmit !== form.postSubmit) {
+			out.push({
+				kind: "updateForm",
+				uuid: asUuid(formUuid),
+				patch: { postSubmit: form.postSubmit ?? null },
+			});
+		}
+		if (!deepEqual(replayedForm.otherwise, form.otherwise)) {
+			out.push({
+				kind: "setFormOtherwise",
+				formUuid: asUuid(formUuid),
+				otherwise:
+					form.otherwise === undefined ? null : cloneEntity(form.otherwise),
+			});
+		}
 	}
 	return out;
 }
@@ -2169,6 +2183,44 @@ function diffSearchInputs(
 		}
 	}
 	return out;
+}
+
+/**
+ * A changed otherwise, placed around the form's link diff so a link that
+ * changes role keeps its uuid and replays (`mutationIdentityAdmission.ts`):
+ * an otherwise that leaves goes before the links, so an `addFormLink` of its
+ * uuid follows its removal; an otherwise link that takes a destination's
+ * uuid goes after the links, so it follows that destination's
+ * `removeFormLink`. When both happen, the old otherwise is cleared before the
+ * links and the new one set after them.
+ */
+function diffFormOtherwise(
+	prevForm: Form,
+	nextForm: Form,
+	formUuid: Uuid,
+): { beforeLinks: Mutation[]; afterLinks: Mutation[] } {
+	const prev = prevForm.otherwise;
+	const next = nextForm.otherwise;
+	if (deepEqual(prev, next)) return { beforeLinks: [], afterLinks: [] };
+	const set: Mutation = {
+		kind: "setFormOtherwise",
+		formUuid,
+		otherwise: next === undefined ? null : cloneEntity(next),
+	};
+	const prevLink = prev?.kind === "link" ? prev.uuid : undefined;
+	const nextLink = next?.kind === "link" ? next.uuid : undefined;
+	const takesDestination =
+		nextLink !== undefined &&
+		nextLink !== prevLink &&
+		(prevForm.formLinks ?? []).some((link) => link.uuid === nextLink);
+	if (!takesDestination) return { beforeLinks: [set], afterLinks: [] };
+	const leaves = prevLink !== undefined && prevLink !== nextLink;
+	return {
+		beforeLinks: leaves
+			? [{ kind: "setFormOtherwise", formUuid, otherwise: null }]
+			: [],
+		afterLinks: [set],
+	};
 }
 
 /**

@@ -319,3 +319,94 @@ describe("summarizeBlueprint — the menu's case list and search", () => {
 		]);
 	});
 });
+
+describe("summarizeBlueprint — after submit", () => {
+	const CARE = testUuid("care");
+	const START = testUuid("start");
+	function linkedDoc(otherwise?: "built-in" | "link"): BlueprintDoc {
+		const doc = buildDoc({
+			appName: "Clinic",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: "intake",
+					name: "Intake",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: "start",
+							name: "Start",
+							type: "registration",
+							formLinks: [
+								{ condition: "1 = 2", target: { type: "this-form" } },
+								{ target: { type: "module", moduleUuid: CARE } },
+							],
+							fields: [
+								f({
+									id: "case_name",
+									kind: "text",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+				{
+					uuid: "care",
+					name: "Care",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Note",
+							type: "survey",
+							fields: [f({ id: "note", kind: "text" })],
+						},
+					],
+				},
+			],
+		});
+		const note = doc.formOrder[CARE]?.[0];
+		if (note === undefined) throw new Error("Missing the Care form");
+		return expectAdmittedDoc({
+			...doc,
+			forms: {
+				...doc.forms,
+				[START]: {
+					...doc.forms[START],
+					...(otherwise === "built-in" && {
+						otherwise: { kind: "destination", destination: "module" },
+					}),
+					...(otherwise === "link" && {
+						otherwise: {
+							kind: "link",
+							uuid: testUuid("otherwise"),
+							target: { type: "form", moduleUuid: CARE, formUuid: note },
+						},
+					}),
+				},
+			},
+		});
+	}
+
+	it("lists the destinations in the order they run, then the otherwise", () => {
+		const lines = (doc: BlueprintDoc) =>
+			summarizeBlueprint(doc)
+				.split("\n")
+				.filter((line) => line.includes("destinations:"));
+		expect(lines(linkedDoc())).toEqual([
+			'    destinations: this form again, module "Care"',
+		]);
+		expect(lines(linkedDoc("built-in"))).toEqual([
+			'    destinations: this form again, module "Care"; otherwise: module',
+		]);
+		expect(lines(linkedDoc("link"))).toEqual([
+			'    destinations: this form again, module "Care"; otherwise: form "Note"',
+		]);
+	});
+});

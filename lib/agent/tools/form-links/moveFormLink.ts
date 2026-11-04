@@ -26,7 +26,7 @@ export const moveFormLinkInputSchema = linkAddressSchema.extend({
 	afterLinkUuid: uuidSchema
 		.nullable()
 		.describe(
-			"UUID of the link this one should follow, or null to check it first.",
+			"UUID of the destination this one should follow, or null to put it first.",
 		),
 });
 
@@ -34,7 +34,7 @@ export type MoveFormLinkInput = z.infer<typeof moveFormLinkInputSchema>;
 
 export interface MoveFormLinkSuccess extends MutationSuccess {
 	readonly afterLinkUuid: Uuid | null;
-	/** Every link on the form after the commit, in the order it is checked. */
+	/** Every destination on the form after the commit, in the order they run. */
 	readonly linkOrder: readonly Uuid[];
 }
 
@@ -44,7 +44,7 @@ export type MoveFormLinkResult =
 
 export const moveFormLinkTool = {
 	description:
-		"Reorder an after-submit route. The first matching condition wins; an unconditional route must stay last.",
+		"Reorder an after-submit destination. Destinations run in this order, and any order is admitted.",
 	inputSchema: moveFormLinkInputSchema,
 	async execute(
 		input: MoveFormLinkInput,
@@ -83,7 +83,7 @@ export const moveFormLinkTool = {
 					kind: "mutate",
 					mutations: [],
 					result: {
-						error: `${sentence(label)} cannot follow itself. Name another link in afterLinkUuid, or null to check it first.`,
+						error: `${sentence(label)} cannot follow itself. Name another destination in afterLinkUuid, or null to put it first.`,
 					},
 				};
 			}
@@ -95,7 +95,7 @@ export const moveFormLinkTool = {
 					kind: "mutate",
 					mutations: [],
 					result: {
-						error: `afterLinkUuid "${afterLinkUuid}" is not a link on form "${name}". Read get_form for the form's current links and their linkUuid values.`,
+						error: `afterLinkUuid "${afterLinkUuid}" is not a destination on form "${name}". Read get_form for the form's current destinations and their linkUuid values.`,
 					},
 				};
 			}

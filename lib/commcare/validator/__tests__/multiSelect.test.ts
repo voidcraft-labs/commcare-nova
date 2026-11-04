@@ -182,7 +182,6 @@ function linkExpressionDoc(options: {
 						uuid: SOURCE_FORM,
 						name: "Create visits",
 						type: "followup",
-						postSubmit: "app_home",
 						fields: [
 							f({
 								kind: "text",
@@ -263,6 +262,7 @@ function linkExpressionDoc(options: {
 	doc.formOrder[childUuid] = [];
 	const baseline = structuredClone(doc);
 	delete baseline.forms[SOURCE_FORM].formLinks;
+	baseline.forms[SOURCE_FORM].postSubmit = "app_home";
 	expectAdmittedDoc(baseline);
 	return doc;
 }
@@ -724,6 +724,7 @@ describe("multi-select absolute validation", () => {
 		expect(codes(doc)).not.toContain("MULTI_SELECT_SESSION_OPERATION_LINK");
 		expect(codes(doc)).toContain("FORM_LINK_SELECTION_CARDINALITY");
 		delete doc.forms[SOURCE_FORM].formLinks;
+		doc.forms[SOURCE_FORM].postSubmit = "app_home";
 		expectAdmittedDoc(doc);
 	});
 

@@ -66,7 +66,7 @@ describe("navigation through authoring reads", () => {
 			formUuid: RETURN,
 		});
 		if ("error" in result.data) throw new Error(result.data.error);
-		expect(result.data.navigation?.afterSubmit.fallback).toMatchObject({
+		expect(result.data.navigation?.afterSubmit.postSubmit).toMatchObject({
 			screen: "menu",
 			moduleUuid: MODULE,
 		});
@@ -117,7 +117,7 @@ describe("navigation through authoring reads", () => {
 			formUuid,
 		});
 		if ("error" in result.data) throw new Error(result.data.error);
-		expect(result.data.navigation?.afterSubmit.fallback).toMatchObject({
+		expect(result.data.navigation?.afterSubmit.postSubmit).toMatchObject({
 			screen: "record-selection",
 			moduleUuid: mod.uuid,
 			formUuid,
@@ -166,7 +166,7 @@ describe("navigation through authoring reads", () => {
 			post_submit: "previous",
 		});
 		if ("error" in updated.result) throw new Error(updated.result.error);
-		expect(updated.result.navigation?.afterSubmit.fallback).toMatchObject({
+		expect(updated.result.navigation?.afterSubmit.postSubmit).toMatchObject({
 			screen: "menu",
 			moduleUuid: MODULE,
 		});
@@ -207,7 +207,7 @@ describe("navigation through authoring reads", () => {
 			formUuid: RETURN,
 		});
 		if ("error" in read.data) throw new Error(read.data.error);
-		expect(read.data.navigation?.afterSubmit.fallback).toMatchObject({
+		expect(read.data.navigation?.afterSubmit.postSubmit).toMatchObject({
 			screen: "unavailable",
 			findings: [{ code: "CASE_CREATE_NAME_MISSING", moduleUuid: MODULE }],
 		});
@@ -247,7 +247,7 @@ describe("navigation through authoring reads", () => {
 		expect(before.data.navigation).toMatchObject({
 			recordSelection: "required",
 			afterSubmit: {
-				fallback: { screen: "results", withSelectedRecord: "menu" },
+				postSubmit: { screen: "results", withSelectedRecord: "menu" },
 			},
 		});
 		const menuDoc = buildDoc({
@@ -290,7 +290,7 @@ describe("navigation through authoring reads", () => {
 			moduleUuid: MODULE,
 		});
 		if ("error" in after.data) throw new Error(after.data.error);
-		expect(after.data.navigation?.afterSubmit.fallback).toEqual({
+		expect(after.data.navigation?.afterSubmit.postSubmit).toEqual({
 			screen: "menu",
 			moduleUuid: MODULE,
 			name: "Loans",
@@ -300,7 +300,7 @@ describe("navigation through authoring reads", () => {
 		});
 		if ("error" in module.data) throw new Error(module.data.error);
 		expect(module.data.opening).toEqual(
-			after.data.navigation?.afterSubmit.fallback,
+			after.data.navigation?.afterSubmit.postSubmit,
 		);
 	});
 });

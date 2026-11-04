@@ -16,7 +16,15 @@ export function formNavigation(doc: BlueprintDoc, formUuid: Uuid) {
 	let retainedRecordSelections:
 		| Omit<PreviousTaskSelection, "source">[]
 		| undefined;
-	if (effectivePostSubmit(doc, formUuid) === "previous") {
+	/* Previous is read where a frame can go there: the after-submit of a
+	 * form without destinations, or the built-in otherwise of one with them. */
+	const otherwise = doc.forms[formUuid]?.otherwise;
+	const goesPrevious =
+		doc.forms[formUuid]?.formLinks === undefined
+			? effectivePostSubmit(doc, formUuid) === "previous"
+			: otherwise?.kind === "destination" &&
+				otherwise.destination === "previous";
+	if (goesPrevious) {
 		const read = readPreviousTaskProjection(doc, formUuid);
 		if (read.kind === "incomplete")
 			return configuredFormNavigation(doc, formUuid, {

@@ -1,6 +1,12 @@
 /** Navigation decisions shared by authoring reads and the running app. */
 import type { BlueprintDoc } from "./blueprint";
-import { CASE_LOADING_FORM_TYPES, type FormType } from "./forms";
+import { resolveFormLinkTarget } from "./formLinkTargets";
+import {
+	CASE_LOADING_FORM_TYPES,
+	type FormLinkTarget,
+	type FormType,
+	type PostSubmitDestination,
+} from "./forms";
 import {
 	caseListRegistrationFormOf,
 	moduleIsBareCaseList,
@@ -191,8 +197,66 @@ export function parentMenuDestination(
 		: moduleDestination(doc, parentUuid);
 }
 
+/** A form's after-submit, as each surface reads where it lands. */
+export interface FormAfterSubmitNavigation {
+	/** In author order. */
+	readonly destinations: readonly {
+		readonly uuid: Uuid;
+		readonly destination: NavigationDestination;
+	}[];
+	readonly otherwise: NavigationDestination | undefined;
+	/** A form without destinations: its after-submit. */
+	readonly postSubmit: NavigationDestination | undefined;
+}
+
+/** Where a built-in after-submit destination word lands. */
+function builtInDestination(
+	doc: NavigationDoc,
+	moduleUuid: Uuid,
+	destination: PostSubmitDestination | undefined,
+	previousDestination: NavigationDestination | undefined,
+): NavigationDestination {
+	switch (destination) {
+		case "module":
+			return moduleDestination(doc, moduleUuid);
+		case "parentMenu":
+			return parentMenuDestination(doc, moduleUuid);
+		case "previous":
+			return previousDestination ?? { screen: "unavailable" };
+		default:
+			// `app_home` and `firstMenu` share one home screen until Preview
+			// plays each platform: Web Apps shows the app's first screen for
+			// both.
+			return { screen: "home" };
+	}
+}
+
+/** Where a link lands: `this-form` is the source form in its own menu. */
+function linkDestination(
+	doc: NavigationDoc,
+	formUuid: Uuid,
+	target: FormLinkTarget,
+): NavigationDestination {
+	const resolved = resolveFormLinkTarget(doc, formUuid, target);
+	if (resolved === undefined) return { screen: "unavailable" };
+	if (resolved.type === "module")
+		return moduleDestination(doc, resolved.moduleUuid);
+	const linkedForm = doc.forms[resolved.formUuid];
+	return linkedForm &&
+		(doc.formOrder[resolved.moduleUuid] ?? []).includes(resolved.formUuid)
+		? {
+				screen: "form",
+				moduleUuid: resolved.moduleUuid,
+				formUuid: resolved.formUuid,
+				name: linkedForm.name,
+			}
+		: { screen: "unavailable" };
+}
+
 /** Resolved destinations supplement configuration with its actual behavior.
- * Link conditions remain on the links; they are not repeated in this read. */
+ * Link conditions remain on the links; they are not repeated in this read.
+ * A form with destinations reads them in author order with its otherwise;
+ * a form without them reads its after-submit (`postSubmit`). */
 export function formNavigation(
 	doc: NavigationDoc,
 	formUuid: Uuid,
@@ -201,22 +265,30 @@ export function formNavigation(
 	const form = doc.forms[formUuid];
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (!form || !moduleUuid || !doc.modules[moduleUuid]) return undefined;
-	const destination = effectivePostSubmit(doc, formUuid);
 	const registersFromCaseList =
 		caseListRegistrationFormOf(doc, moduleUuid) === formUuid;
-	const fallback: NavigationDestination =
-		registersFromCaseList && form.postSubmit === undefined
+	const hasDestinations = form.formLinks !== undefined;
+	const postSubmit: NavigationDestination | undefined = hasDestinations
+		? undefined
+		: registersFromCaseList && form.postSubmit === undefined
 			? { screen: "results", moduleUuid, name: doc.modules[moduleUuid].name }
-			: destination === "module"
-				? moduleDestination(doc, moduleUuid)
-				: destination === "parentMenu"
-					? parentMenuDestination(doc, moduleUuid)
-					: destination === "previous"
-						? (previousDestination ?? { screen: "unavailable" })
-						: // `app_home` and `firstMenu` share one home screen until
-							// Preview plays each platform: Web Apps shows the app's
-							// first screen for both.
-							{ screen: "home" };
+			: builtInDestination(
+					doc,
+					moduleUuid,
+					effectivePostSubmit(doc, formUuid),
+					previousDestination,
+				);
+	const otherwise: NavigationDestination | undefined =
+		form.otherwise === undefined
+			? undefined
+			: form.otherwise.kind === "destination"
+				? builtInDestination(
+						doc,
+						moduleUuid,
+						form.otherwise.destination,
+						previousDestination,
+					)
+				: linkDestination(doc, formUuid, form.otherwise.target);
 	return {
 		recordSelection: registersFromCaseList
 			? ("no-matches" as const)
@@ -227,27 +299,12 @@ export function formNavigation(
 				? ("required" as const)
 				: ("none" as const),
 		afterSubmit: {
-			fallback,
-			links: (form.formLinks ?? []).map((link) => {
-				const target = link.target;
-				const linkedForm =
-					target.type === "form" ? doc.forms[target.formUuid] : undefined;
-				const destination: NavigationDestination =
-					target.type === "module"
-						? moduleDestination(doc, target.moduleUuid)
-						: linkedForm &&
-								(doc.formOrder[target.moduleUuid] ?? []).includes(
-									target.formUuid,
-								)
-							? {
-									screen: "form",
-									moduleUuid: target.moduleUuid,
-									formUuid: target.formUuid,
-									name: linkedForm.name,
-								}
-							: { screen: "unavailable" };
-				return { uuid: link.uuid, destination };
-			}),
-		},
+			destinations: (form.formLinks ?? []).map((link) => ({
+				uuid: link.uuid,
+				destination: linkDestination(doc, formUuid, link.target),
+			})),
+			otherwise,
+			postSubmit,
+		} satisfies FormAfterSubmitNavigation as FormAfterSubmitNavigation,
 	};
 }

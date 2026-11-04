@@ -1,13 +1,14 @@
 // components/builder/form-links/FormLinkRow.tsx
 //
-// One conditional after-submit link, as a sentence.
+// One after-submit destination, as a sentence: where it goes, then when it
+// runs ("Every time", "When <condition>", and the held-case line when it
+// carries a case).
 //
 // The row is a PROJECTION and decides nothing. It renders what
-// `linkSentence` reads off the stored link; whether the position it is
-// being dragged onto is available is the doc layer's answer, captured by
-// the canvas. The reorder handle carries the keyboard alternative to
-// dragging, and its accessible name states the position, the total, and
-// the keys.
+// `linkSentence` reads off the stored link. Every position is open to it,
+// so the handle drags it anywhere; the handle carries the keyboard
+// alternative to dragging, and its accessible name states the position,
+// the total, and the keys.
 
 "use client";
 
@@ -30,10 +31,6 @@ export interface FormLinkRowProps {
 	/** True while this row is the drag source. */
 	readonly beingMoved: boolean;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
-	/** Fired when the handle is pressed, before any drag can begin: the
-	 *  canvas captures this row's move verdicts there so the very first
-	 *  pointer move is already gated. */
-	readonly onGrab: () => void;
 	readonly onMove: (key: ReorderKey) => void;
 	readonly onSelect: () => void;
 }
@@ -46,7 +43,6 @@ export function FormLinkRow({
 	canEdit,
 	beingMoved,
 	setHandleEl,
-	onGrab,
 	onMove,
 	onSelect,
 }: FormLinkRowProps) {
@@ -65,7 +61,6 @@ export function FormLinkRow({
 						type="button"
 						variant="ghost"
 						ref={setHandleEl}
-						onPointerDown={onGrab}
 						onKeyDown={(event) => {
 							if (
 								event.key !== "ArrowUp" &&
@@ -79,7 +74,7 @@ export function FormLinkRow({
 							onMove(event.key);
 						}}
 						aria-keyshortcuts="ArrowUp ArrowDown Home End"
-						aria-label={`Move ${sentence.lead}. Checked ${position} of ${total}. Use arrow keys or drag.`}
+						aria-label={`Move ${sentence.lead}. Runs ${position} of ${total}. Use arrow keys or drag.`}
 						className="nova-focusable-inset h-auto w-11 shrink-0 cursor-grab rounded-l-xl rounded-r-none px-0 text-nova-text-muted hover:bg-white/[0.035] dark:hover:bg-white/[0.035]"
 					>
 						<Icon icon={tablerGripVertical} width="17" height="17" />
@@ -90,7 +85,7 @@ export function FormLinkRow({
 			<button
 				type="button"
 				onClick={onSelect}
-				aria-label={`${spoken}. Open this link.`}
+				aria-label={`${spoken}. Open this destination.`}
 				data-form-link-select={link.uuid}
 				className={`flex-1 ${LIST_ROW_CLS}`}
 			>

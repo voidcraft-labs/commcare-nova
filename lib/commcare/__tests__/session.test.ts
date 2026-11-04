@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
-import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain";
+import {
+	calculatedColumn,
+	type OtherwiseDestination,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import {
 	and,
 	concat,
@@ -19,7 +23,7 @@ import {
 import { chosenCaseId } from "@/lib/domain/expression/chosenCase";
 import type { Expression } from "@/lib/domain/expression/types";
 import { planFormCaseWire } from "../casePlacementPlan";
-import type { MatchedChild, ProjectedFormLinks } from "../formLinkProjection";
+import type { MatchedChild, ProjectedAfterSubmit } from "../formLinkProjection";
 import { serializeXml } from "../serializeXml";
 import {
 	buildEntryElement,
@@ -269,13 +273,19 @@ const query: MatchedChild = {
 		},
 	],
 };
-function links(guard?: WireExpr): ProjectedFormLinks {
+/** One destination to menu m4; a built-in otherwise beside a conditional
+ *  one is HQ's fallback over its negation. */
+function links(
+	xpath?: WireExpr,
+	otherwise?: OtherwiseDestination,
+): ProjectedAfterSubmit {
 	return {
 		links: [
 			{
 				uuid: testUuid("link"),
+				role: "destination",
 				target: { type: "module", moduleUuid: testUuid("target") },
-				...(guard === undefined ? {} : { guard }),
+				...(xpath === undefined ? {} : { xpath }),
 				children: [{ type: "command", id: "m4" }, query],
 				datums: [],
 				unmatched: [],
@@ -284,9 +294,9 @@ function links(guard?: WireExpr): ProjectedFormLinks {
 			},
 		],
 		fallback:
-			guard === undefined
-				? { kind: "suppressed-by-else" }
-				: { kind: "guarded", guard: w.not(guard) },
+			xpath === undefined || otherwise === undefined
+				? { kind: "none" }
+				: { kind: "built-in", destination: otherwise, xpath: w.not(xpath) },
 	};
 }
 function stackXml(...args: Parameters<typeof derivePostSubmitStack>) {
@@ -345,8 +355,11 @@ describe("projected navigation frames", () => {
 		const guardText =
 			"instance('commcaresession')/session/user/data/role = 'supervisor'";
 		const entry = entryXml({
-			formLinks: links(guard),
-			postSubmit: destination,
+			formLinks: links(
+				guard,
+				destination === "app_home" ? undefined : destination,
+			),
+			postSubmit: "app_home",
 			previousFrame: previous,
 			parentFrame: previous,
 		});
@@ -388,7 +401,7 @@ describe("projected navigation frames", () => {
 						: previousChildren,
 			);
 	});
-	it("omits an unconditional guard and suppresses fallback", () => {
+	it("omits an unconditional xpath and writes no fallback", () => {
 		const entry = entryXml({ formLinks: links(), postSubmit: "module" });
 		const operation = onlyXml(onlyXml(xmlChildren(entry, "stack")).children);
 		expect(operation.name).toBe("create");

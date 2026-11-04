@@ -1,5 +1,10 @@
 import type { AppTestScope } from "@/lib/db/appTests";
-import { appHomeLanding } from "../afterSubmitRouting";
+import { afterSubmitFrameLanding, appHomeLanding } from "../afterSubmitRouting";
+import {
+	afterSubmitPath,
+	completeAfterSubmit,
+	completeAfterSubmitWithOwnFrame,
+} from "../afterSubmitStack";
 import { caseListRegistrationPostSubmit } from "../caseListRegistration";
 import { validateCaptureSubmissionProjection } from "../engine/captureSubmissionValidation";
 import {
@@ -12,10 +17,11 @@ import {
 } from "../engine/caseDatabasePatch";
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
+import { submittedEntryPath } from "../engine/formLinkEvaluation";
 import type { AppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { enterAppTestMenu } from "./navigation";
-import type { AppTestSessionState } from "./types";
+import type { AppTestAfterSubmitRoute, AppTestSessionState } from "./types";
 
 export async function submitAppTest(
 	context: AppTestContext,
@@ -109,16 +115,41 @@ export async function submitAppTest(
 			context.identity.usercase,
 		),
 	};
+	/* The path of the entry this submission completes: its menus, the cases
+	 * its entry selected (the form's own from the screen, an inline chooser's
+	 * included), and its form. The stack keeps what is pending only while
+	 * this path begins with the last landing. */
+	const submittedPath = submittedEntryPath({
+		doc: context.doc,
+		moduleUuid: screen.moduleUuid,
+		formUuid: screen.formUuid,
+		caseIdsOf: (moduleUuid) =>
+			moduleUuid === screen.moduleUuid
+				? screen.caseIds
+				: (state.selections[moduleUuid]?.cases.map((row) => row.caseId) ?? []),
+	});
 	try {
 		const registrationReturn =
 			mutation.kind === "registration"
 				? caseListRegistrationPostSubmit(context.doc, screen.formUuid)
 				: undefined;
 		if (registrationReturn) {
+			/* The return frame is pushed and opens like any other frame, so
+			 * what was pending stays only while the worker is still on its
+			 * path. */
+			const afterSubmitStack = completeAfterSubmitWithOwnFrame(
+				state.afterSubmitStack,
+				submittedPath,
+				registrationReturn === "firstMenu"
+					? []
+					: afterSubmitPath(context.doc, { moduleUuid: screen.moduleUuid }, []),
+				context.rules.afterSubmitFrames,
+			);
 			return {
 				state: {
 					...state,
 					deviceCases,
+					afterSubmitStack,
 					history: [],
 					screen:
 						registrationReturn === "firstMenu"
@@ -135,7 +166,7 @@ export async function submitAppTest(
 				validation: undefined,
 			};
 		}
-		const next = await evaluatePostSubmission(
+		const pushed = await evaluatePostSubmission(
 			context.doc,
 			{
 				formUuid: screen.formUuid,
@@ -158,6 +189,31 @@ export async function submitAppTest(
 					: { searchResults: formContext.searchResults }),
 			},
 		);
+		/* The session's platform decides which pushed frame runs: Android
+		 * runs the top one and keeps the rest pending, Web Apps opens the top
+		 * one alone (`afterSubmitStack.ts`). */
+		const completed = completeAfterSubmit(
+			state.afterSubmitStack,
+			submittedPath,
+			pushed.frames.map((frame) => ({
+				route: frame,
+				landing: afterSubmitFrameLanding({
+					doc: context.doc,
+					route: frame.route,
+					collection: frame.collection,
+					sourceModuleUuid: screen.moduleUuid,
+					selections: frame.selections,
+				}),
+			})),
+			context.rules.afterSubmitFrames,
+		);
+		/* Nothing left to run is the app home: the app's first screen in Web
+		 * Apps and the phone's home screen on Android (`postSubmitAppHome`). */
+		const next: AppTestAfterSubmitRoute = completed.next ?? {
+			route: { kind: "post-submit", destination: "app_home" },
+			selections: state.selections,
+			collection: undefined,
+		};
 		/* The back stack records destinations; Back opens a fresh entry,
 		 * which takes its own search results. */
 		const { searchResults: _taken, ...retiredScreen } = screen;
@@ -165,6 +221,7 @@ export async function submitAppTest(
 			...state,
 			selections: next.selections,
 			deviceCases,
+			afterSubmitStack: completed.state,
 		};
 		switch (next.route.kind) {
 			case "previous-task": {

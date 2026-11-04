@@ -4,6 +4,7 @@
 // imports from here or from the kind-specific files under ./fields.
 
 export * from "./advancedModule";
+export * from "./afterSubmit";
 export * from "./authoredIdentities";
 export * from "./automations";
 export * from "./blueprint";
@@ -35,7 +36,7 @@ export * from "./expressionSource";
 export * from "./externalUserProperty";
 export * from "./fieldForm";
 export * from "./fields";
-export * from "./formLinkGraph";
+export * from "./formLinkTargets";
 export * from "./forms";
 export * from "./hashtagSegments";
 export * from "./idSlug";

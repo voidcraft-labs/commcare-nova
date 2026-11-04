@@ -51,10 +51,15 @@
  *   answer; and one under a group whose relevance reads an answer. The last
  *   two hold nothing in the spec and take the count placement, which the
  *   republish over A records (the capture's record).
- * - `targeted-migration-form-links` (defect 26): a survey with two
- *   conditional links and an unconditional last one; a survey with a
- *   conditional link and a stored after-submit; and a follow-up in a root
- *   menu linking to its child menu, which HQ does not offer from it.
+ * - `targeted-migration-form-links` (defect 26), migrated by
+ *   `lib/doc/formLinkSemanticsMap.ts::mapFormLinkSemantics` from its pre-step
+ *   spec: Intake, once two conditional links and an unconditional last one,
+ *   now holds the second link's condition with the negation of the first's
+ *   (L1) and the last link as its otherwise (L2); Triage, once a conditional
+ *   link beside a stored after-submit, now has that after-submit as its
+ *   otherwise (L3); and Refer, a follow-up in a root menu once linking to its
+ *   child menu, which HQ does not offer from it, now opens the root menu
+ *   that holds it (L4).
  * - `targeted-migration-groups-preloads` (defects 27 and 28), migrated: two
  *   labelled groups, `vitals`, which keeps showing its questions on one
  *   screen through `fieldList`, and `household`, which holds a user repeat
@@ -89,6 +94,7 @@ import {
 	type FieldWriteFact,
 	operationsFromFieldWrites,
 } from "@/lib/doc/fieldWriteOperations";
+import { mapFormLinkSemantics } from "@/lib/doc/formLinkSemanticsMap";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
@@ -1221,7 +1227,7 @@ export function migrationFormLinks() {
 	return witness({
 		id,
 		rows: ["26"],
-		doc,
+		doc: mapFormLinkSemantics(doc).doc,
 		expected: {
 			intent: [
 				answerHeld("note-held", uuid("intake"), "/data/note", "seen", "B"),

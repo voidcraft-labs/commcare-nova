@@ -1,31 +1,36 @@
 /**
- * After-submit links in the running preview.
+ * After-submit destinations in the running preview.
  *
- * Once a form's submission has landed, the device checks the form's links
- * in order and follows the first whose condition holds; `postSubmit` is
- * where it goes when none does. The preview runs the same rule over the
- * same projection the wire reads (`lib/commcare/formLinkProjection.ts`),
- * so what it does after a submission is what a device does: never a second
- * derivation of which link fires or of which case the next form opens with.
+ * Once a form's submission has landed, the device evaluates every frame the
+ * form's entry pushes, in one evaluation context
+ * (`session/CommCareSession.java::executeStackOperations`, each frame pushed
+ * when its `if` holds), and runs the last pushed first. The preview runs the
+ * same frames over the same projection the wire reads
+ * (`lib/commcare/formLinkProjection.ts::projectAfterSubmit`), so what it does
+ * after a submission is what a device does: never a second derivation of
+ * which destination holds or of which case the next form opens with. Which
+ * of the pushed frames then run is each platform's stack
+ * (`lib/preview/afterSubmitStack.ts`).
  *
  * Three things this module decides, all pure:
  *
- *   - **Which link fires** (`evaluateFormLinks`): first true wins; a link
- *     whose condition is absent is unconditional. Each stored tree lowers
- *     through the shared wire emitter with its exact source form and link
- *     slot. Selected-record reads therefore use the same projected session
- *     datums and case-database paths as the device.
+ *   - **Which frames are pushed** (`evaluateAfterSubmit`): every projected
+ *     link whose emitted `xpath` holds (a blank one holds), in emitted
+ *     order, then the built-in otherwise when its `xpath` holds. Each
+ *     `xpath` is the projection's tree printed at the `preview` target, its
+ *     condition and its held-case guards together, so a destination whose
+ *     carried case is not on the device is not pushed, as on a device.
  *   - **What the evaluation can see** (`formLinkEvalContext`): the device
- *     evaluates a link after the XForm has closed, in the entry's session
- *     scope. So `instance('commcaresession')/session/...` reads the
+ *     evaluates the frames after the XForm has closed, in the entry's
+ *     session scope. So `instance('commcaresession')/session/...` reads the
  *     worker's session plus the source entry's own datums, a worker read
  *     reads the worker's usercase, a case read walks the device casedb AS
  *     IT IS AFTER THE SUBMISSION, and any read of the closed form (a
  *     `/data/...` path) throws.
- *   - **Which case the next form opens with** (`carriedCaseFor`): the
+ *   - **Which case each next form opens with** (`carriedCaseFor`): the
  *     target's projected own-case selection datum, matched exactly the way
- *     the wire matches it. A manual datum under that projected id is
- *     evaluated; otherwise the frame reads the source datum
+ *     the wire matches it, per frame. A manual datum under that projected id
+ *     is evaluated; otherwise the frame reads the source datum
  *     `matchFrameToSource` picked. Each source datum is worth what the
  *     entry's session map held (`entrySessionData.ts`): the device's session
  *     does not change when the form closes, so the own-case datum is the
@@ -38,11 +43,14 @@
 import {
 	entryDatumIdResolver,
 	entryFrameDatums,
-	formLinkIsConditional,
+	entrySelectionDatumSources,
+	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 	formLinkTargetDatumIds,
 	matchFrameToSource,
 	owningModuleOf,
+	type ProjectedFormLink,
+	projectAfterSubmit,
 	projectFormLinkSessionExpression,
 	selectedCaseDatumId,
 	targetFrameChildren,
@@ -50,10 +58,17 @@ import {
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	type BlueprintDoc,
+	effectivePostSubmit,
 	type FormLink,
 	type FormLinkDatum,
+	type FormLinkEntry,
+	type FormOtherwiseLink,
+	formLinkEntries,
+	guardedLinkDatums,
 	materializableCaseTypes,
+	type OtherwiseDestination,
 	type PostSubmitDestination,
+	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
 import type {
@@ -61,6 +76,7 @@ import type {
 	FormExpressionSlotRef,
 } from "@/lib/domain/expression/types";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
+import { type AfterSubmitPathStep, afterSubmitPath } from "../afterSubmitStack";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
@@ -148,15 +164,38 @@ export interface FormLinkWorkerWorld {
 	readonly secondary: XPathWorkerInstances["secondary"];
 }
 
+/** Whether some form's after-submit reads the device's cases: a condition
+ *  or a carried value that reads them, or a carried value the held-case
+ *  guard tests against `casedb` (`lib/domain/afterSubmit.ts::guardedLinkDatums`). */
 export function formLinksRequireCaseDatabase(doc: BlueprintDoc): boolean {
-	return Object.values(doc.forms).some((form) =>
-		expressionSlotValues(doc, { entity: "form", uuid: form.uuid }).some(
-			({ ref, expression }) =>
-				(ref.slot === "form_link_condition" ||
-					ref.slot === "form_link_datum_xpath") &&
-				expressionReadsCaseDatabase(expression, doc),
-		),
+	return Object.values(doc.forms).some(
+		(form) =>
+			expressionSlotValues(doc, { entity: "form", uuid: form.uuid }).some(
+				({ ref, expression }) =>
+					(ref.slot === "form_link_condition" ||
+						ref.slot === "form_link_datum_xpath") &&
+					expressionReadsCaseDatabase(expression, doc),
+			) ||
+			formLinkEntries(form).some(
+				(entry) => guardedLinkDatums(doc, form.uuid, entry.link).length > 0,
+			),
 	);
+}
+
+/** The projection context every after-submit print reads: the device's
+ *  lookup naming and the worker's record binding. */
+function formLinkEvaluationProjectionContext(
+	input: FormLinkEvaluationInput,
+): FormLinkProjectionContext {
+	return formLinkProjectionContext(input.doc, {
+		entryMetadataOnly: true,
+		lookupNaming: input.lookupData?.naming,
+		workerProperty: previewWorkerPropertyBinding(
+			input.session.context.userid,
+			input.usercase,
+			input.caseDatabase,
+		),
+	});
 }
 
 /** The native session projector owns case/datum bindings and actual slot context. */
@@ -168,15 +207,7 @@ function formLinkSource(
 	return serializeWire(
 		projectFormLinkSessionExpression(
 			input.doc,
-			formLinkProjectionContext(input.doc, {
-				entryMetadataOnly: true,
-				lookupNaming: input.lookupData?.naming,
-				workerProperty: previewWorkerPropertyBinding(
-					input.session.context.userid,
-					input.usercase,
-					input.caseDatabase,
-				),
-			}),
+			formLinkEvaluationProjectionContext(input),
 			input.formUuid,
 			expression,
 			slot,
@@ -185,22 +216,128 @@ function formLinkSource(
 	).text;
 }
 
-function conditionSource(
-	input: FormLinkEvaluationInput,
-	link: FormLink,
-): string {
-	if (link.condition === undefined) return "true()";
-	return formLinkSource(input, link.condition, {
-		entity: "form",
-		uuid: input.formUuid,
-		slot: "form_link_condition",
-		member: { linkUuid: link.uuid },
-	});
+/**
+ * One frame the device pushes after a submission. A destination of
+ * `formLinks`, the otherwise when it is a link, the built-in otherwise, or,
+ * for a form without destinations, its after-submit destination.
+ */
+export type AfterSubmitFrameChoice =
+	| {
+			readonly kind: "destination";
+			readonly link: FormLink;
+			readonly index: number;
+	  }
+	| { readonly kind: "otherwise-link"; readonly link: FormOtherwiseLink }
+	| { readonly kind: "otherwise"; readonly destination: OtherwiseDestination }
+	| {
+			readonly kind: "post-submit";
+			readonly destination: PostSubmitDestination;
+	  };
+
+/** The link a frame follows, as every link reader reads it; `undefined` for
+ *  a built-in destination. */
+export function frameChoiceEntry(
+	choice: AfterSubmitFrameChoice,
+): FormLinkEntry | undefined {
+	switch (choice.kind) {
+		case "destination":
+			return {
+				role: "destination",
+				link: choice.link,
+				index: choice.index,
+			};
+		case "otherwise-link":
+			return {
+				role: "otherwise",
+				link: {
+					uuid: choice.link.uuid,
+					target: choice.link.target,
+					...(choice.link.datums === undefined
+						? {}
+						: { datums: choice.link.datums }),
+				},
+			};
+		case "otherwise":
+		case "post-submit":
+			return undefined;
+	}
 }
 
-export type AfterSubmitChoice =
-	| { readonly kind: "link"; readonly link: FormLink; readonly index: number }
-	| { readonly kind: "fallback"; readonly destination: PostSubmitDestination };
+/** One candidate frame of a submission: the printed `if` (`undefined`
+ *  holds) and the choice it pushes. */
+interface CandidateFrame {
+	readonly source: string | undefined;
+	readonly choice: AfterSubmitFrameChoice;
+}
+
+/**
+ * Every frame this submission can push, in emitted order, each with the
+ * `xpath` the projection prints for it. A form without destinations pushes
+ * its after-submit's frame, which holds, and none for `app_home` (HQ's
+ * `default`, which builds no frame,
+ * `suite_xml/post_process/workflow.py::_get_static_stack_frame`).
+ */
+function candidateFrames(
+	input: FormLinkEvaluationInput,
+): readonly CandidateFrame[] {
+	const { doc, formUuid } = input;
+	const form = doc.forms[formUuid];
+	if (form === undefined)
+		throw new Error(
+			"The submitted form is no longer in the app, so its next screen can't be chosen.",
+		);
+	if (form.formLinks === undefined) {
+		const destination = effectivePostSubmit(doc, formUuid);
+		return destination === undefined || destination === "app_home"
+			? []
+			: [{ source: undefined, choice: { kind: "post-submit", destination } }];
+	}
+	const projected = projectAfterSubmit(
+		doc,
+		formLinkEvaluationProjectionContext(input),
+		formUuid,
+	);
+	if (projected === undefined) return [];
+	const print = (link: { readonly xpath?: ProjectedFormLink["xpath"] }) =>
+		link.xpath === undefined
+			? undefined
+			: serializeWire(link.xpath, { target: "preview" }).text;
+	const frames: CandidateFrame[] = projected.links.map((link) => {
+		if (link.role === "otherwise") {
+			const otherwise = form.otherwise;
+			if (otherwise?.kind !== "link" || otherwise.uuid !== link.uuid)
+				throw new Error(
+					"The form's otherwise link changed while its next screen was being chosen.",
+				);
+			return {
+				source: print(link),
+				choice: { kind: "otherwise-link", link: otherwise },
+			};
+		}
+		const index = (form.formLinks ?? []).findIndex(
+			(candidate) => candidate.uuid === link.uuid,
+		);
+		const authored = form.formLinks?.[index];
+		if (authored === undefined)
+			throw new Error(
+				"A destination changed while the form's next screen was being chosen.",
+			);
+		return {
+			source: print(link),
+			choice: { kind: "destination", link: authored, index },
+		};
+	});
+	if (projected.fallback.kind === "built-in")
+		frames.push({
+			source: serializeWire(projected.fallback.xpath, { target: "preview" })
+				.text,
+			choice: {
+				kind: "otherwise",
+				destination: projected.fallback.destination,
+			},
+		});
+	return frames;
+}
 
 export type CarriedCase =
 	/** The target selects no case: a module, or a form that loads none. */
@@ -314,46 +451,43 @@ export function createFormLinkWorkerWorld(
 }
 
 /**
- * First true wins. A link with no condition, or whose condition prints to
- * nothing, is unconditional and ends the walk; when no link fires the form
- * goes to `fallback` (its `postSubmit`, or the type's default).
+ * The frames the device pushes after this submission, in push order (the
+ * last is on top). For a form with destinations: each projected link whose
+ * emitted `xpath` holds (blank holds), in emitted order, then the built-in
+ * otherwise when its `xpath` holds. For a form without: its after-submit's
+ * frame, none for `app_home`. Every `xpath` is the projection's
+ * (`projectAfterSubmit`) printed by `serializeWire`, and all are evaluated in
+ * the one post-submit world, as Core evaluates them in one context.
  */
-export function evaluateFormLinks(args: {
-	readonly links: readonly FormLink[];
-	readonly fallback: PostSubmitDestination;
+export function evaluateAfterSubmit(args: {
 	readonly input: FormLinkEvaluationInput;
-}): AfterSubmitChoice {
+}): readonly AfterSubmitFrameChoice[] {
 	const evalCtx = formLinkEvalContext(args.input);
-	for (const [index, link] of args.links.entries()) {
-		if (!formLinkIsConditional(link) || link.condition === undefined) {
-			return { kind: "link", link, index };
-		}
-		if (toBoolean(evaluate(conditionSource(args.input, link), evalCtx))) {
-			return { kind: "link", link, index };
-		}
-	}
-	return { kind: "fallback", destination: args.fallback };
+	return candidateFrames(args.input).flatMap((frame) =>
+		frame.source === undefined || toBoolean(evaluate(frame.source, evalCtx))
+			? [frame.choice]
+			: [],
+	);
 }
 
-export async function evaluateFormLinksAsync(args: {
-	readonly links: readonly FormLink[];
-	readonly fallback: PostSubmitDestination;
+export async function evaluateAfterSubmitAsync(args: {
 	readonly input: FormLinkEvaluationInput;
 	readonly evaluate: FormLinkAsyncEvaluator;
 	readonly world?: FormLinkWorkerWorld;
-}): Promise<AfterSubmitChoice> {
-	for (const [index, link] of args.links.entries()) {
-		if (!formLinkIsConditional(link) || link.condition === undefined) {
-			return { kind: "link", link, index };
+}): Promise<readonly AfterSubmitFrameChoice[]> {
+	const pushed: AfterSubmitFrameChoice[] = [];
+	for (const frame of candidateFrames(args.input)) {
+		if (frame.source === undefined) {
+			pushed.push(frame.choice);
+			continue;
 		}
-		const source = conditionSource(args.input, link);
 		const result = await args.evaluate(
-			source,
+			frame.source,
 			formLinkWorkerInstances(args.input, args.world),
 		);
-		if (toBoolean(result)) return { kind: "link", link, index };
+		if (toBoolean(result)) pushed.push(frame.choice);
 	}
-	return { kind: "fallback", destination: args.fallback };
+	return pushed;
 }
 
 /** The string value of a manual datum's XPath in the entry's session scope. */
@@ -395,8 +529,24 @@ export async function evaluateLinkDatumAsync(
 	return xpathToString(value);
 }
 
+/** The target a frame's link names, `this-form` resolved to the source
+ *  form in its own menu. The gate keeps every link's target resolvable, so
+ *  a miss is a bypass the caller reports. */
+function resolvedEntryTarget(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	entry: FormLinkEntry,
+) {
+	const target = resolveFormLinkTarget(doc, formUuid, entry.link.target);
+	if (target === undefined)
+		throw new Error(
+			"This destination starts the form again, but the form is in no menu.",
+		);
+	return target;
+}
+
 /**
- * The case the target form of `link` opens with, or `none` when the target
+ * The case the target form of `entry` opens with, or `none` when the target
  * selects no case. The caller has already checked that the target exists in
  * the document; a missing target throws here exactly as it does in the
  * projector.
@@ -404,28 +554,29 @@ export async function evaluateLinkDatumAsync(
 export function carriedCaseFor(
 	input: FormLinkEvaluationInput,
 	formUuid: Uuid,
-	link: FormLink,
+	entry: FormLinkEntry,
 ): CarriedCase {
 	return carriedCaseFromSelections(
 		input,
-		link,
-		projectTargetCaseSelections(input, formUuid, link),
+		entry,
+		projectTargetCaseSelections(input, formUuid, entry),
 	);
 }
 
 export function carriedCaseFromSelections(
 	input: FormLinkEvaluationInput,
-	link: FormLink,
+	entry: FormLinkEntry,
 	selections: readonly TargetCaseSelection[],
 ): CarriedCase {
-	if (link.target.type !== "form") return { kind: "none" };
 	const { doc } = input;
+	const target = resolvedEntryTarget(doc, input.formUuid, entry);
+	if (target.type !== "form") return { kind: "none" };
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const targetCaseDatumId = selectedCaseDatumId(
 		doc,
 		ctx,
-		link.target.moduleUuid,
-		link.target.formUuid,
+		target.moduleUuid,
+		target.formUuid,
 	);
 	if (targetCaseDatumId === undefined) return { kind: "none" };
 	const selected = selections.find(
@@ -442,19 +593,13 @@ export function carriedCaseFromSelections(
 			};
 }
 
-/**
- * Every case-selection datum the target frame installs, valued exactly like
- * HQ's automatic/manual frame matching and mapped to Preview's UUID-keyed
- * menu session. A valid link resolves every selection. The total projection
- * still carries `""` for a manually omitted or structurally matched-but-empty
- * datum, mirroring Core's defined-but-blank session value.
- */
-export function projectTargetCaseSelections(
-	input: FormLinkEvaluationInput,
+/** The selection datums a frame's target installs, and the automatic match
+ *  of each to a source datum when the link names no datums. */
+function targetSelectionPlan(
+	doc: BlueprintDoc,
 	formUuid: Uuid,
-	link: FormLink,
-): readonly TargetCaseSelection[] {
-	const { doc } = input;
+	entry: FormLinkEntry,
+) {
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const sourceModuleUuid = owningModuleOf(ctx, formUuid);
 	if (sourceModuleUuid === undefined) {
@@ -462,9 +607,10 @@ export function projectTargetCaseSelections(
 			`Cannot follow a form link: the form ${formUuid} it leaves from belongs to no module`,
 		);
 	}
-	const targetChildren = targetFrameChildren(doc, ctx, link.target);
+	const target = resolvedEntryTarget(doc, formUuid, entry);
+	const targetChildren = targetFrameChildren(doc, ctx, target);
 	const targetDatumId = entryDatumIdResolver(
-		formLinkTargetDatumIds(doc, ctx, link.target),
+		formLinkTargetDatumIds(doc, ctx, target),
 	);
 	const targetSelections = targetChildren.flatMap((child) =>
 		child.type === "datum" &&
@@ -475,7 +621,7 @@ export function projectTargetCaseSelections(
 			: [],
 	);
 	const automaticMatches =
-		link.datums === undefined
+		entry.link.datums === undefined
 			? new Map(
 					matchFrameToSource(
 						targetChildren,
@@ -483,7 +629,37 @@ export function projectTargetCaseSelections(
 					).matched.map((match) => [match.id, match.sourceId]),
 				)
 			: undefined;
+	return { targetDatumId, targetSelections, automaticMatches };
+}
 
+/** The display name the entry's session holds for `value`, when it names a
+ *  case the preview knows. */
+function knownCaseName(
+	input: FormLinkEvaluationInput,
+	value: string,
+): SessionDatumValue {
+	const knownName = [...input.sessionDatums.values()].find(
+		(candidate) =>
+			candidate.value === value && candidate.caseName !== undefined,
+	)?.caseName;
+	return { value, ...(knownName !== undefined && { caseName: knownName }) };
+}
+
+/**
+ * Every case-selection datum the target frame installs, valued exactly like
+ * HQ's automatic/manual frame matching and mapped to Preview's UUID-keyed
+ * menu session. A valid link resolves every selection. The total projection
+ * still carries `""` for a manually omitted or structurally matched-but-empty
+ * datum, mirroring Core's defined-but-blank session value.
+ */
+export function projectTargetCaseSelections(
+	input: FormLinkEvaluationInput,
+	formUuid: Uuid,
+	entry: FormLinkEntry,
+): readonly TargetCaseSelection[] {
+	const { targetDatumId, targetSelections, automaticMatches } =
+		targetSelectionPlan(input.doc, formUuid, entry);
+	const { link } = entry;
 	return targetSelections.flatMap((datum) => {
 		const moduleUuid = datum.selectionSourceModuleUuid;
 		if (moduleUuid === undefined || datum.caseType === undefined) return [];
@@ -492,16 +668,10 @@ export function projectTargetCaseSelections(
 			const manual = link.datums.find(
 				(candidate) => targetDatumId(candidate.name) === datum.id,
 			);
-			const value =
-				manual === undefined ? "" : evaluateLinkDatum(manual, input, link.uuid);
-			const knownName = [...input.sessionDatums.values()].find(
-				(candidate) =>
-					candidate.value === value && candidate.caseName !== undefined,
-			)?.caseName;
-			held = {
-				value,
-				...(knownName !== undefined && { caseName: knownName }),
-			};
+			held = knownCaseName(
+				input,
+				manual === undefined ? "" : evaluateLinkDatum(manual, input, link.uuid),
+			);
 		} else {
 			const sourceId = automaticMatches?.get(datum.id);
 			if (sourceId === undefined) return [];
@@ -522,37 +692,13 @@ export function projectTargetCaseSelections(
 export async function projectTargetCaseSelectionsAsync(
 	input: FormLinkEvaluationInput,
 	formUuid: Uuid,
-	link: FormLink,
+	entry: FormLinkEntry,
 	evaluateAsync: FormLinkAsyncEvaluator,
 	world?: FormLinkWorkerWorld,
 ): Promise<readonly TargetCaseSelection[]> {
-	const { doc } = input;
-	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
-	const sourceModuleUuid = owningModuleOf(ctx, formUuid);
-	if (sourceModuleUuid === undefined) {
-		throw new Error("Cannot follow a form link whose source has no module.");
-	}
-	const targetChildren = targetFrameChildren(doc, ctx, link.target);
-	const targetDatumId = entryDatumIdResolver(
-		formLinkTargetDatumIds(doc, ctx, link.target),
-	);
-	const targetSelections = targetChildren.flatMap((child) =>
-		child.type === "datum" &&
-		child.datum.requiresSelection &&
-		child.datum.caseType !== undefined &&
-		child.datum.selectionSourceModuleUuid !== undefined
-			? [child.datum]
-			: [],
-	);
-	const automaticMatches =
-		link.datums === undefined
-			? new Map(
-					matchFrameToSource(
-						targetChildren,
-						entryFrameDatums(doc, ctx, sourceModuleUuid, formUuid),
-					).matched.map((match) => [match.id, match.sourceId]),
-				)
-			: undefined;
+	const { targetDatumId, targetSelections, automaticMatches } =
+		targetSelectionPlan(input.doc, formUuid, entry);
+	const { link } = entry;
 	const projected: TargetCaseSelection[] = [];
 	for (const datum of targetSelections) {
 		const moduleUuid = datum.selectionSourceModuleUuid;
@@ -562,7 +708,8 @@ export async function projectTargetCaseSelectionsAsync(
 			const manual = link.datums.find(
 				(candidate) => targetDatumId(candidate.name) === datum.id,
 			);
-			const value =
+			held = knownCaseName(
+				input,
 				manual === undefined
 					? ""
 					: await evaluateLinkDatumAsync(
@@ -571,15 +718,8 @@ export async function projectTargetCaseSelectionsAsync(
 							link.uuid,
 							evaluateAsync,
 							world,
-						);
-			const knownName = [...input.sessionDatums.values()].find(
-				(candidate) =>
-					candidate.value === value && candidate.caseName !== undefined,
-			)?.caseName;
-			held = {
-				value,
-				...(knownName !== undefined && { caseName: knownName }),
-			};
+						),
+			);
 		} else {
 			const sourceId = automaticMatches?.get(datum.id);
 			if (sourceId === undefined) continue;
@@ -599,16 +739,44 @@ export async function projectTargetCaseSelectionsAsync(
 export async function carriedCaseForAsync(
 	input: FormLinkEvaluationInput,
 	formUuid: Uuid,
-	link: FormLink,
+	entry: FormLinkEntry,
 	evaluateAsync: FormLinkAsyncEvaluator,
 	world?: FormLinkWorkerWorld,
 ): Promise<CarriedCase> {
 	const selections = await projectTargetCaseSelectionsAsync(
 		input,
 		formUuid,
-		link,
+		entry,
 		evaluateAsync,
 		world,
 	);
-	return carriedCaseFromSelections(input, link, selections);
+	return carriedCaseFromSelections(input, entry, selections);
+}
+
+/**
+ * The path of the entry the worker submitted (`afterSubmitStack.ts`, rule
+ * 6): its module chain, the cases each selection datum of its entry held
+ * (`entrySelectionDatumSources`), and its form.
+ */
+export function submittedEntryPath(args: {
+	readonly doc: BlueprintDoc;
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
+	/** The case ids the entry held for a menu's selection. */
+	readonly caseIdsOf: (moduleUuid: Uuid) => readonly string[];
+}): readonly AfterSubmitPathStep[] {
+	const sources = entrySelectionDatumSources(
+		args.doc,
+		formLinkProjectionContext(args.doc, { entryMetadataOnly: true }),
+		args.moduleUuid,
+		args.formUuid,
+	);
+	return afterSubmitPath(
+		args.doc,
+		{ moduleUuid: args.moduleUuid, formUuid: args.formUuid },
+		sources.map((source) => ({
+			moduleUuid: source.moduleUuid,
+			caseIds: args.caseIdsOf(source.moduleUuid),
+		})),
+	);
 }

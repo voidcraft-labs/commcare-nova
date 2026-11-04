@@ -1220,7 +1220,7 @@
 		],
 		"valueClass": "module-or-previous-screen-offered",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `postSubmit` after the conditional links",
+		"dispositionCell": "**HELD**: `otherwise {destination: module | previous}`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1250,7 +1250,7 @@
 		],
 		"valueClass": "root-or-parent-module-offered",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `postSubmit: firstMenu` / `parentMenu` after the conditional links",
+		"dispositionCell": "**HELD**: `otherwise {destination: firstMenu | parentMenu}`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1409,8 +1409,9 @@
 			"schema:FormLink.form_id"
 		],
 		"valueClass": "self-or-cyclic-target",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: self and cyclic links (today refused: `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`; HQ's picker offers the current form)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `target {type: this-form}`, and cycles",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1422,7 +1423,7 @@
 			}
 		},
 		"emission": {
-			"cell": "same",
+			"cell": "the source form's ids",
 			"markers": []
 		},
 		"gates": []
@@ -1521,7 +1522,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`xpath`",
+			"cell": "the condition, then the held-case conjuncts",
 			"markers": []
 		},
 		"gates": []
@@ -1538,20 +1539,22 @@
 			"schema:FormLink.xpath"
 		],
 		"valueClass": "several-conditions-true-at-once",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: link-chain semantics: every true link pushes a frame, last created runs first (`CommCareSession::createFrame`); Nova emits exclusive guards today",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `formLinks`: every destination that holds runs, in author order",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS / RUNS",
+			"cell": "DIFFERENT (only the first destination that applies opens; an otherwise that applies opens instead of every every-time destination) / RUNS",
 			"webApps": {
-				"reading": "runs"
+				"reading": "different",
+				"note": "after submit, only the first destination that applies opens, and when the otherwise applies it opens instead of any destination set to run every time"
 			},
 			"android": {
 				"reading": "runs"
 			}
 		},
 		"emission": {
-			"cell": "each link's own condition, no exclusivity guards",
+			"cell": "each destination's own condition and held-case conjuncts, in reverse author order",
 			"markers": []
 		},
 		"gates": []
@@ -1584,7 +1587,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`datums[]`",
+			"cell": "`datums[]`; each value on a single-case selection adds a held-case conjunct to `xpath`",
 			"markers": []
 		},
 		"gates": []

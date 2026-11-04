@@ -1,10 +1,15 @@
 import { z } from "zod";
-import { afterSubmitPlan, planFormLinkAdd } from "@/lib/doc/formLinkMutations";
+import {
+	afterSubmitPlan,
+	planFormLinkAdd,
+	planSetOtherwise,
+} from "@/lib/doc/formLinkMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
 	findAuthoredBlueprintIdentity,
-	type PostSubmitDestination,
+	OTHERWISE_DESTINATIONS,
+	type OtherwiseDestination,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -17,11 +22,14 @@ import {
 } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
+	type FormLinkCommitReports,
 	formLinkInputSchema,
 	formName,
 	HIDDEN_TARGET_NOTE,
 	linkAddressSchema,
 	linkByUuid,
+	linkCommitMessage,
+	linkCommitSentences,
 	linkOrder,
 	linkRefusalMessage,
 	resolveFormLinkInput,
@@ -55,14 +63,12 @@ export const addFormLinksInputSchema = linkAddressSchema.extend({
 				seen.add(item.linkUuid);
 			}
 		})
-		.describe(
-			"Links in the order they are checked. Conditional links first; at most one unconditional otherwise link, and only last.",
-		),
+		.describe("Destinations in the order they run."),
 	afterLinkUuid: uuidSchema
 		.nullable()
 		.optional()
 		.describe(
-			"UUID of the existing link the new block should follow, null to put it first, or omit to let Nova place it: conditional links land just above the otherwise link when there is one, otherwise at the end.",
+			"UUID of the existing destination the new ones should follow, null to put them first, or omit to add them at the end.",
 		),
 });
 
@@ -70,23 +76,24 @@ export type AddFormLinksInput = z.infer<typeof addFormLinksInputSchema>;
 
 export interface AddFormLinksSuccess extends MutationSuccess {
 	readonly linkUuids: readonly Uuid[];
-	/** Every link on the form after the commit, in the order it is checked. */
+	/** Every destination on the form after the commit, in the order they run. */
 	readonly linkOrder: readonly Uuid[];
-	/** Set when the batch also stored `post_submit` explicitly. */
-	readonly pinnedPostSubmit?: PostSubmitDestination;
+	/** What the commit changed beyond the destinations it names: the form's
+	 *  after-submit becoming its otherwise, or a setting removed. */
+	readonly message?: string;
 }
 
 export type AddFormLinksResult =
 	| AddFormLinksSuccess
 	| { readonly error: string };
 
-const isFallbackPin = (mutation: Mutation, formUuid: Uuid): boolean =>
-	mutation.kind === "updateForm" &&
-	mutation.uuid === formUuid &&
-	"postSubmit" in mutation.patch;
+const isOtherwiseDestination = (
+	destination: string,
+): destination is OtherwiseDestination =>
+	(OTHERWISE_DESTINATIONS as readonly string[]).includes(destination);
 
 export const addFormLinksTool = {
-	description: `Add after-submit routes. The first matching condition wins; an unconditional route must be last. Conditions read saved records and worker values after the form closes, so they cannot use unsaved answers. ${HIDDEN_TARGET_NOTE}`,
+	description: `Add after-submit destinations. Every destination whose condition holds runs, in the order you set: the first opens after the form, and each next one when the worker finishes the one before. In Web Apps only the first that holds opens. Conditions read saved records and worker values after the form closes, so they cannot use unsaved answers. Set where the worker goes when no destination with a condition or a carried case runs with setFormOtherwise/set_form_otherwise. ${HIDDEN_TARGET_NOTE}`,
 	inputSchema: addFormLinksInputSchema,
 	async execute(
 		input: AddFormLinksInput,
@@ -135,15 +142,20 @@ export const addFormLinksTool = {
 					kind: "mutate",
 					mutations: [],
 					result: {
-						error: `afterLinkUuid "${initialAfter}" is not a link on form "${name}". Read get_form for the form's current links, or omit afterLinkUuid to let Nova place the new links.`,
+						error: `afterLinkUuid "${initialAfter}" is not a destination on form "${name}". Read get_form for the form's current destinations, or omit afterLinkUuid to add the new ones at the end.`,
 					},
 				};
 			}
 
+			/* The form's after-submit before the batch, when it has no
+			 * destinations yet: a batch is judged as one shape, so where the
+			 * worker went keeps its place as the otherwise when the finished
+			 * batch has a destination that may not run. */
+			const before = afterSubmitPlan(doc, address.formUuid)?.postSubmit;
 			let working = doc;
 			const mutations: Mutation[] = [];
+			let reports: FormLinkCommitReports = {};
 			let after: Uuid | null | undefined = initialAfter;
-			let pinned: PostSubmitDestination | undefined;
 			for (const [offset, item] of input.links.entries()) {
 				const linkUuid = linkUuids[offset];
 				if (linkUuid === undefined) {
@@ -156,28 +168,46 @@ export const addFormLinksTool = {
 						kind: "mutate",
 						mutations: [],
 						result: {
-							error: `Link ${offset + 1} of ${input.links.length} was not added to form "${name}": ${linkRefusalMessage(plan.reason, working, address.formUuid)}`,
+							error: `Destination ${offset + 1} of ${input.links.length} was not added to form "${name}": ${linkRefusalMessage(plan.reason, working, address.formUuid)}`,
 						},
 					};
 				}
 				mutations.push(...plan.mutations);
+				reports = {
+					...reports,
+					...(plan.movedToOtherwise !== undefined && {
+						movedToOtherwise: plan.movedToOtherwise,
+					}),
+					...(plan.droppedPostSubmit !== undefined && {
+						droppedPostSubmit: plan.droppedPostSubmit,
+					}),
+				};
 				working = applyToDoc(working, plan.mutations);
-				pinned = plan.pinsFallback ?? pinned;
-				after = link.uuid;
+				// Each later destination follows the one before it; an omitted
+				// anchor keeps adding at the end.
+				if (after !== undefined) after = link.uuid;
 			}
 
-			// A pin written for an earlier link of this batch is withdrawn when a
-			// later link of the same batch is the otherwise link: the batch is
-			// judged as one shape, and that shape names its own fallback.
+			/* A first destination that runs every time leaves no otherwise; a
+			 * later one in the same batch that may not run makes the form's
+			 * old after-submit reachable again, so it becomes the otherwise. */
+			const finished = afterSubmitPlan(working, address.formUuid);
 			if (
-				pinned !== undefined &&
-				afterSubmitPlan(working, address.formUuid)?.elseLink !== undefined
+				before !== undefined &&
+				finished !== undefined &&
+				finished.otherwise === undefined &&
+				finished.otherwiseOffered &&
+				isOtherwiseDestination(before.destination)
 			) {
-				const kept = mutations.filter(
-					(mutation) => !isFallbackPin(mutation, address.formUuid),
-				);
-				mutations.splice(0, mutations.length, ...kept);
-				pinned = undefined;
+				const moved = planSetOtherwise(working, address.formUuid, {
+					kind: "destination",
+					destination: before.destination,
+				});
+				if (moved.ok && moved.mutations.length > 0) {
+					mutations.push(...moved.mutations);
+					const { droppedPostSubmit: _moved, ...kept } = reports;
+					reports = { ...kept, movedToOtherwise: before.destination };
+				}
 			}
 
 			const commit = await guardedMutate(
@@ -200,7 +230,7 @@ export const addFormLinksTool = {
 					ok: true,
 					linkUuids,
 					linkOrder: linkOrder(commit.newDoc, address.formUuid),
-					...(pinned !== undefined && { pinnedPostSubmit: pinned }),
+					...linkCommitMessage(linkCommitSentences(reports)),
 					summary: { location: name, count },
 				},
 			};

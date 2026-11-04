@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { planFormLinkRemove } from "@/lib/doc/formLinkMutations";
-import { asUuid, type PostSubmitDestination, uuidSchema } from "@/lib/domain";
+import { asUuid, uuidSchema } from "@/lib/domain";
 import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
@@ -12,6 +12,8 @@ import {
 	formName,
 	linkAddressSchema,
 	linkByUuid,
+	linkCommitMessage,
+	linkCommitSentences,
 	linkLabel,
 	linkRefusalMessage,
 	linkSubject,
@@ -26,8 +28,10 @@ export const removeFormLinkInputSchema = linkAddressSchema.extend({
 export type RemoveFormLinkInput = z.infer<typeof removeFormLinkInputSchema>;
 
 export interface RemoveFormLinkSuccess extends MutationSuccess {
-	/** Set when removing the otherwise link also stored `post_submit` explicitly. */
-	readonly pinnedPostSubmit?: PostSubmitDestination;
+	/** What the commit changed beyond the destination it names: the
+	 *  otherwise becoming the form's after-submit or its only destination,
+	 *  or the otherwise removed. */
+	readonly message?: string;
 }
 
 export type RemoveFormLinkResult =
@@ -36,7 +40,7 @@ export type RemoveFormLinkResult =
 
 export const removeFormLinkTool = {
 	description:
-		"Remove an after-submit route. The form's post-submit setting remains the fallback.",
+		"Remove an after-submit destination. Removing the last one makes the form's otherwise its after-submit destination; removing the last one with a condition or a carried case removes the otherwise.",
 	inputSchema: removeFormLinkInputSchema,
 	async execute(
 		input: RemoveFormLinkInput,
@@ -91,13 +95,12 @@ export const removeFormLinkTool = {
 					result: { error: commit.error },
 				};
 			}
-			const pinned = plan.pinsFallback;
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
 					ok: true,
-					...(pinned !== undefined && { pinnedPostSubmit: pinned }),
+					...linkCommitMessage(linkCommitSentences(plan)),
 					summary: {
 						location: name,
 						subject: linkSubject(doc, address.formUuid, link.uuid),

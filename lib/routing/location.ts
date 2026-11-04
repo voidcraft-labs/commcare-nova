@@ -578,7 +578,8 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	}
 
 	/* After-submit links walk inward the same way: the form, then the
-	 * selected link. A link a peer removed leaves the list open. */
+	 * selected link, a destination or the otherwise link. A link a peer
+	 * removed leaves the list open. */
 	if (loc.kind === "form-links") {
 		const form = doc.forms[loc.formUuid];
 		if (form === undefined) {
@@ -586,7 +587,8 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 		}
 		if (
 			loc.linkUuid !== undefined &&
-			!(form.formLinks ?? []).some((link) => link.uuid === loc.linkUuid)
+			!(form.formLinks ?? []).some((link) => link.uuid === loc.linkUuid) &&
+			!(form.otherwise?.kind === "link" && form.otherwise.uuid === loc.linkUuid)
 		) {
 			return {
 				kind: "form-links",

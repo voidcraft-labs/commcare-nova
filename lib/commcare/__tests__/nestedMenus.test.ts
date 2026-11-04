@@ -14,7 +14,7 @@ import {
 	formLinkProjectionContext,
 	moduleDestinationFrameChildren,
 	previousFrameChildren,
-	projectFormLinks,
+	projectAfterSubmit,
 	selectedCaseDatumId,
 } from "@/lib/commcare/formLinkProjection";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
@@ -640,7 +640,7 @@ describe("nested-menu navigation frames", () => {
 			fromParentModule: true,
 		});
 
-		const projected = projectFormLinks(doc, ctx, sourceForm);
+		const projected = projectAfterSubmit(doc, ctx, sourceForm);
 		expect(projected?.links[0]?.unmatched.map((datum) => datum.id)).toEqual([
 			"case_id",
 		]);

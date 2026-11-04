@@ -75,7 +75,7 @@ import {
 	parentMenuDestinationFrameChildren,
 	parentSelectModuleUuid,
 	previousFrameChildren,
-	projectFormLinks,
+	projectAfterSubmit,
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
@@ -698,6 +698,8 @@ export function compileCcz(
 			// reads both fields straight from the doc to avoid losing
 			// fidelity. The default is the one the expander reads,
 			// `effectivePostSubmit`, from the form type and its module's shape.
+			// A form with destinations has none: its after-submit is its
+			// projected links and its otherwise (`projectAfterSubmit` below).
 			const form = doc.forms[formUuid];
 			const formType = form.type;
 			const postSubmit = effectivePostSubmit(doc, formUuid) ?? "app_home";
@@ -808,7 +810,15 @@ export function compileCcz(
 			// Dependency declarations come from the exact rendered datum, stack,
 			// command, and referenced detail trees. The independent suite oracle
 			// checks their final XML scopes after the entry has been assembled.
-			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
+			const projectedLinks = projectAfterSubmit(doc, linkContext, formUuid);
+			// The static frame the stack writes: the after-submit of a form
+			// without destinations, else a built-in otherwise's fallback.
+			const frameDestination =
+				projectedLinks === undefined
+					? postSubmit
+					: projectedLinks.fallback.kind === "built-in"
+						? projectedLinks.fallback.destination
+						: undefined;
 			const projectedSessionDatums = entrySessionDatums(
 				doc,
 				linkContext,
@@ -872,9 +882,9 @@ export function compileCcz(
 				...(returnFrame !== undefined && { returnFrame }),
 				...(projectedLinks !== undefined && { formLinks: projectedLinks }),
 				/* The previous frame is read only when `previous` is the
-				 * destination (plain, or as the guarded fallback). */
+				 * destination (plain, or as a built-in otherwise). */
 				previousFrame:
-					postSubmit === "previous"
+					frameDestination === "previous"
 						? previousFrameChildren(doc, linkContext, moduleUuid, formUuid)
 						: [],
 				moduleFrame: moduleDestinationFrameChildren(
@@ -883,7 +893,7 @@ export function compileCcz(
 					moduleUuid,
 				),
 				parentFrame:
-					postSubmit === "parentMenu"
+					frameDestination === "parentMenu"
 						? parentMenuDestinationFrameChildren(doc, linkContext, moduleUuid)
 						: [],
 				projectedSessionDatums,

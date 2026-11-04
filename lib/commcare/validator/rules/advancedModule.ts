@@ -32,8 +32,10 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CasePlacement,
-	type FormLinkTarget,
+	formLinkEntries,
 	ownRecordValue,
+	type ResolvedFormLinkTarget,
+	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
@@ -208,7 +210,7 @@ export function formLinkNeedsNewCaseDatumMessage(parts: {
 export function offeredMenuFor(
 	doc: BlueprintDoc,
 	sourceModuleUuid: Uuid,
-	target: FormLinkTarget,
+	target: ResolvedFormLinkTarget,
 ): Uuid | undefined {
 	const candidate = ownRecordValue(doc.modules, target.moduleUuid);
 	if (candidate === undefined) return undefined;
@@ -253,7 +255,7 @@ function givesDatum(
 		: placement.slot === "subcase";
 }
 
-function targetName(doc: BlueprintDoc, target: FormLinkTarget): string {
+function targetName(doc: BlueprintDoc, target: ResolvedFormLinkTarget): string {
 	return target.type === "form"
 		? (ownRecordValue(doc.forms, target.formUuid)?.name ?? "")
 		: (ownRecordValue(doc.modules, target.moduleUuid)?.name ?? "");
@@ -277,8 +279,17 @@ export function formLinkNeedsNewCaseDatum(
 	const errors: ValidationError[] = [];
 	for (const [operationUuid, linkUuid] of carried) {
 		const operation = operations.find((op) => op.uuid === operationUuid);
-		const link = form.formLinks?.find((l) => l.uuid === linkUuid);
-		if (operation === undefined || link === undefined) continue;
+		// A destination or the otherwise link, its target with `this-form`
+		// resolved to this form in its own menu.
+		const entry = formLinkEntries(form).find(
+			({ link }) => link.uuid === linkUuid,
+		);
+		const target =
+			entry === undefined
+				? undefined
+				: resolveFormLinkTarget(doc, formUuid, entry.link.target);
+		if (operation === undefined || entry === undefined || target === undefined)
+			continue;
 		const placement = plan.placements.get(operationUuid)?.placement;
 		if (givesDatum(plan.formKind, registration, operation, placement)) continue;
 		let cause: NewCaseDatumCause | undefined;
@@ -304,14 +315,14 @@ export function formLinkNeedsNewCaseDatum(
 				? operation.caseType
 				: (module.caseType ?? "");
 		const { reason, remedy } = newCaseDatumCauseWords(cause, caseType);
-		const menuUuid = offeredMenuFor(doc, moduleUuid, link.target);
+		const menuUuid = offeredMenuFor(doc, moduleUuid, target);
 		const menuName =
 			menuUuid === undefined
 				? undefined
 				: ownRecordValue(doc.modules, menuUuid)?.name;
 		const words = {
 			formName: form.name,
-			targetName: targetName(doc, link.target),
+			targetName: targetName(doc, target),
 			caseType,
 			reason,
 			remedy,
@@ -332,6 +343,7 @@ export function formLinkNeedsNewCaseDatum(
 					formUuid,
 					formName: form.name,
 					linkUuid,
+					role: entry.role,
 					targetName: words.targetName,
 					operationUuid,
 					caseType,

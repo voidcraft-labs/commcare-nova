@@ -94,6 +94,13 @@ export function authoredBlueprintIdentities(
 				ownerUuid: form.uuid,
 			});
 		}
+		// A link otherwise is a link: its uuid shares the links' namespace.
+		if (form.otherwise?.kind === "link")
+			identities.push({
+				uuid: form.otherwise.uuid,
+				kind: "formLink",
+				ownerUuid: form.uuid,
+			});
 	}
 	for (const field of Object.values(doc.fields)) {
 		identities.push({ uuid: field.uuid, kind: "field" });

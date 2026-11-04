@@ -55,6 +55,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
 	fieldPreload,
+	type PersistableDoc,
 	proseText,
 	type Uuid,
 } from "@/lib/domain";
@@ -889,5 +890,117 @@ describe("the documents whose publish needs a setting off", () => {
 		expect(verdict.minimumConfiguration.commtrackEnabled).toBe(false);
 		expect(verdict.minimumConfiguration).not.toHaveProperty("flagsOff");
 		expect(document.edit).toBeUndefined();
+	});
+});
+
+/**
+ * The three documents of step 5's form links each hold the shape it
+ * witnesses, as Nova's gate admitted it and HQ's import file carries it. The
+ * plausible failures: a planner that settles a destination into an
+ * otherwise or back (the document would witness another shape), an edit
+ * planned as a remove and an add (proof 5 would run over no reorder), and an
+ * emission that drops a carried value's held-case test (HQ would receive an
+ * update of a case nothing created).
+ */
+describe("the form link documents", () => {
+	function made(id: string): CorpusDocument {
+		const document = targetedDocuments().find(
+			(candidate) => candidate.id === id,
+		);
+		if (document === undefined) throw new Error(`No ${id}.`);
+		return document;
+	}
+	type HqLink = { xpath: string; form_id?: string; module_unique_id?: string };
+	type HqForm = {
+		name: Record<string, string>;
+		post_form_workflow: string;
+		post_form_workflow_fallback: string | null;
+		form_links: HqLink[];
+	};
+	function hqForms(document: CorpusDocument): Map<string, HqForm> {
+		const app = expandDoc(
+			hydratePersistedBlueprint(document.doc),
+		) as unknown as {
+			modules: { forms: HqForm[] }[];
+		};
+		return new Map(
+			app.modules.flatMap((module) =>
+				module.forms.map((form) => [Object.values(form.name)[0] ?? "", form]),
+			),
+		);
+	}
+
+	it("edits the chain by moving Begin's menu destination first, and by nothing else", () => {
+		const document = made("targeted-form-link-chain");
+		const uuid = (name: string) =>
+			targetedUuid("targeted-form-link-chain", name);
+		expect(document.edit?.mutations).toEqual([
+			{
+				kind: "moveFormLink",
+				formUuid: uuid("form-begin"),
+				uuid: uuid("link-begin-b"),
+				after: null,
+			},
+		]);
+		const order = (doc: PersistableDoc) =>
+			doc.forms[uuid("form-begin")]?.formLinks?.map((link) => link.uuid);
+		expect(order(document.doc)).toEqual(
+			["link-begin-first", "link-begin-second", "link-begin-b"].map(uuid),
+		);
+		expect(document.edit && order(document.edit.nextDoc)).toEqual(
+			["link-begin-b", "link-begin-first", "link-begin-second"].map(uuid),
+		);
+	});
+
+	it("holds each built-in otherwise, an otherwise link, a self link and a cycle", () => {
+		const document = made("targeted-form-link-otherwise");
+		const forms = Object.values(document.doc.forms);
+		const otherwiseOf = (name: string) =>
+			forms.find((form) => form.name === name)?.otherwise;
+		expect(
+			[
+				"Check first menu",
+				"Check this menu",
+				"Check parent menu",
+				"Check previous screen",
+			].map(otherwiseOf),
+		).toEqual(
+			(["firstMenu", "module", "parentMenu", "previous"] as const).map(
+				(destination) => ({ kind: "destination", destination }),
+			),
+		);
+		expect(otherwiseOf("Check link")).toMatchObject({
+			kind: "link",
+			datums: [{}, {}],
+		});
+		expect(
+			forms.find((form) => form.name === "Add household")?.formLinks,
+		).toMatchObject([{ target: { type: "this-form" } }]);
+		const hq = hqForms(document);
+		// Each fallback is HQ's own word, and the cycle is two links.
+		expect(
+			[
+				"Check first menu",
+				"Check this menu",
+				"Check parent menu",
+				"Check previous screen",
+			].map((name) => hq.get(name)?.post_form_workflow_fallback),
+		).toEqual(["root", "module", "parent_module", "previous_screen"]);
+		expect(hq.get("Ping")?.form_links).toHaveLength(1);
+		expect(hq.get("Pong")?.form_links).toHaveLength(1);
+	});
+
+	it("guards every carried member, so a destination whose member is not on the device does not run", () => {
+		const hq = hqForms(made("targeted-form-link-carried-case"));
+		for (const name of ["Register member", "Register member quietly"]) {
+			const form = hq.get(name);
+			expect(form?.post_form_workflow_fallback, name).toBe("root");
+			for (const link of form?.form_links ?? [])
+				expect(link.xpath, name).toContain(
+					"count(instance('casedb')/casedb/case[@case_id = ",
+				);
+		}
+		expect(hq.get("Register member")?.form_links).toHaveLength(3);
+		expect(hq.get("Register member quietly")?.form_links).toHaveLength(2);
 	});
 });

@@ -14,7 +14,9 @@
 //     admission verdict allows an explicit datum map;
 //   - manual required: work it out here, because nothing else will do.
 //
-// "Work it out here" is all-or-nothing: a link either names every value
+// A link to a module's form list carries nothing, so the section is
+// hidden for one (and offers only removal of values a menu link still
+// holds). "Work it out here" is all-or-nothing: a link either names every value
 // the destination selects or none of them, so the editor never holds a
 // half-filled list the gate would refuse.
 
@@ -79,6 +81,26 @@ export function CarryValuesSection({
 		const { datums: _dropped, ...rest } = link;
 		onCommit(rest);
 	};
+
+	/* A link to a module's form list carries nothing: the person picks a
+	 * case there. Values a menu link still holds are refused by the gate
+	 * (`FORM_LINK_MENU_DATUMS`), so the one thing offered is removing them. */
+	if (link.target.type === "module") {
+		if (link.datums === undefined) return null;
+		return (
+			<div className="space-y-3">
+				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
+					A module's form list asks for no values, so this link can't carry the
+					ones it holds.
+				</p>
+				{canEdit && (
+					<Button type="button" variant="outline" onClick={carryAutomatically}>
+						Remove the carried values
+					</Button>
+				)}
+			</div>
+		);
+	}
 
 	if (presentation === "nothing") {
 		return (

@@ -2,15 +2,22 @@
 //
 // Rehydrating a retained app-test checkpoint from its stored JSON.
 
+import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import type { CaseDatabaseSnapshot } from "../engine/xpathInstances";
 import { AppTestActionError } from "./errors";
-import type { AppTestSessionState, AppTestState } from "./types";
+import type {
+	AppTestAfterSubmitRoute,
+	AppTestSessionState,
+	AppTestState,
+} from "./types";
 
 /** A session as a checkpoint stores it: one retained while claims were
  *  session state may still carry `claimedCaseIds`. A claim is now a claim row
- *  in the journey's namespace, so the list is read and dropped. */
-type StoredAppTestSession = AppTestSessionState & {
+ *  in the journey's namespace, so the list is read and dropped. One retained
+ *  before after-submit stacks existed has no `afterSubmitStack`. */
+type StoredAppTestSession = Omit<AppTestSessionState, "afterSubmitStack"> & {
 	readonly claimedCaseIds?: readonly string[];
+	readonly afterSubmitStack?: AppTestSessionState["afterSubmitStack"];
 };
 
 /** Stored checkpoints are server-produced, versioned by the session contract.
@@ -18,6 +25,7 @@ type StoredAppTestSession = AppTestSessionState & {
  * answers remain exact strings. */
 function restoreSession({
 	claimedCaseIds: _sessionClaims,
+	afterSubmitStack,
 	...state
 }: StoredAppTestSession): AppTestSessionState {
 	const restore = (snapshot: CaseDatabaseSnapshot): CaseDatabaseSnapshot => ({
@@ -50,11 +58,39 @@ function restoreSession({
 				: entry.kind === "menu" || entry.kind === "records"
 					? restoreTask(entry)
 					: entry;
+	/* A pending frame back to the preceding task carries the device world
+	 * that task returns to. */
+	const restoreFrame = (
+		frame: AppTestAfterSubmitRoute,
+	): AppTestAfterSubmitRoute =>
+		frame.route.kind === "previous-task"
+			? {
+					...frame,
+					route: {
+						...frame.route,
+						task: {
+							...frame.route.task,
+							caseDatabase: restore(frame.route.task.caseDatabase),
+						},
+					},
+				}
+			: frame;
 	return {
 		...state,
 		deviceCases: restore(state.deviceCases),
 		screen: screen(state.screen),
 		history: state.history.map(screen),
+		// A session retained before after-submit stacks existed has none pending.
+		afterSubmitStack:
+			afterSubmitStack === undefined
+				? EMPTY_AFTER_SUBMIT_STACK
+				: {
+						...afterSubmitStack,
+						pending: afterSubmitStack.pending.map((pending) => ({
+							...pending,
+							route: restoreFrame(pending.route),
+						})),
+					},
 	};
 }
 

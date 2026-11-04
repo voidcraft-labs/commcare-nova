@@ -22,6 +22,10 @@ import { literal, term } from "@/lib/domain/expression";
 import type { Platform } from "@/lib/domain/platforms";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { appHomeLanding } from "../afterSubmitRouting";
+import {
+	completeAfterSubmit,
+	EMPTY_AFTER_SUBMIT_STACK,
+} from "../afterSubmitStack";
 import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
@@ -41,6 +45,10 @@ import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import { DataInstance } from "../engine/dataInstance";
 import { buildFieldTree } from "../engine/fieldTree";
 import { FormEngine } from "../engine/formEngine";
+import {
+	type AfterSubmitFrameChoice,
+	evaluateAfterSubmit,
+} from "../engine/formLinkEvaluation";
 import { previewSessionValues } from "../engine/identity";
 import {
 	searchInputConstraintErrors,
@@ -562,6 +570,89 @@ export const PLATFORM_MODEL_CHECKS = {
 
 	"after-submit-home-android": () => {
 		expect(appHomeLanding(ANDROID)).toBe("device-home");
+	},
+
+	/* Web Apps opens the frame on top alone: of two destinations that both
+	 * hold, the author's first opens, and once it is submitted its own
+	 * destination follows, never the second. */
+	"after-submit-top-frame-web-apps": () => {
+		const MENU = testUuid("cell-model-visits");
+		const SOURCE = testUuid("cell-model-source");
+		const FIRST = testUuid("cell-model-first");
+		const SECOND = testUuid("cell-model-second");
+		const doc = buildDoc({
+			appName: "Visits",
+			modules: [
+				{
+					uuid: "cell-model-visits",
+					name: "Visits",
+					forms: [
+						{
+							uuid: "cell-model-source",
+							name: "Source",
+							type: "survey",
+							formLinks: [
+								{
+									uuid: "cell-model-to-first",
+									target: { type: "form", moduleUuid: MENU, formUuid: FIRST },
+								},
+								{
+									uuid: "cell-model-to-second",
+									target: { type: "form", moduleUuid: MENU, formUuid: SECOND },
+								},
+							],
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+						{
+							uuid: "cell-model-first",
+							name: "First",
+							type: "survey",
+							postSubmit: "module",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+						{
+							uuid: "cell-model-second",
+							name: "Second",
+							type: "survey",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+			],
+		});
+		const frames = (formUuid: typeof SOURCE) =>
+			evaluateAfterSubmit({
+				input: {
+					doc,
+					formUuid,
+					session: previewSessionValues(null, webAppsDevice()),
+					usercase: {},
+					sessionDatums: new Map(),
+				},
+			}).map((route) => ({ route, landing: [] }));
+		const pushed = frames(SOURCE);
+		expect(pushed).toHaveLength(2);
+		const opened = completeAfterSubmit<AfterSubmitFrameChoice>(
+			EMPTY_AFTER_SUBMIT_STACK,
+			[],
+			pushed,
+			WEB_APPS.afterSubmitFrames,
+		);
+		expect(opened.next).toMatchObject({
+			kind: "destination",
+			link: { target: { formUuid: FIRST } },
+		});
+		expect(opened.state.pending).toEqual([]);
+		const followed = completeAfterSubmit(
+			opened.state,
+			[],
+			frames(FIRST),
+			WEB_APPS.afterSubmitFrames,
+		);
+		expect(followed.next).toEqual({
+			kind: "post-submit",
+			destination: "module",
+		});
 	},
 
 	/* Web Apps draws every section of a form on one screen. */

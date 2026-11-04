@@ -10,7 +10,11 @@
  * instance on the form's suite entry, where HQ's
  * `suite_xml/post_process/instances.py::location_fixture_instances` chooses
  * its source (`hierarchical_locations` reads it), and `item-list:regions`,
- * which HQ declares on that entry too.
+ * which HQ declares on that entry too. The table link's condition holds the
+ * negation of the place link's, and the form's otherwise is its menu, the
+ * shape `lib/doc/formLinkSemanticsMap.ts::mapFormLinkSemantics` gives the two
+ * links that once ran first-true-wins beside a stored `postSubmit` (L1, L3),
+ * so the form goes where it always went.
  *
  * The levels, the ward and the places are those of the location family's
  * "skipped" fixture (`proof/native/steps/location_emission.py`): a region and
@@ -38,10 +42,12 @@ import {
 } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { type OrganizationLevel, proseText } from "@/lib/domain";
 import {
+	and,
 	count,
 	eq,
 	gt,
 	literal,
+	not,
 	tableColumn,
 	tableLookup,
 	term,
@@ -114,6 +120,11 @@ export function instanceReads() {
 	const followUp = uuid("follow-up");
 	const hidden = (id: string, calculate: Expression) =>
 		f({ kind: "hidden", uuid: uuid(id), id, calculate });
+	const placeCondition = () =>
+		eq(
+			clinic({ kind: "location-field", field: "name" }),
+			term(literal(CLINIC_NAME)),
+		);
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Region visits",
@@ -126,7 +137,6 @@ export function instanceReads() {
 						uuid: form,
 						name: "Region visit",
 						type: "survey",
-						postSubmit: "module",
 						fields: [
 							hidden(
 								"region_name",
@@ -188,10 +198,7 @@ export function instanceReads() {
 						formLinks: [
 							{
 								uuid: uuid("place-link"),
-								condition: eq(
-									clinic({ kind: "location-field", field: "name" }),
-									term(literal(CLINIC_NAME)),
-								),
+								condition: placeCondition(),
 								target: {
 									type: "form",
 									moduleUuid: module,
@@ -200,7 +207,10 @@ export function instanceReads() {
 							},
 							{
 								uuid: uuid("table-link"),
-								condition: gt(count(regionRows), term(literal(0))),
+								condition: and(
+									gt(count(regionRows), term(literal(0))),
+									not(placeCondition()),
+								),
 								target: {
 									type: "form",
 									moduleUuid: module,
@@ -235,6 +245,12 @@ export function instanceReads() {
 		[UNSET]: { uuid: UNSET, slug: "unset", label: "Unset" },
 	};
 	doc.locationPropertyOrder = [WARD, UNSET];
+	const visit = doc.forms[form];
+	if (visit === undefined) throw new Error("No Region visit form.");
+	doc.forms[form] = {
+		...visit,
+		otherwise: { kind: "destination", destination: "module" },
+	};
 
 	const intent: Expectation[] = (["local", "A"] as const).map((exportName) => ({
 		id: `table-and-places-${exportName}`,

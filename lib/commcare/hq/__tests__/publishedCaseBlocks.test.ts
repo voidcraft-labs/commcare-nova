@@ -600,13 +600,16 @@ describe("retained HQ reads", () => {
 			expect(formOf(forms, key)).toEqual(form);
 
 		// HQ-made forms keep HQ's xmlns, an override of the one Nova derives.
-		const hqBuilt = read(retainedRead("hq-built/app-source.json"));
-		expect(
-			formOf(
-				hqBuilt,
-				"http://openrosa.org/formdesigner/CB8763B4-7126-5EC8-AC0B-FB361104F6C4",
-			).blocks.map(plain),
-		).toEqual([
+		const hqBuiltSource = retainedRead("hq-built/app-source.json");
+		const hqBuilt = read(hqBuiltSource);
+		// The registration form, by where the read holds it: its xmlns derives
+		// from the fixture's ids, which move as the corpus grows.
+		const registration = (
+			hqBuiltSource.modules as { forms: { xmlns: string }[] }[]
+		)[0]?.forms[1]?.xmlns;
+		if (registration === undefined)
+			throw new Error("The HQ-built read lost its registration form.");
+		expect(formOf(hqBuilt, registration).blocks.map(plain)).toEqual([
 			{
 				kind: "basic-own",
 				path: "case",

@@ -22,6 +22,7 @@ import type {
 	PreviewCaseChoice,
 	PreviewMenuCaseSelection,
 } from "@/lib/session/types";
+import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemDetailAction } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
@@ -732,11 +733,16 @@ export async function advanceAppTest(
 			break;
 		}
 		case "home":
+			/* Home ends the task, and with it every frame still pending: Android
+			 * resets its session at the phone's home screen
+			 * (`HomeScreenBaseActivity.java::processCanceledGetCommandOrCase` →
+			 * `currentState.reset()`), and Web Apps keeps none. */
 			next = {
 				...state,
 				screen: appTestEntryScreen(state.platform),
 				history: [],
 				selections: {},
+				afterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 			};
 			break;
 		case "sync": {

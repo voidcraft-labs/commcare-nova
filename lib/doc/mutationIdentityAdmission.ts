@@ -71,6 +71,15 @@ function nestedFormIdentities(
 			kind: "formLink" as const,
 			ownerUuid: form.uuid,
 		})),
+		...(form.otherwise?.kind === "link"
+			? [
+					{
+						uuid: form.otherwise.uuid,
+						kind: "formLink" as const,
+						ownerUuid: form.uuid,
+					},
+				]
+			: []),
 	];
 }
 
@@ -191,7 +200,21 @@ interface MutationIdentityClaim {
 	 * mutation gets this exception.
 	 */
 	readonly preserveIfOwnedBy?: Uuid;
+	/**
+	 * A form's link may move between its destinations and its otherwise and
+	 * keep its uuid (`lib/doc/formLinkMutations.ts`'s conversions). Such a
+	 * claim may take back a uuid the same batch removed earlier from the same
+	 * form in one of these roles. No other claim reintroduces a removed
+	 * identity.
+	 */
+	readonly reclaimsRemovedLink?: {
+		readonly formUuid: Uuid;
+		readonly roles: readonly FormLinkRole[];
+	};
 }
+
+/** Where a form's link sits: among its destinations, or as its otherwise. */
+type FormLinkRole = "destination" | "otherwise";
 
 interface OwnedIdentityScope {
 	readonly kind: BlueprintAuthoredIdentityKind;
@@ -347,13 +370,35 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 				},
 			]);
 		case "addFormLink":
-			return createClaims([
+			return [
 				{
-					uuid: mutation.link.uuid,
-					kind: "formLink",
-					ownerUuid: mutation.formUuid,
+					identity: {
+						uuid: mutation.link.uuid,
+						kind: "formLink",
+						ownerUuid: mutation.formUuid,
+					},
+					reclaimsRemovedLink: {
+						formUuid: mutation.formUuid,
+						roles: ["otherwise"],
+					},
 				},
-			]);
+			];
+		case "setFormOtherwise":
+			return mutation.otherwise?.kind === "link"
+				? [
+						{
+							identity: {
+								uuid: mutation.otherwise.uuid,
+								kind: "formLink",
+								ownerUuid: mutation.formUuid,
+							},
+							reclaimsRemovedLink: {
+								formUuid: mutation.formUuid,
+								roles: ["destination", "otherwise"],
+							},
+						},
+					]
+				: [];
 		case "addUserProperty":
 			return createClaims([
 				{ uuid: mutation.property.uuid, kind: "userProperty" },
@@ -463,7 +508,10 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
  * Reject any attempted authored-identity reuse against the current document,
  * an earlier creator in the same batch, or another nested entity in the same
  * payload. Removed identities remain reserved for the batch: delete/recreate
- * is not an identity-preserving edit.
+ * is not an identity-preserving edit. The one exception is a form's link
+ * changing role: a destination the batch removed may come back as the
+ * form's otherwise, and an otherwise the batch removed may come back as
+ * either (`reclaimsRemovedLink`).
  */
 export function mutationIdentityAdmissionIssue(
 	doc: BlueprintDoc,
@@ -475,6 +523,18 @@ export function mutationIdentityAdmissionIssue(
 	}
 	const live = new Map(seen);
 	const removedInBatch = new Set<Uuid>();
+	// Each form's otherwise link, as the batch has left it so far, and the
+	// role and form of every link the batch removed.
+	const otherwiseLinkOf = new Map<Uuid, Uuid>();
+	for (const form of Object.values(doc.forms)) {
+		if (form.otherwise?.kind === "link") {
+			otherwiseLinkOf.set(form.uuid, form.otherwise.uuid);
+		}
+	}
+	const removedLinks = new Map<
+		Uuid,
+		{ readonly formUuid: Uuid; readonly role: FormLinkRole }
+	>();
 	for (const [mutationIndex, mutation] of mutations.entries()) {
 		// Duplicate claims inside one payload are collisions. A later atomic
 		// replacement may still preserve identities continuously owned here.
@@ -501,10 +561,62 @@ export function mutationIdentityAdmissionIssue(
 			) {
 				live.delete(removal.uuid);
 				removedInBatch.add(removal.uuid);
+				if (mutation.kind === "removeFormLink") {
+					removedLinks.set(removal.uuid, {
+						formUuid: mutation.formUuid,
+						role: "destination",
+					});
+				}
 			}
+		}
+		if (mutation.kind === "addForm") {
+			const { otherwise } = mutation.form;
+			if (otherwise?.kind === "link") {
+				otherwiseLinkOf.set(mutation.form.uuid, otherwise.uuid);
+			}
+		}
+		if (mutation.kind === "setFormOtherwise") {
+			const prior = otherwiseLinkOf.get(mutation.formUuid);
+			const next =
+				mutation.otherwise?.kind === "link"
+					? mutation.otherwise.uuid
+					: undefined;
+			// An otherwise that keeps its link's uuid claims nothing new.
+			if (prior !== undefined && prior === next) continue;
+			if (prior !== undefined) {
+				const identity = live.get(prior);
+				if (
+					identity?.kind === "formLink" &&
+					identity.ownerUuid === mutation.formUuid
+				) {
+					live.delete(prior);
+					removedInBatch.add(prior);
+					removedLinks.set(prior, {
+						formUuid: mutation.formUuid,
+						role: "otherwise",
+					});
+				}
+				otherwiseLinkOf.delete(mutation.formUuid);
+			}
+			if (next !== undefined) otherwiseLinkOf.set(mutation.formUuid, next);
 		}
 		for (const claim of identitiesClaimedBy(mutation)) {
 			const { identity } = claim;
+			const removedLink = removedLinks.get(identity.uuid);
+			const reclaimsRemovedLink =
+				claim.reclaimsRemovedLink !== undefined &&
+				removedLink !== undefined &&
+				!live.has(identity.uuid) &&
+				!claimedInMutation.has(identity.uuid) &&
+				removedLink.formUuid === claim.reclaimsRemovedLink.formUuid &&
+				claim.reclaimsRemovedLink.roles.includes(removedLink.role);
+			if (reclaimsRemovedLink) {
+				removedLinks.delete(identity.uuid);
+				claimedInMutation.add(identity.uuid);
+				seen.set(identity.uuid, identity);
+				live.set(identity.uuid, identity);
+				continue;
+			}
 			const existing = seen.get(identity.uuid);
 			const liveExisting = live.get(identity.uuid);
 			const preservesOwnedIdentity =

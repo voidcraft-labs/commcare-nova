@@ -34,6 +34,10 @@ import {
 import { literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import type { Event } from "@/lib/log/types";
+import {
+	type AfterSubmitPathStep,
+	EMPTY_AFTER_SUBMIT_STACK,
+} from "@/lib/preview/afterSubmitStack";
 import { toastStore } from "@/lib/ui/toastStore";
 import { type ConnectSwitchRequest, createBuilderSessionStore } from "../store";
 
@@ -87,6 +91,95 @@ describe("BuilderSession store", () => {
 			expect(store.getState().previewTaskContinuation).toBeUndefined();
 		},
 	);
+	describe("the after-submit stack", () => {
+		/** What a submission on Android leaves: one frame still to run beneath
+		 *  the one that opened. */
+		const pendingStack = (snapshot: readonly AfterSubmitPathStep[]) => ({
+			pending: [
+				{
+					route: {
+						route: {
+							kind: "post-submit" as const,
+							destination: "firstMenu" as const,
+						},
+					},
+					landing: [],
+				},
+			],
+			snapshot,
+		});
+		const landing: readonly AfterSubmitPathStep[] = [
+			{ kind: "menu", moduleUuid: testUuid("stack-module") },
+		];
+
+		it.each([
+			"home",
+			"worker",
+			"platform",
+			"mode-on",
+			"mode-off",
+			"project",
+			"reset",
+			"device-home",
+		] as const)("empties on %s", (boundary) => {
+			const store = createBuilderSessionStore({
+				projectId: "source",
+				role: "editor",
+				canEdit: true,
+			});
+			if (boundary !== "mode-on") store.getState().setPreviewing(true);
+			const stack = pendingStack(landing);
+			store.getState().setPreviewAfterSubmitStack(stack);
+			// A same-Project access refresh keeps the running task.
+			store.getState().applyAccessSnapshot({
+				projectId: "source",
+				role: "editor",
+				canEdit: true,
+			});
+			expect(store.getState().previewAfterSubmitStack).toBe(stack);
+			if (boundary === "home") store.getState().clearPreviewNavigation();
+			else if (boundary === "worker")
+				store.getState().setPreviewPersonaUuid("new-worker");
+			else if (boundary === "platform")
+				store.getState().setPreviewPlatform("android");
+			else if (boundary === "mode-on") store.getState().setPreviewing(true);
+			else if (boundary === "mode-off") store.getState().setPreviewing(false);
+			else if (boundary === "project")
+				store.getState().applyAccessSnapshot({
+					projectId: "destination",
+					role: "editor",
+					canEdit: true,
+				});
+			else if (boundary === "device-home")
+				store.getState().setPreviewAtDeviceHome(true);
+			else store.getState().reset();
+			expect(store.getState().previewAfterSubmitStack).toBe(
+				EMPTY_AFTER_SUBMIT_STACK,
+			);
+		});
+
+		it("keeps what is pending beneath a frame that landed on the app's first screen when Home shows it", () => {
+			// HQ's `root` frame installs no step, so Home leaves the worker on
+			// its path, and the frames beneath it still run.
+			const store = createBuilderSessionStore();
+			store.getState().setPreviewing(true);
+			const stack = pendingStack([]);
+			store.getState().setPreviewAfterSubmitStack(stack);
+			store.getState().clearPreviewNavigation();
+			expect(store.getState().previewAfterSubmitStack).toBe(stack);
+		});
+
+		it("keeps what is pending when Android leaves its home screen", () => {
+			const store = createBuilderSessionStore();
+			store.getState().setPreviewing(true);
+			store.getState().setPreviewAtDeviceHome(true);
+			const stack = pendingStack(landing);
+			store.getState().setPreviewAfterSubmitStack(stack);
+			store.getState().setPreviewAtDeviceHome(false);
+			expect(store.getState().previewAfterSubmitStack).toBe(stack);
+		});
+	});
+
 	it("1. initial state: not previewing, both sidebars open, no stash", () => {
 		const store = createBuilderSessionStore();
 		const s = store.getState();

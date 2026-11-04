@@ -4,30 +4,30 @@ import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/li
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
  *
- * A form's `formLinks` say where the app goes after the form is submitted:
- * the links are checked in order, the first whose condition holds is
- * followed, and `postSubmit` is where it goes when none does. CommCare has
- * no such notion. Its session stack executes EVERY `<create>` whose `if`
- * holds and lands on the LAST one pushed (`commcare-core
- * CommCareSession::executeStackOperations` / `::finishAndPop`), and
- * CommCare HQ emits each link's XPath as that link's raw `if`
- * (`workflow.py::EndOfFormNavigationWorkflow::_get_link_frame`). So "first
- * true wins" is something Nova has to BUILD: every link's guard carries the
- * negation of every conditional link before it, which makes the guards
- * mutually exclusive whatever the runtime does with several true frames.
+ * A form's `formLinks` are its destinations: after the form is submitted
+ * every destination whose emitted condition holds runs, in the author's
+ * order, and `otherwise` is where the form goes when no destination that
+ * may not run runs (`lib/domain/afterSubmit.ts`). CommCare's session stack
+ * pushes EVERY `<create>` whose `if` holds and runs the LAST one pushed
+ * first (`commcare-core CommCareSession::createFrame` / `::finishAndPop`),
+ * and CommCare HQ builds one frame per `form_links[i]` in stored order with
+ * that link's `xpath` as its `if`, then its fallback frame
+ * (`workflow.py::EndOfFormNavigationWorkflow.form_workflow_frames`). So the
+ * destinations are emitted in REVERSE array order: the author's first
+ * destination that holds is the frame on top.
  *
  * This module owns that construction and everything around it that the
  * local suite and the HQ JSON must agree on byte for byte:
  *
- *   - the guard plan (`planFormLinkGuards`): link i's guard is
- *     `(c_i) and not(c_1) and … and not(c_{i-1})` (the first link stays bare
- *     `c_1`, byte-identical to HQ's first frame; later positive operands are
- *     parenthesized so a top-level `or` cannot leak past the conjunction); a
- *     terminal unconditional link is the exhaustive else (`not(c_1) and …`)
- *     and suppresses the fallback frame; the fallback frame, when one is
- *     needed, is guarded by `not(g_1) and … and not(g_n)` over the EMITTED
- *     guards, which is the literal HQ derives (`::_get_fallback_frame`:
- *     `' and '.join(f'not({condition})' …)`) from the `xpath`s Nova sends it;
+ *   - the after-submit projection (`projectAfterSubmit`): a destination's
+ *     `xpath` is its own condition conjoined with one held-case guard per
+ *     carried value on a single-case selection
+ *     (`formLinkCarriedCaseGuards`), so a frame whose case is not on the
+ *     device never opens; an otherwise link's is the negation of every
+ *     non-blank destination `xpath` in emitted order, then its own guards; a
+ *     built-in otherwise is HQ's fallback frame, whose `if` is the literal HQ
+ *     derives (`::_get_fallback_frame`: `' and '.join(f'not({condition})' …)`
+ *     over every non-blank `xpath`) from the `xpath`s Nova sends it;
  *   - the frame children (`targetFrameChildren`): HQ's
  *     `WorkflowHelper.get_frame_children` exactly — module command, the
  *     longest common prefix (by datum id) of every form entry's datum list
@@ -70,10 +70,16 @@ import {
 	datumRefKey,
 	type Expression,
 	type FormLink,
+	type FormLinkDatum,
 	type FormLinkTarget,
+	formLinkEntries,
+	guardedLinkDatums,
 	moduleHasCaseListMenuItem,
 	moduleParent,
+	type OtherwiseDestination,
 	projectedModulePreorder,
+	type ResolvedFormLinkTarget,
+	resolveFormLinkTarget,
 	rootSelectionAlignment,
 	type Uuid,
 } from "@/lib/domain";
@@ -1221,12 +1227,13 @@ export function commonPrefixById(
 /**
  * HQ's `get_frame_children(module, form)` for a form target, or its
  * `_frame_children_for_module(module, include_user_selections=False)` for a
- * module target.
+ * module target. The target is resolved (`resolveFormLinkTarget`), so
+ * `this-form` reads as the source form in its own menu.
  */
 export function targetFrameChildren(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
-	target: FormLinkTarget,
+	target: ResolvedFormLinkTarget,
 ): FrameChild[] {
 	if (target.type === "module") {
 		return moduleFrameChildren(doc, ctx, target.moduleUuid);
@@ -1324,7 +1331,7 @@ export function formFrameChildren(
 export function targetSelectionDatums(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
-	target: FormLinkTarget,
+	target: ResolvedFormLinkTarget,
 ): FrameDatum[] {
 	return targetFrameChildren(doc, ctx, target).flatMap((child) =>
 		child.type === "datum" && child.datum.requiresSelection
@@ -1338,7 +1345,7 @@ export function targetSelectionDatums(
 export function formLinkTargetDatumIds(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
-	target: FormLinkTarget,
+	target: ResolvedFormLinkTarget,
 ): readonly EntryDatumId[] {
 	const selections = targetSelectionDatums(doc, ctx, target).filter(
 		(datum) => datum.query === undefined,
@@ -1826,88 +1833,16 @@ export function parentMenuDestinationFrameChildren(
 	return replaceSessionReferences(pending, new Set());
 }
 
-// ── Guards ───────────────────────────────────────────────────────────────
-
-export interface GuardPlanLink {
-	readonly uuid: Uuid;
-	/** Projected wire XPath, trimmed and non-empty; absent = unconditional. */
-	readonly condition?: WireExpr;
-}
-
-export type FallbackPlan =
-	/** No conditional link exists: a sole unconditional link always fires. */
-	| { readonly kind: "none" }
-	/** A terminal unconditional link is the exhaustive else. */
-	| { readonly kind: "suppressed-by-else" }
-	/** The last link is conditional: the fallback fires when none matched. */
-	| { readonly kind: "guarded"; readonly guard: WireExpr };
-
-export interface GuardPlan {
-	readonly links: ReadonlyArray<{
-		readonly uuid: Uuid;
-		/** The `if` to emit; absent = no `if` attribute. */
-		readonly guard?: WireExpr;
-	}>;
-	readonly fallback: FallbackPlan;
-}
-
-/**
- * Exclusive guards over an ordered link list. Total over any input: an
- * unconditional link that is not last still gets its guard (the validator
- * refuses the document; the projection never throws).
- */
-function formLinkGuard(
-	positive: WireExpr | undefined,
-	excluded: readonly WireExpr[],
-): WireExpr {
-	return w.and(
-		...(positive === undefined ? [] : [positive]),
-		...excluded.map((value) => w.not(value)),
-	);
-}
-
-export function planFormLinkGuards(links: readonly GuardPlanLink[]): GuardPlan {
-	const planned: Array<{ uuid: Uuid; guard?: WireExpr }> = [];
-	const priors: WireExpr[] = [];
-	for (const link of links) {
-		if (link.condition === undefined) {
-			planned.push({
-				uuid: link.uuid,
-				...(priors.length > 0 && {
-					guard: formLinkGuard(undefined, priors),
-				}),
-			});
-			continue;
-		}
-		const guard = formLinkGuard(link.condition, priors);
-		planned.push({ uuid: link.uuid, guard });
-		priors.push(link.condition);
-	}
-	const last = links.at(-1);
-	const fallback: FallbackPlan =
-		priors.length === 0
-			? { kind: "none" }
-			: last?.condition === undefined
-				? { kind: "suppressed-by-else" }
-				: {
-						kind: "guarded",
-						guard: formLinkGuard(
-							undefined,
-							planned.flatMap((link) =>
-								link.guard === undefined ? [] : [link.guard],
-							),
-						),
-					};
-	return { links: planned, fallback };
-}
-
 // ── The whole-form projection ────────────────────────────────────────────
 
 export interface ProjectedFormLink {
 	readonly uuid: Uuid;
+	/** A destination of `formLinks`, or the form's otherwise link. */
+	readonly role: "destination" | "otherwise";
 	/** The suite `<create if>` / HQ `xpath`; absent = unconditional. */
-	readonly guard?: WireExpr;
-	readonly target: FormLinkTarget;
+	readonly xpath?: WireExpr;
+	/** The resolved target: `this-form` is the source form in its menu. */
+	readonly target: ResolvedFormLinkTarget;
 	/** The local frame's children after matching. */
 	readonly children: MatchedChild[];
 	/** The authored manual datums projected to wire XPath (HQ `datums`). */
@@ -1923,15 +1858,30 @@ export interface ProjectedFormLink {
 	readonly unrepresentableQueryDatums?: readonly string[];
 }
 
-export interface ProjectedFormLinks {
+/** HQ's fallback frame (`workflow.py::_get_fallback_frame`): a built-in
+ *  otherwise beside at least one destination whose `xpath` is not blank. */
+export type ProjectedAfterSubmitFallback =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "built-in";
+			readonly destination: OtherwiseDestination;
+			/** `not(x_1) and … and not(x_n)` over every emitted destination
+			 *  `xpath`, in emitted order. */
+			readonly xpath: WireExpr;
+	  };
+
+export interface ProjectedAfterSubmit {
+	/** In emitted order: the destinations in REVERSE array order, then the
+	 *  otherwise link when the otherwise is one. */
 	readonly links: readonly ProjectedFormLink[];
-	readonly fallback: FallbackPlan;
+	readonly fallback: ProjectedAfterSubmitFallback;
 }
 
 /**
- * Whether the projection of `formUuid`'s links is DEFINED: every module it
- * reads sits in the module sequence with a well-formed case type, and
- * `buildFormActions` is defined for every form it reads — the source form,
+ * Whether the projection of `formUuid`'s links is DEFINED: every target
+ * resolves, every module it reads sits in the module sequence with a
+ * well-formed case type, and `buildFormActions` is defined for every form it
+ * reads — the source form,
  * every form of every target module (a form target's frame carries the
  * module's common-prefix datums, which read every form in it), and every
  * structural ancestor form whose datums a child entry inherits. The wire
@@ -1946,18 +1896,19 @@ export interface ProjectedFormLinks {
 export function formLinkActionsBuildable(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	links: readonly FormLink[],
+	links: readonly { readonly target: FormLinkTarget }[],
 ): boolean {
 	const source = doc.moduleOrder.find((uuid) =>
 		(doc.formOrder[uuid] ?? []).includes(formUuid),
 	);
-	return (
-		source !== undefined &&
-		moduleFrameActionsBuildable(doc, [
-			source,
-			...links.map((link) => link.target.moduleUuid),
-		])
-	);
+	if (source === undefined) return false;
+	const targets: Uuid[] = [];
+	for (const link of links) {
+		const target = resolveFormLinkTarget(doc, formUuid, link.target);
+		if (target === undefined) return false;
+		targets.push(target.moduleUuid);
+	}
+	return moduleFrameActionsBuildable(doc, [source, ...targets]);
 }
 
 /** Shared buildability closure for form links and bare module selection. */
@@ -2247,15 +2198,166 @@ function projectManualSearchLink(
 }
 
 /**
- * Project one form's links, or `undefined` when it has none. Pure over the
- * document and the context; the expander (HQ JSON), the compiler (local
- * suite), and the validator (datum rules) all read this one result.
+ * The held-case guards of one link (`lib/domain/afterSubmit.ts::
+ * guardedLinkDatums`): for each carried value that lands on a single-case
+ * selection of the target, in `datums` order,
+ * `count(instance('casedb')/casedb/case[@case_id = V and @case_type = 'T']) > 0`,
+ * where `V` is the same wire tree the frame prints into the datum and `T`
+ * the case type of the selection datum it lands on (no type test when that
+ * datum has none). A frame whose carried case is not on the device then
+ * never opens, so CommCare HQ never receives an update to a case nothing
+ * created. `projected` holds the link's carried values as the projection
+ * printed them, index for index with `link.datums`.
  */
-export function projectFormLinks(
+export function formLinkCarriedCaseGuards(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	sourceFormUuid: Uuid,
+	link: {
+		readonly target: FormLinkTarget;
+		readonly datums?: readonly FormLinkDatum[];
+	},
+	projected: ReadonlyArray<{ readonly name: string; readonly xpath: WireExpr }>,
+): WireExpr[] {
+	const guarded = new Set(
+		guardedLinkDatums(doc, sourceFormUuid, link).map((datum) =>
+			datumRefKey(datum.name),
+		),
+	);
+	if (guarded.size === 0) return [];
+	const target = resolveFormLinkTarget(doc, sourceFormUuid, link.target);
+	if (target === undefined) return [];
+	const caseTypes = new Map(
+		targetSelectionDatums(doc, ctx, target).map((datum) => [
+			datum.id,
+			datum.caseType,
+		]),
+	);
+	return (link.datums ?? []).flatMap((datum, index) => {
+		const value = projected[index];
+		if (!guarded.has(datumRefKey(datum.name)) || value === undefined) return [];
+		const caseType = caseTypes.get(value.name);
+		return [
+			w.gt(
+				w.call("count", [
+					caseById(
+						value.xpath,
+						"casedb",
+						caseType === undefined || caseType === "" ? undefined : caseType,
+					),
+				]),
+				w.num(0),
+			),
+		];
+	});
+}
+
+/** One link of the form as the frame algorithm projects it, before its
+ *  emitted `xpath` is known. */
+function projectFormLinkFrame(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	formUuid: Uuid,
-): ProjectedFormLinks | undefined {
+	link: {
+		readonly uuid: Uuid;
+		readonly target: FormLinkTarget;
+		readonly datums?: readonly FormLinkDatum[];
+	},
+	sourceDatums: readonly FrameDatum[],
+	sourceIds: ReadonlySet<string>,
+): {
+	readonly frame: Omit<ProjectedFormLink, "role" | "xpath" | "uuid">;
+	readonly guards: readonly WireExpr[];
+} {
+	const resolved = resolveFormLinkTarget(doc, formUuid, link.target);
+	if (resolved === undefined)
+		throw new Error(
+			"The after-submit link starts this form again, but the form is in no menu.",
+		);
+	const target = targetFrameChildren(doc, ctx, resolved);
+	const targetDatumId = entryDatumIdResolver(
+		formLinkTargetDatumIds(doc, ctx, resolved),
+	);
+	const datums = (link.datums ?? []).map((datum) => {
+		const name = targetDatumId(datum.name);
+		if (name === undefined)
+			throw new Error("The linked entry does not supply this selected record.");
+		return {
+			name,
+			xpath: projectFormLinkSessionExpression(doc, ctx, formUuid, datum.xpath, {
+				entity: "form",
+				uuid: formUuid,
+				slot: "form_link_datum_xpath",
+				member: { linkUuid: link.uuid, datum: datum.name },
+			}),
+		};
+	});
+	const guards = formLinkCarriedCaseGuards(doc, ctx, formUuid, link, datums);
+	if (link.datums !== undefined) {
+		const manual = projectManualSearchLink(
+			target,
+			datums,
+			sourceDatums,
+			sourceIds,
+		);
+		const { match } = manual;
+		return {
+			guards,
+			frame: {
+				target: resolved,
+				children: match.children,
+				datums: manual.datums,
+				...(manual.unrepresentableQueryDatums.length > 0 && {
+					unrepresentableQueryDatums: manual.unrepresentableQueryDatums,
+				}),
+				unmatched: [],
+				missing: match.missing,
+				unused: match.unused,
+			},
+		};
+	}
+	const match = matchFrameToSource(target, sourceDatums);
+	return {
+		guards,
+		frame: {
+			target: resolved,
+			children: match.children,
+			datums,
+			unmatched: match.unmatched,
+			missing: [],
+			unused: [],
+		},
+	};
+}
+
+/** The conjunction of `parts`, or nothing when there are none: an
+ *  unconditional frame carries no `if`. */
+function conjunction(parts: readonly WireExpr[]): WireExpr | undefined {
+	return parts.length === 0 ? undefined : w.and(...parts);
+}
+
+/**
+ * Project one form's after-submit, or `undefined` when it has no
+ * destinations. Pure over the document and the context; the expander (HQ
+ * JSON), the compiler (local suite), and the validator (datum rules) all
+ * read this one result.
+ *
+ * Every destination whose `xpath` holds is pushed, and the runtime runs the
+ * last pushed first (`commcare-core CommCareSession::finishAndPop`), so the
+ * destinations are emitted in reverse array order and the author's first
+ * destination that holds runs first. A destination's `xpath` is its own
+ * condition, then one held-case guard per guarded carried value. The
+ * otherwise runs when no destination that may not run runs: as a link, its
+ * `xpath` negates every non-blank destination `xpath` in emitted order and
+ * then conjoins its own guards; as a built-in destination, it is HQ's
+ * fallback frame over the same negations (`workflow.py::_get_fallback_frame`),
+ * which HQ builds only when some `xpath` is not blank.
+ */
+export function projectAfterSubmit(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	formUuid: Uuid,
+): ProjectedAfterSubmit | undefined {
 	const form = doc.forms[formUuid];
 	const links = form?.formLinks;
 	if (form === undefined || links === undefined || links.length === 0) {
@@ -2268,84 +2370,86 @@ export function projectFormLinks(
 		);
 	}
 	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
-	const project = (
-		expression: Expression,
-		slot: FormExpressionSlotRef,
-	): WireExpr =>
-		projectFormLinkSessionExpression(doc, ctx, formUuid, expression, slot);
-	const guards = planFormLinkGuards(
-		links.map((link) => ({
-			uuid: link.uuid,
-			...(link.condition === undefined
-				? {}
-				: {
-						condition: project(link.condition, {
-							entity: "form",
-							uuid: formUuid,
-							slot: "form_link_condition",
-							member: { linkUuid: link.uuid },
-						}),
-					}),
-		})),
-	);
 	const sourceIds = new Set(sourceDatums.map((datum) => datum.id));
-	const projected = links.map((link, index): ProjectedFormLink => {
-		const target = targetFrameChildren(doc, ctx, link.target);
-		const guard = guards.links[index]?.guard;
-		const targetDatumId = entryDatumIdResolver(
-			formLinkTargetDatumIds(doc, ctx, link.target),
+	const destinations: ProjectedFormLink[] = [];
+	let otherwiseLink:
+		| {
+				readonly uuid: Uuid;
+				readonly projected: ReturnType<typeof projectFormLinkFrame>;
+		  }
+		| undefined;
+	for (const entry of formLinkEntries(form)) {
+		const projected = projectFormLinkFrame(
+			doc,
+			ctx,
+			formUuid,
+			entry.link,
+			sourceDatums,
+			sourceIds,
 		);
-		const datums = (link.datums ?? []).map((datum) => {
-			const name = targetDatumId(datum.name);
-			if (name === undefined)
-				throw new Error(
-					"The linked entry does not supply this selected record.",
-				);
-			return {
-				name,
-				xpath: project(datum.xpath, {
-					entity: "form",
-					uuid: formUuid,
-					slot: "form_link_datum_xpath",
-					member: { linkUuid: link.uuid, datum: datum.name },
-				}),
-			};
-		});
-		if (link.datums !== undefined) {
-			const manual = projectManualSearchLink(
-				target,
-				datums,
-				sourceDatums,
-				sourceIds,
-			);
-			const { match } = manual;
-			return {
-				uuid: link.uuid,
-				...(guard !== undefined && { guard }),
-				target: link.target,
-				children: match.children,
-				datums: manual.datums,
-				...(manual.unrepresentableQueryDatums.length > 0 && {
-					unrepresentableQueryDatums: manual.unrepresentableQueryDatums,
-				}),
-				unmatched: [],
-				missing: match.missing,
-				unused: match.unused,
-			};
+		if (entry.role === "otherwise") {
+			otherwiseLink = { uuid: entry.link.uuid, projected };
+			continue;
 		}
-		const match = matchFrameToSource(target, sourceDatums);
+		const condition =
+			entry.link.condition === undefined
+				? []
+				: [
+						projectFormLinkSessionExpression(
+							doc,
+							ctx,
+							formUuid,
+							entry.link.condition,
+							{
+								entity: "form",
+								uuid: formUuid,
+								slot: "form_link_condition",
+								member: { linkUuid: entry.link.uuid },
+							},
+						),
+					];
+		const xpath = conjunction([...condition, ...projected.guards]);
+		destinations.push({
+			uuid: entry.link.uuid,
+			role: "destination",
+			...(xpath !== undefined && { xpath }),
+			...projected.frame,
+		});
+	}
+	const emitted = destinations.reverse();
+	const negations = emitted.flatMap((link) =>
+		link.xpath === undefined ? [] : [w.not(link.xpath)],
+	);
+	if (otherwiseLink !== undefined) {
+		const xpath = conjunction([
+			...negations,
+			...otherwiseLink.projected.guards,
+		]);
 		return {
-			uuid: link.uuid,
-			...(guard !== undefined && { guard }),
-			target: link.target,
-			children: match.children,
-			datums,
-			unmatched: match.unmatched,
-			missing: [],
-			unused: [],
+			links: [
+				...emitted,
+				{
+					uuid: otherwiseLink.uuid,
+					role: "otherwise",
+					...(xpath !== undefined && { xpath }),
+					...otherwiseLink.projected.frame,
+				},
+			],
+			fallback: { kind: "none" },
 		};
-	});
-	return { links: projected, fallback: guards.fallback };
+	}
+	const otherwise = form.otherwise;
+	return {
+		links: emitted,
+		fallback:
+			otherwise?.kind === "destination" && negations.length > 0
+				? {
+						kind: "built-in",
+						destination: otherwise.destination,
+						xpath: w.and(...negations),
+					}
+				: { kind: "none" },
+	};
 }
 
 // ── Creates a link carries ───────────────────────────────────────────────

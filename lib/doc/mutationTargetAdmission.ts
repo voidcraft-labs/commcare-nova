@@ -542,6 +542,9 @@ export function mutationTargetsInvalid(
 				if (formLinkOwners.get(m.uuid) !== m.formUuid) return true;
 				formLinkOwners.delete(m.uuid);
 				break;
+			case "setFormOtherwise":
+				if (!forms.has(m.formUuid)) return true;
+				break;
 			case "moveForm":
 				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
 				formOwners.set(m.uuid, m.toModuleUuid);

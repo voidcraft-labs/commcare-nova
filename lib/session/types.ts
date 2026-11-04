@@ -13,12 +13,23 @@
 
 import type { Uuid } from "@/lib/doc/types";
 import type { MediaKind } from "@/lib/domain/multimedia";
+import type { PreviewAfterSubmitFrame } from "@/lib/preview/afterSubmitRouting";
+import type { AfterSubmitStackState } from "@/lib/preview/afterSubmitStack";
 import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
 import type { SearchCsqlRuntimeWire } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import type { Location } from "@/lib/routing/types";
 
 // ── Interaction primitives ───────────────────────────────────────────────
+
+/**
+ * The after-submit frames still to run in the running app
+ * (`lib/preview/afterSubmitStack.ts`): on Android the destinations beneath
+ * the one that opened, which run each after the one above it finishes; on
+ * Web Apps never any, since Formplayer opens the frame on top alone.
+ */
+export type PreviewAfterSubmitStack =
+	AfterSubmitStackState<PreviewAfterSubmitFrame>;
 
 /**
  * Visibility + stash state for one sidebar column. `open` is current

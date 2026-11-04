@@ -26,7 +26,8 @@
  *   - Missing UUID → no mutations, "does not exist, no change" message.
  *   - Child menus remain → `{ error }` naming them and the move/remove repair.
  *   - Retirement blocked → `{ error }` naming the references.
- *   - After-submit links from other modules' forms point into it →
+ *   - After-submit links from other modules' forms point into it, a
+ *     destination or an otherwise link →
  *     `{ error }` naming each link and the repair
  *     (`lib/doc/formLinkDependents.ts`).
  *   - Success → human-readable "Successfully removed" summary tagged
@@ -121,9 +122,10 @@ export const removeModuleTool = {
 				};
 			}
 
-			/* After-submit links from forms OUTSIDE this module that point at
-			 * it (or at one of its forms) would dangle; the shared planner
-			 * refuses naming each link and the repair
+			/* After-submit links (destinations and otherwise links) from forms
+			 * OUTSIDE this module that point at it (or at one of its forms)
+			 * would dangle; the shared planner refuses naming each link and
+			 * the repair
 			 * (`lib/doc/formLinkDependents.ts`), as the builder's remove flow
 			 * does. Links on the module's own forms leave with them. */
 			const dependents = planFormLinkDependentsOnRemove(doc, {

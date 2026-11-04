@@ -46,10 +46,14 @@ import { CASE_TYPE_PATTERN, type Expression } from "./expression/types";
 import { walkExpressionTerms } from "./expression/walk";
 import { isCaptureField, isContainer } from "./fields";
 import {
+	type ResolvedFormLinkTarget,
+	resolveFormLinkTarget,
+} from "./formLinkTargets";
+import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	caseOperationRunsPerSelectedCase,
-	type FormLinkTarget,
+	formLinkEntries,
 	orderedCaseOperations,
 } from "./forms";
 import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
@@ -464,7 +468,7 @@ function frameSelections(
  */
 function targetSelections(
 	doc: BlueprintDoc,
-	target: FormLinkTarget,
+	target: ResolvedFormLinkTarget,
 ): FrameSelection[] {
 	const ancestors: Uuid[] = [];
 	const seen = new Set<Uuid>([target.moduleUuid]);
@@ -499,7 +503,7 @@ function targetSelections(
 
 function linkTargetResolves(
 	doc: BlueprintDoc,
-	target: FormLinkTarget,
+	target: ResolvedFormLinkTarget,
 ): boolean {
 	if (!projectedModulePreorder(doc).includes(target.moduleUuid)) return false;
 	return (
@@ -511,7 +515,8 @@ function linkTargetResolves(
 const carried = new WeakMap<BlueprintDoc, Map<Uuid, ReadonlyMap<Uuid, Uuid>>>();
 
 /**
- * The creates of `formUuid` that its after-submit links carry into a target,
+ * The creates of `formUuid` that its after-submit links (its destinations
+ * and its otherwise link, `forms.ts::formLinkEntries`) carry into a target,
  * each with the first link that carries it, in candidate order
  * (`lib/commcare/formLinkProjection.ts::carriedCreateLinks`):
  *
@@ -548,7 +553,16 @@ function computeCarriedCreates(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): ReadonlyMap<Uuid, Uuid> {
-	const links = doc.forms[formUuid]?.formLinks ?? [];
+	const form = doc.forms[formUuid];
+	const links =
+		form === undefined
+			? []
+			: formLinkEntries(form).map(({ link }) => ({
+					uuid: link.uuid,
+					condition: "condition" in link ? link.condition : undefined,
+					datums: link.datums,
+					target: resolveFormLinkTarget(doc, formUuid, link.target),
+				}));
 	if (links.length === 0) return new Map();
 	const moduleUuid = projectedModulePreorder(doc).find((uuid) =>
 		(doc.formOrder[uuid] ?? []).includes(formUuid),
@@ -575,9 +589,14 @@ function computeCarriedCreates(
 		if (!carriedBy.has(operationUuid)) carriedBy.set(operationUuid, linkUuid);
 	};
 	for (const link of links) {
-		if (link.datums === undefined && linkTargetResolves(doc, link.target)) {
+		const target = link.target;
+		if (
+			link.datums === undefined &&
+			target !== undefined &&
+			linkTargetResolves(doc, target)
+		) {
 			let unused = [...source];
-			for (const datum of targetSelections(doc, link.target)) {
+			for (const datum of targetSelections(doc, target)) {
 				const match = unused.find(
 					(candidate) =>
 						candidate.caseType !== undefined &&

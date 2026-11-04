@@ -2,27 +2,20 @@
 //
 // Where the person goes after this form is submitted.
 //
-// An ordered list: every link, in the order the runtime checks them, each
-// one a sentence, and a terminal row that says what happens when none of
-// them match. The terminal row is not a link in the list's sense: it is
-// always last and never draggable, because its position is its meaning.
-//
-// Two gestures reorder the conditional links, and they read ONE map to
-// stay honest with each other. `formLinkMoveVerdicts` answers the move
-// planner's question for every destination at once
-// (`lib/doc/formLinkReview.ts`): dragging feeds it to `canDropAtIndex`, so
-// a refused destination never opens; a keyboard move asks the same map
-// BEFORE committing, and a refusal is SPOKEN rather than the key silently
-// doing nothing. The conditional links are always a prefix of the form's
-// link list (the otherwise link, when one exists, is last), so the
-// reorderable indices ARE the planner's indices.
+// An ordered list of destinations, each one a sentence, in the order they
+// run: every destination whose condition holds runs, on Android each after
+// the one before it finishes, in Web Apps only the first (the
+// `after-submit-several-destinations` note row says so under the list). Any
+// destination may sit at any position, so every row drags anywhere and the
+// keyboard moves it the same way; nothing is disabled for leading back to
+// this form. The last row is the Otherwise, shown while the form may hold
+// one or holds one: it is fixed, because it is not a position in the order.
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
-import tablerCircleX from "@iconify-icons/tabler/circle-x";
 import {
 	useCallback,
 	useEffect,
@@ -36,29 +29,37 @@ import {
 	planKeyboardReorder,
 	type ReorderKey,
 } from "@/components/builder/shared/keyboardReorderPlan";
+import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
 import { Button } from "@/components/shadcn/button";
-import type { FormLinkMoveVerdict } from "@/lib/doc/formLinkReview";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
 import type { Uuid } from "@/lib/doc/types";
 import type { FormLink, FormLinkTarget } from "@/lib/domain";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { AddLinkControl, type LinkKind } from "./AddLinkControl";
-import { pinsFallbackSentence } from "./afterSubmitCopy";
+import { showCommitReportToast } from "./afterSubmitCopy";
 import { requestConditionEditorOpen } from "./conditionEditorHint";
-import type { ChooserOutcome } from "./FallbackChooser";
 import { FormLinkRow } from "./FormLinkRow";
 import { linkSentence } from "./linkSentence";
+import type { ChooserOutcome } from "./OtherwiseChooser";
 import { OtherwiseRow } from "./OtherwiseRow";
-import { moveRefusal, moveRefusalReason } from "./refusalCopy";
-import { seedConditionalLink, seedOtherwiseLink } from "./seeds";
+import { seedConditionalLink, seedEveryTimeLink, seedTarget } from "./seeds";
 import { useLinkSentenceContext } from "./useLinkSentenceContext";
 
 const CONTAINER_KIND = "form-links";
+
+/** The list's platform note: Web Apps opens only the first destination. */
+const SEVERAL_DESTINATIONS_NOTE: readonly PlatformFeatureId[] = [
+	"after-submit-several-destinations",
+];
+
+/** Every position is open to every destination: no move is ever refused. */
+const NO_MOVE_REFUSAL = () => undefined;
 
 export function FormLinksCanvas({
 	moduleUuid,
@@ -76,6 +77,7 @@ export function FormLinksCanvas({
 	const [announcement, setAnnouncement] = useState("");
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const [addOpen, setAddOpen] = useState(false);
+	const [otherwiseOpen, setOtherwiseOpen] = useState(false);
 
 	/* Route-change focus entry: the heading names the screen the author just
 	 * arrived on, and Back stays one Shift+Tab away in DOM order. */
@@ -84,44 +86,25 @@ export function FormLinksCanvas({
 	}, []);
 
 	const plan = view.plan;
-	/* The conditional links are the reorderable prefix; the otherwise link
-	 * (when one exists) is last and rendered by `OtherwiseRow`. */
-	const reorderable = useMemo<readonly FormLink[]>(() => {
-		if (plan === undefined) return [];
-		return plan.elseLink === undefined ? plan.links : plan.links.slice(0, -1);
-	}, [plan]);
+	const destinations = useMemo<readonly FormLink[]>(
+		() => plan?.destinations ?? [],
+		[plan],
+	);
 	const order = useMemo(
-		() => reorderable.map((link) => link.uuid),
-		[reorderable],
+		() => destinations.map((link) => link.uuid),
+		[destinations],
 	);
 	const leadOf = useCallback(
 		(link: FormLink) => linkSentence(link, sentenceContext).lead,
 		[sentenceContext],
 	);
 
-	/* The dragged row's verdict map, captured the moment its handle is
-	 * grabbed: before any pointer move can ask about a destination. */
-	const dragVerdictsRef = useRef<ReadonlyMap<
-		number,
-		FormLinkMoveVerdict
-	> | null>(null);
-
 	const commitMove = useCallback(
 		(link: FormLink, toIndex: number) => {
-			// Ask the planner FIRST, against the live document. The drag gate and
-			// the keyboard both route here, so a refusal can never arrive over an
-			// edit that already looked like it happened.
-			const verdict = view.moveVerdicts(link.uuid).get(toIndex);
-			if (verdict !== undefined && !verdict.ok) {
-				setRefusal(
-					`${leadOf(link)} did not move. ${moveRefusalReason(verdict)}`,
-				);
-				return undefined;
-			}
 			const outcome = view.move(link.uuid, toIndex);
 			if (outcome === undefined) {
 				setRefusal(
-					"This link could not move just now, because the list changed while you were moving it. Try again.",
+					"This destination could not move just now, because the list changed while you were moving it. Try again.",
 				);
 				return undefined;
 			}
@@ -132,39 +115,28 @@ export function FormLinksCanvas({
 			setRefusal(undefined);
 			return outcome;
 		},
-		[view, leadOf],
+		[view],
 	);
 
 	const { pendingDrop } = useReorderableList<FormLink>({
 		containerKey,
 		containerKind: CONTAINER_KIND,
-		items: reorderable,
+		items: destinations,
 		itemKeys: order,
-		canDropAtIndex: useCallback(
-			(toIndex: number) => dragVerdictsRef.current?.get(toIndex)?.ok !== false,
-			[],
-		),
 		onReorder: (_next, move) => {
 			if (!canEdit) return;
 			const moved = commitMove(move.item, move.toIndex);
 			if (moved !== undefined) {
 				setAnnouncement(
-					`${leadOf(move.item)} moved, now checked ${moved.index + 1} of ${reorderable.length}.`,
+					`${leadOf(move.item)} moved, now runs ${moved.index + 1} of ${moved.total}.`,
 				);
 			}
 		},
 	});
 
-	/* The reason travels WITH the insertion rule, not only below the list. */
-	const dropRefusal =
-		pendingDrop?.refused === true
-			? (moveRefusal(dragVerdictsRef.current?.get(pendingDrop.toIndex)) ??
-				"That position is not available.")
-			: undefined;
-
 	const moveByKeyboard = (index: number, key: ReorderKey) => {
 		if (!canEdit) return;
-		const link = reorderable[index];
+		const link = destinations[index];
 		if (link === undefined) return;
 		const outcome = planKeyboardReorder({
 			order,
@@ -172,24 +144,16 @@ export function FormLinksCanvas({
 			key,
 			verdicts: view.moveVerdicts(link.uuid),
 			name: leadOf(link),
-			refusalOf: moveRefusal,
+			refusalOf: NO_MOVE_REFUSAL,
 		});
 		if (outcome === undefined) return;
 		if (outcome.kind === "move") {
 			const moved = commitMove(link, outcome.toIndex);
 			if (moved !== undefined) {
 				setAnnouncement(
-					`${leadOf(link)} moved, now checked ${moved.index + 1} of ${reorderable.length}.`,
+					`${leadOf(link)} moved, now runs ${moved.index + 1} of ${moved.total}.`,
 				);
-				setRefusal(undefined);
 			}
-			return;
-		}
-		if (outcome.kind === "refused") {
-			// The refusal is the alert; the polite region stays quiet so the
-			// author hears one sentence, not two.
-			setRefusal(outcome.announcement);
-			setAnnouncement("");
 			return;
 		}
 		setAnnouncement(outcome.announcement);
@@ -198,28 +162,23 @@ export function FormLinksCanvas({
 
 	const add = (kind: LinkKind, target: FormLinkTarget) => {
 		setAddOpen(false);
-		const seed = {
-			target,
-			carry: view.carryVerdict(target),
-			required: view.requiredDatums(target),
-		};
+		const seed = seedTarget(view, target);
 		const link =
 			kind === "conditional"
 				? seedConditionalLink(seed)
-				: seedOtherwiseLink(seed);
+				: seedEveryTimeLink(seed);
 		const outcome = view.add(link);
 		if (!outcome.ok) {
 			setRefusal(outcome.messages.join(" "));
 			return;
 		}
 		setRefusal(undefined);
-		const pinned = outcome.pinsFallback;
 		setAnnouncement(
-			[
-				kind === "conditional" ? "Added a link." : "Added the otherwise link.",
-				...(pinned !== undefined ? [pinsFallbackSentence(pinned)] : []),
-			].join(" "),
+			kind === "conditional"
+				? "Added a destination with a condition."
+				: "Added a destination that runs every time.",
 		);
+		showCommitReportToast(outcome);
 		if (kind === "conditional") requestConditionEditorOpen(link.uuid);
 		navigate.openFormLinks(moduleUuid, formUuid, link.uuid);
 	};
@@ -232,6 +191,14 @@ export function FormLinksCanvas({
 			setRefusal(outcome.message);
 		}
 	};
+
+	/* The Otherwise shows while the form may hold one or holds one; a form
+	 * without destinations shows its after-submit in the same row. */
+	const showsOtherwise =
+		plan !== undefined &&
+		(plan.postSubmit !== undefined ||
+			plan.otherwiseOffered ||
+			plan.otherwise !== undefined);
 
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-6">
@@ -254,9 +221,9 @@ export function FormLinksCanvas({
 					After submit
 				</h1>
 				<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-					Where the person goes once this form is submitted. Links are checked
-					from the top, and the first one whose condition is true is followed.
-					The last row says what happens when none of them match.
+					Where the person goes once this form is submitted. Every destination
+					whose condition is true runs, in the order below. Drag a destination
+					to change when it runs.
 				</p>
 			</header>
 
@@ -290,17 +257,29 @@ export function FormLinksCanvas({
 				</p>
 			) : (
 				<>
-					{reorderable.length === 0 && (
+					{destinations.length === 0 ? (
 						<p className="mb-4 rounded-2xl border border-dashed border-white/[0.08] px-4 py-6 text-[14px] leading-relaxed text-nova-text-muted">
-							This form has no links yet. Add one to send the person somewhere
-							when a condition is true.
+							This form has no destinations yet. Add one to send the person
+							somewhere after submit, every time or when a condition is true.
 						</p>
+					) : (
+						<h2
+							id={`${containerKey}-heading`}
+							className="mb-3 font-display text-[17px] font-semibold tracking-tighter text-nova-text"
+						>
+							After this form, these run in order
+						</h2>
 					)}
 					<ol
-						aria-label="Links in the order they are checked"
+						aria-labelledby={
+							destinations.length === 0 ? undefined : `${containerKey}-heading`
+						}
+						aria-label={
+							destinations.length === 0 ? "After this form" : undefined
+						}
 						className="mb-4 list-none space-y-2 p-0"
 					>
-						{reorderable.map((link, index) => (
+						{destinations.map((link, index) => (
 							<li key={link.uuid}>
 								<ReorderableRow
 									index={index}
@@ -327,39 +306,17 @@ export function FormLinksCanvas({
 														bottom: closestEdge === "bottom" ? -5 : undefined,
 													}}
 												>
-													{dropRefusal === undefined ? (
-														<span className="block h-0.5 rounded-full bg-nova-violet" />
-													) : (
-														<span className="flex items-center gap-2">
-															<span className="h-0 flex-1 border-t-2 border-dashed border-nova-rose" />
-															<span className="flex max-w-sm items-start gap-1.5 rounded-lg border border-nova-rose/30 bg-nova-void px-2 py-1 text-xs leading-relaxed text-nova-text-secondary shadow-lg">
-																<Icon
-																	icon={tablerCircleX}
-																	width="14"
-																	height="14"
-																	className="mt-0.5 shrink-0 text-nova-rose"
-																/>
-																<span className="min-w-0 break-words">
-																	{dropRefusal}
-																</span>
-															</span>
-														</span>
-													)}
+													<span className="block h-0.5 rounded-full bg-nova-violet" />
 												</div>
 											)}
 											<FormLinkRow
 												link={link}
 												sentence={linkSentence(link, sentenceContext)}
 												position={index + 1}
-												total={reorderable.length}
+												total={destinations.length}
 												canEdit={canEdit}
 												beingMoved={beingMoved}
 												setHandleEl={setHandleEl}
-												onGrab={() => {
-													dragVerdictsRef.current = view.moveVerdicts(
-														link.uuid,
-													);
-												}}
 												onMove={(key) => moveByKeyboard(index, key)}
 												onSelect={() =>
 													navigate.openFormLinks(
@@ -375,22 +332,30 @@ export function FormLinksCanvas({
 								</ReorderableRow>
 							</li>
 						))}
-						<li>
-							<OtherwiseRow
-								moduleUuid={moduleUuid}
-								formUuid={formUuid}
-								plan={plan}
-								sentenceContext={sentenceContext}
-								canEdit={canEdit}
-								onOutcome={onChooserOutcome}
-							/>
-						</li>
+						{showsOtherwise && (
+							<li>
+								<OtherwiseRow
+									moduleUuid={moduleUuid}
+									formUuid={formUuid}
+									plan={plan}
+									sentenceContext={sentenceContext}
+									canEdit={canEdit}
+									onOutcome={onChooserOutcome}
+									chooserOpen={otherwiseOpen}
+									onChooserOpenChange={setOtherwiseOpen}
+								/>
+							</li>
+						)}
 					</ol>
 
-					{dropRefusal !== undefined && (
-						<p className="mb-4 text-[13px] leading-relaxed text-nova-rose">
-							{dropRefusal}
-						</p>
+					{/* In Web Apps only the first destination that applies opens; the
+					 *  note says so, for the platforms the app runs on, once there
+					 *  is more than one. */}
+					{destinations.length >= 2 && (
+						<PlatformNoteRow
+							features={SEVERAL_DESTINATIONS_NOTE}
+							className="mb-4"
+						/>
 					)}
 
 					{canEdit && (
@@ -400,6 +365,7 @@ export function FormLinksCanvas({
 							open={addOpen}
 							onOpenChange={setAddOpen}
 							onAdd={add}
+							onChooseOtherwise={() => setOtherwiseOpen(true)}
 						/>
 					)}
 				</>

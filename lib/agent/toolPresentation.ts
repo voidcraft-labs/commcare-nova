@@ -196,6 +196,10 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Removed after-submit link",
 	),
 	moveFormLink: change("Moving after-submit link", "Moved after-submit link"),
+	setFormOtherwise: change(
+		"Setting where the form goes otherwise",
+		"Set where the form goes otherwise",
+	),
 	addCaseListColumns: change("Adding columns", "Added columns"),
 	configureCaseList: change(
 		"Configuring the case list",

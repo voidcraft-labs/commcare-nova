@@ -12,10 +12,11 @@
  * CommCare Core defines three stack-operation kinds — `<create>`,
  * `<push>`, `<clear>`. All three are typed for completeness; only
  * `<create>` is emitted. Simple post-submit destinations produce one
- * unconditional `<create>`; form-link-enabled forms produce one
- * `<create if="...">` per link plus a fallback `<create if="not(c1) and
- * not(c2)...">` that runs the `postSubmit` destination when no link
- * condition matches.
+ * unconditional `<create>`; a form with destinations produces one
+ * `<create if="...">` per destination, in reverse author order, then the
+ * otherwise: a built-in otherwise's `<create if="not(x1) and not(x2)...">`
+ * or the otherwise link's own `<create>`, which runs when no destination
+ * that may not run holds.
  *
  * `<entry>` and `<stack>` are CONSTRUCTED as `domhandler` element trees
  * (`buildEntryElement`, `buildStackElement`) and serialized once by the
@@ -42,7 +43,7 @@ import type {
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import type { ModuleExpressionContexts } from "./expressionContext";
-import type { MatchedChild, ProjectedFormLinks } from "./formLinkProjection";
+import type { MatchedChild, ProjectedAfterSubmit } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
 import type { LookupWireNaming } from "./lookup/naming";
 import {
@@ -238,9 +239,9 @@ export interface EntryPost {
 //   5. If a rewind occurs during <create>/<push>, remaining ops are SKIPPED.
 //   6. Multiple <create> ops that all match ALL execute (not mutually exclusive).
 //      They're popped in LIFO order during session resolution — which is why
-//      Nova's after-submit links never share a true `if`: the projection at
-//      `formLinkProjection.ts` gives each link an exclusive guard, so "the
-//      first true link wins" holds by construction rather than by runtime.
+//      `formLinkProjection.ts::projectAfterSubmit` emits a form's
+//      destinations in reverse author order: every destination that holds
+//      runs, the author's first one first.
 //
 // Key difference between no <stack> and empty <create/>:
 //   - No <stack>: form frame is popped, user returns to previous level
@@ -1017,25 +1018,26 @@ export function derivePostSubmitStack(
 }
 
 /**
- * Derive stack operations for a form that carries after-submit links.
+ * Derive stack operations for a form that carries after-submit destinations.
  *
- * One `<create>` per link, guarded by the projection's EXCLUSIVE guard
- * (`formLinkProjection.ts::planFormLinkGuards`), so exactly one frame fires
- * whatever the runtime does with several true `if`s: the first true link
- * wins by construction. Each frame's children are the target's frame
- * children after datum matching (HQ's `get_frame_children` +
- * `_get_datums_matched_to_source` / `…_to_manual_values`).
+ * One `<create>` per projected link, in the projection's emitted order
+ * (`formLinkProjection.ts::projectAfterSubmit`: the destinations reversed,
+ * then the otherwise link), each with the link's `xpath` as its `if`. Core
+ * pushes every frame whose `if` holds and runs the last pushed first, so the
+ * author's first destination that holds runs first. Each frame's children
+ * are the target's frame children after datum matching (HQ's
+ * `get_frame_children` + `_get_datums_matched_to_source` /
+ * `…_to_manual_values`).
  *
- * The fallback frame is appended only when the projection says the last
- * link is conditional (`fallback.kind === "guarded"`): its `if` is the
- * conjunction of the negated emitted guards, byte for byte what HQ derives
- * from the `xpath`s Nova sends it, and its body is the `postSubmit`
- * destination's frame. A terminal unconditional link is the exhaustive else
- * and suppresses it; `app_home` emits no frame (HQ `default`).
+ * A built-in otherwise appends HQ's fallback frame
+ * (`workflow.py::_get_fallback_frame`): the static frame of its destination
+ * (`_get_static_stack_frame`, the same derivation as a plain `postSubmit`)
+ * with the projection's fallback `xpath` as its `if`, byte for byte what HQ
+ * derives from the `xpath`s Nova sends it. A childless `previous` or
+ * `parentMenu` frame emits nothing, as HQ drops it.
  */
 export function deriveFormLinkStack(
-	projected: ProjectedFormLinks,
-	fallback: PostSubmitDestination,
+	projected: ProjectedAfterSubmit,
 	sourceModuleIndex: number,
 	previousFrame: readonly MatchedChild[],
 	moduleFrame?: readonly MatchedChild[],
@@ -1043,19 +1045,19 @@ export function deriveFormLinkStack(
 ): StackOperation[] {
 	const ops: StackOperation[] = projected.links.map((link) => ({
 		op: "create",
-		...(link.guard !== undefined && { ifClause: link.guard }),
+		...(link.xpath !== undefined && { ifClause: link.xpath }),
 		children: link.children.map(toStackChild),
 	}));
-	if (projected.fallback.kind === "guarded") {
-		const guard = projected.fallback.guard;
+	const { fallback } = projected;
+	if (fallback.kind === "built-in") {
 		for (const op of derivePostSubmitStack(
-			fallback,
+			fallback.destination,
 			sourceModuleIndex,
 			previousFrame,
 			moduleFrame,
 			parentFrame,
 		)) {
-			ops.push({ ...op, ifClause: guard });
+			ops.push({ ...op, ifClause: fallback.xpath });
 		}
 	}
 	return ops;
@@ -1075,16 +1077,17 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formIndex: number;
 	readonly postSubmit: PostSubmitDestination;
 	/**
-	 * The form's projected after-submit links (`formLinkProjection.ts::
-	 * projectFormLinks`). Present, the stack is one exclusive `<create>` per
-	 * link plus the fallback frame the projection calls for; absent, the
-	 * stack is the simple `postSubmit` derivation.
+	 * The form's projected after-submit (`formLinkProjection.ts::
+	 * projectAfterSubmit`). Present, the stack is one `<create>` per
+	 * projected link plus the fallback frame of a built-in otherwise, and
+	 * `postSubmit` is not read; absent, the stack is the simple `postSubmit`
+	 * derivation.
 	 */
-	readonly formLinks?: ProjectedFormLinks;
+	readonly formLinks?: ProjectedAfterSubmit;
 	/**
 	 * The source entry's `previous` frame (`formLinkProjection.ts::
-	 * previousFrameChildren`), read whenever `postSubmit` (or the links'
-	 * fallback) is `previous`. Omitted, a `previous` destination emits no
+	 * previousFrameChildren`), read whenever `postSubmit` (or a built-in
+	 * otherwise) is `previous`. Omitted, a `previous` destination emits no
 	 * frame: the caller that wants HQ's `previous_screen` bytes derives it.
 	 */
 	readonly previousFrame?: readonly MatchedChild[];
@@ -1092,7 +1095,7 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly moduleFrame?: readonly MatchedChild[];
 	/**
 	 * The parent module's frame with its selections, read whenever
-	 * `postSubmit` (or the links' fallback) is `parentMenu`. Omitted, a
+	 * `postSubmit` (or a built-in otherwise) is `parentMenu`. Omitted, a
 	 * `parentMenu` destination emits no frame.
 	 */
 	readonly parentFrame?: readonly MatchedChild[];
@@ -1139,16 +1142,15 @@ export function deriveEntryDefinition(
 		projectedSessionDatums === undefined
 			? deriveSessionDatums(args)
 			: [...projectedSessionDatums];
-	// The stack: one exclusive `<create>` per link plus the projection's
-	// fallback when the form carries links, else the simple `postSubmit`
-	// frame. `app_home` (HQ `default`) contributes no frame either way, so a
-	// form with no links and `app_home` emits no `<stack>` at all — CommCare
-	// pops the form frame and lands home.
+	// The stack: one `<create>` per projected link plus the fallback frame
+	// of a built-in otherwise when the form carries destinations, else the
+	// simple `postSubmit` frame. `app_home` (HQ `default`) and an absent
+	// otherwise contribute no frame, so a form with no links and `app_home`
+	// emits no `<stack>` at all — CommCare pops the form frame and lands home.
 	const operations: StackOperation[] = [
 		...(formLinks !== undefined
 			? deriveFormLinkStack(
 					formLinks,
-					postSubmit,
 					moduleIndex,
 					previousFrame,
 					moduleFrame,
