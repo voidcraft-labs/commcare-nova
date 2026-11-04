@@ -86,10 +86,8 @@ export type FieldCaseWritePlan =
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
-/** What a result says when the starting value born for a save goes with it
- *  (`startsBlankNote`). A Hidden Value always gets this plain note; the tools
- *  that edit one add what an empty one saves
- *  (`casePreload.ts::hiddenWriterBlankNote`). */
+/** What a result says when the starting value born for a save goes with it;
+ *  `startsBlankNote` says when. */
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
 
@@ -107,9 +105,9 @@ export function startsBlankOpensOnNote(property: string): string {
  * form's case it can open on (`casePreload.ts::writerOffersPreload`,
  * `startingValueFit.ts`), the starting value that opens it there. `after`
  * is the document with the form's planned operations and the question
- * without its starting value. A Hidden Value gets the plain note; the tools
- * that edit one add what an empty one saves
- * (`casePreload.ts::hiddenWriterBlankNote`).
+ * without its starting value. A Hidden Value gets the plain note; what an
+ * empty one saves is `casePreload.ts::hiddenWriterBlankNote`'s, which the
+ * editing tools and the builder's value control show.
  */
 function startsBlankNote(
 	after: BlueprintDoc,
@@ -121,9 +119,8 @@ function startsBlankNote(
 		return STARTS_BLANK_NOTE;
 	const opensOn = fieldCaseWriteViews(after, field.uuid).find(
 		(view) =>
-			// The views come from every form the index lists; this note is
-			// about this form. A write through `via` is an `ancestor` view,
-			// never `own`.
+			// This form's saves, as the planner reads them. A write through
+			// `via` is an `ancestor` view, never `own`.
 			view.formUuid === ctx.formUuid &&
 			view.destination === "own" &&
 			view.slot !== "owner" &&
