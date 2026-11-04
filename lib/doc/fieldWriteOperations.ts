@@ -2,8 +2,8 @@
 //
 // The operations a form's field writes become, when writes are stated as
 // facts about fields (a question saves its answer to `caseType.property`)
-// rather than as the form's operations. The cutover lifts each stored
-// field's destination into such a fact, and the fuzz mapping draws them;
+// rather than as the form's operations. The migration witnesses state each
+// field's destination as such a fact, and the fuzz mapping draws them;
 // both turn the facts into the one model here, so a dry run and its
 // execution, or one draw mapped twice, name the same operations.
 //
@@ -111,7 +111,7 @@ function formEdit(
 
 /**
  * The mutations that give `formUuid` the operations its field writes made
- * (`facts` in data-tree order): classes C1 to C3 of the case-writes cutover.
+ * (`facts` in data-tree order).
  * Pure and deterministic; a second application to its own result plans
  * nothing.
  */

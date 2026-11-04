@@ -1,5 +1,5 @@
 // What a form-type change carries with it: the form's own case and its open
-// and close conditions, each row of part 01 §5.4, replayed through the commit
+// and close conditions, each row of the type table, replayed through the commit
 // gate. Catches a type change that strands an own case or a condition, and a
 // module retype or form move that leaves the own case writing undeclared
 // properties.

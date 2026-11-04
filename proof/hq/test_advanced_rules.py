@@ -2,8 +2,8 @@
 
 Contract: Nova places a case change on an advanced action (a load or an open
 action) only where the action means what the change means, and gives the
-change a Save to Case block otherwise (``lib/commcare/advancedPlacement.ts``,
-part 02 section 16 of the step 5 plan). Each eligibility clause is a pair of
+change a Save to Case block otherwise (``lib/commcare/advancedPlacement.ts``).
+Each eligibility clause is a pair of
 forms in an advanced menu that differ in that clause alone
 (``proof/hq/fixtures/advanced-rule-shapes.json``, which
 ``lib/commcare/__tests__/advancedPlacement.test.ts`` writes from the

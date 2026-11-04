@@ -28,9 +28,8 @@
  *
  * The planner reads plain facts, so it decides nothing about which menus it
  * applies to: the caller passes only a menu with an effective ordinary search
- * (an owner-only config maps to nothing). Its readers are the fuzz mapping,
- * the corpus sources and the cutover's `search-workflow` transform, each of
- * which derives the facts from `visibleSearchInputs`,
+ * (an owner-only config maps to nothing). Its readers are the fuzz mapping
+ * and the corpus sources, each of which derives the facts from `visibleSearchInputs`,
  * `effectiveFilterForEmission` and the app's declared platforms.
  */
 

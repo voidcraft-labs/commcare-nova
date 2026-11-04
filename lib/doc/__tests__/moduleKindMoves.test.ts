@@ -118,7 +118,7 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 	];
 
 	for (const row of rows)
-		it(`clears the held kind and states the move under ${row.blocker}, and part 01 moves the forms' held placements`, () => {
+		it(`clears the held kind and states the move under ${row.blocker}, and the placement planner moves the forms' held placements`, () => {
 			const doc = publishedAdvanced(kindFixture(), row.module);
 			expect(verdict(doc, []).ok).toBe(true);
 			expect(
@@ -150,7 +150,7 @@ describe("planModuleKindMoves, for a held kind a blocker meets", () => {
 			]);
 			const plan = withIdentityMoves(doc, edit);
 			// The menu's move comes first, then the moves of its forms' case
-			// changes, which part 01 plans over the cleared kind.
+			// changes, which the placement planner plans over the cleared kind.
 			expect(plan.moves[0]).toEqual(kinds.moves[0]);
 			const formMoves = plan.moves.slice(1);
 			// A menu with no forms has no case change to move.

@@ -1,6 +1,6 @@
 /**
- * What the entry of a form of a menu emitted advanced supplies (part 02
- * §13.2): HQ's advanced entry gives a datum to every open action outside a
+ * What the entry of a form of a menu emitted advanced supplies:
+ * HQ's advanced entry gives a datum to every open action outside a
  * repeat, so a create a basic form keeps in Save to Case, with no session
  * value, has one there. Catches the checker refusing a read of a case the
  * wire's entry names (`new-child-case`), and the advanced reading leaking

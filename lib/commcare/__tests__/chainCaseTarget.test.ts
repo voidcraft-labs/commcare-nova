@@ -1,7 +1,7 @@
 /**
  * A case change may target a case its form's entry chose: an advanced
- * form's chain load is that session value (part 02 §3.4, §9.2's
- * `link-target`). The commit gate admits the read where the entry supplies
+ * form's chain load is that session value
+ * (`link-target`). The commit gate admits the read where the entry supplies
  * the chosen case as one case, and refuses one it does not supply.
  */
 import { describe, expect, it } from "vitest";

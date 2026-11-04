@@ -43,8 +43,8 @@
  *   form that creates a child case at the root, and a question
  *   `commcare_usercase` at the root of a form that saves to the worker's
  *   record, the names of the elements HQ's build would append for that basic
- *   subcase and for the worker's update. Part 02's G3 found the collision
- *   (outcome A, N1): the question's bind selected the appended block too,
+ *   subcase and for the worker's update. The proof lane found the
+ *   collision: the question's bind selected the appended block too,
  *   and its path read two nodes. So neither slot is eligible
  *   (`appended-name-taken`), each change takes Save to Case beside its
  *   question, and HQ's build, Core and Formplayer show each question

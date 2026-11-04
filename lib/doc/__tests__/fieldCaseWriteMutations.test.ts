@@ -1,4 +1,4 @@
-// The one "Saves to" planner, each destination row of part 01 §16.3 replayed
+// The one "Saves to" planner, each destination row replayed
 // through the reducers and the commit gate. Catches a "Saves to" gesture
 // that lands an invalid batch, writes a second concept beside the form's
 // operations, or loses a save another question already makes.

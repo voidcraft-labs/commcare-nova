@@ -157,7 +157,7 @@ export function formsReadSearchRefusal(
 /**
  * What the Search canvas says about a Search screen a worker might not
  * fill in: a search first menu with no visible field shows the Search screen
- * with only its button (part 05's gated run G4, outcome A); a results first
+ * with only its button; a results first
  * one opens on its cases. With a saved Search button condition and its forms
  * not reading the search, the condition decides whether the menu opens on
  * Search at all.

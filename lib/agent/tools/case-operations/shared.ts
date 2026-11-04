@@ -179,7 +179,7 @@ const writeInputSchema = z.strictObject({
 });
 
 /** A write of this form's own case, which alone can save to a case above
- *  it or save only a changed answer (decision R9); every other arm's writes
+ *  it or save only a changed answer; every other arm's writes
  *  keep `writeInputSchema`, whose strict shape refuses both. */
 const ownWriteInputSchema = writeInputSchema.extend({
 	via: caseWriteViaInputSchema

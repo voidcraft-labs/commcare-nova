@@ -16,13 +16,13 @@
  *   ordinary menu whose forms hold placements now holds a create an
  *   after-submit link carries that a basic form gives no session value
  *   (`lib/commcare/moduleKind.ts::emittedModuleKind`). Nothing of the menu's
- *   own is held yet, so the move has no hold change: part 01's planner
+ *   own is held yet, so the move has no hold change: the placement planner
  *   (`placementMoves.ts`) moves the forms' held basic placements, which an
  *   advanced form cannot use.
  *
  * Either way the forms' held case placements move with the kind, and
  * `withIdentityMoves` runs this planner first, applying its entries to the
- * candidate before part 01's planner reads it. Where the menu selects a
+ * candidate before the placement planner reads it. Where the menu selects a
  * parent case, its forms also read the cases chosen through that parent
  * under new session names; that renaming is part of the menu's move, which
  * carries the fact, since the selections are derived and hold nothing.

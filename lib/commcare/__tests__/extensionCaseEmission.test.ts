@@ -1,5 +1,5 @@
 /**
- * Extension child cases (part 02 §14). An extension child is a create
+ * Extension child cases. An extension child is a create
  * operation with an `extension` link. HQ's basic build ignores a subcase's
  * relationship (`xform.py::XForm._create_casexml`), so a basic subcase holds
  * child creates only: an extension create no link carries is a Save to Case

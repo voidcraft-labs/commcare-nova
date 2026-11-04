@@ -1,7 +1,7 @@
 /**
  * The case family's documents for the order of case changes across their
  * places, and for a save made only when the answer changed
- * (`CaseOperationRuntimeTest`, part 01's G1):
+ * (`CaseOperationRuntimeTest`):
  *
  * - `own-links`: a registration of a patient whose own case and a contact,
  *   created at the form's root, are Case Management's (`open_case` and the

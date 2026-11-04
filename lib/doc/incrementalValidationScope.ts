@@ -375,7 +375,7 @@ function mutationFootprint(
 				if (moduleUuid === undefined) return undefined;
 				/* A case change, or the form's open or close condition, decides
 				 * where its form's case changes are placed, which reads the whole
-				 * form and its module (part 01 §13.3), so the module and every form
+				 * form and its module, so the module and every form
 				 * in it re-run. Operation writes declare and type case properties
 				 * that case-list rules in any module and operations in any form
 				 * read, and the action inventory reaches links whose findings sit
@@ -426,8 +426,8 @@ function mutationFootprint(
 				break;
 			}
 			/* A held placement decides where its form's case changes are
-			 * placed, which reads the whole form and its module (part 01
-			 * §13.3), so the module of each target's form re-runs. */
+			 * placed, which reads the whole form and its module,
+			 * so the module of each target's form re-runs. */
 			case "holdPlacements":
 				for (const hold of mutation.holds) {
 					/* A menu's held kind decides its kind, which moves every form

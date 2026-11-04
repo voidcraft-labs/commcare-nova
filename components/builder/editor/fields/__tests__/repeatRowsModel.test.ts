@@ -218,7 +218,7 @@ describe("each mode switch is one write with only that mode's slot", () => {
 	});
 
 	it("lets a held query repeat's placement leave with the query, stating no move", () => {
-		// Part 04 §1's conversion edge: the hold belongs to the query variant,
+		// The conversion edge: the hold belongs to the query variant,
 		// so a switch to another mode takes it along, and the data path's
 		// change is the existing conversion's, which no identity move states.
 		const doc = docWith([

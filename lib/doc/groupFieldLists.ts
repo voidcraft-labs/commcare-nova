@@ -1,12 +1,10 @@
 /**
- * The Q4 rule the fuzz mapping and the cutover share: every group whose label
- * shows, and which holds no repeat workers add entries to at any depth, takes
- * `fieldList: true`, so it keeps showing its questions on one screen on
- * Android as it did when a label decided that. The cutover passes a frozen
- * copy of the label gate it replaces, and the fuzz mapping passes the same
- * copy, so both read one rule; the label predicate is the caller's, never
- * decided here. It stays in `lib/doc` because the fuzz mapping keeps calling
- * it after the cutover tooling is gone.
+ * The one-screen group rule the fuzz mapping and the migration witnesses share: every
+ * group whose label shows, and which holds no repeat workers add entries to
+ * at any depth, takes `fieldList: true`, so it keeps showing its questions on
+ * one screen on Android as it did when a label decided that. Each caller
+ * passes a frozen copy of the label gate this rule replaced, so both read one
+ * rule; the label predicate is the caller's, never decided here.
  *
  * A group holding a user-controlled repeat stays without the flag, because
  * the CommCare app can't add repeat entries on a shared screen. A section is

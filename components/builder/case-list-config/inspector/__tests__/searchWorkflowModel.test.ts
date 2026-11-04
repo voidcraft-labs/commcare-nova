@@ -1,5 +1,5 @@
 /**
- * Contract: When this menu opens commits exactly part 07 §3.8's patches, and
+ * Contract: When this menu opens commits exactly each choice's patch, and
  * withholds a choice for exactly one reason: a platform the app runs on
  * that can't run it (that platform's picker line), else the gate's sentence
  * for the choice's own batch. The gate reasons are read from the production
@@ -130,7 +130,7 @@ function gateSentence(
 	return verdict.ok ? undefined : offeredChoiceRefusal(verdict.findings);
 }
 
-describe("each choice writes part 07's patch", () => {
+describe("each choice writes its patch", () => {
 	it("Search first clears the stored workflow", () => {
 		expect(searchWorkflowPatch("searchFirst")).toEqual({ workflow: null });
 	});

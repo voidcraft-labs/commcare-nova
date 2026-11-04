@@ -232,7 +232,7 @@ describe("HELD_BLOCK_PATH_TAKEN", () => {
 		);
 	});
 
-	// Part 02's G3 (N1): HQ's build appends a held slot's element by name
+	// HQ's build appends a held slot's element by name
 	// beside a question of that name, and the plan never moves a held one.
 	it("refuses a question named like the element HQ appends for a held subcase, offering a free name", () => {
 		const { doc } = placementFixture("followup", {

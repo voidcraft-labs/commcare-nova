@@ -361,7 +361,7 @@ public class ContainerRuntimeTest {
   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(second[0].getIndex(),new StringData("retained")));
   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(first[0].getIndex(),new StringData("north")));
   controller.jumpToIndex(secondPage);
-  // The nested query reads the area, so its rows follow it (part 04 §1.5): the north area's two assets have their
+  // The nested query reads the area, so its rows follow it: the north area's two assets have their
   // rows, the first keeps its answer at its place, and the new row's default reads its own id, set when the row is
   // made, before any calculate runs (`FormDef.createNewRepeat`). Preview's journey and browser tests hold the same.
   second=controller.getQuestionPrompts();
@@ -369,7 +369,7 @@ public class ContainerRuntimeTest {
   assertEquals("retained",second[0].getAnswerText());assertEquals("tap",second[1].getAnswerText());
  }
  /** `container-hidden-count`'s `jr:count` names the Hidden Value `desired` directly, since its calculate is an
-  * integer (part 04 §2.4), so Core reads the Hidden Value's own data: an integral result is `IntegerData` whatever
+  * integer, so Core reads the Hidden Value's own data: an integral result is `IntegerData` whatever
   * the bind's type (`Recalculate.wrapData`), and a fraction is `DecimalData`, which `IntegerData.cast` refuses.
   * Each calculate is swapped in by hand; the fractional one is what Nova's validator refuses as a count
   * (`REPEAT_COUNT_TYPE`), and a fraction is counted only through a carrier (`RepeatCountRuntimeTest`'s control). */
@@ -397,13 +397,13 @@ public class ContainerRuntimeTest {
   }
  }
 
- // Part 04's gated run G2: Core's reading of a query repeat in each placement. A query repeat whose rows can
- // follow an answer is written in the count placement (part 04 §1.5): `nova_query_ids_<r>` and
+ // Core's reading of a query repeat in each placement. A query repeat whose rows can
+ // follow an answer is written in the count placement: `nova_query_ids_<r>` and
  // `nova_query_count_<r>` in the wrapper, each row's 0-based place `nova_query_index_<r>` set from `position(..)`
  // when the row is made, its id set then too and calculated as
  // `if(../nova_query_index_<r> < ../../nova_query_count_<r>, selected-at(../../nova_query_ids_<r>, ../nova_query_index_<r>), '')`,
  // and the row relevant only while `position() < ../nova_query_count_<r>`. One that cannot is written in model
- // iteration, HQ's form builder's own spelling (part 04 §1.4).
+ // iteration, HQ's form builder's own spelling.
 
  /** Each row of `generic` the entry steps onto, keyed by its repeat multiplicities, with `expression` read at the
   * row the moment the controller first reaches it: right after `FormDef.createNewRepeat` made it, before any
@@ -461,8 +461,8 @@ public class ContainerRuntimeTest {
   * index and the rows made so far hold at once. Then, with an answer at each place:
   * a shrink of the result hides the rows past its end and leaves them, their answers and their case blocks out of
   * the submission without removing them; growth back shows them again with their answers; and a reorder moves the
-  * ids by position while each answer stays at its position (part 04 §1.5, the notice `repeat-rows-follow-query`).
-  * Catches a row id read against the template before the row exists (G2's outcome B1), a guard that hides
+  * ids by position while each answer stays at its position (the notice `repeat-rows-follow-query`).
+  * Catches a row id read against the template before the row exists, a guard that hides
   * nothing or submits hidden rows (B2), ids that keep the record a row was made for (C), and a row id that cannot
   * be calculated once its row is hidden (`position(..)` there names no node and throws). */
  @Test public void queryRowsFollowTheResultAndAnswersKeepTheirPosition()throws Exception {
@@ -557,7 +557,7 @@ public class ContainerRuntimeTest {
   * and in each site a count-placement `plots` query reading that site's record. Nothing is made while the group
   * is not relevant; once it is, each site's rows are made with the ids of its own query, read on their first
   * evaluation (an absolute count inside a repeat resolves within the current outer row, `XFormParser`'s
-  * `getAbsRef`). Catches ids computed across every outer row (a nested model iteration's failure, part 04 §1.2)
+  * `getAbsRef`). Catches ids computed across every outer row (a nested model iteration's failure)
   * and a repeat left empty under a group that turns relevant during entry. */
  @Test public void nestedCountPlacementUnderALaterRelevantGroupGivesEachOuterRowItsOwnIds()throws Exception {
   for(boolean source:new boolean[]{false,true}){

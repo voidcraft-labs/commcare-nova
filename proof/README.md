@@ -1673,7 +1673,7 @@ link, and the held kind keeps the menu advanced, so proof 1 sees no move.
 `targeted-root-case-block-names` holds a root question `subcase_0` beside a
 child create at the root, and a root question `commcare_usercase` in a form
 writing the worker's record, the names HQ's build would give the blocks it
-appends for those Case Management slots (part 02's G3, outcome A); neither slot
+appends for those Case Management slots; neither slot
 is eligible, so each change takes Save to Case, which `CaseOperationRuntimeTest`
 also opens.
 `targeted-same-type-child` holds defect 12's same-type row: a basic menu of
@@ -4065,7 +4065,7 @@ update-only block's `case_id` blank, and Core refuses the whole submission.
 Two Save to Case creates in the root operations group, before the Case
 Management blocks HQ's build appends, each index a case one of those later
 blocks creates, the registration's own case and a basic `subcase_0`, and Core
-stores each index (part 01's G1, `operation-own-links`, from
+stores each index (`operation-own-links`, from
 `proof/native/producers/caseOrderScenarios.ts`); and a save made only when the
 answer changed (`update_mode: edit`, HQ's side built under
 `SAVE_ONLY_EDITED_FORM_FIELDS`) leaves the property out of the case block
@@ -4102,7 +4102,7 @@ entry answers it, two rows in each repeat): an extension link on a create
 operation, at a follow-up's root and in each row of a registration's repeat,
 is stored by `CaseXmlParser` as an index whose relationship is `extension`,
 beside the basic child's `child` index; and, on `targeted-root-case-block-names`
-(part 02's G3), a root question named `subcase_0` or `commcare_usercase`, as
+a root question named `subcase_0` or `commcare_usercase`, as
 HQ's build names the block it appends for a basic child or the worker's
 update, is the one element of its name, holding its answer and no case block,
 and the child case and the worker's update, each in its Save to Case block,
@@ -4115,7 +4115,7 @@ case, and each open action creates its case where its open condition holds,
 named and written from its questions, with each index naming its tag's case
 under the relationship it states, once per row in a repeat (two indexed visits
 in one repeat, the second linked to the first); a case created as an
-extension is owned by the worker (part 02's G6, outcome A). It first holds that
+extension is owned by the worker. It first holds that
 the document holds each of those shapes. `proof/native/test_advanced_emission.py`
 holds HQ's side of the same forms: `XForm._create_casexml_advanced` over the
 source gives the local form's case blocks element for element, with the binds

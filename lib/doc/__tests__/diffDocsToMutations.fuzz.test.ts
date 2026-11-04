@@ -1305,7 +1305,7 @@ describe("diffDocsToMutations — explicit cases", () => {
 
 /* Two admitted endpoints that differ in the form's own case, a keyed write
  * through `via`, or the open and close conditions diff to the payloads
- * autosave carries (part 01 §16.1), and the replay through JSON and the gate
+ * autosave carries, and the replay through JSON and the gate
  * lands the target. Catches autosave dropping a keyed write or a condition. */
 describe("diffDocsToMutations — the own case, keyed writes and conditions", () => {
 	const MODULE = testUuid("diff-own-module");

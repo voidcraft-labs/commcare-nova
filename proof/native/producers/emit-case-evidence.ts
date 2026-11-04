@@ -138,7 +138,7 @@ for (const [scenario, doc, moduleIndex = 0] of [
  * The targeted documents the case family's Core classes open whole: every form of each (`<name>.m<i>f<j>.xml`),
  * its suite and its HQ import body, which HQ's step builds again (`proof/native/steps/case_emission.py`).
  * `targeted-advanced-module` is `AdvancedFormRuntimeTest`'s; `targeted-root-case-block-names` the
- * `CaseOperationRuntimeTest` scenario of part 02's G3.
+ * `CaseOperationRuntimeTest` scenario on targeted-root-case-block-names.
  */
 for (const [name, document] of [
 	["advanced-module", advancedModule()],

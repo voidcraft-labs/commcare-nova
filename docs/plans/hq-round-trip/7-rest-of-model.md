@@ -236,10 +236,10 @@ longer holds.
    the pull request that first emits it, since no step 5 shape emits it. This
    group adds a fuzz family drawing advanced modules and step 5's link
    shapes, with its own sample, because the existing sample keeps its draws
-   and step 5's generators draw neither. If step 5's gated run on HQ's Case Management save (part 01's
-   G5) shows it clearing `update_mode: edit`, step 5 refuses `onlyIfChanged`
-   (`CASE_WRITE_ONLY_IF_CHANGED_INVALID`, reason `not-hq-editable`) and it
-   comes here with that reason; if the save keeps it, step 5 holds it.
+   and step 5's generators draw neither. HQ's Case Management save keeps
+   `update_mode: edit`, so step 5 holds `onlyIfChanged` on the own arm of a
+   follow-up or close form, and nothing of it comes here (`lib/domain/CLAUDE.md`,
+   `Form.caseOperations`; `caseOperations.ts::validateOnlyIfChanged`).
 7. **XForm:** acknowledge labels, pragma itext ids, face capture as its own
    kind, Android app callouts, image max dimension, repeat add labels,
    `Field.dataParent`, `Field.lockedInHq`, query-backed options, lookup sort

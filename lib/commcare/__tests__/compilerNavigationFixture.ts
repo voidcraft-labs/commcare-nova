@@ -116,7 +116,7 @@ export function compilerNavigationFixture(scenario: NavigationScenario) {
 								id: "answer",
 								label: proseText("Notes"),
 								// The preload the cutover writes in place of the starting
-								// value it replaced (class C7): the case's own value.
+								// value it replaced: the case's own value.
 								default_value: "#patient/notes",
 								caseWrite: { caseType: "patient", property: "notes" },
 							}),

@@ -1,8 +1,7 @@
 """HQ builds each advanced form of Nova's HQ import body as Nova wrote it into the local archive.
 
 Contract: an advanced form's case blocks and entry are what HQ's own build
-makes of its advanced actions (part 02 sections 7.3, 12 and 13 of the step 5
-plan), so Nova's local archive, which no HQ build writes, holds exactly those:
+makes of its advanced actions, so Nova's local archive, which no HQ build writes, holds exactly those:
 for every advanced form of the targeted documents the case family emits whole
 (``targeted-advanced-module``, which holds the advanced chain, the worker's
 load, two indexed creates in one repeat and an extension create carried by its

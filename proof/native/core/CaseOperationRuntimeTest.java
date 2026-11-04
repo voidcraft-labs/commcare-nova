@@ -687,7 +687,7 @@ public class CaseOperationRuntimeTest {
         assertEquals("Matched child", run.record("patient-1").getPropertyString("nickname"));
         assertEquals("Old nickname", run.record("patient-2").getPropertyString("nickname"));
     }
-    /** Part 01's G1, Core's order across the places a form's case changes take. A registration's own case and a
+    /** Core's order across the places a form's case changes take. A registration's own case and a
      * contact it creates at the form's root are Case Management's, whose blocks HQ's build appends after the form's
      * questions; two visits with computed names are Save to Case blocks in the root {@code nova_operations} group,
      * before them, the first indexed to the patient the form creates and the second to the contact. So each index
@@ -855,7 +855,7 @@ public class CaseOperationRuntimeTest {
         assertEquals(children, indexedTo(run, patient, CaseIndex.RELATIONSHIP_CHILD));
     }
     /**
-     * Part 02's G3, on targeted-root-case-block-names: a root question named as the element HQ's build appends for
+     * On targeted-root-case-block-names: a root question named as the element HQ's build appends for
      * a basic child case ({@code subcase_0}) or for the worker's update ({@code commcare_usercase}). HQ's build
      * appends that element beside the question's with no check ({@code xform.py::XForm._create_casexml},
      * {@code ::_add_usercase}), where the question's bind selected the block too and its path read two nodes

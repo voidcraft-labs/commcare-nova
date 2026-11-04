@@ -492,7 +492,7 @@ function heldAppendedName(
  * looking (`xform.py::XForm._create_casexml`, `_add_usercase`,
  * `get_action_path`), and the planner never moves a held one, so the form
  * would hold the name twice: the question's bind would select the block
- * too, and Core reads no single value from its path (part 02's G3, N1).
+ * too, and Core reads no single value from its path.
  * The suggestion steps around every name of the scope, appended ones
  * included.
  */

@@ -1,4 +1,4 @@
-/** Q4's field-list planner, through the real reducers and the commit gate. */
+/** The field-list planner, through the real reducers and the commit gate. */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";

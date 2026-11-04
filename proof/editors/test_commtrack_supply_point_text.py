@@ -20,7 +20,7 @@ after the save, each with CommCare Supply off and on: four builds. The datum
 and its assertions appear in the build after the save with CommCare Supply on,
 and in no other. Which of the label's text and the calculate's attribute hold
 the text after the save is written as the run's evidence: it decides the
-predicate's reach (part 03's gated run G2).
+predicate's reach.
 
 The plausible failures: a save that leaves the text as Nova escaped it (then
 nothing a person does in HQ turns the step on, and Nova asks about nothing a

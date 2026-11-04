@@ -95,7 +95,7 @@ function addOwnMutation(formUuid: Uuid, own: OwnCaseOperation): Mutation {
 
 /**
  * The batch that changes `formUuid`'s type to `type`, carrying its own case
- * and its open and close conditions (the table of part 01 §5.4):
+ * and its open and close conditions (the table below):
  *
  * - survey → registration adds the own case, named by a bare read of
  *   `options.nameField`; survey → follow-up or close adds it with no writes.

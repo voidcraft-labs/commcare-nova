@@ -231,22 +231,23 @@ describe("authoredSearchWorkflow", () => {
 // ── Wire identity over the pre-step fixtures ───────────────────────────
 //
 // The mapping's identity is a wire property, so it is checked at the
-// emitter: each module of a pre-step fixture `main` recorded a search shape
-// for (`facts.json`'s `searchShapes`, `main`'s `searchWireShape` arm) maps
-// through `authoredSearchWorkflow` into the head shape, and the head's HQ
-// JSON spells the `search_config` flags that arm spelled, except a list-first
-// menu in an app that declares Web Apps, whose emission is its row's.
+// emitter: each module `searchShapes.json` names (the search shape `main`'s
+// `searchWireShape` arm gave it) maps through `authoredSearchWorkflow` into
+// the head shape, and the head's HQ JSON spells the `search_config` flags
+// that arm spelled, except a list-first menu in an app that declares Web
+// Apps, whose emission is its row's.
 //
-// The fixtures are `main`'s stored shape. The cutover's raw reader is pull
-// request 14's, so this test lifts the few stored shapes step 5 retires from
-// the raw JSON itself: a field's `caseWrite` becomes its form's operations
-// (`operationsFromFieldWrites`, the planner the cutover shares), a stored
-// `searchFirst` the authored workflow, `caseListOnly` the case list menu
-// item, and a form's `entry` its module's case list registration form.
+// The fixtures are the stored shape `main` held before the case-writes
+// model, recorded when its cutover was planned. This test lifts the few
+// stored shapes that model retires from the raw JSON itself: a field's
+// `caseWrite` becomes its form's operations (`operationsFromFieldWrites`),
+// a stored `searchFirst` the authored workflow, `caseListOnly` the case
+// list menu item, and a form's `entry` its module's case list registration
+// form.
 
 const PRE_STEP = join(
 	process.cwd(),
-	"scripts/lib/hqRoundTripCaseWrites/__tests__/fixtures/pre-step",
+	"lib/doc/__tests__/fixtures/searchWorkflowPreStep",
 );
 const RETAINED_A = join(
 	process.cwd(),
@@ -299,11 +300,9 @@ function readJson<T>(path: string): T {
 	return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
-const FACTS = readJson<{
-	readonly fixtures: Readonly<
-		Record<string, { readonly searchShapes: Readonly<Record<Uuid, MainShape>> }>
-	>;
-}>(join(PRE_STEP, "facts.json"));
+const SEARCH_SHAPES = readJson<
+	Readonly<Record<string, Readonly<Record<Uuid, MainShape>>>>
+>(join(PRE_STEP, "searchShapes.json"));
 
 /** The facts of one stored module's search, read from the raw JSON. */
 function storedFacts(raw: RawDoc, module: RawModule): StoredSearchFacts {
@@ -472,7 +471,7 @@ describe("authoredSearchWorkflow keeps each stored module's wire", () => {
 	] as const) {
 		it(`over ${fixture}`, () => {
 			const raw = readJson<RawDoc>(join(PRE_STEP, `${fixture}.json`));
-			const shapes = FACTS.fixtures[fixture]?.searchShapes ?? {};
+			const shapes = SEARCH_SHAPES[fixture] ?? {};
 			expect(Object.keys(shapes).length).toBeGreaterThan(0);
 			const doc = liftedDoc(raw);
 			const verdict = mutationCommitVerdict(
@@ -510,8 +509,7 @@ describe("authoredSearchWorkflow keeps each stored module's wire", () => {
 				typeof flagsByModuleName
 			>[0],
 		);
-		const shapes =
-			FACTS.fixtures["targeted-migration-search-workflow"]?.searchShapes ?? {};
+		const shapes = SEARCH_SHAPES["targeted-migration-search-workflow"] ?? {};
 		for (const moduleUuid of Object.keys(shapes)) {
 			const module = raw.modules[moduleUuid];
 			if (module === undefined) throw new Error(`No module ${moduleUuid}.`);

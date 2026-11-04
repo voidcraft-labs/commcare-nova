@@ -26,12 +26,12 @@ import static org.junit.Assert.*;
  * Each advanced form is opened from its entry in that path's suite, with the loads' cases chosen from their lists
  * and the new cases' ids worked out by Core's session ({@link SuiteFormRun}), filled in, submitted and applied by
  * Core's case transaction parser. What each case must then hold is read from the form's own advanced actions in
- * the HQ import body, HQ's vocabulary for what the form does (part 02 section 7.3 of the step 5 plan): each load
+ * the HQ import body, HQ's vocabulary for what the form does: each load
  * updates the case its datum names with the value the form holds at each property's question and closes it where
  * its close condition holds (the household, on "Visit patient"); the worker's load updates the worker's own case;
  * each open action creates its case where its open condition holds, named and written from its questions, with
  * each index naming the case of the tag it names under the relationship it states, once per row in a repeat; and a
- * case an open action creates as an extension is owned by the worker (part 02's G6, outcome A: Nova writes the
+ * case an open action creates as an extension is owned by the worker (Nova writes the
  * owner HQ's build would leave unowned).
  *
  * The plausible failure it catches: a datum id or a block path Nova's local suite and form write differently from

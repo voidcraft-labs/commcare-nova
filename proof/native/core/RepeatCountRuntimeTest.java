@@ -16,7 +16,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Core counts a repeat's rows from each whole-number count Nova admits (part 04 §2.3, §2.4), on the local form
+ * Core counts a repeat's rows from each whole-number count Nova admits, on the local form
  * the expression producer writes (/expression/repeat-counts/counts.xml): a Hidden Value calculating an integer
  * (`planned`, `#form/n + 1`) and an integer single select (`pick`), each named directly by `jr:count`, and
  * `int(#form/weight div 2)` through its `nova_count_by_int` node. The retained control is the count Nova wrote
