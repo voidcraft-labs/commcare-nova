@@ -37,11 +37,9 @@ import {
 	type FieldCaseWriteViewKey,
 	type Form,
 	fieldCaseWriteViewKey,
-	fieldKindDeclaresKey,
 	fieldPreload,
 	formOpensWithOneCase,
 	humanizeId,
-	isCaptureField,
 	type Module,
 	type RelationStep,
 	saveOffersPreload,
@@ -344,13 +342,11 @@ function preloadLine(
 	input: CaseWriteRowInput,
 ): CaseWritePreloadLine | undefined {
 	const { view, field, form, module } = input;
+	// The line is about a save to this form's case on a form that opens one.
 	if (
 		view.destination !== "own" ||
-		view.via !== undefined ||
 		view.link ||
 		module.caseType === undefined ||
-		isCaptureField(field) ||
-		!fieldKindDeclaresKey(field.kind, "default_value") ||
 		!formOpensWithOneCase(form.type, caseSelectionCardinality(module))
 	)
 		return undefined;
@@ -377,7 +373,7 @@ function preloadLine(
 		!saveOffersPreload({
 			field,
 			property: view.property,
-			...(view.via !== undefined && { via: view.via }),
+			via: view.via,
 			formType: form.type,
 			module,
 		})

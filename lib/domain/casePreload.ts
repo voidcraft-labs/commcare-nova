@@ -72,6 +72,9 @@ export function writerOffersPreload(
 	property: string,
 	via?: CaseWriteVia,
 ): boolean {
+	// What the save alone decides, before the document is read.
+	if (via !== undefined || property.length === 0 || property === "owner_id")
+		return false;
 	const field = Object.hasOwn(doc.fields, fieldUuid)
 		? doc.fields[fieldUuid]
 		: undefined;

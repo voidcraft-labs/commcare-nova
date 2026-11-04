@@ -16,6 +16,7 @@ import {
 	formOpensWithOneCase,
 	hiddenWriterBlankNote,
 	proseText,
+	saveOffersPreload,
 	type Uuid,
 	writerOffersPreload,
 } from "@/lib/domain";
@@ -252,6 +253,27 @@ describe("writerOffersPreload", () => {
 		expect(writerOffersPreload(doc, PHOTO, "phone")).toBe(false);
 		expect(writerOffersPreload(doc, CALCULATED, "phone")).toBe(false);
 		expect(writerOffersPreload(doc, DEFAULTED, "phone")).toBe(false);
+	});
+});
+
+describe("saveOffersPreload", () => {
+	// The rule writerOffersPreload reads, over the field, its form's type and
+	// its module: the two agree on every save they are both asked about.
+	it("answers as writerOffersPreload does for the same save", () => {
+		const phone = f({ kind: "text", id: "phone", uuid: PHONE });
+		for (const type of ["registration", "followup", "close"] as const) {
+			const doc = app({ type, fields: [phone] });
+			const moduleUuid = doc.moduleOrder[0];
+			const module = doc.modules[moduleUuid];
+			const field = doc.fields[PHONE];
+			if (module === undefined || field === undefined)
+				throw new Error("The fixture holds no question.");
+			for (const property of ["phone", "owner_id"]) {
+				expect(
+					saveOffersPreload({ field, property, formType: type, module }),
+				).toBe(writerOffersPreload(doc, PHONE, property));
+			}
+		}
 	});
 });
 
