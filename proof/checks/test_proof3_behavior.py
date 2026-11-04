@@ -104,7 +104,7 @@ WORKTREE = Path(__file__).resolve().parents[2]
 ENTRIES = WORKTREE / "lib" / "commcare" / "surface" / "entries"
 
 
-@pytest.mark.parametrize("document", cases.document_params() + cases.control_params("proof3"))
+@pytest.mark.parametrize("document", cases.document_params("proof3") + cases.control_params("proof3"))
 def test_the_same_sessions_behave_the_same_on_each_build(document, hq, core_runner, editor_driver):
     found = proof3.document_behavior(
         document, observations.records_for(document, core_runner, editor_driver=editor_driver)

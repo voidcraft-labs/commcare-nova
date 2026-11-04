@@ -110,7 +110,7 @@ on:
         type: string
         default: all
       mechanics:
-        description: Document ids, comma-separated and one of them an edited document, to run the lane over with their controls alone, showing its mechanics (untick nightly); none when empty
+        description: Document ids and control:<id> names, comma-separated, one of them an edited document, to run the lane over with their controls alone, showing its mechanics (untick nightly); none when empty
         type: string
         default: ''
       mechanics_split:

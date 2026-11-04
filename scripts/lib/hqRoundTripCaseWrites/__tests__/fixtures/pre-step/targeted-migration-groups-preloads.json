@@ -1,0 +1,195 @@
+{
+	"appId": "targeted-migration-groups-preloads",
+	"appName": "Household checks",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "patient",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				},
+				{
+					"data_type": "decimal",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Weight"
+							}
+						]
+					},
+					"name": "weight"
+				}
+			]
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false
+	},
+	"modules": {
+		"5f787434-d188-5c20-aff8-7146156cd844": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "8dd57c0a-2d7d-5d86-afd5-c5a05c90081a"
+					}
+				],
+				"detailColumnOrder": ["8dd57c0a-2d7d-5d86-afd5-c5a05c90081a"],
+				"listColumnOrder": ["8dd57c0a-2d7d-5d86-afd5-c5a05c90081a"],
+				"searchInputs": []
+			},
+			"caseType": "patient",
+			"id": "patients",
+			"name": "Patients",
+			"uuid": "5f787434-d188-5c20-aff8-7146156cd844"
+		}
+	},
+	"forms": {
+		"e13bd2fe-d9cd-547a-a5d9-21d0eaa7976e": {
+			"id": "check",
+			"name": "Check",
+			"type": "followup",
+			"uuid": "e13bd2fe-d9cd-547a-a5d9-21d0eaa7976e"
+		}
+	},
+	"fields": {
+		"15b89a29-7f2c-50fd-a978-7eab03d21899": {
+			"id": "vitals",
+			"kind": "group",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Vitals"
+					}
+				]
+			},
+			"uuid": "15b89a29-7f2c-50fd-a978-7eab03d21899"
+		},
+		"b13583cf-115e-51b3-aeeb-bce162041dff": {
+			"id": "household",
+			"kind": "group",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Household"
+					}
+				]
+			},
+			"uuid": "b13583cf-115e-51b3-aeeb-bce162041dff"
+		},
+		"a39a1976-576e-59f2-ad13-c12833599746": {
+			"caseWrite": {
+				"caseType": "patient",
+				"property": "weight"
+			},
+			"default_value": {
+				"kind": "term",
+				"term": {
+					"kind": "literal",
+					"value": 60
+				}
+			},
+			"id": "weight",
+			"kind": "decimal",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Weight"
+					}
+				]
+			},
+			"uuid": "a39a1976-576e-59f2-ad13-c12833599746"
+		},
+		"8da822fe-297c-5f02-a196-2024f317230e": {
+			"default_value": {
+				"kind": "term",
+				"term": {
+					"kind": "field",
+					"uuid": "a39a1976-576e-59f2-ad13-c12833599746"
+				}
+			},
+			"id": "weight_seen",
+			"kind": "hidden",
+			"uuid": "8da822fe-297c-5f02-a196-2024f317230e"
+		},
+		"0ccac924-8b2a-5250-a864-e1e21e7ae194": {
+			"id": "temperature",
+			"kind": "decimal",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Temperature"
+					}
+				]
+			},
+			"uuid": "0ccac924-8b2a-5250-a864-e1e21e7ae194"
+		},
+		"221cf5f1-b304-53b5-ada8-37cb0a170861": {
+			"id": "members",
+			"kind": "repeat",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Members"
+					}
+				]
+			},
+			"repeat_mode": "user_controlled",
+			"uuid": "221cf5f1-b304-53b5-ada8-37cb0a170861"
+		},
+		"d74e08ec-23e8-5e90-a080-2c36c1eeb67c": {
+			"id": "member_name",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Member name"
+					}
+				]
+			},
+			"uuid": "d74e08ec-23e8-5e90-a080-2c36c1eeb67c"
+		}
+	},
+	"moduleOrder": ["5f787434-d188-5c20-aff8-7146156cd844"],
+	"formOrder": {
+		"5f787434-d188-5c20-aff8-7146156cd844": [
+			"e13bd2fe-d9cd-547a-a5d9-21d0eaa7976e"
+		]
+	},
+	"fieldOrder": {
+		"e13bd2fe-d9cd-547a-a5d9-21d0eaa7976e": [
+			"15b89a29-7f2c-50fd-a978-7eab03d21899",
+			"b13583cf-115e-51b3-aeeb-bce162041dff",
+			"a39a1976-576e-59f2-ad13-c12833599746",
+			"8da822fe-297c-5f02-a196-2024f317230e"
+		],
+		"15b89a29-7f2c-50fd-a978-7eab03d21899": [
+			"0ccac924-8b2a-5250-a864-e1e21e7ae194"
+		],
+		"b13583cf-115e-51b3-aeeb-bce162041dff": [
+			"221cf5f1-b304-53b5-ada8-37cb0a170861"
+		],
+		"221cf5f1-b304-53b5-ada8-37cb0a170861": [
+			"d74e08ec-23e8-5e90-a080-2c36c1eeb67c"
+		]
+	}
+}

@@ -178,6 +178,7 @@ import {
 	webAppsMovedDuringPush,
 } from "@/lib/deployment/webApps";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	declaresAndroid,
@@ -342,6 +343,12 @@ export interface NovaPublishVerdict {
 		 * which every retained verdict written before step 4 reads as.
 		 */
 		readonly syncCasesOnFormEntry?: false;
+		/**
+		 * Present, and `false`, where Nova's publish asks the person to
+		 * confirm the project space has CommCare Supply off (`commtrack-off`);
+		 * absent where it asks nothing, which every retained verdict reads as.
+		 */
+		readonly commtrackEnabled?: false;
 	};
 	/**
 	 * The `corehq/privileges.py` constants of the plan privileges Nova's
@@ -439,6 +446,20 @@ function asksFormEntrySyncOff(doc: BlueprintDoc): boolean {
 	).some((need) => need.kind === "form-entry-sync-off");
 }
 
+/**
+ * The requirement behind the verdict's `commtrackEnabled`: whether Nova's
+ * publish asks the person to confirm the project space has CommCare Supply
+ * off for a document (`commtrack-off`). Nova's publish asks it of no
+ * document, so the requirement holds for none and the verdict never writes
+ * the key. It is a method of this object so a test can stand in a
+ * requirement that holds and see where the verdict writes the key.
+ */
+export const commtrackRequirement = {
+	asksCommtrackOff(_doc: BlueprintDoc): boolean {
+		return false;
+	},
+};
+
 export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
 	const capabilities = plan.capabilities.map((item) => ({
@@ -463,6 +484,9 @@ export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 			),
 			...(asksFormEntrySyncOff(doc) && {
 				syncCasesOnFormEntry: false as const,
+			}),
+			...(commtrackRequirement.asksCommtrackOff(doc) && {
+				commtrackEnabled: false as const,
 			}),
 		},
 		planPrivileges: planPrivileges(doc),
@@ -1749,8 +1773,55 @@ export interface PublishUpdate {
 	readonly appName?: string;
 }
 
+/**
+ * One import of a first publish as the capture writes it: the request
+ * (`<name>.body` with its sidecar `<name>.json`) and the overlay keys its
+ * body writes (`<name>.ownership.json`).
+ */
+export interface CapturedImport {
+	readonly request: CapturedRequest;
+	readonly ownership: AppOwnership;
+}
+
+/**
+ * A request a first publish sends beside its content import, as the capture
+ * writes it: the lookup workbook before the import, the media upload after
+ * it.
+ */
+export type CapturedUpload = CapturedRequest;
+
+/**
+ * A migration witness's state A: the first publish of the app from before
+ * the migration, retained under `proof/migrations/<id>/`
+ * (`./inputs.ts::retainedMigrationA`), the shell's create, the content
+ * import that fills it, and the workbook and media upload the content's
+ * sidecar names.
+ */
+export interface RetainedPublish {
+	readonly create: CapturedImport;
+	readonly content: CapturedImport;
+	readonly workbook?: CapturedUpload;
+	readonly media?: CapturedUpload;
+}
+
 export interface PublishInput {
+	/**
+	 * The document the first publish sends; with `retainedA`, the migrated
+	 * document, which the capture publishes only as the updates name it.
+	 */
 	readonly create: PublishDocument;
+	/**
+	 * A migration witness's A, retained from before the migration. With it the
+	 * capture writes no first publish: the peer applies A's retained bodies,
+	 * in the order the first publish sent them, and starts holding what HQ
+	 * holds after them; the ledger is the one Nova's first publish leaves
+	 * (the content's ownership, the drift baseline the source read back after
+	 * A, each pushed table's rows read back); and the updates are sent over
+	 * it, the first of them B. A stop of any update ends the capture, naming
+	 * the witness and the stop's code: Nova's own push must never read as a
+	 * change.
+	 */
+	readonly retainedA?: RetainedPublish;
 	/** The first publish's app name; the document's own by default. */
 	readonly appName?: string;
 	/**
@@ -1797,7 +1868,19 @@ export type PublishCapture =
 			readonly status: "sent";
 			readonly create: Extract<FirstPublishOutcome, { status: "sent" }>;
 			readonly updates: Readonly<Record<string, StepOutcome>>;
+			/**
+			 * The `holdPlacements` mutations of the `publish-placement` change the
+			 * first publish wrote, which the corpus applies to D. No publish the
+			 * capture makes writes the kind, so the list is empty.
+			 */
+			readonly placements: readonly Mutation[];
 	  };
+
+/** The updates a capture sent over a retained A (`PublishInput.retainedA`), which it applied rather than sent. */
+export interface RepublishCapture {
+	readonly status: "republished";
+	readonly updates: Readonly<Record<string, StepOutcome>>;
+}
 
 /**
  * Whether two publish steps sent the same bytes: the same import and the
@@ -1878,6 +1961,55 @@ function answeringWebApps(
 }
 
 /**
+ * The peer made to hold a retained A, and the ledger Nova's first publish of
+ * it leaves: the peer applies the shell's create, the workbook, the content
+ * import and the media upload in the order the first publish sent them,
+ * then the capture reads back what the ledger records after the content, as
+ * `sendContent` does: the app's source, normalized as a baseline is, under
+ * the content's ownership, and each table the document pushes that the peer
+ * now holds, with its rows.
+ */
+async function applyRetainedA(
+	peer: TargetPeer,
+	prepared: PreparedDocument,
+	retained: RetainedPublish,
+): Promise<CaptureLedger> {
+	await peer.applyRetained([
+		retained.create.request,
+		...(retained.workbook === undefined ? [] : [retained.workbook]),
+		retained.content.request,
+		...(retained.media === undefined ? [] : [retained.media]),
+	]);
+	const tables = new Map<LookupTableId, LedgerTable>();
+	const workbook = prepared.export.lookupWorkbook;
+	if (workbook !== undefined) {
+		const listed = await readTables(peer, prepared);
+		for (const table of workbook.tables) {
+			const held = listed.find((remote) => remote.tag === table.tag);
+			if (held === undefined) continue;
+			const rows = await readRows(peer, prepared, held.id);
+			tables.set(table.tableId, {
+				tag: table.tag,
+				remoteId: held.id,
+				canonical: canonicalLookupTable(held, rows.rows),
+			});
+		}
+	}
+	const readBack = normalizedRead(
+		prepared,
+		await readSource(peer, prepared, PLACEHOLDER_APP_ID),
+	);
+	return {
+		app: {
+			normalized: readBack.normalized,
+			ownership: retained.content.ownership,
+			origin: "push",
+		},
+		tables,
+	};
+}
+
+/**
  * How many times a person's confirmation can meet another stop: preflight
  * lists the tables in conflict first and the changes after them, so a
  * publish over both stops twice before it goes through.
@@ -1902,10 +2034,20 @@ const CONFIRMED_STOPS = 2;
  * Every update is a separate next publish over A, so the peer is put back
  * to what the first publish left (with a person's saves, `hqSide`) before
  * each, and each is compared with the ledger the first publish left.
+ *
+ * Over a migration witness's retained A (`PublishInput.retainedA`) the
+ * capture sends no first publish: the peer applies A's bodies
+ * (`applyRetainedA`), and the capture is `republished`, the updates alone.
  */
 export async function capturePublish(
+	input: PublishInput & { readonly retainedA: RetainedPublish },
+): Promise<RepublishCapture>;
+export async function capturePublish(
+	input: PublishInput & { readonly retainedA?: undefined },
+): Promise<PublishCapture>;
+export async function capturePublish(
 	input: PublishInput,
-): Promise<PublishCapture> {
+): Promise<PublishCapture | RepublishCapture> {
 	const { configuration } = input;
 	const operation = (ordinal: number): EntropyOperation | undefined =>
 		input.seed === undefined
@@ -1944,15 +2086,28 @@ export async function capturePublish(
 			cloudcareGranted: declaresWebApps(create.export.doc),
 			...(input.source !== undefined && { sourceChanges: input.source }),
 		},
-		async (peer) => {
-			const first = await seeded(operation(OPERATION_ORDINALS.create), () =>
-				firstPublish(peer, create, input.appName ?? create.export.doc.appName),
-			);
-			if (!("ledger" in first)) {
-				assertModeled(peer);
-				return { status: "refused", create: first.outcome };
+		async (peer): Promise<PublishCapture | RepublishCapture> => {
+			const retained = input.retainedA;
+			let created: Extract<FirstPublishOutcome, { status: "sent" }> | null =
+				null;
+			let ledger: CaptureLedger;
+			if (retained !== undefined) {
+				ledger = await applyRetainedA(peer, create, retained);
+			} else {
+				const first = await seeded(operation(OPERATION_ORDINALS.create), () =>
+					firstPublish(
+						peer,
+						create,
+						input.appName ?? create.export.doc.appName,
+					),
+				);
+				if (!("ledger" in first)) {
+					assertModeled(peer);
+					return { status: "refused", create: first.outcome };
+				}
+				created = first.outcome;
+				ledger = first.ledger;
 			}
-			const { outcome: created, ledger } = first;
 			if (input.hqSide !== undefined) peer.applyHqSide(input.hqSide);
 			const stateA = peer.snapshot();
 			const send = (
@@ -2012,6 +2167,11 @@ export async function capturePublish(
 						const listed = JSON.stringify(
 							step.code === "hq_changed" ? step.remoteChanges : step.conflicts,
 						);
+						if (retained !== undefined) {
+							throw new Error(
+								`Nova's ${update.name} of the migration witness ${prepared.source.id} stopped with ${step.code} (${listed}) over the A retained from before the migration, which the capture peer holds exactly as that first publish left it: Nova's own push read as a change. Look at what the comparison reads of the peer's answers after the retained bodies.`,
+							);
+						}
 						if (input.hqSide === undefined) {
 							throw new Error(
 								`Nova's ${update.name} of ${prepared.source.id} stopped with ${step.code} (${listed}), and nothing was saved in HQ over the app: Nova's own push read as a change. Look at what the comparison reads of the peer's answers.`,
@@ -2058,7 +2218,13 @@ export async function capturePublish(
 				}
 			}
 			assertModeled(peer);
-			return { status: "sent", create: created, updates: outcomes };
+			if (created === null) return { status: "republished", updates: outcomes };
+			return {
+				status: "sent",
+				create: created,
+				updates: outcomes,
+				placements: [],
+			};
 		},
 	);
 }

@@ -63,7 +63,7 @@ def _edited(params):
     return [param for param in params if param.values[0].edit is not None]
 
 
-@pytest.mark.parametrize("document", _edited(cases.document_params()) + cases.control_params("proof5"))
+@pytest.mark.parametrize("document", _edited(cases.document_params("proof5")) + cases.control_params("proof5"))
 def test_entities_outside_the_footprint_keep_their_digest(document, core_runner):
     local = observations.local_records_for(document, core_runner).local
     found, compared = proof5.locality(document, local=local)
@@ -892,6 +892,27 @@ def test_d_prime_is_unpublished_under_sync_on_where_its_verdict_requires_it_off(
     assert proof5._edit_lacks(document, sync_on) == ["sync cases on form entry off"]
     path.write_text(json.dumps({"minimumConfiguration": minimum}), encoding="utf-8")
     assert proof5._edit_lacks(document, sync_on) == []
+
+
+def test_d_primes_verdict_requiring_commcare_supply_off_is_read(tmp_path):
+    """D''s verdict requiring CommCare Supply off names it for a configuration with it on, so D' is rightly
+    unpublished there, and one saying nothing of it requires nothing."""
+    supply_on = corpus.Configuration(
+        name="minimum",
+        flags=(),
+        named_privileges=(),
+        commcare_version="2.57.0",
+        commtrack=True,
+        sync_cases_on_form_entry=False,
+        case_search_enabled=False,
+    )
+    document = SimpleNamespace(edit=SimpleNamespace(root=tmp_path))
+    minimum = {"flags": [], "caseSearchEnabled": False}
+    path = tmp_path / "verdict.json"
+    path.write_text(json.dumps({"minimumConfiguration": {**minimum, "commtrackEnabled": False}}), encoding="utf-8")
+    assert proof5._edit_lacks(document, supply_on) == ["CommCare Supply off"]
+    path.write_text(json.dumps({"minimumConfiguration": minimum}), encoding="utf-8")
+    assert proof5._edit_lacks(document, supply_on) == []
 
 
 LOCAL_FORM = (

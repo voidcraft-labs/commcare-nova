@@ -133,6 +133,12 @@ meaning::
                  "form": "<form uuid>", "restore": "<file in the document's directory>",
                  "request": {...}, "expect": [{"pointer": "/constraints/0/result", "value": "constraint"}]}]}
 
+On a migration witness (``proof.checks.corpus.Document.migration_witness``)
+A is the retained export of the app from before a migration, which states
+another document than D, so every check here judges B, its build and its
+bodies, and D's local archives, never A: no state of A, no search build(A)'s
+sessions sent, no walk of A, and no expectation naming A.
+
 Where Core raised on what the check reads, the records hold what it said.
 A form Core's parser refused is the bar's to report: the bar holds Core's
 admission of the same build or archive, which parses every form the same
@@ -1059,16 +1065,19 @@ def intent_differences(document, records, manifest_items) -> list:
     intent = intent_of(document)
     # A setting a person saved in HQ over A (``hq-side.json``), which HQ's builds of A, B and B-edit hold.
     saved = (document.hq_side or {}).get("profileProperties") or {}
+    # A migration witness's A is the export from before its migration, which states another document than D.
+    judged = (("b", "B"),) if document.migration_witness else (("a", "A"), ("b", "B"))
     found = []
     for name in sorted(document.exports):
         held = _configuration_records(document, records, name)
         configuration = JudgedConfiguration.of(name, held.a)
-        for part, state_name in (("a", "A"), ("b", "B")):
+        for part, state_name in judged:
             state = held_state(held.part(part), state_name, blobs)
             if state is not None:
                 found += state_differences(document.id, intent, state, configuration, manifest_items, saved)
                 found += web_apps_setting(document.id, document.platforms(), state)
-        found += search_compiles(document, records, name)
+        if not document.migration_witness:
+            found += search_compiles(document, records, name)
     archives = archive_shapes(local_observation(document, records), blobs)
     for prefix in ("local.ccz", "local-again.ccz"):
         if prefix in archives:
@@ -1092,7 +1101,7 @@ def intent_differences(document, records, manifest_items) -> list:
     if document.expected is not None:
         found += value_differences(document, records)
     found += formplayer_session_values(document, records)
-    found += observations.soft_assertion_differences(records, "intent")
+    found += observations.soft_assertion_differences(records, "intent", states=observations.judged_states(document))
     return _deduplicated(found)
 
 
@@ -1153,6 +1162,8 @@ def formplayer_session_values(document, records) -> list:
         if held is None:
             continue
         for state_name, ref in _formplayer_traces(held):
+            if state_name == "A" and document.migration_witness:
+                continue
             for instance in _submitted_instances(records.blobs.get_json(ref)):
                 root = etree.fromstring(
                     instance.encode("utf-8"), etree.XMLParser(resolve_entities=False, no_network=True)
@@ -1243,6 +1254,13 @@ def value_differences(document, records) -> list:
             else:
                 ran_in = f"{name} of local.ccz"
         else:
+            if entry["export"] == "A" and document.migration_witness:
+                raise CorpusLayoutError(
+                    f"{document.root / 'expected.json'}: {entry['id']} names the export A of {document.id}, a"
+                    " migration witness, whose A is the retained export of the app from before its migration and"
+                    " states another document than this one. Name B, the republish of the migrated document, or"
+                    " local."
+                )
             configuration = entry.get("configuration", DEFAULT_CONFIGURATION)
             if configuration not in document.exports:
                 raise CorpusLayoutError(

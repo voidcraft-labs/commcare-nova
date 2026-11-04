@@ -1,0 +1,429 @@
+{
+	"appId": "e176065b-1814-5407-a8be-e7a56daeb0cb",
+	"appName": "Own close operations",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "patient",
+			"properties": [
+				{
+					"name": "case_name",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "case_name"
+							}
+						]
+					}
+				},
+				{
+					"name": "outcome",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "outcome"
+							}
+						]
+					}
+				},
+				{
+					"name": "closed_note",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "closed_note"
+							}
+						]
+					}
+				}
+			]
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false
+	},
+	"modules": {
+		"70c69fd1-65b6-53e5-a459-1fd76d021221": {
+			"uuid": "70c69fd1-65b6-53e5-a459-1fd76d021221",
+			"id": "patients",
+			"name": "Patients",
+			"caseType": "patient",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "0ef72896-fa67-52ca-a29b-8970e90744e6",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"searchInputs": [],
+				"listColumnOrder": ["0ef72896-fa67-52ca-a29b-8970e90744e6"],
+				"detailColumnOrder": ["0ef72896-fa67-52ca-a29b-8970e90744e6"]
+			}
+		}
+	},
+	"forms": {
+		"7f2f7c6c-1def-57d8-aaaf-2882410c8b7c": {
+			"uuid": "7f2f7c6c-1def-57d8-aaaf-2882410c8b7c",
+			"id": "register",
+			"name": "Register",
+			"type": "registration"
+		},
+		"1f464df3-8247-5ccf-aa05-86edf8c270e3": {
+			"uuid": "1f464df3-8247-5ccf-aa05-86edf8c270e3",
+			"id": "discharge",
+			"name": "Discharge",
+			"type": "followup",
+			"caseOperations": [
+				{
+					"uuid": "c5445232-2877-5bbe-ad5a-620ca1e15da2",
+					"id": "discharge_patient",
+					"action": "close",
+					"caseType": "patient",
+					"target": {
+						"kind": "session"
+					},
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "ade79ab1-f97c-5b4d-a76a-843740dcc981"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "yes"
+							}
+						}
+					}
+				}
+			]
+		},
+		"21d60ff2-e245-5326-ab55-15fc7bc1c662": {
+			"uuid": "21d60ff2-e245-5326-ab55-15fc7bc1c662",
+			"id": "close_with_notes",
+			"name": "Close with notes",
+			"type": "followup",
+			"caseOperations": [
+				{
+					"uuid": "38eb0ef1-cf56-5875-a958-8bf379d93861",
+					"id": "close_patient",
+					"action": "close",
+					"caseType": "patient",
+					"target": {
+						"kind": "session"
+					},
+					"writes": [
+						{
+							"property": "outcome",
+							"value": {
+								"kind": "term",
+								"term": {
+									"kind": "field",
+									"uuid": "85683dc4-cf1d-5858-a8ba-6f360f1b5734"
+								}
+							}
+						},
+						{
+							"property": "closed_note",
+							"value": {
+								"kind": "term",
+								"term": {
+									"kind": "literal",
+									"value": "Closed with notes"
+								}
+							}
+						}
+					]
+				}
+			]
+		},
+		"0c5e9e6c-36f8-5fc0-a034-d34a4a06f7fc": {
+			"uuid": "0c5e9e6c-36f8-5fc0-a034-d34a4a06f7fc",
+			"id": "close_per_row",
+			"name": "Close per row",
+			"type": "followup",
+			"caseOperations": [
+				{
+					"uuid": "f3e82471-a0ab-5e85-ac79-3b9fabd6a441",
+					"id": "close_per_row",
+					"action": "close",
+					"caseType": "patient",
+					"target": {
+						"kind": "session"
+					},
+					"forEach": {
+						"repeat": "d8086e45-8541-5c19-af3c-8fc33d8fa635"
+					}
+				}
+			]
+		},
+		"9c8b72af-7b14-593b-a020-7b956fa1f9ff": {
+			"uuid": "9c8b72af-7b14-593b-a020-7b956fa1f9ff",
+			"id": "close",
+			"name": "Close",
+			"type": "close",
+			"closeCondition": {
+				"field": "c1da2f35-28f2-5599-a456-e493d802c645",
+				"answer": "yes",
+				"operator": "="
+			},
+			"caseOperations": [
+				{
+					"uuid": "3986a4cc-274e-5708-a38f-15ce05c8741c",
+					"id": "close_anyway",
+					"action": "close",
+					"caseType": "patient",
+					"target": {
+						"kind": "session"
+					},
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "b11ccb4d-c651-5de9-a712-281fb7f0f3bd"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "yes"
+							}
+						}
+					}
+				}
+			]
+		}
+	},
+	"fields": {
+		"28089fb7-a500-5873-a52d-e9bd06533867": {
+			"uuid": "28089fb7-a500-5873-a52d-e9bd06533867",
+			"kind": "text",
+			"id": "name",
+			"caseWrite": {
+				"caseType": "patient",
+				"property": "case_name"
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Name"
+					}
+				]
+			}
+		},
+		"ade79ab1-f97c-5b4d-a76a-843740dcc981": {
+			"uuid": "ade79ab1-f97c-5b4d-a76a-843740dcc981",
+			"kind": "single_select",
+			"id": "confirm",
+			"optionsSource": {
+				"kind": "inline",
+				"options": [
+					{
+						"uuid": "0464427b-3558-52c7-a866-2d45be2d6f6b",
+						"value": "yes",
+						"label": {
+							"parts": [
+								{
+									"kind": "text",
+									"text": "yes"
+								}
+							]
+						}
+					},
+					{
+						"uuid": "5a84ea0f-0ffe-5dfb-a319-014919345c1f",
+						"value": "no",
+						"label": {
+							"parts": [
+								{
+									"kind": "text",
+									"text": "no"
+								}
+							]
+						}
+					}
+				]
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Discharge now?"
+					}
+				]
+			}
+		},
+		"85683dc4-cf1d-5858-a8ba-6f360f1b5734": {
+			"uuid": "85683dc4-cf1d-5858-a8ba-6f360f1b5734",
+			"kind": "text",
+			"id": "outcome",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Outcome"
+					}
+				]
+			}
+		},
+		"d8086e45-8541-5c19-af3c-8fc33d8fa635": {
+			"uuid": "d8086e45-8541-5c19-af3c-8fc33d8fa635",
+			"kind": "repeat",
+			"id": "rows",
+			"repeat_mode": "user_controlled",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Rows"
+					}
+				]
+			}
+		},
+		"c7598cd4-62d4-5708-a6c6-b63642635704": {
+			"uuid": "c7598cd4-62d4-5708-a6c6-b63642635704",
+			"kind": "text",
+			"id": "note",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			}
+		},
+		"c1da2f35-28f2-5599-a456-e493d802c645": {
+			"uuid": "c1da2f35-28f2-5599-a456-e493d802c645",
+			"kind": "single_select",
+			"id": "finished",
+			"optionsSource": {
+				"kind": "inline",
+				"options": [
+					{
+						"uuid": "aca3a18f-5a88-5383-a574-2c31015577bf",
+						"value": "yes",
+						"label": {
+							"parts": [
+								{
+									"kind": "text",
+									"text": "yes"
+								}
+							]
+						}
+					},
+					{
+						"uuid": "31f1ab83-7856-5197-a5b6-0335ec126793",
+						"value": "no",
+						"label": {
+							"parts": [
+								{
+									"kind": "text",
+									"text": "no"
+								}
+							]
+						}
+					}
+				]
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Finished?"
+					}
+				]
+			}
+		},
+		"b11ccb4d-c651-5de9-a712-281fb7f0f3bd": {
+			"uuid": "b11ccb4d-c651-5de9-a712-281fb7f0f3bd",
+			"kind": "single_select",
+			"id": "confirm",
+			"optionsSource": {
+				"kind": "inline",
+				"options": [
+					{
+						"uuid": "327862c7-d1c8-5973-ab6f-61cde6f72297",
+						"value": "yes",
+						"label": {
+							"parts": [
+								{
+									"kind": "text",
+									"text": "yes"
+								}
+							]
+						}
+					},
+					{
+						"uuid": "e384edfb-3b9c-5a27-a630-5751c9a69f2b",
+						"value": "no",
+						"label": {
+							"parts": [
+								{
+									"kind": "text",
+									"text": "no"
+								}
+							]
+						}
+					}
+				]
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Close anyway?"
+					}
+				]
+			}
+		}
+	},
+	"moduleOrder": ["70c69fd1-65b6-53e5-a459-1fd76d021221"],
+	"formOrder": {
+		"70c69fd1-65b6-53e5-a459-1fd76d021221": [
+			"7f2f7c6c-1def-57d8-aaaf-2882410c8b7c",
+			"1f464df3-8247-5ccf-aa05-86edf8c270e3",
+			"21d60ff2-e245-5326-ab55-15fc7bc1c662",
+			"0c5e9e6c-36f8-5fc0-a034-d34a4a06f7fc",
+			"9c8b72af-7b14-593b-a020-7b956fa1f9ff"
+		]
+	},
+	"fieldOrder": {
+		"7f2f7c6c-1def-57d8-aaaf-2882410c8b7c": [
+			"28089fb7-a500-5873-a52d-e9bd06533867"
+		],
+		"1f464df3-8247-5ccf-aa05-86edf8c270e3": [
+			"ade79ab1-f97c-5b4d-a76a-843740dcc981"
+		],
+		"21d60ff2-e245-5326-ab55-15fc7bc1c662": [
+			"85683dc4-cf1d-5858-a8ba-6f360f1b5734"
+		],
+		"0c5e9e6c-36f8-5fc0-a034-d34a4a06f7fc": [
+			"d8086e45-8541-5c19-af3c-8fc33d8fa635"
+		],
+		"d8086e45-8541-5c19-af3c-8fc33d8fa635": [
+			"c7598cd4-62d4-5708-a6c6-b63642635704"
+		],
+		"9c8b72af-7b14-593b-a020-7b956fa1f9ff": [
+			"c1da2f35-28f2-5599-a456-e493d802c645",
+			"b11ccb4d-c651-5de9-a712-281fb7f0f3bd"
+		]
+	}
+}

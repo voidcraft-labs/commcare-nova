@@ -94,7 +94,10 @@ and the builder writes both into the job's summary where
 ``--documents only:<id>,<id>`` builds the main queue of a run over documents
 named by hand: those documents, and the controls of the known-defect entries
 naming them, and nothing else (a fixed entry or a held stop on a control is
-held there only where one of those controls is its own). It is for showing the lane's mechanics, or one
+held there only where one of those controls is its own). A name may be a
+control's, ``control:<id>``, which then runs too and holds its fixed entries,
+so a fixed entry's class is seen on its control before a merge; a name that
+is no directory of ``proof/controls/`` is refused. It is for showing the lane's mechanics, or one
 change, on a few documents (proof-audit.yml's ``mechanics`` dispatch), never a
 verdict on the corpus: the queue names the documents and every group it
 leaves out beside the other documents (``selection``: each other control,
@@ -106,8 +109,6 @@ over the edited ones, and the lane refuses to collect a check with none. The
 corpus's index is rewritten as for a sample. A slice a person runs by path
 and ``-k`` builds no queue here: the run writes its own, and the gate is told
 the slice's documents (``python3 -m proof.lane.gate --documents``).
-One of the documents named must carry an edit: proof 5's check runs over the
-edited documents, and a lane collects no check with none to run over.
 
 Each queued group names its key (``key``): a document's document key, a
 package's or the surface block's outcome key, which ``proof.store.pack``
@@ -732,16 +733,37 @@ def _controls_of(proof_dir: Path, *, readers, documents=None) -> list[str]:
     )
 
 
-def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR, *, only=None) -> list[Group]:
+CONTROL_PREFIX = "control:"
+
+
+def named_controls(names: list[str], proof_dir: Path = PROOF_DIR) -> tuple[list[str], list[str]]:
+    """``--documents only:``'s names split into the documents and the controls they name (``control:<id>``), each
+    control refused where ``proof/controls/<id>`` does not exist."""
+    controls = Path(proof_dir) / "controls"
+    documents, named = [], []
+    for name in names:
+        if not name.startswith(CONTROL_PREFIX):
+            documents.append(name)
+            continue
+        identifier = name.removeprefix(CONTROL_PREFIX)
+        if not identifier or "/" in identifier or not (controls / identifier).is_dir():
+            raise QueueBuildError(f"--documents only:{name} names no control: {controls / identifier} does not exist.")
+        named.append(name)
+    return documents, named
+
+
+def main_groups(builder: Builder, corpus: Path, proof_dir: Path = PROOF_DIR, *, only=None, controls=()) -> list[Group]:
     """The main queue's groups over the corpus as its index lists it; with ``only`` (the documents a run names by
-    hand, which the index then lists alone), those documents and the controls of the entries naming them."""
+    hand, which the index then lists alone), those documents, the controls of the entries naming them and the
+    controls the run names (``controls``, each ``control:<id>``)."""
     corpus = Path(corpus)
     listed = keys.corpus_documents(corpus)
     # The documents a sample left out are not queued, and a package that names one reads it, so its key reads them.
     emitted = [*listed, *lane_blocks.unsampled_documents(corpus)]
     files = {identifier: keys.files_digest(corpus / identifier) for identifier in emitted}
     groups = [builder.document(f"corpus:{identifier}", corpus / identifier, files[identifier]) for identifier in listed]
-    for name in _controls_of(proof_dir, readers=builder.readers, documents=only):
+    queued = _controls_of(proof_dir, readers=builder.readers, documents=only)
+    for name in [*queued, *sorted(set(controls) - set(queued))]:
         groups.append(builder.document(name, proof_dir / "controls" / name.partition(":")[2]))
     if only is not None:
         return groups
@@ -849,13 +871,16 @@ def main(argv=None) -> int:
             raise QueueBuildError(
                 f"The {arguments.phase} queue holds the corpus's documents: name the corpus with --corpus."
             )
-        sample, only = None, None
+        sample, only, controls = None, None, []
         kind, _, count = arguments.documents.partition(":")
         if arguments.sample_seed is not None and kind != "sample":
             raise QueueBuildError("--sample-seed chooses a sample's window, and --documents names no sample.")
         if arguments.documents != "all":
             if kind == "only" and arguments.phase == "main":
-                only = selected(arguments.corpus, [name for name in count.split(",") if name])
+                names, controls = named_controls(
+                    [name for name in count.split(",") if name], Path(arguments.root) / "proof"
+                )
+                only = selected(arguments.corpus, names)
             elif kind != "sample" or not count.isdecimal() or int(count) < 1 or arguments.phase != "main":
                 raise QueueBuildError(
                     f"--documents is all, sample:N or only:<id>,<id> for the main queue; got {arguments.documents!r}."
@@ -889,7 +914,7 @@ def main(argv=None) -> int:
         if arguments.phase == "early":
             groups = early(builder, proof_dir)
         else:
-            groups = main_groups(builder, arguments.corpus, proof_dir, only=only)
+            groups = main_groups(builder, arguments.corpus, proof_dir, only=only, controls=controls)
             if only is None:
                 unsampled = lane_blocks.unsampled_documents(arguments.corpus)
             else:
@@ -925,8 +950,9 @@ def main(argv=None) -> int:
     )
     if selection is not None:
         print(
-            f"This run checks the documents named by hand ({', '.join(selection.documents)}) and their controls,"
-            f" and leaves {len(selection.left)} other groups out: it is no verdict on the corpus."
+            f"This run checks the documents named by hand ({', '.join(selection.documents)}) and their controls"
+            + (f", and the controls {', '.join(controls)}" if controls else "")
+            + f", and leaves {len(selection.left)} other groups out: it is no verdict on the corpus."
         )
     if sample is not None:
         said = described_sample(sample, len(sample.documents) + len(value.get("unsampled", ())))

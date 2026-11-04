@@ -21,6 +21,7 @@
 			"!!proof/ci/vendor/artifact.bundle.mjs",
 			"!!proof/controls",
 			"!!proof/hq-reads",
+			"!!proof/migrations",
 			"!!public/xpath-worker",
 			"!!public/form-evaluation",
 			"!!scripts/java-pattern-runtime/.gradle",

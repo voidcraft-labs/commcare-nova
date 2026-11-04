@@ -84,6 +84,14 @@ export interface TargetedSpec {
 	 * The production gate must admit them and their result must equal `edit`.
 	 */
 	readonly editMutations?: readonly Mutation[];
+	/**
+	 * Present where the document is a migration witness: its A is the
+	 * retained export of the app from before a migration
+	 * (`proof/migrations/<id>/`) and its B is Nova's republish of the migrated
+	 * document over it. The document's source carries it, which names its
+	 * source `targeted-migration:<rows>`.
+	 */
+	readonly migrationWitness?: true;
 }
 
 /** Two stored documents' first difference, as a JSON path, for a refusal that names it. */
@@ -192,7 +200,11 @@ export function targetedDocument(spec: TargetedSpec): CorpusDocument {
 	}
 	return {
 		id: spec.id,
-		source: { kind: "targeted", rows: spec.rows },
+		source: {
+			kind: "targeted",
+			rows: spec.rows,
+			...(spec.migrationWitness === true && { migrationWitness: true }),
+		},
 		doc: committed,
 		...(spec.lookup !== undefined && { lookup: spec.lookup }),
 		...(spec.media !== undefined && { media: spec.media }),

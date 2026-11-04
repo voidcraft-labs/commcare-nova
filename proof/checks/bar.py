@@ -23,6 +23,11 @@ Over the records of a document (``proof.checks.observations``):
   (``soft_assert:<operation>@<state>``, ``observations.soft_assertion_differences``):
   HQ notes them and goes on, as production does (``proof.hq.boot``), so each
   is evidence the register classifies.
+
+On a migration witness (``proof.checks.corpus.Document.migration_witness``)
+A is the retained export of the app from before a migration, which the
+current code did not write, so the bar judges B, its build and its bodies,
+and D's local archives, never A.
 """
 
 from __future__ import annotations
@@ -187,12 +192,14 @@ def media_differences(document, uploads, states):
     return found
 
 
-def republish_bar(document, observed):
-    found = refusal_differences(document, observed.refusals)
-    found += lookup_differences(document, observed.lookup_uploads, ("A", "B"))
-    found += media_differences(document, observed.media_uploads, ("A", "B"))
-    for state in (observed.a, observed.b):
-        if state is not None:
+def republish_bar(document, observed, states=("A", "B")):
+    """The bar over one configuration's first publish and republish: over the publishes that made ``states`` (B
+    alone on a migration witness, whose A the current code did not write)."""
+    found = refusal_differences(document, [refusal for refusal in observed.refusals if refusal.state in states])
+    found += lookup_differences(document, observed.lookup_uploads, states)
+    found += media_differences(document, observed.media_uploads, states)
+    for name, state in (("A", observed.a), ("B", observed.b)):
+        if state is not None and name in states:
             found.extend(build_differences(document, state.build))
     return found
 
@@ -214,14 +221,16 @@ def local_bar(document, reports):
 
 
 def document_bar(document, records):
-    """The bar's differences on one document, judged from its records: every publish, build and local archive."""
+    """The bar's differences on one document, judged from its records: every publish, build and local archive, but a
+    migration witness's A."""
     from proof.checks import observations
 
+    states = ("B",) if document.migration_witness else ("A", "B")
     found = []
     for name in sorted(document.exports):
-        found += republish_bar(document.id, observations.republish_view(records, name))
+        found += republish_bar(document.id, observations.republish_view(records, name), states)
     if document.edit is not None:
         for name in document.edit.exports:
             found += edit_bar(document.id, observations.edit_view(records, name))
     found += local_bar(document.id, observations.local_reports(records))
-    return found + observations.soft_assertion_differences(records, "bar")
+    return found + observations.soft_assertion_differences(records, "bar", states=observations.judged_states(document))

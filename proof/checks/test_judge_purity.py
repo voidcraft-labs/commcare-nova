@@ -28,13 +28,16 @@ one that a function's import reaches outside the partition.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import subprocess
 import sys
 import textwrap
 
-from proof.checks import cases, observations, sharding
+import pytest
+
+from proof.checks import cases, corpus, observations, registers, sharding
 from proof.hq.boot import HQ_ROOT
 
 # Every module that judges records, or that a judge imports: from the checks, and the observation's own
@@ -149,15 +152,59 @@ def test_every_judge_imports_where_hq_cannot_be_imported():
 
 
 def _cheapest_edited(check=None):
-    """The cheapest edited corpus document (``proof/timings.json``); with ``check``, the cheapest one a register
-    entry of that check names, on which the lane holds the entry's difference, so the check's judge gives one."""
+    """The cheapest edited corpus document (``proof/timings.json``); with ``check``, the cheapest document a known
+    entry of that check names, or, where the known register names none, the cheapest control a fixed entry of it
+    names that retains an edit: either way the check's judge gives a difference there, on records read back as on
+    records here."""
     estimate = sharding.estimate(sharding.load_timings())
     edited = [document for document in cases.load_corpus().emitted if document.edit is not None]
-    if check is not None:
-        named = {entry.document for entry in cases.load_register() if entry.check == check}
-        edited = [document for document in edited if document.id in named]
-    assert edited, f"The corpus holds no edited document{f' the register names for {check}' if check else ''}."
-    return min(edited, key=lambda document: (estimate(document.group), document.id))
+    if check is None:
+        named = edited
+    else:
+        known = {entry.document for entry in cases.load_register() if entry.check == check}
+        named = [document for document in edited if document.id in known]
+        if not named:
+            fixed = {entry.control for entry in registers.load_fixed_defects() if entry.check == check}
+            named = [control for control in corpus.load_controls() if control.id in fixed and control.edit is not None]
+    assert named, f"Neither register names an edited document or control for {check}, so the judge compares nothing."
+    return min(named, key=lambda document: (estimate(document.group), document.id))
+
+
+def test_the_cheapest_edited_falls_back_to_a_fixed_entrys_control(tmp_path, monkeypatch):
+    """With a known entry of the check on an edited document the judge compares that document; once the register's
+    entries of the check have moved to the fixed register, it compares the control a fixed entry names; with
+    neither it fails naming the check. The plausible failure: a register emptied by fixes leaves the purity test of
+    a check with nothing to compare, failing with no lane check observing why."""
+    entry = {"defect": 1, "part": "p", "check": "manifest", "artifact": "form:*"}
+    entry["path"] = "/jr-action:setvalue/refused/form-level"
+    for root in (tmp_path / "corpus" / "edited", tmp_path / "controls" / "retained"):
+        (root / "edit").mkdir(parents=True)
+        (root / "edit" / "batch.json").write_text("{}")
+    (tmp_path / "corpus" / "index.json").write_text(json.dumps({"documents": [{"id": "edited", "source": "fuzz"}]}))
+    controls = tmp_path / "controls"
+
+    def registers_hold(known, fixed):
+        (tmp_path / "known.json").write_text(json.dumps(known))
+        (tmp_path / "fixed.json").write_text(json.dumps(fixed))
+
+    monkeypatch.setattr(cases, "load_corpus", lambda: corpus.load(tmp_path / "corpus"))
+    known = functools.partial(registers.load_known_defects, tmp_path / "known.json", controls=controls)
+    monkeypatch.setattr(cases, "load_register", known)
+    monkeypatch.setattr(
+        registers,
+        "load_fixed_defects",
+        functools.partial(registers.load_fixed_defects, tmp_path / "fixed.json", controls=controls),
+    )
+    monkeypatch.setattr(corpus, "load_controls", functools.partial(corpus.load_controls, controls))
+    monkeypatch.setattr(sharding, "load_timings", lambda: {})
+
+    registers_hold([{**entry, "id": "known", "document": "edited", "control": "retained"}], [])
+    assert (_cheapest_edited("manifest").kind, _cheapest_edited("manifest").id) == ("corpus", "edited")
+    registers_hold([], [{**entry, "id": "fixed", "control": "retained"}])
+    assert (_cheapest_edited("manifest").kind, _cheapest_edited("manifest").id) == ("control", "retained")
+    registers_hold([], [])
+    with pytest.raises(AssertionError, match="Neither register names an edited document or control for manifest"):
+        _cheapest_edited("manifest")
 
 
 JUDGMENTS = textwrap.dedent(

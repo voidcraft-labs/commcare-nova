@@ -45,6 +45,16 @@ observation by, so a digest that is not the bytes the checks read would let
 a stale record stand in for a changed input; it is recomputed here from the
 files with Python's own ``hashlib`` and ``zipfile``.
 
+A migration witness's A is retained under ``proof/migrations/<id>/``
+(``proof.checks.controls.retain_migration_a``): every directory there is an
+emitted witness's, every witness has one, and each holds its first publish's
+two imports under each configuration its ``configurations.json`` names and
+nothing beyond them; and every identity move names witnesses the corpus
+emitted. The plausible failures: a witness republished over no retained A (its
+A would be the current code's, so proof 1 compares nothing a migration
+moves), a retained A left behind its witness, a file kept beside the set that
+no reader reads, and a move scoped to a document that is no witness.
+
 The accepted case is a real corpus document copied as it was emitted; each
 refusal changes one thing in a copy of it.
 """
@@ -58,7 +68,7 @@ import zipfile
 
 import pytest
 
-from proof.checks import cases, configurations, corpus
+from proof.checks import cases, configurations, controls, corpus, registers
 from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 
 # The fields of HQ's source a captured update is built over (``proof/corpus/publish.ts::AssumedSource``).
@@ -538,3 +548,98 @@ def test_the_corpus_holds_each_declaration_and_a_narrowing_edit():
     assert any(document.platforms(edit=True) < document.platforms() for document in edited)
     assert all(document.platforms() for document in documents)
     assert all(document.platforms(edit=True) for document in edited)
+
+
+def _witnesses():
+    """The ids of the migration witnesses the corpus emitted."""
+    return {document.id for document in cases.load_corpus().emitted if document.migration_witness}
+
+
+def test_every_migration_witness_has_its_retained_a():
+    """Contract: every directory under ``proof/migrations/`` is an emitted witness's, every witness has one, and each
+    holds exactly the retained A part 08 §1.2 names. Catches a witness republished over no retained A, which would
+    compare today's export with itself, and a retained A left behind by a witness the corpus no longer holds."""
+    problems = controls.migration_a_problems(controls.MIGRATIONS_DIR, _witnesses())
+    assert problems == [], "\n".join(problems)
+
+
+def test_every_identity_move_names_a_witness_of_the_corpus():
+    moves = registers.load_identity_moves(witnesses=_witnesses())
+    assert all(move.documents <= _witnesses() for move in moves)
+
+
+def _emitted_witness(root, source="targeted-migration:5, a migration"):
+    """A corpus document of one configuration whose first publish is two imports, the content naming its workbook,
+    as the emission writes it; a witness where ``source`` is targeted-migration's."""
+    directory = root / "corpus" / "targeted-migration-one"
+    single = {"flags": [], "namedPrivileges": [], "commcareVersion": "2.57.0", "commtrack": False}
+    single |= {"syncCasesOnFormEntry": True, "caseSearchEnabled": False}
+    files = {
+        "configurations.json": json.dumps({"minimum": single, "maximum": single, "singleFlag": {}}),
+        "verdict.json": "{}",
+        "local.ccz": "",
+    }
+    for configuration in ("minimum", "maximum"):
+        export = f"export/{configuration}"
+        files |= {
+            f"{export}/create.json": json.dumps({"contentType": "multipart/form-data", "layout": 2}),
+            f"{export}/create.body": "shell",
+            f"{export}/create.ownership.json": "[]",
+            f"{export}/content.json": json.dumps({"contentType": "multipart/form-data", "lookups": "lookups.body"}),
+            f"{export}/content.body": "content",
+            f"{export}/content.ownership.json": "[]",
+            f"{export}/lookups.json": json.dumps({"contentType": "multipart/form-data"}),
+            f"{export}/lookups.body": "workbook",
+            f"{export}/republish.json": json.dumps({"contentType": "multipart/form-data"}),
+            f"{export}/republish.body": "republish",
+            f"{export}/outcome.json": "{}",
+        }
+    for path, text in files.items():
+        (directory / path).parent.mkdir(parents=True, exist_ok=True)
+        (directory / path).write_text(text)
+    return corpus.Document(id=directory.name, source=source, root=directory)
+
+
+def test_a_retained_a_with_a_stray_file_a_missing_content_or_no_directory_fails_by_name(tmp_path):
+    """The retained A holds exactly the first publish's imports a witness's configurations name; a stray file, a
+    missing content and a witness with no directory each fail naming the path, and a document that is no witness is
+    refused retention."""
+    witness = _emitted_witness(tmp_path)
+    migrations = tmp_path / "migrations"
+    retained = controls.retain_migration_a(witness, migrations)
+    kept = sorted(path.relative_to(retained).as_posix() for path in retained.rglob("*") if path.is_file())
+    each = ["content.body", "content.json", "content.ownership.json", "create.body", "create.json"]
+    each += ["create.ownership.json", "lookups.body", "lookups.json"]
+    exported = [f"export/{name}/{file}" for name in ("maximum", "minimum") for file in each]
+    assert kept == ["configurations.json", *exported]
+    assert controls.migration_a_problems(migrations, {witness.id}) == []
+    # A witness the corpus emitted whose A is not retained.
+    problems = controls.migration_a_problems(migrations, {witness.id, "targeted-migration-two"})
+    assert problems == [
+        f"targeted-migration-two is a migration witness, and {migrations / 'targeted-migration-two'} does not exist,"
+        " so its A is not retained. Retain it from an emitted corpus (python3 -m proof.checks.controls <corpus>"
+        " targeted-migration-two --migration-a)."
+    ]
+    # A retained A whose witness the corpus no longer emits.
+    assert controls.migration_a_problems(migrations, set()) == [
+        f"{retained} is the retained A of no migration witness the corpus emitted. Remove it, or emit the witness it"
+        " was retained from."
+    ]
+    # A stray file beside the set.
+    (retained / "document.json").write_text("{}")
+    assert controls.migration_a_problems(migrations, {witness.id}) == [
+        f"{retained / 'document.json'} is beyond what a witness's A retains (configurations.json and each"
+        " configuration's create and content, their ownership, and the workbook and media a sidecar names). Remove it."
+    ]
+    (retained / "document.json").unlink()
+    # A configuration without its content.
+    (retained / "export" / "maximum" / "content.json").unlink()
+    problems = controls.migration_a_problems(migrations, {witness.id})
+    assert problems[0] == (
+        f"{retained / 'export' / 'maximum'} holds no content, the first publish's imports under maximum that"
+        " configurations.json names."
+    )
+    # Only a witness's A is retained so.
+    other = _emitted_witness(tmp_path / "other", source="targeted:5, a migration")
+    with pytest.raises(controls.ControlsError, match="is no migration witness of .*Retain a fixed entry's pre-fix"):
+        controls.retain_migration_a(other, migrations)

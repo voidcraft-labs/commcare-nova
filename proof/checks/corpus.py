@@ -229,10 +229,11 @@ def lacking(configuration, verdict_path):
     Read from the verdict at ``verdict_path`` (``verdict.json`` or
     ``edit/verdict.json``, written from ``proof/corpus/publish.ts``'s
     verdict): ``minimumConfiguration``'s ``flags``, ``case search`` when
-    it needs case search on, and ``sync cases on form entry off`` when its
+    it needs case search on, ``sync cases on form entry off`` when its
     ``syncCasesOnFormEntry`` is ``false`` (Nova's publish requires the
-    setting off) and the configuration has it on; a verdict without that key
-    requires nothing of it.
+    setting off) and the configuration has it on, and ``CommCare Supply off``
+    when its ``commtrackEnabled`` is ``false`` and the configuration has it
+    on; a verdict without one of those keys requires nothing of it.
     """
     return verdict_lacks(_read_json(verdict_path), configuration, verdict_path)
 
@@ -256,11 +257,19 @@ def verdict_lacks(verdict, configuration, where):
             f"{where} holds syncCasesOnFormEntry {sync!r}; a verdict requires the setting off (false) or says"
             " nothing of it."
         )
+    commtrack = minimum.get("commtrackEnabled", None)
+    if "commtrackEnabled" in minimum and commtrack is not False:
+        raise CorpusLayoutError(
+            f"{where} holds commtrackEnabled {commtrack!r}; a verdict requires CommCare Supply off (false) or says"
+            " nothing of it."
+        )
     missing = sorted(set(minimum["flags"]) - set(configuration.flags))
     if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
         missing.append("case search")
     if sync is False and configuration.sync_cases_on_form_entry:
         missing.append("sync cases on form entry off")
+    if commtrack is False and configuration.commtrack:
+        missing.append("CommCare Supply off")
     return missing
 
 
@@ -470,6 +479,13 @@ class Document:
     def __str__(self):
         return self.id
 
+    @property
+    def migration_witness(self):
+        """Whether the document is a migration witness: a targeted document whose A is the retained export of the app
+        from before a migration (``proof/migrations/<id>/``) and whose B is Nova's republish of the migrated document
+        over it."""
+        return self.source.startswith("targeted-migration:")
+
     @cached_property
     def configurations(self):
         value = _read_json(self.root / "configurations.json")
@@ -500,8 +516,9 @@ class Document:
         The verdict beside the export (``verdict.json``, written from
         ``proof/corpus/publish.ts``'s verdict) names what Nova's publish
         requires: ``minimumConfiguration`` with its ``flags`` and
-        ``caseSearchEnabled``, and ``syncCasesOnFormEntry: false`` where it
-        requires sync cases on form entry off (``lacking``).
+        ``caseSearchEnabled``, ``syncCasesOnFormEntry: false`` where it
+        requires sync cases on form entry off, and ``commtrackEnabled: false``
+        where it requires CommCare Supply off (``lacking``).
         """
         missing = lacking(configuration, path)
         if missing:

@@ -1466,12 +1466,16 @@ form-links brief, which seeded a household and purged a member: a walk cannot pu
 new-case destination tests the brief's harder claim, that the guard reads the device after the
 submission lands.
 
-The migration witness `targeted-migration-form-links` is part 08's (§5.2 there), whose pre-step A
-(built at `main`, pull request 1) holds two conditional links and a terminal unconditional link, a
-stored `postSubmit` beside a conditional link, a link to a submenu HQ does not offer, and datums on
-a menu link, so its migrated B (pull request 11) is §14's map of each (L1 to L5). L6 is witnessed by
+The migration witness `targeted-migration-form-links` is part 08's (§5.2 there), declared for both
+platforms, whose pre-step A (built at `main`, pull request 1) holds two conditional links and a
+terminal unconditional link, a stored `postSubmit` beside a conditional link, and a link from root
+menu Patients to its child menu Patient visits, which HQ does not offer from it, so its migrated B
+(pull request 11) is §14's map of each (L1 to L4). It holds no menu link carrying datums and no
+several-case form: `main`'s export of the first shows a refused manifest use and HQ's form settings
+save drops the second's `previous` fallback, so either would need a live register entry. Part 09's
+`pre-step-otherwise-unoffered` fixture holds L5 and L6 for the map, and
 `targeted-form-links-hidden-and-fallback`'s migrated shape (§13.1), whose `previous` beside links in
-a several-case menu L3 then L6 move.
+a several-case menu L3 then L6 move, witnesses L6 on the lane.
 
 Each targeted document that holds a link shape the gate refuses from step 5 takes its migrated
 shape in pull request 11, as written by `mapFormLinkSemantics` and committed as source:

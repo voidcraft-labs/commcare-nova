@@ -32,9 +32,11 @@ from proof.conftest import timed  # noqa: F401  (HQ's tests time their operation
 # local archive ``test_publish.py``'s archive tests read (``case-list-local``, which runs on both platforms, where
 # ``case-list-inline`` runs in Web Apps only and has no local archive), the two more
 # the drift groups of ``test_retained_reads.py`` publish, the two whose lists ``test_fuzzy_sort_keys.py``
-# searches (``test_date_pattern_characters.py`` publishes ``case-list-inline``, named above), and the six more
+# searches (``test_date_pattern_characters.py`` publishes ``case-list-inline``, named above), the six more
 # the publish gates' tests publish (``test_version_floor.py``, ``test_plan_features.py``, ``test_flag_probe.py``
-# and ``test_logos.py``, which also read ``lookup-app``, ``search-parent`` and ``media-rich``, named above).
+# and ``test_logos.py``, which also read ``lookup-app``, ``search-parent`` and ``media-rich``, named above), and
+# the eight migration witnesses whose A the migration groups of ``test_retained_reads.py`` publish
+# (``MIGRATION_WITNESSES``).
 DOCUMENTS = (
     "lookup-app",
     "media-rich",
@@ -58,6 +60,14 @@ DOCUMENTS = (
     "location-direct",
     "case-capture-followup",
     "media-only",
+    "targeted-migration-search-workflow",
+    "targeted-migration-case-writes",
+    "targeted-migration-attachment",
+    "targeted-migration-extension-children",
+    "targeted-migration-query-repeats",
+    "targeted-migration-form-links",
+    "targeted-migration-groups-preloads",
+    "targeted-migration-repeat-counts",
 )
 
 
@@ -92,6 +102,35 @@ def documents():
             " tests read. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+
+# The migration witnesses (``proof/targeted/documents/migrations.ts``): targeted documents whose A is the export of
+# the app from before a migration, retained under ``proof/migrations/<id>/``. Together they hold every placement
+# class of a case block Nova's first publish wrote before step 5, so HQ's reads of their A hold how HQ keeps each
+# one.
+MIGRATION_WITNESSES = (
+    "targeted-migration-search-workflow",
+    "targeted-migration-case-writes",
+    "targeted-migration-attachment",
+    "targeted-migration-extension-children",
+    "targeted-migration-query-repeats",
+    "targeted-migration-form-links",
+    "targeted-migration-groups-preloads",
+    "targeted-migration-repeat-counts",
+)
+MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+
+
+def retained_migration_a(document):
+    """The witness's A under its minimum configuration, and whether it is the retained one.
+
+    A is always the corpus document's own minimum export: where
+    ``proof/migrations/<id>/`` holds it, the corpus writer copied the retained
+    bodies and configurations into the document, and where it holds none yet,
+    A is the document's own first publish, the bytes ``python3 -m
+    proof.checks.controls <corpus> <id> --migration-a`` retains.
+    """
+    return document.exports["minimum"], (MIGRATIONS / document.id).is_dir()
 
 
 # The retained controls a test of this package reads (``test_fuzzy_sort_keys.py``).

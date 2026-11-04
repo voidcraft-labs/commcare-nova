@@ -320,10 +320,22 @@ final class Captures {
         return (View)Screens.field(widget, "mChooseButton");
     }
 
-    /** A value as a record writes it: a name Android gave a file it kept is written as the file given. */
+    /**
+     * A value as a record writes it: a name Android gave a file it kept is written as the file given, whether the
+     * value is the name itself (an answer, a case written in attachment mode) or a link whose last segment is it
+     * (a case written in url mode, whose link ends with the capture's answer: xform/captureUrlNode.ts).
+     */
     static Object recorded(Object value) {
-        if (value instanceof String && kept.containsKey(value)) {
-            return kept.get(value);
+        if (!(value instanceof String)) {
+            return value;
+        }
+        String text = (String)value;
+        if (kept.containsKey(text)) {
+            return kept.get(text);
+        }
+        int slash = text.lastIndexOf('/');
+        if (slash >= 0 && kept.containsKey(text.substring(slash + 1))) {
+            return text.substring(0, slash + 1) + kept.get(text.substring(slash + 1));
         }
         return value;
     }

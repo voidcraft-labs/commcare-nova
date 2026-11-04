@@ -1,0 +1,12 @@
+{
+	"addOns": [
+		"case_list_menu_item",
+		"subcases"
+	],
+	"profileProperties": [
+		"cc-show-saved",
+		"cc-show-incomplete"
+	],
+	"profileCustomProperties": [],
+	"autoGpsCapture": false
+}

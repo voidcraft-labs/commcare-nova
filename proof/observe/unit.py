@@ -234,8 +234,17 @@ def input_files(document):
         shared["hqSide"] = HQ_SIDE
     configurations = {}
     for name in sorted(document.exports):
+        # A migration witness's A is its first publish or the one retained from before its migration
+        # (proof/migrations/<id>/), and the overlay keys each import wrote are part of it, as proof/corpus/inputs.ts
+        # keys them, so a change to them keys the witness anew. Both files are required: a missing one fails its
+        # digest by name rather than keying an incomplete A.
+        retained = (
+            {f"{body}.ownership": f"export/{name}/{body}.ownership.json" for body in ("create", "content")}
+            if document.kind != "control" and document.migration_witness
+            else {}
+        )
         part = {
-            "a": {**shared, **_first_publish(root, f"export/{name}"), **privileges},
+            "a": {**shared, **_first_publish(root, f"export/{name}"), **privileges, **retained},
             "b": (
                 {"outcome.json": f"export/{name}/outcome.json"}
                 if document.exports[name].republish_stopped is not None

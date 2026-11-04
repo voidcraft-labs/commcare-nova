@@ -10,7 +10,9 @@ on each export (defect 1), which splits exports, re-downloads every form and
 strands a device's incomplete forms.
 
 Differences are accepted only where ``proof/identity-moves.json`` names
-them; every other one must fall in a class of ``proof/known-defects.json``.
+them, on the migration witnesses each move names (a witness's A is the
+retained export of the app from before its migration); every other one must
+fall in a class of ``proof/known-defects.json``.
 """
 
 from __future__ import annotations
@@ -20,12 +22,13 @@ import pytest
 from proof.checks import cases, observations, proof1, registers
 
 
-@pytest.mark.parametrize("document", cases.document_params() + cases.control_params("proof1"))
+@pytest.mark.parametrize("document", cases.document_params("proof1") + cases.control_params("proof1"))
 def test_identity_survives_the_next_publish(document, hq, core_runner, editor_driver):
     found = proof1.document_identity(
         document, observations.records_for(document, core_runner, editor_driver=editor_driver)
     )
-    accepted, found = registers.accepted_moves(found, registers.load_identity_moves())
+    witnesses = {emitted.id for emitted in cases.load_corpus().emitted if emitted.migration_witness}
+    accepted, found = registers.accepted_moves(found, registers.load_identity_moves(witnesses=witnesses), document.id)
     cases.hold(
         "proof1",
         document,

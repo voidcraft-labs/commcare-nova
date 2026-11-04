@@ -18,10 +18,12 @@ records through a view:
 - ``sessions_record(records, name)``: proof 3's sessions, over B's state (A's
   where HQ refused B), from the ``b_aligned`` record;
 - ``local_reports(records)``: Core's admission of each local archive;
-- ``soft_assertion_differences(records, check)``: every soft assertion HQ
-  noted inside an operation whose check is ``check`` (``operation_check``),
-  as that check's difference, so the register classifies it. HQ notes them
-  and goes on, as production does (``proof.hq.boot``), so each is evidence.
+- ``soft_assertion_differences(records, check, states=...)``: every soft
+  assertion HQ noted inside an operation whose check is ``check``
+  (``operation_check``) over the states ``states`` names (every one by
+  default; ``judged_states`` gives a check's), as that check's difference,
+  so the register classifies it. HQ notes them and goes on, as production
+  does (``proof.hq.boot``), so each is evidence.
 
 A document heavy enough is observed in pieces (``proof.lane.blocks``):
 ``observe_piece`` observes one of its configurations whole into the run's
@@ -237,8 +239,18 @@ def operation_check(entry):
     return OPERATION_CHECKS.get(entry["label"].partition(":")[0], "bar")
 
 
-def soft_assertion_differences(records, check):
-    """Every soft assertion HQ noted inside an operation ``check`` holds, as that check's ``error`` difference.
+def judged_states(document):
+    """The states the bar, the intent check and the manifest check judge on ``document``: every one, but on a
+    migration witness (``proof.checks.corpus.Document.migration_witness``) B and B-edit alone, since its A is the
+    retained export of the app from before a migration and not what the current code publishes."""
+    if document.migration_witness:
+        return frozenset({"B", "B-edit"})
+    return frozenset(state for _, state in STATES)
+
+
+def soft_assertion_differences(records, check, *, states=None):
+    """Every soft assertion HQ noted inside an operation ``check`` holds, over a state ``states`` names (every state
+    where it is None, ``STATES``'s names), as that check's ``error`` difference.
 
     The artifact names the operation and the state it ran over
     (``soft_assert:<operation>@<state>``, and ``@<gate>`` after a flip's; a
@@ -254,6 +266,8 @@ def soft_assertion_differences(records, check):
     for name in sorted(records.configurations):
         held = records.configurations[name]
         for part, state in STATES:
+            if states is not None and state not in states:
+                continue
             record = held.part(part) or {}
             entries = [*record.get("operations", []), *record.get("requests", [])]
             for entry in entries:

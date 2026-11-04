@@ -20,6 +20,14 @@
  * overlay keys each body writes. Beside the exports the directory holds the
  * HQ import file (`import-file.zip`).
  *
+ * A migration witness whose A is retained (`./inputs.ts::retainedMigrationA`)
+ * is captured without a first publish: each configuration's retained files
+ * are copied into its `export/<configuration>/` beside the republish Nova
+ * sends over them (`./publish.ts::PublishInput.retainedA`), the retained
+ * `configurations.json` is the witness's own, and a witness whose migrated
+ * document's verdict would refuse one of those configurations stops the
+ * emission.
+ *
  * D's local archive is compiled once for each configuration the document
  * runs under, with what that project space holds (`./publish.ts::localCcz`):
  * `local.ccz` for a configuration without `USH_EMPTY_CASE_LIST_TEXT`, and
@@ -49,6 +57,7 @@ import {
 import { materializableCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import {
 	type ConfigurationFlags,
+	type CorpusConfiguration,
 	configurationFlags,
 	documentConfigurations,
 } from "./configurations";
@@ -69,6 +78,9 @@ import { type Footprint, wireLanguages, wireLayout } from "./footprint";
 import {
 	EMPTY_LIST_TEXT_ARCHIVE,
 	EMPTY_LIST_TEXT_FLAG,
+	type RetainedMigrationA,
+	retainedConfigurations,
+	retainedMigrationA,
 	writeDocumentInputs,
 } from "./inputs";
 import {
@@ -85,6 +97,7 @@ import {
 	type PublishCapture,
 	type PublishConfiguration,
 	type PublishDocument,
+	type RepublishCapture,
 	type SentImport,
 	type StopConfirmation,
 	TWO_IMPORT_LAYOUT,
@@ -136,7 +149,8 @@ export interface WrittenEntry {
 /**
  * A document's source as the index names it: `producer:<family>/<scenario>`,
  * `workforce:<base>`, `expander:<first test>`,
- * `fuzz:<generator>:<seed>:<index>` or `targeted:<rows, separated by "; ">`.
+ * `fuzz:<generator>:<seed>:<index>`, `targeted:<rows, separated by "; ">`,
+ * or for a migration witness `targeted-migration:<rows, separated by "; ">`.
  */
 export function sourceName(source: CorpusSource): string {
 	switch (source.kind) {
@@ -150,7 +164,9 @@ export function sourceName(source: CorpusSource): string {
 			return `fuzz:${source.generator}:${source.seed}:${source.index}`;
 		case "targeted":
 			// A row names itself with commas ("5, reserved substrings").
-			return `targeted:${source.rows.join("; ")}`;
+			return source.migrationWitness === true
+				? `targeted-migration:${source.rows.join("; ")}`
+				: `targeted:${source.rows.join("; ")}`;
 	}
 }
 
@@ -398,6 +414,70 @@ function footprintEntities(footprint: Footprint): string[] {
 }
 
 /**
+ * What a project space lacks for Nova's publish of a document, by its
+ * verdict, in the words `proof/checks/corpus.py::verdict_lacks` uses: each
+ * required flag it does not hold, `case search` where a capability needs it
+ * off there, `sync cases on form entry off` where the verdict requires the
+ * setting off and the configuration has it on, and `CommCare Supply off`
+ * where the verdict requires CommCare Supply off and the configuration has
+ * it on.
+ */
+function verdictLacks(
+	verdict: NovaPublishVerdict,
+	configuration: CorpusConfiguration,
+): string[] {
+	const minimum = verdict.minimumConfiguration;
+	const lacking = minimum.flags
+		.filter((flag) => !configuration.flags.includes(flag))
+		.sort();
+	if (minimum.caseSearchEnabled && !configuration.caseSearchEnabled) {
+		lacking.push("case search");
+	}
+	if (
+		minimum.syncCasesOnFormEntry === false &&
+		configuration.syncCasesOnFormEntry
+	) {
+		lacking.push("sync cases on form entry off");
+	}
+	if (minimum.commtrackEnabled === false && configuration.commtrack) {
+		lacking.push("CommCare Supply off");
+	}
+	return lacking;
+}
+
+/**
+ * Each configuration a migration witness's retained A was published under,
+ * as Nova's publish reads it, after refusing one Nova's publish of the
+ * migrated document (D or D′) would refuse: a witness republishes over the
+ * project space its A was published to.
+ */
+function witnessConfigurations(
+	document: CorpusDocument,
+	retained: RetainedMigrationA,
+	verdicts: readonly NovaPublishVerdict[],
+): [string, ConfigurationFlags][] {
+	return retainedConfigurations(retained).map(([name, configuration]) => {
+		const lacking = [
+			...new Set(
+				verdicts.flatMap((verdict) => verdictLacks(verdict, configuration)),
+			),
+		];
+		if (lacking.length > 0) {
+			throw new Error(
+				`${document.id} is a migration witness whose retained A was published under ${name}, and Nova's publish of the migrated document would refuse that project space (it lacks ${lacking.join(", ")}). A witness republishes over the project space its A was published to; give the migrated document content that project space accepts.`,
+			);
+		}
+		return [
+			name,
+			{
+				flags: configuration.flags,
+				caseSearchEnabled: configuration.caseSearchEnabled,
+			},
+		];
+	});
+}
+
+/**
  * Write one prepared document's directory under `out`, replacing whatever
  * was there, with every export seeded from the corpus seed `seed`.
  */
@@ -437,6 +517,24 @@ export async function writeEntry(
 			`${document.id} turns sync on form entry on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
 		);
 	}
+	/* Likewise CommCare Supply: a document whose project space has it on
+	 * while Nova's publish asks that it be off (for D or D′). */
+	if (
+		document.projectSettings?.commtrack === true &&
+		[verdict, editVerdict].some(
+			(item) => item?.minimumConfiguration.commtrackEnabled === false,
+		)
+	) {
+		throw new Error(
+			`${document.id} turns CommCare Supply on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
+		);
+	}
+	/* A migration witness with its A retained republishes over that A, under
+	 * the configurations it was published to. */
+	const witness =
+		document.source.kind === "targeted" &&
+		document.source.migrationWitness === true;
+	const retained = witness ? await retainedMigrationA(document.id) : undefined;
 	await writeJson(
 		join(root, "document.json"),
 		documentJson(document.id, document.source, publish, entry.doc),
@@ -458,23 +556,37 @@ export async function writeEntry(
 		caseSearchEnabled: least.caseSearchEnabled,
 		singleFlags,
 	};
-	await writeJson(
-		join(root, "configurations.json"),
-		documentConfigurations({
-			...flags,
-			namedPrivileges: document.privileges ?? [],
-			...(document.projectSettings?.syncCasesOnFormEntry !== undefined && {
-				syncCasesOnFormEntry: document.projectSettings.syncCasesOnFormEntry,
+	if (retained !== undefined) {
+		await writeFile(
+			join(root, "configurations.json"),
+			retained.configurationsBytes,
+		);
+	} else {
+		await writeJson(
+			join(root, "configurations.json"),
+			documentConfigurations({
+				...flags,
+				namedPrivileges: document.privileges ?? [],
+				...(document.projectSettings?.syncCasesOnFormEntry !== undefined && {
+					syncCasesOnFormEntry: document.projectSettings.syncCasesOnFormEntry,
+				}),
+				...(document.projectSettings?.commtrack !== undefined && {
+					commtrack: document.projectSettings.commtrack,
+				}),
 			}),
-			...(document.projectSettings?.commtrack !== undefined && {
-				commtrack: document.projectSettings.commtrack,
-			}),
-		}),
-	);
-	const named = configurationFlags(flags);
-	const captures = new Map<string, PublishCapture>();
+		);
+	}
+	const named =
+		retained === undefined
+			? configurationFlags(flags)
+			: witnessConfigurations(
+					document,
+					retained,
+					editVerdict === undefined ? [verdict] : [verdict, editVerdict],
+				);
+	const captures = new Map<string, PublishCapture | RepublishCapture>();
 	for (const [name, configuration] of named) {
-		const capture = await capturePublish({
+		const input = {
 			create: publish,
 			updates: [
 				{ name: "republish", document: publish },
@@ -485,10 +597,15 @@ export async function writeEntry(
 			configuration: publishConfiguration(name, configuration),
 			seed,
 			...(document.hqSide !== undefined && { hqSide: document.hqSide }),
-		});
+		};
+		const retainedA = retained?.exports.get(name)?.publish;
+		const capture =
+			retainedA === undefined
+				? await capturePublish(input)
+				: await capturePublish({ ...input, retainedA });
 		const steps = [
-			capture.create,
-			...(capture.status === "sent" ? Object.values(capture.updates) : []),
+			...(capture.status === "republished" ? [] : [capture.create]),
+			...(capture.status === "refused" ? [] : Object.values(capture.updates)),
 		];
 		const refused = steps.find(
 			(step): step is Extract<typeof step, { status: "refused" }> =>
@@ -515,6 +632,41 @@ export async function writeEntry(
 
 	for (const [name] of named) {
 		const capture = captures.get(name);
+		if (capture?.status === "republished") {
+			const exported = retained?.exports.get(name);
+			if (exported === undefined) {
+				throw new Error(
+					`${document.id} was republished under ${name} over a retained A that holds no first publish there.`,
+				);
+			}
+			const directory = join(root, "export", name);
+			await mkdir(directory, { recursive: true });
+			/* A's files as retained, beside the captured republish, which
+			 * names a workbook or media upload A sent by A's file. */
+			for (const [file, bytes] of exported.files) {
+				await writeFile(join(directory, file), bytes);
+			}
+			const written: WrittenRequests = new Map();
+			const { workbook, media } = exported.publish;
+			if (exported.named.lookups !== undefined && workbook !== undefined) {
+				written.set(
+					"lookups",
+					new Map([[exported.named.lookups, workbook.body]]),
+				);
+			}
+			if (exported.named.media !== undefined && media !== undefined) {
+				written.set("media", new Map([[exported.named.media, media.body]]));
+			}
+			const republish = capture.updates.republish;
+			if (republish?.status === "sent") {
+				await writeStep(directory, "republish", republish, written);
+			}
+			await writeJson(join(directory, "outcome.json"), {
+				create: { status: "sent", compatibility: exported.compatibility },
+				republish: outcomeJson(republish),
+			});
+			continue;
+		}
 		if (capture?.status !== "sent") continue;
 		const directory = join(root, "export", name);
 		await mkdir(directory, { recursive: true });
@@ -534,7 +686,8 @@ export async function writeEntry(
 		);
 		/* The overlay keys each body of the first publish writes, which the
 		 * retained HQ reads copy beside HQ's answers to that publish
-		 * (`proof/hq/test_retained_reads.py`); no observation reads them. */
+		 * (`proof/hq/test_retained_reads.py`), and which a migration witness's
+		 * A is keyed on (`inputs.json`, `proof/observe/unit.py::input_files`). */
 		await writeJson(
 			join(directory, "content.ownership.json"),
 			content.ownership,
@@ -603,13 +756,21 @@ export async function writeEntry(
 		for (const [name] of named) {
 			const capture = captures.get(name);
 			const update =
-				capture?.status === "sent" ? capture.updates.update : undefined;
-			if (capture?.status !== "sent" || update?.status !== "sent") continue;
+				capture === undefined || capture.status === "refused"
+					? undefined
+					: capture.updates.update;
+			if (capture === undefined || update?.status !== "sent") continue;
 			const directory = join(editRoot, "export", name);
 			await mkdir(directory, { recursive: true });
 			await writeStep(directory, "update", update, new Map());
 			await writeJson(join(directory, "outcome.json"), {
-				create: outcomeJson(capture.create),
+				create:
+					capture.status === "republished"
+						? {
+								status: "sent",
+								compatibility: retained?.exports.get(name)?.compatibility,
+							}
+						: outcomeJson(capture.create),
 				update: outcomeJson(update),
 			});
 		}
@@ -634,7 +795,9 @@ export async function writeEntry(
 			configurations,
 		},
 		source: document.source,
-		inputs: await writeDocumentInputs(root, document.id, configurations),
+		inputs: await writeDocumentInputs(root, document.id, configurations, {
+			migrationWitness: witness,
+		}),
 		milliseconds: performance.now() - started,
 	};
 }

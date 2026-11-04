@@ -37,6 +37,11 @@ naming the key rules the use out). A REFUSED class whose uses are two symptoms
 ``manifest_value_classes.VARIANTS``) names the part a use is after its class
 (``/<key>/refused/<value class>/<part>``).
 
+On a migration witness (``proof.checks.corpus.Document.migration_witness``)
+the check judges B, its build and its bodies, and D's local archives, never
+A, the retained export of the app from before its migration
+(``export_uses``, ``flag_reads``).
+
 What an export uses is read from its parsed artifacts, never from Nova's
 emitter, and never by matching text a reader does not match itself: the app
 JSON Nova's publish sends (each
@@ -2010,7 +2015,10 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
     the first publish is two imports, and its republish, under each
     configuration, where Nova sent it) is ``app.json`` and every publish of D′ is
     ``edit/app.json``, so an app file sent twice with the same bytes is read
-    once, and each is read as HQ's import reads it (``as_imported``).
+    once, and each is read as HQ's import reads it (``as_imported``). On a
+    migration witness the first publish is the retained export of the app
+    from before its migration, which Nova's current code did not write, so its
+    create and content are not read: the republish, B, is.
     """
     observed = observed_exports(document, records)
     blobs = records.blobs
@@ -2034,6 +2042,10 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
         )
     seen = set()
     for key, ref in sorted(observed["uploads"].items()):
+        if document.migration_witness and key.rpartition("/")[2] in ("create", "content"):
+            # A witness's first publish is the retained export from before its migration, which Nova's current code
+            # did not write: the check judges its republish.
+            continue
         artifact = "edit/app.json" if key.startswith("edit/") else "app.json"
         if (artifact, ref) in seen:
             continue
@@ -2069,8 +2081,10 @@ def flag_reads(document, records) -> dict:
     as ``edit/<name>``.
 
     A build's reads are the gates (plan work item 11, decision 8): A's build,
-    B's, B aligned to A's and B-edit's, each part's ``flagsReadByBuild``. What HQ reads while it imports or updates
-    the app is not a build's read: ``project_db/signals.py::_sync_domain``
+    B's, B aligned to A's and B-edit's, each part's ``flagsReadByBuild``, but
+    a migration witness's A, the retained export from before its migration,
+    which Nova's current code did not write. What HQ reads while it imports
+    or updates the app is not a build's read: ``project_db/signals.py::_sync_domain``
     reads ``PROJECT_DB`` from ``ApplicationBase.save``, and
     ``ApplicationMediaMixin.get_media_objects`` reads ``CAUTIOUS_MULTIMEDIA``
     only on the import's ``_update_valid_domains_for_media``.
@@ -2084,7 +2098,8 @@ def flag_reads(document, records) -> dict:
 
     for name in sorted(document.exports):
         held = records.configurations[name]
-        add(_built_reads(document, name, "a", held.a), name)
+        if not document.migration_witness:
+            add(_built_reads(document, name, "a", held.a), name)
         add(_built_reads(document, name, "b", held.b), name)
         add(_built_reads(document, name, "b_aligned", held.b_aligned, built="aligned"), name)
     if document.edit is not None:
@@ -2115,6 +2130,6 @@ def manifest_differences(document, records, manifest: Manifest | None = None):
     return (
         unclassified(document.id, found.uses, manifest)
         + ungated(document.id, flag_reads(document, records), manifest)
-        + observations.soft_assertion_differences(records, "manifest")
+        + observations.soft_assertion_differences(records, "manifest", states=observations.judged_states(document))
         + read_notes(document, records)
     )

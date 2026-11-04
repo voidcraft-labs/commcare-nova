@@ -1,0 +1,433 @@
+{
+	"format": "hq-round-trip-case-writes-pre-step-facts-1",
+	"fixtures": {
+		"pre-step-duplicate-own-write": {
+			"placements": [
+				{
+					"formUuid": "921a4e5a-e053-5026-a391-7c8cfe08b00a",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "921a4e5a-e053-5026-a391-7c8cfe08b00a",
+					"unit": "operation:ea00005a-cfcd-5a3e-a407-03f03023654a",
+					"emitted": "save-to-case:root:nova_operations/mark_reviewed"
+				}
+			],
+			"preloadedWriters": {
+				"921a4e5a-e053-5026-a391-7c8cfe08b00a": [
+					"50b0a922-8cfe-507e-a5cd-687008d5f4d2"
+				]
+			},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"pre-step-otherwise-unoffered": {
+			"placements": [
+				{
+					"formUuid": "0998dab8-a4c1-5d8c-a4b1-1432616b7ba8",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "088bfe2b-0c70-576f-a998-26c1ae609f3b",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "7005ecf2-f599-5a7e-abb7-9ec8ae5a2782",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"pre-step-own-close-operation": {
+			"placements": [
+				{
+					"formUuid": "7f2f7c6c-1def-57d8-aaaf-2882410c8b7c",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "1f464df3-8247-5ccf-aa05-86edf8c270e3",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "1f464df3-8247-5ccf-aa05-86edf8c270e3",
+					"unit": "operation:c5445232-2877-5bbe-ad5a-620ca1e15da2",
+					"emitted": "save-to-case:root:nova_operations/nova_condition_discharge_patient/discharge_patient"
+				},
+				{
+					"formUuid": "21d60ff2-e245-5326-ab55-15fc7bc1c662",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "21d60ff2-e245-5326-ab55-15fc7bc1c662",
+					"unit": "operation:38eb0ef1-cf56-5875-a958-8bf379d93861",
+					"emitted": "save-to-case:root:nova_operations/close_patient"
+				},
+				{
+					"formUuid": "0c5e9e6c-36f8-5fc0-a034-d34a4a06f7fc",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "0c5e9e6c-36f8-5fc0-a034-d34a4a06f7fc",
+					"unit": "operation:f3e82471-a0ab-5e85-ac79-3b9fabd6a441",
+					"emitted": "save-to-case:d8086e45-8541-5c19-af3c-8fc33d8fa635:nova_operations/close_per_row"
+				},
+				{
+					"formUuid": "9c8b72af-7b14-593b-a020-7b956fa1f9ff",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "9c8b72af-7b14-593b-a020-7b956fa1f9ff",
+					"unit": "operation:3986a4cc-274e-5708-a38f-15ce05c8741c",
+					"emitted": "save-to-case:root:nova_operations/nova_condition_close_anyway/close_anyway"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"pre-step-preload-readers": {
+			"placements": [
+				{
+					"formUuid": "bdec0523-fa7d-5f0f-a83b-1c71c64969b3",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "bdec0523-fa7d-5f0f-a83b-1c71c64969b3",
+					"unit": "query-repeat:f09f2c13-5bcf-5f87-a049-f0f59596a263",
+					"emitted": "model-iteration:/data/households/item"
+				}
+			],
+			"preloadedWriters": {
+				"bdec0523-fa7d-5f0f-a83b-1c71c64969b3": [
+					"204d97d1-6182-5085-a862-2b9b53798281",
+					"4833faf1-1740-5abd-aa8a-444fa79f1a61"
+				]
+			},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"pre-step-registration-updates-own": {
+			"placements": [
+				{
+					"formUuid": "7f5a3ba6-e0f4-523a-a164-7e0046fe0376",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "7f5a3ba6-e0f4-523a-a164-7e0046fe0376",
+					"unit": "operation:985529c6-cc24-55d2-a9fd-8fd4aef6c1d6",
+					"emitted": "save-to-case:root:nova_operations/note_new_case"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"pre-step-renamed-concepts": {
+			"placements": [
+				{
+					"formUuid": "00f4e393-1fce-5b4f-a8c5-02191b610563",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "9110f546-b677-55ca-a0f4-d3d098dab8d6",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "f2b301d3-c771-5f8f-adbf-f9293fb23403",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "361a4909-cf50-5dcd-a8a7-fc5b67e9d6b9",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {
+				"553670cc-823a-53a0-a0d3-aa9a25fd4a5c": "search-first"
+			}
+		},
+		"pre-step-search-results": {
+			"placements": [
+				{
+					"formUuid": "a833bbc2-a5b8-55b6-acec-86b82df98032",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {
+				"dd485f97-ddd2-5b4b-af42-aff9953fa647": "list-first"
+			}
+		},
+		"targeted-migration-attachment": {
+			"placements": [
+				{
+					"formUuid": "f62b7795-767c-5a31-ae6e-f1a3ed38a1e5",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"targeted-migration-case-writes": {
+			"placements": [
+				{
+					"formUuid": "195ebc95-cd9c-53f9-acb3-96c77e70ae25",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "195ebc95-cd9c-53f9-acb3-96c77e70ae25",
+					"unit": "child:head:root",
+					"emitted": "basic-subcase:0"
+				},
+				{
+					"formUuid": "195ebc95-cd9c-53f9-acb3-96c77e70ae25",
+					"unit": "child:member:c3c48ec7-8141-5203-ac30-1ed1beba5f77",
+					"emitted": "basic-subcase-row"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "usercase",
+					"emitted": "basic-usercase"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "operation:6dc85daf-9867-594b-a0a0-271936af71df",
+					"emitted": "save-to-case:root:nova_operations/nova_keyed_add_referral/add_referral"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "operation:6dc85daf-9867-594b-a0a0-271936af71df",
+					"emitted": "save-to-case:root:nova_operations/nova_guard_add_referral_text"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "operation:4a45dfc2-917d-56b6-ae44-9c8c2cb6f252",
+					"emitted": "save-to-case:root:nova_operations/mark_visited"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "operation:bc6b22ee-3b53-5db2-ac4f-645c6acc2cfe",
+					"emitted": "save-to-case:root:nova_operations/nova_condition_flag_household/flag_household"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "operation:6c6e6403-ba94-5bc7-a1b2-23c53ffeb413",
+					"emitted": "save-to-case:b0af18de-bba8-58b2-a76f-ed205c6c80ae:nova_operations/add_arrival"
+				},
+				{
+					"formUuid": "be01648f-79f0-5edb-a6e1-4ead8a75885f",
+					"unit": "operation:6c6e6403-ba94-5bc7-a1b2-23c53ffeb413",
+					"emitted": "save-to-case:b0af18de-bba8-58b2-a76f-ed205c6c80ae:nova_operations/nova_guard_add_arrival_text"
+				},
+				{
+					"formUuid": "416edbcc-2fe7-5aa0-ac91-c802bdbb34bc",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "416edbcc-2fe7-5aa0-ac91-c802bdbb34bc",
+					"unit": "operation:a4fa9170-d777-501c-a9aa-d4321bc2f6a0",
+					"emitted": "save-to-case:root:nova_operations/nova_condition_discharge_household/discharge_household"
+				},
+				{
+					"formUuid": "b599fea0-e02a-5394-a0d5-ff5aaa49e4b0",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "f6a05ab4-66fd-58d8-ac89-69067cad3964",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "f6a05ab4-66fd-58d8-ac89-69067cad3964",
+					"unit": "own-close",
+					"emitted": "save-to-case:root:nova_operations/nova_condition_close/nova_close"
+				},
+				{
+					"formUuid": "7650b44a-8c1b-58ce-ae23-ed64de40945a",
+					"unit": "own",
+					"emitted": "save-to-case:root:nova_selected_cases/item/nova_operations/nova_condition_update_selected_cases/nova_update_selected_cases"
+				}
+			],
+			"preloadedWriters": {
+				"be01648f-79f0-5edb-a6e1-4ead8a75885f": [
+					"88679442-b051-510e-a0f8-127c1cefefd2"
+				]
+			},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"targeted-migration-extension-children": {
+			"placements": [
+				{
+					"formUuid": "7fdca59b-1730-5c67-a19b-1931b28c01ab",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "7fdca59b-1730-5c67-a19b-1931b28c01ab",
+					"unit": "child:contact:root",
+					"emitted": "basic-subcase:1"
+				},
+				{
+					"formUuid": "7fdca59b-1730-5c67-a19b-1931b28c01ab",
+					"unit": "extension:episode:root",
+					"emitted": "save-to-case:root:nova_subcases/nova_subcase_0"
+				},
+				{
+					"formUuid": "145a1192-eb99-5116-a297-183476567d42",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "145a1192-eb99-5116-a297-183476567d42",
+					"unit": "extension:episode:root",
+					"emitted": "save-to-case:root:nova_subcases/nova_subcase_0"
+				},
+				{
+					"formUuid": "796ad4da-8402-5fa6-a30f-6a1cda4ea8ca",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"targeted-migration-form-links": {
+			"placements": [
+				{
+					"formUuid": "e1bea635-3e2c-52b9-a568-7997919aa565",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "3c5ced7e-5efd-5752-a3c8-95e0050cae2e",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "41d38027-018b-5bd3-a495-06edca563537",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"targeted-migration-groups-preloads": {
+			"placements": [
+				{
+					"formUuid": "e13bd2fe-d9cd-547a-a5d9-21d0eaa7976e",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {
+				"e13bd2fe-d9cd-547a-a5d9-21d0eaa7976e": [
+					"a39a1976-576e-59f2-ad13-c12833599746"
+				]
+			},
+			"labelledGroups": [
+				"15b89a29-7f2c-50fd-a978-7eab03d21899",
+				"b13583cf-115e-51b3-aeeb-bce162041dff"
+			],
+			"searchShapes": {}
+		},
+		"targeted-migration-query-repeats": {
+			"placements": [
+				{
+					"formUuid": "370d830d-b6d3-5a61-a124-0dc7f537d71d",
+					"unit": "query-repeat:c3606faa-5678-50d6-adfc-2ec098601d9a",
+					"emitted": "model-iteration:/data/visits/item"
+				},
+				{
+					"formUuid": "370d830d-b6d3-5a61-a124-0dc7f537d71d",
+					"unit": "query-repeat:ecd0d061-3158-5635-a2cd-73fb2a7cfe71",
+					"emitted": "model-iteration:/data/households/members/item"
+				},
+				{
+					"formUuid": "370d830d-b6d3-5a61-a124-0dc7f537d71d",
+					"unit": "query-repeat:2136d210-0be4-515c-ac40-65a256345460",
+					"emitted": "model-iteration:/data/checks/later/item"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": ["026efaa7-a9e7-5dab-a293-900960939977"],
+			"searchShapes": {}
+		},
+		"targeted-migration-repeat-counts": {
+			"placements": [],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {}
+		},
+		"targeted-migration-search-workflow": {
+			"placements": [
+				{
+					"formUuid": "b604480e-69fb-5212-afee-a7885281a31e",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "ff6b4e24-b7df-5a30-ae1e-aabafad97934",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "1618c07b-5cc8-5b47-ac35-71e1fdb5c76b",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "92840eaf-5d45-5ec3-a3ac-4bcd9810779f",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "9855e814-49f0-5ec8-adc9-2a86aeef32e4",
+					"unit": "own",
+					"emitted": "basic-own"
+				}
+			],
+			"preloadedWriters": {},
+			"labelledGroups": [],
+			"searchShapes": {
+				"05be1cc7-3757-5eb3-afb2-70214f144497": "list-first",
+				"24380c74-bd51-5b88-ac8a-5aaeab682584": "search-first",
+				"d26e3d81-f7e1-5465-a10d-0fd36f45c3d1": "skip-to-results",
+				"ce9f3244-a9be-5cb8-ab79-843a10e5a174": "search-first"
+			}
+		}
+	}
+}

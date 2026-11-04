@@ -32,7 +32,7 @@ from proof.checks.compare.versions import apply_version_clause
 FORM = "modules-0/forms-0.xml"
 
 
-@pytest.mark.parametrize("document", cases.document_params() + cases.control_params("proof2"))
+@pytest.mark.parametrize("document", cases.document_params("proof2") + cases.control_params("proof2"))
 def test_hq_builds_the_same_app_after_the_next_publish(document, hq, core_runner, editor_driver):
     found = proof2.document_build_equivalence(
         document, observations.records_for(document, core_runner, editor_driver=editor_driver)

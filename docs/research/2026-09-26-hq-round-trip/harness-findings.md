@@ -1720,6 +1720,13 @@ written here in the pull request that holds it.
   accepts) and step 5's exit, which observes a republish after each migration. *Step 5:* pull request 1
   (lane mechanics) scopes each move to the migration witnesses it names (`documents`), whose A is a
   retained export from before the migration (`proof/migrations/<id>/`), and rewrites the paragraph.
+  Its G1 ran on pull request 1's own lane with outcome A: all eight witnesses were emitted and passed
+  the lane, their A is retained, and HQ's source read of each (`proof/hq-reads/targeted-migration-*`)
+  holds the block of every placement class the witnesses carry. Running them showed that `main`
+  exports two of the form-links witness's planned shapes with differences no register entry holds: a
+  link to a menu carrying datums reads as a refused manifest use, and HQ's form settings save drops
+  `previous` beside a conditional link on a several-case form. The witness leaves both, and the
+  cutover's `pre-step-otherwise-unoffered` fixture holds them (L5, L6).
 - **Planning's own first readings, corrected so they are not repeated.** HQ's case block builder is
   `xform.py::XForm._create_casexml`, not `_create_casexml_1`; HQ's refusal of the `previous` workflow
   beside inline search is in `helpers/validators.py::FormBaseValidator.validate_for_module`, not

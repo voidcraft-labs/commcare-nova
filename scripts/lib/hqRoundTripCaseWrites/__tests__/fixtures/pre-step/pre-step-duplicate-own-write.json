@@ -1,0 +1,122 @@
+{
+	"appId": "a52075d0-8ca0-573c-aa3a-273abea7ce40",
+	"appName": "Duplicate own write",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "patient",
+			"properties": [
+				{
+					"name": "case_name",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "case_name"
+							}
+						]
+					}
+				},
+				{
+					"name": "review_status",
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "review_status"
+							}
+						]
+					}
+				}
+			]
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false
+	},
+	"modules": {
+		"bfe6823a-0b87-553e-ac45-34783c8025ca": {
+			"uuid": "bfe6823a-0b87-553e-ac45-34783c8025ca",
+			"id": "patients",
+			"name": "Patients",
+			"caseType": "patient",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "4920cfe9-6b50-500d-a3d8-ba13da99d139",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"searchInputs": [],
+				"listColumnOrder": ["4920cfe9-6b50-500d-a3d8-ba13da99d139"],
+				"detailColumnOrder": ["4920cfe9-6b50-500d-a3d8-ba13da99d139"]
+			}
+		}
+	},
+	"forms": {
+		"921a4e5a-e053-5026-a391-7c8cfe08b00a": {
+			"uuid": "921a4e5a-e053-5026-a391-7c8cfe08b00a",
+			"id": "review",
+			"name": "Review",
+			"type": "followup",
+			"caseOperations": [
+				{
+					"uuid": "ea00005a-cfcd-5a3e-a407-03f03023654a",
+					"id": "mark_reviewed",
+					"action": "update",
+					"caseType": "patient",
+					"target": {
+						"kind": "session"
+					},
+					"writes": [
+						{
+							"property": "review_status",
+							"value": {
+								"kind": "term",
+								"term": {
+									"kind": "literal",
+									"value": "reviewed"
+								}
+							}
+						}
+					]
+				}
+			]
+		}
+	},
+	"fields": {
+		"50b0a922-8cfe-507e-a5cd-687008d5f4d2": {
+			"uuid": "50b0a922-8cfe-507e-a5cd-687008d5f4d2",
+			"kind": "text",
+			"id": "review_status",
+			"caseWrite": {
+				"caseType": "patient",
+				"property": "review_status"
+			},
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Review status"
+					}
+				]
+			}
+		}
+	},
+	"moduleOrder": ["bfe6823a-0b87-553e-ac45-34783c8025ca"],
+	"formOrder": {
+		"bfe6823a-0b87-553e-ac45-34783c8025ca": [
+			"921a4e5a-e053-5026-a391-7c8cfe08b00a"
+		]
+	},
+	"fieldOrder": {
+		"921a4e5a-e053-5026-a391-7c8cfe08b00a": [
+			"50b0a922-8cfe-507e-a5cd-687008d5f4d2"
+		]
+	}
+}

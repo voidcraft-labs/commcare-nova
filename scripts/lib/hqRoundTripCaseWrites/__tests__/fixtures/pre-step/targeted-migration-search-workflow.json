@@ -1,0 +1,400 @@
+{
+	"appId": "targeted-migration-search-workflow",
+	"appName": "Search workflows",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "visit",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				}
+			]
+		},
+		{
+			"name": "clinic",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				}
+			]
+		},
+		{
+			"name": "site",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				},
+				{
+					"data_type": "text",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "standing"
+							}
+						]
+					},
+					"name": "standing"
+				}
+			]
+		},
+		{
+			"name": "person",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				}
+			]
+		},
+		{
+			"name": "report",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				}
+			]
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false,
+		"runsOnlyOn": "web-apps"
+	},
+	"modules": {
+		"05be1cc7-3757-5eb3-afb2-70214f144497": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "8823f5ef-0cf2-5fc3-aa41-6dc98d72bddf"
+					}
+				],
+				"detailColumnOrder": ["8823f5ef-0cf2-5fc3-aa41-6dc98d72bddf"],
+				"listColumnOrder": ["8823f5ef-0cf2-5fc3-aa41-6dc98d72bddf"],
+				"searchInputs": [
+					{
+						"kind": "simple",
+						"label": "Name",
+						"name": "visit_name",
+						"property": "case_name",
+						"type": "text",
+						"uuid": "f1a91493-12cf-5a3f-a508-b7a156b314e3"
+					}
+				]
+			},
+			"caseType": "visit",
+			"id": "visits",
+			"name": "Visits",
+			"uuid": "05be1cc7-3757-5eb3-afb2-70214f144497"
+		},
+		"24380c74-bd51-5b88-ac8a-5aaeab682584": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "13a8e4c2-8a6b-54ce-a6f8-9d548a8cd6b2"
+					}
+				],
+				"detailColumnOrder": ["13a8e4c2-8a6b-54ce-a6f8-9d548a8cd6b2"],
+				"listColumnOrder": ["13a8e4c2-8a6b-54ce-a6f8-9d548a8cd6b2"],
+				"searchInputs": [
+					{
+						"kind": "simple",
+						"label": "Name",
+						"name": "clinic_name",
+						"property": "case_name",
+						"type": "text",
+						"uuid": "5507c22c-a6dd-5630-a676-7242225245fc"
+					}
+				]
+			},
+			"caseSearchConfig": {
+				"searchFirst": true
+			},
+			"caseType": "clinic",
+			"id": "clinics",
+			"name": "Clinics",
+			"uuid": "24380c74-bd51-5b88-ac8a-5aaeab682584"
+		},
+		"d26e3d81-f7e1-5465-a10d-0fd36f45c3d1": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "f0fc5129-857e-5565-a731-f3e398205799"
+					}
+				],
+				"detailColumnOrder": ["f0fc5129-857e-5565-a731-f3e398205799"],
+				"filter": {
+					"kind": "eq",
+					"left": {
+						"kind": "term",
+						"term": {
+							"caseType": "site",
+							"kind": "prop",
+							"property": "standing"
+						}
+					},
+					"right": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "active"
+						}
+					}
+				},
+				"listColumnOrder": ["f0fc5129-857e-5565-a731-f3e398205799"],
+				"searchInputs": []
+			},
+			"caseSearchConfig": {},
+			"caseType": "site",
+			"id": "sites",
+			"name": "Sites",
+			"uuid": "d26e3d81-f7e1-5465-a10d-0fd36f45c3d1"
+		},
+		"ce9f3244-a9be-5cb8-ab79-843a10e5a174": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "6413187f-6c80-5d53-af8c-ad4d92ea630f"
+					}
+				],
+				"detailColumnOrder": ["6413187f-6c80-5d53-af8c-ad4d92ea630f"],
+				"listColumnOrder": ["6413187f-6c80-5d53-af8c-ad4d92ea630f"],
+				"searchInputs": [
+					{
+						"kind": "simple",
+						"label": "Name",
+						"name": "person_name",
+						"property": "case_name",
+						"type": "text",
+						"uuid": "3dd6dc03-831d-5b2f-a84a-85ed06bde133"
+					}
+				]
+			},
+			"caseSearchConfig": {
+				"searchFirst": true
+			},
+			"caseType": "person",
+			"id": "registry",
+			"name": "Registry",
+			"uuid": "ce9f3244-a9be-5cb8-ab79-843a10e5a174"
+		},
+		"0a3e1b4a-d3d3-51b6-a844-2f3c02c3079a": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "86c24268-324b-54ec-a55d-c47ac7207bd8"
+					}
+				],
+				"detailColumnOrder": ["86c24268-324b-54ec-a55d-c47ac7207bd8"],
+				"listColumnOrder": ["86c24268-324b-54ec-a55d-c47ac7207bd8"],
+				"searchInputs": []
+			},
+			"caseListOnly": true,
+			"caseType": "report",
+			"id": "reports",
+			"name": "Reports",
+			"uuid": "0a3e1b4a-d3d3-51b6-a844-2f3c02c3079a"
+		}
+	},
+	"forms": {
+		"b604480e-69fb-5212-afee-a7885281a31e": {
+			"id": "visit",
+			"name": "Visit",
+			"type": "followup",
+			"uuid": "b604480e-69fb-5212-afee-a7885281a31e"
+		},
+		"ff6b4e24-b7df-5a30-ae1e-aabafad97934": {
+			"id": "check_clinic",
+			"name": "Check clinic",
+			"type": "followup",
+			"uuid": "ff6b4e24-b7df-5a30-ae1e-aabafad97934"
+		},
+		"1618c07b-5cc8-5b47-ac35-71e1fdb5c76b": {
+			"id": "inspect_site",
+			"name": "Inspect site",
+			"type": "followup",
+			"uuid": "1618c07b-5cc8-5b47-ac35-71e1fdb5c76b"
+		},
+		"92840eaf-5d45-5ec3-a3ac-4bcd9810779f": {
+			"id": "review_person",
+			"name": "Review person",
+			"type": "followup",
+			"uuid": "92840eaf-5d45-5ec3-a3ac-4bcd9810779f"
+		},
+		"9855e814-49f0-5ec8-adc9-2a86aeef32e4": {
+			"entry": {
+				"kind": "search-no-matches"
+			},
+			"id": "register_person",
+			"name": "Register person",
+			"type": "registration",
+			"uuid": "9855e814-49f0-5ec8-adc9-2a86aeef32e4"
+		}
+	},
+	"fields": {
+		"28d21fb1-dff9-5285-abb2-e86f98827a01": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "28d21fb1-dff9-5285-abb2-e86f98827a01"
+		},
+		"84124282-1569-561e-aa0e-26d89cda4692": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "84124282-1569-561e-aa0e-26d89cda4692"
+		},
+		"8e07ef4f-ff31-571b-ae3f-1da5987b7c1f": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "8e07ef4f-ff31-571b-ae3f-1da5987b7c1f"
+		},
+		"78aa1aa1-04ab-5eb5-a002-ce0328f457d1": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "78aa1aa1-04ab-5eb5-a002-ce0328f457d1"
+		},
+		"dab9a3c2-d06b-5b7e-a448-a1688b5392d2": {
+			"caseWrite": {
+				"caseType": "person",
+				"property": "case_name"
+			},
+			"id": "person_name",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Name"
+					}
+				]
+			},
+			"uuid": "dab9a3c2-d06b-5b7e-a448-a1688b5392d2"
+		}
+	},
+	"moduleOrder": [
+		"05be1cc7-3757-5eb3-afb2-70214f144497",
+		"24380c74-bd51-5b88-ac8a-5aaeab682584",
+		"d26e3d81-f7e1-5465-a10d-0fd36f45c3d1",
+		"ce9f3244-a9be-5cb8-ab79-843a10e5a174",
+		"0a3e1b4a-d3d3-51b6-a844-2f3c02c3079a"
+	],
+	"formOrder": {
+		"05be1cc7-3757-5eb3-afb2-70214f144497": [
+			"b604480e-69fb-5212-afee-a7885281a31e"
+		],
+		"24380c74-bd51-5b88-ac8a-5aaeab682584": [
+			"ff6b4e24-b7df-5a30-ae1e-aabafad97934"
+		],
+		"d26e3d81-f7e1-5465-a10d-0fd36f45c3d1": [
+			"1618c07b-5cc8-5b47-ac35-71e1fdb5c76b"
+		],
+		"ce9f3244-a9be-5cb8-ab79-843a10e5a174": [
+			"92840eaf-5d45-5ec3-a3ac-4bcd9810779f",
+			"9855e814-49f0-5ec8-adc9-2a86aeef32e4"
+		],
+		"0a3e1b4a-d3d3-51b6-a844-2f3c02c3079a": []
+	},
+	"fieldOrder": {
+		"b604480e-69fb-5212-afee-a7885281a31e": [
+			"28d21fb1-dff9-5285-abb2-e86f98827a01"
+		],
+		"ff6b4e24-b7df-5a30-ae1e-aabafad97934": [
+			"84124282-1569-561e-aa0e-26d89cda4692"
+		],
+		"1618c07b-5cc8-5b47-ac35-71e1fdb5c76b": [
+			"8e07ef4f-ff31-571b-ae3f-1da5987b7c1f"
+		],
+		"92840eaf-5d45-5ec3-a3ac-4bcd9810779f": [
+			"78aa1aa1-04ab-5eb5-a002-ce0328f457d1"
+		],
+		"9855e814-49f0-5ec8-adc9-2a86aeef32e4": [
+			"dab9a3c2-d06b-5b7e-a448-a1688b5392d2"
+		]
+	}
+}
