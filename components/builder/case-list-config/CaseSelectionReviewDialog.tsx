@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { IdentityMoveReviewNote } from "@/components/builder/shared/IdentityMoveList";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -13,6 +14,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
 import type { CaseSelectionTransition } from "@/lib/doc/caseSelectionMutations";
+import type { IdentityMove } from "@/lib/doc/identityMoves";
 import type { CaseSelection, Uuid } from "@/lib/domain";
 
 export interface CaseSelectionReviewBlocker {
@@ -43,6 +45,8 @@ export interface CaseSelectionReviewDialogProps {
 	readonly attachmentAnswers: readonly CaseSelectionAttachmentAnswer[];
 	readonly blockers: readonly CaseSelectionReviewBlocker[];
 	readonly refreshNotice?: string;
+	/** Where the change moves answers a published app keeps. */
+	readonly identityMoves?: readonly IdentityMove[];
 	readonly finalFocus: () => HTMLElement | null;
 	readonly onCancel: () => void;
 	readonly onConfirm: () => void;
@@ -68,6 +72,7 @@ export function CaseSelectionReviewDialog({
 	attachmentAnswers,
 	blockers,
 	refreshNotice,
+	identityMoves,
 	finalFocus,
 	onCancel,
 	onConfirm,
@@ -231,6 +236,10 @@ export function CaseSelectionReviewDialog({
 									The Results tile will no longer stay above forms. Its layout
 									and grouping will stay the same.
 								</p>
+							)}
+
+							{identityMoves !== undefined && identityMoves.length > 0 && (
+								<IdentityMoveReviewNote moves={identityMoves} />
 							)}
 						</div>
 					)}

@@ -36,7 +36,10 @@
 
 import { notFound, redirect } from "next/navigation";
 import { BuilderLayout } from "@/components/builder/BuilderLayout";
-import { BuilderProvider } from "@/components/builder/BuilderProvider";
+import {
+	BuilderProvider,
+	type InitialBuilderAccess,
+} from "@/components/builder/BuilderProvider";
 import {
 	type BuilderNotices,
 	NO_BUILDER_NOTICES,
@@ -105,12 +108,7 @@ export default async function BuilderPage({
 	 * is enforced at the write paths (PUT / chat / MCP). Denials collapse to
 	 * notFound() to avoid leaking another Project's app. */
 	let app: AppDoc;
-	let initialAccess: {
-		projectId: string;
-		role: string;
-		canEdit: boolean;
-		baseSeq: number;
-	};
+	let initialAccess: InitialBuilderAccess;
 	let commcareSettings: CommCareSettingsPublic;
 	try {
 		const [snapshot, settings] = await Promise.all([
@@ -124,6 +122,7 @@ export default async function BuilderPage({
 			role: snapshot.role,
 			canEdit: snapshot.canEdit,
 			baseSeq: snapshot.baseSeq,
+			recordedHolds: snapshot.recordedHolds,
 		};
 	} catch (err) {
 		if (err instanceof AppAccessError) notFound();

@@ -7,7 +7,9 @@ nominate a `prevDoc`: each invocation reads one immutable
 workspace mutation operation — `applyBatch`, `applyStages`, or
 `adoptAuthoritativeSnapshot` — which the workspace verifies against the exact
 revision the invocation read. A stale revision or a second write is a loud
-protocol error, never a silent overwrite.
+protocol error, never a silent overwrite. `applyBatch` and `applyStages` run
+`withIdentityMoves` before the verdict and report the moves
+(`identityMoveResults.ts`); the change set persists them in the stage receipt.
 
 ## Authority
 

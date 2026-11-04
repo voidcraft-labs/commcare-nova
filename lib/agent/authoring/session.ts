@@ -587,6 +587,9 @@ export async function executeWorkTool(
 				...(staged.receipt?.diagnostics && {
 					diagnostics: staged.receipt.diagnostics,
 				}),
+				...(staged.receipt?.identityMoves && {
+					identityMoves: staged.receipt.identityMoves,
+				}),
 			},
 		};
 		const requestId = args.requestId;
@@ -767,6 +770,10 @@ export async function saveWork(
 			"Pending work changed. Read it again before saving.",
 		);
 	const host = await workspaceHost(args, session);
+	// The moves saving this work makes, from the saved document it began
+	// from to the candidate it commits. A genesis holds nothing to move.
+	const identityMoves =
+		current.kind === "genesis" ? [] : workspace.savedIdentityMoves();
 	const common = {
 		changeSetId: current.id,
 		requestId: args.requestId,
@@ -805,6 +812,7 @@ export async function saveWork(
 			...(result.migration && result.migration.parked > 0
 				? { dataReview: savedDataReview(result.migration) }
 				: {}),
+			...(identityMoves.length > 0 && { identityMoves }),
 		};
 	else response = { success: false, saved: false, ...result };
 	const completed = await completeRequest(args, response);

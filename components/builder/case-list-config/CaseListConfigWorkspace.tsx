@@ -88,6 +88,7 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
+import type { IdentityMove } from "@/lib/doc/identityMoves";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -245,6 +246,9 @@ interface CaseSelectionReviewSession {
 	readonly attachmentAnswers: readonly CaseSelectionAttachmentAnswer[];
 	readonly blockers: readonly CaseSelectionReviewBlocker[];
 	readonly refreshNotice?: string;
+	/** Where the batch moves answers a published app keeps; listed in the
+	 *  review, which then commits through `commitStated`. */
+	readonly identityMoves?: readonly IdentityMove[];
 }
 
 function fieldsUnder(
@@ -1644,7 +1648,14 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			const coordinatesAnotherModule = plan.transitions.some(
 				(transition) => transition.moduleUuid !== moduleUuid,
 			);
-			if (!changesMode && !coordinatesAnotherModule) {
+			/* A change that moves where CommCare HQ keeps published answers is
+			 * always reviewed, so the person answers one dialog. */
+			const identityMoves = reviewed.identityMoves ?? [];
+			if (
+				!changesMode &&
+				!coordinatesAnotherModule &&
+				identityMoves.length === 0
+			) {
 				if (inline.commitMany([...plan.mutations]).ok) {
 					setWorkspaceAnnouncement(
 						next === undefined
@@ -1669,6 +1680,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				startingAnswers: consequences.startingAnswers,
 				attachmentAnswers: consequences.attachmentAnswers,
 				blockers: [],
+				...(identityMoves.length > 0 && { identityMoves }),
 				...(refreshed && {
 					refreshNotice: CASE_SELECTION_REVIEW_REFRESHED,
 				}),
@@ -1714,11 +1726,18 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			return;
 		}
 		const checked = inline.reviewMany([...plan.mutations]);
-		if (!checked.ok) {
+		if (
+			!checked.ok ||
+			!deepEqual(checked.identityMoves ?? [], review.identityMoves ?? [])
+		) {
 			prepareCaseSelectionReview(review.requested, false, undefined, true);
 			return;
 		}
-		if (!inline.commitMany([...plan.mutations]).ok) {
+		const committed =
+			(review.identityMoves ?? []).length > 0
+				? inline.commitStated([...plan.mutations])
+				: inline.commitMany([...plan.mutations]);
+		if (!committed.ok) {
 			prepareCaseSelectionReview(review.requested, false, undefined, true);
 			return;
 		}
@@ -2472,6 +2491,7 @@ export function CaseListWorkspaceCanvas() {
 					attachmentAnswers={caseSelectionReview.attachmentAnswers}
 					blockers={caseSelectionReview.blockers}
 					refreshNotice={caseSelectionReview.refreshNotice}
+					identityMoves={caseSelectionReview.identityMoves}
 					finalFocus={caseSelectionFinalFocus}
 					onCancel={cancelCaseSelectionReview}
 					onConfirm={confirmCaseSelection}

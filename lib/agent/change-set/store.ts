@@ -15,6 +15,7 @@ import {
 } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { updatedExactlyOne } from "@/lib/db/runHolderWrites";
+import type { IdentityMoveReport } from "@/lib/doc/identityMoves";
 import type {
 	AdmittedMutationBatch,
 	AdmittedMutationStageSlice,
@@ -665,6 +666,9 @@ export type StageRequestOutcome =
 			readonly exclusiveKind: ChangeSetExclusiveKind | null;
 			readonly diagnostics: ChangeSetDiagnosticsSummary;
 			readonly replayResult: MutationReplayResult;
+			/** The identity moves the step states; kept on the receipt when
+			 * any, so a recovered request returns them again. */
+			readonly identityMoves?: readonly IdentityMoveReport[];
 	  }
 	| {
 			readonly kind: "noop";
@@ -873,6 +877,10 @@ async function stageInTransaction(
 		mutationDigest,
 		diagnostics: outcome.diagnostics,
 		replayResult: outcome.replayResult,
+		...(outcome.identityMoves !== undefined &&
+			outcome.identityMoves.length > 0 && {
+				identityMoves: [...outcome.identityMoves],
+			}),
 	} satisfies StageRequestReceipt);
 
 	await tx

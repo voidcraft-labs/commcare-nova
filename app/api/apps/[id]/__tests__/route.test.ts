@@ -66,6 +66,7 @@ beforeEach(() => {
 		canEdit: false,
 		baseSeq: 42,
 		actorUserId: "user-1",
+		recordedHolds: [],
 		app: {
 			owner: "owner-1",
 			project_id: "project-1",
@@ -134,6 +135,7 @@ describe("GET /api/apps/[id]", () => {
 			canEdit: false,
 			blueprint: BLUEPRINT,
 			baseSeq: 42,
+			recordedHolds: [],
 		});
 	});
 

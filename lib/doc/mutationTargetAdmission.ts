@@ -3,7 +3,7 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
 import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { Mutation } from "@/lib/doc/types";
+import { type Mutation, placementTargetKey } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	collectTranslationUnits,
@@ -1211,6 +1211,45 @@ export function mutationTargetsInvalid(
 			}
 			case "renameCaseProperties":
 				break;
+			case "holdPlacements": {
+				// A hold names an operation of its form, a form's own close, or a
+				// query repeat, each as the batch has left it so far; one
+				// mutation holds a target once, so no entry overwrites another
+				// unseen. A later mutation may hold it again: private work
+				// concatenates its steps, and a later step can take back a move
+				// an earlier one made.
+				let projected: BlueprintDoc | undefined;
+				const heldTargets = new Set<string>();
+				for (const hold of m.holds) {
+					const key = placementTargetKey(hold);
+					if (heldTargets.has(key)) return true;
+					heldTargets.add(key);
+					if (hold.target === "query-repeat") {
+						if (
+							!fields.has(hold.fieldUuid) ||
+							fieldKinds.get(hold.fieldUuid) !== "repeat"
+						)
+							return true;
+						projected ??=
+							admittedPrefix.length === 0
+								? doc
+								: produce(doc, (draft) => {
+										applyMutations(draft, admittedPrefix);
+									});
+						const field = ownRecordValue(projected.fields, hold.fieldUuid);
+						if (field?.kind !== "repeat" || field.repeat_mode !== "query_bound")
+							return true;
+					} else {
+						if (!forms.has(hold.formUuid)) return true;
+						if (
+							hold.target === "case-operation" &&
+							!caseOperationsByForm.get(hold.formUuid)?.has(hold.operationUuid)
+						)
+							return true;
+					}
+				}
+				break;
+			}
 			default:
 				assertNever(m, "mutationTargetsInvalid");
 		}

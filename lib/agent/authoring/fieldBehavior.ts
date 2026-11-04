@@ -29,6 +29,18 @@ export function queryRepeatRows(
 		: "follow-query";
 }
 
+/** Whether a query repeat's rows come the way a published app recorded
+ * them, kept there for every later edit. A held placement always expresses
+ * its repeat (the gate refuses one that does not), so holding one is the
+ * answer. */
+export function queryRepeatRowsKept(field: Field): boolean {
+	return (
+		field.kind === "repeat" &&
+		field.repeat_mode === "query_bound" &&
+		field.placement !== undefined
+	);
+}
+
 /** One place a question's answer is saved, as a read gives it: the case
  * property, the indices it walks to a case above this form's case, whether
  * it saves only changed answers or the link to a captured file, and the
@@ -69,7 +81,12 @@ export function effectiveFieldBehavior(doc: BlueprintDoc, field: Field) {
 	if (!form || !module) return undefined;
 	if (field.kind === "repeat") {
 		const rows = queryRepeatRows(doc, field);
-		return rows === undefined ? undefined : { rows };
+		return rows === undefined
+			? undefined
+			: {
+					rows,
+					...(queryRepeatRowsKept(field) && { rowsKept: true as const }),
+				};
 	}
 	if (
 		field.kind === "group" ||

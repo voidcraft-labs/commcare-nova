@@ -445,7 +445,7 @@ describe("a query repeat's held placement", () => {
 			],
 		});
 
-	it("is carried into the document made, and an edit that changes it is refused", () => {
+	it("is carried into the document made, and an edit that changes it with no move to make is refused", () => {
 		const doc = held("model-iteration");
 		const made = targetedDocument({
 			id,
@@ -467,11 +467,12 @@ describe("a query repeat's held placement", () => {
 				edit: renamed,
 			}).edit?.nextDoc.fields[uuid("rows")],
 		).toMatchObject({ placement: "model-iteration" });
+		// Model iteration can still run the repeat, so no move changes its hold.
 		for (const edit of [held("count"), held()]) {
 			expect(() =>
 				targetedDocument({ id, rows: [], doc, expected: { intent: [] }, edit }),
 			).toThrow(
-				`The edit of the targeted document ${id} changes a held placement, which no editor's edit writes; hold the same placements in both documents.`,
+				`Nova's planner and gate made the edit of the targeted document ${id} differ from the document written, first at /fields/${uuid("rows")}/placement; write the document as Nova stores it, each held placement where the moves the edit needs put it.`,
 			);
 		}
 	});

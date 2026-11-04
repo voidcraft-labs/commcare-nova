@@ -1457,6 +1457,9 @@ export function planReferenceIndexMaintenance(
 		case "addLocationProperty":
 			carriers.add(mut.property.uuid);
 			break;
+		// A held placement is no reference: no consumer asks who holds one.
+		case "holdPlacements":
+			break;
 		default: {
 			const _exhaustive: never = mut;
 			break;

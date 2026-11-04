@@ -51,7 +51,11 @@ mkdirSync(output, { recursive: true });
  *   first row on `first` and every later row on `later` (`first` starts
  *   yes, `later` blank). `held` holds model iteration, as a publish records
  *   it; `counted` takes the placement Nova's rule gives a repeat with a
- *   condition, the count placement.
+ *   condition, the count placement. Nova refuses `held` as
+ *   `QUERY_REPEAT_MODEL_ITERATION_SHAPE` (a row made while an earlier one is
+ *   hidden takes that row's record), and the Core run is the evidence for
+ *   that refusal, so `held` is the scenario's one admitted refusal
+ *   (`EXPECTED_REFUSALS`): any other finding still stops the producer.
  */
 const QUERY_REPEAT_SCENARIOS = [
 	"query-follows",
@@ -232,9 +236,39 @@ const MODEL_ITERATED: Record<QueryRepeatScenario, readonly string[]> = {
 	"query-hidden-row": ["/data/held"],
 };
 
+/** The refusals a scenario emits on purpose, as `code` at the question
+ * `fieldId`: the shape Nova refuses, run in Core to show why it refuses it. */
+const EXPECTED_REFUSALS: Record<
+	string,
+	readonly { readonly code: string; readonly fieldId: string }[]
+> = {
+	"query-hidden-row": [
+		{ code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE", fieldId: "held" },
+	],
+};
+
 function admitted(scenario: string, doc: BlueprintDoc): BlueprintDoc {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
-	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	const expected = EXPECTED_REFUSALS[scenario] ?? [];
+	const all = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	const matches = (
+		finding: (typeof all)[number],
+		refusal: (typeof expected)[number],
+	) =>
+		finding.code === refusal.code &&
+		finding.location.fieldId === refusal.fieldId;
+	const missing = expected.filter(
+		(refusal) => !all.some((finding) => matches(finding, refusal)),
+	);
+	if (missing.length > 0)
+		throw new Error(
+			`Nova's validator no longer refuses the container scenario ${scenario} as it should (${missing
+				.map(({ code, fieldId }) => `${code} at ${fieldId}`)
+				.join("; ")}), so the Core run would show a shape Nova admits.`,
+		);
+	const findings = all.filter(
+		(finding) => !expected.some((refusal) => matches(finding, refusal)),
+	);
 	if (findings.length > 0)
 		throw new Error(
 			`Nova's validator refuses the container scenario ${scenario} (${findings

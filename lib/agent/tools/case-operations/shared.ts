@@ -25,8 +25,8 @@ import {
 import { conditionSchema, valueSchema } from "@/lib/domain/expression";
 
 export {
-	type CasePlacementWords,
-	formCasePlacementWords,
+	type CasePlacementRead,
+	formCasePlacementReads,
 } from "../../authoring/casePlacementWords";
 export {
 	formAddressSchema as operationAddressSchema,

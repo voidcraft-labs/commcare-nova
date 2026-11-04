@@ -32,6 +32,11 @@ import {
 	selectOptionValueProblem,
 	snapshotTranslationUnits,
 } from "@/lib/domain";
+import { formStructure } from "@/lib/domain/expression/formStructure";
+import {
+	type QueryRepeatNeed,
+	queryRepeatPlacementNeeds,
+} from "@/lib/domain/queryRepeatPlacement";
 import {
 	freeQuestionId,
 	questionIdProblem,
@@ -528,6 +533,110 @@ function selectOptionLabelEmpty(
 	return errors;
 }
 
+/** What a person reads a field as: its label in the default language, or
+ * its id where it has none. */
+function fieldWords(field: Field | undefined, ctx: FieldContext): string {
+	if (field === undefined) return "";
+	const label =
+		"label" in field && field.label !== undefined
+			? projectProseTemplate(field.label, ctx.doc).text.trim()
+			: "";
+	return label.length > 0 ? label : field.id;
+}
+
+/** The sentence `QUERY_REPEAT_MODEL_ITERATION_SHAPE` says for its first
+ * need, which the builder says too. */
+export function queryRepeatModelIterationMessage(
+	reason: QueryRepeatNeed["kind"],
+	words: {
+		readonly repeat: string;
+		readonly outer: string;
+		readonly group: string;
+	},
+): string {
+	const opening = `"${words.repeat}" takes its rows once, when the form opens, as your published app does`;
+	const follow =
+		"You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id";
+	switch (reason) {
+		case "nested":
+			return `${opening}, and inside "${words.outer}" that would give its rows the wrong records. ${follow}, or keep it outside "${words.outer}".`;
+		case "query-reads-answers":
+			return `${opening}, so its query would run before any answer it reads is given. ${follow}, or have its query read no answers.`;
+		case "row-condition":
+			return `${opening}, and a row made while its condition hides an earlier one would take that row's record. ${follow}, or show every row.`;
+		case "ancestor-condition-changes":
+			return `${opening}, and "${words.group}" around it shows on a condition that can change while the form is filled in, so its rows could stay empty. ${follow}, or show "${words.group}" on a condition that doesn't change.`;
+		default: {
+			const _exhaustive: never = reason;
+			return _exhaustive;
+		}
+	}
+}
+
+/**
+ * A query repeat whose held placement is model iteration, while the form
+ * now holds it in a shape model iteration cannot run
+ * (`lib/domain/queryRepeatPlacement.ts::queryRepeatPlacementNeeds`). The
+ * published app keeps each row's record id where model iteration writes it,
+ * so the move to the count placement is stated and held with the change
+ * that needs it (`lib/doc/queryRepeatPlacement.ts`); a batch that reaches
+ * the gate without it is refused here, naming the first need.
+ */
+function queryRepeatModelIterationShape(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (
+		field.kind !== "repeat" ||
+		field.repeat_mode !== "query_bound" ||
+		field.placement !== "model-iteration"
+	)
+		return [];
+	const structure = formStructure(ctx.doc, ctx.formUuid);
+	if (structure === undefined) return [];
+	const [need] = queryRepeatPlacementNeeds(structure, field.uuid);
+	if (need === undefined) return [];
+	const outer =
+		need.kind === "nested" ? ctx.doc.fields[need.repeatUuid] : undefined;
+	const group =
+		need.kind === "ancestor-condition-changes"
+			? ctx.doc.fields[need.groupUuid]
+			: undefined;
+	const words = {
+		repeat: fieldWords(field, ctx),
+		outer: fieldWords(outer, ctx),
+		group: fieldWords(group, ctx),
+	};
+	return [
+		validationError(
+			"QUERY_REPEAT_MODEL_ITERATION_SHAPE",
+			"field",
+			queryRepeatModelIterationMessage(need.kind, words),
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+			},
+			{
+				reason: need.kind,
+				repeatLabel: words.repeat,
+				...(need.kind === "nested" && {
+					repeatUuid: need.repeatUuid,
+					outerLabel: words.outer,
+				}),
+				...(need.kind === "ancestor-condition-changes" && {
+					groupUuid: need.groupUuid,
+					groupId: group?.id ?? "",
+					groupLabel: words.group,
+				}),
+			},
+		),
+	];
+}
+
 const FIELD_RULES = [
 	selectNoOptions,
 	selectTooFewOptions,
@@ -540,6 +649,7 @@ const FIELD_RULES = [
 	invalidFieldId,
 	validationOnNonInputType,
 	emptyRepeatXPath,
+	queryRepeatModelIterationShape,
 ];
 
 /**

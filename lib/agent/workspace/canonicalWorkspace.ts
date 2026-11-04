@@ -22,6 +22,12 @@
  * admitted batch to fresh locked state — the same two-layer discipline
  * `guardedMutate` + `commitGuardedBatch` always had, with the same outcomes.
  *
+ * Identity moves are planned here too: before the verdict, both write paths
+ * hand the admitted batch to `lib/doc/identityMoves.ts::withIdentityMoves`,
+ * which appends the one `holdPlacements` an edit that strands a held
+ * placement needs, and the invocation's tool result carries each move's
+ * sentence as `identityMoves`.
+ *
  * Conflict recovery is a workspace concern: a `BlueprintCommitRejectedError`
  * escaping an invocation makes the workspace adopt one fresh AUTHORIZED
  * snapshot through the host (when the host provides one — chat does, MCP's
@@ -40,6 +46,8 @@ import {
 	preparedCandidateHasAdmissionIssue,
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
+import type { IdentityMoveReport } from "@/lib/doc/identityMoves";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import {
 	extractLookupReferenceTargets,
 	LOOKUP_CONTEXT_UNAVAILABLE,
@@ -56,6 +64,11 @@ import {
 import type { BlueprintDoc } from "@/lib/domain";
 import type { RecordMutationsResult } from "../toolExecutionContext";
 import type { CanonicalMutationHost } from "./canonicalHost";
+import {
+	identityMoveReports,
+	plannedStageSlices,
+	withIdentityMovesInResult,
+} from "./identityMoveResults";
 import type {
 	MutationApplicationPolicy,
 	ToolInvocationContext,
@@ -178,13 +191,20 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 				);
 			}
 			this.lastStartedOrdinal = invocationOrdinal;
-			const ctx = this.buildInvocationContext({
-				requestId,
-				invocationOrdinal,
-				toolName: args.toolName,
-			});
+			const moved: InvocationMoves = { reports: [] };
+			const ctx = this.buildInvocationContext(
+				{
+					requestId,
+					invocationOrdinal,
+					toolName: args.toolName,
+				},
+				moved,
+			);
 			try {
-				return await args.execute(ctx);
+				return withIdentityMovesInResult(
+					await args.execute(ctx),
+					moved.reports,
+				);
 			} catch (err) {
 				/* A RETRYABLE authoritative conflict — a peer deleted/changed what
 				 * this tool targeted between our snapshot and the commit. Adopt one
@@ -221,11 +241,14 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 		this.revision += 1;
 	}
 
-	private buildInvocationContext(invocation: {
-		requestId: string;
-		invocationOrdinal: number;
-		toolName: string;
-	}): ToolInvocationContext {
+	private buildInvocationContext(
+		invocation: {
+			requestId: string;
+			invocationOrdinal: number;
+			toolName: string;
+		},
+		moved: InvocationMoves,
+	): ToolInvocationContext {
 		const snapshot = this.currentSnapshot();
 		/* One workspace mutation operation per invocation. The counter lives on
 		 * the invocation context, so a tool that stashes its context cannot
@@ -268,12 +291,18 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 
 			applyBatch: async ({ mutations, stage, policy }) => {
 				consumeWriteBudget("applyBatch");
-				return this.applyBatchAgainst(snapshot.doc, mutations, stage, policy);
+				return recordMoves(
+					moved,
+					await this.applyBatchAgainst(snapshot.doc, mutations, stage, policy),
+				);
 			},
 
 			applyStages: async ({ stages }) => {
 				consumeWriteBudget("applyStages");
-				return this.applyStagesAgainst(snapshot.doc, stages);
+				return recordMoves(
+					moved,
+					await this.applyStagesAgainst(snapshot.doc, stages),
+				);
 			},
 
 			adoptAuthoritativeSnapshot: ({ doc, canonicalSeq }) => {
@@ -285,7 +314,8 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 
 	/**
 	 * The one optimistic gate both write paths run: prepare the admitted batch
-	 * ONCE, then evaluate the candidate against the lookup context unioned
+	 * ONCE (or take the candidate the identity-move planner already
+	 * prepared), then evaluate the candidate against the lookup context unioned
 	 * over the snapshot AND the candidate. The candidate half is what lets a
 	 * batch INTRODUCE a lookup reference — a select's first table binding, or
 	 * a second table on an app already bound to one; a context resolved from
@@ -301,8 +331,9 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 	private async gateAdmittedBatch(
 		prevDoc: BlueprintDoc,
 		admitted: AdmittedMutationBatch,
+		planned: PreparedMutationCandidate | undefined,
 	): Promise<MutationCommitVerdict> {
-		const prepared = prepareMutationCandidate(prevDoc, admitted);
+		const prepared = planned ?? prepareMutationCandidate(prevDoc, admitted);
 		if (preparedCandidateHasAdmissionIssue(prepared)) {
 			/* The verdict is the admission finding alone, and it reads no lookup
 			 * context — so the Project definition read is skipped rather than
@@ -335,20 +366,26 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 	 */
 	private async gateThenPersist(
 		prevDoc: BlueprintDoc,
-		admitted: AdmittedMutationBatch,
+		plan: PlannedBatch,
 		persist: (
 			prepared: PreparedMutationCandidate,
 		) => Promise<RecordMutationsResult>,
 	): Promise<WorkspaceMutationOutcome> {
-		const verdict = await this.gateAdmittedBatch(prevDoc, admitted);
+		const verdict = await this.gateAdmittedBatch(
+			prevDoc,
+			plan.batch,
+			plan.prepared,
+		);
 		if (!verdict.ok) {
 			return { ok: false, error: describeCommitFindings(verdict.findings) };
 		}
+		const identityMoves = identityMoveReports(verdict.nextDoc, plan.moves);
 		if (verdict.mutations.length === 0) {
 			return {
 				ok: true,
 				newDoc: verdict.nextDoc,
 				mutations: verdict.mutations,
+				identityMoves,
 			};
 		}
 		const result = await persist(verdict.prepared);
@@ -357,12 +394,14 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			ok: true,
 			newDoc: result.committedDoc,
 			mutations: verdict.mutations,
+			identityMoves,
 		};
 	}
 
 	/**
 	 * The one write path for every single-batch mutating tool: admit the
-	 * batch, then {@link gateThenPersist} it through the host's single save.
+	 * batch, plan its identity moves, then {@link gateThenPersist} it through
+	 * the host's single save.
 	 */
 	private async applyBatchAgainst(
 		prevDoc: BlueprintDoc,
@@ -377,8 +416,10 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			if (!(error instanceof MutationWireCanonicalityError)) throw error;
 			return wireCanonicalityOutcome(prevDoc, error);
 		}
-		return this.gateThenPersist(prevDoc, admitted, (prepared) =>
-			this.host.recordMutations(prepared, stage, policy),
+		return this.gateThenPersist(
+			prevDoc,
+			planIdentityMoves(prevDoc, admitted),
+			(prepared) => this.host.recordMutations(prepared, stage, policy),
 		);
 	}
 
@@ -396,7 +437,9 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 	 * all-or-nothing. There is no committed prefix to report or re-issue
 	 * around, and no per-stage re-verdict that could be stricter than the
 	 * whole-sequence gate — which is what lets every surface state "a rejected
-	 * call saved nothing" without a multi-stage asterisk.
+	 * call saved nothing" without a multi-stage asterisk. Identity moves are
+	 * planned over the concatenated sequence, and the hold change they need
+	 * joins the last stage.
 	 */
 	private async applyStagesAgainst(
 		prevDoc: BlueprintDoc,
@@ -409,8 +452,65 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			if (!(error instanceof MutationWireCanonicalityError)) throw error;
 			return wireCanonicalityOutcome(prevDoc, error);
 		}
-		return this.gateThenPersist(prevDoc, admitted.batch, (prepared) =>
-			this.host.recordMutationStages(prepared, admitted),
+		const plan = planIdentityMoves(prevDoc, admitted.batch);
+		const planned =
+			plan.batch === admitted.batch
+				? admitted
+				: restagePlannedBatch(admitted, plan.batch);
+		return this.gateThenPersist(prevDoc, plan, (prepared) =>
+			this.host.recordMutationStages(prepared, planned),
 		);
 	}
+}
+
+/** The moves one invocation's write made, for its tool result. */
+interface InvocationMoves {
+	reports: readonly IdentityMoveReport[];
+}
+
+function recordMoves(
+	moved: InvocationMoves,
+	outcome: WorkspaceMutationOutcome,
+): WorkspaceMutationOutcome {
+	if (outcome.ok) moved.reports = outcome.identityMoves;
+	return outcome;
+}
+
+/** A batch with its identity moves planned, and the candidate the planner
+ *  prepared for the verdict to reuse. */
+interface PlannedBatch {
+	readonly batch: AdmittedMutationBatch;
+	readonly moves: Parameters<typeof identityMoveReports>[1];
+	readonly prepared: PreparedMutationCandidate | undefined;
+}
+
+function planIdentityMoves(
+	prevDoc: BlueprintDoc,
+	admitted: AdmittedMutationBatch,
+): PlannedBatch {
+	const plan = withIdentityMoves(prevDoc, admitted);
+	return {
+		batch: admitMutationBatch(plan.batch),
+		moves: plan.moves,
+		prepared: plan.prepared,
+	};
+}
+
+/** The staged sequence of a planned batch: the original stages, with the
+ *  appended hold change in the last one. */
+function restagePlannedBatch(
+	admitted: AdmittedMutationStages,
+	planned: AdmittedMutationBatch,
+): AdmittedMutationStages {
+	const slices = plannedStageSlices(admitted.batch, admitted.slices, planned);
+	// Cloned before admission: admitted values carry internal markers a
+	// fresh admission refuses.
+	return admitMutationStages(
+		structuredClone(
+			slices.map((slice) => ({
+				stage: slice.stage,
+				mutations: planned.slice(slice.start, slice.end),
+			})),
+		),
+	);
 }

@@ -1,4 +1,5 @@
 import {
+	type CasePlacementEntry,
 	type CasePlacementHome,
 	formCasePlacementView,
 } from "@/lib/doc/casePlacements";
@@ -29,6 +30,41 @@ export function formCasePlacementWords(
 		operations,
 		...(view.ownClose !== undefined && {
 			ownClose: placementWords(view.ownClose.home),
+		}),
+	};
+}
+
+/** Where CommCare HQ keeps one case change, as a read gives it, and whether
+ *  that is the place a published app recorded and keeps. */
+export interface CasePlacementRead {
+	readonly placement: CasePlacementWords;
+	readonly placementKept?: true;
+}
+
+function placementRead(entry: CasePlacementEntry): CasePlacementRead {
+	return {
+		placement: placementWords(entry.home),
+		...(entry.held && { placementKept: true as const }),
+	};
+}
+
+/** `formCasePlacementWords` with each place marked where a published app
+ *  keeps it: the read `getCaseOperations` gives. */
+export function formCasePlacementReads(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): {
+	readonly operations: Readonly<Record<Uuid, CasePlacementRead>>;
+	readonly ownClose?: CasePlacementRead;
+} {
+	const view = formCasePlacementView(doc, formUuid);
+	const operations: Record<Uuid, CasePlacementRead> = {};
+	for (const { operationUuid, entry } of view.operations)
+		operations[operationUuid] = placementRead(entry);
+	return {
+		operations,
+		...(view.ownClose !== undefined && {
+			ownClose: placementRead(view.ownClose),
 		}),
 	};
 }

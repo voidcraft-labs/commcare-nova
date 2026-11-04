@@ -182,7 +182,12 @@ describe("guardedMutate", () => {
 		const doc = minDoc();
 		const h = makeToolWorkspaceHarness(doc);
 		const outcome = await runGuarded(h, []);
-		expect(outcome).toEqual({ ok: true, newDoc: doc, mutations: [] });
+		expect(outcome).toEqual({
+			ok: true,
+			newDoc: doc,
+			mutations: [],
+			identityMoves: [],
+		});
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });

@@ -1,25 +1,22 @@
 // components/builder/case-operations/useOperationSentenceContext.ts
 //
-// The labels a row sentence needs from outside the operation: the form's
-// type and its own case type for the form's own case, and the names of the
-// operations, repeats and fields the others point at.
-//
-// References are identity; text is a projection: a `forEach` holds a
-// repeat's uuid and an `op` target holds an operation's, so the words
-// "once for each Beds entry" only exist once something resolves those
-// uuids against the current document. That resolution is here, in one
-// place, so the row, the rail, and a refusal all say the same name for
-// the same thing.
+// The labels a row sentence needs from outside the operation, for one form,
+// subscribed narrowly: the form's type and its own case type for the form's
+// own case, and the names of the operations, repeats and fields the others
+// point at. The resolution itself is
+// `lib/domain/caseOperationDescription.ts::operationSentenceContext`, the one
+// `describeCaseOperation` reads, so the row, the rail, a refusal and a move
+// all say the same name for the same thing.
 
 "use client";
 
 import { useMemo } from "react";
-import type { OperationSentenceContext } from "@/components/builder/case-operations/operationSentence";
 import { useOperationLabelInputs } from "@/lib/doc/hooks/useCaseOperationFacts";
 import type { Uuid } from "@/lib/doc/types";
-import { orderedCaseOperations } from "@/lib/domain";
-import { projectProseTemplate } from "@/lib/domain/prose";
-import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
+import {
+	type OperationSentenceContext,
+	operationSentenceContext,
+} from "@/lib/domain";
 
 /**
  * Resolve operation / repeat / field uuids to the author's own words for
@@ -33,46 +30,25 @@ export function useOperationSentenceContext(
 	const { form, ownCaseType, fields, fieldOrder, fieldParent, userProperties } =
 		useOperationLabelInputs(formUuid);
 
-	return useMemo(() => {
-		const operationNames = new Map(
-			orderedCaseOperations(form ?? {}).map((operation) => [
-				operation.uuid,
-				operation.id,
-			]),
-		);
-		const printDoc: ReferenceNamesDoc = {
+	return useMemo(
+		() =>
+			operationSentenceContext({
+				formUuid,
+				form,
+				ownCaseType,
+				fields,
+				fieldOrder,
+				fieldParent,
+				userProperties,
+			}),
+		[
+			form,
+			formUuid,
+			ownCaseType,
 			fields,
 			fieldOrder,
 			fieldParent,
 			userProperties,
-			forms:
-				form === undefined || formUuid === undefined
-					? {}
-					: { [formUuid]: form },
-		};
-		const labelOf = (uuid: Uuid): string | undefined => {
-			const field = fields[uuid];
-			if (field === undefined) return undefined;
-			const label =
-				"label" in field && field.label
-					? projectProseTemplate(field.label, printDoc).text.trim()
-					: "";
-			return label.length > 0 ? label : field.id;
-		};
-		return {
-			formType: form?.type,
-			ownCaseType,
-			operationName: (uuid) => operationNames.get(uuid),
-			repeatLabel: labelOf,
-			fieldLabel: labelOf,
-		};
-	}, [
-		form,
-		formUuid,
-		ownCaseType,
-		fields,
-		fieldOrder,
-		fieldParent,
-		userProperties,
-	]);
+		],
+	);
 }

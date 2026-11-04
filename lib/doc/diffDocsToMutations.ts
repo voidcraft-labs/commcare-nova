@@ -65,6 +65,12 @@ import type {
  *      (so a property a writer add reproduces is never re-emitted, merging a
  *      concurrent add). The post-horizon dialect has no wholesale catalog
  *      mutation.
+ *  12. After-submit residual and localization, then held placements: at
+ *      most one trailing `holdPlacements`, naming each target whose held
+ *      value differs from what the batch before it leaves held. No other
+ *      payload carries a held slot (an operation's `placement`, a form's
+ *      `ownClosePlacement`, a query repeat's `placement`), so a target born
+ *      in the diff arrives unheld and is held here.
  *
  * The commit gate validates only the final candidate, so an intermediate
  * invalid state across the batch is fine; the one hard rule is that no
@@ -111,6 +117,8 @@ import {
 	FIELD_MEDIA_SLOTS,
 	type Mutation,
 	mutationSchema,
+	type PlacementHoldEntry,
+	placementTargetKey,
 	type Uuid,
 } from "@/lib/doc/types";
 import {
@@ -128,6 +136,7 @@ import type {
 	FieldKind,
 	Form,
 	FormLink,
+	HeldFieldKey,
 	LanguageTag,
 	Media,
 	Module,
@@ -143,6 +152,7 @@ import {
 	effectiveAppLocalization,
 	emptyCaseListConfig,
 	fieldKindDeclaresKey,
+	HELD_FIELD_KEYS,
 	hasOwnRecordKey,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
@@ -290,12 +300,14 @@ const FIELD_MEDIA_KEYS = FIELD_MEDIA_SLOTS.map(
 const MENU_MEDIA_KEY_SET = new Set<string>(["icon", "audioLabel"]);
 
 // The field generic patch skips the media slots (their own kinds), the `order`
-// sort key (a `moveField` carries it), and `optionsSource` (either replaced as
-// one arm or diffed per option when both sides are inline).
+// sort key (a `moveField` carries it), `optionsSource` (either replaced as
+// one arm or diffed per option when both sides are inline), and the held
+// slots (`HELD_FIELD_KEYS`), which the trailing `holdPlacements` writes.
 const FIELD_PATCH_SKIP = new Set<string>([
 	...FIELD_MEDIA_KEYS,
 	"order",
 	"optionsSource",
+	...HELD_FIELD_KEYS,
 ]);
 
 // ── Entity-set deltas ────────────────────────────────────────────────
@@ -957,6 +969,10 @@ export function diffDocsToMutations(
 					applyMutations(draft, admitMutationBatch(residual));
 				});
 	structural.push(...diffLocalization(localizationBase, next));
+	// Held placements last: no other mutation writes a held slot, and
+	// localization writes none, so `localizationBase` holds what every
+	// mutation before this one leaves held.
+	structural.push(...diffPlacementHolds(localizationBase, next));
 
 	return structural;
 }
@@ -1250,6 +1266,92 @@ function unheldForm(form: Form): Form {
 	};
 }
 
+/**
+ * A born field as `addField` carries it: without its held slots
+ * (`HELD_FIELD_KEYS`). A new field starts unheld; `holdPlacements` alone
+ * writes a hold.
+ */
+function unheldField(field: Field): Field {
+	const copy = cloneEntity(field);
+	for (const key of HELD_FIELD_KEYS)
+		delete (copy as Partial<Record<HeldFieldKey, unknown>>)[key];
+	return copy;
+}
+
+// ── Held placements ──────────────────────────────────────────────────
+
+/**
+ * Every held-placement target of `doc`, keyed by target key, with what it
+ * holds (`null` for none), in document order: modules in `moduleOrder`, their
+ * forms in `formOrder`, and for each form its operations in array order, its
+ * own close, then its query repeats in field order. This is the order
+ * `lib/doc/placementHolds.ts::readPlacementHolds` reads holds in.
+ */
+function placementTargetsOf(
+	doc: BlueprintDoc,
+): ReadonlyMap<string, PlacementHoldEntry> {
+	const targets = new Map<string, PlacementHoldEntry>();
+	const add = (entry: PlacementHoldEntry) =>
+		targets.set(placementTargetKey(entry), entry);
+	for (const moduleUuid of doc.moduleOrder) {
+		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
+			const form = ownRecordValue(doc.forms, formUuid);
+			if (form === undefined) continue;
+			for (const operation of form.caseOperations ?? []) {
+				add({
+					target: "case-operation",
+					formUuid,
+					operationUuid: operation.uuid,
+					placement: operation.placement ?? null,
+				});
+			}
+			add({
+				target: "own-close",
+				formUuid,
+				placement: form.ownClosePlacement ?? null,
+			});
+			const walk = (parentUuid: Uuid): void => {
+				for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
+					const field = ownRecordValue(doc.fields, fieldUuid);
+					if (field === undefined) continue;
+					if (field.kind === "repeat" && field.repeat_mode === "query_bound")
+						add({
+							target: "query-repeat",
+							fieldUuid,
+							placement: field.placement ?? null,
+						});
+					walk(fieldUuid);
+				}
+			};
+			walk(formUuid);
+		}
+	}
+	return targets;
+}
+
+/**
+ * The trailing `holdPlacements` that lands `next`'s holds on `replayed`, the
+ * document every other mutation of the diff produces: one entry per target
+ * `next` holds whose held value differs (`null` where `next` holds none), in
+ * `next`'s document order. No structural payload carries a held slot, so a
+ * target born in the diff arrives unheld and is held here; a target removed
+ * with its owner is absent from `next` and emits nothing. Empty when every
+ * hold already matches.
+ */
+function diffPlacementHolds(
+	replayed: BlueprintDoc,
+	next: BlueprintDoc,
+): Mutation[] {
+	const before = placementTargetsOf(replayed);
+	const holds: PlacementHoldEntry[] = [];
+	for (const [key, entry] of placementTargetsOf(next)) {
+		if (deepEqual(before.get(key)?.placement ?? null, entry.placement))
+			continue;
+		holds.push(cloneEntity(entry));
+	}
+	return holds.length === 0 ? [] : [{ kind: "holdPlacements", holds }];
+}
+
 // ── Field-patch helpers ──────────────────────────────────────────────
 
 /**
@@ -1483,8 +1585,11 @@ function reconcileModuleOrders(
 		else reparenting.push(mutation);
 	}
 
+	// The moves run against the projected sequence, which holds this batch's
+	// births where their adds land them. A birth anchors on a neighbour that
+	// is there when it lands, and the reorders after it can separate the two,
+	// so a born module is moved like a retained one.
 	const groups: Array<Uuid | null> = [null, ...moduleSiblingUuids(next, null)];
-	const common = new Set(moduleDelta.common);
 	for (const parent of groups) {
 		const nextOrder = moduleSiblingUuids(next, parent);
 		const before = moduleSiblingUuids(prev, parent).filter(
@@ -1494,7 +1599,7 @@ function reconcileModuleOrders(
 			arrivalsProjected(before, nextOrder),
 			nextOrder,
 		)) {
-			if (!common.has(move.uuid) || relocated.has(move.uuid)) continue;
+			if (relocated.has(move.uuid)) continue;
 			reorders.push({
 				kind: "moveModule",
 				uuid: move.uuid,
@@ -1672,9 +1777,7 @@ function reconcileFieldTree(
 		const sequence = orderedFieldUuids(next, parentUuid);
 		for (const uuid of sequence) {
 			if (!addedFieldSet.has(uuid)) continue;
-			const field = cloneEntity(
-				ownRecordValue(next.fields, uuid) as Field,
-			) as Field;
+			const field = unheldField(ownRecordValue(next.fields, uuid) as Field);
 			adds.push({
 				kind: "addField",
 				parentUuid,

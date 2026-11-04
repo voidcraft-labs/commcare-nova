@@ -74,10 +74,29 @@ export interface PlannedPlacement {
 	readonly sharesWith?: Uuid;
 }
 
+/**
+ * A subject whose stored placement no longer expresses it. The plan places
+ * it as if unheld, so every emitter still gets a total answer; the gate
+ * refuses the document (`HELD_PLACEMENT_INEXPRESSIBLE`), and the move
+ * planner states where it goes.
+ */
+export interface InexpressibleHold {
+	readonly subject: PlacementSubject;
+	readonly held: CasePlacement;
+	/** Every failed condition, the first in table order first. */
+	readonly reasons: readonly [
+		PlacementIneligibility,
+		...PlacementIneligibility[],
+	];
+}
+
 export interface FormPlacements {
 	/** Every form is a basic form until advanced modules are emitted. */
 	readonly formKind: "basic";
 	readonly placements: ReadonlyMap<PlacementSubjectKey, PlannedPlacement>;
+	/** Every held subject the plan could not keep where it is held, in the
+	 *  form's subject order: its operations, then its own close. */
+	readonly inexpressible: readonly InexpressibleHold[];
 }
 
 export interface PlanPlacementsOptions {
@@ -464,16 +483,74 @@ function corePlan(
 	return plan;
 }
 
+const formPlans = new WeakMap<BlueprintDoc, Map<string, FormPlacements>>();
+const inexpressibleHolds = new WeakMap<
+	BlueprintDoc,
+	Map<Uuid, readonly InexpressibleHold[]>
+>();
+
+/**
+ * Every subject of `formUuid` holding a placement that no longer expresses
+ * it, with every failed condition: an operation's `placement`, and the
+ * form's `ownClosePlacement` (on a form that no longer closes its own case,
+ * `no-close`). Whether a hold expresses its subject reads the document
+ * alone, so the list is one per form whatever options a plan is made with.
+ */
+function formInexpressibleHolds(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): readonly InexpressibleHold[] {
+	let forms = inexpressibleHolds.get(doc);
+	if (forms === undefined) {
+		forms = new Map();
+		inexpressibleHolds.set(doc, forms);
+	}
+	const known = forms.get(formUuid);
+	if (known !== undefined) return known;
+	const f = caseSlotFacts(doc, formUuid);
+	const found: InexpressibleHold[] = [];
+	const check = (subject: PlacementSubject, held: CasePlacement): void => {
+		const [first, ...rest] = placementIneligibility(
+			doc,
+			formUuid,
+			subject,
+			held,
+		);
+		if (first !== undefined)
+			found.push({ subject, held, reasons: [first, ...rest] });
+	};
+	for (const op of f.operations)
+		if (op.placement !== undefined)
+			check({ kind: "operation", operationUuid: op.uuid }, op.placement);
+	const ownClose = f.form.ownClosePlacement;
+	if (ownClose !== undefined)
+		check({ kind: "own-close" }, { kind: "save-to-case", path: ownClose.path });
+	forms.set(formUuid, found);
+	return found;
+}
+
 /** Where each case change of `formUuid` is kept in CommCare HQ. */
 export function planPlacements(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	options?: PlanPlacementsOptions,
 ): FormPlacements {
-	return {
+	const exclude = [...(options?.excludeBasic ?? [])].sort();
+	const key = `${formUuid}\u0000${options?.moduleKind ?? "basic"}\u0000${exclude.join(",")}`;
+	let forms = formPlans.get(doc);
+	if (forms === undefined) {
+		forms = new Map();
+		formPlans.set(doc, forms);
+	}
+	const known = forms.get(key);
+	if (known !== undefined) return known;
+	const plan: FormPlacements = {
 		formKind: "basic",
 		placements: corePlan(doc, formUuid, options).placements,
+		inexpressible: formInexpressibleHolds(doc, formUuid),
 	};
+	forms.set(key, plan);
+	return plan;
 }
 
 /**
@@ -551,6 +628,8 @@ export function placementIneligibility(
 		);
 	if (placement.kind === "save-to-case")
 		return saveToCaseReasons(f, subject, placement);
+	if (operation.action === "close")
+		return sharedCloseReasons(doc, formUuid, f, operation, placement);
 	switch (placement.slot) {
 		case "own":
 			return ownSlotReasons(f, operation);
@@ -604,6 +683,61 @@ export function placementIneligibility(
 			return reasons;
 		}
 	}
+}
+
+/**
+ * Why a close cannot hold the basic subcase place `placement`. A close keeps
+ * a basic place only by sharing the place of the create it closes (HQ's
+ * `close_condition`), so it expresses exactly the place the plan shares;
+ * otherwise the reasons are the close's own (its scope and its condition),
+ * then the create's for that place, and a place the create could take but
+ * does not is `subcase-index`.
+ */
+function sharedCloseReasons(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	f: CaseSlotFacts,
+	close: CaseOperation,
+	placement: Exclude<CasePlacement, SaveToCasePlacement>,
+): PlacementIneligibility[] {
+	const planned = corePlan(doc, formUuid, undefined).placements.get(close.uuid);
+	if (
+		planned?.sharesWith !== undefined &&
+		samePlacement(planned.placement, placement)
+	)
+		return [];
+	const target = close.target;
+	const createUuid = target?.kind === "op" ? target.opUuid : undefined;
+	const create = f.operations.find(
+		(op) => op.uuid === createUuid && op.action === "create",
+	);
+	if (
+		create === undefined ||
+		(placement.slot !== "subcase" && placement.slot !== "subcase-row")
+	)
+		return [SUBJECT_CANNOT_HOLD];
+	const repeat = create.forEach?.repeat;
+	const reasons: PlacementIneligibility[] = [];
+	if (close.forEach?.repeat !== repeat) reasons.push({ reason: "scope" });
+	for (const reason of stateCondition(f, close.condition, {
+		own: false,
+		repeat,
+	}).reasons)
+		reasons.push(
+			reason.startsWith("condition-")
+				? { reason, condition: "operation" }
+				: { reason },
+		);
+	if (reasons.length > 0) return reasons;
+	const createReasons = placementIneligibility(
+		doc,
+		formUuid,
+		{ kind: "operation", operationUuid: create.uuid },
+		placement,
+	);
+	return createReasons.length > 0
+		? [...createReasons]
+		: [{ reason: "subcase-index" }];
 }
 
 export function placementExpresses(

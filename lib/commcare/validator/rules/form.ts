@@ -61,6 +61,7 @@ import {
 import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
 import { validateCaseOperations } from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
+import { validateCasePlacements } from "./casePlacement";
 import { formDisplayCondition } from "./displayConditions";
 import { hiddenMenuLinkTargets } from "./hiddenFromMenu";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
@@ -1081,6 +1082,7 @@ export function runFormRules(
 	errors.push(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);
+	errors.push(...validateCasePlacements(doc, formUuid, moduleUuid));
 	errors.push(
 		...casePropertyNameFormBuilderCannotKeep(
 			doc,

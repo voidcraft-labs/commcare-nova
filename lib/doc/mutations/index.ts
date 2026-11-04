@@ -43,6 +43,7 @@ import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
 import { applyModuleMutation } from "./modules";
 import { applyOrganizationMutation } from "./organization";
+import { applyHoldPlacements } from "./placements";
 import { applyUserMutation } from "./users";
 
 /**
@@ -160,6 +161,9 @@ function dispatchMutation(
 		case "setAutomationSchedule":
 		case "updateAutomationSchedule":
 			applyAutomationMutation(draft, mut);
+			return;
+		case "holdPlacements":
+			applyHoldPlacements(draft, mut);
 			return;
 		default:
 			assertNever(mut, "applyMutation");

@@ -1,11 +1,72 @@
 // lib/domain/placementCopy.ts
 //
 // The words a person reads about where CommCare HQ keeps a case change:
-// each ineligibility reason's sentence and each placement's line. Every
-// switch is total over its union, so a reason or a placement arm without
+// each ineligibility reason's sentence, each placement's line, and the
+// short name of each place a change can move between. Every switch is
+// total over its union, so a reason, a placement arm or a label without
 // copy fails to compile.
 
 import type { CasePlacement, PlacementIneligibilityReason } from "./placements";
+
+/**
+ * The places a held change can move between, named for a person: where
+ * CommCare HQ keeps a case change, how a query repeat's rows are made, and
+ * which kind of menu a module is. An identity move states its `from` and
+ * `to` as two of these.
+ */
+export const PLACEMENT_LABELS = [
+	"case-management",
+	"case-actions",
+	"save-to-case",
+	"rows-set-when-opened",
+	"rows-follow-query",
+	"ordinary-menu",
+	"advanced-menu",
+] as const;
+export type PlacementLabel = (typeof PLACEMENT_LABELS)[number];
+
+/** A place's words, folded into a sentence ("from Case Management to Save
+ *  to Case"). */
+export function placementLabelWords(label: PlacementLabel): string {
+	switch (label) {
+		case "case-management":
+			return "Case Management";
+		case "case-actions":
+			return "case actions";
+		case "save-to-case":
+			return "Save to Case";
+		case "rows-set-when-opened":
+			return "rows set when the form opens";
+		case "rows-follow-query":
+			return "rows that follow the cases found";
+		case "ordinary-menu":
+			return "an ordinary menu";
+		case "advanced-menu":
+			return "an advanced menu";
+		default: {
+			const _exhaustive: never = label;
+			return _exhaustive;
+		}
+	}
+}
+
+/** Which place a case change's placement names. */
+export function placementLabel(placement: CasePlacement): PlacementLabel {
+	switch (placement.kind) {
+		case "basic":
+			return "case-management";
+		case "save-to-case":
+			return "save-to-case";
+		default: {
+			const _exhaustive: never = placement;
+			return _exhaustive;
+		}
+	}
+}
+
+/** What a line about a held placement adds: the change stays where the
+ *  published app keeps it. */
+export const HELD_PLACEMENT_SUFFIX = " · Kept where your published app has it";
 
 /** Why a case change can no longer stay where it is, in one sentence. */
 export function placementIneligibilitySentence(
@@ -75,8 +136,14 @@ export function placementIneligibilitySentence(
 	}
 }
 
-/** Where CommCare HQ keeps a case change, in one line. */
-export function placementLine(placement: CasePlacement): string {
+/** Where CommCare HQ keeps a case change, in one line. A held placement,
+ *  one a published app already keeps, says so after the line. */
+export function placementLine(placement: CasePlacement, held = false): string {
+	const line = placementPlaceLine(placement);
+	return held ? `${line}${HELD_PLACEMENT_SUFFIX}` : line;
+}
+
+function placementPlaceLine(placement: CasePlacement): string {
 	switch (placement.kind) {
 		case "basic":
 			return "CommCare HQ keeps this in the form's Case Management settings.";

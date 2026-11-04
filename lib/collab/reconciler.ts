@@ -75,6 +75,10 @@ import {
 	type MutationWireCanonicalityReason,
 } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import {
+	NO_RECORDED_HOLDS,
+	type RecordedPlacementHolds,
+} from "@/lib/doc/placementHolds";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type BlueprintDocStoreApi, isDocDataKey } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
@@ -275,6 +279,9 @@ export type ReloadOutcome =
 			readonly kind: "authorized";
 			readonly blueprint: PersistableDoc;
 			readonly seq: number;
+			/** The hold each target's latest recording wrote, read with
+			 *  `blueprint` in one transaction. */
+			readonly recordedHolds: RecordedPlacementHolds;
 	  } & AuthorizedAccessSnapshot)
 	| { readonly kind: "revoked" }
 	/** The owner suspended and cancelled this read; preserve the reload barrier. */
@@ -335,6 +342,9 @@ export interface ReconcilerInit {
 	baseSeq: number;
 	/** The loaded blueprint at `baseSeq` — the initial `confirmedDoc`. */
 	baseDoc: BlueprintDoc;
+	/** The hold each target's latest recording wrote, read with `baseDoc`.
+	 *  Absent for a brand-new build, which no publish has recorded. */
+	recordedHolds?: RecordedPlacementHolds;
 	/** The session user id — the `selfUserId` echo classification keys on. */
 	userId: string;
 }
@@ -345,6 +355,8 @@ export interface ReconcilerSnapshot {
 	readonly dormant: boolean;
 	readonly baseSeq: number;
 	readonly confirmedDoc: BlueprintDoc;
+	/** The recorded holds kept beside `confirmedDoc`. */
+	readonly recordedHolds: RecordedPlacementHolds;
 	readonly sentPending: readonly SentBatch[];
 	readonly awaitingEcho: ReadonlySet<string>;
 	readonly reloadPending: boolean;
@@ -517,6 +529,13 @@ export function createReconciler(
 		for (const listener of revisionListeners) listener();
 	}
 	let confirmedDoc = normalizeConfirmed(init.baseDoc);
+	/** The hold each target's latest recording wrote, as of the last
+	 *  authoritative read. It sits beside `confirmedDoc` because the document
+	 *  alone cannot say which of its holds a recording wrote; the store reads
+	 *  it so a history step restores a hold only where the commit kernel
+	 *  would admit the restore. */
+	let recordedHolds: RecordedPlacementHolds =
+		init.recordedHolds ?? NO_RECORDED_HOLDS;
 	const selfUserId = init.userId;
 	let selfActiveRunId: string | undefined;
 	const sentPending: SentBatch[] = [];
@@ -564,6 +583,16 @@ export function createReconciler(
 	 *  immutable closure captured in the epoch that first dispatched them. */
 	let currentSaveObserver: SaveObserver | undefined;
 	let currentSaveObserverEpoch = -1;
+
+	/** Replace the recorded holds and hand them to the store, which reads
+	 *  them when it applies a history step. */
+	function setRecordedHolds(next: RecordedPlacementHolds): void {
+		recordedHolds = next;
+		docStore.getState().setRecordedPlacementHolds(next);
+	}
+	// The first load's record reaches the store with the reconciler, before
+	// any edit can make a history step that reads it.
+	docStore.getState().setRecordedPlacementHolds(recordedHolds);
 
 	/** Any async continuation must stop here — the reconciler was torn down or
 	 *  access was revoked. */
@@ -1408,6 +1437,9 @@ export function createReconciler(
 		// mid-chat-run (the agent bracket is open then).
 		confirmedDoc = hydrateConfirmed(reloaded.blueprint);
 		setCanonicalRevision(M);
+		// The record is replaced whole: the reload read every recording the
+		// fresh document's holds answer to, in the same transaction.
+		setRecordedHolds(reloaded.recordedHolds);
 		reseedConfirmed(captureHuman, /* clearUndo */ true);
 		reloadInFlight = false;
 		// A frame arrived DURING the GET (it re-armed `reloadPending` rather than
@@ -1611,6 +1643,9 @@ export function createReconciler(
 		appId = args.appId;
 		setCanonicalRevision(args.baseSeq);
 		confirmedDoc = normalizeConfirmed(args.baseDoc);
+		// An app made this session has never been published, so nothing
+		// recorded where HQ keeps any of its changes.
+		setRecordedHolds(NO_RECORDED_HOLDS);
 		dormant = false;
 	}
 
@@ -1621,6 +1656,7 @@ export function createReconciler(
 			dormant,
 			baseSeq,
 			confirmedDoc,
+			recordedHolds,
 			sentPending: sentPending.map((b) => ({ ...b })),
 			awaitingEcho: new Set(awaitingEcho),
 			reloadPending,

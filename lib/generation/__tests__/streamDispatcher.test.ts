@@ -20,6 +20,7 @@ import {
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { NO_RECORDED_HOLDS } from "@/lib/doc/placementHolds";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { blueprintDocSchema } from "@/lib/domain";
 import type { ConversationEvent } from "@/lib/log/types";
@@ -40,6 +41,7 @@ const INERT_DEPS: ReconcilerDeps = {
 		projectId: "project-1",
 		role: "editor",
 		canEdit: true,
+		recordedHolds: NO_RECORDED_HOLDS,
 	}),
 	canEdit: () => true,
 	resubscribe: () => {},

@@ -40,6 +40,10 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planConnectTargetState } from "@/lib/doc/connectTargetState";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
+import type {
+	PendingIdentityMove,
+	PendingIdentityMoveSlot,
+} from "@/lib/doc/pendingIdentityMove";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
@@ -434,6 +438,18 @@ export interface BuilderSessionState {
 	/** Consume (or abandon) the pending open request. */
 	clearPublishDialogRequest: () => void;
 
+	/** A planned batch that moves a held identity, waiting for the person in
+	 *  the identity-move dialog (`lib/doc/pendingIdentityMove.ts`). Set by a
+	 *  builder edit, undo or redo whose batch the gate admitted; while it is
+	 *  set every other builder write is refused. Never persisted. */
+	pendingIdentityMove: PendingIdentityMove | null;
+
+	/** Set the waiting batch the dialog opens on. */
+	setPendingIdentityMove: (pending: PendingIdentityMove) => void;
+
+	/** Drop the waiting batch: the dialog made the change or cancelled it. */
+	clearPendingIdentityMove: () => void;
+
 	/** Cancel a staged upload: abort the in-flight transfer (if any) and
 	 *  remove the record. The upload driver sees the abort and stays
 	 *  silent — cancel already cleared the slot. */
@@ -783,6 +799,18 @@ export type BuilderSessionStoreApi = ReturnType<
 	typeof createBuilderSessionStore
 >;
 
+/** The session's waiting identity move, as the doc commands and the history
+ *  step reach it. */
+export function pendingIdentityMoveSlot(
+	store: BuilderSessionStoreApi,
+): PendingIdentityMoveSlot {
+	return {
+		read: () => store.getState().pendingIdentityMove,
+		set: (pending) => store.getState().setPendingIdentityMove(pending),
+		clear: () => store.getState().clearPendingIdentityMove(),
+	};
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────
 
 /** Optional initialization parameters for the session store. Allows the
@@ -905,6 +933,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 				assetMeta: {} as Record<string, AssetMetaRow>,
 				publishDialogRequest: null as { readonly domain: string } | null,
+				pendingIdentityMove: null as PendingIdentityMove | null,
 				deploymentRecordsRevision: 0,
 
 				/* UI hints */
@@ -1694,6 +1723,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({ publishDialogRequest: null });
 				},
 
+				setPendingIdentityMove(pending: PendingIdentityMove) {
+					set({ pendingIdentityMove: pending });
+				},
+
+				clearPendingIdentityMove() {
+					if (get().pendingIdentityMove === null) return;
+					set({ pendingIdentityMove: null });
+				},
+
 				cancelStagedUpload(slotKey: string) {
 					const abort = stagedUploadAborts.get(slotKey);
 					/* Abort BEFORE clearing so the driver's rejection handler
@@ -1760,6 +1798,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						 * OLD Project's records offered; the destination must not
 						 * open a publish aimed by it. */
 						publishDialogRequest: null,
+						/* A waiting identity move names the source Project's
+						 * document; nothing of it may commit across the boundary. */
+						pendingIdentityMove: null,
 						/* Case/persona identity is retained until
 						 * `applyAccessSnapshot` can distinguish an ordinary refresh from
 						 * a confirmed Project move. Clearing it here would rotate a
@@ -1903,6 +1944,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 						assetMeta: {} as Record<string, AssetMetaRow>,
 						publishDialogRequest: null as { readonly domain: string } | null,
+						pendingIdentityMove: null,
 						deploymentRecordsRevision: 0,
 
 						/* UI hints */

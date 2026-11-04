@@ -20,6 +20,7 @@ import type { ConversionImpact } from "@/lib/case-store";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import type { OrdinaryAuthoringAuthority } from "@/lib/db/authoringAuthority";
 import type { PreparedFormRecordName } from "@/lib/doc/formRecordName";
+import type { IdentityMoveReport } from "@/lib/doc/identityMoves";
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -91,6 +92,10 @@ export type WorkspaceMutationOutcome =
 			readonly ok: true;
 			readonly newDoc: BlueprintDoc;
 			readonly mutations: AdmittedMutationBatch;
+			/** Every held identity the write moves, each with the sentence a
+			 * person is told (`lib/doc/identityMoves.ts::withIdentityMoves`
+			 * plans them before the verdict). Empty where nothing moves. */
+			readonly identityMoves: readonly IdentityMoveReport[];
 			/** Present exactly on the change-set host: the durable staging
 			 * receipt this write committed (disposition, ordinal, handles,
 			 * mutation digest, compact diagnostics). The canonical host never

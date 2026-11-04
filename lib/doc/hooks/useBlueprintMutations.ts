@@ -50,8 +50,13 @@ import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
-import { mutationCommitVerdictWithPrevalidation } from "@/lib/doc/commitVerdicts";
+import {
+	mutationCommitVerdict,
+	mutationCommitVerdictWithPrevalidation,
+	preparedCommitVerdictWithPrevalidation,
+} from "@/lib/doc/commitVerdicts";
 import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { planFieldMoveCaseWrites } from "@/lib/doc/fieldCaseWriteMutations";
@@ -69,6 +74,7 @@ import {
 	planFormTypeChange,
 } from "@/lib/doc/formTypeMutations";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
+import { type IdentityMove, withIdentityMoves } from "@/lib/doc/identityMoves";
 import {
 	planKindConversion,
 	withChoicePreservation,
@@ -95,7 +101,14 @@ import {
 	removeOrganizationLevelPlan,
 	setPersonaLocationsMutations,
 } from "@/lib/doc/organizationMutations";
-import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
+import type {
+	IdentityMoveOrigin,
+	PendingIdentityMoveSlot,
+} from "@/lib/doc/pendingIdentityMove";
+import {
+	type BuilderLanguageMutationProjection,
+	projectBuilderLanguageMutations,
+} from "@/lib/doc/projectBuilderLanguageMutations";
 import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
@@ -156,6 +169,8 @@ import {
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
+import { BuilderSessionContext } from "@/lib/session/provider";
+import { pendingIdentityMoveSlot } from "@/lib/session/store";
 
 /**
  * Outcome of an entity-adding dispatch: the minted uuid on success, the
@@ -182,12 +197,45 @@ export interface StructuredCommitFinding {
 }
 
 export type StructuredCommitOutcome =
-	| { readonly ok: true }
+	| {
+			readonly ok: true;
+			/** The held identities the reviewed batch moves, with the holds
+			 *  their moves need appended to it; absent where it moves none. A
+			 *  surface that reviews a batch states them in its own dialog and
+			 *  confirms through `commitStated`. */
+			readonly identityMoves?: readonly IdentityMove[];
+	  }
 	| {
 			readonly ok: false;
 			readonly messages: string[];
 			readonly findings?: readonly StructuredCommitFinding[];
 	  };
+
+/** How `guardedApply` treats a batch the gate admits: commit it (stating any
+ *  identity move first), only review it, or commit a batch whose moves the
+ *  person has already been shown. */
+type GuardedMode = "commit" | "review" | "stated";
+
+type GuardedApplyResult =
+	| {
+			ok: true;
+			results: MutationResult[];
+			identityMoves: readonly IdentityMove[];
+	  }
+	| {
+			ok: false;
+			messages: string[];
+			findings?: readonly StructuredCommitFinding[];
+			/** The batch moves a held identity and waits in the
+			 *  identity-move dialog; nothing committed and nothing was
+			 *  refused, so a caller treats it as a no-op. */
+			deferred?: true;
+	  };
+
+/** A builder without a session to hold the identity-move dialog cannot state
+ *  a move, so it does not make one. */
+const IDENTITY_MOVE_UNSTATED_MESSAGE =
+	"This change moves where CommCare HQ keeps some answers, and Nova can only make it once you have seen where they go. Open the app in the builder to make it.";
 
 /** Automation editor outcome. Gate failures retain their structured findings
  * so the complete-rule surface can associate app-wide validation with the
@@ -696,6 +744,18 @@ export interface BlueprintMutations {
 	 * against the freshest document.
 	 */
 	reviewMany: (mutations: Mutation[]) => StructuredCommitOutcome;
+	/**
+	 * Commit a batch whose identity moves the person has been shown: the
+	 * identity-move dialog's **Make the change**, or a review dialog that
+	 * listed the moves `reviewMany` returned. The gate runs again over the
+	 * freshest document and the batch commits as one undo step; an `undo` or
+	 * `redo` origin commits it as that history step instead. Clears the
+	 * waiting batch either way, since the dialog that showed it is done.
+	 */
+	commitStated: (
+		mutations: readonly Mutation[],
+		origin?: IdentityMoveOrigin,
+	) => CommitOutcome;
 }
 
 /**
@@ -783,6 +843,8 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 	const canEdit = useContext(BlueprintEditableContext);
 	const authoringLanguage = useContext(BlueprintAuthoringLanguageContext);
 	const lookupCommitState = useLookupCommitState();
+	/* The session holds a change waiting in the identity-move dialog. */
+	const session = useContext(BuilderSessionContext);
 
 	// The API stays stable while its store and authoring context stay unchanged.
 	// Access, language, and lookup-context changes construct an API for that
@@ -793,8 +855,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				canEdit,
 				authoringLanguage,
 				lookupCommitState,
+				...(session !== null && {
+					identityMoves: pendingIdentityMoveSlot(session),
+				}),
 			}),
-		[store, canEdit, authoringLanguage, lookupCommitState],
+		[store, canEdit, authoringLanguage, lookupCommitState, session],
 	);
 }
 
@@ -808,10 +873,15 @@ export function createBlueprintMutations(
 		canEdit,
 		authoringLanguage,
 		lookupCommitState,
+		identityMoves,
 	}: {
 		readonly canEdit: boolean;
 		readonly authoringLanguage: string | null;
 		readonly lookupCommitState: LookupCommitState;
+		/** Where a change that moves a held identity waits for the person
+		 *  (the session's identity-move dialog). Without it such a change is
+		 *  refused, since nothing could state it. */
+		readonly identityMoves?: PendingIdentityMoveSlot;
 	},
 ): GatedBlueprintMutations {
 	// Lazy snapshot accessor — reads the freshest state at dispatch time,
@@ -839,50 +909,77 @@ export function createBlueprintMutations(
 		 * validated. The batch is then RECORDED: it is the author's
 		 * un-persisted intent until the reconciler PUTs it. */
 		const guardedApply = (
-			mutations: Mutation[],
-			commitCandidate = true,
+			mutations: readonly Mutation[],
+			mode: GuardedMode = "commit",
 			announceRefusal = announce,
-		):
-			| { ok: true; results: MutationResult[] }
-			| {
-					ok: false;
-					messages: string[];
-					findings?: readonly StructuredCommitFinding[];
-			  } => {
+		): GuardedApplyResult => {
 			/* The shared pre-verdict admission: view-only access (no user edit
 			 * reaches the store — the airtight backstop for any affordance
-			 * that wasn't hidden) and a lookup catalog that is still loading
+			 * that wasn't hidden), a lookup catalog that is still loading
 			 * or failed to load (the verdict would run under a context that
-			 * is not the live one). The Connect-mode switch and undo/redo run
-			 * the same admission, so all three refuse in one voice. */
+			 * is not the live one), and a change already waiting in the
+			 * identity-move dialog, which the dialog's own commit (`stated`)
+			 * resolves. The Connect-mode switch and undo/redo run the same
+			 * admission, so all three refuse in one voice. */
+			const pending = identityMoves?.read() ?? null;
 			const admission = builderWriteAdmission({
 				canEdit,
 				lookupCommitState,
+				identityMovePending: mode !== "stated" && pending !== null,
 			});
 			if (!admission.ok) {
 				if (announceRefusal) notifyRejectedCommit(admission.messages);
 				return { ok: false, messages: admission.messages };
 			}
 			const doc = get();
+			/* The waiting batch was projected into the worker language when
+			 * it was dispatched, and the gate admitted it as it stands;
+			 * projecting it again would read its own translation writes as
+			 * fresh edits. */
+			const alreadyProjected =
+				mode === "stated" &&
+				pending !== null &&
+				deepEqual(pending.batch, mutations);
 			const snapshotAuthoringLanguage =
 				authoringLanguage === null
 					? null
 					: resolveAppLanguage(doc.localization, authoringLanguage);
-			const projected = projectBuilderLanguageMutations(
-				doc,
-				snapshotAuthoringLanguage,
-				mutations,
-			);
+			const projected:
+				| BuilderLanguageMutationProjection
+				| {
+						readonly ok: true;
+						readonly mutations: readonly Mutation[];
+				  } = alreadyProjected
+				? { ok: true, mutations }
+				: projectBuilderLanguageMutations(
+						doc,
+						snapshotAuthoringLanguage,
+						mutations,
+					);
 			if (!projected.ok) {
 				const lines = [projected.message];
 				if (announceRefusal) notifyRejectedCommit(lines);
 				return { ok: false, messages: lines };
 			}
-			const verdict = mutationCommitVerdictWithPrevalidation(
-				doc,
-				projected.mutations,
-				lookupCommitState.lookupContext,
-			);
+			/* Where the edit leaves a held identity unable to stay where a
+			 * publish recorded it, the planner appends the move and states it.
+			 * Over a document that holds one it prepares the candidate, and the
+			 * verdict evaluates that candidate rather than preparing again. */
+			const plan = withIdentityMoves(doc, projected.mutations, {
+				recorded: doc.recordedHolds,
+			});
+			const verdict =
+				plan.prepared === undefined
+					? mutationCommitVerdictWithPrevalidation(
+							doc,
+							plan.batch,
+							lookupCommitState.lookupContext,
+						)
+					: preparedCommitVerdictWithPrevalidation(
+							doc,
+							plan.prepared,
+							lookupCommitState.lookupContext,
+						);
 			if (!verdict.ok) {
 				// Render to the concise BUILDER copy once — both the toast
 				// and the returned `CommitOutcome.messages` speak it. The
@@ -891,13 +988,38 @@ export function createBlueprintMutations(
 				if (announceRefusal) notifyRejectedCommit(lines);
 				return { ok: false, messages: lines, findings: verdict.findings };
 			}
+			if (mode === "review") {
+				return {
+					ok: true,
+					results: verdict.results,
+					identityMoves: plan.moves,
+				};
+			}
+			if (mode === "commit" && plan.moves.length > 0) {
+				/* The move is stated before it commits: the admitted batch
+				 * waits for the person in the identity-move dialog, and nothing
+				 * reaches the store or the reconciler until they make it. */
+				if (identityMoves === undefined) {
+					const lines = [IDENTITY_MOVE_UNSTATED_MESSAGE];
+					if (announceRefusal) notifyRejectedCommit(lines);
+					return { ok: false, messages: lines };
+				}
+				identityMoves.set({
+					batch: verdict.mutations,
+					moves: plan.moves,
+					origin: "edit",
+				});
+				return { ok: false, messages: [], deferred: true };
+			}
 			// The candidate commits, and the batch that produced it is kept
 			// verbatim. Persistence replays exactly these commands rather than
 			// re-deriving them by diffing the committed document against a base.
-			if (commitCandidate) {
-				store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
-			}
-			return { ok: true, results: verdict.results };
+			store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
+			return {
+				ok: true,
+				results: verdict.results,
+				identityMoves: plan.moves,
+			};
 		};
 
 		/** Project a `guardedApply` result onto the plain commit outcome. */
@@ -920,6 +1042,41 @@ export function createBlueprintMutations(
 			];
 			if (announce) notifyRejectedCommit(messages);
 			return { ok: false, messages };
+		};
+
+		/* A stated undo or redo: the planned batch, with the move the person
+		 * was shown, commits as that history step, so the cursor moves and the
+		 * other side records the exact inverse of what was applied. */
+		const commitStatedHistoryStep = (
+			mutations: readonly Mutation[],
+			action: "undo" | "redo",
+		): CommitOutcome => {
+			const admission = builderWriteAdmission({ canEdit, lookupCommitState });
+			if (!admission.ok) {
+				if (announce) notifyRejectedCommit(admission.messages);
+				return { ok: false, messages: admission.messages };
+			}
+			const state = get();
+			const verdict = mutationCommitVerdict(
+				state,
+				mutations,
+				lookupCommitState.lookupContext,
+			);
+			if (!verdict.ok) {
+				const lines = userFacingErrors(verdict.findings);
+				if (announce) notifyRejectedCommit(lines);
+				return { ok: false, messages: lines };
+			}
+			if (state.applyHistoryStep(action, verdict.mutations) === undefined) {
+				const lines = [
+					action === "undo"
+						? "There is nothing left to undo, so nothing changed."
+						: "There is nothing left to redo, so nothing changed.",
+				];
+				if (announce) notifyRejectedCommit(lines);
+				return { ok: false, messages: lines };
+			}
+			return COMMITTED;
 		};
 
 		return {
@@ -1209,12 +1366,14 @@ export function createBlueprintMutations(
 				const admission = builderWriteAdmission({
 					canEdit,
 					lookupCommitState,
+					identityMovePending: identityMoves?.read() != null,
 				});
 				if (!admission.ok) return refuse(admission.messages);
 				const plan = planDatetimeSplit(get(), uuid);
 				if (!plan.ok) return refuse([plan.message]);
-				const applied = guardedApply([...plan.mutations], true, false);
-				if (!applied.ok) return refuse(applied.messages);
+				const applied = guardedApply([...plan.mutations], "commit", false);
+				if (!applied.ok)
+					return applied.deferred === true ? applied : refuse(applied.messages);
 				return { ok: true, dateUuid: plan.dateUuid, timeUuid: plan.timeUuid };
 			},
 
@@ -1226,6 +1385,7 @@ export function createBlueprintMutations(
 				const admission = builderWriteAdmission({
 					canEdit,
 					lookupCommitState,
+					identityMovePending: identityMoves?.read() != null,
 				});
 				if (!admission.ok) return refuse(admission.messages);
 				const doc = get();
@@ -1256,8 +1416,13 @@ export function createBlueprintMutations(
 				});
 				const plan = planDatetimeSplit(working, uuid);
 				if (!plan.ok) return refuse([plan.message]);
-				const applied = guardedApply([insert, ...plan.mutations], true, false);
-				if (!applied.ok) return refuse(applied.messages);
+				const applied = guardedApply(
+					[insert, ...plan.mutations],
+					"commit",
+					false,
+				);
+				if (!applied.ok)
+					return applied.deferred === true ? applied : refuse(applied.messages);
 				return {
 					ok: true,
 					uuid,
@@ -2035,8 +2200,21 @@ export function createBlueprintMutations(
 			},
 
 			reviewMany(mutations) {
-				const reviewed = guardedApply(mutations, false);
-				return reviewed.ok ? COMMITTED : reviewed;
+				const reviewed = guardedApply(mutations, "review");
+				if (!reviewed.ok) return reviewed;
+				return reviewed.identityMoves.length === 0
+					? COMMITTED
+					: { ok: true, identityMoves: reviewed.identityMoves };
+			},
+
+			commitStated(mutations, origin = "edit") {
+				try {
+					return origin === "undo" || origin === "redo"
+						? commitStatedHistoryStep(mutations, origin)
+						: toOutcome(guardedApply(mutations, "stated"));
+				} finally {
+					identityMoves?.clear();
+				}
 			},
 		};
 	};

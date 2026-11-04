@@ -30,7 +30,10 @@ import { type ReactNode, useContext, useEffect, useMemo, useRef } from "react";
 import { z } from "zod";
 import { clientErrorUtf8Bytes } from "@/lib/clientErrorContract";
 import { reportClientError } from "@/lib/clientErrorReporter";
-import { parseAppReadSnapshot } from "@/lib/collab/appReadSnapshot";
+import {
+	parseAppReadSnapshot,
+	recordedPlacementHoldsOf,
+} from "@/lib/collab/appReadSnapshot";
 import { parseAppStatusFrame } from "@/lib/collab/appStatusFrame";
 import { ReconcilerContext } from "@/lib/collab/context";
 import {
@@ -66,6 +69,7 @@ import {
 	encodeAdmittedMutationEnvelope,
 	isMutationWireCanonicalityReason,
 } from "@/lib/doc/mutationAdmission";
+import type { PlacementHold } from "@/lib/doc/placementHolds";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { uuidSchema } from "@/lib/domain";
@@ -167,6 +171,9 @@ export interface ReconcilerProviderProps {
 	appId?: string;
 	/** The head seq at mount (`app.mutation_seq`); 0 for a fresh app. */
 	baseSeq: number;
+	/** The hold each target's latest recording wrote, read with the first
+	 *  document (`AppReadSnapshot.recordedHolds`); absent for a fresh app. */
+	recordedHolds?: readonly PlacementHold[];
 	/** The session user id — echo classification keys on it. */
 	userId: string;
 	children: ReactNode;
@@ -199,7 +206,12 @@ const browserEffects: ReconcilerBrowserEffects = {
 export function createReconcilerRuntime(
 	docStore: BlueprintDocStoreApi,
 	sessionStore: BuilderSessionStoreApi,
-	init: { appId?: string; baseSeq: number; userId: string },
+	init: {
+		appId?: string;
+		baseSeq: number;
+		recordedHolds?: readonly PlacementHold[];
+		userId: string;
+	},
 	/** Leaves preview mode — the conversion toast's "Review data" action
 	 *  navigates to an edit-only surface, which preview would mask. */
 	exitPreview: () => void,
@@ -515,6 +527,9 @@ export function createReconcilerRuntime(
 	 *  cadence where an occasional needless refetch is cheap. */
 	function frameMayTouchCaseData(frame: MutationFrame): boolean {
 		return frame.mutations.some((mutation) => {
+			// A held placement changes where HQ keeps a write, never the case
+			// schema, so a publish's frame refetches no case data.
+			if (mutation.kind === "holdPlacements") return false;
 			if (mutation.kind !== "updateField") return true;
 			return Object.keys(mutation.patch ?? {}).some(
 				(key) => key !== "label" && key !== "hint",
@@ -1029,6 +1044,7 @@ export function createReconcilerRuntime(
 			canEdit: data.canEdit,
 			blueprint: data.blueprint,
 			seq: data.baseSeq,
+			recordedHolds: recordedPlacementHoldsOf(data.recordedHolds),
 		};
 	};
 
@@ -1122,6 +1138,7 @@ export function createReconcilerRuntime(
 			appId: init.appId,
 			baseSeq: init.baseSeq,
 			baseDoc: docStore.getState(),
+			recordedHolds: recordedPlacementHoldsOf(init.recordedHolds ?? []),
 			userId: init.userId,
 		},
 		deps,
@@ -1205,6 +1222,7 @@ export function createReconcilerRuntime(
 export function ReconcilerProvider({
 	appId,
 	baseSeq,
+	recordedHolds,
 	userId,
 	children,
 }: ReconcilerProviderProps) {
@@ -1220,6 +1238,7 @@ export function ReconcilerProvider({
 			{
 				appId,
 				baseSeq,
+				recordedHolds,
 				userId,
 			},
 			() => sessionStore.getState().setPreviewing(false),

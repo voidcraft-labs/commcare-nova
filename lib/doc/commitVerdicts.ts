@@ -752,7 +752,24 @@ export function mutationCommitVerdictWithPrevalidation(
 		if (!(error instanceof MutationWireCanonicalityError)) throw error;
 		return mutationWireCanonicalityRejection(prevDoc, error);
 	}
-	const prepared = prepareMutationCandidate(prevDoc, admitted);
+	return preparedCommitVerdictWithPrevalidation(
+		prevDoc,
+		prepareMutationCandidate(prevDoc, admitted),
+		lookupContext,
+	);
+}
+
+/**
+ * `mutationCommitVerdictWithPrevalidation` over a candidate the caller has
+ * already prepared from `prevDoc` (the identity-move planner prepares one),
+ * so the batch is never applied twice.
+ */
+export function preparedCommitVerdictWithPrevalidation(
+	prevDoc: BlueprintDoc,
+	prepared: PreparedMutationCandidate,
+	lookupContext: LookupValidationContext,
+): MutationCommitVerdict {
+	const admitted = prepared.mutations;
 	const prevalidated = hasMutationPrevalidation(
 		prevDoc,
 		lookupContext,

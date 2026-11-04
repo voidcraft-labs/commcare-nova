@@ -7,8 +7,8 @@ import { formAnswerWrites } from "../../formAnswerWrites";
 import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import {
-	type CasePlacementWords,
-	formCasePlacementWords,
+	type CasePlacementRead,
+	formCasePlacementReads,
 	operationAddressSchema,
 	projectedCaseOperations,
 	resolveOperationAddress,
@@ -31,12 +31,13 @@ export type GetCaseOperationsResult =
 			 *  first, without the placement a published app holds: the read
 			 *  states where each is kept in `placements` instead. */
 			readonly operations: readonly CaseOperation[];
-			/** Where CommCare HQ keeps each change, by operation uuid. The
-			 *  authoring projection puts each on its change as `placement`. */
-			readonly placements: Readonly<Record<Uuid, CasePlacementWords>>;
+			/** Where CommCare HQ keeps each change, by operation uuid, marked
+			 *  `placementKept` where a published app keeps it there. The
+			 *  authoring projection puts each on its change. */
+			readonly placements: Readonly<Record<Uuid, CasePlacementRead>>;
 			/** Where HQ keeps this form's own close, when it has a block of its
 			 *  own. */
-			readonly ownClose?: { readonly placement: CasePlacementWords };
+			readonly ownClose?: CasePlacementRead;
 			readonly answerWrites: ReturnType<typeof formAnswerWrites>;
 			readonly operationSemantics: OperationSemantics;
 	  }
@@ -55,7 +56,7 @@ export const getCaseOperationsTool = {
 		if (!address.ok) {
 			return { kind: "read", data: { error: address.error } };
 		}
-		const placements = formCasePlacementWords(doc, address.formUuid);
+		const placements = formCasePlacementReads(doc, address.formUuid);
 		return {
 			kind: "read",
 			data: {
@@ -67,7 +68,7 @@ export const getCaseOperationsTool = {
 				),
 				placements: placements.operations,
 				...(placements.ownClose !== undefined && {
-					ownClose: { placement: placements.ownClose },
+					ownClose: placements.ownClose,
 				}),
 				operationSemantics: operationSemantics(doc, address.formUuid),
 				answerWrites: formAnswerWrites(

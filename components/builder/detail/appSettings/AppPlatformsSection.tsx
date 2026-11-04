@@ -190,8 +190,9 @@ function findingRows(outcome: {
  * (content and media, from one snapshot), and commits only when that answer
  * read the sequence on screen. A refusal lists each use beside the choices,
  * each with an Open link that keeps App settings open, so the list is the
- * person's checklist. No confirmation dialog: each choice says what it means
- * before it is made.
+ * person's checklist. No confirmation dialog of its own: each choice says
+ * what it means before it is made, and a choice that moves where CommCare HQ
+ * keeps published answers is stated in the builder's identity-move dialog.
  */
 export function AppPlatformsSection() {
 	const runsOnlyOn = useAppSettings().runsOnlyOn;
@@ -228,6 +229,15 @@ export function AppPlatformsSection() {
 		added?: Platform,
 	) => {
 		const committed = mutations.inline.commitMany([mutation]);
+		/* A change that moves where CommCare HQ keeps published answers waits
+		 * in the builder's identity-move dialog, which states the moves; this
+		 * section has no dialog of its own, so that one is the person's one
+		 * question. Nothing committed and nothing was refused. */
+		if (!committed.ok && committed.messages.length === 0) {
+			setRefusal(undefined);
+			setAnnouncement("");
+			return;
+		}
 		if (!committed.ok) {
 			setAnnouncement("");
 			setRefusal({

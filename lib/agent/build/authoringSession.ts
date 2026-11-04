@@ -458,6 +458,9 @@ export class AuthoringSession {
 			...(staged.receipt?.diagnostics && {
 				diagnostics: staged.receipt.diagnostics,
 			}),
+			...(staged.receipt?.identityMoves && {
+				identityMoves: staged.receipt.identityMoves,
+			}),
 		};
 		if (this.workspace?.current().id === workspace.current().id)
 			this.workspace = workspace;
@@ -639,6 +642,7 @@ export class AuthoringSession {
 				savedRevision: 1,
 			};
 		}
+		const identityMoves = workspace.savedIdentityMoves();
 		const result = await commitDesignChangeSet({
 			changeSetId: current.id,
 			requestId,
@@ -659,6 +663,7 @@ export class AuthoringSession {
 				result.migration.parked > 0 && {
 					dataReview: savedDataReview(result.migration),
 				}),
+			...(identityMoves.length > 0 && { identityMoves }),
 		};
 	}
 }

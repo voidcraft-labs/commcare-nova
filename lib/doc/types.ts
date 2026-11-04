@@ -74,7 +74,12 @@ import {
 	formEntryPointSchema,
 } from "@/lib/domain/entryPoints";
 import { conditionSchema } from "@/lib/domain/expression/types";
+import {
+	casePlacementSchema,
+	ownClosePlacementSchema,
+} from "@/lib/domain/placements";
 import { proseTemplateSchema } from "@/lib/domain/prose";
+import { queryRepeatPlacementSchema } from "@/lib/domain/queryRepeatPlacement";
 
 /**
  * The two field message slots a `Media` bundle attaches to: the ones a
@@ -748,9 +753,10 @@ function reportImmutableCaseOperationIdentity(
 }
 
 /**
- * Reports a form update that carries a held placement: an operation's
- * `placement` in an added operation or an operation patch, or the form's
- * `ownClosePlacement` in the form patch.
+ * Reports an update that carries a held placement: an operation's
+ * `placement` in an added operation or an operation patch, the form's
+ * `ownClosePlacement` in the form patch, or a query repeat's `placement` in a
+ * field patch.
  *
  * Every payload schema omits those slots, so strict parsing refuses them on
  * its own. As with the operation uuid above, this supplies the sentence: the
@@ -761,6 +767,20 @@ function reportHeldPlacementInPayload(
 	value: unknown,
 	ctx: z.RefinementCtx,
 ): void {
+	if (
+		isPlainRecord(value) &&
+		value.kind === "updateField" &&
+		isPlainRecord(value.patch) &&
+		fieldHoldsHeldKey(value.patch)
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["patch", "placement"],
+			message:
+				"This field update also sets where a published query repeat's rows come from. No edit chooses that, so leave `placement` out of the patch.",
+		});
+		return;
+	}
 	if (!isPlainRecord(value) || value.kind !== "updateForm") return;
 	if (
 		isPlainRecord(value.patch) &&
@@ -835,6 +855,81 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 	);
 	return guarded as z.ZodType<z.output<Schema>, z.input<Schema>>;
 }
+
+// ─── Held placements ─────────────────────────────────────────────────────
+//
+// Where a published app keeps a change in CommCare HQ is no author's choice,
+// so every other payload omits the held slots (`HELD_FIELD_KEYS`, the
+// operation arms without `placement`, `updateForm.patch` without
+// `ownClosePlacement`). `holdPlacements` is the one mutation that writes them.
+
+/** One held placement, set or cleared. `null` clears the target's held slot. */
+export const placementHoldSchema = z.discriminatedUnion("target", [
+	z.strictObject({
+		target: z.literal("case-operation"),
+		formUuid: uuidSchema,
+		operationUuid: uuidSchema,
+		placement: casePlacementSchema.nullable(),
+	}),
+	z.strictObject({
+		target: z.literal("own-close"),
+		formUuid: uuidSchema,
+		placement: ownClosePlacementSchema.nullable(),
+	}),
+	z.strictObject({
+		target: z.literal("query-repeat"),
+		fieldUuid: uuidSchema,
+		placement: queryRepeatPlacementSchema.nullable(),
+	}),
+]);
+export type PlacementHoldEntry = z.infer<typeof placementHoldSchema>;
+
+/**
+ * A target's key: `case-operation:<form>:<operation>`, `own-close:<form>`,
+ * `query-repeat:<field>`. `lib/doc/placementHolds.ts` re-exports it with the
+ * rest of the target vocabulary; it lives here because the mutation's own
+ * schema reads it.
+ */
+export function placementTargetKey(
+	target:
+		| {
+				readonly target: "case-operation";
+				readonly formUuid: string;
+				readonly operationUuid: string;
+		  }
+		| { readonly target: "own-close"; readonly formUuid: string }
+		| { readonly target: "query-repeat"; readonly fieldUuid: string },
+): string {
+	switch (target.target) {
+		case "case-operation":
+			return `case-operation:${target.formUuid}:${target.operationUuid}`;
+		case "own-close":
+			return `own-close:${target.formUuid}`;
+		case "query-repeat":
+			return `query-repeat:${target.fieldUuid}`;
+	}
+}
+
+export const holdPlacementsMutationSchema = z
+	.strictObject({
+		kind: z.literal("holdPlacements"),
+		holds: z.array(placementHoldSchema).min(1),
+	})
+	.superRefine((mutation, ctx) => {
+		const seen = new Set<string>();
+		mutation.holds.forEach((hold, index) => {
+			const key = placementTargetKey(hold);
+			if (seen.has(key)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["holds", index],
+					message:
+						"This change holds one placement twice. Name each case change, own close or query repeat once, with the placement it keeps.",
+				});
+			}
+			seen.add(key);
+		});
+	});
 
 function createMutationSchema({
 	module: mutationModuleSchema,
@@ -1562,6 +1657,8 @@ function createMutationSchema({
 			icon: formIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),
 		}),
+		// ─── Held placements ─────────────────────────────────────────────
+		holdPlacementsMutationSchema,
 	] as const;
 	const strictMutationArms = mutationArms.map((arm) =>
 		arm instanceof z.ZodObject ? arm.strict() : arm,

@@ -12,7 +12,10 @@
  *
  * Every kind lands. Contract: the corpus draws every mutation kind the
  * reducer defines, and the lane's emission stops, naming the kind, when one
- * lands on no fixed document (`../emitCorpus.ts`, `requireEveryKind`). The
+ * lands on no fixed document (`../emitCorpus.ts`, `requireEveryKind`), a
+ * targeted document's written edit counting as one. `holdPlacements` lands
+ * only that way, through `targeted-held-placement`, since no document built
+ * here holds a placement. The
  * plausible failure is a producer fixture, a workforce entity or an
  * edit-kind generator changing so that some kind has nothing to edit, or
  * only refusals, on every fixed document; the lane would stop at emission,
@@ -427,16 +430,21 @@ describe("the corpus's fixed sources", () => {
 		({ outcomes, census } = fixedEditCorpus(fixed));
 	});
 
-	it("give every mutation kind the reducer defines a batch", () => {
+	// `holdPlacements` lands on no producer or workforce document: none holds
+	// a placement, so the kind's generator has nothing to move. The lane lands
+	// it through `targeted-held-placement`'s written edit, a targeted document
+	// that does not build in this process; `editBatches.test.ts` holds that
+	// edit to the kind and the generator to the move on that document's D.
+	it("give every mutation kind the reducer defines a batch, but the hold the targeted document lands", () => {
 		expect(
-			censusFloorFailures(census),
+			censusFloorFailures(census).map((failure) => failure.kind),
 			`Kinds no fixed document carries a batch of:\n${formatCensus(census)}`,
-		).toEqual([]);
+		).toEqual(["holdPlacements"]);
 	});
 
 	// A second edit-batch corpus over about 150 documents: a few seconds on
 	// a laptop, and CI runners are slower.
-	it("give no batch to exactly the five removal kinds whose only targets the workforce documents hold, without those documents", {
+	it("give no batch to exactly the five removal kinds whose only targets the workforce documents hold, without those documents, beside the hold", {
 		timeout: 30_000,
 	}, () => {
 		const without = fixedEditCorpus(publishable);
@@ -445,6 +453,7 @@ describe("the corpus's fixed sources", () => {
 				.map((failure) => failure.kind)
 				.sort(),
 		).toEqual([
+			"holdPlacements",
 			"removeAutomation",
 			"removeLocationProperty",
 			"removePersona",

@@ -2309,6 +2309,46 @@ From the research, the outline and the owner brief, each with its reason.
     inventory. The chokepoint now stamps the type of a write whose value is a question's answer as it
     is, and `updateCaseProperty` checks a choice list against the effective type where the entry
     stores none. No corpus byte moved.
+44. **An own close whose new place is the own arm's clears its hold and states the move** (§14
+    names an entry with the new placement, or `null` only where the close vanished). The slot
+    `Form.ownClosePlacement` holds only a block of the close's own (`ownClosePlacementSchema`), so
+    where the planner, with the stranded hold removed, gives the close the own arm's place
+    (`PlannedPlacement.sharesWith`), the entry is `placement: null` and the move is stated from Save
+    to Case to the own arm's place; the own arm's hold carries that place. The kernel admits the
+    clear by arm (a), since the earlier block no longer expresses the close.
+45. **The pull request 5 move tests check the client half of the kernel's rule.**
+    `placementMoves.test.ts` and `queryRepeatPlacement.test.ts` show each undo, restore and
+    re-creation admitted by `lib/doc/placementHolds.ts::admittedHoldChanges`, which keeps exactly
+    the entries `placementChangeRefusal` admits and drops the rest; `lib/db`'s rule test checks the
+    same changes against the kernel. Their documents are a gate-valid fixture
+    (`lib/doc/__tests__/placementMoveFixture.ts`), since `placementHoldFixture.ts`'s fixture is
+    shaped for the planner's rules and the gate refuses it (a quoted choice value, empty forms).
+    Two §12.8 reasons are not rows there, because the gate refuses their edit for another reason
+    first: `condition-apostrophe` and `condition-quote-boundary` (an option value holding a quote is
+    `SELECT_OPTION_VALUE_INVALID`). Removing a held own close's close condition, or a held Save to
+    Case create's condition, keeps the held block (`saveToCaseBlockShape` gives the own close its
+    condition segment always and the create's shape is unchanged), so neither is a move.
+46. **A history step records the holds its batch carried** (§14 says "A history step records no
+    `holdPlacements`"). Part 03 §2.6 and part 07 §2.5 both have the step record its holds and keep
+    only the admitted ones when it applies, and arm (b) needs them: the undo of a move, and the
+    re-creation of a removed held change with its hold, restore a hold only the recorded inverse
+    carries. So `lib/doc/store.ts` records the forward batch and its derived inverse as before (the
+    diff writer's trailing `holdPlacements` carries the holds), `historyStepBatch(action)` keeps only
+    the entries `lib/doc/placementHolds.ts::admittedHoldChanges` admits over `recordedHolds`, and
+    `applyHistoryStep(action, batch)` applies the batch `lib/routing/historyStep.ts::runHistoryStep`
+    planned and gated. `lib/routing/__tests__/historyStep.test.ts` shows both the restore and the
+    dropped change. In pull request 5 a recording is a `blueprint-migration` row or the greatest
+    fold baseline's snapshot; `publish-placement` joins in pull request 6 (part 03's Departures).
+47. **Pull request 5's tests beyond the ones named.** Beside the named files, the move planners and
+    copy have their own: `lib/doc/__tests__/queryRepeatPlacement.test.ts`,
+    `identityMoveCopy.test.ts`, `lib/domain/__tests__/caseOperationDescription.test.ts`,
+    `placementCopy.test.ts`, `lib/commcare/validator/__tests__/queryRepeatModelIterationShape.test.ts`,
+    `lib/agent/tools/__tests__/heldPlacementReads.test.ts` and
+    `proof/targeted/__tests__/heldPlacement.test.ts`; their documents come from shared fixtures
+    (`lib/doc/__tests__/placementHoldFixture.ts`, `placementMoveFixture.ts`,
+    `heldHistoryFixture.ts`, `lib/db/__tests__/heldPlacementApp.ts`). Each owns a contract the named
+    files do not reach: the query repeat's planner, the move sentences, the read flags and the
+    targeted document's shape.
 
 ## 28. Files by pull request
 

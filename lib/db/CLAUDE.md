@@ -1057,6 +1057,17 @@ only server-owned commit hosts compose its transaction hooks
 rides, plus the typed `sidecars` seam). The dependency arrow is one-way:
 apps → kernel.
 
+**The kernel decides who may change a held placement.**
+`placementAuthority.ts::placementChangeRefusal` runs over the locked document
+and the batch's candidate before the gate: a migration may change any hold; an
+editor's batch may move a hold the same batch makes inexpressible, or restore
+exactly the hold the target's latest recording wrote (the latest
+`blueprint-migration` row that names it, else the greatest fold baseline's
+snapshot, read by `placementRecords.ts::readRecordedPlacementHolds` under the
+app lock for only the keys `placementChangesToJustify` names); everything else
+is refused with `PLACEMENT_CHANGE_REFUSAL`. The per-change decision is
+`lib/doc/placementHolds.ts`'s, the same one the builder's history step reads.
+
 **Kernel sidecars are a closed, typed vocabulary** —
 `canonicalCommitSidecars.ts`, never arbitrary closures. A sidecar runs inside
 the same retryable app-locked transaction AFTER the committed-batch write

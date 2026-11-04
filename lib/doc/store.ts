@@ -16,6 +16,12 @@
  *   concurrent insert cannot move where an undo lands, and the history needs no
  *   rebasing when a remote frame arrives.
  *
+ *   A step carries held placements like any other content, and the builder's
+ *   undo and redo apply it through `historyStepBatch` / `applyHistoryStep`,
+ *   which keep only the hold changes the commit kernel's placement rule admits
+ *   over `recordedHolds` (the holds the latest recordings wrote) and record the
+ *   exact inverse of what was applied.
+ *
  * The store is created via a factory function so each builder mount gets
  * its own isolated store instance. `<BlueprintDocProvider>` calls this
  * factory at mount time and exposes the instance via React context.
@@ -55,6 +61,7 @@ import { create } from "zustand";
 import { devtools, subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { invertCasePropertyRenameMutation } from "@/lib/doc/casePropertyRenames";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import {
 	hydratePersistedBlueprint,
@@ -66,6 +73,15 @@ import {
 	admitMutationBatch,
 } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import {
+	admittedHoldChanges,
+	holdChangeRestores,
+	NO_RECORDED_HOLDS,
+	placementHoldChanges,
+	placementHoldEntry,
+	placementTargetKey,
+	type RecordedPlacementHolds,
+} from "@/lib/doc/placementHolds";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import { recordFromEntries } from "@/lib/domain";
@@ -201,6 +217,41 @@ export type BlueprintDocState = BlueprintDoc & {
 	undo: () => void;
 	/** The mirror of `undo()`. */
 	redo: () => void;
+	/**
+	 * The batch an undo or a redo may apply, or `undefined` when that history
+	 * is empty: the recorded batch keeping each `holdPlacements` entry only
+	 * where the commit kernel's placement rule admits it under an editor's
+	 * kind (`placementHolds.ts::admittedHoldChanges` over `recordedHolds`).
+	 * An entry that puts back exactly the hold a recording wrote, or that the
+	 * step's content needs because it leaves the current hold unable to
+	 * express its target, is kept; every other hold change is dropped and the
+	 * content is kept. The caller plans identity moves and runs the commit gate
+	 * over the result before `applyHistoryStep` applies it.
+	 */
+	historyStepBatch: (action: HistoryAction) => HistoryStepBatch | undefined;
+	/**
+	 * Apply `batch` as the next undo (or redo) step: the batch
+	 * `historyStepBatch` returned, with any hold the identity-move planner
+	 * appended. The cursor moves as `undo()` / `redo()` move it. Where `batch`
+	 * is the recorded one, the entry moves to the other side unchanged; where
+	 * it differs, the other side records `batch` and the exact inverse of
+	 * what it applied, so the next redo or undo replays what happened.
+	 * Returns `undefined`, applying nothing, when that history is empty.
+	 */
+	applyHistoryStep: (
+		action: HistoryAction,
+		batch: AdmittedMutationBatch,
+	) => HistoryStepOutcome | undefined;
+	/**
+	 * The hold each target's latest recording wrote (a publish, a cutover's
+	 * migration, or the fold baseline), keyed by target key. The reconciler
+	 * replaces it on every load of the app and as it folds a publish; a
+	 * history step reads it to decide which hold changes it may carry.
+	 * Bookkeeping, never document data.
+	 */
+	recordedHolds: RecordedPlacementHolds;
+	/** Replace `recordedHolds` whole. */
+	setRecordedPlacementHolds: (holds: RecordedPlacementHolds) => void;
 	/** Drop both histories — a new baseline (a reload, a `data-done` reseed) has
 	 *  nothing the author can take back. */
 	clearHistory: () => void;
@@ -231,6 +282,27 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	remoteFrameApplyInProgress: boolean;
 };
+
+/** Which way a history step goes. */
+export type HistoryAction = "undo" | "redo";
+
+/** What `historyStepBatch` offers a history step to apply. */
+export interface HistoryStepBatch {
+	/** The recorded batch, keeping only the hold changes the placement rule
+	 *  admits. */
+	readonly batch: AdmittedMutationBatch;
+	/** Whether a hold change of the recorded batch was left out. */
+	readonly droppedHoldChange: boolean;
+}
+
+/** What `applyHistoryStep` did to held placements. */
+export interface HistoryStepOutcome {
+	/** A target's hold went back to exactly the hold its latest recording
+	 *  wrote. */
+	readonly restoredHold: boolean;
+	/** A hold change the recorded step carried was not applied. */
+	readonly droppedHoldChange: boolean;
+}
 
 /**
  * Initial empty document state.
@@ -281,7 +353,9 @@ const EMPTY_ADMITTED_MUTATIONS = admitMutationBatch([]);
  */
 function overlayDoc(draft: Record<string, unknown>, next: object): void {
 	for (const key of Object.keys(draft)) {
-		if (!isDocDataKey(key, draft[key])) continue;
+		// A bookkeeping key is skipped before its value is read: reading a
+		// value through the draft drafts it, and `recordedHolds` is a Map.
+		if (BOOKKEEPING_KEYS.has(key) || !isDocDataKey(key, draft[key])) continue;
 		if (!(key in next)) draft[key] = undefined;
 	}
 	for (const [key, value] of Object.entries(next)) {
@@ -329,6 +403,7 @@ const BOOKKEEPING_KEYS = new Set([
 	"canRedo",
 	"commandQueueRevision",
 	"caseWriteProjectionRevision",
+	"recordedHolds",
 ]);
 
 /** How many steps back the author can reach. Bounds a long session's memory;
@@ -445,6 +520,9 @@ function affectsCaseWriteProjection(
 		case "setAutomationSchedule":
 		case "updateAutomationSchedule":
 		case "editAutomationItem":
+		// Where HQ keeps a change is wire placement; what the form writes is
+		// the same wherever it is kept.
+		case "holdPlacements":
 			return false;
 		default: {
 			const _exhaustive: never = mutation;
@@ -687,6 +765,52 @@ export function createBlueprintDocStore() {
 		syncHistoryFlags();
 	}
 
+	/**
+	 * The exact inverse of a history step that applied `applied` to `before`,
+	 * leaving `after`. A step whose batch carries a case-property rename
+	 * inverts the rename as recording does, and puts back each hold the step
+	 * changed; every other step is the delta back.
+	 */
+	function inverseOfApplied(
+		before: BlueprintDoc,
+		after: BlueprintDoc,
+		applied: AdmittedMutationBatch,
+	): AdmittedMutationBatch {
+		const rename = applied.find(
+			(mutation) => mutation.kind === "renameCaseProperties",
+		);
+		if (rename === undefined) return deltaBetween(after, before, applied);
+		const holds = placementHoldChanges(after, before).map((change) =>
+			placementHoldEntry(change.target, change.to),
+		);
+		return admitMutationBatch([
+			invertCasePropertyRenameMutation(rename),
+			...(holds.length > 0
+				? [{ kind: "holdPlacements", holds } satisfies Mutation]
+				: []),
+		]);
+	}
+
+	/** The hold entries `batch` carries, keyed by target key. */
+	function holdEntriesOf(batch: readonly Mutation[]) {
+		return batch.flatMap((mutation) =>
+			mutation.kind === "holdPlacements" ? mutation.holds : [],
+		);
+	}
+
+	/** Whether `applied` leaves out a hold entry `recorded` carries. */
+	function dropsHoldChange(
+		recorded: readonly Mutation[],
+		applied: readonly Mutation[],
+	): boolean {
+		const appliedHolds = new Map(
+			holdEntriesOf(applied).map((entry) => [placementTargetKey(entry), entry]),
+		);
+		return holdEntriesOf(recorded).some(
+			(entry) => !deepEqual(appliedHolds.get(placementTargetKey(entry)), entry),
+		);
+	}
+
 	/** The document-to-document delta, which is what an inverse is. */
 	function deltaBetween(
 		from: BlueprintDoc,
@@ -852,6 +976,73 @@ export function createBlueprintDocStore() {
 						}
 						undoStack.push(entry);
 						syncHistoryFlags();
+					},
+
+					historyStepBatch: (
+						action: HistoryAction,
+					): HistoryStepBatch | undefined => {
+						const recorded =
+							action === "undo"
+								? undoStack.at(-1)?.inverse
+								: redoStack.at(-1)?.forward;
+						if (recorded === undefined) return undefined;
+						const state = store.getState();
+						const batch = admittedHoldChanges(
+							state,
+							recorded,
+							state.recordedHolds,
+						);
+						return {
+							batch,
+							droppedHoldChange:
+								batch !== recorded && dropsHoldChange(recorded, batch),
+						};
+					},
+
+					applyHistoryStep: (
+						action: HistoryAction,
+						batch: AdmittedMutationBatch,
+					): HistoryStepOutcome | undefined => {
+						const from = action === "undo" ? undoStack : redoStack;
+						const entry = from.pop();
+						if (entry === undefined) return undefined;
+						const recorded = action === "undo" ? entry.inverse : entry.forward;
+						const before = store.getState();
+						applyingHistory = true;
+						try {
+							before.applyMany(batch);
+						} finally {
+							applyingHistory = false;
+						}
+						const after = store.getState();
+						const sameAsRecorded = deepEqual(batch, recorded);
+						// The other side replays exactly what this step applied.
+						const moved: HistoryEntry = sameAsRecorded
+							? entry
+							: action === "undo"
+								? {
+										forward: inverseOfApplied(before, after, batch),
+										inverse: batch,
+									}
+								: {
+										forward: batch,
+										inverse: inverseOfApplied(before, after, batch),
+									};
+						(action === "undo" ? redoStack : undoStack).push(moved);
+						syncHistoryFlags();
+						return {
+							restoredHold: placementHoldChanges(before, after).some((change) =>
+								holdChangeRestores(change, before.recordedHolds),
+							),
+							droppedHoldChange:
+								!sameAsRecorded && dropsHoldChange(recorded, batch),
+						};
+					},
+
+					recordedHolds: NO_RECORDED_HOLDS,
+
+					setRecordedPlacementHolds: (holds: RecordedPlacementHolds): void => {
+						store.setState({ recordedHolds: new Map(holds) });
 					},
 
 					clearHistory,

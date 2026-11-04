@@ -44,6 +44,7 @@ import {
 	surveyMenu,
 } from "./documents/formShapes";
 import { gpsQuestion } from "./documents/gpsQuestion";
+import { heldPlacement } from "./documents/heldPlacement";
 import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
 import { hiddenFromMenu } from "./documents/hiddenFromMenu";
 import { hqSideLookup } from "./documents/hqSideLookup";
@@ -177,6 +178,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	queryRepeatPlacements,
 	repeatCountWhole,
 	caseWritesOneConcept,
+	heldPlacement,
 ];
 
 /** Every targeted document, in a fixed order. */

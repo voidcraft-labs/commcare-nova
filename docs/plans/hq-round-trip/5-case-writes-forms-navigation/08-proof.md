@@ -1767,6 +1767,50 @@ underscore worker property and the extension open action's owner (part 02's G2, 
 - **Two corpus fixtures change content to meet the own-case rules**: `case-operation-retype`'s close
   is the unconditional own close of a close form, and in `case-operation-sequence` `defaulted_at` and
   `visible_at` keep their authored `now()` defaults, since a preload is now the question's default.
+- **A targeted document's D keeps its holds laid on; its edit takes the editor's path** (pull
+  request 5): `proof/targeted/build.ts` still lays D's holds on the committed document as the
+  recording that wrote them would (the documents do not change), and no longer refuses every edit
+  that changes a hold. A written edit's content is planned from D to D′ with D's holds as they are,
+  `lib/doc/identityMoves.ts::withIdentityMoves` appends the moves it needs over D's holds as the
+  latest recording, and `lib/db/placementAuthority.ts::placementChangeRefusal` must admit the result
+  as an `autosave`; a D′ holding anything else differs from what Nova commits and stops by name.
+  The query-repeat hold test in `proof/targeted/__tests__/targeted.test.ts` now expects that
+  refusal's sentence.
+- **The kernel rule sits in `editBatches.ts::judge`**, which `judgeProposal` and `admitEditBatch`
+  share, so a batch a test admits by hand meets the same rule as a drawn one; its refusal code is
+  `kernel:placement-change`.
+- **A written edit that moves a hold stands for `holdPlacements`**
+  (`editBatches.ts::writtenEditBatch`): its first mutation is the content edit, since
+  `withIdentityMoves` appends the move, so the first mutation's kind would never land the kind the
+  plan has `targeted-held-placement` land.
+- **`editBatches.test.ts`'s fixed documents gain `targeted-held-placement`'s D**, the one document
+  holding a placement, so the test's census floor holds `holdPlacements` drawn by its generator
+  (the corpus's fixed list does not change: a targeted document carries no drawn edit).
+- **The `holdPlacements` generator proposes a write of a computed value only**, on each case change
+  held in a slot of Case Management; the plan's other example (a write in a repeat) needs a question
+  in a repeat the held form may not hold, and one kind of strand lands the kind.
+- **`lib/db/__tests__/heldPlacements.postgres.test.ts` (part 01 §24.2) writes its document through
+  the app-state test harness's entity-row writer** (`appStateTestDb.ts::seedAppWithBlueprint`, over
+  `blueprintRows.ts::decomposeBlueprint`) and reads it back through `apps.ts::loadApp`: no function
+  named `writeApp` exists at the base. Its fixture `heldPlacementApp.ts` read the kid's first
+  placement candidate as its Save to Case block, which the planner offers second (after its basic
+  subcase slot); it now finds the block by kind.
+- **`targeted-held-placement`'s no-readers estimate copies `targeted-case-writes-one-concept`'s
+  7.091 s**, a document of case-writing follow-ups with a Save to Case block and a written edit,
+  until a whole run refreshes it.
+- **`proof/corpus/__tests__/footprint.test.ts` expects `holdPlacements` among the kinds its
+  in-process census leaves unlanded** (pull request 5). The census reads only the producer and
+  workforce documents, none of which holds a placement before pull request 6's capture records the
+  first publish's, so the kind's generator has nothing to move there; the lane's emission counts
+  `targeted-held-placement`'s written edit, which this test does not build. Both of its census
+  tests name the kind beside the ones they already expect, and `editBatches.test.ts` holds the kind
+  to that targeted document. From pull request 6 every document whose first publish records a
+  placement is a host, and the exemption leaves.
+- **`lib/commcare/__tests__/repeatEmission.test.ts`'s model-iteration document no longer holds a
+  condition** (pull request 5). It held model iteration on a repeat with a condition of its own,
+  which the held arm of `QUERY_REPEAT_MODEL_ITERATION_SHAPE` (reason `row-condition`, part 04 §1.7)
+  now refuses, so the document failed its own admission. The repeat carries no condition and takes
+  model iteration from the planner; the test holds the wrapper's binds without a row condition.
 
 ## What other parts read from this one
 

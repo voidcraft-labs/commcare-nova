@@ -294,6 +294,10 @@ chat status line instead of falling back to `understanding`.
 
 `assetMeta` is the sibling registry: asset rows observed this session (library pages the pickers load, upload confirms, the budget check's own fetches), keyed by id. Each row carries its `mediaFormat`, which the attach guard, the pickers and Preview's stand-in read. The browser's pre-dispatch export-ceiling check (`components/builder/media/useAttachBudget.ts`) resolves the doc's referenced ids against it and fetches only the gaps. Advisory by design — the export boundary re-loads fresh rows server-side, so staleness here can only mis-tune the courtesy check, never the enforcement.
 
+## A pending identity move
+
+`pendingIdentityMove` holds the one batch `IdentityMoveDialog` states, until the person makes the change or cancels; it is never stored. The doc package reaches it only through `pendingIdentityMoveSlot` (the `PendingIdentityMoveSlot` of `lib/doc/pendingIdentityMove.ts`), so its commands and history step stay free of this store's shape, and a confirmed Project change clears it, since the batch names the source Project's document.
+
 ## Active page of a sectioned form
 
 `activeSectionByForm` (`setActiveSection` / `useActiveSection` /

@@ -519,6 +519,7 @@ export function mutationSequenceAdmissionIssue(
 			}
 			case "renameForm":
 			case "setFormMedia":
+			case "holdPlacements":
 				break;
 			case "updateForm": {
 				const change = mutation.caseOperationChange;

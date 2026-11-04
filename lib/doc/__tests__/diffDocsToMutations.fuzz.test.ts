@@ -27,6 +27,7 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -251,7 +252,22 @@ const endpointArb = fc.record({
 	media: fc.boolean(),
 	extraOption: fc.boolean(),
 	text: fc.nat({ max: 2 }),
+	// Each form's query repeat: absent, present and unheld, or holding one of
+	// the two placements a query over no answer can express.
+	queryRepeat: fc.constantFrom("absent", "unheld", "model-iteration", "count"),
 });
+
+/** Open patients: a query that reads no answer of the form, so either
+ *  placement expresses the repeat. */
+const OPEN_PATIENTS = {
+	kind: "project",
+	of: {
+		kind: "cases",
+		source: "casedb",
+		where: [eq(prop("patient", "case_name"), literal("open"))],
+	},
+	value: prop("patient", "case_id"),
+} as const;
 type Endpoint = typeof endpointArb extends fc.Arbitrary<infer T> ? T : never;
 function endpoint(spec: Endpoint): BlueprintDoc {
 	const indices = [0, 1, 2].filter(
@@ -325,6 +341,29 @@ function endpoint(spec: Endpoint): BlueprintDoc {
 						...(spec.optional && (!spec.group || !spec.grouped)
 							? [optional]
 							: []),
+						...(spec.queryRepeat === "absent"
+							? []
+							: [
+									f({
+										uuid: testUuid(`${key}-visits`),
+										kind: "repeat",
+										id: "visits",
+										label: proseText("Visits"),
+										repeat_mode: "query_bound",
+										data_source: { ids_query: OPEN_PATIENTS },
+										...(spec.queryRepeat === "unheld"
+											? {}
+											: { placement: spec.queryRepeat }),
+										children: [
+											f({
+												uuid: testUuid(`${key}-visit-note`),
+												kind: "text",
+												id: "visit_note",
+												label: proseText("Visit note"),
+											}),
+										],
+									}),
+								]),
 					];
 					if (spec.reverse) fields.reverse();
 					return {
@@ -379,11 +418,51 @@ describe("diff of independent admitted stored endpoints", () => {
 			media: false,
 			extraOption: false,
 			text: 0,
+			queryRepeat: "absent",
 		};
 		assertRoundTrip(
 			endpoint(common),
 			endpoint({ ...common, modules: 1, forms: 3 }),
 		);
+	});
+
+	it("diffs documents that differ only in a hold to one holdPlacements and replays to the target", () => {
+		const common: Endpoint = {
+			modules: 1,
+			forms: 3,
+			owners: [0, 0, 0],
+			reverse: false,
+			nested: false,
+			group: false,
+			grouped: false,
+			optional: false,
+			secret: false,
+			decimal: false,
+			media: false,
+			extraOption: false,
+			text: 0,
+			queryRepeat: "model-iteration",
+		};
+		for (const [from, to] of [
+			["model-iteration", "count"],
+			["count", "unheld"],
+			["unheld", "model-iteration"],
+		] as const) {
+			const prev = endpoint({ ...common, queryRepeat: from });
+			const next = endpoint({ ...common, queryRepeat: to });
+			const diff = diffDocsToMutations(prev, next);
+			expect(diff).toEqual([
+				{
+					kind: "holdPlacements",
+					holds: [0, 1].map((form) => ({
+						target: "query-repeat",
+						fieldUuid: testUuid(`independent-form-${form}-visits`),
+						placement: to === "unheld" ? null : to,
+					})),
+				},
+			]);
+			assertRoundTrip(prev, next);
+		}
 	});
 
 	it("replays arbitrary structural, ordering, scalar, option and media changes through JSON and the real gate", async () => {
@@ -1480,7 +1559,7 @@ describe("diffDocsToMutations — the own case, keyed writes and conditions", ()
 		assertRoundTrip(next, prev);
 	});
 
-	it("carries no held placement in any payload", () => {
+	it("carries a held placement only in the trailing holdPlacements", () => {
 		const prev = ownDoc();
 		const next = produce(prev, (draft) => {
 			draft.forms[SURVEY].type = "close";
@@ -1497,8 +1576,35 @@ describe("diffDocsToMutations — the own case, keyed writes and conditions", ()
 				path: ["nova_operations", "patient"],
 			};
 		});
-		const wire = JSON.stringify(diffDocsToMutations(prev, next));
-		expect(wire).not.toContain("placement");
-		expect(wire).not.toContain("ownClosePlacement");
+		const diff = diffDocsToMutations(prev, next);
+		const structural = JSON.stringify(
+			diff.filter((mutation) => mutation.kind !== "holdPlacements"),
+		);
+		expect(structural).not.toContain("placement");
+		expect(structural).not.toContain("ownClosePlacement");
+		// The holds travel in the one trailing `holdPlacements`.
+		expect(diff.filter((m) => m.kind === "holdPlacements")).toEqual([
+			diff.at(-1),
+		]);
+		expect(diff.at(-1)).toEqual({
+			kind: "holdPlacements",
+			// Document order: the Discharge form precedes the Survey form.
+			holds: [
+				{
+					target: "own-close",
+					formUuid: CLS,
+					placement: {
+						kind: "save-to-case",
+						path: ["nova_operations", "patient"],
+					},
+				},
+				{
+					target: "case-operation",
+					formUuid: SURVEY,
+					operationUuid: OWN_SURVEY,
+					placement: { kind: "basic", slot: "own" },
+				},
+			],
+		});
 	});
 });

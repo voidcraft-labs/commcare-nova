@@ -18,6 +18,7 @@
  * inferred fact takes the absolute gate.
  */
 
+import { formHoldsPlacement } from "@/lib/doc/heldIdentity";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { noMatchesFormOf, orderedCaseOperations } from "@/lib/domain";
@@ -131,6 +132,14 @@ function addFieldForm(
 	const formUuid = findContainingForm(doc, fieldUuid);
 	if (formUuid === undefined) return false;
 	scope.formUuids.add(formUuid);
+	/* A held placement's rules read the whole form and its module, and a
+	 * field edit can strand a hold, so a form that holds one takes its
+	 * module's scope. A form that holds none keeps its own. */
+	if (formHoldsPlacement(doc, formUuid)) {
+		const moduleUuid = owningModule(doc, formUuid);
+		if (moduleUuid === undefined) return false;
+		addWholeModule(doc, moduleUuid, scope);
+	}
 	addFormLinkSources(doc, scope);
 	return true;
 }
@@ -329,6 +338,21 @@ function mutationFootprint(
 			case "removeFormLink":
 			case "moveFormLink":
 				scope.formUuids.add(mutation.formUuid);
+				break;
+			/* A held placement decides where its form's case changes are
+			 * placed, which reads the whole form and its module (part 01
+			 * §13.3), so the module of each target's form re-runs. */
+			case "holdPlacements":
+				for (const hold of mutation.holds) {
+					const formUuid =
+						hold.target === "query-repeat"
+							? findContainingForm(doc, hold.fieldUuid)
+							: hold.formUuid;
+					const moduleUuid =
+						formUuid === undefined ? undefined : owningModule(doc, formUuid);
+					if (moduleUuid === undefined) return undefined;
+					addWholeModule(doc, moduleUuid, scope);
+				}
 				break;
 
 			/* The app's name and logo have no module or form dependency. */
