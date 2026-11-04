@@ -49,6 +49,7 @@
  * holds it like every other step's.
  */
 
+import { semanticCheckErrors } from "@/lib/commcare/validator/lookupTypeContext";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import { ownCaseLinkTarget } from "@/lib/doc/fieldCaseWriteMutations";
@@ -70,13 +71,16 @@ import {
 	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	type LookupTypeIndex,
+	slotContext,
+} from "@/lib/domain/expression/context";
 import { inferExpressionTypes } from "@/lib/domain/expression/inference";
 import { reduceAnd, reduceOr } from "@/lib/domain/expression/reduction";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { isWriteAssignable } from "@/lib/domain/expression/ruleSets";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import {
-	COMPARISON_KINDS,
-	isExpression,
 	isTerm,
 	type PropertyRef,
 	type Term,
@@ -159,13 +163,8 @@ function withForm(doc: BlueprintDoc, form: Form): BlueprintDoc {
 
 // ─── C9 ───────────────────────────────────────────────────────────────────
 
-/** Why a close condition can't be the form's: what it reads. */
-type CloseReadRefusal =
-	| "other-case"
-	| "linked-case"
-	| "retyped-case"
-	| "related-cases"
-	| "case-change-value";
+/** Why a read of the operation's row can't become the form's read. */
+type CloseReadRefusal = "other-case" | "linked-case" | "retyped-case";
 
 type FormRead<T> =
 	| { readonly ok: true; readonly value: T }
@@ -184,65 +183,24 @@ interface LoadedCase {
 	readonly depths: ReadonlyMap<string, number>;
 }
 
-/**
- * The term kinds the form's close condition reads as the operation's
- * condition did, none of them a read of the operation's row: the form's
- * answers and their choices, the form's own reads of its case and the cases
- * above it, the worker, the session's own values, and literals. The checker
- * admits each in `form_close_condition`. A `prop` read of the row becomes
- * `form-case` first (`formCaseRead`); every other kind reads something only
- * a case change has, such as the row's links or type, or the id of a case
- * another change makes.
- */
-const FORM_CLOSE_TERMS: ReadonlySet<string> = new Set([
-	"literal",
-	"choice",
-	"field",
-	"form-case",
-	"session-user",
-	"session-user-property",
-	"session-context",
-]);
-
-/** The expression kinds that combine the values they hold without reading a
- *  row of their own, which the form's close condition holds as the
- *  operation's did. */
-const FORM_CLOSE_EXPRESSIONS: ReadonlySet<string> = new Set([
-	...COMPARISON_KINDS,
-	"in",
-	"multi-select-contains",
-	"match-all",
-	"match-none",
-	"is-blank",
-	"between",
-	"and",
-	"or",
-	"not",
-	"term",
-	"today",
-	"now",
-	"date-add",
-	"date-coerce",
-	"datetime-coerce",
-	"double",
-	"arith",
-	"concat",
-	"coalesce",
-	"if",
-	"switch",
-	"format-date",
-	"negate",
-	"call",
-	"choice-name",
-	"value-list",
-]);
-
-/** Expression kinds that walk from the loaded case to the cases linked to
- *  it, or count rows of their own, which no form read states. */
-const RELATED_CASES: ReadonlySet<string> = new Set([
+/** Nodes whose reads are of rows of their own (an instance's, a table's,
+ *  or the cases a relation walks to), and reads of the form's answers
+ *  (whose filters read a repeat's rows): no read inside one is of the
+ *  operation's row, so the rewrite leaves them as they are and the checker
+ *  judges them in the form's slot. */
+const OWN_ROWS: ReadonlySet<string> = new Set([
+	"cases",
+	"table-rows",
+	"locations",
+	"selected-cases",
+	"project",
+	"table-lookup",
+	"count",
 	"exists",
 	"missing",
-	"count",
+	"field",
+	"form-node",
+	"repeat-row",
 ]);
 
 /**
@@ -292,10 +250,9 @@ function formCaseRead(ref: PropertyRef, loaded: LoadedCase): FormRead<Term> {
 }
 
 /** `value`, a close operation's condition or a part of it, with every read
- *  of its row written as the form's read; a structural copy. Only the term
- *  and expression kinds the form's close condition holds pass
- *  (`FORM_CLOSE_TERMS`, `FORM_CLOSE_EXPRESSIONS`); any other is refused
- *  here, naming what it reads, rather than left for the gate. */
+ *  of its row written as the form's read (`formCaseRead`); a structural
+ *  copy. Whether the form's close condition holds the result is the
+ *  checker's to say (`foldOwnCloses`). */
 function asFormCondition(
 	value: unknown,
 	loaded: LoadedCase,
@@ -310,18 +267,10 @@ function asFormCondition(
 		return { ok: true, value: items };
 	}
 	if (value === null || typeof value !== "object") return { ok: true, value };
-	if (isTerm(value)) {
-		if (value.kind === "prop") return formCaseRead(value, loaded);
-		return FORM_CLOSE_TERMS.has(value.kind)
-			? { ok: true, value }
-			: { ok: false, reason: "case-change-value" };
-	}
-	if (isExpression(value)) {
-		if (RELATED_CASES.has(value.kind))
-			return { ok: false, reason: "related-cases" };
-		if (!FORM_CLOSE_EXPRESSIONS.has(value.kind))
-			return { ok: false, reason: "case-change-value" };
-	}
+	const kind = (value as { readonly kind?: unknown }).kind;
+	if (kind === "prop") return formCaseRead(value as PropertyRef, loaded);
+	if (typeof kind === "string" && OWN_ROWS.has(kind))
+		return { ok: true, value };
 	const copy: Record<string, unknown> = {};
 	for (const [key, item] of Object.entries(value)) {
 		const read = asFormCondition(item, loaded);
@@ -337,16 +286,15 @@ function asFormCondition(
 
 const CLOSE_READ_SENTENCES: Record<CloseReadRefusal, string> = {
 	"other-case":
-		"a property of a case of another type, which the form's close condition can't name",
+		"reads a property of a case of another type, which the form's close condition can't name",
 	"linked-case":
-		"a property of a case linked to it other than through its parent links, which the form's close condition can't follow",
+		"reads a property of a case linked to it other than through its parent links, which the form's close condition can't follow",
 	"retyped-case":
-		"its case under the type a case change before it gives the case, which the form's close condition reads only as the menu's type",
-	"related-cases":
-		"the cases linked to it or rows it counts, which the form's close condition can't count or look through",
-	"case-change-value":
-		"a value only a case change has, such as the case's own links and type or the id of a case another change makes, which the form's close condition can't read",
+		"reads its case under the type a case change before it gives the case, which the form's close condition reads only as the menu's type",
 };
+
+const CLOSE_REMEDY =
+	"You can rewrite the condition so it reads only this form's answers, its case or a case above it through its parent links, or remove that case change and close the case from the form instead.";
 
 type FoldOutcome =
 	| { readonly kind: "none" }
@@ -362,7 +310,11 @@ type FoldOutcome =
 			readonly updates: number;
 	  };
 
-function foldOwnCloses(doc: BlueprintDoc, form: Form): FoldOutcome {
+function foldOwnCloses(
+	doc: BlueprintDoc,
+	form: Form,
+	lookups: LookupTypeIndex,
+): FoldOutcome {
 	if (form.type !== "followup" && form.type !== "close")
 		return { kind: "none" };
 	const operations = form.caseOperations ?? [];
@@ -387,6 +339,14 @@ function foldOwnCloses(doc: BlueprintDoc, form: Form): FoldOutcome {
 			entry.name,
 			entry.depth,
 		]),
+	);
+
+	/* The slot each term lands in: the form's close condition, the form
+	 * made a close form. */
+	const closeSlot = slotContext(
+		withForm(doc, { ...form, type: "close" } as Form),
+		{ entity: "form", uuid: form.uuid, slot: "form_close_condition" },
+		lookups,
 	);
 
 	/* Each operation's term: its condition and each condition it inherits
@@ -425,22 +385,38 @@ function foldOwnCloses(doc: BlueprintDoc, form: Form): FoldOutcome {
 			}
 			clauses.push(read.value as Expression);
 		}
+		const subject = `“${operation.id}” in “${form.name}” closes the case the form opened when its condition holds, and that condition`;
 		if (refused !== undefined) {
-			const reason = refused;
 			unreadable.push({
 				...place,
-				findingCode: reason,
-				message: `“${operation.id}” in “${form.name}” closes the case the form opened when its condition holds, and that condition reads ${CLOSE_READ_SENTENCES[reason]}. You can rewrite the condition so it reads only this form's answers, its case or a case above it through its parent links, or remove that case change and close the case from the form instead.`,
+				findingCode: refused,
+				message: `${subject} ${CLOSE_READ_SENTENCES[refused]}. ${CLOSE_REMEDY}`,
 			});
 			return undefined;
 		}
 		if (clauses.length === 0) return undefined;
-		return (
-			reduceAnd(clauses) ?? {
-				kind: "and",
-				clauses: clauses as [Expression, ...Expression[]],
-			}
-		);
+		const term: Expression = reduceAnd(clauses) ?? {
+			kind: "and",
+			clauses: clauses as [Expression, ...Expression[]],
+		};
+		/* The checker is the oracle: the term moves only where the form's
+		 * close condition admits it, as the gate checks that slot
+		 * (`rules/form.ts`), and otherwise the blocker says the checker's own
+		 * reason. */
+		const errors =
+			closeSlot === undefined
+				? []
+				: semanticCheckErrors(checkExpression(term, closeSlot));
+		const first = errors[0];
+		if (first !== undefined) {
+			unreadable.push({
+				...place,
+				findingCode: `check:${first.code}`,
+				message: `${subject} can't be the form's close condition: ${errors.map((error) => error.message).join("; ")} ${CLOSE_REMEDY}`,
+			});
+			return undefined;
+		}
+		return term;
 	});
 	if (unreadable.length > 0) return { kind: "unreadable", places: unreadable };
 
@@ -735,11 +711,13 @@ function duplicateOwnWrites(form: Form): {
 
 // ─── The step ─────────────────────────────────────────────────────────────
 
-/** Step `writes-into-operations` over the parsed document and the field
- *  writes the structure phase lifted. */
+/** Step `writes-into-operations` over the parsed document, the field
+ *  writes the structure phase lifted and the Project's data tables. */
 export function writesIntoOperations(
 	input: BlueprintDoc,
 	facts: Pick<LiftedFacts, "fieldWrites">,
+	/** The Project's data tables, which a moved close condition may read. */
+	lookups: LookupTypeIndex = new Map(),
 ): WritesIntoOperationsResult {
 	const order = formsInMenuOrder(input);
 
@@ -760,7 +738,7 @@ export function writesIntoOperations(
 	const unreadable: BlockerPlace[] = [];
 	const folds = new Map<Uuid, Extract<FoldOutcome, { kind: "folded" }>>();
 	for (const formUuid of order) {
-		const outcome = foldOwnCloses(linked, linked.forms[formUuid]);
+		const outcome = foldOwnCloses(linked, linked.forms[formUuid], lookups);
 		if (outcome.kind === "blocked") inRepeat.push(...outcome.places);
 		if (outcome.kind === "unreadable") unreadable.push(...outcome.places);
 		if (outcome.kind === "folded") folds.set(formUuid, outcome);

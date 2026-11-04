@@ -309,18 +309,47 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 		},
 	);
 
-	it("stops the app where the condition counts the cases linked to it", () => {
-		const result = writesIntoOperations(
-			leaving({
-				kind: "gt",
-				left: { kind: "count", via: { kind: "subcase", identifier: "parent" } },
-				right: { kind: "term", term: { kind: "literal", value: 0 } },
-			}),
-			fixture.facts,
-		);
-		expect(result.blockers.map((blocker) => blocker.findingCodes)).toEqual([
-			["related-cases"],
+	// The checker is the oracle for what the form's close condition holds:
+	// what it refuses is the blocker in its own words, and what it admits
+	// moves, whatever kind it is.
+	it("stops the app where the checker refuses the moved condition, in the checker's words", () => {
+		const before = leaving({
+			kind: "gt",
+			left: { kind: "count", via: { kind: "subcase", identifier: "parent" } },
+			right: { kind: "term", term: { kind: "literal", value: 0 } },
+		});
+		const result = writesIntoOperations(before, fixture.facts);
+		expect(result.blockers).toEqual([
+			{
+				code: "own-close-condition-reads-case",
+				count: 1,
+				findingCodes: ["check:arm-unavailable"],
+				places: [
+					expect.objectContaining({
+						findingCode: "check:arm-unavailable",
+						message: expect.stringMatching(
+							/^“leave_household” in “Leave” closes the case the form opened when its condition holds, and that condition can't be the form's close condition: .+ You can rewrite the condition/,
+						),
+					}),
+				],
+			},
 		]);
+		expect(result.doc).toBe(before);
+	});
+
+	it("moves a condition the form's close condition holds, whatever its kind", () => {
+		const answer: Expression = {
+			kind: "term",
+			term: { kind: "field", uuid: at("reason") },
+		};
+		const pattern: Expression = {
+			kind: "matches-pattern",
+			left: answer,
+			pattern: "^moved",
+		};
+		const result = writesIntoOperations(leaving(pattern), fixture.facts);
+		expect(result.blockers).toEqual([]);
+		expect(formOf(result.doc, at("leave")).closeCondition).toEqual(pattern);
 	});
 
 	/** The fixture with the Retire form's close following a conditional
@@ -383,8 +412,9 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 		).toEqual([["own-close-condition-reads-case", ["retyped-case"]]]);
 	});
 
-	// Only kinds the form's close condition holds pass; a read of the row's
-	// own link is the blocker, not a failure the gate finds later.
+	// A read of the row's own link, which only a case change has, is the
+	// checker's refusal and so the blocker, not a failure the gate finds
+	// later.
 	it("stops the app where the condition reads something only a case change has", () => {
 		const result = writesIntoOperations(
 			leaving({
@@ -399,7 +429,7 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 		);
 		expect(
 			result.blockers.map(({ code, findingCodes }) => [code, findingCodes]),
-		).toEqual([["own-close-condition-reads-case", ["case-change-value"]]]);
+		).toEqual([["own-close-condition-reads-case", ["check:row-scope"]]]);
 	});
 
 	// `reachableCaseTypes` stops at a type it met, so a case type that is its

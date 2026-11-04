@@ -15,6 +15,7 @@
  */
 
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type {
 	DeploymentNoticeEntry,
@@ -158,7 +159,11 @@ function semanticSteps(
 	readonly stopped: boolean;
 	readonly carriedCreates?: ReadonlySet<Uuid>;
 } {
-	const operations = writesIntoOperations(doc, facts);
+	const operations = writesIntoOperations(
+		doc,
+		facts,
+		lookupTypeIndex(ctx.lookupContext),
+	);
 	collect(into, operations);
 	if (operations.blockers.length > 0)
 		return { doc: operations.doc, stopped: true };

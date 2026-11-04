@@ -617,15 +617,15 @@ In this order, per form:
      vocabulary: a `prop` read of the row (no `via`, or `self`) becomes `{ kind: "form-case", caseType:
      <module's case type>, property }`, and one through parent links to the case at that many hops above
      it becomes `form-case` of that case's type, which `lib/commcare/xform/formCaseRead.ts` prints as the
-     same `index/parent` walk. Only the term and expression kinds the form's close condition holds pass
-     (`FORM_CLOSE_TERMS`: literals, the form's answers and choices, the form's reads of its case, the
-     worker and the session's values; `FORM_CLOSE_EXPRESSIONS`: the operators that read no row of their
-     own). A read of a case of another type (`other-case`), through another link (`linked-case`), of a case a
-     retype before the operation gave another type (`retyped-case`), of the cases linked below or rows of its
-     own (`count`, `exists`, `missing`: `related-cases`), or of anything only a case change has, such as the
-     row's links or type or another change's created id (`case-change-value`), is the blocker
-     `own-close-condition-reads-case`, whose remedy is to rewrite the condition over the form's answers, its
-     case and the cases above it, or to remove the operation and set the form's close condition;
+     same `index/parent` walk; reads inside a node with rows of its own (an instance, a table lookup, a
+     count, `exists` or `missing`) and the form's answers stay as they are. A read of a case of another type
+     (`other-case`), through another link (`linked-case`), or of a case a retype before the operation gave
+     another type (`retyped-case`) can't be written so. The checker then judges each term in the form's
+     `form_close_condition` slot as the gate does (`rules/form.ts`, `semanticCheckErrors`): a term it
+     admits moves, and one it refuses (finding code `check:<code>`) carries the checker's own sentence. Each
+     refusal is the blocker `own-close-condition-reads-case`, whose remedy is to rewrite the condition over
+     the form's answers, its case and the cases above it, or to remove the operation and set the form's
+     close condition;
    - the form's type becomes `close`, and its `closeCondition` becomes the `or` (`lib/domain/expression/
      reduction.ts::reduceOr`) of the close it already had (a close form's own: absent means every
      submission) and each such operation's term (absent means every submission); any absent term
@@ -1365,7 +1365,7 @@ and deleting it again.
 | `renamed-concept-conflict` | a module holds two no-matches forms, a document `main`'s gate never admitted | a data repair: remove one form's no-matches entry in today's builder |
 | `capture-write-unlinkable` | a stored operation saves a capture's bare answer as a case's name or external id, or to a property whose type holds no text, where the head's link to the file can't be saved (section 7.4, clause 0) | the author's: save the file to a property of its own in today's builder |
 | `own-close-in-repeat` | a follow-up's `close` operation on the form's own case runs once per repeat row | the author's: remove that operation and set the form's close condition (a close form) in today's builder |
-| `own-close-condition-reads-case` | a `close` operation on the form's own case, or a retype it follows, has a condition reading what the form's close condition can't: another type's case, one linked other than through parent links, its case under a type a retype gave it, the cases linked below it, or a value only a case change has (section 7.4) | the author's: rewrite the condition over the form's answers, its case and the cases above it, or remove the operation and set the form's close condition in today's builder |
+| `own-close-condition-reads-case` | a `close` operation on the form's own case, or a retype it follows, has a condition the form's close condition can't hold: one reading another type's case, one linked other than through parent links or its case under a type a retype gave it, or one the checker refuses in that slot, in the checker's words (section 7.4) | the author's: rewrite the condition over the form's answers, its case and the cases above it, or remove the operation and set the form's close condition in today's builder |
 | `baseline-unreadable` | a published deployment's stored baseline fails gunzip, its digest or its parse (section 8.1); production holds none today | a data repair: refresh that deployment, which reads CommCare HQ again (part 03's remedy); then the dry run repeats |
 | `structure-parse`, `transform-admission`, `placement-path-mismatch`, `target-parse`, `case-schema-unplanned`, `not-idempotent` | a defect of the stack | fixed in the pull request that owns the step, with the review rule of section 21.3 |
 | `target-gate`, `target-export-readiness` | the target fails the absolute gate or export readiness; the line carries the finding codes and `details.reason` | the author's where the finding is about the app (its message names the move; the rules below); a defect of the stack where a step should have changed it |
@@ -2198,9 +2198,10 @@ writer converging exactly the planned differences (G7).
 - **C9 reads its conditions as the form does, and keeps a retype's guard** (section 7.4; the advisory scan's
   close class). The form's close condition refuses a `prop` read through a relation (`typeChecker.ts::
   termAdmission`, `prop-relation`) and reads no row, so C9 writes each read of the operation's row, and of a
-  case above it through parent links, as `form-case`, passes only the term and expression kinds the form's
-  close condition holds, and makes the new blocker `own-close-condition-reads-case` of anything else,
-  naming what it reads, rather than leaving it to `target-gate`. A read of the row after a retype is refused
+  case above it through parent links, as `form-case`, and asks the head's checker whether the form's close
+  condition holds the result, as the gate asks of that slot: a term it admits moves, and one it refuses is
+  the new blocker `own-close-condition-reads-case` in the checker's own words, rather than a failure
+  `target-gate` finds. A read of the row after a retype is refused
   too: the operation reads it under the retyped type, whose properties the form's read under the module's
   type need not name. Each close's term also takes the condition of a
   conditional retype it followed (`caseOperationConditionalGuardUuids`), which `main`'s emission made its
