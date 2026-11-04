@@ -1158,7 +1158,9 @@ const USER_MESSAGE_BY_CODE: Record<
 						? " A form that fills a question from it would stop when it opens."
 						: e.details?.consequence === "holds-choices"
 							? " Each case keeps it as a list of choices, which can't hold that."
-							: "";
+							: e.details?.consequence === "wrong-kind"
+								? " Forms and case lists that read it would get the wrong kind of value."
+								: "";
 				return `${field} saves ${value} to ${property}, which holds ${valueKindPluralPhrase(wanted)}.${consequence} You can change ${source} to give ${wanted === undefined ? "the same kind" : valueKindPhrase(wanted)}, or save it somewhere else.`;
 			}
 		}

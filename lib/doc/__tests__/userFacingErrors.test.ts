@@ -878,6 +878,17 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
 			{
 				reason: "type",
+				property: "stage_note",
+				valueType: "date",
+				propertyType: "text",
+				consequence: "wrong-kind",
+			},
+			'"visit_check" saves a date to "stage_note", which holds text. Forms and case lists that read it would get the wrong kind of value. You can change its calculation to give text, or save it somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "type",
 				property: "visit_date",
 				valueType: "text",
 				valueTypes: "text,int",

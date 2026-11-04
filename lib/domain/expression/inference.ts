@@ -122,6 +122,9 @@ export interface HiddenOpinion {
 	readonly opinion: CasePropertyDataType | undefined;
 	/** Its typed outputs name more than one type. */
 	readonly outputsDisagree: boolean;
+	/** The type of its whole value, as the checker infers it in its slot:
+	 * undefined where nothing types it or its results don't agree on one. */
+	readonly wholeType: CasePropertyDataType | undefined;
 }
 
 /** Where a property's agreed type comes from. */
@@ -186,7 +189,8 @@ export interface ExpressionInference {
 /** Why a Hidden Value writer disagrees with the property it writes. */
 export type HiddenWriterFindingReason =
 	/** An output is not write-assignable to the property's type, one every
-	 * result must fit (`FITTED_PROPERTY_TYPES`). */
+	 * result must fit (`FITTED_PROPERTY_TYPES`); or, for any other type, the
+	 * whole value is not. */
 	| "type"
 	/** An output whose clock may be gone writes a date-and-time property. */
 	| "clock-lost"
@@ -354,10 +358,13 @@ export function inferenceFingerprint(doc: PersistableDoc): string {
 
 /**
  * Each Hidden Value writer that disagrees with the property it writes, with
- * the outputs that disagree. A result that does not fit is a finding only
- * where the property's type is one every result must fit
- * (`FITTED_PROPERTY_TYPES`). A property no fact types holds no finding
- * except a Hidden-only disagreement that names a type a question casts.
+ * the outputs that disagree. Where the property's type is one every result
+ * must fit (`FITTED_PROPERTY_TYPES`), each result that does not is a
+ * finding; for any other type the whole value is judged, as a case
+ * operation's write of it is (`ruleSets.ts::isWriteAssignable`), so a date
+ * saved to a text property is refused either way. A property no fact types
+ * holds no finding except a Hidden-only disagreement that names a type a
+ * question casts.
  */
 export function hiddenWriterVerdicts(
 	doc: PersistableDoc,
@@ -371,6 +378,12 @@ export function hiddenWriterVerdicts(
 		const findings: HiddenWriterFinding[] = [];
 		if (property.type !== undefined) {
 			const fitted = FITTED_PROPERTY_TYPES.has(property.type);
+			if (
+				!fitted &&
+				writer.wholeType !== undefined &&
+				!isWriteAssignable(writer.wholeType, property.type, false)
+			)
+				findings.push({ reason: "type", path: [], type: writer.wholeType });
 			for (const output of writer.outputs) {
 				if (
 					fitted &&
@@ -447,8 +460,9 @@ function hiddenOnlyDisagreement(
  * list of choices is kept by Nova's case store as a list
  * (`lib/case-store/postgres/submissionEnvelope.ts::
  * storageValueFromEvaluation`), which holds no other text. Text and a single
- * choice take whatever text a result gives, so a result of another kind
- * saved there reaches its readers as that text and stops nothing.
+ * choice take whatever text one result gives, so a branch of another kind
+ * stops nothing there: such a property judges the Hidden Value by its whole
+ * value instead, as an operation's write is judged.
  */
 const FITTED_PROPERTY_TYPES: ReadonlySet<CasePropertyDataType> = new Set([
 	...CASTING_PROPERTY_TYPES,
@@ -868,6 +882,7 @@ class Inference {
 				),
 				opinion: analysis?.opinion,
 				outputsDisagree: analysis?.outputsDisagree ?? false,
+				wholeType: analysis?.expressionType,
 			});
 		}
 		return {

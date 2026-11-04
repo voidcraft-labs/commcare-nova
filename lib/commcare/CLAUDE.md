@@ -413,14 +413,15 @@ ordering is why a `calculate` on a hidden writer beats its default.
 
 A Hidden Value that saves to a case property is a typed writer
 (`validator/rules/hiddenValueWriterAgreement.ts`, reading
-`lib/domain/expression/inference.ts::hiddenWriterVerdicts`): each value it can
-end with must be write-assignable to the property's agreed type
+`lib/domain/expression/inference.ts::hiddenWriterVerdicts`): its value must be
+write-assignable to the property's agreed type
 (`lib/domain/expression/ruleSets.ts::isWriteAssignable`: storage assignability,
-plus a `format-date` fixed to `%Y-%m-%d` into a date property) where that type
-is one a loading question casts, so text it can't read stops the form
-(`lib/domain/casePropertyTypes.ts::CASTING_PROPERTY_TYPES`: dates, times,
-numbers, locations), or several choices, which a case keeps as a list; a text
-or single choice property takes any value's text. A date and time whose clock
+plus a `format-date` fixed to `%Y-%m-%d` into a date property): every value it
+can end with where that type is one a loading question casts, so text it can't
+read stops the form (`lib/domain/casePropertyTypes.ts::CASTING_PROPERTY_TYPES`:
+dates, times, numbers, locations), or several choices, which a case keeps as a
+list; the whole value where it is text or a single choice, which take whatever
+text one branch gives, as a case operation's write is judged. A date and time whose clock
 may be gone cannot write a date-and-time property, and Hidden Values that alone
 type a property must agree (`int` with `decimal` on `decimal`, `text` with
 `single_select` on `text`) where one of them names a type a question casts. Each disagreeing writer is

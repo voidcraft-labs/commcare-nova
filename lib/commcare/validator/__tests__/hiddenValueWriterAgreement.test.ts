@@ -438,24 +438,35 @@ describe("one finding per writer, its consequence told by the property's type", 
 		);
 	});
 
-	// A text or single choice property takes whatever text a result gives,
-	// so only a property a question casts, or a list of choices, refuses a
-	// value of another kind.
+	// A property a question casts, or a list of choices, holds every value a
+	// Hidden Value can end with to its type. A text or single choice property
+	// takes whatever text one branch gives, so it judges the whole value, as
+	// a case operation's write of it is judged.
 	it.each([
-		{ calculate: "1 + 1", type: "single_select", refused: false },
-		{ calculate: "today()", type: "text", refused: false },
-		{ calculate: "#form/tags", type: "text", refused: false },
-		{ calculate: "1.5", type: "int", refused: true },
-		{ calculate: "'many'", type: "decimal", refused: true },
-		{ calculate: "'noon'", type: "time", refused: true },
-		{ calculate: "'here'", type: "geopoint", refused: true },
-		{ calculate: "'open'", type: "multi_select", refused: true },
+		{ calculate: "1 + 1", type: "single_select", refused: "wrong-kind" },
+		{ calculate: "today()", type: "text", refused: "wrong-kind" },
+		{ calculate: "#form/tags", type: "text", refused: "wrong-kind" },
+		{
+			calculate: "if(#form/flag = 'yes', 1, 'high')",
+			type: "text",
+			refused: undefined,
+		},
+		{
+			calculate: "if(#form/flag = 'yes', 1, 'high')",
+			type: "int",
+			refused: "stops-form",
+		},
+		{ calculate: "1.5", type: "int", refused: "stops-form" },
+		{ calculate: "'many'", type: "decimal", refused: "stops-form" },
+		{ calculate: "'noon'", type: "time", refused: "stops-form" },
+		{ calculate: "'here'", type: "geopoint", refused: "stops-form" },
+		{ calculate: "'open'", type: "multi_select", refused: "holds-choices" },
 	] satisfies {
 		calculate: string;
 		type: NonNullable<Properties[number]["data_type"]>;
-		refused: boolean;
+		refused: "wrong-kind" | "stops-form" | "holds-choices" | undefined;
 	}[])(
-		"judges $calculate saved to a $type property refused: $refused",
+		"judges $calculate saved to a $type property: $refused",
 		({ calculate, type, refused }) => {
 			const errors = validate(
 				doc({
@@ -475,23 +486,26 @@ describe("one finding per writer, its consequence told by the property's type", 
 				}),
 			);
 			expect(errors).toEqual(
-				refused
-					? [
+				refused === undefined
+					? []
+					: [
 							expect.objectContaining({
 								code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
 								details: expect.objectContaining({
 									reason: "type",
 									propertyType: type,
-									consequence:
-										type === "multi_select" ? "holds-choices" : "stops-form",
+									consequence: refused,
 								}),
 							}),
-						]
-					: [],
+						],
 			);
-			if (refused && type !== "multi_select")
+			if (refused === "stops-form")
 				expect(errors[0].message).toContain(
 					"would stop when it opens on a value that isn't",
+				);
+			if (refused === "wrong-kind")
+				expect(errors[0].message).toContain(
+					'Forms and case lists that read "kept" would get',
 				);
 		},
 	);

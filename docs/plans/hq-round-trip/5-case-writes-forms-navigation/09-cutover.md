@@ -2157,18 +2157,19 @@ writer converging exactly the planned differences (G7).
   (`lib/commcare/validator/rules/wholeNumberStart.ts`) refuses an integer question whose starting value
   types as a decimal, and the planners that write a starting value (`planFieldCaseWrite`, and C7's
   `planExplicitPreloads`) leave such a question blank (`lib/domain/wholeNumberStart.ts`).
-- **A Hidden Value's result of another kind is refused only where it would break a reader** (the advisory
+- **A Hidden Value's branches are held to the property only where one would break a reader** (the advisory
   scan's Hidden Value class). Decision 32 stands: a Hidden Value is the typed writer of the first property an
   operation saves its answer to, so a calculation `main` admitted beside an operation, giving several choices
-  into a text property or text and several choices from different results, met
-  `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the head. `inference.ts::hiddenWriterVerdicts` now refuses a result
-  that does not fit only where the property is a type a loading question casts
+  and a blank from different branches into a text property, or text and several choices into an untyped
+  one, met `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the head. `inference.ts::hiddenWriterVerdicts` now holds
+  every branch to the property only where it is a type a loading question casts
   (`casePropertyTypes.ts::CASTING_PROPERTY_TYPES`, moved from the rule: a date, time, number or location,
   whose text a question can't read stops the form) or several choices, which Nova's case store keeps as a
-  list and can't hold other text in; and a Hidden-only disagreement only where it names a type a question
-  casts. A text or single choice property takes any result's text. Several choices stay refused although
-  no question stops on them, because Nova's own submission path refuses a value that is not a list there
-  (`submissionEnvelope.ts::storageValueFromEvaluation`), as `main`'s operation check did.
+  list and can't hold other text in. A text or single choice property takes whatever text one branch gives,
+  so it judges the Hidden Value by its whole inferred value through `isWriteAssignable`, as `main` judged
+  the operation that saved it and as an operation's own write still is: a date saved to a text property
+  stays refused, and a calculation whose branches agree on no one type is admitted. A Hidden-only
+  disagreement is refused only where it names a type a question casts.
 - **Step `blank-comparisons` is added** (section 7.12, step 14; placements, the judgement and the
   deployment lines become 15 to 17). Decision 32 types a Hidden Value saved to a number, date, time or
   location property as that type, so a case operation condition comparing it with `''`, which `main` admitted

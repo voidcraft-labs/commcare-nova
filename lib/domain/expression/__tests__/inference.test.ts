@@ -420,10 +420,7 @@ describe("writer opinions beside a case operation's write", () => {
 				?.get("stage"),
 		).toEqual(new Set(["single_select"]));
 		expect(validate(agreeing)).toEqual([]);
-		// A date saved to the choice property is read back as its text, which
-		// a choice takes, so neither the Hidden Value nor the operation beside
-		// it is refused, and the date adds no opinion of its own.
-		const dated = withFollowUpWrites(
+		const disagreeing = withFollowUpWrites(
 			doc({
 				register: [status],
 				properties,
@@ -431,11 +428,10 @@ describe("writer opinions beside a case operation's write", () => {
 			}),
 			[{ property: "stage", value: literalValue("open") }],
 		);
-		expect(
-			inferExpressionTypes(dated).writerOpinions.get("patient")?.get("stage"),
-		).toEqual(new Set(["single_select"]));
-		expect(conflicts(dated)).toEqual([]);
-		expect(mismatches(dated)).toEqual([]);
+		// The Hidden Value that does not fit is its own finding; the operation
+		// beside it writes a fitting value and stays admitted.
+		expect(conflicts(disagreeing)).toEqual([]);
+		expect(mismatches(disagreeing)).toEqual([uuid("closing")]);
 	});
 
 	it("counts a Hidden Value's integer that a decimal property stores as decimal", () => {

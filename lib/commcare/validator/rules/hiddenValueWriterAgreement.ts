@@ -1,7 +1,6 @@
 /**
  * Rule: a Hidden Value that saves to a case property is a typed writer, held
- * to the property's type as a case operation's write is, where a value of
- * another kind would break what reads the property.
+ * to the property's type as a case operation's write is.
  *
  * The property's type is its declared type, else the one type its visible
  * questions and case operations agree on, else the one type its Hidden Value
@@ -11,18 +10,19 @@
  * writer is one finding, whose `details.paths` lists every offending output
  * and whose reason is the most serious of three:
  *
- * - `type`: some value the Hidden Value can end with (a branch of `if`,
- *   `switch` or `coalesce`, or the whole expression) is not
- *   write-assignable to the property (`ruleSets.ts::isWriteAssignable`:
- *   storage assignability, plus a `format-date` fixed to `%Y-%m-%d` into a
- *   date, which `DateData.cast` reads back), and the property is one that
- *   value would break. A follow-up question that fills itself from a date,
- *   time, number or location property casts the saved text through its own
- *   answer class at form open, and text the class can't read stops the form
- *   (`CASTING_PROPERTY_TYPES`). A property of several choices is kept on each
- *   case as a list of them, which holds no other value. A text or single
- *   choice property takes any text, so a value of another kind saved there
- *   is read back as its text: the Hidden Value meets no finding for it.
+ * - `type`: the value is not write-assignable to the property
+ *   (`ruleSets.ts::isWriteAssignable`: storage assignability, plus a
+ *   `format-date` fixed to `%Y-%m-%d` into a date, which `DateData.cast`
+ *   reads back). A follow-up question that fills itself from a date, time,
+ *   number or location property casts the saved text through its own answer
+ *   class at form open, and text the class can't read stops the form
+ *   (`CASTING_PROPERTY_TYPES`); a property of several choices is kept on each
+ *   case as a list of them, which holds no other value. So for those types
+ *   every value the Hidden Value can end with (a branch of `if`, `switch` or
+ *   `coalesce`, or the whole expression) must fit. A text or single choice
+ *   property takes whatever text one branch gives, so it judges the whole
+ *   value, as a case operation's write of it is judged, and its readers
+ *   would otherwise get the wrong kind of value.
  * - `clock-lost`: the value is a date and time whose clock an earlier Hidden
  *   Value dropped, saved to a date-and-time property, so the case would hold
  *   midnight instead of the moment.
@@ -124,9 +124,12 @@ function writerError(
 	const gives = valueKindsPhrase(valueTypes);
 	const stopsForm =
 		property.type !== undefined && CASTING_PROPERTY_TYPES.has(property.type);
+	const holdsChoices = property.type === "multi_select";
 	const consequence = stopsForm
 		? `A form that fills a question from "${writer.property}" would stop when it opens on a value that isn't ${holds}.`
-		: `Each case keeps "${writer.property}" as a list of choices, which can't hold ${gives}.`;
+		: holdsChoices
+			? `Each case keeps "${writer.property}" as a list of choices, which can't hold ${gives}.`
+			: `Forms and case lists that read "${writer.property}" would get ${gives} where they expect ${holds}.`;
 	const change =
 		writer.source === "default_value" ? "starting value" : "calculation";
 	const message =
@@ -161,7 +164,13 @@ function writerError(
 			paths: JSON.stringify(paths),
 			...(reason === "hidden-disagreement" ? { disagreement } : {}),
 			...(reason === "type"
-				? { consequence: stopsForm ? "stops-form" : "holds-choices" }
+				? {
+						consequence: stopsForm
+							? "stops-form"
+							: holdsChoices
+								? "holds-choices"
+								: "wrong-kind",
+					}
 				: {}),
 			...(reason === "hidden-disagreement" && writer.opinion !== undefined
 				? { valueType: writer.opinion }
