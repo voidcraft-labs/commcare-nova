@@ -617,12 +617,17 @@ In this order, per form:
      vocabulary: a `prop` read of the row (no `via`, or `self`) becomes `{ kind: "form-case", caseType:
      <module's case type>, property }`, and one through parent links to the case at that many hops above
      it becomes `form-case` of that case's type, which `lib/commcare/xform/formCaseRead.ts` prints as the
-     same `index/parent` walk; reads inside a node with rows of its own (an instance, a table lookup, a
-     count, `exists` or `missing`) and the form's answers stay as they are. A read of a case of another type
-     (`other-case`), through another link (`linked-case`), or of a case a retype before the operation gave
-     another type (`retyped-case`) can't be written so. The checker then judges each term in the form's
-     `form_close_condition` slot as the gate does (`rules/form.ts`, `semanticCheckErrors`): a term it
-     admits moves, and one it refuses (finding code `check:<code>`) carries the checker's own sentence. Each
+     same `index/parent` walk. The rewrite follows the checker's row scopes (`expressionChildContext`): a
+     table lookup's filter captures the row it is made in, so its reads of the case are rewritten too, and a
+     form node's filters keep the row; a query's rows (cases, table rows, locations, selected cases), a
+     projection's value and a relation walk (a `count`, `exists` or `missing` over a relation, whose
+     `where` reads the cases it reaches) stay as they are, and so do the form's answers. A read of a case
+     of another type (`other-case`), through another link (`linked-case`), or of a case a retype before
+     the operation gave another type (`retyped-case`, which any read of that row is, its index links and
+     relation walks included) can't be written so. The checker then judges each term in the form's
+     `form_close_condition` slot as the gate does (`rules/form.ts`, `semanticCheckErrors`; a form with no
+     such slot throws, since every form in a module has one): a term it admits moves, and one it refuses
+     (finding code `check:<code>`) carries the checker's own sentences. Each
      refusal is the blocker `own-close-condition-reads-case`, whose remedy is to rewrite the condition over
      the form's answers, its case and the cases above it, or to remove the operation and set the form's
      close condition;

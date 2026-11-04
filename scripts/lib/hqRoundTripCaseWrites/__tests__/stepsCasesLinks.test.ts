@@ -21,7 +21,12 @@ import {
 	type Form,
 	type Uuid,
 } from "@/lib/domain";
+import type { LookupTypeIndex } from "@/lib/domain/expression/context";
 import type { PropertyRef } from "@/lib/domain/expression/types";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { asUuid } from "@/lib/domain/uuid";
 import {
@@ -328,7 +333,7 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 					expect.objectContaining({
 						findingCode: "check:arm-unavailable",
 						message: expect.stringMatching(
-							/^“leave_household” in “Leave” closes the case the form opened when its condition holds, and that condition can't be the form's close condition: .+ You can rewrite the condition/,
+							/^“leave_household” in “Leave” closes the case the form opened when its condition holds, and that condition can't be the form's close condition\. [^;]+\. You can rewrite the condition/,
 						),
 					}),
 				],
@@ -350,6 +355,53 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 		const result = writesIntoOperations(leaving(pattern), fixture.facts);
 		expect(result.blockers).toEqual([]);
 		expect(formOf(result.doc, at("leave")).closeCondition).toEqual(pattern);
+	});
+
+	const TABLE = lookupTableIdSchema.parse(
+		"00000000-0000-7000-8000-000000000001",
+	);
+	const KEY = lookupColumnIdSchema.parse(
+		"00000000-0000-7000-8000-000000000002",
+	);
+	const LABEL = lookupColumnIdSchema.parse(
+		"00000000-0000-7000-8000-000000000003",
+	);
+	const lookups: LookupTypeIndex = new Map([
+		[
+			TABLE,
+			new Map([
+				[KEY, "text"],
+				[LABEL, "text"],
+			]),
+		],
+	]);
+	/** The label of the table row whose key is `key`. */
+	const labelOf = (key: Expression): Expression => ({
+		kind: "table-lookup",
+		tableId: TABLE,
+		resultColumnId: LABEL,
+		where: {
+			kind: "eq",
+			left: {
+				kind: "term",
+				term: { kind: "table-column", tableId: TABLE, columnId: KEY },
+			},
+			right: key,
+		},
+	});
+
+	// A table lookup's filter captures the row it is made in, so a read of
+	// the case there is the operation's row, and becomes the form's read.
+	it("reads the case inside a table lookup's filter as the form does", () => {
+		const result = writesIntoOperations(
+			leaving(equals(labelOf(prop("note")), "moved")),
+			fixture.facts,
+			lookups,
+		);
+		expect(result.blockers).toEqual([]);
+		expect(formOf(result.doc, at("leave")).closeCondition).toEqual(
+			equals(labelOf(formCase("member", "note")), "moved"),
+		);
 	});
 
 	/** The fixture with the Retire form's close following a conditional
@@ -411,6 +463,53 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 			result.blockers.map(({ code, findingCodes }) => [code, findingCodes]),
 		).toEqual([["own-close-condition-reads-case", ["retyped-case"]]]);
 	});
+
+	// Every read of the row, a walk from it to its related cases included,
+	// reads it under the type the retype gave it.
+	it.each<[string, Expression]>([
+		[
+			"a count of its child cases",
+			{
+				kind: "gt",
+				left: { kind: "count", via: { kind: "subcase", identifier: "parent" } },
+				right: { kind: "term", term: { kind: "literal", value: 0 } },
+			},
+		],
+		[
+			"a parent it has",
+			{
+				kind: "exists",
+				via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+			},
+		],
+		[
+			"its own link",
+			{
+				kind: "eq",
+				left: {
+					kind: "term",
+					term: { kind: "case-index", identifier: "parent" },
+				},
+				right: { kind: "term", term: { kind: "literal", value: "" } },
+			},
+		],
+		[
+			"a table lookup's filter",
+			equals(labelOf(prop("note", undefined, "alumnus")), "retired"),
+		],
+	])(
+		"stops the app where a close after a retype reads its case through %s",
+		(_what, condition) => {
+			const result = writesIntoOperations(
+				retyped(condition, graduated),
+				fixture.facts,
+				lookups,
+			);
+			expect(
+				result.blockers.map(({ code, findingCodes }) => [code, findingCodes]),
+			).toEqual([["own-close-condition-reads-case", ["retyped-case"]]]);
+		},
+	);
 
 	// A read of the row's own link, which only a case change has, is the
 	// checker's refusal and so the blocker, not a failure the gate finds

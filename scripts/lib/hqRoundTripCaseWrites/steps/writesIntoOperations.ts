@@ -81,6 +81,7 @@ import { resolveRelationDestination } from "@/lib/domain/expression/relationDest
 import { isWriteAssignable } from "@/lib/domain/expression/ruleSets";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import {
+	isRelationPath,
 	isTerm,
 	type PropertyRef,
 	type Term,
@@ -183,25 +184,25 @@ interface LoadedCase {
 	readonly depths: ReadonlyMap<string, number>;
 }
 
-/** Nodes whose reads are of rows of their own (an instance's, a table's,
- *  or the cases a relation walks to), and reads of the form's answers
- *  (whose filters read a repeat's rows): no read inside one is of the
- *  operation's row, so the rewrite leaves them as they are and the checker
- *  judges them in the form's slot. */
-const OWN_ROWS: ReadonlySet<string> = new Set([
+/** Where a part of the condition stands: in the operation's row, or in the
+ *  `where` of a table lookup made there, whose table row captures the
+ *  operation's row, so its case reads are still the row's. */
+type RowPlace = "row" | "captured";
+
+/** Nodes whose children read rows of their own (a query's, the locations',
+ *  the selected cases'): no read inside one is of the operation's row, so
+ *  the rewrite leaves them as they are and the checker judges them in the
+ *  form's slot. */
+const OTHER_ROWS: ReadonlySet<string> = new Set([
 	"cases",
 	"table-rows",
 	"locations",
 	"selected-cases",
-	"project",
-	"table-lookup",
-	"count",
-	"exists",
-	"missing",
-	"field",
-	"form-node",
-	"repeat-row",
 ]);
+
+/** Terms besides a property read that read the row itself: its type and
+ *  its index links. */
+const ROW_TERMS: ReadonlySet<string> = new Set(["case-row-type", "case-index"]);
 
 /**
  * One read of a property of the operation's row as the form's read of the
@@ -249,31 +250,64 @@ function formCaseRead(ref: PropertyRef, loaded: LoadedCase): FormRead<Term> {
 	};
 }
 
-/** `value`, a close operation's condition or a part of it, with every read
- *  of its row written as the form's read (`formCaseRead`); a structural
- *  copy. Whether the form's close condition holds the result is the
- *  checker's to say (`foldOwnCloses`). */
+/**
+ * `value`, a close operation's condition or a part of it, with every read
+ * of its row written as the form's read (`formCaseRead`); a structural
+ * copy. It follows the checker's row scopes (`expressionChildContext`): a
+ * table lookup's `where` captures the row it is made in, a projection's
+ * value and a relation walk's `where` read the rows they reach, and a form
+ * node's filters keep the row. A row a retype gave another type is read
+ * under that type, so any read of it, a walk to its related cases
+ * included, is refused. Whether the form's close condition holds the
+ * result is the checker's to say (`foldOwnCloses`).
+ */
 function asFormCondition(
 	value: unknown,
 	loaded: LoadedCase,
+	place: RowPlace = "row",
 ): FormRead<unknown> {
 	if (Array.isArray(value)) {
 		const items: unknown[] = [];
 		for (const item of value) {
-			const read = asFormCondition(item, loaded);
+			const read = asFormCondition(item, loaded, place);
 			if (!read.ok) return read;
 			items.push(read.value);
 		}
 		return { ok: true, value: items };
 	}
 	if (value === null || typeof value !== "object") return { ok: true, value };
-	const kind = (value as { readonly kind?: unknown }).kind;
+	const node = value as { readonly kind?: unknown } & Record<string, unknown>;
+	const retyped = loaded.rowType !== loaded.caseType;
+	const kind = node.kind;
 	if (kind === "prop") return formCaseRead(value as PropertyRef, loaded);
-	if (typeof kind === "string" && OWN_ROWS.has(kind))
+	if (typeof kind === "string" && ROW_TERMS.has(kind))
+		return retyped
+			? { ok: false, reason: "retyped-case" }
+			: { ok: true, value };
+	if (typeof kind === "string" && OTHER_ROWS.has(kind))
 		return { ok: true, value };
+	if (kind === "project") {
+		const of = asFormCondition(node.of, loaded, place);
+		return of.ok ? { ok: true, value: { ...node, of: of.value } } : of;
+	}
+	if (kind === "table-lookup") {
+		// A lookup made inside another one's `where` captures no case.
+		if (place === "captured") return { ok: true, value };
+		const where = asFormCondition(node.where, loaded, "captured");
+		return where.ok
+			? { ok: true, value: { ...node, where: where.value } }
+			: where;
+	}
+	if (
+		(kind === "count" || kind === "exists" || kind === "missing") &&
+		isRelationPath(node.via)
+	)
+		return retyped
+			? { ok: false, reason: "retyped-case" }
+			: { ok: true, value };
 	const copy: Record<string, unknown> = {};
-	for (const [key, item] of Object.entries(value)) {
-		const read = asFormCondition(item, loaded);
+	for (const [key, item] of Object.entries(node)) {
+		const read = asFormCondition(item, loaded, place);
 		if (!read.ok) return read;
 		// A property a match names is a read itself, so it becomes a term.
 		copy[key] =
@@ -403,16 +437,18 @@ function foldOwnCloses(
 		 * close condition admits it, as the gate checks that slot
 		 * (`rules/form.ts`), and otherwise the blocker says the checker's own
 		 * reason. */
-		const errors =
-			closeSlot === undefined
-				? []
-				: semanticCheckErrors(checkExpression(term, closeSlot));
+		if (closeSlot === undefined)
+			throw new Error(
+				"The case-writes cutover was moving the closes of a form's own case into its close condition and found no close condition to check them in. Every form in a module has one once it is a close form, so look at what `slotContext` read of the form.",
+			);
+		const errors = semanticCheckErrors(checkExpression(term, closeSlot));
 		const first = errors[0];
 		if (first !== undefined) {
+			// Each of the checker's messages is its own sentence.
 			unreadable.push({
 				...place,
 				findingCode: `check:${first.code}`,
-				message: `${subject} can't be the form's close condition: ${errors.map((error) => error.message).join("; ")} ${CLOSE_REMEDY}`,
+				message: `${subject} can't be the form's close condition. ${errors.map((error) => error.message).join(" ")} ${CLOSE_REMEDY}`,
 			});
 			return undefined;
 		}
