@@ -83,6 +83,7 @@
 	const now = advancing
 		? () => epoch + Math.floor(performance.now() - origin)
 		: () => epoch;
+	// biome-ignore lint/correctness/noComponentHookFactories: This is not a React component.
 	function FixedDate(...args) {
 		if (!new.target) return new NativeDate(now()).toString();
 		return Reflect.construct(

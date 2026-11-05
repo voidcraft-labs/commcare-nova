@@ -226,6 +226,13 @@ export class ModelResponse {
 		});
 	}
 
+	interrupt(): void {
+		if (this.ended) return;
+		this.endText();
+		this.ended = true;
+		this.socket?.end();
+	}
+
 	finish(): void {
 		if (this.ended) return;
 		this.endText();

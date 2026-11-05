@@ -2454,3 +2454,39 @@ describe("barrier persistence", () => {
 		).toBe("Built it.");
 	}, 30_000);
 });
+
+describe("provider stream interruption", () => {
+	it("persists partial text but fails the edit when the provider omits completion", async () => {
+		await seedFeedEditApp();
+		const model = peer.response();
+		model.text("I started updating the app.");
+		model.interrupt();
+		const response = await post(editTurnRequest());
+		expect(response.status).toBe(200);
+		const streamId = response.headers.get("x-workflow-run-id");
+		if (!streamId) throw new Error("Missing run stream");
+		const wire = await responseText(response);
+		expect(wire).toContain("I started updating the app.");
+		const rows = await pollFor(async () => {
+			const rows = await chunkRows(streamId);
+			return rows.some((row) => row.terminal) ? rows : undefined;
+		});
+		expect(rows.filter((row) => row.terminal)).toHaveLength(1);
+		expect(rows.find((row) => row.terminal)?.terminal_outcome).toBe("failed");
+		expect(
+			rows.flatMap((row) => row.chunks as UIMessageChunk[]),
+		).not.toContainEqual(
+			expect.objectContaining({
+				type: "data-done",
+				data: expect.objectContaining({ success: true }),
+			}),
+		);
+		const app = await appDb
+			.selectFrom("apps")
+			.select(["status", "lock_run_id"])
+			.where("id", "=", FEED_APP)
+			.executeTakeFirstOrThrow();
+		expect(app.status).toBe("complete");
+		expect(app.lock_run_id).toBeNull();
+	});
+});

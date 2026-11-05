@@ -200,7 +200,7 @@ const OPEN_COMMIT_MS = 60;
 /** Snapshot progress quantization steps (re-renders per arming, at most). */
 const PROGRESS_STEPS = 24;
 
-const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
+const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 
 const smoothstep = (edge0: number, edge1: number, x: number): number => {
 	const f = clamp01((x - edge0) / (edge1 - edge0));

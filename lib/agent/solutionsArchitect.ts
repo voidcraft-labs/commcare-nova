@@ -268,6 +268,7 @@ export function createSolutionsArchitect(
 			ctx.handleAgentStep(
 				{
 					usage: step.usage,
+					finishReason: step.finishReason,
 					text: step.text,
 					reasoningText: step.reasoningText,
 					toolCalls: step.toolCalls?.map((tc) => ({

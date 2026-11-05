@@ -401,7 +401,7 @@ export async function streamObjectWith<T>(opts: {
 			},
 		);
 		return {
-			object,
+			object: finishReason === "interrupted" ? null : object,
 			usage,
 			warnings,
 			finishReason,

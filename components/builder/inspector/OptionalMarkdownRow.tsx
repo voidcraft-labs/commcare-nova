@@ -143,6 +143,7 @@ export function OptionalMarkdownRow({
 						},
 						/* Revert, then blur: the blur commit compares against the
 						 * restored value and no-ops, so Escape is a pure cancel. */
+						// biome-ignore lint/correctness/noComponentHookFactories: TipTap keyboard handler, not a React component.
 						Escape: ({ editor }) => {
 							editor.commands.setContent(valueRef.current ?? "");
 							editor.commands.blur();

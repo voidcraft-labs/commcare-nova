@@ -147,7 +147,7 @@ export function CaseOperationInspectorBody({
 		: undefined;
 
 	const precedingOperations = useMemo(
-		() => operations.slice(0, index < 0 ? 0 : index),
+		() => operations.slice(0, Math.max(index, 0)),
 		[operations, index],
 	);
 	const priorCreates = useMemo(() => {

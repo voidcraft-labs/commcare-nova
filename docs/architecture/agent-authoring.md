@@ -410,3 +410,10 @@ Durable build and peer histories retain reasoning and discard incompatible
 compaction checkpoints. This is local compatibility policy, not a claim that the
 provider rejects all reasoning across models. No model upgrade alone establishes
 first-delivery quality; the active evaluation plan records that evidence.
+
+
+A provider stream that ends without its completion signal is `interrupted`.
+Partial text remains visible, but the edit run fails through ordinary settlement;
+it cannot claim a completed edit. Durable architect/peer steps refuse that
+response before saving it as a completed step or dispatching its tool calls.
+Structured extraction and translation refuse even schema-valid partial JSON.

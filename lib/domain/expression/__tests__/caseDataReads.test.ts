@@ -74,7 +74,7 @@ describe("expressionReadsCaseData", () => {
 	});
 });
 
-describe("expressionReadsCaseData", () => {
+describe("expressionReadsCaseData in value expressions", () => {
 	it("requires a case for owner-location reads in predicate and expression roots", () => {
 		const read = term(ownerLocationAtLevel(testUuid("district"), "patient"));
 		expect(expressionReadsCaseData(read)).toBe(true);
@@ -179,7 +179,7 @@ describe("expressionReadsRelatedCaseData", () => {
 	});
 });
 
-describe("expressionReadsRelatedCaseData", () => {
+describe("expressionReadsRelatedCaseData through relationship paths", () => {
 	const parent = ancestorPath(relationStep("parent", "household"));
 
 	it("keeps self presence local", () => {

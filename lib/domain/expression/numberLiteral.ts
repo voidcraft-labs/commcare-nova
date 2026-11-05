@@ -16,7 +16,8 @@ export function numericAnswerText(value: number): string {
 	const integral =
 		truncated < LONG_MIN
 			? LONG_MIN
-			: truncated > LONG_MAX
+			: // biome-ignore lint/complexity/useMathMinMax: Math.min rejects bigint operands.
+				truncated > LONG_MAX
 				? LONG_MAX
 				: truncated;
 	return Math.abs(value - Number(integral)) < 1e-9

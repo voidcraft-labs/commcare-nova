@@ -3429,6 +3429,12 @@ export async function POST(req: Request) {
 								continue;
 							}
 							if (chunk.type === "finish") {
+								if (chunk.finishReason === "interrupted") {
+									sawFatalError = true;
+									pendingError = new Error(
+										"The model response ended before completion (interrupted).",
+									);
+								}
 								heldFinish = chunk;
 								continue;
 							}

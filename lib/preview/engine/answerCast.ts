@@ -101,7 +101,8 @@ function javaLong(value: number): bigint {
 	const truncated = BigInt(Math.trunc(value));
 	return truncated < LONG_MIN
 		? LONG_MIN
-		: truncated > LONG_MAX
+		: // biome-ignore lint/complexity/useMathMinMax: Math.min rejects bigint operands.
+			truncated > LONG_MAX
 			? LONG_MAX
 			: truncated;
 }
@@ -109,8 +110,7 @@ function javaLong(value: number): bigint {
 /** Java's `(int) d` for a non-NaN double: truncation, saturating. */
 function javaInt(value: number): number {
 	const truncated = Math.trunc(value);
-	const saturated =
-		truncated < INT_MIN ? INT_MIN : truncated > INT_MAX ? INT_MAX : truncated;
+	const saturated = Math.max(INT_MIN, Math.min(INT_MAX, truncated));
 	return saturated === 0 ? 0 : saturated;
 }
 
