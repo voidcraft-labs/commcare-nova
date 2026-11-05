@@ -532,6 +532,7 @@ function InlineTextEditorSurface({
 				priority: 100,
 				addKeyboardShortcuts() {
 					return {
+						// biome-ignore lint/correctness/noComponentHookFactories: TipTap keyboard handler, not a React component.
 						Tab: ({ editor }) => {
 							const next = adjacentEditable(editor.view.dom, "next");
 							if (saveRef.current(editor)) next?.click();
@@ -546,6 +547,7 @@ function InlineTextEditorSurface({
 							if (saveRef.current(editor)) editor.commands.blur();
 							return true;
 						},
+						// biome-ignore lint/correctness/noComponentHookFactories: TipTap keyboard handler, not a React component.
 						Escape: ({ editor }) => {
 							if (dismissProseSuggestion(editor)) return true;
 							cancelRef.current();

@@ -168,6 +168,7 @@ export function RefLabelInput({
 						},
 						...(!multiline
 							? {
+									// biome-ignore lint/correctness/noComponentHookFactories: This is not a React component.
 									Enter: () => {
 										commitRef.current();
 										return true;

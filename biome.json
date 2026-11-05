@@ -87,8 +87,8 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/doc/store": "Import from @/lib/doc/hooks/ \u2014 the store is a private module.",
-									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks \u2014 the store is a private module.",
+									"@/lib/doc/store": "Import from @/lib/doc/hooks/ — the store is a private module.",
+									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks — the store is a private module.",
 									"@/lib/doc/hooks/useBlueprintDoc": {
 										"message": "Pass-through selector hooks are lib-private. Use a named hook from @/lib/doc/hooks/*; useBlueprintDocApi stays allowed for imperative, non-subscribing access.",
 										"importNames": [
@@ -257,8 +257,8 @@
 											"OpenAIToolOptions"
 										]
 									},
-									"@/lib/doc/store": "Import from @/lib/doc/hooks/ \u2014 the store is a private module.",
-									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks \u2014 the store is a private module.",
+									"@/lib/doc/store": "Import from @/lib/doc/hooks/ — the store is a private module.",
+									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks — the store is a private module.",
 									"@/lib/doc/hooks/useBlueprintDoc": {
 										"message": "Pass-through selector hooks are lib-private. Use a named hook from @/lib/doc/hooks/*; useBlueprintDocApi stays allowed for imperative, non-subscribing access.",
 										"importNames": [
@@ -310,6 +310,26 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": ["e2e/**"],
+			"linter": {
+				"rules": {
+					"performance": {
+						"useDomNodeTextContent": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["**/__tests__/**"],
+			"linter": {
+				"rules": {
+					"correctness": {
+						"noComponentHookFactories": "off"
+					}
+				}
+			}
 		}
 	],
 	"linter": {
@@ -321,7 +341,20 @@
 			"preset": "recommended",
 			"style": {
 				"noDescendingSpecificity": "off"
+			},
+			"correctness": {
+				"usePlaywrightValidDescribeCallback": "off"
 			}
+		}
+	},
+	"markdown": {
+		"formatter": {
+			"enabled": false
+		}
+	},
+	"yaml": {
+		"formatter": {
+			"enabled": false
 		}
 	}
 }

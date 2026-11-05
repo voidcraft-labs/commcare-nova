@@ -148,7 +148,8 @@ export function productionModelStep(
 		if (
 			finishReason === "length" ||
 			finishReason === "content-filter" ||
-			finishReason === "error"
+			finishReason === "error" ||
+			finishReason === "interrupted"
 		) {
 			throw new AgentModelStepError(
 				new Error(

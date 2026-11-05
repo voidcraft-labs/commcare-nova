@@ -137,6 +137,7 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 				"stop",
 				"length",
 				"content-filter",
+				"interrupted",
 				"tool-calls",
 				"error",
 				"other",

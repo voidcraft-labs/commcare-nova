@@ -71,7 +71,7 @@ describe("substituteUnansweredSearchInputs", () => {
 	});
 });
 
-describe("substituteUnansweredSearchInputs", () => {
+describe("substituteUnansweredSearchInputs in value expressions", () => {
 	it("returns the same reference when no Search input is reachable", () => {
 		const expression = concat(
 			term(sessionUser("excluded_owner_ids")),

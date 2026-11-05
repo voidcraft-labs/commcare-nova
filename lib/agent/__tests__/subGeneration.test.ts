@@ -424,3 +424,20 @@ it.each([
 		);
 	},
 );
+
+it("refuses valid JSON when the provider stream ends without completion", async () => {
+	await withResponsesPeer(
+		(_request, response) =>
+			respondWithObject(response, '{"answer":"yes"}', { interrupted: true }),
+		async (provider) => {
+			const result = await streamObjectWith({
+				model: provider(MODEL),
+				schema,
+				system: "s",
+				prompt: "p",
+			});
+			expect(result.object).toBeNull();
+			expect(result.finishReason).toBe("interrupted");
+		},
+	);
+});

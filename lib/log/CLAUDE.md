@@ -47,7 +47,8 @@ read back via `readRunSummary` (which delegates to
 `lib/db/runSummary.ts::loadRunSummary`) — never on the event stream. The
 one usage shape events DO carry is the `step-usage` conversation
 annotation (`GenerationContext.handleAgentStep`, one per agent step):
-per-step input / cached-input / output tokens, because "which step
+per-step input / cached-input / output tokens, including the SDK
+`interrupted` finish reason for streams without a completion signal, because "which step
 re-billed uncached input" is a per-step question the run summary's
 aggregates cannot answer. Steps with tools also carry their opaque tool-call
 ids, which correlate private payload-free outcome annotations without exposing

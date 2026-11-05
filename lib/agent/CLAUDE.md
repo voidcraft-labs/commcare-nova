@@ -189,7 +189,9 @@ strict subset and parses the result through the original Zod schema. Optional
 properties become nullable on the wire and are stripped before the original
 parse. Authored null and open dictionaries cannot use that projection. Flat,
 already-compatible extraction schemas can use the provider's default strict
-mode. All calls stream; do not restore a blocking response path.
+mode. All calls stream; do not restore a blocking response path. A stream ending without
+a provider completion signal is `interrupted`: it cannot complete an authoring
+step or supply a structured result, even when its partial text is valid JSON.
 
 Stable instructions and definitions precede changing app state. Ordinary edit
 turns place a request-local cache boundary before the volatile app snapshot;

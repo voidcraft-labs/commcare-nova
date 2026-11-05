@@ -56,7 +56,11 @@ export async function withResponsesPeer<T>(
 export function respondWithObject(
 	response: ServerResponse,
 	text: string,
-	opts: { incomplete?: boolean; reasoning?: string } = {},
+	opts: {
+		incomplete?: boolean;
+		interrupted?: boolean;
+		reasoning?: string;
+	} = {},
 ): void {
 	response.writeHead(200, { "content-type": "text/event-stream" });
 	const event = (value: unknown) =>
@@ -105,6 +109,10 @@ export function respondWithObject(
 			content: [{ type: "output_text", text, annotations: [] }],
 		},
 	});
+	if (opts.interrupted) {
+		response.end();
+		return;
+	}
 	event({
 		type: opts.incomplete ? "response.incomplete" : "response.completed",
 		response: {

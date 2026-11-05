@@ -189,7 +189,7 @@ describe("renameCasePropertyInExpression", () => {
 	});
 });
 
-describe("renameCasePropertyInExpression", () => {
+describe("renameCasePropertyInExpression in value expressions", () => {
 	it("renames refs inside value expressions, including nested predicates", () => {
 		const expression = ifExpr(
 			eq(prop("patient", "age"), literal("18")),
