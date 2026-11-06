@@ -102,7 +102,12 @@ it("keeps security mismatches and malformed stored state as errors", async () =>
 	expect(sink.error).toHaveBeenCalledWith(
 		"[better-auth] Failed to parse state",
 		expect.objectContaining({ code: "state_security_mismatch" }),
-		undefined,
+		{
+			event: "oauth_sign_in_security_rejected",
+			errorType: "state_security_mismatch",
+			reason: "state_cookie_missing_invalid_or_mismatched",
+			stateRead: "succeeded",
+		},
 	);
 	sink.error.mockClear();
 	await h.pool.query("UPDATE auth_verification SET value = 'invalid-json'");
@@ -157,4 +162,50 @@ it("rejects a callback with no state as an expected incomplete sign-in", async (
 		},
 	);
 	expect(sink.error).not.toHaveBeenCalled();
+});
+
+it("identifies another sign-in's cookie without accepting or exposing either state", async () => {
+	const { auth, callback, sink } = fixture();
+	const first = await start(auth);
+	const second = await start(auth);
+	const response = await callback(first.state, second.cookie);
+	expect(response.status).toBe(302);
+	expect(response.headers.get("location")).toBe(
+		`${baseURL}/?error=state_mismatch`,
+	);
+	const context = sink.error.mock.calls[0]?.[2];
+	expect(context).toEqual({
+		event: "oauth_sign_in_security_rejected",
+		errorType: "state_security_mismatch",
+		reason: "state_cookie_missing_invalid_or_mismatched",
+		stateRead: "succeeded",
+	});
+	expect(JSON.stringify(context)).not.toContain(first.state);
+	expect(JSON.stringify(context)).not.toContain(second.state);
+	expect((await h.pool.query("SELECT id FROM auth_session")).rows).toEqual([]);
+	expect(sink.info).not.toHaveBeenCalled();
+});
+
+it("identifies a stored correlation mismatch separately from the browser cookie", async () => {
+	const { auth, callback, sink } = fixture();
+	const { state, cookie } = await start(auth);
+	await h.pool.query(
+		`UPDATE auth_verification SET value = (value::jsonb || '{"oauthState":"different-state"}'::jsonb)::text`,
+	);
+	const response = await callback(state, cookie);
+	expect(response.headers.get("location")).toBe(
+		`${baseURL}/?error=state_mismatch`,
+	);
+	expect(sink.error).toHaveBeenCalledWith(
+		"[better-auth] Failed to parse state",
+		expect.objectContaining({ code: "state_security_mismatch" }),
+		{
+			event: "oauth_sign_in_security_rejected",
+			errorType: "state_security_mismatch",
+			reason: "stored_state_mismatch",
+			stateRead: "succeeded",
+		},
+	);
+	expect((await h.pool.query("SELECT id FROM auth_session")).rows).toEqual([]);
+	expect(sink.info).not.toHaveBeenCalled();
 });
