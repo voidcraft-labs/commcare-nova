@@ -1,7 +1,7 @@
 import { modelMessageSchema } from "ai";
 import { produce } from "immer";
 import { sql } from "kysely";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { makeDurableAuthoringHarness } from "@/lib/agent/__tests__/durableAuthoringHarness";
@@ -25,6 +25,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
 import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
+import * as evaluation from "../../engine/evaluateForm";
 import { continueAppTest, startAppTest } from "../service";
 import type { AppTestAction } from "../types";
 
@@ -1912,151 +1913,166 @@ it("limits a mixed module's inline chooser to case forms and goes back to Result
 it("visits form pages using retained entry state before allowing submission", {
 	timeout: 15_000,
 }, async () => {
-	const doc = sectionEntryDoc();
-	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid][0];
-	const first = Object.values(doc.fields).find((field) => field.id === "first");
-	const second = Object.values(doc.fields).find(
-		(field) => field.id === "second",
-	);
-	if (!first || !second) throw new Error("Missing sections");
-	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
-	await h.seedAppWithBlueprint(doc, {
-		id: scope.appId,
-		owner: scope.actorUserId,
-		projectId: scope.projectId,
-	});
-	let current = await startAppTest(scope, {
-		requestId: "start",
-		expectedBlueprintSeq: 0,
-		input: {
-			purpose:
-				"Choose an area, inspect its assets, and retain answers on return",
-			/* Sections page one at a time on Android. */
-			platform: "android",
-		},
-	});
-	let request = 0;
-	const step = async (action: AppTestAction) => {
-		current = await continueAppTest(scope, {
-			testId: current.testId,
-			requestId: `page-${++request}`,
-			expectedStep: current.step,
-			action,
+	const evaluated = vi.spyOn(evaluation, "evaluateForm");
+	try {
+		const doc = sectionEntryDoc();
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const first = Object.values(doc.fields).find(
+			(field) => field.id === "first",
+		);
+		const second = Object.values(doc.fields).find(
+			(field) => field.id === "second",
+		);
+		if (!first || !second) throw new Error("Missing sections");
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
 		});
-		return current.observation;
-	};
-	await step({ kind: "continue" });
-	await step({ kind: "menu", moduleUuid });
-	expect(await step({ kind: "form", formUuid })).toMatchObject({
-		canSubmit: false,
-		questions: expect.arrayContaining([
-			expect.objectContaining({
-				path: "first/zone",
-				value: "north",
-				label: "Area",
-			}),
-		]),
-	});
-	expect((await step({ kind: "submit" })).savedInTest).toBe(false);
-	await step({ kind: "answer", answers: [{ path: "first/zone", value: "" }] });
-	expect(
-		(await step({ kind: "section", sectionUuid: second.uuid })).sections,
-	).toEqual(
-		expect.arrayContaining([
-			expect.objectContaining({ uuid: first.uuid, current: true }),
-		]),
-	);
-	await step({
-		kind: "answer",
-		answers: [{ path: "first/zone", value: "south" }],
-	});
-	await expect(
-		step({
+		let current = await startAppTest(scope, {
+			requestId: "start",
+			expectedBlueprintSeq: 0,
+			input: {
+				purpose:
+					"Choose an area, inspect its assets, and retain answers on return",
+				/* Sections page one at a time on Android. */
+				platform: "android",
+			},
+		});
+		let request = 0;
+		const step = async (action: AppTestAction) => {
+			const before = evaluated.mock.calls.length;
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `page-${++request}`,
+				expectedStep: current.step,
+				action,
+			});
+			if (action.kind === "answer" || action.kind === "section")
+				expect(evaluated.mock.calls.length - before).toBe(1);
+			if (action.kind === "pageNext" || action.kind === "pagePrevious")
+				expect(evaluated.mock.calls.length - before).toBe(2);
+			return current.observation;
+		};
+		await step({ kind: "continue" });
+		await step({ kind: "menu", moduleUuid });
+		expect(await step({ kind: "form", formUuid })).toMatchObject({
+			canSubmit: false,
+			questions: expect.arrayContaining([
+				expect.objectContaining({
+					path: "first/zone",
+					value: "north",
+					label: "Area",
+				}),
+			]),
+		});
+		expect((await step({ kind: "submit" })).savedInTest).toBe(false);
+		await step({
 			kind: "answer",
-			answers: [{ path: "second/rounds[0]/assets[0]/note", value: "early" }],
-		}),
-	).resolves.toMatchObject({
-		completed: false,
-		error: "Open that section before answering its questions.",
-	});
-	const opened = await step({ kind: "pageNext" });
-	expect(opened).toMatchObject({
-		canSubmit: true,
-		questions: expect.arrayContaining([
-			expect.objectContaining({
-				path: "second/rounds[0]/assets",
-				repeatCount: 1,
+			answers: [{ path: "first/zone", value: "" }],
+		});
+		expect(
+			(await step({ kind: "section", sectionUuid: second.uuid })).sections,
+		).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ uuid: first.uuid, current: true }),
+			]),
+		);
+		await step({
+			kind: "answer",
+			answers: [{ path: "first/zone", value: "south" }],
+		});
+		await expect(
+			step({
+				kind: "answer",
+				answers: [{ path: "second/rounds[0]/assets[0]/note", value: "early" }],
 			}),
-			expect.objectContaining({
-				path: "second/rounds[0]/assets[0]/note",
-				value: "tank",
-			}),
-		]),
-	});
-	await step({
-		kind: "answer",
-		answers: [{ path: "second/rounds[0]/assets[0]/note", value: "retained" }],
-	});
-	expect(await step({ kind: "pagePrevious" })).toMatchObject({
-		pageNavigation: { canNext: true, canPrevious: false },
-		actions: expect.arrayContaining(["pageNext", "routeBack"]),
-	});
-	await step({
-		kind: "answer",
-		answers: [{ path: "first/zone", value: "north" }],
-	});
-	/* The nested query reads an answer, so its rows follow it: back on the
-	 * page, the north area's two assets have their rows, the first row's
-	 * answer stays at its place, and the new row starts from its own id. */
-	const returned = await step({ kind: "pageNext" });
-	expect(returned).toMatchObject({
-		questions: expect.arrayContaining([
-			expect.objectContaining({
-				path: "second/rounds[0]/assets",
-				repeatCount: 2,
-			}),
-			expect.objectContaining({
-				path: "second/rounds[0]/assets[0]/note",
-				value: "retained",
-			}),
-		]),
-	});
-	expect(returned.questions).toEqual(
-		expect.arrayContaining([
-			expect.objectContaining({
-				path: "second/rounds[0]/assets[1]/note",
-				value: "tap",
-			}),
-		]),
-	);
-	expect(await step({ kind: "submit" })).toMatchObject({
-		savedInTest: true,
-		effects: {
+		).resolves.toMatchObject({
+			completed: false,
+			error: "Open that section before answering its questions.",
+		});
+		const opened = await step({ kind: "pageNext" });
+		expect(opened).toMatchObject({
+			canSubmit: true,
+			questions: expect.arrayContaining([
+				expect.objectContaining({
+					path: "second/rounds[0]/assets",
+					repeatCount: 1,
+				}),
+				expect.objectContaining({
+					path: "second/rounds[0]/assets[0]/note",
+					value: "tank",
+				}),
+			]),
+		});
+		await step({
+			kind: "answer",
+			answers: [{ path: "second/rounds[0]/assets[0]/note", value: "retained" }],
+		});
+		expect(await step({ kind: "pagePrevious" })).toMatchObject({
+			pageNavigation: { canNext: true, canPrevious: false },
+			actions: expect.arrayContaining(["pageNext", "routeBack"]),
+		});
+		await step({
+			kind: "answer",
+			answers: [{ path: "first/zone", value: "north" }],
+		});
+		/* The nested query reads an answer, so its rows follow it: back on the
+		 * page, the north area's two assets have their rows, the first row's
+		 * answer stays at its place, and the new row starts from its own id. */
+		const returned = await step({ kind: "pageNext" });
+		expect(returned).toMatchObject({
+			questions: expect.arrayContaining([
+				expect.objectContaining({
+					path: "second/rounds[0]/assets",
+					repeatCount: 2,
+				}),
+				expect.objectContaining({
+					path: "second/rounds[0]/assets[0]/note",
+					value: "retained",
+				}),
+			]),
+		});
+		expect(returned.questions).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					path: "second/rounds[0]/assets[1]/note",
+					value: "tap",
+				}),
+			]),
+		);
+		expect(await step({ kind: "submit" })).toMatchObject({
+			savedInTest: true,
+			effects: {
+				primaryCaseIds: [],
+				operations: [],
+				caseDatabasePatch: { rows: [], indices: [] },
+			},
+			evidence: {
+				collectionScope: "disposable-case-store",
+				caseTransaction: "committed",
+				submissionReceipt: "persisted",
+				casePatch: "none",
+				answerDocumentArchive: "not-created",
+			},
+		});
+		const receipts = await sql<{
+			result: Record<string, unknown>;
+		}>`SELECT result FROM ${sql.id(appTestNamespace(current.testId), "form_submission_intents")} WHERE form_uuid = ${formUuid}`.execute(
+			h.db(),
+		);
+		expect(receipts.rows).toHaveLength(1);
+		expect(receipts.rows[0].result).toMatchObject({
 			primaryCaseIds: [],
-			operations: [],
 			caseDatabasePatch: { rows: [], indices: [] },
-		},
-		evidence: {
-			collectionScope: "disposable-case-store",
-			caseTransaction: "committed",
-			submissionReceipt: "persisted",
-			casePatch: "none",
-			answerDocumentArchive: "not-created",
-		},
-	});
-	const receipts = await sql<{
-		result: Record<string, unknown>;
-	}>`SELECT result FROM ${sql.id(appTestNamespace(current.testId), "form_submission_intents")} WHERE form_uuid = ${formUuid}`.execute(
-		h.db(),
-	);
-	expect(receipts.rows).toHaveLength(1);
-	expect(receipts.rows[0].result).toMatchObject({
-		primaryCaseIds: [],
-		caseDatabasePatch: { rows: [], indices: [] },
-	});
-	expect(receipts.rows[0].result).not.toHaveProperty("answers");
-	expect(JSON.stringify(receipts.rows)).not.toContain("retained");
+		});
+		expect(receipts.rows[0].result).not.toHaveProperty("answers");
+		expect(JSON.stringify(receipts.rows)).not.toContain("retained");
+	} finally {
+		evaluated.mockRestore();
+	}
 });
 
 it("binds ordered public section aliases after navigation, stops at failed forward validation, and replays the whole call", async () => {

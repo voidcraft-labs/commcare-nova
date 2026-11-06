@@ -784,3 +784,9 @@ Form evaluation tests run the production engine in its isolated Node worker.
 When selecting these tests directly with `npx vitest`, run
 `npm run build:xpath-worker` after changes to the engine or evaluator. The worker
 host owns termination and joins it on success, failure and timeout.
+
+App Test execution-budget checks advance a controlled monotonic clock across an
+eight-action call while retaining real PostgreSQL authority and rollback. No
+action prefix, session step or request receipt survives the exhausted call. A
+separate native worker test fires the owned execution timer and verifies that
+termination joins before rejection; the database timeout remains the backstop.

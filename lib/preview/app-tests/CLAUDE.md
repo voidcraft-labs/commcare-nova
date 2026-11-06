@@ -229,6 +229,12 @@ Pre-batch singular receipts retain their original UUID-normalized digest. On
 a digest mismatch only, the shared boundary retries that original preparation
 against the authorized pinned document, so a later rename cannot break replay.
 A 60-second transaction deadline covers the whole call, including lock waits.
+Every form, search and after-submit worker shares one monotonic execution
+deadline, reserving five seconds for termination and persistence or rollback
+(ten percent when a caller shortens the overall deadline). Workers join their
+termination before an execution deadline failure aborts the whole call; this is
+not an input refusal and cannot commit the earlier action prefix. A rollback
+failure cannot replace the original transaction exception.
 Caller disconnection is not propagated as a separate cancellation signal here.
 The 200-step bound still counts individual worker actions.
 
@@ -282,3 +288,8 @@ errors with their causes retained. Submission expression refusals identify the
 operation, slot and source field identities. The action savepoint retains earlier
 actions while rolling back the whole failed submission. Database connection,
 permission and compiler failures still abort the call as infrastructure faults.
+
+Answer, section and page-turn observations reuse the evaluation that produced
+their exact next form screen. The normal language, route and action decoration
+still applies. A standalone observe, navigation, identity change or submission
+performs a fresh evaluation; no result is cached across actions or sessions.

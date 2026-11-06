@@ -42,6 +42,9 @@ changing your live cases, including checks with several workers' forms left open
 If a submission calculation fails, the test identifies the operation and property
 so Nova can review it. That submission saves nothing; earlier completed actions
 remain available for the next attempt.
+If a journey call takes too long, Nova keeps the test at its previous step and
+can retry with fewer actions. None of the actions in that timed-out call are saved.
+
 Form checks and journey observations use the selected worker language for
 repeated-entry headings and unnamed questions. These platform labels support
 English and Spanish, with English labels for other worker languages.

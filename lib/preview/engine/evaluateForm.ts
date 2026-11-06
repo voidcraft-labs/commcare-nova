@@ -4,6 +4,10 @@ import { Worker } from "node:worker_threads";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { evaluateFormSnapshot } from "./evaluateFormSnapshot";
 import {
+	EvaluationDeadlineError,
+	remainingEvaluationTime,
+} from "./evaluationDeadline";
+import {
 	type FormEvaluationContext,
 	type FormEvaluationFault,
 	type FormEvaluationInput,
@@ -79,6 +83,7 @@ async function evaluateInWorker<T>(
 		| PostSubmissionEvaluationInput,
 	context: FormEvaluationContext,
 ): Promise<T> {
+	remainingEvaluationTime();
 	const worker = new Worker(
 		resolve(process.cwd(), "public/form-evaluation/worker.mjs"),
 		{
@@ -100,15 +105,19 @@ async function evaluateInWorker<T>(
 	);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
+		const remaining = remainingEvaluationTime();
+		const limitedByCall = remaining <= 30_000;
 		return await new Promise<T>((accept, reject) => {
 			timer = setTimeout(
 				() =>
 					reject(
-						new FormEvaluationInputError(
-							"Evaluation exceeded its 30-second limit.",
-						),
+						limitedByCall
+							? new EvaluationDeadlineError()
+							: new FormEvaluationInputError(
+									"Evaluation exceeded its 30-second limit.",
+								),
 					),
-				30_000,
+				Math.min(30_000, remaining),
 			);
 			worker.once("error", reject);
 			worker.once("exit", (code) =>
@@ -119,8 +128,14 @@ async function evaluateInWorker<T>(
 				),
 			);
 			worker.once("message", (message: WorkerResult<T>) => {
-				if (message.ok) accept(message.result);
-				else
+				if (message.ok) {
+					try {
+						remainingEvaluationTime();
+						accept(message.result);
+					} catch (error) {
+						reject(error);
+					}
+				} else
 					reject(
 						message.refusal !== undefined
 							? new FormRefusedError(message.refusal)

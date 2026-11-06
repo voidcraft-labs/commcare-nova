@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
+import { log } from "@/lib/logger";
 import {
 	APP_TEST_EVIDENCE_BYTES,
 	AppTestEvidenceInputError,
@@ -12,6 +13,11 @@ import {
 	inspectAppTestEvidence,
 } from "@/lib/preview/app-tests/evidence";
 import { blueprintRevisionDigest } from "@/lib/preview/engine/caseDataBindingClient";
+import {
+	EvaluationDeadlineError,
+	remainingEvaluationTime,
+	withEvaluationDeadline,
+} from "@/lib/preview/engine/evaluationDeadline";
 import { AppAccessError, resolveAppScopeInTransaction } from "./appAccess";
 import { loadAppInTransaction } from "./apps";
 import { type AppDatabase, withAppTx } from "./pg";
@@ -256,185 +262,218 @@ export async function advanceAppTestSession(
 		args.deadlineAt ?? Number.POSITIVE_INFINITY,
 		Date.now() + 60_000,
 	);
-	return withAppTx(
-		async (tx) => {
-			const scope = await authorize(tx, args);
-			const test = await tx
-				.selectFrom("app_test_sessions")
-				.selectAll()
-				.where("id", "=", args.testId)
-				.where("app_id", "=", args.appId)
-				.where("project_id", "=", scope.projectId)
-				.where("created_by", "=", args.actorUserId)
-				.forUpdate()
-				.executeTakeFirst();
-			if (!test)
-				throw new AppTestUnavailableError(
-					"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
-				);
-			// Reauthorization precedes replay; source, state and aliases follow it.
-			const receipt = await tx
-				.selectFrom("app_test_requests")
-				.selectAll()
-				.where("test_id", "=", test.id)
-				.where("request_id", "=", args.requestId)
-				.executeTakeFirst();
-			if (receipt) {
-				if (receipt.request_digest !== args.requestDigest)
+	// Keep five seconds of the existing database deadline for worker termination,
+	// receipt persistence or rollback. All actions share one monotonic execution
+	// deadline; a fresh worker must never reset the call's allowance.
+	const executionReserve = Math.min(
+		5_000,
+		Math.max(0, deadlineAt - Date.now()) / 10,
+	);
+	const run = () =>
+		withAppTx(
+			async (tx) => {
+				const scope = await authorize(tx, args);
+				const test = await tx
+					.selectFrom("app_test_sessions")
+					.selectAll()
+					.where("id", "=", args.testId)
+					.where("app_id", "=", args.appId)
+					.where("project_id", "=", scope.projectId)
+					.where("created_by", "=", args.actorUserId)
+					.forUpdate()
+					.executeTakeFirst();
+				if (!test)
 					throw new AppTestUnavailableError(
-						"This test request was already used with different inputs.",
+						"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
 					);
-				return receipt.response as unknown as AppTestRequestResult;
-			}
-			const legacy = await tx
-				.selectFrom("app_test_steps")
-				.selectAll()
-				.where("test_id", "=", test.id)
-				.where("request_id", "=", args.requestId)
-				.orderBy("step")
-				.executeTakeFirst();
-			if (legacy) {
-				if (
-					legacy.request_digest !== args.requestDigest &&
-					legacy.request_digest !==
-						(await args.legacyRequestDigest?.(test.snapshot))
-				)
-					throw new AppTestUnavailableError(
-						"This test action was already used with different inputs.",
-					);
-				return {
-					testId: test.id,
-					step: legacy.step,
-					observation: legacy.observation,
-				};
-			}
-			const finishing = items[0].action.kind === "finish";
-			if (!finishing) {
-				if (
-					test.disposed_at !== null ||
-					test.expires_at.getTime() <= Date.now()
-				)
-					throw new AppTestUnavailableError(
-						"This test has ended or expired. Start a new test.",
-					);
-				if (test.runtime_version !== RUNTIME_VERSION)
-					throw new AppTestUnavailableError(
-						"Nova's test runtime changed. Start a new test.",
-					);
-				if (Number(test.blueprint_seq) !== scope.baseSeq)
-					throw new AppTestUnavailableError(
-						"The app changed since this test began. Start a new test of the saved app.",
-					);
-				if (test.step !== args.expectedStep)
-					throw new AppTestUnavailableError(
-						"Another action advanced this test. Read the latest step before continuing.",
-					);
-				if (test.step >= MAX_STEPS)
-					throw new AppTestUnavailableError(
-						"This test reached its 200-step limit. Finish it or start a new test for the next journey.",
-					);
-			}
-			let state = test.state;
-			let step = test.step;
-			let finished = test.disposed_at !== null;
-			const results: AppTestStep[] = [];
-			let stopped: AppTestRequestResult["stopped"];
-			for (const [index, item] of items.entries()) {
-				if (Date.now() >= deadlineAt)
-					throw new Error("The app test transaction deadline expired.");
-				if (step >= MAX_STEPS && item.action.kind !== "finish") {
-					stopped = {
-						index,
-						reason:
-							"This test reached its 200-step limit. Finish it or start a new test for the next journey.",
+				// Reauthorization precedes replay; source, state and aliases follow it.
+				const receipt = await tx
+					.selectFrom("app_test_requests")
+					.selectAll()
+					.where("test_id", "=", test.id)
+					.where("request_id", "=", args.requestId)
+					.executeTakeFirst();
+				if (receipt) {
+					if (receipt.request_digest !== args.requestDigest)
+						throw new AppTestUnavailableError(
+							"This test request was already used with different inputs.",
+						);
+					return receipt.response as unknown as AppTestRequestResult;
+				}
+				const legacy = await tx
+					.selectFrom("app_test_steps")
+					.selectAll()
+					.where("test_id", "=", test.id)
+					.where("request_id", "=", args.requestId)
+					.orderBy("step")
+					.executeTakeFirst();
+				if (legacy) {
+					if (
+						legacy.request_digest !== args.requestDigest &&
+						legacy.request_digest !==
+							(await args.legacyRequestDigest?.(test.snapshot))
+					)
+						throw new AppTestUnavailableError(
+							"This test action was already used with different inputs.",
+						);
+					return {
+						testId: test.id,
+						step: legacy.step,
+						observation: legacy.observation,
 					};
-					break;
 				}
-				const next =
-					item.action.kind === "finish" && item.sessionId === undefined
-						? {
-								state: {},
-								observation: { ended: true },
-								finished: true,
-								stopReason: undefined,
-							}
-						: await args.advance(
-								tx,
-								{
-									snapshot: test.snapshot,
-									state,
-									blueprintSeq: Number(test.blueprint_seq),
-									blueprintDigest: test.blueprint_digest,
-									role: scope.role,
-								},
-								item,
-							);
-				if (next.finished && !finished)
-					await sql`SELECT public.nova_drop_app_test_namespace(${test.id}::uuid)`.execute(
-						tx,
-					);
-				if (!finished) {
-					step += 1;
-					await tx
-						.insertInto("app_test_steps")
-						.values({
-							test_id: test.id,
-							step,
-							request_id: args.requestId,
-							request_digest: args.requestDigest,
-							action: JSON.stringify({
-								...item.action,
-								...(item.sessionId === undefined
-									? {}
-									: { sessionId: item.sessionId }),
-							}),
-							observation: JSON.stringify(next.observation),
-						})
-						.execute();
+				const finishing = items[0].action.kind === "finish";
+				if (!finishing) {
+					if (
+						test.disposed_at !== null ||
+						test.expires_at.getTime() <= Date.now()
+					)
+						throw new AppTestUnavailableError(
+							"This test has ended or expired. Start a new test.",
+						);
+					if (test.runtime_version !== RUNTIME_VERSION)
+						throw new AppTestUnavailableError(
+							"Nova's test runtime changed. Start a new test.",
+						);
+					if (Number(test.blueprint_seq) !== scope.baseSeq)
+						throw new AppTestUnavailableError(
+							"The app changed since this test began. Start a new test of the saved app.",
+						);
+					if (test.step !== args.expectedStep)
+						throw new AppTestUnavailableError(
+							"Another action advanced this test. Read the latest step before continuing.",
+						);
+					if (test.step >= MAX_STEPS)
+						throw new AppTestUnavailableError(
+							"This test reached its 200-step limit. Finish it or start a new test for the next journey.",
+						);
 				}
-				finished = next.finished === true;
-				state = finished ? {} : next.state;
-				results.push({ testId: test.id, step, observation: next.observation });
-				if (next.stopReason || finished) {
-					if (next.stopReason || index + 1 < items.length)
+				let state = test.state;
+				let step = test.step;
+				let finished = test.disposed_at !== null;
+				const results: AppTestStep[] = [];
+				let stopped: AppTestRequestResult["stopped"];
+				for (const [index, item] of items.entries()) {
+					remainingEvaluationTime();
+					if (step >= MAX_STEPS && item.action.kind !== "finish") {
 						stopped = {
 							index,
-							reason: next.stopReason ?? "The test has finished.",
+							reason:
+								"This test reached its 200-step limit. Finish it or start a new test for the next journey.",
 						};
-					break;
+						break;
+					}
+					const next =
+						item.action.kind === "finish" && item.sessionId === undefined
+							? {
+									state: {},
+									observation: { ended: true },
+									finished: true,
+									stopReason: undefined,
+								}
+							: await args.advance(
+									tx,
+									{
+										snapshot: test.snapshot,
+										state,
+										blueprintSeq: Number(test.blueprint_seq),
+										blueprintDigest: test.blueprint_digest,
+										role: scope.role,
+									},
+									item,
+								);
+					remainingEvaluationTime();
+					if (next.finished && !finished)
+						await sql`SELECT public.nova_drop_app_test_namespace(${test.id}::uuid)`.execute(
+							tx,
+						);
+					if (!finished) {
+						step += 1;
+						await tx
+							.insertInto("app_test_steps")
+							.values({
+								test_id: test.id,
+								step,
+								request_id: args.requestId,
+								request_digest: args.requestDigest,
+								action: JSON.stringify({
+									...item.action,
+									...(item.sessionId === undefined
+										? {}
+										: { sessionId: item.sessionId }),
+								}),
+								observation: JSON.stringify(next.observation),
+							})
+							.execute();
+					}
+					finished = next.finished === true;
+					state = finished ? {} : next.state;
+					results.push({
+						testId: test.id,
+						step,
+						observation: next.observation,
+					});
+					if (next.stopReason || finished) {
+						if (next.stopReason || index + 1 < items.length)
+							stopped = {
+								index,
+								reason: next.stopReason ?? "The test has finished.",
+							};
+						break;
+					}
 				}
+				await tx
+					.updateTable("app_test_sessions")
+					.set({
+						step,
+						state: JSON.stringify(state),
+						...(finished
+							? { disposed_at: sql<Date>`COALESCE(disposed_at, now())` }
+							: {}),
+					})
+					.where("id", "=", test.id)
+					.execute();
+				const last = results.at(-1);
+				if (!last)
+					throw new Error("An admitted test request produced no observation.");
+				const response: AppTestRequestResult = args.actions
+					? { ...last, results, ...(stopped ? { stopped } : {}) }
+					: last;
+				const stored = await tx
+					.insertInto("app_test_requests")
+					.values({
+						test_id: test.id,
+						request_id: args.requestId,
+						request_digest: args.requestDigest,
+						response: JSON.stringify(response),
+					})
+					.returning("response")
+					.executeTakeFirstOrThrow();
+				// First delivery and replay use the same persisted JSON projection.
+				return stored.response as unknown as AppTestRequestResult;
+			},
+			{ deadlineAt },
+		);
+	return withEvaluationDeadline(deadlineAt - executionReserve, run).catch(
+		(error: unknown) => {
+			if (error instanceof EvaluationDeadlineError) {
+				log.warn("[app-tests] execution deadline exhausted", {
+					appId: args.appId,
+					projectId: args.projectId,
+					testId: args.testId,
+					requestId: args.requestId,
+					phase: "journey-execution",
+					actionCount: items.length,
+				});
+				// Translate only after the entire transaction has failed, never at the
+				// action-savepoint boundary that can retain an earlier prefix.
+				throw new AppTestUnavailableError(
+					"This journey call ran out of time. None of its actions were saved. Try fewer actions in the next call.",
+					{ cause: error },
+				);
 			}
-			await tx
-				.updateTable("app_test_sessions")
-				.set({
-					step,
-					state: JSON.stringify(state),
-					...(finished
-						? { disposed_at: sql<Date>`COALESCE(disposed_at, now())` }
-						: {}),
-				})
-				.where("id", "=", test.id)
-				.execute();
-			const last = results.at(-1);
-			if (!last)
-				throw new Error("An admitted test request produced no observation.");
-			const response: AppTestRequestResult = args.actions
-				? { ...last, results, ...(stopped ? { stopped } : {}) }
-				: last;
-			const stored = await tx
-				.insertInto("app_test_requests")
-				.values({
-					test_id: test.id,
-					request_id: args.requestId,
-					request_digest: args.requestDigest,
-					response: JSON.stringify(response),
-				})
-				.returning("response")
-				.executeTakeFirstOrThrow();
-			// First delivery and replay use the same persisted JSON projection.
-			return stored.response as unknown as AppTestRequestResult;
+			throw error;
 		},
-		{ deadlineAt },
 	);
 }
 

@@ -50,6 +50,22 @@ function fakeDb(errors: unknown[]) {
 }
 
 describe("withAppTx retry", () => {
+	it("retries a callback serialization failure after successful rollback", async () => {
+		const { db, execute } = fakeDb([]);
+		__setAppDbForTests(db);
+		let calls = 0;
+		const result = expect(
+			withAppTx(async () => {
+				calls++;
+				if (calls === 1) throw { code: "40001" };
+				return "committed";
+			}),
+		).resolves.toBe("committed");
+		await vi.runAllTimersAsync();
+		await result;
+		expect(execute).toHaveBeenCalledTimes(2);
+	});
+
 	it("retries a deadlock (40P01) and resolves once it clears", async () => {
 		const { db, execute } = fakeDb([{ code: "40P01" }, { code: "40P01" }]);
 		__setAppDbForTests(db);
