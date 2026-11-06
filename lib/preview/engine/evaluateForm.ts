@@ -32,6 +32,7 @@ type WorkerResult<T> =
 			ok: false;
 			inputError: boolean;
 			message: string;
+			error?: Error;
 			fault?: FormEvaluationFault;
 			refusal?: FormRefusalDetails;
 	  };
@@ -125,7 +126,7 @@ async function evaluateInWorker<T>(
 							? new FormRefusedError(message.refusal)
 							: message.inputError
 								? new FormEvaluationInputError(message.message, message.fault)
-								: new Error(message.message),
+								: (message.error ?? new Error(message.message)),
 					);
 			});
 		});

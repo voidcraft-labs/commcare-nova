@@ -388,6 +388,18 @@ function compiler(bindings: QueryBindings) {
 			arity(name, args);
 			return { kind: name };
 		}
+		if (name === "capture-link") {
+			arity(name, args);
+			const question = termSchema.parse(term(args[0]));
+			if (question.kind !== "field")
+				throw new AuthoringInputError(
+					"capture-link reads one question that captures a file, such as capture-link(#form/photo).",
+				);
+			return {
+				kind: "term",
+				term: { kind: "capture-link", field: question.uuid },
+			};
+		}
 		if (name === "id-of") {
 			arity(name, args);
 			return {

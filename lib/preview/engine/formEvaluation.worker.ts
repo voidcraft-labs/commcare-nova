@@ -29,5 +29,6 @@ try {
 			: {}),
 		...(error instanceof FormRefusedError ? { refusal: error.refusal } : {}),
 		message: error instanceof Error ? error.message : "Form evaluation failed.",
+		...(error instanceof Error ? { error } : {}),
 	});
 }

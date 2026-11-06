@@ -659,10 +659,10 @@ export interface SessionDatumsInput {
 	 */
 	readonly caseListFilter?: Expression;
 	/**
-	 * The form's `FormActions`, post-expansion: an active `usercase_update`
-	 * adds the worker's record datum.
+	 * Whether the form writes the worker's record. Read from the placement
+	 * metadata, or from already expanded actions at the archive boundary.
 	 */
-	readonly actions?: FormActions;
+	readonly writesWorker?: boolean;
 	/**
 	 * The new cases HQ gives a session datum, in entry order
 	 * (`casePlacementPlan.ts::planFormCaseWire`'s `datums`). Omitted, no
@@ -831,7 +831,6 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		moduleIndex,
 		caseType,
 		caseListFilter,
-		actions,
 		newCases,
 		excludedOwnerIds,
 		expressions,
@@ -873,12 +872,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		// `util.py::actions_use_usercase`, minus the preload half: Nova's
 		// `usercase_preload` is a stated fence at `neverCondition()`, since
 		// `#user/` already compiles to the same `casedb` join.
-		const update = actions?.usercase_update;
-		// Optional despite the type: `deriveSessionDatums` is reached from
-		// tests and callers that hand it a partial action set, and a missing
-		// slot means the same thing an inactive one does.
-		if (update?.condition.type !== "always") return;
-		if (Object.keys(update.update).length === 0) return;
+		if (args.writesWorker !== true) return;
 		datums.push({
 			id: USERCASE_DATUM_ID,
 			function: USERCASE_ID_FUNCTION,
@@ -1586,4 +1580,12 @@ const NOVA_TO_HQ: Record<PostSubmitDestination, string> = {
 
 export function toHqWorkflow(postSubmit: PostSubmitDestination): string {
 	return NOVA_TO_HQ[postSubmit];
+}
+
+/** The emitted basic action is authoritative when compiling an already expanded app. */
+export function basicActionsWriteWorker(actions: FormActions): boolean {
+	const update = actions.usercase_update;
+	return (
+		update.condition.type === "always" && Object.keys(update.update).length > 0
+	);
 }

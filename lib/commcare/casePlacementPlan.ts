@@ -1,3 +1,4 @@
+import { formCaseEntryPlan } from "./formCaseEntryPlan";
 /**
  * One plan per form of how its case changes reach the wire: HQ's form
  * actions (a basic form's `FormActions`, an advanced form's
@@ -41,7 +42,6 @@ import {
 	neverCondition,
 	noCaseIndex,
 } from "./hqShells";
-import { validateCaseType } from "./identifierValidation";
 import {
 	type PlacementSubject,
 	type PlacementSubjectKey,
@@ -332,7 +332,7 @@ function buildPlan(
 
 	const actions = emptyFormActions();
 	const saveToCase: SaveToCaseBlock[] = [];
-	const datums: PlannedNewCaseDatum[] = [];
+	const datums = formCaseEntryPlan(doc, formUuid, moduleKind).datums;
 	const appendedNames: AppendedBlockName[] = [];
 	const root = FormPath.root();
 	const scopeOf = (repeat: Uuid | undefined): FormPath =>
@@ -451,30 +451,6 @@ function buildPlan(
 			condition: condition(op.condition, { own: false, repeat }),
 		};
 	});
-
-	// Datums HQ gives the new cases (`suite_xml/sections/entries.py::
-	// EntriesHelper.get_new_case_id_datums_meta`): the own case when
-	// `open_case` is active, then each subcase outside a repeat, numbered by
-	// its position in `subcases`, after the own case's
-	// (`models/forms.py::FormBase.session_var_for_action`).
-	if (opensCase && own !== undefined && moduleCaseType)
-		datums.push({
-			operationUuid: own.uuid,
-			id: `case_id_new_${validateCaseType(moduleCaseType)}_0`,
-			caseType: moduleCaseType,
-			ref: { kind: "new-case" },
-		});
-	for (const subcase of subcases) {
-		const op = byUuid.get(subcase.operationUuid);
-		if (op === undefined || op.action !== "create" || op.forEach !== undefined)
-			continue;
-		datums.push({
-			operationUuid: op.uuid,
-			id: `case_id_new_${validateCaseType(op.caseType)}_${subcase.index + (opensCase ? 1 : 0)}`,
-			caseType: op.caseType,
-			ref: { kind: "new-child-case", caseType: op.caseType },
-		});
-	}
 
 	// The blocks HQ's build appends (`xform.py::XForm._create_casexml`): each
 	// subcase at `subcase_<i>`, or at its row's own `case` when its repeat
@@ -681,7 +657,7 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 	};
 
 	const generated: AdvancedGeneratedNode[] = [];
-	const datums: PlannedNewCaseDatum[] = [];
+	const datums = formCaseEntryPlan(doc, formUuid).datums;
 	const appendedNames: AppendedBlockName[] = [];
 	const open_cases = advanced.opens.map((open, i): AdvancedOpenCaseAction => {
 		const op = byUuid.get(open.operationUuid);
@@ -738,15 +714,7 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 			}),
 		);
 		const caseType = open.caseType;
-		if (repeat === undefined)
-			datums.push({
-				operationUuid: op.uuid,
-				id: `case_id_new_${validateCaseType(caseType)}_${i}`,
-				caseType,
-				ref: registrationOwn
-					? { kind: "new-case" }
-					: { kind: "new-child-case", caseType },
-			});
+
 		appendedNames.push({
 			scope,
 			name: open.row ? "case" : advancedCaseBlockName(open.tag),

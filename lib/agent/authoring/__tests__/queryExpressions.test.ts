@@ -867,3 +867,15 @@ it("prints and parses back every drawn record condition unchanged", () => {
 		{ seed: 20261019, numRuns: 300 },
 	);
 });
+
+it("round trips a captured-file link through the record authoring grammar", () => {
+	const expression = parseQueryValue("capture-link(#form/photo)", scope);
+	expect(expression).toEqual({
+		kind: "term",
+		term: { kind: "capture-link", field: identity("field", "photo") },
+	});
+	expect(parseQueryValue(printer.value(expression), scope)).toEqual(expression);
+	expect(() => parseQueryValue("capture-link('photo')", scope)).toThrow(
+		"one question",
+	);
+});

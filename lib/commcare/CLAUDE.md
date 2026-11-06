@@ -1921,3 +1921,12 @@ Vellum's `src/itemset.js::Itemset.itemsetData.validationFunc` requires the
 `lookup_tables` privilege for every dynamic itemset, including casedb sources.
 HQ's build-only `FormBase.has_fixtures` check does not detect those; the proof
 configuration derives the editor privilege from the emitted itemset element too.
+
+Entry metadata is derived by `formCaseEntryPlan.ts` from the shared placements:
+loads, open-action index relationships, worker-record presence, and new-case
+identities. `formLinkProjection.ts` consumes it without emitting case writes;
+`casePlacementPlan.ts` consumes the same new-case identities when emitting.
+Private forms may be awaiting a name or write value while expressions are read,
+edited, or evaluated. Metadata does not invent that missing content or relax the
+commit/export gate. Incomplete write content must never crash an unrelated
+expression's identity projection.

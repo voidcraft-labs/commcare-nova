@@ -986,3 +986,38 @@ it("reports a starting value CommCare refuses as a form refusal across the worke
 		},
 	});
 });
+
+it("evaluates questions in a private registration before its record name is authored", async () => {
+	const doc = structuredClone(
+		await createEvaluationApp(
+			[
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [{ name: "Register", type: "registration" }],
+				},
+			],
+			[],
+		),
+	);
+	const form = Object.values(doc.forms).find(
+		(form) => form.name === "Register",
+	);
+	if (!form) throw new Error("Missing registration");
+	const own = form.caseOperations?.find((op) => op.action === "own");
+	if (own?.action !== "own") throw new Error("Missing own operation");
+	delete own.name;
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!identity) throw new Error("Missing worker");
+	const result = await evaluateForm(
+		doc,
+		{ formUuid: form.uuid, answers: [] },
+		{
+			identity,
+			device: webAppsDevice(),
+			cases: { rows: [], indices: [] },
+			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		},
+	);
+	expect(result).toHaveProperty("presentation");
+});

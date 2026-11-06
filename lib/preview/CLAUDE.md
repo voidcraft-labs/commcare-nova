@@ -1852,3 +1852,9 @@ nodes once for labels. It does not fetch Project-wide cases, approximate ownersh
 clone the snapshot per candidate or interpret predicates in another evaluator.
 Absent snapshot remains loading; an available empty snapshot produces no choices;
 evaluation errors use the existing runtime error boundary.
+
+Read-only form evaluation may inspect a private form whose case-change names
+are incomplete. Its session identities come from placement metadata without
+emitting those changes; evaluation still reports case operations as unevaluated.
+Unexpected worker failures cross the thread boundary as structured-cloned Error
+objects, preserving their original stack and cause for server reporting.
