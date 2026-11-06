@@ -64,10 +64,10 @@ fleet-wide indexes for every possible property.
 
 Read-only inspection on November 6 found `nova-url-map` routes all HTTPS hosts
 through global `nova-backend`, which attaches `nova-armor`. The earliest rule was
-priority 90; priorities 5 and 10 were unused. Cloud Run's default URL was disabled,
+priority 90; priorities 5 through 10 were unused. Cloud Run's default URL was disabled,
 ingress was `internal-and-cloud-load-balancing`, and the only traffic target was
 an untagged revision at 100%. Recheck these facts at the window. A changed routing
-path, existing rule at either reserved priority, or tagged URL is a blocker.
+path, existing rule at any reserved priority, or tagged URL is a blocker.
 
 Save private JSON snapshots with these read-only commands before any change:
 
@@ -204,8 +204,105 @@ the load balancer must be stopped and identified before this proof is sufficient
    explicitly using its checked-in Job contract before resuming it. The app
    release does not update that image.
 
+   After retirement is complete, admit only the anonymous requests required by
+   `cloudbuild.yaml`'s `verify` step. Keeping deny-all without these exceptions
+   would make the release fail: that step requires both public root pages and an
+   MCP 401 with a Bearer discovery challenge. These rules do not identify Cloud
+   Build by a spoofable header or by its changing source address. They expose the
+   same narrow anonymous probes to everyone, while fencing authenticated callers
+   and every other path/method. Create the credential guard **before** the allows:
+
+   ```bash
+   gcloud compute security-policies rules create 6 \
+     --security-policy=nova-armor --project=commcare-nova --action=deny-403 \
+     --expression="has(request.headers['cookie']) || has(request.headers['authorization']) || has(request.headers['x-api-key']) || has(request.headers['next-action']) || request.query != ''" \
+     --description='Temporary maintenance credential and query fence'
+   gcloud compute security-policies rules create 7 \
+     --security-policy=nova-armor --project=commcare-nova --action=allow \
+     --expression="has(request.headers['host']) && request.headers['host'].lower().matches('^(commcare[.]app|docs[.]commcare[.]app)$') && request.method == 'GET' && request.path == '/'" \
+     --description='Temporary anonymous release page probes'
+   gcloud compute security-policies rules create 8 \
+     --security-policy=nova-armor --project=commcare-nova --action=allow \
+     --expression="has(request.headers['host']) && request.headers['host'].lower() == 'mcp.commcare.app' && request.method == 'POST' && request.path == '/mcp'" \
+     --description='Temporary anonymous MCP discovery challenge probe'
+   ```
+
+   Cloud Armor evaluates the first matching priority; header keys are lowercase
+   and `has()` checks presence, including empty-valued credentials. Each expression
+   is within the five-subexpression limit. See Google's
+   [rule language reference](https://docs.cloud.google.com/armor/docs/create-security-policy-rules).
+   Exact hosts exclude explicit ports and exact paths exclude trailing slashes;
+   Cloud Build sends neither. Recheck the saved policy and all four temporary
+   rules' enforcement, without an operator exception yet.
+
+   The application boundary makes these probes safe for the **case writer**
+   fence. `app/(app)/(site)/page.tsx` and `app/(app)/layout.tsx` reach Project
+   provisioning only after `lib/auth-utils.ts::getSession` returns a session;
+   Better Auth reads its signed session cookie, which rule 6 refuses in any form.
+   `lib/auth.ts` also pins `enableSessionForAPIKeys: false`. For MCP,
+   `app/api/mcp/auth-plugin.ts` selects API-key/JWT authentication only from
+   `Authorization`; `app/api/mcp/jwt-auth.ts` uses the actual Better Auth MCP
+   verifier, whose `requestToResourceInput` reads Authorization and DPoP headers.
+   A DPoP proof alone, body fields, session ID or alternate token header supplies
+   no access token, so the missing-token challenge returns before tool dispatch.
+   The query fence also excludes URL credentials. POSTs to root, Server Actions,
+   auth endpoints, APIs, and MCP alternate paths remain denied by rule 10.
+   No credential value is needed to check this boundary.
+
+   **Full database quiescence ends here.** Anonymous MCP requests can update
+   `auth_rate_limit` before authentication, and the resumed capture worker can
+   write its unrelated tables. Neither can access the retired index lifecycle.
+   Do not add these exceptions before the frozen scan and retirement finish.
+
+   Before merging, run these assertions from outside any operator exception.
+   They use only inert sentinels, never real cookies or bearer tokens. `curl -q`
+   ignores local curl configuration; the checks neither follow redirects nor
+   keep cookies. The allowed requests must return 200/200/401, including the
+   same challenge Cloud Build requires. Every credential, query, alternate path
+   and method probe must return 403:
+
+   ```bash
+   nova_expect_status() {
+     nova_expected="$1"
+     shift
+     nova_actual="$(curl -q --silent --show-error --max-time 30 \
+       --output /dev/null --write-out '%{http_code}' "$@")" || return
+     test "$nova_actual" = "$nova_expected"
+   }
+   nova_expect_status 200 https://commcare.app/ || exit 1
+   nova_expect_status 200 https://docs.commcare.app/ || exit 1
+   nova_probe_headers="$(mktemp)"
+   nova_expect_status 401 --dump-header "$nova_probe_headers" \
+     --header 'content-type: application/json' \
+     --data '{"jsonrpc":"2.0","id":"maintenance-probe","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"maintenance-probe","version":"1"}}}' \
+     https://mcp.commcare.app/mcp || exit 1
+   awk 'BEGIN { found=0 } { line=tolower($0); if (line ~ /^www-authenticate:/ && line ~ /bearer / && line ~ /resource_metadata=/) found=1 } END { exit(found ? 0 : 1) }' "$nova_probe_headers" || exit 1
+   rm "$nova_probe_headers"
+   for nova_header in 'Cookie: maintenance-probe=sentinel' 'Cookie;' \
+     'Authorization: Bearer maintenance-probe' 'Authorization;' \
+     'X-Api-Key: maintenance-probe' 'Next-Action: maintenance-probe'; do
+     nova_expect_status 403 --header "$nova_header" https://commcare.app/ || exit 1
+     nova_expect_status 403 --header "$nova_header" https://docs.commcare.app/ || exit 1
+     nova_expect_status 403 --header "$nova_header" --data '{}' https://mcp.commcare.app/mcp || exit 1
+   done
+   nova_expect_status 403 'https://commcare.app/?access_token=maintenance-probe' || exit 1
+   nova_expect_status 403 --data '{}' 'https://mcp.commcare.app/mcp?access_token=maintenance-probe' || exit 1
+   nova_expect_status 403 --data '{}' https://commcare.app/ || exit 1
+   nova_expect_status 403 https://commcare.app/api/auth/get-session || exit 1
+   nova_expect_status 403 https://commcare.app/build/new || exit 1
+   nova_expect_status 403 https://mcp.commcare.app/mcp || exit 1
+   nova_expect_status 403 --data '{}' https://mcp.commcare.app/mcp/ || exit 1
+   nova_expect_status 403 --data '{}' https://commcare.app/api/auth/mcp || exit 1
+   ```
+
+   Any unexpected result blocks the merge. Remove rules 7 and 8 first to restore
+   deny-all, investigate, and repeat the checks. Do not weaken Cloud Build's
+   verification step. Its existing regression test is
+   `scripts/infra/__tests__/cloudBuild.test.ts` (the public-probes cases).
+
    Now merge/apply the exact reviewed release through normal migration/deployment
-   machinery while public ingress remains blocked. The registered retirement migration
+   machinery while case writers remain fenced by these rules. The registered
+   retirement migration
    refuses any remaining case expression index before dropping the obsolete
    queue/columns and updating disposable test-namespace creation. The next
    migration creates the two fixed scope indexes. Privilege convergence and the
@@ -225,9 +322,11 @@ the load balancer must be stopped and identified before this proof is sufficient
      --description='Temporary operator verification for case-index retirement'
    ```
 
-   Verify an external address outside that CIDR still receives 403. This allow
-   rule bypasses later Armor rules for that operator, so remove it with the
-   deny rule immediately after verification. Confirm case counts and app
+   Rerun the negative assertions from an external address outside that CIDR;
+   they must still receive 403. The three anonymous probes intentionally remain
+   available there. This allow rule bypasses later Armor rules for that operator, so remove it with the
+   other maintenance rules immediately after verification. Confirm case counts
+   and app
    identities against the frozen baseline and account for the intentional smoke
    writes. Inspect Cloud Logging/Sentry for lock, schema, privilege and cast
    failures, then restore normal public traffic:
@@ -235,14 +334,20 @@ the load balancer must be stopped and identified before this proof is sufficient
    ```bash
    gcloud compute security-policies rules delete 5 \
      --security-policy=nova-armor --project=commcare-nova
+   gcloud compute security-policies rules delete 7 \
+     --security-policy=nova-armor --project=commcare-nova
+   gcloud compute security-policies rules delete 8 \
+     --security-policy=nova-armor --project=commcare-nova
+   gcloud compute security-policies rules delete 6 \
+     --security-policy=nova-armor --project=commcare-nova
    gcloud compute security-policies rules delete 10 \
      --security-policy=nova-armor --project=commcare-nova
    ```
 
    Compare the final policy to the saved snapshot, verify the Scheduler remains
    ENABLED with its original schedule, and check ordinary traffic again. Never
-   delete a pre-existing rule: this procedure requires both priorities to have
-   been vacant before the window.
+   delete a pre-existing rule: this procedure requires all reserved priorities
+   to have been vacant before the window.
 
 ## Failure and rollback
 
