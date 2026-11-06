@@ -695,6 +695,10 @@ closed by the endpoint's `appHeldLive`-based fallback. Rows prune past
 `CHAT_STREAM_RETENTION_MS` (opportunistically, on POST traffic) —
 conversation HISTORY lives in `threads` + the event log, never here.
 
+Stream cursor reads resolve the batch containing the cursor and its ordered suffix
+in one SQL statement, using two ranges on the stream/index primary key. This
+retains mid-batch replay and empty terminal markers with one round trip per poll.
+
 `threads.input_round` is the server-issued invitation to continue a paused
 conversation: kind (`questions`, `message`, or `review`), assistant message and
 question-call identities, pending/consumed state, and accepted stream identity.
