@@ -313,6 +313,11 @@ export interface McpToolSuccessResult {
  * future audit expansions.
  */
 export interface McpErrorContext {
+	/** Diagnostic identities only; never projected into the public response. */
+	toolName?: string;
+	workId?: string;
+	requestId?: string;
+	runId?: string;
 	appId?: string;
 	projectId?: string;
 	userId?: string;
@@ -682,6 +687,11 @@ export function toMcpErrorResult(
 		error_type: classified.type,
 		userId: ctx?.userId ?? null,
 		appId: ctx?.appId ?? null,
+		projectId: ctx?.projectId,
+		toolName: ctx?.toolName,
+		workId: ctx?.workId,
+		requestId: ctx?.requestId,
+		runId: ctx?.runId,
 	});
 	return {
 		isError: true,

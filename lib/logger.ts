@@ -115,6 +115,11 @@ function emit(payload: LogPayload): void {
  */
 const SENTRY_TAG_KEYS = [
 	"appId",
+	"projectId",
+	"workId",
+	"toolName",
+	"operation",
+	"phase",
 	"ownerId",
 	"userId",
 	"runId",
@@ -182,7 +187,7 @@ function captureToSentry(
 	message: string,
 	error: unknown,
 	context: LogContext | undefined,
-): void {
+): string {
 	const tags = sentryTagsFor(message, context);
 	const capture = {
 		level,
@@ -190,11 +195,11 @@ function captureToSentry(
 		...(tags && { tags }),
 	};
 	if (error !== undefined) {
-		Sentry.captureException(error, capture);
+		return Sentry.captureException(error, capture);
 	} else {
 		// captureMessage synthesizes a logger stack when attachStacktrace is on.
 		// An event without an exception preserves the actual diagnostic title.
-		Sentry.captureEvent({ message, ...capture });
+		return Sentry.captureEvent({ message, ...capture });
 	}
 }
 
@@ -292,11 +297,15 @@ export const log = {
 		context?: LogContext,
 		options?: LogErrorOptions,
 	): void {
-		if (options?.sentry !== false) {
-			captureToSentry("error", message, error, context);
-		}
+		const sentryEventId =
+			options?.sentry !== false
+				? captureToSentry("error", message, error, context)
+				: undefined;
+		// The SDK's event ID joins this exact Cloud Logging record to Sentry,
+		// including failures without an app, run, or sampled request trace.
+		const labels = { ...context, ...(sentryEventId && { sentryEventId }) };
 		if (!isProduction) {
-			devConsole("error", message, context, error);
+			devConsole("error", message, labels, error);
 			return;
 		}
 		emit({
@@ -304,9 +313,7 @@ export const log = {
 			message,
 			time: new Date().toISOString(),
 			stack_trace: extractStack(error),
-			...(context && {
-				"logging.googleapis.com/labels": stringifyLabels(context),
-			}),
+			"logging.googleapis.com/labels": stringifyLabels(labels),
 		});
 	},
 
@@ -315,9 +322,10 @@ export const log = {
 	 * unrecoverable state. Use sparingly; most errors should use `error()`.
 	 */
 	critical(message: string, error?: unknown, context?: LogContext): void {
-		captureToSentry("fatal", message, error, context);
+		const sentryEventId = captureToSentry("fatal", message, error, context);
+		const labels = { ...context, ...(sentryEventId && { sentryEventId }) };
 		if (!isProduction) {
-			devConsole("error", `[CRITICAL] ${message}`, context, error);
+			devConsole("error", `[CRITICAL] ${message}`, labels, error);
 			return;
 		}
 		emit({
@@ -325,9 +333,7 @@ export const log = {
 			message,
 			time: new Date().toISOString(),
 			stack_trace: extractStack(error),
-			...(context && {
-				"logging.googleapis.com/labels": stringifyLabels(context),
-			}),
+			"logging.googleapis.com/labels": stringifyLabels(labels),
 		});
 	},
 };

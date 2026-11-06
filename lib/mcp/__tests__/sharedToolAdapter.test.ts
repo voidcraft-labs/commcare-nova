@@ -3,13 +3,17 @@
  * import (about a second locally, several on a loaded CI shard), so the module
  * graph is paid once by the file rather than inside one test's timeout; the
  * SDK calls themselves take milliseconds. */
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import { executeWorkTool } from "@/lib/agent/authoring/session";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { savedDataReview } from "@/lib/agent/toolResults";
+import { log } from "@/lib/logger";
 import { registerSharedTool } from "../adapters/sharedToolAdapter";
 import { projectResult } from "../resultProjection";
 import { withMcpClient } from "./client";
 import { resultContentText } from "./resultText";
+
+vi.mock("@/lib/agent/authoring/session", () => ({ executeWorkTool: vi.fn() }));
 
 it("preserves read data, including keys also used by the chat UI", () => {
 	for (const data of [
@@ -107,6 +111,50 @@ it("rejects ambiguous read targets and obsolete creation grammar through the rea
 				expect(result).toHaveProperty("isError", true);
 				expect(resultContentText(result)).toMatch(/Input validation error/);
 			}
+		},
+	);
+});
+
+it("reports private-work failures with the tool and work identity, without arguments", async () => {
+	const error = new Error("projection failed");
+	vi.mocked(executeWorkTool).mockRejectedValueOnce(error);
+	const workId = "11111111-1111-4111-8111-111111111111";
+	await withMcpClient(
+		(server) => {
+			const entry = SHARED_TOOL_REGISTRY.find(
+				(item) => item.saName === "getForm",
+			);
+			if (!entry) throw new Error("Missing getForm registration");
+			registerSharedTool(server, entry, {
+				userId: "actor",
+				scopes: ["nova.read"],
+				authKind: "oauth",
+			});
+		},
+		async (client) => {
+			const result = await client.callTool({
+				name: "get_form",
+				arguments: {
+					work_id: workId,
+					moduleUuid: "Module",
+					formUuid: "Form",
+				},
+			});
+			expect(result.isError).toBe(true);
+			expect(log.error).toHaveBeenCalledWith(
+				"[mcp] tool handler failed",
+				error,
+				{
+					error_type: "internal",
+					userId: "actor",
+					appId: null,
+					projectId: undefined,
+					toolName: "get_form",
+					workId,
+					requestId: undefined,
+					runId: undefined,
+				},
+			);
 		},
 	);
 });

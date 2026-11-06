@@ -27,6 +27,11 @@ describe("sentryTagsFor", () => {
 	it("promotes bounded identity and operational keys, leaving other context out", () => {
 		const tags = sentryTagsFor("[mcp] tool handler failed", {
 			appId: "app-1",
+			projectId: "project-1",
+			workId: "work-1",
+			toolName: "save_work",
+			operation: "publish",
+			phase: "resources",
 			userId: "user-9",
 			runId: "run-7",
 			designSessionId: "design-3",
@@ -39,6 +44,11 @@ describe("sentryTagsFor", () => {
 		expect(tags).toEqual({
 			component: "mcp",
 			appId: "app-1",
+			projectId: "project-1",
+			workId: "work-1",
+			toolName: "save_work",
+			operation: "publish",
+			phase: "resources",
 			userId: "user-9",
 			runId: "run-7",
 			designSessionId: "design-3",

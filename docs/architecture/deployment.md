@@ -227,3 +227,20 @@ the same default machine and include cache restore/export costs. The release
 targets are under eight minutes cold and under four minutes warm, measured
 through successful production deployment and public verification. A build-only
 benchmark cannot establish either release target.
+
+## Correlating error reports
+
+Server `log.error` and `log.critical` preserve the original thrown value for
+Sentry exception grouping and attach the SDK's returned event ID to the Cloud
+Logging record as `labels.sentryEventId`. Search Cloud Logging by that exact ID
+from a Sentry event to locate its structured log, even when there is no app or
+run identity. An SDK capture ID is not proof of ingestion: local-disabled
+reporting, SDK filtering, or delivery failure can leave a log without a stored
+Sentry event. Browser error relays that explicitly skip duplicate Sentry capture
+do not acquire another event ID.
+
+Shared MCP tool and work-lifecycle failures report the tool name, private work
+identity and request identity when available; saved-app execution also carries
+its loaded Project and run identity. Reporting does not include tool arguments;
+tool, work, request and run identities remain diagnostic-only fields. The logger indexes Project, work,
+tool, operation and phase alongside app/run/user identities in Sentry tags.
