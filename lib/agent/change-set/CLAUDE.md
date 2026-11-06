@@ -100,3 +100,9 @@ late SQL failure and verify that no partial app or receipt survives. The
 orchestrator tests resume at private writes, saved checkpoints, and active peer
 reviews through the production SDK transport. All database tests use migrated
 Postgres; none needs to pin prompt text or the former executor protocol.
+
+The workspace store names its metadata read, step replay, authority check, and
+stage-write phases with fixed Sentry spans. Database child spans therefore retain
+a source operation even when SQL text is filtered. These spans collect no work
+identities, tool arguments, mutations, SQL, or parameter values; the owning MCP
+request carries its separate safe diagnostic context.

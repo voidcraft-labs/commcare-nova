@@ -109,6 +109,7 @@ vi.mock("@/lib/logger", () => ({
  * Production instrumentation loads through Next and is verified separately;
  * this substitute does not establish SDK initialization or delivery. */
 vi.mock("@sentry/nextjs", () => ({
+	startSpan: vi.fn((_options: unknown, callback: () => unknown) => callback()),
 	captureException: vi.fn(),
 	captureMessage: vi.fn(),
 	captureEvent: vi.fn(),
