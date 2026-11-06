@@ -8,7 +8,11 @@ const h = setupAppStateTestDb("authoring_store_trace_", {
 	authSchema: "migrated",
 });
 
-it("exports fixed workspace operation names as parents of native database spans without work content", async () => {
+// The child owns a 30-second timeout and is joined before execFile settles.
+// Give its parent enough time to observe that failure before Vitest tears down the database.
+it("exports fixed workspace operation names as parents of native database spans without work content", {
+	timeout: 45_000,
+}, async () => {
 	const { stdout } = await promisify(execFile)(
 		process.execPath,
 		[
