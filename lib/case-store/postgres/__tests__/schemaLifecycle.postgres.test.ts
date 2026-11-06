@@ -21,7 +21,7 @@ import { PostgresCaseStore } from "../store";
 
 const database = setupPerTestDatabase({
 	schema: "migrated",
-	databaseNamePrefix: "case_index_convergence_",
+	databaseNamePrefix: "case_schema_lifecycle_",
 });
 const APP_ID = "schema-lifecycle-app";
 const PROJECT_ID = "schema-lifecycle-project";

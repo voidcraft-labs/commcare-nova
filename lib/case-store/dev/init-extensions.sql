@@ -6,10 +6,10 @@
 -- migrate runner (a non-superuser, which can't CREATE EXTENSION) applies only
 -- the schema migrations afterward.
 --
--- The compiler stack depends on all three (see lib/case-store/CLAUDE.md →
--- "Required Postgres extensions"):
---   pg_trgm        match(mode: fuzzy)        — text GIN gin_trgm_ops opclass
---   fuzzystrmatch  match(mode: phonetic)     — dmetaphone / soundex
+-- Provision the compiler and historical migration dependencies (see
+-- lib/case-store/CLAUDE.md → "Required Postgres extensions"):
+--   pg_trgm        historical expression-index retirement and migration proofs
+--   fuzzystrmatch  fuzzy and phonetic matching — levenshtein / dmetaphone / soundex
 --   postgis        match(mode: within-distance) — ST_GeogFromText + ST_DWithin
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;

@@ -98,10 +98,8 @@ const OWNER_A = "owner-a";
 const OWNER_B = "owner-b";
 
 /** The final store never creates property expression indexes. */
-async function readPropertyIndexes(
+async function readCaseExpressionIndexes(
 	pool: import("pg").Pool,
-	_appId: string,
-	_caseType: string,
 ): Promise<{ name: string; def: string }[]> {
 	const result = await pool.query<{ name: string; def: string }>(
 		"SELECT c.relname AS name,pg_get_indexdef(c.oid) AS def FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='cases'::regclass AND i.indexprs IS NOT NULL ORDER BY c.relname",
@@ -131,7 +129,7 @@ function buildSchemaMap(caseType: CaseType): ReadonlyMap<string, CaseType> {
 /**
  * Construct a `PostgresCaseStore` for the supplied Project against the
  * per-test database. `actorUserId` (the `owner_id` stamped on inserts)
- * defaults to the Project id — these index-DDL tests are app-scoped and
+ * defaults to the Project id — these store tests are app-scoped and
  * don't exercise the actor axis. Keeping this in one helper keeps every
  * test below to a single line of setup before the meaningful
  * assertions.
@@ -476,9 +474,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 			[APP_ID, "patient"],
 		);
 		expect(stored.rows[0]?.schema.properties).toEqual({});
-		expect(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).toEqual(
-			[],
-		);
+		expect(await readCaseExpressionIndexes(dbHandle.pool)).toEqual([]);
 
 		await store.insert({
 			appId: APP_ID,
@@ -574,7 +570,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap(initial),
 		});
-		const before = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
+		const before = await readCaseExpressionIndexes(dbHandle.pool);
 		expect(before).toEqual([]);
 
 		const retyped: CaseType = {
@@ -591,7 +587,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 			change: { kind: "retype", fromType: "int", toType: "decimal" },
 		});
 
-		const after = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
+		const after = await readCaseExpressionIndexes(dbHandle.pool);
 		expect(after).toEqual([]);
 
 		const { caseId } = await store.insert({
@@ -605,9 +601,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 		});
 		expect(caseId).toBe("40000000-0000-0000-0000-000000000001");
 
-		// The fractional value round-trips through the JSONB document
-		// unchanged — the `::numeric` cast lives in the index
-		// expression, not in the stored value.
+		// The fractional value round-trips through the JSONB document unchanged.
 		const rows = await store.query({
 			reading: SEARCH_READING,
 			appId: APP_ID,
@@ -629,9 +623,8 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 			caseTypeSchemas: buildSchemaMap(initial),
 		});
 
-		// Insert a castable row + a non-castable row. The trgm index
-		// happily indexes both — text values fit the gin_trgm_ops
-		// shape regardless of whether they look numeric.
+		// Both values satisfy the initial text schema, but only one can be
+		// retained as an integer when the schema changes.
 		await store.insert({
 			appId: APP_ID,
 			row: {
@@ -667,7 +660,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 		expect(report.migrated).toBe(2);
 		expect(report.parkedIds).toHaveLength(1);
 
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
+		const indexes = await readCaseExpressionIndexes(dbHandle.pool);
 		expect(indexes).toEqual([]);
 	});
 
@@ -732,7 +725,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 	it("Schema change rolls back atomically on per-row migration failure: schema row stays unchanged", async () => {
 		// Sabotage the second `applySchemaChange` call by removing
 		// `parked_case_values` from the database mid-flight — the
-		// retype's park INSERT fails, and Phase A's transaction rolls
+		// retype's park INSERT fails, and the schema transaction rolls
 		// back the new schema UPSERT alongside the failed migration.
 		// The probe verifies the schema row is preserved at its
 		// pre-call shape.
@@ -776,7 +769,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 		).rejects.toMatchObject({ code: "42P01" });
 
 		// The schema row in `case_type_schemas` still carries the
-		// pre-call (text) shape because Phase A rolled back. Probe
+		// pre-call (text) shape because the transaction rolled back. Probe
 		// the row directly — the store's `query` would surface the
 		// shape only indirectly.
 		const schemaRow = await dbHandle.pool.query<{ schema: unknown }>(
@@ -790,7 +783,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 		};
 		expect(schema.properties.age.type).toBe("string");
 
-		// The row's properties are also untouched. Phase A's
+		// The row's properties are also untouched. The
 		// per-row migration would have dropped the row's
 		// `properties.age` into the park; the rollback returns it to
 		// the pre-call value. Asserting the JSONB document confirms
@@ -830,30 +823,10 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 			[APP_ID, "patient"],
 		);
 		expect(schema.rows[0]?.count).toBe("0");
-		expect(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).toEqual(
-			[],
-		);
+		expect(await readCaseExpressionIndexes(dbHandle.pool)).toEqual([]);
 	});
 
-	// -----------------------------------------------------------
-	// Pre-flight identifier validation — runs BEFORE Phase A opens
-	// -----------------------------------------------------------
-
-	// -----------------------------------------------------------
-	// INVALID-index recovery — drop-and-recreate on next retry
-	// -----------------------------------------------------------
-
-	// -----------------------------------------------------------
-	// The catalog read resolves `cases` through the search path
-	// -----------------------------------------------------------
-
-	// -----------------------------------------------------------
-	// Additive (no-`change`) call still emits indexes
-	// -----------------------------------------------------------
-
-	// -----------------------------------------------------------
-	// Tenant scope — index DDL is shared across owners
-	// -----------------------------------------------------------
+	// Tenant-scoped schema and row semantics remain independent.
 
 	it("two apps sharing a case-type + property name with different data_types stay independent", async () => {
 		const store = makeStore(OWNER_A);
@@ -884,14 +857,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 			}),
 		});
 
-		const aNames = (
-			await readPropertyIndexes(dbHandle.pool, appA, "patient")
-		).map((i) => i.name);
-		const bNames = (
-			await readPropertyIndexes(dbHandle.pool, appB, "patient")
-		).map((i) => i.name);
-		expect(aNames).toEqual([]);
-		expect(bNames).toEqual([]);
+		expect(await readCaseExpressionIndexes(dbHandle.pool)).toEqual([]);
 
 		await store.insert({
 			appId: appB,
@@ -902,7 +868,7 @@ describe("PostgresCaseStore — atomic case schema changes", () => {
 				properties: { weight: 17.01 },
 			},
 		});
-		// App A inserts an integer weight against its own index.
+		// App A inserts an integer weight against its own property schema.
 		await store.insert({
 			appId: appA,
 			row: {
@@ -1567,13 +1533,10 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 // int4 range — AJV's acceptance set matches the `::integer` cast
 // ---------------------------------------------------------------
 //
-// `int` compiles to Postgres `integer` (int4). A bare `{ type:
-// "integer" }` JSON Schema accepts any integer, but the write-side
-// expression index's `(properties->>'k')::integer` cast rejects
-// anything outside int4's signed-32-bit range with a raw
-// `integer out of range` error at INSERT — the same "AJV accepts,
-// the cast rejects" class as a fractional value under an int index.
-// The schema's int4 bound closes that gap.
+// `int` predicates compile to Postgres `integer` (int4). A bare integer
+// JSON Schema accepts values outside the query cast's signed-32-bit range.
+// Write-time int4 bounds keep admitted rows readable by compiled predicates;
+// invalid input must be refused as a typed value error before persistence.
 
 describe("PostgresCaseStore — int property range validation", () => {
 	it("rejects an out-of-int4 value as a typed error, but admits the int4 boundary", async () => {
@@ -1602,7 +1565,7 @@ describe("PostgresCaseStore — int property range validation", () => {
 
 		// int4 max + 1 is rejected by AJV as a typed
 		// `CasePropertiesValidationError` BEFORE reaching Postgres —
-		// not a raw `integer out of range` 500 from the index cast.
+		// not a raw `integer out of range` failure when a query casts the value.
 		await expect(
 			store.insert({
 				appId: APP_ID,
@@ -1746,11 +1709,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			),
 			syncedSeq: 5,
 		});
-		const indexesBefore = await readPropertyIndexes(
-			dbHandle.pool,
-			SEQ_APP,
-			"patient",
-		);
+		const indexesBefore = await readCaseExpressionIndexes(dbHandle.pool);
 		expect(indexesBefore).toHaveLength(0);
 
 		await store.applySchemaChange({
@@ -1765,11 +1724,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			syncedSeq: 5,
 			properties: ["name", "village"],
 		});
-		const indexesAfter = await readPropertyIndexes(
-			dbHandle.pool,
-			SEQ_APP,
-			"patient",
-		);
+		const indexesAfter = await readCaseExpressionIndexes(dbHandle.pool);
 		expect(indexesAfter.map((i) => i.name)).toEqual(
 			indexesBefore.map((i) => i.name),
 		);
@@ -1843,7 +1798,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			expect(row.syncedSeq).toBe(3);
 			expect(row.properties.sort()).toEqual(["name", "village"]);
 			expect(
-				(await readPropertyIndexes(dbHandle.pool, SEQ_APP, "patient"))
+				(await readCaseExpressionIndexes(dbHandle.pool))
 					.map((i) => i.name)
 					.sort(),
 			).toEqual([]);
