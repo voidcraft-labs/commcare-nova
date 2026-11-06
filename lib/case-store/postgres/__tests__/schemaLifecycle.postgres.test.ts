@@ -23,8 +23,8 @@ const database = setupPerTestDatabase({
 	schema: "migrated",
 	databaseNamePrefix: "case_index_convergence_",
 });
-const APP_ID = "index-convergence-app";
-const PROJECT_ID = "index-convergence-project";
+const APP_ID = "schema-lifecycle-app";
+const PROJECT_ID = "schema-lifecycle-project";
 
 function db(): Kysely<Database> {
 	return database.db as unknown as Kysely<Database>;
@@ -33,8 +33,8 @@ function db(): Kysely<Database> {
 function store(): PostgresCaseStore {
 	return new PostgresCaseStore({
 		projectId: PROJECT_ID,
-		actorUserId: "index-convergence-actor",
-		ownerId: "index-convergence-actor",
+		actorUserId: "schema-lifecycle-actor",
+		ownerId: "schema-lifecycle-actor",
 		db: db(),
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -59,8 +59,8 @@ beforeEach(async () => {
 		INSERT INTO apps
 			(id, owner, project_id, app_name, app_name_lower)
 		VALUES
-			(${APP_ID}, 'index-convergence-actor', ${PROJECT_ID},
-			 'Index convergence', 'index convergence')
+			(${APP_ID}, 'schema-lifecycle-actor', ${PROJECT_ID},
+			 'Schema lifecycle', 'schema lifecycle')
 	`.execute(database.db);
 });
 
@@ -89,7 +89,7 @@ describe("case-schema lifecycle and drift repair", () => {
 		const desired = toPersistableDoc(
 			buildDoc({
 				appId: APP_ID,
-				appName: "Index convergence",
+				appName: "Schema lifecycle",
 				caseTypes: [
 					{
 						name: "patient",
@@ -303,7 +303,7 @@ describe("case-schema lifecycle and drift repair", () => {
 		expect(
 			await caseStore.count({
 				appId: APP_ID,
-				ownerId: "index-convergence-actor",
+				ownerId: "schema-lifecycle-actor",
 			}),
 		).toBe(1);
 

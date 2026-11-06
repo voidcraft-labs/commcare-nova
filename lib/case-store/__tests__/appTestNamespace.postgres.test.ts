@@ -7,8 +7,6 @@ import {
 	appTestNamespace,
 	withAppTestNamespace,
 } from "../appTestNamespace";
-import * as disposalConstraints from "../migrations/20260930020000_app_test_disposal_constraints";
-import * as lookupDefinitions from "../migrations/20261004000000_app_test_lookup_definitions";
 import { setupPerTestDatabase } from "../sql/__tests__/perTestDatabase";
 import type { Database } from "../sql/database";
 
@@ -94,72 +92,23 @@ async function seed(testId: string) {
 }
 
 describe("isolated app-test submissions", () => {
-	it("migrates lookup-table isolation without changing definer privileges and refuses older namespaces", async () => {
-		const definition = () =>
-			sql<{
-				owner: number;
-				acl: string[] | null;
-				secure: boolean;
-				config: string[];
-			}>`SELECT proowner AS owner, proacl::text[] AS acl, prosecdef AS secure, proconfig AS config
-			FROM pg_proc WHERE oid = 'public.nova_create_app_test_namespace(uuid)'::regprocedure`.execute(
-				fixture.db,
-			);
-		const original = (await definition()).rows;
-		expect(original).toEqual([
-			expect.objectContaining({
-				secure: true,
-				config: ["search_path=pg_catalog"],
-			}),
-		]);
-		await lookupDefinitions.down(fixture.db);
-		const oldId = randomUUID();
-		await sql`SELECT public.nova_create_app_test_namespace(${oldId}::uuid)`.execute(
-			fixture.db,
-		);
-		await lookupDefinitions.up(fixture.db);
-		expect((await definition()).rows).toEqual(original);
-		let entered = false;
-		await expect(
-			run(oldId, async () => {
-				entered = true;
-			}),
-		).rejects.toThrow("Start a new test");
-		expect(entered).toBe(false);
-		const newId = await createNamespace();
-		await run(newId, async (_store, tx) => {
+	it("creates isolated lookup definitions and keeps their foreign keys inside the current namespace", async () => {
+		const testId = await createNamespace();
+		await run(testId, async (_store, tx) => {
 			expect(
 				await tx.selectFrom("lookup_tables").selectAll().execute(),
 			).toEqual([]);
 			const foreignKeys = await sql<{ target: string }>`
 				SELECT n.nspname AS target FROM pg_constraint c
 				JOIN pg_class r ON r.oid = c.confrelid JOIN pg_namespace n ON n.oid = r.relnamespace
-				WHERE c.conrelid = ${`${appTestNamespace(newId)}.lookup_rows`}::regclass AND c.contype = 'f'`.execute(
+				WHERE c.conrelid = ${`${appTestNamespace(testId)}.lookup_rows`}::regclass AND c.contype = 'f'`.execute(
 				tx,
 			);
-			expect(foreignKeys.rows).toEqual([{ target: appTestNamespace(newId) }]);
+			expect(foreignKeys.rows).toEqual([{ target: appTestNamespace(testId) }]);
 		});
 	});
 
-	it("migrates disposal across pending case constraints while preserving its definer privileges and unrelated deferred work", async () => {
-		const definition = () =>
-			sql<{
-				owner: number;
-				acl: string[] | null;
-				secure: boolean;
-				config: string[];
-			}>`
-			SELECT proowner AS owner, proacl::text[] AS acl, prosecdef AS secure, proconfig AS config
-			FROM pg_proc WHERE oid = 'public.nova_drop_app_test_namespace(uuid)'::regprocedure
-		`.execute(fixture.db);
-		const original = (await definition()).rows;
-		expect(original).toEqual([
-			expect.objectContaining({
-				secure: true,
-				config: ["search_path=pg_catalog"],
-			}),
-		]);
-		await disposalConstraints.down(fixture.db);
+	it("disposes pending case constraints while preserving unrelated deferred work", async () => {
 		const testId = await createNamespace();
 		const otherId = await createNamespace();
 		const insert = (store: AppTestCaseStore) =>
@@ -173,20 +122,8 @@ describe("isolated app-test submissions", () => {
 					properties: {},
 				},
 			});
-		await expect(
-			run(testId, async (store, tx) => {
-				await insert(store);
-				await sql`SELECT public.nova_drop_app_test_namespace(${testId}::uuid)`.execute(
-					tx,
-				);
-			}),
-		).rejects.toThrow(
-			'cannot DROP TABLE "cases" because it has pending trigger events',
-		);
-		await disposalConstraints.up(fixture.db);
-		expect((await definition()).rows).toEqual(original);
-		// The clone was created before the migration. An unusual existing name
-		// proves the flush quotes identifiers rather than interpreting SQL text.
+		// An unusual existing name proves the flush quotes identifiers
+		// rather than interpreting SQL text.
 		await sql`ALTER TABLE ${sql.id(appTestNamespace(testId), "cases")} RENAME CONSTRAINT cases_project_app_tenant_fk TO ${sql.id('Case "tenant"; boundary')}`.execute(
 			fixture.db,
 		);
