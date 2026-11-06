@@ -35,15 +35,12 @@ const emptyReport = {
 	failureReasons: [],
 };
 const applySchemaChange = vi.fn<CaseStore["applySchemaChange"]>();
-const drain = vi.fn<() => Promise<void>>();
 
 beforeEach(() => {
 	vi.useFakeTimers();
 	applySchemaChange.mockReset().mockResolvedValue(emptyReport);
-	drain.mockReset().mockResolvedValue(undefined);
 	withSchemaContext.mockReset().mockResolvedValue({
 		applySchemaChange,
-		drainPendingIndexConvergence: drain,
 	});
 });
 afterEach(() => vi.useRealTimers());
@@ -120,19 +117,5 @@ describe("schema materialization orchestration", () => {
 		expect(applySchemaChange.mock.calls.map(([args]) => args.caseType)).toEqual(
 			["a", "a", "b", "c", "commcare-user", "commcare-case-claim"],
 		);
-	});
-
-	it("surfaces a pending-index drain failure before attempting schema writes", async () => {
-		const fault = Object.assign(new Error("index drain unavailable"), {
-			code: "ECONNRESET",
-		});
-		drain.mockRejectedValue(fault);
-		const completed = expect(
-			materializeCaseStoreSchemas({ appId: "app", blueprint }),
-		).rejects.toBe(fault);
-		await vi.runAllTimersAsync();
-		await completed;
-		expect(drain).toHaveBeenCalledTimes(3);
-		expect(applySchemaChange).not.toHaveBeenCalled();
 	});
 });

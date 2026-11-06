@@ -1,12 +1,12 @@
 import { type Kysely, sql } from "kysely";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database, JsonObject } from "../../sql/database";
 import { CasePropertyRenameStorageConflictError } from "../../store";
-import { indexScopeTag, PostgresCaseStore, propertyIndexTag } from "../store";
+import { PostgresCaseStore } from "../store";
 
 const database = setupPerTestDatabase({
 	schema: "migrated",
@@ -104,10 +104,10 @@ describe("explicit case-property rename storage", () => {
 			{ name: "c", label: proseText("B"), data_type: "int" },
 			{ name: "untouched", label: proseText("Untouched"), data_type: "text" },
 		]);
-		const phase = await db()
+		await db()
 			.transaction()
 			.execute((tx) =>
-				caseStore.applyCasePropertyRenamePhaseA(tx, {
+				caseStore.applyCasePropertyRenameInTransaction(tx, {
 					appId: APP_ID,
 					desiredSeq: 1,
 					caseTypeSchemas: latest,
@@ -117,7 +117,6 @@ describe("explicit case-property rename storage", () => {
 					],
 				}),
 			);
-		await phase.completeAfterCommit();
 
 		const liveAfter = await db()
 			.selectFrom("cases")
@@ -140,7 +139,7 @@ describe("explicit case-property rename storage", () => {
 		]);
 		const schema = await db()
 			.selectFrom("case_type_schemas")
-			.select(["schema", "index_pending_seq", "index_synced_seq"])
+			.select(["schema", "synced_seq"])
 			.where("app_id", "=", APP_ID)
 			.where("case_type", "=", "patient")
 			.executeTakeFirstOrThrow();
@@ -150,68 +149,7 @@ describe("explicit case-property rename storage", () => {
 		expect((schema.schema.properties as JsonObject).c).toMatchObject({
 			type: "integer",
 		});
-		expect(schema.index_pending_seq).toBeNull();
-		expect(Number(schema.index_synced_seq)).toBe(1);
-	});
-
-	it("a delayed older Phase B converges the latest committed schema", async () => {
-		const caseStore = store();
-		const a = schemas([{ name: "a", label: proseText("A"), data_type: "int" }]);
-		await caseStore.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: a,
-			syncedSeq: 0,
-		});
-
-		const b = schemas([{ name: "b", label: proseText("A"), data_type: "int" }]);
-		const phaseN = await db()
-			.transaction()
-			.execute((tx) =>
-				caseStore.applyCasePropertyRenamePhaseA(tx, {
-					appId: APP_ID,
-					desiredSeq: 1,
-					caseTypeSchemas: b,
-					entries: [{ caseType: "patient", from: "a", to: "b" }],
-				}),
-			);
-		const c = schemas([
-			{ name: "c", label: proseText("A"), data_type: "decimal" },
-		]);
-		await db()
-			.transaction()
-			.execute((tx) =>
-				caseStore.applyCasePropertyRenamePhaseA(tx, {
-					appId: APP_ID,
-					desiredSeq: 2,
-					caseTypeSchemas: c,
-					entries: [{ caseType: "patient", from: "b", to: "c" }],
-				}),
-			);
-
-		await phaseN.completeAfterCommit();
-		const state = await db()
-			.selectFrom("case_type_schemas")
-			.select(["index_pending_seq", "index_synced_seq"])
-			.where("app_id", "=", APP_ID)
-			.where("case_type", "=", "patient")
-			.executeTakeFirstOrThrow();
-		expect(state.index_pending_seq).toBeNull();
-		expect(Number(state.index_synced_seq)).toBe(2);
-
-		const indexes = await database.pool.query<{
-			indexname: string;
-			indexdef: string;
-		}>(
-			"SELECT indexname,indexdef FROM pg_indexes WHERE tablename='cases' AND starts_with(indexname,$1)",
-			[`cases_${indexScopeTag(APP_ID, "patient")}_`],
-		);
-		expect(indexes.rows).toEqual([
-			{
-				indexname: `cases_${indexScopeTag(APP_ID, "patient")}_${propertyIndexTag("c")}_num`,
-				indexdef: expect.stringMatching(/->> 'c'.*::numeric/),
-			},
-		]);
+		expect(Number(schema.synced_seq)).toBe(1);
 	});
 
 	it("moves a three-way cycle simultaneously across live and parked values", async () => {
@@ -249,10 +187,10 @@ describe("explicit case-property rename storage", () => {
 				 'patient', 'c', '"park-c"'::jsonb, 'c', 'text', 'text')
 		`.execute(database.db);
 
-		const phase = await db()
+		await db()
 			.transaction()
 			.execute((tx) =>
-				caseStore.applyCasePropertyRenamePhaseA(tx, {
+				caseStore.applyCasePropertyRenameInTransaction(tx, {
 					appId: APP_ID,
 					desiredSeq: 1,
 					caseTypeSchemas: initial,
@@ -263,7 +201,6 @@ describe("explicit case-property rename storage", () => {
 					],
 				}),
 			);
-		await phase.completeAfterCommit();
 
 		expect(
 			(
@@ -283,66 +220,6 @@ describe("explicit case-property rename storage", () => {
 					.execute()
 			).map((row) => row.property),
 		).toEqual(["b", "c", "a"]);
-	});
-
-	it("leaves rename index work pending after Phase-B failure and a later drain retries it", async () => {
-		const caseStore = store();
-		const initial = schemas([
-			{ name: "a", label: proseText("A"), data_type: "text" },
-		]);
-		await caseStore.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: initial,
-			syncedSeq: 0,
-		});
-		const renamed = schemas([
-			{ name: "b", label: proseText("B"), data_type: "text" },
-		]);
-		const phase = await db()
-			.transaction()
-			.execute((tx) =>
-				caseStore.applyCasePropertyRenamePhaseA(tx, {
-					appId: APP_ID,
-					desiredSeq: 1,
-					caseTypeSchemas: renamed,
-					entries: [{ caseType: "patient", from: "a", to: "b" }],
-				}),
-			);
-
-		type PrivateSync = (args: unknown) => Promise<void>;
-		const privateStore = caseStore as unknown as {
-			syncExpressionIndexes: PrivateSync;
-		};
-		const syncSpy = vi
-			.spyOn(privateStore, "syncExpressionIndexes")
-			.mockRejectedValueOnce(new Error("injected rename Phase-B failure"));
-		await expect(phase.completeAfterCommit()).rejects.toThrow(
-			"injected rename Phase-B failure",
-		);
-		expect(
-			Number(
-				(
-					await db()
-						.selectFrom("case_type_schemas")
-						.select("index_pending_seq")
-						.where("app_id", "=", APP_ID)
-						.where("case_type", "=", "patient")
-						.executeTakeFirstOrThrow()
-				).index_pending_seq,
-			),
-		).toBe(1);
-
-		syncSpy.mockRestore();
-		await caseStore.drainPendingIndexConvergence({ appId: APP_ID });
-		const state = await db()
-			.selectFrom("case_type_schemas")
-			.select(["index_pending_seq", "index_synced_seq"])
-			.where("app_id", "=", APP_ID)
-			.where("case_type", "=", "patient")
-			.executeTakeFirstOrThrow();
-		expect(state.index_pending_seq).toBeNull();
-		expect(Number(state.index_synced_seq)).toBe(1);
 	});
 
 	it("treats null live and dismissed parked destinations as occupied and rolls back", async () => {
@@ -370,7 +247,7 @@ describe("explicit case-property rename storage", () => {
 			db()
 				.transaction()
 				.execute((tx) =>
-					caseStore.applyCasePropertyRenamePhaseA(tx, {
+					caseStore.applyCasePropertyRenameInTransaction(tx, {
 						appId: APP_ID,
 						desiredSeq: 1,
 						caseTypeSchemas: renamed,
@@ -409,12 +286,11 @@ describe("explicit case-property rename storage", () => {
 		);
 		const schema = await db()
 			.selectFrom("case_type_schemas")
-			.select(["schema", "index_pending_seq"])
+			.select(["schema"])
 			.where("app_id", "=", APP_ID)
 			.where("case_type", "=", "patient")
 			.executeTakeFirstOrThrow();
 		expect(Object.keys(schema.schema.properties as JsonObject)).toContain("a");
-		expect(schema.index_pending_seq).toBeNull();
 	});
 
 	it.each([
@@ -464,7 +340,7 @@ describe("explicit case-property rename storage", () => {
 			dropped: false,
 		},
 	])(
-		"drops only unsafe cast-bearing destination indexes: $name",
+		"renames across differing property types atomically: $name",
 		async (fixture) => {
 			const caseStore = store();
 			const initial = schemas([
@@ -509,11 +385,10 @@ describe("explicit case-property rename storage", () => {
 					data_type: fixture.oldDestinationType,
 				},
 			]);
-			const staleIndex = `cases_${indexScopeTag(APP_ID, "patient")}_${propertyIndexTag("b")}_${fixture.oldSuffix}`;
-			const { phase, stalePresent } = await db()
+			await db()
 				.transaction()
-				.execute(async (tx) => {
-					const phase = await caseStore.applyCasePropertyRenamePhaseA(tx, {
+				.execute((tx) =>
+					caseStore.applyCasePropertyRenameInTransaction(tx, {
 						appId: APP_ID,
 						desiredSeq: 1,
 						caseTypeSchemas: latest,
@@ -521,81 +396,17 @@ describe("explicit case-property rename storage", () => {
 							{ caseType: "patient", from: "a", to: "b" },
 							{ caseType: "patient", from: "b", to: "c" },
 						],
-					});
-					const probe = await sql<{ present: boolean }>`
-						SELECT to_regclass(${staleIndex}) IS NOT NULL AS present
-					`.execute(tx);
-					return {
-						phase,
-						stalePresent: probe.rows[0]?.present ?? false,
-					};
-				});
-			expect(stalePresent).toBe(!fixture.dropped);
-			await phase.completeAfterCommit();
+					}),
+				);
+			const row = await db()
+				.selectFrom("cases")
+				.select("properties")
+				.where("case_id", "=", "case-index-safety")
+				.executeTakeFirstOrThrow();
+			expect(row.properties).toEqual({
+				b: fixture.sourceValue,
+				c: fixture.destinationValue,
+			});
 		},
 	);
-
-	it("a delayed old drop completion preserves a newer recreated schema index", async () => {
-		const caseStore = store();
-		const initial = schemas([
-			{ name: "a", label: proseText("A"), data_type: "text" },
-		]);
-		await caseStore.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: initial,
-			syncedSeq: 1,
-		});
-
-		type PrivateDrain = (appId: string, caseType: string) => Promise<void>;
-		const privateStore = caseStore as unknown as {
-			drainPendingIndexConvergenceForType: PrivateDrain;
-		};
-		const original =
-			privateStore.drainPendingIndexConvergenceForType.bind(caseStore);
-		const dropPaused = Promise.withResolvers<void>();
-		const phaseBReached = Promise.withResolvers<void>();
-		const spy = vi
-			.spyOn(privateStore, "drainPendingIndexConvergenceForType")
-			.mockImplementationOnce(async (appId, caseType) => {
-				phaseBReached.resolve();
-				await dropPaused.promise;
-				await original(appId, caseType);
-			});
-		const oldDrop = caseStore.purgeSchemaForMaintenance({
-			appId: APP_ID,
-			caseType: "patient",
-		});
-		const settled = Promise.allSettled([oldDrop]);
-		try {
-			await Promise.race([
-				phaseBReached.promise,
-				oldDrop.then(() => {
-					throw new Error("Drop finished before its Phase-B pause");
-				}),
-			]);
-			const recreated = schemas([
-				{ name: "new_value", label: proseText("New"), data_type: "decimal" },
-			]);
-			await caseStore.applySchemaChange({
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: recreated,
-				syncedSeq: 2,
-			});
-			dropPaused.resolve();
-			await oldDrop;
-			const expected = `cases_${indexScopeTag(APP_ID, "patient")}_${propertyIndexTag("new_value")}_num`;
-			const probe = await sql<{
-				present: boolean;
-			}>`SELECT to_regclass(${expected}) IS NOT NULL AS present`.execute(
-				database.db,
-			);
-			expect(probe.rows[0]?.present).toBe(true);
-		} finally {
-			dropPaused.resolve();
-			await settled;
-			spy.mockRestore();
-		}
-	});
 });

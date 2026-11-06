@@ -126,6 +126,8 @@ class JobExecutionTests(unittest.TestCase):
 
     def test_override_operations_are_exact_and_default_to_scan(self):
         operations = [
+            ("commcare-nova-historical-repair", ["case-expression-index-scan.cjs"]),
+            ("commcare-nova-historical-repair", ["case-expression-index-retirement.cjs", "--scan-digest", "a" * 64, "--writers-stopped"]),
             ("commcare-nova-legacy-preplan-repair", ["legacy-preplan-repair.cjs", "--execute"]),
             ("commcare-nova-case-type-schema-retirement", ["schema-drift.cjs", "--execute", "--app", "app_123"]),
             ("commcare-nova-case-parent-relationship-repair",
@@ -137,6 +139,16 @@ class JobExecutionTests(unittest.TestCase):
         for args in (["arbitrary.cjs"], ["migrate.cjs", "--terminate-runtime-sessions-only"], ["migrate.cjs", "--finalize-better-auth-17"]):
             with self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args(JOB, args)
+
+    def test_index_retirement_requires_digest_and_stopped_writer_assertion(self):
+        for args in (
+            ["case-expression-index-retirement.cjs"],
+            ["case-expression-index-retirement.cjs", "--scan-digest", "a" * 64],
+            ["case-expression-index-retirement.cjs", "--scan-digest", "not-a-digest", "--writers-stopped"],
+            ["case-expression-index-retirement.cjs", "--scan-digest", "a" * 64, "--writers-stopped", "--extra"],
+        ):
+            with self.assertRaises(deploy.DeploymentPolicyError):
+                deploy._effective_execution_args("commcare-nova-historical-repair", args)
 
 
 class MigrationAdmissionTests(unittest.TestCase):

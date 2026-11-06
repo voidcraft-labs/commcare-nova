@@ -102,10 +102,6 @@ describe("database privilege convergence contract", () => {
 			classification: "application",
 		});
 		expect(audited).toContainEqual({
-			name: "case_schema_index_deletions",
-			classification: "application",
-		});
-		expect(audited).toContainEqual({
 			name: "media_asset_refs",
 			classification: "application",
 		});
@@ -200,7 +196,6 @@ describe("database privilege convergence contract", () => {
 		expect(REQUIRED_PUBLIC_TABLES).toContain("form_attachments");
 		expect(REQUIRED_PUBLIC_TABLES).toContain("form_attachment_rate_limits");
 		expect(REQUIRED_PUBLIC_TABLES).toContain("form_submission_intents");
-		expect(REQUIRED_PUBLIC_TABLES).toContain("case_schema_index_deletions");
 		expect(AUDIT_SELECT_PUBLIC_TABLES).toContain("app_change_fold_baselines");
 		expect(AUDIT_SELECT_PUBLIC_TABLES).toContain("lookup_column_references");
 		expect(AUDIT_SELECT_PUBLIC_TABLES).toContain("run_summaries");

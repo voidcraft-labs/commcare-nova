@@ -341,8 +341,7 @@ lookup definitions, evaluates the absolute verdict, checks full export
 readiness, applies organization cross-store integrity, admits media references,
 replaces exact edges, admits runtime
 case schemas (every type in `buildCaseTypeMap`, including the built-in worker
-case for survey-only apps; `applySchemaChangePhaseA` at synced seq 1; concurrent index
-work drains post-commit off `index_pending_seq`), and inserts entity rows,
+case for survey-only apps; `applySchemaChangeInTransaction` at synced seq 1), and inserts entity rows,
 the sequence-one `fold-baseline` change, and immutable baseline atomically.
 `createExplicitBlankApp` (the Builder blank-app action) births the canonical
 survey starter `complete`. Agent authoring, including MCP `begin_work`, stays
@@ -457,7 +456,8 @@ them, and cannot create in `public`, so the trigger is backed by a privilege
 boundary.
 Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
-`CREATE` only in that isolated case schema for concurrent index DDL.
+only `USAGE` on that isolated case schema; index DDL belongs to migrations or
+explicit maintenance.
 
 Privilege convergence reads catalog ownership before issuing `ALTER OWNER`.
 An already-correct owner must not request an exclusive table lock: the old
@@ -497,15 +497,13 @@ read-only before opening the scanner's transaction.
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
 Explicit `renameCaseProperties` saves and case-type removals compose their
-dedicated case-schema/data Phase A through the guarded writer's `beforeWrite`
+dedicated case-schema/data operations through the guarded writer's `beforeWrite`
 seam. A removal marks the durable schema inactive at the same mutation sequence
-without deleting retained case data; its concurrent expression-index cleanup is
-post-commit retryable work. Fresh Blueprint
+without deleting retained case data. Fresh Blueprint
 admission, Project authorization, all live and parked row collision checks and
 moves, Blueprint persistence, and the accepted event share one app-locked
 transaction. Any correctness-bearing failure rolls the whole transaction back.
-Only concurrent-index Phase B runs after commit; it is idempotent derived work
-tracked by durable convergence state.
+Physical case indexes are fixed infrastructure; authoring never issues index DDL.
 
 
 Run generation is holder identity. `runLeaseState` derives it: edit is

@@ -898,16 +898,6 @@ export interface ResetSampleDataArgs {
 }
 
 /**
- * The result prepared by schema/data Phase A plus its post-commit
- * concurrent-index completion. The token becomes durable only when the caller's
- * transaction commits; `completeAfterCommit` must run after that point.
- */
-export interface PreparedSchemaChangePhaseB {
-	readonly report: MigrationReport;
-	readonly completeAfterCommit: () => Promise<void>;
-}
-
-/**
  * One guarded Blueprint commit's case-type retirement plan. The caller passes
  * a fallback materializable catalog so Phase A can preserve a contract even
  * when an older post-commit materialization never created the schema row. The
@@ -919,15 +909,6 @@ export interface ApplyCaseTypeSchemaRetirementArgs {
 	readonly desiredSeq: number;
 	readonly caseTypes: readonly string[];
 	readonly fallbackCaseTypeSchemas: ReadonlyMap<string, CaseType>;
-}
-
-/**
- * Retirement's durable state is complete in Phase A. Phase B only converges
- * expression indexes to the inactive type's empty desired set.
- */
-export interface PreparedCaseTypeSchemaRetirementPhaseB {
-	readonly caseTypes: readonly string[];
-	readonly completeAfterCommit: () => Promise<void>;
 }
 
 export interface CasePropertyRenameEntry {
@@ -949,16 +930,6 @@ export interface CasePropertyRenameReport {
 	/** Parked values relabeled, including dismissed entries. */
 	readonly renamedParkedValues: number;
 	readonly caseTypes: readonly string[];
-}
-
-export interface PreparedCasePropertyRenamePhaseB {
-	readonly report: CasePropertyRenameReport;
-	/**
-	 * Correctness-neutral expression-index convergence. The row, parked-value,
-	 * schema, Blueprint, and accepted-mutation changes are already one durable
-	 * transaction before this runs.
-	 */
-	readonly completeAfterCommit: () => Promise<void>;
 }
 
 export class CasePropertyRenameStorageConflictError extends Error {
@@ -989,20 +960,9 @@ export interface SchemaCaseStore {
 	 * Sync the case-type's JSON Schema with the supplied prospective
 	 * `caseTypeSchemas` map, optionally running a per-row migration.
 	 *
-	 * Two-phase shape — Phase A is one Kysely transaction that
-	 * UPSERTs `case_type_schemas`, runs the detected per-property
-	 * transitions, and runs the optional per-row migration
-	 * (`retype` / `narrow-options`); Phase B runs after
-	 * Phase A commits and emits the per-property expression-index
-	 * `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` diff.
-	 * Phase B cannot share the Phase A transaction because
-	 * non-CONCURRENTLY index builds scan the dead pre-migration
-	 * tuples the per-row UPDATEs leave in the heap, and CONCURRENTLY
-	 * index builds reject any outer transaction.
-	 *
-	 * Phase B failure leaves the next call's diff to converge —
-	 * INVALID indexes flow through both `drops` and `creates` so a
-	 * retry rebuilds them from scratch. Recovery is idempotent.
+	 * Schema admission and every data migration commit in one transaction.
+	 * Physical case indexes are fixed database infrastructure; authoring does
+	 * not create or reconcile indexes.
 	 *
 	 * App-scoped: the schema row + per-row migration cover all of the
 	 * app's rows for the case type, across every member — a schema
@@ -1048,40 +1008,12 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 	/**
 	 * Atomically retire case-type schemas inside the guarded Blueprint commit.
 	 * Retained case rows are untouched; each schema row becomes inactive at the
-	 * commit's sequence and its indexes become durable pending work.
+	 * commit's sequence.
 	 */
-	retireSchemasPhaseA(
+	retireSchemasInTransaction(
 		tx: Transaction<Database>,
 		args: ApplyCaseTypeSchemaRetirementArgs,
-	): Promise<PreparedCaseTypeSchemaRetirementPhaseB>;
-
-	/**
-	 * Converge durable pending expression-index work from the latest stored
-	 * schema and deletion tombstones for one app. Safe under duplicate and
-	 * out-of-order callers.
-	 */
-	drainPendingIndexConvergence(args: {
-		readonly appId: string;
-		readonly caseTypes?: readonly string[];
-	}): Promise<void>;
-
-	/**
-	 * Force one explicitly named retirement through the empty desired index set,
-	 * even if an older application revision already consumed its pending marker.
-	 * This is a bounded retirement/deploy repair path, never a routine case-data
-	 * operation: inactive lifecycle rows persist forever.
-	 */
-	drainRetiredIndexConvergence(args: {
-		readonly appId: string;
-		readonly caseTypes: readonly string[];
-	}): Promise<void>;
-
-	/**
-	 * Deployment-only global drain. It keeps selecting the durable schema and
-	 * deletion work queues until both are empty, and rejects on any DDL or
-	 * stored-schema fault so the migration Job fails before traffic shifts.
-	 */
-	drainAllPendingIndexConvergence(): Promise<void>;
+	): Promise<readonly string[]>;
 
 	/**
 	 * Apply one explicit, batch-exclusive property-renaming relation.
@@ -1094,20 +1026,18 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 	 * `parked_case_values.property` change, so `modified_on`, dismissal state,
 	 * reasons, original bytes, and all other columns remain exact.
 	 */
-	applyCasePropertyRenamePhaseA(
+	applyCasePropertyRenameInTransaction(
 		tx: Transaction<Database>,
 		args: ApplyCasePropertyRenameArgs,
-	): Promise<PreparedCasePropertyRenamePhaseB>;
+	): Promise<CasePropertyRenameReport>;
 
 	/**
-	 * Apply only the transactional schema/data phase on a caller-owned
-	 * transaction. The returned concurrent-index completion must run after
-	 * `tx` commits successfully.
+	 * Apply schema admission and data migration on a caller-owned transaction.
 	 */
-	applySchemaChangePhaseA(
+	applySchemaChangeInTransaction(
 		tx: Transaction<Database>,
 		args: ApplySchemaChangeArgs,
-	): Promise<PreparedSchemaChangePhaseB>;
+	): Promise<MigrationReport>;
 }
 
 /**

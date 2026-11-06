@@ -63,10 +63,7 @@ import {
 } from "@/lib/commcare/lookup/naming";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
-import {
-	drainPendingCaseSchemaIndexes,
-	materializeCaseStoreSchemas,
-} from "@/lib/db/materializeCaseStoreSchemas";
+import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import type { AppDoc } from "@/lib/db/types";
 import {
 	caseOperationConditionalGuardUuids,
@@ -2330,14 +2327,6 @@ export async function withSchemaHeal<T>(
 	args: { appId: string },
 	run: () => Promise<T>,
 ): Promise<T> {
-	try {
-		await drainPendingCaseSchemaIndexes(args.appId);
-	} catch (error) {
-		log.warn("[caseDataBinding] pending index convergence failed", {
-			appId: args.appId,
-			error,
-		});
-	}
 	try {
 		return await run();
 	} catch (err) {

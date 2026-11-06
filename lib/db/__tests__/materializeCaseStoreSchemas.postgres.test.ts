@@ -267,7 +267,6 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 			});
 		});
 		const throwingStore = {
-			drainPendingIndexConvergence: vi.fn(),
 			applySchemaChange: throwingApply,
 		};
 		withSchemaContextMock.mockImplementationOnce(async () => throwingStore);

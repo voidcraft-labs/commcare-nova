@@ -26,21 +26,9 @@
 //     and the compiled validator is cached per
 //     `(appId, caseType, schemaContent)`. There is no in-database
 //     trigger and no `pg_jsonschema` dependency.
-//   - **`applySchemaChange` is two phases.** Phase A is one Kysely
-//     transaction: UPSERT `case_type_schemas` + run the optional
-//     per-row migration (`rename` / `retype` / `narrow-options`).
-//     Phase B runs after Phase A commits and emits the per-property
-//     expression-index `CREATE INDEX CONCURRENTLY` /
-//     `DROP INDEX CONCURRENTLY` diff. Phase B cannot share Phase A's
-//     transaction — non-CONCURRENTLY index builds heap-scan with
-//     `SnapshotAny` semantics that include the dead tuples a retype's
-//     quarantine inserts + deletes left in the same transaction;
-//     CONCURRENTLY index builds reject any outer transaction.
-//
-// Identifier validation runs synchronously at the top of
-// `applySchemaChange` before Phase A opens. A throw leaves
-// `case_type_schemas` untouched — the database never holds a
-// schema row whose properties cannot all be indexed.
+//   - Schema and row migrations commit atomically. Case indexes are a fixed
+//     fleet-wide set on tenant, app and type identity; authoring properties
+//     never creates DDL or adds planner/lock overhead for other apps.
 
 import { isDeepStrictEqual } from "node:util";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
@@ -56,11 +44,7 @@ import {
 	type Transaction,
 } from "kysely";
 import { v7 as uuidv7 } from "uuid";
-import type {
-	CaseProperty,
-	CasePropertyDataType,
-	CaseType,
-} from "@/lib/domain";
+import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import {
 	CASE_CLAIM_CASE_TYPE,
 	CASE_CLAIM_HOST_INDEX,
@@ -79,7 +63,6 @@ import {
 	schemaForDataType,
 } from "@/lib/domain/expression/jsonSchema";
 import type { RelationPath } from "@/lib/domain/expression/types";
-import { proseText } from "@/lib/domain/prose";
 import {
 	storageDatetimeValue,
 	storageTimeValue,
@@ -93,7 +76,6 @@ import {
 	CaseTypeNotInBlueprintError,
 	ParkedValueNotFoundError,
 	requireClaimCaseIds,
-	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
 } from "../errors";
 import type { SampleCaseGenerator } from "../sample/generator";
@@ -106,7 +88,6 @@ import {
 	compilePredicate,
 	compileRelationPath,
 	expressionContextFor,
-	POSTGRES_CAST_FOR_DATA_TYPE,
 	type PredicateCompileContext,
 	type RestoreScopeQuery,
 } from "../sql";
@@ -126,6 +107,7 @@ import type {
 	CalculatedValue,
 	CaseFilterReading,
 	CaseInsert,
+	CasePropertyRenameReport,
 	CaseRow,
 	CaseRowWithCalculated,
 	CaseStore,
@@ -139,9 +121,6 @@ import type {
 	GroupedQueryResult,
 	MigrationReport,
 	ParkedValueEntry,
-	PreparedCasePropertyRenamePhaseB,
-	PreparedCaseTypeSchemaRetirementPhaseB,
-	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
 	RestoreScope,
@@ -154,13 +133,8 @@ import type {
 	ApplySubmissionArgs,
 	SubmissionEnvelopeResult,
 } from "../submission";
-import {
-	caseSchemaIndexLockScope,
-	indexScopeTag,
-	propertyIndexTag,
-} from "./indexIdentity";
-import { withCaseSchemaIndexDdlLock } from "./schemaIndexLock";
-import { retireCaseTypeSchemasPhaseA } from "./schemaRetirement";
+import { caseSchemaIndexLockScope } from "./indexIdentity";
+import { retireCaseTypeSchemasInTransaction } from "./schemaRetirement";
 import {
 	applyLinkEffect,
 	executeSubmissionEnvelope,
@@ -171,8 +145,6 @@ import {
 	prepareSubmissionReceipt,
 } from "./submissionReceipt";
 import { ajvErrorToCaseFailure } from "./validationFailure";
-
-export { indexScopeTag, propertyIndexTag } from "./indexIdentity";
 
 /**
  * Construction arguments. Production callers go through
@@ -2778,18 +2750,16 @@ export class PostgresCaseStore implements CaseStore {
 	async applySchemaChange(
 		args: ApplySchemaChangeArgs,
 	): Promise<MigrationReport> {
-		const phaseA = await this.db.transaction().execute(async (tx) => {
+		return this.db.transaction().execute(async (tx) => {
 			await this.authorizeSchemaMutation(tx, args.appId);
-			return this.applySchemaChangePhaseA(tx, args);
+			return this.applySchemaChangeInTransaction(tx, args);
 		});
-		await phaseA.completeAfterCommit();
-		return phaseA.report;
 	}
 
-	async applyCasePropertyRenamePhaseA(
+	async applyCasePropertyRenameInTransaction(
 		tx: Transaction<Database>,
 		args: ApplyCasePropertyRenameArgs,
-	): Promise<PreparedCasePropertyRenamePhaseB> {
+	): Promise<CasePropertyRenameReport> {
 		const desiredSeq = safePersistedSequence(
 			args.desiredSeq,
 			`case-property rename sequence for app ${args.appId}`,
@@ -2839,11 +2809,6 @@ export class PostgresCaseStore implements CaseStore {
 					hashtextextended(${caseSchemaIndexLockScope(args.appId, caseType)}, 0)
 				)
 			`.execute(tx);
-			await tx
-				.deleteFrom("case_schema_index_deletions")
-				.where("app_id", "=", args.appId)
-				.where("case_type", "=", caseType)
-				.execute();
 		}
 
 		// App lock is already held by the guarded writer. Lock schemas before
@@ -2914,6 +2879,9 @@ export class PostgresCaseStore implements CaseStore {
 			const priorSchemaRow = priorSchemaRows.find(
 				(row) => row.case_type === caseType,
 			);
+			if (priorSchemaRow !== undefined) {
+				decodeStoredCaseSchema(args.appId, caseType, priorSchemaRow.schema);
+			}
 			if (
 				priorSchemaRow !== undefined &&
 				!priorSchemaRow.is_active &&
@@ -2927,33 +2895,6 @@ export class PostgresCaseStore implements CaseStore {
 					`A stale case-property rename cannot reactivate retired case type ${caseType}.`,
 				);
 			}
-			const priorSchema =
-				priorSchemaRow === undefined
-					? undefined
-					: decodeStoredCaseSchema(args.appId, caseType, priorSchemaRow.schema);
-			const nextType = args.caseTypeSchemas.get(caseType);
-			if (nextType === undefined) {
-				throw new CaseTypeNotInBlueprintError(args.appId, caseType);
-			}
-			const transitions: DetectedRetype[] = [];
-			for (const rename of entriesByCaseType.get(caseType) ?? []) {
-				const oldDestinationType = priorSchema?.dataTypes.get(rename.to);
-				const incomingType =
-					nextType.properties.find((property) => property.name === rename.to)
-						?.data_type ?? "text";
-				if (oldDestinationType !== undefined) {
-					transitions.push({
-						property: rename.to,
-						fromType: oldDestinationType,
-						toType: incomingType,
-					});
-				}
-			}
-			await this.dropStaleNumericIndexes(tx, {
-				appId: args.appId,
-				caseType,
-				transitions,
-			});
 		}
 
 		for (const caseType of caseTypes) {
@@ -2962,7 +2903,6 @@ export class PostgresCaseStore implements CaseStore {
 				throw new CaseTypeNotInBlueprintError(args.appId, caseType);
 			}
 			const schema = caseTypeToJsonSchema(declaration);
-			computeDesiredIndexSet(args.appId, caseType, declaration.properties);
 			await tx
 				.insertInto("case_type_schemas")
 				.values({
@@ -2970,13 +2910,11 @@ export class PostgresCaseStore implements CaseStore {
 					case_type: caseType,
 					schema: JSON.stringify(schema),
 					synced_seq: desiredSeq,
-					index_pending_seq: desiredSeq,
 				})
 				.onConflict((conflict) =>
 					conflict.columns(["app_id", "case_type"]).doUpdateSet({
 						schema: JSON.stringify(schema),
 						synced_seq: desiredSeq,
-						index_pending_seq: desiredSeq,
 					}),
 				)
 				.execute();
@@ -3047,221 +2985,23 @@ export class PostgresCaseStore implements CaseStore {
 		}
 
 		return {
-			report: {
-				renamedRows: caseUpdates.length,
-				renamedParkedValues: parkedUpdates.length,
-				caseTypes,
-			},
-			completeAfterCommit: async () => {
-				await this.drainPendingIndexConvergence({
-					appId: args.appId,
-					caseTypes,
-				});
-			},
+			renamedRows: caseUpdates.length,
+			renamedParkedValues: parkedUpdates.length,
+			caseTypes,
 		};
 	}
 
-	async retireSchemasPhaseA(
+	async retireSchemasInTransaction(
 		tx: Transaction<Database>,
 		args: ApplyCaseTypeSchemaRetirementArgs,
-	): Promise<PreparedCaseTypeSchemaRetirementPhaseB> {
-		const retired = await retireCaseTypeSchemasPhaseA(tx, args);
-		return {
-			caseTypes: retired,
-			completeAfterCommit: async () => {
-				if (retired.length === 0) return;
-				await this.drainRetiredIndexConvergence({
-					appId: args.appId,
-					caseTypes: retired,
-				});
-			},
-		};
+	): Promise<readonly string[]> {
+		return retireCaseTypeSchemasInTransaction(tx, args);
 	}
 
-	async drainPendingIndexConvergence(args: {
-		readonly appId: string;
-		readonly caseTypes?: readonly string[];
-	}): Promise<void> {
-		const pendingSchemas = await this.db
-			.selectFrom("case_type_schemas")
-			.select("case_type")
-			.where("app_id", "=", args.appId)
-			.where("index_pending_seq", "is not", null)
-			.$if(args.caseTypes !== undefined, (query) =>
-				query.where("case_type", "in", [...(args.caseTypes ?? [])]),
-			)
-			.orderBy("case_type")
-			.execute();
-		const pendingDeletions = await this.db
-			.selectFrom("case_schema_index_deletions")
-			.select("case_type")
-			.where("app_id", "=", args.appId)
-			.$if(args.caseTypes !== undefined, (query) =>
-				query.where("case_type", "in", [...(args.caseTypes ?? [])]),
-			)
-			.orderBy("case_type")
-			.execute();
-		const caseTypes = new Set([
-			...pendingSchemas.map((row) => row.case_type),
-			...pendingDeletions.map((row) => row.case_type),
-		]);
-		for (const caseType of [...caseTypes].sort()) {
-			await this.drainPendingIndexConvergenceForType(args.appId, caseType);
-		}
-	}
-
-	async drainRetiredIndexConvergence(args: {
-		readonly appId: string;
-		readonly caseTypes: readonly string[];
-	}): Promise<void> {
-		// Unlike the ordinary pending drain, this deliberately ignores the
-		// marker and rechecks the latest lifecycle state under the advisory lock.
-		// It closes the rollout-overlap window where an older worker can clear the
-		// marker without understanding that an inactive row wants no indexes.
-		for (const caseType of [...new Set(args.caseTypes)].sort()) {
-			await this.drainPendingIndexConvergenceForType(args.appId, caseType);
-		}
-	}
-
-	async drainAllPendingIndexConvergence(): Promise<void> {
-		// A previous application revision can consume an inactive row's pending
-		// seq without understanding that its desired index set is empty. Force
-		// every durable retirement through the current reconciler once before the
-		// ordinary pending loop; this is finite even though retired rows persist.
-		const retired = await this.db
-			.selectFrom("case_type_schemas")
-			.select(["app_id", "case_type"])
-			.where("is_active", "=", false)
-			.orderBy("app_id")
-			.orderBy("case_type")
-			.execute();
-		for (const row of retired) {
-			await this.drainPendingIndexConvergenceForType(row.app_id, row.case_type);
-		}
-		while (true) {
-			const pending = await sql<{ app_id: string; case_type: string }>`
-				SELECT app_id, case_type
-				FROM case_type_schemas
-				WHERE index_pending_seq IS NOT NULL
-				UNION
-				SELECT app_id, case_type
-				FROM case_schema_index_deletions
-				ORDER BY app_id, case_type
-			`.execute(this.db);
-			if (pending.rows.length === 0) return;
-			for (const row of pending.rows) {
-				await this.drainPendingIndexConvergenceForType(
-					row.app_id,
-					row.case_type,
-				);
-			}
-		}
-	}
-
-	private async drainPendingIndexConvergenceForType(
-		appId: string,
-		caseType: string,
-	): Promise<void> {
-		await this.db.connection().execute(async (connection) => {
-			await withCaseSchemaIndexDdlLock(
-				connection,
-				appId,
-				caseType,
-				async () => {
-					const latest = await connection
-						.selectFrom("case_type_schemas")
-						.select(["schema", "is_active", "synced_seq", "index_pending_seq"])
-						.where("app_id", "=", appId)
-						.where("case_type", "=", caseType)
-						.executeTakeFirst();
-					const pendingDeletion = await connection
-						.selectFrom("case_schema_index_deletions")
-						.select("case_type")
-						.where("app_id", "=", appId)
-						.where("case_type", "=", caseType)
-						.executeTakeFirst();
-					if (latest === undefined) {
-						if (pendingDeletion === undefined) return;
-						await this.syncExpressionIndexes({
-							db: connection,
-							appId,
-							caseType,
-							desired: new Map(),
-						});
-						await connection
-							.deleteFrom("case_schema_index_deletions")
-							.where("app_id", "=", appId)
-							.where("case_type", "=", caseType)
-							.execute();
-						return;
-					}
-					if (pendingDeletion !== undefined) {
-						// A schema recreated after a drop is authoritative. Phase A
-						// normally removed this tombstone under the same lock; this
-						// branch also converges a stale Phase-B owner that observed
-						// the recreation after it began.
-						await connection
-							.deleteFrom("case_schema_index_deletions")
-							.where("app_id", "=", appId)
-							.where("case_type", "=", caseType)
-							.execute();
-					}
-					if (latest.is_active && latest.index_pending_seq === null) return;
-					const pendingSeq =
-						latest.index_pending_seq === null
-							? undefined
-							: safePersistedSequence(
-									latest.index_pending_seq,
-									`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
-								);
-					await this.syncExpressionIndexes({
-						db: connection,
-						appId,
-						caseType,
-						desired: latest.is_active
-							? desiredIndexesFromStoredSchema(appId, caseType, latest.schema)
-							: new Map(),
-					});
-					if (pendingSeq !== undefined) {
-						await connection
-							.updateTable("case_type_schemas")
-							.set({
-								index_pending_seq: null,
-								index_synced_seq: pendingSeq,
-							})
-							.where("app_id", "=", appId)
-							.where("case_type", "=", caseType)
-							.where("index_pending_seq", "=", String(pendingSeq))
-							.execute();
-					} else if (!latest.is_active) {
-						// Forced retirement reconciliation can arrive after an older
-						// application revision consumed the marker while retaining the old
-						// desired indexes. The current reconciler has now observed the empty
-						// set, so advance the durable convergence watermark as well as the
-						// physical catalog state.
-						const syncedSeq = safePersistedSequence(
-							latest.synced_seq,
-							`case_type_schemas.synced_seq for forced index convergence ${appId}/${caseType}`,
-						);
-						await connection
-							.updateTable("case_type_schemas")
-							.set({ index_synced_seq: syncedSeq })
-							.where("app_id", "=", appId)
-							.where("case_type", "=", caseType)
-							.where("is_active", "=", false)
-							.where("synced_seq", "=", String(syncedSeq))
-							.where("index_pending_seq", "is", null)
-							.execute();
-					}
-				},
-			);
-		});
-	}
-
-	async applySchemaChangePhaseA(
+	async applySchemaChangeInTransaction(
 		tx: Transaction<Database>,
 		args: ApplySchemaChangeArgs,
-	): Promise<PreparedSchemaChangePhaseB> {
+	): Promise<MigrationReport> {
 		// `change` (a per-row migration) and `syncedSeq` (the monotone additive
 		// gate) are mutually exclusive: the migration path runs pre-commit with
 		// no committed seq, the additive path carries a seq and no migration. If
@@ -3292,12 +3032,6 @@ export class PostgresCaseStore implements CaseStore {
 		}
 		const schema = caseTypeToJsonSchema(caseType);
 
-		// Pre-flight: compute the desired index set BEFORE Phase A
-		// opens. `indexName` throws on identifier-shape violations
-		// (non-conforming characters, post-transform collisions,
-		// 63-byte identifier cap). A throw here leaves
-		// `case_type_schemas` untouched. Pure CPU, no I/O.
-		computeDesiredIndexSet(args.appId, args.caseType, caseType.properties);
 		await sql`
 			SELECT pg_advisory_xact_lock(
 				hashtextextended(
@@ -3353,7 +3087,7 @@ export class PostgresCaseStore implements CaseStore {
 		// a `syncedSeq` (the multiplayer additive sync + heal), read the row's
 		// recorded seq: an incoming seq BELOW it is a stale sync a fresher
 		// concurrent writer already superseded, so the ENTIRE call no-ops
-		// (schema UPSERT + Phase-B index reconciliation both skipped). A
+		// (schema UPSERT and row reshaping both skipped). A
 		// `syncedSeq` call never carries a `change` (they're mutually exclusive
 		// — the throw above fires first), so there's no caller-intent migration
 		// to skip here. The DETECTED string↔array reshape (Phase A step 2) can
@@ -3382,29 +3116,21 @@ export class PostgresCaseStore implements CaseStore {
 							)))
 			) {
 				return {
-					report: {
-						migrated: 0,
-						reshaped: 0,
-						retyped: 0,
-						restored: 0,
-						skipped: 0,
-						parkedIds: [],
-						failureReasons: [],
-					},
-					completeAfterCommit: async () => {},
+					migrated: 0,
+					reshaped: 0,
+					retyped: 0,
+					restored: 0,
+					skipped: 0,
+					parkedIds: [],
+					failureReasons: [],
 				};
 			}
 		}
-		await tx
-			.deleteFrom("case_schema_index_deletions")
-			.where("app_id", "=", args.appId)
-			.where("case_type", "=", args.caseType)
-			.execute();
 
 		// Phase A: schema sync + per-row work in one transaction. `won` records
 		// whether THIS call actually advanced the row — false only when the
 		// versioned fine-gate WHERE suppressed the UPSERT (a monotone loser).
-		// Phase B and the step-2 reshape are both gated on it.
+		// The step-2 reshape is gated on it.
 		let won = true;
 		const report = await (async (trx: Transaction<Database>) => {
 			// Read the stored schema BEFORE the UPSERT overwrites it — the
@@ -3458,20 +3184,6 @@ export class PostgresCaseStore implements CaseStore {
 			// A versioned loser returns no row. The un-versioned path never has
 			// a suppressing WHERE, so it always returns a row (always a winner).
 			won = upserted !== undefined;
-			if (won && upserted !== undefined) {
-				const wonSeq = safePersistedSequence(
-					upserted.synced_seq,
-					`returned case_type_schemas.synced_seq for ${args.appId}/${args.caseType}`,
-				);
-				await trx
-					.updateTable("case_type_schemas")
-					.set({
-						index_pending_seq: wonSeq,
-					})
-					.where("app_id", "=", args.appId)
-					.where("case_type", "=", args.caseType)
-					.execute();
-			}
 
 			// Step 2: stored↔desired per-property transition detection. On
 			// every WINNING sync the stored schema diffs against the newly
@@ -3517,37 +3229,6 @@ export class PostgresCaseStore implements CaseStore {
 					caseType,
 					args.change === undefined ? undefined : args.property,
 				);
-				// A numeric-source transition writes values the stale
-				// `::integer` / `::numeric` expression index can't cast (an
-				// array target's rows, an int→decimal widening's RESTORED
-				// fractions), which would abort the transaction — drop the
-				// stale index FIRST (plain in-txn DROP; Phase B recreates
-				// the new type's index after commit). The explicit `retype`
-				// arm shares the hazard; widenings ride along because their
-				// closing parked-value restore writes rows here in Phase A
-				// even though the widening itself rewrites none.
-				const explicitRetype =
-					args.change !== undefined && args.change.kind === "retype"
-						? [
-								{
-									property: this.requireMigrationProperty(
-										args.property,
-										"retype",
-									),
-									fromType: args.change.fromType,
-									toType: args.change.toType,
-								},
-							]
-						: [];
-				await this.dropStaleNumericIndexes(trx, {
-					appId: args.appId,
-					caseType: args.caseType,
-					transitions: [
-						...transitions.retypes,
-						...transitions.widenings,
-						...explicitRetype,
-					],
-				});
 				if (transitions.flips.length > 0) {
 					reshaped = await this.runShapeReshape(trx, {
 						appId: args.appId,
@@ -3568,9 +3249,8 @@ export class PostgresCaseStore implements CaseStore {
 			}
 
 			// Step 3: caller-intent per-row migration. Additive blueprint
-			// mutations (no `change`) skip this — adding a property still
-			// emits its expression index in Phase B, but the row
-			// population doesn't need migrating.
+			// mutations (no `change`) skip this; adding a property does not
+			// require migrating the existing row population.
 			const migration =
 				args.change === undefined
 					? undefined
@@ -3632,43 +3312,7 @@ export class PostgresCaseStore implements CaseStore {
 			};
 		})(tx);
 
-		// Phase B: per-property expression-index DDL. Runs against
-		// the post-commit state so the migration's row rewrites have
-		// committed and the heap scan sees clean rows. Failure leaves Phase A
-		// intact; the next call retries idempotently via the
-		// `indisvalid`-aware catalog diff.
-		//
-		// SKIPPED for a monotone loser (`won === false`): the fine-gate WHERE
-		// suppressed its schema UPSERT, so the row carries the WINNER's schema,
-		// not this call's `desiredIndexes`. Running Phase B here would diff the
-		// loser's OLDER desired set against the live index set (which already
-		// has the winner's new-property index) and `DROP` the winner's live
-		// index — a self-inflicted seq-scan regression. The winner ran (or will
-		// run) Phase B with the correct desired set. (The coarse-gate no-op
-		// earlier already returns before reaching Phase B; this closes the
-		// narrower fine-gate-loser window.)
-		return {
-			report,
-			completeAfterCommit: async () => {
-				if (!won) return;
-				try {
-					await this.drainPendingIndexConvergence({
-						appId: args.appId,
-						caseTypes: [args.caseType],
-					});
-				} catch (phaseBErr) {
-					// Phase A is already durable — wrap so the COMMITTED report
-					// (parked ids and all) survives the throw; `cause` keeps
-					// transient classification working.
-					throw new SchemaChangePhaseBError({
-						appId: args.appId,
-						caseType: args.caseType,
-						report,
-						cause: phaseBErr,
-					});
-				}
-			},
-		};
+		return report;
 	}
 
 	/** Package-private maintenance/test escape hatch; never exposed by the barrel factory. */
@@ -3693,133 +3337,7 @@ export class PostgresCaseStore implements CaseStore {
 				.where("app_id", "=", args.appId)
 				.where("case_type", "=", args.caseType)
 				.execute();
-			await trx
-				.insertInto("case_schema_index_deletions")
-				.values({ app_id: args.appId, case_type: args.caseType })
-				.onConflict((conflict) =>
-					conflict.columns(["app_id", "case_type"]).doNothing(),
-				)
-				.execute();
 		});
-
-		// Phase B: drop every per-property expression index for THIS
-		// app's case type. The "desired set" for a dropped case type is
-		// empty, so `diffIndexSets` would emit drops for every live
-		// index `readLiveIndexSet` returns — and that read is scoped to
-		// `(appId, caseType)`, so a drop never touches another app's
-		// same-named case type. Calling `syncExpressionIndexes` with an
-		// empty desired map is the established way to express "drop
-		// everything for this app's case type" — keeping the index-DDL
-		// plumbing in one place. `DROP INDEX CONCURRENTLY IF EXISTS`
-		// survives a missing-index path (Phase B already committed in a
-		// prior run, the schema-row DELETE is the only outstanding work).
-		await this.drainPendingIndexConvergenceForType(args.appId, args.caseType);
-	}
-
-	/**
-	 * Sync per-property expression indexes against the pre-flighted
-	 * desired set, scoped to one `(appId, caseType)`. Naming
-	 * convention `cases_<scopeTag>_<property>_<mode>` makes the diff
-	 * mechanical — a property rename drops old-name indexes and
-	 * creates new-name indexes; a retype drops the old type's indexes
-	 * and creates the new type's, because `<mode>` encodes the full
-	 * index shape so a type change always lands a distinct name (e.g.
-	 * `text → int` shifts `fuzzy → int`; `int → decimal` shifts
-	 * `int → num` since the two btree casts differ). The `<scopeTag>`
-	 * name segment (a fixed-width hash of `(app_id, case_type)`) plus
-	 * the `WHERE app_id = '<app>' AND case_type = '<type>'`
-	 * partial-index predicate scope each index to one app's case-type
-	 * rows, so two apps that share a case-type + property name never
-	 * collide.
-	 */
-	private async syncExpressionIndexes(args: {
-		db?: Kysely<Database>;
-		appId: string;
-		caseType: string;
-		desired: ReadonlyMap<string, DesiredIndex>;
-	}): Promise<void> {
-		const db = args.db ?? this.db;
-		const live = await readLiveIndexSet(db, args.appId, args.caseType);
-		const { creates, drops } = diffIndexSets(args.desired, live);
-
-		// Drops first so a same-name INVALID artifact clears before
-		// the create reuses it. The ordered loop is what makes that
-		// pair atomic at the name level. `DROP INDEX CONCURRENTLY`
-		// avoids `ACCESS EXCLUSIVE` for the drop's duration; `IF
-		// EXISTS` makes the drop idempotent against a half-completed
-		// prior run. The name is schema-qualified from the catalog read
-		// so the drop targets the entry the diff decided on rather than
-		// whatever a bare name resolves to on the search path.
-		for (const drop of drops) {
-			await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.schema, drop.name)}`.execute(
-				db,
-			);
-		}
-		for (const create of creates) {
-			await emitCreateIndex(db, create);
-		}
-	}
-
-	/**
-	 * Drop the live `::integer` / `::numeric` btree expression index of
-	 * every numeric-SOURCE retype before its rows rewrite (plain in-txn
-	 * `DROP INDEX` — brief `ACCESS EXCLUSIVE`, safe at preview scale).
-	 * A retype away from a numeric type writes values the stale cast
-	 * can't evaluate (an array target's `'["x"]'::integer`), which
-	 * would abort Phase A mid-migration; Phase B's catalog diff would
-	 * drop the index anyway, this just moves the drop ahead of the row
-	 * writes. Non-numeric sources have no cast-bearing index (`text`'s
-	 * trgm GIN and multi_select's jsonb GIN read uncast) and are
-	 * skipped.
-	 */
-	private async dropStaleNumericIndexes(
-		trx: Transaction<Database>,
-		args: {
-			appId: string;
-			caseType: string;
-			transitions: ReadonlyArray<DetectedRetype>;
-		},
-	): Promise<void> {
-		for (const transition of args.transitions) {
-			if (transition.fromType !== "int" && transition.fromType !== "decimal") {
-				continue;
-			}
-			// Keep a cast-bearing destination index exactly when every incoming
-			// value remains in its acceptance set. `::integer` admits only int;
-			// `::numeric` admits both int and decimal. The reverse widening can
-			// restore fractions through a stale integer cast and therefore must
-			// still pre-drop it.
-			if (
-				(transition.fromType === "int" && transition.toType === "int") ||
-				(transition.fromType === "decimal" &&
-					(transition.toType === "int" || transition.toType === "decimal"))
-			) {
-				continue;
-			}
-			const staleName = indexName(
-				args.appId,
-				args.caseType,
-				transition.property,
-				BTREE_SUFFIX_FOR_DATA_TYPE[transition.fromType],
-			);
-			const staleResult = await sql<{ name: string; schema: string }>`
-				SELECT index_relation.relname AS name,
-				       namespace.nspname AS schema
-				FROM pg_index AS index_row
-				JOIN pg_class AS index_relation
-				  ON index_relation.oid = index_row.indexrelid
-				JOIN pg_namespace AS namespace
-				  ON namespace.oid = index_relation.relnamespace
-				WHERE index_row.indrelid = to_regclass('cases')
-				  AND index_relation.relname = ${staleName}
-			`.execute(trx);
-			const stale = staleResult.rows[0];
-			if (stale !== undefined) {
-				await sql`DROP INDEX IF EXISTS ${sql.id(stale.schema, stale.name)}`.execute(
-					trx,
-				);
-			}
-		}
 	}
 
 	async generateSampleData(
@@ -4570,8 +4088,7 @@ export class PostgresCaseStore implements CaseStore {
 	 *     CURRENTLY-STORED schema row, checked here rather than trusted from
 	 *     the caller — a concurrent peer can commit a differently typed
 	 *     declaration before restoration, and an unchecked restore would then
-	 *     poison the row against merged-document validation, abort on
-	 *     a live typed expression index, or write an orphan key the
+	 *     poison the row against merged-document validation or write an orphan key the
 	 *     write-time shed silently eats. An undeclared property keeps
 	 *     the entry for the same reason.
 	 */
@@ -5405,10 +4922,7 @@ interface PropertyTransitions {
 	 * value restore: a date→text convert-back is exactly as much a
 	 * "convert the property back and the values return" transition as
 	 * the int→text one that rewrites rows. Carries the transition pair
-	 * (same shape as a retype) because the int→decimal widening must
-	 * ALSO pre-drop the stale `::integer` expression index — the
-	 * restore writes fractions back inside Phase A, before Phase B can
-	 * swap the index.
+	 * (same shape as a retype) so the restore knows both source and destination.
 	 */
 	widenings: DetectedRetype[];
 }
@@ -5482,10 +4996,8 @@ function castIsIdentityWidening(
  *     appearing or changing, string→integer, array→date, …): each
  *     row's value attempts `tryCastValue` into the new type and PARKS
  *     when no faithful cast exists. An array target from a NUMERIC
- *     source lands here rather than in `flips` because its rewrite
- *     must first drop the source's live `::integer`/`::numeric`
- *     expression index (`dropStaleNumericIndexes`) — writing an array
- *     through that cast would abort Phase A.
+ *     source lands here rather than in `flips` because it requires
+ *     the typed conversion policy rather than string/array reshaping.
  *
  * Identity WIDENINGS (temporal/geopoint→text, int→decimal,
  * text⇄single_select) are skipped — every stored value already
@@ -5795,199 +5307,8 @@ function findRemovedOptionConflict(
 	return null;
 }
 
-// Per-property expression-index DDL helpers.
+// Strict stored case-schema decoding.
 //
-// The desired index set for a case type is computed from each
-// property's `data_type` — each type implies the Postgres operator
-// shape the predicate compiler emits at query time, and the
-// matching expression-index DDL is what makes the emitted SQL hit
-// the index instead of a sequential scan. Index names follow
-// `cases_<scopeTag>_<property>_<mode>`: the `<scopeTag>` segment is a
-// fixed-width hash of `(app_id, case_type)` (plus the `app_id` /
-// `case_type` partial predicate) that scopes each index to one app's
-// case type — case-type names are per-app, so without it one global
-// index would span every app's rows of a shared case-type name and
-// evaluate its cast against another app's values. The case type is
-// hashed into the tag, not spelled out, so the name length depends on
-// the property name alone. The `<mode>` segment encodes the full
-// index SHAPE (access method +
-// opclass + cast), so a shape change always picks a different suffix
-// and flows through as drop + create under distinct names rather
-// than a same-name rewrite — the property the name-keyed catalog
-// diff (`diffIndexSets`) relies on. This is load-bearing across a
-// retype: `text → int` shifts
-// `fuzzy → int`, and crucially `int → decimal` shifts `int → num`
-// because the two btree casts (`::integer` vs `::numeric`) are
-// distinct expressions that MUST carry distinct names. (A shared
-// `btree` suffix for both — the prior shape — left an `int↔decimal`
-// retype's stale-cast index in place: the diff saw a same-name
-// match and skipped it, and the next insert of a value the new cast
-// rejected — a fractional `17.01` under a stale `::integer` index —
-// failed with a raw Postgres cast error at write time.) Each shape
-// was empirically verified via `EXPLAIN`.
-
-/**
- * The index naming-suffix label per `(data_type, mode)` shape. A
- * property carrying multiple modes (e.g. text with both fuzzy and
- * starts-with) maps to a distinct index per mode.
- *
- * - `fuzzy` — pg_trgm GIN on the text read, built for every text
- *   property. The `match` modes no longer route through it: `fuzzy`
- *   and `phonetic` now evaluate token-wise (per-token `levenshtein`
- *   / `soundex` over `unnest`ed tokens, faithful to HQ's case-search
- *   rather than whole-string trigram similarity), and `starts-with`
- *   uses `starts_with(...)` — none of which a trigram GIN serves. At
- *   preview-scale row counts those scan sequentially; the index is
- *   retained as the established text-property index slot, and
- *   dropping it is a separate schema-migration decision.
- * - `int` / `num` — btree on the typed numeric cast. Covers
- *   `compare` / `between` for `int` (`::integer`) and `decimal`
- *   (`::numeric`). They share the btree access method but split by
- *   cast: the suffix encodes the cast token so the two never collide
- *   on one name (see `BTREE_SUFFIX_FOR_DATA_TYPE`). Kept compact (≤
- *   the prior shared `btree`) so they never tighten `indexName`'s
- *   63-byte budget.
- * - `contains` — jsonb_ops GIN. Covers `multi-select-contains`
- *   (`?|` / `?&` / `@>`); jsonb_path_ops is the wrong choice — it
- *   only supports `@>`.
- */
-type IndexModeSuffix = "fuzzy" | "int" | "num" | "contains";
-
-/**
- * Index-name suffix per numeric `data_type`. `int` and `decimal`
- * are the two types that index a btree on a typed cast; the suffix
- * MUST distinguish their casts (`::integer` vs `::numeric`) so the
- * name-keyed catalog diff (`diffIndexSets`) treats an `int↔decimal`
- * retype as a drop + create rather than a no-op same-name match.
- * The pure unit test "two data types share an index name only if
- * they share a cast" pins this against any future numeric type that
- * reuses a suffix; the tokens are kept compact (no longer than the
- * prior shared `btree`) so the rename never tightens `indexName`'s
- * 63-byte identifier budget.
- */
-const BTREE_SUFFIX_FOR_DATA_TYPE: Readonly<
-	Record<"int" | "decimal", IndexModeSuffix>
-> = {
-	int: "int",
-	decimal: "num",
-};
-
-/**
- * One expression-index entry — name + DDL pieces the build step
- * needs. Exported for the index-shape invariant test (the
- * `diffIndexSets` name-keying contract that an `int↔decimal` retype
- * once violated); not on the package barrel.
- */
-export interface DesiredIndex {
-	/** `cases_<scopeTag>_<property>_<mode>`. */
-	name: string;
-	/** Postgres access method. */
-	using: "gin" | "btree";
-	/**
-	 * The indexed expression, built via `sql.lit` substitutions —
-	 * expression-index expressions must be immutable and reject
-	 * parameter binds, so the typed builder's `${param}` shape
-	 * would be silently rejected.
-	 */
-	expression: ReturnType<typeof sql>;
-	opclass?: "gin_trgm_ops" | "jsonb_ops";
-	/** Catalog-normalized expression expected after Postgres parses the DDL. */
-	catalogExpression: string;
-	/** Effective opclass, including the default btree opclass. */
-	catalogOpclass: "gin_trgm_ops" | "jsonb_ops" | "int4_ops" | "numeric_ops";
-	/**
-	 * Feeds the partial-index predicate
-	 * `WHERE app_id = ... AND case_type = ...`. The `app_id` scope is
-	 * load-bearing: case-type names are per-app (`case_type_schemas`
-	 * is keyed `(app_id, case_type)`), so a predicate on `case_type`
-	 * alone makes ONE global index span every app's rows of that
-	 * case-type name — and two apps that declare the same case-type +
-	 * property name with different `data_type`s then share a single
-	 * index whose cast rejects the other app's values at INSERT.
-	 */
-	appId: string;
-	caseType: string;
-}
-
-/**
- * One live index entry read from the catalog. `isValid` mirrors
- * `pg_index.indisvalid` — a failed `CREATE INDEX CONCURRENTLY`
- * leaves the partially-built index visible with
- * `indisvalid = false`. Postgres treats INVALID indexes as
- * "possibly incomplete: must still be modified by INSERT/UPDATE,
- * but cannot safely be used for queries"
- * (`https://www.postgresql.org/docs/current/catalog-pg-index.html`).
- * The diff treats INVALID entries as "drop and recreate" so the
- * next call converges idempotently.
- *
- * `schema` is the namespace the index actually lives in (an index
- * always lands in its table's schema), so a drop names the exact
- * catalog entry the read found instead of re-resolving a bare name
- * through the search path.
- */
-interface LiveIndex {
-	name: string;
-	schema: string;
-	isValid: boolean;
-	isUnique: boolean;
-	keyCount: number;
-	accessMethod: string;
-	opclass: string | null;
-	expression: string | null;
-	predicate: string | null;
-}
-
-/**
- * Compute the desired index set for a case type. Each property
- * contributes one index keyed on its `data_type`; `single_select`,
- * temporal types, and `geopoint` map to `undefined` (see
- * `desiredIndexForProperty` for per-arm rationale).
- *
- * Defends the `diffIndexSets` name-keying contract: if two distinct
- * properties ever compose to the same index name (only possible via a
- * `propertyIndexTag` SHA-256 collision, negligible at 48 bits), throw
- * with both originating names rather than let one silently shadow the
- * other in the diff.
- */
-function computeDesiredIndexSet(
-	appId: string,
-	caseType: string,
-	properties: ReadonlyArray<CaseProperty>,
-): Map<string, DesiredIndex> {
-	const result = new Map<string, DesiredIndex>();
-	// Track which property name produced each index name so a
-	// collision error names both originating properties rather than
-	// the composed hash.
-	const sourceProperty = new Map<string, string>();
-	for (const property of properties) {
-		// Explicit standard entries remain useful in the effective catalog for
-		// authoring metadata/order, but their values live in first-class case
-		// columns. A JSONB expression index for one would index a key that no
-		// valid row can carry and would disagree with `caseTypeToJsonSchema`.
-		if (CASE_SCALAR_PROPERTY_NAMES.has(property.name)) {
-			continue;
-		}
-		const entry = desiredIndexForProperty(appId, caseType, property);
-		if (entry === undefined) {
-			continue;
-		}
-		const existing = sourceProperty.get(entry.name);
-		if (existing !== undefined && existing !== property.name) {
-			throw new Error(
-				compilerBugMessage({
-					where: "case-store.computeDesiredIndexSet",
-					invariant: `properties \`${existing}\` and \`${property.name}\` compose into the same index name \`${entry.name}\``,
-					detail:
-						"Distinct property names compose distinct fixed-width `propertyIndexTag` segments, so a shared index name means their SHA-256 tags collided (negligible at 48 bits) or a name segment lost its fixed width.\n\nHint: rename one of the two properties at the blueprint layer.",
-				}),
-			);
-		}
-		sourceProperty.set(entry.name, property.name);
-		result.set(entry.name, entry);
-	}
-	return result;
-}
-
 interface DecodedStoredCaseSchema {
 	readonly schema: CaseTypeJsonSchema;
 	readonly dataTypes: ReadonlyMap<string, CasePropertyDataType>;
@@ -6044,23 +5365,6 @@ function decodeStoredCaseSchema(
 	};
 }
 
-function desiredIndexesFromStoredSchema(
-	appId: string,
-	caseType: string,
-	schema: JsonObject,
-): Map<string, DesiredIndex> {
-	const decoded = decodeStoredCaseSchema(appId, caseType, schema);
-	const declarations: CaseProperty[] = [];
-	for (const [name, dataType] of decoded.dataTypes) {
-		declarations.push({
-			name,
-			label: proseText(name),
-			data_type: dataType,
-		});
-	}
-	return computeDesiredIndexSet(appId, caseType, declarations);
-}
-
 function strictStoredDataType(
 	appId: string,
 	caseType: string,
@@ -6077,215 +5381,6 @@ function strictStoredDataType(
 	);
 }
 
-/**
- * Build the desired-index entry for one property, or `undefined`
- * when the data type carries no per-property index.
- *
- * - `single_select` — equality on a small option set is fast
- *   without an expression index.
- * - `date` / `datetime` / `time` — the text-to-typed casts and the
- *   canonical `to_date(...)` / `to_timestamp(...)` builtins are
- *   STABLE in Postgres (DateStyle / TimeZone session dependency);
- *   expression indexes require IMMUTABLE. Compare / between runs
- *   as a sequential scan; an indexed path requires a Nova-owned
- *   IMMUTABLE wrapper function the term compiler also emits against.
- * - `geopoint` — the `within-distance` arm builds a WKT string via
- *   `concat(...)` over `split_part(...)` to bridge the wire shape
- *   `"lat lon alt acc"` to PostGIS's WKT input; `concat(...)` over
- *   text args is STABLE so the expression cannot be indexed. The
- *   simpler `ST_GeogFromText(properties->>'<key>')` form would
- *   index but the planner cannot bridge it to the compiler's
- *   WKT-build form for index match.
- *
- * Properties with no declared `data_type` default to `text` (same
- * default `lib/domain/expression/jsonSchema.ts` uses).
- */
-export function desiredIndexForProperty(
-	appId: string,
-	caseType: string,
-	property: CaseProperty,
-): DesiredIndex | undefined {
-	const dataType: CasePropertyDataType = property.data_type ?? "text";
-	const propertyKey = property.name;
-
-	switch (dataType) {
-		case "text": {
-			const suffix: IndexModeSuffix = "fuzzy";
-			return {
-				name: indexName(appId, caseType, propertyKey, suffix),
-				using: "gin",
-				// Postgres requires expression-index expressions be
-				// parenthesized.
-				expression: sql`((properties->>${sql.lit(propertyKey)}))`,
-				opclass: "gin_trgm_ops",
-				catalogExpression: `properties->>${postgresCatalogString(propertyKey)}`,
-				catalogOpclass: "gin_trgm_ops",
-				appId,
-				caseType,
-			};
-		}
-		case "int":
-		case "decimal": {
-			// `int` and `decimal` share the btree access method but
-			// compile to DIFFERENT casts (`::integer` vs `::numeric`),
-			// so each MUST carry a distinct index name. The suffix
-			// encodes the cast (`int` / `num`) — the one dimension the
-			// btree family varies by — so the name-keyed catalog diff
-			// treats an `int↔decimal` retype as drop + create. A shared
-			// `btree` suffix (the prior shape) left such a retype's
-			// stale-cast index in place, and the next insert of a value
-			// the new cast rejected (a fractional `17.01` under a stale
-			// `::integer` index) failed at write time.
-			const suffix: IndexModeSuffix = BTREE_SUFFIX_FOR_DATA_TYPE[dataType];
-			const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
-			return {
-				name: indexName(appId, caseType, propertyKey, suffix),
-				using: "btree",
-				// `((properties->>'<key>')::<cast>)` matches the term
-				// compiler's emission so the planner reaches the index.
-				// The cast token comes from the same data-type table
-				// the query path reads, so retyping retargets both
-				// surfaces in lockstep.
-				expression: sql`(((properties->>${sql.lit(propertyKey)}))::${sql.raw(cast)})`,
-				catalogExpression: `properties->>${postgresCatalogString(propertyKey)}::${cast}`,
-				catalogOpclass: dataType === "int" ? "int4_ops" : "numeric_ops",
-				appId,
-				caseType,
-			};
-		}
-		case "multi_select": {
-			const suffix: IndexModeSuffix = "contains";
-			return {
-				name: indexName(appId, caseType, propertyKey, suffix),
-				using: "gin",
-				// `->` (returns jsonb) NOT `->>` — `jsonb_ops` supports
-				// the full `?` / `?|` / `?&` / `@>` set, while
-				// `jsonb_path_ops` only covers `@>` and would force
-				// `multi-select-contains` queries emitting `?|` / `?&`
-				// to a sequential scan.
-				expression: sql`((properties->${sql.lit(propertyKey)}))`,
-				opclass: "jsonb_ops",
-				catalogExpression: `properties->${postgresCatalogString(propertyKey)}`,
-				catalogOpclass: "jsonb_ops",
-				appId,
-				caseType,
-			};
-		}
-		case "date":
-		case "datetime":
-		case "time":
-		case "geopoint":
-		case "single_select":
-			return undefined;
-		default: {
-			const _exhaustive: never = dataType;
-			throw new Error(
-				unhandledKindMessage({
-					where: "case-store.desiredIndexForProperty",
-					family: "CasePropertyDataType",
-					received: _exhaustive,
-					knownKinds: [
-						"text",
-						"int",
-						"decimal",
-						"date",
-						"datetime",
-						"time",
-						"single_select",
-						"multi_select",
-						"geopoint",
-					],
-				}),
-			);
-		}
-	}
-}
-
-/**
- * Length of the hex `indexScopeTag` segment. 12 hex chars = 48 bits
- * of the pair's SHA-256; the collision probability across any
- * realistic `(app, case_type)` population (a shared tag would let
- * two scopes' same-`(property, mode)` indexes collide on one name)
- * is negligible, and the fixed width keeps the name's scope segment
- * bounded so the 63-byte budget below is predictable.
- */
-/**
- * A short, fixed-length, Postgres-identifier-safe tag derived from
- * the `(appId, caseType)` pair, used as the FIRST name segment of
- * every per-property expression index. Folding both into one
- * fixed-WIDTH tag is what makes `readLiveIndexSet`'s name prefix
- * (`cases_<tag>_%`) an EXACT scope match: distinct `(app, case_type)`
- * pairs hash to distinct tags, so the prefix never bleeds across apps
- * NOR across case types whose names are prefixes of each other
- * (`patient` vs `patient_visit`, which a `..._patient_%` prefix would
- * otherwise both match) — the diff stays scoped to one
- * `(app, case_type)` without reading the partial predicate. Neither
- * the case type nor the property is spelled out in the name — both
- * are folded into fixed-width hashes (this tag + `propertyIndexTag`)
- * — so the composed name is BOUNDED and can't overflow the 63-byte
- * identifier cap no matter how long those names are. The space
- * separator can't appear in either fragment (an app id contains no
- * space — a UUID or a compact alphanumeric id; case-type names follow
- * `CASE_PROPERTY_PATTERN`), so `("ab","c")` and `("a","bc")` never collide. SHA-256 is
- * deterministic, so every write composes the same name for a given
- * scope — the catalog diff stays stable across runs.
- */
-/**
- * A short, fixed-length, Postgres-identifier-safe tag for a property
- * name — the second name segment of every per-property expression
- * index. Hashing the property (rather than spelling it out) is what
- * keeps the composed index name BOUNDED: `cases_` + scope tag +
- * property tag + mode is at most `6 + 12 + 1 + 12 + 1 + 8 = 40`
- * bytes, well under Postgres' 63-byte identifier cap, for ANY
- * property name — a verbose 40-char field that overflowed when the
- * property was carried literally no longer can. SHA-256 is
- * deterministic, so runtime and migration compose the same name; a
- * collision between two distinct properties in one scope is caught by
- * `computeDesiredIndexSet` (negligible at 48 bits).
- */
-/**
- * Compose the index name `cases_<scopeTag>_<propertyTag>_<mode>` from
- * `(appId, caseType, property, mode)`. Both identity segments are
- * FIXED-WIDTH hashes — `indexScopeTag(appId, caseType)` for exact
- * per-scope prefix enumeration (`readLiveIndexSet`), `propertyIndexTag`
- * for per-property uniqueness — so the name is bounded (≤ 40 bytes)
- * and can NEVER overflow Postgres' 63-byte identifier cap, regardless
- * of how long the case-type or property names are (a 40-char property
- * name once overflowed when carried literally). `<mode>` stays
- * readable so the name still encodes the index SHAPE (the suffix's
- * cast); the case-type + property text live in the partial predicate
- * / indexed expression (`emitCreateIndex`), which `pg_get_indexdef`
- * surfaces for ops. The cap assertion is belt-and-suspenders against
- * a future change that reintroduces a variable-length segment.
- */
-function indexName(
-	appId: string,
-	caseType: string,
-	property: string,
-	mode: IndexModeSuffix,
-): string {
-	assertSafeIdentifierFragment(caseType, "case type");
-	assertSafeIdentifierFragment(property, "property");
-	const composed = `cases_${indexScopeTag(appId, caseType)}_${propertyIndexTag(property)}_${mode}`;
-	if (Buffer.byteLength(composed, "utf8") > 63) {
-		throw new Error(
-			compilerBugMessage({
-				where: "case-store.indexName",
-				invariant: `composed index name \`${composed}\` exceeds Postgres' 63-byte identifier cap (\`NAMEDATALEN - 1\`)`,
-				detail:
-					"Both identity segments are fixed-width hashes, so a composed name is at most 40 bytes and this throw is unreachable in the current scheme. Reaching it means a name segment regained a variable length. Restore fixed-width composition so the `readLiveIndexSet` name-prefix contract holds.\n\nHint: keep every non-`mode` name segment fixed-width.",
-			}),
-		);
-	}
-	return composed;
-}
-
-/**
- * Match `CASE_PROPERTY_PATTERN` from
- * `lib/domain/expression/types.ts` so the case-store's identifier-
- * shape contract aligns with the blueprint AST. `kind` names the
- * fragment role for the error message.
- */
 function assertSafeIdentifierFragment(
 	fragment: string,
 	kind: "property" | "case type",
@@ -6300,188 +5395,4 @@ function assertSafeIdentifierFragment(
 			}),
 		);
 	}
-}
-
-/**
- * Read every live per-property expression index for one
- * `(appId, caseType)` scope from the catalog. The name-prefix filter
- * pins the `indexScopeTag` segment, which is a fixed-width hash of
- * the `(appId, caseType)` pair — so `cases_<tag>_%` is an EXACT scope
- * match: it sees only THIS scope's indexes, never another app's
- * indexes, and never a prefix-related case type's indexes (`patient`
- * vs `patient_visit` hash to different tags). Foreign indexes
- * (manual, the static `case_indices_*_idx` set, or any name without
- * the leading scope tag) fall outside the prefix too. The exactness
- * comes from the fixed-width tag, so the diff never reads or parses
- * the partial predicate.
- *
- * The query joins `pg_index` + `pg_class` + `pg_namespace` rather
- * than reading the simpler `pg_indexes` view because `pg_indexes`
- * does not expose `indisvalid`. Capturing the validity flag lets
- * `diffIndexSets` emit a drop-and-recreate pair for an INVALID
- * artifact left by a prior failed CONCURRENTLY build — without
- * `indisvalid`, a name-only diff would skip recreation and leave
- * the broken artifact permanently in place. Catalog contract:
- * `https://www.postgresql.org/docs/current/catalog-pg-index.html`.
- */
-async function readLiveIndexSet(
-	executor: Kysely<Database>,
-	appId: string,
-	caseType: string,
-): Promise<Map<string, LiveIndex>> {
-	// `to_regclass('cases')` pins the table by SEARCH-PATH resolution —
-	// the same resolution `emitCreateIndex`'s unqualified `ON cases`
-	// performs, so the read and the DDL can never disagree about which
-	// table they mean. Matching `current_schema()` instead reads the
-	// FIRST schema on the path, which production's privilege
-	// convergence makes the wrong one: it moves `cases` into
-	// `nova_case_runtime` while the connection's path stays
-	// `public,nova_case_runtime` (`postgres/connection.ts`), so a
-	// `current_schema()` match returns zero rows for every scope. An
-	// empty live set makes the diff re-`CREATE` every desired index —
-	// `already exists` on the second sync of a case type — and emit no
-	// drops at all.
-	//
-	// Underscores in the prefix are LIKE single-char wildcards on
-	// `_`; the `ESCAPE '\\'` form treats `\_` as a literal underscore
-	// so the prefix matches only the structural `cases_<tag>_` shape.
-	// The `indexScopeTag` is hex (LIKE-safe) and fixed-width, so the
-	// prefix can't bleed into an adjacent scope.
-	assertSafeIdentifierFragment(caseType, "case type");
-	const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
-	const result = await sql<{
-		indexname: string;
-		indexschema: string;
-		isvalid: boolean;
-		isunique: boolean;
-		keycount: number;
-		accessmethod: string;
-		opclass: string | null;
-		expression: string | null;
-		predicate: string | null;
-	}>`SELECT
-			c.relname AS indexname,
-			n.nspname AS indexschema,
-			i.indisvalid AS isvalid,
-			i.indisunique AS isunique,
-			i.indnkeyatts AS keycount,
-			am.amname AS accessmethod,
-			(
-				SELECT opc.opcname
-				FROM unnest(i.indclass::oid[]) WITH ORDINALITY AS classes(opclass_oid, position)
-				JOIN pg_opclass AS opc ON opc.oid = classes.opclass_oid
-				WHERE classes.position = 1
-			) AS opclass,
-			pg_get_expr(i.indexprs, i.indrelid, true) AS expression,
-			pg_get_expr(i.indpred, i.indrelid, true) AS predicate
-		FROM pg_index i
-		JOIN pg_class c ON c.oid = i.indexrelid
-		JOIN pg_namespace n ON n.oid = c.relnamespace
-		JOIN pg_am am ON am.oid = c.relam
-		WHERE i.indrelid = to_regclass('cases')
-		  AND c.relname LIKE ${prefix} ESCAPE '\\'`.execute(executor);
-	const live = new Map<string, LiveIndex>();
-	for (const row of result.rows) {
-		live.set(row.indexname, {
-			name: row.indexname,
-			schema: row.indexschema,
-			isValid: row.isvalid,
-			isUnique: row.isunique,
-			keyCount: Number(row.keycount),
-			accessMethod: row.accessmethod,
-			opclass: row.opclass,
-			expression: row.expression,
-			predicate: row.predicate,
-		});
-	}
-	return live;
-}
-
-/**
- * Diff the desired and live sets. Same name implies same shape
- * because `<mode>` encodes the full index shape (access method +
- * opclass + cast) — a shape change always picks a different suffix,
- * including `int → num` for an `int↔decimal` retype whose btree
- * casts differ — so a valid matching name skips. (Were two distinct
- * shapes to ever share a name, this skip would leave the stale shape
- * in place; `BTREE_SUFFIX_FOR_DATA_TYPE` and the index-shape
- * invariant test are what keep that from recurring.) INVALID matches
- * drop-and-recreate (the `indisvalid = false` recovery path);
- * ordered drop-then-create in `syncExpressionIndexes` ensures the
- * name is free before reuse. Live names not in desired drop
- * regardless of validity.
- */
-function diffIndexSets(
-	desired: ReadonlyMap<string, DesiredIndex>,
-	live: ReadonlyMap<string, LiveIndex>,
-): { creates: DesiredIndex[]; drops: LiveIndex[] } {
-	const creates: DesiredIndex[] = [];
-	const drops: LiveIndex[] = [];
-	for (const [name, entry] of desired) {
-		const liveEntry = live.get(name);
-		if (liveEntry === undefined) {
-			creates.push(entry);
-			continue;
-		}
-		if (!liveIndexMatchesDesired(liveEntry, entry)) {
-			// INVALID or physically wrong same-name artifact: drop and recreate.
-			drops.push(liveEntry);
-			creates.push(entry);
-		}
-	}
-	for (const [name, entry] of live) {
-		if (!desired.has(name)) {
-			drops.push(entry);
-		}
-	}
-	return { creates, drops };
-}
-
-function postgresCatalogString(value: string): string {
-	return `'${value.replaceAll("'", "''")}'`;
-}
-
-function normalizeCatalogSql(value: string): string {
-	return value.replaceAll(/::text\b/g, "").replaceAll(/[()\s"]/g, "");
-}
-
-function liveIndexMatchesDesired(
-	live: LiveIndex,
-	desired: DesiredIndex,
-): boolean {
-	const desiredPredicate = `app_id=${postgresCatalogString(desired.appId)}ANDcase_type=${postgresCatalogString(desired.caseType)}`;
-	return (
-		live.isValid &&
-		!live.isUnique &&
-		live.keyCount === 1 &&
-		live.accessMethod === desired.using &&
-		live.opclass === desired.catalogOpclass &&
-		live.expression !== null &&
-		normalizeCatalogSql(live.expression) ===
-			normalizeCatalogSql(desired.catalogExpression) &&
-		live.predicate !== null &&
-		normalizeCatalogSql(live.predicate) === desiredPredicate
-	);
-}
-
-/**
- * Emit one `CREATE INDEX CONCURRENTLY` statement. The partial-index
- * predicate is scoped to BOTH `app_id` and `case_type` so the index
- * covers only the owning app's rows — case-type names are per-app,
- * so a `case_type`-only predicate would make one index span every
- * app's rows of that name and evaluate its cast against other apps'
- * values. The `app_id` / `case_type` literals flow as `sql.lit`
- * strings because expression-index predicates require IMMUTABLE;
- * bound parameters would silently fail the immutability check.
- */
-async function emitCreateIndex(
-	executor: Kysely<Database>,
-	entry: DesiredIndex,
-): Promise<void> {
-	const opclass =
-		entry.opclass !== undefined ? sql` ${sql.raw(entry.opclass)}` : sql``;
-	const using = sql.raw(entry.using.toUpperCase());
-	await sql`CREATE INDEX CONCURRENTLY ${sql.id(entry.name)} ON cases USING ${using} (${entry.expression}${opclass}) WHERE app_id = ${sql.lit(entry.appId)} AND case_type = ${sql.lit(entry.caseType)}`.execute(
-		executor,
-	);
 }

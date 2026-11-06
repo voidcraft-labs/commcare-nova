@@ -1169,9 +1169,9 @@ export async function commitCanonicalBatch(
 				([a], [b]) => a.localeCompare(b),
 			)) {
 				try {
-					const prepared = await store.applySchemaChangePhaseA(
+					const report = await store.applySchemaChangeInTransaction(
 						tx as unknown as Parameters<
-							typeof store.applySchemaChangePhaseA
+							typeof store.applySchemaChangeInTransaction
 						>[0],
 						{
 							appId,
@@ -1181,15 +1181,13 @@ export async function commitCanonicalBatch(
 							removedProperties: [...properties],
 						},
 					);
-					materializedSchemaReports.set(caseType, prepared.report);
+					materializedSchemaReports.set(caseType, report);
 				} catch (error) {
 					if (error instanceof CasePropertyHasSavedValuesError)
 						throw new BlueprintCommitRejectedError(error.message);
 					throw error;
 				}
 			}
-			// Phase A records durable pending index work; ordinary post-commit
-			// convergence or point-of-use healing drains it without holding locks.
 		}
 		const migration = await internalOptions.beforeWrite?.({
 			tx,

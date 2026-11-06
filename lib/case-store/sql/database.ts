@@ -225,27 +225,6 @@ export interface CaseTypeSchemasTable {
 	 * (defaults to 0 via the column DEFAULT); update supplies the seq.
 	 */
 	synced_seq: ColumnType<string, number | undefined, number>;
-	/** Latest schema seq whose expression-index diff still needs convergence. */
-	index_pending_seq: ColumnType<
-		string | null,
-		number | null | undefined,
-		number | null
-	>;
-	/** Latest schema seq whose expression indexes were observed converged. */
-	index_synced_seq: ColumnType<string, number | undefined, number>;
-}
-
-/**
- * Durable Phase-B work for a maintenance hard purge. Ordinary case-type
- * retirement keeps an inactive schema row and records pending index work on
- * that row; a purge deletes it, so this tombstone remains until every scoped
- * expression index has been observed absent. A later schema recreation clears
- * the tombstone under the same per-type advisory lock and writes its own
- * pending schema state.
- */
-export interface CaseSchemaIndexDeletionsTable {
-	app_id: string;
-	case_type: string;
 }
 
 /**
@@ -352,7 +331,6 @@ export interface Database {
 	app_locations: AppLocationsTable;
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
-	case_schema_index_deletions: CaseSchemaIndexDeletionsTable;
 	case_indices: CaseIndicesTable;
 	parked_case_values: ParkedCaseValuesTable;
 	lookup_rows: LookupRowsTable;

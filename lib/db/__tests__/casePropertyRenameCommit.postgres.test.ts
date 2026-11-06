@@ -4,7 +4,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	buildCaseTypeMap,
-	type PreparedCasePropertyRenamePhaseB,
+	type CasePropertyRenameReport,
 } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -153,7 +153,7 @@ describe("case-property rename through the guarded writer", () => {
 			],
 		} satisfies Mutation;
 		const batchId = crypto.randomUUID();
-		let prepared: PreparedCasePropertyRenamePhaseB | undefined;
+		let prepared: CasePropertyRenameReport | undefined;
 
 		const committed = await commitGuardedBatchProposal(
 			{
@@ -169,7 +169,7 @@ describe("case-property rename through the guarded writer", () => {
 					if (casePropertyRenamePlan === undefined) {
 						throw new Error("Guarded rename omitted its admitted plan.");
 					}
-					prepared = await caseStore.applyCasePropertyRenamePhaseA(
+					prepared = await caseStore.applyCasePropertyRenameInTransaction(
 						tx as unknown as Transaction<Database>,
 						{
 							appId,
@@ -184,7 +184,6 @@ describe("case-property rename through the guarded writer", () => {
 		if (prepared === undefined) {
 			throw new Error("Guarded writer did not execute rename Phase A.");
 		}
-		await prepared.completeAfterCommit();
 
 		expect(committed).toMatchObject({ seq: 1, deduped: false });
 		const liveAfter = await caseDb

@@ -277,60 +277,6 @@ export class CaseTypeNotInBlueprintError extends Error {
  * rows; reaching this error means the blueprint mutator skipped the
  * sync step. Server Actions map to a `schema-not-synced` arm.
  */
-/**
- * `applySchemaChange`'s Phase B (post-commit index DDL) failed AFTER
- * Phase A committed its schema write + row migrations. The wrapper preserves
- * the COMMITTED Phase-A `MigrationReport` so the initiating surface can report
- * parked values accurately while durable pending state drives later index
- * convergence. `cause` carries the underlying fault, one level deep, exactly
- * where `isTransientDbError` looks, so transient classification keeps working
- * through the wrap.
- *
- * The report shape lives on the interface side; the slot is typed
- * structurally here to keep `errors.ts` a leaf.
- */
-export class SchemaChangePhaseBError extends Error {
-	/** Stable error name for log filters and instanceof-style checks. */
-	readonly name = "SchemaChangePhaseBError";
-	/** The case type whose Phase A committed — harvesting callers attribute the report's parks to it. */
-	readonly caseType: string;
-	/** The COMMITTED Phase-A report — parked ids and all. */
-	readonly report: {
-		readonly migrated: number;
-		readonly reshaped: number;
-		readonly retyped: number;
-		readonly restored: number;
-		readonly skipped: number;
-		readonly parkedIds: string[];
-		readonly failureReasons: string[];
-	};
-
-	constructor(args: {
-		appId: string;
-		caseType: string;
-		report: SchemaChangePhaseBError["report"];
-		cause: unknown;
-	}) {
-		super(
-			[
-				`Index DDL (Phase B) failed for case type '${args.caseType}' after its schema write + row migrations committed.`,
-				``,
-				`${INDENT}app_id:    '${args.appId}'`,
-				`${INDENT}case_type: '${args.caseType}'`,
-				``,
-				"Phase A is durable: the schema row and every row rewrite (including",
-				"parked values) are committed, and its pending marker remains.",
-				"The next per-app or deployment-wide convergence drain re-derives",
-				"the latest desired indexes and retries Phase B idempotently.",
-				"Callers must not compensate or un-park committed Phase-A data.",
-			].join("\n"),
-			{ cause: args.cause },
-		);
-		this.caseType = args.caseType;
-		this.report = args.report;
-	}
-}
-
 /** Expected atomic rejection from the form-entry/capture admission gate. */
 export class CaptureSubmissionRejectedError extends Error {
 	readonly name = "CaptureSubmissionRejectedError";

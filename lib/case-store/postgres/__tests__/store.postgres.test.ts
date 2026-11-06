@@ -27,17 +27,8 @@ import { Client, Pool } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { withTransientRetry } from "@/lib/db/schemaSyncRetry";
-import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
-import {
-	and,
-	eq,
-	gt,
-	input,
-	literal,
-	multiSelectAny,
-	not,
-	prop,
-} from "@/lib/domain/expression/builders";
+import type { BlueprintDoc, CaseType } from "@/lib/domain";
+import { eq, literal, prop } from "@/lib/domain/expression/builders";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
@@ -46,27 +37,10 @@ import { runStoreContract } from "../../__tests__/storeContract";
 import { CaseNotFoundError, CasePropertiesValidationError } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
-import { compilePredicate } from "../../sql/compilePredicate";
 import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import { caseSchemaIndexLockScope } from "../indexIdentity";
-import { indexScopeTag, PostgresCaseStore, propertyIndexTag } from "../store";
-
-/**
- * Compose the expected per-property index name — mirrors the
- * implementation's `indexName`
- * (`cases_<scopeTag>_<propertyTag>_<mode>`). Reuses the exported
- * fixed-width tags so the hashed segments can't drift from
- * production; only the readable `_<mode>` tail is literal here.
- */
-function idxName(
-	appId: string,
-	caseType: string,
-	property: string,
-	mode: string,
-): string {
-	return `cases_${indexScopeTag(appId, caseType)}_${propertyIndexTag(property)}_${mode}`;
-}
+import { PostgresCaseStore } from "../store";
 
 // ---------------------------------------------------------------
 // Per-test database lifecycle
@@ -119,49 +93,20 @@ runStoreContract({
 	},
 });
 
-// ---------------------------------------------------------------
-// Per-property expression-index DDL emission — Postgres-specific
-// ---------------------------------------------------------------
-//
-// These tests live alongside the contract harness rather than
-// inside it because the index-DDL discipline is Postgres-specific
-// — the assertions read from `pg_indexes`, the catalog view a
-// Postgres backend exposes. The contract harness covers behavioral
-// assertions that every `CaseStore` implementation should satisfy
-// (the fact that `applySchemaChange` produces the expected
-// `MigrationReport` shape, that subsequent queries return the
-// migrated rows). The catalog-shape probes that pin the exact
-// `CREATE INDEX` set need direct table-row access — exposing pool
-// access through the contract factory would force every
-// implementation to hand out a connection handle the harness
-// shouldn't need.
-
 const APP_ID = "app-index-ddl";
 const OWNER_A = "owner-a";
 const OWNER_B = "owner-b";
 
-/**
- * Probe `pg_indexes` for every per-property expression index on the
- * `cases` table for one `(appId, caseType)` scope. The LIKE prefix
- * `cases_<scopeTag>_%` is the exact app-scoped enumeration the
- * implementation's `readLiveIndexSet` uses — the fixed-width
- * `indexScopeTag` makes it match only this scope's indexes (never a
- * prefix-related case type's, never another app's); static
- * `case_indices_*_idx` lives on a different table and is excluded by
- * `tablename = 'cases'`. The `\_` escapes treat the convention's
- * underscores as literal characters rather than LIKE single-char
- * wildcards.
- */
+/** The final store never creates property expression indexes. */
 async function readPropertyIndexes(
 	pool: import("pg").Pool,
-	appId: string,
-	caseType: string,
+	_appId: string,
+	_caseType: string,
 ): Promise<{ name: string; def: string }[]> {
-	const result = await pool.query<{ indexname: string; indexdef: string }>(
-		`SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'cases' AND indexname LIKE $1 ESCAPE '\\' ORDER BY indexname`,
-		[`cases\\_${indexScopeTag(appId, caseType)}\\_%`],
+	const result = await pool.query<{ name: string; def: string }>(
+		"SELECT c.relname AS name,pg_get_indexdef(c.oid) AS def FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='cases'::regclass AND i.indexprs IS NOT NULL ORDER BY c.relname",
 	);
-	return result.rows.map((r) => ({ name: r.indexname, def: r.indexdef }));
+	return result.rows;
 }
 
 /**
@@ -487,7 +432,7 @@ describe("PostgresCaseStore — standalone schema authorization fence", () => {
 	});
 });
 
-describe("PostgresCaseStore — applySchemaChange index DDL", () => {
+describe("PostgresCaseStore — atomic case schema changes", () => {
 	// -----------------------------------------------------------
 	// Property-by-data-type — the per-arm DDL shape verifications
 	// -----------------------------------------------------------
@@ -495,113 +440,6 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 	// -----------------------------------------------------------
 	// Diff shapes — the verb-by-verb mutation paths
 	// -----------------------------------------------------------
-
-	it("creates indexes for every indexable property in the desired set on first call", async () => {
-		const store = makeStore(OWNER_A);
-		const properties: CaseProperty[] = [
-			{ name: "name", label: proseText("Name"), data_type: "text" },
-			{ name: "age", label: proseText("Age"), data_type: "int" },
-			{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
-			{
-				name: "tags",
-				label: proseText("Tags"),
-				data_type: "multi_select",
-				options: [{ value: "a", label: proseText("A") }],
-			},
-			// Mixed in non-indexable types — they pass through silently
-			// with no index emitted (single_select, date, geopoint).
-			{
-				name: "color",
-				label: proseText("Color"),
-				data_type: "single_select",
-				options: [{ value: "red", label: proseText("Red") }],
-			},
-			{
-				name: "logged_at",
-				label: proseText("Logged at"),
-				data_type: "datetime",
-			},
-			{ name: "started", label: proseText("Started"), data_type: "time" },
-			{ name: "scheduled", label: proseText("Scheduled"), data_type: "date" },
-			{ name: "home", label: proseText("Home"), data_type: "geopoint" },
-		];
-		const caseType: CaseType = { name: "patient", properties };
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		// One index per indexable property
-		// (`cases_<scopeTag>_<propertyTag>_<mode>`). The non-indexable
-		// types (single_select, date, geopoint) are absent. Both
-		// segments are hashes, so the live set sorts by hash — compare
-		// against the same-sorted expected set.
-		const names = indexes.map((i) => i.name).sort();
-		expect(names).toEqual(
-			[
-				idxName(APP_ID, "patient", "age", "int"),
-				idxName(APP_ID, "patient", "name", "fuzzy"),
-				idxName(APP_ID, "patient", "tags", "contains"),
-				idxName(APP_ID, "patient", "weight", "num"),
-			].sort(),
-		);
-		const definition = (property: string, mode: string) =>
-			indexes.find((i) => i.name === idxName(APP_ID, "patient", property, mode))
-				?.def;
-		expect(definition("name", "fuzzy")).toMatch(/USING gin.*->>.*gin_trgm_ops/);
-		expect(definition("age", "int")).toMatch(/USING btree.*::integer/);
-		expect(definition("weight", "num")).toMatch(/USING btree.*::numeric/);
-		expect(definition("tags", "contains")).toMatch(/USING gin.*->\s*'tags'/);
-		expect(definition("tags", "contains")).not.toMatch(/jsonb_path_ops|->>/);
-		for (const index of indexes) {
-			expect(index.def).toContain("app_id = 'app-index-ddl'");
-			expect(index.def).toContain("case_type = 'patient'");
-		}
-	});
-
-	it("gives `external-field` and `external_field` distinct indexes (hashing removes the old name collision)", async () => {
-		// The pre-hash naming transformed both to `..._external_field_...`
-		// and collided; hashing the RAW property name keeps two distinct
-		// properties distinct, so both get their own index.
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "external-field",
-					label: proseText("Hyphen"),
-					data_type: "text",
-				},
-				{
-					name: "external_field",
-					label: proseText("Underscore"),
-					data_type: "text",
-				},
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		const names = indexes.map((i) => i.name).sort();
-		for (const property of ["external-field", "external_field"]) {
-			expect(
-				indexes.find(
-					(i) => i.name === idxName(APP_ID, "patient", property, "fuzzy"),
-				)?.def,
-			).toContain(`->> '${property}'`);
-		}
-		expect(names).toEqual(
-			[
-				idxName(APP_ID, "patient", "external-field", "fuzzy"),
-				idxName(APP_ID, "patient", "external_field", "fuzzy"),
-			].sort(),
-		);
-	});
 
 	it("keeps explicit canonical scalars in the catalog while excluding them from JSONB schema and indexes", async () => {
 		const store = makeStore(OWNER_A);
@@ -723,102 +561,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		).toBe(true);
 	});
 
-	it("drops the index for a removed property on subsequent call", async () => {
-		const store = makeStore(OWNER_A);
-		const initial: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
-				{ name: "age", label: proseText("Age"), data_type: "int" },
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(initial),
-		});
-		const beforeIndexes = await readPropertyIndexes(
-			dbHandle.pool,
-			APP_ID,
-			"patient",
-		);
-		expect(beforeIndexes.map((i) => i.name).sort()).toEqual([
-			idxName(APP_ID, "patient", "age", "int"),
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-
-		// Remove `age`. The diff drops the btree index; the trgm
-		// index for `name` stays.
-		const reduced: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(reduced),
-		});
-
-		const afterIndexes = await readPropertyIndexes(
-			dbHandle.pool,
-			APP_ID,
-			"patient",
-		);
-		expect(afterIndexes.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-	});
-
-	it("on retype: drops the old-type index and creates the new-type index", async () => {
-		const store = makeStore(OWNER_A);
-		const initial: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: proseText("Age"), data_type: "text" }],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(initial),
-		});
-		const before = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(before.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "age", "fuzzy"),
-		]);
-
-		// Retype text → int. The diff drops the trgm index, creates
-		// the btree expression index.
-		const retyped: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(retyped),
-			property: "age",
-			change: { kind: "retype", fromType: "text", toType: "int" },
-		});
-
-		const after = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(after.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "age", "int"),
-		]);
-		expect(after[0]?.def).toContain("::integer");
-	});
-
-	it("on int→decimal retype: rebuilds the btree index to the numeric cast and admits fractional values", async () => {
-		// Regression (the `17.01` "Generate sample data" failure):
-		// `int` and `decimal` once shared the `btree` index-name
-		// suffix, so an `int → decimal` retype's name-keyed diff saw a
-		// same-name match and KEPT the stale `::integer` expression
-		// index. The next insert of a fractional value passed the
-		// `{ type: "number" }` JSON Schema but failed the stale index
-		// cast at write time with
-		// `invalid input syntax for type integer: "17.01"`. The suffix
-		// now encodes the cast, so the retype drops `_int` and creates
-		// `_num`.
+	it("int to decimal retyping admits fractional values without schema-specific indexes", async () => {
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
@@ -832,10 +575,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseTypeSchemas: buildSchemaMap(initial),
 		});
 		const before = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(before.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "weight", "int"),
-		]);
-		expect(before[0]?.def).toContain("::integer");
+		expect(before).toEqual([]);
 
 		const retyped: CaseType = {
 			name: "patient",
@@ -851,19 +591,9 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			change: { kind: "retype", fromType: "int", toType: "decimal" },
 		});
 
-		// The stale `::integer` btree is gone; a `::numeric` btree
-		// replaces it under the cast-encoded name.
 		const after = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(after.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "weight", "num"),
-		]);
-		expect(after[0]?.def).toContain("::numeric");
-		expect(after[0]?.def).not.toContain("::integer");
+		expect(after).toEqual([]);
 
-		// The actual failure surface: a fractional decimal now inserts
-		// cleanly instead of tripping a stale `::integer` index at
-		// write time. Pre-fix, this insert threw the Postgres cast
-		// error before returning.
 		const { caseId } = await store.insert({
 			appId: APP_ID,
 			row: {
@@ -887,13 +617,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(rows[0]?.properties.weight).toBe(17.01);
 	});
 
-	it("on retype that parks bad values: index DDL succeeds against the post-commit state", async () => {
-		// The structural two-phase test: retype `text → int` against a
-		// row carrying `"abc"` parks the value (its key drops from the
-		// row), and the Phase-B `CREATE INDEX CONCURRENTLY` over the
-		// `::integer` expression runs only against the post-commit row
-		// population — where the uncastable value no longer exists
-		// under the key, so the typed index builds cleanly.
+	it("retyping parks incompatible values and commits the new schema", async () => {
 		const store = makeStore(OWNER_A);
 		const initial: CaseType = {
 			name: "patient",
@@ -944,9 +668,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(report.parkedIds).toHaveLength(1);
 
 		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "age", "int"),
-		]);
+		expect(indexes).toEqual([]);
 	});
 
 	it("on multi_select→text retype: array values join space-separated (the XForms wire convention)", async () => {
@@ -1007,11 +729,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(rows[0]?.languages).toBe("en fr");
 	});
 
-	// -----------------------------------------------------------
-	// Phase A atomicity — Phase A's transaction rolls back independent of Phase B
-	// -----------------------------------------------------------
-
-	it("Phase A rolls back atomically on per-row migration failure: schema row stays unchanged", async () => {
+	it("Schema change rolls back atomically on per-row migration failure: schema row stays unchanged", async () => {
 		// Sabotage the second `applySchemaChange` call by removing
 		// `parked_case_values` from the database mid-flight — the
 		// retype's park INSERT fails, and Phase A's transaction rolls
@@ -1084,7 +802,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(row.rows[0]?.properties).toEqual({ age: "abc" });
 	});
 
-	it("caller-owned Phase A rolls back with its outer transaction", async () => {
+	it("Caller-owned schema change rolls back with its outer transaction", async () => {
 		const store = makeStore(OWNER_A);
 		const caseType: CaseType = {
 			name: "patient",
@@ -1096,7 +814,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		const caseDb = dbHandle.db as unknown as Kysely<Database>;
 		await expect(
 			caseDb.transaction().execute(async (tx) => {
-				await store.applySchemaChangePhaseA(tx, {
+				await store.applySchemaChangeInTransaction(tx, {
 					appId: APP_ID,
 					caseType: "patient",
 					caseTypeSchemas: buildSchemaMap(caseType),
@@ -1117,614 +835,27 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		);
 	});
 
-	it("caller-owned Phase B remains dormant until Phase A commits", async () => {
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
-			],
-		};
-
-		const caseDb = dbHandle.db as unknown as Kysely<Database>;
-		const prepared = await caseDb.transaction().execute(async (tx) => {
-			return await store.applySchemaChangePhaseA(tx, {
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: buildSchemaMap(caseType),
-			});
-		});
-
-		const schema = await dbHandle.pool.query<{ count: string }>(
-			`SELECT count(*)::text AS count
-			 FROM case_type_schemas
-			 WHERE app_id = $1 AND case_type = $2`,
-			[APP_ID, "patient"],
-		);
-		expect(schema.rows[0]?.count).toBe("1");
-		expect(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).toEqual(
-			[],
-		);
-
-		await prepared.completeAfterCommit();
-		expect(
-			(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).map(
-				(index) => index.name,
-			),
-		).toEqual([idxName(APP_ID, "patient", "name", "fuzzy")]);
-	});
-
 	// -----------------------------------------------------------
 	// Pre-flight identifier validation — runs BEFORE Phase A opens
 	// -----------------------------------------------------------
-
-	it("identifier-shape errors surface BEFORE Phase A's transaction opens", async () => {
-		// `computeDesiredIndexSet` runs synchronously at the top of
-		// `applySchemaChange`, before any I/O. A property name with
-		// characters outside the identifier vocabulary throws during
-		// pre-flight (`assertSafeIdentifierFragment` inside `indexName`);
-		// `case_type_schemas` is never written. (Name length no longer
-		// matters — both name segments are fixed-width hashes.)
-		const store = makeStore(OWNER_A);
-		// Seed the schema row with no properties so the failure
-		// path can compare against a known-good baseline.
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({ name: "patient", properties: [] }),
-		});
-
-		// A property name with a space violates `CASE_PROPERTY_PATTERN`.
-		const badPropertyName = "has a space";
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: badPropertyName, label: proseText("X"), data_type: "text" },
-			],
-		};
-		await expect(
-			store.applySchemaChange({
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: buildSchemaMap(caseType),
-			}),
-		).rejects.toThrow(/characters other than/);
-
-		// `case_type_schemas` carries the pre-call shape (empty
-		// properties), NOT the bad property. Pre-flight caught the
-		// error before Phase A's UPSERT ran.
-		const schemaRow = await dbHandle.pool.query<{ schema: unknown }>(
-			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
-			[APP_ID, "patient"],
-		);
-		const schema = schemaRow.rows[0]?.schema as {
-			properties: Record<string, unknown>;
-		};
-		expect(Object.keys(schema.properties)).not.toContain(badPropertyName);
-		expect(Object.keys(schema.properties)).toEqual([]);
-
-		// No indexes were created either — the identifier check
-		// fires before any DDL statement reaches the engine; this
-		// assertion pins that ordering.
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(0);
-	});
-
-	// -----------------------------------------------------------
-	// Phase B engine failure — Phase A intact, retry converges
-	// -----------------------------------------------------------
-
-	it("Phase B engine failure leaves Phase A intact; next call converges the index set", async () => {
-		// Drop the `pg_trgm` extension before calling
-		// `applySchemaChange` for a text property. Phase B's
-		// CREATE INDEX needs the `gin_trgm_ops` opclass `pg_trgm`
-		// provides; without it, the engine throws "operator class
-		// gin_trgm_ops does not exist". Phase A's transaction has
-		// already committed by the time Phase B runs, so the
-		// schema row is preserved. Re-installing the extension and
-		// re-calling `applySchemaChange` drives Phase B to
-		// convergence — the catalog diff re-derives the missing
-		// CREATE INDEX.
-		const store = makeStore(OWNER_A);
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({ name: "patient", properties: [] }),
-		});
-
-		// Drop the extension. Production never does this; the test
-		// drops it to manufacture an engine-level failure for the
-		// CREATE INDEX statement.
-		await dbHandle.pool.query("DROP EXTENSION pg_trgm CASCADE");
-
-		// Add the `name` property. Phase A's UPSERT commits the
-		// new schema; Phase B's CREATE INDEX with `gin_trgm_ops`
-		// fails because the extension is gone. The throw is the
-		// typed Phase-B wrapper (its `cause` carries the engine
-		// fault) so callers retain the committed Phase-A report —
-		// parked ids and all — across the failure.
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
-			],
-		};
-		await expect(
-			store.applySchemaChange({
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: buildSchemaMap(caseType),
-			}),
-		).rejects.toMatchObject({
-			name: "SchemaChangePhaseBError",
-			report: { parkedIds: [] },
-			cause: expect.objectContaining({
-				message: expect.stringMatching(/gin_trgm_ops|pg_trgm|trgm/i),
-			}),
-		});
-
-		// Phase A's commit is intact: the schema row carries the
-		// new `name` property, even though Phase B failed.
-		const schemaRow = await dbHandle.pool.query<{ schema: unknown }>(
-			"SELECT schema FROM case_type_schemas WHERE app_id = $1 AND case_type = $2",
-			[APP_ID, "patient"],
-		);
-		const schema = schemaRow.rows[0]?.schema as {
-			properties: Record<string, unknown>;
-		};
-		expect(Object.keys(schema.properties)).toContain("name");
-
-		// No `cases_patient_*` indexes exist yet — Phase B's
-		// failure prevented the CREATE INDEX from landing.
-		const beforeRetry = await readPropertyIndexes(
-			dbHandle.pool,
-			APP_ID,
-			"patient",
-		);
-		expect(beforeRetry).toHaveLength(0);
-
-		// Re-install the extension — simulating an operator's
-		// recovery action — and re-run `applySchemaChange` with
-		// the same blueprint. Phase A's UPSERT is a no-op (schema
-		// unchanged); Phase B's catalog diff finds the missing
-		// trgm-GIN entry and creates it. The retry converges the
-		// index state.
-		await dbHandle.pool.query("CREATE EXTENSION pg_trgm");
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const afterRetry = await readPropertyIndexes(
-			dbHandle.pool,
-			APP_ID,
-			"patient",
-		);
-		expect(afterRetry.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-		expect(afterRetry[0]?.def).toMatch(/USING gin/);
-		expect(afterRetry[0]?.def).toContain("gin_trgm_ops");
-	});
 
 	// -----------------------------------------------------------
 	// INVALID-index recovery — drop-and-recreate on next retry
 	// -----------------------------------------------------------
 
-	it("drops and recreates an INVALID index left by a failed CONCURRENTLY build on the next retry", async () => {
-		// `CREATE INDEX CONCURRENTLY` failures (lock conflict,
-		// deadlock, disk full, cancelled mid-build) leave the
-		// partially-built index visible in the catalog with
-		// `pg_index.indisvalid = false`. Postgres treats an INVALID
-		// index as "possibly incomplete: it must still be modified by
-		// INSERT/UPDATE operations, but it cannot safely be used for
-		// queries" (per
-		// `https://www.postgresql.org/docs/current/catalog-pg-index.html`).
-		// The diff captures `indisvalid` and emits a drop-and-recreate
-		// pair for any INVALID artifact so the next `applySchemaChange`
-		// call recovers the index without operator intervention.
-		//
-		// Manufacturing an INVALID index in test goes through the
-		// catalog directly: `UPDATE pg_index SET indisvalid = false`
-		// against the index's `indexrelid`. The testcontainer's
-		// superuser has the privilege; production's IAM-auth runtime
-		// SA does not, which is correct (no production code path
-		// writes to `pg_index`). The catalog mutation simulates the
-		// engine state a real CONCURRENTLY failure would leave.
-		const store = makeStore(OWNER_A);
-		// The app-scoped index name the raw catalog probes below target.
-		const fuzzyIndex = idxName(APP_ID, "patient", "name", "fuzzy");
-
-		// Establish a healthy text-fuzzy index for the `name` property.
-		const caseTypeSchemas = buildSchemaMap({
-			name: "patient",
-			properties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
-			],
-		});
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas,
-		});
-
-		// Confirm the index is present and valid before the catalog
-		// mutation, otherwise a regression in the create path would
-		// silently masquerade as a recovery success.
-		const beforeMutation = await dbHandle.pool.query<{ indisvalid: boolean }>(
-			`SELECT i.indisvalid
-			   FROM pg_index i
-			   JOIN pg_class c ON c.oid = i.indexrelid
-			  WHERE c.relname = '${fuzzyIndex}'`,
-		);
-		expect(beforeMutation.rows[0]?.indisvalid).toBe(true);
-
-		// Mark the index INVALID in the catalog. The cast through
-		// `pg_class.oid` resolves the index's catalog id by name.
-		await dbHandle.pool.query(
-			`UPDATE pg_index
-			    SET indisvalid = false
-			  WHERE indexrelid = (
-			    SELECT oid FROM pg_class WHERE relname = '${fuzzyIndex}'
-			  )`,
-		);
-
-		// Verify the catalog mutation took effect — the test only
-		// proves recovery if the precondition is real.
-		const afterMutation = await dbHandle.pool.query<{ indisvalid: boolean }>(
-			`SELECT i.indisvalid
-			   FROM pg_index i
-			   JOIN pg_class c ON c.oid = i.indexrelid
-			  WHERE c.relname = '${fuzzyIndex}'`,
-		);
-		expect(afterMutation.rows[0]?.indisvalid).toBe(false);
-
-		// Re-run `applySchemaChange` with the same schema map. The
-		// diff reads the catalog, sees the INVALID entry, emits a
-		// drop + create pair, and converges the live set with the
-		// desired set.
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas,
-		});
-
-		// The recovered index exists, is valid, and has the same
-		// trgm-GIN shape the create path emits.
-		const recovered = await dbHandle.pool.query<{
-			indisvalid: boolean;
-			indexdef: string;
-		}>(
-			`SELECT i.indisvalid, pg_get_indexdef(i.indexrelid) AS indexdef
-			   FROM pg_index i
-			   JOIN pg_class c ON c.oid = i.indexrelid
-			  WHERE c.relname = '${fuzzyIndex}'`,
-		);
-		expect(recovered.rows).toHaveLength(1);
-		expect(recovered.rows[0]?.indisvalid).toBe(true);
-		expect(recovered.rows[0]?.indexdef).toMatch(/USING gin/);
-		expect(recovered.rows[0]?.indexdef).toContain("gin_trgm_ops");
-
-		// One index — not two. A regression that emitted a CREATE
-		// without the corresponding DROP would leave both the INVALID
-		// stub and the new index in the catalog with the same name.
-		// `pg_class.relname` is unique within a schema, so the engine
-		// would actually reject the CREATE in that scenario; this
-		// assertion pins that the recovery path takes the
-		// drop-then-create branch rather than relying on engine-side
-		// uniqueness as the safety net.
-		const finalSet = await readPropertyIndexes(
-			dbHandle.pool,
-			APP_ID,
-			"patient",
-		);
-		expect(finalSet.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-	});
-
 	// -----------------------------------------------------------
 	// The catalog read resolves `cases` through the search path
 	// -----------------------------------------------------------
-
-	it("keeps diffing when `cases` lives outside `current_schema()` (production's converged schema)", async () => {
-		// Production's privilege convergence moves `cases` into an
-		// isolated schema (`nova_case_runtime`) so the runtime role holds
-		// `CREATE` nowhere else, while every connection keeps the search
-		// path `public,<isolated>` — `public` first, so fixed/auth objects
-		// still resolve and get created there. `current_schema()` is
-		// therefore `public`, and `cases` is NOT in it.
-		//
-		// A catalog read keyed on `current_schema()` returns zero rows
-		// under that shape, which makes the live set look empty: the diff
-		// re-`CREATE`s every desired index (the second sync of a case type
-		// dies on `already exists`, and every create queued behind it is
-		// skipped) and never emits a drop. This test reproduces the
-		// production shape locally so the read stays keyed on the same
-		// search-path resolution the DDL uses.
-		const isolated = "nova_case_runtime";
-		await dbHandle.pool.query(`CREATE SCHEMA ${isolated}`);
-		await dbHandle.pool.query(
-			`ALTER TABLE public.cases SET SCHEMA ${isolated}`,
-		);
-		// Session-level for the connection in hand and database-level for
-		// any reconnect — the pool holds one connection, but an idle
-		// recycle mid-test must not silently restore the default path.
-		await dbHandle.pool.query(
-			`ALTER DATABASE ${dbHandle.databaseName} SET search_path TO public, ${isolated}`,
-		);
-		await dbHandle.pool.query(`SET search_path TO public, ${isolated}`);
-
-		// The precondition IS the scenario: assert it rather than trust
-		// the DDL above, so a future engine/helper change that leaves
-		// `cases` on `current_schema()` fails here instead of passing the
-		// whole test vacuously.
-		const placement = await dbHandle.pool.query<{
-			current: string;
-			cases_schema: string;
-		}>(
-			`SELECT current_schema() AS current,
-			        (SELECT n.nspname FROM pg_class c
-			           JOIN pg_namespace n ON n.oid = c.relnamespace
-			          WHERE c.oid = to_regclass('cases')) AS cases_schema`,
-		);
-		expect(placement.rows[0]?.current).toBe("public");
-		expect(placement.rows[0]?.cases_schema).toBe(isolated);
-
-		const store = makeStore(OWNER_A);
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-				],
-			}),
-		});
-
-		// Second sync of the SAME case type. With a blind read this throws
-		// `already exists` re-creating `name`'s index, and `age` never gets
-		// one because the create loop aborts on the first duplicate.
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-					{ name: "age", label: proseText("Age"), data_type: "int" },
-				],
-			}),
-		});
-		expect(
-			(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient"))
-				.map((i) => i.name)
-				.sort(),
-		).toEqual([
-			idxName(APP_ID, "patient", "age", "int"),
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-
-		// The drop half of the diff: an empty live set emits no drops at
-		// all, so a removed property's index would survive forever.
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient",
-				properties: [
-					{ name: "age", label: proseText("Age"), data_type: "int" },
-				],
-			}),
-		});
-		expect(
-			(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).map(
-				(i) => i.name,
-			),
-		).toEqual([idxName(APP_ID, "patient", "age", "int")]);
-	});
 
 	// -----------------------------------------------------------
 	// Additive (no-`change`) call still emits indexes
 	// -----------------------------------------------------------
 
-	it("additive call (no-`change`) emits index DDL for newly added properties", async () => {
-		// The no-`change` path: schema sync runs, per-row migration
-		// is skipped, and Phase B still runs the index sync.
-		// Verifies the early-return for the no-`change` path doesn't
-		// short-circuit Phase B.
-		const store = makeStore(OWNER_A);
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-				],
-			}),
-		});
-
-		// Add a second property. Additive mutation — no `change`
-		// arg supplied. Phase B still emits the new index.
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-					{ name: "age", label: proseText("Age"), data_type: "int" },
-				],
-			}),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes.map((i) => i.name).sort()).toEqual([
-			idxName(APP_ID, "patient", "age", "int"),
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-	});
-
-	it("compiled numeric and multi-select predicates can use their expression indexes", async () => {
-		const appId = "app-explain";
-		const AGE_INPUT = testUuid("explain-age-input");
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "age", label: proseText("Age"), data_type: "int" },
-				{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
-				{
-					name: "tags",
-					label: proseText("Tags"),
-					data_type: "multi_select",
-					options: [{ value: "red", label: proseText("Red") }],
-				},
-			],
-		};
-		const schemas = buildCaseTypeMap(buildSimpleBlueprint([caseType], appId));
-		await makeStore(OWNER_A).applySchemaChange({
-			appId,
-			caseType: "patient",
-			caseTypeSchemas: schemas,
-		});
-		await dbHandle.pool.query(
-			`INSERT INTO cases(case_id,app_id,project_id,owner_id,case_type,case_name,properties)
-            SELECT gen_random_uuid(),$1,'owner-a','owner-a','patient','Person '||i,
-            jsonb_build_object('age',i,'weight',i+0.5,'tags',CASE WHEN i%7=0 THEN '["red"]'::jsonb ELSE '[]'::jsonb END)
-            FROM generate_series(1,2000) i`,
-			[appId],
-		);
-		await dbHandle.pool.query("VACUUM ANALYZE cases");
-		const probes = [
-			{
-				predicate: gt(prop("patient", "age"), literal(50)),
-				property: "age",
-				mode: "int",
-			},
-			{
-				predicate: gt(prop("patient", "weight"), literal(75.5)),
-				property: "weight",
-				mode: "num",
-			},
-			{
-				predicate: multiSelectAny(prop("patient", "tags"), literal("red")),
-				property: "tags",
-				mode: "contains",
-			},
-			// A bound comparand that is not blank stays the typed comparison.
-			{
-				predicate: eq(prop("patient", "age"), input(AGE_INPUT)),
-				property: "age",
-				mode: "int",
-				bindings: { searchInputs: new Map([[AGE_INPUT, 50]]) },
-			},
-			// A two-valued negation beside a positive comparison leaves the
-			// positive one bare, so it still reaches its index.
-			{
-				predicate: and(
-					gt(prop("patient", "age"), literal(50)),
-					not(eq(prop("patient", "weight"), literal(75.5))),
-				),
-				property: "age",
-				mode: "int",
-			},
-		];
-		const client = await dbHandle.pool.connect();
-		try {
-			// Assert index eligibility independently of this small fixture's cost estimate.
-			await client.query("SET enable_seqscan = off");
-			for (const probe of probes) {
-				const query = (dbHandle.db as Kysely<Database>)
-					.selectFrom("cases as c")
-					.selectAll()
-					.where("c.app_id", "=", appId)
-					.where("c.project_id", "=", OWNER_A)
-					.where("c.case_type", "=", "patient")
-					.where(
-						compilePredicate(probe.predicate, {
-							reading: "search",
-							db: dbHandle.db,
-							appId,
-							projectId: OWNER_A,
-							anchorAlias: "c",
-							currentCaseType: "patient",
-							caseTypeSchemas: schemas,
-							bindings: ("bindings" in probe && probe.bindings) || {},
-						}),
-					)
-					.compile();
-				const result = await client.query<{ "QUERY PLAN": string }>(
-					`EXPLAIN ${query.sql}`,
-					[...query.parameters],
-				);
-				const plan = result.rows.map((row) => row["QUERY PLAN"]).join("\n");
-				expect(plan).toContain(
-					idxName(appId, "patient", probe.property, probe.mode),
-				);
-				expect(plan).toContain("Index Cond");
-				if (probe.mode === "contains") expect(plan).toMatch(/Index Cond.*\?\|/);
-			}
-		} finally {
-			try {
-				await client.query("RESET enable_seqscan");
-			} finally {
-				client.release();
-			}
-		}
-	});
-
 	// -----------------------------------------------------------
 	// Tenant scope — index DDL is shared across owners
 	// -----------------------------------------------------------
 
-	it("repeated schema sync by another Project member preserves the index set", async () => {
-		const storeA = makeStore("owner-a");
-		const storeB = makeStore("owner-a", "owner-b");
-		await storeA.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-				],
-			}),
-		});
-
-		const seenByA = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(seenByA.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-
-		await storeB.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-				],
-			}),
-		});
-		const seenByB = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(seenByB.map((i) => i.name)).toEqual([
-			idxName(APP_ID, "patient", "name", "fuzzy"),
-		]);
-	});
-
 	it("two apps sharing a case-type + property name with different data_types stay independent", async () => {
-		// Regression: index names AND the partial predicate were keyed
-		// only on `case_type` (not app_id), so App A's `patient.weight`
-		// int index and App B's `patient.weight` decimal index collided
-		// on ONE global index. Whichever app materialized last won, and
-		// its cast then evaluated the OTHER app's rows: App A's
-		// `::integer` index rejected App B's own fractional sample data
-		// with `invalid input syntax for type integer: "17.01"`.
-		// App-scoping (name tag + `app_id` in the predicate) makes the
-		// two indexes fully independent.
 		const store = makeStore(OWNER_A);
 		const appA = "app-cross-a";
 		const appB = "app-cross-b";
@@ -1753,22 +884,15 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			}),
 		});
 
-		// Both indexes coexist under distinct, app-scoped names — App
-		// A's materialize did NOT drop App B's index. Each app's scope
-		// tag enumerates only its own index.
 		const aNames = (
 			await readPropertyIndexes(dbHandle.pool, appA, "patient")
 		).map((i) => i.name);
 		const bNames = (
 			await readPropertyIndexes(dbHandle.pool, appB, "patient")
 		).map((i) => i.name);
-		expect(aNames).toEqual([idxName(appA, "patient", "weight", "int")]);
-		expect(bNames).toEqual([idxName(appB, "patient", "weight", "num")]);
+		expect(aNames).toEqual([]);
+		expect(bNames).toEqual([]);
 
-		// App B inserts its own fractional weight: under the old global
-		// `::integer` index this threw; the app-scoped `::numeric`
-		// index admits it because App A's int index's predicate
-		// (`app_id = 'app-cross-a'`) excludes App B's row.
 		await store.insert({
 			appId: appB,
 			row: {
@@ -1802,54 +926,6 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(bRows).toHaveLength(1);
 		expect(aRows).toHaveLength(1);
 		expect(bRows[0]?.properties.weight).toBe(17.01);
-	});
-
-	it("a case type whose name is a prefix of another's does not drop the other's indexes on diff", async () => {
-		// `patient` is a name-prefix of `patient_visit`. A name prefix
-		// built from the literal case type (`..._patient_%`) would match
-		// both; the fixed-width `indexScopeTag` instead hashes
-		// `(app, case_type)` to DISTINCT tags, so re-materializing
-		// `patient` enumerates only its own scope and can't see
-		// `patient_visit`'s index as a stray to drop.
-		const store = makeStore(OWNER_A);
-		const patientSchema = buildSchemaMap({
-			name: "patient",
-			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
-		});
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: patientSchema,
-		});
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient_visit",
-			caseTypeSchemas: buildSchemaMap({
-				name: "patient_visit",
-				properties: [
-					{ name: "age", label: proseText("Age"), data_type: "int" },
-				],
-			}),
-		});
-
-		// Re-materialize `patient` (additive, identical schema). Its
-		// diff must leave `patient_visit`'s index untouched.
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: patientSchema,
-		});
-
-		const patientNames = (
-			await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")
-		).map((i) => i.name);
-		const visitNames = (
-			await readPropertyIndexes(dbHandle.pool, APP_ID, "patient_visit")
-		).map((i) => i.name);
-		expect(patientNames).toEqual([idxName(APP_ID, "patient", "age", "int")]);
-		expect(visitNames).toEqual([
-			idxName(APP_ID, "patient_visit", "age", "int"),
-		]);
 	});
 });
 
@@ -2659,7 +1735,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		expect(forward.properties).toEqual(["name", "village"]);
 	});
 
-	it("fully no-ops a stale lower-seq sync — schema row AND its expression index untouched", async () => {
+	it("rejects a stale lower-sequence schema sync", async () => {
 		const store = makeStore(SEQ_APP);
 		// Land the fresher two-property state at seq 5.
 		await store.applySchemaChange({
@@ -2675,12 +1751,8 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			SEQ_APP,
 			"patient",
 		);
-		expect(indexesBefore).toHaveLength(2);
+		expect(indexesBefore).toHaveLength(0);
 
-		// A stale sync at seq 2 with only the OLDER one-property schema must
-		// no-op the whole call — the row keeps its seq-5 shape and both
-		// expression indexes survive (the Phase-B index-DDL skip is part of
-		// the full-call no-op).
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
@@ -2703,7 +1775,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		);
 	});
 
-	it("contending schema syncs recover transient DDL failures and preserve the latest sequence", async () => {
+	it("contending schema syncs preserve the latest sequence", async () => {
 		const store = makeStore(SEQ_APP);
 		await store.applySchemaChange({
 			appId: SEQ_APP,
@@ -2774,12 +1846,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 				(await readPropertyIndexes(dbHandle.pool, SEQ_APP, "patient"))
 					.map((i) => i.name)
 					.sort(),
-			).toEqual(
-				[
-					idxName(SEQ_APP, "patient", "name", "fuzzy"),
-					idxName(SEQ_APP, "patient", "village", "fuzzy"),
-				].sort(),
-			);
+			).toEqual([]);
 		} finally {
 			await gate.end();
 			await Promise.all(pending);

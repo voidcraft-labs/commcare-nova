@@ -12,14 +12,12 @@ import {
 import { CASEDB_READING } from "@/lib/domain/expression/temporalType";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 
-const { drainPendingMock, loadAppMock, materializeMock } = vi.hoisted(() => ({
-	drainPendingMock: vi.fn(),
+const { loadAppMock, materializeMock } = vi.hoisted(() => ({
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
 }));
 vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
 vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
-	drainPendingCaseSchemaIndexes: drainPendingMock,
 	materializeCaseStoreSchemas: materializeMock,
 }));
 
@@ -62,32 +60,6 @@ function persistedSnapshot() {
 }
 
 describe("withSchemaHeal", () => {
-	it("awaits pending index convergence before starting the operation", async () => {
-		const pending = Promise.withResolvers<void>();
-		drainPendingMock.mockReturnValue(pending.promise);
-		const run = vi.fn().mockResolvedValue("rows");
-		const result = withSchemaHeal(ARGS, run);
-		try {
-			expect(drainPendingMock).toHaveBeenCalledWith("app-1");
-			expect(run).not.toHaveBeenCalled();
-		} finally {
-			pending.resolve();
-			await expect(result).resolves.toBe("rows");
-		}
-		expect(run).toHaveBeenCalledOnce();
-		expect(loadAppMock).not.toHaveBeenCalled();
-	});
-
-	it("continues the operation when best-effort index convergence fails", async () => {
-		drainPendingMock.mockRejectedValue(
-			new Error("index convergence unavailable"),
-		);
-		const run = vi.fn().mockResolvedValue("rows");
-		await expect(withSchemaHeal(ARGS, run)).resolves.toBe("rows");
-		expect(run).toHaveBeenCalledOnce();
-		expect(loadAppMock).not.toHaveBeenCalled();
-	});
-
 	it.each([new Error("connection unavailable"), genuineInvalid()])(
 		"propagates a non-drift error without reading or materializing: %s",
 		async (error) => {
@@ -128,7 +100,6 @@ describe("withSchemaHeal", () => {
 				}
 				expect(run).toHaveBeenCalledTimes(2);
 				expect(loadAppMock).toHaveBeenCalledOnce();
-				expect(drainPendingMock).toHaveBeenCalledOnce();
 			});
 
 			it.each(["missing", "load-failure", "materialize-failure"])(

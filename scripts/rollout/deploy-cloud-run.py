@@ -510,6 +510,15 @@ def _effective_execution_args(
         return requested
 
     if short_name == "commcare-nova-historical-repair":
+        if requested == ("case-expression-index-scan.cjs",):
+            return requested
+        if (
+            len(requested) == 4
+            and requested[0:2] == ("case-expression-index-retirement.cjs", "--scan-digest")
+            and re.fullmatch(r"[0-9a-f]{64}", requested[2]) is not None
+            and requested[3] == "--writers-stopped"
+        ):
+            return requested
         tools = {"language-identity-repair.cjs"}
         if requested[:1] and requested[0] in tools:
             if len(requested) == 1 or requested[1:] == ("--execute",):
