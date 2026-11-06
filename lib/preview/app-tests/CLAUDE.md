@@ -46,7 +46,9 @@ still requires those edits to be saved.
 generated namespace inside that transaction. Every table the store can reach
 must resolve there, with the current production column contract. No live case
 rows are copied. No live lookup-table locks are taken by the isolated store.
-Lookup definitions and rows are seeded from the same authorized snapshot. Runtime version 13 refuses
+Lookup definitions and rows are seeded from the same authorized snapshot.
+Case-type schemas and lookup definitions insert in bounded batches, so adding
+a type or table does not add a separate catalog-insert round trip. Runtime version 13 refuses
 execution of older namespaces that lack the definition table.
 Start observations retain supplied record counts by type,
 including an empty list when no business records were supplied. This is input

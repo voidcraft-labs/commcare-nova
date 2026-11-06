@@ -74,15 +74,18 @@ export async function seedAppTest(
 			VALUES (${scope.appId}, ${scope.actorUserId}, ${scope.projectId}, ${doc.appName}, ${doc.appName.toLowerCase()}, ${scope.blueprintSeq})`.execute(
 				isolated,
 			);
-			for (const [name, type] of types) {
+			const typeEntries = [...types];
+			for (let offset = 0; offset < typeEntries.length; offset += 500) {
 				await isolated
 					.insertInto("case_type_schemas")
-					.values({
-						app_id: scope.appId,
-						case_type: name,
-						schema: JSON.stringify(caseTypeToJsonSchema(type)),
-						synced_seq: scope.blueprintSeq,
-					})
+					.values(
+						typeEntries.slice(offset, offset + 500).map(([name, type]) => ({
+							app_id: scope.appId,
+							case_type: name,
+							schema: JSON.stringify(caseTypeToJsonSchema(type)),
+							synced_seq: scope.blueprintSeq,
+						})),
+					)
 					.execute();
 			}
 			if (snapshot.locations.length > 0) {
@@ -121,21 +124,29 @@ export async function seedAppTest(
 				appId: scope.appId,
 				candidateDoc: doc,
 			});
-			for (const definition of snapshot.lookup.definitions) {
+			for (
+				let offset = 0;
+				offset < snapshot.lookup.definitions.length;
+				offset += 500
+			) {
 				await isolated
 					.insertInto("lookup_tables")
-					.values({
-						project_id: scope.projectId,
-						id: definition.id,
-						name: definition.name,
-						tag: definition.tag,
-						definition_revision: definition.definitionRevision,
-						rows_revision:
-							definition.rowsRevision ?? definition.definitionRevision,
-						column_count: definition.columns.length,
-						created_by: scope.actorUserId,
-						updated_by: scope.actorUserId,
-					})
+					.values(
+						snapshot.lookup.definitions
+							.slice(offset, offset + 500)
+							.map((definition) => ({
+								project_id: scope.projectId,
+								id: definition.id,
+								name: definition.name,
+								tag: definition.tag,
+								definition_revision: definition.definitionRevision,
+								rows_revision:
+									definition.rowsRevision ?? definition.definitionRevision,
+								column_count: definition.columns.length,
+								created_by: scope.actorUserId,
+								updated_by: scope.actorUserId,
+							})),
+					)
 					.execute();
 			}
 			for (const [tableId, rows] of snapshot.lookup.rows) {
