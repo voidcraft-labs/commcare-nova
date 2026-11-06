@@ -1,4 +1,4 @@
-import { modelFailureDiagnostics } from "./modelStep";
+import { modelFailureDiagnostics } from "./modelStepError";
 /**
  * GenerationContext — shared abstraction for all LLM calls and generation state.
  *

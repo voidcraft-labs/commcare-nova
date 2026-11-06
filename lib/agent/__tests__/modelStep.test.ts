@@ -1,7 +1,8 @@
 import { expect, it } from "vitest";
 import { MODEL_ROLES } from "@/lib/models";
 import { classifyError } from "../errorClassifier";
-import { modelFailureDiagnostics, productionModelStep } from "../modelStep";
+import { productionModelStep } from "../modelStep";
+import { modelFailureDiagnostics } from "../modelStepError";
 import { respondWithObject, withResponsesPeer } from "./responsesPeer";
 
 it.each([false, true])(

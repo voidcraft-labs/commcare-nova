@@ -942,3 +942,93 @@ it("recognizes a moved historical answer only by its retained content and leaves
 		},
 	);
 });
+
+it("pauses an exhausted architect turn, preserves completed tools, and resumes only on a new turn", async () => {
+	const { authority, spec } = await fixture();
+	let requests = 0;
+	const writes: string[] = [];
+	await withResponsesPeer(
+		(_request, response) => {
+			requests++;
+			respondWithParts(
+				response,
+				requests === 1
+					? [
+							{
+								type: "tool",
+								name: "writePlan",
+								callId: "budget-plan",
+								input: {
+									markdown: "Register households and record their visits.",
+								},
+							},
+						]
+					: [{ type: "text", text: "Ready." }],
+				requests,
+			);
+		},
+		async (provider) => {
+			const args: ArchitectLoopArgs = {
+				spec,
+				system: "Design an app.",
+				turnId: "budget-turn",
+				maxSteps: 1,
+				signal: new AbortController().signal,
+				tools: () => ({
+					writePlan: {
+						inputSchema: z.object({ markdown: z.string() }),
+						strict: false,
+					},
+				}),
+				modelStep: productionModelStep(
+					provider(spec.modelId),
+					"medium",
+					"budget-test",
+				),
+				additions: [
+					{
+						key: "budget-user",
+						message: { role: "user", content: "Build it." },
+					},
+				],
+				dispatch: async (call) => {
+					const input = z.object({ markdown: z.string() }).parse(call.input);
+					await writeAppPlan({
+						authority,
+						writer: { editor: "architect" },
+						requestId: call.toolCallId,
+						expectedRevision: 0,
+						change: input,
+					});
+					writes.push(call.toolCallId);
+					return { kind: "result", output: { saved: true } };
+				},
+				onStep: async () => {},
+				onRecoveredUsage: () => {},
+				onFinish: async () => ({ kind: "complete" }),
+			};
+			const paused = await runArchitectLoop(args);
+			expect(paused.kind).toBe("awaiting-input");
+			expect((await readAppPlan(authority))?.revision).toBe(1);
+			expect(await runArchitectLoop(args)).toEqual(paused);
+			expect(requests).toBe(1);
+			expect(writes).toEqual(["budget-plan"]);
+			expect(
+				(
+					await runArchitectLoop({
+						...args,
+						turnId: "new-turn",
+						additions: [
+							{
+								key: "continue",
+								message: { role: "user", content: "Continue." },
+							},
+						],
+					})
+				).kind,
+			).toBe("complete");
+			expect(requests).toBe(2);
+			expect(writes).toEqual(["budget-plan"]);
+		},
+	);
+});

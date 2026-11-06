@@ -417,3 +417,9 @@ Partial text remains visible, but the edit run fails through ordinary settlement
 it cannot claim a completed edit. Durable architect/peer steps refuse that
 response before saving it as a completed step or dispatching its tool calls.
 Structured extraction and translation refuse even schema-valid partial JSON.
+
+The architect request allowance is a normal continuation boundary. After draining
+and acknowledging the last response and its tools, the loop offers a message
+pause if more work remains. Reconnecting that same turn cannot purchase another
+request; a new user turn resumes the retained context with its own allowance.
+A final accepted response can still finish exactly at the limit.

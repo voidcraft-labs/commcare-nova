@@ -1,4 +1,4 @@
-import { AgentModelStepError } from "./modelStep";
+import { AgentModelStepError } from "./modelStepError";
 /**
  * Error classifier — inspects errors from the AI SDK / API calls and returns
  * a structured classification with a human-readable message safe for display.
