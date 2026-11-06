@@ -58,7 +58,9 @@ fleet-wide indexes for every possible property.
    ingress and Scheduler settings to restore. Reserve an operator window long
    enough for 7,326 individually committed concurrent drops; no duration is
    claimed from a local test. No scanner or merge approval authorizes production
-   changes by itself.
+   changes by itself. Prepare a valid operator MCP API key and an authenticated
+   browser session for the fenced smoke checks. Keep credentials in the existing
+   client credential store, never in the cutover evidence or command transcripts.
 
 ## Verified controls and drain checks
 
@@ -311,8 +313,9 @@ the load balancer must be stopped and identified before this proof is sufficient
 6. Before opening public ingress, verify the case index catalog is exactly the fixed
    set, no obsolete marker columns/table remain, runtime CREATE is absent, and
    real scoped preview reads, sample-data writes, property rename/retype,
-   authoring save and an isolated app test succeed. For authenticated browser/MCP
-   checks, allow only the named operator's stable public CIDR ahead of the deny
+   authoring save and an isolated app test succeed. Use the prepared browser
+   session and **API-key-authenticated MCP** for these fenced checks. Allow only
+   the named operator's stable public CIDR ahead of the deny
    rule after the new revision is proven Ready:
 
    ```bash
@@ -322,12 +325,20 @@ the load balancer must be stopped and identified before this proof is sufficient
      --description='Temporary operator verification for case-index retirement'
    ```
 
+   OAuth MCP verification is deferred until immediately after reopening.
+   `app/api/mcp/jwt-auth.ts` configures its verifier to fetch
+   `https://commcare.app/api/auth/jwks`. A fresh revision has a cold signing-key
+   cache; that fetch originates from Cloud Run, not the operator's CIDR, so
+   rule 10 still denies it. The API-key path validates through the database and
+   does not fetch JWKS. Do not interpret an OAuth failure behind this fence as
+   a failed case-index migration, and do not widen the fence for this check.
+
    Rerun the negative assertions from an external address outside that CIDR;
    they must still receive 403. The three anonymous probes intentionally remain
-   available there. This allow rule bypasses later Armor rules for that operator, so remove it with the
-   other maintenance rules immediately after verification. Confirm case counts
-   and app
-   identities against the frozen baseline and account for the intentional smoke
+   available there. This allow rule bypasses later Armor rules for that
+   operator, so remove it with the other maintenance rules immediately after
+   verification. Confirm case counts and app identities against the frozen
+   baseline and account for the intentional smoke
    writes. Inspect Cloud Logging/Sentry for lock, schema, privilege and cast
    failures, then restore normal public traffic:
 
@@ -345,7 +356,12 @@ the load balancer must be stopped and identified before this proof is sufficient
    ```
 
    Compare the final policy to the saved snapshot, verify the Scheduler remains
-   ENABLED with its original schedule, and check ordinary traffic again. Never
+   ENABLED with its original schedule, and check ordinary traffic again.
+   Immediately run `nova_expect_status 200 https://commcare.app/api/auth/jwks`
+   (using the assertion function above), then use the operator's existing OAuth
+   MCP client to initialize and call the read-only `nova.list_apps` tool. Require success on the new revision and inspect logs for
+   signing-key fetch or token-verification failures. This completes the deferred
+   OAuth check; the earlier API-key smoke does not substitute for it. Never
    delete a pre-existing rule: this procedure requires all reserved priorities
    to have been vacant before the window.
 
