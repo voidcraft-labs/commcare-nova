@@ -1,3 +1,4 @@
+import { AgentModelStepError } from "./modelStep";
 /**
  * Error classifier — inspects errors from the AI SDK / API calls and returns
  * a structured classification with a human-readable message safe for display.
@@ -194,6 +195,9 @@ function rawErrorText(error: unknown): string {
 }
 
 export function classifyError(error: unknown): ClassifiedError {
+	// This wrapper owns accounting, not failure semantics. Preserve the SDK
+	// cause so provider status and native transport errors retain their category.
+	if (error instanceof AgentModelStepError) return classifyError(error.cause);
 	if (error instanceof ThreadAttachmentUnavailableError)
 		return {
 			type: "attachment_unavailable",
