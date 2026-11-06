@@ -7,12 +7,15 @@ import {
 } from "kysely";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { withAppTestNamespace } from "@/lib/case-store/appTestNamespace";
 import type { AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { CaseType } from "@/lib/domain";
 import {
 	arith,
+	dateCoerce,
+	datetimeCoerce,
 	eq,
 	formField,
 	gt,
@@ -26,6 +29,10 @@ import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { seedAppTest } from "@/lib/preview/app-tests/seed";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { engineFor } from "@/lib/preview/engine/__tests__/fixtures/submissionProgram";
+import { validateCaptureSubmissionProjection } from "@/lib/preview/engine/captureSubmissionValidation";
+import { buildCaseOperationProgramFromDoc } from "@/lib/preview/engine/caseDataBindingHelpers";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
@@ -47,6 +54,7 @@ const INSPECTION: CaseType = {
 	properties: [
 		{ name: "flow", label: proseText("Flow"), data_type: "decimal" },
 		{ name: "note", label: proseText("Note"), data_type: "text" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
 	],
 };
 const SCHEMAS = buildCaseTypeMap(buildSimpleBlueprint([INSPECTION], APP_ID));
@@ -528,6 +536,142 @@ describe("conditional numeric writes", () => {
 			});
 			expect(rows).toHaveLength(1);
 			expect(rows[0]?.properties).toEqual({ note: "retained", flow: expected });
+		},
+	);
+
+	it.each(["urgent review", ""])(
+		"stores a calculated multi-select lexical answer (%s)",
+		async (answer) => {
+			const selected = testUuid("calculated-selected");
+			const hidden = testUuid("calculated-hidden");
+			const doc = buildDoc({
+				appId: APP_ID,
+				caseTypes: [INSPECTION],
+				modules: [
+					{
+						name: "Inspection",
+						forms: [
+							{
+								uuid: FORM_UUID,
+								name: "Inspect",
+								type: "survey",
+								fields: [
+									f({
+										uuid: selected,
+										id: "selected",
+										kind: "multi_select",
+										label: "Tags",
+										options: [
+											{ value: "urgent", label: "Urgent" },
+											{ value: "review", label: "Review" },
+										],
+									}),
+									f({
+										uuid: hidden,
+										id: "saved_tags",
+										kind: "hidden",
+										calculate: term(formField(selected)),
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			doc.forms[FORM_UUID].caseOperations = [
+				{
+					uuid: OP_UUID,
+					id: "create_inspection",
+					action: "create",
+					caseType: INSPECTION.name,
+					target: { kind: "new" },
+					name: term(literal("Inspection")),
+					writes: [{ property: "tags", value: term(formField(hidden)) }],
+				},
+			];
+			const engine = engineFor(doc, FORM_UUID);
+			engine.setValue("/data/selected", answer);
+			const mutation = engine.computeSubmissionMutation({
+				caseIds: [],
+				entryKey: "11111111-1111-4111-8111-111111111111",
+			});
+			const built = buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation,
+				projection: validateCaptureSubmissionProjection(mutation),
+				identity: {
+					actorUserId: ACTOR,
+					ownerId: ACTOR,
+					session: {
+						context: { userid: ACTOR, username: "worker" },
+						user: {},
+						userPropertySlugs: {},
+					},
+					usercase: {},
+				},
+			});
+			expect(built.program?.formFieldTypes?.get(hidden)).toBe("multi_select");
+			expect(
+				built.program?.scopes[0]?.iterations[0]?.formFields.get(hidden),
+			).toBe(answer);
+			if (!built.program) throw new Error("Expected a submission program");
+			const store = makeStore();
+			await submit(store, built.program);
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: INSPECTION.name,
+			});
+			expect(rows).toHaveLength(1);
+			expect(rows[0]?.properties).toEqual(
+				answer ? { tags: ["urgent", "review"] } : {},
+			);
+		},
+	);
+
+	it.each([dateCoerce, datetimeCoerce])(
+		"attributes malformed temporal values to their write and rolls back",
+		async (coerce) => {
+			const store = makeStore();
+			const base = program("yes", "not-a-date", "30");
+			const temporal = {
+				...base,
+				formFieldTypes: new Map(base.formFieldTypes).set(
+					VOLUME_FIELD,
+					"text" as const,
+				),
+				operations: base.operations.map((entry) => ({
+					...entry,
+					operation: {
+						...entry.operation,
+						writes: [
+							{
+								property: "note",
+								value: coerce(term(formField(VOLUME_FIELD))),
+							},
+						],
+					},
+				})),
+			};
+			await expect(submit(store, temporal)).rejects.toMatchObject({
+				name: "SubmissionRejectedError",
+				cause: { code: "22007" },
+				rejection: {
+					kind: "expression",
+					reason: "invalid-value",
+					operationUuid: OP_UUID,
+					slot: "property: note",
+					fieldUuids: [VOLUME_FIELD],
+				},
+			});
+			expect(
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: INSPECTION.name,
+				}),
+			).toEqual([]);
 		},
 	);
 

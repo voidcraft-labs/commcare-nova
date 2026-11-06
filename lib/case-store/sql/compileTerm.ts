@@ -428,6 +428,17 @@ export function compileTerm(
 							"Only a plain field read, bound to its answer through `TermBindings.formFields`, reaches an operation program.",
 					}),
 				);
+			// Hidden calculations retain the instance's lexical text even when
+			// their inferred answer type is multi-select. Use the canonical
+			// semantic type, not the visible question kind, at the SQL boundary.
+			if (ctx.formFieldTypes?.get(term.uuid) === "multi_select") {
+				const value = ctx.bindings.formFields?.get(term.uuid);
+				if (typeof value === "string")
+					return eb.cast(
+						eb.val(JSON.stringify(value.split(/\s+/).filter(Boolean))),
+						"jsonb",
+					);
+			}
 			return compileBoundRef(
 				term.uuid,
 				ctx.bindings.formFields,

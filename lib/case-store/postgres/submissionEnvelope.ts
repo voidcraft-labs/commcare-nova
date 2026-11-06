@@ -635,7 +635,7 @@ async function evaluateBatch(
 					failure !== null && typeof failure === "object" && "code" in failure
 						? failure.code
 						: undefined;
-				return code === "22P02"
+				return code === "22P02" || code === "22007" || code === "22008"
 					? ("invalid-value" as const)
 					: code === "22012"
 						? ("division-by-zero" as const)
@@ -746,7 +746,7 @@ export function storageValueFromEvaluation(
 					where: "case-store.submissionEnvelope.storageValueFromEvaluation",
 					invariant: `a multi-select write evaluated to a non-array ${typeof value}`,
 					detail:
-						"Directional storage assignment admits only a real multi-select answer for a multi-select property, and the term compiler serializes that binding as a JSONB array. A scalar arriving here means the type checker's directional gate was bypassed upstream.",
+						"Directional storage assignment admits a semantically multi-select value, including a calculated answer, for a multi-select property. The term compiler serializes that binding as a JSONB array. A scalar arriving here means its declared type or runtime representation was lost upstream.",
 				}),
 			);
 		}
