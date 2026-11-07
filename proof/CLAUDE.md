@@ -515,6 +515,10 @@ harness keeps, each with its reason.
   collect). `ready.py` alone gates runtime readiness, by installing a retained survey in a real JVM:
   a behavioral assertion fails the runtime job and retains its log without blocking usable readers;
   a runtime that cannot load blocks its shards; the proxy's transport is held in the lane (`test_peer.py`).
+  A failed request keeps its full JVM log under the run's `android-failures/`
+  before removing its scratch files; the assertion's message also includes
+  the preceding log, since the test application prints a background thread's
+  original exception before JUnit reports the generic failure.
 - **A check runs only against a target Nova's publish accepts** (step 1's
   decision 19). A symptom that shows only where Nova refuses to publish
   reaches no one, so a configuration lacking a flag or confirmation Nova

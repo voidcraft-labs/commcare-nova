@@ -668,6 +668,22 @@ loads the Android runtime when selected but runs only its selected checks;
 the scheduled lane still runs every reader selfcheck and predicate. This
 is a verdict on those tests alone, not the corpus gate.
 
+To reproduce a weekly audit's conditions on those same checks, dispatch the
+slice directly with `mode=verified`, `unseeded`, or `unseamed` (`normal` is
+the default). Verified enables memo comparisons, editor replay and all
+edited documents' branch comparisons; unseeded leaves Nova's and HQ's
+entropy and HQ's clock unfrozen; unseamed disables the HQ speed seams.
+
+```bash
+gh workflow run proof-slice.yml --ref <branch> -f readers=0 -f mode=verified \
+  -f selectors='proof/hq/test_branches.py -k targeted-hq-side-state'
+```
+
+A failed Android request retains its complete JVM output under
+`android-failures/` in the slice or shard output. Its exception message also
+includes the context before JUnit's assertion, where the upstream test
+application prints a background thread's original exception.
+
 **What the night after a merge takes.** A night observes every group whose
 key the merge changed, and on most nights that is minutes. A merge that
 changes the emission, the observation's code or a pin changes every

@@ -113,7 +113,13 @@ def test_a_case_hq_saves_is_found_by_its_filter_and_gone_after_a_restore(hq):
         assert all(state.indexes.documents(name) == [] for name in state.indexes.generation)
 
 
-def test_a_fork_reads_what_a_fresh_run_to_the_same_point_reads(hq):
+def test_a_fork_reads_what_a_fresh_run_to_the_same_point_reads(hq, monkeypatch):
+    from proof.hq import determinism
+
+    # Compare the branch mechanism with identical inputs, including HQ's timestamps and minted form ids.
+    # The weekly unseeded lane still observes its documents with the real clock outside this test.
+    monkeypatch.setattr(determinism, "ENABLED", True)
+
     def run(detour):
         with hq_check(CONFIGURATION) as (state, _):
             _submit(state, "two people", ("case-a", "Asha"), ("case-b", "Bilal"))

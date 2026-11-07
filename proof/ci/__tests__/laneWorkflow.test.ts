@@ -198,6 +198,16 @@ it("executes slice validation against a named test and refuses broader paths and
 			);
 			expect(code, selectors).toBe(1);
 		}
+		await expect(
+			run("bash", ["-e", "-c", validation], {
+				cwd: WORKTREE,
+				env: {
+					...env,
+					SELECTORS: "proof/hq/test_branches.py -k targeted-hq-side-state",
+					AUDIT_MODE: "unknown",
+				},
+			}),
+		).rejects.toMatchObject({ code: 1 });
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}

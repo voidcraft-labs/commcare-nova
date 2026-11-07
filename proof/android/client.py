@@ -163,7 +163,12 @@ class AndroidReaderError(Exception):
         at = self.log.rfind(FAILURE_HEADER)
         if at != -1:
             start = self.log.rfind("\n", 0, at) + 1
-            return f"{message}\nWhat JUnit reported of the reader:\n{self.log[start : start + SHOWN_LOG]}"
+            # CommCareTestApplication prints a background thread's original exception BEFORE JUnit's
+            # generic afterTest assertion. Keep that context as well as the assertion's own stack.
+            return (
+                f"{message}\nWhat the JVM wrote before JUnit's report:\n{self.log[max(0, start - SHOWN_LOG) : start]}"
+                f"\nWhat JUnit reported of the reader:\n{self.log[start : start + SHOWN_LOG]}"
+            )
         return f"{message}\nThe end of what the JVM wrote:\n{self.log[-SHOWN_LOG:]}"
 
 
@@ -440,6 +445,15 @@ class AndroidReader:
                     log=error.get("stack", ""),
                 )
             return answer["ok"]
+        except BaseException:
+            # The scratch directory is always removed, including on a failed device. Preserve its complete
+            # output in the run's artifact first: a bounded exception message cannot hold every thread's stack.
+            out = os.environ.get("PROOF_OUT")
+            if out and log_path.is_file():
+                kept = Path(out) / "android-failures" / f"{self._work.name}-{scratch.name}.log"
+                kept.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(log_path, kept)
+            raise
         finally:
             if proxy is not None:
                 proxy.close()

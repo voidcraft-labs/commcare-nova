@@ -49,7 +49,8 @@ CONTROLS_DIR = Path(__file__).resolve().parents[1] / "controls"
 DOCUMENT = "targeted-form-link-hidden-target"
 SEARCH_DOCUMENT = "targeted-search-hq-compile"
 FIRST_FORM = ["0", "0"]
-SEARCH = ["0", "action 0"]
+SEARCH = ["0"]
+CONTROL_SEARCH = ["0", "action 0"]
 ONE_MARK = "it's"
 
 
@@ -102,10 +103,10 @@ def _submit_first_form(web):
     return web.submit(form["session_id"], answers)
 
 
-def _search(web):
-    screen = web.navigate(SEARCH)
+def _search(web, selections=SEARCH):
+    screen = web.navigate(selections)
     assert screen_kind(screen) == "query"
-    return web.navigate(SEARCH, query_data={screen["queryKey"]: {"inputs": {"owner_id": ONE_MARK}, "execute": True}})
+    return web.navigate(selections, query_data={screen["queryKey"]: {"inputs": {"owner_id": ONE_MARK}, "execute": True}})
 
 
 def test_formplayer_submits_a_local_archives_form_to_hqs_receiver_under_the_working_app(
@@ -163,7 +164,8 @@ def test_a_local_archives_search_reaches_hq_under_the_working_app_and_a_pre_fix_
                 local_searches = [search.path for search in served.hq.searches]
             with served.run("control-search"):
                 first = len(served.hq.exchanges)
-                _search(apps.web(formplayer_runner, served, app_id=control_id))
+                # The retained archive still opens the list first, with Search as its action.
+                _search(apps.web(formplayer_runner, served, app_id=control_id), CONTROL_SEARCH)
                 control_asked = [(asked.path, asked.status) for asked in served.hq.exchanges[first:]]
             with served.run("control-submit"):
                 before = len(served.hq.submissions)

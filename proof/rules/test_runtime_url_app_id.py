@@ -224,9 +224,14 @@ def _asked_under(served, receiver_id, database, label):
     return held
 
 
-def test_hqs_search_restore_and_receiver_answer_alike_under_either_app_id(rule_documents, hq, core_runner):
+def test_hqs_search_restore_and_receiver_answer_alike_under_either_app_id(rule_documents, hq, core_runner, monkeypatch):
     from proof.formplayer import hq as formplayer_hq
+    from proof.hq import determinism
     from proof.observe import casedata
+
+    # Only the addressed app id varies. HQ's receive timestamp is an input too, so hold it for this paired
+    # request even when the enclosing lane is comparing unseeded document observations.
+    monkeypatch.setattr(determinism, "ENABLED", True)
 
     document = rule_documents[DOCUMENT]
     database = casedata.document_case_database(document)
