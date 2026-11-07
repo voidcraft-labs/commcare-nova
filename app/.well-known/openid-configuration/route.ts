@@ -6,9 +6,9 @@
  * `https://commcare.app/api/auth` (Better Auth's default `basePath`) the
  * canonical URL is `/api/auth/.well-known/openid-configuration`, which
  * the `oauth-provider` plugin auto-registers. This wrapper publishes the
- * same document at the bare root path too, because a number of OIDC and
- * MCP clients probe the bare `/.well-known/openid-configuration` path
- * directly (stripping any issuer suffix). Serving at both eliminates the
+ * same document at the RFC 8414 inserted path and the bare root alias too.
+ * Some OIDC and MCP clients probe the bare `/.well-known/openid-configuration` path
+ * directly (stripping any issuer suffix). Serving these aliases closes the
  * compatibility gap without teaching every client our basePath.
  *
  * Lazy-bound for the same `next build` page-collection reason as the AS

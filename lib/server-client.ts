@@ -8,7 +8,7 @@
  * — `scopes_supported`, `jwks_uri`, and `resource_signing_alg_values_supported`
  * all come from the wired `oauthProvider` plugin rather than being
  * duplicated here. Callers still supply `resource` + `authorization_servers`
- * because those live on a subdomain the AS doesn't know about.
+ * to bind the resource subdomain to the exact canonical AS issuer.
  *
  * The cast at the `oauthProviderResourceClient` call site bridges a
  * nominal TypeScript mismatch: the plugin declares its parameter as the

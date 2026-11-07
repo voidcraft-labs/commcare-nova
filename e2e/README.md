@@ -10,7 +10,7 @@ invisible to Sentry, catchable only by a real request. This suite is that reques
 | Project    | Auth                    | Checks |
 |------------|-------------------------|--------|
 | `browser` | per-test local peer | native component interactions with production CSS and XPath worker; no app server or database |
-| `public`   | none                    | home page renders the Google sign-in button; `GET /api/auth/get-session` is 200 (not 500); `POST /api/auth/sign-in/social` returns a Google URL |
+| `public`   | none                    | home page renders the Google sign-in button; `GET /api/auth/get-session` is 200 (not 500); `POST /api/auth/sign-in/social` returns a Google URL; canonical OAuth/OIDC discovery paths serve metadata on their public hosts |
 | `authed`   | seeded session cookie   | app list renders, opens an app in the builder; `/build/new` renders; `get-session` returns the seeded user; delete an app through the UI |
 
 The `authed` "create → builder → delete" loop spends **no LLM money**: apps are minted

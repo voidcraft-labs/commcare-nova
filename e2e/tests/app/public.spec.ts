@@ -1,6 +1,7 @@
 import { docsHostPeer } from "../../lib/docsHostPeer";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
+import { oauthDiscoveryTarget } from "../../lib/oauthDiscoveryTarget";
 import { openPage, reloadPage } from "../../lib/pageLoads";
 import { urlHost } from "../../lib/url";
 
@@ -75,6 +76,74 @@ test.describe("public surface", () => {
 			page.getByRole("button", { name: "Sign in with Google" }).click(),
 		]);
 	});
+});
+
+// Exercise Next's actual route mounting and production Host policy. The native
+// auth integration separately runs strict client discovery under production auth
+// configuration; the local smoke server deliberately uses a loopback auth base.
+test("OAuth discovery mounts canonical issuer metadata on the public hosts", async ({
+	request,
+	baseURL,
+}) => {
+	const local = oauthDiscoveryTarget(baseURL) === "local";
+	if (!baseURL) throw new Error("Missing app URL");
+	const advertisedIssuer = "https://commcare.app/api/auth";
+	const providerIssuer = local
+		? `${(process.env.BETTER_AUTH_URL ?? baseURL).replace(/\/$/, "")}/api/auth`
+		: advertisedIssuer;
+	async function metadata(host: string, path: string) {
+		// Only the connection address changes locally. Host still passes through
+		// the served production proxy, and no response bytes are substituted.
+		const response = await request.get(
+			new URL(path, local ? baseURL : `https://${host}`).href,
+			{ headers: { host }, maxRedirects: 0 },
+		);
+		try {
+			expect(response.status(), `${host}${path}`).toBe(200);
+			expect(response.headers()["content-type"]).toContain("application/json");
+			expect(response.headers().location).toBeUndefined();
+			return await response.json();
+		} finally {
+			await response.dispose();
+		}
+	}
+
+	const resource = await metadata(
+		"mcp.commcare.app",
+		"/.well-known/oauth-protected-resource/mcp",
+	);
+	expect(resource.resource).toBe("https://mcp.commcare.app/mcp");
+	expect(resource.authorization_servers).toEqual([advertisedIssuer]);
+	for (const path of [
+		"/.well-known/oauth-authorization-server/api/auth",
+		"/.well-known/openid-configuration/api/auth",
+		"/api/auth/.well-known/openid-configuration",
+		"/api/auth/.well-known/oauth-authorization-server",
+		"/.well-known/oauth-authorization-server",
+		"/.well-known/openid-configuration",
+	]) {
+		const authorization = await metadata("commcare.app", path);
+		expect(authorization.issuer, path).toBe(providerIssuer);
+		expect(authorization.token_endpoint, path).toBe(
+			`${providerIssuer}/oauth2/token`,
+		);
+		// Exact cross-document equality is meaningful on the deployed target.
+		// Local standalone auth is pinned to localhost for the browser tests.
+		if (!local)
+			expect(authorization.issuer).toBe(resource.authorization_servers[0]);
+	}
+	const denied = await request.get(
+		new URL(
+			"/.well-known/oauth-authorization-server/api/auth",
+			local ? baseURL : "https://mcp.commcare.app",
+		).href,
+		{ headers: { host: "mcp.commcare.app" }, maxRedirects: 0 },
+	);
+	try {
+		expect(denied.status()).toBe(404);
+	} finally {
+		await denied.dispose();
+	}
 });
 
 // The native peer changes only Host; the actual app serves every successful

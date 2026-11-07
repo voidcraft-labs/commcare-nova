@@ -58,9 +58,16 @@ fleet-wide indexes for every possible property.
    ingress and Scheduler settings to restore. Reserve an operator window long
    enough for 7,326 individually committed concurrent drops; no duration is
    claimed from a local test. No scanner or merge approval authorizes production
-   changes by itself. Prepare a valid operator MCP API key and an authenticated
-   browser session for the fenced smoke checks. Keep credentials in the existing
-   client credential store, never in the cutover evidence or command transcripts.
+   changes by itself. Prepare and verify an existing operator OAuth MCP
+   connection before the window: initialize, discover the real tool catalog, and call `list_apps`.
+   Keep credentials in the existing client credential store, never in cutover
+   evidence, configuration files or command transcripts. Use the native client
+   for refresh. A new API key is unnecessary. Prepare a disposable verification
+   app and exercise its saved authoring changes and isolated record journey
+   through MCP after deployment. When browser automation is available, also
+   verify the signed-in Builder; otherwise retain the exact-head browser CI and
+   public production page/asset evidence and explicitly record that live browser
+   rendering, cookie authentication and autosave were not reverified.
 
 ## Verified controls and drain checks
 
@@ -227,6 +234,10 @@ the load balancer must be stopped and identified before this proof is sufficient
      --security-policy=nova-armor --project=commcare-nova --action=allow \
      --expression="has(request.headers['host']) && request.headers['host'].lower() == 'mcp.commcare.app' && request.method == 'POST' && request.path == '/mcp'" \
      --description='Temporary anonymous MCP discovery challenge probe'
+   gcloud compute security-policies rules create 9 \
+     --security-policy=nova-armor --project=commcare-nova --action=allow \
+     --expression="has(request.headers['host']) && request.headers['host'].lower() == 'commcare.app' && request.method == 'GET' && request.path == '/api/auth/jwks'" \
+     --description='Temporary public signing keys for OAuth verification'
    ```
 
    Cloud Armor evaluates the first matching priority; header keys are lowercase
@@ -234,7 +245,7 @@ the load balancer must be stopped and identified before this proof is sufficient
    is within the five-subexpression limit. See Google's
    [rule language reference](https://docs.cloud.google.com/armor/docs/create-security-policy-rules).
    Exact hosts exclude explicit ports and exact paths exclude trailing slashes;
-   Cloud Build sends neither. Recheck the saved policy and all four temporary
+   Cloud Build sends neither. Recheck the saved policy and all five temporary
    rules' enforcement, without an operator exception yet.
 
    The application boundary makes these probes safe for the **case writer**
@@ -248,7 +259,14 @@ the load balancer must be stopped and identified before this proof is sufficient
    A DPoP proof alone, body fields, session ID or alternate token header supplies
    no access token, so the missing-token challenge returns before tool dispatch.
    The query fence also excludes URL credentials. POSTs to root, Server Actions,
-   auth endpoints, APIs, and MCP alternate paths remain denied by rule 10.
+   all other auth endpoints, APIs, and MCP alternate paths remain denied by
+   rule 10. The additional exact JWKS GET publishes public signing keys so the
+   new Cloud Run revision can verify OAuth tokens with a cold key cache.
+   Better Auth's `jwt` endpoint reads `auth_jwks` and can create an initial key
+   only if none exists; its rate-limit bookkeeping also uses auth tables. It
+   cannot create a session, provision a Project, dispatch an MCP tool or change
+   case data. This exception is added only after retirement, alongside the
+   other exceptions that end full database quiescence.
    No credential value is needed to check this boundary.
 
    **Full database quiescence ends here.** Anonymous MCP requests can update
@@ -259,8 +277,8 @@ the load balancer must be stopped and identified before this proof is sufficient
    Before merging, run these assertions from outside any operator exception.
    They use only inert sentinels, never real cookies or bearer tokens. `curl -q`
    ignores local curl configuration; the checks neither follow redirects nor
-   keep cookies. The allowed requests must return 200/200/401, including the
-   same challenge Cloud Build requires. Every credential, query, alternate path
+   keep cookies. The page/MCP requests must return 200/200/401, including the
+   same challenge Cloud Build requires, and JWKS GET must return 200. Every credential, query, alternate path
    and method probe must return 403:
 
    ```bash
@@ -273,6 +291,7 @@ the load balancer must be stopped and identified before this proof is sufficient
    }
    nova_expect_status 200 https://commcare.app/ || exit 1
    nova_expect_status 200 https://docs.commcare.app/ || exit 1
+   nova_expect_status 200 https://commcare.app/api/auth/jwks || exit 1
    nova_probe_headers="$(mktemp)"
    nova_expect_status 401 --dump-header "$nova_probe_headers" \
      --header 'content-type: application/json' \
@@ -286,6 +305,7 @@ the load balancer must be stopped and identified before this proof is sufficient
      nova_expect_status 403 --header "$nova_header" https://commcare.app/ || exit 1
      nova_expect_status 403 --header "$nova_header" https://docs.commcare.app/ || exit 1
      nova_expect_status 403 --header "$nova_header" --data '{}' https://mcp.commcare.app/mcp || exit 1
+     nova_expect_status 403 --header "$nova_header" https://commcare.app/api/auth/jwks || exit 1
    done
    nova_expect_status 403 'https://commcare.app/?access_token=maintenance-probe' || exit 1
    nova_expect_status 403 --data '{}' 'https://mcp.commcare.app/mcp?access_token=maintenance-probe' || exit 1
@@ -295,9 +315,18 @@ the load balancer must be stopped and identified before this proof is sufficient
    nova_expect_status 403 https://mcp.commcare.app/mcp || exit 1
    nova_expect_status 403 --data '{}' https://mcp.commcare.app/mcp/ || exit 1
    nova_expect_status 403 --data '{}' https://commcare.app/api/auth/mcp || exit 1
+   nova_expect_status 403 'https://commcare.app/api/auth/jwks?probe=sentinel' || exit 1
+   nova_expect_status 403 --data '{}' https://commcare.app/api/auth/jwks || exit 1
+   nova_expect_status 403 --head https://commcare.app/api/auth/jwks || exit 1
+   nova_expect_status 403 https://commcare.app/api/auth/jwks/ || exit 1
+   nova_expect_status 403 https://mcp.commcare.app/api/auth/jwks || exit 1
+   nova_expect_status 403 https://docs.commcare.app/api/auth/jwks || exit 1
+   nova_expect_status 403 https://commcare.app/api/auth/token || exit 1
+   nova_expect_status 403 https://commcare.app/api/auth/oauth2/authorize || exit 1
+   nova_expect_status 403 --data '{}' https://commcare.app/api/auth/oauth2/token || exit 1
    ```
 
-   Any unexpected result blocks the merge. Remove rules 7 and 8 first to restore
+   Any unexpected result blocks the merge. Remove rules 7, 8 and 9 first to restore
    deny-all, investigate, and repeat the checks. Do not weaken Cloud Build's
    verification step. Its existing regression test is
    `scripts/infra/__tests__/cloudBuild.test.ts` (the public-probes cases).
@@ -311,10 +340,15 @@ the load balancer must be stopped and identified before this proof is sufficient
    rollback-only fleet/runtime probe must pass. Verify the serving revision is
    Ready with 100% observed traffic on the exact release image.
 6. Before opening public ingress, verify the case index catalog is exactly the fixed
-   set, no obsolete marker columns/table remain, runtime CREATE is absent, and
-   real scoped preview reads, sample-data writes, property rename/retype,
-   authoring save and an isolated app test succeed. Use the prepared browser
-   session and **API-key-authenticated MCP** for these fenced checks. Allow only
+   set, no obsolete marker columns/table remain, and runtime CREATE is absent.
+   Compare the complete frozen case/app/schema/entity baseline before any smoke
+   writes. Use the existing **OAuth-authenticated MCP** connection to save a
+   disposable app, rename a property through the shared authoring boundary, and
+   run an isolated AppTest journey with scoped reads and actual record writes.
+   Verify the returned records and persisted schema, not only successful HTTP
+   statuses. Property retyping also requires its exact-head native PostgreSQL
+   regression evidence; do not claim a live retype from a tool that cannot
+   request one. Allow only
    the named operator's stable public CIDR ahead of the deny
    rule after the new revision is proven Ready:
 
@@ -325,17 +359,20 @@ the load balancer must be stopped and identified before this proof is sufficient
      --description='Temporary operator verification for case-index retirement'
    ```
 
-   OAuth MCP verification is deferred until immediately after reopening.
-   `app/api/mcp/jwt-auth.ts` configures its verifier to fetch
-   `https://commcare.app/api/auth/jwks`. A fresh revision has a cold signing-key
-   cache; that fetch originates from Cloud Run, not the operator's CIDR, so
-   rule 10 still denies it. The API-key path validates through the database and
-   does not fetch JWKS. Do not interpret an OAuth failure behind this fence as
-   a failed case-index migration, and do not widen the fence for this check.
+   The verifier in `app/api/mcp/jwt-auth.ts` fetches
+   `https://commcare.app/api/auth/jwks` from Cloud Run, outside the operator's
+   CIDR. Rule 9 admits only that public key read. All OAuth MCP requests and
+   any native-client token refresh originate from the operator CIDR and pass
+   through rule 5. Require initialize and `list_apps` to succeed on the new
+   revision before writing the smoke fixture; never disable issuer, audience,
+   signature or consent checks to make this work. If an authenticated browser
+   is available, also check Builder rendering, save and interactive Preview.
+   MCP proves the shared authoring/runtime boundary, not those browser-specific
+   transports; record any unavailable live-browser checks explicitly.
 
    Rerun the negative assertions from an external address outside that CIDR;
-   they must still receive 403. The three anonymous probes intentionally remain
-   available there. This allow rule bypasses later Armor rules for that
+   they must still receive 403. The public page/MCP probes and exact JWKS GET
+   intentionally remain available there. This allow rule bypasses later Armor rules for that
    operator, so remove it with the other maintenance rules immediately after
    verification. Confirm case counts and app identities against the frozen
    baseline and account for the intentional smoke
@@ -349,6 +386,8 @@ the load balancer must be stopped and identified before this proof is sufficient
      --security-policy=nova-armor --project=commcare-nova
    gcloud compute security-policies rules delete 8 \
      --security-policy=nova-armor --project=commcare-nova
+   gcloud compute security-policies rules delete 9 \
+     --security-policy=nova-armor --project=commcare-nova
    gcloud compute security-policies rules delete 6 \
      --security-policy=nova-armor --project=commcare-nova
    gcloud compute security-policies rules delete 10 \
@@ -359,9 +398,11 @@ the load balancer must be stopped and identified before this proof is sufficient
    ENABLED with its original schedule, and check ordinary traffic again.
    Immediately run `nova_expect_status 200 https://commcare.app/api/auth/jwks`
    (using the assertion function above), then use the operator's existing OAuth
-   MCP client to initialize and call the read-only `nova.list_apps` tool. Require success on the new revision and inspect logs for
-   signing-key fetch or token-verification failures. This completes the deferred
-   OAuth check; the earlier API-key smoke does not substitute for it. Never
+   MCP client to initialize and call the read-only `list_apps` tool. Require
+   success on the new revision and inspect logs for signing-key fetch or
+   token-verification failures. Repeat strict resource-to-issuer discovery from
+   the external client so the served metadata, canonical route and token issuer
+   agree; a previously cached access token does not prove fresh discovery. Never
    delete a pre-existing rule: this procedure requires all reserved priorities
    to have been vacant before the window.
 

@@ -6,16 +6,12 @@
  * and other MCP clients read this endpoint to discover the token,
  * authorization, and dynamic-registration endpoints for the OAuth flow.
  *
- * Why this route exists alongside the plugin's auto-registered endpoint:
- * `@better-auth/oauth-provider` performs RFC 8414 "path insertion", because
- * our issuer is `/api/auth`, the plugin's built-in metadata is actually
- * exposed at `/.well-known/oauth-authorization-server/api/auth`. Some
- * RFC 8414 clients: Claude Code among them, only probe the bare
- * `/.well-known/oauth-authorization-server` path and don't attempt the
- * issuer-inserted variant the plugin auto-registers. Mounting the same
- * `oauthProviderAuthServerMetadata` helper here gives us the canonical
- * discovery URL without duplicating logic: the helper generates the correct
- * document regardless of which path it lives at.
+ * The canonical issuer is `/api/auth`, so RFC 8414 discovery lives at
+ * `/.well-known/oauth-authorization-server/api/auth`. Its explicit Next route
+ * reuses this handler: the auth plugin cannot expose paths outside Next's
+ * `/api/auth/[...all]` route by itself. This bare path remains an alias for
+ * existing clients that probe the origin directly. Both documents retain the
+ * canonical issuer; protected-resource metadata advertises that exact issuer.
  *
  * Lazy-bind rationale: the handler awaits `getAuth()` on first request, not at
  * module-load. `next build` imports this route during page collection, and the
