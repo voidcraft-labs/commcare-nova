@@ -435,7 +435,11 @@ harness keeps, each with its reason.
   lane test reads nothing else of the repository: one that does passes on a
   proof machine, which copies the whole tree, and fails on every shard. What
   the lane's code and a workflow must say alike is tested on the vitest
-  side, where the checkout is whole (`proof/ci/__tests__/`). Every hosted job has four vCPUs, so optimize
+  side, where the checkout is whole (`proof/ci/__tests__/`). Hosted jobs have
+  four vCPUs and 16 GiB: the served-reader profile runs two workers (about
+  5 GB each), while the readers-off profile runs four. Reducing the worker
+  count rescales the group's box-seconds to preserve its measured
+  worker-seconds until another run measures them. Optimize
   the work, never the parallelism: measure a change in CPU-seconds (the
   harness's and Postgres's container cgroups) and wall time with the worker
   count, per document, per check, per group and per job's fixed cost, and

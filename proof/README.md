@@ -4573,7 +4573,11 @@ existing jobs:
   (`proof/ci/__tests__/laneWorkflow.test.ts`, in the test shards). It pulls the
   image and Postgres while it fetches the queues, and its fork server (`node
   proof/run.mjs --lane`) runs the early queue's blocks and the main queue's
-  as it claims them, with four workers. It prints its containers' memory
+  as it claims them, with two workers when serving readers and four without
+  them. A served-reader worker takes about 5 GB, so four can exhaust a
+  16 GiB hosted runner; two leave room for the shared services and the runner.
+  The reader profile's estimates retain the measured worker-seconds at that
+  smaller worker count. It prints its containers' memory
   every few minutes and whenever one passes its last printed peak, and writes
   their peaks into its output (`memory.json`), so a runner that dies says
   why. `proof/ci/wait.mjs` brings the main queue and the corpus into a shard:
