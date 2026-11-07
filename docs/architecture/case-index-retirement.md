@@ -228,7 +228,7 @@ the load balancer must be stopped and identified before this proof is sufficient
      --description='Temporary maintenance credential and query fence'
    gcloud compute security-policies rules create 7 \
      --security-policy=nova-armor --project=commcare-nova --action=allow \
-     --expression="has(request.headers['host']) && request.headers['host'].lower().matches('^(commcare[.]app|docs[.]commcare[.]app)$') && request.method == 'GET' && request.path == '/'" \
+     --expression="has(request.headers['host']) && (request.headers['host'].lower() == 'commcare.app' || request.headers['host'].lower() == 'docs.commcare.app') && request.method == 'GET' && request.path == '/'" \
      --description='Temporary anonymous release page probes'
    gcloud compute security-policies rules create 8 \
      --security-policy=nova-armor --project=commcare-nova --action=allow \
@@ -241,8 +241,10 @@ the load balancer must be stopped and identified before this proof is sufficient
    ```
 
    Cloud Armor evaluates the first matching priority; header keys are lowercase
-   and `has()` checks presence, including empty-valued credentials. Each expression
-   is within the five-subexpression limit. See Google's
+   and `has()` checks header presence as seen by Cloud Armor. Each expression
+   is within the five-subexpression limit. Rule 7 uses exactly five: host presence,
+   two exact host comparisons, method and path. Exact comparisons avoid capture
+   groups, which Cloud Armor rejects in regular expressions. See Google's
    [rule language reference](https://docs.cloud.google.com/armor/docs/create-security-policy-rules).
    Exact hosts exclude explicit ports and exact paths exclude trailing slashes;
    Cloud Build sends neither. Recheck the saved policy and all five temporary
@@ -251,7 +253,8 @@ the load balancer must be stopped and identified before this proof is sufficient
    The application boundary makes these probes safe for the **case writer**
    fence. `app/(app)/(site)/page.tsx` and `app/(app)/layout.tsx` reach Project
    provisioning only after `lib/auth-utils.ts::getSession` returns a session;
-   Better Auth reads its signed session cookie, which rule 6 refuses in any form.
+   Better Auth reads its signed session cookie; rule 6 refuses nonempty cookie
+   headers, and an absent or empty cookie supplies no signed session.
    `lib/auth.ts` also pins `enableSessionForAPIKeys: false`. For MCP,
    `app/api/mcp/auth-plugin.ts` selects API-key/JWT authentication only from
    `Authorization`; `app/api/mcp/jwt-auth.ts` uses the actual Better Auth MCP
@@ -278,16 +281,24 @@ the load balancer must be stopped and identified before this proof is sufficient
    They use only inert sentinels, never real cookies or bearer tokens. `curl -q`
    ignores local curl configuration; the checks neither follow redirects nor
    keep cookies. The page/MCP requests must return 200/200/401, including the
-   same challenge Cloud Build requires, and JWKS GET must return 200. Every credential, query, alternate path
-   and method probe must return 403:
+   same challenge Cloud Build requires, and JWKS GET must return 200. All 33
+   nonempty credential, query, alternate path and method probes must return 403.
+   A client-sent empty Cookie or Authorization header can be observed as absent;
+   the eight empty-header probes therefore accept either 403 or the exact
+   anonymous response: 200 for the public pages/JWKS, or 401 with the Bearer
+   discovery challenge for MCP. Empty values provide neither a signed session
+   nor an access token. This does not change the credential guard or allow
+   authenticated requests through the fence.
 
    ```bash
+   set -euo pipefail
    nova_expect_status() {
      nova_expected="$1"
      shift
      nova_actual="$(curl -q --silent --show-error --max-time 30 \
        --output /dev/null --write-out '%{http_code}' "$@")" || return
-     test "$nova_actual" = "$nova_expected"
+     printf "expected=%s actual=%s\n" "$nova_expected" "$nova_actual"
+     case "|$nova_expected|" in *"|$nova_actual|"*) return 0 ;; *) return 1 ;; esac
    }
    nova_expect_status 200 https://commcare.app/ || exit 1
    nova_expect_status 200 https://docs.commcare.app/ || exit 1
@@ -299,8 +310,8 @@ the load balancer must be stopped and identified before this proof is sufficient
      https://mcp.commcare.app/mcp || exit 1
    awk 'BEGIN { found=0 } { line=tolower($0); if (line ~ /^www-authenticate:/ && line ~ /bearer / && line ~ /resource_metadata=/) found=1 } END { exit(found ? 0 : 1) }' "$nova_probe_headers" || exit 1
    rm "$nova_probe_headers"
-   for nova_header in 'Cookie: maintenance-probe=sentinel' 'Cookie;' \
-     'Authorization: Bearer maintenance-probe' 'Authorization;' \
+   for nova_header in 'Cookie: maintenance-probe=sentinel' \
+     'Authorization: Bearer maintenance-probe' \
      'X-Api-Key: maintenance-probe' 'Next-Action: maintenance-probe'; do
      nova_expect_status 403 --header "$nova_header" https://commcare.app/ || exit 1
      nova_expect_status 403 --header "$nova_header" https://docs.commcare.app/ || exit 1
@@ -324,6 +335,18 @@ the load balancer must be stopped and identified before this proof is sufficient
    nova_expect_status 403 https://commcare.app/api/auth/token || exit 1
    nova_expect_status 403 https://commcare.app/api/auth/oauth2/authorize || exit 1
    nova_expect_status 403 --data '{}' https://commcare.app/api/auth/oauth2/token || exit 1
+   for nova_header in 'Cookie;' 'Authorization;'; do
+     nova_expect_status '200|403' --header "$nova_header" https://commcare.app/ || exit 1
+     nova_expect_status '200|403' --header "$nova_header" https://docs.commcare.app/ || exit 1
+     nova_expect_status '200|403' --header "$nova_header" https://commcare.app/api/auth/jwks || exit 1
+     nova_probe_headers="$(mktemp)"
+     nova_expect_status '401|403' --dump-header "$nova_probe_headers" --header "$nova_header" --data '{}' https://mcp.commcare.app/mcp || exit 1
+     if test "$nova_actual" = 401; then
+       awk 'BEGIN { found=0 } { line=tolower($0); if (line ~ /^www-authenticate:/ && line ~ /bearer / && line ~ /resource_metadata=/) found=1 } END { exit(found ? 0 : 1) }' "$nova_probe_headers" || exit 1
+     fi
+     rm "$nova_probe_headers"
+   done
+   printf "All maintenance fence probes passed\n"
    ```
 
    Any unexpected result blocks the merge. Remove rules 7, 8 and 9 first to restore
@@ -370,8 +393,9 @@ the load balancer must be stopped and identified before this proof is sufficient
    MCP proves the shared authoring/runtime boundary, not those browser-specific
    transports; record any unavailable live-browser checks explicitly.
 
-   Rerun the negative assertions from an external address outside that CIDR;
-   they must still receive 403. The public page/MCP probes and exact JWKS GET
+   Rerun the 33 strict negative assertions from an external address outside that
+   CIDR; they must still receive 403. The eight empty-header probes must retain
+   their anonymous-or-403 behavior. The public page/MCP probes and exact JWKS GET
    intentionally remain available there. This allow rule bypasses later Armor rules for that
    operator, so remove it with the other maintenance rules immediately after
    verification. Confirm case counts and app identities against the frozen
