@@ -805,5 +805,10 @@ migrated Postgres, and the production hostname proxy. Only HTTP dispatch is
 controlled. They assert exact issuer agreement, canonical RFC 8414 path selection,
 both OIDC fallbacks and rejection of the former origin-only advertisement. This
 proves metadata and host policy; a served Next artifact check separately proves
-that the framework mounts those routes. No external sign-in or credentials are
-needed for discovery.
+that the framework mounts those routes. The public HTTP smoke checks all canonical
+and alias paths through the running Next server with production Host headers.
+Local standalone auth deliberately uses its loopback `BETTER_AUTH_URL`, while
+resource advertisement uses the production hostname constants; each is checked
+against its exact configured issuer. On a deployed URL the same smoke also
+requires exact cross-document issuer equality. No external sign-in or credentials
+are needed for discovery.
