@@ -45,8 +45,13 @@ harness keeps, each with its reason.
   address is the runner's peer, and each request Formplayer makes of HQ is
   answered by the view HQ's URLconf names, behind HQ's own middleware, over
   the unit's state (`proof/formplayer/hq.py`): a worker HQ made, the
-  document's cases saved through HQ's receiver, a build HQ released. A
-  request no view answers is HQ's 404; a harness refusal ends the
+  document's cases saved through HQ's receiver, a build HQ released. The
+  worker's user case starts at the date the case database supplies: HQ creates it
+  synchronously inside its worker save, so only that setup call uses the supplied
+  clock (`proof/formplayer/hq.py::create_worker`), also in the unseeded audit.
+  Its entropy and every subsequent operation keep the audit's chosen mode;
+  later user-case timestamps remain observed and compared.
+  A request no view answers is HQ's 404; a harness refusal ends the
   observation. Never answer one of Formplayer's requests with a function
   called on HQ's behalf, a restore written beside HQ, or a submission
   acknowledged without being processed, in the packages' own tests as in
@@ -383,8 +388,9 @@ harness keeps, each with its reason.
   (`python3 -m proof.lane.plan size`: within the profile's budget a shard,
   `proof/timings.json`'s `execution.budget`, fourteen at once). Fourteen is
   one lane's bound, so no two lanes' shards may run at once: a workflow's
-  lanes wait for one another (`needs`), and the schedules are set apart by
-  what each takes (`proof/README.md`, "When the scheduled lanes run"); keep
+  lanes wait for one another (`needs`), and full reader workflows share the
+  `proof-scheduled-readers` FIFO concurrency group (`queue: max`, no cancellation;
+  `proof/README.md`, "When the scheduled lanes run"); keep
   both true when a lane or a schedule is added, or pull requests lose the
   six runners left to them. A document
   or control too heavy for one worker is observed in pieces
@@ -413,8 +419,9 @@ harness keeps, each with its reason.
   request: the nightly reads what a merge changed with every reader and
   opens an issue when it fails, and the week reads everything. The night
   after a merge that moves every key (a change to the emission, to the
-  observation's code or to a pin) is the whole lane with every reader, 13.5
-  hours on up to fourteen of the account's twenty runners. Someone who wants
+  observation's code or to a pin) is the whole lane with every reader,
+  potentially spanning the next schedule on up to fourteen of the account's
+  twenty runners. Someone who wants
   to see a reader's verdict before merging a change to Nova's emission or to
   what a reader observes (`proof/formplayer`, `proof/webapps`,
   `proof/android`, `proof/connect`, `proof/observe/served.py`, a reader's
@@ -435,7 +442,11 @@ harness keeps, each with its reason.
   lane test reads nothing else of the repository: one that does passes on a
   proof machine, which copies the whole tree, and fails on every shard. What
   the lane's code and a workflow must say alike is tested on the vitest
-  side, where the checkout is whole (`proof/ci/__tests__/`). Every hosted job has four vCPUs, so optimize
+  side, where the checkout is whole (`proof/ci/__tests__/`). Hosted jobs have
+  four vCPUs and 16 GiB: the served-reader profile runs two workers (about
+  5 GB each), while the readers-off profile runs four. Reducing the worker
+  count rescales the group's box-seconds to preserve its measured
+  worker-seconds until another run measures them. Optimize
   the work, never the parallelism: measure a change in CPU-seconds (the
   harness's and Postgres's container cgroups) and wall time with the worker
   count, per document, per check, per group and per job's fixed cost, and
@@ -515,6 +526,10 @@ harness keeps, each with its reason.
   collect). `ready.py` alone gates runtime readiness, by installing a retained survey in a real JVM:
   a behavioral assertion fails the runtime job and retains its log without blocking usable readers;
   a runtime that cannot load blocks its shards; the proxy's transport is held in the lane (`test_peer.py`).
+  A failed request keeps its full JVM log under the run's `android-failures/`
+  before removing its scratch files; the assertion's message also includes
+  the preceding log, since the test application prints a background thread's
+  original exception before JUnit reports the generic failure.
 - **A check runs only against a target Nova's publish accepts** (step 1's
   decision 19). A symptom that shows only where Nova refuses to publish
   reaches no one, so a configuration lacking a flag or confirmation Nova

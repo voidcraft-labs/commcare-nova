@@ -171,7 +171,7 @@ def _upload_lookups(unit, captured):
         assert result.errors == [], result.errors
 
 
-def _create(unit, export):
+def _create(unit, export, hq_side=None):
     """Nova's first publish (``proof.observe.publish.create``: the shell, the workbook and the content), as one
     operation keyed by the digest of both imports."""
     from proof.observe import publish
@@ -180,7 +180,13 @@ def _create(unit, export):
         app_id, refusal, lookups = publish.create(unit, export)
         assert refusal is None, refusal
         assert lookups is None or lookups["errors"] == [], lookups
-        return app_id
+    if hq_side is not None:
+        from proof.observe import hqside
+
+        # The captured next publish assumes these real HQ-side saves, as the document's observation does.
+        # Both the fresh and branched states must start from that same A before either update is applied.
+        hqside.save(unit, unit.operation, app_id, hq_side)
+    return app_id
 
 
 def _publish_over(unit, app_id, captured, label):
@@ -322,11 +328,11 @@ def _assert_same(fresh, branched, what):
 # The comparison -----------------------------------------------------------------------------------
 
 
-def _fresh(configuration, root, export, validate, update=None):
+def _fresh(configuration, root, export, validate, update=None, *, hq_side=None):
     """A then B (or B-edit, given D''s update) in a database cloned for it, every statement committed as it ran."""
     with database.fresh_database():
         with open_unit(configuration, root_key=root, validate=validate, transactional=False) as unit:
-            app_id = _create(unit, export)
+            app_id = _create(unit, export, hq_side)
             built_a, saved_a = _build(unit, app_id, "build-a", None)
             a = _observe(unit, app_id, built_a)
             if update is None:
@@ -337,11 +343,11 @@ def _fresh(configuration, root, export, validate, update=None):
             return a, _observe(unit, app_id, built_b)
 
 
-def _branched(configuration, root, export, update, validate, order):
+def _branched(configuration, root, export, update, validate, order, *, hq_side=None):
     """A, a mark, then B and B-edit over it in ``order``, each restored to A after."""
     observed = {}
     with hq_unit(configuration, root_key=root, validate=validate) as unit:
-        app_id = _create(unit, export)
+        app_id = _create(unit, export, hq_side)
         built_a, saved_a = _build(unit, app_id, "build-a", None)
         observed["A"] = _observe(unit, app_id, built_a)
         at_a = unit.mark()
@@ -370,13 +376,13 @@ def test_branches_of_one_unit_equal_fresh_states(hq, core_runner, corpus, branch
     root = _root(document_id, configuration_name)
     validate = formplayer_validation
 
-    fresh_a, fresh_b = _fresh(configuration, root, export, validate)
-    fresh_edit_a, fresh_edit = _fresh(configuration, root, export, validate, update)
+    fresh_a, fresh_b = _fresh(configuration, root, export, validate, hq_side=document.hq_side)
+    fresh_edit_a, fresh_edit = _fresh(configuration, root, export, validate, update, hq_side=document.hq_side)
     _assert_same(fresh_a, fresh_edit_a, "A in the edit's fresh state")
     assert fresh_b["key"] != fresh_edit["key"]
 
     for order in (("B", "B-edit"), ("B-edit", "B")):
-        states = _branched(configuration, root, export, update, validate, order)
+        states = _branched(configuration, root, export, update, validate, order, hq_side=document.hq_side)
         _assert_same(fresh_a, states["A"], f"A ({' then '.join(order)})")
         _assert_same(fresh_b, states["B"], f"B ({' then '.join(order)})")
         _assert_same(fresh_edit, states["B-edit"], f"B-edit ({' then '.join(order)})")

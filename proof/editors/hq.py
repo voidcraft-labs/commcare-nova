@@ -294,8 +294,12 @@ class HQAnswers:
     """
 
     def __init__(self, state, unit=None):
+        from proof.hq.branch import Unit
+
         self.state = state
-        self.unit = unit
+        # hq_check yields the unit itself. Keep its request scopes and replay fork when an editor is handed
+        # that unit directly, as well as when a caller supplies a state and unit separately.
+        self.unit = state if unit is None and isinstance(state, Unit) else unit
         self.exchanges: list[Exchange] = []
         self.section: int | None = None
         self._preanswered: tuple[PageRequest, PageResponse, Exchange] | None = None

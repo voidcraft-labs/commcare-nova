@@ -668,11 +668,33 @@ loads the Android runtime when selected but runs only its selected checks;
 the scheduled lane still runs every reader selfcheck and predicate. This
 is a verdict on those tests alone, not the corpus gate.
 
+To reproduce a weekly audit's conditions on those same checks, dispatch the
+slice directly with `mode=verified`, `unseeded`, or `unseamed` (`normal` is
+the default). Verified enables memo comparisons, editor replay and all
+edited documents' branch comparisons; unseeded leaves Nova's and HQ's
+entropy and HQ's runtime clock unfrozen; unseamed disables the HQ speed seams.
+The worker's creation alone uses the user-case date authored in the case
+database, as the other seeded cases receive their authored dates through
+case blocks. HQ creates that user case synchronously when saving its worker.
+This supplies the same setup input to each app state; subsequent saves,
+builds and reader requests retain the audit's real clock, and all timestamp
+comparisons remain in place.
+
+```bash
+gh workflow run proof-slice.yml --ref <branch> -f readers=0 -f mode=verified \
+  -f selectors='proof/hq/test_branches.py -k targeted-hq-side-state'
+```
+
+A failed Android request retains its complete JVM output under
+`android-failures/` in the slice or shard output. Its exception message also
+includes the context before JUnit's assertion, where the upstream test
+application prints a background thread's original exception.
+
 **What the night after a merge takes.** A night observes every group whose
 key the merge changed, and on most nights that is minutes. A merge that
 changes the emission, the observation's code or a pin changes every
 document's key, and the night after it is the whole lane with every reader:
-13.5 hours on up to fourteen of the account's twenty runners, which leaves
+potentially longer than a day on up to fourteen of the account's twenty runners, which leaves
 six to pull requests until it ends ("The other workflows", When the
 scheduled lanes run). The first night after the lane's workflows reach main
 is that night whatever merges with them, since a lane reads only a snapshot
@@ -758,10 +780,10 @@ does), and trims main's older snapshots as any night does (its last job
 keeps the newest two, and takes a snapshot GitHub already evicted, or
 another run already deleted, as trimmed; a delete that fails while the
 snapshot is still held fails the job). It holds up to fourteen of the account's twenty
-runners for as long as it runs, so beside a scheduled lane it takes the six
-the schedules leave to pull requests. A branch that changes the emission,
+runners for as long as it runs, and joins the full workflows' FIFO queue so
+it waits for a scheduled lane instead of taking the runners left to pull requests. A branch that changes the emission,
 the observation's code or a pin changes every document's key, and its run is
-then a night's where every key moved: 13.5 hours, nearly all of it the whole
+then a night's where every key moved: potentially longer than a day, nearly all of it the whole
 lane with every reader ("The other workflows", When the scheduled lanes
 run). It is rarely worth starting by hand: the night after the merge runs
 the same lane over the same change, saves what it observes, and opens an
@@ -4506,7 +4528,7 @@ changed with every reader and opens an issue when it fails, and the week
 reads everything. Someone who wants to see a reader's verdict before merging
 can start the run by hand over the documents the change touches, or run them
 on a proof machine where one is at hand; the same section says what the
-night after a merge takes, 13.5 hours where the merge moved every key
+night after a merge takes, potentially longer than a day where the merge moved every key
 ("Seeing a reader's verdict before a merge").
 
 ### The pull request lane
@@ -4557,7 +4579,11 @@ existing jobs:
   (`proof/ci/__tests__/laneWorkflow.test.ts`, in the test shards). It pulls the
   image and Postgres while it fetches the queues, and its fork server (`node
   proof/run.mjs --lane`) runs the early queue's blocks and the main queue's
-  as it claims them, with four workers. It prints its containers' memory
+  as it claims them, with two workers when serving readers and four without
+  them. A served-reader worker takes about 5 GB, so four can exhaust a
+  16 GiB hosted runner; two leave room for the shared services and the runner.
+  The reader profile's estimates retain the measured worker-seconds at that
+  smaller worker count. It prints its containers' memory
   every few minutes and whenever one passes its last printed peak, and writes
   their peaks into its output (`memory.json`), so a runner that dies says
   why. `proof/ci/wait.mjs` brings the main queue and the corpus into a shard:
@@ -4783,30 +4809,37 @@ a lane's shards are at most fourteen at once (`proof-lane.yml`'s
 `max-parallel`). That bound is one lane's, so six runners stay free for pull
 requests only while no two lanes' shards run at once. Within a workflow each
 lane waits for the one before it (`needs`) and runs whatever that one found;
-across workflows the schedules are set apart by what each takes. The times
-below are the planner's, from the lane's measured seconds
-(`proof/timings.json`) on fourteen four-vCPU runners, with each lane's
-emission, its Android runtime's restore and its gate; the second figure is
-what the same plan gives once a run has measured the pieces, which are
-counted high until then. A hosted run of one document took up to 1.65 times
-a proof machine's, and a schedule's start may be late by some minutes, which
-the gaps between the schedules are for.
+across workflows full audits, pin updates and image comparisons share the
+`proof-scheduled-readers` concurrency group with `queue: max` and cancellation
+off. GitHub keeps up to 100 pending runs in FIFO order, rather than replacing
+one pending weekly audit with the next nightly ([GitHub concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)).
+A reusable image build gets its own ref-scoped group because its pin-update
+caller already holds the shared group; waiting on that same group would
+otherwise deadlock the caller and child.
 
-| Schedule (UTC) | Lanes, in order | Takes |
-| --- | --- | --- |
-| Nights, 03:23 Tuesday to Saturday (`proof-audit.yml`) | without the readers against main's store (one shard: minutes, 1.2 h where every key moved), its save, with every reader against main's store, its save | what changed: minutes on most nights, 13.5 h (11.5) where every key moved, as after an emission change or new pins |
-| The week, 19:07 Saturday (`proof-audit.yml`) | whole and fresh without the readers (eight shards, 0.3 h), whole and fresh with every reader (56 shards in four rounds, 12 h; 10), their save, then the three sampled lanes (14 shards each, 3 h each) | 22 h (20), to Sunday evening |
-| The pin pull request, 00:37 Monday (`upstream-pins.yml`) | the image's build and the surface (ten minutes in run 37330885047), the prewarm without the readers (eight shards, 0.3 h), whole and fresh with every reader on the candidate (12 h; 10) | 13 h (11), where an upstream moved |
-| The image comparison, 17:17 Monday (`proof-image.yml`) | the build (six minutes in run 38253793793), the three whole lanes without the readers together (four shards each, 0.4 h), then the two sampled lanes with every reader (3 h each) | 7 h |
+The schedules below enqueue work; their clock times do not promise that a
+previous run has finished. The hosted reader profile uses two workers for
+memory capacity. Its box-second estimates preserve the earlier measured
+worker-seconds, with no claim that throughput at two workers has already
+been measured. Replanning the #836 fresh queue gives about 31 hours before
+setup and gates; its unseeded sample about 8.6 hours, and #862's queue about
+37 hours. These conservative plans can span the next schedule, which is why
+serialization is enforced rather than inferred from clock spacing. A later
+measured run can refine the estimates without reducing the work checked.
 
-No night runs on Sunday or Monday. The week's whole fresh lanes observe main
-on Saturday evening, which is more than that night would, and Monday is the
-pin pull request's and the image comparison's; Tuesday's night observes
-every group whose key changed since Saturday's snapshot, so nothing is left
-unobserved, and a pull request opened on Sunday or Monday reads Saturday's
-store and observes for itself what merged since. A dispatch is a person's
-to time: one that runs lanes while a schedule's are running takes runners
-beside them.
+| Schedule (UTC) | Lanes, in order |
+| --- | --- |
+| Nights, 03:23 Tuesday to Saturday (`proof-audit.yml`) | without readers against main's store, its save, with every reader against main's store, its save |
+| The week, 19:07 Saturday (`proof-audit.yml`) | whole and fresh without readers, whole and fresh with every reader, their save, then the baseline, unseeded and unseamed sampled lanes |
+| The pin pull request, 00:37 Monday (`upstream-pins.yml`) | build and surface, prewarm without readers, then every reader on the candidate where an upstream moved |
+| The image comparison, 17:17 Monday (`proof-image.yml`) | build, three whole lanes without readers, then the two sampled lanes with every reader |
+
+No night is enqueued on Sunday or Monday. Each night's store keys still
+select everything changed since the last completed snapshot. A pull request
+reads that snapshot and observes for itself what its own keys no longer
+match, even while a scheduled run is waiting. Full audit dispatches use the
+same queue; bounded slices and mechanics dispatches remain independent so
+a specific failure can be investigated while a long audit runs.
 
 ### Documents observed in pieces
 
@@ -5189,7 +5222,7 @@ dependency upgrades (`upstream-pins.yml`, scheduled and by hand):
    with every reader on the candidate, compared with main's store, and a
    reader that does not hold on the new pins fails the run: the readers'
    verdict on new pins is there before a person merges them, as the nightly's
-   is after. It takes about twelve hours of fourteen runners ("When the
+   is after. Its planner sets the duration on up to fourteen runners ("When the
    scheduled lanes run"), and the pull request waits only for the prewarm.
 5. **Report** (`pins.mjs report`) adds the image lock and the regenerated
    surface to the one commit, opens the pull request or updates the open one,

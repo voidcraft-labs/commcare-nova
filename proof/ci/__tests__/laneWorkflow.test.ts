@@ -31,6 +31,33 @@ import { parse } from "yaml";
 const run = promisify(execFile);
 const WORKTREE = resolve(import.meta.dirname, "..", "..", "..");
 
+it("queues full reader workflows together without blocking a pin update on its child image build", async () => {
+	const workflows = await Promise.all(
+		["proof-audit", "upstream-pins", "proof-image"].map(async (name) =>
+			parse(
+				await readFile(join(WORKTREE, `.github/workflows/${name}.yml`), "utf8"),
+			),
+		),
+	);
+	for (const workflow of workflows) {
+		expect(workflow.concurrency.group).toContain("proof-scheduled-readers");
+		expect(workflow.concurrency.queue).toBe("max");
+		expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
+	}
+	const [audit, pins, image] = workflows;
+	// Full dispatches join schedules; a bounded mechanics/slice dispatch stays independent.
+	expect(audit.concurrency.group).toContain(
+		"github.event_name == 'schedule' || inputs.nightly || inputs.weekly",
+	);
+	expect(audit.concurrency.group).toContain("github.run_id");
+	// The pin workflow waits on this image job while holding the common group. Its ref must take the
+	// image-only group even though reusable workflows inherit the caller's scheduled event context.
+	expect(pins.jobs.image.with.ref).toBeTruthy();
+	expect(image.concurrency.group).toContain(
+		"inputs.ref && format('proof-image-{0}', inputs.ref)",
+	);
+});
+
 it("runs as many of a lane's shards at once as the planner fills its rounds with", async () => {
 	const workflow = parse(
 		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
@@ -181,7 +208,18 @@ it("executes slice validation against a named test and refuses broader paths and
 		expect(
 			JSON.parse(await readFile(join(scratch, "proof-selectors.json"), "utf8")),
 		).toEqual(["proof/android/test_navigation.py", "-k", "entry_point"]);
+		const piece =
+			"proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[targeted-search-hq-compile@minimum]";
+		await run("bash", ["-e", "-c", validation], {
+			cwd: WORKTREE,
+			env: { ...env, SELECTORS: piece, AUDIT_MODE: "unseeded" },
+		});
+		expect(
+			JSON.parse(await readFile(join(scratch, "proof-selectors.json"), "utf8")),
+		).toEqual([piece]);
 		for (const selectors of [
+			"proof/checks/pieces.py",
+			"proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store",
 			"proof/lane/test_plan.py .",
 			"proof/lane/test_plan.py -o addopts=--maxfail=1",
 			"proof/lane/test_plan.py -x",
@@ -198,6 +236,16 @@ it("executes slice validation against a named test and refuses broader paths and
 			);
 			expect(code, selectors).toBe(1);
 		}
+		await expect(
+			run("bash", ["-e", "-c", validation], {
+				cwd: WORKTREE,
+				env: {
+					...env,
+					SELECTORS: "proof/hq/test_branches.py -k targeted-hq-side-state",
+					AUDIT_MODE: "unknown",
+				},
+			}),
+		).rejects.toMatchObject({ code: 1 });
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}

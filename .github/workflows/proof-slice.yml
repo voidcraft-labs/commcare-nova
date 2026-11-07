@@ -11,6 +11,9 @@ on:
       readers:
         type: string
         default: all
+      mode:
+        type: string
+        default: normal
   workflow_dispatch:
     inputs:
       selectors:
@@ -21,6 +24,11 @@ on:
         description: Readers to run (all, 0, or a comma list of formplayer,webapps,android,connect)
         type: string
         default: all
+      mode:
+        description: Audit conditions to reproduce for these checks
+        type: choice
+        options: [normal, verified, unseeded, unseamed]
+        default: normal
 permissions:
   contents: read
 jobs:
@@ -30,6 +38,12 @@ jobs:
     env:
       PROOF_READERS: ${{ inputs.readers }}
       PROOF_OUT_DIR: .proof/slice
+      PROOF_ENTROPY: ${{ inputs.mode == 'unseeded' && 'real' || '' }}
+      PROOF_HQ_DETERMINISM: ${{ inputs.mode == 'unseeded' && '0' || '1' }}
+      PROOF_HQ_SPEED: ${{ inputs.mode == 'unseamed' && '0' || '1' }}
+      PROOF_VERIFY_MEMOS: ${{ inputs.mode == 'verified' && '1' || '0' }}
+      PROOF_EDITOR_AUDIT: ${{ inputs.mode == 'verified' && '1' || '0' }}
+      PROOF_BRANCH_DOCUMENTS: ${{ inputs.mode == 'verified' && 'all' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -46,11 +60,14 @@ jobs:
         name: Validate the slice
         env:
           SELECTORS: ${{ inputs.selectors }}
+          AUDIT_MODE: ${{ inputs.mode }}
         run: |
           python3 - <<'PY'
           import json, os, shlex
           from pathlib import Path
           from proof.lane.readers import parse
+          if os.environ.get('AUDIT_MODE', 'normal') not in ('normal', 'verified', 'unseeded', 'unseamed'):
+              raise SystemExit('A slice mode is normal, verified, unseeded or unseamed.')
           args = shlex.split(os.environ['SELECTORS'])
           paths = []
           cursor = 0
@@ -63,8 +80,11 @@ jobs:
               else:
                   path = Path(arg.split('::', 1)[0])
                   root = Path('proof').resolve()
+                  piece = (path == Path('proof/checks/pieces.py')
+                           and arg.startswith('proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[')
+                           and arg.endswith(']'))
                   if (not arg.startswith('proof/') or not path.is_file()
-                      or not path.name.startswith('test_') or path.suffix != '.py'
+                      or not (path.name.startswith('test_') or piece) or path.suffix != '.py'
                       or not path.resolve().is_relative_to(root)):
                       raise SystemExit('A slice takes existing proof test files/items and -k/-m expressions only.')
                   paths.append(path)

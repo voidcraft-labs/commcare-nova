@@ -46,7 +46,8 @@ from proof.formplayer.walk import screen_kind
 from proof.hq.operations import with_runtime_app_id
 from proof.observe.sessions import csql_compile
 
-SEARCH = ["0", "action 0"]
+# Search first is the default workflow; opening the menu opens its prompts.
+SEARCH = ["0"]
 # HQ's case search views (``ota/urls.py``).
 SEARCH_VIEWS = ("remote_search", "app_aware_remote_search")
 MIXED = 'it\'s "x"'
@@ -123,10 +124,7 @@ def _stored_maps(published):
 
 def _description(web):
     """The description Formplayer hands the client on the search screen."""
-    # The Case List save turns auto-launch on (defect 21). The same query is then handed to the client beside
-    # its results as queryResponse, rather than behind the case list's Search action.
-    menu = web.navigate(["0"])
-    screen = menu if screen_kind(menu) == "query" else menu.get("queryResponse") or web.navigate(SEARCH)
+    screen = web.navigate(SEARCH)
     assert screen_kind(screen) == "query", screen
     return screen.get("description")
 

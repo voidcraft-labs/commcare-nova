@@ -221,6 +221,37 @@ def test_a_response_the_device_stops_reading_keeps_its_context_and_log_and_reaps
         reader.close()
 
 
+def test_a_failed_device_keeps_the_background_exception_and_complete_log(tmp_path, monkeypatch):
+    from proof.android import client
+
+    out = tmp_path / "out"
+    monkeypatch.setenv("PROOF_OUT", str(out))
+    reader = client.AndroidReader()
+    reader._work = tmp_path / "reader"
+    # The executable boundary writes what CommCareTestApplication.afterTest writes: the original exception,
+    # then JUnit's generic assertion. Normal output continues after the report, beyond the message's bound.
+    device = "\n".join([
+        "import sys",
+        "print('earlier device output')",
+        "print('java.lang.IllegalStateException: background task failed')",
+        "print('read(nova.proof.android.Reader): junit.framework.AssertionFailedError: threads crashing')",
+        f"print('later output\\n' * {client.SHOWN_LOG})",
+        "sys.exit(1)",
+    ])
+    monkeypatch.setattr(reader, "_command", lambda *args: ([sys.executable, "-I", "-c", device], str(tmp_path)))
+    try:
+        with pytest.raises(client.AndroidReaderError) as failed:
+            reader.request("app")
+        assert "IllegalStateException: background task failed" in str(failed.value)
+        assert "AssertionFailedError: threads crashing" in str(failed.value)
+        [kept] = (out / "android-failures").glob("*.log")
+        assert kept.read_text().startswith("earlier device output\n")
+        assert kept.stat().st_size > client.SHOWN_LOG
+        assert not (reader._work / "request-1").exists()
+    finally:
+        reader.close()
+
+
 # A device that sends one request, tells the test it is waiting, and then either closes the connection with a
 # reset (its client giving up) or reads the answer; either way it goes on to its next message to the harness and
 # exits 0 once that is answered.

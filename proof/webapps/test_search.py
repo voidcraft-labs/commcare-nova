@@ -11,10 +11,8 @@
   non-breaking space as a blank description (a difference a worker sees),
   or a reading that never finds a description at all.
 
-  The same save moves the worker from the case list to the search screen
-  (the stored ``auto_launch`` turns true), which the register already holds
-  as defect 21; here it shows on the real client: the menu that opened the
-  list for Nova's export opens the search for the saved app.
+  Search first is Nova's default workflow, and the same save must keep it:
+  opening the menu reaches Search both before and after the save.
 
 - **Defect 16, a column hidden from a list and the list's search**
   (``targeted-hidden-column``, with the cases the document's restore
@@ -39,9 +37,8 @@
   order, where the table's row order differs. The plausible failure: a
   drop-down in row order, which a sort-less itemset gives.
 
-Every search button reads "Search All Cases", the label HQ's Case List save
-keeps (``models/case_search.py::CaseSearch.search_button_label``), so a list's
-search action is opened by that text.
+The Search screen opens with the menu. Results are read only after the worker
+submits that screen, as the search workflow requires.
 """
 
 from __future__ import annotations
@@ -58,7 +55,6 @@ BROWSE = "case-list-browse"
 TO_THE_MENU = steps.path(steps.open_app("Case list proof"), steps.choose("Patients & visits"))
 DESCRIPTION = "Find a patient by code."
 NBSP = "\u00a0"
-SEARCH_BUTTON = "Search All Cases"
 
 
 def _describe(doc):
@@ -75,11 +71,10 @@ def test_web_apps_shows_no_description_for_an_empty_one_or_a_non_breaking_space_
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
     with webapps_hq.project(webapps_documents[BROWSE]) as project:
-        to_the_search = [*TO_THE_MENU, steps.SCREEN, *steps.list_action(SEARCH_BUTTON), steps.SCREEN]
+        to_the_search = [*TO_THE_MENU, steps.SCREEN]
         sides = {
-            # Nova's export: the menu opens the list, and its Search button the search.
+            # Nova's export and HQ's Case List save both open Search directly.
             "nova": ({}, to_the_search),
-            # After HQ's Case List page saved it: the menu opens the search itself (defect 21).
             "saved": ({"saves": ((pages.CASE_LIST, project.module_id(0)),)}, [*TO_THE_MENU, steps.SCREEN]),
             "described": ({"change": _describe}, to_the_search),
         }
@@ -100,7 +95,7 @@ def test_web_apps_shows_no_description_for_an_empty_one_or_a_non_breaking_space_
         assert [side["pageErrors"] for side in observed.values()] == [[], [], []]
 
         # What each app stores, and what Formplayer hands the client for it.
-        assert nova["stored"] == {"description": {"en": ""}, "auto_launch": False}
+        assert nova["stored"] == {"description": {"en": ""}, "auto_launch": True}
         assert saved["stored"] == {"description": {"en": ""}, "auto_launch": True}
         assert nova["formplayer"] == [NBSP] and saved["formplayer"] == [NBSP]
         assert described["formplayer"] == [DESCRIPTION]
@@ -114,9 +109,7 @@ def test_web_apps_shows_no_description_for_an_empty_one_or_a_non_breaking_space_
         # The same prompts either way.
         assert nova["search"]["prompts"] == saved["search"]["prompts"] == described["search"]["prompts"]
 
-        # Defect 21 on the client: the menu opens the list for Nova's export and the search for the saved app.
-        assert nova["afterTheMenu"]["list"] and not nova["afterTheMenu"]["query"]
-        assert saved["afterTheMenu"]["query"]
+        assert all(side["afterTheMenu"]["query"] for side in observed.values())
 
 
 def test_web_apps_shows_no_description_on_an_inline_search_before_or_after_the_case_list_save(
@@ -179,7 +172,9 @@ def test_web_apps_shows_no_header_and_no_cell_for_a_sort_only_column(
 ):
     with webapps_hq.project(webapps_documents[BROWSE]) as project:
         with project.released(formplayer_runner) as release:
-            run = Session(release, editor_driver).run([*TO_THE_MENU, steps.SCREEN])
+            run = Session(release, editor_driver).run(
+                [*TO_THE_MENU, *steps.fill("#query-properties input", "a"), *steps.run_search(), steps.SCREEN]
+            )
     handed = run.answered("navigate_menu")[-1].json()
     shown = run.screens[0]["list"]
     evidence("sort-only-column", {"headers": handed["headers"], "widthHints": handed["widthHints"], "shown": shown})
@@ -220,8 +215,6 @@ def test_web_apps_lists_a_lookup_prompts_choices_in_label_order(
                 [
                     *steps.open_app("Inline"),
                     *steps.choose("Followup"),
-                    steps.SCREEN,
-                    *steps.list_action(SEARCH_BUTTON),
                     steps.SCREEN,
                     {"eval": PROMPT_CHOICES},
                 ]

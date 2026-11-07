@@ -138,6 +138,10 @@ def _read(
     from proof.formplayer import canonical
 
     ids = {served.app_id: "@app", served.build_id: "@build"}
+    if served.usercase_id:
+        # HQ creates this case for the worker, independently of the app's bytes. As in Formplayer's record,
+        # name that identity without changing its properties or any reference to another case.
+        ids[served.usercase_id] = "@usercase"
     answer = canonical.replace_text({**answer, **(about or {})}, ids)
     asked = canonical.replace_text([entry.record() for entry in peer.exchanges], ids)
     found = {"answer": blobs.put_json(answer), "hq": blobs.put_json(asked)}
