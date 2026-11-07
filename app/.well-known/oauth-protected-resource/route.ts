@@ -3,15 +3,15 @@
  *
  * Served on the MCP host in prod (`proxy.ts` enforces the allowlist so
  * the main host 404s this path there). Points MCP clients at the AS
- * origin and pins the MCP endpoint URL as the expected audience on every
+ * issuer and pins the MCP endpoint URL as the expected audience on every
  * access token the AS mints.
  *
  * Both `resource` and `authorization_servers` are passed as overrides
- * because in prod they live on different subdomains: defaults the
- * helper derives from the wired `auth` would point at the main host for
+ * because in prod the resource and issuer live on different subdomains.
+ * Defaults the helper derives from the wired `auth` would use the main host for
  * both, which isn't what this resource advertises. In dev, the two
  * collapse to `BETTER_AUTH_URL` for origins, while the resource path
- * follows the local/prod MCP endpoint (see `AS_ORIGIN` and
+ * follows the local/prod MCP endpoint (see `AS_ISSUER` and
  * `MCP_RESOURCE_URL` in `lib/hostnames.ts`). Every other field in the
  * document: `scopes_supported`, `jwks_uri`,
  * `resource_signing_alg_values_supported`: is filled in from the wired
@@ -24,14 +24,14 @@
  * construction: no hand-kept duplication.
  */
 
-import { AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
+import { AS_ISSUER, MCP_RESOURCE_URL } from "@/lib/hostnames";
 import { getServerClient } from "@/lib/server-client";
 
 export const GET = async (): Promise<Response> => {
 	const serverClient = await getServerClient();
 	const metadata = await serverClient.getProtectedResourceMetadata({
 		resource: MCP_RESOURCE_URL,
-		authorization_servers: [AS_ORIGIN],
+		authorization_servers: [AS_ISSUER],
 	});
 	/* 15s fresh + 15s stale-while-revalidate keeps MCP-client cold-start
 	 * traffic from hammering this route without sacrificing deploy-time

@@ -27,11 +27,11 @@ export const STARTUP_PROBE_PATH = "/warmup";
  *
  *   - `AS_ORIGIN` — the authorization server origin. In prod this is
  *     the main host (`https://commcare.app`); it's where the bare AS
- *     metadata wrapper lives so Claude Code can discover the token
- *     endpoint.
+ *     metadata aliases live for clients that probe the origin directly.
  *   - `AS_ISSUER` — Better Auth's canonical issuer. The auth handler
  *     lives under `/api/auth`, and Better Auth signs OAuth access tokens
- *     with that pathful base URL as `iss`.
+ *     with that pathful base URL as `iss`. Protected-resource metadata
+ *     advertises this exact issuer, never just AS_ORIGIN.
  *   - `MCP_RESOURCE_URL` — the actual MCP endpoint URL. In prod this is
  *     `https://mcp.commcare.app/mcp`; in local dev it is the direct Next
  *     route `http://localhost:3000/api/mcp`. MCP clients send this as

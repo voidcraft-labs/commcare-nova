@@ -798,3 +798,12 @@ eight-action call while retaining real PostgreSQL authority and rollback. No
 action prefix, session step or request receipt survives the exhausted call. A
 separate native worker test fires the owned execution timer and verifies that
 termination joins before rejection; the database timeout remains the backstop.
+
+OAuth discovery tests run the strict MCP client's discovery against Nova's actual
+protected-resource and authorization-server route handlers, Better Auth over
+migrated Postgres, and the production hostname proxy. Only HTTP dispatch is
+controlled. They assert exact issuer agreement, canonical RFC 8414 path selection,
+both OIDC fallbacks and rejection of the former origin-only advertisement. This
+proves metadata and host policy; a served Next artifact check separately proves
+that the framework mounts those routes. No external sign-in or credentials are
+needed for discovery.

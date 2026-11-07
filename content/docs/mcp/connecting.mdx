@@ -45,6 +45,8 @@ You only sign in once per client. The connection sticks until you revoke it.
 
 If your client doesn't open the browser tab automatically, check its MCP logs, most clients print the sign-in URL there as a fallback.
 
+Nova publishes its sign-in details at the server URL, so clients can discover them automatically. You don't need to supply a separate authorization-server address.
+
 ### If the tab shows a connection issue
 
 Sometimes Nova can't go through with a connection request, and the browser tab says so instead of asking you to sign in. Your client can't see that page, so the way forward is on your side:
