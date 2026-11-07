@@ -315,6 +315,15 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 				{ role: "user", content: finish.message },
 			]);
 		}
+		// The durable reservation is the hard safety fence. An exhausted architect
+		// turn is an ordinary continuation boundary, not a generation failure.
+		// Check after onFinish so a final valid response can still complete.
+		if (args.spec.kind === "architect" && startedCount >= args.maxSteps)
+			return {
+				contextId: opened.id,
+				kind: "awaiting-input",
+				text: "This turn has reached its work limit. Your progress is retained. You can continue when you are ready.",
+			};
 		if (args.reviewPolicy) {
 			if (startedCount >= args.maxSteps) return unfinished(null);
 			if (args.reviewPolicy === "production") {

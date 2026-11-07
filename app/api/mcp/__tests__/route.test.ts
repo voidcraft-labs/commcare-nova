@@ -3,12 +3,16 @@
  * limiting belong to the native Postgres endpoint suites. This suite owns
  * credential-path selection and authenticated context reaching a real tool.
  */
+
 import type { McpServer } from "@modelcontextprotocol/server";
+import { errors } from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { log } from "@/lib/logger";
 import { oauthScopeChallenge, SCOPES } from "@/lib/mcp/scopes";
 import type { ToolContext } from "@/lib/mcp/types";
 
+const jwtVerifierMock = vi.fn();
 const verifyApiKeyMock = vi.fn();
 const authHandlerMock = vi.fn();
 const registerNovaToolsMock = vi.fn(
@@ -35,13 +39,15 @@ vi.mock("@better-auth/mcp", () => ({
 			_opts: unknown,
 			inner: (req: Request, jwt: Record<string, unknown>) => Promise<Response>,
 		) =>
-		(req: Request) =>
-			inner(req, {
+		(req: Request) => {
+			jwtVerifierMock();
+			return inner(req, {
 				sub: "test-user",
 				azp: "test-client",
 				iat: Math.floor(Date.now() / 1000),
 				scope: "nova.read nova.write",
-			}),
+			});
+		},
 }));
 
 /** Skip the consent revocation lookup (would otherwise hit the DB). */
@@ -85,6 +91,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 beforeEach(() => {
+	jwtVerifierMock.mockReset();
 	verifyApiKeyMock.mockReset();
 	registerNovaToolsMock.mockClear();
 	isUserActiveMock.mockReset();
@@ -737,4 +744,32 @@ it("passes verified OAuth authentication into SDK incremental-consent challenges
 	expect(response.headers.get("www-authenticate")).toContain(
 		"resource_metadata=",
 	);
+});
+
+it("attributes a signing-key timeout and preserves the retryable authentication response", async () => {
+	const failure = new errors.JWKSTimeout();
+	const report = vi.spyOn(log, "error").mockImplementation(() => {});
+	try {
+		jwtVerifierMock.mockImplementationOnce(() => {
+			throw failure;
+		});
+		const response = await dispatch(buildRequest("Bearer private-token"));
+		expect(response.status).toBe(503);
+		expect(response.headers.get("Retry-After")).toBe("5");
+		expect(response.headers.get("WWW-Authenticate")).toBeNull();
+		expect(report).toHaveBeenCalledWith(
+			"[mcp] signing-key lookup timed out before authentication",
+			failure,
+			expect.objectContaining({
+				phase: "jwt-verification",
+				operation: "fetch-jwks",
+				errorCode: "ERR_JWKS_TIMEOUT",
+				responseStatus: 503,
+			}),
+		);
+		expect(JSON.stringify(report.mock.calls)).not.toContain("private-token");
+		expect(registerNovaToolsMock).not.toHaveBeenCalled();
+	} finally {
+		report.mockRestore();
+	}
 });

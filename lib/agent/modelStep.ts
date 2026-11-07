@@ -12,6 +12,7 @@ import {
 } from "ai";
 import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
 import { type ReasoningEffort, reasoningProviderOptions } from "@/lib/models";
+import { AgentModelStepError } from "./modelStepError";
 
 export interface AgentModelStep {
 	readonly toolCalls: readonly {
@@ -43,15 +44,7 @@ export type AgentModelStepFn = (
 	request: AgentModelRequest,
 ) => Promise<AgentModelStep>;
 
-export class AgentModelStepError extends Error {
-	constructor(
-		cause: unknown,
-		readonly usage: LanguageModelUsage | undefined,
-	) {
-		super(cause instanceof Error ? cause.message : String(cause), { cause });
-		this.name = cause instanceof Error ? cause.name : "AgentModelStepError";
-	}
-}
+export { AgentModelStepError } from "./modelStepError";
 
 /** One response, fully drained before its durable tool calls are dispatched. */
 export function productionModelStep(

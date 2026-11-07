@@ -1,3 +1,4 @@
+import { modelFailureDiagnostics } from "./modelStepError";
 /**
  * GenerationContext — shared abstraction for all LLM calls and generation state.
  *
@@ -579,6 +580,7 @@ export class GenerationContext
 		) {
 			if (identity) this.reportedErrors.add(identity);
 			const cause = {
+				...modelFailureDiagnostics(originalError),
 				appId: this.appId,
 				runId: this.runId,
 				raw: error.raw ?? "",

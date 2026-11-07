@@ -30,8 +30,9 @@
 
 import { createAuthEndpoint } from "@better-auth/core/api";
 import type { BetterAuthPlugin } from "better-auth";
+import { errors } from "jose";
 import { NOVA_API_KEY_PREFIX } from "@/lib/auth-public";
-import { HOSTNAMES, normalizeHost } from "@/lib/hostnames";
+import { AS_ORIGIN, HOSTNAMES, normalizeHost } from "@/lib/hostnames";
 import { log } from "@/lib/logger";
 import { handleApiKeyMcp } from "./api-key-auth";
 import { handleJwtMcp } from "./jwt-auth";
@@ -134,7 +135,19 @@ export async function dispatchMcpAuthRequest(req: Request): Promise<Response> {
 		}
 		return await handleJwtMcp(req);
 	} catch (err) {
-		log.error("[mcp] unhandled dispatcher error", err);
+		if (err instanceof errors.JWKSTimeout)
+			log.error(
+				"[mcp] signing-key lookup timed out before authentication",
+				err,
+				{
+					phase: "jwt-verification",
+					operation: "fetch-jwks",
+					jwksUrl: `${AS_ORIGIN}/api/auth/jwks`,
+					errorCode: err.code,
+					responseStatus: 503,
+				},
+			);
+		else log.error("[mcp] unhandled dispatcher error", err);
 		return mcpUnavailableResponse();
 	}
 }

@@ -284,3 +284,12 @@ Generation failures keep their caught exception through finalization in
 operator reports retain the original stack, cause and run identity. Re-emitting
 the same exception in one context does not report it twice. Message-only
 logger reports use Sentry events without synthetic logger stack traces.
+
+The model-step accounting wrapper preserves its provider cause for error
+classification. Generation reports include the provider HTTP status and bounded
+request identity when available, without copying request or response bodies.
+
+An architect that consumes its durable request allowance pauses through the same
+message continuation contract as an ordinary pause. Completed tool effects remain
+acknowledged, reconnect spends no new request, and a new user turn may continue.
+A final accepted response may complete at the exact allowance.
