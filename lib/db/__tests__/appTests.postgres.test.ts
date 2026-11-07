@@ -1,6 +1,6 @@
 import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
 import { Pool } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AppAccessError } from "../appAccess";
 import {
 	AppTestUnavailableError,
@@ -525,7 +525,7 @@ it("rolls back the whole action list and receipt when its database deadline expi
 					return { state: { count: actions }, observation: { count: actions } };
 				},
 			}),
-		).rejects.toThrow();
+		).rejects.toThrow("terminating connection due to transaction timeout");
 	} finally {
 		__setAppDbForTests(h.db());
 		await timed.destroy();
@@ -534,6 +534,63 @@ it("rolls back the whole action list and receipt when its database deadline expi
 	expect(disconnected).toHaveLength(1);
 	expect(disconnected[0].message).toBe("Connection terminated unexpectedly");
 	expect(actions).toBe(2);
+	const evidence = await readAppTestSteps({ ...scope, testId: begun.testId });
+	expect(evidence.steps).toHaveLength(1);
+	expect(
+		await h
+			.db()
+			.selectFrom("app_test_requests")
+			.selectAll()
+			.where("test_id", "=", begun.testId)
+			.execute(),
+	).toEqual([]);
+	expect(
+		(
+			await h
+				.db()
+				.selectFrom("app_test_sessions")
+				.select("step")
+				.where("id", "=", begun.testId)
+				.executeTakeFirstOrThrow()
+		).step,
+	).toBe(0);
+});
+
+it("shares one execution allowance across eight costly actions and rolls back their entire prefix", async () => {
+	await setup();
+	const begun = await start();
+	let elapsed = 0;
+	const now = performance.now();
+	const clock = vi
+		.spyOn(performance, "now")
+		.mockImplementation(() => now + elapsed);
+	let actions = 0;
+	try {
+		await expect(
+			advanceAppTestSession({
+				...scope,
+				testId: begun.testId,
+				requestId: "costly",
+				requestDigest: "costly",
+				expectedStep: 0,
+				actions: Array.from({ length: 8 }, () => ({
+					action: { kind: "observe" },
+				})),
+				advance: async () => {
+					actions++;
+					elapsed += 10_000;
+					return { state: { count: actions }, observation: { count: actions } };
+				},
+			}),
+		).rejects.toMatchObject({
+			message:
+				"This journey call ran out of time. None of its actions were saved. Try fewer actions in the next call.",
+			cause: { name: "EvaluationDeadlineError" },
+		});
+	} finally {
+		clock.mockRestore();
+	}
+	expect(actions).toBe(6);
 	const evidence = await readAppTestSteps({ ...scope, testId: begun.testId });
 	expect(evidence.steps).toHaveLength(1);
 	expect(

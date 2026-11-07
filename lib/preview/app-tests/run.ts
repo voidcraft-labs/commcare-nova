@@ -80,6 +80,10 @@ type Scope = AppTestScope & {
 };
 type Observation = Record<string, unknown>;
 type FormScreen = Extract<AppTestScreen, { kind: "form" }>;
+type CompletedFormObservation = {
+	readonly screen: FormScreen;
+	readonly result: Awaited<ReturnType<typeof evaluateForm>>;
+};
 
 /** The entry's device world: its cases and, for an app whose forms read
  * places, the worker's `locations` fixture, which the session's restore
@@ -185,8 +189,13 @@ async function observeScreen(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestSessionState,
+	completedForm?: CompletedFormObservation,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	const screen = state.screen;
+	if (completedForm && completedForm.screen !== screen)
+		throw new Error(
+			"A completed form observation belongs to a different screen.",
+		);
 	const persona =
 		state.personaUuid === null
 			? undefined
@@ -402,18 +411,24 @@ async function observeScreen(
 			};
 		}
 		case "form": {
-			const held = await appTestFormContext(context, scope, state, screen);
-			const evaluated = await evaluateForm(
-				context.doc,
-				{
-					formUuid: screen.formUuid,
-					language: context.language,
-					caseIds: screen.caseIds,
-					answers: [],
-					searchAnswers: screen.searchAnswers,
-				},
-				held.formContext,
-			);
+			let renderedScreen = screen;
+			let evaluated: Awaited<ReturnType<typeof evaluateForm>>;
+			if (completedForm) evaluated = completedForm.result;
+			else {
+				const held = await appTestFormContext(context, scope, state, screen);
+				renderedScreen = held.screen;
+				evaluated = await evaluateForm(
+					context.doc,
+					{
+						formUuid: screen.formUuid,
+						language: context.language,
+						caseIds: screen.caseIds,
+						answers: [],
+						searchAnswers: screen.searchAnswers,
+					},
+					held.formContext,
+				);
+			}
 			/* The form's pages are its screens on the session's platform: one
 			 * on Web Apps, so no page turn is offered there. */
 			const pages = availablePages(evaluated.screens);
@@ -421,7 +436,7 @@ async function observeScreen(
 			return {
 				state: {
 					...state,
-					screen: { ...held.screen, entry: evaluated.entry },
+					screen: { ...renderedScreen, entry: evaluated.entry },
 				},
 				observation: {
 					screen: "form",
@@ -458,7 +473,16 @@ export async function observeAppTest(
 	scope: AppTestScope,
 	state: AppTestSessionState,
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
-	const result = await observeScreen(context, scope, state);
+	return observeAppTestWithEvaluation(context, scope, state);
+}
+
+async function observeAppTestWithEvaluation(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+	completedForm?: CompletedFormObservation,
+): Promise<{ state: AppTestSessionState; observation: Observation }> {
+	const result = await observeScreen(context, scope, state, completedForm);
 	const screen = result.state.screen;
 	const identity = parseLanguageTag(context.language);
 	const entry = appTestEntryScreen(result.state.platform).kind;
@@ -649,6 +673,7 @@ export async function advanceAppTest(
 ): Promise<{ state: AppTestSessionState; observation: Observation }> {
 	let next = state;
 	let extra: Observation = {};
+	let completedForm: CompletedFormObservation | undefined;
 	const screen = state.screen;
 	switch (action.kind) {
 		case "language":
@@ -1031,7 +1056,9 @@ export async function advanceAppTest(
 				},
 				{ ...held.formContext, entry: evaluated.entry },
 			);
-			next = { ...state, screen: { ...held.screen, entry: turned.entry } };
+			const nextScreen: FormScreen = { ...held.screen, entry: turned.entry };
+			next = { ...state, screen: nextScreen };
+			completedForm = { screen: nextScreen, result: turned };
 			/* A forward turn stops on the first earlier screen that fails its
 			 * checks, as Next does; the turn completed only when it landed on
 			 * the page it was turning to. */
@@ -1061,7 +1088,9 @@ export async function advanceAppTest(
 				},
 				held.formContext,
 			);
-			next = { ...state, screen: { ...held.screen, entry: evaluated.entry } };
+			const nextScreen: FormScreen = { ...held.screen, entry: evaluated.entry };
+			next = { ...state, screen: nextScreen };
+			completedForm = { screen: nextScreen, result: evaluated };
 			if (action.kind === "section")
 				extra = {
 					/* On Web Apps every section is on the form's one screen, so
@@ -1117,7 +1146,12 @@ export async function advanceAppTest(
 			);
 	}
 	try {
-		const observed = await observeAppTest(context, scope, next);
+		const observed = await observeAppTestWithEvaluation(
+			context,
+			scope,
+			next,
+			completedForm,
+		);
 		return { ...observed, observation: { ...observed.observation, ...extra } };
 	} catch (error) {
 		if (

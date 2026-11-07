@@ -45,6 +45,7 @@ import type {
 	LookupRowId,
 	LookupTableId,
 } from "@/lib/domain/lookupIds";
+import { log } from "@/lib/logger";
 import type { Location } from "@/lib/routing/types";
 import { delay } from "@/lib/utils/delay";
 
@@ -1805,27 +1806,46 @@ export async function withAppTx<T>(
 ): Promise<T> {
 	const db = await getAppDb();
 	for (let attempt = 0; ; attempt++) {
+		let bodyFailure: { error: unknown } | undefined;
 		try {
 			const transaction = db.transaction();
 			const executeBody = async (tx: Transaction<AppDatabase>): Promise<T> => {
-				if (options?.deadlineAt !== undefined) {
-					const remainingMs = Math.floor(options.deadlineAt - Date.now());
-					if (remainingMs <= 0) {
-						throw new Error(
-							"The transaction deadline expired before it began.",
+				try {
+					if (options?.deadlineAt !== undefined) {
+						const remainingMs = Math.floor(options.deadlineAt - Date.now());
+						if (remainingMs <= 0) {
+							throw new Error(
+								"The transaction deadline expired before it began.",
+							);
+						}
+						await sql`SELECT set_config('transaction_timeout', ${`${remainingMs}ms`}, true)`.execute(
+							tx,
 						);
 					}
-					await sql`SELECT set_config('transaction_timeout', ${`${remainingMs}ms`}, true)`.execute(
-						tx,
-					);
+					return await body(tx);
+				} catch (error) {
+					bodyFailure = { error };
+					throw error;
 				}
-				return body(tx);
 			};
 			return await (options?.isolationLevel === undefined
 				? transaction
 				: transaction.setIsolationLevel(options.isolationLevel)
 			).execute(executeBody);
 		} catch (err) {
+			if (bodyFailure !== undefined && bodyFailure.error !== err) {
+				log.warn("[database] rollback failed after a transaction error", {
+					operation: "rollback",
+					errorType: err instanceof Error ? err.name : typeof err,
+					originalErrorType:
+						bodyFailure.error instanceof Error
+							? bodyFailure.error.name
+							: typeof bodyFailure.error,
+				});
+				// A dead socket may make Kysely's rollback reject. Keep the exception
+				// that aborted the body; the rollback failure must not erase its cause.
+				throw bodyFailure.error;
+			}
 			if (attempt === TX_RETRY_DELAYS_MS.length || !isRetryableTxError(err)) {
 				throw err;
 			}
