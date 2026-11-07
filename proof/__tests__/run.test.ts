@@ -362,6 +362,7 @@ it("passes the corpus selection and the audit switches through and nothing else,
 		PROOF_CORPUS: corpus,
 		PROOF_CORPUS_SAMPLE: "7",
 		PROOF_CORPUS_SEED: "11",
+		PROOF_ENTROPY: "real",
 		PROOF_HQ_DETERMINISM: "0",
 		PROOF_EDITOR_AUDIT: "0.03",
 		PROOF_READERS: "formplayer,android",
@@ -374,6 +375,7 @@ it("passes the corpus selection and the audit switches through and nothing else,
 		"PROOF_CORPUS_SAMPLE",
 		"PROOF_CORPUS_SEED",
 		"PROOF_EDITOR_AUDIT",
+		"PROOF_ENTROPY",
 		"PROOF_FINGERPRINTS",
 		"PROOF_HQ_DETERMINISM",
 		"PROOF_IMAGE_ID",
@@ -381,6 +383,7 @@ it("passes the corpus selection and the audit switches through and nothing else,
 	]);
 	// The lane's profile reaches the harness as it was named (proof/lane/readers.py reads it there).
 	expect(flagValue(harness, "PROOF_READERS")).toBe("formplayer,android");
+	expect(flagValue(harness, "PROOF_ENTROPY")).toBe("real");
 	expect(flagValue(harness, "PROOF_IMAGE_ID")).toBe(IMAGE_ID);
 	// The evidence store's keys name this checkout's code, the image the lane runs (its id: the reference pins no
 	// digest) and the Docker server's architecture.

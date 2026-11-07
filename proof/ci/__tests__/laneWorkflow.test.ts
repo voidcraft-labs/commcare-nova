@@ -181,7 +181,18 @@ it("executes slice validation against a named test and refuses broader paths and
 		expect(
 			JSON.parse(await readFile(join(scratch, "proof-selectors.json"), "utf8")),
 		).toEqual(["proof/android/test_navigation.py", "-k", "entry_point"]);
+		const piece =
+			"proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[targeted-search-hq-compile@minimum]";
+		await run("bash", ["-e", "-c", validation], {
+			cwd: WORKTREE,
+			env: { ...env, SELECTORS: piece, AUDIT_MODE: "unseeded" },
+		});
+		expect(
+			JSON.parse(await readFile(join(scratch, "proof-selectors.json"), "utf8")),
+		).toEqual([piece]);
 		for (const selectors of [
+			"proof/checks/pieces.py",
+			"proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store",
 			"proof/lane/test_plan.py .",
 			"proof/lane/test_plan.py -o addopts=--maxfail=1",
 			"proof/lane/test_plan.py -x",

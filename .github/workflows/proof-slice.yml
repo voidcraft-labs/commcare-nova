@@ -80,8 +80,11 @@ jobs:
               else:
                   path = Path(arg.split('::', 1)[0])
                   root = Path('proof').resolve()
+                  piece = (path == Path('proof/checks/pieces.py')
+                           and arg.startswith('proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[')
+                           and arg.endswith(']'))
                   if (not arg.startswith('proof/') or not path.is_file()
-                      or not path.name.startswith('test_') or path.suffix != '.py'
+                      or not (path.name.startswith('test_') or piece) or path.suffix != '.py'
                       or not path.resolve().is_relative_to(root)):
                       raise SystemExit('A slice takes existing proof test files/items and -k/-m expressions only.')
                   paths.append(path)
