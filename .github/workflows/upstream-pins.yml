@@ -19,8 +19,8 @@ name: Upstream pins
 # with main's store, so the readers' verdict on the new pins is this run's
 # before the pull request merges (a reader that does not hold fails the run);
 # the nightly audit holds main to it after. The two run one after the other,
-# the prewarm first, so this run never holds more than fourteen runners, and
-# the whole lane with every reader is about twelve hours of them
+# the prewarm first, so this run never holds more than fourteen runners.
+# The shared FIFO group keeps it apart from the other full reader workflows
 # (proof/README.md, "The other workflows"). The pull request waits only for
 # the prewarm its CI reads;
 # this schedule's runs write the default branch's caches, which every pull
@@ -34,9 +34,8 @@ name: Upstream pins
 # extraction, the prewarm, the readers' lane) hold only a read token; the jobs
 # that write run none.
 on:
-  # Monday, just after midnight: after the weekly audit (proof-audit.yml, from Saturday evening) and with the
-  # day ahead of it, so its lane with every reader ends before the image comparison starts (proof-image.yml,
-  # 17:17) and no two workflows' lanes with the readers run at once (proof/README.md, "The other workflows").
+  # Monday, just after midnight. The shared FIFO concurrency group waits for the weekly audit if it is still
+  # running, and the image comparison waits for this run (proof/README.md, "The other workflows").
   schedule:
     - cron: "37 0 * * 1"
   workflow_dispatch:
@@ -44,8 +43,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: upstream-pins
+  group: proof-scheduled-readers
   cancel-in-progress: false
+  queue: max
 
 jobs:
   plan:

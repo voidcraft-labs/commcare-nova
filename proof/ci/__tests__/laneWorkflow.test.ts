@@ -31,6 +31,33 @@ import { parse } from "yaml";
 const run = promisify(execFile);
 const WORKTREE = resolve(import.meta.dirname, "..", "..", "..");
 
+it("queues full reader workflows together without blocking a pin update on its child image build", async () => {
+	const workflows = await Promise.all(
+		["proof-audit", "upstream-pins", "proof-image"].map(async (name) =>
+			parse(
+				await readFile(join(WORKTREE, `.github/workflows/${name}.yml`), "utf8"),
+			),
+		),
+	);
+	for (const workflow of workflows) {
+		expect(workflow.concurrency.group).toContain("proof-scheduled-readers");
+		expect(workflow.concurrency.queue).toBe("max");
+		expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
+	}
+	const [audit, pins, image] = workflows;
+	// Full dispatches join schedules; a bounded mechanics/slice dispatch stays independent.
+	expect(audit.concurrency.group).toContain(
+		"github.event_name == 'schedule' || inputs.nightly || inputs.weekly",
+	);
+	expect(audit.concurrency.group).toContain("github.run_id");
+	// The pin workflow waits on this image job while holding the common group. Its ref must take the
+	// image-only group even though reusable workflows inherit the caller's scheduled event context.
+	expect(pins.jobs.image.with.ref).toBeTruthy();
+	expect(image.concurrency.group).toContain(
+		"inputs.ref && format('proof-image-{0}', inputs.ref)",
+	);
+});
+
 it("runs as many of a lane's shards at once as the planner fills its rounds with", async () => {
 	const workflow = parse(
 		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),

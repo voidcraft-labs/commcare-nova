@@ -383,8 +383,9 @@ harness keeps, each with its reason.
   (`python3 -m proof.lane.plan size`: within the profile's budget a shard,
   `proof/timings.json`'s `execution.budget`, fourteen at once). Fourteen is
   one lane's bound, so no two lanes' shards may run at once: a workflow's
-  lanes wait for one another (`needs`), and the schedules are set apart by
-  what each takes (`proof/README.md`, "When the scheduled lanes run"); keep
+  lanes wait for one another (`needs`), and full reader workflows share the
+  `proof-scheduled-readers` FIFO concurrency group (`queue: max`, no cancellation;
+  `proof/README.md`, "When the scheduled lanes run"); keep
   both true when a lane or a schedule is added, or pull requests lose the
   six runners left to them. A document
   or control too heavy for one worker is observed in pieces
@@ -413,8 +414,9 @@ harness keeps, each with its reason.
   request: the nightly reads what a merge changed with every reader and
   opens an issue when it fails, and the week reads everything. The night
   after a merge that moves every key (a change to the emission, to the
-  observation's code or to a pin) is the whole lane with every reader, 13.5
-  hours on up to fourteen of the account's twenty runners. Someone who wants
+  observation's code or to a pin) is the whole lane with every reader,
+  potentially spanning the next schedule on up to fourteen of the account's
+  twenty runners. Someone who wants
   to see a reader's verdict before merging a change to Nova's emission or to
   what a reader observes (`proof/formplayer`, `proof/webapps`,
   `proof/android`, `proof/connect`, `proof/observe/served.py`, a reader's
