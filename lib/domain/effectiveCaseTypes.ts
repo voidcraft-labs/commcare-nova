@@ -75,9 +75,8 @@ export function effectiveCaseTypes(doc: PersistableDoc): readonly CaseType[] {
 /**
  * The effective view minus standard-only injected entries. A DECLARED
  * standard-named entry remains because the catalog owns authoring metadata and
- * order. Storage projections are narrower still: `caseTypeToJsonSchema` and
- * `computeDesiredIndexSet` independently exclude every scalar-backed name, so
- * no declared standard entry becomes a JSONB key or expression index.
+ * order. Storage projections are narrower still: `caseTypeToJsonSchema` excludes
+ * every scalar-backed name, so no declared standard entry becomes a JSONB key.
  *
  * The SQL compiler consumes this flavor too. Standard-name reads resolve
  * through `RESERVED_SCALAR_COLUMN_BY_PROPERTY` before catalog lookup, so an

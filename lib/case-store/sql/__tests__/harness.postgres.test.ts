@@ -106,8 +106,6 @@ describe("case-store harness — schema", () => {
 				"retired_seq",
 				"schema",
 				"synced_seq",
-				"index_pending_seq",
-				"index_synced_seq",
 			]),
 		);
 		expect(columnsByTable.get("case_indices")).toEqual(

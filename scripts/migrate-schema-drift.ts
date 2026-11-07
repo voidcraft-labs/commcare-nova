@@ -1,6 +1,6 @@
 /**
  * ⚠️ WRITER — converge every stored `case_type_schemas` row (and its
- * expression indexes, and its rows' typed values) onto the schemas
+ * rows' typed values) onto the schemas
  * the blueprint derives today.
  *
  * The scan-then-migrate pair for the derived-property-typing deploy
@@ -8,12 +8,10 @@
  * this with `--execute`. Per drifted case type:
  *
  *   - one app-row transaction loads the exact Blueprint and runs the shared,
- *     versioned schema Phase A for every drifted type;
+ *     versioned schema migration for every drifted type;
  *   - that primitive detects every retype/reshape from the stored schema,
  *     parks uncastable values, and cannot overwrite a newer schema from a
- *     stale Blueprint snapshot;
- *   - expression indexes rebuild after the app transaction commits (Phase B,
- *     `CONCURRENTLY`).
+ *     stale Blueprint snapshot.
  *
  * Unresolvable stored specs are never auto-migrated — the scan names
  * them for an owner decision.
@@ -112,7 +110,6 @@ async function main() {
 				prepareSchemaDriftRepairInAppTransaction(tx, store, id),
 			);
 			if (prepared === null || prepared.drifts.length === 0) continue;
-			await prepared.completeAfterCommit();
 			console.log(`${id} (${prepared.appName || "unnamed"})`);
 			for (const repair of prepared.repairs) {
 				const { drift, report } = repair;

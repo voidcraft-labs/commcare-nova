@@ -156,14 +156,12 @@ vi.mock("@/lib/db/formAttachments", async () => {
 
 const {
 	getLookupDefinitionsMock,
-	drainPendingMock,
 	loadAppMock,
 	materializeMock,
 	resolveAppScopeMock,
 	resolveAuthorizedAppSnapshotMock,
 } = vi.hoisted(() => ({
 	getLookupDefinitionsMock: vi.fn(),
-	drainPendingMock: vi.fn(),
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
 	resolveAppScopeMock: vi.fn(),
@@ -173,7 +171,6 @@ const {
 vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
 
 vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
-	drainPendingCaseSchemaIndexes: drainPendingMock,
 	materializeCaseStoreSchemas: materializeMock,
 }));
 

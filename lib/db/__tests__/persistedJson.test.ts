@@ -489,7 +489,7 @@ describe("persisted JSON source boundaries", () => {
 			)
 			.flatMap((file) => {
 				const source = readFileSync(file, "utf8");
-				return /Number\([^)]*(?:mutation_seq|synced_seq|index_pending_seq|index_synced_seq|\.seq)\b[^)]*\)/.test(
+				return /Number\([^)]*(?:mutation_seq|synced_seq|\.seq)\b[^)]*\)/.test(
 					source,
 				)
 					? [path.relative(root, file)]

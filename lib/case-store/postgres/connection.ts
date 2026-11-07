@@ -164,10 +164,8 @@ export const OPERATOR_POOL_MAX_PER_PROCESS = 1;
 export const LISTENER_CONNECTIONS_PER_INSTANCE = 1;
 
 /**
- * The one schema where the serving role may create objects. `cases` needs to
- * remain runtime-owned because Phase B creates and drops indexes concurrently;
- * isolating it keeps that unavoidable CREATE capability away from fixed,
- * auth, and control objects in `public`.
+ * The isolated schema holding the runtime-owned `cases` table. The serving
+ * role has USAGE but no CREATE privilege; migrations own the fixed indexes.
  *
  * `public` stays first so migrations and Better Auth continue to create fixed
  * objects there. After privilege convergence moves `cases`, existing

@@ -80,7 +80,6 @@ async function main() {
 	let retainedCaseCount = 0;
 	let needsRetirement = false;
 	let needsSchemaRepair = false;
-	let needsIndexCleanup = false;
 	const failedApps: string[] = [];
 	for (const app of apps) {
 		try {
@@ -107,19 +106,11 @@ async function main() {
 				needsSchemaRepair ||= candidate.issues.includes(
 					"inactive-current-blueprint",
 				);
-				needsIndexCleanup ||= candidate.issues.includes(
-					"inactive-index-cleanup",
-				);
 				retainedCaseCount += candidate.caseCount;
 				console.log(
 					`  ${candidate.caseType}: ${candidate.issues.join(", ")}; schema seq ${candidate.syncedSeq}; ` +
-						`index synced seq ${candidate.indexSyncedSeq}; ` +
 						`${candidate.caseCount} retained case(s); ` +
-						`${candidate.activeParkedValueCount} active + ${candidate.dismissedParkedValueCount} dismissed parked value(s); ` +
-						`${candidate.expressionIndexCount} expression index(es)` +
-						(candidate.pendingIndexSeq === null
-							? ""
-							: `; pending index seq ${candidate.pendingIndexSeq}`),
+						`${candidate.activeParkedValueCount} active + ${candidate.dismissedParkedValueCount} dismissed parked value(s)`,
 				);
 			}
 			console.log("");
@@ -151,7 +142,7 @@ async function main() {
 			);
 		}
 	}
-	if (needsRetirement || needsIndexCleanup) {
+	if (needsRetirement) {
 		if (options.prod === true) {
 			const executionArgs = productionExecutionArgs(
 				"case-type-schema-retirement.cjs",

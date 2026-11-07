@@ -1,4 +1,4 @@
-/** Real schema/index projection, sequence monotonicity, and recovery after a transient gap. */
+/** Real schema projection without index growth, sequence monotonicity, and recovery after a transient gap. */
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -132,13 +132,30 @@ describe("materializeCaseStoreSchemas — a survey-only app", () => {
 // ── Happy path — multi-case-type completion ───────────────────────
 
 describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
-	it("materializes one schema row per case type and emits the matching expression indexes", async () => {
-		// Multi-case-type fixture — single-case-type would pass
-		// against a regression that fires `applySchemaChange` only
-		// for the first case type. Two case types each carry one
-		// `text` property whose trgm GIN expression index lands
-		// only when the helper's per-case-type loop iterates past
-		// the first entry.
+	it("materializes every property schema while preserving the fixed case indexes", async () => {
+		// Distinct properties prove both case types reach persistence. The full
+		// index catalog must stay unchanged as authored types and properties grow.
+		const readIndexes = async () =>
+			(
+				await dbHandle.pool.query<{
+					name: string;
+					definition: string;
+					valid: boolean;
+					plain: boolean;
+				}>(`SELECT c.relname AS name, pg_get_indexdef(c.oid) AS definition,
+			i.indisvalid AS valid, i.indexprs IS NULL AS plain
+			FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+			WHERE i.indrelid = 'cases'::regclass ORDER BY c.relname`)
+			).rows;
+		const beforeIndexes = await readIndexes();
+		expect(beforeIndexes.map(({ name }) => name)).toEqual([
+			"cases_app_type_idx",
+			"cases_pkey",
+			"cases_project_app_type_idx",
+		]);
+		expect(beforeIndexes.every(({ valid, plain }) => valid && plain)).toBe(
+			true,
+		);
 		const patient: CaseType = {
 			name: "patient",
 			properties: [
@@ -158,12 +175,11 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 			blueprint,
 		});
 
-		// `case_type_schemas` carries one row per case type. The
-		// existing case-store test suite uses `pool.query` for
-		// schema-row probes (the Kysely typed builder is package-
-		// private to the store); mirror that pattern.
-		const schemaRows = await dbHandle.pool.query<{ case_type: string }>(
-			"SELECT case_type FROM case_type_schemas WHERE app_id = $1 ORDER BY case_type",
+		const schemaRows = await dbHandle.pool.query<{
+			case_type: string;
+			schema: { properties: Record<string, { type: string }> };
+		}>(
+			"SELECT case_type, schema FROM case_type_schemas WHERE app_id = $1 ORDER BY case_type",
 			[APP_ID],
 		);
 		// `commcare-user` rides along with every app: HQ gives every worker a
@@ -177,22 +193,29 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 			"visit",
 		]);
 
-		const indexes = await dbHandle.pool.query<{ indexdef: string }>(
-			"SELECT indexdef FROM pg_indexes WHERE tablename = 'cases'",
-		);
-		for (const [caseType, property] of [
-			["patient", "name"],
-			["visit", "notes"],
-		]) {
-			const definitions = indexes.rows
-				.map(({ indexdef }) => indexdef)
-				.filter((definition) => definition.includes(`'${caseType}'::text`));
-			expect(definitions).toHaveLength(1);
-			expect(definitions[0]).toContain("USING gin");
-			expect(definitions[0]).toContain("gin_trgm_ops");
-			expect(definitions[0]).toContain(`properties ->> '${property}'::text`);
-			expect(definitions[0]).toContain("app_id = 'app-mat'::text");
-		}
+		expect(
+			schemaRows.rows.filter(
+				({ case_type }) => case_type === "patient" || case_type === "visit",
+			),
+		).toEqual([
+			{
+				case_type: "patient",
+				schema: expect.objectContaining({
+					type: "object",
+					additionalProperties: false,
+					properties: { name: { type: "string" } },
+				}),
+			},
+			{
+				case_type: "visit",
+				schema: expect.objectContaining({
+					type: "object",
+					additionalProperties: false,
+					properties: { notes: { type: "string" } },
+				}),
+			},
+		]);
+		expect(await readIndexes()).toEqual(beforeIndexes);
 	});
 });
 
@@ -267,7 +290,6 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 			});
 		});
 		const throwingStore = {
-			drainPendingIndexConvergence: vi.fn(),
 			applySchemaChange: throwingApply,
 		};
 		withSchemaContextMock.mockImplementationOnce(async () => throwingStore);

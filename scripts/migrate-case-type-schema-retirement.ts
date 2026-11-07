@@ -14,12 +14,8 @@ import type { Transaction } from "kysely";
 import {
 	closeCaseStoreDatabase,
 	type Database,
-	getCaseStoreDatabase,
 } from "../lib/case-store/postgres/connection";
-import {
-	drainRetiredCaseTypeSchemaIndexes,
-	retireCaseTypeSchemasPhaseA,
-} from "../lib/case-store/postgres/schemaRetirement";
+import { retireCaseTypeSchemasInTransaction } from "../lib/case-store/postgres/schemaRetirement";
 import { buildCaseTypeMap } from "../lib/case-store/store";
 import { getAppDb, withAppTx } from "../lib/db/pg";
 import { safePersistedSequence } from "../lib/utils/persistedSequence";
@@ -75,7 +71,6 @@ async function main() {
 		);
 	}
 	const appDb = await getAppDb();
-	const caseDb = await getCaseStoreDatabase();
 	let query = appDb.selectFrom("apps").select(["id", "app_name"]);
 	if (appId !== undefined) query = query.where("id", "=", appId);
 	const apps = await query.execute();
@@ -109,7 +104,7 @@ async function main() {
 				for (const candidate of findings) {
 					console.log(
 						`${app.id} (${app.app_name || "unnamed"}): ${candidate.issues.join(", ")} for ${candidate.caseType} ` +
-							`(${candidate.caseCount} retained case(s), ${candidate.expressionIndexCount} expression index(es))`,
+							`(${candidate.caseCount} retained case(s))`,
 					);
 				}
 				retiredCount += findings.length;
@@ -135,17 +130,11 @@ async function main() {
 				const candidates = findings.filter((finding) =>
 					finding.issues.includes("active-without-blueprint"),
 				);
-				const cleanupTypes = findings
-					.filter((finding) =>
-						finding.issues.includes("inactive-index-cleanup"),
-					)
-					.map((finding) => finding.caseType);
-				if (candidates.length === 0 && cleanupTypes.length === 0)
-					return undefined;
+				if (candidates.length === 0) return undefined;
 				const retiredTypes =
 					candidates.length === 0
 						? []
-						: await retireCaseTypeSchemasPhaseA(caseTx, {
+						: await retireCaseTypeSchemasInTransaction(caseTx, {
 								appId: app.id,
 								desiredSeq: safePersistedSequence(
 									locked.mutation_seq,
@@ -154,14 +143,9 @@ async function main() {
 								caseTypes: candidates.map((candidate) => candidate.caseType),
 								fallbackCaseTypeSchemas: buildCaseTypeMap(blueprint),
 							});
-				return { caseTypes: [...new Set([...retiredTypes, ...cleanupTypes])] };
+				return { caseTypes: retiredTypes };
 			});
 			if (prepared === undefined) continue;
-			await drainRetiredCaseTypeSchemaIndexes(
-				caseDb,
-				app.id,
-				prepared.caseTypes,
-			);
 			retiredCount += prepared.caseTypes.length;
 			console.log(
 				`${app.id} (${app.app_name || "unnamed"}): converged retirement state for ${prepared.caseTypes.join(", ")}`,

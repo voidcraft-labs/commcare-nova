@@ -26,7 +26,6 @@ import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
-import { withSchemaContext } from "@/lib/case-store";
 import { runCaseStoreMigrationsWithReport } from "@/lib/case-store/migrate";
 import {
 	closeCaseStoreDatabase,
@@ -51,9 +50,6 @@ async function main(): Promise<void> {
 	// schema-agnostic `Kysely<unknown>` (it only issues raw `sql` + DDL).
 	await runCaseStoreMigrationsWithReport(db as unknown as Kysely<unknown>);
 	console.log("[migrate] case-store migrations applied");
-	const schemaStore = await withSchemaContext();
-	await schemaStore.drainAllPendingIndexConvergence();
-	console.log("[migrate] case-schema expression indexes converged");
 
 	// Better Auth's own migrator creates / updates the `auth_*` tables. It is
 	// introspection-based and idempotent (creates missing tables, adds missing

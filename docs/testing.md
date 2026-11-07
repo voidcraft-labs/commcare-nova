@@ -408,9 +408,9 @@ runner CPU totals do not establish that target. Smoke has two explicit lanes:
 component peers in real Chromium without an app server/database, and app journeys
 against the production server with one database per job. Each authenticated test,
 repeat and retry owns separate accounts, sessions, Projects and mutable data.
-The case store coordinates index DDL on the shared physical `cases` relation;
-its native concurrency regression queues two apps' index work and proves both
-finish with valid indexes and cleared durable pending markers.
+Case-schema lifecycle tests retain stale-version, retirement, reactivation and
+atomic data-migration evidence. Physical indexes are fixed infrastructure; a
+property or app count increase must not grow the physical index set.
 Managed local browser contexts also own a distinct client network identity through
 the production proxy contract; the real auth limiter remains enabled.
 The public Playwright reporter supplies exact attempt identities; the ordinary
@@ -581,9 +581,17 @@ settlement and socket ownership directly.
 Database process failure tests run the actual runtime factory in separate Node
 processes. The parent terminates the exact idle, checked-out, or querying backend
 and verifies process survival, rejected work, one connection diagnostic, a healthy
-replacement and no remaining connections. This avoids Vitest's own error handlers
-accidentally supplying an owner absent in production. Pool shutdown tests also
-exercise direct auth use, initialization in flight and concurrent close/reopen.
+replacement and no remaining connections. After the child has naturally exited
+and been joined, a bounded catalog observation waits for PostgreSQL to unregister
+its backends, using fresh autocommit reads and requiring no other connection in
+the entire test database. A timeout reports remaining PIDs, states and waits.
+This observes peer teardown, not unfinished application work: the installed pg
+client closes its local socket after sending Terminate, and the protocol provides
+no server catalog acknowledgement ([PostgreSQL termination flow](https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-TERMINATION)).
+Never use this observation to excuse an unjoined child, a forced successful-path
+exit, a detached reaper or a pool that has not been closed. This avoids Vitest's
+own error handlers accidentally supplying an owner absent in production. Pool
+shutdown tests also exercise direct auth use, initialization in flight and concurrent close/reopen.
 Per-test database pools retain connection failures and fail their owning teardown
 after closure; `DROP DATABASE ... FORCE` cannot excuse a blanket error listener.
 

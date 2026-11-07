@@ -175,7 +175,7 @@ The separate media policy identity remains available for explicit maintenance.
 
 Recurring migration retains ledgered schema migrations, Better Auth schema
 convergence, Nova auth initialization (including the canonical MCP resource),
-case-index convergence, privileges, and the complete rollback-only runtime
+privileges, and the complete rollback-only runtime
 fleet probe. The completed language repair runs only through its explicit CLI.
 
 Build the Docker `maintenance` target explicitly, tag/push it to the application

@@ -48,7 +48,6 @@ import { executeCanonicalCommitSidecars } from "@/lib/db/canonicalCommitSidecars
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { type LockedSessionRow, lockSessionRow } from "@/lib/db/designSessions";
 import { designSessionReservation } from "@/lib/db/leaseView";
-import { drainPendingCaseSchemaIndexes } from "@/lib/db/materializeCaseStoreSchemas";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
@@ -62,7 +61,6 @@ import {
 import { designSessionLeaseState } from "@/lib/db/runLiveness";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import type { PersistableDoc } from "@/lib/domain";
-import { log } from "@/lib/logger";
 import {
 	emptyGenesisBase,
 	greatestFoldBaselineSeq,
@@ -326,22 +324,6 @@ export async function materializeAppFromGenesis(
 				? undefined
 				: { deadlineAt: args.deadlineAt },
 		);
-
-		/* Post-commit: converge the performance indexes the schema admission
-		 * recorded as durable pending work. Idempotent; a transient failure
-		 * leaves the work durable for the next drain/heal — never a partial
-		 * app, never a validity signal. */
-		if (args.deadlineAt === undefined) {
-			await drainPendingCaseSchemaIndexes(proposedAppId).catch((err) => {
-				log.warn(
-					"[materializeGenesis] pending index drain failed (transient)",
-					{
-						appId: proposedAppId,
-						err: err instanceof Error ? err.message : String(err),
-					},
-				);
-			});
-		}
 
 		return { kind: "materialized", receipt, replayed: false };
 	} catch (error) {
@@ -750,12 +732,7 @@ export async function materializeSessionGenesis(args: {
 			};
 		if (outcome.rejected !== undefined)
 			return { kind: "gate-rejected", message: outcome.rejected };
-		await drainPendingCaseSchemaIndexes(prior.proposedAppId).catch((error) =>
-			log.warn("[materializeGenesis] pending index drain failed", {
-				appId: prior.proposedAppId,
-				error: String(error),
-			}),
-		);
+
 		return { kind: "materialized", receipt: outcome.receipt, replayed: false };
 	} catch (error) {
 		if (

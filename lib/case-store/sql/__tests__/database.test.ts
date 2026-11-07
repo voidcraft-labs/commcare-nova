@@ -1,4 +1,4 @@
-import type { Insertable, Selectable, Updateable } from "kysely";
+import type { Insertable, Selectable } from "kysely";
 import { expectTypeOf, it } from "vitest";
 import type {
 	CaseIndicesTable,
@@ -40,9 +40,6 @@ it("reads schema sequences losslessly and leaves activity database-generated", (
 	expectTypeOf<Insertable<CaseTypeSchemasTable>["synced_seq"]>().toEqualTypeOf<
 		number | undefined
 	>();
-	expectTypeOf<
-		Updateable<CaseTypeSchemasTable>["index_pending_seq"]
-	>().toEqualTypeOf<number | null | undefined>();
 	expectTypeOf<keyof Insertable<CaseTypeSchemasTable>>()
 		.exclude<"is_active">()
 		.toEqualTypeOf<keyof Insertable<CaseTypeSchemasTable>>();

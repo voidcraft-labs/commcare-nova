@@ -19,10 +19,8 @@
  * exact lookup/media projections, entity decomposition, the attributed
  * sequence-one `fold-baseline` app change plus the immutable Project-bearing
  * baseline (through the `SECURITY DEFINER` genesis routine), and transactional
- * runtime case-schema admission (`applySchemaChangePhaseA` at
- * `synced_seq = 1`; `CREATE INDEX CONCURRENTLY` never runs inside the
- * transaction — pending index work is durable on the schema row and the
- * caller drains it post-commit via `drainPendingCaseSchemaIndexes`).
+ * runtime case-schema admission (`applySchemaChangeInTransaction` at
+ * `synced_seq = 1`). Physical case indexes are fixed infrastructure.
  *
  * Preparation may run optimistically outside the retryable transaction (a
  * serialization retry must reuse the same minted identities), but every
@@ -308,15 +306,10 @@ export function genesisBatchId(appId: string): string {
 }
 
 /**
- * Transactional runtime case-schema admission: one `applySchemaChangePhaseA`
+ * Transactional runtime case-schema admission: one `applySchemaChangeInTransaction`
  * per storable case type, including the built-in worker case on survey-only
- * apps, at `synced_seq = 1`. Phase A UPSERTs
- * the `case_type_schemas` row and records durable pending index work
- * (`index_pending_seq`); the concurrent index DDL itself never runs inside
- * this transaction — the caller drains it post-commit
- * (`drainPendingCaseSchemaIndexes`, idempotent), and a transient DDL failure
- * leaves durable work for retry/heal because indexes are performance
- * structures, never validity. A DETERMINISTIC schema-compiler fault throws
+ * apps, at `synced_seq = 1`. Schema admission and data transitions commit
+ * with the app. A deterministic schema-compiler fault throws
  * here and aborts the whole materialization — nothing exists over a
  * permanently-unusable schema.
  */
@@ -327,8 +320,10 @@ async function admitGenesisRuntimeSchemas(
 	const store = await withSchemaContext();
 	const caseTypeSchemas = buildCaseTypeMap(candidate.persistable);
 	for (const caseType of caseTypeSchemas.keys()) {
-		await store.applySchemaChangePhaseA(
-			tx as unknown as Parameters<typeof store.applySchemaChangePhaseA>[0],
+		await store.applySchemaChangeInTransaction(
+			tx as unknown as Parameters<
+				typeof store.applySchemaChangeInTransaction
+			>[0],
 			{
 				appId: candidate.appId,
 				caseType,

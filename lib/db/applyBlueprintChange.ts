@@ -7,24 +7,21 @@
  * and run an idempotent, seq-guarded materialization. The explicit,
  * batch-exclusive `renameCaseProperties`
  * command instead puts fresh Blueprint admission, live-row and parked-row
- * collision admission, schema Phase A, exact key movement, Blueprint
+ * collision admission, schema admission, exact key movement, Blueprint
  * persistence, and the app-change event in one app-locked Postgres
- * transaction. Concurrent index DDL is the only post-commit phase. There is
+ * transaction. There is
  * no inferred rename or second runtime path.
  */
 
 import type {
 	CasePropertyRenameReport,
 	MigrationReport,
-	PreparedCasePropertyRenamePhaseB,
-	PreparedCaseTypeSchemaRetirementPhaseB,
 	SchemaCaseStore,
 	TransactionalSchemaCaseStore,
 } from "@/lib/case-store";
 import {
 	buildCaseTypeMap,
 	CasePropertyRenameStorageConflictError,
-	SchemaChangePhaseBError,
 	withProjectContext,
 	withSchemaContext,
 } from "@/lib/case-store";
@@ -63,7 +60,7 @@ export type { MigrationOutcome } from "./migrationOutcome";
  * Every path routes the blueprint write through the one guarded commit
  * ({@link commitGuardedBatch}) — the transactional read-evaluate-write below.
  * Explicit case-property rename intent comes only from the batch-exclusive
- * command and composes its storage Phase A through that writer.
+ * command and composes its schema and data migration through that writer.
  *
  * The guarded writer supplies fresh `freshDoc` / `nextDoc` values under the
  * app lock for every correctness-bearing target, classification, persistence,
@@ -138,7 +135,6 @@ interface AttributedReport {
  * renames and case-type retirements fail atomically before commit on any
  * Blueprint or storage conflict. Private checkpoints also materialize active
  * schemas and capture their saved-data outcome inside that transaction.
- * Index completion remains post-commit idempotent convergence.
  */
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
@@ -167,7 +163,7 @@ export async function applyBlueprintChange(
 		guard.mutations[0]?.kind === "renameCaseProperties";
 	if (explicitRename) {
 		const store = await withSchemaContext();
-		let prepared: PreparedCasePropertyRenamePhaseB | undefined;
+		let report: CasePropertyRenameReport | undefined;
 		const { result, deduped } = await persistBlueprint(args, {
 			beforeWrite: async ({ tx, nextDoc, seq, casePropertyRenamePlan }) => {
 				if (casePropertyRenamePlan === undefined) {
@@ -176,9 +172,9 @@ export async function applyBlueprintChange(
 					);
 				}
 				try {
-					prepared = await store.applyCasePropertyRenamePhaseA(
+					report = await store.applyCasePropertyRenameInTransaction(
 						tx as unknown as Parameters<
-							typeof store.applyCasePropertyRenamePhaseA
+							typeof store.applyCasePropertyRenameInTransaction
 						>[0],
 						{
 							appId: args.appId,
@@ -195,25 +191,16 @@ export async function applyBlueprintChange(
 					}
 					throw error;
 				}
-				return renameOutcome(prepared.report);
+				return renameOutcome(report);
 			},
 		});
-		if (deduped || prepared === undefined) {
-			if (args.deadlineAt !== undefined) return result;
-			await drainRenameIndexesBestEffort(store, args.appId, result.seq);
-			return result;
-		}
-
-		if (args.deadlineAt !== undefined) {
-			return { ...result, migration: renameOutcome(prepared.report) };
-		}
-		await completeRenameIndexes(args.appId, result, prepared);
-		return { ...result, migration: renameOutcome(prepared.report) };
+		return deduped || report === undefined
+			? result
+			: { ...result, migration: renameOutcome(report) };
 	}
 
 	let entries: readonly CaseTypeChangeEntry[] | undefined;
 	let store: TransactionalSchemaCaseStore | undefined;
-	let preparedRetirement: PreparedCaseTypeSchemaRetirementPhaseB | undefined;
 	/* The pre-commit document, captured here because this callback is the only
 	 * place it is in scope. The usercase row sweep below needs it to answer
 	 * WHICH workers a commit changed — without it the sweep would have to
@@ -237,8 +224,10 @@ export async function applyBlueprintChange(
 				.map((entry) => entry.caseType);
 			if (retired.length > 0) {
 				store = await withSchemaContext();
-				preparedRetirement = await store.retireSchemasPhaseA(
-					tx as unknown as Parameters<typeof store.retireSchemasPhaseA>[0],
+				await store.retireSchemasInTransaction(
+					tx as unknown as Parameters<
+						typeof store.retireSchemasInTransaction
+					>[0],
 					{
 						appId: args.appId,
 						desiredSeq: seq,
@@ -262,9 +251,9 @@ export async function applyBlueprintChange(
 				for (const caseType of types) {
 					if (materializedSchemaReports?.has(caseType)) continue;
 					store ??= await withSchemaContext();
-					const prepared = await store.applySchemaChangePhaseA(
+					const report = await store.applySchemaChangeInTransaction(
 						tx as unknown as Parameters<
-							typeof store.applySchemaChangePhaseA
+							typeof store.applySchemaChangeInTransaction
 						>[0],
 						{
 							appId: args.appId,
@@ -273,41 +262,24 @@ export async function applyBlueprintChange(
 							syncedSeq: seq,
 						},
 					);
-					reports.push({ caseType, report: prepared.report });
+					reports.push({ caseType, report });
 				}
 				if (reports.length > 0) return migrationOutcome(reports);
 			}
 		},
 	});
-	if (deduped) {
-		if (args.deadlineAt !== undefined) return result;
-		const explicitlyRetired = guard.mutations.flatMap((mutation) =>
-			mutation.kind === "retireCaseType" ? [mutation.caseType] : [],
-		);
-		if (explicitlyRetired.length > 0) {
-			store ??= await withSchemaContext();
-			await drainRetirementIndexesBestEffort(
-				store,
-				args.appId,
-				result.seq,
-				explicitlyRetired,
-			);
-		}
-		return result;
-	}
+	if (deduped) return result;
 	if (entries === undefined) {
 		throw new Error(
 			"[applyBlueprintChange] guarded writer committed without running its fresh classification hook",
 		);
 	}
 	/* Executor-owned commits end at the canonical transaction. Runtime-schema
-	 * Phase A is already atomic; every Phase-B/index/sync operation below is
+	 * admission is already atomic; every schema/worker sync operation below is
 	 * derived, idempotent convergence and must not outlive the slice deadline.
 	 * Point-of-use schema healing drains the durable lag. */
 	if (args.deadlineAt !== undefined) return result;
-	if (preparedRetirement !== undefined) {
-		await completeRetirementIndexes(args.appId, result, preparedRetirement);
-	}
+
 	const syncEntries = entries.filter((entry) => entry.kind === "sync");
 	let reports: AttributedReport[] = [];
 	if (syncEntries.length > 0) {
@@ -492,11 +464,7 @@ async function persistBlueprint(
  * including a migration-bearing one: Phase 1 synced that type from the
  * PROSPECTIVE (pre-commit, un-versioned), so the sweep is what advances its
  * `synced_seq` AND picks up a property a peer concurrently added to the same
- * type. That means a migration type pays one redundant `readLiveIndexSet`
- * catalog read here even when its own index set is unchanged — accepted: the
- * Phase-B diff emits ZERO `CREATE/DROP INDEX` when the set matches, so it's a
- * single indexed catalog query, and skipping it would risk missing a peer's
- * concurrent additive index.
+ * type.
  *
  * The caller gates this on `!deduped` (a deduped commit already swept at its
  * original commit, and its `(seq, doc)` pair is inconsistent). Each per-type
@@ -541,12 +509,6 @@ async function sweepCommittedSchemas(
 				}),
 			});
 		} catch (sweepErr) {
-			// A Phase-B failure committed its Phase A (possibly parking
-			// values) — keep its report so the aggregated outcome still
-			// surfaces the parks to the user.
-			if (sweepErr instanceof SchemaChangePhaseBError) {
-				reports.push({ caseType, report: sweepErr.report });
-			}
 			// Never rethrown — the commit already landed, so a sweep failure is
 			// not a 500. But split severity like the build materialize: a
 			// DETERMINISTIC fault (an unschemable property — trigger unreachable
@@ -597,77 +559,4 @@ function renameOutcome(report: CasePropertyRenameReport): MigrationOutcome {
 		parkedCaseTypes: [],
 		failureReasons: [],
 	};
-}
-
-async function completeRenameIndexes(
-	appId: string,
-	result: ApplyBlueprintChangeResult,
-	prepared: PreparedCasePropertyRenamePhaseB,
-): Promise<void> {
-	try {
-		await prepared.completeAfterCommit();
-	} catch (error) {
-		const message =
-			"[applyBlueprintChange] post-commit rename index completion failed";
-		if (isTransientDbError(error)) {
-			log.warn(message, { appId, seq: result.seq, error });
-		} else {
-			log.error(message, error, { appId, seq: result.seq });
-		}
-	}
-}
-
-async function completeRetirementIndexes(
-	appId: string,
-	result: ApplyBlueprintChangeResult,
-	prepared: PreparedCaseTypeSchemaRetirementPhaseB,
-): Promise<void> {
-	try {
-		await prepared.completeAfterCommit();
-	} catch (error) {
-		const message =
-			"[applyBlueprintChange] post-commit case-type retirement index completion failed";
-		if (isTransientDbError(error)) {
-			log.warn(message, { appId, seq: result.seq, error });
-		} else {
-			log.error(message, error, { appId, seq: result.seq });
-		}
-	}
-}
-
-async function drainRetirementIndexesBestEffort(
-	store: TransactionalSchemaCaseStore,
-	appId: string,
-	seq: number,
-	caseTypes: readonly string[],
-): Promise<void> {
-	try {
-		await store.drainRetiredIndexConvergence({ appId, caseTypes });
-	} catch (error) {
-		const message =
-			"[applyBlueprintChange] pending case-type retirement index convergence failed";
-		if (isTransientDbError(error)) {
-			log.warn(message, { appId, seq, error });
-		} else {
-			log.error(message, error, { appId, seq });
-		}
-	}
-}
-
-async function drainRenameIndexesBestEffort(
-	store: Awaited<ReturnType<typeof withSchemaContext>>,
-	appId: string,
-	seq: number,
-): Promise<void> {
-	try {
-		await store.drainPendingIndexConvergence({ appId });
-	} catch (error) {
-		const message =
-			"[applyBlueprintChange] pending rename index convergence failed";
-		if (isTransientDbError(error)) {
-			log.warn(message, { appId, seq, error });
-		} else {
-			log.error(message, error, { appId, seq });
-		}
-	}
 }

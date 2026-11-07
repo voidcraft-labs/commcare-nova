@@ -71,6 +71,14 @@ CMD ["node", "capture-cleanup.cjs"]
 
 # Explicit operator build only; not an ancestor of the application runner.
 FROM sources AS maintenance-build
+RUN npx esbuild scripts/migrate-case-expression-indexes.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=case-expression-index-retirement.cjs
+RUN npx esbuild scripts/scan-case-expression-indexes.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=case-expression-index-scan.cjs
 RUN npx esbuild scripts/audit-canonical-identity-foundation.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \

@@ -4,10 +4,9 @@
  *
  * The authoritative operation is `applyBlueprintChange` over the
  * concatenated admitted steps with the deterministic change-set batch id
- * and the typed transaction sidecars: rename/retire Phase A, ordinary
+ * and the typed transaction sidecars: atomic schema rename/retire, ordinary
  * case-type sweeps, dedup, fresh authorization, holder proof, lookup/media/
- * organization integrity, and post-commit index convergence keep their
- * exact current semantics, and the `open → committed` flip plus the
+ * organization integrity keep their exact current semantics, and the `open → committed` flip plus the
  * checkpoint receipt ride the same transaction
  * (`lib/db/canonicalCommitSidecars.ts`). No success path performs a second
  * transaction to mark the change set committed.

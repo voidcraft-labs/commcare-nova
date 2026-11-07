@@ -2,7 +2,7 @@
  * Transactional production seam for schema-drift repair.
  *
  * The app row stays locked from the exact Blueprint read through every
- * schema/data Phase-A write. A concurrent Blueprint edit therefore lands
+ * schema/data write. A concurrent Blueprint edit therefore lands
  * either wholly before this repair (and is what we derive) or wholly after it
  * (and performs its own monotone schema sync); a stale Blueprint can never
  * overwrite a newer schema while retaining the newer watermark.
@@ -26,7 +26,6 @@ export interface PreparedSchemaDriftRepair {
 		readonly drift: CaseTypeDrift;
 		readonly report: MigrationReport;
 	}[];
-	readonly completeAfterCommit: () => Promise<void>;
 }
 
 export async function prepareSchemaDriftRepairInAppTransaction(
@@ -43,7 +42,6 @@ export async function prepareSchemaDriftRepairInAppTransaction(
 			appName: app.app_name,
 			drifts,
 			repairs: [],
-			completeAfterCommit: async () => {},
 		};
 	}
 	const orderedDrifts = [...drifts].sort((left, right) =>
@@ -65,28 +63,23 @@ export async function prepareSchemaDriftRepairInAppTransaction(
 		drift: CaseTypeDrift;
 		report: MigrationReport;
 	}> = [];
-	const completions: Array<() => Promise<void>> = [];
 	for (const drift of orderedDrifts) {
 		// The versioned shared primitive detects every stored-to-derived
 		// transition itself. Supplying the freshly locked app sequence makes a
 		// stale repair a monotone no-op instead of the unversioned overwrite the
 		// historical script used to perform.
-		const prepared = await store.applySchemaChangePhaseA(caseTx, {
+		const report = await store.applySchemaChangeInTransaction(caseTx, {
 			appId,
 			caseType: drift.caseType,
 			caseTypeSchemas,
 			syncedSeq: app.mutation_seq,
 		});
-		repairs.push({ drift, report: prepared.report });
-		completions.push(prepared.completeAfterCommit);
+		repairs.push({ drift, report });
 	}
 
 	return {
 		appName: app.app_name,
 		drifts: orderedDrifts,
 		repairs,
-		completeAfterCommit: async () => {
-			for (const complete of completions) await complete();
-		},
 	};
 }

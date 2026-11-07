@@ -48,7 +48,6 @@ export {
 	CLAIM_CASE_IDS_LIMIT,
 	ClaimCasesInputError,
 	ParkedValueNotFoundError,
-	SchemaChangePhaseBError,
 	SchemaNotSyncedError,
 	SubmissionRejectedError,
 } from "./errors";
@@ -92,9 +91,6 @@ export type {
 	MigrationReport,
 	ParkedValueEntry,
 	ParkedValueStanding,
-	PreparedCasePropertyRenamePhaseB,
-	PreparedCaseTypeSchemaRetirementPhaseB,
-	PreparedSchemaChangePhaseB,
 	QueryArgs,
 	ResetSampleDataArgs,
 	RestoreScope,

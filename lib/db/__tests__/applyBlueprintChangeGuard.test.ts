@@ -64,20 +64,14 @@ const applyBlueprintChange = (
 
 const {
 	applySchemaChangeMock,
-	applyCasePropertyRenamePhaseAMock,
-	retireSchemasPhaseAMock,
-	completeRetirementMock,
-	drainPendingIndexConvergenceMock,
-	drainRetiredIndexConvergenceMock,
+	applyCasePropertyRenameInTransactionMock,
+	retireSchemasInTransactionMock,
 	withSchemaContextMock,
 	withProjectContextMock,
 } = vi.hoisted(() => ({
 	applySchemaChangeMock: vi.fn(),
-	applyCasePropertyRenamePhaseAMock: vi.fn(),
-	retireSchemasPhaseAMock: vi.fn(),
-	completeRetirementMock: vi.fn(),
-	drainPendingIndexConvergenceMock: vi.fn(),
-	drainRetiredIndexConvergenceMock: vi.fn(),
+	applyCasePropertyRenameInTransactionMock: vi.fn(),
+	retireSchemasInTransactionMock: vi.fn(),
 	withSchemaContextMock: vi.fn(),
 	withProjectContextMock: vi.fn(),
 }));
@@ -203,13 +197,7 @@ beforeEach(() => {
 		parkedIds: [],
 		failureReasons: [],
 	});
-	completeRetirementMock.mockResolvedValue(undefined);
-	drainPendingIndexConvergenceMock.mockResolvedValue(undefined);
-	drainRetiredIndexConvergenceMock.mockResolvedValue(undefined);
-	retireSchemasPhaseAMock.mockResolvedValue({
-		caseTypes: ["patient"],
-		completeAfterCommit: completeRetirementMock,
-	});
+	retireSchemasInTransactionMock.mockResolvedValue(["patient"]);
 	usercaseStoreMock.query.mockResolvedValue([]);
 	usercaseStoreMock.insert.mockResolvedValue(undefined);
 	usercaseStoreMock.update.mockResolvedValue(undefined);
@@ -217,10 +205,9 @@ beforeEach(() => {
 	withProjectContextMock.mockResolvedValue(usercaseStoreMock);
 	withSchemaContextMock.mockResolvedValue({
 		applySchemaChange: applySchemaChangeMock,
-		applyCasePropertyRenamePhaseA: applyCasePropertyRenamePhaseAMock,
-		retireSchemasPhaseA: retireSchemasPhaseAMock,
-		drainPendingIndexConvergence: drainPendingIndexConvergenceMock,
-		drainRetiredIndexConvergence: drainRetiredIndexConvergenceMock,
+		applyCasePropertyRenameInTransaction:
+			applyCasePropertyRenameInTransactionMock,
+		retireSchemasInTransaction: retireSchemasInTransactionMock,
 	});
 });
 
@@ -281,7 +268,7 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 
 	it("maps authoritative rename occupancy to the standard commit rejection", async () => {
 		const fresh = minDoc();
-		applyCasePropertyRenamePhaseAMock.mockRejectedValueOnce(
+		applyCasePropertyRenameInTransactionMock.mockRejectedValueOnce(
 			new CasePropertyRenameStorageConflictError(
 				"patient",
 				"hamlet",
@@ -412,7 +399,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 				nextDoc: committed,
 				seq: 11,
 			});
-			expect(completeRetirementMock).not.toHaveBeenCalled();
 			return { seq: 11, committedDoc: committed, deduped: false };
 		});
 
@@ -427,9 +413,9 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 			},
 		});
 
-		expect(retireSchemasPhaseAMock).toHaveBeenCalledTimes(1);
+		expect(retireSchemasInTransactionMock).toHaveBeenCalledTimes(1);
 		const [retirementTx, retirementArgs] =
-			retireSchemasPhaseAMock.mock.calls[0] ?? [];
+			retireSchemasInTransactionMock.mock.calls[0] ?? [];
 		expect(retirementTx).toBe(tx);
 		expect(retirementArgs).toMatchObject({
 			appId: "app-1",
@@ -437,7 +423,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 			caseTypes: ["patient"],
 		});
 		expect(retirementArgs.fallbackCaseTypeSchemas.has("patient")).toBe(true);
-		expect(completeRetirementMock).toHaveBeenCalledTimes(1);
 		expect(applySchemaChangeMock).not.toHaveBeenCalled();
 		expect(result).toEqual({ seq: 11, committedDoc: committed });
 	});
@@ -472,12 +457,7 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 			},
 		});
 
-		expect(retireSchemasPhaseAMock).not.toHaveBeenCalled();
-		expect(drainPendingIndexConvergenceMock).not.toHaveBeenCalled();
-		expect(drainRetiredIndexConvergenceMock).toHaveBeenCalledWith({
-			appId: "app-1",
-			caseTypes: ["patient"],
-		});
+		expect(retireSchemasInTransactionMock).not.toHaveBeenCalled();
 	});
 
 	it("classifies a queued field conversion from the peer-retargeted writer destination", async () => {

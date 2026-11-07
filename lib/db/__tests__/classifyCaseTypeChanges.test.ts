@@ -137,9 +137,8 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 		// Existing values for the removed property remain in JSONB
 		// until each row's next properties write, where the store's
 		// merged-update strip sheds them. The schema-sync entry
-		// regenerates the JSON Schema (no longer references the
-		// property) and emits the index DDL diff (drops the removed
-		// property's expression index). No writer field exists in
+		// regenerates the JSON Schema without the removed property.
+		// No writer field exists in
 		// this fixture, so no rename is proven.
 		const reduced: CaseType = {
 			name: "patient",

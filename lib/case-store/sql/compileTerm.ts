@@ -949,10 +949,8 @@ function compileNonSelfViaPropertyRef(args: {
  *
  * Kysely 0.29 moved `->` / `->>` off the `eb(lhs, op, rhs)` binary form
  * (they're JSON operators now, reached via `ref(col, op).key(...)`). The
- * key serializes inline as `properties->>'<key>'` — matching the inlined
- * key in the expression-index DDL (`computeDesiredIndexSet` uses
- * `sql.lit`), so the read and the index it targets stay byte-aligned.
- * Property names are validated identifiers, so inlining can't inject.
+ * key serializes inline as `properties->>'<key>'`. Property names are
+ * validated identifiers, so inlining can't inject.
  */
 function jsonbColumnRead(args: {
 	sourceAlias: string;

@@ -47,7 +47,7 @@ destination-occupancy groups. It filters by `app_id` only—never Project,
 owner, hold, or dismissal—and JSONB own-key presence makes null and blank
 destinations occupied. The caller owns the transaction so authorization,
 Blueprint sequence, lookup verdict, and counts share one request; the result
-is explanatory and never substitutes for rename Phase A's locked recheck.
+is explanatory and never substitutes for the rename transaction's locked recheck.
 
 `CaseStore.readDeviceCaseDatabase` is the running Preview's complete casedb
 read. It applies the bound worker's restore closure across every retained case
@@ -63,7 +63,7 @@ retype does not alter casedb `@case_type` metadata. The
 from their target rows, refuses dangling edges it cannot backfill, and makes
 the column required for every future writer.
 
-**The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included, whether the writer is a field or a typed case operation (the compiler's casts stay in lockstep with the type checker), and implicit standard entries excluded. A Hidden Value writer contributes the type inferred for its calculation (`lib/domain/expression/inference.ts`); one whose value does not fit the property it writes is refused at the commit gate (`HIDDEN_VALUE_WRITER_TYPE_MISMATCH`), so no materialized type rests on a disagreement. A standard entry explicitly declared in the catalog remains for its authoring metadata and order, but both storage projections filter every `CASE_SCALAR_PROPERTY_NAMES` member: `caseTypeToJsonSchema` never emits it into the closed JSONB schema, and `computeDesiredIndexSet` never emits a JSONB expression index for it. Standard-name references resolve through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the exact Nova name→column map (`case_name`→`case_name`, `date_opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-blank` arm (timestamp columns collapse it to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays from its first-class column. No live alternate-name projection exists.
+**The case-type map is the MATERIALIZABLE view.** `buildCaseTypeMap` builds from `lib/domain/effectiveCaseTypes.ts::materializableCaseTypes` — writer-DERIVED property types included, whether the writer is a field or a typed case operation (the compiler's casts stay in lockstep with the type checker), and implicit standard entries excluded. A Hidden Value writer contributes the type inferred for its calculation (`lib/domain/expression/inference.ts`); one whose value does not fit the property it writes is refused at the commit gate (`HIDDEN_VALUE_WRITER_TYPE_MISMATCH`), so no materialized type rests on a disagreement. A standard entry explicitly declared in the catalog remains for its authoring metadata and order, but `caseTypeToJsonSchema` filters every `CASE_SCALAR_PROPERTY_NAMES` member from the closed JSONB schema. Standard-name references resolve through `sql/dataTypeTokens.ts::RESERVED_SCALAR_COLUMN_BY_PROPERTY` — the exact Nova name→column map (`case_name`→`case_name`, `date_opened`→`opened_on`, `last_modified`→`modified_on`, `external_id`→`external_id`, plus `status`/`owner_id`/`case_id`/`case_type`) — consumed by `compileTerm`, the predicate `is-blank` arm (timestamp columns collapse it to plain `IS NULL`), and the preview display seam (`caseRowDisplayValue`), so a standard name every checker admits also queries, filters, and displays from its first-class column. No live alternate-name projection exists.
 
 **Runtime operation targets are resolved facts, never client descriptors.** `caseOperationTargetRequestSchema` accepts only `{ caseId }`. The envelope executor (`postgres/submissionEnvelope.ts`) loads the row through the tenant-bound pre-submission snapshot and then calls `validateCaseOperationTargetDescriptor(request, resolved, expected)` with server-owned `{ caseId, caseType, projectId }` plus the expected `{ projectId, snapshotCaseType }` from `caseOperationExpressionSnapshotTypes`. That snapshot type is intentionally distinct from the operation's rolling semantic type after an earlier retype. Parse failure, absence, id mismatch, and foreign tenancy intentionally collapse to `not-found-or-out-of-scope`; a type mismatch is reported only after Project authorization succeeds. The seam itself stays pure; its live callers are the executor's expression-target arms.
 
@@ -174,7 +174,7 @@ compares owned property keys, including names such as `constructor`. Its legacy
 enum recognition is diagnostic only: a repair still passes the writer's exact
 canonical stored-schema decoder. Real Postgres scan tests cover type reporting,
 JSONB key ordering, app scope, and additions/removals; versioned repair and
-retirement remain covered by the index-convergence tests.
+retirement remain covered by the schema-lifecycle tests.
 
 Historical ordinary extension edges follow the same scan-then-migrate rule.
 Before automations, ordinary parent writes always persisted `child`; advanced
@@ -439,8 +439,8 @@ schema/data transaction. Hard schema deletion exists only as the package-private
 `PostgresCaseStore.purgeSchemaForMaintenance` escape hatch used by maintenance
 tests; neither public store interface nor `withSchemaContext()` exposes it, so
 ordinary consumers cannot erase the archived contract or its sequence fence.
-Explicit case-property rename instead composes its
-Phase A directly into the guarded writer's already app-locked, authorized
+Explicit case-property rename composes its
+schema/data migration directly into the guarded writer's already app-locked, authorized
 transaction.
 
 **Re-tenanting is the second, narrower exception — `retenant.ts`.**
@@ -492,7 +492,7 @@ There is no in-database trigger and no `pg_jsonschema` dependency
 we already have in TypeScript lives at the right layer for our
 architecture.
 
-## `applySchemaChange` runs in two phases
+## `applySchemaChange` is one atomic transaction
 
 Case-type removal uses the sibling lifecycle operation rather than
 `applySchemaChange`: `classifyCaseTypeChanges` emits `retire`, and
@@ -505,8 +505,7 @@ Normal validation treats an inactive row as absent, while a later
 higher-sequence reactivation diffs from that archived contract and runs the
 ordinary transition migrations. Because lifecycle is sequence-derived, a
 previous application revision that advances `synced_seq` also reactivates
-correctly without knowing the new columns. Its durable pending index
-state targets the empty set after commit. A delayed sync below the retirement
+correctly without knowing the new columns. A delayed sync below the retirement
 sequence no-ops, and an equal-sequence sync may retry only an already-active
 row—never reactivate an inactive one. Historical orphaned active rows use the
 required scan-then-migrate pair:
@@ -517,10 +516,7 @@ AFTER the new revision has 100% traffic and every old-revision request has
 drained: the previous binary can remove a case type without writing
 `retired_seq`, so a pre-cutover pass cannot close the compatibility window. The
 writer performs its own post-write zero-finding verification; follow it with the
-standalone zero-finding rescan. The audit also reports
-inactive current types and retired rows with pending or residual indexes, so a
-failed Phase B or stale convergence watermark cannot disappear merely because
-Phase A made the row inactive.
+standalone zero-finding rescan. The audit also reports inactive current types.
 
 The production writer is not a human `--prod` connection: those IAM users are
 read-only. The explicit Docker `maintenance` target bundles
@@ -558,7 +554,7 @@ production scan again. The scanner prints these exact target-preserving
 commands; do not substitute a bare local writer or plain `gcloud run jobs
 execute` command after a production scan.
 
-### Phase A (one Kysely transaction)
+### Schema migration (one Kysely transaction)
 
 1. **Schema sync** — read the stored schema row (`FOR UPDATE`, so
    concurrent syncs of one type serialize), regenerate the JSON
@@ -570,7 +566,7 @@ execute` command after a production scan.
    validation semantics changed into two migration families, both
    run in the SAME transaction as the schema write (so the schema
    row and the row population can never disagree, whichever caller
-   synced — the guarded post-commit sweep, drain-end materialize,
+   synced — the guarded post-commit sweep, genesis materialization,
    point-of-use heal, and drift scripts):
 
    - **String↔array flips** (the select single↔multi conversion):
@@ -588,12 +584,8 @@ execute` command after a production scan.
      the schema generator's required `x-novaDataType` annotation)
      rewrite no rows — every stored value
      already conforms — but still count as type transitions for the
-     closing restore step below. A numeric-SOURCE
-     retype first
-     drops the property's live `::integer`/`::numeric` expression
-     index inside the transaction (`dropStaleNumericIndexes`) —
-     writing an array through that stale cast would abort Phase A;
-     Phase B rebuilds the new type's index after commit.
+     closing restore step below. Fixed physical indexes contain no property
+     casts and require no rebuild when a property changes type.
 
    Without this step, a regenerated schema would strand every
    pre-transition row: merged-document write validation rejects
@@ -606,7 +598,7 @@ execute` command after a production scan.
 
    Every park captures its transition (`from_type` / `to_type` — a
    narrow-options park carries its select type on both sides), and
-   the winning sync's closing auto-restore (Phase A step 4) runs for
+   the winning sync's closing auto-restore (step 4) runs for
    every property whose declared TYPE changed in the sync —
    detected flips, retypes, AND identity widenings (a date→text
    convert-back rewrites no rows but is exactly the transition its
@@ -691,7 +683,7 @@ execute` command after a production scan.
    current options are otherwise legitimate history. Case-property
    renames are not inferred here: the explicit batch-exclusive
    `renameCaseProperties` command uses
-   `applyCasePropertyRenamePhaseA`. That dedicated path locks and
+   `applyCasePropertyRenameInTransaction`. That dedicated path locks and
    admits every affected live and parked row, moves all keys
    simultaneously, preserves every non-name column, and persists the
    Blueprint plus accepted event in the same transaction. An own
@@ -701,123 +693,23 @@ execute` command after a production scan.
    is never double-counted, and every park lands in the report's
    `parkedIds` + `failureReasons`.
 
-Phase A commits when the steps succeed and rolls back atomically
+The transaction commits when the steps succeed and rolls back atomically
 on failure. The schema row + data are always consistent.
 
 ### The monotone `synced_seq` gate
 
-`case_type_schemas.synced_seq` records the `mutation_seq` a row was
-last synced OR retired from. When a caller passes `syncedSeq`,
-`applySchemaChange` gates on it in two halves so concurrent additive
-edits converge instead of clobbering each other:
-
-- **Coarse (a SELECT before Phase A):** read the row's recorded
-  `synced_seq` (`Number(...)` — pg returns `int8` as a string; an
-  absent row means "proceed"). If the incoming seq is LOWER, or is EQUAL
-  while the stored row is inactive, the ENTIRE call no-ops — schema UPSERT + Phase-B index DDL skipped. A
-  stale sync never rewinds a fresher row.
-- **Fine (the UPSERT SET):** the conflict `doUpdateSet` guards
-  `synced_seq = excluded.synced_seq` with
-  `WHERE excluded.synced_seq > case_type_schemas.synced_seq OR
-  (case_type_schemas.is_active AND excluded.synced_seq =
-  case_type_schemas.synced_seq)`, so
-  the UPSERT itself can't regress the row even if a fresher writer
-  landed between the coarse SELECT and here. The UPSERT `RETURNING`s
-  its row, which Postgres emits only when it actually inserted or
-  updated — so a fine-gate LOSER (the WHERE was false) returns no
-  row, and Phase B is SKIPPED for it. Without that skip, the loser
-  would diff its OLDER desired index set against the winner's live
-  set and `DROP` the winner's new-property index. A lost SELECT→UPSERT
-  race then re-converges on the next sync (perf-only, not a
-  correctness gate).
-
-`syncedSeq` is mutually exclusive with `change` — the additive gate
-carries a seq and no caller-intent migration; a migration runs
-pre-commit un-versioned. The implementation throws when both are set
-(so the whole-call no-op can never silently skip a migration's
-per-row work). The Phase-A shape reshape is exempt from that
-tension: it derives from the stored row itself, so a stale-seq
-no-op is safe — the fresher writer that advanced the row ran the
-same detection against the same stored state in its own
-transaction, and a fine-gate loser skips the reshape along with
-Phase B.
-
-Absent `syncedSeq` (an explicit maintenance caller with no committed Blueprint
-sequence): a plain unversioned UPSERT that always wins its own ACTIVE conflict;
-it rejects an inactive row because maintenance code cannot bypass the
-reactivation sequence fence.
-
-### Phase B (no transaction; runs after Phase A commits)
-
-Phase B coordinates the physical `cases` relation across apps. Its session
-advisory lock uses the search-path-resolved relation OID, then the existing
-app/type lifecycle lock. Runtime and maintenance retirement use the same owner.
-Lock contenders call `pg_try_advisory_lock` and wait outside a SQL statement:
-a blocking advisory SELECT retains an old snapshot that a concurrent partial
-index build can itself be waiting to retire. Only index DDL is serialized;
-Phase A keeps its existing transaction locks and ordinary case writes continue.
-
-4. **Per-property expression-index DDL** — always runs. Computes
-   the desired index set from the blueprint's property
-   declarations, reads the live index set from `pg_index` +
-   `pg_class` (joined to capture `indisvalid`), and emits the
-   matching `DROP INDEX CONCURRENTLY` / `CREATE INDEX CONCURRENTLY`
-   statements for the diff. An INVALID artifact left by a prior
-   failed CONCURRENTLY build flows through both `drops` and
-   `creates` so a retry rebuilds it from scratch.
-
-   That catalog read pins the table with `to_regclass('cases')` —
-   SEARCH-PATH resolution, the same resolution the unqualified
-   `ON cases` in the DDL performs. Keying it on `current_schema()`
-   instead is wrong under privilege convergence, which moves `cases`
-   into `nova_case_runtime` while the path stays
-   `public,nova_case_runtime`: the read then matches nothing, the
-   diff re-`CREATE`s every desired index (`already exists` on a case
-   type's second sync, with every create queued behind it skipped)
-   and emits no drops at all. Local databases keep `cases` in
-   `public`, so only production shows it — the regression test in
-   `postgres/__tests__/store.postgres.test.ts` moves the table to reproduce
-   the converged shape.
-
-### Why two phases, not one transaction
-
-PostgreSQL's `CREATE INDEX` (non-`CONCURRENTLY`) heap-scans with
-`SnapshotAny` semantics, which includes dead but not-yet-vacuumed
-tuples. Inside the same transaction as Phase A's per-row
-migration, every row UPDATE (a cast rewrite, a park's key drop)
-leaves the row's PRE-migration version as a dead tuple in
-`cases`'s heap. A subsequent in-transaction `CREATE INDEX` over
-the new typed expression scans that dead tuple and fails the cast
-on its pre-migration value — the `text → int` retype's parked
-`"abc"` still exists as a dead tuple and trips
-`((properties->>'X')::integer)`, rolling back the transaction and
-defeating the migration.
-
-`CREATE INDEX CONCURRENTLY` uses MVCC snapshot semantics strict
-enough to ignore dead tuples and cannot run inside an outer
-transaction — both align with Phase B's non-transactional shape.
-As a side benefit, CONCURRENTLY does not hold `ACCESS EXCLUSIVE`
-on `cases`, so reads + writes keep working while the index
-builds.
-
-### Phase B failure semantics
-
-A failure mid-Phase-B throws, the schema row + per-row migration
-are already committed, and the next `applySchemaChange` call
-diffs against the catalog and re-emits whatever drops + creates
-remain outstanding. The diff captures `pg_index.indisvalid` — a
-`CREATE INDEX CONCURRENTLY` failure leaves the partially-built
-index marked invalid, and the diff treats an INVALID entry as
-"drop and recreate" so the next retry converges. Recovery is
-idempotent: any number of retries lands the same final index
-set. Missing or invalid indexes degrade query performance but
-never correctness — the term compiler's emitted SQL falls back
-to a sequential scan over the case-type partition.
+`case_type_schemas.synced_seq` records the exact Blueprint sequence that admitted
+or retired the row. The caller-transaction implementation locks the schema
+lifecycle, refuses stale versions and equal-version reactivation, then writes
+the schema and every data transition atomically. A later sequence may reactivate
+from the archived schema; an unversioned maintenance write cannot reactivate.
+`change` and `syncedSeq` remain mutually exclusive, so a stale additive no-op
+cannot silently skip an explicit migration.
 
 Genesis admits every storable case type, including the built-in worker case,
 in the app's transaction. The chat-completion boundary calls
 `applySchemaChange` once per type through `lib/db/materializeCaseStoreSchemas.ts`
-to converge subsequent schema changes and drain pending index work. Ordinary
+to converge subsequent schema changes. Ordinary
 worker-changing commits synchronize their schemas before writing worker rows.
 Its failure contract splits on fault class (`lib/db/schemaSyncRetry.ts`
 `isTransientDbError`): each per-type sync retries a TRANSIENT blip,
@@ -842,46 +734,28 @@ It locks the storage schema and refuses any live key (including blank values)
 or parked value, including dismissed entries, before applying the new schema
 in the Blueprint transaction. A concurrent writer finishes first or sees the
 new schema; there is no separate count-then-remove window. No collected values
-are deleted. Its pending index work uses ordinary convergence. Removing a catalog
+are deleted. Removing a catalog
 annotation for a property that remains effective does not retire its storage.
 
-Explicit case-property rename and case-type retirement Phase A share
+Explicit case-property rename and case-type retirement share
 the guarded Blueprint transaction; ordinary additive changes ride a post-commit sweep of
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
 
-### Pre-flight identifier validation runs BEFORE Phase A
+### Fixed case indexes
 
-`computeDesiredIndexSet` runs synchronously at the top of
-`applySchemaChange`, before the transaction opens. Property names
-and case-type names compose into the index name through
-`indexName`, which throws on identifier-shape violations
-(characters outside `[A-Za-z0-9_-]`). A throw at this point leaves
-`case_type_schemas` untouched.
+Physical indexes are fixed tenant, type and identity infrastructure. Adding,
+renaming, retyping or retiring an authored property never creates an index or a
+post-commit DDL task. Queries use the app/Project scope to narrow rows before
+applying typed JSON predicates. Property count and app count therefore do not
+multiply relation locks or planning work for every other app.
 
-Property and case-type names admit hyphens at the blueprint layer
-(for example, `client-code`). The index NAME
-carries neither name verbatim — the `(app, case_type)` scope and
-the property each fold into a fixed-width SHA-256 tag
-(`indexScopeTag` / `propertyIndexTag`), so a hyphen needs no
-transform and the composed name can't overflow the 63-byte cap no
-matter how long the names are. The JSONB key inside the indexed
-expression preserves the hyphen verbatim via `sql.lit`.
-
-### Expression indexes are app-scoped
-
-`case_type_schemas` is keyed `(app_id, case_type)`, so a case type's *desired* index set is per-app — but a case-type NAME (`patient`, `person`) is not globally unique. Every per-property expression index is therefore scoped on BOTH halves: the name carries a leading `indexScopeTag(appId, caseType)` segment (`cases_<scopeTag>_<propertyTag>_<mode>` — the fixed-width tags above; only `<mode>` stays readable) and the partial predicate is `WHERE app_id = '<app>' AND case_type = '<type>'`. Without that, one global index spans every app's rows of a shared case-type name, and two apps that declare the same case-type + property with different `data_type`s collide on a single index whose cast rejects the other app's values at INSERT (the `::integer`-vs-`"17.01"` failure, cross-app variant). The fixed-width tag is also what makes the catalog diff's name prefix (`cases_<scopeTag>_%`, in `readLiveIndexSet`) an EXACT scope match — distinct scopes hash to distinct tags, so the diff never bleeds across apps NOR across case types whose names are prefixes of each other (`patient` vs `patient_visit`) without ever parsing the partial predicate. The tag is deterministic, so the runtime composes the same name for a given scope on every write.
-
-### Per-data-type index coverage
-
-| Property `data_type` | Postgres index | Reasoning |
-|---|---|---|
-| `text` | `GIN ((properties->>'<key>')) gin_trgm_ops` partial on `(app_id, case_type)` | The text-property index slot. No `match` mode routes through it — `fuzzy` / `phonetic` evaluate token-wise (`levenshtein` / `soundex` over `unnest`ed tokens) and `starts-with` uses `starts_with(...)`, all sequential scans at preview scale. Retained as the established text slot; dropping it is a separate schema decision |
-| `int` / `decimal` | `BTREE (((properties->>'<key>')::<cast>))` partial on `(app_id, case_type)` | Covers `compare` / `between` against typed numerics. The two share the btree access method but compile to different casts (`::integer` vs `::numeric`), so their index NAMES split by cast (suffix `int` / `num`, not a shared `btree`) — the name-keyed catalog diff would otherwise treat an `int↔decimal` retype as a no-op and leave the stale-cast index in place, failing the next fractional insert at write time |
-| `multi_select` | `GIN ((properties->'<key>')) jsonb_ops` partial on `(app_id, case_type)` | Covers `multi-select-contains` (`?` / `?\|` / `?&` / `@>`); `jsonb_path_ops` only covers `@>` and would force a sequential scan for `?` / `?\|` / `?&` |
-| `single_select` | None | Equality on a small option set is fast without an expression index |
-| `date` / `datetime` / `time` | None | The text-to-typed casts and the canonical `to_date(...)` / `to_timestamp(...)` builtins are STABLE in Postgres (DateStyle / TimeZone session dependency); expression indexes require IMMUTABLE expressions |
-| `geopoint` | None | The `within-distance` arm builds a WKT string via `concat(...)` over `split_part(...)` reads to bridge the wire shape `"lat lon alt acc"` to PostGIS's WKT input; `concat(...)` over text args is STABLE so the full expression cannot be indexed |
+The former eager per-property expression indexes exhausted PostgreSQL's lock
+table even with a small case fleet. Their retirement is an explicit scan and
+maintenance writer followed by a migration that refuses remaining expression
+indexes; it never drops thousands of indexes inside one transaction. The
+runtime role has schema USAGE but no CREATE privilege. Release ordering and
+proof live in `docs/architecture/case-index-retirement.md`.
 
 ## Sample-data
 
@@ -1090,7 +964,10 @@ read-only rerun. Partial objects, wrong names or definitions, ownership or ACL
 drift, extra/duplicate constraints or indexes, invalid sequence relations, and
 a schema/deletion-tombstone overlap block. In particular, a legitimate
 `index_pending_seq > index_synced_seq` final row is preserved byte-for-byte on
-rerun rather than reset from `synced_seq`. Its `down` is forward-only.
+rerun rather than reset from `synced_seq`. Its `down` is forward-only. This is a
+historical-prefix contract: `20261111000000_retire_case_expression_indexes`
+subsequently removes the entire convergence metadata contract after its
+expression-index cleanup gate passes.
 
 The holder identity migrations add server-minted `apps.run_holder_nonce` and
 actor-bound `threads.active_holder_nonce`. Every holder-touching writer uses
@@ -1127,18 +1004,16 @@ ONE transaction (Postgres `supportsTransactionalDdl`), which means a
 migration CANNOT use `CREATE INDEX CONCURRENTLY` and a plain `CREATE INDEX`
 on a large `cases` holds `ACCESS EXCLUSIVE` for the build's duration — and
 the migrate Job runs while the OLD revision is still serving, so live reads
-stall. Build per-property/large-table indexes through the runtime
-`applySchemaChange` Phase-B path (`CREATE INDEX CONCURRENTLY`, no outer
-transaction), NOT a migration. Migrations are for the fixed base schema.
+stall. Large index maintenance uses explicit scan-and-write tooling with
+concurrent DDL outside the migration transaction. Authoring creates no indexes.
 
 Production privilege convergence moves `cases` (and its indexes) into the
 isolated `nova_case_runtime` schema. Every Nova connection uses search path
 `public,nova_case_runtime`, so existing unqualified queries remain valid while
 fixed/auth/control objects continue to resolve and be created in `public`.
-Runtime owns `cases` and has `CREATE` only on the isolated schema—the minimum
-PostgreSQL requires for Phase-B concurrent indexes. It never receives `CREATE`
-on `public`; migration owns that schema and every fixed object. Because
-PostgreSQL cannot grant index-only `CREATE`, convergence audits the schema's
+Runtime owns `cases` and has only `USAGE` on the isolated schema. It receives
+no application-schema `CREATE`; migration owns the schemas and every fixed
+object. Convergence audits the schema's
 generic dependency inventory and rejects every persistent object except
 `cases`, its attached indexes and constraints, and its implicit row/array
 types. Local development skips role convergence, keeps `cases` in `public`, and
@@ -1286,11 +1161,10 @@ SELECT name, timestamp FROM kysely_migration ORDER BY name;
 
 ### Required Postgres extensions
 
-The case-store's compiler stack depends on three extensions:
+The database extension inventory contains these three extensions:
 
-- `pg_trgm` — required by the `text` GIN index's `gin_trgm_ops`
-  opclass (no `match` mode emits Postgres `%` similarity; the
-  index is the established text-property slot).
+- `pg_trgm` remains installed by the database bootstrap and historical migrations.
+  Runtime case reads no longer require property-specific trigram indexes.
 - `fuzzystrmatch` — `match(mode: fuzzy)` (`levenshtein` for the
   term-level AUTO-fuzziness clause) and `match(mode: phonetic)`
   (`soundex`, the encoder CommCare HQ's phonetic analyzer uses).
@@ -1365,7 +1239,7 @@ The harness pins to two non-negotiable rules:
 `harness.postgres.test.ts` checks that Kysely and raw queries share the same
 uncommitted transaction, that a subsequent test cannot see the previous
 write, and that a separate observer sees no sentinel rows after fixture
-teardown. URI shape alone cannot prove container sharing or rollback. Index-plan checks compile the actual expression AST before EXPLAIN; hand-written equivalent SQL cannot prove compiler/index compatibility. A positive comparison keeps its index under two-valued compilation, and the checks prove it (a negated comparison beside it among them). The schema-contention check uses independent connections, observes both blocked operations, and runs the same bounded transient retry as production callers before checking the final schema and indexes.
+teardown. URI shape alone cannot prove container sharing or rollback. Index-plan checks compile the actual expression AST before EXPLAIN; hand-written equivalent SQL cannot prove compiler/index compatibility. The fixed-index scaling proof checks that scope restriction excludes unrelated tenants before evaluating a compiled property predicate. Schema lifecycle tests retain sequence fencing, drift repair, retirement and reactivation coverage; index count does not grow with authored properties.
 
 ### Image and extensions
 
@@ -1405,15 +1279,6 @@ it; tests that do care construct exactly the schema they need.
 ### Fixtures
 
 The `db` fixture is the transactional Kysely handle; `pgClient` is the escape hatch for queries Kysely can't compile (`EXPLAIN ANALYZE`, extension probes, `SET`). Both share one connection, so they see each other's writes within the test transaction.
-
-Pending-index drains at the app-state boundary use the same bounded transient
-retry as additive schema updates. Separate apps still build indexes on the shared
-`cases` table, so Phase B coordinates that physical resource through
-`postgres/schemaIndexLock.ts`. A native regression holds the table until two
-apps reach DDL, then proves both converge without an invalid index or pending
-marker. Recovery from other transient failures rereads durable pending
-work and rebuilds invalid indexes; exhausted transient failures and deterministic
-faults still propagate to the caller. It never retries a case-data write.
 
 Submission expression batches use a savepoint. On numeric or temporal conversion, division
 by zero or numeric overflow only, the executor diagnoses individual projections

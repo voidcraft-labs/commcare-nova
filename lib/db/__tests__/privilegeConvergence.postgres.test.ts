@@ -364,6 +364,13 @@ describe("database privilege convergence", () => {
 			await bootstrapClient.query("RESET ROLE");
 			await sql`DROP ROLE ${sql.id(fixture.bootstrapRole)}`.execute(h.db);
 
+			// Upgrade the previous release's intentional runtime CREATE grant.
+			await sql`CREATE SCHEMA IF NOT EXISTS ${sql.id(CASE_RUNTIME_SCHEMA)} AUTHORIZATION ${sql.id(fixture.convergence.migrationRole)}`.execute(
+				h.db,
+			);
+			await sql`GRANT USAGE, CREATE ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)} TO ${sql.id(fixture.convergence.runtimeRole)}`.execute(
+				h.db,
+			);
 			await convergeDatabasePrivileges(migration.db, fixture.convergence);
 			await asRole(h.db, fixture.convergence.runtimeRole, async (tx) => {
 				const authority = await sql<{
@@ -919,11 +926,18 @@ describe("database privilege convergence", () => {
 				await expect(
 					convergeDatabasePrivileges(migrationDb, config),
 				).rejects.toMatchObject({ code: "55P03" });
-				const unchanged = await sql<{ owner: string; cleanup_read: boolean }>`
+				const unchanged = await sql<{
+					owner: string;
+					cleanup_read: boolean;
+					runtime_create: boolean;
+				}>`
 					SELECT pg_catalog.pg_get_userbyid(relowner) AS owner,
 						pg_catalog.has_table_privilege(
 							${config.cleanupRole}, 'public.apps', 'SELECT'
-						) AS cleanup_read
+						) AS cleanup_read,
+						pg_catalog.has_schema_privilege(
+							${config.runtimeRole}, ${CASE_RUNTIME_SCHEMA}, 'CREATE'
+						) AS runtime_create
 					FROM pg_catalog.pg_class
 					WHERE oid = ${`${CASE_RUNTIME_SCHEMA}.cases`}::regclass
 				`.execute(reader);
@@ -931,6 +945,7 @@ describe("database privilege convergence", () => {
 					{
 						owner: config.migrationRole,
 						cleanup_read: true,
+						runtime_create: false,
 					},
 				]);
 			});
@@ -1050,10 +1065,6 @@ describe("database privilege convergence", () => {
 					can_insert_media_asset_refs: boolean;
 					can_update_media_asset_refs: boolean;
 					can_delete_media_asset_refs: boolean;
-					can_select_index_deletions: boolean;
-					can_insert_index_deletions: boolean;
-					can_update_index_deletions: boolean;
-					can_delete_index_deletions: boolean;
 					can_create_public: boolean;
 					can_create_case_schema: boolean;
 				}>`
@@ -1090,26 +1101,6 @@ describe("database privilege convergence", () => {
 								'public.media_asset_refs',
 								'DELETE'
 							) AS can_delete_media_asset_refs,
-						pg_catalog.has_table_privilege(
-							current_user,
-							'public.case_schema_index_deletions',
-							'SELECT'
-						) AS can_select_index_deletions,
-						pg_catalog.has_table_privilege(
-							current_user,
-							'public.case_schema_index_deletions',
-							'INSERT'
-						) AS can_insert_index_deletions,
-						pg_catalog.has_table_privilege(
-							current_user,
-							'public.case_schema_index_deletions',
-							'UPDATE'
-						) AS can_update_index_deletions,
-						pg_catalog.has_table_privilege(
-							current_user,
-							'public.case_schema_index_deletions',
-							'DELETE'
-						) AS can_delete_index_deletions,
 						pg_catalog.has_schema_privilege(
 							current_user, 'public', 'CREATE'
 						) AS can_create_public,
@@ -1126,42 +1117,16 @@ describe("database privilege convergence", () => {
 					can_insert_media_asset_refs: true,
 					can_update_media_asset_refs: false,
 					can_delete_media_asset_refs: true,
-					can_select_index_deletions: true,
-					can_insert_index_deletions: true,
-					can_update_index_deletions: false,
-					can_delete_index_deletions: true,
 					can_create_public: false,
-					can_create_case_schema: true,
+					can_create_case_schema: false,
 				});
 				await sql`SELECT count(*) FROM cases`.execute(tx);
-				await sql`
-					CREATE INDEX privilege_probe_idx ON cases (case_id)
-				`.execute(tx);
-				await sql`
-					DROP INDEX ${sql.id(CASE_RUNTIME_SCHEMA)}.privilege_probe_idx
-				`.execute(tx);
 				await sql`SELECT project_id FROM public.media_asset_refs`.execute(tx);
-				await sql`
-					INSERT INTO public.case_schema_index_deletions
-						(app_id, case_type)
-					VALUES ('privilege-probe', 'patient')
-				`.execute(tx);
-				await sql`
-					SELECT case_type
-					FROM public.case_schema_index_deletions
-					WHERE app_id = 'privilege-probe'
-				`.execute(tx);
-				await sql`
-					DELETE FROM public.case_schema_index_deletions
-					WHERE app_id = 'privilege-probe'
-				`.execute(tx);
 			});
 			await expect(
 				asRole(h.db, config.runtimeRole, async (tx) => {
 					await sql`
-						UPDATE public.case_schema_index_deletions
-						SET case_type = case_type
-						WHERE app_id = 'privilege-probe'
+						CREATE INDEX privilege_probe_idx ON cases (case_id)
 					`.execute(tx);
 				}),
 			).rejects.toMatchObject({ code: "42501" });
@@ -1257,20 +1222,25 @@ describe("database privilege convergence", () => {
 				}),
 			).rejects.toMatchObject({ code: "42501" });
 
-			await asRole(h.db, config.runtimeRole, async (tx) => {
-				await sql`
+			await expect(
+				asRole(h.db, config.runtimeRole, async (tx) => {
+					await sql`
 					CREATE VIEW ${sql.id(CASE_RUNTIME_SCHEMA)}.runtime_shadow AS
 					SELECT case_id FROM cases
 				`.execute(tx);
-			});
+				}),
+			).rejects.toMatchObject({ code: "42501" });
+			// An operator-created extra object is still rejected by inventory.
+			await sql`
+				CREATE VIEW ${sql.id(CASE_RUNTIME_SCHEMA)}.runtime_shadow AS
+				SELECT case_id FROM cases
+			`.execute(migration.db);
 			await expect(
 				convergeDatabasePrivileges(migration.db, config),
 			).rejects.toMatchObject({ code: "schema_inventory_drift" });
-			await asRole(h.db, config.runtimeRole, async (tx) => {
-				await sql`
-					DROP VIEW ${sql.id(CASE_RUNTIME_SCHEMA)}.runtime_shadow
-				`.execute(tx);
-			});
+			await sql`
+				DROP VIEW ${sql.id(CASE_RUNTIME_SCHEMA)}.runtime_shadow
+			`.execute(migration.db);
 
 			await sql`
 				ALTER TABLE public.apps ADD COLUMN migration_probe boolean

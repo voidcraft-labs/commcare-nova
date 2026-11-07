@@ -38,24 +38,14 @@ it("separate scenario attempts preserve each other's sessions, memberships, app 
 		a.builders.workspace(),
 		b.builders.workspace(),
 	]);
-	// Concurrent factories exercise the real pending-index drain. No successful
-	// setup may leave a durable pending marker or an invalid expression index.
+	// Concurrent scenario setup must leave the fixed case indexes valid and
+	// never introduce property expression indexes as authored schemas grow.
 	expect(
 		(
 			await h
 				.pool()
 				.query(
-					"SELECT app_id FROM case_type_schemas WHERE app_id = ANY($1::text[]) AND index_pending_seq IS NOT NULL",
-					[[left.caseWorkspace.appId, right.caseWorkspace.appId]],
-				)
-		).rows,
-	).toEqual([]);
-	expect(
-		(
-			await h
-				.pool()
-				.query(
-					"SELECT indexrelid FROM pg_index WHERE indrelid = 'cases'::regclass AND NOT indisvalid",
+					"SELECT indexrelid FROM pg_index WHERE indrelid = 'cases'::regclass AND (NOT indisvalid OR indexprs IS NOT NULL)",
 				)
 		).rows,
 	).toEqual([]);

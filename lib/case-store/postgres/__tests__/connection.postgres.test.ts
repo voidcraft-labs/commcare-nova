@@ -82,10 +82,26 @@ it.each(["idle", "checked out", "query"])(
 				severity: "ERROR",
 				message: "[case-store] database connection failed",
 			});
-			const remaining = await h.pool.query(
-				"SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()",
-			);
-			expect(remaining.rows).toEqual([]);
+			// The child has joined after its owned shutdown. pg closes the local
+			// socket after sending Terminate; PostgreSQL removes its backend from
+			// pg_stat_activity independently. Observe that remote boundary with
+			// fresh autocommit queries, still requiring the ENTIRE database to be
+			// empty except this observer (not merely the two known child PIDs).
+			await expect
+				.poll(
+					async () =>
+						(
+							await h.pool.query(
+								"SELECT pid, state, backend_type, wait_event_type, wait_event FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() ORDER BY pid",
+							)
+						).rows,
+					{
+						timeout: 1_000,
+						interval: 25,
+						message: `PostgreSQL backends remain after ${mode} child ${child.pid} exited: terminated=${pid}, replacement=${result?.replacement.pid}`,
+					},
+				)
+				.toEqual([]);
 		} finally {
 			if (child.exitCode === null && child.signalCode === null)
 				child.kill("SIGKILL");

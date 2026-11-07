@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import dockerignore from "@balena/dockerignore";
 import { DockerfileParser, Run } from "dockerfile-ast";
+import type { Metafile } from "esbuild";
 import { describe, expect, test } from "vitest";
 
 const dockerfile = DockerfileParser.parse(readFileSync("Dockerfile", "utf8"));
@@ -158,6 +160,9 @@ describe("container artifact declarations", () => {
 
 	test("the authored job bundle commands produce self-contained operator executables", () => {
 		const directory = mkdtempSync(join(tmpdir(), "nova-maintenance-bundles-"));
+		const contextFilter = dockerignore({ ignorecase: false }).add(
+			readFileSync(".dockerignore", "utf8"),
+		);
 		try {
 			const runs = [
 				"migration-build",
@@ -173,8 +178,9 @@ describe("container artifact declarations", () => {
 				const args = run.getArguments().map((arg) => arg.getValue());
 				expect(args.slice(0, 2)).toEqual(["npx", "esbuild"]);
 				// Execute the Dockerfile's actual esbuild flags, changing only the
-				// output directory. This host check does not prove Docker context
-				// filtering; the required production-image CI build owns that.
+				// output directory and requesting dependency metadata. Every local
+				// input must survive Docker context filtering, including shared helpers.
+				// Dependencies in node_modules come from the separate npm-ci layer.
 				const commandEnd = args.indexOf("&&");
 				const command = args.slice(2, commandEnd < 0 ? undefined : commandEnd);
 				const outputArg = command.find((arg) => arg.startsWith("--outfile="));
@@ -182,11 +188,25 @@ describe("container artifact declarations", () => {
 				const output = join(directory, outputArg.slice("--outfile=".length));
 				execFileSync(
 					resolve("node_modules/.bin/esbuild"),
-					command.map((arg) =>
-						arg === outputArg ? `--outfile=${output}` : arg,
-					),
+					[
+						...command.map((arg) =>
+							arg === outputArg ? `--outfile=${output}` : arg,
+						),
+						`--metafile=${output}.meta.json`,
+					],
 					{ encoding: "utf8", stdio: "pipe", timeout: 10_000 },
 				);
+				const metadata = JSON.parse(
+					readFileSync(`${output}.meta.json`, "utf8"),
+				) as Metafile;
+				const excludedInputs = Object.keys(metadata.inputs).filter(
+					(input) =>
+						!input.startsWith("node_modules/") && contextFilter.ignores(input),
+				);
+				expect(
+					excludedInputs,
+					`${command[0]} depends on files excluded from the Docker context`,
+				).toEqual([]);
 				if (command[0].startsWith("scripts/migrate-")) {
 					expect(
 						execFileSync(process.execPath, [output, "--help"], {

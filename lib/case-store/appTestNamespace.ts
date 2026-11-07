@@ -11,7 +11,6 @@ const isolatedTables = {
 	app_locations: true,
 	cases: true,
 	case_type_schemas: true,
-	case_schema_index_deletions: true,
 	case_indices: true,
 	parked_case_values: true,
 	lookup_rows: true,

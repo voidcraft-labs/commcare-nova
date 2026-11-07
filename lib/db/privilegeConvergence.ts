@@ -245,7 +245,6 @@ const RUNTIME_INSERT_UPDATE_TABLES = [
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
  * row in place: writers insert, reconcilers delete, and every other path reads. */
 const RUNTIME_INSERT_DELETE_TABLES = [
-	"case_schema_index_deletions",
 	"media_asset_refs",
 	"app_location_references",
 	"thread_media_refs",
@@ -263,9 +262,8 @@ const RUNTIME_READ_ONLY_TABLES = [
 	"app_migration_notice_key_readers",
 ] as const;
 
-/** `cases` alone lives in the isolated runtime-DDL schema. PostgreSQL requires
- * table ownership plus CREATE on the containing schema for CREATE INDEX; the
- * separate schema prevents that grant from covering migration-owned objects. */
+/** `cases` retains its isolated schema and runtime ownership. Runtime has
+ * USAGE only; physical index changes belong to approved maintenance. */
 export const RUNTIME_CASE_TABLES = ["cases"] as const;
 
 /**
@@ -632,7 +630,7 @@ export function assertDatabaseRolePolicy(
 	) {
 		throw new DatabasePrivilegeConvergenceError(
 			"role_policy_invalid",
-			"The runtime, capture-cleanup, or audit role has effective CREATE on the database or public schema.",
+			"The runtime, capture-cleanup, or audit role has effective CREATE on the database or application schemas.",
 		);
 	}
 }
@@ -1188,7 +1186,7 @@ async function readSchemaTables(
 	return result.rows;
 }
 
-/** Establish the one schema where runtime DDL is permitted, then move the
+/** Establish the isolated case schema without runtime CREATE, then move the
  * existing case table exactly once. The exact inventory audit prevents the
  * isolated schema from silently becoming a second application namespace. */
 async function convergeRuntimeCaseSchema(
@@ -1216,8 +1214,11 @@ async function convergeRuntimeCaseSchema(
 	`.execute(tx);
 	await sql`
 		GRANT USAGE, CREATE ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
-		TO ${sql.id(config.migrationRole)}, ${sql.id(config.runtimeRole)}
+		TO ${sql.id(config.migrationRole)}
 	`.execute(tx);
+	await sql`GRANT USAGE ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)} TO ${sql.id(config.runtimeRole)}`.execute(
+		tx,
+	);
 
 	const locations = await sql<{
 		in_public: boolean;
@@ -1549,10 +1550,19 @@ async function convergePrivilegesInTransaction(
 	}
 	for (const table of runtimeCaseAudit) {
 		if (table.owner !== config.runtimeRole) {
+			// PostgreSQL requires the new owner to have CREATE in the table's
+			// schema. Grant it only inside this transaction and revoke it before
+			// commit, so serving sessions never receive the capability.
+			await sql`GRANT CREATE ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)} TO ${sql.id(config.runtimeRole)}`.execute(
+				tx,
+			);
 			await sql`
 				ALTER TABLE ${sql.id(CASE_RUNTIME_SCHEMA)}.${sql.id(table.name)}
 				OWNER TO ${sql.id(config.runtimeRole)}
 			`.execute(tx);
+			await sql`REVOKE CREATE ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)} FROM ${sql.id(config.runtimeRole)}`.execute(
+				tx,
+			);
 		}
 		await sql`
 			REVOKE ALL PRIVILEGES
@@ -1654,6 +1664,19 @@ async function convergePrivilegesInTransaction(
 	// Re-read effective privileges after every grant. This assertion stays
 	// inside the transaction, so privilege drift cannot partially commit.
 	await readAndAssertRolePolicy(tx, config);
+	// The previous release deliberately granted this capability. Audit it only
+	// after convergence has revoked it, so upgrading that release is possible.
+	const runtimeCaseCreate = await sql<{ allowed: boolean }>`
+		SELECT pg_catalog.has_schema_privilege(
+			${config.runtimeRole}, ${CASE_RUNTIME_SCHEMA}, 'CREATE'
+		) AS allowed
+	`.execute(tx);
+	if (runtimeCaseCreate.rows[0]?.allowed !== false) {
+		throw new DatabasePrivilegeConvergenceError(
+			"role_policy_invalid",
+			"The runtime role retains CREATE on the case schema after privilege convergence.",
+		);
+	}
 	await assertCleanupPrivilegeBoundary(tx, config);
 	await assertAuditPrivilegeBoundary(tx, config);
 }

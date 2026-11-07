@@ -1666,8 +1666,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			};
-			// Phase B of this sync builds the btree expression index on
-			// ((properties->>'age')::integer).
 			await seedSchema(store, buildBlueprint([intCaseType]), "patient");
 			await store.insert({
 				appId: APP_ID,
@@ -1680,11 +1678,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			// Writing ["30"] through the still-live ::integer expression
-			// index would abort Phase A — the numeric-source pre-drop
-			// (`dropStaleNumericIndexes`) removes that index inside the
-			// transaction first, so the lift lands and Phase B builds the
-			// array target's GIN afterward.
 			const multiCaseType: CaseType = {
 				name: "patient",
 				properties: [
@@ -2116,15 +2109,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("an int→decimal convert-back restores parked fractions through the stale ::integer index", async () => {
-			// The forward decimal→int conversion parks every fractional
-			// value AND leaves the property's `::integer` expression index
-			// live. The convert-back is an identity WIDENING (no rows
-			// rewrite), but its closing auto-restore writes the parked
-			// fractions back INSIDE Phase A — before Phase B can swap the
-			// index — so the stale integer cast must be pre-dropped
-			// in-transaction exactly as a numeric-source retype's is, or
-			// the whole sync aborts on `invalid input syntax for type
-			// integer`.
 			const store = await options.factory(TENANT_A);
 			const decimalBlueprint = buildBlueprint([
 				{
