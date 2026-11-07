@@ -79,6 +79,8 @@ export function registerWorkTools(server: McpServer, ctx: ToolContext): void {
 			} catch (error) {
 				return toMcpErrorResult(error, {
 					userId: ctx.userId,
+					toolName: "begin_work",
+					requestId: args.request_id,
 					appId: args.app_id,
 					projectId: args.new_app?.project_id,
 				});
@@ -100,7 +102,11 @@ export function registerWorkTools(server: McpServer, ctx: ToolContext): void {
 					await getWork({ actorUserId: ctx.userId, workId, host }),
 				);
 			} catch (error) {
-				return toMcpErrorResult(error, { userId: ctx.userId });
+				return toMcpErrorResult(error, {
+					userId: ctx.userId,
+					toolName: "get_work",
+					workId,
+				});
 			}
 		},
 	);
@@ -123,7 +129,12 @@ export function registerWorkTools(server: McpServer, ctx: ToolContext): void {
 				});
 				return response({ work: result.work.map(projectWorkPayload) });
 			} catch (error) {
-				return toMcpErrorResult(error, { userId: ctx.userId });
+				return toMcpErrorResult(error, {
+					userId: ctx.userId,
+					toolName: "list_work",
+					appId: args.app_id,
+					projectId: args.project_id,
+				});
 			}
 		},
 	);
@@ -156,7 +167,12 @@ export function registerWorkTools(server: McpServer, ctx: ToolContext): void {
 						}),
 					);
 				} catch (error) {
-					return toMcpErrorResult(error, { userId: ctx.userId });
+					return toMcpErrorResult(error, {
+						userId: ctx.userId,
+						toolName: name,
+						workId: args.work_id,
+						requestId: args.request_id,
+					});
 				}
 			},
 		);

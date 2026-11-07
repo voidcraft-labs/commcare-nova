@@ -204,3 +204,27 @@ it("projects classified errors and arbitrary thrown values without raw text, sta
 	);
 	expect(log.error).toHaveBeenCalledOnce();
 });
+
+it("keeps diagnostic identities in the report without adding them to the public error", () => {
+	const error = new Error("private failure");
+	const diagnostics = {
+		...context,
+		toolName: "save_work",
+		workId: "work",
+		requestId: "request",
+		runId: "run",
+	};
+	const result = toMcpErrorResult(error, diagnostics);
+	expect(log.error).toHaveBeenCalledWith("[mcp] tool handler failed", error, {
+		error_type: "internal",
+		...diagnostics,
+	});
+	const payload = JSON.parse(result.content[0].text);
+	expect(Object.keys(payload).sort()).toEqual([
+		"app_id",
+		"error_type",
+		"message",
+		"project_id",
+	]);
+	expect(payload.message).not.toContain("private failure");
+});

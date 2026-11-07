@@ -19,6 +19,7 @@ import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorks
 import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import { initMcpCall } from "../context";
 import {
+	type McpErrorContext,
 	McpInvalidInputError,
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -162,6 +163,14 @@ export function registerSharedTool(
 		async (args, extra): Promise<McpToolResult> => {
 			const appId = typeof args.app_id === "string" ? args.app_id : undefined;
 
+			const diagnosticContext: McpErrorContext = {
+				appId,
+				userId: ctx.userId,
+				toolName,
+				workId: typeof args.work_id === "string" ? args.work_id : undefined,
+				requestId:
+					typeof args.request_id === "string" ? args.request_id : undefined,
+			};
 			try {
 				if (typeof args.work_id === "string") {
 					const {
@@ -201,6 +210,8 @@ export function registerSharedTool(
 					now: new Date(),
 				});
 
+				diagnosticContext.projectId = loaded.access.projectId;
+				diagnosticContext.runId = runId;
 				const { mcpCtx, logWriter } = initMcpCall(
 					ctx,
 					appId,
@@ -238,10 +249,7 @@ export function registerSharedTool(
 					await logWriter.flush();
 				}
 			} catch (err) {
-				return toMcpErrorResult(err, {
-					appId,
-					userId: ctx.userId,
-				});
+				return toMcpErrorResult(err, diagnosticContext);
 			}
 		},
 	);

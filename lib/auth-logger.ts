@@ -17,7 +17,9 @@
  * Better Auth also logs expected OAuth state expiry/misses at error level.
  * Only its known state-rejection shapes are reduced to sanitized info events.
  * Unknown state failures, security mismatches and adapter failures still reach
- * Sentry. Native callback tests pin this boundary to the installed provider.
+ * Sentry. Audited security refusals carry a bounded reason and state-read
+ * evidence so a cookie correlation failure cannot look like database loss.
+ * Native callback tests pin this boundary to the installed provider.
  */
 import { log } from "./logger";
 
@@ -64,7 +66,22 @@ export function forwardBetterAuthLog(
 		return;
 	}
 	const rest = args.filter((arg) => !(arg instanceof Error));
-	const context = rest.length > 0 ? { args: rest } : undefined;
+	const securityRefusal =
+		args.length === 1
+			? oauthStateSecurityRefusal(level, message, error)
+			: undefined;
+	const context = securityRefusal
+		? {
+				event: "oauth_sign_in_security_rejected",
+				errorType: "state_security_mismatch",
+				reason: securityRefusal,
+				// The provider read and parsed state before this check. This is
+				// correlation rejection, not a failed state database write.
+				stateRead: "succeeded",
+			}
+		: rest.length > 0
+			? { args: rest }
+			: undefined;
 	if (level === "error") sink.error(text, error, context);
 	else if (level === "warn") sink.warn(text, context);
 	else sink.info(text, context);
@@ -103,6 +120,31 @@ function expectedOAuthStateRefusal(
 			return "state_cookie_missing";
 		case "Invalid state: request expired":
 			return "state_expired";
+		default:
+			return undefined;
+	}
+}
+
+/** Name the audited provider rejection without copying state tokens or URLs. */
+function oauthStateSecurityRefusal(
+	level: BetterAuthLogLevel,
+	message: string,
+	error: Error | undefined,
+): string | undefined {
+	if (
+		level !== "error" ||
+		message !== "Failed to parse state" ||
+		error?.name !== "BetterAuthError" ||
+		error.cause !== undefined ||
+		!("code" in error) ||
+		error.code !== "state_security_mismatch"
+	)
+		return undefined;
+	switch (error.message) {
+		case "State mismatch: State not persisted correctly":
+			return "state_cookie_missing_invalid_or_mismatched";
+		case "State mismatch: OAuth state parameter does not match stored state":
+			return "stored_state_mismatch";
 		default:
 			return undefined;
 	}
