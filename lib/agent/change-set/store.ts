@@ -37,6 +37,7 @@ import {
 	type StageRequestReceipt,
 	stageRequestReceiptSchema,
 } from "./schemas";
+import { traceAuthoringStoreOperation } from "./storeTracing";
 import type {
 	ChangeSetExclusiveKind,
 	ChangeSetKind,
@@ -201,15 +202,17 @@ export async function loadChangeSet(
 	id: string,
 	handle?: Db,
 ): Promise<DesignChangeSet | undefined> {
-	const db = handle ?? (await getAppDb());
-	const row = await db
-		.selectFrom("authoring_workspaces")
-		.select(CHANGE_SET_COLUMNS)
-		.where("id", "=", id)
-		.executeTakeFirst();
-	return row === undefined
-		? undefined
-		: parseChangeSetRow(row as unknown as ChangeSetRow);
+	return traceAuthoringStoreOperation("loadChangeSet", async () => {
+		const db = handle ?? (await getAppDb());
+		const row = await db
+			.selectFrom("authoring_workspaces")
+			.select(CHANGE_SET_COLUMNS)
+			.where("id", "=", id)
+			.executeTakeFirst();
+		return row === undefined
+			? undefined
+			: parseChangeSetRow(row as unknown as ChangeSetRow);
+	});
 }
 
 export async function lockChangeSetRow(
@@ -232,79 +235,81 @@ export async function loadChangeSetSteps(
 	changeSetId: string,
 	handle?: Db,
 ): Promise<ChangeSetStep[]> {
-	const db = handle ?? (await getAppDb());
-	const [stepRows, stageRows] = await Promise.all([
-		db
-			.selectFrom("authoring_steps")
-			.select(["ordinal", "request_id", "tool_name", "mutation_digest"])
-			.select(
-				sql<string>`${sql.ref("authoring_steps.mutations")}::text`.as(
-					"mutations_text",
-				),
-			)
-			.where("change_set_id", "=", changeSetId)
-			.orderBy("ordinal", "asc")
-			.execute(),
-		db
-			.selectFrom("authoring_step_stages")
-			.select([
-				"step_ordinal",
-				"stage_ordinal",
-				"stage_name",
-				"mutation_start",
-				"mutation_count",
-			])
-			.where("change_set_id", "=", changeSetId)
-			.orderBy("step_ordinal", "asc")
-			.orderBy("stage_ordinal", "asc")
-			.execute(),
-	]);
-	const stagesByStep = new Map<number, ChangeSetStepStage[]>();
-	for (const row of stageRows) {
-		const stepOrdinal = safePersistedSequence(
-			row.step_ordinal,
-			"authoring_step_stages.step_ordinal",
-		);
-		const entry: ChangeSetStepStage = {
-			stageOrdinal: row.stage_ordinal,
-			stageName: row.stage_name,
-			mutationStart: row.mutation_start,
-			mutationCount: row.mutation_count,
-		};
-		const list = stagesByStep.get(stepOrdinal) ?? [];
-		list.push(entry);
-		stagesByStep.set(stepOrdinal, list);
-	}
-	let expectedOrdinal = 0;
-	return stepRows.map((row) => {
-		const ordinal = safePersistedSequence(
-			row.ordinal,
-			"authoring_steps.ordinal",
-		);
-		if (ordinal !== expectedOrdinal) {
-			throw new ChangeSetIntegrityError(
-				`Change set ${changeSetId} steps are not contiguous: expected ordinal ${expectedOrdinal}, found ${ordinal}.`,
+	return traceAuthoringStoreOperation("loadChangeSetSteps", async () => {
+		const db = handle ?? (await getAppDb());
+		const [stepRows, stageRows] = await Promise.all([
+			db
+				.selectFrom("authoring_steps")
+				.select(["ordinal", "request_id", "tool_name", "mutation_digest"])
+				.select(
+					sql<string>`${sql.ref("authoring_steps.mutations")}::text`.as(
+						"mutations_text",
+					),
+				)
+				.where("change_set_id", "=", changeSetId)
+				.orderBy("ordinal", "asc")
+				.execute(),
+			db
+				.selectFrom("authoring_step_stages")
+				.select([
+					"step_ordinal",
+					"stage_ordinal",
+					"stage_name",
+					"mutation_start",
+					"mutation_count",
+				])
+				.where("change_set_id", "=", changeSetId)
+				.orderBy("step_ordinal", "asc")
+				.orderBy("stage_ordinal", "asc")
+				.execute(),
+		]);
+		const stagesByStep = new Map<number, ChangeSetStepStage[]>();
+		for (const row of stageRows) {
+			const stepOrdinal = safePersistedSequence(
+				row.step_ordinal,
+				"authoring_step_stages.step_ordinal",
 			);
+			const entry: ChangeSetStepStage = {
+				stageOrdinal: row.stage_ordinal,
+				stageName: row.stage_name,
+				mutationStart: row.mutation_start,
+				mutationCount: row.mutation_count,
+			};
+			const list = stagesByStep.get(stepOrdinal) ?? [];
+			list.push(entry);
+			stagesByStep.set(stepOrdinal, list);
 		}
-		expectedOrdinal += 1;
-		const mutations = parsePersistedMutationBatchText(
-			row.mutations_text,
-			`authoring_steps.mutations for change set ${changeSetId}, ordinal ${ordinal}`,
-		);
-		const mutationDigest = canonicalJsonDigest(mutations);
-		if (mutationDigest !== row.mutation_digest) {
-			throw new ChangeSetIntegrityError(
-				`Change set ${changeSetId} step ${ordinal} no longer matches its recorded mutation digest.`,
+		let expectedOrdinal = 0;
+		return stepRows.map((row) => {
+			const ordinal = safePersistedSequence(
+				row.ordinal,
+				"authoring_steps.ordinal",
 			);
-		}
-		return {
-			ordinal,
-			requestId: row.request_id,
-			toolName: row.tool_name,
-			mutations,
-			mutationDigest,
-			stages: stagesByStep.get(ordinal) ?? [],
-		};
+			if (ordinal !== expectedOrdinal) {
+				throw new ChangeSetIntegrityError(
+					`Change set ${changeSetId} steps are not contiguous: expected ordinal ${expectedOrdinal}, found ${ordinal}.`,
+				);
+			}
+			expectedOrdinal += 1;
+			const mutations = parsePersistedMutationBatchText(
+				row.mutations_text,
+				`authoring_steps.mutations for change set ${changeSetId}, ordinal ${ordinal}`,
+			);
+			const mutationDigest = canonicalJsonDigest(mutations);
+			if (mutationDigest !== row.mutation_digest) {
+				throw new ChangeSetIntegrityError(
+					`Change set ${changeSetId} step ${ordinal} no longer matches its recorded mutation digest.`,
+				);
+			}
+			return {
+				ordinal,
+				requestId: row.request_id,
+				toolName: row.tool_name,
+				mutations,
+				mutationDigest,
+				stages: stagesByStep.get(ordinal) ?? [],
+			};
+		});
 	});
 }
 
@@ -744,17 +749,21 @@ async function faultBoundary(
 export async function stageChangeSetRequest(
 	args: StageChangeSetRequestArgs,
 ): Promise<StageChangeSetRequestResult> {
-	/* Resolve the authority target WITHOUT a row lock, so the transaction can
-	 * take the app row first (never change-set-first). Kind/app columns are
-	 * immutable, and the locked re-read below re-proves them. */
-	const preRead = await loadChangeSet(args.changeSetId);
-	if (preRead === undefined) {
-		throw new ChangeSetScopeLostError("This change set no longer exists.");
-	}
-	return withAppTx(
-		(tx) => stageInTransaction(tx, args, preRead),
-		args.deadlineAt === undefined ? undefined : { deadlineAt: args.deadlineAt },
-	);
+	return traceAuthoringStoreOperation("stageChangeSetRequest", async () => {
+		/* Resolve the authority target WITHOUT a row lock, so the transaction can
+		 * take the app row first (never change-set-first). Kind/app columns are
+		 * immutable, and the locked re-read below re-proves them. */
+		const preRead = await loadChangeSet(args.changeSetId);
+		if (preRead === undefined) {
+			throw new ChangeSetScopeLostError("This change set no longer exists.");
+		}
+		return withAppTx(
+			(tx) => stageInTransaction(tx, args, preRead),
+			args.deadlineAt === undefined
+				? undefined
+				: { deadlineAt: args.deadlineAt },
+		);
+	});
 }
 
 async function stageInTransaction(
@@ -1161,50 +1170,54 @@ export async function authorizeChangeSet(
 	},
 	transaction?: Transaction<AppDatabase>,
 ): Promise<DesignChangeSet> {
-	const prior = await loadChangeSet(args.changeSetId, transaction);
-	if (!prior)
-		throw new ChangeSetScopeLostError("This private candidate is unavailable.");
-	const authorize = async (tx: Transaction<AppDatabase>) => {
-		if (prior.authoringSessionId) {
-			const session = await assertAuthoringSessionAuthorityInTransaction(tx, {
-				sessionId: prior.authoringSessionId,
-				actorUserId: args.actorUserId,
-				expectedProjectId: prior.baseProjectId,
-				chatRunHolder: args.chatRunHolder,
-				origin: args.authoringOrigin,
-				threadId: args.authoringThreadId,
-				allowIdleChat: args.allowIdleAuthoringRead,
-			});
-			if (prior.kind === "app-edit" && session.appId !== prior.appId)
-				throw new ChangeSetScopeLostError(
-					"This private candidate belongs to another app.",
-				);
-		} else {
-			if (
-				!prior.designSessionId ||
-				!args.chatRunHolder ||
-				prior.ownerRunId !== args.runId
-			)
-				throw new ChangeSetScopeLostError(
-					"This candidate no longer belongs to the active run.",
-				);
-			await assertDesignSessionRunAuthorityInTransaction(tx, {
-				designSessionId: prior.designSessionId,
-				actorUserId: args.actorUserId,
-				expectedProjectId: prior.baseProjectId,
-				holder: args.chatRunHolder,
-			});
-		}
-		const row = await lockChangeSetRow(tx, args.changeSetId);
-		if (
-			!row ||
-			row.ownerUserId !== args.actorUserId ||
-			row.baseProjectId !== prior.baseProjectId
-		)
+	return traceAuthoringStoreOperation("authorizeChangeSet", async () => {
+		const prior = await loadChangeSet(args.changeSetId, transaction);
+		if (!prior)
 			throw new ChangeSetScopeLostError(
 				"This private candidate is unavailable.",
 			);
-		return row;
-	};
-	return transaction ? authorize(transaction) : withAppTx(authorize);
+		const authorize = async (tx: Transaction<AppDatabase>) => {
+			if (prior.authoringSessionId) {
+				const session = await assertAuthoringSessionAuthorityInTransaction(tx, {
+					sessionId: prior.authoringSessionId,
+					actorUserId: args.actorUserId,
+					expectedProjectId: prior.baseProjectId,
+					chatRunHolder: args.chatRunHolder,
+					origin: args.authoringOrigin,
+					threadId: args.authoringThreadId,
+					allowIdleChat: args.allowIdleAuthoringRead,
+				});
+				if (prior.kind === "app-edit" && session.appId !== prior.appId)
+					throw new ChangeSetScopeLostError(
+						"This private candidate belongs to another app.",
+					);
+			} else {
+				if (
+					!prior.designSessionId ||
+					!args.chatRunHolder ||
+					prior.ownerRunId !== args.runId
+				)
+					throw new ChangeSetScopeLostError(
+						"This candidate no longer belongs to the active run.",
+					);
+				await assertDesignSessionRunAuthorityInTransaction(tx, {
+					designSessionId: prior.designSessionId,
+					actorUserId: args.actorUserId,
+					expectedProjectId: prior.baseProjectId,
+					holder: args.chatRunHolder,
+				});
+			}
+			const row = await lockChangeSetRow(tx, args.changeSetId);
+			if (
+				!row ||
+				row.ownerUserId !== args.actorUserId ||
+				row.baseProjectId !== prior.baseProjectId
+			)
+				throw new ChangeSetScopeLostError(
+					"This private candidate is unavailable.",
+				);
+			return row;
+		};
+		return transaction ? authorize(transaction) : withAppTx(authorize);
+	});
 }

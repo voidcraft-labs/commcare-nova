@@ -107,9 +107,9 @@ export interface StreamChunkRead {
 }
 
 /**
- * Read a stream's chunks from `fromIndex` through its current end. Two
- * PK-friendly queries: an anchor lookup (the last row starting at or before
- * the cursor — the one row a mid-batch cursor lands inside) and a forward
+ * Read a stream's chunks from `fromIndex` through its current end. One
+ * statement with two PK-friendly scans: an anchor lookup (the last row starting
+ * at or before the cursor — the one row a mid-batch cursor lands inside) and a forward
  * range scan from that anchor, both pure `(stream_id, first_index)` index
  * ranges. Reading from the anchor to the end always includes the terminal
  * marker row (it carries the stream's highest `first_index`, even when
@@ -120,19 +120,22 @@ export async function readStreamChunksFrom(
 	fromIndex: number,
 ): Promise<StreamChunkRead> {
 	const db = await getAppDb();
-	const anchor = await db
+	const anchor = db
 		.selectFrom("chat_stream_chunks")
 		.select("first_index")
 		.where("stream_id", "=", streamId)
 		.where("first_index", "<=", fromIndex)
 		.orderBy("first_index", "desc")
-		.limit(1)
-		.executeTakeFirst();
+		.limit(1);
 	const rows = await db
 		.selectFrom("chat_stream_chunks")
 		.select(["first_index", "chunks", "terminal"])
 		.where("stream_id", "=", streamId)
-		.where("first_index", ">=", anchor?.first_index ?? fromIndex)
+		.where(
+			"first_index",
+			">=",
+			sql<number>`coalesce((${anchor}), ${fromIndex})`,
+		)
 		.orderBy("first_index", "asc")
 		.execute();
 
