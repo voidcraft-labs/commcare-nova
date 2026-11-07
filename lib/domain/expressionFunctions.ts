@@ -398,6 +398,7 @@ export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
 		literal: [1, 2],
 		quotient: [2, 2],
 		"id-of": [1, 1],
+		"capture-link": [1, 1],
 		lookup: [3, 3],
 		"date-add": [3, 3],
 		datetime: [1, 1],

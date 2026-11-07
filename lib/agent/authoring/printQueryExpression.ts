@@ -121,6 +121,8 @@ export function queryPrinter(context: QueryPrintContext) {
 				return "record-type()";
 			case "input":
 				return call("search", quote(value.searchInputUuid));
+			case "capture-link":
+				return call("capture-link", term({ kind: "field", uuid: value.field }));
 			case "field":
 				return call("field", quote(value.uuid));
 			case "session-user":

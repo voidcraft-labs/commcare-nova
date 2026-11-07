@@ -285,3 +285,8 @@ Execution policy reads only authorized candidate revision and pending-count meta
 It does not build an app overview, rehydrate a document, or run diagnostics. The
 executing workspace still opens under its existing authority and revision locks;
 explicit work inspection retains the full diagnostics response.
+
+Captured-file writes use `capture-link(#form/photo)` in record authoring as
+well as form text. The shared read projection prints that same spelling;
+parsing preserves the question identity, while the slot checker restricts it
+to the whole value of a case write from a capture question.

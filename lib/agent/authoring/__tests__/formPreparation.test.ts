@@ -501,3 +501,69 @@ it("prepares the otherwise link's carried values and mints its UUID", async () =
 		},
 	});
 });
+
+it("edits an existing calculation while a private registration still needs its record name", async () => {
+	const doc = structuredClone(
+		namedFormFixture([
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [{ name: "Register", type: "registration" }],
+			},
+		]),
+	);
+	const registration = Object.values(doc.forms).find(
+		(form) => form.name === "Register",
+	);
+	if (!registration) throw new Error("Missing registration");
+	const own = registration.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	if (own?.action !== "own") throw new Error("Missing own operation");
+	delete own.name;
+	const field = doc.fields[doc.fieldOrder[registration.uuid][0]];
+	if (field.kind !== "text") throw new Error("Missing text question");
+	field.relevant = { kind: "term", term: { kind: "literal", value: true } };
+	const h = makeAuthoringHarness({}, doc);
+	expect(
+		await h.call("editField", {
+			fieldUuid: field.uuid,
+			updates: { relevant: "false()" },
+		}),
+	).toMatchObject({ error: expect.stringContaining("case needs a name") });
+	expect(h.currentDoc().fields[field.uuid]).toMatchObject({
+		relevant: field.relevant,
+	});
+});
+
+it("prints a new-case session reference while its private registration name is incomplete", async () => {
+	const doc = structuredClone(
+		namedFormFixture([
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [{ name: "Register", type: "registration" }],
+			},
+		]),
+	);
+	const form = Object.values(doc.forms).find(
+		(form) => form.name === "Register",
+	);
+	if (!form) throw new Error("Missing registration");
+	const own = form.caseOperations?.find((op) => op.action === "own");
+	if (own?.action !== "own") throw new Error("Missing own operation");
+	delete own.name;
+	const field = doc.fields[doc.fieldOrder[form.uuid][0]];
+	if (field.kind !== "text") throw new Error("Missing question");
+	field.default_value = {
+		kind: "term",
+		term: { kind: "session-datum", datum: { kind: "new-case" } },
+	};
+	const h = makeAuthoringHarness({}, doc);
+	expect(await h.call("getField", { fieldUuid: field.uuid })).toMatchObject({
+		field: {
+			default_value:
+				"instance('commcaresession')/session/data/case_id_new_patient_0",
+		},
+	});
+});

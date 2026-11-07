@@ -473,3 +473,41 @@ it("keeps literal hashtags distinct from explicit answer, case and worker insert
 		{ kind: "case-ref", caseType: "client", property: "case_name" },
 	]);
 });
+
+it("reads captured-file case writes through both form and operation reads", async () => {
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [{ name: "Visit", type: "followup" }],
+			},
+		]),
+	);
+	expect(
+		await h.call("addFields", {
+			formUuid: "Visit",
+			fields: [
+				{
+					kind: "image",
+					id: "photo",
+					label: "Photo",
+					caseWrite: { caseType: "patient", property: "photo_link" },
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	for (const name of ["getForm", "getCaseOperations"]) {
+		const result = await h.call(name, { formUuid: "Visit" });
+		expect(JSON.stringify(result)).toContain("capture-link(#form/photo)");
+	}
+	expect(
+		await h.call("editField", {
+			fieldUuid: "photo",
+			updates: { id: "portrait" },
+		}),
+	).toMatchObject({ ok: true });
+	const result = await h.call("getCaseOperations", { formUuid: "Visit" });
+	expect(JSON.stringify(result)).toContain("capture-link(#form/portrait)");
+});

@@ -26,6 +26,8 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { eq } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
+import { formCaseEntryPlan } from "../formCaseEntryPlan";
+import { basicActionsWriteWorker } from "../session";
 import {
 	advancedFixture,
 	choice,
@@ -754,4 +756,40 @@ describe("planFormCaseWire over a corpus", () => {
 		}
 		expect(datums).toBeGreaterThan(5);
 	});
+});
+
+it("includes a basic worker datum for captured-file writes only when the export has a target", () => {
+	const { doc, formUuid } = placementFixture("survey", {
+		operations: () => [
+			{
+				uuid: OP("worker"),
+				id: "worker",
+				action: "update",
+				caseType: "commcare-user",
+				target: { kind: "worker-record" },
+				writes: [
+					{
+						property: "photo_link",
+						value: {
+							kind: "term",
+							term: { kind: "capture-link", field: U("photo") },
+						},
+					},
+				],
+			},
+		],
+	});
+	for (const target of [
+		null,
+		{ origin: "https://www.commcarehq.org", domain: "test-project" },
+	]) {
+		const entry = formCaseEntryPlan(doc, formUuid, undefined, target !== null);
+		expect(entry.kind).toBe("basic");
+		expect(entry.writesWorker).toBe(target !== null);
+		const emitted = planFormCaseWire(doc, formUuid, {
+			attachmentTarget: target,
+		});
+		if (emitted.kind !== "basic") throw new Error("Expected basic emission");
+		expect(basicActionsWriteWorker(emitted.actions)).toBe(target !== null);
+	}
 });

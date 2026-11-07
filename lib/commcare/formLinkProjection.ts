@@ -1,5 +1,6 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
+import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
@@ -87,15 +88,10 @@ import { carriedCreates } from "@/lib/domain/advancedEntryDatums";
 import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
-import {
-	type AdvancedFormCaseWirePlan,
-	type PlannedNewCaseDatum,
-	planFormCaseWire,
-} from "./casePlacementPlan";
+import type { PlannedNewCaseDatum } from "./casePlacementPlan";
 import { caseTypeDepthMap } from "./caseTypeDepths";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
 import { moduleExpressionContexts } from "./expressionContext";
-import { emptyFormActions } from "./hqShells";
 import {
 	type LookupWireNaming,
 	lookupTypeIndexFromNaming,
@@ -119,7 +115,6 @@ import {
 	inlineSearchQueryMetadata,
 	moduleUsesInlineSearch,
 } from "./suite/case-search/inlineSearch";
-import type { FormActions } from "./types";
 import { USERCASE_DATUM_ID } from "./usercaseWire";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { formNodeProjection } from "./xpath/formNodeProjection";
@@ -240,7 +235,7 @@ export interface FormLinkProjectionContext {
 	 * reads entries through such a context.
 	 */
 	readonly moduleKinds: "emitted" | "basic";
-	readonly formActions: (formUuid: Uuid) => FormActions;
+	readonly writesWorker?: (formUuid: Uuid) => boolean;
 	/** The new cases each form's entry gives a datum, in HQ's order. */
 	readonly newCaseDatums: (formUuid: Uuid) => readonly PlannedNewCaseDatum[];
 	/**
@@ -309,8 +304,8 @@ export function formLinkProjectionContext(
 		readonly lookupNaming?: LookupWireNaming;
 		readonly workerProperty?: WireTermBindings["workerProperty"];
 		readonly moduleKinds?: "basic";
-		/** Already-expanded actions, when the caller has them (the compiler). */
-		readonly formActions?: (formUuid: Uuid) => FormActions;
+		/** Worker writes read from already-expanded actions (the compiler). */
+		readonly writesWorker?: (formUuid: Uuid) => boolean;
 		/** The new cases each entry gives a datum, when the caller has them. */
 		readonly newCaseDatums?: (formUuid: Uuid) => readonly PlannedNewCaseDatum[];
 	} = {},
@@ -323,21 +318,15 @@ export function formLinkProjectionContext(
 		formOrder[moduleUuid] = formUuids;
 		for (const formUuid of formUuids) moduleOf.set(formUuid, moduleUuid);
 	}
-	const plan = (formUuid: Uuid) =>
-		planFormCaseWire(doc, formUuid, {
-			attachmentTarget: opts.attachmentTarget ?? null,
-			...(opts.moduleKinds === "basic" && { moduleKind: "basic" as const }),
-		});
-	// An advanced form has no basic actions: its entry reads its loads and
-	// new cases, never a basic action.
-	const formActions =
-		opts.formActions ??
-		((formUuid: Uuid): FormActions => {
-			const planned = plan(formUuid);
-			return planned.kind === "basic" ? planned.actions : emptyFormActions();
-		});
 	const newCaseDatums =
-		opts.newCaseDatums ?? ((formUuid: Uuid) => plan(formUuid).datums);
+		opts.newCaseDatums ??
+		((formUuid: Uuid) =>
+			formCaseEntryPlan(
+				doc,
+				formUuid,
+				opts.moduleKinds,
+				opts.attachmentTarget != null,
+			).datums);
 	return {
 		expressionDoc: opts.expressionDoc ?? doc,
 		entryMetadataOnly: opts.entryMetadataOnly === true,
@@ -351,7 +340,7 @@ export function formLinkProjectionContext(
 		moduleOrder,
 		formOrder,
 		moduleKinds: opts.moduleKinds ?? "emitted",
-		formActions,
+		writesWorker: opts.writesWorker,
 		newCaseDatums,
 		attachmentTarget: opts.attachmentTarget ?? null,
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
@@ -723,9 +712,12 @@ export function entrySessionDatums(
 	const mod = doc.modules[moduleUuid];
 	if (form === undefined || mod === undefined) return [];
 	if (ctx.moduleKinds === "emitted") {
-		const plan = planFormCaseWire(doc, formUuid, {
-			attachmentTarget: ctx.attachmentTarget,
-		});
+		const plan = formCaseEntryPlan(
+			doc,
+			formUuid,
+			undefined,
+			ctx.attachmentTarget !== null,
+		);
 		if (plan.kind === "advanced") {
 			const aligned = advancedEntrySessionDatums(
 				doc,
@@ -740,6 +732,12 @@ export function entrySessionDatums(
 	}
 	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 	const selectionDatums = selectableDatums(doc, ctx, moduleUuid, form.type);
+	const entryPlan = formCaseEntryPlan(
+		doc,
+		formUuid,
+		ctx.moduleKinds === "basic" ? "basic" : undefined,
+		ctx.attachmentTarget !== null,
+	);
 	const newCases = ctx.newCaseDatums(formUuid);
 	const datums = deriveSessionDatums({
 		expressions: moduleExpressionContexts(doc, moduleUuid, ctx.lookupNaming),
@@ -747,7 +745,7 @@ export function entrySessionDatums(
 		moduleIndex: moduleIndexOf(ctx, moduleUuid),
 		...(caseType !== "" && { caseType }),
 		caseSelectionDatums: selectionDatums,
-		actions: ctx.formActions(formUuid),
+		writesWorker: ctx.writesWorker?.(formUuid) ?? entryPlan.writesWorker,
 		newCases,
 		...(mod.caseListConfig?.tile?.grouping !== undefined && {
 			tileGrouping: mod.caseListConfig.tile.grouping,
@@ -810,14 +808,10 @@ function advancedEntrySessionDatums(
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
-	plan: AdvancedFormCaseWirePlan,
+	plan: FormCaseEntryPlan,
 ): readonly SessionDatum[] {
 	const { loads } = plan;
-	const indexedByOpen = new Set(
-		plan.actions.open_cases.flatMap((open) =>
-			open.case_indices.map((index) => index.tag),
-		),
-	);
+	const indexedByOpen = plan.indexedByOpen;
 	const position = new Map(loads.map((load, index) => [load.tag, index]));
 	// The load datums, the chain's at their chain positions, as they stand:
 	// read when a filter that reads a case chosen

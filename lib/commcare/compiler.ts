@@ -5,6 +5,7 @@ import {
 	type RuntimeTarget,
 } from "@/lib/commcare/runtimeTarget";
 import { buildEntryPointSuite } from "./entryPointSuite";
+import { basicActionsWriteWorker } from "./session";
 import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
@@ -421,14 +422,14 @@ export function compileCcz(
 	const linkContext = formLinkProjectionContext(doc, {
 		expressionDoc: authoredDoc,
 		runtimeTarget: opts.runtimeTarget,
-		formActions: (formUuid) => {
+		writesWorker: (formUuid) => {
 			const actions = actionsByForm.get(formUuid);
 			if (actions === undefined) {
 				throw new Error(
 					`Cannot project after-submit links: form ${formUuid} has no expanded actions`,
 				);
 			}
-			return actions;
+			return basicActionsWriteWorker(actions);
 		},
 		...(lookupNaming && { lookupNaming }),
 	});
@@ -899,7 +900,9 @@ export function compileCcz(
 				projectedSessionDatums,
 				caseListFilter: mod.caseListConfig?.filter,
 				additionalInstances: commandInstances.declarations(),
-				...(hqForm.doc_type === "Form" && { actions: hqForm.actions }),
+				...(hqForm.doc_type === "Form" && {
+					writesWorker: basicActionsWriteWorker(hqForm.actions),
+				}),
 				excludedOwnerIds,
 				expressions,
 				lookupNaming,

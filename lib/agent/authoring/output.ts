@@ -94,6 +94,10 @@ export async function projectAuthoringReadInContext(
 		log.error("[authoring] read projection failed", error, {
 			toolName,
 			appId: ctx.appId,
+			projectId: ctx.projectId,
+			workId: ctx.ordinaryAuthoring?.sessionId,
+			authoringSessionId: ctx.authoringSessionId,
+			workspaceRevision: ctx.snapshot.revision,
 		});
 		throw new ReadProjectionError(toolName, error);
 	}
