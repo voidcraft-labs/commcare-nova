@@ -22,6 +22,8 @@ scripts/*
 !scripts/build-xpath-worker.mjs
 !scripts/build-app.mjs
 !scripts/migrate.ts
+!scripts/scan-case-expression-indexes.ts
+!scripts/migrate-case-expression-indexes.ts
 !scripts/java-pattern-runtime/
 !scripts/java-pattern-runtime/**
 scripts/java-pattern-runtime/.gradle/
@@ -39,6 +41,7 @@ scripts/infra/*
 !scripts/lib/
 scripts/lib/*
 !scripts/lib/caseTypeSchemaRetirement.ts
+!scripts/lib/retireCaseExpressionIndexes.ts
 !scripts/lib/caseParentRelationshipRepair.ts
 !scripts/lib/languageIdentityRepair.ts
 !scripts/lib/loadPersistedBlueprint.ts
