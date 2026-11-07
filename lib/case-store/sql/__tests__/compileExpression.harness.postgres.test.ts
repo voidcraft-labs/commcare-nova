@@ -153,6 +153,68 @@ function formPredicateContext(predicate: DomainExpression) {
 }
 
 describe("compileExpression — round-trip — form bindings", () => {
+	test("keeps hidden multi-select lexical bindings as typed arrays", async ({
+		db,
+	}) => {
+		const uuid = testUuid("hidden-multi-answer");
+		for (const [answer, expected] of [
+			["urgent review", ["urgent", "review"]],
+			["", []],
+		] as const) {
+			const ctx = makeCtx(db, {
+				formFieldTypes: new Map([[uuid, "multi_select"]]),
+				bindings: { formFields: new Map([[uuid, answer]]) },
+			});
+			expect(
+				await db
+					.selectNoFrom(
+						compileExpression(term(formField(uuid)), ctx).as("value"),
+					)
+					.executeTakeFirstOrThrow(),
+			).toEqual({ value: expected });
+		}
+	});
+
+	test("keeps blank temporal coercions and date arithmetic blank in selected and unselected branches", async ({
+		db,
+	}) => {
+		const uuid = testUuid("temporal-answer");
+		for (const dataType of ["date", "datetime"] as const) {
+			const fields = new Map([[uuid, ""]]);
+			const ctx = makeCtx(db, {
+				formFieldTypes: new Map([[uuid, dataType]]),
+				bindings: { formFields: fields },
+			});
+			const coerce = dataType === "date" ? dateCoerce : datetimeCoerce;
+			for (const expression of [
+				coerce(term(literal(""))),
+				coerce(term(formField(uuid))),
+				dateAdd(term(formField(uuid)), "days", term(literal(1))),
+			]) {
+				expect(
+					await db
+						.selectNoFrom(compileExpression(expression, ctx).as("value"))
+						.executeTakeFirstOrThrow(),
+				).toEqual({ value: null });
+			}
+			fields.set(
+				uuid,
+				dataType === "date" ? "2026-11-06" : "2026-11-06T12:00:00Z",
+			);
+			for (const selected of [true, false]) {
+				const expression = ifExpr(
+					selected ? eq(literal(1), literal(1)) : eq(literal(1), literal(2)),
+					coerce(term(formField(uuid))),
+					coerce(term(literal(""))),
+				);
+				const row = await db
+					.selectNoFrom(compileExpression(expression, ctx).as("value"))
+					.executeTakeFirstOrThrow();
+				expect(row.value === null).toBe(!selected);
+			}
+		}
+	});
+
 	test("preserves numeric types through nested answered and blank branches", async ({
 		db,
 	}) => {

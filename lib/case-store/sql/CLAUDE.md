@@ -294,3 +294,17 @@ constraints. State that the rows are intentionally invalid and never commit them
 Ordinary fixtures retain immediate constraint checking. At each relation hop,
 make a wrong identifier, depth, type, app, or Project change the expected result;
 do not use an alternate valid path that reaches the same destination.
+
+### Submission value bindings
+
+A form field binding follows its canonical semantic type, including Hidden
+Values whose calculation inherits multi-select. The instance carries such
+calculations as space-separated text; the term compiler converts that lexical
+value to a JSONB array before SQL evaluation, just as it does visible
+multi-select arrays. Other text bindings remain text.
+
+An empty temporal operand is SQL NULL before date, datetime, and date-add
+casts, including constant operands in untaken branches. A nonempty malformed
+operand still fails. Submission evaluation attributes SQL temporal format and
+range failures to the operation, property slot and source field identities,
+retaining the original database cause and rolling back all effects.

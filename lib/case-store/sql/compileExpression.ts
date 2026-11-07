@@ -387,9 +387,20 @@ function compileCast(
 ): AliasableExpression<unknown> {
 	const inner = compileExpression(value, ctx);
 	return eb.cast(
-		cast === "numeric" ? numericBranchOperand(inner, ctx) : inner,
+		cast === "numeric"
+			? numericBranchOperand(inner, ctx)
+			: blankTemporalOperand(inner),
 		cast,
 	);
+}
+
+/** The form instance uses empty text for an absent temporal answer. Normalize
+ * before the cast itself: PostgreSQL may fold even an untaken constant branch.
+ * Nonblank malformed dates still fail rather than silently losing data. */
+function blankTemporalOperand(
+	inner: AliasableExpression<unknown>,
+): AliasableExpression<unknown> {
+	return eb.fn("nullif", [eb.cast(inner, "text"), eb.val("")]);
 }
 
 /** Protect both parameter decoding and planner constant folding. The numeric
@@ -471,14 +482,15 @@ export function compilePinnedInstant(
 	inner: AliasableExpression<unknown>,
 	zone: string,
 ): AliasableExpression<unknown> {
-	const trimmedText = eb.fn<string>("btrim", [eb.cast(inner, "text")]);
+	const temporalText = blankTemporalOperand(inner);
+	const trimmedText = eb.fn<string>("btrim", [temporalText]);
 	const isNaive = eb(trimmedText, "~", eb.val(NAIVE_TEMPORAL_TEXT_PATTERN));
 	const pinned = javaWallInstant(zone, eb.cast(trimmedText, "timestamp"));
 	return eb
 		.case()
 		.when(isNaive)
 		.then(pinned)
-		.else(eb.cast(inner, "timestamptz"))
+		.else(eb.cast(temporalText, "timestamptz"))
 		.end();
 }
 
@@ -550,7 +562,7 @@ function compileDateAdd(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const baseType = resolveDateAddBaseType(date, ctx);
-	const dateExpr = compileExpression(date, ctx);
+	const dateExpr = blankTemporalOperand(compileExpression(date, ctx));
 	const quantityExpr = compileExpression(quantity, ctx);
 	const intervalExpr = makeIntervalForUnit(interval, quantityExpr);
 	if (baseType === "date") {
