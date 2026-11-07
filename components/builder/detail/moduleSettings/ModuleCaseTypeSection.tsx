@@ -34,6 +34,7 @@ import type { ModuleAuthoringPatch } from "@/lib/doc/modulePatchMutations";
 import { caseTypeClearPatch, caseTypeSetPatch } from "@/lib/doc/scaffolds";
 import type { Uuid } from "@/lib/doc/types";
 import { humanizeId } from "@/lib/domain";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
 interface ModuleCaseTypeSectionProps {
 	moduleUuid: Uuid;
@@ -57,6 +58,7 @@ export function ModuleCaseTypeSection({
 	const [clearOpen, setClearOpen] = useState(false);
 	const [clearError, setClearError] = useState<string | null>(null);
 	const pickerTriggerRef = useRef<HTMLButtonElement>(null);
+	const deferFocus = useDeferredFocus();
 
 	if (!module) return null;
 	const hasForms = (formIds?.length ?? 0) > 0;
@@ -71,7 +73,7 @@ export function ModuleCaseTypeSection({
 	};
 
 	const restorePickerFocus = () => {
-		requestAnimationFrame(() => pickerTriggerRef.current?.focus());
+		deferFocus(() => pickerTriggerRef.current?.focus());
 	};
 
 	const chooseCaseType = (caseType: string) => {

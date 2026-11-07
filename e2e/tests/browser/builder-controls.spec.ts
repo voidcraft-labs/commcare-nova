@@ -1906,6 +1906,21 @@ test("case storage describes several-case writes and commits a worker-admitted d
 	).toBeVisible();
 });
 
+test("creating a case property focuses its name and Cancel returns to the chooser", async ({
+	page,
+}) => {
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	await page.goto(`${peer.origin}/?scenario=case-write`);
+	const chooser = page.getByRole("combobox", { name: /^Saves to:/ });
+	await chooser.click();
+	await page.getByRole("option", { name: /^Save to new property/ }).click();
+	await expect(
+		page.getByRole("textbox", { name: "Property name", exact: true }),
+	).toBeFocused();
+	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	await expect(chooser).toBeFocused();
+});
+
 test("the inspector says what a case-bound field does when a one-case form opens", async ({
 	page,
 }) => {

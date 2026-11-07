@@ -26,6 +26,7 @@ import {
 } from "@/lib/preview/columnDisplay";
 import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { useWorkerMessage } from "./WorkerText";
 
 /**
@@ -90,6 +91,7 @@ export function ListFilterBox({
 	const message = useWorkerMessage();
 	const id = useId();
 	const inputRef = useRef<HTMLInputElement>(null);
+	const deferFocus = useDeferredFocus();
 	return (
 		<div>
 			<label
@@ -121,7 +123,7 @@ export function ListFilterBox({
 						variant="ghost"
 						onClick={() => {
 							onChange("");
-							requestAnimationFrame(() => inputRef.current?.focus());
+							deferFocus(() => inputRef.current?.focus());
 						}}
 						aria-label={message("clearFilter")}
 						className="absolute inset-y-0 right-0 h-full w-11 rounded-lg text-nova-text-muted not-disabled:hover:bg-transparent"

@@ -123,6 +123,8 @@ password works.
 
 **Glow & light.** Page-level CTAs and active elements emit a violet glow (`--nova-glow-violet`, stronger on hover); `--nova-glow-dawn` exists for rare warm hero moments. Glow is the brand's substitute for elevation: light, not shadow, signals "alive / active."
 
+**Focus handoffs.** A delayed focus move yields when the person has already chosen another control or started a new interaction.
+
 **Focus.** Keyboard focus = violet-bright border + a soft 3px ring at 45% alpha (`--focus-ring`). Selection is violet at 0.32 alpha with white text.
 
 **Motion.** Unhurried and gentle: things settle, never snap. Entrances fade and rise 10 to 20px on `cubic-bezier(0.16,1,0.3,1)` over 0.6 to 0.8s. Press is real travel: keycap buttons sink 3px (`--key-wall`) as their wall collapses; text-only controls nudge `translateY(1px)`. Menus and popovers fade at their final size. Their contents can anchor another popup immediately, so entrance and exit motion must keep descendant geometry stable. Default UI transitions are 0.2s; ambient motion (breath, blooms) is slow enough to ignore. Respect `prefers-reduced-motion` (near-zero durations, not `none`, so lifecycles still complete).

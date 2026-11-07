@@ -32,6 +32,7 @@
 "use client";
 
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { useDeferredFocus } from "./useDeferredFocus";
 
 type RemovalIntent = { readonly index: number; readonly count: number };
 
@@ -49,32 +50,19 @@ export function useRemovedRowFocus(count: number): {
 	const addRef = useRef<HTMLButtonElement>(null);
 	const [intent, setIntent] = useState<RemovalIntent | null>(null);
 	const handled = useRef<RemovalIntent | null>(null);
-	const frame = useRef<number | null>(null);
-
-	// The frame is cancelled on UNMOUNT and at the next schedule — never from
-	// the scheduling effect's own cleanup. That cleanup runs whenever the list
-	// length changes again, so cancelling there would kill the pending focus
-	// whenever a peer's edit lands inside the frame's window.
-	useEffect(
-		() => () => {
-			if (frame.current !== null) cancelAnimationFrame(frame.current);
-		},
-		[],
-	);
+	const deferFocus = useDeferredFocus();
 
 	useEffect(() => {
 		if (intent === null || handled.current === intent) return;
 		handled.current = intent;
 		if (count >= intent.count) return;
-		if (frame.current !== null) cancelAnimationFrame(frame.current);
-		frame.current = requestAnimationFrame(() => {
-			frame.current = null;
+		deferFocus(() => {
 			/* The row that slid into the gap — or, when the last row went, the
 			 * one now at the end. `count` is the live bound. */
 			const target = rows.current[Math.min(intent.index, count - 1)];
 			if (!focusAvailable(target)) focusAvailable(addRef.current);
 		});
-	}, [intent, count]);
+	}, [intent, count, deferFocus]);
 
 	return {
 		register: (index: number) => (el: HTMLElement | null) => {
@@ -84,9 +72,7 @@ export function useRemovedRowFocus(count: number): {
 			setIntent({ index, count });
 		},
 		focusRow: (index: number) => {
-			if (frame.current !== null) cancelAnimationFrame(frame.current);
-			frame.current = requestAnimationFrame(() => {
-				frame.current = null;
+			deferFocus(() => {
 				if (!focusAvailable(rows.current[index]))
 					focusAvailable(addRef.current);
 			});

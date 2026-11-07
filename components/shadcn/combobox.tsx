@@ -20,6 +20,7 @@ import {
 	POPOVER_POPUP_CLS,
 	POPOVER_POSITIONER_GLASS_CLS,
 } from "@/lib/styles";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { cn } from "@/lib/utils";
 
 const Combobox = ComboboxPrimitive.Root;
@@ -90,6 +91,7 @@ function ComboboxInput({
 	startAdornment?: React.ReactNode;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
+	const deferFocus = useDeferredFocus();
 	const mergedRef = useMergedRefs(inputRef, ref);
 	return (
 		<InputGroup
@@ -126,7 +128,7 @@ function ComboboxInput({
 							aria-label={clearLabel}
 							disabled={disabled}
 							onClick={() => {
-								requestAnimationFrame(() => inputRef.current?.focus());
+								deferFocus(() => inputRef.current?.focus());
 							}}
 						/>
 					) : (

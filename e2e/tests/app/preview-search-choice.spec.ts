@@ -20,6 +20,7 @@ test("a search condition that depends on an answer and reads its distance from o
 	const { searchChoice } = seedFor(scenario, "search-choice");
 	const { radius, area, sites, moduleName } = SEARCH_CHOICE_SEED;
 	test.setTimeout(120_000);
+	await page.clock.install();
 	const main = page.locator("main");
 
 	await test.step("author the choice and the distance in the Radius condition", async () => {
@@ -84,9 +85,30 @@ test("a search condition that depends on an answer and reads its distance from o
 	});
 	const areaAnswer = searchScreen.getByRole("textbox", { name: area.label });
 	const rows = main.getByRole("list", { name: "Cases" }).getByRole("listitem");
+	let checkedFocusHandoff = false;
 	const search = async (answers: { radius: string; area: string }) => {
-		if (!(await searchScreen.isVisible()))
-			await main.getByRole("button", { name: "Search again" }).click();
+		if (!(await searchScreen.isVisible())) {
+			const again = main.getByRole("button", { name: "Search again" });
+			if (!checkedFocusHandoff) {
+				// Hold the navigation's focus frame, then choose Area before it
+				// runs. A delayed first-field handoff must not redirect that input.
+				await page.clock.pauseAt(new Date(Date.now() + 1_000));
+				try {
+					// Actionability needs animation frames; dispatch the native click
+					// with the clock paused and observe React's resulting screen.
+					await again.evaluate((button: HTMLButtonElement) => button.click());
+					await expect(searchScreen).toBeVisible();
+					await areaAnswer.focus();
+					await page.clock.runFor(32);
+					await expect(areaAnswer).toBeFocused();
+					checkedFocusHandoff = true;
+				} finally {
+					await page.clock.resume();
+				}
+			} else {
+				await again.click();
+			}
+		}
 		await expect(searchScreen).toBeVisible({ timeout: 20_000 });
 		await radiusAnswer.fill(answers.radius);
 		await areaAnswer.fill(answers.area);

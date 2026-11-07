@@ -56,6 +56,7 @@ import {
 	useCanEdit,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { summarizeFilter } from "../predicateSummary";
 import { searchInputDecls } from "../searchInputResolution";
 import {
@@ -119,6 +120,7 @@ export function CaseAvailabilityComposer({
 		slot: "case_list_filter",
 	});
 	const [pendingShutdown, setPendingShutdown] = useState(false);
+	const deferFocus = useDeferredFocus();
 	const addConditionRegionRef = useRef<HTMLDivElement>(null);
 	const focusAddConditionAfterClearRef = useRef(false);
 
@@ -129,14 +131,14 @@ export function CaseAvailabilityComposer({
 		) {
 			return;
 		}
-		const frame = requestAnimationFrame(() => {
+		focusAddConditionAfterClearRef.current = false;
+		const cancelFocus = deferFocus(() => {
 			addConditionRegionRef.current
 				?.querySelector<HTMLButtonElement>("button")
 				?.focus();
-			focusAddConditionAfterClearRef.current = false;
 		});
-		return () => cancelAnimationFrame(frame);
-	}, [config.filter]);
+		return cancelFocus;
+	}, [config.filter, deferFocus]);
 
 	const proposeFilter = (next: Expression | undefined) => {
 		if (
