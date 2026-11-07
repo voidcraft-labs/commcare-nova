@@ -45,8 +45,13 @@ harness keeps, each with its reason.
   address is the runner's peer, and each request Formplayer makes of HQ is
   answered by the view HQ's URLconf names, behind HQ's own middleware, over
   the unit's state (`proof/formplayer/hq.py`): a worker HQ made, the
-  document's cases saved through HQ's receiver, a build HQ released. A
-  request no view answers is HQ's 404; a harness refusal ends the
+  document's cases saved through HQ's receiver, a build HQ released. The
+  worker's user case starts at the date the case database supplies: HQ creates it
+  synchronously inside its worker save, so only that setup call uses the supplied
+  clock (`proof/formplayer/hq.py::create_worker`), also in the unseeded audit.
+  Its entropy and every subsequent operation keep the audit's chosen mode;
+  later user-case timestamps remain observed and compared.
+  A request no view answers is HQ's 404; a harness refusal ends the
   observation. Never answer one of Formplayer's requests with a function
   called on HQ's behalf, a restore written beside HQ, or a submission
   acknowledged without being processed, in the packages' own tests as in

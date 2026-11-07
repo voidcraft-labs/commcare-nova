@@ -672,7 +672,13 @@ To reproduce a weekly audit's conditions on those same checks, dispatch the
 slice directly with `mode=verified`, `unseeded`, or `unseamed` (`normal` is
 the default). Verified enables memo comparisons, editor replay and all
 edited documents' branch comparisons; unseeded leaves Nova's and HQ's
-entropy and HQ's clock unfrozen; unseamed disables the HQ speed seams.
+entropy and HQ's runtime clock unfrozen; unseamed disables the HQ speed seams.
+The worker's creation alone uses the user-case date authored in the case
+database, as the other seeded cases receive their authored dates through
+case blocks. HQ creates that user case synchronously when saving its worker.
+This supplies the same setup input to each app state; subsequent saves,
+builds and reader requests retain the audit's real clock, and all timestamp
+comparisons remain in place.
 
 ```bash
 gh workflow run proof-slice.yml --ref <branch> -f readers=0 -f mode=verified \

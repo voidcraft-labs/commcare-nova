@@ -68,7 +68,7 @@ from __future__ import annotations
 import hashlib
 import json
 import traceback
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from email.parser import BytesParser
 from email.policy import HTTP
@@ -478,18 +478,27 @@ def default_roles(unit):
 
 def create_worker(unit, database):
     """The document's worker as HQ makes a mobile worker (``CommCareUser.create``), under the id the case
-    database gives them, with its user data."""
+    database gives them, with its user data and setup date.
+
+    HQ creates the user case synchronously when it saves the worker, using its clock for the case block's
+    date. Other seeded cases receive their dates through ``case_block``; this one needs the same authored
+    input even when the audit leaves HQ's runtime clock real. Only worker creation uses this setup clock.
+    """
+    import time_machine
     from corehq.apps.users.models import CommCareUser
 
-    return CommCareUser.create(
-        unit.domain,
-        worker_username(unit.domain),
-        PASSWORD,
-        created_by=None,
-        created_via=None,
-        uuid=database.user_id,
-        user_data=dict(database.user_data),
-    )
+    usercase = next((case for case in database.cases if case.case_id == casedata.USERCASE_ID), None)
+    setup_clock = time_machine.travel(usercase.modified_on, tick=False) if usercase is not None else nullcontext()
+    with setup_clock:
+        return CommCareUser.create(
+            unit.domain,
+            worker_username(unit.domain),
+            PASSWORD,
+            created_by=None,
+            created_via=None,
+            uuid=database.user_id,
+            user_data=dict(database.user_data),
+        )
 
 
 def case_block(case, database):
