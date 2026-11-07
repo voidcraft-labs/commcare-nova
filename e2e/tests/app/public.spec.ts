@@ -1,6 +1,7 @@
 import { docsHostPeer } from "../../lib/docsHostPeer";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
+import { oauthDiscoveryTarget } from "../../lib/oauthDiscoveryTarget";
 import { openPage, reloadPage } from "../../lib/pageLoads";
 import { urlHost } from "../../lib/url";
 
@@ -84,10 +85,8 @@ test("OAuth discovery mounts canonical issuer metadata on the public hosts", asy
 	request,
 	baseURL,
 }) => {
+	const local = oauthDiscoveryTarget(baseURL) === "local";
 	if (!baseURL) throw new Error("Missing app URL");
-	const local = ["localhost", "127.0.0.1", "[::1]"].includes(
-		new URL(baseURL).hostname,
-	);
 	const advertisedIssuer = "https://commcare.app/api/auth";
 	const providerIssuer = local
 		? `${(process.env.BETTER_AUTH_URL ?? baseURL).replace(/\/$/, "")}/api/auth`
