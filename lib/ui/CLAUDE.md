@@ -93,3 +93,9 @@ Return its cancellation from an effect when the request belongs to that effect;
 row-removal hooks deliberately retain their handoff across unrelated renders.
 This is not a focus trap or an async operation owner: those flows must still
 check their own scope, readiness and request lifetime before scheduling focus.
+
+**Lazy surfaces keep their shell.** `recoverableLazyModule` owns a shared import
+promise and stable idle/loading/ready/error snapshots. Inspector bodies and
+Publish use it to render loading and retry within their own synchronous shell.
+A failed preload is a retryable surface state, never an unhandled rejection;
+a lazy body must not hide an unrelated Builder or Preview subtree.

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
 	createRecoverableLazyModule,
 	getLazyModuleServerSnapshot,
-} from "../lazyInspectorBodies";
+} from "../recoverableLazyModule";
 
-describe("recoverable Builder import owner", () => {
+describe("recoverable surface import owner", () => {
 	it("publishes rejection and shares one retry request through readiness", async () => {
 		const loaded = { component: "ready" };
 		let attempts = 0;

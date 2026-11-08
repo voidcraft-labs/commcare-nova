@@ -236,6 +236,22 @@ and one state-label table, the pure model in
 `app-setup/publishingSectionModel.ts`, so they cannot disagree about what
 a target holds.
 
+The Publish dialog owns a synchronous shell and a recoverable lazy body
+(`PublishDialog` / `PublishDialogBody`). Its import must never suspend the Builder:
+React hides suspended trees and disconnects their layout effects, which also
+interrupts Preview's motion-owned layout. The inspector and Publish share
+`lib/ui/recoverableLazyModule`; loading and retry stay inside each surface.
+The shell keeps its heading, dismissal and dimensions through loading and error.
+Destination selection precedes a separate review step; required decisions and
+consequences remain visible, supporting explanations expand through Details,
+and published destinations expand separately. The body scrolls between fixed
+header and footer. Step navigation focuses the persistent heading in the same layout commit, before
+the dialog recovers focus from the removed step button.
+Compatibility checks, uploads and downloads wait for the reconciler's human
+save barrier before reading the server document. Closing, scope changes and
+connection changes retire outstanding results; destination changes also expire
+consent. A connection refresh that removes a space follows that same path.
+
 A publish returns a durable deployment record, and `DeploymentStatus` renders
 it: the progress states as a ladder with only the reached
 ones filled, each rung stating its own condition in text so nothing is conveyed
@@ -250,18 +266,19 @@ same card. `DeploymentStatus` takes the Workers panel as a composed
 surface (the dialog) passes nothing, which is what makes the
 one-credential-surface rule structural rather than a convention.
 
-The dialog still **opens** on the records, not only after a publish creates
-one. They drive target-aware copy: the form says whether the selected
-project space gets an in-place update or a fresh app (`plannedInPlaceUpdate`,
-the same predicate the publish applies), claims neither while the records are
-still loading or unavailable, and the landed hero says which happened. Above
-the form they render as compact per-target rows (`compactTargetRows` in the
-model: domain, status label, an amber stopped-partway note, an update-vs-fresh
-line) with an "Open Publishing" affordance, never a second set of full cards.
+The dialog reads the records when it opens, before a publish creates one.
+They drive target-aware copy: the form says whether the selected project space
+gets an in-place update, a fresh app, or the empty app an earlier try made
+(`nextPublishAction`, the same predicate the publish applies), claims neither
+while the records are still loading or unavailable, and the landed hero says
+which happened. Published destinations expands compact per-target rows
+(`compactTargetRows` in the model: domain, status label, an amber stopped-partway
+note, an update-vs-fresh line) with an "Open Publishing" affordance, never a
+second set of full cards.
 Record identity is `(server, domain)` on every one of these reads: a key
 reaches exactly one CommCare HQ installation, so a row whose record lives on
 another says so instead of claiming what publishing again would do, and the
-form's update-vs-create blurb consults `plannedInPlaceUpdate` only for records
+form's update-vs-create blurb consults `nextPublishAction` only for records
 on the connection's own server.
 The dialog keeps ONE copy per target: the open-time read
 seeds a store, and the publish response and every Check status upsert into it,

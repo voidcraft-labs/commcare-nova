@@ -68,7 +68,7 @@ export function discoveredScenarioAttempts(
 			kind === "multiplayer"
 				? test.projectId === "multiplayer"
 				: test.projectId === "react-profile" &&
-					/builder-(load|scale)\.spec\.ts$/.test(test.file);
+					/(builder-(load|scale)|publish-flow)\.spec\.ts$/.test(test.file);
 		if (!selected) continue;
 		for (let retry = 0; retry <= test.retries; retry++)
 			keys.add(scenarioAttemptKey({ ...test, retry }));

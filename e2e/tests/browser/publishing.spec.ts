@@ -95,7 +95,7 @@ function report(
 			: "This project space supports everything this app uses.",
 	};
 }
-async function open(page: Page, query = "") {
+async function open(page: Page, query = "", review = true) {
 	await page.route("**/api/apps/native-publishing/stream?*", (route) =>
 		route.fulfill({
 			status: 200,
@@ -145,10 +145,41 @@ async function open(page: Page, query = "") {
 		await page
 			.getByRole("button", { name: "Open publish", exact: true })
 			.click();
+	if (
+		review &&
+		!query.includes("links=true") &&
+		(await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isEnabled())
+	)
+		await reviewDestination(page);
 }
-async function choose(page: Page, label: string, name: string) {
+async function reviewDestination(page: Page) {
+	await page.getByRole("button", { name: "Continue", exact: true }).click();
+	await expect(
+		page.getByRole("heading", { name: "Review and publish", exact: true }),
+	).toBeVisible();
+}
+async function choose(page: Page, label: string, name: string, review = true) {
+	const back = page.getByRole("button", { name: "Back", exact: true });
+	const another = page.getByRole("button", {
+		name: "Another destination",
+		exact: true,
+	});
+	if (await back.isVisible()) await back.click();
+	else if (await another.isVisible()) await another.click();
 	await page.getByRole("combobox", { name: label, exact: true }).click();
 	await page.getByRole("option", { name, exact: true }).click();
+	if (
+		review &&
+		(await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()) &&
+		(await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isEnabled())
+	)
+		await reviewDestination(page);
 }
 const refusal = {
 	success: false,
@@ -184,17 +215,36 @@ test("native publish consent expires when the dialog closes or its destination c
 		return route.fulfill({ json: refusal });
 	});
 	await open(page);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await page.getByRole("checkbox", { name: "Clinics (clinics)" }).check();
 	await page.keyboard.press("Escape");
 	await expect(page.getByRole("dialog")).toHaveCount(0);
 	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await reviewDestination(page);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	expect(sent).toHaveLength(2);
 	expect(sent[1]).toMatchObject({ adopt_resources: [] });
 	await page.getByRole("checkbox", { name: "Clinics (clinics)" }).check();
 	await choose(page, "Publish option", "CommCare HQ app file");
 	await choose(page, "Publish option", "CommCare HQ");
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	expect(sent[2]).toMatchObject({ adopt_resources: [] });
 });
@@ -255,6 +305,12 @@ test("native publish lists what changed in CommCare HQ, publishes over each tick
 		return route.fulfill({ json: sent.length === 1 ? changed : landed });
 	});
 	await open(page);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(
 		page.getByText("The form Visit in the menu Patients", { exact: true }),
@@ -358,7 +414,7 @@ test("native publish checks each selected Project and holds a server refusal unt
 	});
 	await open(page, "multi=true");
 	await expect(
-		page.getByRole("button", { name: "Upload", exact: true }),
+		page.getByRole("button", { name: "Continue", exact: true }),
 	).toBeDisabled();
 	expect(checked).toEqual([]);
 	await choose(page, "Project space", "Alpha");
@@ -371,6 +427,12 @@ test("native publish checks each selected Project and holds a server refusal unt
 			json: { ...refusal, project_space_compatibility: report("alpha", true) },
 		}),
 	);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(
 		page.getByRole("button", { name: "Upload", exact: true }),
@@ -389,10 +451,10 @@ test("native publish checks each selected Project and holds a server refusal unt
 		page.getByRole("button", { name: "Upload", exact: true }),
 	).toBeEnabled();
 	expect(checked).toEqual(["alpha", "alpha", "beta"]);
-	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	await page.keyboard.press("Escape");
 	await page.getByRole("button", { name: "Open publish", exact: true }).click();
 	await expect(
-		page.getByRole("button", { name: "Upload", exact: true }),
+		page.getByRole("button", { name: "Continue", exact: true }),
 	).toBeDisabled();
 });
 
@@ -407,7 +469,7 @@ test("native file downloads remain available to viewers and ignore a completion 
 		route.fulfill({ json: { ok: true } }),
 	);
 	try {
-		await open(page, "viewer=true");
+		await open(page, "viewer=true", false);
 		await page
 			.getByRole("combobox", { name: "Publish option", exact: true })
 			.click();
@@ -417,6 +479,7 @@ test("native file downloads remain available to viewers and ignore a completion 
 		await page
 			.getByRole("option", { name: "CommCare HQ app file", exact: true })
 			.click();
+		await reviewDestination(page);
 		await page
 			.getByRole("button", { name: "Download ZIP", exact: true })
 			.click();
@@ -424,13 +487,14 @@ test("native file downloads remain available to viewers and ignore a completion 
 		await expect(
 			page.getByRole("button", { name: "Preparing", exact: true }),
 		).toBeDisabled();
-		await page.getByRole("button", { name: "Cancel", exact: true }).click();
+		await page.keyboard.press("Escape");
 		await page
 			.getByRole("button", { name: "Open publish", exact: true })
 			.click();
 		const old = held;
 		held = undefined;
 		await old?.fulfill({ body: "zip", contentType: "application/zip" });
+		await reviewDestination(page);
 		await expect(
 			page.getByRole("button", { name: "Download ZIP", exact: true }),
 		).toBeEnabled();
@@ -722,6 +786,12 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 			{ exact: true },
 		),
 	).toBeVisible();
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(
 		page.getByText("Your app is on CommCare HQ", { exact: true }),
@@ -757,7 +827,7 @@ test("native CCZ download is made for a project space the app is published to", 
 		await page
 			.getByRole("button", { name: "Open publish", exact: true })
 			.click();
-		await choose(page, "Publish option", "CommCare mobile app file");
+		await choose(page, "Publish option", "CommCare mobile app file", false);
 	}
 
 	await targets({ targets: [], heldFromHq: [] });
@@ -777,7 +847,7 @@ test("native CCZ download is made for a project space the app is published to", 
 		.getByRole("button", { name: "Publish to CommCare HQ", exact: true })
 		.click();
 	await expect(
-		page.getByRole("button", { name: "Upload", exact: true }),
+		page.getByRole("button", { name: "Continue", exact: true }),
 	).toBeVisible();
 
 	const held = [
@@ -805,6 +875,12 @@ test("native CCZ download is made for a project space the app is published to", 
 	await expect(
 		page.getByRole("combobox", { name: "Project space", exact: true }),
 	).toHaveText("alpha on India");
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Download CCZ", exact: true }).click();
 	await expect(
 		page.getByText("Mobile app file downloaded", { exact: true }),
@@ -819,9 +895,15 @@ test("native CCZ download is made for a project space the app is published to", 
 		heldFromHq: [],
 	});
 	await expect(
-		page.getByRole("button", { name: "Download CCZ", exact: true }),
+		page.getByRole("button", { name: "Continue", exact: true }),
 	).toBeDisabled();
 	await choose(page, "Project space", "alpha on US");
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Download CCZ", exact: true }).click();
 	await expect(
 		page.getByText("Mobile app file downloaded", { exact: true }),
@@ -868,16 +950,22 @@ test("native CCZ offers the project space a publish just reached, without reopen
 			},
 		}),
 	);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(
 		page.getByText("Your app is on CommCare HQ", { exact: true }),
 	).toBeVisible();
-	await choose(page, "Publish option", "CommCare mobile app file");
+	await choose(page, "Publish option", "CommCare mobile app file", false);
 	await expect(
 		page.getByRole("combobox", { name: "Project space", exact: true }),
 	).toHaveText("alpha on India");
 	await expect(
-		page.getByRole("button", { name: "Download CCZ", exact: true }),
+		page.getByRole("button", { name: "Continue", exact: true }),
 	).toBeEnabled();
 });
 
@@ -909,12 +997,13 @@ test("native import file download lists the guide's steps once the file arrives"
 			},
 		}),
 	);
-	await open(page, "viewer=true");
-	await choose(page, "Publish option", "CommCare HQ app file");
+	await open(page, "viewer=true", false);
+	await choose(page, "Publish option", "CommCare HQ app file", false);
 	/* The field's description below the chosen option, not the option's own. */
 	await expect(page.locator("#publish-target-description")).toHaveText(
 		"Download a ZIP to import into CommCare HQ",
 	);
+	await reviewDestination(page);
 	await page.getByRole("button", { name: "Download ZIP", exact: true }).click();
 	await expect(
 		page.getByText("CommCare HQ app file downloaded", { exact: true }),
@@ -938,7 +1027,7 @@ test("native import file download without a guide header still lands", async ({
 	await page.route("**/api/compile/json", (route) =>
 		route.fulfill({ body: "zip", contentType: "application/zip" }),
 	);
-	await open(page, "viewer=true");
+	await open(page, "viewer=true", false);
 	await choose(page, "Publish option", "CommCare HQ app file");
 	await page.getByRole("button", { name: "Download ZIP", exact: true }).click();
 	await expect(
@@ -1066,12 +1155,24 @@ test("native publish asks for each plan feature and project-space setting before
 	);
 	await page.getByRole("button", { name: "Check again", exact: true }).click();
 	const upload = page.getByRole("button", { name: "Upload", exact: true });
+	await page
+		.getByRole("button", {
+			name: "Details about Worker records (user cases)",
+			exact: true,
+		})
+		.click();
 	await expect(
 		page.getByText("Visit reads worker information.", { exact: true }),
 	).toBeVisible();
 	await expect(
 		page.getByText(FLAT_LOCATION_FIXTURE.question("alpha"), { exact: true }),
 	).toBeVisible();
+	await page
+		.getByRole("button", {
+			name: "Details about Web-Based Apps (CloudCare)",
+			exact: true,
+		})
+		.click();
 	await expect(
 		page.getByText(WEB_APPS_WHERE_MISSING, { exact: true }),
 	).toBeVisible();
@@ -1097,6 +1198,12 @@ test("native publish asks for each plan feature and project-space setting before
 	await expect(
 		page.getByText(FORM_ENTRY_SYNC_OFF.question("alpha"), { exact: true }),
 	).toBeVisible();
+	await page
+		.getByRole("button", {
+			name: `Details about ${FORM_ENTRY_SYNC_OFF.label}`,
+			exact: true,
+		})
+		.click();
 	await expect(
 		page.getByText(SYNC_WHERE_MISSING, { exact: true }),
 	).toBeVisible();
@@ -1238,6 +1345,7 @@ test("native publish answers a confirmation refusal with the same rows, and With
 	);
 	await page.getByRole("button", { name: "Done", exact: true }).click();
 	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	await reviewDestination(page);
 	await expect(
 		page.getByRole("checkbox", {
 			name: "This project space has it Lookup Tables",
@@ -1321,6 +1429,12 @@ for (const { subject, reason } of [
 		await expect(
 			page.getByText(COMMTRACK_OFF.question("alpha"), { exact: true }),
 		).toBeVisible();
+		await page
+			.getByRole("button", {
+				name: `Details about ${COMMTRACK_OFF.label}`,
+				exact: true,
+			})
+			.click();
 		await expect(page.getByText(reason, { exact: true })).toBeVisible();
 		await expect(upload).toBeDisabled();
 		await page
@@ -1370,6 +1484,12 @@ test("native publish below the CommCare version floor links to the app whose set
 		}),
 	);
 	await open(page);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(page.getByText(message, { exact: true })).toBeVisible();
 	await expect(
@@ -1410,11 +1530,23 @@ test("native publish says what taking a table over does, and shows a table HQ ho
 		route.fulfill({ json: answers.shift() }),
 	);
 	await open(page);
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(
 		page.getByText(LOOKUP_ADOPTION_NOTE, { exact: true }),
 	).toBeVisible();
 	await page.getByRole("checkbox", { name: "Clinics (clinics)" }).check();
+	if (
+		await page
+			.getByRole("button", { name: "Continue", exact: true })
+			.isVisible()
+	)
+		await reviewDestination(page);
 	await page.getByRole("button", { name: "Upload", exact: true }).click();
 	await expect(page.getByText(message, { exact: true })).toBeVisible();
 	await expect(page.getByText(line, { exact: true })).toBeVisible();
@@ -1630,4 +1762,264 @@ test("native CCZ of an app that runs in Web Apps only says why there is none", a
 			.locator('[data-slot="dialog-footer"]')
 			.getByRole("button", { name: "Close", exact: true }),
 	).toBeVisible();
+});
+
+test("publish keeps a stable frame and explicit review while delayed checks arrive", async ({
+	page,
+}) => {
+	await open(page, "", false);
+	const dialog = page.getByRole("dialog", { name: "Publish app", exact: true });
+	await expect(
+		dialog.getByRole("heading", { name: "Publish app", exact: true }),
+	).toBeFocused();
+	await expect(
+		page.getByRole("button", { name: "Upload", exact: true }),
+	).toHaveCount(0);
+	await test.info().attach("destination", {
+		body: await dialog.screenshot({
+			path: test.info().outputPath("destination.png"),
+		}),
+		contentType: "image/png",
+	});
+	const before = await dialog.boundingBox();
+	await reviewDestination(page);
+	await expect(
+		page.getByRole("heading", { name: "Review and publish", exact: true }),
+	).toBeFocused();
+	let held: import("@playwright/test").Route | undefined;
+	await page.route("**/publishing/compatibility?*", (route) => {
+		held = route;
+	});
+	try {
+		await page
+			.getByRole("button", { name: "Check again", exact: true })
+			.click();
+		await expect.poll(() => Boolean(held)).toBe(true);
+		await expect(
+			page.getByRole("button", { name: "Upload", exact: true }),
+		).toBeDisabled();
+		expect(await dialog.boundingBox()).toEqual(before);
+		const request = held;
+		held = undefined;
+		await request?.fulfill({
+			json: {
+				ok: true,
+				report: report(),
+				confirmations: {
+					plan_features: Object.values(PLAN_FEATURES).map((feature) => ({
+						...feature,
+						reasons: ["A form uses this feature."],
+						where_missing: "A project administrator can help.",
+						state: "needs_confirmation",
+					})),
+					flat_location_fixture: null,
+					connect_forwarder: null,
+					form_entry_sync_off: null,
+					commtrack_off: null,
+					placement_moves: null,
+				},
+			},
+		});
+		await expect(
+			page.getByRole("heading", {
+				name: "Confirm for this project space",
+				exact: true,
+			}),
+		).toBeVisible();
+		expect(await dialog.boundingBox()).toEqual(before);
+		await expect(
+			page.getByRole("button", { name: "Upload", exact: true }),
+		).toBeDisabled();
+		await expect(page.getByText("A form uses this feature.")).toHaveCount(0);
+		await test.info().attach("review-desktop", {
+			body: await dialog.screenshot({
+				path: test.info().outputPath("review-desktop.png"),
+			}),
+			contentType: "image/png",
+		});
+		await page.setViewportSize({ width: 390, height: 700 });
+		await expect
+			.poll(() =>
+				dialog.evaluate((node) => node.scrollWidth - node.clientWidth),
+			)
+			.toBe(0);
+		const footer = dialog.locator('[data-slot="dialog-footer"]');
+		await expect(footer).toBeInViewport();
+		await test.info().attach("review-mobile", {
+			body: await dialog.screenshot({
+				path: test.info().outputPath("review-mobile.png"),
+			}),
+			contentType: "image/png",
+		});
+		await page.getByRole("button", { name: "Back", exact: true }).click();
+		await expect(
+			page.getByRole("textbox", { name: "App name", exact: true }),
+		).toHaveValue("Entry points");
+		await expect(
+			page.getByRole("heading", { name: "Choose a destination", exact: true }),
+		).toBeFocused();
+	} finally {
+		await held?.abort();
+		await page.goto("about:blank");
+	}
+});
+
+test("changing HQ servers retires a same-named space's pending check and consent", async ({
+	page,
+}) => {
+	await open(page);
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({ json: refusal }),
+	);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	await page
+		.getByRole("checkbox", { name: "Clinics (clinics)", exact: true })
+		.check();
+	let held: import("@playwright/test").Route | undefined;
+	await page.route("**/publishing/compatibility?*", (route) => {
+		held = route;
+	});
+	try {
+		await page.evaluate(() =>
+			window.dispatchEvent(
+				new CustomEvent("publishing-connection", {
+					detail: {
+						server: "india",
+						domains: [{ name: "alpha", displayName: "Alpha India" }],
+					},
+				}),
+			),
+		);
+		await expect(
+			page.getByRole("heading", { name: "Choose a destination", exact: true }),
+		).toBeVisible();
+		await reviewDestination(page);
+		await expect.poll(() => Boolean(held)).toBe(true);
+		await expect(
+			page.getByRole("checkbox", { name: "Clinics (clinics)", exact: true }),
+		).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Upload", exact: true }),
+		).toBeDisabled();
+		const request = held;
+		held = undefined;
+		await request?.fulfill({ json: { ok: true, report: report() } });
+		await expect(
+			page.getByRole("button", { name: "Upload", exact: true }),
+		).toBeEnabled();
+		await page.getByRole("button", { name: "Upload", exact: true }).click();
+		await expect(
+			page.getByRole("checkbox", { name: "Clinics (clinics)", exact: true }),
+		).not.toBeChecked();
+	} finally {
+		await held?.abort();
+		await page.goto("about:blank");
+	}
+});
+
+for (const cancel of [false, true]) {
+	test(`upload waits for a pending edit${cancel ? " and stays canceled after dismissal" : " before sending"}`, async ({
+		page,
+	}) => {
+		let save: import("@playwright/test").Route | undefined;
+		let uploads = 0;
+		await page.route("**/api/apps/native-publishing", (route) => {
+			save = route;
+		});
+		await page.route("**/api/commcare/upload", (route) => {
+			uploads++;
+			return route.fulfill({ json: refusal });
+		});
+		try {
+			await open(page);
+			await page.keyboard.press("Escape");
+			await page
+				.getByRole("button", { name: "Edit document", exact: true })
+				.click();
+			await page
+				.getByRole("button", { name: "Open publish", exact: true })
+				.click();
+			await reviewDestination(page);
+			await page.getByRole("button", { name: "Upload", exact: true }).click();
+			await expect(
+				page.getByRole("button", { name: "Uploading", exact: true }),
+			).toBeDisabled();
+			await expect.poll(() => Boolean(save)).toBe(true);
+			expect(uploads).toBe(0);
+			if (cancel) await page.keyboard.press("Escape");
+			const pending = save;
+			save = undefined;
+			await pending?.fulfill({ json: { seq: 1 } });
+			if (cancel) {
+				await page
+					.getByRole("button", { name: "Open publish", exact: true })
+					.click();
+				await reviewDestination(page);
+				await expect(
+					page.getByRole("button", { name: "Upload", exact: true }),
+				).toBeEnabled();
+				expect(uploads).toBe(0);
+			} else {
+				await expect(
+					page.getByRole("checkbox", {
+						name: "Clinics (clinics)",
+						exact: true,
+					}),
+				).toBeVisible();
+				expect(uploads).toBe(1);
+			}
+		} finally {
+			await save?.abort();
+			await page.goto("about:blank");
+		}
+	});
+}
+
+test("a fresh review exposes compatibility failures while preserving refusal choices", async ({
+	page,
+}) => {
+	await page.route("**/api/commcare/upload", (route) =>
+		route.fulfill({ json: refusal }),
+	);
+	await open(page);
+	await page.getByRole("button", { name: "Upload", exact: true }).click();
+	const consent = page.getByRole("checkbox", {
+		name: "Clinics (clinics)",
+		exact: true,
+	});
+	await consent.check();
+	await page.getByRole("button", { name: "Back", exact: true }).click();
+	let check = 0;
+	await page.route("**/publishing/compatibility?*", (route) => {
+		check++;
+		return route.fulfill({
+			json:
+				check === 1
+					? { ok: false, message: "The fresh compatibility check failed" }
+					: { ok: true, report: report("alpha", check === 2) },
+		});
+	});
+	await reviewDestination(page);
+	await expect(
+		page.getByText("The fresh compatibility check failed", { exact: true }),
+	).toBeVisible();
+	await expect(consent).toBeChecked();
+	await expect(
+		page.getByRole("button", { name: "Upload", exact: true }),
+	).toBeDisabled();
+	await page.getByRole("button", { name: "Try again", exact: true }).click();
+	await expect(
+		page.getByText("“Alpha” needs more support to run the app", {
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(consent).toBeChecked();
+	await expect(
+		page.getByRole("button", { name: "Upload", exact: true }),
+	).toBeDisabled();
+	await page.getByRole("button", { name: "Check again", exact: true }).click();
+	await expect(
+		page.getByRole("button", { name: "Upload", exact: true }),
+	).toBeEnabled();
+	await expect(consent).toBeChecked();
 });
