@@ -179,14 +179,11 @@ it("finds lookup-derived starting values and refuses missing definitions", async
 	expect((await inspectSelectStartingValues(appId)).findings).toEqual([
 		expect.objectContaining({ code: "SELECT_DEFAULT_VALUES_UNBOUNDED" }),
 	]);
-	// Model unavailable data, such as an old app retaining a foreign-Project reference.
-	await h
-		.db()
-		.updateTable("apps")
-		.set({ project_id: "another-project" })
-		.where("id", "=", appId)
-		.execute();
-	await expect(inspectSelectStartingValues(appId)).rejects.toThrow(
+	// An old app can retain a reference to a table outside its Project.
+	const foreignAppId = await h.seedAppWithBlueprint(doc, {
+		projectId: "another-project",
+	});
+	await expect(inspectSelectStartingValues(foreignAppId)).rejects.toThrow(
 		"Lookup definitions are incomplete",
 	);
 });
