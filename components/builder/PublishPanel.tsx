@@ -12,7 +12,6 @@
  * emission boundaries.
  */
 "use client";
-import dynamic from "next/dynamic";
 import {
 	memo,
 	useCallback,
@@ -23,9 +22,11 @@ import {
 	useTransition,
 } from "react";
 import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
-import type {
-	PublishDownloadOutcome,
-	PublishProjectSpaceCompatibilityOutcome,
+import {
+	PublishDialog,
+	type PublishDownloadOutcome,
+	type PublishProjectSpaceCompatibilityOutcome,
+	preloadPublishDialog,
 } from "@/components/builder/PublishDialog";
 import { PublishButton } from "@/components/ui/PublishButton";
 import { useReconcilerContext } from "@/lib/collab/context";
@@ -57,11 +58,6 @@ import {
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { apiFailureToastBody, describeApiFailure } from "@/lib/ui/apiFailure";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
-
-const loadPublishDialog = () => import("@/components/builder/PublishDialog");
-const PublishDialog = dynamic(() =>
-	loadPublishDialog().then((module) => module.PublishDialog),
-);
 
 /**
  * Download a Blob under `filename` via a transient object URL. Centralizes the
@@ -250,6 +246,16 @@ export const PublishPanel = memo(function PublishPanel() {
 				);
 			};
 			try {
+				const saved = await reconciler?.reconciler.waitForHumanSaveBarrier();
+				if (!isCurrent()) return { ok: false };
+				if (saved?.kind !== "saved") {
+					projectToast(
+						"error",
+						"Download isn't ready",
+						"Nova hasn't finished saving your latest changes. You can try again once they're saved.",
+					);
+					return { ok: false };
+				}
 				return await downloadArtifact({
 					...options,
 					signal: controller.signal,
@@ -260,7 +266,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				downloadControllersRef.current.delete(controller);
 			}
 		},
-		[projectToast, session],
+		[projectToast, session, reconciler],
 	);
 
 	/**
@@ -340,6 +346,22 @@ export const PublishPanel = memo(function PublishPanel() {
 			}
 			const scopeEpoch = start.scopeEpoch;
 			try {
+				const saved = await reconciler?.reconciler.waitForHumanSaveBarrier();
+				const afterSave = session.getState();
+				if (
+					signal.aborted ||
+					afterSave.accessPhase !== "authorized" ||
+					afterSave.scopeEpoch !== scopeEpoch
+				) {
+					return { ok: false, message: "The compatibility check was canceled" };
+				}
+				if (saved?.kind !== "saved") {
+					return {
+						ok: false,
+						message:
+							"Nova hasn't finished saving your latest changes. You can try again once they're saved.",
+					};
+				}
 				const response = await fetch(
 					"/api/commcare/project-space-compatibility",
 					{
@@ -402,7 +424,7 @@ export const PublishPanel = memo(function PublishPanel() {
 				};
 			}
 		},
-		[docStore, session],
+		[docStore, session, reconciler],
 	);
 
 	/* Stable callbacks prevent cascading re-renders through PublishDialog when
@@ -465,8 +487,8 @@ export const PublishPanel = memo(function PublishPanel() {
 		<>
 			<PublishButton
 				onClick={handleOpenPublish}
-				onPointerEnter={() => void loadPublishDialog()}
-				onFocus={() => void loadPublishDialog()}
+				onPointerEnter={preloadPublishDialog}
+				onFocus={preloadPublishDialog}
 			/>
 			{/* Dialog stays mounted for Base UI exit animations. Stable onClose
 			 * prevents re-renders when the dialog is closed (the common case). */}

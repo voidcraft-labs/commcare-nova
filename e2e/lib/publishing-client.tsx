@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DeploymentEntryPointLinks } from "@/components/builder/app-setup/DeploymentEntryPointLinks";
 import { DeploymentTargetProvider } from "@/components/builder/DeploymentTargetProvider";
@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/shadcn/button";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
 import { endpointWireFixture } from "@/lib/commcare/__tests__/endpointWireFixture";
+import type { CommCareServer } from "@/lib/deployment";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
@@ -119,6 +120,16 @@ function Content() {
 	const [open, setOpen] = useState(false);
 	const [mounted, setMounted] = useState(true);
 	const [destination, setDestination] = useState("alpha");
+	const [connection, setConnection] = useState<{
+		server: CommCareServer;
+		domains: typeof domains;
+	}>({ server: "production", domains });
+	useEffect(() => {
+		const receive = (event: Event) =>
+			setConnection((event as CustomEvent<typeof connection>).detail);
+		window.addEventListener("publishing-connection", receive);
+		return () => window.removeEventListener("publishing-connection", receive);
+	}, []);
 	const session = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const close = useCallback(() => setOpen(false), []);
@@ -170,8 +181,10 @@ function Content() {
 						open={open}
 						onClose={close}
 						getAppId={getAppId}
-						availableDomains={domains}
-						connectionServer={domains.length ? "production" : null}
+						availableDomains={connection.domains}
+						connectionServer={
+							connection.domains.length ? connection.server : null
+						}
 						canUploadToHq={!viewer && domains.length > 0}
 						onOpenPublishing={() => setOpen(false)}
 						isRefreshingHqConnection={false}

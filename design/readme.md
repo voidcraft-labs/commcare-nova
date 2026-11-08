@@ -244,3 +244,14 @@ record information. A children-of-selected-record shortcut is available only whe
 the form selects one parent and the source type declares that relationship. Copy
 describes availability and filtering without implying that a choice list fetches
 cases, grants access, or translates saved record names.
+
+## Publishing
+
+Publish opens in place, including from Preview. Its shell, heading and close
+control appear immediately and stay put while content loads; a failed load offers
+a retry inside the dialog. Destination choices come first, followed by a review
+step with a clear final action. The dialog keeps a bounded height with a scrolling
+body and visible footer. Required confirmations and their consequences stay
+visible. Plans, affected forms and further guidance expand under Details;
+published destinations have their own disclosure. Back preserves the destination
+draft, and step navigation hands focus to the new heading as it appears. Nothing is uploaded by Continue.
