@@ -56,7 +56,7 @@ export type CoreAnswerType =
 /** The answer types whose cast can refuse a value. */
 export type RefusingAnswerType = Extract<
 	CoreAnswerType,
-	"int" | "decimal" | "date" | "time" | "datetime" | "geopoint"
+	"int" | "decimal" | "date" | "time" | "datetime" | "geopoint" | "choice-list"
 >;
 
 /** `XFormParser.typeMappings` over every bind type Nova emits. */
@@ -284,13 +284,14 @@ export function castAnswerText(
 		case "choice":
 		case "untyped":
 			return { ok: true, text };
-		case "choice-list":
-			return {
-				ok: true,
-				text: javaRosaSplitOnSpaces(text)
-					.filter((token) => token !== "")
-					.join(" "),
-			};
+		case "choice-list": {
+			const selections = javaRosaSplitOnSpaces(text);
+			// Selection.getValue refuses a leading empty token when the
+			// setvalue uncasts it. Spaces alone split to no selections.
+			return selections.includes("")
+				? REFUSED
+				: { ok: true, text: selections.join(" ") };
+		}
 		case "int": {
 			const value = javaParseInt(text);
 			return value === undefined ? REFUSED : { ok: true, text: String(value) };
@@ -392,6 +393,7 @@ export function isRefusingAnswerType(
 		type === "date" ||
 		type === "time" ||
 		type === "datetime" ||
-		type === "geopoint"
+		type === "geopoint" ||
+		type === "choice-list"
 	);
 }

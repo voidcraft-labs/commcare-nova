@@ -18,6 +18,19 @@ capability tables keep independent runtime evidence, but they do not authorize
 an authorable Preview subset. Adding an authorable capability therefore adds
 its Preview implementation and its CommCare proof in the same change.
 
+## Unavailable inline choice answers
+
+`choiceAnswerDiagnostic` is an authoring check around the running form, separate
+from native question validity. It preserves the held answer and identifies the
+question, value, and selected platform's consequence. Formplayer resolves each
+Selection when rendering; Android's ordinary widget can show no selected option,
+but answer labels and restoration still fail. Preview therefore offers editing,
+selected-record inspection, another record, and a fresh retry rather than an
+invented temporary option. `evaluateFormSnapshot` reports the same check before
+accepting replacement answers. Dynamic itemsets retain their own semantics.
+A leading empty multiple-choice token fails earlier, when Core's setvalue
+uncasts it; `answerCast` reports the existing entry refusal for that case.
+
 ## Platforms
 
 Preview plays one platform the app runs on at a time, Web Apps or Android.

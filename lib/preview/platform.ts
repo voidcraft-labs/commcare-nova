@@ -48,6 +48,9 @@ export function effectivePreviewPlatform(
 }
 
 export interface PreviewPlatformRules {
+	/** Core Selection.attachChoice; Formplayer PromptToJson.parseQuestionAnswer;
+	 * Android FormHierarchyBuilder.getQuestionDisplayText and instance restore. */
+	readonly unavailableInlineChoice: "display" | "summary-or-restore";
 	/** Where the app opens. Web Apps has no home inside an app
 	 *  (`formplayer/app.js` `apps:currentApp` → `selectApp`); Android opens
 	 *  its home screen (`activities/HomeButtons.java::buildButtonData`,
@@ -222,6 +225,7 @@ export interface PreviewPlatformRules {
  *  missing on either platform a type error. */
 export const PREVIEW_PLATFORM_RULES = {
 	"web-apps": Object.freeze({
+		unavailableInlineChoice: "display",
 		appHome: "root-menu",
 		postSubmitAppHome: "root-menu",
 		afterSubmitHiddenTarget: "landing",
@@ -266,6 +270,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		logo: true,
 	}),
 	android: Object.freeze({
+		unavailableInlineChoice: "summary-or-restore",
 		appHome: "device-home",
 		postSubmitAppHome: "device-home",
 		afterSubmitHiddenTarget: "opens",

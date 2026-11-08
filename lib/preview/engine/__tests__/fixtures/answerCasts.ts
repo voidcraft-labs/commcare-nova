@@ -122,8 +122,11 @@ export const ANSWER_CASTS: readonly AnswerCastRow[] = [
 	{ type: "geopoint", text: "1 2 3 4 5", expect: refused },
 	{ type: "geopoint", text: "1", expect: refused },
 	{ type: "geopoint", text: "1 north", expect: refused },
+	// Core Selection.getValue throws for the empty selection at the front.
+	{ type: "choice-list", text: " a  b c", expect: refused },
+	{ type: "choice-list", text: "a  b c ", expect: held("a b c") },
+	{ type: "choice-list", text: "   ", expect: held("") },
 	// Never refused.
-	{ type: "choice-list", text: " a  b c", expect: held("a b c") },
 	{ type: "choice", text: " a ", expect: held(" a ") },
 	{ type: "text", text: "2026-02-30", expect: held("2026-02-30") },
 	{ type: "untyped", text: "anything", expect: held("anything") },

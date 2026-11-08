@@ -636,11 +636,15 @@ describe("evaluateCommit", () => {
 		expect(codes(verdict)).toEqual([
 			"FIELD_KIND_WRITERS_DISAGREE",
 			"FIELD_KIND_WRITERS_DISAGREE",
+			"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
 		]);
 		if (verdict.ok)
 			throw new Error("Expected conflicting writers to be refused");
 		expect(
-			verdict.findings.map(({ location }) => location.fieldUuid).sort(),
+			verdict.findings
+				.filter(({ code }) => code === "FIELD_KIND_WRITERS_DISAGREE")
+				.map(({ location }) => location.fieldUuid)
+				.sort(),
 		).toEqual([first.uuid, second.uuid].sort());
 	});
 });

@@ -108,6 +108,15 @@ RUN npx esbuild scripts/migrate-language-identity.ts \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=language-identity-repair.cjs
 
+RUN npx esbuild scripts/scan-select-starting-values.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=select-starting-value-scan.cjs
+RUN npx esbuild scripts/migrate-select-starting-values.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=select-starting-value-repair.cjs
+
 FROM ${NODE_IMAGE} AS maintenance
 WORKDIR /app
 ENV NODE_ENV=production

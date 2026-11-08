@@ -2608,6 +2608,12 @@ export class EngineController {
 		return this.retainedPresentation?.document ?? this.docStore?.getState();
 	}
 
+	/** Author-side check of the settled answer world, separate from native
+	 * question validity. Subscribers observe it with the published runtime. */
+	choiceAnswerDiagnostic() {
+		return this.engine?.choiceAnswerDiagnostic();
+	}
+
 	/** Exact worker identity captured by the live engine entry. Attachment
 	 * continuations compare this imperative value after every await. */
 	get previewIdentitySnapshot(): ResolvedPreviewIdentity | null {

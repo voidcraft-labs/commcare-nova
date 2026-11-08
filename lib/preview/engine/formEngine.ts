@@ -128,6 +128,10 @@ import type {
 	SubmissionMutation,
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
+import {
+	type ChoiceAnswerDiagnostic,
+	choiceAnswerDiagnostic,
+} from "./choiceAnswerDiagnostic";
 import { DataInstance, type DataInstanceSnapshot } from "./dataInstance";
 import { ownerMovesToNoPlace, PreviewDataRefusal } from "./dataRefusal";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
@@ -2899,6 +2903,12 @@ export class FormEngine {
 	 *  needs to look up a field by UUID after a subscription fires. */
 	getFieldTree(): FieldTreeNode[] {
 		return this.tree;
+	}
+
+	/** Report retained inline answers that a native prompt cannot resolve.
+	 * No answer, choice, constraint or emitted behavior is changed. */
+	choiceAnswerDiagnostic(): ChoiceAnswerDiagnostic | undefined {
+		return choiceAnswerDiagnostic(this.tree, (path) => this.getState(path));
 	}
 
 	/** Get all paths affected by a change at the given path, in topological

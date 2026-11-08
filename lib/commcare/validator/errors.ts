@@ -135,6 +135,7 @@ export type ValidationErrorCode =
 	// to, and a literal saved into a property a choice question starts on
 	// that is none of its choices. Both cross forms, so both are app rules.
 	| "HIDDEN_VALUE_WRITER_TYPE_MISMATCH"
+	| "SELECT_DEFAULT_VALUES_UNBOUNDED"
 	| "SELECT_PRELOAD_WRITE_NOT_AN_OPTION"
 	| "WHOLE_NUMBER_STARTS_ON_DECIMAL"
 	// Case-search rules. Slot-specific checks read authored

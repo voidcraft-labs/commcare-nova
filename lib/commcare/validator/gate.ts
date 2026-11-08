@@ -241,6 +241,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// Web Apps can't open a form whose choice question starts on a value it
 	// doesn't offer (`Selection.attachChoice`).
 	SELECT_PRELOAD_WRITE_NOT_AN_OPTION: "soundness",
+	SELECT_DEFAULT_VALUES_UNBOUNDED: "soundness",
 	WHOLE_NUMBER_STARTS_ON_DECIMAL: "soundness",
 	// ── Case-search-config rules ─────────────────────────────────────
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: "soundness",
