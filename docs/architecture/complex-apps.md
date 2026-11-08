@@ -2947,3 +2947,21 @@ repeat membership to the changing answer: initialized repeat rows survive
 deselection. The native case-choice proof exercises changing answers and actual
 Core case processing for both export paths. Mobile reports and arbitrary
 choice-source nodesets are outside this source contract.
+
+## Inline choice initialization
+
+Inline choice starting values are a value-flow contract, not a property storage
+type contract. Returned branches, hidden values, choice identities, operation
+writes and renames, automation writes, and carried values after retype are
+checked against the reader's actual options across the whole document. An
+unbounded authored source needs an explicit choice-valued result or no starting
+value. Catalog choices provide a seed only where the app has no authored writer.
+
+Historical and externally supplied data remain outside that static guarantee.
+Preview reports an author-side diagnostic without changing answers or emitted
+behavior. Core holds a nonempty unmatched Selection but rejects its label and
+restoration; Formplayer requires the Selection while rendering. Android's
+ordinary choice widget can appear unanswered until another path needs the
+selection. A leading empty multi-select token fails during initialization.
+The pinned evidence and retained regression are recorded in
+`docs/research/inline-choice-starting-values.md`.

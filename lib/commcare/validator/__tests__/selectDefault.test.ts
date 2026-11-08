@@ -8,6 +8,7 @@ import {
 	formFixture,
 	ids,
 } from "@/lib/domain/expression/__tests__/formFixture";
+import { ifExpr } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
 	lookupColumnIdSchema,
@@ -123,7 +124,7 @@ describe("select defaults at the validator boundary", () => {
 			}
 		},
 	);
-	it("keeps a computed starting value", () => {
+	it("refuses an unbounded starting value from free text", () => {
 		expect(
 			runValidation(
 				candidate("single_select", {
@@ -132,9 +133,11 @@ describe("select defaults at the validator boundary", () => {
 				}),
 				LOOKUP_CONTEXT_UNAVAILABLE,
 			),
-		).toEqual([]);
+		).toEqual([
+			expect.objectContaining({ code: "SELECT_DEFAULT_VALUES_UNBOUNDED" }),
+		]);
 	});
-	it("leaves a lookup-backed starting value to its data table", () => {
+	it("requires bounded outputs for inline choices but leaves lookup choices to their table", () => {
 		const tableId = lookupTableIdSchema.parse(
 			"018f3e8a-7b2c-7def-8abc-1234567890ab",
 		);
@@ -163,6 +166,16 @@ describe("select defaults at the validator boundary", () => {
 				},
 			],
 		};
+		const fromTable: Expression = {
+			kind: "table-lookup",
+			tableId,
+			resultColumnId: columnId,
+			where: { kind: "match-all" },
+		};
+		const inline = candidate("single_select", fromTable);
+		expect(runValidation(inline, context)).toEqual([
+			expect.objectContaining({ code: "SELECT_DEFAULT_VALUES_UNBOUNDED" }),
+		]);
 		const doc = candidate("single_select", "z");
 		const field = doc.fields[ids.choice];
 		if (field.kind !== "single_select")
@@ -175,4 +188,44 @@ describe("select defaults at the validator boundary", () => {
 		};
 		expect(runValidation(doc, context)).toEqual([]);
 	});
+});
+
+const fixed = (value: string): Expression => ({
+	kind: "term",
+	term: { kind: "literal", value },
+});
+it.each(["if", "coalesce", "cond"] as const)(
+	"checks the returned %s branches, not just a whole-slot literal",
+	(kind) => {
+		const value: Expression =
+			kind === "if"
+				? ifExpr({ kind: "match-all" }, fixed("a"), fixed("z"))
+				: kind === "coalesce"
+					? { kind, values: [fixed("a"), fixed("z")] }
+					: {
+							kind: "call",
+							fn: "cond",
+							args: [{ kind: "match-all" }, fixed("a"), fixed("z")],
+						};
+		expect(
+			runValidation(
+				candidate("single_select", value),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		).toEqual([
+			expect.objectContaining({
+				code: "SELECT_DEFAULT_NOT_AN_OPTION",
+				details: expect.objectContaining({ value: "z" }),
+			}),
+		]);
+	},
+);
+it("admits a choice-valued conditional even though its result types as text", () => {
+	const value = ifExpr({ kind: "match-all" }, fixed("a"), fixed("b"));
+	expect(
+		runValidation(
+			candidate("single_select", value),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		),
+	).toEqual([]);
 });

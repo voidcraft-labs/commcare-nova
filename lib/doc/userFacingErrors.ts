@@ -1514,6 +1514,8 @@ const USER_MESSAGE_BY_CODE: Record<
 	USERCASE_WRITE_MANAGED_PROPERTY: (e) =>
 		`${q(opName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a worker detail"))} on the worker's own record, which Nova keeps in step with the worker's profile, so a value there would be replaced the next time that worker changes. You can save to a worker detail you added under Worker information instead.`,
 	// ── Field-level ──────────────────────────────────────────────────
+	SELECT_DEFAULT_VALUES_UNBOUNDED: (e) =>
+		`Nova can't confirm that the starting value for ${q(fieldName(e))} always gives an available answer. You can map each result to an available answer, or remove the starting value and ask the worker to choose.`,
 	SELECT_DEFAULT_NOT_AN_OPTION: (e) =>
 		`The starting value for ${q(fieldName(e))} is not one of its choices. Choose an available answer or clear the starting value.`,
 	SELECT_NO_OPTIONS: (e) =>

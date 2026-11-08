@@ -1930,3 +1930,17 @@ Private forms may be awaiting a name or write value while expressions are read,
 edited, or evaluated. Metadata does not invent that missing content or relax the
 commit/export gate. Incomplete write content must never crash an unrelated
 expression's identity projection.
+
+## Inline choice starting values
+
+The shared gate checks every returned literal branch and traces value producers
+across forms with the same lookup type context as the expression checker.
+`selectPreloadWriterOptions` runs app-wide even for a scoped edit, so a later
+writer, choice, rename, or retype cannot strand an existing reader. Finite
+choices and blank are admitted; unknown output needs an explicit mapping or
+removal of the starting value. Standard scalar text normalization applies at
+stored-property edges. This does not add constraints, rewrite values, expand
+options, or inject fallback expressions into exported XForms or HQ JSON.
+The retained native `ChoiceStartingValueRuntimeTest` documents Core's failure
+boundary for historical answers; source evidence is in
+`docs/research/inline-choice-starting-values.md`.

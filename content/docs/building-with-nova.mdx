@@ -64,6 +64,22 @@ The app remains unfinished while those checks are pending. Continue resumes the
 review with its earlier evidence; reloading the page keeps the same checkpoint.
 Direct editing and Preview become available when the build finishes.
 
+## Starting answers and saved records
+
+A choice question can start with an answer from a record or an expression when
+its possible authored values fit the choices it offers. If a workflow saves
+other values, you can map them to the question's choices or leave its starting
+value empty and ask the worker to choose. A closing-status question often needs
+a new answer instead of the record's earlier status.
+
+Older or imported records can still hold an answer the question no longer
+offers. Preview identifies the question and saved value in a **Nova Preview
+check**, explains how the selected platform handles it, and offers **Edit
+question**, **View selected record**, or **Choose another record** when available.
+After a correction, **Try again** starts the form afresh. The check keeps the
+saved value unchanged. It is help for building the app, not a screen added to
+workers' deployed forms.
+
 ## Edit wording and formatting
 
 You can keep editing while Preview prepares or refreshes a form.

@@ -1,39 +1,29 @@
 /**
- * Rule: a fixed value saved into a property that a choice question starts
- * on is one of that question's choices.
+ * Value flow into inline choice questions. Follow returned branches, hidden
+ * values, choice identities, and the app's case writes. Storage types cannot
+ * establish membership: text may always be 'yes' or 'no', and two single
+ * selects may offer different values. This runs app-wide, including when a
+ * later writer/option edit is validated in another form's scope.
  *
- * A single or multiple select with written choices, on a form that opens
- * one case, whose starting value is the case's current value of a property
- * it saves (`lib/domain/casePreload.ts::fieldPreload`) opens showing it. Core casts that
- * text to a selection without checking it (`SelectOneData.cast`,
- * `SelectMultiData.cast` through `DataUtil.splitOnSpaces`), and Web Apps then
- * refuses a selection that names no choice: `Selection.attachChoice` throws
- * `XPathTypeMismatchException` from `PromptToJson.parseQuestionAnswer`. So
- * every Nova writer that saves a literal there must save one of the reader's
- * option values (single), or space-separated tokens that are all option
- * values (multiple), by the rule a select's own starting value follows:
- * a number reads as Core's answer text (`numericAnswerText`) and `''` saves no
- * value.
- *
- * Writers judged: a Hidden Value whose answer a case operation saves, when
- * its `calculate` is a whole-slot string or number literal, or, with no
- * `calculate`, its `default_value` is one; and a case operation's write whose
- * value is one, conditional writes included. A computed value, a reader whose
- * choices come from a Project data table or from cases, and a select that
- * never starts on the case's value are outside the rule. Whether the value's type fits the property is writer agreement's
- * question (`hiddenValueWriterAgreement.ts`, `caseOperations.ts`), not this
- * one's.
- *
- * App-scoped because writer and reader sit in different forms.
+ * An unbounded authored producer needs an explicit choice-valued mapping.
+ * This is not an enum on persisted case data: external/historical values
+ * still need runtime diagnosis. No value is filtered or rewritten in the emitted app.
  */
-
 import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
+import { automationsOf } from "@/lib/domain/automations";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { fieldPreload, formOpensWithOneCase } from "@/lib/domain/casePreload";
-import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
+import { normalizeCaseScalarTextValue } from "@/lib/domain/caseScalarText";
 import { selectAnswerTokens } from "@/lib/domain/expression/choiceValue";
+import {
+	type LookupTypeIndex,
+	slotContext,
+} from "@/lib/domain/expression/context";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
+import {
+	checkExpression,
+	visitAssignmentOutputs,
+} from "@/lib/domain/expression/typeChecker";
 import type { Expression } from "@/lib/domain/expression/types";
 import type { Field, SelectOption } from "@/lib/domain/fields";
 import {
@@ -41,7 +31,6 @@ import {
 	operationCaseType,
 	orderedCaseOperations,
 } from "@/lib/domain/forms";
-import { caseSelectionCardinality } from "@/lib/domain/modules";
 import type { Uuid } from "@/lib/domain/uuid";
 import { type ValidationError, validationError } from "../errors";
 import { caseOperationError } from "./caseOperations";
@@ -52,13 +41,11 @@ interface Place {
 	readonly formUuid: Uuid;
 	readonly formName: string;
 }
-
 interface Reader extends Place {
 	readonly field: Field;
 	readonly multiple: boolean;
 	readonly options: readonly SelectOption[];
 }
-
 type Writer = Place &
 	(
 		| {
@@ -70,14 +57,24 @@ type Writer = Place &
 	) & {
 		readonly caseType: string;
 		readonly property: string;
-		readonly text: string;
+		readonly valueCaseType?: string;
 	};
+interface Write {
+	readonly source?: Writer;
+	readonly expression: Expression;
+}
 
 export function selectPreloadWriterOptions(
 	doc: BlueprintDoc,
+	lookupTables: LookupTypeIndex,
 ): ValidationError[] {
-	const readers = new Map<string, Reader[]>();
-	const writers: Writer[] = [];
+	const writes = new Map<string, Write[]>();
+	const readers: Reader[] = [];
+	const retypes: {
+		readonly from: string;
+		readonly to: string;
+		readonly overwritten: ReadonlySet<string>;
+	}[] = [];
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) continue;
@@ -90,68 +87,55 @@ export function selectPreloadWriterOptions(
 				formUuid,
 				formName: form.name,
 			};
-			const views = formCaseWriteViews(doc, formUuid);
-			const opensWithOneCase = formOpensWithOneCase(
-				form.type,
-				caseSelectionCardinality(module),
-			);
-			for (const field of formFields(doc, formUuid)) {
-				const fieldViews = (views.get(field.uuid) ?? []).filter(
-					(view) => view.slot === "write" || view.slot === "name",
-				);
-				if (fieldViews.length === 0) continue;
-				// A form that works on several cases reads no one case's value
-				// into a question; the checker refuses the read there.
-				const preload = opensWithOneCase ? fieldPreload(field) : undefined;
+			for (const uuid of descendantFieldUuids(doc, formUuid)) {
+				const field = doc.fields[uuid];
 				if (
-					(field.kind === "single_select" || field.kind === "multi_select") &&
+					(field?.kind === "single_select" || field?.kind === "multi_select") &&
 					field.optionsSource.kind === "inline" &&
-					preload !== undefined &&
-					fieldViews.some(
-						(view) =>
-							view.caseType === preload.caseType &&
-							view.property === preload.property,
-					)
-				) {
-					const key = tupleKey(preload.caseType, preload.property);
-					const bucket = readers.get(key) ?? [];
-					bucket.push({
+					field.default_value !== undefined
+				)
+					readers.push({
 						...place,
 						field,
 						multiple: field.kind === "multi_select",
 						options: field.optionsSource.options,
-					});
-					readers.set(key, bucket);
-				}
-				if (field.kind !== "hidden") continue;
-				const slot =
-					field.calculate !== undefined
-						? "calculate"
-						: field.default_value !== undefined
-							? "default_value"
-							: undefined;
-				const text = slot === undefined ? undefined : literalText(field[slot]);
-				if (slot === undefined || text === undefined) continue;
-				for (const view of fieldViews)
-					writers.push({
-						...place,
-						kind: "hidden",
-						field,
-						slot,
-						caseType: view.caseType,
-						property: view.property,
-						text,
 					});
 			}
 			for (const operation of orderedCaseOperations(form)) {
 				const operationType =
 					operation.retype ?? operationCaseType(doc, formUuid, operation);
 				if (operationType === undefined) continue;
-				for (const write of operation.writes ?? []) {
-					const text = literalText(write.value);
-					if (text === undefined) continue;
-					// A write through `via` saves to the case above; one the catalog
-					// does not resolve is refused on its own (`CASE_WRITE_VIA_INVALID`).
+				const originalType = operationCaseType(doc, formUuid, operation);
+				if (
+					operation.retype !== undefined &&
+					originalType !== undefined &&
+					originalType !== operation.retype
+				) {
+					retypes.push({
+						from: originalType,
+						to: operation.retype,
+						overwritten: new Set(
+							(operation.writes ?? [])
+								.filter(
+									(write) =>
+										write.via === undefined &&
+										write.condition === undefined &&
+										write.onlyIfChanged !== true,
+								)
+								.map((write) => write.property),
+						),
+					});
+				}
+				const values = [
+					...(operation.writes ?? []),
+					...("name" in operation && operation.name !== undefined
+						? [{ property: "case_name", value: operation.name }]
+						: []),
+					...("rename" in operation && operation.rename !== undefined
+						? [{ property: "case_name", value: operation.rename }]
+						: []),
+				];
+				for (const write of values) {
 					const reached =
 						write.via === undefined
 							? { ok: true as const, caseType: operationType }
@@ -161,62 +145,392 @@ export function selectPreloadWriterOptions(
 									doc.caseTypes ?? [],
 								);
 					if (!reached.ok) continue;
-					writers.push({
+					const term =
+						write.value.kind === "term" ? write.value.term : undefined;
+					const field =
+						term?.kind === "field" &&
+						term.role === undefined &&
+						term.filters === undefined
+							? doc.fields[term.uuid]
+							: undefined;
+					const slot =
+						field?.kind === "hidden"
+							? field.calculate !== undefined
+								? "calculate"
+								: field.default_value !== undefined
+									? "default_value"
+									: undefined
+							: undefined;
+					const source: Writer = {
 						...place,
-						kind: "operation",
-						operation,
 						caseType: reached.caseType,
 						property: write.property,
-						text,
-					});
+						valueCaseType: module.caseType,
+						...(field !== undefined && slot !== undefined
+							? { kind: "hidden", field, slot }
+							: { kind: "operation", operation }),
+					};
+					const key = tupleKey(reached.caseType, write.property);
+					const bucket = writes.get(key) ?? [];
+					bucket.push({ source, expression: write.value });
+					writes.set(key, bucket);
 				}
 			}
 		}
 	}
-
+	// HQ automations are authored writers too, even though Preview does not
+	// execute them. A copy follows the source property's writers.
+	for (const automation of Object.values(automationsOf(doc))) {
+		if (automation.kind !== "case-update") continue;
+		const type = doc.caseTypes?.find(
+			(type) => type.name === automation.caseType,
+		);
+		const scoped = (scope: "case" | "parent" | "host"): string | undefined =>
+			scope === "case"
+				? automation.caseType
+				: scope === "host" && type?.relationship !== "extension"
+					? undefined
+					: type?.parent_type;
+		for (const update of automation.updates) {
+			const target = scoped(update.target.scope);
+			if (target === undefined) continue;
+			const sourceType =
+				update.value.kind === "case-property"
+					? scoped(update.value.source.scope)
+					: undefined;
+			const expression: Expression | undefined =
+				update.value.kind === "literal"
+					? {
+							kind: "term",
+							term: { kind: "literal", value: update.value.value },
+						}
+					: sourceType === undefined
+						? undefined
+						: {
+								kind: "term",
+								term: {
+									kind: "prop",
+									caseType: sourceType,
+									property: update.value.source.property,
+								},
+							};
+			if (expression === undefined) continue;
+			const key = tupleKey(target, update.target.property);
+			const bucket = writes.get(key) ?? [];
+			bucket.push({ expression });
+			writes.set(key, bucket);
+		}
+	}
 	const errors: ValidationError[] = [];
-	for (const writer of writers) {
-		if (writer.text === "") continue;
-		for (const reader of readers.get(
-			tupleKey(writer.caseType, writer.property),
-		) ?? []) {
-			const values = reader.multiple
-				? selectAnswerTokens(writer.text)
-				: [writer.text];
+	for (const reader of readers) {
+		if (
+			!("default_value" in reader.field) ||
+			reader.field.default_value === undefined
+		)
+			continue;
+		const context = slotContext(
+			doc,
+			{ entity: "field", uuid: reader.field.uuid, slot: "default_value" },
+			lookupTables,
+		);
+		// Missing entry data, invalid references and direct literal failures
+		// already have a precise finding from the expression checker.
+		if (
+			context === undefined ||
+			checkExpression(reader.field.default_value, context).errors.length > 0
+		)
+			continue;
+		let unknown = false;
+		const unbounded = (writer?: Writer): void => {
+			if (unknown) return;
+			unknown = true;
+			const source =
+				writer === undefined
+					? "a value whose answers are not limited to its choices"
+					: `"${writer.property}" on "${writer.caseType}", which a writer can fill with other answers`;
+			errors.push(
+				validationError(
+					"SELECT_DEFAULT_VALUES_UNBOUNDED",
+					"field",
+					`Question "${reader.field.id}" in "${reader.formName}" starts on ${source}. Nova can't confirm that every result is an available answer, and CommCare can't display an inline choice answer it doesn't offer. You can use a condition that returns one of this question's choices in every branch, or remove the starting value and ask the worker to choose.`,
+					{
+						moduleUuid: reader.moduleUuid,
+						moduleName: reader.moduleName,
+						formUuid: reader.formUuid,
+						formName: reader.formName,
+						fieldUuid: reader.field.uuid,
+						fieldId: reader.field.id,
+						field: "default_value",
+					},
+					{
+						...(writer === undefined
+							? {}
+							: {
+									caseType: writer.caseType,
+									property: writer.property,
+									writerForm: writer.formName,
+								}),
+						options: reader.options.map((option) => option.value).join(", "),
+					},
+				),
+			);
+		};
+		const seen = new Set<string>();
+		const reported = new Set<string>();
+		const emit = (text: string, writer?: Writer): void => {
+			if (text === "") return;
+			const values = reader.multiple ? selectAnswerTokens(text) : [text];
 			if (
 				values.every((value) =>
 					reader.options.some((option) => option.value === value),
 				)
 			)
-				continue;
-			errors.push(writerError(writer, reader));
-		}
+				return;
+			const key = JSON.stringify([
+				text,
+				writer?.formUuid,
+				writer?.kind === "hidden" ? writer.field.uuid : writer?.operation.uuid,
+			]);
+			if (reported.has(key)) return;
+			reported.add(key);
+			if (writer !== undefined) {
+				errors.push(writerError({ ...writer, text }, reader));
+				return;
+			}
+			errors.push(
+				validationError(
+					"SELECT_DEFAULT_NOT_AN_OPTION",
+					"field",
+					`Question "${reader.field.id}" in "${reader.formName}" can start on "${text}", which isn't one of its choices. You can map the source to one of its choices, or change the choices it offers.`,
+					{
+						moduleUuid: reader.moduleUuid,
+						moduleName: reader.moduleName,
+						formUuid: reader.formUuid,
+						formName: reader.formName,
+						fieldUuid: reader.field.uuid,
+						fieldId: reader.field.id,
+						field: "default_value",
+					},
+					{
+						value: text,
+						options: reader.options.map((option) => option.value).join(", "),
+					},
+				),
+			);
+		};
+		const visit = (
+			expression: Expression,
+			writer?: Writer,
+			indirect = false,
+			trimOutput = false,
+		): void => {
+			const outputValue = (text: string): void =>
+				emit(trimOutput ? normalizeCaseScalarTextValue(text) : text, writer);
+			visitAssignmentOutputs(expression, [], (output) => {
+				// Constant text composition is bounded too. Other calculations
+				// need an explicit choice-valued result; storage type is no proof.
+				if (
+					output.kind === "concat" &&
+					output.parts.every(
+						(part) =>
+							part.kind === "term" &&
+							part.term.kind === "literal" &&
+							typeof part.term.value === "string",
+					)
+				) {
+					outputValue(
+						output.parts
+							.map((part) =>
+								part.kind === "term" && part.term.kind === "literal"
+									? part.term.value
+									: "",
+							)
+							.join(""),
+					);
+					return;
+				}
+				const coerced =
+					output.kind === "concat"
+						? output.parts.filter(
+								(part) =>
+									!(
+										part.kind === "term" &&
+										part.term.kind === "literal" &&
+										part.term.value === ""
+									),
+							)
+						: output.kind === "call" && output.fn === "string"
+							? output.args
+							: undefined;
+				if (
+					coerced?.length === 1 &&
+					coerced[0].kind === "term" &&
+					["field", "form-case", "prop", "choice"].includes(
+						coerced[0].term.kind,
+					)
+				) {
+					// String coercion of an answer node keeps its held answer text.
+					// Numeric expressions are deliberately not treated this way:
+					// XPath string() and setvalue's numeric cast spell them differently.
+					visit(coerced[0], writer, true, trimOutput);
+					return;
+				}
+				if (output.kind !== "term") {
+					unbounded(writer);
+					return;
+				}
+				const term = output.term;
+				if (term.kind === "literal") {
+					// The slot checker already judges literals returned directly by
+					// the default. This rule owns values reached through references.
+					if (!indirect) return;
+					if (typeof term.value === "string") outputValue(term.value);
+					else if (typeof term.value === "number")
+						outputValue(numericAnswerText(term.value));
+					return;
+				}
+				if (term.kind === "choice") {
+					const field = doc.fields[term.field];
+					if (
+						(field?.kind !== "single_select" &&
+							field?.kind !== "multi_select") ||
+						field.optionsSource.kind !== "inline"
+					)
+						return;
+					const options = term.options.map((uuid) =>
+						field.optionsSource.kind === "inline"
+							? field.optionsSource.options.find(
+									(option) => option.uuid === uuid,
+								)
+							: undefined,
+					);
+					if (options.every((option) => option !== undefined))
+						outputValue(options.map((option) => option.value).join(" "));
+					return;
+				}
+				if (term.kind === "field" && term.role === undefined) {
+					const key = `field:${term.uuid}:${writer?.caseType ?? ""}:${writer?.property ?? ""}:${trimOutput}`;
+					if (seen.has(key)) return;
+					seen.add(key);
+					const field = doc.fields[term.uuid];
+					if (field?.kind === "hidden") {
+						const value = field.calculate ?? field.default_value;
+						if (value !== undefined) visit(value, writer, true, trimOutput);
+					} else if (
+						(field?.kind === "single_select" ||
+							field?.kind === "multi_select") &&
+						field.optionsSource.kind === "inline"
+					) {
+						for (const option of field.optionsSource.options)
+							outputValue(option.value);
+						// A multiple-choice source can also hold a combination. Two
+						// choices suffice to witness a non-single answer, without
+						// constructing the exponential set of all combinations.
+						if (
+							!reader.multiple &&
+							field.kind === "multi_select" &&
+							field.optionsSource.options.length > 1
+						)
+							outputValue(
+								field.optionsSource.options
+									.slice(0, 2)
+									.map((option) => option.value)
+									.join(" "),
+							);
+					} else if (field !== undefined) unbounded(writer);
+					return;
+				}
+				if (term.kind === "form-case" || term.kind === "prop") {
+					const caseType =
+						term.caseType ??
+						(term.kind === "prop" ? writer?.valueCaseType : undefined);
+					if (caseType === undefined) {
+						unbounded(writer);
+						return;
+					}
+					const reached =
+						term.kind === "prop" && term.via !== undefined
+							? resolveRelationDestination(
+									term.via,
+									caseType,
+									doc.caseTypes ?? [],
+								)
+							: { ok: true as const, caseType };
+					if (!reached.ok) return;
+					const key = tupleKey(reached.caseType, term.property);
+					const visitKey = `${key}:${trimOutput}`;
+					if (seen.has(visitKey)) return;
+					seen.add(visitKey);
+					const sources: Write[] = [
+						...(writes.get(key) ?? []),
+						...retypes
+							.filter(
+								(retype) =>
+									retype.to === reached.caseType &&
+									!retype.overwritten.has(term.property),
+							)
+							.map((retype) => ({
+								expression: {
+									kind: "term" as const,
+									term: {
+										kind: "prop" as const,
+										caseType: retype.from,
+										property: term.property,
+									},
+								},
+							})),
+					];
+					if (sources.length === 0) {
+						const property = doc.caseTypes
+							?.find((type) => type.name === reached.caseType)
+							?.properties.find((property) => property.name === term.property);
+						if (
+							property?.options !== undefined &&
+							(property.data_type === "single_select" ||
+								property.data_type === "multi_select")
+						) {
+							for (const option of property.options) outputValue(option.value);
+							if (
+								!reader.multiple &&
+								property.data_type === "multi_select" &&
+								property.options.length > 1
+							)
+								emit(
+									property.options
+										.slice(0, 2)
+										.map((option) => option.value)
+										.join(" "),
+								);
+						} else unbounded(writer);
+					}
+					for (const write of sources)
+						visit(
+							write.expression,
+							write.source,
+							true,
+							trimOutput ||
+								["case_name", "external_id", "owner_id"].includes(
+									term.property,
+								),
+						);
+					return;
+				}
+				unbounded(writer);
+			});
+		};
+		if (
+			"default_value" in reader.field &&
+			reader.field.default_value !== undefined
+		)
+			visit(reader.field.default_value);
 	}
 	return errors;
 }
 
-/** A whole-slot string or number literal's saved text, typed or not. */
-function literalText(expression: Expression | undefined): string | undefined {
-	if (expression?.kind !== "term" || expression.term.kind !== "literal")
-		return undefined;
-	// A literal typed as another kind is the writer-type rules' question.
-	const typed = expression.term.data_type;
-	if (
-		typed !== undefined &&
-		typed !== "text" &&
-		typed !== "single_select" &&
-		typed !== "multi_select"
-	)
-		return undefined;
-	const value = expression.term.value;
-	return typeof value === "number"
-		? numericAnswerText(value)
-		: typeof value === "string"
-			? value
-			: undefined;
-}
-
-function writerError(writer: Writer, reader: Reader): ValidationError {
+function writerError(
+	writer: Writer & { readonly text: string },
+	reader: Reader,
+): ValidationError {
 	const options = reader.options.map((option) => option.value);
 	const subject =
 		writer.kind === "hidden"
@@ -257,15 +571,6 @@ function writerError(writer: Writer, reader: Reader): ValidationError {
 		details,
 	);
 }
-
-/** Every field of a form, in tree order. */
-function formFields(doc: BlueprintDoc, formUuid: Uuid): Field[] {
-	return [...descendantFieldUuids(doc, formUuid)].map(
-		(uuid) => doc.fields[uuid],
-	);
-}
-
-/** JSON-encoded so no two `(caseType, property)` pairs share a key. */
 function tupleKey(caseType: string, property: string): string {
 	return JSON.stringify([caseType, property]);
 }

@@ -24,6 +24,7 @@ import {
 	useLocalizedText,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { ChoiceAnswerCheck } from "@/components/preview/shared/ChoiceAnswerCheck";
 import { PersistentCaseTile } from "@/components/preview/shared/PersistentCaseTile";
 import { PreviewDataRefusalPanel } from "@/components/preview/shared/PreviewDataRefusal";
 import { reportClientError } from "@/lib/clientErrorReporter";
@@ -3428,7 +3429,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * which is also the inner scroller `builder/CLAUDE.md` documents as
 	 * the edit-mode one, and the surface the flipbook's scroll restore
 	 * reads its offset and measurements back from. */
-	return (
+	const content = (
 		<div className={persistentTile ? "flex min-h-full flex-col" : "h-full"}>
 			{persistentTile}
 			<ContentFrame
@@ -3441,6 +3442,29 @@ export function FormScreen({ screen }: FormScreenProps) {
 				<FormLayoutProvider ref={formLayoutRef}>{formBody}</FormLayoutProvider>
 			</ContentFrame>
 		</div>
+	);
+	return mode === "preview" ? (
+		<ChoiceAnswerCheck
+			moduleUuid={moduleUuid}
+			formUuid={formUuid}
+			caseType={caseTypes.find((type) => type.name === mod?.caseType)}
+			selectedRecord={
+				effectiveCases?.length === 1 ? effectiveCases[0] : undefined
+			}
+			{...(needsBoundCase
+				? {
+						onChooseAnotherRecord: () => {
+							setPreviewSelectedCase(undefined);
+							setPreviewCaseTarget({ formUuid });
+							navigate.replace({ kind: "cases", moduleUuid });
+						},
+					}
+				: {})}
+		>
+			{content}
+		</ChoiceAnswerCheck>
+	) : (
+		content
 	);
 }
 

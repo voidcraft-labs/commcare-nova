@@ -373,12 +373,166 @@ describe("readers outside the rule", () => {
 		).toEqual([]);
 	});
 
-	it("admits the same value when the reader's form works on several cases", () => {
+	it("checks explicit starting values even when the form selects several cases", () => {
 		const built = doc({ register: [hiddenWriter({ calculate: "'z'" })] });
 		const module = built.modules[built.moduleOrder[0]];
 		if (module.caseListConfig === undefined)
 			throw new Error("The case list fixture is missing.");
 		module.caseListConfig.selection = { kind: "multiple", maximum: 10 };
-		expect(ofCode(built)).toEqual([]);
+		expect(ofCode(built)).toEqual([expect.objectContaining({ code: CODE })]);
 	});
 });
+
+describe("choice starting values follow current writer values across the app", () => {
+	it("refuses a hidden branch that can write another answer", () => {
+		expect(
+			ofCode(
+				doc({
+					register: [
+						hiddenWriter({ calculate: "if(#form/flag = 'yes', 'a', 'z')" }),
+					],
+				}),
+			),
+		).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ value: "z" }),
+			}),
+		]);
+	});
+	it("admits hidden branches and harmless string coercions whose values fit", () => {
+		for (const calculate of [
+			"if(#form/flag = 'yes', 'a', 'b')",
+			"concat('a', '')",
+		]) {
+			expect(
+				validate(doc({ register: [hiddenWriter({ calculate })] })),
+			).toEqual([]);
+		}
+	});
+	it("checks a read even when the reading question does not save it back", () => {
+		const built = doc({ register: [hiddenWriter({ calculate: "'z'" })] });
+		built.forms[VISIT].caseOperations = built.forms[VISIT].caseOperations?.map(
+			(operation) => ({ ...operation, writes: [] }),
+		);
+		expect(ofCode(built)).toHaveLength(1);
+	});
+	it("refuses a later free-text writer, including when only that form is validated", () => {
+		const built = doc({
+			register: [
+				f({
+					kind: "text",
+					id: "unbounded",
+					caseWrite: { caseType: "patient", property: "stage" },
+				}),
+			],
+		});
+		for (const scope of [undefined, { formUuids: new Set([REGISTER]) }]) {
+			expect(
+				runValidation(built, LOOKUP_CONTEXT_UNAVAILABLE, { scope }).map(
+					(error) => error.code,
+				),
+			).toContain("SELECT_DEFAULT_VALUES_UNBOUNDED");
+		}
+	});
+	it("compares the values of two choice writers, including a later choice edit", () => {
+		const built = doc({
+			register: [
+				f({
+					uuid: WRITER,
+					kind: "single_select",
+					id: "other_stage",
+					options: [
+						{ value: "a", label: "A" },
+						{ value: "z", label: "Z" },
+					],
+					caseWrite: { caseType: "patient", property: "stage" },
+				}),
+			],
+		});
+		expect(ofCode(built)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ value: "z" }),
+			}),
+		]);
+	});
+	it("follows a hidden-value chain instead of the hidden field's text type", () => {
+		const built = doc({
+			register: [
+				f({
+					kind: "hidden",
+					id: "first",
+					calculate: "if(#form/flag = 'yes', 'a', 'z')",
+				}),
+				hiddenWriter({ calculate: "#form/first" }),
+			],
+		});
+		expect(ofCode(built)).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({ value: "z" }),
+			}),
+		]);
+	});
+	it("does not judge values in a branch condition as starting answers", () => {
+		const built = doc({
+			register: [hiddenWriter({ calculate: "if(#form/flag = 'z', 'a', 'b')" })],
+		});
+		expect(validate(built)).toEqual([]);
+	});
+});
+
+it("follows an implicit standard-property read in the writer's form scope", () => {
+	const built = withOperation(doc({}), [
+		{
+			property: "stage",
+			value: { kind: "term", term: { kind: "prop", property: "case_name" } },
+		},
+	]);
+	expect(validate(built)).toEqual([
+		expect.objectContaining({ code: "SELECT_DEFAULT_VALUES_UNBOUNDED" }),
+	]);
+});
+it.each([" a ", "z"])(
+	"judges the stored case name from name and rename writers: %s",
+	(renamed) => {
+		const built = doc({});
+		const registration = built.forms[REGISTER].caseOperations?.find(
+			(op) => op.action === "own",
+		);
+		if (registration?.action !== "own")
+			throw new Error("Missing own operation");
+		registration.name = literal(" a ");
+		registration.writes = registration.writes?.filter(
+			(write) => write.property !== "case_name",
+		);
+		const reader = built.fields[READER];
+		if (reader.kind !== "single_select") throw new Error("Missing choice");
+		reader.default_value = {
+			kind: "term",
+			term: { kind: "form-case", caseType: "patient", property: "case_name" },
+		};
+		built.forms[CHECK_IN].caseOperations = [
+			...ownArms(built.forms[CHECK_IN]),
+			{
+				uuid: OPERATION,
+				id: "rename_patient",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				rename: literal(renamed),
+			},
+		];
+		expect(validate(built)).toEqual(
+			renamed === "z"
+				? [
+						expect.objectContaining({
+							code: CODE,
+							details: expect.objectContaining({
+								value: "z",
+								property: "case_name",
+							}),
+						}),
+					]
+				: [],
+		);
+	},
+);

@@ -3507,36 +3507,36 @@ function checkChoiceDefault(
 	ctx: ExpressionContext,
 	errors: CheckError[],
 ): void {
-	if (
-		ctx.slot.entity !== "field" ||
-		expression.kind !== "term" ||
-		expression.term.kind !== "literal" ||
-		(typeof expression.term.value !== "string" &&
-			typeof expression.term.value !== "number") ||
-		expression.term.value === ""
-	)
-		return;
-	const structuralChoices = ctx.form?.fields.get(ctx.slot.uuid)?.choices;
+	if (ctx.slot.entity !== "field") return;
+	const field = ctx.form?.fields.get(ctx.slot.uuid);
 	const choices =
-		structuralChoices?.kind === "inline"
-			? structuralChoices.options
+		field?.choices?.kind === "inline"
+			? field.choices.options
 			: ctx.facts.options.get(ctx.slot.uuid);
 	if (choices === undefined) return;
-	const text =
-		typeof expression.term.value === "number"
-			? numericAnswerText(expression.term.value)
-			: expression.term.value;
-	const values =
-		ctx.form?.fields.get(ctx.slot.uuid)?.kind === "multi_select"
-			? selectAnswerTokens(text)
-			: [text];
-	if (values.some((value) => !choices.some((option) => option.value === value)))
-		errors.push(
-			refusal(
-				"default-not-a-choice",
-				"Choose one of this question's choices as its starting value.",
-			),
-		);
+	visitAssignmentOutputs(expression, [], (output, path) => {
+		if (output.kind !== "term" || output.term.kind !== "literal") return;
+		const value = output.term.value;
+		if (
+			(typeof value !== "string" && typeof value !== "number") ||
+			value === ""
+		)
+			return;
+		const text = typeof value === "number" ? numericAnswerText(value) : value;
+		const values =
+			field?.kind === "multi_select" ? selectAnswerTokens(text) : [text];
+		if (
+			values.some(
+				(answer) => !choices.some((option) => option.value === answer),
+			)
+		) {
+			errors.push({
+				path,
+				code: "default-not-a-choice",
+				message: "Choose one of this question's choices as its starting value.",
+			});
+		}
+	});
 }
 
 function assignmentErrors(

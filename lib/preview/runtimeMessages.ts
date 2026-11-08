@@ -163,6 +163,7 @@ const english = {
 	answerTypeInt: "a whole number",
 	answerTypeDecimal: "a number",
 	answerTypeGeopoint: "a location",
+	answerTypeChoiceList: "a list of choices without an empty selection",
 	back: "Back",
 	goBack: "Go back",
 	backToResults: "Back to results",
@@ -479,6 +480,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	answerTypeInt: "un número entero",
 	answerTypeDecimal: "un número",
 	answerTypeGeopoint: "una ubicación",
+	answerTypeChoiceList: "una lista de opciones sin una selección vacía",
 	back: "Atrás",
 	goBack: "Volver",
 	backToResults: "Volver a los resultados",
@@ -660,6 +662,7 @@ const ANSWER_TYPE_PHRASE: Readonly<Record<RefusingAnswerType, RuntimeMessage>> =
 		int: "answerTypeInt",
 		decimal: "answerTypeDecimal",
 		geopoint: "answerTypeGeopoint",
+		"choice-list": "answerTypeChoiceList",
 	};
 
 /** The names a refusal's copy reads, resolved by the surface showing it. */

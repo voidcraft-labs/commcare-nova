@@ -15,6 +15,7 @@ import {
 	resolveAppLanguage,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { previewPlatformRules } from "../platform";
 import {
 	dataRefusalCopy,
 	refusalCopy,
@@ -27,6 +28,7 @@ import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathRuntimeError } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
+import { choiceAnswerDiagnosticMessage } from "./choiceAnswerDiagnostic";
 import {
 	type PreviewDataRefusal,
 	previewDataRefusalOf,
@@ -290,10 +292,18 @@ export async function evaluateFormSnapshot(
 		path.startsWith("/data/") ? path : `/data/${path.replace(/^#form\//, "")}`;
 	const fieldAt = (path: string) =>
 		fieldsByPath.get(path.replace(/\[\d+\]/g, ""));
+	const checkChoiceAnswers = () => {
+		const issue = engine.choiceAnswerDiagnostic();
+		if (issue !== undefined)
+			throw new FormEvaluationInputError(
+				`Nova Preview check: ${choiceAnswerDiagnosticMessage(issue, previewPlatformRules(context.device.platform))}`,
+			);
+	};
 	try {
 		if (context.entry && context.entry.language === engineInput.language)
 			engine.restoreEntryCheckpoint(context.entry.checkpoint);
 		else await engine.initializeAsync(evaluate);
+		checkChoiceAnswers();
 		/* The form's pages are the platform's screens (`formScreens`): the
 		 * whole form on Web Apps, a section or a group or question on
 		 * Android. A forward move validates every earlier screen in order and
@@ -391,6 +401,7 @@ export async function evaluateFormSnapshot(
 				throw new SetvalueRefusal(state.insertRefusal);
 		}
 		for (const answer of input.answers) {
+			checkChoiceAnswers();
 			const path = normalizePath(answer.path);
 			const screen = screenForPath(path);
 			if (screen && screen.path !== engine.currentScreenPath()) {
@@ -461,6 +472,7 @@ export async function evaluateFormSnapshot(
 			visibleScreens.at(-1)?.current === true;
 		/* Formplayer rebuilds the session before it validates a submission. */
 		await engine.prepareSubmitAsync(evaluate);
+		checkChoiceAnswers();
 		const valid = await engine.validateAllAsync(evaluate);
 		const relevantPaths = engine.effectivelyVisiblePaths();
 		const presentation = projectFormPresentation(

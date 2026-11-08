@@ -55,6 +55,12 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 - **Explain consequences, calmly.** Destructive flows state what happens and how to undo, never alarm or guilt: the delete tooltip reads "Move to recently deleted", the confirm button "Confirm delete".
 - **Say what an update changed.** When an update changes an app or what its next publish does, a notice says so with one line per change, each saying what changed, what a worker or a person now sees, and what is theirs to do. A quiet violet chip in the builder header counts the updates to review and opens the notice; nothing opens by itself.
 
+**Preview diagnostics.** An authoring check sits outside the worker's form and
+names itself “Nova Preview check”. It identifies the affected question and value,
+explains the selected platform's consequence, and offers the relevant question
+editor, selected-record details, another record, and a fresh retry. Keep saved
+answers intact; never make an unavailable choice look like a worker option.
+
 **Unsaved builder edits.** The save indicator says “Saving” from an admitted
 human edit until its queued and sent commands have durable receipts. A failure
 stays visible through retry. Leaving with unsaved edits asks for confirmation;

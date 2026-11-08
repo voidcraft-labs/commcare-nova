@@ -122,6 +122,8 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"FIELD_KIND_WRITERS_DISAGREE",
 	"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
 	"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
+	"SELECT_DEFAULT_VALUES_UNBOUNDED",
+	"SELECT_DEFAULT_NOT_AN_OPTION",
 	"WHOLE_NUMBER_STARTS_ON_DECIMAL",
 	"BLUEPRINT_ENTITY_UUID_DUPLICATE",
 	"AUTOMATION_INVALID",
@@ -214,7 +216,7 @@ export function runValidation(
 
 	// App rules always run — see SCOPE_EXEMPT_CODES for why.
 	for (const rule of APP_RULES) {
-		errors.push(...rule(doc));
+		errors.push(...rule(doc, lookupTables));
 	}
 
 	const entryPlan = entryPlanContext(doc);
