@@ -40,7 +40,10 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   because Chromium can deliver teardown reports without emitting network events.
   `error-guard.spec.ts` proves native delivery and detection with a real local HTTP
   receiver across reload/close, plus origin scope and page isolation. Chromium
-  closes with `runBeforeUnload: true` and awaits the `close` event. WebKit first
+  closes with `runBeforeUnload: true` and awaits the `close` event. Intentional
+  teardown accepts any unsaved-work `beforeunload` warning and joins its dialog
+  handlers; departure tests explicitly dismiss it to prove that staying keeps
+  work available. WebKit first
   navigates normally to `about:blank`, waits for `load`, then awaits default close.
   Close is attempted even if navigation fails; departure and close failures still
   fail teardown. Default close without document departure can bypass pagehide.
