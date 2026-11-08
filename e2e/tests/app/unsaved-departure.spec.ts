@@ -110,9 +110,11 @@ test("an edit waiting in the autosave cooldown is visibly unsaved and protects d
 		await expect(title).toHaveValue("Queued in cooldown");
 		await page.clock.runFor(1000);
 		await expect(page.getByText(/^Saved just now$/)).toBeVisible();
-		await reloadBuilder(page);
-		await expect(title).toHaveValue("Queued in cooldown");
 	} finally {
 		await page.clock.resume();
 	}
+	// Only the cooldown is clock-controlled. The fresh document must hydrate
+	// with live timers (streamed Suspense reveals can schedule a later task).
+	await reloadBuilder(page);
+	await expect(title).toHaveValue("Queued in cooldown");
 });
