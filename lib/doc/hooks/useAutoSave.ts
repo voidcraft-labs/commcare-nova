@@ -4,9 +4,8 @@
  *
  * Subscribes to the BlueprintDoc store's entity-map references. On the first
  * mutation after a quiet period it dispatches immediately (leading edge);
- * mutations that arrive during a cooldown batch into one trailing dispatch, so
- * "Saving…" appears only while a PUT is actually in flight, not during an
- * artificial debounce window.
+ * mutations that arrive during a cooldown batch into one trailing dispatch, while
+ * "Saving…" remains visible until all human commands have a durable receipt.
  *
  * The reconciler (`lib/collab/reconciler.ts`) owns
  * `confirmedDoc ⊕ sentPending` and the PUT itself
@@ -47,7 +46,7 @@ const COOLDOWN_MS = 1000;
 /**
  * Save lifecycle states — drives the subheader indicator.
  * - `idle`: no saves have occurred this session, nothing to show
- * - `saving`: PUT request in-flight
+ * - `saving`: human commands queued or awaiting a durable receipt
  * - `saved`: last save succeeded — `savedAt` carries the timestamp
  * - `error`: last save failed
  */
@@ -225,7 +224,10 @@ export function useAutoSave(): SaveState {
 					inFlightRef.current = false;
 					lastErroredRef.current = false;
 					dismissTerminalWarning();
-					setState({ status: "saved", savedAt: Date.now() });
+					setState({
+						status: reconciler?.hasUnsavedChanges() ? "saving" : "saved",
+						savedAt: Date.now(),
+					});
 					startCooldown();
 					return;
 				case "conflict":
@@ -382,6 +384,12 @@ export function useAutoSave(): SaveState {
 				if (phase !== BuilderPhase.Ready && phase !== BuilderPhase.Completed)
 					return;
 				if (!sessionState.appId || !docHasData(docSnap)) return;
+
+				if (reconciler?.hasUnsavedChanges() && !lastErroredRef.current) {
+					setState((prev) =>
+						prev.status === "saving" ? prev : { ...prev, status: "saving" },
+					);
+				}
 
 				/* Dispatch is in-flight → queue for trailing edge after completion. */
 				if (inFlightRef.current) {

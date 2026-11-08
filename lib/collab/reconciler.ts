@@ -402,6 +402,8 @@ export interface Reconciler {
 	canonicalRevision(): number;
 	/** Whether human-uncommitted edits should PUT (false while dormant). */
 	canPut(): boolean;
+	/** Human commands without a durable receipt, including the unsent queue. */
+	hasUnsavedChanges(): boolean;
 	/** Whether the reconciler is still dormant (a new build with no app id yet).
 	 *  Cheap boolean read for the chat hot path — avoids `getSnapshot()`'s deep
 	 *  clone of `sentPending`/`awaitingEcho` per `data-mutations` frame. */
@@ -759,6 +761,15 @@ export function createReconciler(
 	// ── Dispatch (human edit → PUT) ──────────────────────────────────────
 	function canPut(): boolean {
 		return !dormant && !inert() && appId !== undefined && deps.canEdit();
+	}
+
+	function hasUnsavedChanges(): boolean {
+		return (
+			docStore.getState().peekCommandBatches().length > 0 ||
+			sentPending.some(
+				(batch) => batch.source === "human" && batch.ackedSeq === undefined,
+			)
+		);
 	}
 
 	function isDormant(): boolean {
@@ -1814,6 +1825,7 @@ export function createReconciler(
 		},
 		canonicalRevision: () => baseSeq,
 		canPut,
+		hasUnsavedChanges,
 		isDormant,
 		localBase,
 		registerSaveObserver,

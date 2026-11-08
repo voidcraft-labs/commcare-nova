@@ -543,3 +543,18 @@ Only a complete, valid checkpoint becomes the saved app.
 If a long build reaches its turn limit, Nova keeps your progress and pauses. You
 can send a new message to continue. Refreshing the page reconnects to that same
 paused turn.
+
+
+## Saving your edits
+
+Edits in the builder save automatically. **Saving** includes edits waiting to
+be sent as well as those on their way to the server. **Saved** means the server
+has confirmed your edits. If a save fails, your edits stay in the open builder
+while Nova retries.
+
+If you reload, close the tab or leave the builder with unsaved edits, your
+browser asks whether you want to leave. Staying keeps those edits available to
+save; leaving can discard them. Moving between screens within the same app
+keeps your edits in place. Waiting for **Saved** before closing is the safest
+option, especially on mobile devices where closing the browser may skip its
+warning.

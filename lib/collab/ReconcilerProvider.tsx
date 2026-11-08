@@ -77,6 +77,7 @@ import { uuidSchema } from "@/lib/domain";
 import { getLookupManifestAction } from "@/lib/lookup/actions";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import { guardBuilderDeparture } from "@/lib/routing/departureGuard";
 import { buildUrl } from "@/lib/routing/location";
 import {
 	activateBuilderHistoryScope,
@@ -1291,6 +1292,10 @@ export function ReconcilerProvider({
 		const runtime = runtimeRef.current;
 		if (!runtime) return;
 		runtime.start();
+		const releaseDepartureGuard = guardBuilderDeparture(
+			() => runtime.appIdBox.current,
+			() => runtime.reconciler.hasUnsavedChanges(),
+		);
 		// A full document navigation does not run React effect cleanup. Cancel
 		// reads before Chromium aborts them, and retain resumable state for BFCache.
 		const onPageHide = () => runtime.suspend();
@@ -1304,6 +1309,7 @@ export function ReconcilerProvider({
 		window.addEventListener("pagehide", onPageHide);
 		window.addEventListener("pageshow", onPageShow);
 		return () => {
+			releaseDepartureGuard();
 			window.removeEventListener("pagehide", onPageHide);
 			window.removeEventListener("pageshow", onPageShow);
 			runtime.suspend();

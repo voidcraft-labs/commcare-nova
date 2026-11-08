@@ -55,6 +55,12 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 - **Explain consequences, calmly.** Destructive flows state what happens and how to undo, never alarm or guilt: the delete tooltip reads "Move to recently deleted", the confirm button "Confirm delete".
 - **Say what an update changed.** When an update changes an app or what its next publish does, a notice says so with one line per change, each saying what changed, what a worker or a person now sees, and what is theirs to do. A quiet violet chip in the builder header counts the updates to review and opens the notice; nothing opens by itself.
 
+**Unsaved builder edits.** The save indicator says “Saving” from an admitted
+human edit until its queued and sent commands have durable receipts. A failure
+stays visible through retry. Leaving with unsaved edits asks for confirmation;
+staying preserves the open builder. Moving between the app's own screens needs
+no warning. Native reload and close dialogs use the browser's wording.
+
 **Unfinished chat edits.** A quiet row below the transcript and above the
 composer says “Changes waiting to be saved” when the current conversation has
 private edits. Offer “Continue” and “Discard”; the saved app remains usable.

@@ -3310,4 +3310,77 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().recordedHolds.size).toBe(0);
 		});
 	});
+	describe("unsaved human work", () => {
+		it("tracks the original queue and clears on ACK without waiting for an echo", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeDoc(),
+				userId: "self",
+			});
+			expect(h.reconciler.hasUnsavedChanges()).toBe(false);
+			// Identical bytes still represent a command that owes persistence.
+			applyLocal(h, [{ kind: "setAppName", name: "App" }]);
+			expect(h.reconciler.hasUnsavedChanges()).toBe(true);
+			h.reconciler.dispatchHumanBatch();
+			expect(h.reconciler.hasUnsavedChanges()).toBe(true);
+			await h.resolvePut(0, { ok: true, seq: 1 });
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(1);
+			expect(h.reconciler.hasUnsavedChanges()).toBe(false);
+			applyLocal(h, [{ kind: "setAppName", name: "Trailing" }]);
+			expect(h.reconciler.hasUnsavedChanges()).toBe(true);
+		});
+
+		it.each(["network", "tooLarge", "canonicality"] as const)(
+			"retains work after %s",
+			async (kind) => {
+				const h = harness({
+					appId: "app-1",
+					baseSeq: 0,
+					baseDoc: makeDoc(),
+					userId: "self",
+				});
+				applyLocal(h, [{ kind: "setAppName", name: "Unsaved" }]);
+				h.reconciler.dispatchHumanBatch();
+				await h.resolvePut(
+					0,
+					kind === "canonicality" ? CANONICALITY_OUTCOME : { ok: false, kind },
+				);
+				expect(h.reconciler.hasUnsavedChanges()).toBe(true);
+			},
+		);
+
+		it("accepts an own echo as durability evidence even before the PUT resolves", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeDoc(),
+				userId: "self",
+			});
+			const mutations: Mutation[] = [{ kind: "setAppName", name: "Saved" }];
+			applyLocal(h, mutations);
+			h.reconciler.dispatchHumanBatch();
+			h.reconciler.onFrame(
+				autosaveFrame(1, h.puts[0].batchId, "self", mutations),
+			);
+			expect(h.reconciler.hasUnsavedChanges()).toBe(false);
+			await h.resolvePut(0, { ok: true, seq: 1 });
+		});
+
+		it("does not warn for server-committed chat work waiting for its echo", () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeDoc(),
+				userId: "self",
+			});
+			h.reconciler.registerChatBatch({
+				batchId: "chat",
+				runId: "run",
+				seq: 1,
+				mutations: admitMutationBatch([{ kind: "setAppName", name: "Chat" }]),
+			});
+			expect(h.reconciler.hasUnsavedChanges()).toBe(false);
+		});
+	});
 });

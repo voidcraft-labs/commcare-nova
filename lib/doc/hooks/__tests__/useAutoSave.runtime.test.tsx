@@ -168,8 +168,9 @@ describe("autosave with the actual document queue and reconciler", () => {
 		act(() => h.commit([{ kind: "setAppName", name: "Second" }]));
 		expect(h.puts).toHaveLength(1);
 		await h.respond(0, { ok: true, seq: 1 });
-		expect(h.result.current).toEqual({ status: "saved", savedAt: Date.now() });
+		expect(h.result.current).toEqual({ status: "saving", savedAt: Date.now() });
 		act(() => h.commit([{ kind: "setAppName", name: "Third" }]));
+		expect(h.result.current.status).toBe("saving");
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(999);
 		});
@@ -181,6 +182,7 @@ describe("autosave with the actual document queue and reconciler", () => {
 			{ kind: "setAppName", name: "Second" },
 		]);
 		await h.respond(1, { ok: true, seq: 2 });
+		expect(h.result.current.status).toBe("saving");
 		expect(h.puts[2].mutations).toEqual([
 			{ kind: "setAppName", name: "Third" },
 		]);

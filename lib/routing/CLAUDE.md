@@ -97,3 +97,12 @@ the canonical single-field URL resolves that field's actual owner.
 After a field deletion, `deletionSelection.ts` uses the old visual order and the
 new document to select the next surviving row, then the previous row, then none.
 Children removed with a group or repeat cannot become the new selection.
+
+
+## Leaving with unsaved app edits
+
+`departureGuard.ts` registers the mounted Builder's live unsaved-work predicate.
+`useExternalNavigate` consults it before cross-route pushes/replacements; the
+browser adapter handles links, native unload and cancellable Navigation API
+history traversals. Same-app locations keep the document runtime and do not
+warn. The registration is released with its provider, including effect replay.
