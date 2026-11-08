@@ -34,6 +34,7 @@
 //     instead of blanking it to a spinner.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
@@ -248,6 +249,7 @@ import {
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { showToast } from "@/lib/ui/toastStore";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 
@@ -767,6 +769,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		}),
 		[requestedPageIndex],
 	);
+	const deferFocus = useDeferredFocus();
 	const choosePage = useCallback(
 		(index: number) => {
 			setPageSelection({
@@ -779,7 +782,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				replacementRevision,
 				index: Math.max(0, index),
 			});
-			requestAnimationFrame(() => resultsTitleRef.current?.focus());
+			deferFocus(() => resultsTitleRef.current?.focus());
 		},
 		[
 			caseType?.name,
@@ -789,6 +792,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			replacementRevision,
 			scopeEpoch,
 			activeSearchInputValues,
+			deferFocus,
 		],
 	);
 	const [openCase, setOpenCase] = useState<CaseRowWithCalculated | null>(null);
@@ -812,9 +816,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const explicitRouteCloseRef = useRef<string | null>(null);
 	const routeDrivenExit =
 		previousRouteCaseIdRef.current !== undefined && routeCaseId === undefined;
-	const focusNextFrame = useCallback((target: () => HTMLElement | null) => {
-		requestAnimationFrame(() => target()?.focus());
-	}, []);
+	const focusNextFrame = useCallback(
+		(target: () => HTMLElement | null) => {
+			deferFocus(() => target()?.focus());
+		},
+		[deferFocus],
+	);
 	const routeFallbackPaneRef = useCallback(
 		(element: HTMLDivElement | null) => {
 			if (element === null) return;

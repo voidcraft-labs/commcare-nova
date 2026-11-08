@@ -18,6 +18,7 @@ import { type ReactNode, useRef } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
 /** Friendly section label above the value-rule list. */
 export function MappingSectionLabel() {
@@ -70,9 +71,10 @@ export function AddMappingButton({ onClick }: { onClick: () => void }) {
  * control now occupying the same position, then the previous row, then Add. */
 export function useMappingRemovalFocus() {
 	const rootRef = useRef<HTMLDivElement | null>(null);
+	const deferFocus = useDeferredFocus();
 	const removeWithFocus = (index: number, remove: () => void) => {
 		remove();
-		requestAnimationFrame(() => {
+		deferFocus(() => {
 			const root = rootRef.current;
 			if (root === null) return;
 			const active = document.activeElement;

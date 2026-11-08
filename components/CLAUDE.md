@@ -65,6 +65,14 @@ component function inside render.
 
 Always `@iconify/react/offline`: the default `@iconify/react` export hydrates via effects and renders an empty span for 1–3 frames. Icon data is imported synchronously (the field/module/form kind metadata in `lib/domain` carries `IconifyIcon` object data, not an id string). A missing Tabler icon goes in the project's extras file with SVG from tabler.io. This applies INSIDE `components/shadcn` too, vendored components get every library icon (lucide) swapped to Tabler.
 
+## Deferred focus
+
+A focus handoff after a screen or control changes is a fallback. If the person
+focuses another control or starts typing before it runs, their choice wins.
+Use `lib/ui/hooks/useDeferredFocus` for a one-frame handoff and keep its owner
+mounted until the destination exists. Intentional modal focus traps and
+readiness-gated form reveals retain their own lifecycle owners.
+
 ## Inputs
 
 Every `<input>` / `<textarea>` gets `autoComplete="off"` and `data-1p-ignore` (keeps password managers off non-credential fields).

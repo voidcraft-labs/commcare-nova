@@ -84,3 +84,12 @@ P outside an input enters Preview, and a refused identifier commit preserves
 both the draft and actual focus before retry. Browser focus/selection claims
 belong there, not in spies on HTML element methods. See `docs/testing.md` for the
 same evidence-first rule across all testing methods.
+
+**Deferred focus yields to newer interaction.** `hooks/useDeferredFocus` owns a
+single post-commit focus handoff. Another focus target, pointer press or keypress
+cancels it; a later request supersedes it, and owner teardown cancels its frame
+and listeners. Use it for one-shot navigation, clear and removal handoffs.
+Return its cancellation from an effect when the request belongs to that effect;
+row-removal hooks deliberately retain their handoff across unrelated renders.
+This is not a focus trap or an async operation owner: those flows must still
+check their own scope, readiness and request lifetime before scheduling focus.

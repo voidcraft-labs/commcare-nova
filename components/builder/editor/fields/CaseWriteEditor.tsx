@@ -110,6 +110,7 @@ import {
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { useNavigate, useSelectedFormContext } from "@/lib/routing/hooks";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { destinationRef } from "./caseWritePresentation";
 import {
 	ancestorCaseWriteChoices,
@@ -438,6 +439,7 @@ function DestinationRow({
 	const preloadId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const newNameRef = useRef<HTMLInputElement>(null);
+	const deferFocus = useDeferredFocus();
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [creating, setCreating] = useState(false);
@@ -760,7 +762,7 @@ function DestinationRow({
 		setRejection(null);
 		setCreating(true);
 		setOpen(false);
-		requestAnimationFrame(() => newNameRef.current?.focus());
+		deferFocus(() => newNameRef.current?.focus());
 	};
 
 	const displayLabel = model?.destination ?? NO_DESTINATION_TEXT;
@@ -1138,7 +1140,7 @@ function DestinationRow({
 								attemptRef.current += 1;
 								setChecking(false);
 								setCreating(false);
-								requestAnimationFrame(() => triggerRef.current?.focus());
+								deferFocus(() => triggerRef.current?.focus());
 							}}
 						>
 							Cancel

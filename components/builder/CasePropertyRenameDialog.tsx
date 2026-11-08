@@ -71,6 +71,7 @@ import type {
 } from "@/lib/preview/engine/casePropertyRenamePreflightTypes";
 import { useCasePropertyRenamePreflight } from "@/lib/preview/hooks/useCasePropertyRenamePreflight";
 import { useAppendedRowReveal } from "@/lib/ui/hooks/useAppendedRowReveal";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
 type Stage = "overview" | "compose" | "review";
 
@@ -190,6 +191,7 @@ export function CasePropertyRenameDialog({
 }) {
 	const projectProse = useProseProjection();
 	const titleRef = useRef<HTMLHeadingElement>(null);
+	const deferFocus = useDeferredFocus();
 	const nameInputId = useId();
 	const { inline } = useBlueprintMutations();
 	const reconcilerContext = useReconcilerContext();
@@ -263,8 +265,8 @@ export function CasePropertyRenameDialog({
 		setStorageImpact(result.report);
 		setReviewSeq(result.mutationSeq);
 		setStage("review");
-		requestAnimationFrame(() => titleRef.current?.focus());
-	}, [preflight, relationReady, renames, review]);
+		deferFocus(() => titleRef.current?.focus());
+	}, [preflight, relationReady, renames, review, deferFocus]);
 
 	const saveRename = useCallback(async () => {
 		if (

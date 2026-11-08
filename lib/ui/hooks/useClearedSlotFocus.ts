@@ -34,6 +34,7 @@
 "use client";
 
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { useDeferredFocus } from "./useDeferredFocus";
 
 export function useClearedSlotFocus(value: unknown): {
 	/** Attach to the control that replaces the editor once the slot is empty. */
@@ -45,29 +46,16 @@ export function useClearedSlotFocus(value: unknown): {
 	/* A fresh object per confirm, so a second clear is a new intent. */
 	const [intent, setIntent] = useState<object | null>(null);
 	const handled = useRef<object | null>(null);
-	const frame = useRef<number | null>(null);
-
-	// Cancelled on UNMOUNT and at the next schedule, never from the scheduling
-	// effect's own cleanup: that cleanup runs whenever the slot's value changes
-	// again, and would cancel the focus it had just scheduled the moment a
-	// peer's edit landed inside the frame's window.
-	useEffect(
-		() => () => {
-			if (frame.current !== null) cancelAnimationFrame(frame.current);
-		},
-		[],
-	);
+	const deferFocus = useDeferredFocus();
 
 	useEffect(() => {
 		if (intent === null || handled.current === intent) return;
 		handled.current = intent;
 		if (value !== undefined) return;
-		if (frame.current !== null) cancelAnimationFrame(frame.current);
-		frame.current = requestAnimationFrame(() => {
-			frame.current = null;
+		deferFocus(() => {
 			addRef.current?.focus();
 		});
-	}, [intent, value]);
+	}, [intent, value, deferFocus]);
 
 	return {
 		addRef,

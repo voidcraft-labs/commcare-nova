@@ -28,6 +28,7 @@ import {
 } from "@/components/shadcn/select";
 import { type Expression, sessionContext, term } from "@/lib/domain/expression";
 import { LIST_ROW_INTERACTIVE_CLS } from "@/lib/styles";
+import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 
 export type AssignedCasesMode = "all" | "current-user" | "custom";
 type StandardAssignedCasesMode = Exclude<AssignedCasesMode, "custom">;
@@ -82,6 +83,7 @@ export function AssignedCasesSetting({
 	const [pendingReplacement, setPendingReplacement] =
 		useState<StandardAssignedCasesMode | null>(null);
 	const wasNeeded = useRef(needsDisclosure);
+	const deferFocus = useDeferredFocus();
 	const disclosureTriggerRef = useRef<HTMLButtonElement>(null);
 	const selectTriggerRef = useRef<HTMLButtonElement>(null);
 	const pendingReviewTokenRef = useRef<number | null>(null);
@@ -109,17 +111,17 @@ export function AssignedCasesSetting({
 		) {
 			return;
 		}
-		const frame = requestAnimationFrame(() => {
+		pendingReviewTokenRef.current = null;
+		const cancelFocus = deferFocus(() => {
 			(selectTriggerRef.current ?? disclosureTriggerRef.current)?.focus({
 				preventScroll: true,
 			});
 			selectTriggerRef.current?.scrollIntoView({
 				block: "center",
 			});
-			pendingReviewTokenRef.current = null;
 		});
-		return () => cancelAnimationFrame(frame);
-	}, [open, reviewRequest]);
+		return cancelFocus;
+	}, [open, reviewRequest, deferFocus]);
 
 	const applyStandardMode = (next: StandardAssignedCasesMode) => {
 		onChange(next === "all" ? undefined : CURRENT_USER_OWNER_EXCLUSION);
