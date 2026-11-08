@@ -19,8 +19,9 @@ async function dismissDeparture(
 		(error: unknown) => error,
 	);
 	const dialog = await dialogPromise;
-	expect(dialog.type()).toBe(type);
+	const actualType = dialog.type();
 	await dialog.dismiss();
+	expect(actualType).toBe(type);
 	const result = await departure;
 	if (result !== undefined) expect(String(result)).toContain("ERR_ABORTED");
 	expect(page.isClosed()).toBe(false);
@@ -55,9 +56,18 @@ test("unsaved edits warn on reload, close and leaving through a link, then save 
 		await title.press("Enter");
 		await started.promise;
 		await expect(page.getByText("Saving…", { exact: true })).toBeVisible();
-		await dismissDeparture(page, () => reloadBuilder(page));
+		await dismissDeparture(page, () =>
+			page.evaluate(() => {
+				// biome-ignore lint/plugin/builderPageLoads: deliberately cancel this native reload; no new document or Project catalog is loaded.
+				window.location.reload();
+			}),
+		);
 		await expect(title).toHaveValue("Protected edit");
-		await dismissDeparture(page, () => page.goForward(), "confirm");
+		await dismissDeparture(
+			page,
+			() => page.evaluate(() => window.history.forward()),
+			"confirm",
+		);
 		await expect(title).toHaveValue("Protected edit");
 		await dismissDeparture(page, () => page.close({ runBeforeUnload: true }));
 		await dismissDeparture(page, () =>
@@ -91,7 +101,12 @@ test("an edit waiting in the autosave cooldown is visibly unsaved and protects d
 		await title.fill("Queued in cooldown");
 		await title.press("Enter");
 		await expect(page.getByText("Saving…", { exact: true })).toBeVisible();
-		await dismissDeparture(page, () => reloadBuilder(page));
+		await dismissDeparture(page, () =>
+			page.evaluate(() => {
+				// biome-ignore lint/plugin/builderPageLoads: deliberately cancel this native reload; no new document or Project catalog is loaded.
+				window.location.reload();
+			}),
+		);
 		await expect(title).toHaveValue("Queued in cooldown");
 		await page.clock.runFor(1000);
 		await expect(page.getByText(/^Saved just now$/)).toBeVisible();

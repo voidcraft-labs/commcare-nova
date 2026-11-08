@@ -6,7 +6,7 @@
  * That synchronous record survives reload and page close; the context owns it.
  */
 import { randomUUID } from "node:crypto";
-import { expect, type Page } from "@playwright/test";
+import { type Dialog, expect, type Page } from "@playwright/test";
 import { urlOrigin } from "./url";
 
 export interface ErrorGuard {
@@ -20,6 +20,24 @@ export interface ErrorGuard {
  * Playwright's default close can destroy the target without that lifecycle. */
 export async function closePageWithUnload(page: Page): Promise<void> {
 	if (page.isClosed()) return;
+	// Teardown intentionally leaves. Without a handler Playwright dismisses
+	// beforeunload, so the page survives and the close waiter never settles.
+	const dialogs: Promise<void>[] = [];
+	const onDialog = (dialog: Dialog) => {
+		dialogs.push(
+			dialog.type() === "beforeunload" ? dialog.accept() : dialog.dismiss(),
+		);
+	};
+	page.on("dialog", onDialog);
+	try {
+		await closeDepartingPage(page);
+	} finally {
+		page.off("dialog", onDialog);
+		await Promise.all(dialogs);
+	}
+}
+
+async function closeDepartingPage(page: Page): Promise<void> {
 	if (page.context().browser()?.browserType().name() === "webkit") {
 		// WebKit can acknowledge runBeforeUnload without closing the page.
 		// A normal navigation runs the departing document's native lifecycle.
