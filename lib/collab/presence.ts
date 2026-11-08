@@ -4,7 +4,7 @@
  * The tracker mints a per-tab `sessionId` (so a user's two tabs are two
  * presence rows and one tab's `DELETE` never drops the other), heartbeats
  * `POST /api/apps/{id}/presence` on a fixed cadence AND promptly on every
- * `useLocation()` change, and `DELETE`s on unmount / `beforeunload`. Inbound
+ * `useLocation()` change, and `DELETE`s on unmount / `pagehide`. Inbound
  * `event: presence` roster frames arrive over the single shared `EventSource`
  * via the reconciler provider's `subscribePresence(cb)` seam (P6).
  *
@@ -369,7 +369,7 @@ export function usePresence(
 	);
 
 	// Heartbeat: an immediate POST on mount, then every HEARTBEAT_MS, plus a
-	// DELETE on unmount and on `beforeunload` (a tab close skips React cleanup).
+	// DELETE on unmount and on `pagehide` (a tab close skips React cleanup).
 	useEffect(() => {
 		if (!canBeat || !appId) return;
 
@@ -392,11 +392,11 @@ export function usePresence(
 			postBeat(beatInputRef.current.location);
 			setTick((t) => t + 1);
 		}, HEARTBEAT_MS);
-		window.addEventListener("beforeunload", remove);
+		window.addEventListener("pagehide", remove);
 
 		return () => {
 			clearInterval(interval);
-			window.removeEventListener("beforeunload", remove);
+			window.removeEventListener("pagehide", remove);
 			remove();
 		};
 	}, [appId, canBeat, readLocation, sessionId, postBeat]);

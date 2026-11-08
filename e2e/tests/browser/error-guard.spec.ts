@@ -150,3 +150,28 @@ test("live exceptions, console errors, reports, and same-origin 5xx fail indepen
 		await foreign.close();
 	}
 });
+
+test("teardown accepts an unsaved-work warning and still runs pagehide", async ({
+	page,
+}) => {
+	const receiver = await startReceiver();
+	try {
+		await page.goto(receiver.origin);
+		await page.getByText("Ready", { exact: true }).click();
+		await page.evaluate(() => {
+			window.addEventListener("beforeunload", (event) => {
+				event.preventDefault();
+				event.returnValue = "";
+			});
+			window.addEventListener("pagehide", () => {
+				navigator.sendBeacon("/api/log/error", "closed after warning");
+			});
+		});
+		await closePageWithUnload(page);
+		expect(page.isClosed()).toBe(true);
+		await expect.poll(() => receiver.reports).toEqual(["closed after warning"]);
+	} finally {
+		await page.close();
+		await receiver.close();
+	}
+});

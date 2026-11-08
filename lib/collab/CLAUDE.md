@@ -107,6 +107,28 @@ The runtime's history, current-URL and review-navigation effects have an explici
 browser adapter; its protocol/state tests require no simulated DOM. Native
 browser journeys own the actual lifecycle/history binding.
 
+## Unsaved work and departure
+
+`hasUnsavedChanges` reads the original human command queue plus human sent
+segments without an ACK. A committed chat segment or ACKed human segment waiting
+for its echo is already durable. Failed, frozen and oversized human segments
+remain unsaved; a successful own echo also establishes durability.
+
+The provider owns `guardBuilderDeparture` for its entire mounted lifetime. Native
+reload/close use `beforeunload`; dirty same-tab links leave through that same
+native path before Next can unmount the Builder. The cross-route navigation
+wrapper consults the live guard, and cancellable same-document Back/Forward
+traversals consult it before popstate through the Navigation API. Intra-app
+History navigation keeps the runtime and never warns. Presence leaves on
+`pagehide`, not on an attempted departure the person can cancel.
+
+Autosave shows Saving for queued commands as well as PUTs, including the cooldown
+and successors behind an ACKed batch. A sustained failure stays visible through
+retry. Departure warnings do not flush requests or persist/replay a browser
+outbox: they preserve the existing ordered, admitted batch protocol. Browsers
+can suppress unload events (for example when a mobile process is killed); this
+is a warning boundary, not crash recovery.
+
 ## Observability (two-channel rule)
 
 A persistent 5xx / network PUT failure and a reload-GET failure route through the typed `onSaveError` dep → the provider's `reportClientError`, so an app-wide save-path outage is visible in Sentry and Cloud Logging. Reports use stable failure categories plus structured app/cursor/build context; parser failures retain only bounded issue codes and paths, never raw frames or snapshots. A malformed mutation report also carries the SSE `lastEventId`, and a rejected recovery snapshot links back to that trigger. The public Cloud relay accepts the legacy no-diagnostics shape and re-normalizes every report, so a stale pre-normalizer client cannot lose a bounded oversized stack during rollout. Expected 403/404/`app_changed` capability transitions are not errors: they preserve work and enter the authoritative GET. A Project-scope reset subscriber failure is reported and fails closed because a partially cleared tenant surface is unsafe to reveal.
@@ -130,7 +152,7 @@ A brand-new build mounts the reconciler **dormant** (`appId` undefined): no stre
 
 The who-else-is-here surface rides the reconciler's single `EventSource` (the `subscribePresence` seam) — no second connection. The decisions live in pure functions so they are a state model (`__tests__/presence.test.ts`, `usePeersAt.test.ts`), not DOM tests; the roster + markers are the Playwright E2E's job.
 
-- **`presence.ts`** — the pure core (`hashColor(userId)` → a stable `PEER_PALETTE` hue, `visiblePeers(frame, selfUserId, now)` = self-dedupe by `userId` across BOTH of a user's sessions + stale-hide + per-user newest-wins, `presenceCanBeat(appId, name, hasStream)`) plus `usePresence`, which mints one per-tab `sessionId`, heartbeats `POST /api/apps/{id}/presence` on a cadence and (debounced) on every `useLocation()` change, `DELETE`s on unmount / `beforeunload`, and subscribes the roster. `canBeat` gates on a resolved app id (a new build's is minted mid-run) AND a resolved display name (no blank-name `POST` a peer would render "?").
+- **`presence.ts`** — the pure core (`hashColor(userId)` → a stable `PEER_PALETTE` hue, `visiblePeers(frame, selfUserId, now)` = self-dedupe by `userId` across BOTH of a user's sessions + stale-hide + per-user newest-wins, `presenceCanBeat(appId, name, hasStream)`) plus `usePresence`, which mints one per-tab `sessionId`, heartbeats `POST /api/apps/{id}/presence` on a cadence and (debounced) on every `useLocation()` change, `DELETE`s on unmount / `pagehide`, and subscribes the roster. `canBeat` gates on a resolved app id (a new build's is minted mid-run) AND a resolved display name (no blank-name `POST` a peer would render "?").
 - **`PresenceProvider.tsx`** — calls `usePresence` ONCE (one `sessionId` / heartbeat / subscription for the whole builder) and exposes the roster via `usePresenceRoster()`; reads the LIVE app id from the session store (`useAppId`), not the static build page prop, so the creator of a fresh build heartbeats the instant the SA mints the id, with no reload.
 - **`usePeersAt.ts`** — pure `peerTarget(location)` (the ONE most-specific blueprint entity per `Location` kind; `home` → none) + `groupPeersByEntity` (roster → `byEntity` markers + the `editingByEntity` "editing this" set), and the `usePeersAt()` hook reading the shared roster. The canvas markers (`components/builder/PeerBadge.tsx`) and the header roster (`PresenceRoster.tsx`) are the only consumers.
 

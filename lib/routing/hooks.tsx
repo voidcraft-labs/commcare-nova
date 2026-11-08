@@ -40,6 +40,7 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { allowRouteDeparture } from "@/lib/routing/departureGuard";
 import { parsePathToLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 import {
@@ -414,8 +415,12 @@ export function useExternalNavigate(): ExternalNavigateActions {
 	const router = useRouter();
 	return useMemo(
 		() => ({
-			push: (path: string) => router.push(path),
-			replace: (path: string) => router.replace(path),
+			push: (path: string) => {
+				if (allowRouteDeparture(path)) router.push(path);
+			},
+			replace: (path: string) => {
+				if (allowRouteDeparture(path)) router.replace(path);
+			},
 			refresh: () => router.refresh(),
 		}),
 		[router],
