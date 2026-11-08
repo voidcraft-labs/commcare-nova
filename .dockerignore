@@ -24,6 +24,8 @@ scripts/*
 !scripts/migrate.ts
 !scripts/scan-case-expression-indexes.ts
 !scripts/migrate-case-expression-indexes.ts
+!scripts/scan-select-starting-values.ts
+!scripts/migrate-select-starting-values.ts
 !scripts/java-pattern-runtime/
 !scripts/java-pattern-runtime/**
 scripts/java-pattern-runtime/.gradle/
@@ -44,6 +46,7 @@ scripts/lib/*
 !scripts/lib/retireCaseExpressionIndexes.ts
 !scripts/lib/caseParentRelationshipRepair.ts
 !scripts/lib/languageIdentityRepair.ts
+!scripts/lib/selectStartingValueRepair.ts
 !scripts/lib/loadPersistedBlueprint.ts
 !scripts/lib/loadEnv.ts
 !scripts/lib/main.ts
