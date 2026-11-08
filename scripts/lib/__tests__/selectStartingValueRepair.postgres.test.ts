@@ -158,7 +158,10 @@ it("finds lookup-derived starting values and refuses missing definitions", async
 								uuid: FIELD,
 								id: "stage",
 								kind: "single_select",
-								options: [{ value: "yes", label: "Yes" }],
+								options: [
+									{ value: "yes", label: "Yes" },
+									{ value: "no", label: "No" },
+								],
 							}),
 						],
 					},
