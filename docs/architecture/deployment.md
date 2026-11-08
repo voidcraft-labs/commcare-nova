@@ -207,6 +207,21 @@ names members by user id, so the future whole-tenant deletion lifecycle must
 list it. Do not delete them until a successful release no longer refreshes
 them. Historical schema migrations are immutable.
 
+Choice starting-value repairs use `scripts/scan-select-starting-values.ts` for
+the read-only census and `scripts/migrate-select-starting-values.ts` for an exact
+reviewed plan. The maintenance image bundles them as
+`select-starting-value-scan.cjs` and `select-starting-value-repair.cjs`.
+The writer accepts one of `--plan <path>` or `--plan-base64 <encoded-json>` and
+requires `--execute` to write. Base64 transports the private plan through Job
+arguments; it is not encryption. Keep execution metadata in the private cutover
+archive. Each app is fenced by sequence and source/target digests, active
+holders refuse, and reruns verify the durable receipt. The fenced Job runner accepts the scanner (optionally scoped by `--app`) and
+the writer with `--plan-base64`, with `--execute` only for a reviewed write.
+Apply these reviewed repairs before deployment admission: the runtime database
+probe checks every saved app with the incoming validator. After execution,
+verify the affected app histories and require a clean full census or runtime
+database probe before deploying the new revision.
+
 ## Benchmarking
 
 `cloudbuild.benchmark.yaml` builds and inspects the full final image with a fresh
@@ -244,14 +259,3 @@ identity and request identity when available; saved-app execution also carries
 its loaded Project and run identity. Reporting does not include tool arguments;
 tool, work, request and run identities remain diagnostic-only fields. The logger indexes Project, work,
 tool, operation and phase alongside app/run/user identities in Sentry tags.
-
-Choice starting-value repairs use `scripts/scan-select-starting-values.ts` for
-the read-only census and `scripts/migrate-select-starting-values.ts` for an exact
-reviewed plan. The maintenance image bundles them as
-`select-starting-value-scan.cjs` and `select-starting-value-repair.cjs`.
-The writer accepts one of `--plan <path>` or `--plan-base64 <encoded-json>` and
-requires `--execute` to write. Base64 transports the private plan through Job
-arguments; it is not encryption. Keep execution metadata in the private cutover
-archive. Each app is fenced by sequence and source/target digests, active
-holders refuse, and reruns verify the durable receipt. After execution, repeat
-the full scanner and verify the affected app histories before release proof.

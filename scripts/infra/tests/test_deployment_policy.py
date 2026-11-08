@@ -1,4 +1,5 @@
 """Policy tests cross the real JSON/HTTP boundary without contacting Google."""
+import base64
 import copy
 from contextlib import redirect_stdout
 import io
@@ -149,6 +150,55 @@ class JobExecutionTests(unittest.TestCase):
         ):
             with self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args("commcare-nova-historical-repair", args)
+
+    def test_choice_repair_preserves_plan_and_execute_intent_through_the_job_fence(self):
+        name = "commcare-nova-historical-repair"
+        job_name = JOB.rsplit("/", 1)[0] + "/" + name
+        encoded = base64.b64encode(b'[{"appId":"reviewed-app"}]').decode()
+        for args in (
+            ["select-starting-value-scan.cjs"],
+            ["select-starting-value-scan.cjs", "--app", "app_123"],
+            ["select-starting-value-repair.cjs", "--plan-base64", encoded],
+            ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute"],
+        ):
+            job = job_fixture()
+            job["name"] = job_name
+            job["template"]["template"]["containers"][0]["args"] = ["language-identity-repair.cjs"]
+            execution = execution_fixture()
+            execution["name"] = job_name + "/executions/run-1"
+            execution["job"] = name
+            execution["template"]["containers"][0]["args"] = args
+            with self.subTest(args=args), patch.object(deploy, "_access_token", return_value="synthetic"), patch(
+                "urllib.request.urlopen", side_effect=http_responses(
+                    job, {"name": OPERATION}, {"done": True, "response": execution}, execution,
+                ),
+            ) as http:
+                self.assertEqual(deploy._execute_job_exact(
+                    project="commcare-nova", region="us-central1", job=name,
+                    expected_image=IMAGE, execution_args=args, wait_seconds=10,
+                ), execution)
+            sent = requests(http)
+            self.assertEqual([request.get_method() for request in sent], ["GET", "POST", "GET", "GET"])
+            self.assertEqual(sent[1].full_url, "https://run.googleapis.com/v2/" + job_name + ":run")
+            self.assertEqual(json.loads(sent[1].data), {
+                "etag": "generation-3", "overrides": {"containerOverrides": [{"args": args}]},
+            })
+
+    def test_choice_repair_refuses_missing_plans_extra_flags_and_other_jobs(self):
+        encoded = base64.b64encode(b'[{"appId":"reviewed-app"}]').decode()
+        for args in (
+            ["select-starting-value-scan.cjs", "--execute"],
+            ["select-starting-value-scan.cjs", "--app", "../app"],
+            ["select-starting-value-repair.cjs", "--execute"],
+            ["select-starting-value-repair.cjs", "--plan", "/tmp/plan.json", "--execute"],
+            ["select-starting-value-repair.cjs", "--plan-base64", ""],
+            ["select-starting-value-repair.cjs", "--plan-base64", "not base64"],
+            ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute", "--extra"],
+        ):
+            with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
+                deploy._effective_execution_args("commcare-nova-historical-repair", args)
+        with self.assertRaises(deploy.DeploymentPolicyError):
+            deploy._effective_execution_args(JOB, ["select-starting-value-repair.cjs", "--plan-base64", encoded, "--execute"])
 
 
 class MigrationAdmissionTests(unittest.TestCase):

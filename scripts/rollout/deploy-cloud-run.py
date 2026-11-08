@@ -9,6 +9,8 @@ maintenance cutovers are complete and are not part of application deployment.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import http.client
 import json
 from pathlib import Path
@@ -510,6 +512,26 @@ def _effective_execution_args(
         return requested
 
     if short_name == "commcare-nova-historical-repair":
+        if requested == ("select-starting-value-scan.cjs",) or (
+            len(requested) == 3
+            and requested[:2] == ("select-starting-value-scan.cjs", "--app")
+            and APP_ID_RE.fullmatch(requested[2]) is not None
+        ):
+            return requested
+        if (
+            len(requested) in (3, 4)
+            and requested[:2] == ("select-starting-value-repair.cjs", "--plan-base64")
+            and requested[3:] in ((), ("--execute",))
+        ):
+            # The bundled writer owns the plan's schema, digests and leases.
+            # Here it is one data argument, never an extra command or flag.
+            try:
+                plan = base64.b64decode(requested[2], validate=True)
+            except (ValueError, binascii.Error):
+                pass
+            else:
+                if plan:
+                    return requested
         if requested == ("case-expression-index-scan.cjs",):
             return requested
         if (
