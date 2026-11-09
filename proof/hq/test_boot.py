@@ -473,7 +473,7 @@ def test_a_view_that_raises_is_answered_by_hqs_own_500_handler_never_djangos_deb
 @pytest.mark.parametrize("status", [404, 400], ids=["not-found", "bad-request"])
 def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_page(hq, status):
     """Contract: an ``Http404`` or a ``SuspiciousOperation`` a view raises is answered by HQ's ``handler404`` or
-    ``handler400``, as Django answers with ``DEBUG`` off, the same bytes every time. The failure: Django's technical
+    ``handler400``, as Django answers with ``DEBUG`` off, with the same page structure. The failure: Django's technical
     404 page (the URLconf, ``DEBUG = True``) or its technical 400 page, which formats every frame local."""
     from django.core.exceptions import SuspiciousOperation
     from django.core.handlers.exception import response_for_exception
@@ -486,7 +486,7 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
         """A request of its own, as each the lane answers is: Django keeps the CSRF secret it draws on the request."""
         return RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
 
-    # Every request the lane answers runs inside an operation, which seeds what HQ's page draws (its CSRF token).
+    # Keep the lane's selected entropy mode, including genuinely random CSRF secrets and masks.
     key = hashlib.sha256(f"proof boot test|{status}".encode()).digest()
 
     def answer():
@@ -495,20 +495,79 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
             raise error
         except type(error):
             with operation(key, 1):
-                answered = response_for_exception(request(), error)
+                actual_request = request()
+                answered = response_for_exception(actual_request, error)
             with operation(key, 1):
-                handled = get_resolver().resolve_error_handler(status)(request(), exception=error)
-            return answered, handled
+                handler_request = request()
+                handled = get_resolver().resolve_error_handler(status)(handler_request, exception=error)
+            return (answered, actual_request), (handled, handler_request)
 
     # HQ's 404 page names the request's language, which LocaleMiddleware activates before any view runs.
     with hq_state(Configuration()), translation.override(translation.get_language_from_request(request())):
-        first, handlers = answer()
-        second, _ = answer()
+        (first, first_request), (handlers, handler_request) = answer()
+        (second, second_request), _ = answer()
     assert first.status_code == handlers.status_code == second.status_code == status
     for marker in (b"DEBUG = True", b"Traceback", b"URLconf"):
         assert marker not in first.content
-    _assert_same_page("HQ's handler", handlers.content, first.content)
-    _assert_same_page("a second answer", second.content, first.content)
+    expected = _page_with_valid_csrf(handlers.content, handler_request)
+    actual = _page_with_valid_csrf(first.content, first_request)
+    _assert_same_page("HQ's handler", expected, actual)
+    _assert_same_page("a second answer", _page_with_valid_csrf(second.content, second_request), actual)
+
+
+def _page_with_valid_csrf(content, request):
+    """Keep the whole HTML tree; mask only hidden CSRF inputs valid for this request.
+
+    HQ's hqwebapp/base.html exposes csrf_token in #csrfTokenContainer for its
+    JavaScript; Django's csrf_token tag uses name=csrfmiddlewaretoken in forms.
+    Django's csrf.get_token masks a request's secret afresh on every render.
+    Its own checker must accept each token before it can be normalized.
+    Missing inputs remain missing, so comparison with HQ's handler catches them.
+    """
+    from django.middleware.csrf import _check_token_format, _does_token_match
+    from lxml import html
+
+    page = html.document_fromstring(content)
+    for element in page.xpath('//input[@name="csrfmiddlewaretoken" or @id="csrfTokenContainer"]'):
+        assert element.get("type") == "hidden"
+        token = element.get("value", "")
+        _check_token_format(token)
+        assert _does_token_match(token, request.META["CSRF_COOKIE"])
+        element.set("value", "VALID_REQUEST_CSRF_TOKEN")
+    return html.tostring(page.getroottree())
+
+
+@pytest.mark.parametrize("field", ['name="csrfmiddlewaretoken"', 'id="csrfTokenContainer"'])
+@pytest.mark.parametrize(
+    "fault",
+    ["missing token", "invalid token", "foreign token", "debug page", "wrong handler", "static text", "doctype"],
+)
+def test_error_page_comparison_preserves_everything_except_valid_csrf_randomness(hq, fault, field):
+    from django.middleware.csrf import InvalidTokenFormat, get_token
+    from django.test import RequestFactory
+
+    first, second = RequestFactory().get("/"), RequestFactory().get("/")
+    token, other = get_token(first), get_token(second)
+    template = f'<!doctype html><html><body><h1>Not found</h1><input type="hidden" {field} value="{{}}"></body></html>'
+    expected = _page_with_valid_csrf(template.format(token).encode(), first)
+    actual = template.format(other)
+    assert _page_with_valid_csrf(actual.encode(), second) == expected
+    if fault == "invalid token":
+        actual = template.format("broken")
+    elif fault == "foreign token":
+        actual = template.format(token)
+    elif fault == "missing token":
+        actual = "<html><body><h1>Not found</h1></body></html>"
+    elif fault == "debug page":
+        actual = actual.replace("Not found", "Traceback DEBUG = True URLconf")
+    elif fault == "wrong handler":
+        actual = "<html><body>Bad request</body></html>"
+    elif fault == "doctype":
+        actual = actual.replace("<!doctype html>", "")
+    else:
+        actual = actual.replace("Not found", "Different help text")
+    with pytest.raises((pytest.fail.Exception, AssertionError, InvalidTokenFormat)):
+        _assert_same_page("planted fault", expected, _page_with_valid_csrf(actual.encode(), second))
 
 
 def _assert_same_page(label, page, answered):

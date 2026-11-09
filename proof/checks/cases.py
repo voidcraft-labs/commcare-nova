@@ -38,6 +38,8 @@ import pytest
 
 from proof.checks import corpus, registers
 from proof.checks.differences import sorted_differences
+from proof.checks.eligibility import WITNESS_UNRUN as WITNESS_UNRUN
+from proof.checks.eligibility import eligible
 from proof.checks.sharding import PIECES_ENVIRONMENT
 
 
@@ -81,18 +83,13 @@ def load_fixed():
     return registers.held_entries(fixed, readers=readers.named())
 
 
-# The checks that never run on a migration witness: their differences between the export from before a migration
-# and Nova's republish of the migrated document are the migration's decided behavior changes, which the notice names.
-WITNESS_UNRUN = frozenset({"proof2", "proof3", "proof5", "sensitivity"})
-
-
 def document_params(check=None):
     """The documents the run checks, as parameters; for ``check`` one of ``WITNESS_UNRUN``, every one but the
     migration witnesses (``corpus.Document.migration_witness``)."""
     return [
         pytest.param(document, id=document.id)
         for document in load_corpus().documents
-        if check not in WITNESS_UNRUN or not document.migration_witness
+        if eligible(check, document.source)
     ]
 
 

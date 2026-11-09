@@ -934,6 +934,16 @@ def main(argv=None) -> int:
             sample=sample,
             selection=selection,
         )
+        # Keep the source identity that collection uses for check eligibility, including
+        # cached documents and parents of configuration pieces. An early queue has none.
+        value["corpusSources"] = (
+            {
+                entry["id"]: entry.get("source", "")
+                for entry in json.loads((arguments.corpus / "index.json").read_text(encoding="utf-8"))["documents"]
+            }
+            if arguments.phase == "main"
+            else {}
+        )
         write_queue(arguments.out, value)
     except (QueueBuildError, fingerprints.FingerprintError, disk.StoreFormatError, sharding.ShardError) as error:
         print(error, file=sys.stderr)

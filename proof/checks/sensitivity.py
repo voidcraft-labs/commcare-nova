@@ -79,6 +79,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from proof.checks import eligibility
 from proof.checks.corpus import verdict_lacks
 from proof.checks.differences import Difference
 from proof.observe.sensitivity import COMMTRACK as COMMTRACK
@@ -361,13 +362,7 @@ def corpus_documents(directories, corpus=None):
             documents = json.loads(index.read_text(encoding="utf-8"))["documents"]
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise CorpusUnknown(f"{index} is not a corpus index ({{documents: [{{id}}...]}}): {error}") from error
-        # A migration witness runs no sensitivity check (``cases.WITNESS_UNRUN``,
-        # ``corpus.Document.migration_witness``), so no run's evidence holds one.
-        listed[str(root)] = frozenset(
-            document["id"]
-            for document in documents
-            if not str(document.get("source", "")).startswith("targeted-migration:")
-        )
+        listed[str(root)] = eligibility.documents(CHECK, documents)
     if len(set(listed.values())) > 1:
         raise CorpusUnknown(
             f"The block directories were run over different corpora ({sorted(listed)} list different documents),"
@@ -537,7 +532,17 @@ def queued_documents(paths):
         value = json.loads(Path(path).read_text(encoding="utf-8"))
         names = [queued["group"] for block in value.get("blocks", []) for queued in block["groups"]]
         names += [cached["group"] for cached in value.get("cached", [])]
-        found |= {name[len("corpus:") :].partition("@")[0] for name in names if name.startswith("corpus:")}
+        queued = {name[len("corpus:") :].partition("@")[0] for name in names if name.startswith("corpus:")}
+        sources = value.get("corpusSources")
+        if (
+            not isinstance(sources, dict)
+            or set(sources) != queued
+            or any(not isinstance(source, str) for source in sources.values())
+        ):
+            raise CorpusUnknown(f"{path} lacks the exact corpus source inventory for its queued and cached documents.")
+        found |= eligibility.documents(CHECK, [{"id": name, "source": source} for name, source in sources.items()])
+        if value.get("selection"):
+            raise CorpusUnknown(f"{path} is a selected slice, not a whole corpus run.")
         if value.get("unsampled"):
             raise CorpusUnknown(
                 f"{path} is the queue of a run over a sample of the corpus ({len(value['unsampled'])} documents left"
