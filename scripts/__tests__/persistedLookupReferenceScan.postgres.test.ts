@@ -185,22 +185,58 @@ describe("persisted lookup reference audit", () => {
 		expect(await persistedState()).toEqual(before);
 	});
 
-	it("reports a real stored-edge read failure without claiming a clean comparison", async () => {
-		await seedLookupApp("unreadable_edges");
-		expect((await scanPersistedLookupReferences(h.db())).exitCode).toBe(0);
-		await h.db().schema.dropTable("lookup_column_references").execute();
-		const report = await scanPersistedLookupReferences(h.db());
-		expect(report).toMatchObject({
-			scannedApps: 1,
-			comparedApps: 0,
-			cleanApps: 0,
-			exitCode: 1,
-			unassemblableApps: [],
-			mismatches: [],
-		});
-		expect(report.operationalErrors).toMatchObject([
-			{ appId: "unreadable_edges", stage: "read-stored-targets" },
-		]);
-		expect(report.operationalErrors).toHaveLength(1);
-	});
+	it.each([
+		["blueprint_entities", "read-blueprint-rows"],
+		["lookup_column_references", "read-stored-targets"],
+	] as const)(
+		"recovers from a SQL error reading %s and compares the next app",
+		async (table, stage) => {
+			await seedLookupApp("a_unreadable");
+			await seedLookupApp("z_good");
+			const before = await persistedState();
+			// The real query fails for only the first app. A view retains every
+			// production column and the next app's rows, so an aborted snapshot
+			// cannot masquerade as a second independent operational failure.
+			await sql`CREATE FUNCTION audit_readable(app_id text) RETURNS boolean
+			LANGUAGE plpgsql VOLATILE AS $$ BEGIN
+				IF app_id = 'a_unreadable' THEN RAISE EXCEPTION 'audit read denied'; END IF;
+				RETURN true;
+			END $$`.execute(h.db());
+			const backing = `${table}_audit_backing`;
+			await sql`ALTER TABLE ${sql.table(table)} RENAME TO ${sql.id(backing)}`.execute(
+				h.db(),
+			);
+			try {
+				await sql`CREATE VIEW ${sql.table(table)} AS
+				SELECT * FROM ${sql.table(backing)} WHERE audit_readable(app_id)`.execute(
+					h.db(),
+				);
+				const report = await scanPersistedLookupReferences(h.db());
+				expect(report).toMatchObject({
+					scannedApps: 2,
+					comparedApps: 1,
+					cleanApps: 1,
+					exitCode: 1,
+					unassemblableApps: [],
+					mismatches: [],
+				});
+				expect(report.operationalErrors).toEqual([
+					{
+						appId: "a_unreadable",
+						projectId: PROJECT,
+						appName: "App a_unreadable",
+						deletedAt: null,
+						stage,
+						message: "audit read denied",
+					},
+				]);
+			} finally {
+				await sql`DROP VIEW IF EXISTS ${sql.table(table)}`.execute(h.db());
+				await sql`ALTER TABLE ${sql.table(backing)} RENAME TO ${sql.id(table)}`.execute(
+					h.db(),
+				);
+			}
+			expect(await persistedState()).toEqual(before);
+		},
+	);
 });

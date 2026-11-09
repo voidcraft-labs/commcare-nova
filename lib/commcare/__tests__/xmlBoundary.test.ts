@@ -105,7 +105,7 @@ describe("XML admission and consumer boundaries", () => {
 		]);
 		const encoded = serializeXml(element);
 		expect(encoded).toBe(
-			'<root value="A&#x9;B&#xa;C&#xd;D &#x85;&#x9f; &amp; &lt; &gt; &amp;#0;">A\tB\nC&#xd;D &#x85;&#x9f; &amp; &lt; &gt; &amp;#0;<empty/></root>',
+			'<root value="A&#x9;B&#xa;C&#xd;D &#133;&#159; &amp; &lt; &gt; &amp;#0;">A\tB\nC&#xd;D &#133;&#159; &amp; &lt; &gt; &amp;#0;<empty/></root>',
 		);
 		const roots = parseXml(encoded).children.filter(isTag);
 		expect(roots).toHaveLength(1);
