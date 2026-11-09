@@ -17,7 +17,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from proof.android import jdk
-from proof.hq.boot import GUARD
 
 
 def archive_bytes():
@@ -32,7 +31,7 @@ def archive_bytes():
 
 
 @contextmanager
-def release(statuses, content):
+def release(statuses, content, *, truncate_first=False, hold_body=None, stream_forever=False):
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -40,15 +39,23 @@ def release(statuses, content):
             status = statuses[min(len(requests), len(statuses) - 1)]
             requests.append(self.path)
             self.send_response(status)
-            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Content-Length", str(10**12 if stream_forever else len(content)))
             self.end_headers()
-            self.wfile.write(content)
+            if stream_forever:
+                try:
+                    while True:
+                        self.wfile.write(b"x")
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+            if hold_body is not None:
+                hold_body.wait()
+                return
+            self.wfile.write(content[: len(content) // 2] if truncate_first and len(requests) == 1 else content)
 
         def log_message(self, *args):
             pass
 
     with HTTPServer(("127.0.0.1", 0), Handler) as server:
-        GUARD.admit("127.0.0.1", server.server_port)
         thread = threading.Thread(target=server.serve_forever)
         thread.start()
         try:
@@ -60,9 +67,10 @@ def release(statuses, content):
                 requests,
             )
         finally:
+            if hold_body is not None:
+                hold_body.set()
             server.shutdown()
             thread.join()
-            GUARD._admitted.discard(("127.0.0.1", server.server_port))
 
 
 class PinnedJdk(unittest.TestCase):
@@ -125,3 +133,34 @@ class PinnedJdk(unittest.TestCase):
             with self.assertRaisesRegex(jdk.JdkUnavailable, "does not contain one JDK"):
                 jdk.prepare(archive, root / "java", pin={"sha256": hashlib.sha256(stream.getvalue()).hexdigest()})
             self.assertFalse((root / "java").exists())
+
+    def test_a_truncated_successful_response_is_retried_before_verifying_the_archive(self):
+        with (
+            tempfile.TemporaryDirectory() as scratch,
+            release([200], archive_bytes(), truncate_first=True) as (pin, requests),
+        ):
+            root = Path(scratch)
+            with patch.object(jdk.time, "sleep"):
+                jdk.prepare(root / "jdk.tar.gz", root / "java", allow_download=True, pin=pin)
+            self.assertEqual(len(requests), 2)
+            self.assertEqual((root / "java/bin/java").read_bytes(), b"fixture executable")
+
+    def test_a_stalled_body_ends_at_the_transfer_deadline(self):
+        held = threading.Event()
+        with (
+            tempfile.TemporaryDirectory() as scratch,
+            release([200], archive_bytes(), hold_body=held) as (pin, requests),
+        ):
+            with patch.object(jdk, "DOWNLOAD_SECONDS", 1):
+                transient, error = jdk.transfer(pin["url"], Path(scratch) / "partial")
+            self.assertTrue(transient)
+            self.assertIn("curl exit 28", error)
+            self.assertEqual(len(requests), 1)
+
+    def test_a_continuing_response_cannot_outlive_the_total_transfer_deadline(self):
+        with tempfile.TemporaryDirectory() as scratch, release([200], b"", stream_forever=True) as (pin, requests):
+            with patch.object(jdk, "DOWNLOAD_SECONDS", 1):
+                transient, error = jdk.transfer(pin["url"], Path(scratch) / "partial")
+            self.assertTrue(transient)
+            self.assertIn("curl exit 28", error)
+            self.assertEqual(len(requests), 1)

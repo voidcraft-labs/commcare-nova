@@ -532,11 +532,12 @@ def _page_with_valid_csrf(content, request):
         _check_token_format(token)
         assert _does_token_match(token, request.META["CSRF_COOKIE"])
         element.set("value", "VALID_REQUEST_CSRF_TOKEN")
-    return html.tostring(page)
+    return html.tostring(page.getroottree())
 
 
 @pytest.mark.parametrize(
-    "fault", ["missing token", "invalid token", "foreign token", "debug page", "wrong handler", "static text"]
+    "fault",
+    ["missing token", "invalid token", "foreign token", "debug page", "wrong handler", "static text", "doctype"],
 )
 def test_error_page_comparison_preserves_everything_except_valid_csrf_randomness(hq, fault):
     from django.middleware.csrf import InvalidTokenFormat, get_token
@@ -544,7 +545,10 @@ def test_error_page_comparison_preserves_everything_except_valid_csrf_randomness
 
     first, second = RequestFactory().get("/"), RequestFactory().get("/")
     token, other = get_token(first), get_token(second)
-    template = '<html><body><h1>Not found</h1><input type="hidden" name="csrfmiddlewaretoken" value="{}"></body></html>'
+    template = (
+        "<!doctype html><html><body><h1>Not found</h1>"
+        '<input type="hidden" name="csrfmiddlewaretoken" value="{}"></body></html>'
+    )
     expected = _page_with_valid_csrf(template.format(token).encode(), first)
     actual = template.format(other)
     assert _page_with_valid_csrf(actual.encode(), second) == expected
@@ -558,6 +562,8 @@ def test_error_page_comparison_preserves_everything_except_valid_csrf_randomness
         actual = actual.replace("Not found", "Traceback DEBUG = True URLconf")
     elif fault == "wrong handler":
         actual = "<html><body>Bad request</body></html>"
+    elif fault == "doctype":
+        actual = actual.replace("<!doctype html>", "")
     else:
         actual = actual.replace("Not found", "Different help text")
     with pytest.raises((pytest.fail.Exception, AssertionError, InvalidTokenFormat)):

@@ -9,18 +9,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import http.client
 import os
 import shutil
 import sys
 import tarfile
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
+from proof import processes
 from proof.android.toolchain import toolchain
+
+DOWNLOAD_SECONDS = 180
+TRANSIENT_CURL = {5, 6, 7, 18, 28, 35, 52, 55, 56}
 
 
 class JdkUnavailable(RuntimeError):
@@ -34,30 +35,63 @@ def verify(archive, pin):
         raise JdkUnavailable(f"Pinned Android JDK archive failed SHA-256 verification: {actual}.")
 
 
+def transfer(url, partial):
+    """One curl, killed and joined even if it exceeds its own total transfer deadline.
+
+    Exit 18 distinguishes a truncated response from a complete archive with
+    incorrect bytes. Curl's max-time covers headers and a continuously slow
+    body, unlike a socket's inactivity timeout.
+    """
+    status, errors = partial.with_suffix(".status"), partial.with_suffix(".errors")
+    with status.open("w") as output, errors.open("w") as stderr:
+        try:
+            code = processes.run(
+                [
+                    "curl",
+                    "--fail",
+                    "--location",
+                    "--silent",
+                    "--show-error",
+                    "--connect-timeout",
+                    "30",
+                    "--max-time",
+                    str(DOWNLOAD_SECONDS),
+                    "--output",
+                    str(partial),
+                    "--write-out",
+                    "%{http_code}",
+                    url,
+                ],
+                timeout=DOWNLOAD_SECONDS + 5,
+                stdout=output,
+                stderr=stderr,
+            )
+        except processes.TimedOut:
+            return True, "JDK transfer exceeded its process deadline"
+    if code == 0:
+        return False, None
+    http_status = status.read_text().strip()
+    transient = code in TRANSIENT_CURL or (
+        code == 22 and (http_status in {"408", "429"} or http_status.startswith("5"))
+    )
+    return transient, f"curl exit {code}, HTTP {http_status}: {errors.read_text().strip()}"
+
+
 def download(archive, pin):
     archive.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(3):
-        try:
-            with tempfile.TemporaryDirectory(dir=archive.parent) as scratch:
-                partial = Path(scratch) / "jdk.tar.gz"
-                started = time.monotonic()
-                with urllib.request.urlopen(pin["url"], timeout=60) as response, partial.open("wb") as target:
-                    while chunk := response.read(1024 * 1024):
-                        target.write(chunk)
-                        if time.monotonic() - started > 180:
-                            raise TimeoutError("JDK download exceeded 180 seconds")
+        with tempfile.TemporaryDirectory(dir=archive.parent) as scratch:
+            partial = Path(scratch) / "jdk.tar.gz"
+            transient, error = transfer(pin["url"], partial)
+            if error is None:
                 verify(partial, pin)
                 partial.replace(archive)
-            return
-        except (OSError, http.client.HTTPException) as error:
-            transient = not isinstance(error, urllib.error.HTTPError) or error.code in (408, 429) or error.code >= 500
-            if not transient or attempt == 2:
-                raise JdkUnavailable(
-                    f"Pinned Android JDK download failed after {attempt + 1} attempt(s): {error}"
-                ) from error
-            delay = (5, 15)[attempt]
-            print(f"Pinned Android JDK download failed ({error}); retrying in {delay}s.", file=sys.stderr)
-            time.sleep(delay)
+                return
+        if not transient or attempt == 2:
+            raise JdkUnavailable(f"Pinned Android JDK download failed after {attempt + 1} attempt(s): {error}")
+        delay = (5, 15)[attempt]
+        print(f"Pinned Android JDK download failed ({error}); retrying in {delay}s.", file=sys.stderr)
+        time.sleep(delay)
 
 
 def prepare(archive, target, *, allow_download=False, pin=None):
