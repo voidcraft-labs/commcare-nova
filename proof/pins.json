@@ -2,26 +2,26 @@
 	"commcare-hq": {
 		"repository": "https://github.com/dimagi/commcare-hq.git",
 		"defaultBranch": "master",
-		"commit": "d6c6e16d8ae12a5d0680fe6cce5c51a8b4c8708b"
+		"commit": "0746dc50728cc6de7cdcc1bb2b4b6b9106a5be6a"
 	},
 	"commcare-core": {
 		"repository": "https://github.com/dimagi/commcare-core.git",
 		"defaultBranch": "master",
-		"commit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305"
+		"commit": "364535fd75b580b87138dee2bdb0d9cf8c37bb13"
 	},
 	"commcare-android": {
 		"repository": "https://github.com/dimagi/commcare-android.git",
 		"defaultBranch": "master",
-		"commit": "7a5584475580529392f7cb8853a87b2d414e9a6c"
+		"commit": "8ede429c812a0a1fdde9f41b1df6b4d4955a3008"
 	},
 	"commcare-connect": {
 		"repository": "https://github.com/dimagi/commcare-connect.git",
 		"defaultBranch": "main",
-		"commit": "046c7fd7808142856ba84364205b4241feb084fa"
+		"commit": "2b911cc3d6fa6948fd1a17b2c0e15ab40b234a6c"
 	},
 	"formplayer": {
 		"repository": "https://github.com/dimagi/formplayer.git",
 		"defaultBranch": "master",
-		"commit": "24383ac71bfbac9da8246afdfea8c2db22c8208b"
+		"commit": "e52605fc5b929dad43adeb6ccbe969821b963a6c"
 	}
 }
