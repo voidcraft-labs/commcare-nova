@@ -189,11 +189,11 @@ export interface EventsTable {
 
 /**
  * Chat threads — one row per CONVERSATION (not per run; a thread spans many
- * runs). `messages` is the full `UIMessage[]` transcript, server-written: the
- * incoming history upserts when a run claims the app, the assembled assistant
- * response appends at finalize. `active_stream_id` points at the in-flight
- * POST's durable chunk-log stream (the page-refresh resume handle) and is
- * cleared in the same finalize write. Timestamps are ISO-8601 text (this
+ * runs). Ordered `thread_messages` and `thread_message_parts` children hold
+ * the transcript; `threadTranscript.ts` assembles the logical UIMessage array.
+ * Each completed step persists only changed parts. `active_stream_id` points
+ * at the in-flight POST's durable chunk-log stream (the page-refresh resume
+ * handle) and is cleared in the same transaction as the final snapshot. Timestamps are ISO-8601 text (this
  * table's convention); `updated_at` orders the thread list.
  */
 export interface ThreadsTable {
@@ -226,7 +226,6 @@ export interface ThreadsTable {
 		string | null | undefined,
 		string | null
 	>;
-	messages: JSONColumnType<unknown[]>;
 	/** Claw-back tombstones for assistant message ids the server has ruled on
 	 * and not re-authored since. Two shapes coexist:
 	 *  - a plain string — the id's stored copy was removed or reverted to its
@@ -242,6 +241,23 @@ export interface ThreadsTable {
 		string | undefined,
 		string
 	>;
+}
+
+/** A transcript's envelope and ordered parts are separate physical rows. */
+export interface ThreadMessagesTable {
+	thread_id: string;
+	ordinal: number;
+	message_id: string;
+	data: JSONColumnType<Record<string, unknown>>;
+	digest: string;
+	part_count: number;
+}
+export interface ThreadMessagePartsTable {
+	thread_id: string;
+	message_ordinal: number;
+	ordinal: number;
+	data: JSONColumnType<Record<string, unknown>>;
+	digest: string;
 }
 
 /** See `threads.clawed_back_ids`. Defined here beside the column it types;
@@ -1644,6 +1660,8 @@ export interface AppDatabase {
 	app_change_fold_baselines: AppChangeFoldBaselinesTable;
 	events: EventsTable;
 	threads: ThreadsTable;
+	thread_messages: ThreadMessagesTable;
+	thread_message_parts: ThreadMessagePartsTable;
 	chat_stream_chunks: ChatStreamChunksTable;
 	run_summaries: RunSummariesTable;
 	presence: PresenceTable;

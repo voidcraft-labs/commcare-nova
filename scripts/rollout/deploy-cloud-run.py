@@ -512,6 +512,15 @@ def _effective_execution_args(
         return requested
 
     if short_name == "commcare-nova-historical-repair":
+        if requested == ("thread-storage-scan.cjs",):
+            return requested
+        if (
+            len(requested) in (3, 4)
+            and requested[:2] == ("thread-storage-cutover.cjs", "--scan-digest")
+            and re.fullmatch(r"[0-9a-f]{64}", requested[2]) is not None
+            and requested[3:] in ((), ("--execute",))
+        ):
+            return requested
         if requested == ("select-starting-value-scan.cjs",) or (
             len(requested) == 3
             and requested[:2] == ("select-starting-value-scan.cjs", "--app")

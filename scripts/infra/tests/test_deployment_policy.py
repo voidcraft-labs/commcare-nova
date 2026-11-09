@@ -156,6 +156,9 @@ class JobExecutionTests(unittest.TestCase):
         job_name = JOB.rsplit("/", 1)[0] + "/" + name
         encoded = base64.b64encode(b'[{"appId":"reviewed-app"}]').decode()
         for args in (
+            ["thread-storage-scan.cjs"],
+            ["thread-storage-cutover.cjs", "--scan-digest", "b" * 64],
+            ["thread-storage-cutover.cjs", "--scan-digest", "b" * 64, "--execute"],
             ["select-starting-value-scan.cjs"],
             ["select-starting-value-scan.cjs", "--app", "app_123"],
             ["select-starting-value-repair.cjs", "--plan-base64", encoded],
@@ -187,6 +190,10 @@ class JobExecutionTests(unittest.TestCase):
     def test_choice_repair_refuses_missing_plans_extra_flags_and_other_jobs(self):
         encoded = base64.b64encode(b'[{"appId":"reviewed-app"}]').decode()
         for args in (
+            ["thread-storage-scan.cjs", "--execute"],
+            ["thread-storage-cutover.cjs", "--execute"],
+            ["thread-storage-cutover.cjs", "--scan-digest", "not-a-digest"],
+            ["thread-storage-cutover.cjs", "--scan-digest", "b" * 64, "--execute", "--extra"],
             ["select-starting-value-scan.cjs", "--execute"],
             ["select-starting-value-scan.cjs", "--app", "../app"],
             ["select-starting-value-repair.cjs", "--execute"],

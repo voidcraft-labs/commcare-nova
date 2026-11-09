@@ -16,6 +16,7 @@ import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import type { MediaAssetId } from "@/lib/domain";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { RunHolderLostError } from "../commitGuard";
@@ -143,6 +144,7 @@ describe("upsertThreadTurn on a design-session target", () => {
 			.db()
 			.selectFrom("threads")
 			.selectAll()
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", "ds-thread-1")
 			.executeTakeFirstOrThrow();
 		expect(row).toMatchObject({
@@ -183,7 +185,7 @@ describe("upsertThreadTurn on a design-session target", () => {
 		const row = await h
 			.db()
 			.selectFrom("threads")
-			.select(["active_stream_id", "messages"])
+			.select(["active_stream_id", threadMessagesSql().as("messages")])
 			.where("thread_id", "=", "ds-thread-h")
 			.executeTakeFirstOrThrow();
 		/* The merge-only arm landed the real message; the marker stayed the
@@ -228,6 +230,7 @@ describe("upsertThreadTurn on a design-session target", () => {
 			.db()
 			.selectFrom("threads")
 			.selectAll()
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", "ds-thread-g")
 			.executeTakeFirstOrThrow();
 		expect(
@@ -246,6 +249,7 @@ describe("upsertThreadTurn on a design-session target", () => {
 			.db()
 			.selectFrom("threads")
 			.selectAll()
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", "ds-thread-g")
 			.executeTakeFirstOrThrow();
 		expect(row).toEqual(before);
@@ -266,7 +270,7 @@ describe("upsertThreadTurn on a design-session target", () => {
 		let row = await h
 			.db()
 			.selectFrom("threads")
-			.select("messages")
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", "ds-thread-m")
 			.executeTakeFirstOrThrow();
 		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual(["m1"]);
@@ -293,7 +297,7 @@ describe("upsertThreadTurn on a design-session target", () => {
 		row = await h
 			.db()
 			.selectFrom("threads")
-			.select("messages")
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", "ds-thread-m")
 			.executeTakeFirstOrThrow();
 		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual([
@@ -335,7 +339,7 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		const row = await h
 			.db()
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id"])
+			.select([threadMessagesSql().as("messages"), "active_stream_id"])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
 		expect(row.active_stream_id).toBe(streamId);
@@ -354,7 +358,11 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		const terminal = await h
 			.db()
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id", "active_holder_nonce"])
+			.select([
+				threadMessagesSql().as("messages"),
+				"active_stream_id",
+				"active_holder_nonce",
+			])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
 		expect(terminal.active_stream_id).toBeNull();
@@ -405,7 +413,11 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		const row = await h
 			.db()
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id", "clawed_back_ids"])
+			.select([
+				threadMessagesSql().as("messages"),
+				"active_stream_id",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
 		/* The fresh failed turn's partial stays as the user-visible record. */
@@ -441,7 +453,7 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		const afterRetry = await h
 			.db()
 			.selectFrom("threads")
-			.select(["messages"])
+			.select([threadMessagesSql().as("messages")])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
 		const messages = afterRetry.messages as UIMessage[];
@@ -473,7 +485,11 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		const row = await h
 			.db()
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id", "clawed_back_ids"])
+			.select([
+				threadMessagesSql().as("messages"),
+				"active_stream_id",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
 		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual(["m1"]);
@@ -494,7 +510,7 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 		const row = await h
 			.db()
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id"])
+			.select([threadMessagesSql().as("messages"), "active_stream_id"])
 			.where("thread_id", "=", threadId)
 			.executeTakeFirstOrThrow();
 		expect((row.messages as UIMessage[]).map((m) => m.id)).toEqual([

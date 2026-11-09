@@ -117,6 +117,15 @@ RUN npx esbuild scripts/migrate-select-starting-values.ts \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=select-starting-value-repair.cjs
 
+RUN npx esbuild scripts/scan-thread-storage.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=thread-storage-scan.cjs
+RUN npx esbuild scripts/migrate-thread-storage.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=thread-storage-cutover.cjs
+
 FROM ${NODE_IMAGE} AS maintenance
 WORKDIR /app
 ENV NODE_ENV=production

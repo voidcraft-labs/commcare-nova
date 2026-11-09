@@ -1,7 +1,9 @@
 import { expect, it } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { persistModelMessage } from "@/lib/agent/modelMessagePersistence";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { upsertThreadTurn } from "@/lib/db/threads";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	inspectAuthoringAmplification,
@@ -59,23 +61,19 @@ it("repairs only the scanned inactive history and prevents an old browser restor
 		})
 		.execute();
 	const messages = amplifiedConversation(1918);
-	await h
-		.db()
-		.insertInto("threads")
-		.values({
-			thread_id: "thread",
-			app_id: null,
-			design_session_id: sessionId,
-			created_at: now.toISOString(),
-			updated_at: now.toISOString(),
-			thread_type: "build",
-			summary: "Fixture",
-			run_id: "run",
-			active_stream_id: null,
-			active_holder_nonce: null,
-			messages: JSON.stringify(messages),
-		})
-		.execute();
+	await insertThreadFixture(h.db(), {
+		thread_id: "thread",
+		app_id: null,
+		design_session_id: sessionId,
+		created_at: now.toISOString(),
+		updated_at: now.toISOString(),
+		thread_type: "build",
+		summary: "Fixture",
+		run_id: "run",
+		active_stream_id: null,
+		active_holder_nonce: null,
+		messages: JSON.stringify(messages),
+	});
 	const scan = await inspectAuthoringAmplification("thread");
 	if (!scan) throw new Error("Expected incident finding.");
 	const args = {
@@ -152,6 +150,7 @@ it("repairs only the scanned inactive history and prevents an old browser restor
 		.db()
 		.selectFrom("threads")
 		.selectAll()
+		.select(threadMessagesSql().as("messages"))
 		.where("thread_id", "=", "thread")
 		.executeTakeFirstOrThrow();
 	expect(repaired.messages).toEqual([
@@ -190,7 +189,7 @@ it("repairs only the scanned inactive history and prevents an old browser restor
 	const merged = await h
 		.db()
 		.selectFrom("threads")
-		.select("messages")
+		.select(threadMessagesSql().as("messages"))
 		.where("thread_id", "=", "thread")
 		.executeTakeFirstOrThrow();
 	expect(merged.messages.slice(0, 2)).toEqual(repaired.messages);

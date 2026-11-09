@@ -1,4 +1,5 @@
 import { selectedSourceDocumentsSchema } from "@/lib/chat/selectedSources";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -514,7 +515,11 @@ async function auditRuntimeMediaReferenceProjection(
 		}
 		const threads = await tx
 			.selectFrom("threads")
-			.select(["thread_id", "messages", "selected_sources"])
+			.select([
+				"thread_id",
+				threadMessagesSql().as("messages"),
+				"selected_sources",
+			])
 			.where("app_id", "=", args.appId)
 			.orderBy("thread_id")
 			.execute();

@@ -477,6 +477,12 @@ request or informed confirmation of its Project-wide effect. Similar names,
 columns, or values never authorize adoption or overwrite. Organization and media
 operations retain their own service boundaries.
 
+Conversation snapshots persist only changed message envelopes and parts. All
+loaders reconstruct the same ordered history in their thread-metadata SQL
+snapshot. Run authority, tombstones, attachment identity and terminal marker
+retirement share the existing transaction; reducing write volume cannot weaken
+those boundaries.
+
 Paused conversation input has its own durable identity. A continuation consumes
 one pending input round atomically with holder renewal and transcript admission;
 a nonce or a transcript containing old answers is insufficient. Stale/duplicate

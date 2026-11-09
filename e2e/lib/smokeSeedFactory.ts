@@ -1,8 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
-
 import {
 	caseChoiceDoc,
 	caseChoiceSnapshot,
@@ -37,6 +35,7 @@ import {
 	persistResponseSnapshot,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
+import { writeThreadTranscript } from "@/lib/db/threadTranscript";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
@@ -1773,16 +1772,24 @@ export async function createSmokeBuilders(
 				[continuationDesignId, seedProjectId, SEED.userId, randomUUID()],
 			);
 			const now = new Date().toISOString();
-			await pool.query(
-				`INSERT INTO threads (thread_id,design_session_id,created_at,updated_at,thread_type,summary,run_id,messages) VALUES ($1,$2,$3,$3,'build','Farmer correction design',$4,$5::jsonb)`,
-				[
-					randomUUID(),
-					continuationDesignId,
-					now,
-					randomUUID(),
-					JSON.stringify(continuationMessages),
-				],
-			);
+			await withAppTx(async (tx) => {
+				const threadId = randomUUID();
+				await tx
+					.insertInto("threads")
+					.values({
+						thread_id: threadId,
+						app_id: null,
+						design_session_id: continuationDesignId,
+						created_at: now,
+						updated_at: now,
+						thread_type: "build",
+						summary: "Farmer correction design",
+						run_id: randomUUID(),
+						active_stream_id: null,
+					})
+					.execute();
+				await writeThreadTranscript(tx, threadId, continuationMessages);
+			});
 			return { designBuildActivation, continuationDesignId };
 		},
 		delete: async () => {

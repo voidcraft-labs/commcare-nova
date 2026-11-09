@@ -1,4 +1,5 @@
 import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 /**
  * The design-session build turn against a real Postgres testcontainer: the
  * wire and lifecycle pins for the chat POST that starts (or continues) a
@@ -144,7 +145,7 @@ async function threadRow() {
 			"thread_type",
 			"active_stream_id",
 			"active_holder_nonce",
-			"messages",
+			threadMessagesSql().as("messages"),
 		])
 		.where("thread_id", "=", THREAD)
 		.executeTakeFirstOrThrow();

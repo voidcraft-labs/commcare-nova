@@ -1,3 +1,7 @@
+import {
+	threadMessagesSql,
+	writeThreadTranscript,
+} from "@/lib/db/threadTranscript";
 /**
  * App CRUD + the run lifecycle, on Postgres row locks.
  *
@@ -857,7 +861,11 @@ async function readProjectMoveThreads(
 ): Promise<ProjectMoveThreadSnapshot[]> {
 	const rows = await tx
 		.selectFrom("threads")
-		.select(["thread_id", "messages", "selected_sources"])
+		.select([
+			"thread_id",
+			threadMessagesSql().as("messages"),
+			"selected_sources",
+		])
 		.where(projectMoveThreadFilter(appId))
 		.orderBy("thread_id")
 		.execute();
@@ -874,7 +882,11 @@ async function lockProjectMoveThreads(
 ): Promise<ProjectMoveThreadSnapshot[]> {
 	const rows = await tx
 		.selectFrom("threads")
-		.select(["thread_id", "messages", "selected_sources"])
+		.select([
+			"thread_id",
+			threadMessagesSql().as("messages"),
+			"selected_sources",
+		])
 		.where(projectMoveThreadFilter(appId))
 		.orderBy("thread_id")
 		.forUpdate()
@@ -1298,10 +1310,10 @@ export async function commitAppProjectMoveInTransaction(
 				threads.find((source) => source.threadId === thread.threadId),
 			)
 		) {
+			await writeThreadTranscript(tx, thread.threadId, thread.messages);
 			await tx
 				.updateTable("threads")
 				.set({
-					messages: JSON.stringify(thread.messages),
 					selected_sources: JSON.stringify(thread.selectedSources),
 				})
 				.where(projectMoveThreadFilter(args.appId))

@@ -13,6 +13,7 @@
  */
 import { Client } from "pg";
 import { describe, expect, it, vi } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { actorGenerationGateKey } from "../actorGenerationGate";
 import { GenerationInProgressError } from "../apps";
 import { OutOfCreditsError, refundDesignSessionReservation } from "../credits";
@@ -776,24 +777,20 @@ describe("discard (§11.12) and edit sessions", () => {
 			})
 			.execute();
 		const now = new Date().toISOString();
-		await h
-			.db()
-			.insertInto("threads")
-			.values({
-				thread_id: crypto.randomUUID(),
-				app_id: null,
-				design_session_id: sessionId,
-				created_at: now,
-				updated_at: now,
-				thread_type: "build",
-				summary: "",
-				run_id: "run-discard",
-				active_stream_id: crypto.randomUUID(),
-				active_holder_nonce: NONCE,
-				messages: JSON.stringify([]),
-				clawed_back_ids: JSON.stringify([]),
-			})
-			.execute();
+		await insertThreadFixture(h.db(), {
+			thread_id: crypto.randomUUID(),
+			app_id: null,
+			design_session_id: sessionId,
+			created_at: now,
+			updated_at: now,
+			thread_type: "build",
+			summary: "",
+			run_id: "run-discard",
+			active_stream_id: crypto.randomUUID(),
+			active_holder_nonce: NONCE,
+			messages: JSON.stringify([]),
+			clawed_back_ids: JSON.stringify([]),
+		});
 
 		await discardDesignSession(sessionId, ACTOR, PROJECT);
 

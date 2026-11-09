@@ -3,6 +3,10 @@ import type { Transaction } from "kysely";
 import { describe, expect, it } from "vitest";
 import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import {
+	threadMessagesSql,
+	writeThreadTranscript,
+} from "@/lib/db/threadTranscript";
+import {
 	claimAndReserveRun,
 	completeAndSettleRun,
 	reacquireLease,
@@ -153,6 +157,7 @@ async function snapshot(target: GenerationTarget) {
 			.db()
 			.selectFrom("threads")
 			.selectAll()
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", THREAD)
 			.executeTakeFirstOrThrow(),
 		holder:
@@ -492,10 +497,15 @@ for (const kind of ["app", "design-session"] as const)
 			};
 			await h
 				.db()
-				.updateTable("threads")
-				.set({ input_round: null, messages: JSON.stringify([user, legacyEnd]) })
-				.where("thread_id", "=", THREAD)
-				.execute();
+				.transaction()
+				.execute(async (tx) => {
+					await tx
+						.updateTable("threads")
+						.set({ input_round: null })
+						.where("thread_id", "=", THREAD)
+						.execute();
+					await writeThreadTranscript(tx, THREAD, [user, legacyEnd]);
+				});
 			expect((await loadThread(target, THREAD, ACTOR))?.input_round).toBeNull();
 			const before = await snapshot(target);
 			const check = async (tx: Transaction<AppDatabase>) =>

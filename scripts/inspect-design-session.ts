@@ -1,3 +1,4 @@
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 /** Read-only inspection of the current authoring session and its conversations. */
 import "./lib/loadEnv";
 import { setTimeout as delay } from "node:timers/promises";
@@ -109,7 +110,11 @@ async function inspect(identifier: string) {
 			.execute(),
 		db
 			.selectFrom("threads")
-			.select(["thread_id", "active_stream_id", "messages"])
+			.select([
+				"thread_id",
+				"active_stream_id",
+				threadMessagesSql().as("messages"),
+			])
 			.where((eb) =>
 				eb.or([
 					eb("design_session_id", "=", id),

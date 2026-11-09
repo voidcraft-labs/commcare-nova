@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { readAppPlan } from "@/lib/agent/planning/store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { claimAndReserveDesignSessionRun } from "@/lib/db/designSessions";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import {
 	migrateLegacyAuthoring,
 	scanLegacyAuthoring,
@@ -44,29 +46,25 @@ async function legacy(appId: string | null = null) {
 		})
 		.execute();
 	const threadId = randomUUID();
-	await h
-		.db()
-		.insertInto("threads")
-		.values({
-			thread_id: threadId,
-			app_id: null,
-			design_session_id: sessionId,
-			thread_type: "build",
-			summary: "Visits",
-			run_id: "old-run",
-			active_stream_id: null,
-			active_holder_nonce: null,
-			created_at: "2026-09-12T12:00:00Z",
-			updated_at: "2026-09-12T12:00:01Z",
-			messages: JSON.stringify([
-				{
-					id: "source",
-					role: "user",
-					parts: [{ type: "text", text: "Track visits." }],
-				},
-			]),
-		})
-		.execute();
+	await insertThreadFixture(h.db(), {
+		thread_id: threadId,
+		app_id: null,
+		design_session_id: sessionId,
+		thread_type: "build",
+		summary: "Visits",
+		run_id: "old-run",
+		active_stream_id: null,
+		active_holder_nonce: null,
+		created_at: "2026-09-12T12:00:00Z",
+		updated_at: "2026-09-12T12:00:01Z",
+		messages: JSON.stringify([
+			{
+				id: "source",
+				role: "user",
+				parts: [{ type: "text", text: "Track visits." }],
+			},
+		]),
+	});
 	return { sessionId, revisionId, threadId };
 }
 async function history(sessionId: string) {
@@ -84,7 +82,11 @@ async function history(sessionId: string) {
 			.where("design_session_id", "=", sessionId)
 			.execute(),
 		messages: (
-			await h.db().selectFrom("threads").select("messages").execute()
+			await h
+				.db()
+				.selectFrom("threads")
+				.select(threadMessagesSql().as("messages"))
+				.execute()
 		).map((row) => row.messages),
 	};
 }

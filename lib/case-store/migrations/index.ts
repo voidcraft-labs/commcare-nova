@@ -34,6 +34,7 @@ import * as hqRoundTripPlatformsFormEntrySync from "./20261101010000_hq_round_tr
 import * as hqRoundTripPlatformsMediaFormat from "./20261101020000_hq_round_trip_platforms_media_format";
 import * as retireCaseExpressionIndexes from "./20261111000000_retire_case_expression_indexes";
 import * as fixedCaseScopeIndexes from "./20261111010000_fixed_case_scope_indexes";
+import * as incrementalTranscripts from "./20261112000000_incremental_transcripts";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -239,6 +240,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		caseWritesFoldHorizon,
 	"20261111000000_retire_case_expression_indexes": retireCaseExpressionIndexes,
 	"20261111010000_fixed_case_scope_indexes": fixedCaseScopeIndexes,
+	"20261112000000_incremental_transcripts": incrementalTranscripts,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

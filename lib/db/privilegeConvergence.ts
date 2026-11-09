@@ -149,6 +149,8 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"blueprint_entities",
 	"events",
 	"threads",
+	"thread_messages",
+	"thread_message_parts",
 	"chat_stream_chunks",
 	"run_summaries",
 	"presence",
@@ -301,6 +303,8 @@ export const AUDIT_SELECT_PUBLIC_TABLES = [
 	"presence",
 	"run_summaries",
 	"threads",
+	"thread_messages",
+	"thread_message_parts",
 ] as const;
 
 const MIGRATION_TABLES = [
