@@ -518,6 +518,8 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
 def _page_with_valid_csrf(content, request):
     """Keep the whole HTML tree; mask only hidden CSRF inputs valid for this request.
 
+    HQ's hqwebapp/base.html exposes csrf_token in #csrfTokenContainer for its
+    JavaScript; Django's csrf_token tag uses name=csrfmiddlewaretoken in forms.
     Django's csrf.get_token masks a request's secret afresh on every render.
     Its own checker must accept each token before it can be normalized.
     Missing inputs remain missing, so comparison with HQ's handler catches them.
@@ -526,7 +528,7 @@ def _page_with_valid_csrf(content, request):
     from lxml import html
 
     page = html.document_fromstring(content)
-    for element in page.xpath('//input[@name="csrfmiddlewaretoken"]'):
+    for element in page.xpath('//input[@name="csrfmiddlewaretoken" or @id="csrfTokenContainer"]'):
         assert element.get("type") == "hidden"
         token = element.get("value", "")
         _check_token_format(token)
@@ -535,20 +537,18 @@ def _page_with_valid_csrf(content, request):
     return html.tostring(page.getroottree())
 
 
+@pytest.mark.parametrize("field", ['name="csrfmiddlewaretoken"', 'id="csrfTokenContainer"'])
 @pytest.mark.parametrize(
     "fault",
     ["missing token", "invalid token", "foreign token", "debug page", "wrong handler", "static text", "doctype"],
 )
-def test_error_page_comparison_preserves_everything_except_valid_csrf_randomness(hq, fault):
+def test_error_page_comparison_preserves_everything_except_valid_csrf_randomness(hq, fault, field):
     from django.middleware.csrf import InvalidTokenFormat, get_token
     from django.test import RequestFactory
 
     first, second = RequestFactory().get("/"), RequestFactory().get("/")
     token, other = get_token(first), get_token(second)
-    template = (
-        "<!doctype html><html><body><h1>Not found</h1>"
-        '<input type="hidden" name="csrfmiddlewaretoken" value="{}"></body></html>'
-    )
+    template = f'<!doctype html><html><body><h1>Not found</h1><input type="hidden" {field} value="{{}}"></body></html>'
     expected = _page_with_valid_csrf(template.format(token).encode(), first)
     actual = template.format(other)
     assert _page_with_valid_csrf(actual.encode(), second) == expected
