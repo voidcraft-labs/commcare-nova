@@ -111,7 +111,7 @@
 		"date-fns": "^4.1.0",
 		"domhandler": "^6.0.1",
 		"domutils": "^4.0.0",
-		"entities": "^8.1.0",
+		"entities": "^9.0.0",
 		"file-type": "^22.2.0",
 		"fumadocs-core": "^16.17.9",
 		"fumadocs-mdx": "^15.4.10",
