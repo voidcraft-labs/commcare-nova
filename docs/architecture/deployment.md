@@ -107,7 +107,9 @@ artifact proof, not a commit-path heuristic or a compiler-cache success flag.
 
 The migration runs while the previous revision is still serving, so every
 schema change must be one that revision can live with: relax or add first, and
-remove what it still reads in a later deploy.
+remove what it still reads in a later deploy. An explicitly authorized direct
+maintenance cutover instead drains and disables the service before conversion
+and uses the disabled-service release sequence below.
 
 Privilege convergence reads catalog ownership before issuing `ALTER OWNER`.
 An already-correct owner must not request an exclusive table lock: the old
@@ -242,7 +244,8 @@ The operator's release order is:
 
 1. Stop admission and let executing runs finish. Paused conversations retain
    their holders, reservations and replay markers unchanged. Set
-   the service to manual scaling with zero instances and verify it is disabled.
+   the service to manual scaling with zero instances and verify it is disabled,
+   with no traffic tags (tagged revisions escape service disabling).
    [Cloud Run documents this service-disable operation](https://docs.cloud.google.com/run/docs/managing/services#disable).
    Disable login for the runtime database role and wait for its sessions to
    close. The writer verifies `NOLOGIN` and zero sessions; it does not terminate
@@ -256,8 +259,14 @@ The operator's release order is:
    rows. A retry verifies the completed migration and never rolls later
    migrations backward. Archive the content-free scan and execution evidence.
 4. Keep the service disabled, restore runtime database login, and release the
-   reviewed application through the normal migration/privilege/full-probe gate.
-   The deployment sets automatic scaling with the new image. Verify its exact
+   reviewed application through the normal migration/privilege/full-probe gate,
+   submitting Cloud Build with `_DEPLOY_SCALING=disabled` (the default
+   `automatic` deliberately refuses this state). Keep the ordinary merge trigger
+   disabled for this release and submit the reviewed merged commit explicitly.
+   The runner deploys with `--scaling=0`, proves the new Ready image and 100%
+   desired/observed traffic while still disabled, then restores automatic scaling
+   with an etag-fenced service PATCH. It verifies the same revision again after
+   resuming. Any failure before that PATCH leaves the service disabled. Verify its exact
    revision and traffic, public probes and authorized cold conversation resume.
    Do not restart the old image against the converted database. A failed release
    stays in maintenance until a compatible image is ready.

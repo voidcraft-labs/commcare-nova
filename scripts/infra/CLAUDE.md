@@ -12,7 +12,10 @@ The capture worker is built and updated explicitly outside application releases.
 managed explicitly by `manage-deployment.py` (plan by default, `--apply` to
 change it); see `docs/architecture/deployment.md`. Do not add
 traffic controllers, candidate services, rollout accounts, compatibility
-paths, or deploy-time maintenance gates.
+paths, or deploy-time maintenance gates. The explicitly selected disabled-service
+release mode supports a direct maintenance cutover: it installs and verifies the
+candidate under manual zero scaling, then resumes using the verified service etag.
+It does not run maintenance or select that mode automatically.
 
 The required PR check named `Production build` and Cloud Build both invoke
 `scripts/rollout/build-image.sh`. PR CI supplies synthetic build-time identity

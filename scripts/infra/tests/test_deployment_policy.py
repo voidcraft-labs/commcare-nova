@@ -456,6 +456,80 @@ class ServicePolicyTests(unittest.TestCase):
         report = json.loads(output.getvalue().split("NOVA_DEPLOY_RESULT=")[1])
         self.assertEqual(report, {"candidateRevision": CANDIDATE, "image": IMAGE, "finalScaling": "automatic"})
 
+    def test_disabled_release_proves_candidate_before_etag_fenced_resume(self):
+        import subprocess
+        for failure in (None, "image", "traffic", "etag"):
+            with self.subTest(failure=failure):
+                before = service_fixture()
+                installed = service_fixture(CANDIDATE)
+                for service in (before, installed):
+                    service["scaling"].update(scalingMode="MANUAL", manualInstanceCount=0)
+                    service["etag"] = "disabled-candidate"
+                if failure == "traffic":
+                    installed["trafficStatuses"] = [{"revision": OLD, "percent": 100}]
+                fact = {"spec": {"containers": [{"image": IMAGE}]}, "status": {
+                    "imageDigest": IMAGE if failure != "image" else IMAGE.replace("a" * 64, "b" * 64),
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                }}
+                observed = []
+                def gcloud(command, **kwargs):
+                    observed.append(command)
+                    output = "synthetic" if command[1:3] == ["auth", "print-access-token"] else json.dumps(fact)
+                    return subprocess.CompletedProcess(command, 0, stdout=output)
+                responses = http_responses(
+                    before, {"revisions": [{"name": OLD}]}, installed,
+                    {"revisions": [{"name": OLD}, {"name": CANDIDATE}]},
+                    *([http_error(409)] if failure == "etag" else []),
+                    *([{"name": OPERATION}, service_fixture(CANDIDATE),
+                       {"revisions": [{"name": OLD}, {"name": CANDIDATE}]}] if failure is None else []),
+                )
+                def respond(request, **kwargs):
+                    observed.append(request.get_method())
+                    value = responses.pop(0)
+                    if isinstance(value, BaseException):
+                        raise value
+                    return value
+                with patch("subprocess.run", side_effect=gcloud), patch(
+                    "urllib.request.urlopen", side_effect=respond,
+                ) as http, patch.object(deploy.time, "monotonic", side_effect=[0, 1000]), redirect_stdout(io.StringIO()):
+                    arguments = ["--project=commcare-nova", "--region=us-central1", "--service=commcare-nova",
+                                 "--expected-min=1", "--expected-max=4", "--expected-scaling=disabled", "--image=" + IMAGE]
+                    if failure:
+                        with self.assertRaises(deploy.DeploymentPolicyError):
+                            deploy.main(arguments)
+                    else:
+                        deploy.main(arguments)
+                commands = [event for event in observed if isinstance(event, list)]
+                self.assertIn("--scaling=0", commands[1])
+                self.assertFalse(any("--scaling=auto" in command for command in commands))
+                writes = [request for request in requests(http) if request.get_method() != "GET"]
+                if failure in ("image", "traffic"):
+                    self.assertEqual(writes, [])
+                else:
+                    self.assertEqual(len(writes), 1)
+                    self.assertEqual(writes[0].full_url, "https://run.googleapis.com/v2/" + SERVICE + "?updateMask=scaling")
+                    self.assertEqual(json.loads(writes[0].data), {
+                        "name": SERVICE, "etag": "disabled-candidate",
+                        "scaling": {"scalingMode": "AUTOMATIC", "minInstanceCount": 1, "maxInstanceCount": 4},
+                    })
+                    image_check = next(i for i, event in enumerate(observed) if isinstance(event, list) and event[1:3] == ["run", "revisions"])
+                    self.assertLess(image_check, observed.index("PATCH"))
+
+    def test_disabled_service_requires_explicit_release_mode_and_has_no_tag_escape(self):
+        before = service_fixture()
+        before["scaling"].update(scalingMode="MANUAL", manualInstanceCount=0)
+        for explicit in (False, True):
+            if explicit:
+                before["trafficStatuses"][0]["tag"] = "old"
+            with self.subTest(explicit=explicit), patch.object(deploy, "_access_token", return_value="synthetic"), patch(
+                "urllib.request.urlopen", side_effect=http_responses(before),
+            ) as http, patch("subprocess.run") as process:
+                with self.assertRaises(deploy.DeploymentPolicyError):
+                    deploy.main(["--read-scaling-prestate", "--project=commcare-nova", "--region=us-central1", "--service=commcare-nova",
+                                 *(["--expected-scaling=disabled"] if explicit else [])])
+                process.assert_not_called()
+                self.assertEqual([request.get_method() for request in requests(http)], ["GET"])
+
     def test_candidate_proof_rejects_a_wrong_digest_repository_or_readiness(self):
         import subprocess
         for change in ("digest", "repository", "ready"):
