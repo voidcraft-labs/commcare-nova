@@ -53,6 +53,7 @@ import { isDeepStrictEqual } from "node:util";
  */
 import type { UIMessage } from "ai";
 import { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
 
 export { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
@@ -1428,6 +1429,19 @@ export async function listThreadMetas(
 			? { ...meta, resume_interrupted: true }
 			: meta;
 	});
+}
+
+/** Read-only source-admission baseline. The caller has authorized this target;
+ * do not reconcile holders or write a transcript before admitting new sources. */
+export async function loadThreadSourceMessages(
+	target: ThreadTarget,
+	threadId: string,
+): Promise<NovaUIMessage[]> {
+	const db = await getAppDb();
+	const row = await threadTargetSelect(db, target, threadId)
+		.select("messages")
+		.executeTakeFirst();
+	return (row?.messages ?? []) as NovaUIMessage[];
 }
 
 /** One full thread (meta + transcript), or null. `target` scopes the read. */

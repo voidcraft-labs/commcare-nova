@@ -1,3 +1,4 @@
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import type {} from "../../lib/chat-controls-client";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
@@ -273,6 +274,118 @@ test("Project toast retires visible text and actions synchronously with real Mot
 	} finally {
 		try {
 			await page.evaluate(() => window.toastControlsAudit?.dispose());
+		} finally {
+			try {
+				await page.close();
+			} finally {
+				await peer.close();
+			}
+		}
+	}
+});
+
+test("unreadable sources keep the draft through keyboard and form submission; retry and removal enable sending", async ({
+	page,
+}, testInfo) => {
+	const peer = await componentPeer("e2e/lib/chat-controls-client.tsx");
+	const document = {
+		...asset,
+		id: "019a0000-0000-7000-8000-000000000062",
+		kind: "pdf",
+		mimeType: "application/pdf",
+		extension: ".pdf",
+		originalFilename: "workflow.pdf",
+		extract: {
+			status: "failed",
+			version: EXTRACTOR_VERSION,
+			truncated: false,
+			charCount: 0,
+		},
+	};
+	const finishRetry = Promise.withResolvers<void>();
+	let reads = 0;
+	try {
+		await page.route("**/api/user/usage", (route) =>
+			route.fulfill({ json: { balance: 1000 } }),
+		);
+		await page.route("**/api/media/library?*", (route) =>
+			route.fulfill({ json: { assets: [document], nextCursor: null } }),
+		);
+		await page.route(`**/api/media/${document.id}/extract`, async (route) => {
+			reads++;
+			await finishRetry.promise;
+			await route.fulfill({
+				contentType: "application/x-ndjson",
+				body: `${JSON.stringify({ type: "done", extract: { ...document.extract, status: "ready", charCount: 14, title: "Visit workflow" } })}\n`,
+			});
+		});
+		await page.goto(peer.origin);
+		const input = page.getByRole("textbox");
+		const send = page.getByRole("button", { name: "Send", exact: true });
+		const choose = async () => {
+			await page
+				.getByRole("button", { name: "Attach a file", exact: true })
+				.click();
+			const dialog = page.getByRole("dialog", { name: "Attach media" });
+			await dialog.getByRole("tab", { name: "Library", exact: true }).click();
+			await dialog
+				.getByRole("button", { name: "Choose workflow.pdf", exact: true })
+				.click();
+			await expect(dialog).toBeHidden();
+		};
+		await input.fill("Use this visit workflow");
+		await choose();
+		await expect(send).toBeDisabled();
+		await input.press("Enter");
+		await input.evaluate((element) => element.closest("form")?.requestSubmit());
+		await expect(input).toHaveValue("Use this visit workflow");
+		expect(await page.evaluate(() => window.chatControlsAudit.sent())).toEqual(
+			[],
+		);
+		expect(reads).toBe(0);
+		await page.screenshot({ path: testInfo.outputPath("failed-source.png") });
+		await page
+			.getByRole("button", {
+				name: "Nova couldn't read workflow.pdf. Try again",
+			})
+			.click();
+		await expect.poll(() => reads).toBe(1);
+		await expect(send).toBeDisabled();
+		await input.press("Enter");
+		await expect(input).toHaveValue("Use this visit workflow");
+		finishRetry.resolve();
+		await expect(send).toBeEnabled();
+		await send.click();
+		await expect(input).toHaveValue("");
+		await expect
+			.poll(() => page.evaluate(() => window.chatControlsAudit.sent()))
+			.toEqual([
+				{
+					text: "Use this visit workflow",
+					attachments: [
+						{
+							assetId: document.id,
+							kind: "pdf",
+							filename: "workflow.pdf",
+							mimeType: "application/pdf",
+							title: "Visit workflow",
+						},
+					],
+				},
+			]);
+		await input.fill("Continue without the document");
+		await choose();
+		await expect(send).toBeDisabled();
+		await page.getByRole("button", { name: "Remove workflow.pdf" }).click();
+		await expect(send).toBeEnabled();
+		await input.press("Enter");
+		await expect
+			.poll(() => page.evaluate(() => window.chatControlsAudit.sent().at(-1)))
+			.toEqual({ text: "Continue without the document" });
+	} finally {
+		finishRetry.resolve();
+		try {
+			await page.evaluate(() => window.chatControlsAudit?.dispose());
 		} finally {
 			try {
 				await page.close();

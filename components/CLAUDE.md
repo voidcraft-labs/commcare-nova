@@ -144,6 +144,12 @@ accept a deliberate fresh text turn, never automatic question replay.
 
 A client leaf that branches its render on `useAuth().isPending` will hydration-mismatch: the auth client resolves the session synchronously client-side (`isPending` false on first paint) while SSR has none (`isPending` true), so server and client first-render differ. Gate the first render on a `mounted` flag (see `AccountMenu`).
 
+Chat keeps staged files and text until they can be sent. A reading or failed
+document disables Send and refuses keyboard/form submission. Failed files offer
+retry and removal. A source rejected by the server leaves a persistent recovery
+row with Try again and Send without files; the latter removes only unaccepted
+references after that explicit action. Question replies use the same admission.
+
 ## Theme
 
 Dark "Twilight and first light": a four-step warm plum surface stack (`#171221` page → `#1d1729` wells → `#251d34` cards → `#2f2543` raised), lit by Nova's lilac and a low wash of dawn. Violet is the single non-semantic accent; emerald / amber / rose are reserved for semantic state, never decoration; dawn and orchid are light and presence, never controls. Every color is a CSS custom property in `globals.css`; never hardcode one, if a one-off color appears, promote it to a token (reuse one, or add a new `--nova-*`). Z-index is a semantic token scale, use the Tailwind classes that reference it. `cn` is taught that scale (`lib/utils.ts::Z_INDEX_SCALE`), so passing a later `z-*` token genuinely REPLACES an earlier one; add any new `--z-index-*` key there too, or the drift test in `lib/__tests__/utils.test.ts` fails. Without that list tailwind-merge keeps both classes and generated-stylesheet order (alphabetical by token name) picks the winner, which is how a Select popup meant for `z-modal` sat at `z-popover-top` and rendered behind the dialog that opened it, open but invisible.

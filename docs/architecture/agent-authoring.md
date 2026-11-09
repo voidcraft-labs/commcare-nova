@@ -282,6 +282,15 @@ and participates in deletion guards and Project move remapping. A library search
 does not make every result a source, and a client transcript cannot manufacture
 selection provenance.
 
+New message attachments are admitted before claiming or resuming a run. The
+server distinguishes new message/reference identities from the durable transcript,
+requires prepared readable content, and hands the verified bytes to either
+executor for that request. It starts no extraction during admission. A refusal
+leaves holders, credits, pending questions and the durable transcript unchanged.
+The client offers an explicit retry or removal of only the rejected references;
+it preserves typed text, answers and historical attachments. A missing historical
+extract alone does not turn an unrelated edit into a new-source refusal.
+
 ## Conversation and recovery
 
 A pause publishes a durable input round with its kind, assistant and question-call

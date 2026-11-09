@@ -17,6 +17,7 @@ interface ChatAttachmentBarProps {
 	/** A staged document's extraction finished: reconcile its snapshot so the
 	 *  chip preview (and the eventual send ref) carry the fresh title/summary. */
 	onExtracted: (assetId: string, extract: ExtractMeta) => void;
+	onRetry: (assetId: string) => void;
 	/** Build-scoped abort signal for the extraction reads (see `ChatInput`). Keeps a
 	 *  read running after its chip unmounts on send, until it completes. */
 	extractionAbortSignal?: AbortSignal;
@@ -35,12 +36,14 @@ function StagedChip({
 	onRemove,
 	onPreview,
 	onExtracted,
+	onRetry,
 	extractionAbortSignal,
 }: {
 	asset: MediaAssetView;
 	onRemove: (assetId: string) => void;
 	onPreview: (asset: MediaAssetView) => void;
 	onExtracted: (assetId: string, extract: ExtractMeta) => void;
+	onRetry: (assetId: string) => void;
 	extractionAbortSignal?: AbortSignal;
 }) {
 	const { status, retry } = useDocumentExtraction(
@@ -67,7 +70,14 @@ function StagedChip({
 			removeDisabled={reading}
 			removeDisabledTooltip="Nova is still reading this file. You can remove it when it's ready."
 			reading={reading}
-			onRetry={status === "failed" ? retry : undefined}
+			onRetry={
+				status === "failed"
+					? () => {
+							onRetry(asset.id);
+							retry();
+						}
+					: undefined
+			}
 		/>
 	);
 }
@@ -83,6 +93,7 @@ export function ChatAttachmentBar({
 	onRemove,
 	onPreview,
 	onExtracted,
+	onRetry,
 	extractionAbortSignal,
 }: ChatAttachmentBarProps) {
 	if (assets.length === 0) return null;
@@ -99,6 +110,7 @@ export function ChatAttachmentBar({
 					onRemove={onRemove}
 					onPreview={onPreview}
 					onExtracted={onExtracted}
+					onRetry={onRetry}
 					extractionAbortSignal={extractionAbortSignal}
 				/>
 			))}

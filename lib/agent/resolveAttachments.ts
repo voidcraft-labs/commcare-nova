@@ -1,37 +1,11 @@
-// lib/agent/resolveAttachments.ts
+// Resolve conversation refs into model content. New references arrive with the
+// request-local content verified by incomingSources before a run was claimed.
+// Historical refs retain the existing per-asset fallback: a missing old file is
+// represented explicitly rather than blocking every future edit. This does not
+// freeze historical evidence across extractor or library changes.
 //
-// Server-side resolution of chat attachment REFERENCES into model-ready content,
-// the replacement for the legacy in-request `prepareAttachments` base64 path.
-// The composer sends asset-id refs in message metadata; this walks EVERY message
-// (not just the last) and appends, per ref:
-//
-//   - document (pdf/text/docx/xlsx) → the stored requirements EXTRACT as a text
-//     part, resolved through the shared single-flight store. The extract is
-//     normally produced eagerly when the document is attached; if it isn't ready
-//     yet, the store either waits on that in-flight job and reuses its result,
-//     or (when none is running) extracts inline — so a turn never blocks on a
-//     missing extract and never double-runs the model.
-//   - image → the bytes as a data-URL file part for the model's vision pass.
-//
-// Walking all messages is what fixes the multi-turn crash: history carries refs
-// + resolved text, never raw `text/markdown` file parts the provider rejects.
-//
-// Two invariants:
-//   - Never mutate the input array; return fresh messages.
-//   - Never DROP an attachment — every failure path appends a human-readable
-//     placeholder so the SA always learns the attachment existed.
-//
-// Determinism: a resolved part is a pure function of the asset (stable extract
-// text for a version, stable image bytes), and each asset resolves exactly once
-// per pass (deduped by id). So re-resolving history every turn produces
-// byte-identical prefixes — the prompt-cache the chat route engineers for stays
-// hit.
-//
-// When the store runs the extraction here (no eager job to reuse), it does so
-// through the chat run's own `GenerationContext` (an `AttachmentCondenser`), so
-// that inline run is usage-tracked like any other sub-generation; the eager
-// route passes the standalone extraction condenser instead. Reusing an in-flight
-// job's result meters nothing — only an actual inline run does.
+// The input messages are never mutated. Repeated historical refs share a read.
+// Any historical preparation runs inside the current metered, authorized run.
 
 import {
 	type AttachmentRef,
@@ -52,6 +26,7 @@ import { log } from "@/lib/logger";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { type AttachmentCondenser, wrapAttachment } from "./documentExtraction";
 import { ensureStoredExtract } from "./documentExtractionStore";
+import type { AdmittedSources } from "./incomingSources";
 import type { SourceDocumentRuntime } from "./sourceDocuments";
 
 type Part = NovaUIMessage["parts"][number];
@@ -65,20 +40,17 @@ function refsOf(message: NovaUIMessage): AttachmentRef[] {
 	return message.metadata?.attachments ?? [];
 }
 
-/**
- * Count the document attachments on the LAST user message that still NEED reading
- * — a document whose extract wasn't ready when it was attached (`documentNeedsRead`).
- * The chat route uses this to bracket the resolve step with the "Reading your
- * documents" status ONLY when a document will actually block the SA's first token
- * on extraction. A document Nova already read resolves from its stored extract
- * instantly, so it doesn't count — which is what stops every doc-bearing turn from
- * flashing the status over already-read files. Images resolve instantly too and
- * never count.
- */
-export function countDocumentsNeedingRead(messages: NovaUIMessage[]): number {
+/** Historical documents that may need preparation. Newly admitted documents
+ * already have their text, regardless of the caller's display-only title. */
+export function countDocumentsNeedingRead(
+	messages: NovaUIMessage[],
+	admittedSources: AdmittedSources = new Map(),
+): number {
 	const last = messages.at(-1);
 	if (last?.role !== "user") return 0;
-	return refsOf(last).filter(documentNeedsRead).length;
+	return refsOf(last).filter(
+		(ref) => !admittedSources.has(ref.assetId) && documentNeedsRead(ref),
+	).length;
 }
 
 /**
@@ -122,10 +94,10 @@ async function ensureExtract(
 }
 
 /**
- * Resolve ONE ref to a single model-ready part. Self-contained + failure-safe:
+ * Resolve one HISTORICAL ref to a single model-ready part.
  * any error (missing/out-of-Project asset, decode/extract failure) resolves to a
  * placeholder text part rather than throwing, so a bad attachment never breaks
- * the turn and the SA always learns it was present.
+ * an unrelated new turn and the SA always learns it was present.
  */
 async function resolveRef(
 	ref: AttachmentRef,
@@ -229,6 +201,9 @@ export async function resolveAttachments(
 	 *  runs the model — a reused/awaited eager extraction emits nothing here. */
 	onProgress?: (deltaChars: number) => void,
 	runtime?: SourceDocumentRuntime,
+	/** New inputs were read before the run was claimed. Historical misses alone
+	 * may degrade to placeholders; admitted input is never read a second time. */
+	admittedSources: AdmittedSources = new Map(),
 ): Promise<NovaUIMessage[]> {
 	// Unique asset ids across the whole history.
 	const ids = new Set<MediaAssetId>();
@@ -237,16 +212,14 @@ export async function resolveAttachments(
 	}
 	if (ids.size === 0) return messages;
 
-	// One Project-gated batch load; an out-of-Project/missing id is simply absent
-	// from the map (→ placeholder), never leaked. A TOTAL load failure (a Postgres
-	// outage) must not throw out of here — that would fail the whole turn from a
-	// spot outside the route's try/finally, losing the usage + log flush and
-	// breaking the never-drop invariant. Degrade to an empty map so every ref
-	// becomes a placeholder, exactly as a per-asset miss does; the SA still
-	// learns an attachment was present, and the run completes + flushes normally.
+	// Only historical refs reach this batch. New source admission already failed
+	// closed on storage errors, before a claim, and supplies its verified bytes.
+	// Historical misses stay visible as placeholders in later edit context.
 	let records: MediaAssetRecord[] = [];
 	try {
-		records = await loadAssetsByIds([...ids], projectId);
+		const unresolvedIds = [...ids].filter((id) => !admittedSources.has(id));
+		if (unresolvedIds.length > 0)
+			records = await loadAssetsByIds(unresolvedIds, projectId);
 	} catch (err) {
 		log.error("[resolveAttachments] batch asset load failed", err, {
 			projectId,
@@ -261,6 +234,27 @@ export async function resolveAttachments(
 	// in multiple messages shares a single resolution (and a single GCS read).
 	const resolvedById = new Map<string, Promise<Part>>();
 	const partFor = (ref: AttachmentRef): Promise<Part> => {
+		const admitted = admittedSources.get(ref.assetId);
+		if (admitted) {
+			if (
+				admitted.asset.project_id !== projectId ||
+				admitted.asset.kind !== ref.kind
+			)
+				throw new Error("Admitted attachment scope changed");
+			const content = admitted.content;
+			return Promise.resolve(
+				content.kind === "document"
+					? textPart(
+							wrapAttachment(ref.filename, content.text, content.truncated),
+						)
+					: {
+							type: "file",
+							mediaType: content.mediaType,
+							url: content.dataUrl,
+							filename: ref.filename,
+						},
+			);
+		}
 		let p = resolvedById.get(ref.assetId);
 		if (!p) {
 			p = resolveRef(

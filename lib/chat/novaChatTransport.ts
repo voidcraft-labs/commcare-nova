@@ -28,6 +28,10 @@ import {
 	type InputRoundReconciliation,
 	inputRoundReconciliationSchema,
 } from "./inputRound";
+import {
+	SourceAdmissionRejectionError,
+	sourceAdmissionRejectionSchema,
+} from "./sourceAdmission";
 
 export class InputRoundReconciliationError extends Error {
 	constructor(readonly reconciliation: InputRoundReconciliation) {
@@ -61,12 +65,17 @@ export class NovaChatTransport<
 			fetch: async (input, init) => {
 				const response = await request(input, init);
 				if (response.status === 409) {
-					const parsed = inputRoundReconciliationSchema.safeParse(
-						await response
-							.clone()
-							.json()
-							.catch(() => null),
-					);
+					const body = await response
+						.clone()
+						.json()
+						.catch(() => null);
+					const sourceRejection =
+						sourceAdmissionRejectionSchema.safeParse(body);
+					if (sourceRejection.success) {
+						await response.body?.cancel();
+						throw new SourceAdmissionRejectionError(sourceRejection.data);
+					}
+					const parsed = inputRoundReconciliationSchema.safeParse(body);
 					if (parsed.success) {
 						await response.body?.cancel();
 						throw new InputRoundReconciliationError(parsed.data);

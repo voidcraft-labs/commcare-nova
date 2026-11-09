@@ -12,6 +12,7 @@ import type { MediaExtractStatus } from "@/lib/domain/multimedia";
 import {
 	createDocumentExtraction,
 	type ExtractableAsset,
+	initialExtractStatus,
 } from "./documentExtraction";
 import type { ExtractMeta } from "./mediaClient";
 import { useMediaAuthority } from "./useMediaAuthority";
@@ -38,7 +39,7 @@ export function useDocumentExtraction(
 	const callbacks = useRef({ onExtracted, onProgress });
 	callbacks.current = { onExtracted, onProgress };
 	const { id, kind } = asset;
-	const storedStatus = asset.extract?.status;
+	const storedStatus = initialExtractStatus(asset);
 	const model = useMemo(
 		() =>
 			createDocumentExtraction({

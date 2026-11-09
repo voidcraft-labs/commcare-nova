@@ -85,6 +85,10 @@ interface ChatSidebarProps {
 		readonly message: string;
 		readonly actionLabel: string;
 		readonly onAction: () => void;
+		readonly secondaryAction?: {
+			readonly label: string;
+			readonly onAction: () => void;
+		};
 	};
 	messages: NovaUIMessage[];
 	/** Only question calls belonging to the server's committed pending round. */
@@ -658,9 +662,9 @@ export function ChatSidebar({
 				{interactionBlockedRecovery && !shortChatFallback && (
 					<div
 						role="alert"
-						className="mx-3 mb-3 flex shrink-0 items-center gap-3 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.06] p-3"
+						className="mx-3 mb-3 flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.06] p-3"
 					>
-						<div className="min-w-0 flex-1">
+						<div className="min-w-0 basis-full">
 							<p className="text-sm font-medium text-nova-text">
 								{interactionBlockedRecovery.title}
 							</p>
@@ -676,6 +680,15 @@ export function ChatSidebar({
 						>
 							{interactionBlockedRecovery.actionLabel}
 						</Button>
+						{interactionBlockedRecovery.secondaryAction && (
+							<Button
+								type="button"
+								variant="outline"
+								onClick={interactionBlockedRecovery.secondaryAction.onAction}
+							>
+								{interactionBlockedRecovery.secondaryAction.label}
+							</Button>
+						)}
 					</div>
 				)}
 

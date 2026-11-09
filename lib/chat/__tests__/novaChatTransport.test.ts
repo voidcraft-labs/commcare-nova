@@ -1,12 +1,19 @@
 import { Chat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import type { NovaUIMessage } from "../attachmentRefs";
 import { type InputRound, inputRoundSchema } from "../inputRound";
 import { createInputRoundContinuation } from "../inputRoundContinuation";
 import {
 	InputRoundReconciliationError,
 	NovaChatTransport,
 } from "../novaChatTransport";
+import {
+	incomingSourceReferences,
+	removeRejectedSources,
+	SourceAdmissionRejectionError,
+} from "../sourceAdmission";
 
 const round: InputRound = {
 	id: "question-round",
@@ -185,4 +192,75 @@ describe("continuation through Nova's installed SDK transport", () => {
 			}
 		},
 	);
+});
+
+it("retains rejected source refs until explicit removal and resends through the real SDK without altering historical files", async () => {
+	const assetId = testMediaAssetId("rejected-source");
+	const ref = {
+		assetId,
+		kind: "text" as const,
+		filename: "workflow.md",
+		mimeType: "text/markdown",
+	};
+	const old: NovaUIMessage = {
+		id: "old",
+		role: "user",
+		parts: [{ type: "text", text: "Earlier request" }],
+		metadata: { attachments: [ref] },
+	};
+	const latest: NovaUIMessage = {
+		id: "new",
+		role: "user",
+		parts: [{ type: "text", text: "New request" }],
+		metadata: { attachments: [ref] },
+	};
+	const references = incomingSourceReferences([old, latest], [old]).map(
+		({ messageId, ref }) => ({ messageId, assetId: ref.assetId }),
+	);
+	const requests: { messages: NovaUIMessage[] }[] = [];
+	const chat: Chat<NovaUIMessage> = new Chat({
+		id: "source-thread",
+		messages: [old, latest],
+		transport: new NovaChatTransport(
+			{
+				fetch: async (_url, init) => {
+					requests.push(JSON.parse(String(init?.body)));
+					if (requests.length === 1)
+						return Response.json(
+							{
+								code: "source_not_admitted",
+								error: "This file couldn't be read.",
+								references,
+							},
+							{ status: 409 },
+						);
+					return sse([
+						{ type: "start", messageId: "reply" },
+						{ type: "finish" },
+					]);
+				},
+			},
+			() => chat.messages,
+		),
+	});
+	try {
+		await chat.sendMessage();
+		expect(chat.error).toBeInstanceOf(SourceAdmissionRejectionError);
+		expect(chat.messages).toEqual([old, latest]);
+		expect(requests).toHaveLength(1);
+		if (!(chat.error instanceof SourceAdmissionRejectionError))
+			throw new Error("Expected source refusal");
+		chat.messages = removeRejectedSources(chat.messages, chat.error.rejection);
+		chat.clearError();
+		await chat.sendMessage();
+		expect(chat.status).toBe("ready");
+		expect(requests).toHaveLength(2);
+		expect(requests[1].messages[0]).toEqual(old);
+		expect(requests[1].messages[1]).toEqual({
+			...latest,
+			metadata: { attachments: [] },
+		});
+	} finally {
+		await chat.stop();
+	}
 });

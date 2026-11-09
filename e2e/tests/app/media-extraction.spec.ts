@@ -1,3 +1,4 @@
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openPage } from "../../lib/pageLoads";
 import { removableRoutes } from "../../lib/routes";
@@ -10,7 +11,7 @@ test("a failed document retries through the file manager and keeps its completed
 	const assetId = "019a0000-0000-7000-8000-000000000001";
 	let extract = {
 		status: "failed",
-		version: 1,
+		version: EXTRACTOR_VERSION,
 		truncated: false,
 		charCount: 0,
 		title: "",
@@ -45,7 +46,7 @@ test("a failed document retries through the file manager and keeps its completed
 		await completed.promise;
 		extract = {
 			status: "ready",
-			version: 1,
+			version: EXTRACTOR_VERSION,
 			truncated: false,
 			charCount: 12,
 			title: "Household visit protocol",

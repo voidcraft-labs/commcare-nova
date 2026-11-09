@@ -60,6 +60,10 @@ import {
 	InputRoundReconciliationError,
 	NovaChatTransport,
 } from "@/lib/chat/novaChatTransport";
+import {
+	removeRejectedSources,
+	SourceAdmissionRejectionError,
+} from "@/lib/chat/sourceAdmission";
 import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
@@ -1057,6 +1061,10 @@ export function ChatContainer({
 	const inputRound = chatInputRounds.get(chat)?.round ?? null;
 	const continuationNeedsReload =
 		chatInputRounds.get(chat)?.requiresReconciliation === true;
+	const sourceRejection =
+		status === "error" && chatError instanceof SourceAdmissionRejectionError
+			? chatError
+			: null;
 
 	/* Only the server's committed input invitation parks the progress region.
 	 * A question part can arrive before the persistence barrier completes. Retire the
@@ -1649,6 +1657,16 @@ export function ChatContainer({
 		)
 			return;
 		const runId = runIdRef.current ?? "client-error";
+		if (chatError instanceof SourceAdmissionRejectionError) {
+			if (!session.appId) {
+				agentEngagedRef.current = false;
+				setSendFailedBeforeApp(true);
+			}
+			const progress = designProgressStore.getState();
+			if (designProgressTracksBuildFailure(progress, session.buildUnfinished))
+				progress.markFailed(message, { recoverable: true });
+			return;
+		}
 		session.pushEvent({
 			kind: "conversation",
 			runId,
@@ -1801,6 +1819,36 @@ export function ChatContainer({
 			});
 		},
 		[chat, scopeEpoch, sendMessage],
+	);
+
+	const retrySourceSubmission = useCallback(
+		(withoutFiles: boolean) => {
+			if (
+				!sourceRejection ||
+				activeChatRef.current !== chat ||
+				!chatGenerationCanWrite(
+					sessionStoreRef.current?.getState(),
+					scopeEpoch,
+					threadHydrationStateRef.current,
+				)
+			)
+				return;
+			if (
+				!claimDesignAgentPath({
+					blankAppCreationInProgress: creatingStarterAppRef.current,
+					agentEngaged: agentEngagedRef,
+					clearSendFailure: () => setSendFailedBeforeApp(false),
+				})
+			)
+				return;
+			if (withoutFiles)
+				setMessages(
+					removeRejectedSources(chat.messages, sourceRejection.rejection),
+				);
+			clearError();
+			void sendMessage();
+		},
+		[chat, clearError, scopeEpoch, sendMessage, setMessages, sourceRejection],
 	);
 
 	const retryInputContinuation = useCallback(() => {
@@ -2087,7 +2135,11 @@ export function ChatContainer({
 			composerBusy={
 				creatingStarterApp || threadScopeReloading || continuationNeedsReload
 			}
-			interactionBlocked={threadScopeReloading || continuationNeedsReload}
+			interactionBlocked={
+				threadScopeReloading ||
+				continuationNeedsReload ||
+				sourceRejection !== null
+			}
 			interactionBlockedRecovery={
 				continuationNeedsReload
 					? {
@@ -2105,45 +2157,56 @@ export function ChatContainer({
 								actionLabel: "Reload page",
 								onAction: () => window.location.reload(),
 							}
-						: status === "error" &&
-								(trailingTypedDesignWaitContinuation(messages, inputRound) ||
-									answeredInputRound(messages, inputRound))
+						: sourceRejection && canEdit && !readOnly
 							? {
-									title: "Reply not sent",
-									message: "Your reply is still here. Try sending it again.",
+									title: "Message not sent",
+									message: sourceRejection.message,
 									actionLabel: "Try again",
-									onAction: retryInputContinuation,
+									onAction: () => retrySourceSubmission(false),
+									secondaryAction: {
+										label: "Send without files",
+										onAction: () => retrySourceSubmission(true),
+									},
 								}
-							: canEdit &&
-									!readOnly &&
-									inputRound?.state === "pending" &&
-									inputRound.kind === "review" &&
-									designReviewCanContinue(
-										designProgressStore.getState(),
-										status,
-									)
+							: status === "error" &&
+									(trailingTypedDesignWaitContinuation(messages, inputRound) ||
+										answeredInputRound(messages, inputRound))
 								? {
-										title: "Review paused",
-										message:
-											"Your app and the review so far are saved. There is more to check before the app is ready.",
-										actionLabel: "Continue",
-										onAction: continuePeerReview,
+										title: "Reply not sent",
+										message: "Your reply is still here. Try sending it again.",
+										actionLabel: "Try again",
+										onAction: retryInputContinuation,
 									}
 								: canEdit &&
 										!readOnly &&
-										designBuildCanResume(
+										inputRound?.state === "pending" &&
+										inputRound.kind === "review" &&
+										designReviewCanContinue(
 											designProgressStore.getState(),
-											isExistingApp && buildUnfinished,
 											status,
 										)
 									? {
-											title: "Build paused",
+											title: "Review paused",
 											message:
-												"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
-											actionLabel: "Resume build",
-											onAction: resumeAcceptedBuild,
+												"Your app and the review so far are saved. There is more to check before the app is ready.",
+											actionLabel: "Continue",
+											onAction: continuePeerReview,
 										}
-									: undefined
+									: canEdit &&
+											!readOnly &&
+											designBuildCanResume(
+												designProgressStore.getState(),
+												isExistingApp && buildUnfinished,
+												status,
+											)
+										? {
+												title: "Build paused",
+												message:
+													"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+												actionLabel: "Resume build",
+												onAction: resumeAcceptedBuild,
+											}
+										: undefined
 			}
 			pendingWorkRecovery={
 				appId &&
