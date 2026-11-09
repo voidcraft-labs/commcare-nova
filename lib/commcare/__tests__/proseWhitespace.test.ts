@@ -151,7 +151,7 @@ describe("exported prose whitespace", () => {
 					),
 				).children) {
 					expect(value.text).toBe(
-						"Literal <output value=\"'x'\"/> & #form/meals",
+						"Literal &lt;output value=\"'x'\"/&gt; &amp; &#65; &#x1; &#xB; &#xFFFF; &#xD800; &amp;lt; #form/meals",
 					);
 					expect(value.children).toEqual([]);
 				}

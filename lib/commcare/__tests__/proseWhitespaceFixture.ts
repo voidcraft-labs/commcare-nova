@@ -105,7 +105,7 @@ export function proseWhitespaceFixture() {
 								kind: "label",
 								id: "escaped_markup",
 								label: proseText(
-									"Literal &lt;output value=\"'x'\"/&gt; &amp; #form/meals",
+									"Literal &lt;output value=\"'x'\"/&gt; &amp; &#65; &#x1; &#xB; &#xFFFF; &#xD800; &amp;lt; #form/meals",
 								),
 							}),
 							f({

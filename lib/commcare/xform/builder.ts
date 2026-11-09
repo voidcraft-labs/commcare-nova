@@ -36,7 +36,6 @@ import { caseTypeDepthMap } from "../caseTypeDepths";
  */
 
 import { type ChildNode, type Element, isTag } from "domhandler";
-import { decodeXML } from "entities";
 import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
@@ -243,11 +242,10 @@ function literalLabelNodes(
  *
  * Instead we CONSTRUCT a DOM directly and never parse the label as markup:
  *
- *   - Non-whitespace prose runs become a `Text` node
- *     whose data is `decodeXML(run)`. Decoding normalizes any pre-escaped
- *     entity the author may have typed (the historical `&lt;` workaround → `<`)
- *     so the serializer re-escapes it exactly once — `&lt;`, never the
- *     double-escaped `&amp;lt;` that would show a literal `&lt;` on device.
+ *   - Non-whitespace prose runs become a `Text` node with the authored text
+ *     unchanged. Entity-looking spellings are literal prose, just as they are
+ *     in admission, Preview and the editor. Only the serializer escapes XML;
+ *     a platform's Markdown renderer interprets Markdown after reading it.
  *   - Whitespace-only runs become `<output>` nodes.
  *     Core's `XFormParser.getXMLDocument` discards text nodes whose Java
  *     `String.trim()` result is empty before it parses label outputs. A
@@ -277,7 +275,7 @@ function buildLabelNodes(
 	const nodes: ChildNode[] = [];
 	for (const part of template.parts) {
 		if (part.kind === "text") {
-			nodes.push(...literalLabelNodes(decodeXML(part.text), context));
+			nodes.push(...literalLabelNodes(part.text, context));
 			continue;
 		}
 		const value = lower(part);

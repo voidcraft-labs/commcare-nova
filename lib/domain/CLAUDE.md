@@ -471,6 +471,9 @@ applies — a reference holds identity, so a rename rewrites
 nothing. A literal `#` is text; only a part is a reference, which is why typing
 `#form/name` into a label leaves it literal. Adjacent text parts are
 noncanonical and reject, so one authored value has exactly one representation.
+Text parts preserve their authored characters, including entity-looking spellings
+such as `&amp;` or `&#x1;`. XML emission never decodes prose; Markdown rendering
+belongs to the surface that displays it.
 
 Read a template through the right projector. `projectProseTemplate(template,
 doc)` is the human one: it takes the owning document and returns

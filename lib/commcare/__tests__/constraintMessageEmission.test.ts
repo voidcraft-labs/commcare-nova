@@ -162,8 +162,8 @@ describe("constraint message emission", () => {
 		}
 	});
 
-	it.each(["${0}", "${00}", "${12}", "${not-a-number}", "${", "&#36;&#123;0}"])(
-		"protects decoded marker %s with exact literal data",
+	it.each(["${0}", "${00}", "${12}", "${not-a-number}", "${"])(
+		"protects authored marker %s with exact literal data",
 		(marker) => {
 			const fixture = constraintMessageFixture("plain");
 			const field = fixture.doc.fields[CONSTRAINT_CHECKED];
@@ -180,9 +180,7 @@ describe("constraint message emission", () => {
 				).text;
 				expect(payload).toMatch(/^[\x20-\x7e]+$/);
 				expect(JSON.parse(payload)).toEqual({
-					v:
-						(marker === "&#36;&#123;0}" ? "${0}" : marker) +
-						suffix.replace("&amp;", "&"),
+					v: marker + suffix,
 				});
 				expect(carrierBinds(root).map((node) => node.attributes)).toEqual([
 					{
@@ -208,6 +206,25 @@ describe("constraint message emission", () => {
 			}
 		},
 	);
+
+	it("keeps an encoded marker literal on the ordinary constraint path", () => {
+		const fixture = constraintMessageFixture("plain");
+		const field = fixture.doc.fields[CONSTRAINT_CHECKED];
+		if (field.kind !== "int") throw new Error("Expected integer field.");
+		const message = "&#36;&#123;0} &amp; &#x1;";
+		field.validate_msg = proseText(message);
+		admitConstraintMessageFixture(fixture.doc, fixture.assets);
+		for (const root of routes(fixture)) {
+			expect(entry(root, "en").children.map((value) => value.text)).toEqual([
+				message,
+				message,
+			]);
+			expect(carrierBinds(root)).toEqual([]);
+			expect(bind(root).attributes["jr:constraintMsg"]).toBe(
+				"jr:itext('checked-constraintMsg')",
+			);
+		}
+	});
 
 	it("preserves all five prose kinds, standard text, instance requirements and strict identity resolution", () => {
 		const fixture = constraintMessageFixture("all-kinds");
