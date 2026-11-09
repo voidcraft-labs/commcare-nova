@@ -489,9 +489,11 @@ a nonce or a transcript containing old answers is insufficient. Stale/duplicate
 answers reconcile without another model turn. Typed-message waits require new
 user input. Project library reads retain their selected evidence separately from
 user attachments and bind each paged requirements read to its content revision.
-Fresh turns reassemble current source material and may prepare it again; a changed
-source digest invalidates prior review. MCP reports missing preparation without
-starting a model call.
+Conversation admission retains immutable source content independently of the
+Library. Fresh turns and resumed reads reuse those revisions; a new attachment
+or explicit current-Library selection adds new evidence. Only changed evidence
+invalidates prior review, never reload ordering or provenance notices. MCP
+reports missing preparation without starting a model call.
 
 Completed model responses and usage are durable before tool dispatch. Recovery
 replays unanswered calls by their original identity and returns exact semantic

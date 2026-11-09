@@ -276,3 +276,60 @@ it("preserves the exact source snapshot when a newly selected revision resumes b
 		sourceAttachmentsMessage(live),
 	);
 });
+
+it("keeps an unavailable historical selection explicit and stable after selecting current evidence", async () => {
+	const old = retained.get(sourceReferenceKey(message.id, assetId));
+	if (!old?.source) throw new Error("Missing fixture");
+	const selection: SelectedSourceDocument = {
+		assetId,
+		kind: "text",
+		filename: "spec.txt",
+		mimeType: "text/plain",
+		contentHash: "original",
+		extractVersion: 1,
+		extractDigest: canonicalJsonDigest("The admitted requirements"),
+		revision: "old-revision",
+	};
+	const sources: Map<
+		string,
+		import("@/lib/chat/retainedSource").RetainedSourceReference
+	> = new Map([
+		[
+			selectedSourceReferenceKey(assetId, "unavailable"),
+			{
+				messageId: "",
+				assetId,
+				filename: "spec.txt",
+				source: null,
+				revision: null,
+				provenance: "unavailable",
+			},
+		],
+	]);
+	const before = await loadSourceMaterial({
+		projectId: "project",
+		messages: [],
+		retainedSources: sources,
+		selectedSources: [selection],
+	});
+	expect(before.notices).toHaveLength(1);
+	const live = includeSelectedSource({
+		material: before,
+		selected: selection,
+		retainedContent: old.source,
+	});
+	sources.set(selectedSourceReferenceKey(assetId, selection.revision), {
+		...old,
+		messageId: "",
+	});
+	const resumed = await loadSourceMaterial({
+		projectId: "project",
+		messages: [],
+		retainedSources: sources,
+		selectedSources: [selection],
+	});
+	expect(resumed).toEqual(live);
+	expect(JSON.stringify(sourceAttachmentsMessage(resumed))).toContain(
+		"could not be retained",
+	);
+});

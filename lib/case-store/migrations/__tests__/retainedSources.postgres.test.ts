@@ -209,3 +209,45 @@ it("rolls back every copied source when the final migration receipt cannot commi
 		await migrateConversationSources(db(), before.report.scanDigest, deps),
 	).toMatchObject({ applied: true });
 });
+
+it("records missing image objects as unavailable but refuses unreadable or corrupt objects", async () => {
+	await seed();
+	for (const code of [403, 503]) {
+		const error = Object.assign(new Error("storage failure"), { code });
+		await expect(
+			scanConversationSources(db(), {
+				...deps,
+				readBytes: async () => {
+					throw error;
+				},
+			}),
+		).rejects.toBe(error);
+	}
+	await expect(
+		scanConversationSources(db(), {
+			...deps,
+			readBytes: async () => Buffer.from("different bytes"),
+		}),
+	).rejects.toThrow("immutable content hash");
+	const missing = {
+		...deps,
+		readBytes: async (): Promise<Buffer> => {
+			throw Object.assign(new Error("Not found"), { code: 404 });
+		},
+	};
+	const before = await scanConversationSources(db(), missing);
+	expect(before.report).toMatchObject({
+		references: 5,
+		unavailable: 2,
+		verifiedLegacy: 1,
+		migrationBaselines: 2,
+	});
+	await migrateConversationSources(db(), before.report.scanDigest, missing);
+	expect(
+		await db()
+			.selectFrom("thread_source_links")
+			.select(["provenance", "revision"])
+			.where("asset_id", "=", imageId)
+			.executeTakeFirstOrThrow(),
+	).toEqual({ provenance: "unavailable", revision: null });
+});

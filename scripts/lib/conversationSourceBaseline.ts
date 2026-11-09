@@ -115,10 +115,16 @@ export async function scanConversationSources(
 					};
 					if (asset.kind === "image") {
 						if (!isModelReadableImageMimeType(asset.mimeType)) return null;
-						const bytes = await deps.readBytes(
-							asset.gcsObjectKey,
-							8 * 1024 * 1024,
-						);
+						let bytes: Buffer;
+						try {
+							bytes = await deps.readBytes(asset.gcsObjectKey, 8 * 1024 * 1024);
+						} catch (error) {
+							// Missing legacy bytes are an explicit unavailable source. An
+							// authorization or transport failure cannot establish absence.
+							if ((error as { code?: number } | null)?.code === 404)
+								return null;
+							throw error;
+						}
 						const bytesDigest = createHash("sha256")
 							.update(bytes)
 							.digest("hex");

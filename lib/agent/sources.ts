@@ -12,7 +12,6 @@ import {
 	sourceReferenceKey,
 } from "@/lib/chat/retainedSource";
 import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { SourceDocumentRuntime } from "./sourceDocuments";
 import { askQuestionsInputSchema } from "./tools/askQuestions";
@@ -65,7 +64,7 @@ export async function loadSourceMaterial(args: {
 		legacyKeyPrefix?: string;
 		message: ModelMessage;
 	}> = [];
-	const references = new Map<string, z.infer<typeof attachmentRefSchema>>();
+	const references = new Map<string, { assetId: string; filename: string }>();
 	for (const message of args.messages) {
 		if (message.role === "user") {
 			for (const [index, part] of message.parts.entries()) {
@@ -113,18 +112,26 @@ export async function loadSourceMaterial(args: {
 			);
 		}
 	}
-	for (const selected of args.selectedSources ?? [])
+	for (const selected of args.selectedSources ?? []) {
+		const key = selectedSourceReferenceKey(selected.assetId, selected.revision);
+		const unavailableKey = selectedSourceReferenceKey(
+			selected.assetId,
+			"unavailable",
+		);
 		references.set(
-			selectedSourceReferenceKey(selected.assetId, selected.revision),
+			args.retainedSources?.has(key)
+				? key
+				: args.retainedSources?.has(unavailableKey)
+					? unavailableKey
+					: key,
 			selected,
 		);
+	}
 	for (const [key, ref] of args.retainedSources ?? []) {
-		if (ref.messageId === "" && ref.source)
+		if (ref.messageId === "")
 			references.set(key, {
-				assetId: ref.assetId as MediaAssetId,
-				kind: ref.source.kind,
-				filename: ref.source.filename,
-				mimeType: ref.source.mimeType,
+				assetId: ref.assetId,
+				filename: ref.source?.filename ?? ref.filename ?? "Unavailable source",
 			});
 	}
 	const notices: { key: string; text: string }[] = [];
