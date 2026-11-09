@@ -194,73 +194,105 @@ describe("continuation through Nova's installed SDK transport", () => {
 	);
 });
 
-it("retains rejected source refs until explicit removal and resends through the real SDK without altering historical files", async () => {
-	const assetId = testMediaAssetId("rejected-source");
-	const ref = {
-		assetId,
-		kind: "text" as const,
-		filename: "workflow.md",
-		mimeType: "text/markdown",
-	};
-	const old: NovaUIMessage = {
-		id: "old",
-		role: "user",
-		parts: [{ type: "text", text: "Earlier request" }],
-		metadata: { attachments: [ref] },
-	};
-	const latest: NovaUIMessage = {
-		id: "new",
-		role: "user",
-		parts: [{ type: "text", text: "New request" }],
-		metadata: { attachments: [ref] },
-	};
-	const references = incomingSourceReferences([old, latest], [old]).map(
-		({ messageId, ref }) => ({ messageId, assetId: ref.assetId }),
-	);
-	const requests: { messages: NovaUIMessage[] }[] = [];
-	const chat: Chat<NovaUIMessage> = new Chat({
-		id: "source-thread",
-		messages: [old, latest],
-		transport: new NovaChatTransport(
-			{
-				fetch: async (_url, init) => {
-					requests.push(JSON.parse(String(init?.body)));
-					if (requests.length === 1)
-						return Response.json(
-							{
+it.each(["http", "stream", "resume"])(
+	"retains %s rejected source refs until explicit removal and resends without altering historical files",
+	async (delivery) => {
+		const assetId = testMediaAssetId("rejected-source");
+		const ref = {
+			assetId,
+			kind: "text" as const,
+			filename: "workflow.md",
+			mimeType: "text/markdown",
+		};
+		const old: NovaUIMessage = {
+			id: "old",
+			role: "user",
+			parts: [{ type: "text", text: "Earlier request" }],
+			metadata: { attachments: [ref] },
+		};
+		const latest: NovaUIMessage = {
+			id: "new",
+			role: "user",
+			parts: [{ type: "text", text: "New request" }],
+			metadata: { attachments: [ref] },
+		};
+		const references = incomingSourceReferences([old, latest], [old]).map(
+			({ messageId, ref }) => ({ messageId, assetId: ref.assetId }),
+		);
+		const requests: { messages: NovaUIMessage[] }[] = [];
+		const data: unknown[] = [];
+		const chat: Chat<NovaUIMessage> = new Chat({
+			id: "source-thread",
+			messages: [old, latest],
+			onData: (part) => {
+				data.push(part);
+			},
+			transport: new NovaChatTransport(
+				{
+					fetch: async (_url, init) => {
+						requests.push(
+							init?.body ? JSON.parse(String(init.body)) : { messages: [] },
+						);
+						if (requests.length === 1) {
+							const payload = {
 								code: "source_not_admitted",
 								error: "This file couldn't be read.",
 								references,
-							},
-							{ status: 409 },
-						);
-					return sse([
-						{ type: "start", messageId: "reply" },
-						{ type: "finish" },
-					]);
+							};
+							if (delivery === "http")
+								return Response.json(payload, { status: 409 });
+							return sse([
+								{
+									type: "data-credit-refund",
+									data: { amount: 10 },
+									transient: true,
+								},
+								{
+									type: "data-source-rejection",
+									data: payload,
+									transient: true,
+								},
+								{ type: "finish" },
+							]);
+						}
+						return sse([
+							{ type: "start", messageId: "reply" },
+							{ type: "finish" },
+						]);
+					},
 				},
-			},
-			() => chat.messages,
-		),
-	});
-	try {
-		await chat.sendMessage();
-		expect(chat.error).toBeInstanceOf(SourceAdmissionRejectionError);
-		expect(chat.messages).toEqual([old, latest]);
-		expect(requests).toHaveLength(1);
-		if (!(chat.error instanceof SourceAdmissionRejectionError))
-			throw new Error("Expected source refusal");
-		chat.messages = removeRejectedSources(chat.messages, chat.error.rejection);
-		chat.clearError();
-		await chat.sendMessage();
-		expect(chat.status).toBe("ready");
-		expect(requests).toHaveLength(2);
-		expect(requests[1].messages[0]).toEqual(old);
-		expect(requests[1].messages[1]).toEqual({
-			...latest,
-			metadata: { attachments: [] },
+				() => chat.messages,
+			),
 		});
-	} finally {
-		await chat.stop();
-	}
-});
+		try {
+			if (delivery === "resume") await chat.resumeStream();
+			else await chat.sendMessage();
+			if (delivery !== "http")
+				expect(data).toContainEqual({
+					type: "data-credit-refund",
+					data: { amount: 10 },
+					transient: true,
+				});
+			expect(chat.error).toBeInstanceOf(SourceAdmissionRejectionError);
+			expect(chat.messages).toEqual([old, latest]);
+			expect(requests).toHaveLength(1);
+			if (!(chat.error instanceof SourceAdmissionRejectionError))
+				throw new Error("Expected source refusal");
+			chat.messages = removeRejectedSources(
+				chat.messages,
+				chat.error.rejection,
+			);
+			chat.clearError();
+			await chat.sendMessage();
+			expect(chat.status).toBe("ready");
+			expect(requests).toHaveLength(2);
+			expect(requests[1].messages[0]).toEqual(old);
+			expect(requests[1].messages[1]).toEqual({
+				...latest,
+				metadata: { attachments: [] },
+			});
+		} finally {
+			await chat.stop();
+		}
+	},
+);

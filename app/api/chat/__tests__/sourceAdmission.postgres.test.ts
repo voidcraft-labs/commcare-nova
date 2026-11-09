@@ -232,6 +232,74 @@ it.each(["build", "edit"] as const)(
 	},
 );
 
+async function deleteAfterAdmission() {
+	await prepareSource();
+	readTextObject.mockImplementationOnce(async () => {
+		await h.db().deleteFrom("media_assets").where("id", "=", ASSET).execute();
+		return "Visit workflow";
+	});
+}
+async function readRejection(response: Response) {
+	if (response.status === 409)
+		return sourceAdmissionRejectionSchema.parse(await response.json());
+	expect(response.status).toBe(200);
+	const wire = await response.text();
+	const chunks = wire
+		.split("\n")
+		.filter((line) => line.startsWith("data: {"))
+		.map((line) => JSON.parse(line.slice(6)));
+	const rejection = chunks.find(
+		(chunk) => chunk.type === "data-source-rejection",
+	);
+	return sourceAdmissionRejectionSchema.parse(rejection?.data);
+}
+
+it.each(["build", "edit"] as const)(
+	"offers explicit removal when a new %s source disappears after its bytes were admitted",
+	async (mode) => {
+		const fields =
+			mode === "edit"
+				? {
+						appId: await h.seedApp({
+							owner: USER,
+							project_id: PROJECT,
+							status: "complete",
+						}),
+					}
+				: {};
+		await deleteAfterAdmission();
+		await withPeer(async (peer) => {
+			const rejected = await POST(request([message], fields));
+			const rejection = await readRejection(rejected);
+			expect(rejection.references).toEqual([
+				{ messageId: message.id, assetId: ASSET },
+			]);
+			expect(peer.requests).toHaveLength(0);
+			expect(await consumed()).toBe(0);
+			expect(
+				await h.db().selectFrom("threads").select("thread_id").execute(),
+			).toEqual([]);
+			const session = await h
+				.db()
+				.selectFrom("design_sessions")
+				.selectAll()
+				.executeTakeFirst();
+			if (fields.appId !== undefined)
+				expect((await h.readAppRow(fields.appId))?.lock_run_id).toBeNull();
+			finalText(peer);
+			const accepted = await POST(
+				request(
+					removeRejectedSources([message], rejection),
+					session ? { designSessionId: session.id } : fields,
+				),
+			);
+			expect(accepted.status).toBe(200);
+			expect(await accepted.text()).toContain("Please confirm");
+			expect(peer.requests).toHaveLength(1);
+		});
+	},
+);
+
 it("refuses stale readiness, missing extract bytes and an image download failure without a run or model request", async () => {
 	const appId = await h.seedApp({
 		owner: USER,
@@ -275,89 +343,93 @@ it("refuses stale readiness, missing extract bytes and an image download failure
 	});
 });
 
-it("keeps a pending question round and its reservation intact when answer files fail; explicit removal resumes it", async () => {
-	await withPeer(async (peer) => {
-		const question = peer.response();
-		question.tool(
-			"askQuestions",
-			{
-				header: "Workflow",
-				questions: [
-					{ question: "Who collects visits?", options: [{ label: "Nurses" }] },
-				],
-			},
-			{ callId: "team-question" },
-		);
-		question.finish();
-		const opening: NovaUIMessage = { ...message, metadata: undefined };
-		const first = await POST(request([opening]));
-		await first.text();
-		const session = await h
-			.db()
-			.selectFrom("design_sessions")
-			.selectAll()
-			.executeTakeFirstOrThrow();
-		const target = {
-			kind: "design-session" as const,
-			designSessionId: session.id,
-		};
-		const paused = await loadThread(target, THREAD, USER);
-		if (!paused?.input_round || !paused.holder_nonce)
-			throw new Error("Expected an answer invitation");
-		const answered = (paused.messages as NovaUIMessage[]).map((entry) => ({
-			...entry,
-			parts: entry.parts.map((part) =>
-				part.type === "tool-askQuestions"
-					? {
-							type: "tool-askQuestions" as const,
-							toolCallId: part.toolCallId,
-							input: part.input,
-							state: "output-available" as const,
-							output: { "0": "Nurses" },
-						}
-					: part,
-			),
-		}));
-		const reply: NovaUIMessage = {
-			...message,
-			id: "answer-files",
-			parts: [{ type: "text", text: "Attached: workflow.md" }],
-		};
-		const messages = [...answered, reply];
-		const fields = {
-			designSessionId: session.id,
-			runId: paused.run_id,
-			holderNonce: paused.holder_nonce,
-			inputRoundId: paused.input_round.id,
-		};
-		const beforeCredit = await consumed();
-		const response = await POST(request(messages, fields));
-		expect(response.status).toBe(409);
-		const rejection = sourceAdmissionRejectionSchema.parse(
-			await response.json(),
-		);
-		const stillPaused = await loadThread(target, THREAD, USER);
-		expect(stillPaused?.input_round).toEqual(paused.input_round);
-		expect(stillPaused?.holder_nonce).toBe(paused.holder_nonce);
-		expect(stillPaused?.messages).toEqual(paused.messages);
-		expect(await consumed()).toBe(beforeCredit);
-		expect(peer.requests).toHaveLength(1);
-		finalText(peer);
-		const retry = await POST(
-			request(removeRejectedSources(messages, rejection), fields),
-		);
-		const wire = await retry.text();
-		expect(retry.status).toBe(200);
-		expect(wire).toContain("Please confirm");
-		expect(peer.requests).toHaveLength(2);
-		expect(
-			incomingSourceReferences(
-				(await loadThread(target, THREAD, USER))?.messages as NovaUIMessage[],
-				paused.messages as NovaUIMessage[],
-			),
-		).toEqual([]);
-	});
-});
+it.each(["unreadable", "deleted-after-admission"])(
+	"keeps a pending question round and its reservation intact for %s answer files; explicit removal resumes it",
+	async (failure) => {
+		await withPeer(async (peer) => {
+			const question = peer.response();
+			question.tool(
+				"askQuestions",
+				{
+					header: "Workflow",
+					questions: [
+						{
+							question: "Who collects visits?",
+							options: [{ label: "Nurses" }],
+						},
+					],
+				},
+				{ callId: "team-question" },
+			);
+			question.finish();
+			const opening: NovaUIMessage = { ...message, metadata: undefined };
+			const first = await POST(request([opening]));
+			await first.text();
+			const session = await h
+				.db()
+				.selectFrom("design_sessions")
+				.selectAll()
+				.executeTakeFirstOrThrow();
+			const target = {
+				kind: "design-session" as const,
+				designSessionId: session.id,
+			};
+			const paused = await loadThread(target, THREAD, USER);
+			if (!paused?.input_round || !paused.holder_nonce)
+				throw new Error("Expected an answer invitation");
+			const answered = (paused.messages as NovaUIMessage[]).map((entry) => ({
+				...entry,
+				parts: entry.parts.map((part) =>
+					part.type === "tool-askQuestions"
+						? {
+								type: "tool-askQuestions" as const,
+								toolCallId: part.toolCallId,
+								input: part.input,
+								state: "output-available" as const,
+								output: { "0": "Nurses" },
+							}
+						: part,
+				),
+			}));
+			const reply: NovaUIMessage = {
+				...message,
+				id: "answer-files",
+				parts: [{ type: "text", text: "Attached: workflow.md" }],
+			};
+			const messages = [...answered, reply];
+			const fields = {
+				designSessionId: session.id,
+				runId: paused.run_id,
+				holderNonce: paused.holder_nonce,
+				inputRoundId: paused.input_round.id,
+			};
+			const beforeCredit = await consumed();
+			if (failure === "deleted-after-admission") await deleteAfterAdmission();
+			const response = await POST(request(messages, fields));
+			const rejection = await readRejection(response);
+			const stillPaused = await loadThread(target, THREAD, USER);
+			expect(stillPaused?.input_round).toEqual(paused.input_round);
+			expect(stillPaused?.holder_nonce).toBe(paused.holder_nonce);
+			expect(stillPaused?.messages).toEqual(paused.messages);
+			expect(await consumed()).toBe(beforeCredit);
+			expect(peer.requests).toHaveLength(1);
+			finalText(peer);
+			const retry = await POST(
+				request(removeRejectedSources(messages, rejection), fields),
+			);
+			const wire = await retry.text();
+			expect(retry.status).toBe(200);
+			expect(wire).toContain("Please confirm");
+			expect(peer.requests).toHaveLength(2);
+			expect(
+				incomingSourceReferences(
+					(await loadThread(target, THREAD, USER))?.messages as NovaUIMessage[],
+					paused.messages as NovaUIMessage[],
+				),
+			).toEqual([]);
+		});
+	},
+);
 
 it("does not re-admit an old unreadable source when an edit submits a new message without files", async () => {
 	const appId = await h.seedApp({

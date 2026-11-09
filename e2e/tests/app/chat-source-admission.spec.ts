@@ -58,16 +58,23 @@ for (const mode of ["build", "edit"] as const) {
 					if (posts.length === 1) {
 						const last = body.messages.at(-1);
 						if (!last) throw new Error("No submitted message");
-						await route.fulfill({
-							status: 409,
-							json: {
-								code: "source_not_admitted",
-								type: "attachment_unavailable",
-								error:
-									"I couldn't read workflow.md. You can try again or send without its files.",
-								references: [{ messageId: last.id, assetId }],
-							},
-						});
+						const rejection = {
+							code: "source_not_admitted",
+							type: "attachment_unavailable",
+							error:
+								"I couldn't read workflow.md. You can try again or send without its files.",
+							references: [{ messageId: last.id, assetId }],
+						};
+						if (mode === "build")
+							await route.fulfill({ status: 409, json: rejection });
+						else
+							await route.fulfill({
+								contentType: "text/event-stream",
+								headers: {
+									"x-workflow-run-id": "00000000-0000-4000-8000-000000000098",
+								},
+								body: `${[{ type: "data-source-rejection", data: rejection, transient: true }, { type: "finish" }].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+							});
 						return;
 					}
 					const chunks = [

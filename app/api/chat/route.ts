@@ -523,13 +523,27 @@ export async function POST(req: Request) {
 
 	let admittedSources: AdmittedSources = new Map();
 	let admittedSourceProject: string | undefined;
+	let references: IncomingSourceReference[] = [];
+	const rejectedSources = (error: Error) => ({
+		code: "source_not_admitted" as const,
+		type: "attachment_unavailable" as const,
+		error: error.message,
+		references: references.map(({ messageId, ref }) => ({
+			messageId,
+			assetId: ref.assetId,
+		})),
+	});
+	const projectionRejection = (error: unknown) =>
+		error instanceof ThreadAttachmentUnavailableError &&
+		error.admission === "incoming"
+			? rejectedSources(error)
+			: undefined;
 	// Every target branch calls this after authorization and before claiming a
 	// run, booking credits, or consuming answers. Only new refs are re-admitted.
 	const sourceRejection = async (
 		authorizedProjectId: string,
 	): Promise<Response | null> => {
 		if (admittedSourceProject === authorizedProjectId) return null;
-		let references: IncomingSourceReference[] = [];
 		try {
 			const previous =
 				existingThread &&
@@ -547,18 +561,7 @@ export async function POST(req: Request) {
 		} catch (error) {
 			if (error instanceof IncomingSourceUnavailableError) {
 				log.warn("[chat] incoming source unavailable", { threadId, error });
-				return Response.json(
-					{
-						error: error.message,
-						type: "attachment_unavailable",
-						code: "source_not_admitted",
-						references: references.map(({ messageId, ref }) => ({
-							messageId,
-							assetId: ref.assetId,
-						})),
-					},
-					{ status: 409 },
-				);
+				return Response.json(rejectedSources(error), { status: 409 });
 			}
 			log.error("[chat] source admission read failed", error, { threadId });
 			return Response.json(
@@ -841,7 +844,10 @@ export async function POST(req: Request) {
 					} catch (err) {
 						if (err instanceof ThreadAttachmentUnavailableError)
 							return Response.json(
-								{ error: err.message, type: "attachment_unavailable" },
+								projectionRejection(err) ?? {
+									error: err.message,
+									type: "attachment_unavailable",
+								},
 								{ status: 409 },
 							);
 						if (err instanceof InputRoundRejectedError)
@@ -1196,7 +1202,10 @@ export async function POST(req: Request) {
 			} catch (err) {
 				if (err instanceof ThreadAttachmentUnavailableError)
 					return Response.json(
-						{ error: err.message, type: "attachment_unavailable" },
+						projectionRejection(err) ?? {
+							error: err.message,
+							type: "attachment_unavailable",
+						},
 						{ status: 409 },
 					);
 				if (err instanceof InputRoundRejectedError)
@@ -1692,6 +1701,7 @@ export async function POST(req: Request) {
 							>["pause"]["orchestration"];
 						};
 						heldApp?: boolean;
+						sourceRejection?: ReturnType<typeof projectionRejection>;
 						failureSource?: string;
 						originalError?: unknown;
 						/** The typed failure already emitted its canonical structured
@@ -2103,6 +2113,13 @@ export async function POST(req: Request) {
 					 * while an UNSEALED stream (process death, broken log) keeps reading
 					 * as a mid-turn interruption. Awaited: execute must not resolve
 					 * (closing the response) before the terminal row is durable. */
+					if (opts?.sourceRejection) {
+						writer.write({
+							type: "data-source-rejection",
+							data: opts.sourceRejection,
+							transient: true,
+						});
+					}
 					await writer.close(foldOutcome);
 				};
 
@@ -2134,6 +2151,7 @@ export async function POST(req: Request) {
 					}
 					await finalizeRun(classified, {
 						failureSource: source,
+						sourceRejection: projectionRejection(error),
 						originalError: error,
 						turnComplete: opts?.turnComplete,
 					});
@@ -2284,7 +2302,10 @@ export async function POST(req: Request) {
 									"route:attachment-admission",
 									{ reportedAtSource: true },
 								);
-								await finalizeRun(undefined, { heldApp: false });
+								await finalizeRun(undefined, {
+									heldApp: false,
+									sourceRejection: projectionRejection(err),
+								});
 								return;
 							}
 							if (err instanceof InputRoundRejectedError) {
@@ -2593,7 +2614,10 @@ export async function POST(req: Request) {
 							ctx.emitError(classifyError(err), "route:attachment-admission", {
 								reportedAtSource: true,
 							});
-							await finalizeRun(undefined, { heldApp: false });
+							await finalizeRun(undefined, {
+								heldApp: false,
+								sourceRejection: projectionRejection(err),
+							});
 							return;
 						}
 						if (err instanceof InputRoundRejectedError) {

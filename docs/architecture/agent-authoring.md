@@ -285,12 +285,15 @@ selection provenance.
 New message attachments are admitted before claiming or resuming a run. The
 server distinguishes new message/reference identities from the durable transcript,
 requires prepared readable content, and hands the verified bytes to either
-executor for that request. It starts no extraction during admission. A refusal
-leaves holders, credits, pending questions and the durable transcript unchanged.
+executor for that request. It starts no extraction during admission. A content
+admission refusal leaves holders, credits, pending questions and the durable
+transcript unchanged. Thread projection also checks the sources under asset
+locks: deletion between the content read and projection gets the same explicit
+recovery, over HTTP or the stream. A claim transaction rolls back; a run already
+claimed is settled and refunded before the stream delivers the refusal.
 The client offers explicit document preparation followed by retry, or removal of
 only the rejected references; it preserves typed text, answers and historical
-attachments. A missing historical
-extract alone does not turn an unrelated edit into a new-source refusal.
+attachments. A missing historical extract alone does not turn an unrelated edit into a new-source refusal.
 
 ## Conversation and recovery
 
