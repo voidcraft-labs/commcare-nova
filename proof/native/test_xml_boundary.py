@@ -191,7 +191,7 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
                 ], path
             for value in translation.xpath('x:text[@id="escaped_markup-label"]/x:value', namespaces=NAMESPACES):
                 assert len(value) == 0, path
-                assert value.text == "Literal <output value=\"'x'\"/> & #form/meals", path
+                assert value.text == "Literal &lt;output value=\"'x'\"/&gt; &amp; &#65; &#x1; &#xB; &#xFFFF; &#xD800; &amp;lt; #form/meals", path
     write_evidence(
         exports,
         "prose-separators",

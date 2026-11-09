@@ -1413,12 +1413,9 @@ describe("label/hint prose entity escaping", () => {
 		expectProse(xml, "hi-label", ["Hello ", caseOutput("display_name")]);
 	});
 
-	it("round-trips a pre-escaped `&lt;` without double-escaping (regression)", () => {
-		// The historical workaround: authors pre-escaped `<` as `&lt;`. After
-		// the fix, decode-then-escape keeps the on-wire byte at exactly `&lt;`
-		// (not `&amp;lt;`), so the display still shows `<`.
+	it("preserves entity-looking text for the platform's text renderer", () => {
 		const xml = firstFormXml(labelDoc("Less than &lt; threshold"));
-		expectProse(xml, "note-label", ["Less than < threshold"]);
+		expectProse(xml, "note-label", ["Less than &lt; threshold"]);
 		expect(elements(xml, "output")).toEqual([]);
 	});
 });

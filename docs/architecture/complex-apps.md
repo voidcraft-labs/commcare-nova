@@ -410,7 +410,7 @@ a reference), and a value that does not survive the template ⇄ editor round
 trip is a validator finding rather than an assumption.
 
 Constraint wording uses the same typed prose identity. At the CommCare boundary,
-messages containing a typed reference or decoded `${` literal compose their
+messages containing a typed reference or authored `${` literal compose their
 text through a raw constraint expression, so Core's alert filler cannot replace
 marker-like authored text or referenced data. Standard itext and media retain
 an irrelevant, readonly sibling owner in the question's actual scope; that

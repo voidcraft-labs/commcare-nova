@@ -1,5 +1,4 @@
 import type { Element } from "domhandler";
-import { decodeXML } from "entities";
 import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
 import { el, text } from "../elementBuilders";
 import { w } from "../xpath/wire/builders";
@@ -43,7 +42,7 @@ export function protectConstraintMessage(
 	const terms = messages.map(({ language, template }) => ({
 		language,
 		parts: template.parts.map<MessagePart>((part) => {
-			if (part.kind === "text") return { literal: decodeXML(part.text) };
+			if (part.kind === "text") return { literal: part.text };
 			return { expression: lower(part), identity: JSON.stringify(part) };
 		}),
 	}));
@@ -145,7 +144,7 @@ export function constraintMessageNeedsProtection(
 ): boolean {
 	return templates.some((template) =>
 		template.parts.some(
-			(part) => part.kind !== "text" || decodeXML(part.text).includes("${"),
+			(part) => part.kind !== "text" || part.text.includes("${"),
 		),
 	);
 }

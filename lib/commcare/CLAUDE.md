@@ -507,14 +507,16 @@ Reference-capable label/hint text is a typed `ProseTemplate`; only explicit refe
 
 A question's, group's, repeat's or section's label and an inline choice's label write `<value form="markdown">` in every language unless the field or choice holds `plainLabel`; a hint, a help text and a validation message always write it. No runtime reads a hint's or a validation message's; Android reads a help text's, so Android always renders help as markdown. CommCare holds markdown per text across every language, so the flag is never per language.
 
-`xform/builder.ts::buildLabelNodes` protects decoded whitespace-only runs with
+`xform/builder.ts::buildLabelNodes` protects authored whitespace-only runs with
 outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
 Java `String.trim()`-empty text nodes; HQ's `WrappedNode.render` calls lxml
 indent, which replaces Unicode whitespace-only tails too. ASCII runs use
 literal `<output value="'...'"/>`; Unicode runs use `json-property` with ASCII
 JSON escapes, which Core decodes during substitution. Vellum's XML serializer
 replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
-that protected spelling too. Other prose retains its decoded text nodes.
+that protected spelling too. Other prose retains its authored text nodes. Entity-looking spellings stay
+literal through admission, editing, Preview and emission; only the XML
+serializer escapes them. Platform Markdown rendering happens after XML is read.
 The character classifier mirrors these consumers, not JavaScript `trim()`.
 
 Plain literal validation messages emit the compatible bind `jr:constraintMsg`
@@ -528,7 +530,7 @@ validation message has no `__nova_mode;image`, `;audio`, `;video` or
 constraint's text through Core's `FormEntryPrompt.getConstraintText()` with no
 text form.
 
-If any effective locale has a typed reference or decoded `${` literal,
+If any effective locale has a typed reference or authored `${` literal,
 `xform/constraintMessage.ts` instead composes the raw constraint expression.
 Core's alert template filler would substitute marker-like authored or returned
 data. ASCII JSON literal forms under the original itext id preserve exact

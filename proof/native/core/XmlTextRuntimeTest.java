@@ -106,7 +106,7 @@ public class XmlTextRuntimeTest {
                     + "\t\n\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
                     + "14 Example Lane");
                 assertText(form, "edge_whitespace", " \t" + meals + "\n 14 Example Lane\t ");
-                assertText(form, "escaped_markup", "Literal <output value=\"'x'\"/> & #form/meals");
+                assertText(form, "escaped_markup", "Literal &lt;output value=\"'x'\"/&gt; &amp; &#65; &#x1; &#xB; &#xFFFF; &#xD800; &amp;lt; #form/meals");
                 FormEntryModel checkedEntry = at(form, "checked");
                 FormEntryPrompt checked = checkedEntry.getQuestionPrompt();
                 assertEquals(meals + "\n\n14 Example Lane", checked.getHintText());
