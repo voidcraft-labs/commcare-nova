@@ -128,12 +128,14 @@ def test_a_store_of_an_earlier_run_caches_what_is_unchanged_and_runs_what_its_ke
     checkout, corpus = lane
     cold = _build(checkout, tmp_path / "cold.json", corpus=corpus)
     packages = ["proof/checks", "proof/editors"]
+    assert cold["corpusSources"] == {"one": "", "two": ""}
     assert cold["classes"] == {"cached": [], "judged": [], "observed": ["corpus:one", "corpus:two", *packages]}
     assert all(lane_blocks.parse_queue(cold).blocks)
     output = _ran(checkout, corpus, tmp_path / "out", tmp_path / "cold.json", failing={"corpus:two"})
     store = pack.write(pack.gather([output], [tmp_path / "cold.json"]), tmp_path / "store")
 
     warm = _build(checkout, tmp_path / "warm.json", corpus=corpus, stores=[store, tmp_path / "absent"])
+    assert warm["corpusSources"] == cold["corpusSources"]
     assert warm["classes"] == {"cached": ["corpus:one", *packages], "judged": ["corpus:two"], "observed": []}
     cached = {entry["group"]: entry["judgments"] for entry in warm["cached"]}
     assert set(cached["corpus:one"]) == {"bar", "outcome"} and set(cached["proof/checks"]) == {"outcome"}
@@ -898,3 +900,27 @@ def test_a_run_over_documents_named_by_hand_queues_them_and_their_controls_and_n
         == 2
     )
     assert (corpus / "index.json").read_bytes() == index
+
+
+def test_queue_and_collection_preserve_check_eligibility_for_migration_witnesses(tmp_path, lane, monkeypatch):
+    from types import SimpleNamespace
+
+    from proof.checks import cases, sensitivity
+
+    checkout, corpus = lane
+    index = json.loads((corpus / "index.json").read_text())
+    index["documents"][0]["source"] = "targeted-migration:synthetic"
+    index["documents"][1]["source"] = "targeted:ordinary"
+    (corpus / "index.json").write_text(json.dumps(index))
+    documents = [Document(entry["id"], entry["source"], corpus / entry["id"]) for entry in index["documents"]]
+    monkeypatch.setattr(cases, "load_corpus", lambda: SimpleNamespace(documents=documents))
+    planned = _build(checkout, tmp_path / "planned.json", corpus=corpus)
+    assert planned["corpusSources"] == {"one": "targeted-migration:synthetic", "two": "targeted:ordinary"}
+    assert (
+        sensitivity.queued_documents([tmp_path / "planned.json"])
+        == sensitivity.corpus_documents([], corpus)[0]
+        == {"two"}
+    )
+    assert [item.values[0].id for item in cases.document_params("sensitivity")] == ["two"]
+    assert [item.values[0].id for item in cases.document_params("proof1")] == ["one", "two"]
+    assert [item.values[0].id for item in cases.document_params("proof2")] == ["two"]

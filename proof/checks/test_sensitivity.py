@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -604,6 +605,12 @@ def test_a_migration_witness_runs_no_sensitivity_and_is_no_gap_in_the_evidence(t
     (out / "corpus" / "index.json").write_text(json.dumps({"documents": listed}))
     written = tmp_path / "written.json"
     assert sensitivity.main(["effects", *_blocks(out), "--gates", str(_gates(tmp_path)), "--out", str(written)]) == 0
+    queue = _queue(tmp_path, "one", "two", "a-witness")
+    value = json.loads(queue.read_text())
+    value["corpusSources"]["a-witness"] = "targeted-migration:22"
+    queue.write_text(json.dumps(value))
+    assert sensitivity.queued_documents([queue]) == sensitivity.corpus_documents(_blocks(out))[0] == {"one", "two"}
+    assert sensitivity.main(["held", *_blocks(out), "--gates", str(written), "--queue", str(queue)]) == 0
     listed.append({"id": "three", "source": "targeted:x"})
     (out / "corpus" / "index.json").write_text(json.dumps({"documents": listed}))
     refused = tmp_path / "refused.json"
@@ -679,6 +686,7 @@ def _queue(tmp_path, *document_ids, unsampled=()):
     value = {
         "blocks": [{"groups": [*groups, {"group": "control:a-control", "fresh": True}, {"group": "proof/checks"}]}],
         "cached": [{"group": f"corpus:{document_ids[0]}", "judgments": {}}],
+        "corpusSources": dict.fromkeys(document_ids, "targeted:ordinary"),
         **({"unsampled": list(unsampled)} if unsampled else {}),
     }
     queue.write_text(json.dumps(value))
@@ -755,3 +763,37 @@ def test_the_committed_effects_are_held_to_one_whole_runs_and_each_difference_is
     sampled = _queue(tmp_path, "one", "two", unsampled=["three"])
     assert sensitivity.main(["held", *blocks, "--gates", str(written), "--queue", str(sampled)]) == 1
     assert "a run over a sample of the corpus" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "fault", ["inventory absent", "inventory incomplete", "selected slice", "missing cached evidence"]
+)
+def test_queue_effects_fail_closed_without_complete_fresh_evidence(tmp_path, monkeypatch, capsys, fault):
+    out = _whole_run(tmp_path, monkeypatch)
+    written = tmp_path / "written.json"
+    assert sensitivity.main(["effects", *_blocks(out), "--gates", str(_gates(tmp_path)), "--out", str(written)]) == 0
+    queue = _queue(tmp_path, "one", "two")
+    value = json.loads(queue.read_text())
+    if fault == "inventory absent":
+        del value["corpusSources"]
+    elif fault == "inventory incomplete":
+        del value["corpusSources"]["one"]
+    elif fault == "selected slice":
+        value["selection"] = {"documents": ["one", "two"], "left": []}
+    else:
+        for block in _blocks(out):
+            for record in Path(block, "checks", "sensitivity").glob("*.json"):
+                if json.loads(record.read_text())["document"] == "one":
+                    record.unlink()
+    queue.write_text(json.dumps(value))
+    before = written.read_bytes()
+    assert sensitivity.main(["held", *_blocks(out), "--gates", str(written), "--queue", str(queue)]) == 1
+    assert written.read_bytes() == before
+    said = capsys.readouterr().out
+    assert (
+        "(one)"
+        if fault == "missing cached evidence"
+        else "inventory"
+        if fault.startswith("inventory")
+        else "selected slice"
+    ) in said

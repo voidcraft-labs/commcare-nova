@@ -233,6 +233,15 @@ register do not change for this classification.
 
 ### Configuration sensitivity
 
+Collection and aggregate audits share `proof/checks/eligibility.py`. Migration
+witnesses intentionally run no sensitivity check. The queue carries each
+corpus document's source in `corpusSources`, including cached documents and
+parents of configuration pieces, so its audit uses the same eligibility as
+the emitted corpus. An absent or incomplete inventory fails closed; for an
+older archived queue, name its emitted corpus with `--corpus` instead of
+`--queue`. Sampled and selected queues cannot establish whole-corpus effects,
+and a cached eligible document still needs fresh evidence for this audit.
+
 Each document's A is built again once for each gate HQ read while building it,
 with that gate flipped and everything else as it was: each feature flag HQ
 read, and each project-space setting it read (CommTrack, sync cases on form

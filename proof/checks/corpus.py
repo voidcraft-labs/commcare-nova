@@ -91,6 +91,7 @@ from pathlib import Path
 
 from proof import processes
 from proof.checks.configurations import TWO_IMPORTS
+from proof.checks.eligibility import migration_witness
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
 CONTROLS_DIR = PROOF_DIR / "controls"
@@ -496,7 +497,7 @@ class Document:
         """Whether the document is a migration witness: a targeted document whose A is the retained export of the app
         from before a migration (``proof/migrations/<id>/``) and whose B is Nova's republish of the migrated document
         over it."""
-        return self.source.startswith("targeted-migration:")
+        return migration_witness(self.source)
 
     @cached_property
     def configurations(self):

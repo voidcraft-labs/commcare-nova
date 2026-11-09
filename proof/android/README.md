@@ -393,6 +393,12 @@ runs the readiness probe and only the requested tests.
 Everything a build downloads is named exactly (`toolchain.json`):
 
 - the two checkouts, by commit (`proof/pins.json`);
+- the hosted Linux JDK, by its exact release URL and SHA-256. The runtime
+  builder downloads the archive with at most three attempts for transient
+  transport errors (`jdk.py`) and caches it alongside the runtime. Every
+  consumer verifies the archive again and extracts its own JDK at the same
+  path. A shard cannot download a missing archive, and a corrupt archive
+  fails before runtime readiness. No shard queries Temurin's version API;
 - Gradle's distribution, by its sha256, at the version the project's own
   wrapper names (the build refuses another);
 - Robolectric's Android runtime for the device's SDK level (Android 10, API

@@ -465,7 +465,10 @@ harness keeps, each with its reason.
   too, which serves no state, so the records the nightly saves are the ones
   it reads), the only Linux Robolectric's native runtime ships for, with the reader's
   runtime and its JDK mounted at the paths it was built at
-  (`proof/run.mjs::androidRuntime`). Every request the app's own HTTP client
+  (`proof/run.mjs::androidRuntime`). The hosted runtime builder caches the
+  checksum-pinned JDK archive with the runtime; consumers verify and extract
+  it before readiness and never discover or download a JDK independently
+  (`proof/android/jdk.py`). Every request the app's own HTTP client
   makes goes through the reader's loopback proxy (`proof/android/peer.py`:
   `https` through a tunnel whose TLS speaks for the host the app named with a
   certificate of the harness's own authority, the one trust the app's client
@@ -537,7 +540,10 @@ harness keeps, each with its reason.
   a gate's effects are what HQ's build changes when the gate flips, wherever
   that is, so a flip into such a configuration is still built and its
   differences are held to the gate's effects alone, never to the register
-  (`proof/checks/sensitivity.py`).
+  (`proof/checks/sensitivity.py`). Corpus collection and aggregate audits share
+  `proof/checks/eligibility.py`; a queue preserves each corpus source, even
+  for cached groups and configuration pieces. Missing eligible evidence
+  still fails, and a selected or sampled queue cannot hold whole-corpus effects.
 - **A reader reads an app on the platforms it declares.** An app declares
   Web Apps, Android, or both (`appSettings.runsOnlyOn`, absent for both),
   and Nova refuses what a declared platform cannot run, so what a reader

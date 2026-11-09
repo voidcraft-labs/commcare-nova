@@ -45,15 +45,10 @@ runs:
         fi
         {
           echo "key=proof-android-runtime-$(python3 proof/android/toolchain.py key)"
-          echo "jdk=$(python3 proof/android/toolchain.py get jdk version)"
-          echo "distribution=$(python3 proof/android/toolchain.py get jdk distribution)"
+          echo "jdk-archive=$HOME/proof-android-jdk.tar.gz"
+          echo "jdk-home=$HOME/proof-android-jdk"
           echo "runtime=$HOME/proof-android-reader"
         } >> "$GITHUB_OUTPUT"
-    - uses: actions/setup-java@v5
-      with:
-        distribution: ${{ steps.name.outputs.distribution }}
-        java-version: ${{ steps.name.outputs.jdk }}
-        check-latest: false
     # Every shard restores the runtime at once, and the cache's storage refuses
     # some of those downloads partway ("Egress is over the account limit", a
     # throttle in GitHub's own storage) though it holds the entry; the restore
@@ -65,7 +60,9 @@ runs:
     - id: first
       uses: actions/cache/restore@v6
       with:
-        path: ${{ steps.name.outputs.runtime }}
+        path: |
+          ${{ steps.name.outputs.runtime }}
+          ${{ steps.name.outputs.jdk-archive }}
         key: ${{ steps.name.outputs.key }}
     - name: Wait before restoring again
       if: ${{ steps.first.outputs.cache-hit != 'true' }}
@@ -78,7 +75,9 @@ runs:
       if: ${{ steps.first.outputs.cache-hit != 'true' }}
       uses: actions/cache/restore@v6
       with:
-        path: ${{ steps.name.outputs.runtime }}
+        path: |
+          ${{ steps.name.outputs.runtime }}
+          ${{ steps.name.outputs.jdk-archive }}
         key: ${{ steps.name.outputs.key }}
     - id: held
       shell: bash
@@ -92,6 +91,21 @@ runs:
           echo "::error::Restoring the Android reader's runtime ($KEY) missed twice. The job that builds it runs before this one, so the cache may well hold the entry and have refused the download: a 'Cache hit for' line above followed by a 'Failed to restore' warning ('Egress is over the account limit') says so; that throttle is GitHub's storage, and a rerun usually reads the runtime. Without that line, the entry is gone, and the next run's runtime job builds it again."
           exit 1
         fi
+    # The verified archive travels with the runtime. Only its builder reaches
+    # the pinned release URL; shards need no Temurin discovery/API request.
+    - name: Prepare the pinned JDK
+      shell: bash
+      env:
+        BUILD: ${{ inputs.build }}
+        JDK_ARCHIVE: ${{ steps.name.outputs.jdk-archive }}
+        JDK_HOME: ${{ steps.name.outputs.jdk-home }}
+      run: |
+        download=()
+        if [ "$BUILD" = true ]; then download=(--download); fi
+        python3 -m proof.android.jdk "$JDK_ARCHIVE" "$JDK_HOME" "${download[@]}"
+    - name: Verify Java runs
+      shell: bash
+      run: java -version
     - name: Build the runtime
       if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
       shell: bash
@@ -127,7 +141,9 @@ runs:
       if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v6
       with:
-        path: ${{ steps.name.outputs.runtime }}
+        path: |
+          ${{ steps.name.outputs.runtime }}
+          ${{ steps.name.outputs.jdk-archive }}
         key: ${{ steps.name.outputs.key }}
     - id: ready
       shell: bash

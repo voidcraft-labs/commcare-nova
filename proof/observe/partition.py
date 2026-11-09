@@ -60,6 +60,7 @@ OBSERVATION_FILES = frozenset(
         "proof/checks/configurations.py",
         "proof/checks/corpus.py",
         "proof/checks/differences.py",
+        "proof/checks/eligibility.py",
         "proof/checks/sharding.py",
         "proof/conftest.py",
         # The Connect pin, which the unit's Connect runtime fetches Connect at (proof.connect.checkout).

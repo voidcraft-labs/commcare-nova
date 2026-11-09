@@ -430,3 +430,78 @@ it("pulls a shard's image and Postgres through the retrying script, on the lane'
 	expect(node).toBeGreaterThanOrEqual(0);
 	expect(node).toBeLessThan(pull);
 });
+
+it("restores the checksum-pinned JDK with the runtime and permits only its builder to download it", async () => {
+	const expression = (name: string) => `\${{ ${name} }}`;
+	const action = parse(
+		await readFile(
+			join(WORKTREE, ".github/actions/proof-android-runtime/action.yml"),
+			"utf8",
+		),
+	);
+	const steps = action.runs.steps;
+	const setup = steps.findIndex(
+		(step: { name?: string }) => step.name === "Prepare the pinned JDK",
+	);
+	const ready = steps.findIndex((step: { id?: string }) => step.id === "ready");
+	expect(setup).toBeGreaterThan(
+		steps.findIndex((step: { id?: string }) => step.id === "held"),
+	);
+	expect(setup).toBeLessThan(ready);
+	expect(steps[setup]["continue-on-error"]).toBeUndefined();
+	expect(
+		steps.some((step: { uses?: string }) =>
+			step.uses?.startsWith("actions/setup-java@"),
+		),
+	).toBe(false);
+	const caches = steps.filter((step: { uses?: string }) =>
+		step.uses?.startsWith("actions/cache/"),
+	);
+	expect(caches).toHaveLength(3);
+	for (const cache of caches) {
+		expect(cache.with.path.trim().split("\n")).toEqual([
+			expression("steps.name.outputs.runtime"),
+			expression("steps.name.outputs.jdk-archive"),
+		]);
+	}
+	const scratch = await mkdtemp(join(tmpdir(), "proof-jdk-action-"));
+	try {
+		const bin = join(scratch, "bin");
+		await mkdir(bin);
+		const python = join(bin, "python3");
+		await writeFile(
+			python,
+			'#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGUMENTS"\nexit "$RESULT"\n',
+		);
+		await chmod(python, 0o755);
+		for (const build of ["true", "false"]) {
+			for (const result of ["0", "1"]) {
+				const args = join(scratch, `${build}-${result}`);
+				const outcome = await run("bash", ["-e", "-c", steps[setup].run], {
+					env: {
+						...process.env,
+						PATH: `${bin}:${process.env.PATH}`,
+						BUILD: build,
+						JDK_ARCHIVE: "/cache/jdk.tar.gz",
+						JDK_HOME: "/install/jdk",
+						ARGUMENTS: args,
+						RESULT: result,
+					},
+				}).then(
+					() => 0,
+					(error: { code: number }) => error.code,
+				);
+				expect(outcome).toBe(Number(result));
+				expect((await readFile(args, "utf8")).trim().split("\n")).toEqual([
+					"-m",
+					"proof.android.jdk",
+					"/cache/jdk.tar.gz",
+					"/install/jdk",
+					...(build === "true" ? ["--download"] : []),
+				]);
+			}
+		}
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+});
