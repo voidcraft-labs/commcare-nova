@@ -287,8 +287,9 @@ server distinguishes new message/reference identities from the durable transcrip
 requires prepared readable content, and hands the verified bytes to either
 executor for that request. It starts no extraction during admission. A refusal
 leaves holders, credits, pending questions and the durable transcript unchanged.
-The client offers an explicit retry or removal of only the rejected references;
-it preserves typed text, answers and historical attachments. A missing historical
+The client offers explicit document preparation followed by retry, or removal of
+only the rejected references; it preserves typed text, answers and historical
+attachments. A missing historical
 extract alone does not turn an unrelated edit into a new-source refusal.
 
 ## Conversation and recovery

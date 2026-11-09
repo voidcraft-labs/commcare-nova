@@ -34,6 +34,7 @@ import { Chat, useChat } from "@ai-sdk/react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
+import { triggerAssetExtraction } from "@/components/builder/media/mediaClient";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import {
 	DesignProgressDetails,
@@ -73,6 +74,7 @@ import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
+import { isDocumentKind } from "@/lib/domain/multimedia";
 import {
 	type DesignSessionSeed,
 	parseDesignSessionScope,
@@ -1086,6 +1088,17 @@ export function ChatContainer({
 	const chatRef = useRef(chat);
 	chatRef.current = chat;
 	const activeThreadReadsRef = useRef(new Set<AbortController>());
+	const sourceRetryRef = useRef<AbortController | null>(null);
+	const [preparingRejectedSources, setPreparingRejectedSources] =
+		useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Each chat and Project epoch owns its preparation request lifetime.
+	useEffect(() => {
+		setPreparingRejectedSources(false);
+		return () => {
+			sourceRetryRef.current?.abort();
+			sourceRetryRef.current = null;
+		};
+	}, [chat, scopeEpoch]);
 	const pendingProjectThreadReloadRef = useRef<{
 		epoch: number;
 		threadId: string;
@@ -1109,6 +1122,8 @@ export function ChatContainer({
 	useEffect(() => {
 		if (!reconcilerCtx) return;
 		return reconcilerCtx.subscribeProjectScopeReset((nextEpoch) => {
+			sourceRetryRef.current?.abort();
+			sourceRetryRef.current = null;
 			for (const controller of activeThreadReadsRef.current) controller.abort();
 			activeThreadReadsRef.current.clear();
 			const retired = retireProjectAttachmentRefs(messagesRef.current);
@@ -1134,6 +1149,7 @@ export function ChatContainer({
 			 * exit frame cannot retain a source asset id or filename. */
 			flushSync(() => {
 				setMessages(retired);
+				setPreparingRejectedSources(false);
 				setThreadScopeHydrationFailed(false);
 				setThreadScopeReloading(true);
 			});
@@ -1787,7 +1803,8 @@ export function ChatContainer({
 		}) => {
 			if (
 				activeChatRef.current !== chat ||
-				chatInputRounds.get(chat)?.requiresReconciliation
+				chatInputRounds.get(chat)?.requiresReconciliation ||
+				chat.error instanceof SourceAdmissionRejectionError
 			)
 				return;
 			const session = sessionStoreRef.current?.getState();
@@ -1822,31 +1839,68 @@ export function ChatContainer({
 	);
 
 	const retrySourceSubmission = useCallback(
-		(withoutFiles: boolean) => {
-			if (
-				!sourceRejection ||
-				activeChatRef.current !== chat ||
-				!chatGenerationCanWrite(
+		async (withoutFiles: boolean) => {
+			const ownsSubmission = () =>
+				activeChatRef.current === chat &&
+				chat.error === sourceRejection &&
+				chatGenerationCanWrite(
 					sessionStoreRef.current?.getState(),
 					scopeEpoch,
 					threadHydrationStateRef.current,
-				)
-			)
-				return;
-			if (
-				!claimDesignAgentPath({
-					blankAppCreationInProgress: creatingStarterAppRef.current,
-					agentEngaged: agentEngagedRef,
-					clearSendFailure: () => setSendFailedBeforeApp(false),
-				})
-			)
-				return;
-			if (withoutFiles)
-				setMessages(
-					removeRejectedSources(chat.messages, sourceRejection.rejection),
 				);
-			clearError();
-			void sendMessage();
+			if (!sourceRejection || sourceRetryRef.current || !ownsSubmission())
+				return;
+			const controller = new AbortController();
+			sourceRetryRef.current = controller;
+			try {
+				if (!withoutFiles) {
+					setPreparingRejectedSources(true);
+					const documents = new Set(
+						chat.messages.flatMap((message) =>
+							(message.metadata?.attachments ?? [])
+								.filter(
+									(ref) =>
+										isDocumentKind(ref.kind) &&
+										sourceRejection.rejection.references.some(
+											(item) =>
+												item.messageId === message.id &&
+												item.assetId === ref.assetId,
+										),
+								)
+								.map((ref) => ref.assetId),
+						),
+					);
+					// Only this explicit recovery action prepares sources. The existing
+					// endpoint reuses ready bytes and can regenerate a missing extract.
+					for (const assetId of documents) {
+						if (controller.signal.aborted || !ownsSubmission()) return;
+						const extract = await triggerAssetExtraction(assetId, {
+							signal: controller.signal,
+						});
+						if (extract.status !== "ready") break;
+					}
+				}
+				if (controller.signal.aborted || !ownsSubmission()) return;
+				if (
+					!claimDesignAgentPath({
+						blankAppCreationInProgress: creatingStarterAppRef.current,
+						agentEngaged: agentEngagedRef,
+						clearSendFailure: () => setSendFailedBeforeApp(false),
+					})
+				)
+					return;
+				if (withoutFiles)
+					setMessages(
+						removeRejectedSources(chat.messages, sourceRejection.rejection),
+					);
+				clearError();
+				await sendMessage();
+			} finally {
+				if (sourceRetryRef.current === controller) {
+					sourceRetryRef.current = null;
+					setPreparingRejectedSources(false);
+				}
+			}
 		},
 		[chat, clearError, scopeEpoch, sendMessage, setMessages, sourceRejection],
 	);
@@ -2133,7 +2187,10 @@ export function ChatContainer({
 				) : undefined
 			}
 			composerBusy={
-				creatingStarterApp || threadScopeReloading || continuationNeedsReload
+				creatingStarterApp ||
+				threadScopeReloading ||
+				continuationNeedsReload ||
+				sourceRejection !== null
 			}
 			interactionBlocked={
 				threadScopeReloading ||
@@ -2161,11 +2218,18 @@ export function ChatContainer({
 							? {
 									title: "Message not sent",
 									message: sourceRejection.message,
-									actionLabel: "Try again",
-									onAction: () => retrySourceSubmission(false),
+									actionLabel: preparingRejectedSources
+										? "Reading files"
+										: "Read files and retry",
+									actionDisabled: preparingRejectedSources,
+									onAction: () => {
+										void retrySourceSubmission(false);
+									},
 									secondaryAction: {
 										label: "Send without files",
-										onAction: () => retrySourceSubmission(true),
+										onAction: () => {
+											void retrySourceSubmission(true);
+										},
 									},
 								}
 							: status === "error" &&

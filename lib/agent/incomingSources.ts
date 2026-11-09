@@ -19,7 +19,7 @@ export class IncomingSourceUnavailableError extends Error {
 		options?: ErrorOptions,
 	) {
 		super(
-			`I couldn't read "${filename}", so this message hasn't been sent. You can retry preparation in the Library, or remove the file and send again.`,
+			`I couldn't read "${filename}", so this message hasn't been sent. You can read the files again and retry, or send without this message's files.`,
 			options,
 		);
 	}

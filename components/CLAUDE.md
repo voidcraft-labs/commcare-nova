@@ -147,8 +147,10 @@ A client leaf that branches its render on `useAuth().isPending` will hydration-m
 Chat keeps staged files and text until they can be sent. A reading or failed
 document disables Send and refuses keyboard/form submission. Failed files offer
 retry and removal. A source rejected by the server leaves a persistent recovery
-row with Try again and Send without files; the latter removes only unaccepted
-references after that explicit action. Question replies use the same admission.
+row with Read files and retry and Send without files. The first explicitly
+checks/prepares the rejected documents through the existing extraction endpoint
+before resending; the latter removes only unaccepted references. The ordinary
+composer stays disabled until that recovery finishes. Question replies use the same admission.
 
 ## Theme
 

@@ -1,5 +1,6 @@
 /** Source admission through the real route, Postgres lifecycle and SDK.
  * Authentication, object storage and the provider HTTP destination are controlled. */
+import { NextRequest } from "next/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { withResponsesPeer } from "@/lib/agent/__tests__/responsesPeer";
@@ -16,17 +17,27 @@ import { loadThread } from "@/lib/db/threads";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { ChatResponsesPeer } from "./chatResponsesPeer";
 
-const { resolveOpenAIKey, transport, readTextObject, downloadAssetBytes } =
-	vi.hoisted(() => ({
-		resolveOpenAIKey: vi.fn(),
-		transport: { current: undefined as typeof fetch | undefined },
-		readTextObject: vi.fn(),
-		downloadAssetBytes: vi.fn(),
-	}));
-vi.mock("@/lib/auth-utils", () => ({ resolveOpenAIKey }));
+const {
+	resolveOpenAIKey,
+	requireSession,
+	transport,
+	readTextObject,
+	writeTextObject,
+	downloadAssetBytes,
+} = vi.hoisted(() => ({
+	resolveOpenAIKey: vi.fn(),
+	requireSession: vi.fn(),
+	writeTextObject: vi.fn(),
+	transport: { current: undefined as typeof fetch | undefined },
+	readTextObject: vi.fn(),
+	downloadAssetBytes: vi.fn(),
+}));
+vi.mock("@/lib/auth-utils", () => ({ resolveOpenAIKey, requireSession }));
 vi.mock("@/lib/storage/media", async (original) => ({
 	...(await original<typeof import("@/lib/storage/media")>()),
 	readTextObject,
+	writeTextObject,
+	deleteAsset: vi.fn(),
 	downloadAssetBytes,
 }));
 vi.mock("@/lib/agent/openaiProvider", async (original) => {
@@ -42,6 +53,9 @@ vi.mock("@/lib/agent/openaiProvider", async (original) => {
 	};
 });
 const { POST } = await import("../route");
+const { POST: prepareDocument } = await import(
+	"../../media/[assetId]/extract/route"
+);
 const h = setupAppStateTestDb("source_admission_", {
 	authSchema: "migrated",
 	poolMax: 4,
@@ -74,6 +88,8 @@ const message: NovaUIMessage = {
 
 beforeEach(async () => {
 	await h.seedProjectMember(USER, PROJECT, "owner");
+	requireSession.mockResolvedValue({ user: { id: USER } });
+	writeTextObject.mockReset();
 	resolveOpenAIKey.mockResolvedValue({
 		ok: true,
 		apiKey: "local-only",
@@ -431,4 +447,54 @@ it("checks every new message and refuses missing, foreign and mismatched referen
 		expect(peer.requests).toHaveLength(0);
 		expect(await consumed()).toBe(0);
 	});
+});
+
+it("explicit preparation rebuilds a missing ready extract before the same rejected message can run", async () => {
+	await prepareSource();
+	const objects = new Map<string, string>();
+	readTextObject.mockImplementation(
+		async (key: string) => objects.get(key) ?? null,
+	);
+	writeTextObject.mockImplementation(async (key: string, text: string) => {
+		objects.set(key, text);
+	});
+	downloadAssetBytes.mockResolvedValue(
+		Buffer.from("Collect visit date and outcome"),
+	);
+	vi.stubEnv("OPENAI_API_KEY", "local-only");
+	try {
+		await withPeer(async (peer) => {
+			const rejected = await POST(request([message]));
+			expect(rejected.status).toBe(409);
+			await rejected.json();
+			expect(peer.requests).toHaveLength(0);
+			expect(await consumed()).toBe(0);
+			const extraction = peer.response();
+			extraction.text(
+				JSON.stringify({
+					title: "Visit requirements",
+					summary: "Collect visit data",
+					extract: "Collect visit date and outcome",
+				}),
+			);
+			extraction.finish();
+			const prepared = await prepareDocument(
+				new NextRequest(`http://localhost/api/media/${ASSET}/extract`, {
+					method: "POST",
+				}),
+				{ params: Promise.resolve({ assetId: ASSET }) },
+			);
+			expect(prepared.status).toBe(200);
+			expect(await prepared.text()).toContain('"status":"ready"');
+			expect(writeTextObject).toHaveBeenCalledOnce();
+			expect(peer.requests).toHaveLength(1);
+			finalText(peer);
+			const accepted = await POST(request([message]));
+			expect(accepted.status).toBe(200);
+			expect(await accepted.text()).toContain("Please confirm");
+			expect(peer.requests).toHaveLength(2);
+		});
+	} finally {
+		vi.unstubAllEnvs();
+	}
 });

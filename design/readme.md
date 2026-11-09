@@ -81,9 +81,10 @@ the app, and it must not expose another person's or conversation's private work.
 **Unreadable chat files.** Keep the typed message and staged files visible while
 reading, and keep Send unavailable until every document is ready. A failed file
 offers retry and removal, with a short explanation beside the composer. If the
-server cannot read a file at send time, say “Message not sent” and offer “Try
-again” and “Send without files”. Preserve the text and answers; removal is an
-explicit choice and does not delete the Library file.
+server cannot read a file at send time, say “Message not sent” and offer “Read files and retry” and “Send without files”.
+The first explicitly prepares documents again if needed, then retries the request.
+Keep the ordinary composer disabled during recovery. Preserve the text and
+answers; removal is an explicit choice and does not delete the Library file.
 
 **Credential uncertainty.** The Workers panel uses “Account unconfirmed” when
 an account may not exist and “Password unconfirmed” when the account exists but

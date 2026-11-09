@@ -84,6 +84,7 @@ interface ChatSidebarProps {
 		readonly title: string;
 		readonly message: string;
 		readonly actionLabel: string;
+		readonly actionDisabled?: boolean;
 		readonly onAction: () => void;
 		readonly secondaryAction?: {
 			readonly label: string;
@@ -675,6 +676,7 @@ export function ChatSidebar({
 						<Button
 							type="button"
 							variant="outline"
+							disabled={interactionBlockedRecovery.actionDisabled}
 							onClick={interactionBlockedRecovery.onAction}
 							className="shrink-0"
 						>
@@ -684,6 +686,7 @@ export function ChatSidebar({
 							<Button
 								type="button"
 								variant="outline"
+								disabled={interactionBlockedRecovery.actionDisabled}
 								onClick={interactionBlockedRecovery.secondaryAction.onAction}
 							>
 								{interactionBlockedRecovery.secondaryAction.label}
