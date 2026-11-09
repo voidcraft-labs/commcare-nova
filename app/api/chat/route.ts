@@ -10,7 +10,6 @@ import {
 import {
 	type ClassifiedError,
 	classifyError,
-	countDocumentsNeedingRead,
 	createSolutionsArchitect,
 	type ErrorType,
 	GenerationContext,
@@ -103,6 +102,7 @@ import {
 import type { GenerationTarget } from "@/lib/db/generationTargets";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { pruneChatStreamChunks } from "@/lib/db/streamChunks";
+import { loadThreadRetainedSources } from "@/lib/db/threadSources";
 import {
 	checkInputRoundInTransaction,
 	checkThreadClaimContinuationInTransaction,
@@ -210,8 +210,7 @@ export async function POST(req: Request) {
 	}
 
 	// Messages come from the AI SDK's useChat. The route owns the SECURITY gate on
-	// them: the untrusted attachment metadata is re-resolved every turn (each ref
-	// → an asset-row load + a GCS/extract read) and persisted into the event log,
+	// them: new attachment metadata must pass admission before it is persisted,
 	// so `validateChatMessages` bounds the message count + the request-wide
 	// attachment total and enforces the per-ref field caps. It deliberately does
 	// NOT re-parse the SDK-owned message `parts`: that shape is the SDK's contract.
@@ -728,6 +727,7 @@ export async function POST(req: Request) {
 						messages,
 						expectedProjectId,
 						clearInputRound: !consumeRound,
+						admittedSources,
 					},
 					tx,
 				);
@@ -2172,6 +2172,7 @@ export async function POST(req: Request) {
 				const persistBailedHistory = async (): Promise<void> => {
 					try {
 						await mergeThreadTurnMessages({
+							admittedSources,
 							target,
 							threadId,
 							messages,
@@ -2565,6 +2566,7 @@ export async function POST(req: Request) {
 									holderNonce: presentedHolderNonce,
 									threadType: resumeMode,
 									messages,
+									admittedSources,
 									expectedProjectId: projectId,
 								},
 								tx,
@@ -2759,6 +2761,7 @@ export async function POST(req: Request) {
 							 * client's regenerate() already trimmed it from this
 							 * history, and the by-id merge would otherwise keep the
 							 * stored copy forever). */
+							admittedSources,
 							redrive: parsed.data.redrive === true,
 							clearInputRound: chargeable && parsed.data.redrive !== true,
 						});
@@ -2800,7 +2803,6 @@ export async function POST(req: Request) {
 					const orchestrationAbort = new AbortController();
 					try {
 						const outcome = await runBuildOrchestration({
-							admittedSources,
 							streamId,
 							designSessionId: design.designSessionId,
 							proposedAppId: design.proposedAppId,
@@ -3219,7 +3221,9 @@ export async function POST(req: Request) {
 					ctx.sourceDocuments = {
 						signal: sourcePreparationAbort.signal,
 						prepare: sourceDeps.prepareDocument,
-						selected: (source) =>
+						retained: () =>
+							loadThreadRetainedSources(target, threadId, projectId),
+						selected: (source, _requestId, retainedContent) =>
 							selectThreadSource({
 								target,
 								expectedProjectId: projectId,
@@ -3230,6 +3234,7 @@ export async function POST(req: Request) {
 								holderNonce,
 								streamId,
 								source,
+								retainedContent,
 							}),
 					};
 					const work = await openChatWork(ctx, threadId);
@@ -3263,49 +3268,12 @@ export async function POST(req: Request) {
 					 * resolution failure funnels through `failRun` (refunding the
 					 * reservation) rather than escaping as an unhandled stream error.
 					 *
-					 * Bracket the resolve with `attachment-prep` lifecycle events so the
-					 * signal grid can show a "reading documents" status, but ONLY when a
-					 * document still needs reading: an already-extracted doc resolves from
-					 * its stored extract instantly and must not flash the status (an image /
-					 * doc-free turn does no narrate-worthy work either). The events also land
-					 * in the run log as run annotations, not chat-visible content. */
-					const docsToReadCount = countDocumentsNeedingRead(
+					 * Historical source content comes only from immutable conversation
+					 * retention. This projection performs no extraction. */
+					const preparedMessages = resolveAttachments(
 						messagesToSend,
-						admittedSources,
+						await loadThreadRetainedSources(target, threadId, projectId),
 					);
-					if (docsToReadCount > 0) {
-						ctx.emitConversation({
-							type: "attachment-prep",
-							phase: "start",
-							count: docsToReadCount,
-						});
-					}
-					const preparedMessages = await resolveAttachments(
-						messagesToSend,
-						// The app's Project scopes attachment resolution: a chat document
-						// lives in the Project it was uploaded under (the composer stamps
-						// it). Set in both the new-build + existing-app branches above;
-						// `loadedApp.project_id` is the existing-app fallback.
-						projectId ?? loadedApp?.project_id ?? "",
-						ctx,
-						// Pulse the signal grid with real read progress while a
-						// not-yet-extracted document is read here. `transient` keeps these
-						// frequent parts off the persisted thread + event log: they're
-						// energy, not content. Fires only when the backstop actually runs the
-						// model (a reused eager extraction emits nothing); the "Reading your
-						// documents" status still shows either way.
-						(delta) =>
-							writer.write({
-								type: "data-extract-progress",
-								data: { delta },
-								transient: true,
-							}),
-						ctx.sourceDocuments,
-						admittedSources,
-					);
-					if (docsToReadCount > 0) {
-						ctx.emitConversation({ type: "attachment-prep", phase: "done" });
-					}
 
 					/* The history pipeline: tool-part repair, the reasoning-part
 					 * policy, the compaction projection, validation against the SA's

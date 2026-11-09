@@ -7,7 +7,7 @@ import type { ToolInvocationContext } from "../../workspace/types";
 
 export const readSourceTool = {
 	description:
-		"Read a Project library document's prepared requirements extract, including documents not attached to this conversation. Find ids with listMediaAssets. This is the working extract, not a lossless copy of the original file. Follow nextOffset with the returned revision to read further pages. Embedded authoring prepares unread documents automatically; external clients receive preparation status without starting a model call.",
+		"Read a Project library document's prepared requirements extract, including documents not attached to this conversation. Find ids with listMediaAssets. This is the working extract, not a lossless copy of the original file. Follow nextOffset with the returned revision to read further pages. Embedded authoring reuses retained conversation evidence; revision current at offset zero explicitly selects the current Library version. It prepares unread documents automatically; external clients receive preparation status without starting a model call.",
 	inputSchema: readSourceInputSchema,
 	async execute(input: ReadSourceInput, ctx: ToolInvocationContext) {
 		return {

@@ -275,6 +275,49 @@ The maintenance window includes migration and application deployment; it is not
 a zero-downtime change. Restoring the old storage format would require a
 separately reviewed conversion, so the migration's `down` refuses.
 
+## Conversation source retention cutover
+
+The source-retention release follows incremental transcript storage. Use the
+same direct maintenance window above, with the merge trigger disabled until
+the final reviewed image is ready. If both changes land together, run the
+transcript cutover first and this source cutover second, then release the final
+combined commit. Do not resume an intermediate image against either changed
+storage contract.
+
+The reviewed maintenance image contains
+`conversation-source-scan.cjs --bucket <media-bucket>` and
+`conversation-source-cutover.cjs --scan-digest <digest> --bucket <media-bucket>`.
+The writer is a dry run unless `--execute` is supplied. The scanner reads only
+existing GCS content, starts no extraction, and emits counts, byte totals and a
+digest without source text. Its digest covers Project ownership, exact available
+content and each reference's disposition. Review the verified, baseline and
+unavailable counts; baseline text cannot prove what an old turn read.
+
+After runtime drain and `NOLOGIN`, rescan and execute that exact digest. The
+writer holds the authority, thread and asset tables, refuses executing runs,
+rechecks the scan, retains all content/links, verifies every copied value and
+writes its receipt through Kysely's migration transaction. Any failure rolls
+back the entire change. A retry verifies both the receipt and retained snapshot
+without rereading potentially removed Library objects. Ordinary deployment
+refuses historical references until this cutover has completed.
+
+The maintenance Job must have read access to the chosen media bucket. The
+current migration service account has Cloud SQL access but no bucket read grant;
+prepare this as an explicit release prerequisite. Before the drained scan, grant
+`roles/storage.objectViewer` on that bucket to the migration service account
+(`gcloud storage buckets add-iam-policy-binding gs://<media-bucket>
+--member=serviceAccount:<migration-service-account> --role=roles/storage.objectViewer`).
+After the verified receipt is archived, remove exactly that added binding with
+`gcloud storage buckets remove-iam-policy-binding` and the same arguments.
+Record the prior policy first; never remove a pre-existing grant. This temporary
+read grant needs release authorization and grants no storage writes. The normal
+migration identity remains the only database writer; runtime privileges stay
+unchanged. Verify the migration ledger and archived receipt, then use the
+same disabled-service release procedure above. The full runtime probe now checks
+retained links rather than requiring Library origins to survive. Cold-resume
+verification should include an older document, an image, and an explicit current
+Library selection. No reverse conversion is supplied.
+
 ## Benchmarking
 
 `cloudbuild.benchmark.yaml` builds and inspects the full final image with a fresh

@@ -432,7 +432,7 @@ source-owner membership pairs across both Projects, enforces dual `delete` plus
 owner retention, rejects deleted apps, classifies runs only through
 `runLeaseState`, and requires structural/stored lookup targets to match exactly
 and both be empty. The final transaction locks threads and destination assets,
-remaps blueprint, canonical transcript attachment and server-selected source ids, re-tenants all cases,
+remaps authored blueprint assets, keeps retained conversation evidence and provenance ids unchanged, re-tenants all cases,
 purges presence, flips `project_id`, re-tenants the app's materialized design
 sessions and Project-scoped external-action receipts, appends one attributed
 `project-move` change, and
@@ -717,16 +717,22 @@ read projection from those exact call identities and inputs; admission derives i
 again under locks and consumes it atomically. Loaders never write. An answered
 card, a prose ending, or a live partial never becomes a legacy invitation.
 
-`threads.selected_sources` is server-owned evidence of successful document
-reads, separate from `messages[*].metadata.attachments`. Each entry records the
-asset, original content hash, extractor version, extract digest and revision at
-the successful read. It retains document identity across turns, not a permanent
-extract pin: fresh source assembly can prepare and record a newer extract.
-`selectThreadSource` checks the target's live holder, actor membership, thread
-stream and locked Project asset before recording it. The exact thread-media
-projection covers both attachments and selected sources; deletion also re-walks
-both. Project moves copy and remap both collections. Incoming transcripts cannot
-add or replace server-selected evidence.
+`thread_source_contents` and `thread_source_links` retain immutable conversation
+evidence. Bodies are deduplicated by `(thread_id, revision)`, links by message
+and asset identity or explicit selected revision. Both are runtime append-only;
+UPDATE triggers also protect them under migration authority. The owning thread
+cascades them on destruction; there is no TTL, Library-delete cascade, or mutable
+Project column. Read queries bind both target identity and the target's current
+Project. App moves therefore move access without changing historical source ids.
+`threads.selected_sources` records the latest explicit Library selection per
+asset; older links remain available. `selectThreadSource` checks holder, actor,
+thread stream and the locked current Project asset before retaining exact content.
+New attachments retain request-admitted bytes in the transcript transaction.
+Historical writes verify retained links, never current Library readiness.
+`thread_media_refs` remains a Project-bearing provenance projection, with no
+asset foreign key and no Library deletion veto. The direct source cutover owns
+`conversation_source_cutover`, a runtime-read-only receipt of the reviewed scan
+and exact retained snapshot; ordinary migration refuses historical references.
 
 **`threads` is the durable conversation store — one row per CONVERSATION,
 spanning runs, written AS THE RUN PRODUCES UNITS.** Ordered `thread_messages`
@@ -798,11 +804,10 @@ triple-guarded exception), and an askQuestions continuation lands as ONE
 merged message. For a shared
 message id, stored `metadata.attachments` is authoritative even when an incoming
 version wins the parts tiebreak; a stale source-Project history therefore cannot
-restore asset ids the move already remapped. The history-bearing writers
-(turn upsert, bail merge) derive the complete canonical post-merge attachment
-set, lock all referenced assets sorted `FOR SHARE`, validate same
-Project/readiness/kind, and replace THIS thread's exact `thread_media_refs`
-rows after the message write in the same transaction (the split projection:
+rewrite admitted source identities. The history-bearing writers
+(turn upsert, bail merge) retain new sources under sorted asset share locks,
+validate their Project/readiness/kind, verify historical retained links, and
+replace THIS thread's exact provenance `thread_media_refs` rows after the message write in the same transaction (the split projection:
 Blueprint commits own `media_asset_refs`, thread writes own only their
 thread's rows); the barrier
 write deliberately does NOT run that projection (an assistant snapshot
@@ -1203,18 +1208,13 @@ writer derives the complete poststate AUTHORED projection from the
 Blueprint's references alone, locks the referenced asset rows sorted
 `FOR SHARE`, verifies same Project, `ready`, and exact media kind, then
 deletes and reinserts the app's exact `media_asset_refs` rows in that SAME
-transaction; every THREAD writer replaces only ITS thread's
-`thread_media_refs` rows (`mediaAssets.ts::replaceExactThreadMediaReferences`,
-same asset locks and verdicts, row written after the thread row it is a
-child of) in the transcript transaction. Neither family can overwrite the
-other, and deletion checks BOTH. Atomic creation, `appendSyntheticBatch`,
-and Project move apply the identical rule. A Project move refuses an unfinished
-materialized reviewed build even after its holder is reaped, so it cannot
-advance the canonical sequence out from under the frozen plan. The move
-additionally rewrites
-each thread's rows from its remapped transcript with destination ids and
-Project, and re-tenants the app's bound design sessions
-(materialized/completed/edit; an active pre-app session never moves).
+transaction. Thread writers separately retain newly admitted source bodies and
+replace only their own `thread_media_refs` provenance rows. Library deletion
+checks authored references; retained conversation bodies have their own lifetime.
+A Project move refuses an unfinished materialized reviewed build even after its
+holder is reaped, so it cannot advance the canonical sequence out from under the
+frozen plan. It re-tenants thread provenance and bound design sessions while
+preserving historical transcript/source identities and content.
 
 **Form attachments are a separate lane from `media_assets`, on purpose.**
 `formAttachments.ts` holds the files a worker attaches while filling in a form:

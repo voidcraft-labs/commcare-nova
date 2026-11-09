@@ -515,15 +515,7 @@ it.each([
 						},
 						modelStep: step,
 						peerStep: step,
-						sourceDeps: {
-							loadAssets: async () => [],
-							readExtract: async () => {
-								throw new Error("No document expected");
-							},
-							loadImage: async () => {
-								throw new Error("No image expected");
-							},
-						},
+						sourceDeps: {},
 					},
 					finalizeCompletion: async (completion) => {
 						const app = await loadApp(completion.appId);
@@ -914,15 +906,7 @@ it.each([false, true])(
 							"medium",
 							"continue-peer-test",
 						),
-						sourceDeps: {
-							loadAssets: async () => [],
-							readExtract: async () => {
-								throw new Error("No document expected");
-							},
-							loadImage: async () => {
-								throw new Error("No image expected");
-							},
-						},
+						sourceDeps: {},
 					},
 					finalizeCompletion: async () => {
 						throw new Error("A paused plan must not finalize an app");

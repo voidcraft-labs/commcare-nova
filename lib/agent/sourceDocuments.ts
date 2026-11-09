@@ -1,7 +1,13 @@
 import { z } from "zod";
+import {
+	type RetainedSource,
+	type RetainedSources,
+	sourceProvenanceNotice,
+} from "@/lib/chat/retainedSource";
 import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 import { findSourceAssets, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
+	asMediaAssetId,
 	type DocumentKind,
 	EXTRACTOR_VERSION,
 	extractGcsObjectKeyFor,
@@ -47,7 +53,7 @@ export const readSourceInputSchema = z.strictObject({
 		.max(128)
 		.optional()
 		.describe(
-			"Revision returned by the first page. Required when offset is greater than zero, so pages cannot mix different extracts.",
+			"Revision returned by the first page. Required after offset zero. Conversation reads use retained content by default; use current at offset zero to explicitly select the current Library version.",
 		),
 });
 export type ReadSourceInput = z.infer<typeof readSourceInputSchema>;
@@ -64,9 +70,11 @@ export interface SourceDocumentRuntime {
 		signal?: AbortSignal,
 		onProgress?: (deltaChars: number) => void,
 	) => Promise<StoredExtractResult>;
+	readonly retained?: () => Promise<RetainedSources>;
 	readonly selected?: (
 		source: SelectedSourceDocument,
 		requestId: string,
+		retainedContent: RetainedSource,
 	) => Promise<void>;
 }
 
@@ -148,6 +156,7 @@ export type SourceDocumentResult =
 			readonly nextOffset: number | null;
 			readonly totalCharacters: number;
 			readonly extractTruncated: boolean;
+			readonly sourceNotice?: string;
 	  }
 	| {
 			readonly status:
@@ -187,7 +196,101 @@ export async function readSourceDocument(args: {
 				"Pass the revision from the first page when continuing a document.",
 		};
 	runtime?.signal?.throwIfAborted();
-	let matches = await deps.find(args.projectId, input.document);
+	let matches: MediaAssetRecord[] | undefined;
+	if (runtime?.retained && input.revision !== "current") {
+		const allRetained = [...(await runtime.retained()).values()];
+		let retained = allRetained.filter(
+			(ref) =>
+				ref.assetId === input.document ||
+				(ref.filename ?? ref.source?.filename) === input.document,
+		);
+		if (retained.length === 0) {
+			matches = await deps.find(args.projectId, input.document);
+			if (matches.length === 1)
+				retained = allRetained.filter((ref) => ref.assetId === matches?.[0].id);
+		}
+		if (new Set(retained.map((ref) => ref.assetId)).size > 1)
+			return {
+				status: "ambiguous",
+				error:
+					"More than one retained file has this name. Use its document id.",
+				candidates: [
+					...new Map(
+						retained.map((ref) => [
+							ref.assetId,
+							{
+								assetId: asMediaAssetId(ref.assetId),
+								filename:
+									ref.filename ?? ref.source?.filename ?? "Unavailable source",
+							},
+						]),
+					).values(),
+				],
+			};
+		const matching = retained.filter(
+			(ref) => input.revision === undefined || ref.revision === input.revision,
+		);
+		const versions = new Map(matching.map((ref) => [ref.revision, ref]));
+		if (versions.size > 1)
+			return {
+				status: "revision_required",
+				error:
+					"This conversation retains several versions of that file. Pass a revision from the conversation source list, or current at offset zero to select the Library version.",
+			};
+		const ref = [...versions.values()][0];
+		if (ref) {
+			if (!ref.source || ref.revision === null)
+				return {
+					status: "not_found",
+					error:
+						"This older conversation source is unavailable. Attach the current file or explicitly read its current Library version.",
+				};
+			if (ref.source.content.kind !== "document")
+				return {
+					status: "unsupported",
+					error: "This retained source is an image, not a document.",
+				};
+			const content = ref.source.content;
+			if (offset > content.text.length)
+				return {
+					status: "invalid_offset",
+					error: "The offset is past the end of this retained document.",
+				};
+			const end = Math.min(
+				content.text.length,
+				offset + (input.length ?? 12_000),
+			);
+			return {
+				status: "ready",
+				assetId: asMediaAssetId(ref.assetId),
+				document: ref.source.filename,
+				representation: "requirements-extract",
+				revision: ref.revision,
+				extractVersion: content.version,
+				text: content.text.slice(offset, end),
+				offset,
+				nextOffset: end < content.text.length ? end : null,
+				totalCharacters: content.text.length,
+				extractTruncated: content.truncated,
+				...(sourceProvenanceNotice(ref.provenance)
+					? { sourceNotice: sourceProvenanceNotice(ref.provenance) as string }
+					: {}),
+			};
+		}
+		if (retained.length && input.revision !== undefined)
+			return {
+				status: "source_changed",
+				error:
+					"That revision is not retained in this conversation. Use a retained revision, or current at offset zero to select the Library version.",
+			};
+	}
+	if (input.revision === "current" && offset > 0)
+		return {
+			status: "revision_required",
+			error:
+				"Pass the exact revision returned by the first page before continuing.",
+		};
+	matches ??= await deps.find(args.projectId, input.document);
 	if (matches.length === 0)
 		return {
 			status: "not_found",
@@ -271,7 +374,11 @@ export async function readSourceDocument(args: {
 		extractVersion: asset.extract.version,
 		extractDigest,
 	});
-	if (input.revision !== undefined && input.revision !== revision)
+	if (
+		input.revision !== undefined &&
+		input.revision !== "current" &&
+		input.revision !== revision
+	)
 		return {
 			status: "source_changed",
 			error:
@@ -296,6 +403,18 @@ export async function readSourceDocument(args: {
 			revision,
 		},
 		args.requestId,
+		{
+			kind: asset.kind,
+			filename: asset.originalFilename,
+			mimeType: asset.mimeType,
+			contentHash: asset.contentHash,
+			content: {
+				kind: "document",
+				text,
+				truncated: asset.extract.truncated,
+				version: asset.extract.version,
+			},
+		},
 	);
 	return {
 		status: "ready",

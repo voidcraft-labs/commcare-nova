@@ -57,24 +57,31 @@ preparation to its metered run and cancellation signal. MCP has no preparation
 callback: an unprepared document returns `preparation_required` without starting
 a model call; preparation or retry remains available in the Library.
 
-Successful embedded reads record server-owned `threads.selected_sources` under
-the live holder and Project authority, separately from user attachments. Source
-assembly retains those document identities across turns and reads their current
-prepared extracts, preparing them again when needed. A fresh turn records the
-current source snapshot; a changed source digest invalidates prior review.
-Reads during a build also update that snapshot. The page revision protects one
-read sequence from mixed extracts; it does not freeze a document across turns.
-User message metadata cannot forge a library selection.
+Successful admission copies the exact model-readable text or image into
+immutable `thread_source_contents`, once per thread/revision, with an immutable
+`thread_source_links` reference for each message attachment or explicit selection.
+`threads.selected_sources` records the latest explicit Library selection per
+asset; older selected revisions remain available. Build and edit contexts read
+retained content without consulting current Library state or extractor software.
+`readSource` defaults to retained evidence and requires a revision if several
+are available. `revision: "current"` at offset zero explicitly selects today's
+Library version; subsequent pages use the returned exact revision. External MCP
+reads remain Library reads because they have no Nova conversation owner.
 
 New chat sources pass `incomingSources.ts` before any run claim, credit
 reservation, or question-round consumption. Admission compares message/reference
 identities with the stored transcript, checks current Project authorization and
 ready preparation, and reads the actual extract or image without starting a
-model call. Both build and edit execution reuse that request's verified content.
-A rejected source needs an explicit preparation retry or removal; client display
-metadata cannot establish readiness. Existing historical sources are not new
-inputs, and the edit resolver retains its historical unavailable-source notice.
-This request-local content is not immutable historical-source retention.
+model call. The thread transaction rechecks the source asset under a share lock
+and retains those exact bytes atomically with the accepted transcript. Deleting
+first refuses admission; retaining first lets Library deletion proceed safely.
+Historical references never require another extraction. A rejected new source
+needs explicit preparation retry or removal; display metadata proves no readiness.
+
+Legacy migration keeps available document text as `migration-baseline` when its
+original digest was never recorded, labels verified selected extracts and images
+`verified-legacy`, and records `unavailable` when no matching content survives.
+Both execution contexts expose those limits instead of inventing old evidence.
 
 ## Document source fidelity and privacy
 
@@ -91,8 +98,8 @@ and credentials remain excluded; title and summary exclude personal information.
 This is model guidance for minimizing personal data in the working extract, not
 comprehensive PII redaction. The original source still reaches the extraction
 model and remains in the Project's file library. Prompt changes bump
-`EXTRACTOR_VERSION` in `lib/domain/multimedia.ts`; historical extracts remain at
-their recorded versions, and the next reference re-extracts at the new version.
+`EXTRACTOR_VERSION` in `lib/domain/multimedia.ts`; admitted conversation sources remain unchanged; a new attachment or explicit
+current Library selection may use the new extractor.
 
 ## The authoring boundary
 

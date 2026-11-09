@@ -9,9 +9,11 @@ import {
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import { deleteMediaAssetForActor } from "@/lib/db/mediaDeletion";
+import { loadThreadRetainedSources } from "@/lib/db/threadSources";
 import {
 	loadThread,
 	persistResponseSnapshot,
+	selectThreadSource,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import {
@@ -26,6 +28,7 @@ import {
 	readSourceDocument,
 	type SourceDocumentRuntime,
 } from "../sourceDocuments";
+import { loadSourceMaterial } from "../sources";
 import {
 	listMediaAssetsInputSchema,
 	listMediaAssetsTool,
@@ -298,6 +301,20 @@ it("reopens saved attachment history after a refused deletion without reattachin
 		target,
 		expectedProjectId: "source-project",
 		threadId,
+		admittedSources: new Map([
+			[
+				asset.id,
+				{
+					asset,
+					content: {
+						kind: "document",
+						text: "Collect the visit date and referral reason.",
+						version: EXTRACTOR_VERSION,
+						truncated: false,
+					},
+				},
+			],
+		]),
 		runId: "old-run",
 		holderNonce: nonce,
 		streamId: "old-stream",
@@ -340,7 +357,7 @@ it("reopens saved attachment history after a refused deletion without reattachin
 			actorUserId: "source-owner",
 			expectedProjectId: "source-project",
 		}),
-	).toMatchObject({ kind: "referenced" });
+	).toMatchObject({ kind: "deleted" });
 	await h
 		.db()
 		.updateTable("apps")
@@ -373,10 +390,7 @@ it("reopens saved attachment history after a refused deletion without reattachin
 	if (!validated.ok) throw new Error("Invalid saved transcript");
 	const resolved = await resolveAttachments(
 		validated.messages,
-		"source-project",
-		{
-			extractDocumentStructured,
-		},
+		await loadThreadRetainedSources(target, threadId, "source-project"),
 	);
 	expect(resolved.find((m) => m.id === "old-message")?.parts).toEqual(
 		expect.arrayContaining([
@@ -398,4 +412,148 @@ it("reopens saved attachment history after a refused deletion without reattachin
 			.where("thread_id", "=", threadId)
 			.execute(),
 	).toEqual([{ asset_id: asset.id }]);
+});
+
+it("pages retained revisions after extractor changes and Library deletion, with explicit selection of a new version", async () => {
+	const asset = await seed({
+		text: "Original admitted requirements",
+		version: EXTRACTOR_VERSION,
+	});
+	const nonce = "70000000-0000-4000-8000-000000000010";
+	const appId = await h.seedApp({
+		owner: "source-owner",
+		project_id: "source-project",
+		status: "generating",
+		run_id: "source-run",
+		run_holder_nonce: nonce,
+	});
+	const target = { kind: "app", appId } as const;
+	const threadId = "pinned-selected-source";
+	await upsertThreadTurn({
+		target,
+		expectedProjectId: "source-project",
+		threadId,
+		runId: "source-run",
+		holderNonce: nonce,
+		streamId: "source-stream",
+		threadType: "build",
+		messages: [
+			{
+				id: "ask",
+				role: "user",
+				parts: [{ type: "text", text: "Use the requirements" }],
+			},
+		],
+	});
+	const runtime: SourceDocumentRuntime = {
+		retained: () =>
+			loadThreadRetainedSources(target, threadId, "source-project"),
+		selected: (source, _requestId, retainedContent) =>
+			selectThreadSource({
+				target,
+				expectedProjectId: "source-project",
+				actorUserId: "source-owner",
+				threadId,
+				threadType: "build",
+				runId: "source-run",
+				holderNonce: nonce,
+				streamId: "source-stream",
+				source,
+				retainedContent,
+			}),
+	};
+	const first = await read(asset.id, { length: 8 }, runtime);
+	if (first.status !== "ready") throw new Error("First source read failed");
+	const nextVersion = EXTRACTOR_VERSION + 1;
+	const newText = "Deliberately selected replacement requirements";
+	await h
+		.db()
+		.updateTable("media_assets")
+		.set({
+			extract: JSON.stringify({
+				...asset.extract,
+				status: "ready",
+				version: nextVersion,
+				charCount: newText.length,
+				truncated: false,
+				extractedAt: Date.now(),
+			}),
+		})
+		.where("id", "=", asset.id)
+		.execute();
+	objects.set(
+		extractGcsObjectKeyFor("source-project", asset.contentHash, nextVersion),
+		newText,
+	);
+	await h
+		.db()
+		.updateTable("media_assets")
+		.set({ original_filename: "Renamed.md" })
+		.where("id", "=", asset.id)
+		.execute();
+	expect(await read("Renamed.md", {}, runtime)).toMatchObject({
+		status: "ready",
+		text: "Original admitted requirements",
+		revision: first.revision,
+	});
+	expect(await read(asset.id, {}, runtime)).toMatchObject({
+		status: "ready",
+		text: "Original admitted requirements",
+		revision: first.revision,
+	});
+	const latest = await read(asset.id, { revision: "current" }, runtime);
+	if (latest.status !== "ready")
+		throw new Error("Explicit current read failed");
+	expect(latest).toMatchObject({ text: newText, extractVersion: nextVersion });
+	expect(latest.revision).not.toBe(first.revision);
+	expect(await read(asset.id, {}, runtime)).toMatchObject({
+		status: "revision_required",
+	});
+	expect(
+		await read(asset.id, { revision: "current", offset: 8 }, runtime),
+	).toMatchObject({ status: "revision_required" });
+	expect(
+		await deleteMediaAssetForActor({
+			assetId: asset.id,
+			actorUserId: "source-owner",
+			expectedProjectId: "source-project",
+		}),
+	).toMatchObject({ kind: "deleted" });
+	objects.clear();
+	reads.mockClear();
+	expect(
+		await read(asset.id, { revision: first.revision, offset: 8 }, runtime),
+	).toMatchObject({
+		status: "ready",
+		text: "Original admitted requirements".slice(8),
+		revision: first.revision,
+	});
+	expect(
+		await read(asset.id, { revision: latest.revision }, runtime),
+	).toMatchObject({ status: "ready", text: newText });
+	expect(reads).not.toHaveBeenCalled();
+	expect(
+		await loadThreadRetainedSources(target, threadId, "foreign-project"),
+	).toEqual(new Map());
+	const retained = await loadThreadRetainedSources(
+		target,
+		threadId,
+		"source-project",
+	);
+	const material = await loadSourceMaterial({
+		projectId: "source-project",
+		messages: [],
+		retainedSources: retained,
+	});
+	expect(material.documents.map((d) => d.text)).toEqual(
+		expect.arrayContaining(["Original admitted requirements", newText]),
+	);
+	expect(
+		await h
+			.db()
+			.selectFrom("thread_source_contents")
+			.select("revision")
+			.where("thread_id", "=", threadId)
+			.execute(),
+	).toHaveLength(2);
 });

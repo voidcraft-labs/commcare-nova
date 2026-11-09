@@ -1,11 +1,8 @@
-import { selectedSourceDocumentsSchema } from "@/lib/chat/selectedSources";
-import { threadMessagesSql } from "./threadTranscript";
 /** Authoritative attach/delete serialization for Project-scoped media. */
 
 import { sql, type Transaction } from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
-import { collectThreadAttachmentAssetIds } from "@/lib/chat/threadAttachments";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { MediaAssetId } from "@/lib/domain";
 import {
@@ -192,84 +189,8 @@ async function persistedAppReferencesInTransaction(
 		}
 	}
 
-	/* The CONVERSATION reference family — the split half of the projection.
-	 * One `thread_media_refs` row per referencing thread; the row is the
-	 * exact projection (the thread writers replace it transactionally), and
-	 * the walk above no longer sees transcripts, so this is the only place a
-	 * conversation attachment blocks deletion. */
-	const threadRefs = await tx
-		.selectFrom("thread_media_refs")
-		.select(["thread_id"])
-		.where("project_id", "=", args.projectId)
-		.where("asset_id", "=", args.assetId)
-		.orderBy("thread_id")
-		.execute();
-	if (threadRefs.length > 0) {
-		descriptions.push(
-			threadRefs.length === 1
-				? "a conversation attachment"
-				: `${threadRefs.length} conversation attachments`,
-		);
-	} else {
-		/* Defense-in-depth backstop: re-prove absence against the transcripts
-		 * themselves. The per-thread projection is the authority the thread
-		 * writers maintain, but deletion is the one IRREVERSIBLE consumer
-		 * (the bytes purge after commit), so a missing projection row — a
-		 * writer that predates the projection, a rollout window, a repair
-		 * mid-flight — must not authorize a purge the primary record
-		 * refutes. The containment prefilter narrows to candidate threads in
-		 * this Project; a candidate whose transcript names the asset — or
-		 * whose attachment metadata cannot be parsed to prove it doesn't —
-		 * blocks the deletion. */
-		const candidates = await tx
-			.selectFrom("threads")
-			.leftJoin("apps", "apps.id", "threads.app_id")
-			.leftJoin(
-				"design_sessions",
-				"design_sessions.id",
-				"threads.design_session_id",
-			)
-			.select([
-				"threads.thread_id",
-				threadMessagesSql().as("messages"),
-				"threads.selected_sources",
-			])
-			.where(
-				sql<boolean>`(EXISTS (SELECT 1 FROM thread_messages message WHERE message.thread_id = threads.thread_id AND message.data::text LIKE '%' || ${args.assetId} || '%') OR ${sql.ref("threads.selected_sources")}::text LIKE '%' || ${args.assetId} || '%')`,
-			)
-			.where((eb) =>
-				eb.or([
-					eb("apps.project_id", "=", args.projectId),
-					eb("design_sessions.project_id", "=", args.projectId),
-				]),
-			)
-			.orderBy("threads.thread_id")
-			.execute();
-		let referencingThreads = 0;
-		for (const candidate of candidates) {
-			try {
-				if (
-					[
-						...collectThreadAttachmentAssetIds(candidate.messages),
-						...selectedSourceDocumentsSchema
-							.parse(candidate.selected_sources)
-							.map((source) => source.assetId),
-					].includes(args.assetId)
-				) {
-					referencingThreads += 1;
-				}
-			} catch {
-				referencingThreads += 1;
-			}
-		}
-		if (referencingThreads > 0) {
-			descriptions.push(
-				referencingThreads === 1
-					? "a conversation attachment"
-					: `${referencingThreads} conversation attachments`,
-			);
-		}
-	}
+	// Conversation evidence is retained independently; deleting its Library origin
+	// never deletes thread_source_contents or thread_source_links.
 	return descriptions;
 }
 

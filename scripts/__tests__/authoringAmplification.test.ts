@@ -7,16 +7,6 @@ import {
 	durableFinal,
 } from "./fixtures/authoringAmplification";
 
-const sourceDeps = {
-	loadAssets: async () => [],
-	readExtract: async () => {
-		throw new Error("No attachment is expected.");
-	},
-	loadImage: async () => {
-		throw new Error("No image is expected.");
-	},
-};
-
 describe("incident final-response repair", () => {
 	it.each([1918, 6539])(
 		"preserves source/answer identities for %s copies and admits a genuine next request",
@@ -31,12 +21,10 @@ describe("incident final-response repair", () => {
 			const originalSource = await loadSourceMaterial({
 				projectId: "project",
 				messages: original,
-				deps: sourceDeps,
 			});
 			const repairedSource = await loadSourceMaterial({
 				projectId: "project",
 				messages: repaired,
-				deps: sourceDeps,
 			});
 			expect(repairedSource).toEqual(originalSource);
 			const continued = await loadSourceMaterial({
@@ -49,7 +37,6 @@ describe("incident final-response repair", () => {
 						parts: [{ type: "text", text: "Here is the missing information." }],
 					},
 				],
-				deps: sourceDeps,
 			});
 			expect(continued.requests.slice(0, -1)).toEqual(originalSource.requests);
 			expect(continued.requests.at(-1)?.key).toBe("request:next-request:0");

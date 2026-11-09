@@ -271,23 +271,36 @@ cancellation lifetime. External MCP reads have no hidden model call and return
 `preparation_required`, `extracting`, or `failed` when preparation is unavailable.
 The Library owns explicit preparation and retry for those clients.
 
-Successful embedded reads retain server-owned selected-source identities on the
-thread, separately from user attachments. A fresh turn reassembles those documents
-from their current prepared extracts, preparing them again when needed, and
-records the current source snapshot. A changed source digest invalidates prior
-review. Page revisions prevent mixing extracts within a read sequence; they do
-not freeze source content across turns. Selection checks
-live holder and Project access, joins the thread's exact media-reference set,
-and participates in deletion guards and Project move remapping. A library search
-does not make every result a source, and a client transcript cannot manufacture
-selection provenance.
+Successful embedded reads retain immutable model-readable content owned by the
+conversation. `thread_source_contents` stores each revision once; immutable
+links name each message attachment and explicit Library selection. The latest
+selection per asset remains in `threads.selected_sources`, and older versions
+remain readable by revision. Build and edit source assembly never re-extracts
+historical evidence. `readSource` defaults to retained content; `revision: "current"`
+at offset zero explicitly admits the current Library version. External MCP
+reads remain current Project Library reads, without a conversation retention owner.
+A changed, explicitly selected source snapshot invalidates prior design review.
+A Library search alone selects nothing, and client metadata cannot forge a selection.
+
+Library deletion removes the Library item while preserving admitted conversation
+content. Thread ownership supplies retention and Project authorization. Sources
+have no automatic expiry, survive app soft deletion with the conversation, and
+cascade only when the owning thread is destroyed. Moving an app changes source
+access through the thread's app or bound design session in the same transaction;
+source bytes and historical asset ids are unchanged. No current Library row is
+needed to resume or move that evidence.
+
+Legacy migration uses verified old digests when present. Otherwise available
+text is an explicitly labelled migration baseline, never a claim about historical
+model input. Missing content remains explicitly unavailable. Source retention
+does not freeze prompts, app state, deliberate compaction, or the entire model context.
 
 New message attachments are admitted before claiming or resuming a run. The
 server distinguishes new message/reference identities from the durable transcript,
 requires prepared readable content, and hands the verified bytes to either
 executor for that request. It starts no extraction during admission. A content
 admission refusal leaves holders, credits, pending questions and the durable
-transcript unchanged. Thread projection also checks the sources under asset
+transcript unchanged. The thread transaction also retains the content and checks new sources under asset
 locks: deletion between the content read and projection gets the same explicit
 recovery, over HTTP or the stream. A claim transaction rolls back; a run already
 claimed is settled and refunded before the stream delivers the refusal.

@@ -4,16 +4,16 @@ import {
 	attachmentRefSchema,
 	type NovaUIMessage,
 } from "@/lib/chat/attachmentRefs";
-import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
-import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
-	asMediaAssetId,
-	type DocumentKind,
-	isDocumentKind,
-	type MediaAssetId,
-} from "@/lib/domain/multimedia";
+	type RetainedSource,
+	type RetainedSources,
+	selectedSourceReferenceKey,
+	sourceProvenanceNotice,
+	sourceReferenceKey,
+} from "@/lib/chat/retainedSource";
+import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import type { AdmittedSources } from "./incomingSources";
 import type { SourceDocumentRuntime } from "./sourceDocuments";
 import { askQuestionsInputSchema } from "./tools/askQuestions";
 
@@ -24,17 +24,6 @@ export class SourceMaterialError extends Error {
 }
 export interface SourceMaterialDeps {
 	prepareDocument?: SourceDocumentRuntime["prepare"];
-	loadAssets(
-		ids: readonly MediaAssetId[],
-		projectId: string,
-	): Promise<MediaAssetRecord[]>;
-	readExtract(
-		asset: MediaAssetRecord,
-		kind: DocumentKind,
-	): Promise<{ text: string; truncated: boolean; version?: number }>;
-	loadImage(
-		asset: MediaAssetRecord,
-	): Promise<{ mediaType: string; dataUrl: string; bytesDigest: string }>;
 }
 export interface SourceDocument {
 	readonly id: string;
@@ -66,9 +55,8 @@ export interface SourceMaterial {
 export async function loadSourceMaterial(args: {
 	readonly projectId: string;
 	readonly messages: readonly NovaUIMessage[];
-	readonly deps: SourceMaterialDeps;
+	readonly retainedSources?: RetainedSources;
 	readonly selectedSources?: readonly SelectedSourceDocument[];
-	readonly admittedSources?: AdmittedSources;
 }): Promise<SourceMaterial> {
 	const requests: Array<{
 		key: string;
@@ -118,68 +106,66 @@ export async function loadSourceMaterial(args: {
 		// Question replies can carry attachments on an assistant tool part's message.
 		for (const raw of message.metadata?.attachments ?? []) {
 			const reference = attachmentRefSchema.parse(raw);
-			references.set(reference.assetId, reference);
+			references.set(
+				sourceReferenceKey(message.id, reference.assetId),
+				reference,
+			);
 		}
 	}
 	for (const selected of args.selectedSources ?? [])
-		if (!references.has(selected.assetId))
-			references.set(selected.assetId, selected);
-	const assets = await args.deps.loadAssets(
-		[...references.keys()]
-			.map(asMediaAssetId)
-			.filter((id) => !args.admittedSources?.has(id)),
-		args.projectId,
-	);
-	const byId = new Map(assets.map((asset) => [asset.id as string, asset]));
+		references.set(
+			selectedSourceReferenceKey(selected.assetId, selected.revision),
+			selected,
+		);
+	for (const [key, ref] of args.retainedSources ?? []) {
+		if (ref.messageId === "" && ref.source)
+			references.set(key, {
+				assetId: ref.assetId as MediaAssetId,
+				kind: ref.source.kind,
+				filename: ref.source.filename,
+				mimeType: ref.source.mimeType,
+			});
+	}
 	const documents: SourceDocument[] = [];
 	const images: Array<SourceMaterial["images"][number]> = [];
-	for (const reference of references.values()) {
-		const admitted = args.admittedSources?.get(reference.assetId);
-		const asset = admitted?.asset ?? byId.get(reference.assetId);
-		if (
-			asset?.status !== "ready" ||
-			asset.kind !== reference.kind ||
-			asset.project_id !== args.projectId
-		)
-			throw new SourceMaterialError(
-				`The attachment "${reference.filename}" is unavailable in this Project.`,
+	const seen = new Set<string>();
+	for (const [key, reference] of references) {
+		const retained =
+			args.retainedSources?.get(key) ??
+			args.retainedSources?.get(
+				selectedSourceReferenceKey(reference.assetId, "unavailable"),
 			);
-		if (isDocumentKind(reference.kind)) {
-			const extract =
-				admitted?.content.kind === "document"
-					? admitted.content
-					: await args.deps.readExtract(asset, reference.kind);
-			if (!extract.text.trim())
-				throw new SourceMaterialError(
-					`No text could be read from "${reference.filename}".`,
-				);
+		if (!retained)
+			throw new SourceMaterialError(
+				`The source "${reference.filename}" has no retained conversation record.`,
+			);
+		const notice = sourceProvenanceNotice(retained.provenance);
+		if (notice)
+			requests.push({
+				key: `source-notice:${key}`,
+				message: { role: "user", content: `${reference.filename}: ${notice}` },
+			});
+		if (!retained.source || retained.revision === null) continue;
+		const unique = `${reference.assetId}:${retained.revision}`;
+		if (seen.has(unique)) continue;
+		seen.add(unique);
+		const content = retained.source.content;
+		if (content.kind === "document")
 			documents.push({
-				id: asset.id,
+				id: reference.assetId,
 				name: reference.filename,
-				text: extract.text,
-				truncated: extract.truncated,
-				...((extract.version !== undefined ||
-					asset.extract?.status === "ready") && {
-					revision: canonicalJsonDigest({
-						contentHash: asset.contentHash,
-						extractVersion: extract.version ?? asset.extract?.version,
-						extractDigest: canonicalJsonDigest(extract.text),
-					}),
-				}),
+				text: content.text,
+				truncated: content.truncated,
+				revision: retained.revision,
 			});
-		} else {
+		else
 			images.push({
-				id: asset.id,
+				id: reference.assetId,
 				name: reference.filename,
-				...(admitted?.content.kind === "image"
-					? {
-							mediaType: admitted.content.mediaType,
-							dataUrl: admitted.content.dataUrl,
-							bytesDigest: admitted.content.bytesDigest,
-						}
-					: await args.deps.loadImage(asset)),
+				mediaType: content.mediaType,
+				dataUrl: content.dataUrl,
+				bytesDigest: content.bytesDigest,
 			});
-		}
 	}
 	return sourceMaterialSnapshot({ requests, documents, images });
 }
@@ -210,45 +196,35 @@ export function sourceMaterialSnapshot(
 	};
 }
 
-export async function includeSelectedSource(args: {
+export function includeSelectedSource(args: {
 	readonly material: SourceMaterial;
 	readonly selected: SelectedSourceDocument;
-	readonly projectId: string;
-	readonly deps: SourceMaterialDeps;
-}): Promise<SourceMaterial> {
-	const [asset] = await args.deps.loadAssets(
-		[args.selected.assetId],
-		args.projectId,
-	);
+	readonly retainedContent: RetainedSource;
+}): SourceMaterial {
+	const content = args.retainedContent.content;
 	if (
-		asset?.status !== "ready" ||
-		asset.kind !== args.selected.kind ||
-		asset.contentHash !== args.selected.contentHash
+		content.kind !== "document" ||
+		canonicalJsonDigest(content.text) !== args.selected.extractDigest ||
+		content.version !== args.selected.extractVersion
 	)
 		throw new SourceMaterialError(
-			"The selected document is no longer available in this Project.",
-		);
-	const extract = await args.deps.readExtract(asset, args.selected.kind);
-	if (
-		canonicalJsonDigest(extract.text) !== args.selected.extractDigest ||
-		(extract.version ?? asset.extract?.version) !== args.selected.extractVersion
-	)
-		throw new SourceMaterialError(
-			"The selected document changed while it was being read. Read it again from the first page.",
+			"The selected source does not match its retained content.",
 		);
 	const documents = [...args.material.documents];
-	const document = {
-		id: args.selected.assetId,
-		name: args.selected.filename,
-		text: extract.text,
-		truncated: extract.truncated,
-		revision: args.selected.revision,
-	};
-	const index = documents.findIndex(
-		(item) => item.id === args.selected.assetId,
-	);
-	if (index < 0) documents.push(document);
-	else documents[index] = document;
+	if (
+		!documents.some(
+			(item) =>
+				item.id === args.selected.assetId &&
+				item.revision === args.selected.revision,
+		)
+	)
+		documents.push({
+			id: args.selected.assetId,
+			name: args.selected.filename,
+			text: content.text,
+			truncated: content.truncated,
+			revision: args.selected.revision,
+		});
 	return sourceMaterialSnapshot({ ...args.material, documents });
 }
 

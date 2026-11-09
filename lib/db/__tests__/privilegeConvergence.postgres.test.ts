@@ -8,6 +8,7 @@ import {
 } from "kysely";
 import { Client, Pool } from "pg";
 import { describe, expect, test, vi } from "vitest";
+import { retainedDocument } from "@/__tests__/helpers/admittedSource";
 import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -36,6 +37,7 @@ import {
 	type DatabasePrivilegeRoleConfig,
 } from "../privilegeConvergence";
 import { runCanonicalRuntimeDatabaseProbe } from "../runtimeDatabaseProbe";
+import { retainThreadSource } from "../threadSources";
 
 const h = setupPerTestDatabase({
 	databaseNamePrefix: "privilege_convergence_",
@@ -607,6 +609,19 @@ describe("database privilege convergence", () => {
 				INSERT INTO thread_media_refs (thread_id, asset_id, project_id)
 				VALUES (${probeThreadId}, ${probeAssetId}::uuid, ${probeProjectId})
 			`.execute(migration.db);
+
+			await (migration.db as Kysely<AppDatabase>).transaction().execute((tx) =>
+				retainThreadSource(tx, {
+					threadId: probeThreadId,
+					messageId: "m1",
+					assetId: probeAssetId,
+					source: retainedDocument(probeAssetId),
+					provenance: "admitted",
+				}),
+			);
+			await sql`DELETE FROM media_assets WHERE id = ${probeAssetId}::uuid`.execute(
+				migration.db,
+			);
 
 			const runtimeProbe = await runCanonicalRuntimeDatabaseProbe(
 				migration.db,

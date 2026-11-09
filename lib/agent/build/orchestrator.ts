@@ -1,3 +1,4 @@
+import { loadThreadRetainedSources } from "@/lib/db/threadSources";
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type { UIMessage, UIMessageChunk } from "ai";
@@ -16,7 +17,6 @@ import { ChangeSetStagingRejectedError } from "@/lib/agent/change-set/errors";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import type { AgentStep } from "@/lib/agent/generationContext";
-import type { AdmittedSources } from "@/lib/agent/incomingSources";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import type { SubGenerationUsageMeter } from "@/lib/agent/modelRunContext";
 import {
@@ -163,7 +163,6 @@ export interface BuildOrchestrationDeps {
 	) => void | Promise<void>;
 }
 export interface RunBuildOrchestrationArgs {
-	readonly admittedSources?: AdmittedSources;
 	readonly designSessionId: string;
 	readonly proposedAppId: string;
 	readonly projectId: string;
@@ -381,10 +380,13 @@ export async function runBuildOrchestration(
 			designSessionId: args.designSessionId,
 		};
 		let source = await loadSourceMaterial({
-			admittedSources: args.admittedSources,
+			retainedSources: await loadThreadRetainedSources(
+				threadTarget,
+				args.threadId,
+				args.projectId,
+			),
 			projectId: args.projectId,
 			messages: args.messages as NovaUIMessage[],
-			deps: sourceDeps,
 			selectedSources: await loadThreadSelectedSources(
 				threadTarget,
 				args.threadId,
@@ -393,12 +395,13 @@ export async function runBuildOrchestration(
 		runtime.sourceDocuments = {
 			signal: args.signal,
 			prepare: sourceDeps.prepareDocument,
-			selected: async (selected) => {
-				const snapshot = await includeSelectedSource({
+			retained: () =>
+				loadThreadRetainedSources(threadTarget, args.threadId, args.projectId),
+			selected: async (selected, _requestId, retainedContent) => {
+				const snapshot = includeSelectedSource({
 					material: source,
 					selected,
-					projectId: args.projectId,
-					deps: sourceDeps,
+					retainedContent,
 				});
 				await selectThreadSource({
 					target: threadTarget,
@@ -410,6 +413,7 @@ export async function runBuildOrchestration(
 					holderNonce: args.holderNonce,
 					streamId: args.streamId ?? args.responseMessageId,
 					source: selected,
+					retainedContent,
 				});
 				source = snapshot;
 			},

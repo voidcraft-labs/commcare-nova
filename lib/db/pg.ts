@@ -1,3 +1,7 @@
+import type {
+	RetainedSource,
+	SourceProvenance,
+} from "@/lib/chat/retainedSource";
 import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
 // Kysely typing + handle for the app-state tables (`apps`,
 // `blueprint_entities`, `app_changes`, `events`, `threads`,
@@ -258,6 +262,22 @@ export interface ThreadMessagePartsTable {
 	ordinal: number;
 	data: JSONColumnType<Record<string, unknown>>;
 	digest: string;
+}
+
+export interface ThreadSourceContentsTable {
+	thread_id: string;
+	revision: string;
+	content: JSONColumnType<Omit<RetainedSource, "filename">>;
+	digest: string;
+}
+export interface ThreadSourceLinksTable {
+	reference_key: string;
+	thread_id: string;
+	message_id: string;
+	asset_id: string;
+	revision: string | null;
+	provenance: SourceProvenance;
+	filename: string;
 }
 
 /** See `threads.clawed_back_ids`. Defined here beside the column it types;
@@ -1660,6 +1680,8 @@ export interface AppDatabase {
 	app_change_fold_baselines: AppChangeFoldBaselinesTable;
 	events: EventsTable;
 	threads: ThreadsTable;
+	thread_source_contents: ThreadSourceContentsTable;
+	thread_source_links: ThreadSourceLinksTable;
 	thread_messages: ThreadMessagesTable;
 	thread_message_parts: ThreadMessagePartsTable;
 	chat_stream_chunks: ChatStreamChunksTable;

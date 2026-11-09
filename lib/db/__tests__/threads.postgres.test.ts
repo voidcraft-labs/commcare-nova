@@ -36,9 +36,11 @@
 import type { UIMessage } from "ai";
 import { Client } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
+import { admittedDocument } from "@/__tests__/helpers/admittedSource";
 import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { classifyError } from "@/lib/agent/errorClassifier";
+import { loadThreadRetainedSources } from "@/lib/db/threadSources";
 import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import type { MediaAssetId } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -254,7 +256,7 @@ async function seedPausedThread(suffix: string): Promise<{
 }
 
 describe("thread attachment admission", () => {
-	it("locks and exactly indexes attachments so deletion re-walks the thread carrier", async () => {
+	it("retains a source and indexes its provenance independently of Library deletion", async () => {
 		const assetId = testMediaAssetId("70000000-0000-4000-8000-000000000001");
 		await seedReadyDocument(assetId);
 		await writeThreadTurnWithSeededHolder({
@@ -264,6 +266,7 @@ describe("thread attachment admission", () => {
 			streamId: "stream-document",
 			holderNonce: NONCE,
 			threadType: "build",
+			admittedSources: admittedDocument(assetId),
 			messages: [attachmentMsg("message-document", assetId)],
 		});
 
@@ -295,8 +298,7 @@ describe("thread attachment admission", () => {
 				expectedProjectId: "project-test",
 			}),
 		).resolves.toMatchObject({
-			kind: "referenced",
-			references: [expect.stringContaining("conversation attachment")],
+			kind: "deleted",
 		});
 	});
 
@@ -340,6 +342,7 @@ describe("thread attachment admission", () => {
 				streamId: "stream-kind-mismatch",
 				holderNonce: NONCE,
 				threadType: "build",
+				admittedSources: admittedDocument(assetId),
 				messages: [attachmentMsg("message-kind-mismatch", assetId)],
 			}),
 		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
@@ -2046,6 +2049,7 @@ it.each(["not-ready", "wrong-project", "wrong-kind"] as const)(
 			streamId: "refused-stream",
 			holderNonce: NONCE,
 			threadType: "build" as const,
+			admittedSources: admittedDocument(assetId),
 			messages: [attachmentMsg("incoming", assetId)],
 		};
 		let caught: unknown;
@@ -2072,7 +2076,7 @@ it.each(["not-ready", "wrong-project", "wrong-kind"] as const)(
 	},
 );
 
-it("reports retained attachment failures with their original cause and preserves the stored transcript", async () => {
+it("continues from retained evidence after the Library source becomes unavailable", async () => {
 	const assetId = testMediaAssetId("retained-attachment");
 	await seedReadyDocument(assetId);
 	const args = {
@@ -2082,10 +2086,10 @@ it("reports retained attachment failures with their original cause and preserves
 		streamId: "retained-stream",
 		holderNonce: NONCE,
 		threadType: "build" as const,
+		admittedSources: admittedDocument(assetId),
 		messages: [attachmentMsg("retained", assetId)],
 	};
 	await writeThreadTurnWithSeededHolder(args);
-	const before = await loadThread({ kind: "app", appId: APP }, args.threadId);
 	await h
 		.db()
 		.updateTable("media_assets")
@@ -2097,22 +2101,22 @@ it("reports retained attachment failures with their original cause and preserves
 			...args,
 			messages: [...args.messages, userMsg("new-message", "Continue")],
 		}),
-	).rejects.toMatchObject({
-		admission: "durable",
-		cause: { assetId, reason: "not-ready" },
-	});
-	expect(log.error).toHaveBeenCalledWith(
-		expect.any(String),
-		expect.objectContaining({ name: "ThreadAttachmentUnavailableError" }),
-		expect.objectContaining({
-			threadId: args.threadId,
-			assetId,
-			reason: "not-ready",
-			admission: "durable",
-		}),
-	);
-	const after = await loadThread({ kind: "app", appId: APP }, args.threadId);
-	expect(after?.messages).toEqual(before?.messages);
+	).resolves.toBe(true);
+	expect(
+		[
+			...(
+				await loadThreadRetainedSources(
+					{ kind: "app", appId: APP },
+					args.threadId,
+					"project-test",
+				)
+			).values(),
+		][0]?.source?.content,
+	).toMatchObject({ kind: "document", text: "Collect the visit date." });
+	expect(
+		(await loadThread({ kind: "app", appId: APP }, args.threadId))?.messages,
+	).toHaveLength(2);
+	expect(log.error).not.toHaveBeenCalled();
 });
 
 it.each(["attach", "delete"] as const)(
@@ -2148,6 +2152,7 @@ it.each(["attach", "delete"] as const)(
 				runId: "racing-run",
 				holderNonce: NONCE,
 				threadType: "build",
+				admittedSources: admittedDocument(assetId),
 				messages: [attachmentMsg("racing-message", assetId)],
 			});
 		const remove = () =>
@@ -2173,7 +2178,18 @@ it.each(["attach", "delete"] as const)(
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
 			if (winner === "attach") {
 				await expect(first).resolves.toBe(true);
-				await expect(second).resolves.toMatchObject({ kind: "referenced" });
+				await expect(second).resolves.toMatchObject({ kind: "deleted" });
+				expect(
+					[
+						...(
+							await loadThreadRetainedSources(
+								{ kind: "app", appId: APP },
+								"racing-thread",
+								"project-test",
+							)
+						).values(),
+					][0]?.source?.content,
+				).toMatchObject({ kind: "document", text: "Collect the visit date." });
 				expect(
 					await loadThread({ kind: "app", appId: APP }, "racing-thread"),
 				).toMatchObject({

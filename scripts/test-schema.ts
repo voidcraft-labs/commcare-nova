@@ -1,3 +1,4 @@
+import { readSourceTool } from "../lib/agent/tools/media/readSource";
 /**
  * Verifies that the SA's tool input schemas are accepted by the OpenAI
  * API — i.e. the model makes a tool call against each schema without the
@@ -569,6 +570,12 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: setAppLogoTool.inputSchema,
 		prompt:
 			"Use setAppLogo to set the app logo to asset 11111111-1111-1111-1111-111111111111.",
+	},
+	{
+		name: "readSource",
+		description: readSourceTool.description,
+		schema: readSourceTool.inputSchema,
+		prompt: "Use readSource to read the first page of requirements.pdf.",
 	},
 	{
 		name: "listMediaAssets",

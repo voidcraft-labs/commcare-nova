@@ -52,9 +52,12 @@ import { isDeepStrictEqual } from "node:util";
  * Action, so no client-callable RPC surface exists.
  */
 import type { UIMessage } from "ai";
+import type { AdmittedSources } from "@/lib/agent/incomingSources";
 import { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
-import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
+import type { RetainedSource } from "@/lib/chat/retainedSource";
+import { incomingSourceReferences } from "@/lib/chat/sourceAdmission";
+import { pinIncomingThreadSources, retainThreadSource } from "./threadSources";
 import {
 	mergeThreadResponse,
 	threadMessageCountSql,
@@ -349,9 +352,11 @@ async function admitExactThreadMediaProjection(
 		previousMessages: readonly unknown[];
 		previousSources: readonly SelectedSourceDocument[];
 		threadId: string;
+		admittedSources?: AdmittedSources;
 	},
 ): Promise<void> {
 	try {
+		await pinIncomingThreadSources(tx, args);
 		await replaceExactThreadMediaReferences(tx, {
 			threadId: args.threadId,
 			projectId: args.projectId,
@@ -359,25 +364,14 @@ async function admitExactThreadMediaProjection(
 		});
 	} catch (error) {
 		if (error instanceof MediaReferenceProjectionError) {
-			const inPrevious = collectThreadAttachments(args.previousMessages).some(
-				(attachment) =>
-					attachment.assetId === error.assetId &&
-					attachment.kind === error.expectedKind,
+			const incoming = incomingSourceReferences(
+				args.candidateMessages as NovaUIMessage[],
+				args.previousMessages as NovaUIMessage[],
+			).some(
+				({ ref }) =>
+					ref.assetId === error.assetId && ref.kind === error.expectedKind,
 			);
-			const incoming = collectThreadAttachments(args.candidateMessages).some(
-				(attachment) =>
-					attachment.assetId === error.assetId &&
-					attachment.kind === error.expectedKind,
-			);
-			// Source selections are server-owned and already admitted. If the failed
-			// requirement is absent from attachments it belongs to that retained source set.
-			const inSelectedSources = args.previousSources.some(
-				(source) =>
-					source.assetId === error.assetId &&
-					source.kind === error.expectedKind,
-			);
-			const admission =
-				inPrevious || inSelectedSources || !incoming ? "durable" : "incoming";
+			const admission = incoming ? "incoming" : "durable";
 			const failure = new ThreadAttachmentUnavailableError(admission, error);
 			const context = {
 				threadId: args.threadId,
@@ -714,6 +708,7 @@ export async function upsertThreadTurn(
 		 * partial before merging. Only the owning claim path honors it. */
 		redrive?: boolean;
 		clearInputRound?: boolean;
+		admittedSources?: AdmittedSources;
 	},
 	transaction?: Transaction<AppDatabase>,
 ): Promise<boolean> {
@@ -775,6 +770,7 @@ export async function upsertThreadTurn(
 						existing.selected_sources,
 					),
 					threadId: args.threadId,
+					admittedSources: args.admittedSources,
 				});
 			}
 			return { holderLost } as const;
@@ -823,6 +819,7 @@ export async function upsertThreadTurn(
 				previousMessages: [],
 				previousSources: [],
 				threadId: args.threadId,
+				admittedSources: args.admittedSources,
 			});
 			return true;
 		}
@@ -875,6 +872,7 @@ export async function upsertThreadTurn(
 				existing.selected_sources,
 			),
 			threadId: args.threadId,
+			admittedSources: args.admittedSources,
 		});
 		return true;
 	};
@@ -903,6 +901,7 @@ export async function mergeThreadTurnMessages(args: {
 	threadId: string;
 	messages: UIMessage[];
 	expectedProjectId: string;
+	admittedSources?: AdmittedSources;
 }): Promise<boolean> {
 	const now = new Date().toISOString();
 	return await withAppTx(async (tx) => {
@@ -946,6 +945,7 @@ export async function mergeThreadTurnMessages(args: {
 				existing.selected_sources,
 			),
 			threadId: args.threadId,
+			admittedSources: args.admittedSources,
 		});
 		return true;
 	});
@@ -1867,6 +1867,7 @@ export async function selectThreadSource(args: {
 	holderNonce: string;
 	streamId: string;
 	source: SelectedSourceDocument;
+	retainedContent: RetainedSource;
 }): Promise<void> {
 	await withAppTx(async (tx) => {
 		const authority = await lockThreadTargetAuthority(tx, args.target);
@@ -1929,6 +1930,15 @@ export async function selectThreadSource(args: {
 			throw new Error(
 				"The source document changed. Read it again before continuing.",
 			);
+		const revision = await retainThreadSource(tx, {
+			threadId: args.threadId,
+			messageId: "",
+			assetId: args.source.assetId,
+			source: args.retainedContent,
+			provenance: "admitted",
+		});
+		if (revision !== args.source.revision)
+			throw new Error("Selected source revision differs from retained content");
 		const sources = selectedSourceDocumentsSchema.parse(row.selected_sources);
 		const index = sources.findIndex(
 			(source) => source.assetId === args.source.assetId,

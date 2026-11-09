@@ -14,11 +14,20 @@
  */
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import {
+	admittedDocument,
+	retainedDocument,
+} from "@/__tests__/helpers/admittedSource";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
+import {
+	loadThreadRetainedSources,
+	retainedSourceRevision,
+} from "@/lib/db/threadSources";
 import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import type { MediaAssetId } from "@/lib/domain";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { RunHolderLostError } from "../commitGuard";
 import { generationTargetHeldLive } from "../generationTargetScope";
 import type { GenerationTarget } from "../generationTargets";
@@ -726,7 +735,7 @@ describe("loaders on a design-session target", () => {
 });
 
 describe("pre-app thread media references (§20.12)", () => {
-	it("a session thread's attachment lands in thread_media_refs and blocks deletion", async () => {
+	it("a session retains admitted content independently of its Library origin", async () => {
 		const assetId = testMediaAssetId("80000000-0000-4000-8000-000000000001");
 		await seedReadyDocument(assetId);
 		const { target, runId } = await seedHeldSession("media");
@@ -737,6 +746,7 @@ describe("pre-app thread media references (§20.12)", () => {
 			streamId: "stream-media",
 			holderNonce: NONCE,
 			threadType: "build",
+			admittedSources: admittedDocument(assetId),
 			messages: [attachmentMsg("m1", assetId)],
 			expectedProjectId: PROJECT,
 		});
@@ -756,12 +766,11 @@ describe("pre-app thread media references (§20.12)", () => {
 				expectedProjectId: PROJECT,
 			}),
 		).resolves.toMatchObject({
-			kind: "referenced",
-			references: [expect.stringContaining("conversation attachment")],
+			kind: "deleted",
 		});
 	});
 
-	it("a transcript reference blocks deletion even with its projection row missing", async () => {
+	it("removing a provenance projection does not discard retained content", async () => {
 		/* The deletion guard's defense-in-depth backstop: the per-thread
 		 * projection is the authority the writers maintain, but deletion is
 		 * irreversible (the bytes purge post-commit), so a missing
@@ -778,6 +787,7 @@ describe("pre-app thread media references (§20.12)", () => {
 			streamId: "stream-backstop",
 			holderNonce: NONCE,
 			threadType: "build",
+			admittedSources: admittedDocument(assetId),
 			messages: [attachmentMsg("m1", assetId)],
 			expectedProjectId: PROJECT,
 		});
@@ -793,8 +803,7 @@ describe("pre-app thread media references (§20.12)", () => {
 				expectedProjectId: PROJECT,
 			}),
 		).resolves.toMatchObject({
-			kind: "referenced",
-			references: [expect.stringContaining("conversation attachment")],
+			kind: "deleted",
 		});
 	});
 
@@ -811,6 +820,7 @@ describe("pre-app thread media references (§20.12)", () => {
 			streamId: "stream-ea",
 			holderNonce: NONCE,
 			threadType: "build",
+			admittedSources: admittedDocument(shared),
 			messages: [attachmentMsg("m1", shared)],
 			expectedProjectId: PROJECT,
 		});
@@ -821,6 +831,7 @@ describe("pre-app thread media references (§20.12)", () => {
 			streamId: "stream-eb",
 			holderNonce: NONCE,
 			threadType: "build",
+			admittedSources: admittedDocument(shared),
 			messages: [attachmentMsg("m2", shared)],
 			expectedProjectId: PROJECT,
 		});
@@ -846,6 +857,7 @@ describe("pre-app thread media references (§20.12)", () => {
 				streamId: "stream-ec",
 				holderNonce: NONCE,
 				threadType: "build",
+				admittedSources: admittedDocument(missing),
 				messages: [attachmentMsg("m3", missing)],
 				expectedProjectId: PROJECT,
 			}),
@@ -898,6 +910,7 @@ describe("server-selected library sources", () => {
 			...args,
 			messages: [userMsg("source-request", "Read the library requirements")],
 		});
+		const retainedContent = retainedDocument(assetId);
 		const source: SelectedSourceDocument = {
 			assetId,
 			kind: "pdf",
@@ -905,15 +918,20 @@ describe("server-selected library sources", () => {
 			mimeType: "application/pdf",
 			contentHash: assetId.padEnd(64, "a").slice(0, 64),
 			extractVersion: EXTRACTOR_VERSION,
-			extractDigest: "extract-digest",
-			revision: "source-revision",
+			extractDigest: canonicalJsonDigest("Collect the visit date."),
+			revision: retainedSourceRevision(retainedContent),
 		};
-		return { args, source };
+		return { args, source, retainedContent };
 	}
 
-	it("keeps retained source failures durable when a new message attaches the same file", async () => {
-		const { args, source } = await selectedFixture();
-		await selectThreadSource({ ...args, actorUserId: ACTOR, source });
+	it("refuses a new unavailable attachment without losing the retained selection", async () => {
+		const { args, source, retainedContent } = await selectedFixture();
+		await selectThreadSource({
+			...args,
+			actorUserId: ACTOR,
+			source,
+			retainedContent,
+		});
 		await h
 			.db()
 			.updateTable("media_assets")
@@ -923,10 +941,11 @@ describe("server-selected library sources", () => {
 		await expect(
 			upsertThreadTurn({
 				...args,
+				admittedSources: admittedDocument(source.assetId),
 				messages: [attachmentMsg("new-attachment", source.assetId)],
 			}),
 		).rejects.toMatchObject({
-			admission: "durable",
+			admission: "incoming",
 			cause: { assetId: source.assetId, reason: "not-ready" },
 		});
 		expect(await loadThreadSelectedSources(args.target, args.threadId)).toEqual(
@@ -934,9 +953,14 @@ describe("server-selected library sources", () => {
 		);
 	});
 
-	it("protects selected documents across stale transcript writes and missing reference edges", async () => {
-		const { args, source } = await selectedFixture();
-		await selectThreadSource({ ...args, actorUserId: ACTOR, source });
+	it("retains selected content across stale transcript writes and Library deletion", async () => {
+		const { args, source, retainedContent } = await selectedFixture();
+		await selectThreadSource({
+			...args,
+			actorUserId: ACTOR,
+			source,
+			retainedContent,
+		});
 		await upsertThreadTurn({
 			...args,
 			messages: [userMsg("source-request", "Read the library requirements")],
@@ -958,7 +982,7 @@ describe("server-selected library sources", () => {
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 			}),
-		).resolves.toMatchObject({ kind: "referenced" });
+		).resolves.toMatchObject({ kind: "deleted" });
 		await h
 			.db()
 			.deleteFrom("thread_media_refs")
@@ -970,16 +994,24 @@ describe("server-selected library sources", () => {
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 			}),
-		).resolves.toMatchObject({ kind: "referenced" });
+		).resolves.toMatchObject({ kind: "not_found" });
+		expect(
+			[
+				...(
+					await loadThreadRetainedSources(args.target, args.threadId, PROJECT)
+				).values(),
+			][0]?.source?.content,
+		).toMatchObject({ kind: "document", text: "Collect the visit date." });
 	});
 
 	it("refuses stale streams, changed extracts and lost edit authority without selecting a source", async () => {
-		const { args, source } = await selectedFixture();
+		const { args, source, retainedContent } = await selectedFixture();
 		await expect(
 			selectThreadSource({
 				...args,
 				actorUserId: ACTOR,
 				streamId: "old-stream",
+				retainedContent,
 				source,
 			}),
 		).rejects.toBeInstanceOf(RunHolderLostError);
@@ -987,12 +1019,18 @@ describe("server-selected library sources", () => {
 			selectThreadSource({
 				...args,
 				actorUserId: ACTOR,
+				retainedContent,
 				source: { ...source, extractVersion: EXTRACTOR_VERSION + 1 },
 			}),
 		).rejects.toThrow("source document changed");
 		await h.seedProjectMember(ACTOR, PROJECT, "viewer");
 		await expect(
-			selectThreadSource({ ...args, actorUserId: ACTOR, source }),
+			selectThreadSource({
+				...args,
+				actorUserId: ACTOR,
+				source,
+				retainedContent,
+			}),
 		).rejects.toThrow();
 		expect(await loadThreadSelectedSources(args.target, args.threadId)).toEqual(
 			[],
