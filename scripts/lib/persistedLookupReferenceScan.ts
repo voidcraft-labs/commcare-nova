@@ -30,6 +30,23 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** A failed SQL read must not poison the shared snapshot's remaining reads. */
+async function isolatedRead<T>(
+	tx: Transaction<AppDatabase>,
+	read: () => Promise<T>,
+): Promise<T> {
+	await sql`SAVEPOINT lookup_audit_read`.execute(tx);
+	try {
+		const result = await read();
+		await sql`RELEASE SAVEPOINT lookup_audit_read`.execute(tx);
+		return result;
+	} catch (error) {
+		await sql`ROLLBACK TO SAVEPOINT lookup_audit_read`.execute(tx);
+		await sql`RELEASE SAVEPOINT lookup_audit_read`.execute(tx);
+		throw error;
+	}
+}
+
 function appIdentity(row: PersistedAppRow): LookupReferenceScanApp {
 	return {
 		appId: row.id,
@@ -51,16 +68,18 @@ async function readStructuralTargets(
 ): Promise<StructuralLookupReferenceRead> {
 	let entityRows: PersistedEntityRowText[];
 	try {
-		entityRows = (await tx
-			.selectFrom("blueprint_entities")
-			.select(["uuid", "kind", "parent_uuid", "ordinal"])
-			.select(
-				sql<string>`${sql.ref("blueprint_entities.data")}::text`.as(
-					"data_text",
-				),
-			)
-			.where("app_id", "=", row.id)
-			.execute()) as PersistedEntityRowText[];
+		entityRows = (await isolatedRead(tx, () =>
+			tx
+				.selectFrom("blueprint_entities")
+				.select(["uuid", "kind", "parent_uuid", "ordinal"])
+				.select(
+					sql<string>`${sql.ref("blueprint_entities.data")}::text`.as(
+						"data_text",
+					),
+				)
+				.where("app_id", "=", row.id)
+				.execute(),
+		)) as PersistedEntityRowText[];
 	} catch (error) {
 		return {
 			kind: "error",
@@ -112,7 +131,9 @@ async function readStoredTargets(
 	try {
 		return {
 			kind: "ok",
-			targets: await readStoredLookupReferenceTargets(tx, appId),
+			targets: await isolatedRead(tx, () =>
+				readStoredLookupReferenceTargets(tx, appId),
+			),
 		};
 	} catch (error) {
 		return {
