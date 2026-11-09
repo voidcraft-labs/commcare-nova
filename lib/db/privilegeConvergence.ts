@@ -303,8 +303,6 @@ export const AUDIT_SELECT_PUBLIC_TABLES = [
 	"presence",
 	"run_summaries",
 	"threads",
-	"thread_messages",
-	"thread_message_parts",
 ] as const;
 
 const MIGRATION_TABLES = [

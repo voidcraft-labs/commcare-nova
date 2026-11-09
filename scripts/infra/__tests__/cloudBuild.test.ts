@@ -20,6 +20,7 @@ const config = z
 			}),
 		),
 		options: z.object({ machineType: z.string().optional() }),
+		substitutions: z.record(z.string(), z.string()),
 		availableSecrets: z.object({
 			secretManager: z.array(
 				z.object({ versionName: z.string(), env: z.string() }),
@@ -52,7 +53,11 @@ function step(id: string) {
 
 /** Execute the authored step shell. Only the container mount and Cloud Build
  * substitutions are adapted locally; process boundaries never reach Google. */
-function runStep(id: string, mode = "success") {
+function runStep(
+	id: string,
+	mode = "success",
+	overrides: Record<string, string> = {},
+) {
 	const directory = mkdtempSync(join(tmpdir(), "nova-cloud-step-"));
 	const log = join(directory, "calls.jsonl");
 	const digest =
@@ -113,7 +118,12 @@ function runStep(id: string, mode = "success") {
 		const result = spawnSync(
 			item.entrypoint,
 			item.args.map((arg) =>
-				arg
+				Object.entries({ ...config.substitutions, ...overrides })
+					.reduce(
+						(value, [key, replacement]) =>
+							value.replaceAll(`\${${key}}`, replacement),
+						arg,
+					)
 					.replaceAll("$PROJECT_ID", "commcare-nova")
 					.replaceAll("$BUILD_ID", buildId)
 					.replaceAll("$$", "$")
@@ -282,6 +292,12 @@ describe("application release admission and authority", () => {
 			["scripts/infra/manage-deployment.py", "check"],
 			["scripts/rollout/deploy-cloud-run.py", "--read-scaling-prestate"],
 		]);
+		expect(success.calls[1].args).toContain("--expected-scaling=automatic");
+		const disabled = runStep("prerequisites", "success", {
+			_DEPLOY_SCALING: "disabled",
+		});
+		expect(disabled.result.status, disabled.result.stderr).toBe(0);
+		expect(disabled.calls[1].args).toContain("--expected-scaling=disabled");
 		const failed = runStep("prerequisites", "prerequisite-failure");
 		expect(failed.result.status).toBe(18);
 		expect(failed.calls).toHaveLength(1);
@@ -306,39 +322,45 @@ describe("application release admission and authority", () => {
 		expect(failed.calls).toHaveLength(1);
 	});
 
-	test("deployment passes immutable identity, ordinary service authority, scaling and startup admission", () => {
-		const { result, calls, digest } = runStep("deploy");
-		expect(result.status, result.stderr).toBe(0);
-		expect(calls).toHaveLength(1);
-		expect(calls[0]).toEqual({
-			name: "python3",
-			args: [
-				"scripts/rollout/deploy-cloud-run.py",
-				"--project=commcare-nova",
-				"--region=us-central1",
-				"--service=commcare-nova",
-				`--image=${digest}`,
-				"--expected-min=1",
-				"--expected-max=4",
-				"--",
-				"--service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com",
-				"--network=default",
-				"--subnet=default",
-				"--vpc-egress=private-ranges-only",
-				"--update-env-vars=NOVA_DB_WORKLOAD=service,NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MEDIA_BUCKET=nova-multimedia-prod",
-				"--no-default-url",
-				"--ingress=internal-and-cloud-load-balancing",
-				"--min=1",
-				"--max=4",
-				"--min-instances=1",
-				"--max-instances=4",
-				"--timeout=3600s",
-				"--no-cpu-throttling",
-				"--update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest",
-				"--startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24",
-			],
-		});
-	});
+	test.each(["automatic", "disabled"])(
+		"deployment passes immutable identity, authority, startup admission and %s scaling",
+		(scaling) => {
+			const { result, calls, digest } = runStep("deploy", "success", {
+				_DEPLOY_SCALING: scaling,
+			});
+			expect(result.status, result.stderr).toBe(0);
+			expect(calls).toHaveLength(1);
+			expect(calls[0]).toEqual({
+				name: "python3",
+				args: [
+					"scripts/rollout/deploy-cloud-run.py",
+					"--project=commcare-nova",
+					"--region=us-central1",
+					"--service=commcare-nova",
+					`--expected-scaling=${scaling}`,
+					`--image=${digest}`,
+					"--expected-min=1",
+					"--expected-max=4",
+					"--",
+					"--service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com",
+					"--network=default",
+					"--subnet=default",
+					"--vpc-egress=private-ranges-only",
+					"--update-env-vars=NOVA_DB_WORKLOAD=service,NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MEDIA_BUCKET=nova-multimedia-prod",
+					"--no-default-url",
+					"--ingress=internal-and-cloud-load-balancing",
+					"--min=1",
+					"--max=4",
+					"--min-instances=1",
+					"--max-instances=4",
+					"--timeout=3600s",
+					"--no-cpu-throttling",
+					"--update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest",
+					"--startup-probe=httpGet.path=/warmup,httpGet.port=8080,initialDelaySeconds=0,timeoutSeconds=10,periodSeconds=10,failureThreshold=24",
+				],
+			});
+		},
+	);
 
 	test.each(["success", "public-failure", "missing-challenge", "wrong-status"])(
 		"public probes require reachable hosts and an MCP discovery challenge (%s)",

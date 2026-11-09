@@ -109,14 +109,20 @@ describe("runCaseStoreMigrations after the schema is applied", () => {
 		await sql`DROP TABLE kysely_migration`.execute(db);
 		await sql`DROP TABLE IF EXISTS kysely_migration_lock`.execute(db);
 
-		/* Still fails closed, just earlier: the canonical-identity migration now
-		 * runs its repair first, and the repair's boundary check refuses a
-		 * database whose canonical state is already applied but whose ledger no
-		 * longer records it. Either refusal is the point — a re-run must never
-		 * replay a destructive migration over a schema that already has it. */
+		// The first incompatible historical migration may change as the final
+		// schema evolves. The contract is refusal with transactional rollback,
+		// never synthetic ledger reconstruction or destructive replay.
 		await expect(runCaseStoreMigrations(db)).rejects.toThrow(
-			/canonical identity repair/i,
+			/migration.*failed/i,
 		);
+		expect(await ledgerNames(db)).toEqual([]);
+		expect(await regclassExists(db, "public.thread_messages")).toBe(true);
+		expect(await regclassExists(db, "public.thread_message_parts")).toBe(true);
+		const legacy = await sql<{ present: boolean }>`SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+			AND table_name = 'threads' AND column_name = 'messages'
+		) AS present`.execute(db);
+		expect(legacy.rows[0].present).toBe(false);
 	});
 
 	it("does not replay history to heal drift in a fully ledgered final schema", async () => {
