@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { createDocumentExtraction } from "../documentExtraction";
 
 const ready = {
 	status: "ready",
-	version: 1,
+	version: EXTRACTOR_VERSION,
 	truncated: false,
 	charCount: 12,
 	title: "Protocol",
@@ -125,18 +126,35 @@ test("new documents stream progress, share an in-flight retry, and publish metad
 	unsubscribe();
 });
 
+test("a ready extract from an older version is prepared again before it becomes sendable", async () => {
+	const fetch = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(async () => response(ready));
+	const state = model({
+		asset: {
+			id: "old-extract",
+			kind: "pdf",
+			extract: { status: "ready", version: EXTRACTOR_VERSION - 1 },
+		},
+	});
+	expect(state.getSnapshot()).toBeNull();
+	await state.start();
+	expect(fetch).toHaveBeenCalledTimes(1);
+	expect(state.getSnapshot()).toBe("ready");
+});
+
 test("lost Project authority refuses retry and disowns a build-owned read before observer cleanup", async () => {
 	const pendingResponse = delivery();
 	const fetch = vi
 		.spyOn(globalThis, "fetch")
 		.mockReturnValue(pendingResponse.promise);
-	const build = new AbortController();
+	const buildAbort = new AbortController();
 	let canManageFiles = true;
 	const extracted = vi.fn(),
 		progress = vi.fn();
 	const state = model({
 		asset: { id: "a", kind: "pdf" },
-		signal: build.signal,
+		signal: buildAbort.signal,
 		mayExtract: () => canManageFiles,
 		onExtracted: extracted,
 		onProgress: progress,
@@ -152,7 +170,7 @@ test("lost Project authority refuses retry and disowns a build-owned read before
 		expect(extracted).not.toHaveBeenCalled();
 		expect(vi.getTimerCount()).toBe(0);
 	} finally {
-		build.abort();
+		buildAbort.abort();
 	}
 });
 
@@ -254,19 +272,19 @@ test("a build owns its request beyond unmount, while terminal observation stops"
 	const fetch = vi
 		.spyOn(globalThis, "fetch")
 		.mockReturnValue(pendingResponse.promise);
-	const build = new AbortController();
+	const buildAbort = new AbortController();
 	const extracted = vi.fn(),
 		progress = vi.fn();
 	const state = model({
 		asset: { id: "a", kind: "pdf" },
-		signal: build.signal,
+		signal: buildAbort.signal,
 		onExtracted: extracted,
 		onProgress: progress,
 	});
 	const pending = state.start();
 	state.stop();
-	expect(build.signal.aborted).toBe(false);
-	expect(fetch.mock.calls[0][1]?.signal).toBe(build.signal);
+	expect(buildAbort.signal.aborted).toBe(false);
+	expect(fetch.mock.calls[0][1]?.signal).toBe(buildAbort.signal);
 	pendingResponse.resolve(response(ready, true));
 	await pending;
 	expect(progress.mock.calls).toEqual([[12]]);
@@ -277,14 +295,14 @@ test("aborting the build stops queued polls and refuses retry", async () => {
 	const fetch = vi
 		.spyOn(globalThis, "fetch")
 		.mockImplementation(async () => response(extracting));
-	const build = new AbortController();
+	const buildAbort = new AbortController();
 	const state = model({
 		asset: { id: "a", kind: "pdf" },
-		signal: build.signal,
+		signal: buildAbort.signal,
 	});
 	await state.start();
 	expect(vi.getTimerCount()).toBe(1);
-	build.abort();
+	buildAbort.abort();
 	await state.retry();
 	await vi.advanceTimersByTimeAsync(8000);
 	expect(fetch).toHaveBeenCalledTimes(1);

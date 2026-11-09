@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { Pool } from "pg";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder, openPage, reloadBuilder } from "../../lib/pageLoads";
 import { type RemovableRoutes, removableRoutes } from "../../lib/routes";
@@ -258,7 +259,7 @@ test("search and pagination use server results; full document names disclose on 
 		originalFilename: filename,
 		extract: {
 			status: "ready",
-			version: 1,
+			version: EXTRACTOR_VERSION,
 			truncated: false,
 			charCount: 300,
 			title,

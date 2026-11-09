@@ -16,6 +16,7 @@ import { ChangeSetStagingRejectedError } from "@/lib/agent/change-set/errors";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import type { AgentStep } from "@/lib/agent/generationContext";
+import type { AdmittedSources } from "@/lib/agent/incomingSources";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import type { SubGenerationUsageMeter } from "@/lib/agent/modelRunContext";
 import {
@@ -162,6 +163,7 @@ export interface BuildOrchestrationDeps {
 	) => void | Promise<void>;
 }
 export interface RunBuildOrchestrationArgs {
+	readonly admittedSources?: AdmittedSources;
 	readonly designSessionId: string;
 	readonly proposedAppId: string;
 	readonly projectId: string;
@@ -379,6 +381,7 @@ export async function runBuildOrchestration(
 			designSessionId: args.designSessionId,
 		};
 		let source = await loadSourceMaterial({
+			admittedSources: args.admittedSources,
 			projectId: args.projectId,
 			messages: args.messages as NovaUIMessage[],
 			deps: sourceDeps,

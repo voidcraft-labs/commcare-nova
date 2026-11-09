@@ -9,7 +9,23 @@ import { type ExtractMeta, triggerAssetExtraction } from "./mediaClient";
 export interface ExtractableAsset {
 	id: string;
 	kind: AssetKind;
-	extract?: { status: MediaExtractStatus };
+	extract?: { status: MediaExtractStatus; version?: number };
+}
+
+/** A formerly ready extract needs preparing again after an extractor upgrade.
+ * Failed preparation still waits for the person's explicit retry. */
+export function initialExtractStatus(
+	asset: ExtractableAsset,
+): MediaExtractStatus | null {
+	if (!isDocumentKind(asset.kind)) return null;
+	const extract = asset.extract;
+	if (
+		extract?.status === "ready" &&
+		extract.version !== undefined &&
+		extract.version < EXTRACTOR_VERSION
+	)
+		return null;
+	return extract?.status ?? null;
 }
 
 /** One asset's extraction observation. A build may own the request beyond the
@@ -32,9 +48,7 @@ export function createDocumentExtraction({
 	onProgress?: (deltaChars: number) => void;
 }) {
 	const isDocument = isDocumentKind(asset.kind);
-	let status: MediaExtractStatus | null = isDocument
-		? (asset.extract?.status ?? null)
-		: null;
+	let status = initialExtractStatus(asset);
 	let active = false;
 	let requestId = 0;
 	let polls = 0;

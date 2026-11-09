@@ -13,6 +13,7 @@ import {
 	type MediaAssetId,
 } from "@/lib/domain/multimedia";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import type { AdmittedSources } from "./incomingSources";
 import type { SourceDocumentRuntime } from "./sourceDocuments";
 import { askQuestionsInputSchema } from "./tools/askQuestions";
 
@@ -67,6 +68,7 @@ export async function loadSourceMaterial(args: {
 	readonly messages: readonly NovaUIMessage[];
 	readonly deps: SourceMaterialDeps;
 	readonly selectedSources?: readonly SelectedSourceDocument[];
+	readonly admittedSources?: AdmittedSources;
 }): Promise<SourceMaterial> {
 	const requests: Array<{
 		key: string;
@@ -123,20 +125,30 @@ export async function loadSourceMaterial(args: {
 		if (!references.has(selected.assetId))
 			references.set(selected.assetId, selected);
 	const assets = await args.deps.loadAssets(
-		[...references.keys()].map(asMediaAssetId),
+		[...references.keys()]
+			.map(asMediaAssetId)
+			.filter((id) => !args.admittedSources?.has(id)),
 		args.projectId,
 	);
 	const byId = new Map(assets.map((asset) => [asset.id as string, asset]));
 	const documents: SourceDocument[] = [];
 	const images: Array<SourceMaterial["images"][number]> = [];
 	for (const reference of references.values()) {
-		const asset = byId.get(reference.assetId);
-		if (asset?.status !== "ready" || asset.kind !== reference.kind)
+		const admitted = args.admittedSources?.get(reference.assetId);
+		const asset = admitted?.asset ?? byId.get(reference.assetId);
+		if (
+			asset?.status !== "ready" ||
+			asset.kind !== reference.kind ||
+			asset.project_id !== args.projectId
+		)
 			throw new SourceMaterialError(
 				`The attachment "${reference.filename}" is unavailable in this Project.`,
 			);
 		if (isDocumentKind(reference.kind)) {
-			const extract = await args.deps.readExtract(asset, reference.kind);
+			const extract =
+				admitted?.content.kind === "document"
+					? admitted.content
+					: await args.deps.readExtract(asset, reference.kind);
 			if (!extract.text.trim())
 				throw new SourceMaterialError(
 					`No text could be read from "${reference.filename}".`,
@@ -159,7 +171,13 @@ export async function loadSourceMaterial(args: {
 			images.push({
 				id: asset.id,
 				name: reference.filename,
-				...(await args.deps.loadImage(asset)),
+				...(admitted?.content.kind === "image"
+					? {
+							mediaType: admitted.content.mediaType,
+							dataUrl: admitted.content.dataUrl,
+							bytesDigest: admitted.content.bytesDigest,
+						}
+					: await args.deps.loadImage(asset)),
 			});
 		}
 	}

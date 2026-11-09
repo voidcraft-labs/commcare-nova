@@ -34,6 +34,11 @@ import {
 } from "@/lib/agent/build/orchestratorState";
 import { authoringStage } from "@/lib/agent/build/progress";
 import {
+	type AdmittedSources,
+	admitIncomingSources,
+	IncomingSourceUnavailableError,
+} from "@/lib/agent/incomingSources";
+import {
 	EDIT_TURN_LIMIT_MESSAGE,
 	SOLUTIONS_ARCHITECT_MAX_STEPS,
 } from "@/lib/agent/solutionsArchitect";
@@ -47,6 +52,10 @@ import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
 import type { InputRound } from "@/lib/chat/inputRound";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
+import {
+	type IncomingSourceReference,
+	incomingSourceReferences,
+} from "@/lib/chat/sourceAdmission";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
@@ -101,6 +110,7 @@ import {
 	consumeInputRoundInTransaction,
 	InputRoundRejectedError,
 	loadThreadSelectedSources,
+	loadThreadSourceMessages,
 	mergeThreadTurnMessages,
 	persistResponseSnapshot,
 	resolveThreadStream,
@@ -511,6 +521,60 @@ export async function POST(req: Request) {
 		);
 	};
 
+	let admittedSources: AdmittedSources = new Map();
+	let admittedSourceProject: string | undefined;
+	let references: IncomingSourceReference[] = [];
+	const rejectedSources = (error: Error) => ({
+		code: "source_not_admitted" as const,
+		type: "attachment_unavailable" as const,
+		error: error.message,
+		references: references.map(({ messageId, ref }) => ({
+			messageId,
+			assetId: ref.assetId,
+		})),
+	});
+	const projectionRejection = (error: unknown) =>
+		error instanceof ThreadAttachmentUnavailableError &&
+		error.admission === "incoming"
+			? rejectedSources(error)
+			: undefined;
+	// Every target branch calls this after authorization and before claiming a
+	// run, booking credits, or consuming answers. Only new refs are re-admitted.
+	const sourceRejection = async (
+		authorizedProjectId: string,
+	): Promise<Response | null> => {
+		if (admittedSourceProject === authorizedProjectId) return null;
+		try {
+			const previous =
+				existingThread &&
+				messages.some((message) => message.metadata?.attachments?.length)
+					? await loadThreadSourceMessages(existingThread.target, threadId)
+					: [];
+			references = incomingSourceReferences(messages, previous);
+			admittedSources = await admitIncomingSources({
+				references,
+				projectId: authorizedProjectId,
+				signal: req.signal,
+			});
+			admittedSourceProject = authorizedProjectId;
+			return null;
+		} catch (error) {
+			if (error instanceof IncomingSourceUnavailableError) {
+				log.warn("[chat] incoming source unavailable", { threadId, error });
+				return Response.json(rejectedSources(error), { status: 409 });
+			}
+			log.error("[chat] source admission read failed", error, { threadId });
+			return Response.json(
+				{
+					error:
+						"I couldn't check this message's files. You can try sending again shortly.",
+					type: "internal",
+				},
+				{ status: 503 },
+			);
+		}
+	};
+
 	/* This POST's durable-stream identity: fresh per POST (a run spans many
 	 * POSTs; resume cursors are per-POST chunk counts). Returned in the
 	 * `x-workflow-run-id` response header, which is the handle the client's
@@ -737,6 +801,8 @@ export async function POST(req: Request) {
 			designLineageSessionId = session.id;
 			const roundRejection = inputRoundRejection();
 			if (roundRejection) return roundRejection;
+			const sourceFailure = await sourceRejection(projectId);
+			if (sourceFailure) return sourceFailure;
 			if (session.state === "materialized" && session.app_id !== null) {
 				/* The design already became an app; this turn continues against
 				 * it (the thread stays session-targeted, the app row is the run
@@ -778,7 +844,10 @@ export async function POST(req: Request) {
 					} catch (err) {
 						if (err instanceof ThreadAttachmentUnavailableError)
 							return Response.json(
-								{ error: err.message, type: "attachment_unavailable" },
+								projectionRejection(err) ?? {
+									error: err.message,
+									type: "attachment_unavailable",
+								},
 								{ status: 409 },
 							);
 						if (err instanceof InputRoundRejectedError)
@@ -888,6 +957,8 @@ export async function POST(req: Request) {
 					{ status: 503 },
 				);
 			}
+			const sourceFailure = await sourceRejection(projectId);
+			if (sourceFailure) return sourceFailure;
 			cost = chargeAmount(false);
 			try {
 				const created = await createAndClaimDesignSessionRun({
@@ -971,6 +1042,8 @@ export async function POST(req: Request) {
 		}
 		const roundRejection = inputRoundRejection();
 		if (roundRejection) return roundRejection;
+		const sourceFailure = await sourceRejection(projectId);
+		if (sourceFailure) return sourceFailure;
 		/* The authoritative mode read: only a `complete` app is EDIT-shaped. A
 		 * `generating` app (live or paused mid-build) and an `error` app (a
 		 * reaped build awaiting re-drive; a failed edit never flips its app to
@@ -1129,7 +1202,10 @@ export async function POST(req: Request) {
 			} catch (err) {
 				if (err instanceof ThreadAttachmentUnavailableError)
 					return Response.json(
-						{ error: err.message, type: "attachment_unavailable" },
+						projectionRejection(err) ?? {
+							error: err.message,
+							type: "attachment_unavailable",
+						},
 						{ status: 409 },
 					);
 				if (err instanceof InputRoundRejectedError)
@@ -1625,6 +1701,7 @@ export async function POST(req: Request) {
 							>["pause"]["orchestration"];
 						};
 						heldApp?: boolean;
+						sourceRejection?: ReturnType<typeof projectionRejection>;
 						failureSource?: string;
 						originalError?: unknown;
 						/** The typed failure already emitted its canonical structured
@@ -2036,6 +2113,13 @@ export async function POST(req: Request) {
 					 * while an UNSEALED stream (process death, broken log) keeps reading
 					 * as a mid-turn interruption. Awaited: execute must not resolve
 					 * (closing the response) before the terminal row is durable. */
+					if (opts?.sourceRejection) {
+						writer.write({
+							type: "data-source-rejection",
+							data: opts.sourceRejection,
+							transient: true,
+						});
+					}
 					await writer.close(foldOutcome);
 				};
 
@@ -2067,6 +2151,7 @@ export async function POST(req: Request) {
 					}
 					await finalizeRun(classified, {
 						failureSource: source,
+						sourceRejection: projectionRejection(error),
 						originalError: error,
 						turnComplete: opts?.turnComplete,
 					});
@@ -2217,7 +2302,10 @@ export async function POST(req: Request) {
 									"route:attachment-admission",
 									{ reportedAtSource: true },
 								);
-								await finalizeRun(undefined, { heldApp: false });
+								await finalizeRun(undefined, {
+									heldApp: false,
+									sourceRejection: projectionRejection(err),
+								});
 								return;
 							}
 							if (err instanceof InputRoundRejectedError) {
@@ -2526,7 +2614,10 @@ export async function POST(req: Request) {
 							ctx.emitError(classifyError(err), "route:attachment-admission", {
 								reportedAtSource: true,
 							});
-							await finalizeRun(undefined, { heldApp: false });
+							await finalizeRun(undefined, {
+								heldApp: false,
+								sourceRejection: projectionRejection(err),
+							});
 							return;
 						}
 						if (err instanceof InputRoundRejectedError) {
@@ -2709,6 +2800,7 @@ export async function POST(req: Request) {
 					const orchestrationAbort = new AbortController();
 					try {
 						const outcome = await runBuildOrchestration({
+							admittedSources,
 							streamId,
 							designSessionId: design.designSessionId,
 							proposedAppId: design.proposedAppId,
@@ -3177,7 +3269,10 @@ export async function POST(req: Request) {
 					 * its stored extract instantly and must not flash the status (an image /
 					 * doc-free turn does no narrate-worthy work either). The events also land
 					 * in the run log as run annotations, not chat-visible content. */
-					const docsToReadCount = countDocumentsNeedingRead(messagesToSend);
+					const docsToReadCount = countDocumentsNeedingRead(
+						messagesToSend,
+						admittedSources,
+					);
 					if (docsToReadCount > 0) {
 						ctx.emitConversation({
 							type: "attachment-prep",
@@ -3206,6 +3301,7 @@ export async function POST(req: Request) {
 								transient: true,
 							}),
 						ctx.sourceDocuments,
+						admittedSources,
 					);
 					if (docsToReadCount > 0) {
 						ctx.emitConversation({ type: "attachment-prep", phase: "done" });

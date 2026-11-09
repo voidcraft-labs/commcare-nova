@@ -66,6 +66,16 @@ Reads during a build also update that snapshot. The page revision protects one
 read sequence from mixed extracts; it does not freeze a document across turns.
 User message metadata cannot forge a library selection.
 
+New chat sources pass `incomingSources.ts` before any run claim, credit
+reservation, or question-round consumption. Admission compares message/reference
+identities with the stored transcript, checks current Project authorization and
+ready preparation, and reads the actual extract or image without starting a
+model call. Both build and edit execution reuse that request's verified content.
+A rejected source needs an explicit preparation retry or removal; client display
+metadata cannot establish readiness. Existing historical sources are not new
+inputs, and the edit resolver retains its historical unavailable-source notice.
+This request-local content is not immutable historical-source retention.
+
 ## Document source fidelity and privacy
 
 The extractor produces the architect's working requirements extract, not a

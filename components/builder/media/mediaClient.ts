@@ -343,7 +343,7 @@ export async function fetchAssetExtractMeta(
  * Best-effort single-flight: a concurrent job rides the `done` line as
  * `extracting` (poll again); a server-side condense failure as `failed`. A
  * transport error, or an `abort` (the caller unmounted): maps to `failed` too;
- * the file is saved and the chat's lazy backstop re-reads it on send. Pass
+ * the file stays saved for an explicit preparation retry. Pass
  * `signal` so an unmount aborts the in-flight read (no dangling stream reader).
  */
 export async function triggerAssetExtraction(

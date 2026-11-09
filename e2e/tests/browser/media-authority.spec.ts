@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/media-authority-client";
@@ -32,7 +33,12 @@ const document = {
 	formatLabel: undefined,
 	playsOn: undefined,
 	originalFilename: "protocol.pdf",
-	extract: { status: "failed", version: 1, truncated: false, charCount: 0 },
+	extract: {
+		status: "failed",
+		version: EXTRACTOR_VERSION,
+		truncated: false,
+		charCount: 0,
+	},
 };
 
 async function mediaPeer(page: Page) {

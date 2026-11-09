@@ -2,7 +2,7 @@
  * Nova's chat transport: `WorkflowChatTransport` with the cold-resume replay
  * windowed by the CLIENT'S hydrated state (`lib/chat/hydratedStepFilter`).
  *
- * The subclass overrides exactly one path — the public `reconnectToStream`,
+ * The public `reconnectToStream` override windows cold-resume replay,
  * which only the cold resume calls (`useChat`'s `resumeStream` on a page that
  * hydrated the barrier-persisted transcript). Its full-log replay pipes
  * through the hydrated-step skip filter, which reads the live Chat state at
@@ -28,6 +28,10 @@ import {
 	type InputRoundReconciliation,
 	inputRoundReconciliationSchema,
 } from "./inputRound";
+import {
+	SourceAdmissionRejectionError,
+	sourceAdmissionRejectionSchema,
+} from "./sourceAdmission";
 
 export class InputRoundReconciliationError extends Error {
 	constructor(readonly reconciliation: InputRoundReconciliation) {
@@ -41,8 +45,34 @@ export class InputRoundReconciliationError extends Error {
 /** The override keeps the base class's exact signature. `package.json`
  *  overrides the workflow package's pinned `ai` with Nova's own, so its chunk
  *  stream is the root `UIMessageChunk` and the filter only passes or drops. */
+type WorkflowSend<UI_MESSAGE extends UIMessage> =
+	WorkflowChatTransport<UI_MESSAGE>["sendMessages"];
+
 type WorkflowReconnect<UI_MESSAGE extends UIMessage> =
 	WorkflowChatTransport<UI_MESSAGE>["reconnectToStream"];
+
+/** Run after the workflow transport has consumed terminal framing, so a
+ * refused request is not mistaken for a broken connection and reconnected.
+ * Keep draining through finish: settlement/refund and target identity precede
+ * the rejection, and must reach the Chat before its typed failure is surfaced. */
+function sourceRejectionFilter() {
+	let rejection: SourceAdmissionRejectionError | undefined;
+	return new TransformStream<UIMessageChunk, UIMessageChunk>({
+		transform(chunk, controller) {
+			if (chunk.type === "data-source-rejection") {
+				rejection = new SourceAdmissionRejectionError(
+					sourceAdmissionRejectionSchema.parse(chunk.data),
+				);
+				return;
+			}
+			if (chunk.type === "finish" && rejection) throw rejection;
+			controller.enqueue(chunk);
+		},
+		flush() {
+			if (rejection) throw rejection;
+		},
+	});
+}
 
 export class NovaChatTransport<
 	UI_MESSAGE extends UIMessage,
@@ -61,12 +91,17 @@ export class NovaChatTransport<
 			fetch: async (input, init) => {
 				const response = await request(input, init);
 				if (response.status === 409) {
-					const parsed = inputRoundReconciliationSchema.safeParse(
-						await response
-							.clone()
-							.json()
-							.catch(() => null),
-					);
+					const body = await response
+						.clone()
+						.json()
+						.catch(() => null);
+					const sourceRejection =
+						sourceAdmissionRejectionSchema.safeParse(body);
+					if (sourceRejection.success) {
+						await response.body?.cancel();
+						throw new SourceAdmissionRejectionError(sourceRejection.data);
+					}
+					const parsed = inputRoundReconciliationSchema.safeParse(body);
 					if (parsed.success) {
 						await response.body?.cancel();
 						throw new InputRoundReconciliationError(parsed.data);
@@ -78,13 +113,23 @@ export class NovaChatTransport<
 		this.hydratedMessages = hydratedMessages;
 	}
 
+	override async sendMessages(
+		options: Parameters<WorkflowSend<UI_MESSAGE>>[0],
+	): ReturnType<WorkflowSend<UI_MESSAGE>> {
+		return (await super.sendMessages(options)).pipeThrough(
+			sourceRejectionFilter(),
+		);
+	}
+
 	override async reconnectToStream(
 		options: Parameters<WorkflowReconnect<UI_MESSAGE>>[0],
 	): ReturnType<WorkflowReconnect<UI_MESSAGE>> {
 		const stream = await super.reconnectToStream(options);
 		if (!stream) return stream;
-		return stream.pipeThrough(
-			createHydratedStepSkipFilter<UIMessageChunk>(this.hydratedMessages),
-		);
+		return stream
+			.pipeThrough(sourceRejectionFilter())
+			.pipeThrough(
+				createHydratedStepSkipFilter<UIMessageChunk>(this.hydratedMessages),
+			);
 	}
 }

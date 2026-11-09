@@ -34,6 +34,7 @@ import { Chat, useChat } from "@ai-sdk/react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStarterApp } from "@/app/(app)/build/actions";
+import { triggerAssetExtraction } from "@/components/builder/media/mediaClient";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import {
 	DesignProgressDetails,
@@ -60,6 +61,10 @@ import {
 	InputRoundReconciliationError,
 	NovaChatTransport,
 } from "@/lib/chat/novaChatTransport";
+import {
+	removeRejectedSources,
+	SourceAdmissionRejectionError,
+} from "@/lib/chat/sourceAdmission";
 import type { ReconcilerContextValue } from "@/lib/collab/context";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
@@ -69,6 +74,7 @@ import {
 	BlueprintDocContext,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
+import { isDocumentKind } from "@/lib/domain/multimedia";
 import {
 	type DesignSessionSeed,
 	parseDesignSessionScope,
@@ -1057,6 +1063,10 @@ export function ChatContainer({
 	const inputRound = chatInputRounds.get(chat)?.round ?? null;
 	const continuationNeedsReload =
 		chatInputRounds.get(chat)?.requiresReconciliation === true;
+	const sourceRejection =
+		status === "error" && chatError instanceof SourceAdmissionRejectionError
+			? chatError
+			: null;
 
 	/* Only the server's committed input invitation parks the progress region.
 	 * A question part can arrive before the persistence barrier completes. Retire the
@@ -1078,6 +1088,17 @@ export function ChatContainer({
 	const chatRef = useRef(chat);
 	chatRef.current = chat;
 	const activeThreadReadsRef = useRef(new Set<AbortController>());
+	const sourceRetryRef = useRef<AbortController | null>(null);
+	const [preparingRejectedSources, setPreparingRejectedSources] =
+		useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Each chat and Project epoch owns its preparation request lifetime.
+	useEffect(() => {
+		setPreparingRejectedSources(false);
+		return () => {
+			sourceRetryRef.current?.abort();
+			sourceRetryRef.current = null;
+		};
+	}, [chat, scopeEpoch]);
 	const pendingProjectThreadReloadRef = useRef<{
 		epoch: number;
 		threadId: string;
@@ -1101,6 +1122,8 @@ export function ChatContainer({
 	useEffect(() => {
 		if (!reconcilerCtx) return;
 		return reconcilerCtx.subscribeProjectScopeReset((nextEpoch) => {
+			sourceRetryRef.current?.abort();
+			sourceRetryRef.current = null;
 			for (const controller of activeThreadReadsRef.current) controller.abort();
 			activeThreadReadsRef.current.clear();
 			const retired = retireProjectAttachmentRefs(messagesRef.current);
@@ -1126,6 +1149,7 @@ export function ChatContainer({
 			 * exit frame cannot retain a source asset id or filename. */
 			flushSync(() => {
 				setMessages(retired);
+				setPreparingRejectedSources(false);
 				setThreadScopeHydrationFailed(false);
 				setThreadScopeReloading(true);
 			});
@@ -1649,6 +1673,16 @@ export function ChatContainer({
 		)
 			return;
 		const runId = runIdRef.current ?? "client-error";
+		if (chatError instanceof SourceAdmissionRejectionError) {
+			if (!session.appId) {
+				agentEngagedRef.current = false;
+				setSendFailedBeforeApp(true);
+			}
+			const progress = designProgressStore.getState();
+			if (designProgressTracksBuildFailure(progress, session.buildUnfinished))
+				progress.markFailed(message, { recoverable: true });
+			return;
+		}
 		session.pushEvent({
 			kind: "conversation",
 			runId,
@@ -1769,7 +1803,8 @@ export function ChatContainer({
 		}) => {
 			if (
 				activeChatRef.current !== chat ||
-				chatInputRounds.get(chat)?.requiresReconciliation
+				chatInputRounds.get(chat)?.requiresReconciliation ||
+				chat.error instanceof SourceAdmissionRejectionError
 			)
 				return;
 			const session = sessionStoreRef.current?.getState();
@@ -1801,6 +1836,73 @@ export function ChatContainer({
 			});
 		},
 		[chat, scopeEpoch, sendMessage],
+	);
+
+	const retrySourceSubmission = useCallback(
+		async (withoutFiles: boolean) => {
+			const ownsSubmission = () =>
+				activeChatRef.current === chat &&
+				chat.error === sourceRejection &&
+				chatGenerationCanWrite(
+					sessionStoreRef.current?.getState(),
+					scopeEpoch,
+					threadHydrationStateRef.current,
+				);
+			if (!sourceRejection || sourceRetryRef.current || !ownsSubmission())
+				return;
+			const controller = new AbortController();
+			sourceRetryRef.current = controller;
+			try {
+				if (!withoutFiles) {
+					setPreparingRejectedSources(true);
+					const documents = new Set(
+						chat.messages.flatMap((message) =>
+							(message.metadata?.attachments ?? [])
+								.filter(
+									(ref) =>
+										isDocumentKind(ref.kind) &&
+										sourceRejection.rejection.references.some(
+											(item) =>
+												item.messageId === message.id &&
+												item.assetId === ref.assetId,
+										),
+								)
+								.map((ref) => ref.assetId),
+						),
+					);
+					// Only this explicit recovery action prepares sources. The existing
+					// endpoint reuses ready bytes and can regenerate a missing extract.
+					for (const assetId of documents) {
+						if (controller.signal.aborted || !ownsSubmission()) return;
+						const extract = await triggerAssetExtraction(assetId, {
+							signal: controller.signal,
+						});
+						if (extract.status !== "ready") break;
+					}
+				}
+				if (controller.signal.aborted || !ownsSubmission()) return;
+				if (
+					!claimDesignAgentPath({
+						blankAppCreationInProgress: creatingStarterAppRef.current,
+						agentEngaged: agentEngagedRef,
+						clearSendFailure: () => setSendFailedBeforeApp(false),
+					})
+				)
+					return;
+				if (withoutFiles)
+					setMessages(
+						removeRejectedSources(chat.messages, sourceRejection.rejection),
+					);
+				clearError();
+				await sendMessage();
+			} finally {
+				if (sourceRetryRef.current === controller) {
+					sourceRetryRef.current = null;
+					setPreparingRejectedSources(false);
+				}
+			}
+		},
+		[chat, clearError, scopeEpoch, sendMessage, setMessages, sourceRejection],
 	);
 
 	const retryInputContinuation = useCallback(() => {
@@ -2085,9 +2187,16 @@ export function ChatContainer({
 				) : undefined
 			}
 			composerBusy={
-				creatingStarterApp || threadScopeReloading || continuationNeedsReload
+				creatingStarterApp ||
+				threadScopeReloading ||
+				continuationNeedsReload ||
+				sourceRejection !== null
 			}
-			interactionBlocked={threadScopeReloading || continuationNeedsReload}
+			interactionBlocked={
+				threadScopeReloading ||
+				continuationNeedsReload ||
+				sourceRejection !== null
+			}
 			interactionBlockedRecovery={
 				continuationNeedsReload
 					? {
@@ -2105,45 +2214,63 @@ export function ChatContainer({
 								actionLabel: "Reload page",
 								onAction: () => window.location.reload(),
 							}
-						: status === "error" &&
-								(trailingTypedDesignWaitContinuation(messages, inputRound) ||
-									answeredInputRound(messages, inputRound))
+						: sourceRejection && canEdit && !readOnly
 							? {
-									title: "Reply not sent",
-									message: "Your reply is still here. Try sending it again.",
-									actionLabel: "Try again",
-									onAction: retryInputContinuation,
+									title: "Message not sent",
+									message: sourceRejection.message,
+									actionLabel: preparingRejectedSources
+										? "Reading files"
+										: "Read files and retry",
+									actionDisabled: preparingRejectedSources,
+									onAction: () => {
+										void retrySourceSubmission(false);
+									},
+									secondaryAction: {
+										label: "Send without files",
+										onAction: () => {
+											void retrySourceSubmission(true);
+										},
+									},
 								}
-							: canEdit &&
-									!readOnly &&
-									inputRound?.state === "pending" &&
-									inputRound.kind === "review" &&
-									designReviewCanContinue(
-										designProgressStore.getState(),
-										status,
-									)
+							: status === "error" &&
+									(trailingTypedDesignWaitContinuation(messages, inputRound) ||
+										answeredInputRound(messages, inputRound))
 								? {
-										title: "Review paused",
-										message:
-											"Your app and the review so far are saved. There is more to check before the app is ready.",
-										actionLabel: "Continue",
-										onAction: continuePeerReview,
+										title: "Reply not sent",
+										message: "Your reply is still here. Try sending it again.",
+										actionLabel: "Try again",
+										onAction: retryInputContinuation,
 									}
 								: canEdit &&
 										!readOnly &&
-										designBuildCanResume(
+										inputRound?.state === "pending" &&
+										inputRound.kind === "review" &&
+										designReviewCanContinue(
 											designProgressStore.getState(),
-											isExistingApp && buildUnfinished,
 											status,
 										)
 									? {
-											title: "Build paused",
+											title: "Review paused",
 											message:
-												"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
-											actionLabel: "Resume build",
-											onAction: resumeAcceptedBuild,
+												"Your app and the review so far are saved. There is more to check before the app is ready.",
+											actionLabel: "Continue",
+											onAction: continuePeerReview,
 										}
-									: undefined
+									: canEdit &&
+											!readOnly &&
+											designBuildCanResume(
+												designProgressStore.getState(),
+												isExistingApp && buildUnfinished,
+												status,
+											)
+										? {
+												title: "Build paused",
+												message:
+													"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+												actionLabel: "Resume build",
+												onAction: resumeAcceptedBuild,
+											}
+										: undefined
 			}
 			pendingWorkRecovery={
 				appId &&

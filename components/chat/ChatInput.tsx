@@ -17,6 +17,7 @@ import {
 	AssetPreviewDialog,
 	type AssetPreviewTarget,
 } from "@/components/builder/media/AssetPreviewDialog";
+import { initialExtractStatus } from "@/components/builder/media/documentExtraction";
 import { MediaPickerDialog } from "@/components/builder/media/MediaPickerDialog";
 import type {
 	ExtractMeta,
@@ -154,6 +155,7 @@ function ChatInputComposer({
 }: ChatInputProps) {
 	/** Assets staged for the next send (picked from the file manager). */
 	const [picked, setPicked] = useState<MediaAssetView[]>([]);
+	const [retrying, setRetrying] = useState<ReadonlySet<string>>(new Set());
 	/** File-manager dialog open state. */
 	const [pickerOpen, setPickerOpen] = useState(false);
 	/** Asset currently shown in the preview dialog (`null` = closed). */
@@ -183,6 +185,7 @@ function ChatInputComposer({
 		/* The provider owns the typed draft and remains mounted. Only stored
 		 * Project asset handles and their portaled surfaces are discarded. */
 		setPicked([]);
+		setRetrying(new Set());
 		setPickerOpen(false);
 		setPreviewTarget(null);
 	}, [scopeEpoch]);
@@ -193,6 +196,7 @@ function ChatInputComposer({
 				 * upload promises may settle before React commits the epoch render. */
 				scopeEpochRef.current = nextScopeEpoch;
 				setPicked([]);
+				setRetrying(new Set());
 				setPickerOpen(false);
 				setPreviewTarget(null);
 			}),
@@ -229,6 +233,7 @@ function ChatInputComposer({
 		const callbackScopeEpoch = scopeEpoch;
 		if (scopeEpochRef.current !== callbackScopeEpoch) return;
 		setPicked((cur) => cur.filter((a) => a.id !== assetId));
+		setRetrying((cur) => new Set([...cur].filter((id) => id !== assetId)));
 	};
 	// Eager extraction finishes AFTER a document is staged, so the snapshot picked
 	// here has no title/summary yet. When the chip's badge reports completion, fold
@@ -238,6 +243,7 @@ function ChatInputComposer({
 	const reconcileExtract = (assetId: string, extract: ExtractMeta) => {
 		const callbackScopeEpoch = scopeEpoch;
 		if (scopeEpochRef.current !== callbackScopeEpoch) return;
+		setRetrying((cur) => new Set([...cur].filter((id) => id !== assetId)));
 		setPicked((cur) =>
 			cur.map((a) => (a.id === assetId ? { ...a, extract } : a)),
 		);
@@ -251,9 +257,20 @@ function ChatInputComposer({
 	const reading = visiblePicked.some(
 		(a) =>
 			isDocumentKind(a.kind) &&
-			a.extract?.status !== "ready" &&
-			a.extract?.status !== "failed",
+			(retrying.has(a.id) ||
+				(initialExtractStatus(a) !== "ready" &&
+					initialExtractStatus(a) !== "failed")),
 	);
+	const failedSource = visiblePicked.some(
+		(a) =>
+			isDocumentKind(a.kind) &&
+			a.extract?.status === "failed" &&
+			!retrying.has(a.id),
+	);
+	const sourceBlocked = reading || failedSource;
+	const sourceNotice = failedSource
+		? "I couldn't read a file. You can retry it or remove it before sending."
+		: "I'm still reading your files. You can send when they're ready.";
 	const onReadingChangeRef = useRef(onReadingChange);
 	onReadingChangeRef.current = onReadingChange;
 	useEffect(() => {
@@ -272,13 +289,15 @@ function ChatInputComposer({
 			e.key === "Enter" &&
 			!e.shiftKey &&
 			!e.nativeEvent.isComposing &&
-			overLimit
+			(overLimit || sourceBlocked)
 		) {
 			e.preventDefault();
 			showToast(
 				"warning",
-				"Message too long",
-				`Trim to ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()} characters to send.`,
+				sourceBlocked ? "File not ready" : "Message too long",
+				sourceBlocked
+					? sourceNotice
+					: `Trim to ${MAX_CHAT_MESSAGE_CHARS.toLocaleString()} characters to send.`,
 			);
 		}
 	};
@@ -288,7 +307,8 @@ function ChatInputComposer({
 		 * before React supplies new access props. The registry advances this ref
 		 * immediately; returning false keeps the draft in the box for the send
 		 * the user will retry once the surface settles. */
-		if (!ownsCurrentProjectScope() || disabled) return false;
+		if (!ownsCurrentProjectScope() || disabled || overLimit || sourceBlocked)
+			return false;
 		const text = (message.text ?? "").trim();
 		// Require typed text to send: a staged attachment alone never sends an
 		// empty turn (the SA reads an attachment as context for a request, not as
@@ -307,6 +327,7 @@ function ChatInputComposer({
 		// PromptInput clears the draft after we return; we clear the staged
 		// attachments.
 		setPicked([]);
+		setRetrying(new Set());
 	};
 
 	return (
@@ -327,6 +348,10 @@ function ChatInputComposer({
 					assets={visiblePicked}
 					onRemove={removePicked}
 					onExtracted={reconcileExtract}
+					onRetry={(assetId) => {
+						if (ownsCurrentProjectScope())
+							setRetrying((cur) => new Set([...cur, assetId]));
+					}}
 					extractionAbortSignal={extractionAbortSignal}
 					onPreview={(asset) => {
 						if (!ownsCurrentProjectScope()) return;
@@ -339,6 +364,11 @@ function ChatInputComposer({
 						});
 					}}
 				/>
+				{failedSource && (
+					<p role="status" className="px-3 text-sm text-nova-text-secondary">
+						{sourceNotice}
+					</p>
+				)}
 				<PromptInputBody>
 					<PromptInputTextarea
 						disabled={disabled}
@@ -413,13 +443,17 @@ function ChatInputComposer({
 							<TooltipTrigger
 								render={
 									<PromptInputSubmit
-										disabled={disabled || overLimit || !hasText}
+										disabled={
+											disabled || overLimit || !hasText || sourceBlocked
+										}
 										variant="default"
 										aria-label="Send"
 									/>
 								}
 							/>
-							<TooltipContent>Send</TooltipContent>
+							<TooltipContent>
+								{sourceBlocked ? sourceNotice : "Send"}
+							</TooltipContent>
 						</Tooltip>
 					</div>
 				</PromptInputFooter>

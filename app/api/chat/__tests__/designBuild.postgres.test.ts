@@ -648,9 +648,11 @@ it("returns an actionable attachment conflict without changing a paused claim or
 	const body = await response.json();
 	expect(body).toMatchObject({
 		type: "attachment_unavailable",
-		error: expect.stringContaining("Remove it"),
+		code: "source_not_admitted",
+		error: expect.stringContaining("requirements.pdf"),
+		references: [{ messageId: "with-file", assetId }],
 	});
-	expect(JSON.stringify(body)).not.toContain(assetId);
+	expect(body.error).not.toContain(assetId);
 	const after = await sessionRow();
 	expect(after.run_id).toBe(before.run_id);
 	expect(after.run_holder_nonce).toBe(before.run_holder_nonce);
