@@ -119,7 +119,14 @@ export async function retainThreadSource(
 			.executeTakeFirstOrThrow();
 		if (
 			existing.revision !== revision ||
-			existing.provenance !== args.provenance
+			(existing.provenance !== args.provenance &&
+				// Selecting unchanged migrated evidence keeps its original provenance.
+				!(
+					args.messageId === "" &&
+					args.provenance === "admitted" &&
+					(existing.provenance === "verified-legacy" ||
+						existing.provenance === "migration-baseline")
+				))
 		)
 			throw new Error(
 				"A conversation source reference cannot change after admission",

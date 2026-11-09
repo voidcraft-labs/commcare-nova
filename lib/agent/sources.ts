@@ -34,6 +34,7 @@ export interface SourceDocument {
 }
 export interface SourceMaterial {
 	readonly digest: string;
+	readonly notices?: readonly { readonly key: string; readonly text: string }[];
 	readonly requests: readonly {
 		readonly key: string;
 		readonly legacyKeys?: readonly string[];
@@ -126,6 +127,7 @@ export async function loadSourceMaterial(args: {
 				mimeType: ref.source.mimeType,
 			});
 	}
+	const notices: { key: string; text: string }[] = [];
 	const documents: SourceDocument[] = [];
 	const images: Array<SourceMaterial["images"][number]> = [];
 	const seen = new Set<string>();
@@ -141,9 +143,9 @@ export async function loadSourceMaterial(args: {
 			);
 		const notice = sourceProvenanceNotice(retained.provenance);
 		if (notice)
-			requests.push({
-				key: `source-notice:${key}`,
-				message: { role: "user", content: `${reference.filename}: ${notice}` },
+			notices.push({
+				key,
+				text: `${reference.filename}: ${notice}`,
 			});
 		if (!retained.source || retained.revision === null) continue;
 		const unique = `${reference.assetId}:${retained.revision}`;
@@ -167,7 +169,7 @@ export async function loadSourceMaterial(args: {
 				bytesDigest: content.bytesDigest,
 			});
 	}
-	return sourceMaterialSnapshot({ requests, documents, images });
+	return sourceMaterialSnapshot({ requests, documents, images, notices });
 }
 
 /** Capture the exact evidence available to a review. Selecting another library
@@ -180,18 +182,40 @@ export function sourceMaterialSnapshot(
 			(sum, request) => sum + JSON.stringify(request.message).length,
 			0,
 		) +
-		material.documents.reduce((sum, document) => sum + document.text.length, 0);
+		material.documents.reduce(
+			(sum, document) => sum + document.text.length,
+			0,
+		) +
+		(material.notices ?? []).reduce(
+			(sum, notice) => sum + notice.text.length,
+			0,
+		);
 	if (characters > MAX_SOURCE_CHARACTERS)
 		throw new SourceMaterialError(
 			"This conversation and its documents exceed the supported source size. Use a shorter document or split the request into separate conversations.",
 		);
 
+	// Evidence is a set of pinned revisions; selection/reload traversal order
+	// must not change the context or invalidate a completed review.
+	const documents = [...material.documents].sort((a, b) =>
+		`${a.id}:${a.revision ?? ""}`.localeCompare(`${b.id}:${b.revision ?? ""}`),
+	);
+	const images = [...material.images].sort((a, b) =>
+		`${a.id}:${a.bytesDigest}`.localeCompare(`${b.id}:${b.bytesDigest}`),
+	);
+	const notices = [...(material.notices ?? [])].sort((a, b) =>
+		a.key.localeCompare(b.key),
+	);
 	return {
 		...material,
+		documents,
+		images,
+		notices,
 		digest: canonicalJsonDigest({
 			requests: material.requests.map(({ key, message }) => ({ key, message })),
-			documents: material.documents,
-			images: material.images.map(({ dataUrl: _, ...image }) => image),
+			notices,
+			documents,
+			images: images.map(({ dataUrl: _, ...image }) => image),
 		}),
 	};
 }
@@ -232,13 +256,19 @@ export function includeSelectedSource(args: {
 export function sourceAttachmentsMessage(
 	material: SourceMaterial,
 ): ModelMessage | null {
-	if (!material.documents.length && !material.images.length) return null;
+	if (
+		!material.documents.length &&
+		!material.images.length &&
+		!material.notices?.length
+	)
+		return null;
 	return {
 		role: "user",
 		content: [
 			{
 				type: "text",
 				text: JSON.stringify({
+					notices: material.notices?.map(({ text }) => text) ?? [],
 					documents: material.documents.map((document) => ({
 						id: document.id,
 						name: document.name,

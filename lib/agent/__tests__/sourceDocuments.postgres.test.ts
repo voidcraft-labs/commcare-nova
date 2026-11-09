@@ -9,9 +9,13 @@ import {
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
 import { deleteMediaAssetForActor } from "@/lib/db/mediaDeletion";
-import { loadThreadRetainedSources } from "@/lib/db/threadSources";
+import {
+	loadThreadRetainedSources,
+	retainThreadSource,
+} from "@/lib/db/threadSources";
 import {
 	loadThread,
+	loadThreadSelectedSources,
 	persistResponseSnapshot,
 	selectThreadSource,
 	upsertThreadTurn,
@@ -556,4 +560,82 @@ it("pages retained revisions after extractor changes and Library deletion, with 
 			.where("thread_id", "=", threadId)
 			.execute(),
 	).toHaveLength(2);
+});
+
+it("reselects unchanged migrated evidence without rewriting its provenance", async () => {
+	const asset = await seed({ text: "Verified historical requirements" });
+	const nonce = "70000000-0000-4000-8000-000000000011";
+	const appId = await h.seedApp({
+		owner: "source-owner",
+		project_id: "source-project",
+		status: "generating",
+		run_id: "source-run",
+		run_holder_nonce: nonce,
+	});
+	const target = { kind: "app", appId } as const;
+	const threadId = "migrated-selection";
+	await upsertThreadTurn({
+		target,
+		expectedProjectId: "source-project",
+		threadId,
+		runId: "source-run",
+		holderNonce: nonce,
+		streamId: "source-stream",
+		threadType: "build",
+		messages: [],
+	});
+	const content = {
+		kind: "text" as const,
+		filename: asset.originalFilename,
+		mimeType: asset.mimeType,
+		contentHash: asset.contentHash,
+		content: {
+			kind: "document" as const,
+			text: "Verified historical requirements",
+			version: EXTRACTOR_VERSION,
+			truncated: false,
+		},
+	};
+	await h
+		.db()
+		.transaction()
+		.execute((tx) =>
+			retainThreadSource(tx, {
+				threadId,
+				messageId: "",
+				assetId: asset.id,
+				source: content,
+				provenance: "verified-legacy",
+			}),
+		);
+	const runtime: SourceDocumentRuntime = {
+		retained: () =>
+			loadThreadRetainedSources(target, threadId, "source-project"),
+		selected: (source, _requestId, retainedContent) =>
+			selectThreadSource({
+				target,
+				expectedProjectId: "source-project",
+				actorUserId: "source-owner",
+				threadId,
+				threadType: "build",
+				runId: "source-run",
+				holderNonce: nonce,
+				streamId: "source-stream",
+				source,
+				retainedContent,
+			}),
+	};
+	const before = await loadThreadRetainedSources(
+		target,
+		threadId,
+		"source-project",
+	);
+	expect(await read(asset.id, { revision: "current" }, runtime)).toMatchObject({
+		status: "ready",
+		text: content.content.text,
+	});
+	expect(
+		await loadThreadRetainedSources(target, threadId, "source-project"),
+	).toEqual(before);
+	expect(await loadThreadSelectedSources(target, threadId)).toHaveLength(1);
 });

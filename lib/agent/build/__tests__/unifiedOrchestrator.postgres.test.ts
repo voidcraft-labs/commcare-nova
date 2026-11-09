@@ -1,6 +1,7 @@
 import { readUIMessageStream, type UIMessageChunk } from "ai";
 import { type Kysely, sql } from "kysely";
 import { expect, it, vi } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import {
 	type ProviderOutput,
 	type ProviderRequest,
@@ -19,7 +20,9 @@ import {
 	setDesignSessionAwaitingInput,
 } from "@/lib/db/designSessions";
 import { withAppTx } from "@/lib/db/pg";
+import { retainThreadSource } from "@/lib/db/threadSources";
 import { hasUnfinishedMaterializedDesignInTransaction } from "@/lib/db/unfinishedMaterializedDesign";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	type RunBuildOrchestrationArgs,
 	runBuildOrchestration as runOrchestrator,
@@ -788,6 +791,45 @@ it.each([false, true])(
 			runId: "first",
 			cost: 1,
 		});
+		const sourceAssetId = asMediaAssetId(
+			"80000000-0000-4000-8000-000000000009",
+		);
+		await insertThreadFixture(h.db(), {
+			thread_id: "thread",
+			app_id: null,
+			design_session_id: claim.designSessionId,
+			thread_type: "build",
+			summary: "Review",
+			run_id: "first",
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			messages: "[]",
+		});
+		await h
+			.db()
+			.transaction()
+			.execute((tx) =>
+				retainThreadSource(tx, {
+					threadId: "thread",
+					messageId: "request",
+					assetId: sourceAssetId,
+					provenance: legacy ? "migration-baseline" : "unavailable",
+					source: legacy
+						? {
+								kind: "text",
+								filename: "requirements.txt",
+								mimeType: "text/plain",
+								contentHash: "legacy",
+								content: {
+									kind: "document",
+									text: "Retain every lending visit.",
+									version: 1,
+									truncated: false,
+								},
+							}
+						: null,
+				}),
+			);
 		const requests: ProviderRequest[] = [];
 		const failures: unknown[] = [];
 		const chunks: unknown[] = [];
@@ -876,6 +918,16 @@ it.each([false, true])(
 						{
 							id: "request",
 							role: "user",
+							metadata: {
+								attachments: [
+									{
+										assetId: sourceAssetId,
+										kind: "text",
+										filename: "requirements.txt",
+										mimeType: "text/plain",
+									},
+								],
+							},
 							parts: [
 								{
 									type: "text",
