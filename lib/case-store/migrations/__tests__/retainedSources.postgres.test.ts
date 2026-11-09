@@ -4,6 +4,10 @@ import { Migrator } from "kysely/migration";
 import { expect, it } from "vitest";
 import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import type { AppDatabase } from "@/lib/db/pg";
+import {
+	threadMessagesSql,
+	writeThreadTranscript,
+} from "@/lib/db/threadTranscript";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { scanConversationSources } from "@/scripts/lib/conversationSourceBaseline";
 import { migrateConversationSources } from "@/scripts/lib/conversationSourceCutover";
@@ -250,4 +254,56 @@ it("records missing image objects as unavailable but refuses unreadable or corru
 			.where("asset_id", "=", imageId)
 			.executeTakeFirstOrThrow(),
 	).toEqual({ provenance: "unavailable", revision: null });
+});
+
+it("coalesces identical repeated references and refuses conflicting identities during the read-only scan", async () => {
+	await seed();
+	const original = await scan();
+	const thread = await db()
+		.selectFrom("threads")
+		.select([threadMessagesSql().as("messages"), "selected_sources"])
+		.where("thread_id", "=", "thread")
+		.executeTakeFirstOrThrow();
+	const repeated = [...thread.messages, structuredClone(thread.messages[0])];
+	await db()
+		.transaction()
+		.execute(async (tx) => {
+			await writeThreadTranscript(tx, "thread", repeated);
+			await tx
+				.updateTable("threads")
+				.set({
+					selected_sources: JSON.stringify([
+						...thread.selected_sources,
+						...thread.selected_sources,
+					]),
+				})
+				.where("thread_id", "=", "thread")
+				.execute();
+		});
+	expect((await scan()).report).toEqual(original.report);
+	const conflicting = structuredClone(repeated);
+	const last = conflicting.at(-1) as {
+		metadata: { attachments: { filename: string }[] };
+	};
+	last.metadata.attachments[0].filename = "Conflicting name";
+	await db()
+		.transaction()
+		.execute((tx) => writeThreadTranscript(tx, "thread", conflicting));
+	await expect(scan()).rejects.toThrow("Historical source references conflict");
+	await db()
+		.transaction()
+		.execute((tx) => writeThreadTranscript(tx, "thread", repeated));
+	await migrateConversationSources(db(), original.report.scanDigest, deps);
+	expect(
+		await db().selectFrom("thread_source_links").selectAll().execute(),
+	).toHaveLength(5);
+	expect(
+		(
+			await db()
+				.selectFrom("threads")
+				.select(threadMessagesSql().as("messages"))
+				.where("thread_id", "=", "thread")
+				.executeTakeFirstOrThrow()
+		).messages,
+	).toEqual(repeated);
 });

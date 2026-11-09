@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { type Kysely, sql, type Transaction } from "kysely";
+import { jsonArrayFrom } from "kysely/helpers/postgres";
 import type { AdmittedSources } from "@/lib/agent/incomingSources";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
@@ -219,31 +220,35 @@ export async function loadThreadRetainedSources(
 		target.kind === "app" ? "threads.app_id" : "threads.design_session_id";
 	const targetId =
 		target.kind === "app" ? target.appId : target.designSessionId;
-	const rows = await db
-		.selectFrom("thread_source_links as link")
-		.innerJoin("threads", "threads.thread_id", "link.thread_id")
+	// Keep authorization, links and bodies in one SQL snapshot, but transfer and
+	// validate each immutable body only once regardless of reference multiplicity.
+	const snapshot = await db
+		.selectFrom("threads")
 		.leftJoin("apps", "apps.id", "threads.app_id")
 		.leftJoin(
 			"design_sessions",
 			"design_sessions.id",
 			"threads.design_session_id",
 		)
-		.leftJoin("thread_source_contents as body", (j) =>
-			j
-				.onRef("body.thread_id", "=", "link.thread_id")
-				.onRef("body.revision", "=", "link.revision"),
-		)
-		.select([
-			"link.reference_key",
-			"link.message_id",
-			"link.asset_id",
-			"link.revision",
-			"link.provenance",
-			"link.filename",
-			"body.content",
-			"body.digest",
+		.select((eb) => [
+			jsonArrayFrom(
+				eb
+					.selectFrom("thread_source_links")
+					.selectAll()
+					.whereRef("thread_source_links.thread_id", "=", "threads.thread_id"),
+			).as("links"),
+			jsonArrayFrom(
+				eb
+					.selectFrom("thread_source_contents")
+					.selectAll()
+					.whereRef(
+						"thread_source_contents.thread_id",
+						"=",
+						"threads.thread_id",
+					),
+			).as("contents"),
 		])
-		.where("link.thread_id", "=", threadId)
+		.where("threads.thread_id", "=", threadId)
 		.where(targetColumn, "=", targetId)
 		.where((eb) =>
 			eb.or([
@@ -251,19 +256,25 @@ export async function loadThreadRetainedSources(
 				eb("design_sessions.project_id", "=", projectId),
 			]),
 		)
-		.execute();
-	return new Map(
-		rows.map((row) => {
-			if (
-				row.content !== null &&
-				canonicalJsonDigest(row.content) !== row.digest
-			)
+		.executeTakeFirst();
+	if (!snapshot) return new Map();
+	const contents = new Map(
+		snapshot.contents.map((row) => {
+			if (canonicalJsonDigest(row.content) !== row.digest)
 				throw new Error("Retained source content is damaged");
-			const source =
-				row.content === null
-					? null
-					: checkedSource({ ...row.content, filename: row.filename });
-			if ((source === null) !== (row.provenance === "unavailable"))
+			return [
+				row.revision,
+				checkedSource({ ...row.content, filename: "Retained source" }),
+			] as const;
+		}),
+	);
+	return new Map(
+		snapshot.links.map((row) => {
+			const body = row.revision === null ? null : contents.get(row.revision);
+			if (
+				body === undefined ||
+				(body === null) !== (row.provenance === "unavailable")
+			)
 				throw new Error("Retained source reference is incomplete");
 			return [
 				row.reference_key,
@@ -273,7 +284,7 @@ export async function loadThreadRetainedSources(
 					filename: row.filename,
 					revision: row.revision,
 					provenance: row.provenance,
-					source,
+					source: body === null ? null : { ...body, filename: row.filename },
 				},
 			];
 		}),

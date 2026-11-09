@@ -154,10 +154,12 @@ Both the SA `removeMediaAsset` tool and `DELETE /api/media/[assetId]` end
 at `lib/db/mediaDeletion.ts`: one transaction takes the shared membership gate,
 freshly proves Project `edit`, locks the asset `FOR UPDATE`, queries its exact
 composite reverse-edge candidates, and coherently re-walks each candidate's
-authored Blueprint plus canonical thread attachments. Metadata is deleted only
+authored Blueprint references. Conversation evidence has its own retained content
+and is not a Library deletion blocker. Metadata is deleted only
 when that re-walk is empty. There is no app lock, whole-Project fallback scan,
 completion marker, or post-commit synchronization path. The atomic Project move
-copies and remaps every live Blueprint/thread reference in the same projection;
+copies and remaps every live Blueprint reference in the same projection;
+retained conversation evidence follows thread ownership without rewriting source identities;
 immutable event attachment UUIDs remain audit receipts and are never
 dereferenced, remapped, copied, indexed, or deletion blockers. The SA's in-hand
 walk remains an actionable preflight only and never authorizes deletion; chat

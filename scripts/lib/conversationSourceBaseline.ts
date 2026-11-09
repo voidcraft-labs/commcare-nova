@@ -2,9 +2,11 @@
 import { createHash } from "node:crypto";
 import { type Kysely, sql } from "kysely";
 import { attachmentRefSchema } from "@/lib/chat/attachmentRefs";
-import type {
-	RetainedSource,
-	SourceProvenance,
+import {
+	type RetainedSource,
+	type SourceProvenance,
+	selectedSourceReferenceKey,
+	sourceReferenceKey,
 } from "@/lib/chat/retainedSource";
 import {
 	type SelectedSourceDocument,
@@ -33,6 +35,15 @@ export interface SourceBaselineEntry {
 	source: RetainedSource | null;
 	provenance: SourceProvenance;
 }
+export function sourceBaselineReferenceKey(entry: SourceBaselineEntry): string {
+	return entry.messageId === ""
+		? selectedSourceReferenceKey(
+				entry.assetId,
+				entry.source ? retainedSourceRevision(entry.source) : "unavailable",
+			)
+		: sourceReferenceKey(entry.messageId, entry.assetId);
+}
+
 export interface SourceBaselineDeps {
 	readText: typeof readTextObject;
 	readBytes: typeof downloadAssetBytes;
@@ -67,7 +78,7 @@ export async function scanConversationSources(
 		])
 		.orderBy("thread_id")
 		.execute();
-	const entries: SourceBaselineEntry[] = [];
+	const byReference = new Map<string, SourceBaselineEntry>();
 	const cache = new Map<string, Promise<RetainedSource | null>>();
 	for (const thread of threads) {
 		const messages = threadMessageSchema.array().parse(thread.messages);
@@ -180,7 +191,7 @@ export async function scanConversationSources(
 			const captured = await pending;
 			const source =
 				captured === null ? null : { ...captured, filename: ref.filename };
-			entries.push({
+			const entry: SourceBaselineEntry = {
 				threadId: thread.thread_id,
 				projectId: thread.project_id,
 				messageId,
@@ -193,9 +204,23 @@ export async function scanConversationSources(
 						: prior || source.content.kind === "image"
 							? "verified-legacy"
 							: "migration-baseline",
-			});
+			};
+			const identity = JSON.stringify([
+				entry.threadId,
+				sourceBaselineReferenceKey(entry),
+			]);
+			const existing = byReference.get(identity);
+			if (
+				existing &&
+				canonicalJsonDigest(existing) !== canonicalJsonDigest(entry)
+			)
+				throw new Error(
+					"Historical source references conflict for one message or selection.",
+				);
+			byReference.set(identity, entry);
 		}
 	}
+	const entries = [...byReference.values()];
 	const counts = {
 		references: entries.length,
 		verifiedLegacy: 0,

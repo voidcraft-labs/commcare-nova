@@ -10,6 +10,7 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	type SourceBaselineDeps,
 	scanConversationSources,
+	sourceBaselineReferenceKey,
 } from "./conversationSourceBaseline";
 import { assertThreadCutoverRuntimeStopped } from "./threadStorageCutover";
 
@@ -62,8 +63,7 @@ export async function migrateConversationSources(
 							const link = links.find(
 								(row) =>
 									row.thread_id === entry.threadId &&
-									row.message_id === entry.messageId &&
-									row.asset_id === entry.assetId,
+									row.reference_key === sourceBaselineReferenceKey(entry),
 							);
 							if (
 								!link ||
