@@ -101,6 +101,34 @@ model and remains in the Project's file library. Prompt changes bump
 `EXTRACTOR_VERSION` in `lib/domain/multimedia.ts`; admitted conversation sources remain unchanged; a new attachment or explicit
 current Library selection may use the new extractor.
 
+## Office conversion resources
+
+`officeProcess.ts` admits at most one parser child and four waiting files per
+Node process. Its 15-second deadline includes waiting, startup, ZIP admission,
+conversion and output. Abort or deadline kills the child and waits for `close`
+before releasing its permit. No Office parser runs in the request event loop.
+The child inherits no application credentials. Linux applies a 768 MiB
+`RLIMIT_DATA` allocation cap (including native buffers), a 256 MiB V8 heap cap,
+and disabled core dumps. macOS development uses the heap/time limits; Linux CI
+and the image check establish native-memory enforcement.
+
+Admission accepts at most 10 MiB compressed, 5,000 parts and 64 MiB actually
+decoded. It validates each part's CRC and size and repackages exactly those bytes
+before Mammoth/SheetJS read them, preventing parser disagreement over the original
+ZIP directory. Converted text is capped at 4 MiB and IPC output at 34 MiB;
+existing figure budgets remain in `documentFigures.ts`. Parser failure cannot
+start a model call. `officeLimits.ts` owns these budgets.
+
+DOCX uses Mammoth's supported HTML API, then rehype/remark with GFM tables.
+An image-node handler emits figure markers directly, preserving escaped alt text
+without searching Markdown strings. Missing markers and conversion errors refuse
+extraction; warnings accompany the source text as limitations. Synthetic fidelity
+and process-lifecycle tests make no model calls. `scripts/build-office-parser.mjs`
+bundles the child and supervisor into `runtime/office`; Next's explicit tracing
+includes them and the production-image check executes both formats and a native
+allocation refusal. See `docs/research/office-extraction-bounds.md` for evaluation
+and measurements.
+
 ## The authoring boundary
 
 Read `authoring/CLAUDE.md` before changing model input or read projections.

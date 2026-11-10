@@ -91,7 +91,7 @@ export const documentExtractorComposition: RoleComposition = {
 						"Metadata and body",
 						'One user message: "Filename: <name>" (plus "Figures: …" for a docx with embedded images), a blank line, then the body verbatim. Each attached figure follows as a text part carrying its <nova:figure index="N"/> marker and an image part.',
 						{
-							file: "lib/agent/documentExtraction.ts",
+							file: "lib/agent/officeConversion.ts",
 							symbol: "docxToMarkdownWithFigures",
 						},
 					);

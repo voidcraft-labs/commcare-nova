@@ -1037,9 +1037,9 @@ export function extractGcsObjectKeyFor(
  * document produces — the extraction prompt, the summarizer model, or the
  * office→markdown conversion (all in `lib/agent/documentExtraction`). The GCS
  * extract key embeds this (`extractGcsObjectKeyFor`) and the asset doc records
- * the version it was produced at, so a bump invalidates every stored extract
- * with no migration: the old key stops being read and the next reference
- * re-extracts at the new version.
+ * the version it was produced at, so a bump makes new Library preparation use the new version. Admitted
+ * conversation content remains in immutable thread source storage and never
+ * re-extracts implicitly.
  *
  * It lives here — beside the key + status it versions — rather than in the
  * extraction module, so that computing an extract's storage key
@@ -1047,7 +1047,7 @@ export function extractGcsObjectKeyFor(
  * helper must never drag the office-parsing libraries (mammoth/xlsx) into a
  * caller's import graph; keeping the constant here is what makes that possible.
  */
-export const EXTRACTOR_VERSION = 8;
+export const EXTRACTOR_VERSION = 9;
 
 /**
  * The GCS object key of a document's stored extract, or `null` for a media kind

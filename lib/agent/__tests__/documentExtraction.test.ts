@@ -12,16 +12,17 @@
 // never fake buffers with a declared type. DOCX tests use real OOXML archives and
 // the installed Mammoth conversion, including image relationships and alt text.
 
-import AdmZip from "adm-zip";
 import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
 	type AttachmentCondenser,
-	createFigureCollector,
-	type EmbeddedImage,
 	type ExtractDocumentResult,
 	type ExtractDocumentStructuredOpts,
 	extractDocument,
+} from "@/lib/agent/documentExtraction";
+import {
+	createFigureCollector,
+	type EmbeddedImage,
 	type FigureAttachmentPlan,
 	figureMarker,
 	figuresNote,
@@ -30,8 +31,9 @@ import {
 	MAX_EXTRACT_FIGURE_TOTAL_BYTES,
 	MAX_EXTRACT_FIGURES,
 	planFigureAttachments,
-} from "@/lib/agent/documentExtraction";
+} from "@/lib/agent/documentFigures";
 import { bmp1Bit } from "@/lib/media/__tests__/bmpFixtures";
+import { docxDocument } from "./fixtures/officeDocuments";
 
 // ── Real image fixtures (admission sniffs bytes, so magic must be genuine) ──
 
@@ -133,55 +135,22 @@ function extractCallOpts(call: ReturnType<typeof recordingCondenser>["call"]) {
 	return c[0];
 }
 
-/** A small real OOXML package consumed by the installed Mammoth adapter. */
-function docxDocument(images: { bytes: Buffer; alt?: string }[] = []): Buffer {
-	const zip = new AdmZip();
-	const xml = (value: string) =>
-		value
-			.replaceAll("&", "&amp;")
-			.replaceAll('"', "&quot;")
-			.replaceAll("<", "&lt;")
-			.replaceAll(">", "&gt;");
-	zip.addFile(
-		"[Content_Types].xml",
-		Buffer.from(
-			`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
-		),
-	);
-	zip.addFile(
-		"_rels/.rels",
-		Buffer.from(
-			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
-		),
-	);
-	zip.addFile(
-		"word/styles.xml",
-		Buffer.from(
-			`<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style></w:styles>`,
-		),
-	);
-	zip.addFile(
-		"word/_rels/document.xml.rels",
-		Buffer.from(
-			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="styles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${images.map((_, i) => `<Relationship Id="image${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${i}.png"/>`).join("")}</Relationships>`,
-		),
-	);
-	const drawings = images
-		.map((image, i) => {
-			zip.addFile(`word/media/image${i}.png`, image.bytes);
-			return `<w:p><w:r><w:drawing><wp:inline><wp:docPr id="${i + 1}" name="Figure ${i + 1}" descr="${xml(image.alt ?? "")}"/><a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="image${i}"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:t>${i === 0 ? "middle" : "tail"}</w:t></w:r></w:p>`;
-		})
-		.join("");
-	zip.addFile(
-		"word/document.xml",
-		Buffer.from(
-			`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Doc heading</w:t></w:r></w:p><w:p><w:r><w:t>body</w:t></w:r></w:p>${drawings}</w:body></w:document>`,
-		),
-	);
-	return zip.toBuffer();
-}
-
 describe("extractDocument", () => {
+	it("does not call the model when Office parsing fails", async () => {
+		const { condenser, call } = recordingCondenser();
+		await expect(
+			extractDocument({
+				bytes: Buffer.from("broken archive"),
+				kind: "docx",
+				mimeType:
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				filename: "requirements.docx",
+				condenser,
+			}),
+		).rejects.toThrow();
+		expect(call).not.toHaveBeenCalled();
+	});
+
 	it("routes a text document through one structured call with the filename + body", async () => {
 		const { condenser, call } = recordingCondenser();
 		const result = await extractDocument({
@@ -420,8 +389,8 @@ describe("createFigureCollector", () => {
 				.image,
 		);
 		const second = await collector.collect(fakeImage(GIF_STATIC).image);
-		expect(first).toEqual({ src: "novafigure://1", alt: "" });
-		expect(second).toEqual({ src: "novafigure://2", alt: "" });
+		expect(first).toEqual({ src: "1", alt: "" });
+		expect(second).toEqual({ src: "2", alt: "" });
 		expect(collector.figures).toEqual([
 			{
 				index: 1,

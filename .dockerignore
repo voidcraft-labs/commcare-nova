@@ -20,6 +20,7 @@ scripts
 scripts/*
 !scripts/harden-agent-react-devtools.mjs
 !scripts/build-xpath-worker.mjs
+!scripts/build-office-parser.mjs
 !scripts/build-app.mjs
 !scripts/migrate.ts
 !scripts/scan-case-expression-indexes.ts
