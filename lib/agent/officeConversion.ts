@@ -1,6 +1,10 @@
 // Runs only inside the isolated Office parser process (or focused parser tests).
 import AdmZip from "adm-zip";
+import type { Element, ElementContent } from "hast";
+import { toHtml } from "hast-util-to-html";
+import { defaultHandlers } from "hast-util-to-mdast";
 import mammoth from "mammoth";
+import type { Raw } from "mdast-util-to-hast";
 import rehypeParse from "rehype-parse";
 import rehypeRemark from "rehype-remark";
 import remarkGfm from "remark-gfm";
@@ -74,6 +78,48 @@ function canonicalOfficeArchive(buffer: Buffer, kind: "docx" | "xlsx"): Buffer {
 	return canonical.toBuffer();
 }
 
+/** GFM has one inline run per cell. Preserve richer cells and spans as HTML
+ * instead of flattening paragraphs/lists or dropping nested table figures. */
+function needsHtmlTable(table: Element): boolean {
+	const inline = new Set([
+		"a",
+		"strong",
+		"em",
+		"del",
+		"s",
+		"img",
+		"sup",
+		"sub",
+		"code",
+	]);
+	const inspect = (element: Element): boolean => {
+		if (element !== table && element.tagName === "table") return true;
+		if (
+			Number(element.properties.colSpan) > 1 ||
+			Number(element.properties.rowSpan) > 1
+		)
+			return true;
+		if (element.tagName === "td" || element.tagName === "th") {
+			const blocks = element.children.filter(
+				(child) => child.type === "element" && !inline.has(child.tagName),
+			);
+			if (
+				blocks.length > 1 ||
+				blocks.some(
+					(child) => child.type === "element" && child.tagName !== "p",
+				)
+			)
+				return true;
+		}
+		if (["ul", "ol", "br", "blockquote", "pre"].includes(element.tagName))
+			return true;
+		return element.children.some(
+			(child) => child.type === "element" && inspect(child),
+		);
+	};
+	return inspect(table);
+}
+
 export async function docxToMarkdownWithFigures(buffer: Buffer) {
 	buffer = canonicalOfficeArchive(buffer, "docx");
 	const collector = createFigureCollector();
@@ -92,18 +138,39 @@ export async function docxToMarkdownWithFigures(buffer: Buffer) {
 		);
 	}
 	const seen = new Set<number>();
+	const markerForImage = (node: Element): string => {
+		const index = Number(node.properties.src);
+		const figure = collector.figures[index - 1];
+		if (!figure || seen.has(index))
+			throw new Error("Document figure references could not be read.");
+		seen.add(index);
+		return figureMarker(index, figure.altText);
+	};
+	const tableWithMarkers = (node: ElementContent): ElementContent => {
+		if (node.type !== "element") return node;
+		if (node.tagName === "img")
+			return { type: "raw", value: markerForImage(node) } satisfies Raw;
+		return { ...node, children: node.children.map(tableWithMarkers) };
+	};
 	const markdown = String(
 		await unified()
 			.use(rehypeParse, { fragment: true })
 			.use(rehypeRemark, {
 				handlers: {
 					img(_state, node) {
-						const index = Number(node.properties.src);
-						const figure = collector.figures[index - 1];
-						if (!figure || seen.has(index))
-							throw new Error("Document figure references could not be read.");
-						seen.add(index);
-						return { type: "html", value: figureMarker(index, figure.altText) };
+						return { type: "html", value: markerForImage(node) };
+					},
+					table(state, node) {
+						if (!needsHtmlTable(node))
+							return defaultHandlers.table(state, node);
+						// Parsed source is an ordinary HAST tree. Only the marker nodes we
+						// generated above are raw HTML; the serializer escapes all source text.
+						return {
+							type: "html",
+							value: toHtml(tableWithMarkers(node), {
+								allowDangerousHtml: true,
+							}),
+						};
 					},
 				},
 			})

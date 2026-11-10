@@ -19,6 +19,52 @@ describe("supported DOCX conversion", () => {
 		expect(result.figures[0].altText).toBe('Flow $& [yes] <next> & "done"');
 	});
 
+	it("preserves multiple paragraphs and lists inside a cell", async () => {
+		const zip = new AdmZip(structuredDocx());
+		const xml = zip.readAsText("word/document.xml");
+		const paragraph =
+			"<w:p><w:r><w:t>Required only for children</w:t></w:r></w:p>";
+		const bullet =
+			'<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>First condition</w:t></w:r></w:p>';
+		zip.updateFile(
+			"word/document.xml",
+			Buffer.from(
+				xml.replace(
+					"<w:t>Question</w:t></w:r></w:p>",
+					() => "<w:t>Question</w:t></w:r></w:p>" + paragraph + bullet,
+				),
+			),
+		);
+		const result = await docxToMarkdownWithFigures(zip.toBuffer());
+		expect(result.markdown).toContain(
+			"<p>Question</p><p>Required only for children</p><ul><li>First condition</li></ul>",
+		);
+		expect(result.markdown).toContain("<table>");
+		expect(result.figures).toHaveLength(1);
+		expect(result.markdown).toContain('<nova:figure index="1"');
+	});
+
+	it("keeps nested table figures and merged-cell structure", async () => {
+		const zip = new AdmZip(structuredDocx());
+		const xml = zip.readAsText("word/document.xml");
+		const start = xml.indexOf("<w:tbl>");
+		const end = xml.indexOf("</w:tbl>", start) + "</w:tbl>".length;
+		const nested =
+			'<w:tbl><w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>' +
+			xml.slice(start, end) +
+			"<w:p/></w:tc></w:tr></w:tbl>";
+		zip.updateFile(
+			"word/document.xml",
+			Buffer.from(xml.slice(0, start) + nested + xml.slice(end)),
+		);
+		const result = await docxToMarkdownWithFigures(zip.toBuffer());
+		expect(result.markdown).toContain('<td colspan="2"><table>');
+		expect(result.markdown).toContain("<p>Question</p>");
+		expect(result.markdown).toContain('<nova:figure index="1"');
+		expect(result.figures).toHaveLength(1);
+		expect(result.figures[0].bytes.length).toBeGreaterThan(0);
+	});
+
 	it("reports unsupported source content as a conversion limitation", async () => {
 		const zip = new AdmZip(docxDocument());
 		zip.updateFile(

@@ -19,7 +19,10 @@ paragraphs. Neither an upload-byte cap nor a promise timeout bounded that work.
   tree, handles headerless tables with an empty header, and supports a direct
   image-node handler. With `remark-gfm` and `remark-stringify`, the synthetic
   fixture preserves cells, nested lists, Unicode, URLs and figure alt text.
-  This is a maintained converter pipeline, not a Nova general-purpose converter.
+  GFM cannot represent block content, spans or nested tables faithfully. Those
+  tables retain structured HTML through `hast-util-to-html`, with figures replaced
+  in the tree before serialization; simple inline tables use GFM. This is a
+  maintained converter pipeline, not a Nova general-purpose converter.
 - [Node worker limits](https://nodejs.org/api/worker_threads.html) explicitly
   exclude external data such as ArrayBuffers. A worker thread alone cannot
   isolate native allocation exhaustion from the application process. A separate
@@ -97,9 +100,16 @@ budget tests continue through the subprocess extraction entry point.
 
 `officeProcess.test.ts` uses actual children to prove queue refusal, queued
 cancellation, synchronous-loop termination, child reaping, heap exhaustion,
-output overflow and Linux native-buffer refusal. Repeated malformed and
+output overflow, queued preparation deadlines, failed startup recovery and Linux
+native-buffer refusal. Repeated malformed and
 excessively deep documents are followed by a successful ordinary document.
 `documentExtraction.test.ts` proves parser failure starts no model call.
 The standalone-image verifier runs both DOCX and XLSX through the packaged
 supervisor and tests a native allocation refusal, catching missing artifacts or
 loader dependencies before readiness.
+
+Independent review found paragraph/list concatenation and nested-figure loss in
+rehype's default GFM table conversion. Both new regressions fail against the
+initial implementation and pass with the structured-HTML table path. The image
+marker rule is shared across both paths, and the serializer escapes source text;
+only Nova-generated marker nodes are emitted as raw HTML.

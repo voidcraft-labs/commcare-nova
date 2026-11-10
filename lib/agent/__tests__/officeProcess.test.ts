@@ -87,6 +87,43 @@ describe("Office subprocess ownership", () => {
 		}
 	});
 
+	it("honors a preparation deadline while queued and recovers from failed startup", async () => {
+		const fixture = await childFixture("for (;;) {}");
+		const controller = new AbortController();
+		const parser = new OfficeParser({ workerPath: fixture.workerPath });
+		const running = parser.convert(Buffer.alloc(0), "docx", controller.signal);
+		const settled = Promise.allSettled([running]);
+		try {
+			await vi.waitFor(async () =>
+				expect(Number(await readFile(fixture.pidPath, "utf8"))).toBeGreaterThan(
+					0,
+				),
+			);
+			const pid = Number(await readFile(fixture.pidPath, "utf8"));
+			await expect(
+				parser.convert(Buffer.alloc(0), "docx", AbortSignal.timeout(25)),
+			).rejects.toThrow();
+			expect(Number(await readFile(fixture.pidPath, "utf8"))).toBe(pid);
+			expect(() => process.kill(pid, 0)).not.toThrow();
+			controller.abort();
+			await settled;
+			assertGone(pid);
+			await rm(fixture.workerPath);
+			await expect(parser.convert(Buffer.alloc(0), "xlsx")).rejects.toThrow();
+			await writeFile(
+				fixture.workerPath,
+				`process.stdout.write(${validResult});`,
+			);
+			await expect(
+				parser.convert(Buffer.alloc(0), "xlsx"),
+			).resolves.toMatchObject({ markdown: "finished" });
+		} finally {
+			controller.abort();
+			await settled;
+			await rm(fixture.directory, { recursive: true, force: true });
+		}
+	});
+
 	it.each([
 		["deadline", "for (;;) {}", { timeoutMs: 3_000 }],
 		[

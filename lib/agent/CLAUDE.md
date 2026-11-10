@@ -120,6 +120,8 @@ existing figure budgets remain in `documentFigures.ts`. Parser failure cannot
 start a model call. `officeLimits.ts` owns these budgets.
 
 DOCX uses Mammoth's supported HTML API, then rehype/remark with GFM tables.
+Cells with multiple blocks, spans or nested tables retain structured HTML within
+the Markdown so paragraph/list boundaries and nested figures survive.
 An image-node handler emits figure markers directly, preserving escaped alt text
 without searching Markdown strings. Missing markers and conversion errors refuse
 extraction; warnings accompany the source text as limitations. Synthetic fidelity
