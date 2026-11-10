@@ -15,6 +15,9 @@ traffic controllers, candidate services, rollout accounts, compatibility
 paths, or deploy-time maintenance gates. The explicitly selected disabled-service
 release mode supports a direct maintenance cutover: it installs and verifies the
 candidate under manual zero scaling, then resumes using the verified service etag.
+Manual scaling has no automatic service bounds. The runner omits service min/max
+flags while disabled and restores both bounds in the same PATCH that resumes
+automatic scaling; callers cannot override those flags.
 It does not run maintenance or select that mode automatically.
 
 The required PR check named `Production build` and Cloud Build both invoke

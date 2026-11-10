@@ -263,9 +263,13 @@ The operator's release order is:
    submitting Cloud Build with `_DEPLOY_SCALING=disabled` (the default
    `automatic` deliberately refuses this state). Keep the ordinary merge trigger
    disabled for this release and submit the reviewed merged commit explicitly.
-   The runner deploys with `--scaling=0`, proves the new Ready image and 100%
-   desired/observed traffic while still disabled, then restores automatic scaling
-   with an etag-fenced service PATCH. It verifies the same revision again after
+   Manual zero scaling removes the service's automatic minimum and maximum;
+   the disabled state must not be checked as if those bounds were still present.
+   The runner owns the service scaling flags and deploys with `--scaling=0`
+   without automatic `--min` or `--max` flags. It proves the new Ready image and
+   100% desired/observed traffic while still disabled, then restores automatic
+   scaling and the configured minimum/maximum together with an etag-fenced
+   service PATCH. It verifies the same revision and both bounds again after
    resuming. Any failure before that PATCH leaves the service disabled. Verify its exact
    revision and traffic, public probes and authorized cold conversation resume.
    Do not restart the old image against the converted database. A failed release

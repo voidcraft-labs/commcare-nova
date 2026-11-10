@@ -427,7 +427,7 @@ class ServicePolicyTests(unittest.TestCase):
             for image in ("registry/app:latest", "registry/app@sha256:" + "g" * 64):
                 with self.assertRaises(deploy.DeploymentPolicyError):
                     deploy.main([*arguments, "--image=" + image])
-            for override in ("--scaling=auto", "--image=other", "--no-traffic", "--tag=preview", "--project=other", "--region=other"):
+            for override in ("--scaling=auto", "--min=0", "--max=10", "--min", "--max", "--image=other", "--no-traffic", "--tag=preview", "--project=other", "--region=other"):
                 with self.subTest(override=override), self.assertRaises(deploy.DeploymentPolicyError):
                     deploy.main([*arguments, "--image=" + IMAGE, "--", override])
             process.assert_not_called()
@@ -458,18 +458,22 @@ class ServicePolicyTests(unittest.TestCase):
         ])
         self.assertIn("--image=" + IMAGE, commands[1])
         self.assertIn("--timeout=3600s", commands[1])
+        self.assertIn("--min=1", commands[1])
+        self.assertIn("--max=4", commands[1])
         self.assertEqual([request.get_method() for request in requests(http)], ["GET"] * 4)
         report = json.loads(output.getvalue().split("NOVA_DEPLOY_RESULT=")[1])
         self.assertEqual(report, {"candidateRevision": CANDIDATE, "image": IMAGE, "finalScaling": "automatic"})
 
     def test_disabled_release_proves_candidate_before_etag_fenced_resume(self):
         import subprocess
-        for failure in (None, "image", "traffic", "etag"):
+        for failure in (None, "image", "traffic", "etag", "resumed-bounds"):
             with self.subTest(failure=failure):
                 before = service_fixture()
                 installed = service_fixture(CANDIDATE)
                 for service in (before, installed):
-                    service["scaling"].update(scalingMode="MANUAL", manualInstanceCount=0)
+                    # Observed Cloud Run state after `gcloud ... --scaling=0`:
+                    # automatic min/max settings are removed, not retained.
+                    service["scaling"] = {"scalingMode": "MANUAL", "manualInstanceCount": 0}
                     service["etag"] = "disabled-candidate"
                 if failure == "traffic":
                     installed["trafficStatuses"] = [{"revision": OLD, "percent": 100}]
@@ -480,14 +484,22 @@ class ServicePolicyTests(unittest.TestCase):
                 observed = []
                 def gcloud(command, **kwargs):
                     observed.append(command)
+                    if command[1:3] == ["run", "deploy"]:
+                        self.assertFalse(any(arg == "--min" or arg.startswith("--min=")
+                                             or arg == "--max" or arg.startswith("--max=")
+                                             for arg in command))
                     output = "synthetic" if command[1:3] == ["auth", "print-access-token"] else json.dumps(fact)
                     return subprocess.CompletedProcess(command, 0, stdout=output)
+                resumed = service_fixture(CANDIDATE)
+                if failure == "resumed-bounds":
+                    resumed["scaling"].pop("maxInstanceCount")
                 responses = http_responses(
                     before, {"revisions": [{"name": OLD}]}, installed,
                     {"revisions": [{"name": OLD}, {"name": CANDIDATE}]},
                     *([http_error(409)] if failure == "etag" else []),
-                    *([{"name": OPERATION}, service_fixture(CANDIDATE),
-                       {"revisions": [{"name": OLD}, {"name": CANDIDATE}]}] if failure is None else []),
+                    *([{"name": OPERATION}, resumed,
+                       {"revisions": [{"name": OLD}, {"name": CANDIDATE}]}]
+                      if failure in (None, "resumed-bounds") else []),
                 )
                 def respond(request, **kwargs):
                     observed.append(request.get_method())
@@ -497,7 +509,7 @@ class ServicePolicyTests(unittest.TestCase):
                     return value
                 with patch("subprocess.run", side_effect=gcloud), patch(
                     "urllib.request.urlopen", side_effect=respond,
-                ) as http, patch.object(deploy.time, "monotonic", side_effect=[0, 1000]), redirect_stdout(io.StringIO()):
+                ) as http, patch.object(deploy.time, "monotonic", side_effect=[0, 1000, 2000]), redirect_stdout(io.StringIO()):
                     arguments = ["--project=commcare-nova", "--region=us-central1", "--service=commcare-nova",
                                  "--expected-min=1", "--expected-max=4", "--expected-scaling=disabled", "--image=" + IMAGE]
                     if failure:
@@ -523,7 +535,7 @@ class ServicePolicyTests(unittest.TestCase):
 
     def test_disabled_service_requires_explicit_release_mode_and_has_no_tag_escape(self):
         before = service_fixture()
-        before["scaling"].update(scalingMode="MANUAL", manualInstanceCount=0)
+        before["scaling"] = {"scalingMode": "MANUAL", "manualInstanceCount": 0}
         for explicit in (False, True):
             if explicit:
                 before["trafficStatuses"][0]["tag"] = "old"
