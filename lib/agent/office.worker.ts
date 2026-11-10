@@ -20,7 +20,15 @@ try {
 		kind === "docx"
 			? await docxToMarkdownWithFigures(bytes)
 			: { markdown: xlsxToMarkdown(bytes), figures: [], warnings: [] };
-	if (Buffer.byteLength(result.markdown) > OFFICE_LIMITS.textBytes)
+	// Warnings also enter the model prompt; the image-sized IPC allowance must
+	// not let diagnostic text bypass the text budget.
+	const textBytes =
+		Buffer.byteLength(result.markdown) +
+		result.warnings.reduce(
+			(total, warning) => total + Buffer.byteLength(warning) + 1,
+			0,
+		);
+	if (textBytes > OFFICE_LIMITS.textBytes)
 		throw new Error(
 			"The document contains too much text to read at once. You can split it into smaller files.",
 		);

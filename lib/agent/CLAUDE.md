@@ -115,7 +115,7 @@ and the image check establish native-memory enforcement.
 Admission accepts at most 10 MiB compressed, 5,000 parts and 64 MiB actually
 decoded. It validates each part's CRC and size and repackages exactly those bytes
 before Mammoth/SheetJS read them, preventing parser disagreement over the original
-ZIP directory. Converted text is capped at 4 MiB and IPC output at 34 MiB;
+ZIP directory. Converted body plus warning text is capped at 4 MiB and IPC output at 34 MiB;
 existing figure budgets remain in `documentFigures.ts`. Parser failure cannot
 start a model call. `officeLimits.ts` owns these budgets.
 

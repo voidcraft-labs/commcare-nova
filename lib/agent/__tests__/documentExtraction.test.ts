@@ -12,6 +12,7 @@
 // never fake buffers with a declared type. DOCX tests use real OOXML archives and
 // the installed Mammoth conversion, including image relationships and alt text.
 
+import AdmZip from "adm-zip";
 import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
@@ -141,6 +142,31 @@ describe("extractDocument", () => {
 		await expect(
 			extractDocument({
 				bytes: Buffer.from("broken archive"),
+				kind: "docx",
+				mimeType:
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				filename: "requirements.docx",
+				condenser,
+			}),
+		).rejects.toThrow();
+		expect(call).not.toHaveBeenCalled();
+	});
+
+	it("refuses warning-heavy Office text before calling the model", async () => {
+		const zip = new AdmZip(docxDocument());
+		const unsupportedName = `unread${"x".repeat(5 * 1024 * 1024)}`;
+		zip.updateFile(
+			"word/document.xml",
+			Buffer.from(
+				zip
+					.readAsText("word/document.xml")
+					.replace("</w:body>", () => `<w:${unsupportedName}/></w:body>`),
+			),
+		);
+		const { condenser, call } = recordingCondenser();
+		await expect(
+			extractDocument({
+				bytes: zip.toBuffer(),
 				kind: "docx",
 				mimeType:
 					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",

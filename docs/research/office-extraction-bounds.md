@@ -34,7 +34,7 @@ paragraphs. Neither an upload-byte cap nor a promise timeout bounded that work.
 ## Enforced boundary
 
 `officeLimits.ts` is the authority: 10 MiB input, 5,000 ZIP entries, 64 MiB decoded
-bytes, 4 MiB converted text, 34 MiB serialized result, 256 MiB V8 old heap,
+bytes, 4 MiB combined body and warning text, 34 MiB serialized result, 256 MiB V8 old heap,
 768 MiB Linux data allocation, and a 15-second wall deadline. One child runs per
 Node process with at most four pending callers; their wait consumes the same
 deadline. The process-wide owner survives separate server module instances and
@@ -113,3 +113,8 @@ rehype's default GFM table conversion. Both new regressions fail against the
 initial implementation and pass with the structured-HTML table path. The image
 marker rule is shared across both paths, and the serializer escapes source text;
 only Nova-generated marker nodes are emitted as raw HTML.
+
+A subsequent review found that large conversion diagnostics could bypass a cap
+on body text alone. The child now budgets body and warning text together. A
+synthetic ignored XML element with a 5 MiB name fails extraction before the
+recording condenser is invoked; it reached the condenser without this check.
