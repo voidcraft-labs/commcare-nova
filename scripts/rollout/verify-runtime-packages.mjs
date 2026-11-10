@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 for (const [name, member] of [
@@ -15,29 +17,48 @@ for (const [name, member] of [
 	);
 }
 
-const XLSX = await import("xlsx");
-const book = XLSX.utils.book_new();
-XLSX.utils.book_append_sheet(
-	book,
-	XLSX.utils.aoa_to_sheet([["value"], [7]]),
-	"Data",
+// Independent minimal OOXML workbook: a value header and the number 7.
+const spreadsheet = Buffer.from(
+	"UEsDBBQAAAgIAHigaV3+W4ZyigAAAPAAAAALAAAAX3JlbHMvLnJlbHONz0EOwiAQheGrkDlAp7pwYaArN92aXgDpFJoCQ4BGvL3baly4f/lefnknr+vKsbg1FdGCj0WBqzVdEYtxFHTpOFFswS+cg66l42wxabNpS3ju+wvmowGDPJpinBXkcT6BmF6J/rF5WVZDNzZ7oFh/XHwtQEw6W6oKmscn5+3BvHUteMBB4kfg8AZQSwMEFAAACAgAeKBpXRx0/DjZAAAA9gEAABMAAABbQ29udGVudF9UeXBlc10ueG1srZGxTgMxEER/5eQ2ijdQUKBcGkILFPzA4tvLWWd7Le8mmL9HZwIFCtBQTbGz80aa7fNbJulqDEl6M6nmWwBxE0UUy5lSjWHkElHFcjlARjfjgeB6s7kBx0kp6VqXDLPb7mnEY9Duviol8Zx6UyiI6e4+jAurN5hz8A7Vc4JTGr5R1meCLRSaRyafZVVjMHCRsFx+Bpz/Hk9Uih+oe8KiDxipN1ADvHKZX5hn+3vIhZY8jt7RwO4YKamVXAgHmYg0BtvURvRp9Te/mQWaXP1zka/8zx7Q5t69A1BLAwQUAAAICAB4oGldtlSqz48AAADxAAAAGgAAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxzjc8xCsMwDAXQqxgdIEo6dChJpi5ZSy5gHCUOsS1jqTS9faFDSaFDpw9/eJ/f3ihYXTmJX7OYPYYkHXjVfEEU5ylaqThT2mOYuUSrUnFZMFu32YXwVNdnLEcD+vZommHqoAxTA2Z8ZvrH5nleHV3Z3SMl/TGBDy6beCIFM9qykHbwqQTf0VR7DIB9i18P+xdQSwMEFAAACAgAeKBpXXXz1B2RAAAA4gAAAA8AAAB4bC93b3JrYm9vay54bWyNjzEOgzAQBL+C7gE5SJECYSoanuHgI7bw+Syfo/D8SBD6VCuNtLPa4SNle4pszc4xqQFfa+4RdfHEVm+SKe0cVylsq96kvFBzIevUE1WOeG/bB7INCU5DX/5xyLqGhSZZ3kypnpJC0dYgSX3ICuNwLOgvm2SZDEy2WmgOMjsDHTSlD85AmV0HOA54lfD6NX4BUEsDBBQAAAgIAHigaV3kKxbzogAAAPEAAAAYAAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1sTY9bCoNADEW3IllAo360IDEgdAddwaBpHToPyaTq8ov9kP4dLvfBpS3ru8wiVu0xpNLDbLZ0iGWcJbpyyYukPYZn1uisXLK+sCwqbvqFYsC2rq8YnU/ANPkoqficKpVnD0PTDS0g0897d+aYNG+V9tAA03jA0EBlPfgUfJKHKTD5wmS8uvARQmPCQ8CRCTVvZ0N7Nhy08o1w/bfh3yieL/kLUEsBAhQDFAAACAgAeKBpXf5bhnKKAAAA8AAAAAsAAAAAAAAAAAAAAKSBAAAAAF9yZWxzLy5yZWxzUEsBAhQDFAAACAgAeKBpXRx0/DjZAAAA9gEAABMAAAAAAAAAAAAAAKSBswAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAICAB4oGldtlSqz48AAADxAAAAGgAAAAAAAAAAAAAApIG9AQAAeGwvX3JlbHMvd29ya2Jvb2sueG1sLnJlbHNQSwECFAMUAAAICAB4oGlddfPUHZEAAADiAAAADwAAAAAAAAAAAAAApIGEAgAAeGwvd29ya2Jvb2sueG1sUEsBAhQDFAAACAgAeKBpXeQrFvOiAAAA8QAAABgAAAAAAAAAAAAAAKSBQgMAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbFBLBQYAAAAABQAFAEUBAAAaBAAAAAA=",
+	"base64",
 );
-const roundTrip = XLSX.read(
-	XLSX.write(book, { type: "buffer", bookType: "xlsx" }),
-	{ type: "buffer" },
-);
-assert.equal(roundTrip.Sheets.Data.A2.v, 7);
 
 // A minimal, self-contained OOXML document exercises actual document parsing.
 const docx = Buffer.from(
 	"UEsDBBQAAAAIAC8aJV1qMj/j0gAAAIsBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH2QO27DMAyGryJoLSI6HTIUtjO0WdsMvQAh07ZQvSAqaXr70kmaoQgykh//h9RuT8GrIxV2KXZ6bRq97dvPn0yshETu9FxrfgFgO1NANilTFDKmErDKWCbIaL9wInhumg3YFCvFuqqLh+7bNxrx4KvanWR9SRG5Vq+XuyWq05izdxarYFgo3NUV8vxAeIzDv3arazMjyvMNzy7z0zXhQ55d3EBqj6W+YxA7+E5lgCHZQ5AI87jonbw0js7STb+45ZIsMbs4BW9uJKCLfz3g/N39L1BLAwQUAAAACAAvGiVdXzOVUpUAAAAHAQAACwAAAF9yZWxzLy5yZWxzjc87DsIwDAbgq0Q+QJ0yMKCmXVi6Ii4QJW5T0TzkhNftycBAEQOjf//6LHfDw6/iRpyXGBS0jYSh70606lKD7JaURW2ErMCVkg6I2TjyOjcxUaibKbLXpY48Y9LmomfCnZR75E8DtqYYrQIebQvi/Ez0jx2naTF0jObqKZQfJ74aVdY8U1Fwj2zRvuOmsoB9h5sX+xdQSwMEFAAAAAgALxolXaVF9GWIAAAAvAAAABEAAAB3b3JkL2RvY3VtZW50LnhtbEWOQQ7CIBBFr9JwgA66cEEovYF3QMCWWBgyYNHbCzXRzZtMXubPl/MrbMPuKHuMEzuNnM1KVmHRPIOLZWg6ZlEntpaSBEA2qws6j5hcbO6OFHRpKy1QkWwiNC5nH5ewwZnzCwTtI+uRN7TvPlMHdRR11cXvbvh9a+HmIaGrTjqYDn7P4V9NfQBQSwECFAMUAAAACAAvGiVdajI/49IAAACLAQAAEwAAAAAAAAAAAAAAgAEAAAAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLAQIUAxQAAAAIAC8aJV1fM5VSlQAAAAcBAAALAAAAAAAAAAAAAACAAQMBAABfcmVscy8ucmVsc1BLAQIUAxQAAAAIAC8aJV2lRfRliAAAALwAAAARAAAAAAAAAAAAAACAAcEBAAB3b3JkL2RvY3VtZW50LnhtbFBLBQYAAAAAAwADALkAAAB4AgAAAAA=",
 	"base64",
 );
-const mammoth = (await import("mammoth")).default;
-assert.equal(
-	(await mammoth.convertToHtml({ buffer: docx })).value,
-	"<p>Native document check</p>",
+// Exercise the same isolated conversion entry point used by requests. This
+// catches missing bundles, loader dependencies and Linux resource-limit setup.
+const { convertOfficeDocument, OfficeParser } = await import(
+	resolve("runtime/office/process.mjs")
 );
+const convertedDocx = await convertOfficeDocument(docx, "docx");
+assert.equal(convertedDocx.markdown.trim(), "Native document check");
+const convertedXlsx = await convertOfficeDocument(spreadsheet, "xlsx");
+assert.match(convertedXlsx.markdown, /value/);
+assert.match(convertedXlsx.markdown, /7/);
+console.log(
+	"Office parser peak RSS KiB:",
+	convertedDocx.peakRssKb,
+	convertedXlsx.peakRssKb,
+);
+
+// An allocation outside V8's heap must be refused under the same Linux
+// launcher, rather than relying only on --max-old-space-size.
+const memoryFixture = await mkdtemp(resolve(tmpdir(), "nova-office-memory-"));
+try {
+	const workerPath = resolve(memoryFixture, "native-buffer.mjs");
+	await writeFile(
+		workerPath,
+		'Buffer.alloc(1024 * 1024 * 1024); process.stdout.write(JSON.stringify({ markdown: "unbounded", figures: [], warnings: [] }));',
+	);
+	await assert.rejects(
+		new OfficeParser({ workerPath }).convert(Buffer.alloc(0), "docx"),
+	);
+} finally {
+	await rm(memoryFixture, { recursive: true, force: true });
+}
 
 // One PCM sample makes the lazy WAV parser load from the standalone package.
 const wav = Buffer.alloc(46);

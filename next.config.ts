@@ -83,8 +83,6 @@ const nextConfig: NextConfig = {
 		// The complete standalone image verifies the native imports.
 		"@google-cloud/cloud-sql-connector",
 		"@google-cloud/storage",
-		"xlsx",
-		"mammoth",
 		"music-metadata",
 	],
 
@@ -98,7 +96,7 @@ const nextConfig: NextConfig = {
 	 * Next's static handler serves /nova-icons/* as-is. Single-server standalone,
 	 * so the global key is the robust choice; the cost is one ~1.2MB copy. */
 	outputFileTracingIncludes: {
-		"/*": ["./public/nova-icons/**"],
+		"/*": ["./public/nova-icons/**", "./runtime/office/**"],
 	},
 
 	/* Silence the dev-mode "ƒ serverAction(args)" trace — its safe-stable-stringify

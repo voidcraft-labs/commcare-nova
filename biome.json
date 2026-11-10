@@ -26,6 +26,7 @@
 			"!!proof/migrations",
 			"!!public/xpath-worker",
 			"!!public/form-evaluation",
+			"!!runtime/office",
 			"!!scripts/java-pattern-runtime/.gradle",
 			"!!scripts/java-pattern-runtime/.gradle-user",
 			"!!scripts/java-pattern-runtime/build",

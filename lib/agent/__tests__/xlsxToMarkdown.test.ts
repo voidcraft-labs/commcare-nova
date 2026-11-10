@@ -9,10 +9,7 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
-import {
-	assertOfficeArchiveBudget,
-	xlsxToMarkdown,
-} from "../documentExtraction";
+import { assertOfficeArchiveBudget, xlsxToMarkdown } from "../officeConversion";
 
 /** Build an .xlsx buffer from a map of sheet name → array-of-arrays. A cell may
  *  be a primitive (value) or a `CellObject` carrying a formula (`f`). Writing
@@ -126,11 +123,11 @@ describe("xlsxToMarkdown", () => {
 
 describe("office-archive preflight (decompression-bomb guard)", () => {
 	// DOCX/XLSX are ZIP containers, so the upload's COMPRESSED-byte cap doesn't
-	// bound what they expand to in memory. The preflight reads only the central
-	// directory and rejects an implausible archive before the parser runs.
+	// bound what they expand to in memory. The preflight checks the central directory, then decodes and repackages
+	// the admitted bytes before handing them to the second parser.
 	it("rejects a non-archive buffer before the parser runs", () => {
 		expect(() => xlsxToMarkdown(Buffer.from("this is not a zip"))).toThrow(
-			/valid XLSX archive/,
+			/zip format/,
 		);
 	});
 
@@ -166,20 +163,20 @@ describe("office-archive preflight (decompression-bomb guard)", () => {
 });
 
 describe("assertOfficeArchiveBudget — the declared-uncompressed-size cap (primary defense)", () => {
-	// Tested directly (not through a forged 300 MB zip): a few entries declaring
+	// Tested directly (not through a forged 64 MB zip): a few entries declaring
 	// a huge expansion is the canonical zip-bomb shape, and the size accumulation
 	// is the branch that actually bounds it.
-	it("rejects when declared uncompressed sizes exceed the 300 MB cap", () => {
+	it("rejects when declared uncompressed sizes exceed the 64 MB cap", () => {
 		expect(() =>
 			assertOfficeArchiveBudget([400 * 1024 * 1024], "spreadsheet"),
-		).toThrow(/too large to read/);
+		).toThrow(/contents expand to over/);
 		// Accumulates across entries, not per-entry.
 		expect(() =>
 			assertOfficeArchiveBudget(
 				new Array(4).fill(100 * 1024 * 1024),
 				"document",
 			),
-		).toThrow(/too large to read/);
+		).toThrow(/contents expand to over/);
 	});
 
 	it("rejects a non-finite or negative declared size (a NaN can't poison the total)", () => {

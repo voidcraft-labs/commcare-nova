@@ -285,6 +285,11 @@ A document is ready only after its read finishes. An interrupted response stays
 unavailable even if part of it looks complete. Nova preserves literal paths and
 text examples in the returned summary. For large spreadsheets, the summary
 names any sheets or formulas left unread because an extraction limit was reached.
+When reading Word documents, Nova preserves table structure and keeps track of
+where each figure belongs. Nova reports conversion limitations and figures it could not read. A file
+that exceeds the reading limits stays unavailable; you can split it into smaller
+files or export it as a PDF and try again. Previously admitted conversation
+sources keep their retained content when document preparation changes.
 
 ## Resume an unfinished design
 
