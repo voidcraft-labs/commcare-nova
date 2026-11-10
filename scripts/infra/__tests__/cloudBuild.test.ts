@@ -349,8 +349,6 @@ describe("application release admission and authority", () => {
 					"--update-env-vars=NOVA_DB_WORKLOAD=service,NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MEDIA_BUCKET=nova-multimedia-prod",
 					"--no-default-url",
 					"--ingress=internal-and-cloud-load-balancing",
-					"--min=1",
-					"--max=4",
 					"--min-instances=1",
 					"--max-instances=4",
 					"--timeout=3600s",

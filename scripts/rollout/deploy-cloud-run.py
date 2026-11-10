@@ -118,6 +118,10 @@ def assert_scaling(
     actual = scaling_prestate(service)
     if actual != expected_prestate:
         fail(f"Cloud Run scaling mode changed from {expected_prestate} to {actual}.")
+    # Manual scaling removes the automatic bounds. They are restored together
+    # with automatic scaling only after the disabled candidate is verified.
+    if actual == "disabled":
+        return
     scaling = service.get("scaling") or {}
     if (
         expected_min is not None
@@ -324,13 +328,15 @@ class CloudRunApi:
     def service(self) -> dict[str, Any]:
         return self._get(self._service_name)
 
-    def resume(self, service: dict[str, Any]) -> None:
+    def resume(self, service: dict[str, Any], *, minimum: int, maximum: int) -> None:
         etag = service.get("etag")
         if not isinstance(etag, str) or not etag:
             fail("Disabled service has no etag for the resume fence.")
         scaling = dict(service["scaling"])
         scaling.pop("manualInstanceCount", None)
         scaling["scalingMode"] = "AUTOMATIC"
+        scaling["minInstanceCount"] = minimum
+        scaling["maxInstanceCount"] = maximum
         _run_api_request(self._token, "PATCH", self._service_name + "?updateMask=scaling", {
             "name": self._service_name, "etag": etag, "scaling": scaling,
         })
@@ -973,6 +979,8 @@ def _forbid_deploy_policy_overrides(deploy_args: Sequence[str]) -> None:
         "--project",
         "--region",
         "--scaling",
+        "--min",
+        "--max",
         "--no-traffic",
         "--tag",
     )
@@ -1124,7 +1132,9 @@ def _deploy_mode(args: argparse.Namespace) -> None:
     _run([
         "gcloud", "run", "deploy", args.service, f"--image={args.image}",
         f"--region={args.region}", f"--project={args.project}", "--quiet",
-        *(["--scaling=0"] if args.expected_scaling == "disabled" else []), *args.deploy_args,
+        *(["--scaling=0"] if args.expected_scaling == "disabled" else [
+            f"--min={args.expected_min}", f"--max={args.expected_max}",
+        ]), *args.deploy_args,
     ])
 
     def deployed_candidate(expected_scaling: str) -> tuple[str, dict[str, Any]]:
@@ -1149,7 +1159,7 @@ def _deploy_mode(args: argparse.Namespace) -> None:
     if args.expected_scaling == "disabled":
         # Traffic and immutable image are proved BEFORE enabling any instances.
         # The etag refuses a concurrent service mutation after that proof.
-        api.resume(verified_service)
+        api.resume(verified_service, minimum=args.expected_min, maximum=args.expected_max)
         resumed, _ = _wait_for("the resumed candidate", lambda: deployed_candidate("automatic"))
         if resumed != candidate:
             fail("Resuming the service changed the candidate revision.")
