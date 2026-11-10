@@ -158,23 +158,35 @@ describe("container artifact declarations", () => {
 		);
 	});
 
-	test("the authored job bundle commands produce self-contained operator executables", () => {
-		const directory = mkdtempSync(join(tmpdir(), "nova-maintenance-bundles-"));
-		const contextFilter = dockerignore({ ignorecase: false }).add(
-			readFileSync(".dockerignore", "utf8"),
+	const jobBundles = [
+		"migration-build",
+		"capture-build",
+		"maintenance-build",
+	].flatMap((name) => {
+		const runs = stage(name)
+			.getInstructions()
+			.filter((item) => item instanceof Run);
+		if (!runs.length) throw new Error(`${name} has no job bundle commands`);
+		return runs.map(
+			(run) =>
+				[
+					run.getArguments()[2]?.getValue() ?? "missing entrypoint",
+					run,
+				] as const,
 		);
-		try {
-			const runs = [
-				"migration-build",
-				"capture-build",
-				"maintenance-build",
-			].flatMap((name) =>
-				stage(name)
-					.getInstructions()
-					.filter((item) => item instanceof Run),
+	});
+	// Each artifact owns its bounded subprocesses and cleanup. Adding another
+	// maintenance command must not consume an unrelated artifact's time budget.
+	test.each(jobBundles)(
+		"%s produces a self-contained operator executable",
+		(_entrypoint, run) => {
+			const directory = mkdtempSync(
+				join(tmpdir(), "nova-maintenance-bundles-"),
 			);
-			expect(runs.length).toBeGreaterThan(2);
-			for (const run of runs) {
+			const contextFilter = dockerignore({ ignorecase: false }).add(
+				readFileSync(".dockerignore", "utf8"),
+			);
+			try {
 				const args = run.getArguments().map((arg) => arg.getValue());
 				expect(args.slice(0, 2)).toEqual(["npx", "esbuild"]);
 				// Execute the Dockerfile's actual esbuild flags, changing only the
@@ -216,9 +228,10 @@ describe("container artifact declarations", () => {
 						}),
 					).toContain("Usage:");
 				}
+			} finally {
+				rmSync(directory, { recursive: true, force: true });
 			}
-		} finally {
-			rmSync(directory, { recursive: true, force: true });
-		}
-	}, 30_000);
+		},
+		30_000,
+	);
 });

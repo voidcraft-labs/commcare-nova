@@ -1,3 +1,5 @@
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { assertRetainedThreadReferences } from "./threadSources";
 /**
  * Media asset CRUD against Postgres.
  *
@@ -1580,11 +1582,12 @@ export async function replaceExactThreadMediaReferences(
 	)) {
 		requirements.push({ assetId: source.assetId, expectedKind: source.kind });
 	}
-	const assetIds = await lockAndValidateMediaReferences(
-		tx,
-		args.projectId,
-		requirements,
-	);
+	await assertRetainedThreadReferences(tx, {
+		threadId: args.threadId,
+		messages: args.candidateMessages as NovaUIMessage[],
+		selected: selectedSourceDocumentsSchema.parse(thread.selected_sources),
+	});
+	const assetIds = [...new Set(requirements.map((ref) => ref.assetId))].sort();
 	await tx
 		.deleteFrom("thread_media_refs")
 		.where("thread_id", "=", args.threadId)

@@ -1,16 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
-import { loadSourceMaterial, type SourceMaterialDeps } from "../sources";
-
-const noDocuments: SourceMaterialDeps = {
-	loadAssets: async () => [],
-	readExtract: async () => {
-		throw new Error("Unexpected document read");
-	},
-	loadImage: async () => {
-		throw new Error("Unexpected image read");
-	},
-};
+import { loadSourceMaterial } from "../sources";
 
 describe("answered question source identity", () => {
 	it("keeps request identity and review evidence stable when display parts move", async () => {
@@ -42,12 +32,10 @@ describe("answered question source identity", () => {
 		const before = await loadSourceMaterial({
 			projectId: "project",
 			messages: [original],
-			deps: noDocuments,
 		});
 		const after = await loadSourceMaterial({
 			projectId: "project",
 			messages: [moved],
-			deps: noDocuments,
 		});
 		expect(before.requests[0].key).toBe("answers:message:question-call");
 		expect(after.requests[0].key).toBe(before.requests[0].key);

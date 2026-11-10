@@ -1,5 +1,14 @@
+import { createHash } from "node:crypto";
+import { retainedDocument } from "@/__tests__/helpers/admittedSource";
 import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { threadMessagesSql } from "@/lib/db/threadTranscript";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import {
+	loadThreadRetainedSources,
+	retainedSourceRevision,
+	retainThreadSource,
+} from "../threadSources";
 /** Final atomic Project-move protocol against one shared Postgres database. */
 
 import type { UIMessage } from "ai";
@@ -213,6 +222,45 @@ async function seedThread(
 		active_holder_nonce: null,
 		messages: JSON.stringify(messages),
 	});
+	await retainFixtureSources(threadId, messages);
+}
+
+async function retainFixtureSources(
+	threadId: string,
+	messages: readonly UIMessage[],
+) {
+	await h
+		.db()
+		.transaction()
+		.execute(async (tx) => {
+			for (const message of messages as NovaUIMessage[])
+				for (const ref of message.metadata?.attachments ?? []) {
+					const bytes = Buffer.from("retained figure");
+					await retainThreadSource(tx, {
+						threadId,
+						messageId: message.id,
+						assetId: ref.assetId,
+						provenance: "admitted",
+						source:
+							ref.kind === "image"
+								? {
+										kind: "image",
+										filename: ref.filename,
+										mimeType: "image/png",
+										contentHash: "fixture-image",
+										content: {
+											kind: "image",
+											mediaType: "image/png",
+											dataUrl: `data:image/png;base64,${bytes.toString("base64")}`,
+											bytesDigest: createHash("sha256")
+												.update(bytes)
+												.digest("hex"),
+										},
+									}
+								: { ...retainedDocument(ref.assetId), filename: ref.filename },
+					});
+				}
+		});
 }
 
 async function seedCase(appId: string, projectId: string): Promise<void> {
@@ -868,6 +916,7 @@ describe("atomic Project move", () => {
 				project_id: SOURCE,
 			})
 			.execute();
+		await retainFixtureSources("thread-session-atomic", sessionMessages);
 		await seedCase(appId, SOURCE);
 		await seedCase(appId, SOURCE);
 		await h
@@ -897,12 +946,7 @@ describe("atomic Project move", () => {
 			await listener.query("LISTEN nova_app_stream");
 			await listener.query("LISTEN nova_presence");
 			const result = await commitMove(appId, {
-				assetIdMap: new Map([
-					[sourceLogo, destinationLogo],
-					[sourceImage, destinationImage],
-					[sourceDocument, destinationDocument],
-					[sourceHistorical, destinationHistorical],
-				]),
+				assetIdMap: new Map([[sourceLogo, destinationLogo]]),
 				insideTransaction: async () => {
 					const outside = await listener.query<{
 						project_id: string;
@@ -955,9 +999,6 @@ describe("atomic Project move", () => {
 		const expectedMessages = structuredClone(originalMessages) as Array<{
 			metadata: { attachments: Array<{ assetId: string }> };
 		}>;
-		expectedMessages[0].metadata.attachments[0].assetId = destinationImage;
-		expectedMessages[0].metadata.attachments[1].assetId = destinationDocument;
-		expectedMessages[0].metadata.attachments[2].assetId = destinationHistorical;
 		expect(storedThread.messages).toEqual(expectedMessages);
 
 		/* The split projection after the move: the Blueprint edge set carries
@@ -981,7 +1022,7 @@ describe("atomic Project move", () => {
 			.orderBy("asset_id")
 			.execute();
 		expect(destinationThreadRefs).toEqual(
-			[destinationImage, destinationDocument, destinationHistorical]
+			[sourceImage, sourceDocument, sourceHistorical]
 				.sort()
 				.map((assetId) => ({ asset_id: assetId, project_id: DESTINATION })),
 		);
@@ -997,8 +1038,6 @@ describe("atomic Project move", () => {
 		const expectedSessionMessages = structuredClone(sessionMessages) as Array<{
 			metadata: { attachments: Array<{ assetId: string }> };
 		}>;
-		expectedSessionMessages[0].metadata.attachments[0].assetId =
-			destinationImage;
 		expect(sessionThread.messages).toEqual(expectedSessionMessages);
 		expect(
 			await h
@@ -1007,7 +1046,7 @@ describe("atomic Project move", () => {
 				.select(["asset_id", "project_id"])
 				.where("thread_id", "=", "thread-session-atomic")
 				.execute(),
-		).toEqual([{ asset_id: destinationImage, project_id: DESTINATION }]);
+		).toEqual([{ asset_id: sourceImage, project_id: DESTINATION }]);
 		expect(await h.readDesignSessionRow(sessionId)).toMatchObject({
 			project_id: DESTINATION,
 		});
@@ -1271,29 +1310,22 @@ describe("atomic Project move", () => {
 	});
 });
 
-it("copies selected library source identity even without a user attachment", async () => {
+it("moves retained sources with their conversation after the Library origin is removed", async () => {
 	const appId = await seedMoveableApp({ id: "move-selected-sources" });
 	await h.seedProjectMember(ACTOR, DESTINATION, "owner");
 	const sourceId = testMediaAssetId("81000000-0000-4000-8000-000000000001");
-	const destinationId = testMediaAssetId(
-		"81000000-0000-4000-8000-000000000002",
-	);
 	await seedReadyAsset({ id: sourceId, projectId: SOURCE, kind: "document" });
-	await seedReadyAsset({
-		id: destinationId,
-		projectId: DESTINATION,
-		kind: "document",
-	});
 	await seedThread(appId, "selected-move", []);
+	const retained = retainedDocument(sourceId);
 	const source = {
 		assetId: sourceId,
 		kind: "pdf",
 		filename: "requirements.pdf",
 		mimeType: "application/pdf",
-		contentHash: "source-hash",
+		contentHash: retained.contentHash,
 		extractVersion: 1,
-		extractDigest: "source-extract",
-		revision: "source-revision",
+		extractDigest: canonicalJsonDigest("Collect the visit date."),
+		revision: retainedSourceRevision(retained),
 	};
 	await h
 		.db()
@@ -1301,25 +1333,41 @@ it("copies selected library source identity even without a user attachment", asy
 		.set({ selected_sources: JSON.stringify([source]) })
 		.where("thread_id", "=", "selected-move")
 		.execute();
-	expect(await prepareMove(appId)).toEqual({
-		kind: "ready",
-		assetIds: [sourceId],
+	await h
+		.db()
+		.transaction()
+		.execute((tx) =>
+			retainThreadSource(tx, {
+				threadId: "selected-move",
+				messageId: "",
+				assetId: sourceId,
+				source: retained,
+				provenance: "admitted",
+			}),
+		);
+	await h.db().deleteFrom("media_assets").where("id", "=", sourceId).execute();
+	expect(await prepareMove(appId)).toEqual({ kind: "ready", assetIds: [] });
+	expect(await commitMove(appId, { assetIdMap: new Map() })).toEqual({
+		kind: "moved",
 	});
-	expect(
-		await commitMove(appId, {
-			assetIdMap: new Map([[sourceId, destinationId]]),
-		}),
-	).toEqual({ kind: "moved" });
 	const thread = await h
 		.db()
 		.selectFrom("threads")
 		.select([threadMessagesSql().as("messages"), "selected_sources"])
 		.where("thread_id", "=", "selected-move")
 		.executeTakeFirstOrThrow();
-	expect(thread).toEqual({
-		messages: [],
-		selected_sources: [{ ...source, assetId: destinationId }],
-	});
+	expect(thread).toEqual({ messages: [], selected_sources: [source] });
+	const target = { kind: "app", appId } as const;
+	expect(
+		await loadThreadRetainedSources(target, "selected-move", SOURCE),
+	).toEqual(new Map());
+	expect(
+		[
+			...(
+				await loadThreadRetainedSources(target, "selected-move", DESTINATION)
+			).values(),
+		][0]?.source,
+	).toEqual(retained);
 	expect(
 		await h
 			.db()
@@ -1327,5 +1375,5 @@ it("copies selected library source identity even without a user attachment", asy
 			.select(["asset_id", "project_id"])
 			.where("thread_id", "=", "selected-move")
 			.execute(),
-	).toEqual([{ asset_id: destinationId, project_id: DESTINATION }]);
+	).toEqual([{ asset_id: sourceId, project_id: DESTINATION }]);
 });

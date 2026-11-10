@@ -156,6 +156,9 @@ class JobExecutionTests(unittest.TestCase):
         job_name = JOB.rsplit("/", 1)[0] + "/" + name
         encoded = base64.b64encode(b'[{"appId":"reviewed-app"}]').decode()
         for args in (
+            ["conversation-source-scan.cjs", "--bucket", "synthetic-media"],
+            ["conversation-source-cutover.cjs", "--scan-digest", "c" * 64, "--bucket", "synthetic-media"],
+            ["conversation-source-cutover.cjs", "--scan-digest", "c" * 64, "--bucket", "synthetic-media", "--execute"],
             ["thread-storage-scan.cjs"],
             ["thread-storage-cutover.cjs", "--scan-digest", "b" * 64],
             ["thread-storage-cutover.cjs", "--scan-digest", "b" * 64, "--execute"],
@@ -190,6 +193,9 @@ class JobExecutionTests(unittest.TestCase):
     def test_choice_repair_refuses_missing_plans_extra_flags_and_other_jobs(self):
         encoded = base64.b64encode(b'[{"appId":"reviewed-app"}]').decode()
         for args in (
+            ["conversation-source-scan.cjs", "--bucket", "synthetic-media", "--execute"],
+            ["conversation-source-cutover.cjs", "--scan-digest", "bad", "--bucket", "synthetic-media", "--execute"],
+            ["conversation-source-cutover.cjs", "--scan-digest", "c" * 64, "--bucket", "synthetic-media", "--execute", "--extra"],
             ["thread-storage-scan.cjs", "--execute"],
             ["thread-storage-cutover.cjs", "--execute"],
             ["thread-storage-cutover.cjs", "--scan-digest", "not-a-digest"],

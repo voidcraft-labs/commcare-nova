@@ -26,6 +26,8 @@ scripts/*
 !scripts/migrate-case-expression-indexes.ts
 !scripts/scan-thread-storage.ts
 !scripts/migrate-thread-storage.ts
+!scripts/scan-conversation-sources.ts
+!scripts/migrate-conversation-sources.ts
 !scripts/scan-select-starting-values.ts
 !scripts/migrate-select-starting-values.ts
 !scripts/java-pattern-runtime/
@@ -50,6 +52,8 @@ scripts/lib/*
 !scripts/lib/languageIdentityRepair.ts
 !scripts/lib/selectStartingValueRepair.ts
 !scripts/lib/threadStorageCutover.ts
+!scripts/lib/conversationSourceBaseline.ts
+!scripts/lib/conversationSourceCutover.ts
 !scripts/lib/loadPersistedBlueprint.ts
 !scripts/lib/loadEnv.ts
 !scripts/lib/main.ts

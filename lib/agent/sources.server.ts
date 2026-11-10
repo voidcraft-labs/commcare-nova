@@ -1,19 +1,8 @@
-import { createHash } from "node:crypto";
 import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { prepareEmbeddedSourceDocument } from "@/lib/agent/sourceDocuments";
-import { loadAssetsByIds } from "@/lib/db/mediaAssets";
-import {
-	EXTRACTOR_VERSION,
-	imageFormatNoun,
-	isModelReadableImageMimeType,
-} from "@/lib/domain/multimedia";
-import { downloadAssetBytes } from "@/lib/storage/media";
-import {
-	MAX_IMAGE_BYTES,
-	type SourceMaterialDeps,
-	SourceMaterialError,
-} from "./sources";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import type { SourceMaterialDeps } from "./sources";
 
 /** Production seams. The condenser backs the extraction store's backstop
  *  for a document whose eager extraction never ran. */
@@ -82,41 +71,5 @@ export function productionSourceMaterialDeps(
 		attempts.set(key, { extractedAt: asset.extract?.extractedAt, promise });
 		return promise;
 	};
-	return {
-		prepareDocument,
-		loadAssets: (ids, projectId) => loadAssetsByIds(ids, projectId),
-		async readExtract(asset, kind) {
-			const result = await prepareDocument(asset, kind, runtime?.signal);
-			if (result.status === "ready") {
-				return {
-					text: result.text,
-					truncated: result.truncated,
-					version: result.version,
-				};
-			}
-			throw new SourceMaterialError(
-				`The document "${asset.originalFilename}" could not be read: its preparation failed, so its requirements cannot ground a design. Retry preparation in the Library or choose another source. The uploaded file is still saved.`,
-			);
-		},
-		async loadImage(asset) {
-			// An image the model can't read (a BMP) is never sent under its own
-			// MIME: the source is unavailable to the assistant, as one outside
-			// the Project is.
-			if (!isModelReadableImageMimeType(asset.mimeType)) {
-				throw new SourceMaterialError(
-					`The attachment "${asset.originalFilename}" is ${imageFormatNoun(asset.mimeType)}, which the assistant can't read yet. A PNG or JPEG of it works.`,
-				);
-			}
-			const bytes = await downloadAssetBytes(
-				asset.gcsObjectKey,
-				MAX_IMAGE_BYTES,
-				runtime?.signal,
-			);
-			return {
-				mediaType: asset.mimeType,
-				dataUrl: `data:${asset.mimeType};base64,${bytes.toString("base64")}`,
-				bytesDigest: createHash("sha256").update(bytes).digest("hex"),
-			};
-		},
-	};
+	return { prepareDocument };
 }

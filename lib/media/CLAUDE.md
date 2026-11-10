@@ -21,8 +21,9 @@ An asset's state lives OUTSIDE the blueprint doc (bytes in GCS, a metadata row i
 - **`owner` and `kind` are immutable** — written once at `createPendingAsset`, never updated (confirm may refine `mimeType`/`extension` from the bytes, never these). `owner` is the uploader, recorded for provenance only — NOT an access gate (that's `project_id`) and NOT in the GCS path; `kind` keeps documents out of media slots.
 - **`project_id` is immutable too — moving an app COPIES, never re-tenants.**
   `moveMedia.ts::copyAssetsIntoProject` get-or-creates a `ready` destination
-  copy for every live authored Blueprint and canonical thread reference across
-  all `AssetKind`s, then remaps every one in the destination app transaction.
+  copy for every live authored Blueprint reference, then remaps those in the
+  destination app transaction. Conversation sources are already retained under
+  their threads and need no Library copy or identity remapping.
   Documents copy only a published `ready` extract pair and preserve a newer
   destination extract state. Each copy takes source/destination
   extension-independent Project/hash locks in global order, re-reads and
@@ -31,19 +32,18 @@ An asset's state lives OUTSIDE the blueprint doc (bytes in GCS, a metadata row i
   wrong-kind live carrier fails the move. Event attachment UUIDs are audit-only
   and never participate. Source rows and bytes remain untouched, so sibling
   source apps are unaffected.
-- **Deleting a referenced asset is refused** (the deletion guard, below).
+- **Deleting an authored app asset is refused** (the deletion guard, below).
+  A conversation source has its own retained content; its Library origin can be deleted.
 
 So the four attach tools verify the asset **at the source** —
 `attachVerdicts.ts::mediaAttachVerdict` checks that it exists in the app's
 Project, is `ready`, matches the slot's `MediaKind`, and keeps the app inside the
-export ceiling before the gated commit. Every authoritative app or thread
-writer then derives the complete poststate projection from all authored
-Blueprint references plus canonical thread attachments, locks every referenced
-asset sorted `FOR SHARE`, verifies same Project, `ready`, and exact kind, and
-deletes/reinserts that app's exact `media_asset_refs` rows in the SAME
-transaction. Deletion takes the conflicting asset `FOR UPDATE`, so either the
-writer commits and deletion's coherent re-walk sees the reference, or deletion
-commits and the writer wakes to a missing row and rejects.
+export ceiling before the gated commit. App writers maintain the exact authored
+`media_asset_refs` projection under sorted asset share locks; deletion takes the
+conflicting asset update lock and refuses authored references. Conversation
+admission retains model-readable bytes under that same asset lock before the
+transcript commits. If deletion wins first, admission fails; if retention wins,
+Library deletion leaves the conversation's evidence intact.
 
 ## Client authority follows the operation
 
@@ -74,9 +74,9 @@ pagination. `readSource` returns revision-pinned pages of their working extract;
 only embedded authoring can prepare one within its metered, cancellable run.
 External MCP reads report preparation status without starting model work.
 Successful embedded selections live in server-owned `threads.selected_sources`,
-not client-supplied attachments. They participate in deletion guards and the
-Project move's document copy and identity remapping, preserving the selected
-extract alongside its original bytes.
+not client-supplied attachments. Each successful selection also retains the
+exact extract in immutable thread-owned storage. Library deletion and Project
+moves preserve this evidence independently of its original Library row.
 
 ## Accepted formats and where they play
 
@@ -154,10 +154,12 @@ Both the SA `removeMediaAsset` tool and `DELETE /api/media/[assetId]` end
 at `lib/db/mediaDeletion.ts`: one transaction takes the shared membership gate,
 freshly proves Project `edit`, locks the asset `FOR UPDATE`, queries its exact
 composite reverse-edge candidates, and coherently re-walks each candidate's
-authored Blueprint plus canonical thread attachments. Metadata is deleted only
+authored Blueprint references. Conversation evidence has its own retained content
+and is not a Library deletion blocker. Metadata is deleted only
 when that re-walk is empty. There is no app lock, whole-Project fallback scan,
 completion marker, or post-commit synchronization path. The atomic Project move
-copies and remaps every live Blueprint/thread reference in the same projection;
+copies and remaps every live Blueprint reference in the same projection;
+retained conversation evidence follows thread ownership without rewriting source identities;
 immutable event attachment UUIDs remain audit receipts and are never
 dereferenced, remapped, copied, indexed, or deletion blockers. The SA's in-hand
 walk remains an actionable preflight only and never authorizes deletion; chat

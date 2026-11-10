@@ -1,7 +1,4 @@
-import {
-	threadMessagesSql,
-	writeThreadTranscript,
-} from "@/lib/db/threadTranscript";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 /**
  * App CRUD + the run lifecycle, on Postgres row locks.
  *
@@ -42,12 +39,7 @@ import {
 	type SelectedSourceDocument,
 	selectedSourceDocumentsSchema,
 } from "@/lib/chat/selectedSources";
-import {
-	collectThreadAttachmentAssetIds,
-	collectThreadAttachments,
-	remapThreadAttachmentAssetIds,
-} from "@/lib/chat/threadAttachments";
-import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
+import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
 import { log } from "@/lib/logger";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
 import {
@@ -89,11 +81,7 @@ import {
 	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../domain/mediaRefs";
-import {
-	type AssetKind,
-	asMediaAssetId,
-	type MediaAssetId,
-} from "../domain/multimedia";
+import { asMediaAssetId, type MediaAssetId } from "../domain/multimedia";
 import {
 	lockActorGenerationGate,
 	lockActorGenerationGateForAppHolder,
@@ -855,27 +843,6 @@ function projectMoveThreadFilter(appId: string) {
 		]);
 }
 
-async function readProjectMoveThreads(
-	tx: Transaction<AppDatabase>,
-	appId: string,
-): Promise<ProjectMoveThreadSnapshot[]> {
-	const rows = await tx
-		.selectFrom("threads")
-		.select([
-			"thread_id",
-			threadMessagesSql().as("messages"),
-			"selected_sources",
-		])
-		.where(projectMoveThreadFilter(appId))
-		.orderBy("thread_id")
-		.execute();
-	return rows.map((row) => ({
-		threadId: row.thread_id,
-		messages: row.messages,
-		selectedSources: selectedSourceDocumentsSchema.parse(row.selected_sources),
-	}));
-}
-
 async function lockProjectMoveThreads(
 	tx: Transaction<AppDatabase>,
 	appId: string,
@@ -896,22 +863,6 @@ async function lockProjectMoveThreads(
 		messages: row.messages,
 		selectedSources: selectedSourceDocumentsSchema.parse(row.selected_sources),
 	}));
-}
-
-function threadAssetIds(
-	threads: readonly ProjectMoveThreadSnapshot[],
-): MediaAssetId[] {
-	return [
-		...new Set(
-			threads
-				.flatMap((thread) => [
-					...collectThreadAttachmentAssetIds(thread.messages),
-					...thread.selectedSources.map((source) => source.assetId),
-				])
-				.filter((assetId) => !isBuiltinIconRef(assetId))
-				.map(asMediaAssetId),
-		),
-	].sort();
 }
 
 async function assertMoveLookupClosureEmpty(
@@ -1049,14 +1000,10 @@ export async function prepareAppProjectMoveInTransaction(
 	const { doc } = await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
 	await assertMoveLookupClosureEmpty(tx, args.appId, doc);
 	await assertMoveCaptureClosureEmpty(tx, args.appId);
-	const threads = await readProjectMoveThreads(tx, args.appId);
 	return {
 		kind: "ready",
 		assetIds: [
-			...new Set([
-				...collectRealAssetRefs(asWalkableDoc(doc)),
-				...threadAssetIds(threads),
-			]),
+			...new Set([...collectRealAssetRefs(asWalkableDoc(doc))]),
 		].sort(),
 	};
 }
@@ -1204,10 +1151,7 @@ export async function commitAppProjectMoveInTransaction(
 	await assertMoveCaptureClosureEmpty(tx, args.appId);
 	const threads = await lockProjectMoveThreads(tx, args.appId);
 	const freshClosure = [
-		...new Set([
-			...collectRealAssetRefs(asWalkableDoc(previousDoc)),
-			...threadAssetIds(threads),
-		]),
+		...new Set([...collectRealAssetRefs(asWalkableDoc(previousDoc))]),
 	].sort();
 	const staleSources = new Set(
 		freshClosure.filter((assetId) => !args.assetIdMap.has(assetId)),
@@ -1251,34 +1195,12 @@ export async function commitAppProjectMoveInTransaction(
 		);
 	}
 	const committedDoc = toPersistableDoc(verdict.nextDoc);
-	const remappedThreads = threads.map((thread) => ({
-		...thread,
-		messages: remapThreadAttachmentAssetIds(thread.messages, args.assetIdMap),
-		selectedSources: thread.selectedSources.map((source) => ({
-			...source,
-			assetId: args.assetIdMap.get(source.assetId) ?? source.assetId,
-		})),
-	}));
-	/* The Blueprint half of the split projection: the destination edges are
-	 * exactly the committed (already remapped) doc's authored references.
-	 * Conversation carriers ride each thread's own `thread_media_refs`
-	 * replacement below. Both families still validate against the
-	 * destination Project in ONE lock set here. */
+	// Retained conversation evidence is owned by its thread. Its provenance ids
+	// remain stable while authorization follows the app to the destination.
 	const blueprintDestinationRequirements = blueprintMediaRequirements(
 		verdict.nextDoc,
 	);
-	const destinationRequirements = [...blueprintDestinationRequirements];
-	for (const thread of remappedThreads) {
-		for (const attachment of [
-			...collectThreadAttachments(thread.messages),
-			...thread.selectedSources,
-		]) {
-			destinationRequirements.push({
-				assetId: attachment.assetId,
-				expectedKind: attachment.kind as AssetKind,
-			});
-		}
-	}
+	const destinationRequirements = blueprintDestinationRequirements;
 	try {
 		await lockAndValidateMediaReferences(
 			tx,
@@ -1303,27 +1225,7 @@ export async function commitAppProjectMoveInTransaction(
 		projectId: args.toProjectId,
 		targets: EMPTY_LOOKUP_REFERENCE_TARGETS,
 	});
-	for (const thread of remappedThreads) {
-		if (
-			!deepEqual(
-				thread,
-				threads.find((source) => source.threadId === thread.threadId),
-			)
-		) {
-			await writeThreadTranscript(tx, thread.threadId, thread.messages);
-			await tx
-				.updateTable("threads")
-				.set({
-					selected_sources: JSON.stringify(thread.selectedSources),
-				})
-				.where(projectMoveThreadFilter(args.appId))
-				.where("thread_id", "=", thread.threadId)
-				.execute();
-		}
-		/* Re-tenant this thread's exact conversation reference set: the same
-		 * remapped transcript that just committed is the projection source,
-		 * so the rows land destination-Project-scoped with destination asset
-		 * ids (the destination lock set above already validated them). */
+	for (const thread of threads) {
 		await tx
 			.deleteFrom("thread_media_refs")
 			.where("thread_id", "=", thread.threadId)

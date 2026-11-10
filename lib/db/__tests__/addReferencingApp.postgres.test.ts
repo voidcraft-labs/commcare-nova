@@ -26,6 +26,7 @@ import {
 	MediaReferenceProjectionError,
 	replaceExactThreadMediaReferences,
 } from "../mediaAssets";
+import { retainThreadSource } from "../threadSources";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("exact_media_refs_");
@@ -259,7 +260,7 @@ describe("media acceptance by the platforms an app runs on, through the commit k
 		);
 	});
 
-	it("holds no thread attachment to a platform: an ICO rides an Android-only app's thread", async () => {
+	it("keeps an unavailable legacy ICO reference separate from Android playback and Library retention", async () => {
 		await seedVariant(ICO, "ico");
 		const appId = await h.seedAppWithBlueprint(visitDoc("android"), {
 			owner: OWNER,
@@ -271,11 +272,21 @@ describe("media acceptance by the platforms an app runs on, through the commit k
 			app_id: appId,
 			created_at: new Date().toISOString(),
 			updated_at: new Date().toISOString(),
-			thread_type: "chat",
+			thread_type: "edit",
 			summary: "Attachments",
 			run_id: crypto.randomUUID(),
 			messages: JSON.stringify([]),
-		} as never);
+		});
+		await h.withTransaction((tx) =>
+			retainThreadSource(tx, {
+				threadId,
+				messageId: "m1",
+				assetId: ICO,
+				filename: "icon.ico",
+				source: null,
+				provenance: "unavailable",
+			}),
+		);
 		await h.withTransaction((tx) =>
 			replaceExactThreadMediaReferences(tx, {
 				threadId,
@@ -306,5 +317,13 @@ describe("media acceptance by the platforms an app runs on, through the commit k
 			.where("thread_id", "=", threadId)
 			.execute();
 		expect(refs.map((ref) => ref.asset_id)).toEqual([ICO]);
+		expect(
+			await h
+				.db()
+				.selectFrom("media_asset_refs")
+				.selectAll()
+				.where("app_id", "=", appId)
+				.execute(),
+		).toEqual([]);
 	});
 });

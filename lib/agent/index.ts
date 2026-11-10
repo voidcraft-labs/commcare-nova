@@ -22,13 +22,8 @@ export { buildAppStateMessage, markStablePrefixBoundary } from "./prompts";
 // composer sends asset-id refs in message metadata; the chat route calls
 // `resolveAttachments` to append each ref's stored requirements extract
 // (documents) or image bytes (vision) to the message before it reaches the
-// Solutions Architect, and `countDocumentsNeedingRead` to decide whether to show
-// the "reading documents" status — only when a document still needs extracting,
-// not for one already read.
-export {
-	countDocumentsNeedingRead,
-	resolveAttachments,
-} from "./resolveAttachments";
+// Solutions Architect from immutable conversation evidence.
+export { resolveAttachments } from "./resolveAttachments";
 // solutionsArchitect — the one ToolLoopAgent factory.
 export { createSolutionsArchitect } from "./solutionsArchitect";
 

@@ -1,5 +1,7 @@
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { selectedSourceDocumentsSchema } from "@/lib/chat/selectedSources";
 import { threadMessagesSql } from "@/lib/db/threadTranscript";
+import { assertRetainedThreadReferences } from "./threadSources";
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -520,7 +522,19 @@ async function auditRuntimeMediaReferenceProjection(
 				threadMessagesSql().as("messages"),
 				"selected_sources",
 			])
-			.where("app_id", "=", args.appId)
+			.where((eb) =>
+				eb.or([
+					eb("app_id", "=", args.appId),
+					eb(
+						"design_session_id",
+						"in",
+						eb
+							.selectFrom("design_sessions")
+							.select("id")
+							.where("app_id", "=", args.appId),
+					),
+				]),
+			)
 			.orderBy("thread_id")
 			.execute();
 		for (const thread of threads) {
@@ -528,12 +542,11 @@ async function auditRuntimeMediaReferenceProjection(
 				...collectThreadAttachments(thread.messages),
 				...selectedSourceDocumentsSchema.parse(thread.selected_sources),
 			];
-			for (const attachment of attachments) {
-				requirements.push({
-					assetId: attachment.assetId,
-					expectedKind: attachment.kind,
-				});
-			}
+			await assertRetainedThreadReferences(tx, {
+				threadId: thread.thread_id,
+				messages: thread.messages as NovaUIMessage[],
+				selected: selectedSourceDocumentsSchema.parse(thread.selected_sources),
+			});
 			const expectedThreadAssetIds = [
 				...new Set(attachments.map((attachment) => attachment.assetId)),
 			].sort();

@@ -431,7 +431,7 @@ it.each(["unreadable", "deleted-after-admission"])(
 	},
 );
 
-it("does not re-admit an old unreadable source when an edit submits a new message without files", async () => {
+it("reuses retained evidence after the Library source becomes unreadable during a later edit", async () => {
 	const appId = await h.seedApp({
 		owner: USER,
 		project_id: PROJECT,
@@ -447,6 +447,7 @@ it("does not re-admit an old unreadable source when an edit submits a new messag
 		if (!saved) throw new Error("Expected an admitted conversation");
 		await prepareSource("failed");
 		readTextObject.mockResolvedValue(null);
+		readTextObject.mockClear();
 		const next: NovaUIMessage = {
 			id: "unrelated-edit",
 			role: "user",
@@ -461,7 +462,8 @@ it("does not re-admit an old unreadable source when an edit submits a new messag
 		expect(wire).toContain("Please confirm");
 		expect(peer.requests).toHaveLength(2);
 		const history = JSON.stringify(peer.requests[1]);
-		expect(history).toContain("couldn't be read");
+		expect(history).toContain("Visit workflow");
+		expect(readTextObject).not.toHaveBeenCalled();
 		expect(history).toContain("Rename the visit form");
 	});
 });

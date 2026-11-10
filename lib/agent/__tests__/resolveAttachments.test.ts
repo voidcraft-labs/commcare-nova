@@ -1,424 +1,335 @@
-/** Attachment-reference projection. Persistence/storage replies are controlled;
- * the sibling extraction-store Postgres suite owns claims and publication. */
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import {
-	type AttachmentRef,
-	attachmentRefSchema,
-	type NovaUIMessage,
-} from "@/lib/chat/attachmentRefs";
-import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
-import { downloadAssetBytes } from "@/lib/storage/media";
-import type { AttachmentCondenser } from "../documentExtraction";
-import { ensureStoredExtract } from "../documentExtractionStore";
+	type RetainedSources,
+	selectedSourceReferenceKey,
+	sourceReferenceKey,
+} from "@/lib/chat/retainedSource";
+import type { SelectedSourceDocument } from "@/lib/chat/selectedSources";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { resolveAttachments } from "../resolveAttachments";
 import {
-	countDocumentsNeedingRead,
-	resolveAttachments,
-} from "../resolveAttachments";
+	includeSelectedSource,
+	loadSourceMaterial,
+	sourceAttachmentsMessage,
+} from "../sources";
 
-vi.mock("@/lib/db/mediaAssets", () => ({ loadAssetsByIds: vi.fn() }));
-vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
-vi.mock("../documentExtractionStore", () => ({ ensureStoredExtract: vi.fn() }));
-
-const condenser: AttachmentCondenser = {
-	async extractDocumentStructured() {
-		throw new Error("The resolver delegates model work to the store");
+const assetId = asMediaAssetId("80000000-0000-4000-8000-000000000001");
+const message: NovaUIMessage = {
+	id: "request",
+	role: "user",
+	parts: [{ type: "text", text: "Use this source" }],
+	metadata: {
+		attachments: [
+			{ assetId, kind: "text", filename: "spec.txt", mimeType: "text/plain" },
+		],
 	},
 };
-const DOC = testMediaAssetId("doc-1");
-const IMAGE = testMediaAssetId("image-1");
-function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
-	return {
-		id: DOC,
-		owner: "uploader",
-		project_id: "shared-project",
-		contentHash: "a".repeat(64),
-		mimeType: "text/markdown",
-		extension: ".md",
-		sizeBytes: 100,
-		kind: "text",
-		gcsObjectKey: "projects/shared-project/aaaa.md",
-		originalFilename: "spec.md",
-		status: "ready",
-		created_at: new Date(0),
-		...over,
-	};
-}
-function ref(over: Partial<AttachmentRef> = {}): AttachmentRef {
-	return attachmentRefSchema.parse({
-		assetId: DOC,
-		filename: "spec.md",
-		kind: "text",
-		mimeType: "text/markdown",
-		...over,
-	});
-}
-function userMsg(id: string, ...refs: AttachmentRef[]): NovaUIMessage {
-	return {
-		id,
-		role: "user",
-		parts: [{ type: "text", text: "Build this workflow" }],
-		metadata: { attachments: refs },
-	};
-}
-beforeEach(() => {
-	vi.resetAllMocks();
-	vi.mocked(loadAssetsByIds).mockResolvedValue([asset()]);
-	vi.mocked(ensureStoredExtract).mockResolvedValue({
-		status: "ready",
-		text: "EXTRACT",
-		version: EXTRACTOR_VERSION,
-		truncated: false,
-		charCount: 7,
-	});
-	vi.mocked(downloadAssetBytes).mockResolvedValue(Buffer.from([0, 127, 255]));
-});
+const retained: RetainedSources = new Map([
+	[
+		sourceReferenceKey(message.id, assetId),
+		{
+			messageId: message.id,
+			assetId,
+			revision: "old-revision",
+			provenance: "admitted",
+			source: {
+				kind: "text",
+				filename: "spec.txt",
+				mimeType: "text/plain",
+				contentHash: "original",
+				content: {
+					kind: "document",
+					text: "The admitted requirements",
+					version: 1,
+					truncated: false,
+				},
+			},
+		},
+	],
+]);
 
-describe("resolveAttachments", () => {
-	it("sends a BMP as a placeholder, never as an image the model is handed", async () => {
-		vi.mocked(loadAssetsByIds).mockResolvedValue([
-			asset({
-				id: IMAGE,
-				kind: "image",
-				mimeType: "image/bmp",
-				extension: ".bmp",
-				originalFilename: "map.bmp",
-				gcsObjectKey: "projects/shared-project/map.bmp",
+describe("retained evidence projection", () => {
+	it("uses the same pinned text in edit and build contexts without modifying the transcript", async () => {
+		const before = structuredClone(message);
+		const projected = resolveAttachments([message], retained);
+		expect(projected[0].parts).toEqual([
+			message.parts[0],
+			expect.objectContaining({
+				type: "text",
+				text: expect.stringContaining("The admitted requirements"),
 			}),
 		]);
-		const [resolved] = await resolveAttachments(
-			[
-				userMsg(
-					"u",
-					ref({
-						assetId: IMAGE,
-						kind: "image",
-						filename: "map.bmp",
-						mimeType: "image/bmp",
-					}),
-				),
-			],
-			"shared-project",
-			condenser,
-		);
-		expect(resolved.parts.slice(1)).toEqual([
+		const material = await loadSourceMaterial({
+			projectId: "project",
+			messages: [message],
+			retainedSources: retained,
+		});
+		expect(material.documents).toEqual([
 			{
-				type: "text",
-				text: "<<Attachment map.bmp is a BMP image, which the assistant can't read yet. A PNG or JPEG of it works.>>",
+				id: assetId,
+				name: "spec.txt",
+				text: "The admitted requirements",
+				truncated: false,
+				revision: "old-revision",
 			},
 		]);
-		expect(downloadAssetBytes).not.toHaveBeenCalled();
+		expect(message).toEqual(before);
 	});
-
-	it("propagates stopped or unauthorized embedded preparation instead of continuing with a placeholder", async () => {
-		const stopped = new Error("This run no longer owns its conversation.");
-		const prepare = vi.fn(async () => {
-			throw stopped;
-		});
-		await expect(
-			resolveAttachments(
-				[userMsg("u", ref())],
-				"shared-project",
-				condenser,
-				undefined,
-				{ prepare },
-			),
-		).rejects.toBe(stopped);
-		expect(ensureStoredExtract).not.toHaveBeenCalled();
-	});
-
-	it("projects all user turns in order, deduplicates work, and preserves the source transcript", async () => {
-		const img = asset({
-			id: IMAGE,
-			kind: "image",
-			mimeType: "image/png",
-			extension: ".png",
-			originalFilename: "diagram.png",
-			gcsObjectKey: "projects/shared-project/image.png",
-		});
-		vi.mocked(loadAssetsByIds).mockResolvedValue([img, asset()]);
-		const messages = [
-			userMsg(
-				"first",
-				ref(),
-				ref({
-					assetId: IMAGE,
-					kind: "image",
-					filename: "diagram.png",
-					mimeType: "image/png",
-				}),
-			),
-			userMsg("second", ref()),
-		];
-		const before = JSON.stringify(messages);
-		const resolved = await resolveAttachments(
-			messages,
-			"shared-project",
-			condenser,
-		);
-		expect(JSON.stringify(messages)).toBe(before);
-		expect(resolved).not.toBe(messages);
-		expect(resolved[0]).not.toBe(messages[0]);
-		expect(resolved[0].parts).toEqual([
-			messages[0].parts[0],
-			{ type: "text", text: "<<Attachment: spec.md>>\nEXTRACT" },
-			{
-				type: "file",
-				mediaType: "image/png",
-				url: "data:image/png;base64,AH//",
-				filename: "diagram.png",
-			},
-		]);
-		expect(resolved[1].parts).toEqual([
-			messages[1].parts[0],
-			resolved[0].parts[1],
-		]);
-		expect(loadAssetsByIds).toHaveBeenCalledExactlyOnceWith(
-			[DOC, IMAGE],
-			"shared-project",
-		);
-		expect(ensureStoredExtract).toHaveBeenCalledOnce();
-		expect(downloadAssetBytes).toHaveBeenCalledOnce();
-	});
-
-	it.each(["text", "pdf", "docx", "xlsx"] as const)(
-		"uses authoritative %s asset kind and delegates extraction with wait/progress",
-		async (kind) => {
-			const formats = {
-				text: ["text/markdown", ".md"],
-				pdf: ["application/pdf", ".pdf"],
-				docx: [
-					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-					".docx",
-				],
-				xlsx: [
-					"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-					".xlsx",
-				],
-			} as const;
-			const [mimeType, extension] = formats[kind];
-			const record = asset({
-				kind,
-				mimeType,
-				extension,
-				originalFilename: `spec${extension}`,
-			});
-			vi.mocked(loadAssetsByIds).mockResolvedValue([record]);
-			const progress = vi.fn();
-			// Display-only metadata disagrees; persisted asset kind controls resolution.
-			const [resolved] = await resolveAttachments(
-				[userMsg("u", ref({ kind: "image", mimeType: "image/png" }))],
-				"shared-project",
-				condenser,
-				progress,
-			);
-			expect(resolved.parts.at(-1)).toEqual({
-				type: "text",
-				text: "<<Attachment: spec.md>>\nEXTRACT",
-			});
-			expect(ensureStoredExtract).toHaveBeenCalledExactlyOnceWith({
-				asset: record,
-				documentKind: kind,
-				condenser,
-				onInflight: "wait",
-				onProgress: progress,
-			});
-			expect(downloadAssetBytes).not.toHaveBeenCalled();
-		},
-	);
-
-	it.each(["absent", "pending"] as const)(
-		"keeps a placeholder for an %s asset without reading bytes",
-		async (state) => {
-			vi.mocked(loadAssetsByIds).mockResolvedValue(
-				state === "absent" ? [] : [asset({ status: "pending" })],
-			);
-			const [resolved] = await resolveAttachments(
-				[userMsg("u", ref())],
-				"shared-project",
-				condenser,
-			);
-			expect(resolved.parts).toHaveLength(2);
-			expect(resolved.parts.at(-1)).toMatchObject({
-				type: "text",
-				text: expect.stringContaining("spec.md"),
-			});
-			expect(ensureStoredExtract).not.toHaveBeenCalled();
-			expect(downloadAssetBytes).not.toHaveBeenCalled();
-		},
-	);
-
-	it("keeps every attachment visible when the authorized batch read fails", async () => {
-		vi.mocked(loadAssetsByIds).mockRejectedValue(
-			new Error("database unavailable"),
-		);
-		const [resolved] = await resolveAttachments(
+	it("keeps unavailable legacy evidence explicit and rejects an absent retention record", async () => {
+		const unavailable: RetainedSources = new Map([
 			[
-				userMsg(
-					"u",
-					ref(),
-					ref({ assetId: IMAGE, filename: "diagram.png", kind: "image" }),
-				),
+				sourceReferenceKey(message.id, assetId),
+				{
+					messageId: message.id,
+					assetId,
+					revision: null,
+					provenance: "unavailable",
+					source: null,
+				},
 			],
-			"shared-project",
-			condenser,
-		);
-		expect(resolved.parts.slice(1)).toEqual([
-			{ type: "text", text: expect.stringContaining("spec.md") },
-			{ type: "text", text: expect.stringContaining("diagram.png") },
 		]);
-		expect(ensureStoredExtract).not.toHaveBeenCalled();
-		expect(downloadAssetBytes).not.toHaveBeenCalled();
-	});
-
-	it.each(["document", "image"] as const)(
-		"keeps a %s read failure as a safe named placeholder",
-		async (kind) => {
-			if (kind === "document")
-				vi.mocked(ensureStoredExtract).mockResolvedValue({
-					status: "failed",
-					reason: "private diagnostic",
-				});
-			else {
-				vi.mocked(loadAssetsByIds).mockResolvedValue([
-					asset({ kind: "image", mimeType: "image/png" }),
-				]);
-				vi.mocked(downloadAssetBytes).mockRejectedValue(
-					new Error("private diagnostic"),
-				);
-			}
-			const [resolved] = await resolveAttachments(
-				[userMsg("u", ref())],
-				"shared-project",
-				condenser,
-			);
-			expect(resolved.parts.at(-1)).toMatchObject({
-				type: "text",
-				text: expect.stringContaining("spec.md"),
-			});
-			expect(JSON.stringify(resolved)).not.toContain("private diagnostic");
-		},
-	);
-
-	it("carries the historical incomplete-extract warning with the exact text", async () => {
-		vi.mocked(ensureStoredExtract).mockResolvedValue({
-			status: "ready",
-			text: "PARTIAL",
-			version: 1,
-			truncated: true,
-			charCount: 7,
-		});
-		const [resolved] = await resolveAttachments(
-			[userMsg("u", ref())],
-			"shared-project",
-			condenser,
-		);
-		expect(resolved.parts.at(-1)).toMatchObject({
-			type: "text",
-			text: expect.stringContaining("PARTIAL"),
-		});
-		expect(resolved.parts.at(-1)).toMatchObject({
-			type: "text",
-			text: expect.stringContaining(
-				"trailing content from the original document may be missing",
-			),
-		});
-	});
-
-	it("passes a ref-free transcript through without I/O", async () => {
-		const messages: NovaUIMessage[] = [
-			{ id: "u", role: "user", parts: [{ type: "text", text: "No files" }] },
-		];
+		expect(resolveAttachments([message], unavailable)[0].parts).toEqual([
+			message.parts[0],
+			expect.objectContaining({
+				text: expect.stringContaining("could not be retained"),
+			}),
+		]);
 		expect(
-			await resolveAttachments(messages, "shared-project", condenser),
-		).toBe(messages);
-		expect(loadAssetsByIds).not.toHaveBeenCalled();
+			(
+				await loadSourceMaterial({
+					projectId: "project",
+					messages: [message],
+					retainedSources: unavailable,
+				})
+			).documents,
+		).toEqual([]);
+		expect(() => resolveAttachments([message], new Map())).toThrow(
+			"no retained source",
+		);
+	});
+	it("preserves the admitted image bytes and labels a migration baseline honestly", () => {
+		const bytes = Buffer.from("retained image bytes");
+		const dataUrl = `data:image/png;base64,${bytes.toString("base64")}`;
+		const imageMessage: NovaUIMessage = {
+			...message,
+			metadata: {
+				attachments: [
+					{
+						assetId,
+						kind: "image",
+						filename: "figure.png",
+						mimeType: "image/png",
+					},
+				],
+			},
+		};
+		const images: RetainedSources = new Map([
+			[
+				sourceReferenceKey(message.id, assetId),
+				{
+					messageId: message.id,
+					assetId,
+					revision: "image-revision",
+					provenance: "admitted",
+					source: {
+						kind: "image",
+						filename: "figure.png",
+						mimeType: "image/png",
+						contentHash: "original",
+						content: {
+							kind: "image",
+							mediaType: "image/png",
+							dataUrl,
+							bytesDigest: createHash("sha256").update(bytes).digest("hex"),
+						},
+					},
+				},
+			],
+		]);
+		expect(resolveAttachments([imageMessage], images)[0].parts[1]).toEqual({
+			type: "file",
+			mediaType: "image/png",
+			url: dataUrl,
+			filename: "figure.png",
+		});
+		const baseline = new Map(retained);
+		const ref = baseline.get(sourceReferenceKey(message.id, assetId));
+		if (!ref) throw new Error("Missing test reference");
+		baseline.set(sourceReferenceKey(message.id, assetId), {
+			...ref,
+			provenance: "migration-baseline",
+		});
+		expect(resolveAttachments([message], baseline)[0].parts[1]).toMatchObject({
+			text: expect.stringContaining("not a verified copy"),
+		});
 	});
 });
 
-/* The gate for the "Reading your documents" status: a document attachment counts
- * only when its extract wasn't ready when attached (no `title` snapshot on the
- * ref). An already-read document — or an image — resolves instantly and must not
- * make the status flash. Pure function; no storage/db. */
-describe("countDocumentsNeedingRead", () => {
-	const ref = (over: Partial<AttachmentRef>): AttachmentRef => ({
-		assetId: testMediaAssetId("a"),
+it.each(["migration-baseline", "unavailable"] as const)(
+	"keeps %s notices visible without giving them user-turn identity",
+	async (provenance) => {
+		const ref = retained.get(sourceReferenceKey(message.id, assetId));
+		if (!ref) throw new Error("Missing fixture");
+		const sources: RetainedSources = new Map([
+			[
+				sourceReferenceKey(message.id, assetId),
+				{
+					...ref,
+					provenance,
+					...(provenance === "unavailable"
+						? { source: null, revision: null }
+						: {}),
+				},
+			],
+		]);
+		const before = await loadSourceMaterial({
+			projectId: "project",
+			messages: [message],
+			retainedSources: sources,
+		});
+		const after = await loadSourceMaterial({
+			projectId: "project",
+			messages: [
+				message,
+				{
+					id: "continue",
+					role: "user",
+					parts: [{ type: "text", text: "Please continue" }],
+				},
+			],
+			retainedSources: sources,
+		});
+		expect(before.requests.at(-1)?.key).toBe("request:request:0");
+		expect(after.requests.at(-1)?.key).toBe("request:continue:0");
+		expect(JSON.stringify(sourceAttachmentsMessage(before))).toContain(
+			provenance === "unavailable"
+				? "could not be retained"
+				: "not a verified copy",
+		);
+	},
+);
+
+it("preserves the exact source snapshot when a newly selected revision resumes beside older revisions", async () => {
+	const old = retained.get(sourceReferenceKey(message.id, assetId));
+	if (!old?.source) throw new Error("Missing fixture");
+	const first = { ...old, messageId: "" };
+	const selected = (
+		revision: string,
+		text: string,
+	): SelectedSourceDocument => ({
+		assetId,
 		kind: "text",
-		filename: "spec.md",
-		mimeType: "text/markdown",
-		...over,
+		filename: "spec.txt",
+		mimeType: "text/plain",
+		contentHash: "original",
+		extractVersion: 1,
+		extractDigest: canonicalJsonDigest(text),
+		revision,
 	});
+	const firstSelection = selected("old-revision", "The admitted requirements");
+	const secondSelection = selected(
+		"new-revision",
+		"The replacement requirements",
+	);
+	const second = {
+		...first,
+		revision: secondSelection.revision,
+		source: {
+			...old.source,
+			content: {
+				kind: "document" as const,
+				text: "The replacement requirements",
+				version: 1,
+				truncated: false,
+			},
+		},
+	};
+	const sources = new Map([
+		[selectedSourceReferenceKey(assetId, firstSelection.revision), first],
+	]);
+	const initial = await loadSourceMaterial({
+		projectId: "project",
+		messages: [],
+		selectedSources: [firstSelection],
+		retainedSources: sources,
+	});
+	const live = includeSelectedSource({
+		material: initial,
+		selected: secondSelection,
+		retainedContent: second.source,
+	});
+	sources.set(
+		selectedSourceReferenceKey(assetId, secondSelection.revision),
+		second,
+	);
+	const resumed = await loadSourceMaterial({
+		projectId: "project",
+		messages: [],
+		selectedSources: [secondSelection],
+		retainedSources: new Map([...sources].reverse()),
+	});
+	expect(resumed).toEqual(live);
+	expect(sourceAttachmentsMessage(resumed)).toEqual(
+		sourceAttachmentsMessage(live),
+	);
+});
 
-	const userMsgWith = (...refs: AttachmentRef[]): NovaUIMessage => ({
-		id: "u",
-		role: "user",
-		parts: [{ type: "text", text: "build this" }],
-		metadata: { attachments: refs },
+it("keeps an unavailable historical selection explicit and stable after selecting current evidence", async () => {
+	const old = retained.get(sourceReferenceKey(message.id, assetId));
+	if (!old?.source) throw new Error("Missing fixture");
+	const selection: SelectedSourceDocument = {
+		assetId,
+		kind: "text",
+		filename: "spec.txt",
+		mimeType: "text/plain",
+		contentHash: "original",
+		extractVersion: 1,
+		extractDigest: canonicalJsonDigest("The admitted requirements"),
+		revision: "old-revision",
+	};
+	const sources: Map<
+		string,
+		import("@/lib/chat/retainedSource").RetainedSourceReference
+	> = new Map([
+		[
+			selectedSourceReferenceKey(assetId, "unavailable"),
+			{
+				messageId: "",
+				assetId,
+				filename: "spec.txt",
+				source: null,
+				revision: null,
+				provenance: "unavailable",
+			},
+		],
+	]);
+	const before = await loadSourceMaterial({
+		projectId: "project",
+		messages: [],
+		retainedSources: sources,
+		selectedSources: [selection],
 	});
-
-	it("counts a document whose extract wasn't ready (no title snapshot)", () => {
-		expect(countDocumentsNeedingRead([userMsgWith(ref({}))])).toBe(1);
+	expect(before.notices).toHaveLength(1);
+	const live = includeSelectedSource({
+		material: before,
+		selected: selection,
+		retainedContent: old.source,
 	});
-
-	it("does NOT count a document already read (title snapshot present)", () => {
-		expect(
-			countDocumentsNeedingRead([userMsgWith(ref({ title: "Spec" }))]),
-		).toBe(0);
+	sources.set(selectedSourceReferenceKey(assetId, selection.revision), {
+		...old,
+		messageId: "",
 	});
-
-	it("does NOT count an image (read directly, never extracted)", () => {
-		expect(
-			countDocumentsNeedingRead([
-				userMsgWith(ref({ kind: "image", filename: "d.png" })),
-			]),
-		).toBe(0);
+	const resumed = await loadSourceMaterial({
+		projectId: "project",
+		messages: [],
+		retainedSources: sources,
+		selectedSources: [selection],
 	});
-
-	it("counts only the unread documents in a mixed batch", () => {
-		expect(
-			countDocumentsNeedingRead([
-				userMsgWith(
-					ref({ assetId: testMediaAssetId("read"), title: "Done" }),
-					ref({ assetId: testMediaAssetId("unread1") }),
-					ref({ assetId: testMediaAssetId("unread2") }),
-					ref({
-						assetId: testMediaAssetId("img"),
-						kind: "image",
-						filename: "d.png",
-					}),
-				),
-			]),
-		).toBe(2);
-	});
-
-	it("returns 0 when the last message carries no attachments", () => {
-		const plain: NovaUIMessage = {
-			id: "u",
-			role: "user",
-			parts: [{ type: "text", text: "no files" }],
-		};
-		expect(countDocumentsNeedingRead([plain])).toBe(0);
-	});
-
-	it("ignores attachments on anything but the LAST message", () => {
-		// A prior turn's unread doc must not re-trigger the status on a later turn —
-		// the status is for the new turn's docs only.
-		const prior = userMsgWith(ref({ assetId: testMediaAssetId("old") }));
-		const latest: NovaUIMessage = {
-			id: "u2",
-			role: "user",
-			parts: [{ type: "text", text: "follow-up, no files" }],
-		};
-		expect(countDocumentsNeedingRead([prior, latest])).toBe(0);
-	});
-
-	it("returns 0 when the last message isn't a user message", () => {
-		const assistant: NovaUIMessage = {
-			id: "a",
-			role: "assistant",
-			parts: [{ type: "text", text: "done" }],
-		};
-		expect(countDocumentsNeedingRead([assistant])).toBe(0);
-	});
+	expect(resumed).toEqual(live);
+	expect(JSON.stringify(sourceAttachmentsMessage(resumed))).toContain(
+		"could not be retained",
+	);
 });

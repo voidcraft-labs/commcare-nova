@@ -194,6 +194,8 @@ const RUNTIME_READ_WRITE_TABLES = [
  * may row-lock or update a request, step, stage, change-set handle, or
  * receipt row — retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
+	"thread_source_contents",
+	"thread_source_links",
 	"app_test_steps",
 	"app_test_requests",
 	"app_changes",
@@ -258,6 +260,7 @@ const RUNTIME_INSERT_DELETE_TABLES = [
  * and the migration notices with their key-reader rows, so serving code
  * cannot forge one. */
 const RUNTIME_READ_ONLY_TABLES = [
+	"conversation_source_cutover",
 	"app_change_fold_baselines",
 	"app_deployment_identities",
 	"app_migration_notices",
@@ -648,6 +651,7 @@ const APP_TEST_RUNTIME_ROUTINES = [
 ] as const;
 
 const EXPECTED_PUBLIC_ROUTINES = [
+	{ name: "nova_immutable_thread_source", identityArguments: "" },
 	...APP_TEST_RUNTIME_ROUTINES,
 	{ name: "nova_dispose_deleted_app_test", identityArguments: "" },
 	{ name: "rotate_deployment_push_token", identityArguments: "" },

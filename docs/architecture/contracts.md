@@ -489,9 +489,11 @@ a nonce or a transcript containing old answers is insufficient. Stale/duplicate
 answers reconcile without another model turn. Typed-message waits require new
 user input. Project library reads retain their selected evidence separately from
 user attachments and bind each paged requirements read to its content revision.
-Fresh turns reassemble current source material and may prepare it again; a changed
-source digest invalidates prior review. MCP reports missing preparation without
-starting a model call.
+Conversation admission retains immutable source content independently of the
+Library. Fresh turns and resumed reads reuse those revisions; a new attachment
+or explicit current-Library selection adds new evidence. Only changed evidence
+invalidates prior review, never reload ordering or provenance notices. MCP
+reports missing preparation without starting a model call.
 
 Completed model responses and usage are durable before tool dispatch. Recovery
 replays unanswered calls by their original identity and returns exact semantic
@@ -554,15 +556,17 @@ source and destination identities, and canonical folding proves the move chain
 against the baseline and final app Project.
 
 `media_asset_refs(project_id, app_id, asset_id)` is the exact whole-app
-projection of every authored Blueprint media reference plus strict canonical
-thread attachments. Every app/thread writer replaces that complete set in its
-own app-locked transaction after sorted asset `FOR SHARE` validation. Asset
+projection of every authored Blueprint media reference. Every Blueprint writer
+replaces that complete set in its own app-locked transaction after sorted asset
+`FOR SHARE` validation. Thread source content is retained separately and does
+not require its Library origin to survive. Asset
 deletion locks the asset `FOR UPDATE`, queries only those exact candidates, and
-coherently re-walks the authored Blueprint and canonical thread carriers before
+coherently re-walks the authored Blueprint before
 deleting. There is no completion marker, full-Project fallback scan, post-commit
 sync, or event-derived edge. Event attachment UUIDs are immutable audit
-receipts; Project moves copy/remap every live Blueprint/thread reference and do
-not touch event receipts.
+receipts; Project moves copy/remap live Blueprint references, while retained
+conversation evidence follows thread ownership without rewriting source identities
+or event receipts.
 
 Realtime updates use committed rows plus LISTEN/NOTIFY pokes and cursor/revision
 catch-up. Notifications are never the data plane.

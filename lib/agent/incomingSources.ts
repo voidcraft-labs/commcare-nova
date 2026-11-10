@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { SourceContent } from "@/lib/chat/retainedSource";
 import type { IncomingSourceReference } from "@/lib/chat/sourceAdmission";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
@@ -29,19 +30,7 @@ export class IncomingSourceUnavailableError extends Error {
  * This is not durable retention of a conversation's sources. */
 export type AdmittedSource = {
 	readonly asset: MediaAssetRecord;
-	readonly content:
-		| {
-				readonly kind: "document";
-				readonly text: string;
-				readonly truncated: boolean;
-				readonly version: number;
-		  }
-		| {
-				readonly kind: "image";
-				readonly mediaType: string;
-				readonly dataUrl: string;
-				readonly bytesDigest: string;
-		  };
+	readonly content: SourceContent;
 };
 export type AdmittedSources = ReadonlyMap<MediaAssetId, AdmittedSource>;
 
