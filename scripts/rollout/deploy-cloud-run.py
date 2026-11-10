@@ -3,7 +3,8 @@
 
 Pending migrations gate deployment. Job execution remains generation/etag
 fenced, and the one service revision must be Ready with all traffic. Historical
-maintenance cutovers are complete and are not part of application deployment.
+cutovers explicitly install and verify the candidate while disabled before
+restoring automatic scaling; ordinary releases never change scaling mode.
 """
 
 from __future__ import annotations
@@ -102,6 +103,8 @@ def scaling_prestate(service: dict[str, Any]) -> str:
         if manual_count is not None:
             fail("Automatic scaling retained a manual instance count.")
         return "automatic"
+    if mode == "MANUAL" and _integer(manual_count if manual_count is not None else 0, "manualInstanceCount") == 0:
+        return "disabled"
     fail("Cloud Run deploy requires automatic scaling; resolve the operator scaling state before deploying.")
 
 
@@ -321,6 +324,17 @@ class CloudRunApi:
     def service(self) -> dict[str, Any]:
         return self._get(self._service_name)
 
+    def resume(self, service: dict[str, Any]) -> None:
+        etag = service.get("etag")
+        if not isinstance(etag, str) or not etag:
+            fail("Disabled service has no etag for the resume fence.")
+        scaling = dict(service["scaling"])
+        scaling.pop("manualInstanceCount", None)
+        scaling["scalingMode"] = "AUTOMATIC"
+        _run_api_request(self._token, "PATCH", self._service_name + "?updateMask=scaling", {
+            "name": self._service_name, "etag": etag, "scaling": scaling,
+        })
+
     def revisions(self) -> list[dict[str, Any]]:
         revisions: list[dict[str, Any]] = []
         page_token: str | None = None
@@ -512,6 +526,15 @@ def _effective_execution_args(
         return requested
 
     if short_name == "commcare-nova-historical-repair":
+        if requested == ("thread-storage-scan.cjs",):
+            return requested
+        if (
+            len(requested) in (3, 4)
+            and requested[:2] == ("thread-storage-cutover.cjs", "--scan-digest")
+            and re.fullmatch(r"[0-9a-f]{64}", requested[2]) is not None
+            and requested[3:] in ((), ("--execute",))
+        ):
+            return requested
         if requested == ("select-starting-value-scan.cjs",) or (
             len(requested) == 3
             and requested[:2] == ("select-starting-value-scan.cjs", "--app")
@@ -953,6 +976,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.add_argument("--project", required=True)
         parser.add_argument("--region", required=True)
         parser.add_argument("--service", required=True)
+        parser.add_argument("--expected-scaling", choices=("automatic", "disabled"), default="automatic")
         values = parser.parse_args(argv)
         values.mode = "read-scaling-prestate"
         return values
@@ -984,6 +1008,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--region", required=True)
     parser.add_argument("--service", required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument("--expected-scaling", choices=("automatic", "disabled"), default="automatic")
     parser.add_argument("--expected-min", type=int, required=True)
     parser.add_argument("--expected-max", type=int, required=True)
     parser.add_argument("deploy_args", nargs=argparse.REMAINDER)
@@ -1015,7 +1040,11 @@ def _read_scaling_prestate_mode(args: argparse.Namespace) -> None:
         if not RESOURCE_PART_RE.fullmatch(value):
             fail(f"Invalid Cloud Run {label}: {value!r}.")
     api = CloudRunApi(args.project, args.region, args.service)
-    print(scaling_prestate(api.service()))
+    service = api.service()
+    assert_scaling(service, args.expected_scaling)
+    if args.expected_scaling == "disabled":
+        assert_candidate_traffic(service, assert_ready_service(service))
+    print(args.expected_scaling)
 
 
 def _execute_job_mode(args: argparse.Namespace) -> None:
@@ -1071,18 +1100,21 @@ def _deploy_mode(args: argparse.Namespace) -> None:
     _, expected_digest = _immutable_image(args.image)
     api = CloudRunApi(args.project, args.region, args.service)
     before_service = api.service()
-    assert_scaling(before_service, "automatic", expected_min=args.expected_min,
+    assert_scaling(before_service, args.expected_scaling, expected_min=args.expected_min,
                    expected_max=args.expected_max)
+    if args.expected_scaling == "disabled":
+        assert_candidate_traffic(before_service, assert_ready_service(before_service))
     before_revisions = revision_names(api.revisions())
-    print("NOVA_DEPLOY_PRESTATE=" + json.dumps({"scaling": "automatic", "image": args.image}))
+    print("NOVA_DEPLOY_PRESTATE=" + json.dumps({"scaling": args.expected_scaling, "image": args.image}))
     _run([
         "gcloud", "run", "deploy", args.service, f"--image={args.image}",
-        f"--region={args.region}", f"--project={args.project}", "--quiet", *args.deploy_args,
+        f"--region={args.region}", f"--project={args.project}", "--quiet",
+        *(["--scaling=0"] if args.expected_scaling == "disabled" else []), *args.deploy_args,
     ])
 
-    def deployed_candidate() -> str:
+    def deployed_candidate(expected_scaling: str) -> tuple[str, dict[str, Any]]:
         service = api.service()
-        assert_scaling(service, "automatic", expected_min=args.expected_min,
+        assert_scaling(service, expected_scaling, expected_min=args.expected_min,
                        expected_max=args.expected_max)
         candidate = assert_ready_service(service)
         if candidate in before_revisions:
@@ -1094,10 +1126,18 @@ def _deploy_mode(args: argparse.Namespace) -> None:
         )
         assert_candidate_traffic(service, candidate)
         _candidate_revision_fact(candidate, args.region, args.project, args.image, expected_digest)
-        return candidate
+        return candidate, service
 
-    candidate = _wait_for("the exact candidate deployment", deployed_candidate)
-    # No second labels/scaling update: the verified revision is the final one.
+    candidate, verified_service = _wait_for(
+        "the exact candidate deployment", lambda: deployed_candidate(args.expected_scaling),
+    )
+    if args.expected_scaling == "disabled":
+        # Traffic and immutable image are proved BEFORE enabling any instances.
+        # The etag refuses a concurrent service mutation after that proof.
+        api.resume(verified_service)
+        resumed, _ = _wait_for("the resumed candidate", lambda: deployed_candidate("automatic"))
+        if resumed != candidate:
+            fail("Resuming the service changed the candidate revision.")
     print("NOVA_DEPLOY_RESULT=" + json.dumps({
         "candidateRevision": candidate, "image": args.image, "finalScaling": "automatic",
     }))

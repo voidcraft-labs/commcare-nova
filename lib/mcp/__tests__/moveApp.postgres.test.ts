@@ -3,6 +3,7 @@ import type { Client } from "@modelcontextprotocol/client";
 import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
 import { Pool } from "pg";
 import { expect, it } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -13,6 +14,7 @@ import {
 } from "@/lib/db/apps";
 import { getCurrentPeriod } from "@/lib/db/period";
 import type { AppDatabase } from "@/lib/db/pg";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import { registerGetApp } from "../tools/getApp";
 import { registerMoveApp } from "../tools/moveApp";
 import { withMcpClient } from "./client";
@@ -121,6 +123,7 @@ async function state(app: string) {
 			.db()
 			.selectFrom("threads")
 			.selectAll()
+			.select(threadMessagesSql().as("messages"))
 			.where("app_id", "=", app)
 			.execute(),
 	};
@@ -147,29 +150,25 @@ async function relatedData(app: string) {
 			expire_at: new Date(Date.now() + 60_000),
 		})
 		.execute();
-	await h
-		.db()
-		.insertInto("threads")
-		.values({
-			thread_id: "conversation",
-			app_id: app,
-			design_session_id: null,
-			created_at: new Date().toISOString(),
-			updated_at: new Date().toISOString(),
-			thread_type: "edit",
-			summary: "Visit notes",
-			run_id: "historical-run",
-			active_stream_id: null,
-			active_holder_nonce: null,
-			messages: JSON.stringify([
-				{
-					id: "question",
-					role: "user",
-					parts: [{ type: "text", text: "Keep visit notes" }],
-				},
-			]),
-		})
-		.execute();
+	await insertThreadFixture(h.db(), {
+		thread_id: "conversation",
+		app_id: app,
+		design_session_id: null,
+		created_at: new Date().toISOString(),
+		updated_at: new Date().toISOString(),
+		thread_type: "edit",
+		summary: "Visit notes",
+		run_id: "historical-run",
+		active_stream_id: null,
+		active_holder_nonce: null,
+		messages: JSON.stringify([
+			{
+				id: "question",
+				role: "user",
+				parts: [{ type: "text", text: "Keep visit notes" }],
+			},
+		]),
+	});
 }
 
 it("commits the new tenant with cases and one attributed change, preserves the conversation and changes who can read", async () => {

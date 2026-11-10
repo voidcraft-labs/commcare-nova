@@ -55,6 +55,12 @@ import type { UIMessage } from "ai";
 import { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { collectThreadAttachments } from "@/lib/chat/threadAttachments";
+import {
+	mergeThreadResponse,
+	threadMessageCountSql,
+	threadMessagesSql,
+	writeThreadTranscript,
+} from "./threadTranscript";
 
 export { ThreadAttachmentUnavailableError } from "@/lib/chat/attachmentErrors";
 
@@ -425,13 +431,13 @@ type LockedThreadAuthority =
  * authorization reads every request makes (`appAccess.ts`,
  * `caseMutationAuthorization.ts`) and the `FOR KEY SHARE` a foreign-key
  * check takes when `chat_stream_chunks` appends a row for a design-session
- * target. A transcript write rewrites the whole `messages` column and holds
- * its transaction for seconds on a long thread; an exclusive authority lock
- * would park that traffic behind it, and each parked statement holds one of
+ * target. Snapshot writes touch only changed message parts, but a history
+ * merge or Project move can still hold the transaction for longer. An
+ * exclusive authority lock would park that traffic behind it, and each parked statement holds one of
  * the instance's few pooled connections, so unrelated requests on the same
  * instance fail on their acquire timeout. The run's own exclusive writers
  * (heartbeats, guarded commits, the settle) do still queue for the
- * rewrite's duration; share strength frees only share-mode traffic.
+ * transaction's duration; share strength frees only share-mode traffic.
  *
  * App target: the app row. Design-session target: the session's app mapping
  * is resolved WITHOUT a held lock first — a MATERIALIZED (or completed edit)
@@ -738,7 +744,7 @@ export async function upsertThreadTurn(
 			.select([
 				"app_id",
 				"design_session_id",
-				"messages",
+				threadMessagesSql().as("messages"),
 				"selected_sources",
 				"active_stream_id",
 				"clawed_back_ids",
@@ -758,8 +764,9 @@ export async function upsertThreadTurn(
 					}),
 				);
 				await threadTargetUpdate(tx, args.target, args.threadId)
-					.set({ updated_at: now, messages: JSON.stringify(merged) })
+					.set({ updated_at: now })
 					.execute();
+				await writeThreadTranscript(tx, args.threadId, merged);
 				await admitExactThreadMediaProjection(tx, {
 					projectId: authority.projectId,
 					candidateMessages: merged,
@@ -804,9 +811,9 @@ export async function upsertThreadTurn(
 					run_id: args.runId,
 					active_stream_id: args.streamId,
 					active_holder_nonce: args.holderNonce,
-					messages: JSON.stringify(insertable),
 				})
 				.execute();
+			await writeThreadTranscript(tx, args.threadId, insertable);
 			/* Row first, then the reference projection: `thread_media_refs`
 			 * rows are children of this thread row, and a validation failure
 			 * still rolls the whole insert back. */
@@ -855,11 +862,11 @@ export async function upsertThreadTurn(
 				run_id: args.runId,
 				active_stream_id: args.streamId,
 				active_holder_nonce: args.holderNonce,
-				messages: JSON.stringify(merged),
 				...(args.clearInputRound ? { input_round: null } : {}),
 				clawed_back_ids: JSON.stringify(clawedBackIds),
 			})
 			.execute();
+		await writeThreadTranscript(tx, args.threadId, merged);
 		await admitExactThreadMediaProjection(tx, {
 			projectId: authority.projectId,
 			candidateMessages: merged,
@@ -909,7 +916,7 @@ export async function mergeThreadTurnMessages(args: {
 			.select([
 				"app_id",
 				"design_session_id",
-				"messages",
+				threadMessagesSql().as("messages"),
 				"selected_sources",
 				"clawed_back_ids",
 			])
@@ -928,8 +935,9 @@ export async function mergeThreadTurnMessages(args: {
 			}),
 		);
 		await threadTargetUpdate(tx, args.target, args.threadId)
-			.set({ updated_at: now, messages: JSON.stringify(merged) })
+			.set({ updated_at: now })
 			.execute();
+		await writeThreadTranscript(tx, args.threadId, merged);
 		await admitExactThreadMediaProjection(tx, {
 			projectId: authority.projectId,
 			candidateMessages: merged,
@@ -1013,7 +1021,6 @@ export async function persistResponseSnapshot(
 		const rowQuery = tx
 			.selectFrom("threads")
 			.select([
-				"messages",
 				"input_round",
 				"active_stream_id",
 				"active_holder_nonce",
@@ -1075,11 +1082,8 @@ export async function persistResponseSnapshot(
 			});
 		}
 		if (!responseMessage && !clearMarker) return;
-		const merged = responseMessage
-			? mergeTranscript((row.messages ?? []) as StoredMessage[], [
-					responseMessage,
-				])
-			: undefined;
+		if (responseMessage)
+			await mergeThreadResponse(tx, args.threadId, responseMessage);
 		/* A landed merge re-authors its id: client copies of it are ordinary
 		 * history again, so the claw-back tombstone (if any) comes off. */
 		const mergedId = responseMessage?.id;
@@ -1099,7 +1103,6 @@ export async function persistResponseSnapshot(
 				...(clearMarker && !args.retainHolderNonce
 					? { active_holder_nonce: null }
 					: {}),
-				...(merged ? { messages: JSON.stringify(merged) } : {}),
 				...(clearedTombstones
 					? { clawed_back_ids: JSON.stringify(clearedTombstones) }
 					: {}),
@@ -1158,7 +1161,11 @@ export async function clawBackThreadResponse(args: {
 		/* Inline for the row-lock scanner, as above. */
 		const rowQuery = tx
 			.selectFrom("threads")
-			.select(["messages", "active_stream_id", "clawed_back_ids"])
+			.select([
+				threadMessagesSql().as("messages"),
+				"active_stream_id",
+				"clawed_back_ids",
+			])
 			.where("thread_id", "=", args.threadId)
 			.forUpdate();
 		const row = await (args.target.kind === "app"
@@ -1190,12 +1197,12 @@ export async function clawBackThreadResponse(args: {
 				? [revertTo as StoredMessage]
 				: [closeDanglingToolParts(msg)];
 		});
+		await writeThreadTranscript(tx, args.threadId, reverted);
 		await threadTargetUpdate(tx, args.target, args.threadId)
 			.set({
 				updated_at: now,
 				active_stream_id: null,
 				active_holder_nonce: null,
-				messages: JSON.stringify(reverted),
 				clawed_back_ids: JSON.stringify(
 					withClawedBackEntry(
 						row.clawed_back_ids ?? [],
@@ -1404,7 +1411,7 @@ export async function listThreadMetas(
 			"run_id",
 			"active_stream_id",
 			"design_session_id",
-			sql<number>`jsonb_array_length(messages)`.as("message_count"),
+			threadMessageCountSql().as("message_count"),
 		]);
 	query =
 		target.kind === "app"
@@ -1439,7 +1446,7 @@ export async function loadThreadSourceMessages(
 ): Promise<NovaUIMessage[]> {
 	const db = await getAppDb();
 	const row = await threadTargetSelect(db, target, threadId)
-		.select("messages")
+		.select(threadMessagesSql().as("messages"))
 		.executeTakeFirst();
 	return (row?.messages ?? []) as NovaUIMessage[];
 }
@@ -1468,7 +1475,7 @@ export async function loadThread(
 			"active_holder_nonce",
 			"input_round",
 			"design_session_id",
-			"messages",
+			threadMessagesSql().as("messages"),
 		])
 		.executeTakeFirst();
 	if (!row) return null;
@@ -1591,7 +1598,7 @@ export async function resolveThreadStream(threadId: string): Promise<{
 			"active_stream_id",
 			"run_id",
 			"input_round",
-			"messages",
+			threadMessagesSql().as("messages"),
 		])
 		.where("thread_id", "=", threadId)
 		.executeTakeFirst();
@@ -1686,7 +1693,7 @@ export async function checkInputRoundInTransaction(
 			"input_round",
 			"active_stream_id",
 			"active_holder_nonce",
-			"messages",
+			threadMessagesSql().as("messages"),
 		])
 		.where("thread_id", "=", args.threadId)
 		.forUpdate()
@@ -1886,7 +1893,7 @@ export async function selectThreadSource(args: {
 			.select([
 				"app_id",
 				"design_session_id",
-				"messages",
+				threadMessagesSql().as("messages"),
 				"selected_sources",
 				"active_stream_id",
 				"active_holder_nonce",
@@ -1972,7 +1979,7 @@ export async function checkThreadClaimContinuationInTransaction(
 		.select([
 			"app_id",
 			"design_session_id",
-			"messages",
+			threadMessagesSql().as("messages"),
 			"input_round",
 			"active_stream_id",
 			"active_holder_nonce",

@@ -1,3 +1,4 @@
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 /**
  * Exact Project-scoped media-reference projection helpers against Postgres.
  */
@@ -265,20 +266,16 @@ describe("media acceptance by the platforms an app runs on, through the commit k
 			projectId: PROJECT,
 		});
 		const threadId = crypto.randomUUID();
-		await h
-			.db()
-			.insertInto("threads")
-			.values({
-				thread_id: threadId,
-				app_id: appId,
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-				thread_type: "chat",
-				summary: "Attachments",
-				run_id: crypto.randomUUID(),
-				messages: JSON.stringify([]),
-			} as never)
-			.execute();
+		await insertThreadFixture(h.db(), {
+			thread_id: threadId,
+			app_id: appId,
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			thread_type: "chat",
+			summary: "Attachments",
+			run_id: crypto.randomUUID(),
+			messages: JSON.stringify([]),
+		} as never);
 		await h.withTransaction((tx) =>
 			replaceExactThreadMediaReferences(tx, {
 				threadId,

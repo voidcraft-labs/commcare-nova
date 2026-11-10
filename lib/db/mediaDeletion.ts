@@ -1,4 +1,5 @@
 import { selectedSourceDocumentsSchema } from "@/lib/chat/selectedSources";
+import { threadMessagesSql } from "./threadTranscript";
 /** Authoritative attach/delete serialization for Project-scoped media. */
 
 import { sql, type Transaction } from "kysely";
@@ -230,11 +231,11 @@ async function persistedAppReferencesInTransaction(
 			)
 			.select([
 				"threads.thread_id",
-				"threads.messages",
+				threadMessagesSql().as("messages"),
 				"threads.selected_sources",
 			])
 			.where(
-				sql<boolean>`(${sql.ref("threads.messages")}::text LIKE '%' || ${args.assetId} || '%' OR ${sql.ref("threads.selected_sources")}::text LIKE '%' || ${args.assetId} || '%')`,
+				sql<boolean>`(EXISTS (SELECT 1 FROM thread_messages message WHERE message.thread_id = threads.thread_id AND message.data::text LIKE '%' || ${args.assetId} || '%') OR ${sql.ref("threads.selected_sources")}::text LIKE '%' || ${args.assetId} || '%')`,
 			)
 			.where((eb) =>
 				eb.or([

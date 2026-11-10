@@ -17,6 +17,7 @@ import {
 	closeStreamListener,
 } from "@/lib/db/streamListener";
 import { loadThread } from "@/lib/db/threads";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import { ChatResponsesPeer } from "./chatResponsesPeer";
 
 const {
@@ -355,6 +356,7 @@ it("resumes two answered rounds through the real SDK, reconnects a detached POST
 						.db()
 						.selectFrom("threads")
 						.selectAll()
+						.select(threadMessagesSql().as("messages"))
 						.where("thread_id", "=", THREAD)
 						.executeTakeFirstOrThrow(),
 					credit: await h
@@ -502,6 +504,7 @@ it("does not publish an actionable pause when its commit and retries fail", asyn
 				.db()
 				.selectFrom("threads")
 				.selectAll()
+				.select(threadMessagesSql().as("messages"))
 				.where("thread_id", "=", THREAD)
 				.executeTakeFirstOrThrow();
 			expect(thread.input_round).toBeNull();

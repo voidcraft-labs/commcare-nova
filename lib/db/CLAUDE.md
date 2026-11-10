@@ -78,7 +78,7 @@ SHARE`, because a transcript write proves the holder and never transitions
 it. Share strength still waits behind, and blocks, every claim/release/settle
 UPDATE, while the row's `FOR SHARE` authorization reads and the `FOR KEY
 SHARE` foreign-key checks of `chat_stream_chunks` appends proceed during a
-multi-second transcript rewrite; an exclusive lock there parks that traffic
+transcript write; an exclusive lock there parks that traffic
 on pooled connections and exhausts the per-instance pool. Because a share
 lock does not serialize writers of a thread whose row does not exist yet,
 every thread writer takes a per-thread transaction advisory lock
@@ -729,8 +729,22 @@ both. Project moves copy and remap both collections. Incoming transcripts cannot
 add or replace server-selected evidence.
 
 **`threads` is the durable conversation store — one row per CONVERSATION,
-spanning runs, written AS THE RUN PRODUCES UNITS.** `messages` holds the full
-`UIMessage[]` transcript, server-written by the chat route
+spanning runs, written AS THE RUN PRODUCES UNITS.** Ordered `thread_messages`
+envelopes and `thread_message_parts` children hold the content. `threads` has
+no transcript JSON column. `threadTranscript.ts` reconstructs the logical
+`UIMessage[]` in the same SQL statement as its selected thread metadata, and
+writes only changed envelopes/parts after comparing canonical SHA-256 digests.
+Message and part ordinals preserve array order; message ids remain a lookup
+rather than a new uniqueness constraint on historical data. Snapshot writes
+read only their matching message envelope and part fingerprints, never the
+rest of the conversation or the stored answer body. A growing individual part
+still replaces that part; completed parts stay untouched. All writes remain
+inside the existing authority/identity/thread transaction, so parts and marker
+retirement commit or roll back together. History merges and explicit claw-backs
+apply the same logical rules before updating changed rows. The direct cutover
+uses the scan-fenced maintenance command described in
+`docs/architecture/deployment.md`; ordinary deploy migration refuses populated
+old storage. The transcript is server-written by the chat route
 (`lib/db/threads.ts` is the whole contract): `upsertThreadTurn` the instant a
 run claims the app (persists the incoming history + marks the thread live via
 `active_stream_id` — the page-refresh resume handle; a RE-DRIVE claim also

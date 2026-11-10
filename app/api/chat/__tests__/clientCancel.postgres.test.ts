@@ -1,4 +1,6 @@
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { readOrchestrationHead } from "@/lib/agent/build/orchestratorState";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 /**
  * The chat POST against a real Postgres testcontainer: pinning the one
  * contract the whole resumable-threads design hangs on: **a client that
@@ -819,7 +821,7 @@ describe("mid-run client disconnect", () => {
 		const thread = await pollFor(async () => {
 			const row = await appDb
 				.selectFrom("threads")
-				.select(["messages", "active_stream_id"])
+				.select([threadMessagesSql().as("messages"), "active_stream_id"])
 				.where("thread_id", "=", THREAD)
 				.executeTakeFirstOrThrow();
 			return row.active_stream_id === null ? row : undefined;
@@ -1026,21 +1028,18 @@ describe("free-continuation resume admission", () => {
 				updated_at: new Date(),
 			})
 			.execute();
-		await appDb
-			.insertInto("threads")
-			.values({
-				thread_id: RESUME_THREAD,
-				app_id: RESUME_APP,
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-				thread_type: "edit",
-				summary: "Paused answer",
-				run_id: RESUME_RUN,
-				active_stream_id: null,
-				active_holder_nonce: null,
-				messages: JSON.stringify([]),
-			})
-			.execute();
+		await insertThreadFixture(appDb, {
+			thread_id: RESUME_THREAD,
+			app_id: RESUME_APP,
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			thread_type: "edit",
+			summary: "Paused answer",
+			run_id: RESUME_RUN,
+			active_stream_id: null,
+			active_holder_nonce: null,
+			messages: JSON.stringify([]),
+		});
 
 		const { loadApp } = await import("@/lib/db/apps");
 		const app = await loadApp(RESUME_APP);
@@ -1206,22 +1205,19 @@ describe("server-derived build-vs-edit mode", () => {
 			),
 		).toBe("owned");
 		await seedBoundSession(PAUSED_BUILD_SESSION, PAUSED_BUILD_APP);
-		await appDb
-			.insertInto("threads")
-			.values({
-				thread_id: PAUSED_BUILD_THREAD,
-				app_id: null,
-				design_session_id: PAUSED_BUILD_SESSION,
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-				thread_type: "build",
-				summary: "Paused build answer",
-				run_id: PAUSED_BUILD_RUN,
-				active_stream_id: null,
-				active_holder_nonce: REPLACEMENT_NONCE,
-				messages: JSON.stringify([buildQuestionUser, pendingBuildQuestion]),
-			})
-			.execute();
+		await insertThreadFixture(appDb, {
+			thread_id: PAUSED_BUILD_THREAD,
+			app_id: null,
+			design_session_id: PAUSED_BUILD_SESSION,
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			thread_type: "build",
+			summary: "Paused build answer",
+			run_id: PAUSED_BUILD_RUN,
+			active_stream_id: null,
+			active_holder_nonce: REPLACEMENT_NONCE,
+			messages: JSON.stringify([buildQuestionUser, pendingBuildQuestion]),
+		});
 	}
 
 	function installOwnedBuildPause(): void {
@@ -1818,7 +1814,7 @@ describe("barrier persistence", () => {
 		const row = await appDb
 			.selectFrom("threads")
 			.select([
-				"messages",
+				threadMessagesSql().as("messages"),
 				"active_stream_id",
 				"active_holder_nonce",
 				"clawed_back_ids",
@@ -1971,27 +1967,24 @@ describe("barrier persistence", () => {
 		 * survive, and no empty assistant shell appears — only the bailed
 		 * history merge the bail path has always done. */
 		await seedSerializeWaitEdit();
-		await appDb
-			.insertInto("threads")
-			.values({
-				thread_id: WAIT_THREAD,
-				app_id: WAIT_APP,
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-				thread_type: "edit",
-				summary: "Owned by another run",
-				run_id: "run-owner",
-				active_stream_id: "stream-owner",
-				active_holder_nonce: REPLACEMENT_NONCE,
-				messages: JSON.stringify([
-					{
-						id: "m-owner",
-						role: "user",
-						parts: [{ type: "text", text: "the owner's turn" }],
-					},
-				]),
-			})
-			.execute();
+		await insertThreadFixture(appDb, {
+			thread_id: WAIT_THREAD,
+			app_id: WAIT_APP,
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			thread_type: "edit",
+			summary: "Owned by another run",
+			run_id: "run-owner",
+			active_stream_id: "stream-owner",
+			active_holder_nonce: REPLACEMENT_NONCE,
+			messages: JSON.stringify([
+				{
+					id: "m-owner",
+					role: "user",
+					parts: [{ type: "text", text: "the owner's turn" }],
+				},
+			]),
+		});
 		resolveAuthorizedAppSnapshotMock.mockImplementationOnce(
 			async (
 				...args: Parameters<

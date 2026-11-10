@@ -812,3 +812,14 @@ resource advertisement uses the production hostname constants; each is checked
 against its exact configured issuer. On a deployed URL the same smoke also
 requires exact cross-document issuer equality. No external sign-in or credentials
 are needed for discovery.
+
+
+Transcript persistence tests retain production authority, merge, tombstone,
+continuation and Project-move paths on real Postgres. The incremental-storage
+checks compare physical row versions, inject a terminal marker failure to
+prove part writes roll back with it, and compare a growing-answer workload
+with a whole-value SQL control. SQL parameter bytes are a deterministic
+regression gate; connection time is reported as a local measurement, never a
+shared-runner timing assertion or a production latency claim. Migration tests
+start from the actual preceding migration set and prove exact SQL JSON-value
+preservation, scan fencing, active-work refusal, rollback and safe retry.

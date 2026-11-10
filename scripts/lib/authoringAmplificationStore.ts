@@ -4,6 +4,10 @@ import { lockActorGenerationGate } from "@/lib/db/actorGenerationGate";
 import { getAppDb, withAppTx } from "@/lib/db/pg";
 import { designSessionLeaseState } from "@/lib/db/runLiveness";
 import { threadIdentityLockScope } from "@/lib/db/threads";
+import {
+	threadMessagesSql,
+	writeThreadTranscript,
+} from "@/lib/db/threadTranscript";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	findAuthoringAmplification,
@@ -30,6 +34,7 @@ export async function inspectAuthoringAmplification(threadId: string) {
 	const thread = await db
 		.selectFrom("threads")
 		.selectAll()
+		.select(threadMessagesSql().as("messages"))
 		.where("thread_id", "=", threadId)
 		.executeTakeFirstOrThrow();
 	if (!thread.design_session_id) return null;
@@ -115,6 +120,7 @@ export async function repairAuthoringAmplification(args: {
 		const thread = await tx
 			.selectFrom("threads")
 			.selectAll()
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", args.threadId)
 			.forUpdate()
 			.executeTakeFirstOrThrow();
@@ -174,10 +180,10 @@ export async function repairAuthoringAmplification(args: {
 					(typeof entry === "string" ? entry : entry.id) !== plan.messageId,
 			);
 			tombstones.push({ id: plan.messageId, cap: 0 });
+			await writeThreadTranscript(tx, args.threadId, plan.messages);
 			await tx
 				.updateTable("threads")
 				.set({
-					messages: JSON.stringify(plan.messages),
 					clawed_back_ids: JSON.stringify(tombstones),
 					updated_at: new Date().toISOString(),
 				})

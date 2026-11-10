@@ -107,7 +107,9 @@ artifact proof, not a commit-path heuristic or a compiler-cache success flag.
 
 The migration runs while the previous revision is still serving, so every
 schema change must be one that revision can live with: relax or add first, and
-remove what it still reads in a later deploy.
+remove what it still reads in a later deploy. An explicitly authorized direct
+maintenance cutover instead drains and disables the service before conversion
+and uses the disabled-service release sequence below.
 
 Privilege convergence reads catalog ownership before issuing `ALTER OWNER`.
 An already-correct owner must not request an exclusive table lock: the old
@@ -221,6 +223,57 @@ Apply these reviewed repairs before deployment admission: the runtime database
 probe checks every saved app with the incoming validator. After execution,
 verify the affected app histories and require a clean full census or runtime
 database probe before deploying the new revision.
+
+## Incremental transcript storage cutover
+
+`20261112000000_incremental_transcripts` replaces the transcript JSON column
+with ordered message envelopes and parts. This is a direct maintenance cutover:
+the previous application cannot serve after that column is removed. An ordinary
+migration refuses a populated old table; an empty database initializes directly.
+No dual writer or temporary compatibility bridge ships.
+
+Before an authorized release, build the reviewed `maintenance` image and run
+`thread-storage-scan.cjs` through the historical-repair Job. The scanner reports
+counts, sizes, envelope findings and an exact logical-history digest, with no
+message text. Resolve invalid envelopes before proceeding. The writer
+`thread-storage-cutover.cjs --scan-digest <digest>` is read-only unless
+`--execute` is supplied. Both commands are admitted by the existing fenced
+Job runner, and both sources are included in the maintenance image.
+
+The operator's release order is:
+
+1. Stop admission and let executing runs finish. Paused conversations retain
+   their holders, reservations and replay markers unchanged. Set
+   the service to manual scaling with zero instances and verify it is disabled,
+   with no traffic tags (tagged revisions escape service disabling).
+   [Cloud Run documents this service-disable operation](https://docs.cloud.google.com/run/docs/managing/services#disable).
+   Disable login for the runtime database role and wait for its sessions to
+   close. The writer verifies `NOLOGIN` and zero sessions; it does not terminate
+   sessions or change roles itself.
+2. Scan again while drained and execute the writer with that exact digest.
+   Kysely owns the migration transaction and ledger. The writer locks the
+   authority and thread tables, refuses still-executing runs, checks
+   the scan digest, splits every message, and compares PostgreSQL JSON values
+   before removing the old column. Failure rolls back the schema and data.
+3. Require a clean post-scan with the same digest and no damaged normalized
+   rows. A retry verifies the completed migration and never rolls later
+   migrations backward. Archive the content-free scan and execution evidence.
+4. Keep the service disabled, restore runtime database login, and release the
+   reviewed application through the normal migration/privilege/full-probe gate,
+   submitting Cloud Build with `_DEPLOY_SCALING=disabled` (the default
+   `automatic` deliberately refuses this state). Keep the ordinary merge trigger
+   disabled for this release and submit the reviewed merged commit explicitly.
+   The runner deploys with `--scaling=0`, proves the new Ready image and 100%
+   desired/observed traffic while still disabled, then restores automatic scaling
+   with an etag-fenced service PATCH. It verifies the same revision again after
+   resuming. Any failure before that PATCH leaves the service disabled. Verify its exact
+   revision and traffic, public probes and authorized cold conversation resume.
+   Do not restart the old image against the converted database. A failed release
+   stays in maintenance until a compatible image is ready.
+
+The maintenance window includes migration and application deployment; it is not
+a zero-downtime change. Restoring the old storage format would require a
+separately reviewed conversion, so the migration's `down` refuses.
 
 ## Benchmarking
 

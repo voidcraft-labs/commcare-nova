@@ -29,7 +29,7 @@ steps:
         set -eu
         python3 scripts/infra/manage-deployment.py check
         python3 scripts/rollout/deploy-cloud-run.py --read-scaling-prestate \
-          --project="$PROJECT_ID" --region=us-central1 --service=commcare-nova
+          --project="$PROJECT_ID" --region=us-central1 --service=commcare-nova --expected-scaling="${_DEPLOY_SCALING}"
 
   - id: restore-cache
     name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
@@ -140,6 +140,7 @@ steps:
         source /workspace/image.env
         python3 scripts/rollout/deploy-cloud-run.py \
           --project="$PROJECT_ID" --region=us-central1 --service=commcare-nova \
+          --expected-scaling="${_DEPLOY_SCALING}" \
           --image="$${NOVA_IMMUTABLE_IMAGE}" --expected-min=1 --expected-max=4 \
           -- \
           --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
@@ -182,6 +183,7 @@ steps:
 
 substitutions:
   _CACHE_MODE: warm
+  _DEPLOY_SCALING: automatic
 options:
   logging: CLOUD_LOGGING_ONLY
 

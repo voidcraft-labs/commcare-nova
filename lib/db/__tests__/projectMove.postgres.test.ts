@@ -1,3 +1,5 @@
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 /** Final atomic Project-move protocol against one shared Postgres database. */
 
 import type { UIMessage } from "ai";
@@ -199,22 +201,18 @@ async function seedThread(
 	messages: readonly UIMessage[],
 ): Promise<void> {
 	const now = new Date().toISOString();
-	await h
-		.db()
-		.insertInto("threads")
-		.values({
-			thread_id: threadId,
-			app_id: appId,
-			created_at: now,
-			updated_at: now,
-			thread_type: "edit",
-			summary: "Use these files",
-			run_id: "historical-run",
-			active_stream_id: null,
-			active_holder_nonce: null,
-			messages: JSON.stringify(messages),
-		})
-		.execute();
+	await insertThreadFixture(h.db(), {
+		thread_id: threadId,
+		app_id: appId,
+		created_at: now,
+		updated_at: now,
+		thread_type: "edit",
+		summary: "Use these files",
+		run_id: "historical-run",
+		active_stream_id: null,
+		active_holder_nonce: null,
+		messages: JSON.stringify(messages),
+	});
 }
 
 async function seedCase(appId: string, projectId: string): Promise<void> {
@@ -848,23 +846,19 @@ describe("atomic Project move", () => {
 				},
 			]),
 		];
-		await h
-			.db()
-			.insertInto("threads")
-			.values({
-				thread_id: "thread-session-atomic",
-				app_id: null,
-				design_session_id: sessionId,
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-				thread_type: "build",
-				summary: "Design conversation",
-				run_id: "session-run",
-				active_stream_id: null,
-				active_holder_nonce: null,
-				messages: JSON.stringify(sessionMessages),
-			})
-			.execute();
+		await insertThreadFixture(h.db(), {
+			thread_id: "thread-session-atomic",
+			app_id: null,
+			design_session_id: sessionId,
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			thread_type: "build",
+			summary: "Design conversation",
+			run_id: "session-run",
+			active_stream_id: null,
+			active_holder_nonce: null,
+			messages: JSON.stringify(sessionMessages),
+		});
 		await h
 			.db()
 			.insertInto("thread_media_refs")
@@ -955,7 +949,7 @@ describe("atomic Project move", () => {
 		const storedThread = await h
 			.db()
 			.selectFrom("threads")
-			.select("messages")
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", "thread-atomic")
 			.executeTakeFirstOrThrow();
 		const expectedMessages = structuredClone(originalMessages) as Array<{
@@ -997,7 +991,7 @@ describe("atomic Project move", () => {
 		const sessionThread = await h
 			.db()
 			.selectFrom("threads")
-			.select("messages")
+			.select(threadMessagesSql().as("messages"))
 			.where("thread_id", "=", "thread-session-atomic")
 			.executeTakeFirstOrThrow();
 		const expectedSessionMessages = structuredClone(sessionMessages) as Array<{
@@ -1046,7 +1040,7 @@ describe("atomic Project move", () => {
 				await h
 					.db()
 					.selectFrom("threads")
-					.select("messages")
+					.select(threadMessagesSql().as("messages"))
 					.where("thread_id", "=", "thread-atomic")
 					.executeTakeFirstOrThrow()
 			).messages,
@@ -1319,7 +1313,7 @@ it("copies selected library source identity even without a user attachment", asy
 	const thread = await h
 		.db()
 		.selectFrom("threads")
-		.select(["messages", "selected_sources"])
+		.select([threadMessagesSql().as("messages"), "selected_sources"])
 		.where("thread_id", "=", "selected-move")
 		.executeTakeFirstOrThrow();
 	expect(thread).toEqual({

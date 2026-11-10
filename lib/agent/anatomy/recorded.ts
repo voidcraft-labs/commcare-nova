@@ -1,3 +1,4 @@
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 /**
  * Read-only access to what local runs recorded: design sessions, their
  * model contexts, items, and completed steps; local apps with their newest
@@ -363,7 +364,7 @@ export async function readAppInput(appId: string): Promise<AppInput | null> {
 	const db = await getAppDb();
 	const thread = await db
 		.selectFrom("threads")
-		.select(["thread_id", "messages"])
+		.select(["thread_id", threadMessagesSql().as("messages")])
 		.where("app_id", "=", appId)
 		.orderBy("updated_at", "desc")
 		.executeTakeFirst();

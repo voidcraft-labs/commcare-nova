@@ -8,6 +8,7 @@ import {
 } from "kysely";
 import { Client, Pool } from "pg";
 import { describe, expect, test, vi } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
@@ -574,33 +575,34 @@ describe("database privilege convergence", () => {
 					'requirements.pdf', 'Requirements', 'ready', NULL
 				)
 			`.execute(migration.db);
-			await sql`
-				INSERT INTO threads (
-					thread_id, app_id, created_at, updated_at, thread_type,
-					summary, run_id, messages
-				)
-				VALUES (
-					${probeThreadId}, ${probeApp.appId}, now()::text, now()::text,
-					'chat', 'Probe attachment thread', ${crypto.randomUUID()},
-					${JSON.stringify([
-						{
-							id: "m1",
-							role: "user",
-							parts: [{ type: "text", text: "Please read this" }],
-							metadata: {
-								attachments: [
-									{
-										assetId: probeAssetId,
-										kind: "pdf",
-										filename: "requirements.pdf",
-										mimeType: "application/pdf",
-									},
-								],
-							},
+			await insertThreadFixture(migration.db as Kysely<AppDatabase>, {
+				thread_id: probeThreadId,
+				app_id: probeApp.appId,
+				design_session_id: null,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: "edit",
+				summary: "Probe attachment thread",
+				run_id: crypto.randomUUID(),
+				active_stream_id: null,
+				messages: JSON.stringify([
+					{
+						id: "m1",
+						role: "user",
+						parts: [{ type: "text", text: "Please read this" }],
+						metadata: {
+							attachments: [
+								{
+									assetId: probeAssetId,
+									kind: "pdf",
+									filename: "requirements.pdf",
+									mimeType: "application/pdf",
+								},
+							],
 						},
-					])}::jsonb
-				)
-			`.execute(migration.db);
+					},
+				]),
+			});
 			await sql`
 				INSERT INTO thread_media_refs (thread_id, asset_id, project_id)
 				VALUES (${probeThreadId}, ${probeAssetId}::uuid, ${probeProjectId})

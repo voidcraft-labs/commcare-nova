@@ -36,8 +36,10 @@
 import type { UIMessage } from "ai";
 import { Client } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { classifyError } from "@/lib/agent/errorClassifier";
+import { threadMessagesSql } from "@/lib/db/threadTranscript";
 import type { MediaAssetId } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { RunHolderLostError } from "../commitGuard";
@@ -1765,24 +1767,21 @@ describe("loaders", () => {
 		});
 		const db = await getAppDb();
 		const seedThread = (threadId: string, threadType: string) =>
-			db
-				.insertInto("threads")
-				.values({
-					thread_id: threadId,
-					app_id: doneApp,
-					created_at: new Date().toISOString(),
-					updated_at: new Date().toISOString(),
-					thread_type: threadType,
-					summary: "finished, marker stranded",
-					run_id: "run-done",
-					active_stream_id: `stream-${threadId}`,
-					active_holder_nonce: null,
-					messages: JSON.stringify([
-						userMsg("m1", "build me an app"),
-						assistantMsg("m2", "the finished answer"),
-					]),
-				})
-				.execute();
+			insertThreadFixture(db, {
+				thread_id: threadId,
+				app_id: doneApp,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: threadType,
+				summary: "finished, marker stranded",
+				run_id: "run-done",
+				active_stream_id: `stream-${threadId}`,
+				active_holder_nonce: null,
+				messages: JSON.stringify([
+					userMsg("m1", "build me an app"),
+					assistantMsg("m2", "the finished answer"),
+				]),
+			});
 		await seedThread("t-done-build", "build");
 		await seedThread("t-done-edit", "edit");
 		for (const threadId of ["t-done-build", "t-done-edit"]) {
@@ -1821,21 +1820,18 @@ describe("loaders", () => {
 		});
 		const db = await getAppDb();
 		const seedThread = (threadId: string, threadType: string) =>
-			db
-				.insertInto("threads")
-				.values({
-					thread_id: threadId,
-					app_id: doneApp,
-					created_at: new Date().toISOString(),
-					updated_at: new Date().toISOString(),
-					thread_type: threadType,
-					summary: "died mid-turn",
-					run_id: "run-x",
-					active_stream_id: `stream-${threadId}`,
-					active_holder_nonce: null,
-					messages: JSON.stringify([userMsg("m1", "a killed turn")]),
-				})
-				.execute();
+			insertThreadFixture(db, {
+				thread_id: threadId,
+				app_id: doneApp,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: threadType,
+				summary: "died mid-turn",
+				run_id: "run-x",
+				active_stream_id: `stream-${threadId}`,
+				active_holder_nonce: null,
+				messages: JSON.stringify([userMsg("m1", "a killed turn")]),
+			});
 		await seedThread("t-dead-unsealed", "build");
 		await seedThread("t-dead-failed", "edit");
 		await seedThread("t-dead-norows", "edit");
@@ -1880,21 +1876,18 @@ describe("loaders", () => {
 			status: "complete",
 		});
 		const db = await getAppDb();
-		await db
-			.insertInto("threads")
-			.values({
-				thread_id: "t-ancient",
-				app_id: doneApp,
-				created_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
-				updated_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
-				thread_type: "edit",
-				summary: "an old stranded marker",
-				run_id: "run-old",
-				active_stream_id: "stream-ancient",
-				active_holder_nonce: null,
-				messages: JSON.stringify([userMsg("m1", "long ago")]),
-			})
-			.execute();
+		await insertThreadFixture(db, {
+			thread_id: "t-ancient",
+			app_id: doneApp,
+			created_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+			updated_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+			thread_type: "edit",
+			summary: "an old stranded marker",
+			run_id: "run-old",
+			active_stream_id: "stream-ancient",
+			active_holder_nonce: null,
+			messages: JSON.stringify([userMsg("m1", "long ago")]),
+		});
 
 		const doc = await loadThread({ kind: "app", appId: doneApp }, "t-ancient");
 		expect(doc?.active_stream_id).toBeNull();
@@ -1948,7 +1941,11 @@ describe("loaders", () => {
 		const db = await getAppDb();
 		const row = await db
 			.selectFrom("threads")
-			.select(["run_id", "active_stream_id", "messages"])
+			.select([
+				"run_id",
+				"active_stream_id",
+				threadMessagesSql().as("messages"),
+			])
 			.where("thread_id", "=", "t-bail")
 			.executeTakeFirstOrThrow();
 		/* The owning run's identity + marker survive the merge untouched; the
@@ -1977,7 +1974,7 @@ describe("loaders", () => {
 		});
 		const unchanged = await db
 			.selectFrom("threads")
-			.select(["messages"])
+			.select([threadMessagesSql().as("messages")])
 			.where("thread_id", "=", "t-bail")
 			.executeTakeFirstOrThrow();
 		expect((unchanged.messages as UIMessage[]).map((m) => m.id)).toEqual([

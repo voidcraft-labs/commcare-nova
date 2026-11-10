@@ -8,6 +8,7 @@
  * shows fresh activity.
  */
 import { expect, it } from "vitest";
+import { insertThreadFixture } from "@/__tests__/helpers/threadFixture";
 import { listDesignsInProgress } from "../designInProgress";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -20,25 +21,21 @@ async function seedThread(args: {
 	summary: string;
 	updatedAt: Date;
 }): Promise<void> {
-	await h
-		.db()
-		.insertInto("threads")
-		.values({
-			thread_id: crypto.randomUUID(),
-			app_id: null,
-			design_session_id: args.sessionId,
-			/* The thread clocks are server-written ISO-8601 text columns. */
-			created_at: args.updatedAt.toISOString(),
-			updated_at: args.updatedAt.toISOString(),
-			thread_type: "build",
-			summary: args.summary,
-			run_id: "run-list",
-			active_stream_id: null,
-			active_holder_nonce: null,
-			messages: JSON.stringify([]),
-			clawed_back_ids: JSON.stringify([]),
-		})
-		.execute();
+	await insertThreadFixture(h.db(), {
+		thread_id: crypto.randomUUID(),
+		app_id: null,
+		design_session_id: args.sessionId,
+		/* The thread clocks are server-written ISO-8601 text columns. */
+		created_at: args.updatedAt.toISOString(),
+		updated_at: args.updatedAt.toISOString(),
+		thread_type: "build",
+		summary: args.summary,
+		run_id: "run-list",
+		active_stream_id: null,
+		active_holder_nonce: null,
+		messages: JSON.stringify([]),
+		clawed_back_ids: JSON.stringify([]),
+	});
 }
 
 it("orders and limits by the displayed activity clock", async () => {
