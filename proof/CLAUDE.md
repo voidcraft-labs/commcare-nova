@@ -582,6 +582,11 @@ harness keeps, each with its reason.
   group only where the run checks it (`test_branches.py`'s `Branched`,
   `test_controls.py`'s `Retained`), else its items run in a document group no
   queue holds and the gate's "Every block ran exactly once" fails.
+  A self-test's private corpus keeps its known defects, fixed defects and
+  identity moves together under `PROOF_KNOWN_DEFECTS`; the repository's
+  migration witnesses never leak into its private identity check. Nested
+  forkserver logs stay in the outer output's `nested-runs/`, including on
+  failure, because a log tail can conceal the first failing check.
 - **What runs with no image stays on Python 3.12's standard library.** The
   gate, the queue builder, `proof.store.pack`, `proof.store.audit` and
   `proof.native.produce` run on a hosted runner's own `python3` (no workflow

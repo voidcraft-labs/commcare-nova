@@ -3299,6 +3299,14 @@ evidence, and the cutover's planner tests hold each witness's document to what
 the planner makes of the app it was before. A step's one-time changes for
 existing deployments are held by its cutover's tests and notices.
 
+A harness self-test that names a private corpus and `PROOF_KNOWN_DEFECTS`
+also reads `identity-moves.json` beside that private register, just as it
+reads `fixed-defects.json` there. An absent private file means no moves;
+the repository's register and any explicitly requested file must exist.
+The forkserver tests retain their complete nested process logs under
+`nested-runs/` in the outer run's output, so a later failure cannot hide an
+earlier traceback behind the assertion's log tail.
+
 ### Walk stops
 
 `proof/walk-stops.json` lists each place a reader's walk of a document ends

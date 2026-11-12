@@ -79,9 +79,8 @@ the two registers.
 
 ``PROOF_KNOWN_DEFECTS`` names another register file in place of
 ``proof/known-defects.json``: a harness self-test's run over a corpus of its
-own holds that run to a register of its own, and to the fixed register
-``fixed-defects.json`` beside it, read as empty where there is none
-(``fixed_defects_path``).
+own holds that run to registers of its own: ``fixed-defects.json`` and
+``identity-moves.json`` beside it, each read as empty where there is none.
 
 ``proof/identity-moves.json`` lists ``{"defect", "entity", "path", "documents"}``:
 an identity change a migration decides, which proof 1 accepts on the
@@ -298,6 +297,12 @@ def fixed_defects_path() -> Path:
     return Path(named).parent / FIXED_DEFECTS.name if named else FIXED_DEFECTS
 
 
+def identity_moves_path() -> Path:
+    """The identity moves beside a named private register, or the lane's own register."""
+    named = os.environ.get("PROOF_KNOWN_DEFECTS")
+    return Path(named).parent / IDENTITY_MOVES.name if named else IDENTITY_MOVES
+
+
 def _misshapen(raw, keys) -> bool:
     """Whether a raw entry lacks one of ``keys`` or holds a key beyond them and the optional ones."""
     return bool(set(raw) - keys - OPTIONAL_KEYS or keys - set(raw))
@@ -464,9 +469,15 @@ def load_fixed_defects(path: Path | None = None, *, known=(), controls: Path = C
     return tuple(entries)
 
 
-def load_identity_moves(path: Path = IDENTITY_MOVES, *, witnesses=None):
-    """The identity moves at ``path``, each scoped to the migration witnesses its ``documents`` names; with
-    ``witnesses`` (the ids of the corpus's migration witnesses), a move naming any other document is refused."""
+def load_identity_moves(path: Path | None = None, *, witnesses=None):
+    """The identity moves at ``path`` (``identity_moves_path`` by default), each scoped to the migration
+    witnesses its ``documents`` names; with ``witnesses`` (the ids of the corpus's migration witnesses), a move
+    naming any other document is refused. Like fixed defects, a private corpus has no moves unless its private
+    register names them. An explicitly named file and the lane's own register must exist."""
+    if path is None:
+        path = identity_moves_path()
+        if os.environ.get("PROOF_KNOWN_DEFECTS") and not path.exists():
+            return ()
     moves, problems = [], []
     for index, raw in enumerate(_load_list(path, "identity-move")):
         if not isinstance(raw, dict) or set(raw) - {"documents"} != MOVE_KEYS - {"documents"}:

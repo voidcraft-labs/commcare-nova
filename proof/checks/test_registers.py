@@ -315,6 +315,32 @@ def test_the_fixed_register_beside_a_named_register_is_empty_where_there_is_none
         registers.load_fixed_defects(tmp_path / "absent.json")
 
 
+def test_private_identity_moves_never_read_the_lanes_witnesses(tmp_path, monkeypatch):
+    """A nested corpus has its own migrations; the repository's moves cannot reject its absent witnesses or
+    accept its differences. A supplied private move still has to name a witness in that corpus."""
+    known = _write(tmp_path / "known-defects.json", [])
+    monkeypatch.setenv("PROOF_KNOWN_DEFECTS", str(known))
+    assert registers.load_identity_moves(witnesses=set()) == ()
+    move = {"defect": 1, "entity": "form:*", "path": "/xmlns", "documents": ["private-witness"]}
+    private = _write(tmp_path / "identity-moves.json", [move])
+    assert registers.load_identity_moves(witnesses={"private-witness"}) == (
+        registers.IdentityMove(1, "form:*", "/xmlns", frozenset({"private-witness"})),
+    )
+    with pytest.raises(registers.RegisterError, match="names private-witness, which is no migration witness"):
+        registers.load_identity_moves(witnesses=set())
+    _write(private, [])
+    assert registers.load_identity_moves(witnesses=set()) == ()
+    # Explicit paths and the ordinary lane fail closed, including with a private override in the environment.
+    absent = tmp_path / "absent.json"
+    with pytest.raises(registers.RegisterError, match="does not exist"):
+        registers.load_identity_moves(absent)
+    monkeypatch.delenv("PROOF_KNOWN_DEFECTS")
+    assert registers.identity_moves_path() == registers.IDENTITY_MOVES
+    monkeypatch.setattr(registers, "IDENTITY_MOVES", absent)
+    with pytest.raises(registers.RegisterError, match="does not exist"):
+        registers.load_identity_moves()
+
+
 def _named_controls(controls, known_defects, fixed_defects, walk_stops):
     """The control directories under ``controls``, and the controls the registers' entries and the walk-stops
     list's ``control`` entries name, each list loaded as a run loads it."""

@@ -207,6 +207,12 @@ def _run_to_end(command, log: Path, **extra) -> Finished:
             os.kill(group.group, signal.SIGINT)
             group.wait(GRACE_SECONDS)
     text = log.read_text(encoding="utf-8", errors="replace")
+    # A tail can hide the first failure behind a later one. Keep the complete nested log with the outer
+    # run's artifacts before pytest removes its temporary directory, including on a deadline.
+    if parent_out := os.environ.get("PROOF_OUT"):
+        retained = Path(parent_out) / "nested-runs" / log.parent.name / log.name
+        retained.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(log, retained)
     assert finished, f"`{shlex.join(str(part) for part in command)}` ran past {deadline} s:\n{text[-9000:]}"
     return Finished(group.returncode, text)
 
