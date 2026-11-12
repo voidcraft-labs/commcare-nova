@@ -439,9 +439,16 @@ def install() -> None:
 
     held = Transport.perform_request
 
+    def send(self, method, url, headers, params, body):
+        try:
+            return held(self, method, url, headers=headers, params=params, body=body)
+        except ConnectionError as error:
+            _keep_failure(error)
+            raise
+
     def perform_request(self, method, url, headers=None, params=None, body=None):
         if _STATE.get("unwatched"):
-            return held(self, method, url, headers=headers, params=params, body=body)
+            return send(self, method, url, headers, params, body)
         indexes_of_unit = _STATE["unit"]
         unit = None if indexes_of_unit is None else indexes_of_unit.unit
         record = None if unit is None else unit.record
@@ -476,11 +483,7 @@ def install() -> None:
             record.elasticsearch_reads.append((method, endpoint, tuple(sorted(indexes))))
         if writes:
             indexes_of_unit.wrote(indexes)
-        try:
-            return held(self, method, url, headers=headers, params=params, body=body)
-        except ConnectionError as error:
-            _keep_failure(error)
-            raise
+        return send(self, method, url, headers, params, body)
 
     Transport.perform_request = perform_request
     _STATE["installed"] = True

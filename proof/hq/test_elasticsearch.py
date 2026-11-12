@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import socket
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -77,7 +78,7 @@ def test_hqs_clients_keep_the_normal_request_allowance_and_the_longer_export_all
         assert normal.info()["version"]["number"] == export.info()["version"]["number"]
 
 
-@pytest.mark.parametrize("caller", ["hq", "harness"])
+@pytest.mark.parametrize("caller", ["hq", "index-setup", "harness"])
 def test_a_stalled_elasticsearch_request_fails_and_keeps_the_servers_logs(hq, tmp_path, monkeypatch, caller):
     """A real TCP peer accepts a connection but sends no response. A transport timeout must still fail the
     request and retain the real server's logs outside its disposable directory, whichever client sent it."""
@@ -95,9 +96,12 @@ def test_a_stalled_elasticsearch_request_fails_and_keeps_the_servers_logs(hq, tm
         client, _ = elasticsearch._hq_clients()
         address = elasticsearch.address()
         try:
-            if caller == "hq":
+            if caller != "harness":
                 client.transport.set_connections([{"host": host, "port": port}])
-                with pytest.raises(ConnectionTimeout) as raised:
+                # Index creation uses HQ's client too, before a unit owns the indexes. Its native request
+                # bypasses the unit guard, but must retain diagnostics before failed startup removes them.
+                guard = elasticsearch._unwatched() if caller == "index-setup" else nullcontext()
+                with guard, pytest.raises(ConnectionTimeout) as raised:
                     client.info(request_timeout=0.01)
             else:
                 with monkeypatch.context() as short_request:
@@ -116,7 +120,7 @@ def test_a_stalled_elasticsearch_request_fails_and_keeps_the_servers_logs(hq, tm
             assert any(path.read_bytes() for path in kept.glob("try-*/logs/*") if path.is_file())
             assert not list(kept.glob("try-*/data")), "Only diagnostics, never index data, belong in the artifact."
         finally:
-            if caller == "hq":
+            if caller != "harness":
                 client.transport.close()
                 elasticsearch._point_hq_at(address)
 
