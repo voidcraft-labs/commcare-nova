@@ -3313,7 +3313,9 @@ reads `fixed-defects.json` there. An absent private file means no moves;
 the repository's register and any explicitly requested file must exist.
 The forkserver tests retain their complete nested process logs under
 `nested-runs/` in the outer run's output, so a later failure cannot hide an
-earlier traceback behind the assertion's log tail.
+earlier traceback behind the assertion's log tail. Nested Elasticsearch
+failure directories are retained there too, under each run's name and
+original block path; its temporary evidence store and index data are not copied.
 
 ### Walk stops
 

@@ -594,7 +594,9 @@ harness keeps, each with its reason.
   identity moves together under `PROOF_KNOWN_DEFECTS`; the repository's
   migration witnesses never leak into its private identity check. Nested
   forkserver logs stay in the outer output's `nested-runs/`, including on
-  failure, because a log tail can conceal the first failing check.
+  failure, because a log tail can conceal the first failing check. That
+  boundary also promotes nested `elasticsearch-failures/` directories,
+  preserving their block paths before the temporary output is removed.
 - **What runs with no image stays on Python 3.12's standard library.** The
   gate, the queue builder, `proof.store.pack`, `proof.store.audit` and
   `proof.native.produce` run on a hosted runner's own `python3` (no workflow
