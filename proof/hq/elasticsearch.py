@@ -83,6 +83,7 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
+from http.client import HTTPException
 from pathlib import Path
 
 from proof import processes
@@ -194,11 +195,13 @@ def _call(method: str, path: str, body=None, *, address=None, ndjson=False, expe
         f"http://{address}:{HTTP_PORT}{path}", data=data, method=method, headers={"Content-Type": content_type}
     )
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_SECONDS) as answer:
-            status, text = answer.status, answer.read()
-    except urllib.error.HTTPError as error:
-        status, text = error.code, error.read()
-    except (OSError, urllib.error.URLError) as error:
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_SECONDS) as answer:
+                status, text = answer.status, answer.read()
+        except urllib.error.HTTPError as error:
+            with error:
+                status, text = error.code, error.read()
+    except (OSError, urllib.error.URLError, HTTPException) as error:
         _keep_failure(error)
         raise
     if status not in expect:

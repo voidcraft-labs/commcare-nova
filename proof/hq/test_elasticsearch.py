@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import hashlib
 import socket
+import threading
 from contextlib import nullcontext
+from http.client import IncompleteRead
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -123,6 +126,45 @@ def test_a_stalled_elasticsearch_request_fails_and_keeps_the_servers_logs(hq, tm
             if caller != "harness":
                 client.transport.close()
                 elasticsearch._point_hq_at(address)
+
+
+@pytest.mark.parametrize("status", [200, 503])
+def test_incomplete_success_and_error_bodies_keep_elasticsearch_logs(hq, tmp_path, monkeypatch, status):
+    """A peer closes before its advertised body ends. Both urlopen's ordinary response and HTTPError's body
+    must retain diagnostics and propagate the native protocol failure, not interpret partial bytes as evidence."""
+    from proof.hq.boot import GUARD
+
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(self.path)
+            self.send_response(status)
+            self.send_header("Content-Length", "50")
+            self.end_headers()
+            self.wfile.write(b"{}")
+            self.close_connection = True
+
+        def log_message(self, *args):
+            pass
+
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path))
+    with hq_check(CONFIGURATION), HTTPServer(("127.0.0.1", 0), Handler) as server:
+        server.timeout = 1
+        GUARD.admit("127.0.0.1", server.server_port)
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        try:
+            with monkeypatch.context() as peer:
+                peer.setattr(elasticsearch, "HTTP_PORT", server.server_port)
+                with pytest.raises(IncompleteRead) as raised:
+                    elasticsearch._call("GET", "/", address="127.0.0.1")
+            assert raised.value.partial == b"{}" and raised.value.expected == 48
+            assert requests == ["/"]
+            assert any("server logs are retained" in note for note in raised.value.__notes__)
+            assert list(tmp_path.glob("elasticsearch-failures/*/try-*/elasticsearch.out"))
+        finally:
+            thread.join()
 
 
 def _submit(state, label, *cases):
