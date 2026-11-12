@@ -25,6 +25,14 @@ So a new failure fails CI, and so does a fixed defect whose entry is left in
 the known-defect register, and a control that stops showing what its fix
 took off the corpus.
 
+HQ's Elasticsearch client uses HQ's ordinary deployment request timeout
+(thirty seconds at the pinned source), in place of the five-second shortcut
+in its unit-test settings. The export client's longer allowance stays intact.
+A transport failure still fails the check; its server logs are retained under
+`elasticsearch-failures/` in the run's output, before teardown removes the
+server's scratch directory. These logs distinguish a stalled request from a
+server process failure without turning either into proof evidence.
+
 `proof/CLAUDE.md` holds the rules every change to the harness keeps, each with
 its reason. This document says what the lane proves, how to run it and read
 what it reports, how to extend it, and how each part works.
@@ -3305,7 +3313,9 @@ reads `fixed-defects.json` there. An absent private file means no moves;
 the repository's register and any explicitly requested file must exist.
 The forkserver tests retain their complete nested process logs under
 `nested-runs/` in the outer run's output, so a later failure cannot hide an
-earlier traceback behind the assertion's log tail.
+earlier traceback behind the assertion's log tail. Nested Elasticsearch
+failure directories are retained there too, under each run's name and
+original block path; its temporary evidence store and index data are not copied.
 
 ### Walk stops
 

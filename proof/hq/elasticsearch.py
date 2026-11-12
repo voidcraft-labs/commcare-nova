@@ -83,6 +83,7 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
+from http.client import HTTPException
 from pathlib import Path
 
 from proof import processes
@@ -91,6 +92,7 @@ from proof.hq.seams import SeamRecord, SeamRefused
 HTTP_PORT = 9200
 TRANSPORT_PORT = 9300
 START_SECONDS = 120.0
+REQUEST_SECONDS = 60.0
 # Loopback addresses tried, in order from the one this process's id names: 127.2.<a>.<b>, apart from HQ's Redis
 # (127.1.<a>.<b>, proof.hq.redis) and a Formplayer runner's (127.0.<a>.<b>, proof.formplayer.client).
 ADDRESSES = 200
@@ -149,6 +151,24 @@ def _stop():
         shutil.rmtree(directory, ignore_errors=True)
 
 
+def _keep_failure(error):
+    """Retain the server's diagnostics before session teardown removes its scratch directory."""
+    directory, out = _STATE["directory"], os.environ.get("PROOF_OUT")
+    if directory is None or not out:
+        return
+    kept = Path(out) / "elasticsearch-failures" / directory.name
+    try:
+        for run in directory.glob("try-*"):
+            for source in [run / "elasticsearch.out", *(run / "logs").glob("*")]:
+                if source.is_file():
+                    target = kept / source.relative_to(directory)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
+        error.add_note(f"HQ's Elasticsearch server logs are retained in {kept}.")
+    except OSError as failure:
+        error.add_note(f"Could not retain HQ's Elasticsearch server logs in {kept}: {failure}")
+
+
 def _as_runtime_user() -> list[str]:
     """Elasticsearch refuses to run as root, which the lane's container is; the image's ``elasticsearch``
     user runs it there."""
@@ -175,10 +195,15 @@ def _call(method: str, path: str, body=None, *, address=None, ndjson=False, expe
         f"http://{address}:{HTTP_PORT}{path}", data=data, method=method, headers={"Content-Type": content_type}
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as answer:
-            status, text = answer.status, answer.read()
-    except urllib.error.HTTPError as error:
-        status, text = error.code, error.read()
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_SECONDS) as answer:
+                status, text = answer.status, answer.read()
+        except urllib.error.HTTPError as error:
+            with error:
+                status, text = error.code, error.read()
+    except (OSError, urllib.error.URLError, HTTPException) as error:
+        _keep_failure(error)
+        raise
     if status not in expect:
         raise ElasticsearchFailed(
             f"HQ's Elasticsearch answered the harness's {method} {path} with {status}: "
@@ -412,13 +437,21 @@ def install() -> None:
     the unit's seams' record; and each write noted in the unit's state."""
     if _STATE["installed"]:
         return
+    from elasticsearch6.exceptions import ConnectionError
     from elasticsearch6.transport import Transport
 
     held = Transport.perform_request
 
+    def send(self, method, url, headers, params, body):
+        try:
+            return held(self, method, url, headers=headers, params=params, body=body)
+        except ConnectionError as error:
+            _keep_failure(error)
+            raise
+
     def perform_request(self, method, url, headers=None, params=None, body=None):
         if _STATE.get("unwatched"):
-            return held(self, method, url, headers=headers, params=params, body=body)
+            return send(self, method, url, headers, params, body)
         indexes_of_unit = _STATE["unit"]
         unit = None if indexes_of_unit is None else indexes_of_unit.unit
         record = None if unit is None else unit.record
@@ -453,7 +486,7 @@ def install() -> None:
             record.elasticsearch_reads.append((method, endpoint, tuple(sorted(indexes))))
         if writes:
             indexes_of_unit.wrote(indexes)
-        return held(self, method, url, headers=headers, params=params, body=body)
+        return send(self, method, url, headers, params, body)
 
     Transport.perform_request = perform_request
     _STATE["installed"] = True

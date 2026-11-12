@@ -19,6 +19,11 @@ version; and a path answered from an index nothing fills.
 from __future__ import annotations
 
 import hashlib
+import socket
+import threading
+from contextlib import nullcontext
+from http.client import IncompleteRead
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -57,6 +62,109 @@ def test_the_server_is_hqs_own_version_with_its_plugin(hq):
         with urllib.request.urlopen(f"http://{elasticsearch.address()}:9200/_cat/plugins?format=json") as answer:
             installed = sorted(row["component"] for row in json.load(answer))
     assert installed == plugins
+
+
+def test_hqs_clients_keep_the_normal_request_allowance_and_the_longer_export_allowance(hq):
+    """HQ's testsettings cuts ordinary requests to five seconds. The lane starts actual services beside every
+    reader, so that unit-test shortcut must not reject an indexing request the ordinary deployment allows.
+    Inspect the constructed connection pools as well as settings: memoized clients can predate an override."""
+    from django.conf import settings
+    from settings import ES_SEARCH_TIMEOUT
+
+    assert ES_SEARCH_TIMEOUT == 30  # The pinned HQ's ordinary default, not its testsettings override.
+    assert settings.ES_SEARCH_TIMEOUT == ES_SEARCH_TIMEOUT
+    with hq_check(CONFIGURATION):
+        normal, export = elasticsearch._hq_clients()
+        assert [connection.timeout for connection in normal.transport.connection_pool.connections] == [30]
+        assert [connection.timeout for connection in export.transport.connection_pool.connections] == [300]
+        # Both actual clients reach the live server; the extended export policy is still HQ's own.
+        assert normal.info()["version"]["number"] == export.info()["version"]["number"]
+
+
+@pytest.mark.parametrize("caller", ["hq", "index-setup", "harness"])
+def test_a_stalled_elasticsearch_request_fails_and_keeps_the_servers_logs(hq, tmp_path, monkeypatch, caller):
+    """A real TCP peer accepts a connection but sends no response. A transport timeout must still fail the
+    request and retain the real server's logs outside its disposable directory, whichever client sent it."""
+    from elasticsearch6.exceptions import ConnectionTimeout
+
+    from proof.hq.boot import GUARD
+
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path))
+    with hq_check(CONFIGURATION), socket.socket() as peer:
+        peer.bind(("127.0.0.1", 0))
+        peer.listen()
+        peer.settimeout(1)
+        host, port = peer.getsockname()
+        GUARD.admit(host, port)
+        client, _ = elasticsearch._hq_clients()
+        address = elasticsearch.address()
+        try:
+            if caller != "harness":
+                client.transport.set_connections([{"host": host, "port": port}])
+                # Index creation uses HQ's client too, before a unit owns the indexes. Its native request
+                # bypasses the unit guard, but must retain diagnostics before failed startup removes them.
+                guard = elasticsearch._unwatched() if caller == "index-setup" else nullcontext()
+                with guard, pytest.raises(ConnectionTimeout) as raised:
+                    client.info(request_timeout=0.01)
+            else:
+                with monkeypatch.context() as short_request:
+                    short_request.setattr(elasticsearch, "HTTP_PORT", port)
+                    short_request.setattr(elasticsearch, "REQUEST_SECONDS", 0.01)
+                    with pytest.raises(TimeoutError) as raised:
+                        elasticsearch._call("GET", "/", address=host)
+            # The connection reached the native peer and sent a real HTTP request before timing out.
+            connection, _ = peer.accept()
+            with connection:
+                connection.settimeout(1)
+                assert connection.recv(4096).startswith(b"GET / HTTP/1.1")
+            assert any("server logs are retained" in note for note in raised.value.__notes__)
+            kept = tmp_path / "elasticsearch-failures" / elasticsearch._STATE["directory"].name
+            assert list(kept.glob("try-*/elasticsearch.out"))
+            assert any(path.read_bytes() for path in kept.glob("try-*/logs/*") if path.is_file())
+            assert not list(kept.glob("try-*/data")), "Only diagnostics, never index data, belong in the artifact."
+        finally:
+            if caller != "harness":
+                client.transport.close()
+                elasticsearch._point_hq_at(address)
+
+
+@pytest.mark.parametrize("status", [200, 503])
+def test_incomplete_success_and_error_bodies_keep_elasticsearch_logs(hq, tmp_path, monkeypatch, status):
+    """A peer closes before its advertised body ends. Both urlopen's ordinary response and HTTPError's body
+    must retain diagnostics and propagate the native protocol failure, not interpret partial bytes as evidence."""
+    from proof.hq.boot import GUARD
+
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(self.path)
+            self.send_response(status)
+            self.send_header("Content-Length", "50")
+            self.end_headers()
+            self.wfile.write(b"{}")
+            self.close_connection = True
+
+        def log_message(self, *args):
+            pass
+
+    monkeypatch.setenv("PROOF_OUT", str(tmp_path))
+    with hq_check(CONFIGURATION), HTTPServer(("127.0.0.1", 0), Handler) as server:
+        server.timeout = 1
+        GUARD.admit("127.0.0.1", server.server_port)
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        try:
+            with monkeypatch.context() as peer:
+                peer.setattr(elasticsearch, "HTTP_PORT", server.server_port)
+                with pytest.raises(IncompleteRead) as raised:
+                    elasticsearch._call("GET", "/", address="127.0.0.1")
+            assert raised.value.partial == b"{}" and raised.value.expected == 48
+            assert requests == ["/"]
+            assert any("server logs are retained" in note for note in raised.value.__notes__)
+            assert list(tmp_path.glob("elasticsearch-failures/*/try-*/elasticsearch.out"))
+        finally:
+            thread.join()
 
 
 def _submit(state, label, *cases):

@@ -340,6 +340,11 @@ def boot() -> BootReport:
     from proof.hq import speed
 
     speed.configure_templates(settings)
+    # testsettings shortens this to five seconds to fail HQ's unit tests faster. The lane runs real indexing
+    # beside every reader; use HQ's ordinary deployment default before its memoized clients are constructed.
+    from settings import ES_SEARCH_TIMEOUT
+
+    settings.ES_SEARCH_TIMEOUT = ES_SEARCH_TIMEOUT
     django.setup()
     t = step("django_setup", t)
 

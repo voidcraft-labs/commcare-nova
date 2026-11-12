@@ -183,7 +183,7 @@ def test_a_nested_run_has_the_time_the_readers_it_serves_take(monkeypatch):
     assert _deadline() == DEADLINE_SECONDS == 1200
 
 
-def _run_to_end(command, log: Path, **extra) -> Finished:
+def _run_to_end(command, log: Path, *, out: Path, **extra) -> Finished:
     """``command`` run from the worktree to its end, its output (standard output and error) kept in ``log``.
 
     Past its deadline (``_deadline``) it is sent SIGINT, on which the server
@@ -213,6 +213,13 @@ def _run_to_end(command, log: Path, **extra) -> Finished:
         retained = Path(parent_out) / "nested-runs" / log.parent.name / log.name
         retained.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(log, retained)
+        # A nested worker's failure note names its own output, which pytest also removes. Promote only
+        # the retained service diagnostics, keeping block paths distinct and leaving stores/data behind.
+        for diagnostics in out.rglob("elasticsearch-failures"):
+            if diagnostics.is_dir():
+                shutil.copytree(
+                    diagnostics, retained.with_suffix("") / diagnostics.relative_to(out), dirs_exist_ok=True
+                )
     assert finished, f"`{shlex.join(str(part) for part in command)}` ran past {deadline} s:\n{text[-9000:]}"
     return Finished(group.returncode, text)
 
@@ -222,7 +229,47 @@ def _serve(out, pytest_args=(), *, workers=2, options=(), **extra) -> Finished:
     command += ["--worker-base", _nested_base(), *options]
     if pytest_args:
         command += ["--", *pytest_args]
-    return _run_to_end(command, Path(f"{out}.log"), **extra)
+    return _run_to_end(command, Path(f"{out}.log"), out=out, **extra)
+
+
+@pytest.mark.parametrize("relative", ["", "blocks/group"])
+def test_a_nested_failure_keeps_its_service_logs_outside_its_temporary_output(tmp_path, monkeypatch, relative):
+    """Plain sessions and forked blocks retain Elasticsearch diagnostics inside their own output. After that
+    temporary output is removed, the outer artifact must still hold the actual service files and console log."""
+    outer, nested = tmp_path / "outer", tmp_path / "nested"
+    monkeypatch.setenv("PROOF_OUT", str(outer))
+    child = """
+import os
+import shutil
+import sys
+from pathlib import Path
+from proof.hq import elasticsearch
+
+out = Path(os.environ['PROOF_OUT'])
+source = out / 'server' / 'try-1'
+(source / 'logs').mkdir(parents=True)
+(source / 'logs' / 'server.log').write_text('native server detail')
+(source / 'elasticsearch.out').write_text('native server output')
+(source / 'data').mkdir()
+(source / 'data' / 'index').write_text('index bytes do not belong in an artifact')
+elasticsearch._STATE['directory'] = source.parent
+error = TimeoutError('request failed')
+elasticsearch._keep_failure(error)
+print(error.__notes__[0])
+shutil.rmtree(source.parent)
+sys.exit(7)
+"""
+    finished = _run_to_end(
+        [sys.executable, "-c", child], tmp_path / "nested.log", out=nested, PROOF_OUT=str(nested / relative)
+    )
+    assert finished.returncode == 7
+    shutil.rmtree(nested)
+    kept = outer / "nested-runs" / tmp_path.name
+    assert (kept / "nested.log").read_text() == finished.output
+    diagnostics = kept / "nested" / relative / "elasticsearch-failures" / "server" / "try-1"
+    assert (diagnostics / "elasticsearch.out").read_text() == "native server output"
+    assert (diagnostics / "logs" / "server.log").read_text() == "native server detail"
+    assert not list(kept.rglob("data"))
 
 
 def _alive(pid: int) -> bool:
@@ -505,6 +552,7 @@ def test_two_forked_workers_write_the_evidence_one_unforked_session_writes(tmp_p
     plain = _run_to_end(
         [sys.executable, "-m", "pytest", *selection, "-q", f"--junit-xml={tmp_path / 'plain.xml'}"],
         tmp_path / "plain.log",
+        out=plain_out,
         PROOF_OUT=str(plain_out),
         **_own_corpus(corpus),
         PROOF_WORKER=f"{_nested_base() + 3}/{_nested_base() + 3}",
