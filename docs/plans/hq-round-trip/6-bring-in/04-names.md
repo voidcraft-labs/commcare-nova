@@ -6,31 +6,30 @@ Nova holds plus a HELD-NEW row with its step 7 owner, or named as another part's
 each one it builds it plans every place in Nova that holds the grammar: the domain patterns, the
 validator's verdicts and sentences, the reference text and its Lezer grammar, the emitter, Preview, the
 case store, the lookup tables' database checks, the builder's inputs, the tool schemas, the manifest rows
-and the proof documents. It plans pull request **A9** in full and names the lines it hands to A2, A3, A5,
-A10, A11 and B13.
+and the proof documents.
 
-Citations are `path::symbol`: Nova at `main` `15a00a97`, and the Dimagi checkouts at the pins
+Citations are `path::symbol`: Nova at `main` `1f103305`, and the Dimagi checkouts at the pins
 `proof/pins.json` names: commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android
 `7a5584475580`, commcare-connect `046c7fd78081`, formplayer `24383ac71bfb`, Vellum `01215f251c57`. Every
-CommCare fact below was read at those commits for this part. Versions at `15a00a97`:
+CommCare fact below was read at those commits for this part. Versions at `1f103305`:
 `lib/models.ts::MODEL_CONTEXT_VERSION` is `"v6-hq-round-trip-case-writes.14"`,
 `lib/db/appTests.ts::RUNTIME_VERSION` is `18`, and the newest migration is
 `lib/case-store/migrations/20261112010000_retained_conversation_sources.ts`.
 
-| Section | Owns | Pull request |
-|---|---|---|
-| 2 | the 45 rows, each decided | A9 (18 rows named as A2's, A3's and A5's) |
-| 3 | question ids: hyphens, and the three derivations that rested on ids holding none | A9 |
-| 4 | case types: HQ's editor grammar, and no name refused for being a reference word | A9 |
-| 5 | the reference text for a record type: the hashtag segment grammar and `#record/<type>/<property>` | A9 |
-| 6 | case property names in a case write: hyphens, and `category` and `state` | A9 |
-| 7 | choices: one option, and quote marks in a value | A9 |
-| 8 | a Search field's name | A9 |
-| 9 | lookup table tags and column names, with their database checks | A9 |
-| 10 | Connect block ids | A9 |
-| 11 | the manifest: every entry edit by id, the new entries, and `widen` leaving the schema | A9 |
-| 12 | the proof documents and what each shows | A9 (the HQ-authored bases and variants: part 14, B13) |
-| 13 | the agent surface: tool schemas, guide sentences, versions | A9 (the billed check: part 15, A10) |
+| Section | Owns |
+|---|---|
+| 2 | the 45 rows, each decided (eighteen of them by parts 01 and 02), and the grammars this part leaves as they are |
+| 3 | question ids: hyphens, and the three derivations that rested on ids holding none |
+| 4 | case types: HQ's editor grammar, and no name refused for being a reference word |
+| 5 | the reference text for a record type: the hashtag segment grammar and `#record/<type>/<property>` |
+| 6 | case property names in a case write: hyphens, and `category` and `state` |
+| 7 | choices: one option, and quote marks in a value |
+| 8 | a Search field's name |
+| 9 | lookup table tags and column names, with their database checks |
+| 10 | Connect block ids |
+| 11 | the manifest: every entry edit by id, the new entries, and `widen` leaving the schema |
+| 12 | the proof documents and what each shows |
+| 13 | the agent surface: the served schemas that move, the guide sentence, and the two versions |
 
 ---
 
@@ -71,17 +70,14 @@ CommCare fact below was read at those commits for this part. Versions at `15a00a
 12. **Names holding non-ASCII letters are not built in step 6**, for case properties and for lookup names
     alike: what Core reads as a name is decided by each runtime's own Unicode tables, so step 6 has no
     one pattern to prove (section 2.3, and Departures).
-13. **`widen` leaves the manifest's schema.** After A9 no HELD entry states a grammar Nova does not hold:
+13. **`widen` leaves the manifest's schema.** No HELD entry states a grammar Nova does not hold:
     `slotChangeSchema.direction` is `narrow` alone (section 11.4).
 14. **No document migrates.** Every change is a wider grammar or a removed refusal; one database
     migration widens two checks and is safe with the old revision serving (sections 9.3 and 11).
-15. **A9 moves both versions once.** `MODEL_CONTEXT_VERSION` becomes `"v7-hq-round-trip-bring-in.a9"`
-    because A9 changes served schemas and the guide, and `RUNTIME_VERSION` becomes `19` because Preview's
-    query wrapper is renamed (sections 3.4 and 13).
-16. **A9 lands its code contracts, and A11 its public words.** The subtree `CLAUDE.md` files, the file
-    headers and `proof/README.md` change in A9; the five sentences of `content/docs` and the three
-    paragraphs of `docs/architecture/complex-apps.md` land in A11 with the text this part fixes
-    ("Contracts and docs").
+15. **This part reaches both versions.** It changes served tool schemas, two served descriptions and
+    one guide sentence, which the step's one move of `MODEL_CONTEXT_VERSION` covers, and the rename of
+    Preview's query wrapper is this part's reason for the step's one move of `RUNTIME_VERSION`
+    (sections 3.4 and 13).
 
 ## Executed during planning
 
@@ -159,6 +155,8 @@ and `CONNECT_ID_INVALID_FORMAT` arms); `lib/agent/authoring/text.ts::printAuthor
 `proof/store/queue.py` (the edited-document refusal), `proof/connect/conftest.py` (`DOCUMENTS`,
 `ACCEPTED_NAMES`), `proof/targeted/documents/connectApps.ts`;
 `lib/case-store/migrations/20261004000000_app_test_lookup_definitions.ts`;
+`lib/collab/lookupManifestFrame.ts::lookupManifestFrameSchema` and the lookup pump of
+`app/api/apps/[id]/stream/route.ts` (each parses a table's tag under `lookupTagSchema`);
 `docs/architecture/complex-apps.md` (the reserved write properties, the case operation grammar and the
 inline source's minimum).
 
@@ -273,8 +271,12 @@ question id rule of `mugs/baseSpecs.js`).
 
 ## Written and not yet run
 
+Each check below decides something. Each names where it runs and what the session does for every
+outcome. None waits on a person.
+
 **R1. The grammar generator over the widened segment token.** Where: `scripts/build-xpath-parser.ts`, run
-in A9's working tree as its first step (a few seconds; it regenerates `parser.ts` and `parser.terms.ts`).
+by the session as it writes the grammar (a few seconds; it regenerates `parser.ts` and
+`parser.terms.ts`). Ordinary CI then holds the committed parser by the divergence corpus (T5).
 The token `hashtagName` becomes `(@asciiLetter | "_" | @digit | "-")+`, which now overlaps
 `NumberLiteral` and the `"-"` token as it already overlaps `localName`.
 - *Outcome A, the generator accepts it* (expected: the three are never valid in one state, which is how
@@ -286,28 +288,34 @@ The token `hashtagName` becomes `(@asciiLetter | "_" | @digit | "-")+`, which no
   third external token, `hashtagSegment`, emitted after `noGapIdent`'s conditions hold and consuming
   `[A-Za-z0-9_-]+`; `HashtagType` and `HashtagSegment` wrap it. Same tests.
 
-**R2. The readers over the eight new documents.** Where: `.github/workflows/proof-audit.yml`, dispatched
-by hand at A9's head on hosted runners, twice. The first runs the lane with every reader over the eight
-documents of section 12, named by id and separated by commas:
+**R2. The readers over the eight new documents.** Where: `.github/workflows/proof-audit.yml` on GitHub's
+hosted runners, in two runs the session starts itself on a pushed branch (the top-level file
+`../6-bring-in.md`, "What needs your yes before this starts", lists the step's lane runs). The eight
+documents of section 12 ride the mechanics dispatch over the step's new targeted documents, which runs
+the lane with every reader over the documents it names by id, separated by commas:
 
 ```bash
-gh workflow run proof-audit.yml --ref <A9's branch> -f nightly=false -f mechanics=<the eight ids>
+gh workflow run proof-audit.yml --ref <the branch> -f nightly=false -f mechanics=<the ids>
 ```
 
 `nightly` is ticked by default and is unticked here; `mechanics_readers` stays ticked. The queue builder
 refuses a selection that names no edited document (`proof/store/queue.py`, since proof 5 collects over
 edited documents alone), and three of the eight carry an edit: `targeted-hyphenated-question-ids` and
-the two Connect documents (section 12). The Connect proof's own tests (`proof/connect`) read the
-documents its `DOCUMENTS` names and run in no `mechanics` dispatch, so what Connect's receiver makes of
-a hyphenated id is read through the `ACCEPTED_NAMES` rows section 12 adds, in the second dispatch, a
-bounded slice:
+the two Connect documents (section 12). The gate judges each document on its own, so the eight may
+share a dispatch with the other parts' new documents or run apart from them. The Connect proof's own
+tests (`proof/connect`) read the documents its `DOCUMENTS` names and run in no `mechanics` dispatch, so
+what Connect's receiver makes of a hyphenated id is read through the `ACCEPTED_NAMES` rows section 12
+adds, in the second run, a bounded slice:
 
 ```bash
-gh workflow run proof-audit.yml --ref <A9's branch> -f nightly=false \
+gh workflow run proof-audit.yml --ref <the branch> -f nightly=false \
   -f slice='proof/connect/test_receiver.py -k names_beside_connects_keys' -f slice_readers=connect
 ```
 
-Each document's outcomes are independent.
+Each document's outcomes are independent. A row below that keeps a grammar as it is today is taken only
+where a named CommCare reader refuses or misreads a correctly emitted name, and the entry it writes
+names that reader. Where the run shows Nova's emitter, reader, port or Preview wrong, that is corrected
+and the document runs again: the grammars are this step's own work.
 
 | Document | Outcome | What lands |
 |---|---|---|
@@ -333,9 +341,8 @@ Each document's outcomes are independent.
 | | Connect's receiver does not complete a hand-written block named with a hyphen (the slice) | the same |
 
 Five fallback rows correct a claim `docs/research/2026-09-26-hq-round-trip/harness-findings.md`
-states under "Found while planning step 6", in a bullet that names this run, and A9 writes each
-into that bullet with the reader and what it showed (part 15, `15-stack-contracts-and-exit.md`,
-sections 1.4 and 8.1):
+states under "Found while planning step 6", in a bullet that names this run, and the session writes
+each into that bullet with the reader and what it showed:
 
 - `targeted-hyphenated-question-ids`, a reader that cannot read an authored hyphenated id: the
   bullet on hyphenated question ids, whose wire half is withdrawn.
@@ -351,14 +358,23 @@ sections 1.4 and 8.1):
 Each of those bullets already says what every other row of its document lands, so no other row of
 the table writes there, and a document whose every proof passes writes nothing.
 
-A9 does not merge until both dispatches of R2 have run and its table's row for each document is the one
-that landed. A HELD-NEW entry a fallback row adds takes its subject by part 01's rule
+The stack does not merge until both runs have run and each document's row of the table is the one that
+landed. A grammar a fallback row keeps as it is today keeps its words too: the rows of "Contracts and
+docs these changes make false", the strings of "Copy" and the served patterns of section 13 that state
+the wider grammar are not written for it. So hyphens in a Connect id leave
+`content/docs/commcare-connect.mdx` as it reads today, hyphens in a saved property leave
+`content/docs/case-changes.mdx` and the write-property sentence of `content/docs/mcp/tools.mdx`, and a
+quote mark in a choice value and a one-option select each leave their own sentence of `mcp/tools.mdx`.
+
+A HELD-NEW entry a fallback row adds takes its subject by part 01's rule
 (`01-the-bar-and-the-manifest.md`, section 2.2, the thing its author would name): `question-ids`,
-`case-types`, `question-choices`, `lookup-tables` or `connect-blocks`. Two of those subjects hold no
-`not-yet` sentence at A9's base, and A9 adds the one its entry needs to `FINDING_COPY` with the entry:
-"A question ID here is one Nova can't hold yet." and "A case type here is one Nova can't hold yet." The
-first is the sentence B3 lands otherwise, in the same words (part 01, section 9.2), so under that
-fallback B3 finds it in place and adds nothing.
+`case-types`, `case-property-names`, `question-choices`, `lookup-tables` or `connect-blocks`. Its
+sentence is the subject's `not-yet` sentence of `lib/publish/hqFindingCopy.ts::FINDING_COPY` (part 01,
+section 9.2), with the next step `FINDING_NEXT_STEPS["not-yet"]`, and for `question-ids` that sentence
+is "A question ID here is one Nova can't hold yet." One of those subjects holds no `not-yet` sentence,
+since without a fallback no HELD-NEW entry takes it: `case-types`. A fallback entry of
+`targeted-case-type-names` adds it to `FINDING_COPY` with the entry, in these words: "A case type here
+is one Nova can't hold yet."
 
 ---
 
@@ -507,11 +523,9 @@ reference text that admits them: `hashtagSegments.ts` and the grammar's `hashtag
 purpose, and every matcher built from them (the editor's chips, prose references, the SA's dialect) would
 change with it. That is one piece of work on the reference text, which step 6 does not prove. The rows are
 HELD-NEW with owners (22: `forms-and-case-management`; the lookup class of 19: `project-data-at-hq-size`).
-This plan leaves the order of step 7's groups after the first to the census of readings at step 6's
-exit (the top-level file `../6-bring-in.md`, "What step 7 is left"; the census is read by
-`scripts/inspect-hq-readings.ts`, part 12 (`12-the-reading-and-the-birth.md`), section 8.2, B10), so
-the rule is stated over that order: the one of the two groups the census puts first builds the shared
-name token and its table, and the other reuses it. The two REFUSED rows beside them
+`project-data-at-hq-size` builds the shared name token and its table, since it stands first of the two
+in the order step 7 lists its groups (`../7-rest-of-model.md`), and `forms-and-case-management` reuses
+it; where the two are reordered, the first of them builds it. The two REFUSED rows beside them
 (`forms-and-case-writes/update-key-holding-a-character-validate-property-accepts-that-is`,
 `expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any`) keep the
 characters Core reads on no runtime.
@@ -520,13 +534,33 @@ characters Core reads on no runtime.
 
 | # | Entries | Whose | Why, and what that part does |
 |---|---|---|---|
-| 1 to 15 | the fifteen `application-and-settings/` rows whose widen is `appSettings.<slot>`, in order: `1-properties-cc-autoup-freq`, `4-properties-cc-days-form-retain`, `5-properties-logenabled`, `13-properties-cc-autosync-freq`, `17-properties-cc-content-valid`, `18-properties-unsent-number-limit`, `19-properties-unsent-time-limit`, `22-properties-cc-resize-images`, `23-properties-cc-fuzzy-search-enabled`, `25-properties-cc-login-duration-seconds`, `26-properties-cc-inflation-target-density`, `27-properties-cc-gps-auto-capture-accuracy`, `28-properties-cc-maps-default-layer`, `29-properties-cc-enable-tts`, `30-properties-cc-label-required-questions-with-asterisk` | part 01 (`01-the-bar-and-the-manifest.md`), section 3.6, **A3** | this plan keeps each at CommCare HQ's value: the entry becomes TARGET-OWNED with its `KEPT_AT_HQ` row and the widen is removed. No `appSettings` slot is added. |
-| 16 | `application-and-settings/45-hq-auto-gps-capture` | part 01, section 3.6, **A3** | the entry is split there: HELD with `slotChanges: []` on a Connect app, and a TARGET-OWNED entry for every other app. The widen leaves with the split. |
-| 20 | `forms-and-case-writes/xmlns-form-json-and-xform-data-node` | part 01, section 3.3, **A2**; the cell is worded by part 10 (`10-identity-and-the-ledger.md`), "Contracts and docs these changes make false", B8 | this plan gives a form no `xmlns` slot (the top-level file `../6-bring-in.md`, "What changed from the outline, and why", item 17; part 10, sections 2 to 4). A2 sets `slotChanges: []` with the cell part 10 fixes, an emission-side re-cut, since Nova's exports already hold an `xmlns` this way. |
-| 30 | `menus-and-case-lists/case-list-form-post-form-workflow-default-case-list` | part 02 (`02-menus.md`), section 14, **A5** | the `always` arm of `Module.caseListRegistrationForm` carries `afterSubmit`, which is this widen. A5 re-words the cell and takes the `widen` out of `slotChanges`. |
+| 1 to 15 | the fifteen `application-and-settings/` rows whose widen is `appSettings.<slot>`, in order: `1-properties-cc-autoup-freq`, `4-properties-cc-days-form-retain`, `5-properties-logenabled`, `13-properties-cc-autosync-freq`, `17-properties-cc-content-valid`, `18-properties-unsent-number-limit`, `19-properties-unsent-time-limit`, `22-properties-cc-resize-images`, `23-properties-cc-fuzzy-search-enabled`, `25-properties-cc-login-duration-seconds`, `26-properties-cc-inflation-target-density`, `27-properties-cc-gps-auto-capture-accuracy`, `28-properties-cc-maps-default-layer`, `29-properties-cc-enable-tts`, `30-properties-cc-label-required-questions-with-asterisk` | part 01 (`01-the-bar-and-the-manifest.md`), section 3.6 | this plan keeps each at CommCare HQ's value: the entry becomes TARGET-OWNED with its `KEPT_AT_HQ` row and the widen is removed. No `appSettings` slot is added. |
+| 16 | `application-and-settings/45-hq-auto-gps-capture` | part 01, section 3.6 | the entry is split there: HELD with `slotChanges: []` on a Connect app, and a TARGET-OWNED entry for every other app. The widen leaves with the split. |
+| 20 | `forms-and-case-writes/xmlns-form-json-and-xform-data-node` | part 01, section 3.3; the cell is worded by part 10 (`10-identity-and-the-ledger.md`), "Contracts and docs these changes make false" | this plan gives a form no `xmlns` slot (the top-level file `../6-bring-in.md`, "What changed from the outline, and why"; part 10, sections 2 to 4). Part 01 sets `slotChanges: []` with the cell part 10 fixes, an emission-side re-cut, since Nova's exports already hold an `xmlns` this way. |
+| 30 | `menus-and-case-lists/case-list-form-post-form-workflow-default-case-list` | part 02 (`02-menus.md`), section 14 | the `always` arm of `Module.caseListRegistrationForm` carries `afterSubmit`, which is this widen. Part 02 re-words the cell and takes the `widen` out of `slotChanges`. |
 
-A2, A3 and A5 stand below A9 in stack A, whose order is A1 to A11 by number, so at A9's base none of
-these eighteen rows holds a widen (section 11.4 holds A9 to that).
+With those eighteen removals no entry outside this part's twenty-seven holds a widen, which is what
+lets `widen` leave the manifest's schema (section 11.4 states the order that follows).
+
+### 2.5 The grammars this part leaves as they are
+
+These identifier grammars do not change in step 6, so a name CommCare HQ holds outside one of them is
+a finding and never a held value:
+
+- an operation's id and a link's identifier
+  (`caseOperationIdentifiers.ts::CASE_OPERATION_IDENTIFIER_REGEX`, section 6.1);
+- a relation's index identifier, an advanced tag, a Save to Case placement's path segments and a tile
+  grouping's identifier (`lib/domain/expression/types.ts::XML_ELEMENT_NAME_PATTERN`, section 3.2);
+- an ID-mapping key (`modules.ts::idMappingValueHoldsForbiddenCharacter`, section 7.2);
+- a worker property's slug, a level's code and a place's site code.
+
+The part that reads one of these from an HQ app states the standing of the wider class, with its
+entry: part 07 (`07-the-reader-cases-menus-lists.md`) for the advanced tag, the index identifier, a
+link's name and the tile grouping's identifier (its sections 4.4, 5.2 and 11.5, with their entries in
+its section 14), part 08 (`08-the-reader-expressions.md`) for the three an expression can name (its
+section 9.2), and part 11 (`11-project-data.md`) for worker properties, levels and places (its
+section 11). For the grammars this part does widen, a name outside one is a finding under the entry of
+11.2 that takes its class.
 
 ## 3. Question ids
 
@@ -646,9 +680,12 @@ export function previewQueryWrapperName(repeatId: string): string {
 
 A period is in no question id, the grammar's `localName` reads `r.query` as one name, and the name still
 reaches no person and no export. Its two callers (`formExpressionRuntime.ts`, `dataInstance.ts`) need no
-change. A journey that pins a document with a query repeat was built over the old name, so A9 moves
-`lib/db/appTests.ts::RUNTIME_VERSION` to `19`, and its doc comment names query repeat wrappers. No pull
-request beneath A9 moves the number and none above it does (Departure 10).
+change. A journey that pins a document with a query repeat was built over the old name, so this rename
+moves `lib/db/appTests.ts::RUNTIME_VERSION`, and its doc comment names query repeat wrappers. It is
+this part's reason for the step's one move of the number (Departure 9; the top-level file holds its
+value and the other reason, part 03's section 7.1), and an App Test journey in flight at the deploy is
+refused its next step and started again (`lib/db/appTests.ts`: "Nova's test runtime changed. Start a
+new test.").
 
 ### 3.5 What reads an id and needs nothing
 
@@ -763,8 +800,9 @@ The reason is HQ's own behavior: `views/modules.py::_init_module_case_type` give
 household's adults. Nova writes a case type into no hashtag HQ expands
 (`serialize.ts::INTERPOLATION_LITERAL` already splits a literal that would read as one), and no Vellum
 shadow carries a case hashtag (`lib/commcare/CLAUDE.md`, "Vellum dual-attribute pattern"). One emitter
-does rest on the reservation, and A9 changes it in the same pull request: HQ's load metadata.
-`hashtags.ts::hqLoadReference` becomes a function of the typed read,
+does rest on the reservation, and it changes no later than the reservation goes, since without the
+change an app the gate admits could not export: HQ's load metadata. `hashtags.ts::hqLoadReference`
+becomes a function of the typed read,
 
 ```ts
 /** HQ's `case_references_data.load` entry for one typed case read, or `undefined`
@@ -902,10 +940,10 @@ stays text.
 | `lib/commcare/validator/formLogicFindings.ts`, `details.hashtag` of `CASE_HASHTAG_ON_CREATE_FORM` | `` `#${term.caseType}/${term.property}` `` | `caseReferenceText(term.caseType, term.property)` |
 | `lib/commcare/formActions.ts::buildCaseReferencesLoad` | re-assembles the text for `hqLoadReference` | passes the typed read (section 4.3); it prints no reference text |
 
-After A9 a search of `lib` and `components` for a template that starts `` `#${ `` finds only
-`hashtagSegments.ts`, the worker's `#user/` and Search's `#search/` arms, `messages.ts`'s automation
-scopes and `lib/deployment/hqSourceBaseline.ts`'s ordinal. T6, T7 and T26 hold each surface's print and
-read over a type named for each of the six fixed words.
+With every row above in place, a search of `lib` and `components` for a template that starts
+`` `#${ `` finds only `hashtagSegments.ts`, the worker's `#user/` and Search's `#search/` arms,
+`messages.ts`'s automation scopes and `lib/deployment/hqSourceBaseline.ts`'s ordinal. T6, T7 and T26
+hold each surface's print and read over a type named for each of the six fixed words.
 
 In the SA's and MCP's form text `#case/<property>` stays the selected record's alias
 (`scope.authoring.selectedCaseType`), whatever its type is called; a type named `case` that is not the
@@ -1072,7 +1110,7 @@ own REFUSED row (`menus-and-case-lists/5p-enum-key-containing`). So a column can
 to a label by hand, and the plain column's label projection covers it.
 
 The builder's value box stops dropping quote marks and the draft model refuses a value holding both when
-the row is committed, with the inline line C24. `repairSelectOptionValue` and
+the row is committed, with the inline line C23. `repairSelectOptionValue` and
 `suggestSelectOptionValue` are unchanged in what they mint (a lowercased slug), and
 `repairSelectOptionValue`'s `slugOf(sanitize(value))` still drops punctuation, quote marks among it.
 
@@ -1178,10 +1216,10 @@ not a grammar. Step 6 holds the grammar every slot can read; the dotted class is
 ### 9.3 The database
 
 One ledgered migration, `lib/case-store/migrations/20261113000000_hq_round_trip_lookup_names.ts`, added to
-`migrations/index.ts` after `20261112010000_retained_conversation_sources`. If `main` holds a
-later-stamped migration when this pull request is rebased, the stamp moves to the next free hour after
-`main`'s newest, and every later stamp of the stack keeps its order; nothing else changes. The two
-checks were written inline and never named, so the migration finds each by its text and replaces it:
+`migrations/index.ts` after `20261112010000_retained_conversation_sources`. It is the first of the
+step's migrations by stamp, and the top-level file (`../6-bring-in.md`), where it lists them, holds
+the one case in which a stamp moves. The two checks were written inline and never named, so the
+migration finds each by its text and replaces it:
 
 ```ts
 export async function up(db: Kysely<unknown>): Promise<void> {
@@ -1265,20 +1303,25 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 
 Every stored row passes the new checks, since each passed the narrower ones, so `ADD CONSTRAINT`
 validates without a scan script, and it holds its lock for one pass over two small tables. The migration
-is additive in what it admits: the old revision writes only names both checks accept. A name holding a
-hyphen that a person saves while the old revision still serves is read by the old revision as stored
-text, and no code mints one: `suggestWireName` still joins words with underscores (9.2), and parts 01
-to 03 (A2 to A8) change nothing under `lib/lookup`. `lib/lookup/constants.ts`'s comment on
-`LOOKUP_MAX_TAG_LENGTH` ("the `lookup_tables` check holds the same number") stays true.
+is additive in what it admits, so it is safe while `main` as it stood before the step still serves:
+that revision's own schema (`lib/lookup/schema.ts::wireIdentifierSchema` at `1f103305`) lets it write
+only names the old checks accept, and the new checks accept every one of those. A name holding a
+hyphen exists only once the new revision serves and someone saves one; no code mints one, since
+`suggestWireName` still joins words with underscores (9.2). An instance or an open tab of the earlier
+revision that meets such a name while the rollout lasts refuses it under its own narrower schema (a
+lookup manifest frame parses each tag, `lib/collab/lookupManifestFrame.ts::lookupManifestFrameSchema`,
+on the server's stream and in the browser, and each retries or refetches), which is the forward-only
+state the top-level file states for every grammar the step widens, and it ends with the rollout.
+`lib/lookup/constants.ts`'s comment on `LOOKUP_MAX_TAG_LENGTH` ("the `lookup_tables` check holds the
+same number") stays true.
 
 The migration changes `public` alone, and that is enough. Each App Test namespace holds its own
 `lookup_tables`, created `LIKE public.lookup_tables INCLUDING CONSTRAINTS`
 (`20261004000000_app_test_lookup_definitions.ts`), so a namespace made after the migration copies the
 new check and one made before it keeps the old. A namespace lives for one journey, a journey made
-before A9 carries runtime version 18, and A9 moves `RUNTIME_VERSION` to 19 (3.4), so such a journey is
-refused its next step ("Nova's test runtime changed. Start a new test.", `lib/db/appTests.ts`) and
-never meets a tag the old check would refuse. T18 holds that a namespace created after the migration
-takes a hyphenated tag.
+before the deploy carries the runtime version of the revision before the step, and this step moves
+`RUNTIME_VERSION` (3.4), so such a journey is refused its next step and never meets a tag the old
+check would refuse. T18 holds that a namespace created after the migration takes a hyphenated tag.
 
 ### 9.4 What is not built
 
@@ -1336,11 +1379,12 @@ on `configureConnect` and on `updateForm`'s `connect` patch, and it changes (Cop
 
 ## 11. The manifest
 
-Every edit lands in A9, with the matching row edit in
-`docs/research/2026-09-26-hq-round-trip/inventory/<area>.md` in the same pull request: a re-worded row in
-place, a new row beside the row it splits from. Entries below give `id`, `valueClass`, `disposition`, the
-`item` and `dispositionCell` text, and its `subject` (a slug of part 01's `SUBJECTS`, on every HELD-NEW
-and REFUSED entry) and, for a HELD-NEW entry, its `owner` (the fields A2 adds). `surfaceKeys`,
+Every edit below is made with the matching row edit in
+`docs/research/2026-09-26-hq-round-trip/inventory/<area>.md`: a re-worded row in place, a new row beside
+the row it splits from. Entries below give `id`, `valueClass`, `disposition`, the `item` and
+`dispositionCell` text, and its `subject` (a slug of part 01's `SUBJECTS`, on every HELD-NEW and REFUSED
+entry) and, for a HELD-NEW entry, its `owner` (the two fields part 01 adds to the manifest's schema,
+`01-the-bar-and-the-manifest.md`, sections 2.2 and 2.3, which exist before these entries). `surfaceKeys`,
 `platforms`, `emission` and `gates` of a new entry are copied from the entry it splits from, with the
 emission's `markers` unchanged, unless stated. Two things follow from the copy and are stated here. A
 REFUSED entry has no platform reading, so N1's `platforms` is the one value
@@ -1348,10 +1392,10 @@ REFUSED entry has no platform reading, so N1's `platforms` is the one value
 character that schema's `z.literal` holds (U+2014), which every REFUSED entry of the area carries; N1's
 `emission.cell` is the same character with `markers: []`, as theirs is. And an entry that copies a gate
 is one that gate governs: `surface/__tests__/gates.test.ts` holds each gate's `contentEntries` in
-`entries/gates.json` to every entry naming it, in inventory order. Two new entries copy a gate, so A9
-adds N8 to `toggle/CASE_SEARCH_ADVANCED`'s `contentEntries` directly after
-`case-search/default-value-lifting-into-valueexpression`, and N15 to `toggle/COMMCARE_CONNECT`'s directly
-after `questions/connect-learn-module`. No other split-from entry names a gate.
+`entries/gates.json` to every entry naming it, in inventory order. Two new entries copy a gate, so N8
+joins `toggle/CASE_SEARCH_ADVANCED`'s `contentEntries` directly after
+`case-search/default-value-lifting-into-valueexpression`, and N15 joins `toggle/COMMCARE_CONNECT`'s
+directly after `questions/connect-learn-module`. No other split-from entry names a gate.
 
 ### 11.1 Entries edited in place
 
@@ -1372,7 +1416,7 @@ after `questions/connect-learn-module`. No other split-from entry names a gate.
 | `questions/connect-deliver-unit` | `dispositionCell`: "**HELD**: `connect.deliver_unit`, with an empty `work_area_id`". `slotChanges`: `[]`. |
 | `case-search/default-value-lifting-into-valueexpression` (row 18) | `item`: "`default_value` lifting into ValueExpression, on a prompt other than `daterange`" (so its class no longer covers what N8 claims). `dispositionCell`: "**HELD**: `searchInputs[].default`". `slotChanges`: `[]`. |
 | `menus-and-case-lists/enum-mappingitem-alt-text-lang` (row 26) | gains `valueClass`: `blank`, so the pair with N11 is disjoint. `item`: "`enum[]` `MappingItem.alt_text{lang}`, blank". `dispositionCell`: the text before "; widen:". `slotChanges`: `[]`. |
-| `questions/help-text-markdown-form` (row 43) | its widen stands inside a parenthesis, not after "; widen:". `dispositionCell`: "**HELD**: `Field.help`, markdown on (markdown off is `plainHelp`)", which is the cell A8 leaves (part 03, section 10) less its "(widen: on image, audio, video, signature and file questions and labels)". `slotChanges`: `[]`. |
+| `questions/help-text-markdown-form` (row 43) | its widen stands inside a parenthesis, not after "; widen:". `dispositionCell`: "**HELD**: `Field.help`, markdown on (markdown off is `plainHelp`)", which is the cell as part 03 words it (`03-questions-and-text.md`, section 10) less its "(widen: on image, audio, video, signature and file questions and labels)". `slotChanges`: `[]`. |
 | the twelve rows of 2.2 not named above: `menus-and-case-lists/child-menu-one-tier-root-module-id-a-parentless-module` (23), `menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list` (25), `menus-and-case-lists/10-markdown-any-property-or-expression` (27), `menus-and-case-lists/21-translatable-enum-authored` (28), `menus-and-case-lists/parent-select-active-true-relationship-parent-module-id-a-non` (29), `questions/bind-required-true` (38), `questions/bind-required-expr` (39), `questions/bind-constraint` (40), `questions/setvalue-event-xforms-ready-default-on-a-question-outside` (41), `questions/hint-text` (42), `questions/help-media` (44), `questions/validation-message-text` (45) | `dispositionCell`: the text before "; widen:"; `slotChanges`: `[]`, the `widen` change being each one's only change. Row 25's cell gains ", at most 100". Rows 38 to 40 and 42 take the `valueClass` and `item` edits the paragraph under 11.2's table gives. Row 22 is the fourth row of this table, and rows 36 and 37 the two Connect rows. |
 
 ### 11.2 New entries
@@ -1413,18 +1457,14 @@ other than a label". Row 18's class keeps its slug and its `item` is re-worded t
 prompt to N8 (11.1).
 
 **Subjects and their sentences.** Every subject above is a slug of part 01's closed set
-(`lib/publish/hqFindings.ts::SUBJECTS`; part 01 (`01-the-bar-and-the-manifest.md`), section 2.2, maps
-these entries), but one: `case-types`, which A9 adds to `SUBJECTS` with the label "Case types" in
-`SUBJECT_LABELS`, the closed set's seventy-sixth slug. The test that holds one sentence to every
-subject and standing an entry uses (`lib/publish/__tests__/hqFindingCopy.test.ts`, part 01, section
-10) fails without the sentences these entries need, so A9 adds to
-`lib/publish/hqFindingCopy.ts::FINDING_COPY` the ones part 01's table gives, word for word (Copy, C23):
-the whole sentence of `case-types` at the standing `fix-in-hq` with the cause `hq-refuses`; a `not-yet`
-sentence for `case-property-names`, `menu-structure`, `parent-selection`, `case-list-setup` and
-`question-logic`; and the re-worded `not-yet` sentences of `question-choices`, `connect-blocks` and
-`question-media`. `search-fields`, `lookup-tables`, `case-list-columns` and `question-text` hold a
-`not-yet` sentence already and gain nothing. Part 01's Appendix A and its counts take these twenty-four
-entries in A9, N24 among them under `lookup-tables` and `project-data-at-hq-size`.
+(`lib/publish/hqFindings.ts::SUBJECTS`; part 01 (`01-the-bar-and-the-manifest.md`), section 2.2), and
+`case-types` is in that set for N1 alone. The sentence a person reads for each entry is its subject's,
+in `lib/publish/hqFindingCopy.ts` as part 01's section 9.2 words it: the whole sentence of `case-types`
+at the standing `fix-in-hq` with the cause `hq-refuses`, and the `not-yet` sentence of each HELD-NEW
+entry's subject. This part writes no finding copy. The test that holds one sentence to every subject
+and standing an entry uses (`lib/publish/__tests__/hqFindingCopy.test.ts`, part 01, section 10) is what
+fails where an entry here takes a pair with no sentence. Part 01's Appendix A lists these twenty-four
+entries with their subjects and owners.
 
 ### 11.3 The lane's value-class readers
 
@@ -1432,17 +1472,17 @@ entries in A9, N24 among them under `lookup-tables` and `project-data-at-hq-size
 this part adds: a `schema:Module.case_type` or `schema:AdvancedModule.case_type` value that is not empty
 and does not fully match `[A-Za-z0-9_-]+`. Nova's exports can never use it, since the gate holds the same
 pattern. `proof/checks/test_manifest_value_classes.py` holds every reader of the registry to a refused
-shape and an accepted one (`SHAPES`, and its test that the two sets of keys are equal), so the same pull
-request adds N1's pair there: refused, a module whose `case_type` is `visit.note` and one whose
-`case_type` is `visité`; accepted, `1st-visit` and `case`. A9 adds no reader for a HELD-NEW class.
-Part 14 (`14-proof.md`), section 8.2, B13, adds seven, each for a class one value decides with no
-other place read: N2, N3, N6, N7, N8, N10 and N11, by the ids and classes of 11.2. The other sixteen
-HELD-NEW entries get no Python reader and are held by their variants (part 14, section 7.2) and the
-reader's own tests.
+shape and an accepted one (`SHAPES`, and its test that the two sets of keys are equal), so N1's pair
+joins it with the reader: refused, a module whose `case_type` is `visit.note` and one whose
+`case_type` is `visité`; accepted, `1st-visit` and `case`. This part adds no reader for a HELD-NEW
+class. Part 14 (`14-proof.md`), section 8.2, holds one for seven of them, each a class one value
+decides with no other place read: N2, N3, N6, N7, N8, N10 and N11, by the ids and classes of 11.2. The
+other sixteen HELD-NEW entries get no Python reader and are held by their variants (part 14, section
+7.2) and the reader's own tests.
 
 ### 11.4 `widen` leaves the schema
 
-`lib/commcare/surface/schema.ts` in A9:
+`lib/commcare/surface/schema.ts`:
 
 ```ts
 /**
@@ -1458,10 +1498,11 @@ export const slotChangeSchema = z.strictObject({
 ```
 
 and the comment above `inventoryEntryHead` says "a HELD entry's slot changes are the `narrow` changes its
-Disposition cell names". This holds because the eighteen rows of 2.4 lost their widens in A2, A3 and
-A5, which parts 01 and 02 plan (2.4) and which stand beneath A9: stack A's order is A1 to A11 by
-number. A9's entries then parse, and any entry still carrying a widen fails `manifest.test.ts` at A9's
-head, naming it.
+Disposition cell names". The manifest parses under this schema only once no entry carries a widen: the
+twenty-seven rows 11.1 edits, and the eighteen of 2.4. So the three pieces of work that remove those
+eighteen exist before this change to the schema: the re-cut of the `xmlns` row (part 01, section 3.3),
+the kept flips of the settings rows (part 01, section 3.6) and registration from the case list (part
+02, section 14). Any entry still carrying a widen fails `manifest.test.ts`, naming it.
 
 ## 12. Proof documents
 
@@ -1522,22 +1563,17 @@ is a reader's and runs in the nightly lanes and in R2's slice.
 Its two sentences about `targeted-invalid-question-ids` and `targeted-invalid-connect-ids` stay true:
 the ids those hold are still refused (a leading underscore, `XML`, `meta`), and neither holds a hyphen.
 
-The HQ-authored bases and variants that exhibit each grammar from HQ's side are part 14's
-(`14-proof.md`), in B13, and it names them. Its section 6.2 holds the bases: `hq-names` (a hyphenated
-question id, a one-choice select, a choice value holding an apostrophe, a case property and a Search
-field name holding a hyphen, the update keys `category` and `state`), `hq-lookups` (a table whose tag
-holds a hyphen), `hq-new-app` (a new menu, whose case type HQ makes `case`), `hq-connect-deliver` and
-`hq-connect-learn`. Its section 7.2 gives one authored variant to each entry N1 to N24, on the base of
-the entry's area, with 11.2's ids and standings as each `expected.json`.
+The apps made in CommCare HQ that exhibit each grammar from HQ's side are part 14's (`14-proof.md`).
+Its section 6.2 holds the bases, among them `hq-names`, `hq-lookups`, `hq-new-app` (whose new menu takes
+the case type HQ gives it, `case`), `hq-connect-deliver` and `hq-connect-learn`, and its section 7.2
+gives each entry N1 to N24 a variant on the base of the entry's area, whose row names 11.2's id and
+standing.
 
 ## 13. The agent surface
 
-**Served schemas that move.** A9 runs `scripts/inspect-tool-schema-hashes.ts` at its base and at its
-head and names in its description every tool whose hash moved, as part 03 (`03-questions-and-text.md`),
-section 9, does for A6 to A8; part 02 (`02-menus.md`), section 12 and its run G5, names A4's and A5's
-two tools outright. A10 (part 15, `15-stack-contracts-and-exit.md`) asks for the one billed check over
-the names the stack's pull requests recorded. The tools A9 expects to move, each already registered in
-`scripts/test-schema.ts::SCHEMA_TESTS`, with what moves in each:
+**Served schemas that move.** The tools the Solutions Architect is given whose served input schema or
+description this part changes, each already registered in `scripts/test-schema.ts::SCHEMA_TESTS`, with
+what moves in each:
 
 | Tools | What moves |
 |---|---|
@@ -1556,29 +1592,26 @@ before Zod walks the input (`lib/agent/authoring/schema.ts::authoringJsonSchema`
 JSON Schema, so the both-quotes rule sends the provider nothing. `SELECT_OPTION_VALUE_DESCRIPTION` and
 `FIELD_DOCS.id` keep teaching the lowercase underscore slug, the shape Nova mints.
 
-The inspector's answer is what A9's description records, and the table is what it is held to. A tool
-the inspector names that the table does not has a served byte this part did not plan to move: A9
-finds the schema that moved it, and where that schema reads one of the patterns or descriptions
-above the tool joins the description's list, and where it reads anything else the change is taken
-out of A9. A tool the table names that the inspector leaves out moved no served byte, so the
-description leaves it out. A10's billed check covers exactly the tools A9's description lists.
+**What the billed check proves here.** The step's one billed schema check (the top-level file
+`../6-bring-in.md`, "What needs your yes before this starts") sends each tool the top-level file's two
+free comparisons name (its served input schema or its description moved), the table's among them, and
+its answer is the only proof that the provider accepts each new pattern, the inline source's
+`minItems` of one and the two descriptions as a tool definition. What needs no
+provider is held in CI: T24 compiles every served pattern under the providers' regex engine, and T28
+holds that no served schema keeps a retired pattern or minimum, on any tool, in the table or not.
 
 **The guide** (`lib/agent/authoring/reference.ts`, the `expressions` entry). After "Read the form's
-recordContext for the available types." A9 adds: "A record type named form, user, search, case, record or
-row is written #record/<record-type>/<property>, as in #record/case/region; that spelling reads any
-type." No other guide sentence states a grammar this part changes.
+recordContext for the available types." the entry gains: "A record type named form, user, search, case,
+record or row is written #record/<record-type>/<property>, as in #record/case/region; that spelling
+reads any type." No other guide sentence states a grammar this part changes.
 
-**Versions.** `lib/models.ts::MODEL_CONTEXT_VERSION` moves in every pull request that changes the input
-schema or the description of a tool the Solutions Architect is offered, or the authoring guide
-(`lib/agent/CLAUDE.md`, the provider contract), and A9 changes all three. So A9 moves it once: A9 sets
-`"v7-hq-round-trip-bring-in.a9"`, the literal after A8's `"v7-hq-round-trip-bring-in.a8"` (one
-literal per pull request, `.a4` to `.a9`: part 15, `15-stack-contracts-and-exit.md`, "Decisions in
-brief", decision 3). A10 moves it to `.a10` only where its billed check forces a schema or description
-correction (part 15); otherwise stack A deploys `.a9`.
-`RUNTIME_VERSION` moves to `19` in A9 (3.4).
+**Versions.** The table's schemas, the two descriptions (C13, C19) and the guide sentence are what of
+this part a model is served, so they are among the changes the step's one move of
+`lib/models.ts::MODEL_CONTEXT_VERSION` covers (the top-level file states the move). The rename of 3.4
+is this part's reason for the step's one move of `RUNTIME_VERSION`.
 
 **The plugin.** `../nova-plugin` states none of these grammars (its one hyphen sentence is a project
-space's slug). Nothing rides.
+space's slug), so the plugin's pull request carries nothing for this part.
 
 ---
 
@@ -1610,8 +1643,10 @@ Every string this part adds or changes. Unchanged strings are not listed.
 | C20 | `userFacingErrors.ts`, the fallback of `INVALID_FIELD_ID` and of `CONNECT_ID_INVALID_FORMAT` | `` `${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Letters, numbers, underscores and hyphens all work, with a letter first.` `` and `` `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Letters, numbers, underscores and hyphens all work, with a letter first.` `` |
 | C21 | `CreateTableDialog.tsx`, the tag's description; `AddColumnDialog.tsx`, the column name's | `Letters, digits, underscores and hyphens, with a letter or an underscore first. Changing it later needs admin access.` and `Letters, digits, underscores and hyphens, with a letter or an underscore first. This is the heading a CSV import must use.` |
 | C22 | `caseTypePickerModel.ts::creationErrorMessage`, `illegal_format` | `Letters, numbers and underscores all work in a case type name` (no closing period, as its sibling lines) |
-| C23 | `lib/publish/hqFindingCopy.ts::FINDING_COPY`, the sentences part 01 (`01-the-bar-and-the-manifest.md`), section 2.2, gives for this part's entries, copied word for word | `case-types`, `fix-in-hq` with the cause `hq-refuses`: `A case type here holds a character CommCare HQ's menu settings can't save.` `case-property-names`, `not-yet`: `A case property name here is one Nova can't hold yet.` `menu-structure`, `not-yet`: `How this menu is nested is something Nova can't hold yet.` `parent-selection`, `not-yet`: `This chooses a parent case first in a way Nova can't hold yet.` `case-list-setup`, `not-yet`: `This case list is set up in a way Nova can't hold yet.` `question-logic`, `not-yet`: `A question's logic here is something Nova can't hold yet.` `question-choices`, `not-yet`, re-worded: `A question's choices here are set up in a way Nova can't hold yet.` `connect-blocks`, `not-yet`, re-worded: `A CommCare Connect block here is set up in a way Nova can't hold yet.` `question-media`, `not-yet`, re-worded: `A question here carries a kind of media or label form Nova can't hold yet.` `SUBJECT_LABELS["case-types"]`: `Case types` |
-| C24 | the option editor's refusal beside the value box (`optionsDraftModel.ts`), where the question and the form are already on screen | `This value holds both an apostrophe and a double quote. Keeping one kind works.` |
+| C23 | the option editor's refusal beside the value box (`optionsDraftModel.ts`), where the question and the form are already on screen | `This value holds both an apostrophe and a double quote. Keeping one kind works.` |
+
+The sentence a reading shows for each manifest entry of 11.2 is part 01's (`lib/publish/hqFindingCopy.ts`,
+its section 9.2) and is not repeated here.
 
 Removed: the `SELECT_TOO_FEW_OPTIONS` sentences in `rules/field.ts` and `userFacingErrors.ts`; the
 `RESERVED_CASE_TYPE_NAME` sentences in `rules/app.ts` and `userFacingErrors.ts`;
@@ -1621,7 +1656,7 @@ specific name, such as … record"); `case-operations/shared.ts`'s "must start w
 ## Tests
 
 Vitest unless marked. Each names its boundary and the failure it would catch. No DOM test. A file marked
-extended, rewritten or existing is in the tree at `15a00a97`; every other file is new in A9.
+extended, rewritten or existing is in the tree at `1f103305`; every other file is new.
 
 | # | File | Boundary | Holds | Catches |
 |---|---|---|---|---|
@@ -1647,7 +1682,7 @@ extended, rewritten or existing is in the tree at `15a00a97`; every other file i
 | T20 | `lib/commcare/lookup/__tests__/names.test.ts` | `fixtures.ts`, `workbook.ts`, a form read, and the HQ JSON's case list filter and `form_filter` for a case form and a survey form, parsed back with `parseXml` and `parser.parse` | the fixture's elements, the workbook's headers and sheet name and each printed read hold the names verbatim; each HQ JSON string is one HQ's build leaves alone: a port of `xpath.py::dot_interpolate`'s character walk (quote state, the digit test on each side), run with an empty replacement, returns the string unchanged, which is the test `_ensure_no_case_references` itself makes | an element or step altered or refused; a read HQ's build would rewrite |
 | T21 | `lib/domain/__tests__/searchInputName.test.ts` and `lib/commcare/suite/case-search/__tests__/hyphenatedName.test.ts` | the schema, then the prompt, query and locale emitters read by the suite oracle | `first-name` is a name; the prompt's key, the `field[@name=…]` read and the locale id hold it | a key and its read disagreeing |
 | T22 | `lib/commcare/__tests__/connectSlugs.test.ts` (extended) | the verdict and `connectIdSchema` | `intro-module` passes both; the five reserved names and a leading underscore are refused by the verdict | the schema and the verdict disagreeing on a hyphen |
-| T23 | `lib/commcare/surface/__tests__/manifest.test.ts`, `gates.test.ts` (existing), and the lane's `proof/checks/test_manifest_value_classes.py` | the entries against the schema, the gates against the entries, the value-class readers against their shapes | every entry parses under `direction: "narrow"` and with a `subject` of `SUBJECTS`; no two entries claim one key at one class; each gate's `contentEntries` holds N8 and N15 in inventory order; N1's reader takes its refused shapes and leaves its accepted ones; the count it prints moves by twenty-four | a widen left on a row; a gate that does not govern a new entry; an overlapping pair |
+| T23 | `lib/commcare/surface/__tests__/manifest.test.ts`, `gates.test.ts` (existing), and the lane's `proof/checks/test_manifest_value_classes.py` | the entries against the schema, the gates against the entries, the value-class readers against their shapes | every entry parses under `direction: "narrow"` and with a `subject` of `SUBJECTS`; no two entries claim one key at one class; each gate's `contentEntries` holds N8 and N15 in inventory order; N1's reader takes its refused shapes and leaves its accepted ones | a widen left on a row; a gate that does not govern a new entry; an overlapping pair |
 | T24 | `lib/mcp/__tests__/servedSchemas.test.ts` (existing; it compiles every served pattern under Ajv and the Rust regex engine and holds no expected value) | what an MCP client receives | every new pattern compiles under the providers' engine, with no edit to the test | a pattern a provider refuses |
 | T25 | `e2e/tests/app/names.spec.ts` (Playwright smoke) | the builder in a browser | renaming a question to `first-name` saves and its chip resolves; typing `it's` as a choice value keeps the apostrophe; removing choices stops at one; typing "1st visit" in the case type picker creates `1st_visit`, which the earlier rule refused | an input that still filters or refuses |
 | T26 | `lib/commcare/__tests__/caseLoadMetadata.test.ts` (rewritten over the typed signature) | `hqLoadReference`, then `buildCaseReferencesLoad` through `expandDoc` over built documents | for a follow-up whose own type is each of `case`, `user`, `search`, `form`, `row` and `record` and whose parent type is another of them: the form's load map holds `#case/<p>` for the own read and `#case/parent/<p>` for the parent's, never `#user/…`, and nothing throws; a worker read still gives `#user/<p>`; a type the form does not reach gives no entry; depth 3 and past keeps the parent chain | an app the gate admits that cannot export, or a case read HQ's summary records as a worker's |
@@ -1662,7 +1697,7 @@ The fuzz corpora do not widen on their own. Their generators draw from fixed lis
 types from `CASE_TYPE_NAMES`. Those draws stay as they are: `proof/corpus/fuzzSample.ts` builds the
 lane's fuzz documents from the same generators, and a longer list would change what every existing seed
 draws (`proof/CLAUDE.md`, "An existing fuzz sample keeps its draws": a new family has its own sample).
-So A9 adds a family with its own sample:
+So this part adds a family with its own sample:
 
 - `lib/commcare/__tests__/namesDocArbitrary.ts` (new): draws a document from `xformDocArbitrary`'s
   form core and `suiteDocArbitrary`'s module shapes with its own name draws: field ids from
@@ -1674,9 +1709,9 @@ So A9 adds a family with its own sample:
 - `xformOracle.fuzz.test.ts` and `suiteOracle.fuzz.test.ts` each gain one seeded sample over it (seed
   `20261113`, 80 runs, shrinking on), through the same `compilerEvidence.ts` every sample uses: the
   strict persisted schema, the gate, one expansion and one archive, then the HQ JSON, XForm, suite and
-  binding oracles. Each sample's census asserts that it held a hyphenated id, a type that starts with a
-  digit, a type named `case`, a one-option select and a quoted value, so a generator that stops
-  drawing them fails by name.
+  binding oracles. Each sample counts what it drew and asserts that it held a hyphenated id, a type
+  that starts with a digit, a type named `case`, a one-option select and a quoted value, so a generator
+  that stops drawing them fails by name.
 - `lib/doc/__tests__/referenceIndex.fuzz.test.ts` runs unchanged: it draws mutation batches, and names
   are not what it varies.
 
@@ -1684,9 +1719,6 @@ So A9 adds a family with its own sample:
 documents.
 
 ## Contracts and docs these changes make false
-
-All in A9 but the `content/docs` rows and the `complex-apps.md` rows, which A11 lands (part 15,
-`15-stack-contracts-and-exit.md`), each with the text this table fixes.
 
 | Where | Old | New |
 |---|---|---|
@@ -1701,9 +1733,9 @@ All in A9 but the `content/docs` rows and the `complex-apps.md` rows, which A11 
 | `lib/commcare/CLAUDE.md`, the generated-node paragraphs | "a base an authored sibling … holds takes `_<n>`" | unchanged, with "An owner's id is written as it stands, hyphens included." added |
 | `lib/commcare/xpath/CLAUDE.md`, "Parsing and identity" | "binds `#case` to the selected record type (`selectedCaseType`)" | the same, then "A record type is `#<type>/<property>` or `#record/<type>/<property>` (`lib/domain/hashtagSegments.ts`)." |
 | `lib/lookup/CLAUDE.md` | (the tag paragraph) | gains "A tag and a column's wire name start with an unaccented letter or underscore and hold letters, digits, underscores and hyphens, never starting with lowercase `xml` (`LOOKUP_WIRE_IDENTIFIER_PATTERN`, and the two checks of `20261113000000_hq_round_trip_lookup_names`). A period is left out because CommCare HQ's build rewrites one in a case list filter and a display condition." |
-| `docs/architecture/complex-apps.md`, the reserved write properties (A11, text fixed here) | "extended with `location_id`, `hq_user_id`, `external_id`, `category`, and `state`." and the paragraph after it, from "`category` and `state` are reserved because the two runtimes disagree about them" to "A property that means two different things cannot be authored." | "extended with `location_id`, `hq_user_id`, and `external_id`." and, in the paragraph's place: "`location_id` and `hq_user_id` are reserved because CommCare HQ stores each somewhere other than the property: a written `location_id` becomes the case's own location and a written `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`). `category` and `state` are ordinary properties on both runtimes: Core keeps each in the case's property map (`Case.java::setCategory`, `setState`) and shows it as a child like any other (`CaseChildElement.setCaseProperties`), beside an attribute of the same name that no Nova expression reads." |
-| `docs/architecture/complex-apps.md`, the case operation vocabularies (A11, text fixed here) | "ASCII letters, digits, and underscores throughout; an operation id or link identifier starts with a letter or underscore, a write property with a letter only" | "an operation id or link identifier holds ASCII letters, digits, and underscores and starts with a letter or underscore; a write property takes the catalog's grammar, a letter first, then letters, digits, underscores, and hyphens" |
-| `docs/architecture/complex-apps.md`, "Lookup carriers, table expressions, and itemsets" (A11, text fixed here) | "either `inline`, which owns at least two fully UUID-identified options" | "either `inline`, which owns at least one fully UUID-identified option" |
+| `docs/architecture/complex-apps.md`, the reserved write properties | "extended with `location_id`, `hq_user_id`, `external_id`, `category`, and `state`." and the paragraph after it, from "`category` and `state` are reserved because the two runtimes disagree about them" to "A property that means two different things cannot be authored." | "extended with `location_id`, `hq_user_id`, and `external_id`." and, in the paragraph's place: "`location_id` and `hq_user_id` are reserved because CommCare HQ stores each somewhere other than the property: a written `location_id` becomes the case's own location and a written `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`). `category` and `state` are ordinary properties on both runtimes: Core keeps each in the case's property map (`Case.java::setCategory`, `setState`) and shows it as a child like any other (`CaseChildElement.setCaseProperties`), beside an attribute of the same name that no Nova expression reads." |
+| `docs/architecture/complex-apps.md`, the case operation vocabularies | "ASCII letters, digits, and underscores throughout; an operation id or link identifier starts with a letter or underscore, a write property with a letter only" | "an operation id or link identifier holds ASCII letters, digits, and underscores and starts with a letter or underscore; a write property takes the catalog's grammar, a letter first, then letters, digits, underscores, and hyphens" |
+| `docs/architecture/complex-apps.md`, "Lookup carriers, table expressions, and itemsets" | "either `inline`, which owns at least two fully UUID-identified options" | "either `inline`, which owns at least one fully UUID-identified option" |
 | `lib/commcare/CLAUDE.md`, "Form reads" | "References are **per-case-type**: `#<case_type>/<prop>` names the form's own module case type or an ancestor" | the same, then "A type named for one of reference text's fixed words is `#record/<case_type>/<prop>` (`lib/domain/hashtagSegments.ts::caseReferenceText`)." |
 | `lib/commcare/CLAUDE.md`, "Vellum dual-attribute pattern", the load map sentence | "`case_references_data.load` walks typed form-case and worker-record terms" | unchanged, with "and `hashtags.ts::hqLoadReference` takes the typed read, never reference text" added |
 | `lib/commcare/hashtags.ts`, header and `hqLoadReference`'s doc | "Translate one extracted hashtag ref", "`#user/` is already target vocabulary and passes through. Literal authored `#case/` is rejected" | "Project one typed case read"; the two sentences are removed with the arms they describe |
@@ -1714,12 +1746,12 @@ All in A9 but the `content/docs` rows and the `complex-apps.md` rows, which A11 
 | `lib/domain/questionId.ts`, header | "Nova keeps refusing the hyphen Vellum accepts, a rule of its own." | removed |
 | `lib/domain/selectOptionValue.ts`, header | "A quote breaks the XPath literal a value is compared with (`field = 'value'`), which is how the case list projects a select's labels." | "A value holding both an apostrophe and a double quote has no XPath string literal, so a rule naming the choice could not be shown as text." |
 | `lib/domain/caseOperationIdentifiers.ts`, header | "ASCII letters, digits, and underscores only. Operation and connection ids may begin with an underscore; case properties must begin with a letter." | "Operation and connection ids hold ASCII letters, digits and underscores and may begin with an underscore; a written property takes the catalog's grammar, a letter first and then letters, digits, underscores and hyphens." |
-| `lib/db/appTests.ts`, the comment on `RUNTIME_VERSION` | "(version 18: query repeats, repeat counts and case operations)" | "(version 19: a query repeat's wrapper name)"; `lib/preview/app-tests/CLAUDE.md` gains "Runtime version 19 names a query repeat's wrapper `<id>.query`." |
-| `content/docs/commcare-connect.mdx`, "IDs" (A11, text fixed here) | "starts with a letter, uses letters, digits and underscores, and is 50 characters or fewer" | "starts with a letter, uses letters, digits, underscores and hyphens, and is 50 characters or fewer" |
-| `content/docs/case-changes.mdx` (A11, text fixed here) | "Change ids and connection names use letters, numbers, and underscores and start with a letter or underscore; saved property names use the same characters and start with a letter." | "Change ids and connection names use letters, numbers, and underscores and start with a letter or underscore; saved property names start with a letter and can also hold hyphens." |
-| `content/docs/mcp/tools.mdx` (A11, text fixed here) | "It can't hold spaces, quotes, or apostrophes, because the device refuses a choice value with a space in it and a multi-select answer is a space-separated list of these values." | "It can't hold spaces, because the device refuses a choice value with a space in it and a multi-select answer is a space-separated list of these values, and it can't hold both an apostrophe and a double quote." |
-| `content/docs/mcp/tools.mdx` (A11, text fixed here) | "An inline source carries at least two options" | "An inline source carries at least one option" |
-| `content/docs/mcp/tools.mdx` (A11, text fixed here) | "Write-property names use the same characters and start with a letter." | "Write-property names start with a letter and can also hold hyphens." |
+| `lib/db/appTests.ts`, the comment on `RUNTIME_VERSION` | "(version 18: query repeats, repeat counts and case operations)" | the parenthesis names the version the step moves to and its two reasons, "a query repeat's wrapper name, and a date and time on a case stored as CommCare HQ stores it" (the second is part 03's, its section 7.1); `lib/preview/app-tests/CLAUDE.md` gains one sentence that names the same version: "Runtime version <n> names a query repeat's wrapper `<id>.query` and stores a date and time on a case as CommCare HQ stores it." |
+| `content/docs/commcare-connect.mdx`, "IDs" | "starts with a letter, uses letters, digits and underscores, and is 50 characters or fewer" | "starts with a letter, uses letters, digits, underscores and hyphens, and is 50 characters or fewer" |
+| `content/docs/case-changes.mdx` | "Change ids and connection names use letters, numbers, and underscores and start with a letter or underscore; saved property names use the same characters and start with a letter." | "Change ids and connection names use letters, numbers, and underscores and start with a letter or underscore; saved property names start with a letter and can also hold hyphens." |
+| `content/docs/mcp/tools.mdx` | "It can't hold spaces, quotes, or apostrophes, because the device refuses a choice value with a space in it and a multi-select answer is a space-separated list of these values." | "It can't hold spaces, because the device refuses a choice value with a space in it and a multi-select answer is a space-separated list of these values, and it can't hold both an apostrophe and a double quote." |
+| `content/docs/mcp/tools.mdx` | "An inline source carries at least two options" | "An inline source carries at least one option" |
+| `content/docs/mcp/tools.mdx` | "Write-property names use the same characters and start with a letter." | "Write-property names start with a letter and can also hold hyphens." |
 | `proof/README.md`, "Targeted documents" | (new) | the paragraph of eight sentences section 12 writes out, and under the Connect proof's description ("What the package's tests hold") one sentence: "Its accepted names hold four hyphenated ids, one for each kind of block." |
 | `docs/research/2026-09-26-hq-round-trip/inventory/*.md` | the rows of 11.1 | as 11.1, and the rows of 11.2 added; the Counts table stays the research's |
 
@@ -1731,7 +1763,7 @@ decisions of this part where an alternative was weighed and not taken.
 1. **Four classes of a name are not-yet, each with a step 7 owner and the reason at source.** The
    plan's rule for a name is that it cannot be fixed in CommCare HQ without changing data, so each
    widen is built or is honestly not-yet, decided row by row (the top-level file `../6-bring-in.md`,
-   "What changed from the outline, and why", item 6). The four classes are: names with non-ASCII
+   "What changed from the outline, and why"). The four classes are: names with non-ASCII
    letters (rows 19 and 22), because what Core reads is decided by each runtime's Unicode tables
    (`Lexer.isAlpha` over `Character.isLowerCase` and `isUpperCase`) and step 6 can state no one pattern
    proven on both; a lookup name holding a period (row 19), because HQ's build rewrites an unquoted
@@ -1750,8 +1782,8 @@ decisions of this part where an alternative was weighed and not taken.
    rule that names the choice.
 3. **Every one of the 45 rows is decided here, in part 04.** The nine built and the eighteen split are
    this part's to plan, and the eighteen of 2.4 are answered by parts 01 and 02 and named here with
-   the reason. Part 03 (`03-questions-and-text.md`) decides none of them: its A8 re-words the cell of
-   row 43 and leaves the row's `widen` for A9 (11.1).
+   the reason. Part 03 (`03-questions-and-text.md`) decides none of them: it words the cell of row 43,
+   and this part takes the row's `widen` out (11.1).
 4. **From the research, "External identity"** ("Nova's lookup grammar widens to" HQ's XML-name grammar,
    and case properties "whose characters … are all Core's name characters … Nova's grammars must widen to
    admit them"). Step 6 widens both over ASCII, leaves the period out of lookup names (9.1), and leaves
@@ -1762,7 +1794,7 @@ decisions of this part where an alternative was weighed and not taken.
 6. **Beyond the manifest**: Nova's own five reserved case type names are removed. No manifest entry
    names them; without the change the gate refuses a case type of `case`, which is what
    `views/modules.py::_init_module_case_type` gives a menu, and the reader admits exactly what the gate
-   admits (part 09, `09-acceptance-and-the-first-publish.md`, section 4, B7), so an app whose menu
+   admits (part 09, `09-acceptance-and-the-first-publish.md`, section 4), so an app whose menu
    took HQ's own default type could not come in.
 7. **Against the manifest entry and the architecture contract**: `category` and `state` are built and
    `location_id` and `hq_user_id` are not, where the entry treats the four alike and
@@ -1772,169 +1804,94 @@ decisions of this part where an alternative was weighed and not taken.
    case's property map (`Case.java::setCategory`, `setState`) and shows it as a child
    (`CaseChildElement.setCaseProperties`). The contract's paragraph is rewritten ("Contracts and docs"),
    and `targeted-case-write-names` holds the two runtimes to the same saved value on every reader.
-8. **A9 moves `MODEL_CONTEXT_VERSION` itself, once**, because it changes served schemas, a served
-   description and the guide, and a stored model context is replayed only under the catalog it was made
-   against (`lib/agent/CLAUDE.md`). Parts 02 and 03 do the same for A4 to A8, and part 15
-   (`15-stack-contracts-and-exit.md`, "Decisions in brief", decision 3) holds the literals, one per
-   pull request. A10 keeps the billed check, and moves the value to `.a10` only where that check
-   forces a schema or description correction; otherwise stack A deploys A9's `.a9`. Not done: one move
-   in A10 for the whole stack, beside the final guide and the billed check, because
-   `lib/agent/CLAUDE.md` binds the move to every pull request that changes a served tool's input
-   schema or description, or the guide.
-9. **Two changes that are no grammar land in A9**: `hashtags.ts::hqLoadReference` changes its
+8. **Two changes that are no grammar belong to this work**: `hashtags.ts::hqLoadReference` changes its
    signature and `caseOperationIdentifiers.ts::ownCaseOperationId` its fallback. Each rested on a case
-   type never being one of five words or starting with anything but a letter, so each changes in the
-   pull request that ends that.
-10. **A9 moves `RUNTIME_VERSION` from 18 to 19, for 3.4's reason.** Preview's query repeat wrapper is
-    renamed, so a journey that pins a document holding a query repeat was built over a name the new
-    runtime does not write. No pull request beneath A9 moves `RUNTIME_VERSION` and none of stack B
-    does. Not done: leaving the number at 18 through the plan, because a journey made before A9 would
-    then continue under a runtime that names the wrapper differently from the one it was built over.
+   type never being one of five words or starting with anything but a letter, so each changes no later
+   than the case type grammar and the reservation do (4.2, 4.3).
+9. **`RUNTIME_VERSION` moves, for 3.4's reason.** Preview's query repeat wrapper is renamed, so a
+   journey that pins a document holding a query repeat was built over a name the new runtime does not
+   write. Nothing else in this part moves the number, and part 03's section 7.1 is the step's other
+   reason for the same move (its section 9.5 states it). Not done: leaving the number where it is,
+   because a journey made before the deploy would then continue under a runtime that names the wrapper
+   differently from the one it was built over.
 
-## Files by pull request
+## Files
 
-**A9, Identifier grammars.**
+Paths are under the directory each bullet names. Nothing moves; one symbol changes its file (4.3).
 
-- `lib/domain`: `questionId.ts`; `hashtagSegments.ts`; `expression/types.ts` (`CASE_TYPE_PATTERN`);
-  `expression/print.ts` (the `form-case` arm); `caseOperationIdentifiers.ts`; `standardCaseProperties.ts`;
-  `selectOptionValue.ts`; `fields/selectOptionsSource.ts`, `fields/base.ts`, `fields/singleSelect.ts`,
-  `fields/multiSelect.ts` (comments); `modules.ts` (`SEARCH_INPUT_NAME_PATTERN`); `forms.ts`
-  (`CONNECT_ID_PATTERN`); `prose.ts` (the two `case-ref` prints); `fields/text.ts` (comment); `index.ts`
-  (exports); `CLAUDE.md`.
-- `lib/commcare`: `constants.ts`; `identifierValidation.ts` (no code; its readers follow);
-  `xform/formPath.ts` (messages); `xform/itextIds.ts`; `xform/caseSaveReferences.ts` (comment);
-  `advancedTags.ts` (message and comments); `hashtags.ts` (`hqLoadReference`), `formActions.ts`
-  (`buildCaseReferencesLoad`); `connectSlugs.ts` (`CONNECT_ID_FIELD_DESCRIPTION`);
-  `xpath/grammar.lezer.grammar`, `xpath/hashtagGuard.ts`, `xpath/parser.ts` and `parser.terms.ts`
-  (regenerated), `xpath/expressionAst.ts`; `validator/reservedNamespaces.ts` (deleted),
-  `validator/rules/app.ts`, `rules/module.ts`, `rules/field.ts`, `rules/caseOperations.ts`,
-  `validator/errors.ts`, `gate.ts`, `runner.ts`, `validator/formLogicFindings.ts`;
-  `suite/case-search/reservedInputNames.ts` (comment); `surface/schema.ts`, `surface/entries/*.json`
-  (the five area files touched, and `gates.json`); `CLAUDE.md`, `xpath/CLAUDE.md`.
-- `lib/doc`: `identifierVerdicts.ts`; `userFacingErrors.ts`; `expressionText.ts`
-  (`parseProseReference`); `types.ts`, `mutations/fields.ts` (comments); `CLAUDE.md`.
-- `lib/lookup`: `constants.ts`, `schema.ts`, `CLAUDE.md`.
-- `lib/case-store`: `migrations/20261113000000_hq_round_trip_lookup_names.ts`, `migrations/index.ts`;
-  `store.ts` and `postgres/store.ts` (the two stale `indexName` comments, removed).
-- `lib/preview`: `engine/queryWrapperName.ts`; `app-tests/CLAUDE.md`. `lib/db/appTests.ts`
-  (`RUNTIME_VERSION`). `lib/models.ts` (`MODEL_CONTEXT_VERSION`).
-- `lib/agent`: `authoring/bindings.ts`, `authoring/reference.ts`, `authoring/printQueryExpression.ts`,
-  `authoring/formRecordContext.ts`, `authoring/text.ts`; `toolSchemaGenerator.ts`;
-  `tools/case-operations/shared.ts`, `tools/setFieldOptionsSource.ts`.
-- `lib/publish`: `hqFindings.ts` (`SUBJECTS` gains `case-types`), `hqFindingCopy.ts` (C23).
-- `lib/references`: `config.ts`, `provider.ts`. `lib/tiptap/refSuggestion.ts`.
-  `lib/codemirror/xpath-autocomplete.ts`.
+**New.**
+
+- `lib/case-store/migrations/20261113000000_hq_round_trip_lookup_names.ts`: the two lookup name checks,
+  found by their text and replaced by named, wider ones, and a `down` that refuses where a stored name
+  needs the wider grammar (9.3).
+- `proof/targeted/documents/`: `hyphenatedQuestionIds.ts`, `caseTypeNames.ts`, `choiceValues.ts`,
+  `lookupNames.ts`, `searchFieldNames.ts`, `caseWriteNames.ts`, each one document of section 12.
+- `lib/commcare/__tests__/namesDocArbitrary.ts`: the generator of the names fuzz family ("Tests").
+- The test files "Tests" does not mark extended, rewritten or existing, at the paths its table gives:
+  T2, T3, T4, T6, T7, T8, T10, T11, T13 to T18, T20, T21 (two files), T25 and T28.
+
+**Changed.**
+
+- `lib/domain`: `questionId.ts` (the pattern, the `characters` test, the normalizer, C1, its header);
+  `hashtagSegments.ts` (the segment source, `HASHTAG_FIXED_NAMESPACES`, `caseReferencePrefix`,
+  `caseReferenceText`, `readCaseReference`); `expression/types.ts` (`CASE_TYPE_PATTERN`);
+  `expression/print.ts` (the `form-case` arm); `caseOperationIdentifiers.ts` (the written property's
+  grammar and message, `ownCaseOperationId`, its header); `standardCaseProperties.ts` (`category` and
+  `state` leave the forbidden set); `selectOptionValue.ts` (the pattern, the problems, the schema, the
+  sanitizer, C10, C11, its header); `fields/selectOptionsSource.ts` (the minimum of one);
+  `fields/base.ts`, `fields/singleSelect.ts`, `fields/multiSelect.ts`, `fields/text.ts` (comments);
+  `modules.ts` (`SEARCH_INPUT_NAME_PATTERN`, C14); `forms.ts` (`CONNECT_ID_PATTERN`); `prose.ts` (the
+  two `case-ref` prints); `index.ts` (exports); `CLAUDE.md`.
+- `lib/commcare`: `constants.ts` (`XML_ELEMENT_NAME_REGEX`, `CASE_TYPE_REGEX`); `xform/formPath.ts`
+  (C18); `xform/itextIds.ts` (`fieldItextKey`); `xform/caseSaveReferences.ts` (comment);
+  `advancedTags.ts` (C6 and two comments); `hashtags.ts` (`hqLoadReference` over the typed read, its
+  text arms deleted) and `formActions.ts` (`buildCaseReferencesLoad`); `connectSlugs.ts` (C19);
+  `xpath/grammar.lezer.grammar` and `xpath/hashtagGuard.ts` (the segment token), `xpath/parser.ts` and
+  `parser.terms.ts` (regenerated, R1), `xpath/expressionAst.ts` (the `hashtag` arm, C7 to C9);
+  `validator/rules/app.ts` (the reserved-name rule deleted), `rules/module.ts` (C3), `rules/field.ts`
+  (`selectTooFewOptions` deleted), `rules/caseOperations.ts` (C5), `validator/errors.ts`, `gate.ts` and
+  `runner.ts` (the two removed codes), `validator/formLogicFindings.ts` (the hashtag detail);
+  `suite/case-search/reservedInputNames.ts` (comment); `surface/schema.ts` (`slotChangeSchema`),
+  `surface/entries/*.json` (the five area files, by 11.1 and 11.2, and `gates.json`); `CLAUDE.md`,
+  `xpath/CLAUDE.md`.
+- `lib/doc`: `identifierVerdicts.ts` (the `reserved` code deleted, C2, its header); `userFacingErrors.ts`
+  (C4, C12, C20, and the two removed codes' arms); `expressionText.ts` (`parseProseReference`);
+  `types.ts`, `mutations/fields.ts` (comments); `CLAUDE.md`.
+- `lib/lookup`: `constants.ts` (the two patterns, the `selected_cases` family), `schema.ts` (C15, C16),
+  `CLAUDE.md`.
+- `lib/case-store`: `migrations/index.ts` (the new migration's entry); `store.ts` and
+  `postgres/store.ts` (the two stale `indexName` comments, removed).
+- `lib/preview`: `engine/queryWrapperName.ts` (`<id>.query`); `app-tests/CLAUDE.md`.
+- `lib/db/appTests.ts`: `RUNTIME_VERSION` and its comment (3.4).
+- `lib/agent`: `authoring/bindings.ts`, `authoring/printQueryExpression.ts`,
+  `authoring/formRecordContext.ts`, `authoring/text.ts` (each row of 5.2); `authoring/reference.ts` (the
+  guide sentence); `toolSchemaGenerator.ts` (the minimum of one, and its comments);
+  `tools/case-operations/shared.ts` (its own case type pattern dropped, C5);
+  `tools/setFieldOptionsSource.ts` (C13).
+- `lib/references`: `config.ts` (`namespaceOf` deleted, `classifyNamespace`), `provider.ts`.
+  `lib/tiptap/refSuggestion.ts`. `lib/codemirror/xpath-autocomplete.ts` (each a row of 5.2).
 - `components/builder`: `editor/fields/OptionsEditor.tsx`, `OptionsSourceEditor.tsx`,
-  `optionsDraftModel.ts`, `caseWritePresentation.ts`; `shared/caseTypePickerModel.ts`;
-  `case-list-config/seeds.ts`; `project-data/projectDataModel.ts` (comment), `CreateTableDialog.tsx`,
-  `AddColumnDialog.tsx`; `CLAUDE.md`.
-- `proof`: `targeted/documents/hyphenatedQuestionIds.ts`, `caseTypeNames.ts`, `choiceValues.ts`,
-  `lookupNames.ts`, `searchFieldNames.ts`, `caseWriteNames.ts`, `connectApps.ts` (its two builders
-  called with hyphenated ids for the two new documents); `targeted/index.ts`;
-  `connect/conftest.py` (`ACCEPTED_NAMES`); `checks/manifest_value_classes.py`,
+  `optionsDraftModel.ts` (one option, C23), `caseWritePresentation.ts`; `shared/caseTypePickerModel.ts`
+  (C22, the `reserved` arm deleted); `case-list-config/seeds.ts` (`xmlNameFromProperty`);
+  `project-data/projectDataModel.ts` (comment), `CreateTableDialog.tsx`, `AddColumnDialog.tsx` (C21);
+  `CLAUDE.md`.
+- `proof`: `targeted/documents/connectApps.ts` (its two builders called with hyphenated ids for the
+  two Connect documents); `targeted/index.ts` (the eight registered); `connect/conftest.py`
+  (`ACCEPTED_NAMES`); `checks/manifest_value_classes.py` (N1's reader),
   `checks/test_manifest_value_classes.py` (`SHAPES`); `README.md`.
-- `docs/research/2026-09-26-hq-round-trip/inventory/`: the five area files.
-- Tests: T1 to T29, with the new test files they name, among them
-  `lib/commcare/__tests__/namesDocArbitrary.ts` and the two fuzz files' new sample. Changed because a
-  removed code or signature leaves them false: `lib/commcare/__tests__/validationRules.test.ts` (its
-  `RESERVED_CASE_TYPE_NAME` cases become cases that the five words are admitted),
-  `lib/doc/__tests__/multiplayerMerge.test.ts` (its `SELECT_TOO_FEW_OPTIONS` merge becomes a merge that
-  leaves one option and commits, and one that leaves none and is refused `SELECT_NO_OPTIONS`), and
-  `lib/commcare/__tests__/caseLoadMetadata.test.ts` (T26).
+- `docs/architecture/complex-apps.md`, `content/docs/commcare-connect.mdx`, `case-changes.mdx` and
+  `mcp/tools.mdx`: the sentences "Contracts and docs these changes make false" gives.
+- `docs/research/2026-09-26-hq-round-trip/inventory/`: the five area files, by 11.1 and 11.2.
+- Tests: the files "Tests" marks extended or rewritten (T1, T5, T9, T12, T19, T22, T26, T27, T29),
+  the lane's `SHAPES` (T23), and one new seeded sample in each of `xformOracle.fuzz.test.ts` and
+  `suiteOracle.fuzz.test.ts`. Changed because a removed code leaves them false:
+  `lib/commcare/__tests__/validationRules.test.ts` (its `RESERVED_CASE_TYPE_NAME` cases become cases
+  that the five words are admitted) and `lib/doc/__tests__/multiplayerMerge.test.ts` (its
+  `SELECT_TOO_FEW_OPTIONS` merge becomes a merge that leaves one option and commits, and one that
+  leaves none and is refused `SELECT_NO_OPTIONS`).
 
-**Lines this part hands to other pull requests.** A2 (part 01, `01-the-bar-and-the-manifest.md`,
-section 3.3): the removal of the widen from `forms-and-case-writes/xmlns-form-json-and-xform-data-node`,
-with part 10's cell. A3 (part 01, section 3.6): the sixteen widens of rows 1 to 16 with their re-cuts.
-A5 (part 02, `02-menus.md`, section 14): the widen of row 30. A10 (part 15,
-`15-stack-contracts-and-exit.md`): the billed check over the tools A9's description names (section 13).
-A11 (part 15): the three paragraphs of `docs/architecture/complex-apps.md` and the five sentences of
-`content/docs/commcare-connect.mdx`, `case-changes.mdx` and `mcp/tools.mdx`, each with the text
-"Contracts and docs" fixes. B13 (part 14, `14-proof.md`, sections 6.2, 7.2 and 8.2): the bases, the
-variants and the seven HELD-NEW readers section 12's last paragraph and 11.3 name.
+**Removed.**
 
-## What this part needs of other parts
-
-- **Of part 01 (`01-the-bar-and-the-manifest.md`), A2**: that `inventoryEntrySchema` carries `subject`
-  (`subjectSchema`, a slug of `lib/publish/hqFindings.ts::SUBJECTS`) on every HELD-NEW and REFUSED entry
-  and `owner` (one of `STEP_7_GROUPS`) on every HELD-NEW entry before A9, as its sections 2.2 and 2.3
-  plan; that `hqFindingCopy.ts::FINDING_COPY` and `SUBJECT_LABELS` exist for A9 to add C23 to (its
-  sections 8.4 and 9.2); and that A2 removes row 20's widen (its section 3.3). Its section 2.2 maps N1
-  to N23 to slugs and gives the sentences A9 adds, and its table of other parts' entries holds N24
-  under `lookup-tables`, whose `not-yet` sentence exists, so nothing more is asked of the copy as
-  section 11.2 lands. Only where R2 falls back ("Written and not yet run") does A9 add a `not-yet` row
-  with its fallback entry, next step `FINDING_NEXT_STEPS["not-yet"]`. Part 01's section 9.2 already
-  names the first for that case, `question-ids`: "A question ID here is one Nova can't hold yet." It
-  does not list the second, which this part words: `case-types`, `not-yet`, "A case type here is one
-  Nova can't hold yet.", landing in A9 with
-  `menus-and-case-lists/case-type-starting-with-a-digit-or-a-hyphen` or
-  `menus-and-case-lists/case-type-named-<name>`. Its Appendix A and its counts take the twenty-four
-  entries in A9.
-- **Of part 01, A3**: that it removes the widens of rows 1 to 16 (its section 3.6), the split of
-  `application-and-settings/45-hq-auto-gps-capture` among them.
-- **Of part 02 (`02-menus.md`), A5**: that the `always` arm's `afterSubmit` answers row 30 and that A5
-  takes the `widen` out of its `slotChanges` (its section 14).
-- **Of part 10 (`10-identity-and-the-ledger.md`), B8**: nothing in A9. Its "Contracts and docs these
-  changes make false" words row 20's cell for A2 and cites this part's row 20; that citation stands.
-- **Of part 15 (`15-stack-contracts-and-exit.md`), A10**: the billed check, asked once over the tools
-  A9's description names; and a move of `MODEL_CONTEXT_VERSION` to `.a10` only where that check forces a
-  schema or description correction.
-- **Of part 15, A11**: the three paragraphs of `docs/architecture/complex-apps.md` and the five sentences
-  of `content/docs/commcare-connect.mdx`, `case-changes.mdx` and `mcp/tools.mdx`, each with the text
-  "Contracts and docs" fixes.
-- **Of part 15, the stack**: the order A2, A3, A5 before A9, which stack A's order (A1 to A11 by
-  number) gives.
-- **Of part 14 (`14-proof.md`), B13**: nothing it does not already plan. Its section 6.2 holds the
-  bases `hq-names`, `hq-lookups`, `hq-new-app`, `hq-connect-deliver` and `hq-connect-learn`, which
-  between them exhibit a hyphenated question id, a case type of `case`, a one-choice select, a choice
-  value holding an apostrophe, a hyphenated property, Search field name and lookup tag, and the update
-  keys `category` and `state`; its section 7.2 gives one authored variant to each entry N1 to N24 with
-  an `expected.json` naming the entry id and its standing; its section 8.2 gives N2, N3, N6, N7, N8,
-  N10 and N11 a Python reader. Its section 11.1 lists A9's eight documents, the names fuzz sample and
-  N1's reader, and hosts R2. What it needs of this part is that the N entries keep the ids of 11.2.
-
-## What other parts read from this one
-
-- **The grammars the reader admits against** (B2 and B3: part 06, `06-the-reader-forms.md`; B4 and B5:
-  part 07, `07-the-reader-cases-menus-lists.md`; B6: part 08, `08-the-reader-expressions.md`; B9: part
-  11, `11-project-data.md`, for lookup names): `QUESTION_ID_PATTERN`, `CASE_TYPE_PATTERN`,
-  `AUTHORED_CASE_PROPERTY_NAME_PATTERN` (now every write's), `SELECT_OPTION_VALUE_PATTERN` with
-  `selectOptionValueProblem`, `SEARCH_INPUT_NAME_PATTERN`, `LOOKUP_WIRE_IDENTIFIER_PATTERN` with
-  `LOOKUP_XML_PREFIX_PATTERN`, `CONNECT_ID_PATTERN`. A name outside one is a finding under the entry of
-  11.2 that takes its class, never a gate refusal the reader discovers late. A lookup tag or field name
-  holding a period is one of them: it is N24's, though HQ's table page accepts it.
-- **Unchanged, and so findings where HQ holds more**: an operation's id and a link's identifier
-  (`CASE_OPERATION_IDENTIFIER_REGEX`), a relation's index identifier and an advanced tag
-  (`XML_ELEMENT_NAME_PATTERN`), an ID-mapping key (`idMappingValueHoldsForbiddenCharacter`), a worker
-  property's slug, a level's code and a place's site code. A part that reads one of these from HQ states
-  its own standing for the wider class, and each does: part 07 (B4, B5) for the advanced tag, the index
-  identifier and the tile grouping's identifier (its sections 4.4, 5.2 and 11.5, with their entries in
-  its section 14), part 08 (B6) for the three an expression can name (its section 9.2), and part 11
-  (B9) for worker properties, levels and places (its section 11).
-- **Reference text**: `caseReferenceText`, `caseReferencePrefix`, `readCaseReference`,
-  `HASHTAG_FIXED_NAMESPACES` and `HASHTAG_SEGMENT_SOURCE`, all of `lib/domain/hashtagSegments.ts`. The
-  reader's fold-back of HQ's `#case/` hashtags (part 08, B6) binds to a `form-case` term built from the
-  form's reachable types and prints nothing, as part 08's "What this part needs of other parts"
-  confirms; the account and the builder print through `caseReferenceText`.
-- **HQ's load metadata**: `hashtags.ts::hqLoadReference(caseType, property, caseTypeDepths)`, which
-  returns `string | undefined`. The reader of `case_references_data.load` (part 06, section 8.7, B3)
-  claims HQ's strings under their own entry and does not call it.
-- **The id a case change is born with**: `caseOperationIdentifiers.ts::ownCaseOperationId`, whose result
-  always passes `questionIdProblem`. The reader mints each operation's id through it (part 07, sections
-  3.2, 3.4 and 5.2, B4).
-- **Itext ids**: `fieldItextKey`'s doubled hyphen. The reader of HQ's itext (part 06, section 12.1, B3)
-  reads HQ's ids as free spellings, and a `jr:itext` read binds through the reader's own map from each
-  source id to its unit (`env.itextUnits`) and prints as Nova's id afterwards (`itextUnitForId`).
-- **The manifest**: entries N1 to N24 with their value classes, subjects and owners; the subject
-  `case-types`, which A9 adds to `SUBJECTS` with its sentences (C23); `slotChangeSchema` with `narrow`
-  alone.
-- **Versions**: `MODEL_CONTEXT_VERSION` after A9 is `"v7-hq-round-trip-bring-in.a9"`. `RUNTIME_VERSION`
-  is 19 after A9.
-- **The migration**: `20261113000000_hq_round_trip_lookup_names`, the first of the plan's four, with the
-  one restamp rule of 9.3.
-- **Removed codes**: `SELECT_TOO_FEW_OPTIONS`, `RESERVED_CASE_TYPE_NAME`. No part's copy table lists
-  either.
-- **Proof documents** (part 14, `14-proof.md`, section 11.1, lists them for A9, and part 08's run E5
-  draws `namesDocArbitrary`): the eight of section 12, by id: `targeted-hyphenated-question-ids`,
-  `targeted-case-type-names`, `targeted-choice-values`, `targeted-lookup-names`,
-  `targeted-search-field-names`, `targeted-case-write-names`, `targeted-connect-deliver-hyphen-ids` and
-  `targeted-connect-learn-hyphen-ids`.
+- `lib/commcare/validator/reservedNamespaces.ts`: `RESERVED_CASE_TYPE_NAMES` is deleted with the rule
+  and the code that read it, and `RESOLVED_REFERENCE_NAMESPACES` becomes `HASHTAG_FIXED_NAMESPACES` in
+  `lib/domain/hashtagSegments.ts` (4.3).

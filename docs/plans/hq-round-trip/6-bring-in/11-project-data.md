@@ -1,53 +1,48 @@
 # Step 6, part 11: Project data: media, lookup tables and places
 
 This part plans what an app brought in from CommCare HQ brings with it that is not the app's own
-document: its media files, the lookup tables it reads, and the places its logic reads. It plans pull
-request **B9** in full: the media fetch, check and publication; the path each file keeps; lookup
-tables as copies managed in CommCare HQ, with the fact stored on the Project table, the writer arm
-that refuses every edit and the one that refreshes; the choice a person makes when a table meets one
-the Project already has; the re-read before a publish; ownership of a Project table in a project
-space derived from the Project's live mappings; places as a copy managed in CommCare HQ; levels,
-location properties and worker properties as document entities; every finding; every string on the
-table page, in Organization and in Files; the one surface the reading and acceptance call (section
-14); and the tests. One function of section 11.5, `worldEntitiesFromReads`, lands in B6 with the
-stage that calls it (part 08, `08-the-reader-expressions.md`, section 2.5), in a file this part
-authors. It names what it hands to the reading and the birth (part 12,
-`12-the-reading-and-the-birth.md`, B10), the reader (part 06, `06-the-reader-forms.md`, B2 and B3;
-part 07, `07-the-reader-cases-menus-lists.md`, B4 and B5; part 08, B6), the experience and MCP
-(part 13, `13-the-experience.md`, B11 and B12), acceptance (part 09,
-`09-acceptance-and-the-first-publish.md`, B7), proof (part 14, `14-proof.md`, A1 and B13) and the
-contracts pull request (part 15, `15-stack-contracts-and-exit.md`, B14).
+document: its media files, the lookup tables it reads, and the places its logic reads. It holds the
+media fetch, check and publication; the path each file keeps; lookup tables as copies managed in
+CommCare HQ, with the fact stored on the Project table, the writer arm that refuses every edit and
+the one that refreshes; the choice a person makes when a table meets one the Project already has;
+the re-read before a publish; ownership of a Project table in a project space derived from the
+Project's live mappings; places as a copy managed in CommCare HQ; levels, location properties and
+worker properties as document entities; every finding; every string on the table page, in
+Organization and in Files; the one surface the two bring-in requests and acceptance call (section
+14); and the tests.
 
-Citations are `path::symbol`: Nova at `main` `15a00a97`, and the Dimagi checkouts at commcare-hq
+Citations are `path::symbol`: Nova at `main` `1f103305`, and the Dimagi checkouts at commcare-hq
 `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android `7a5584475580`, commcare-connect
 `046c7fd78081`, formplayer `24383ac71bfb`, Vellum `01215f251c57`. Every CommCare fact below was read
 at those commits for this part. Nothing was run: no test, no typecheck, no lane.
 
-Versions: B9 changes the description of `getLookupTables` and `getOrganization` and one guide
-paragraph (section 12.4), so `lib/models.ts::MODEL_CONTEXT_VERSION` becomes
-`"v7-hq-round-trip-bring-in.b9"` in B9 (part 15, `15-stack-contracts-and-exit.md`, decision 3 and
-section 1.3: the literal moves in each pull request that changes a served tool or the guide).
-`scripts/test-schema.ts` registers `getLookupTables` today and not `getOrganization`, and the root
-`CLAUDE.md` has a tool registered by the pull request that first changes its description, so B9 adds
-the `getOrganization` entry (12.4) and B12 sends both entries in its one billed run.
-`lib/db/appTests.ts::RUNTIME_VERSION` does not move: no App Test journey pins a document that holds
-anything this part adds, and this part adds no document slot.
+**What reaches a model.** Four changes of this part reach a served tool or the guide, all in
+12.4: the description and result of `getLookupTables`, the description and result of
+`getOrganization`, the description of `upload_app_to_hq`, which MCP alone serves and no billed
+check sends, and one sentence of the guide. `lib/models.ts::MODEL_CONTEXT_VERSION` moves once
+for the whole step, which the top-level file states. `scripts/test-schema.ts` registers
+`getLookupTables` today and not `getOrganization`, and a tool is registered by the work that first
+changes its description, so this part adds the `getOrganization` entry (12.4). The billed check
+that sends both is named once in the top-level file; what it proves of this part is that the
+provider accepts the two tools as they are then served. Nothing here moves
+`lib/db/appTests.ts::RUNTIME_VERSION`: no App Test journey pins a document that holds anything this
+part adds, and this part adds no document slot.
 
-| Section | Owns | Pull request |
-|---|---|---|
-| 2 | media: which files, the fetch, sniff then name, the verdicts, the pending keys and their horizon | B9 |
-| 3 | media: a reference with no file, by slot and platform | B9 |
-| 4 | media: publication before the birth, edges, orphans, the budget, paths, the logo | B9 |
-| 5 | lookup tables: which come in, what Nova cannot hold, the caps, column types | B9 |
-| 6 | the managed fact on the Project table: DDL, types, the writer arms, realtime | B9 |
-| 7 | a tag that meets a Project table: the decision table and the two choices | B9 |
-| 8 | the re-read before a publish, another project space, the HQ app file | B9 |
-| 9 | Manage in Nova, Let CommCare HQ manage it again, Refresh | B9 |
-| 10 | derived ownership across the Project's live mappings | B9 |
-| 11 | places, levels, location properties, worker properties | B9 (`worldEntitiesFromReads`: B6) |
-| 12 | surfaces: the table page, Organization, Files, MCP and the agent | B9 (MCP registration: B12) |
-| 13 | every finding, and the manifest edits by id | B9 |
-| 14 | the surface the reading (part 12) and acceptance (part 09) call, composed from 2 to 11 | B9 |
+| Section | Owns |
+|---|---|
+| 2 | media: which files, the fetch, sniff then name, the verdicts |
+| 3 | media: a reference with no file, by slot and platform |
+| 4 | media: publication before the birth, edges, orphans, the budget, paths, the logo |
+| 5 | lookup tables: which come in, what Nova cannot hold, the caps, column types, the ids |
+| 6 | the managed fact on the Project table: DDL, types, the writer arms, realtime |
+| 7 | a tag that meets a Project table: the decision table and the two choices |
+| 8 | the re-read before a publish, another project space, the HQ app file |
+| 9 | Manage in Nova, Let CommCare HQ manage it again, Refresh |
+| 10 | derived ownership across the Project's live mappings |
+| 11 | places, levels, location properties, worker properties |
+| 12 | surfaces: the table page, Organization, Files, MCP and the agent |
+| 13 | how a finding is made, the manifest edits by id, the circumstances this part raises |
+| 14 | the surface the two requests (part 12) and acceptance (part 09) call, composed from 2 to 11 |
 
 ---
 
@@ -58,11 +53,9 @@ anything this part adds, and this part adds no document slot.
 2. **The bytes are sniffed before any name is trusted** (2.3). `lib/media/validate.ts` gains
    `validateSniffedMediaBytes`, which builds the name from the sniffed format and then runs the one
    gate. CommCare HQ's path, its extension and the response's content type decide nothing.
-3. **Before the app exists, a file's bytes wait under the media contract's `pending/` key and no row
-   is written** (2.5). The bucket's rule deletes them after one day and stays as it is. The reading
-   keeps each file's verdict for as long as the reading lives, so "Check again" asks CommCare HQ only
-   for files it has not judged, and creation fetches again any file whose bytes have lapsed.
-   Departures 1 and 15.
+3. **A file's bytes are judged in the read and kept nowhere** (2.2). The create fetches them again,
+   keeps them in memory until its digest and its answers have passed, and then publishes them
+   (4.1). Nothing is staged between the two requests (Departure 1).
 4. **A reference with no file is judged by where it is drawn** (3). In an app that runs on Android,
    a question's, a choice's and an image column's missing file is a `fix-in-hq` finding; so is a
    question's missing sound or video in an app that runs in Web Apps, where the player shows with
@@ -71,27 +64,29 @@ anything this part adds, and this part adds no document slot.
    inert and listed in the review, and so, in an app that runs in Web Apps only, is a picture with
    no map entry and a choice's media.
 5. **Files are published as ordinary ready rows before the birth transaction, by the code MCP's
-   upload uses, extracted** (4.1). The birth's own edge writer admits the references. A creation
-   that fails leaves ready files in the Project's files; a retry finds them by hash.
+   upload uses, extracted** (4.1), and only once the create knows it will create. The birth's own
+   edge writer admits the references. A create that ends after its publish leaves ready files in
+   the Project's files, and a retry finds them by hash; a create that is turned back adds nothing.
 6. **Nova's limits stand** (2.4, 4.3): 5, 10 and 50 MB a file, 500 files and 200 MB an app. Over any
-   of them is a `not-yet` finding under the manifest's entry for it, known before creation.
+   of them is a `not-yet` finding under the manifest's entry for it, known before creation. The two
+   app-wide limits also bound what one request fetches.
 7. **Only the tables the app reads come in, each as a copy managed in CommCare HQ** (5, 6). Every
    column is text and every cell is CommCare HQ's string as it stands.
 8. **The fact is ten nullable columns on `lookup_tables`** (6.1): where the table came from, CommCare
    HQ's id and canonical state at the last refresh, who and when, and whether a person has since
    chosen Manage in Nova. `lockLookupTableForUpdate` takes a required purpose, so every writer of an
    existing table states one and an authoring write of a managed table is refused in one place.
-9. **Lookup table and column ids are UUIDv7, minted from Postgres when the reading starts** (5.5),
-   and a new create arm takes them. Row ids are not predeclared: no document holds one.
+9. **Lookup table and column ids are UUIDv7, derived from the reading's id** (5.5), so both
+   requests name the same ones with nothing stored, and a new create arm takes them. Row ids are
+   the lookup writer's: no document holds one.
 10. **A tag that meets a Project table is the same table when the Project's table is managed from
     that project space, or when its columns and rows are equal, one of the Project's apps already
     publishes that very table to that project space, and a workbook there would take it as it
-    stands** (7). Otherwise the review asks one question
-    with two answers, "Use CommCare HQ's table" and "Use {Project}'s table", each naming the apps
-    that read the table and what happens to them. An equal table nothing accounts for there is a
-    question too, because the first publish would otherwise ask it. Before any answer the app is
-    bound to the Project table's id, as the first answer binds it, so no answer moves a binding
-    the reader read (7.4).
+    stands** (7). Otherwise the review asks one question with two answers, "Use CommCare HQ's
+    table" and "Use {Project}'s table", each naming the apps that read the table and what happens
+    to them. An equal table nothing accounts for there is a question too, because the first
+    publish would otherwise ask it. Before any answer the app is bound to the Project table's id,
+    as the first answer binds it, so no answer moves a binding the reader read (7.4).
 11. **Before a publish, Nova re-reads each managed table the app reads with the publisher's own
     key** (8.1). A column the app reads that is gone, a table that is gone, and content Nova cannot
     hold stop the publish with the next step said. Anything else refreshes the copy. Nova never
@@ -124,21 +119,37 @@ anything this part adds, and this part adds no document slot.
     (`lib/commcare/reader/worldEntities.ts`), which may not import `lib/deployment`.
 19. **`tag-types`, field properties, row attributes, tables that are not global and everything over
     a cap stay `not-yet`** (5.3), owned by step 7's `project-data-at-hq-size`.
-20. **The reading calls one surface** (14): `readReadingProjectData` for tables, levels
-    and places, and the `...ReadingMedia` functions for files, each composed from the functions of
-    sections 2 to 11, which stay as that surface's parts. The names are the ones part 12 calls. The
-    two types the review's answers carry, `ReviewTable` and `ReviewPlaces`, are declared here in a
-    client-safe module (`reviewTypes.ts`), because B9 lands beneath B10 and cannot import its files.
+20. **The two requests call one surface** (14): `readReadingProjectData` for tables, levels and
+    places, and two functions for files, `judgeReadingMedia` and `publishKeptReadingMedia`, each
+    composed from the functions of sections 2 to 11, which stay as that surface's parts. The two
+    types the review's answers carry, `ReviewTable` and `ReviewPlaces`, are declared here in a
+    client-safe module (`reviewTypes.ts`), because the review's client-safe types and the review's
+    page read them.
 21. **The birth writes tables and places inside the genesis tail**, through part 12's
     `afterAppInsert` seam: after the app row, before the lookup context and the organization's
-    integrity step (7.4, 11.4). A table that changed under the birth sends the reading back to
-    `reading` (part 12, section 6.5).
-22. **A cell CommCare can't carry in a value is a finding at the reading and a stop at the re-read**
-    (5.3, 8.1), so no export of an app that reads a managed table is refused for a character the
-    person has no way to change in Nova.
-23. **Acceptance (part 09, B7) reads three pure exports of B9** (14.3): `handOffSettlements`,
+    integrity step (7.4, 11.4). A table that changed under the birth rolls the birth back whole,
+    and part 12 answers `read-again`.
+22. **A cell CommCare can't carry in a value is a finding at a bring-in's read and a stop at the
+    re-read** (5.3, 8.1), so no export of an app that reads a managed table is refused for a
+    character the person has no way to change in Nova.
+23. **Acceptance (part 09) reads three pure exports of this part** (14.3): `handOffSettlements`,
     `readingLookupSnapshot` and `readingMediaRows`. A table whose rows cannot be a question's
     choices is this part's finding (`table-choices-unusable`), found before acceptance runs.
+24. **`readReadingProjectData` is handed the Project's side** (14.1): production binds it to
+    Postgres and the proof lane to a Project that holds nothing, so the lane runs this function and
+    no copy of its steps (Departure 15).
+25. **A read of project data stops once its finding is certain** (5.1, 11.1): a table whose first
+    page names more rows than Nova holds, and a project space with more places than Nova holds,
+    are each a finding with no further page read.
+26. **A table's answer is applied to what the read gathered, and reads nothing** (14.1,
+    `underTableChoices`): the answers are checked against the fresh review, so they are known only
+    after the read. The read judges every answer the review offers, so a create's check under the
+    answers finds nothing new (part 12, section 5.3, step 8): the review offers "Use {Project}'s
+    table" only where the app could be born on that table as it stands (7.2, Departure 20).
+27. **A replacing workbook upload leaves a table it does not name alone**, decided by reading
+    CommCare HQ's upload ("Executed during planning"). So leaving a managed table out of the
+    workbook is the whole of "never written" (8.2), and no refusal is built for a project space
+    that manages one of the Project's tables.
 
 ---
 
@@ -198,13 +209,8 @@ Read, by group. "Read" means the enclosing function and every caller named.
   `showMissingMediaView`; `adapters/MenuAdapter.setupAudioButton`, `setupImageView`;
   `utils/MediaUtil.inflateDisplayImage`; `views/EntityView.setupImageLayout`;
   `preferences/HiddenPreferences.MM_VALIDATED_FROM_HQ`.
-- **The plan.** The outline; parts 01, 04, 05 and 10; part 06 (its reader inputs, `ReadFacts` and
-  section 17.4), part 08 (its section 5 and its need of this part) and part 12 (its sections 2.5,
-  2.6, 3.3, 3.4, 5, 6.1 to 6.3 and its need of this part).
-- **Where this part meets the others, and the code beneath.** Part 06 (sections 2.2, 4.5, 12.4,
-  17.3 and 17.4), part 08 (section 2.5 and `ExpressionReading`), part 09 (section 2.2 and its
-  need of this part), part 12 (sections 5.1, 6.5 and its need of this part), part 13 (sections
-  8.5, 14.4, 14.6 and 16.2) and part 14 (sections 2.5, 6.2, 7.2, 7.5 and 11.2);
+- **The plan.** The outline, and every other part where it meets this one.
+- **The code beneath where this part meets the others.**
   `lib/commcare/lookup/selectSourceRows.ts::lookupSelectSourceRowFindings`;
   `lib/commcare/lookup/hqCellText.ts::lookupHqCellTextFindings`;
   `lib/commcare/lookup/workbook.ts` (`TYPES_SHEET`, `MAX_HQ_FIXTURE_WORKBOOK_ROWS`);
@@ -233,12 +239,17 @@ Read, by group. "Read" means the enclosing function and every caller named.
   `api/json/PromptToJson.parseCaption`, `parseQuestion`, `parseSelect`. commcare-android:
   `views/EntityActionViewUtils.setupActionAudio`, `setupActionImage`; `views/ViewUtil.addActionToMenu`.
 
-**Read at source: a `pending/` object lives one day.** The bucket deletes a `pending/` object one day
-after it is written (`config/media-bucket-policy.json`, `age: 1`), the policy is held exact
-(`verifyMediaBucketStoragePolicy`: "the lifecycle rule set is not exact"), and changing it is an
-infrastructure apply outside a deploy (`applyMediaBucketStoragePolicy`'s header). Decision 3 keeps
-the bytes for one day and the verdicts for as long as the reading lives, and part 12 (its section
-2.6) gives a reading no expiry.
+**Read at source: publication is already held to two at once, and a publish already holds an
+app's media in memory.** `lib/storage/mediaObjectKeyLock.ts::withMediaObjectKeyLock` takes a
+session lock, and `lib/db/sessionAdvisoryLock.ts::MAX_LOCAL_SESSION_LOCKS` holds those to one fewer
+than the instance's pooled connections. `lib/media/exportBudget.ts` and the comment on
+`lib/domain/multimedia.ts::MAX_MEDIA_EXPORT_BYTES` say every export path loads every referenced
+ready asset's bytes into memory at once, under 500 files and 200 MB. Decisions 3, 5 and 6 rest on
+both (2.2, 4.1, 4.3).
+
+**Read at source: a derived UUIDv7 is a pure function.** `node_modules/uuid/dist/v7.js::v7`
+(14.0.2) passes `options.random` and `options.msecs` straight to `v7Bytes` and touches its shared
+`_state` only where no options are given. Decision 9.
 
 **Read at source: no lock spans a CommCare HQ round trip.** `lib/deployment/CLAUDE.md`, "No lock
 spans the CommCare HQ round trips": every store write is one short transaction. A derivation read at
@@ -297,24 +308,55 @@ arm of 6.4.
 section 10.2), and it is confirmed here: `FixtureResource.Meta.limit` is 0 and `obj_get_list`
 filters on `fixture_type_id`.
 
-**Confirmed, not corrected.** A workbook upload leaves a table it does not name alone:
-`_run_upload` processes tables with `delete_missing=False`, and `replace` reaches only the rows of a
-table the workbook names (`delete_missing=replace` in `process_table`). A media document is found by
-the hash of its bytes (`get_by_data` to `get_by_hash`) and holds one attachment (`attachment_id`
-asserts one id), so one `multimedia_id` is one file's bytes for as long as it exists.
+**Decided by reading: an upload with "replace" on that names table A leaves table B's id,
+definition and rows as they were.** Read at the pin, under `corehq/apps/fixtures/`:
+
+- `views.py::UploadItemLists.post` (through `tasks.py::fixture_upload_async`) and
+  `views.py::_upload_fixture_api` pass `replace` through to
+  `upload/run_upload.py::upload_fixture_file`, which calls `_run_upload`. Nothing before it deletes
+  a table.
+- `run_upload.py::_run_upload` processes tables with `delete_missing=False`, so
+  `run_upload.py::Mutation.process` never adds a table the workbook does not name to
+  `tables.to_delete`. A table is deleted only where the workbook holds a `Deleted` marker for its
+  tag, or names a new table under the same tag.
+- `_run_upload`'s inner `process_table` runs only for a table the workbook names. Its `old_rows`
+  are `LookupTableRow.objects.iter_rows(domain, tag=table.tag)`, that table's rows alone, and
+  `rows.process(..., delete_missing=replace)` deletes from that list alone. Owners are processed
+  for those rows alone.
+- `run_upload.py::flush` deletes exactly the three `to_delete` lists by id and creates exactly the
+  three `to_create` lists.
+
+So a managed table left out of a workbook is never written (8.2), and no refusal is planned for a
+project space that manages one of the Project's tables. The lane keeps the fact's control,
+`proof/views/test_lookup_upload.py::test_a_replacing_upload_leaves_an_unnamed_table_alone`, as an
+ordinary test with one expectation ("Tests").
+
+**Confirmed, not corrected.** A media document is found by the hash of its bytes (`get_by_data` to
+`get_by_hash`) and holds one attachment (`attachment_id` asserts one id), so one `multimedia_id` is
+one file's bytes for as long as it exists.
 
 ---
 
 ## Written and not yet run
 
-| Run | Where | Question | Every outcome, and what lands |
-|---|---|---|---|
-| R1 | the proof lane's HQ unit, `proof/views/test_lookup_upload.py`, on B9's branch, in the pull request's own lane run | Does an upload with "replace" on, naming table A, leave table B's id, definition and rows as they were? | **A**, B is byte-equal before and after (what `_run_upload` reads as): the new test `test_a_replacing_upload_leaves_an_unnamed_table_alone` stays as the control, nothing else lands. **B**, B's id or rows change: B9 does not merge as written; `lookupResourcePlan.ts::planLookupResourcePush` gains the refusal `managed-table-shares-the-space` (a project space that manages a table of the Project takes no workbook from that Project), with the message "Nova can't send lookup tables to {domain} without touching {tag}, which CommCare HQ manages there. That's Nova's to fix, and it's logged.", logged at error, and B9 records the outcome in the closing paragraph "Gated runs that write here" under "Found while planning step 6" in `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (part 15, `15-stack-contracts-and-exit.md`, sections 1.4 and 8.1). |
-| R2 | the lane's Android reader and Web Apps client reader, by hand through `proof-slice.yml` on B9's branch, over the new targeted document `targeted-missing-media` (8 references with no file: a question's image, a question's audio, a choice's audio, a menu's icon, a form's audio label, a case list image column's image and the Register action's icon, each with no map entry; and one question image with a map entry whose file the base deletes) | What does each runtime draw? | **A**, as read: Android shows the prompt on the question's image, the audio button on the question's and the choice's audio and the archive icon in the list, and nothing on the menu, the form or the Register action; Web Apps shows a player with nothing to play for the question's audio, nothing for the other six with no entry, and a broken picture for the eighth: section 3 stands and each is a device cell bound to the read. **B**, Android draws something on a menu tile, a form tile or the Register action: that slot (`tile` or `register-action`) joins the drawn side for Android in `mediaSlotDrawnOn` (3.2), the INERT entry's `item` loses that slot for Android, the REFUSED entry's `item` gains it, and Copy R3 is unchanged. **C**, Android draws nothing for a question's or a choice's missing file: `form` leaves the drawn side for Android, the REFUSED entry `a-media-reference-with-no-file-on-a-slot-a-runtime-draws` keeps only its Web Apps clause and the image column, and those references are inert on Android. **D**, Web Apps draws something for a picture with no entry: `web-apps` draws every slot but `unheld-itext` for `no-entry` too, the INERT entry's `item` keeps only its Android clause, and each such reference in an app that runs in Web Apps is the REFUSED entry. **E**, Web Apps shows no player for the question's audio with no entry: `form` with `audio` or `video` leaves the drawn side for `web-apps` and `no-entry`, and the REFUSED entry's `item` loses its Web Apps clause. Under each of **B** to **E**, B9 also corrects the sentence that outcome contradicts in the bullet "A media reference with no file draws differently by slot, not by platform alone" under "Found while planning step 6" in `harness-findings.md`, which names this run (part 15, sections 1.4 and 8.1). |
-| G7 | part 05's (`05-reading-commcare-hq.md`, "Written and not yet run") | What `FixtureResource` answers for a row holding a field with no value | **A**: this part raises `table-rows-unreadable` at the table (5.3). **B**: `rowsHoldOtherThanOneValue` is true for it and the table is `not-yet` under `fields-properties-and-multi-valued-cells-name-lang-en-name-name`; `table-rows-unreadable` is never raised. |
-| G2 | part 10's (`10-identity-and-the-ledger.md`, "Written and not yet run") | Held media paths over a published HQ app | **A** and **B** change nothing here. **C** (a path or a multimedia id differs after the bulk upload): B9 adds `lib/deployment/service.ts::withoutHeldMedia(assets, heldPaths)`, which leaves out of `buildMediaBulkUploadZip`'s input every asset that has a row in `app_deployment_media_paths` for the target (such a file is by construction the one CommCare HQ already holds at that path; a replaced file is a new asset with no row), with `publishHeldMedia.test.ts` over a held and a replaced file. |
+One run of this part waits on execution. It is a lane run the session starts itself, on GitHub's
+hosted runners, and every outcome ends in an edit the session makes before the merge. The top-level
+file lists the dispatches.
 
-R1 and R2 decide nothing a person sees differently in outcome A, which is what source reading gives.
+| Run | Where | Question | Every outcome, and what the session does |
+|---|---|---|---|
+| R2 | the new targeted document `targeted-missing-media` rides the mechanics dispatch over the step's new targeted documents, and its two reads, `proof/android/test_missing_media.py` and `proof/webapps/test_missing_media.py` (new, as `proof/webapps/test_media_slots.py` reads `targeted-media-slots`), run in the one slice the session starts for the step's tests that take the Web Apps reader, with the Android reader beside it (part 14, `14-proof.md`, section 12.4, holds the command), because a `mechanics` dispatch names documents and runs no reader package's own tests. The document holds 8 references with no file: a question's image, a question's audio, a choice's audio, a menu's icon, a form's audio label, a case list image column's image and the Register action's icon, each with no map entry; and one question image with a map entry whose file is deleted from the project space before the read | What does each runtime draw? | **A**, as read: Android shows the prompt on the question's image, the audio button on the question's and the choice's audio and the archive icon in the list, and nothing on the menu, the form or the Register action; Web Apps shows a player with nothing to play for the question's audio, nothing for the other six with no entry, and a broken picture for the eighth: section 3 stands and each is a device cell bound to the read. **B**, Android draws something on a menu tile, a form tile or the Register action: that slot (`tile` or `register-action`) joins the drawn side for Android in `mediaSlotDrawnOn` (3.2), the INERT entry's `item` loses that slot for Android, the REFUSED entry's `item` gains it, and Copy R3 is unchanged. **C**, Android draws nothing for a question's or a choice's missing file: `form` leaves the drawn side for Android, the REFUSED entry `a-media-reference-with-no-file-on-a-slot-a-runtime-draws` keeps only its Web Apps clause and the image column, and those references are inert on Android. **D**, Web Apps draws something for a picture with no entry: `web-apps` draws every slot but `unheld-itext` for `no-entry` too, the INERT entry's `item` keeps only its Android clause, and each such reference in an app that runs in Web Apps is the REFUSED entry. **E**, Web Apps shows no player for the question's audio with no entry: `form` with `audio` or `video` leaves the drawn side for `web-apps` and `no-entry`, and the REFUSED entry's `item` loses its Web Apps clause. Under each of **B** to **E** the session also corrects 3.1's cell, `media.test.ts`'s case for it, and the sentence that outcome contradicts in the bullet "A media reference with no file draws differently by slot, not by platform alone" under "Found while planning step 6" in `docs/research/2026-09-26-hq-round-trip/harness-findings.md` |
+
+Outcome A is what the source reading gives, and under it R2 changes nothing a person sees.
+
+Two checks of other parts touch this part's code, and neither waits on this part.
+
+- **Part 05's retained answer for a row that holds a field with no value** (its "Written and not
+  yet run", G7). The source decides that answer, 5.1's rule is written for it, and the retained
+  file is what the test of the rows read replays ("Tests").
+- **Part 10's control on held media paths.** `lib/deployment/service.ts::withoutHeldMedia` is
+  written only where the base `hq-media`'s assertion on held paths fails (part 10, section 4.7,
+  which holds the function and its test).
 
 ---
 
@@ -366,14 +408,14 @@ instance from the rows and the levels' settings (`footprint.ts::locationFixtureR
 
 All of this section's new code that speaks of findings lives in
 `lib/deployment/reading/projectData/media.ts` (new; `lib/deployment` is an allowed consumer of
-`lib/commcare`), which is pure. The functions that fetch, stage, publish and discard bytes
-(`fetchAndStageHqMediaFile`, 2.2, and `stageReadingMedia`, `publishReadingMedia` and
-`discardReadingMedia`, 14.2) are in `mediaStore.ts` beside it (section 14, "Pure files and store
-files"). `lib/media` gains two functions and stays free of findings.
+`lib/commcare`), which is pure. The two functions that fetch, judge and publish bytes
+(`judgeReadingMedia`, 2.2, and `publishKeptReadingMedia`, 4.1) are in `mediaStore.ts` beside it
+(section 14, "Pure files and store files"). `lib/media` gains two functions and stays free of
+findings.
 
 ### 2.1 Which files
 
-The reader's form and menu modules (B3, B4) return, with the batch, every media reference they read:
+The reader's form and menu modules return, with the batch, every media reference they read:
 
 ```ts
 /** `lib/deployment/reading/projectData/media.ts`. One reference in the app's source. */
@@ -405,7 +447,7 @@ export const HQ_MEDIA_SLOTS = [
 export type HqMediaSlot = (typeof HQ_MEDIA_SLOTS)[number];
 ```
 
-Part 06 (B2, B3) writes the reader's side of this as it stands (its section 12.4): a reference whose
+Part 06 writes the reader's side of this as it stands (its section 12.4): a reference whose
 path the media index resolves is a `ReadMediaReference` in `ReadFacts.mediaReferences`, and one it
 does not is a `PendingMedia` in `ReadFacts.pendingMedia`, each with the `path`, the `mediaKind`, the
 `place` and a `slot` that names a `lib/domain/mediaRefs.ts::MediaRefLocation` kind.
@@ -419,21 +461,22 @@ string the table lacks, so a new carrier cannot pass unjudged:
 | `option_media` | `choice` |
 | `image_map_mapping` | `list-image` |
 | `module_icon`, `module_audio_label`, `form_icon`, `form_audio_label`, `case_list_icon`, `case_list_audio_label` | `tile` |
-| the two kinds part 02 (A5) adds for the always-offered Register action's icon and audio label | `register-action` |
+| `case_list_registration_icon`, `case_list_registration_audio_label`, the two kinds part 02 adds for the always-offered Register action (its section 11.6) | `register-action` |
 | `app_logo` | `logo` |
 | `unheld_itext` (not a `MediaRefLocation`: the reader's own word for a media form on a slot Nova holds none for) | `unheld-itext` |
 
 `ReadFacts` carries the pending references and the unheld itext media forms beside the resolved
-ones (part 06, section 17.3), and part 07's `readNavMedia` (B4) writes the menu and list kinds
-through the same index.
+ones, so `hqMediaReferencesOf` sees every reference and Android's install check is judged over all
+of them (3.2). Part 07's `readNavMedia` (its section 8.6) writes the menu and list kinds through
+the same index, so there is one reader of a media map.
 
 The Web Apps logo is the reference `{ path: source.logoRefs.hq_logo_web_apps.path, kind: "image",
 slot: "logo", place: { kind: "app-settings" } }`, present where that entry holds a string `path` and
 an `m_id` (the manifest's HELD entry `application-and-settings/logo-refs-hq-logo-web-apps`: "import
 reads the logo HQ's uploader holds through the media map"). The three Android slots are kept at
 CommCare HQ's value (part 01, section 4.3) and are not references. Media that differs by language is
-the form and menu readers' finding (part 01, section 3.5, landing in B3 and B4), so every reference
-that reaches this section is one shared slot.
+the form and menu readers' finding (part 01, section 3.5), so every reference that reaches this
+section is one shared slot.
 
 `planHqMedia` is pure:
 
@@ -457,12 +500,13 @@ export interface HqMediaPlan {
 	/** References Nova leaves out because nothing draws them (section 3). */
 	readonly inert: readonly HqMediaReference[];
 	/**
-	 * The manifest entry each reference with no asset stands under, for the reading's claim log
-	 * (part 06's `ClaimRecord`: the surface key is `schema:Application.multimedia_map`).
+	 * The manifest entry each reference with no asset stands under, for the claim log part 12
+	 * keeps for the request (part 06's `ClaimRecord`: the surface key is
+	 * `schema:Application.multimedia_map`).
 	 */
 	readonly claims: readonly { readonly reference: HqMediaReference; readonly entry: string }[];
 	/** The input's three values, kept because section 3's rule is run again for a file whose
-	 *  verdict is `missing` (2.4). Held in memory; never stored. */
+	 *  verdict is `missing` (2.4). */
 	readonly references: readonly HqMediaReference[];
 	readonly runsOn: readonly Platform[];
 	readonly contentValid: string | null;
@@ -508,51 +552,84 @@ More than `MAX_MEDIA_EXPORT_ASSETS` files is a finding at once, with no fetch (4
 ### 2.2 The fetch
 
 Part 05 plans the read (`lib/commcare/hq/media.ts::readHqMediaFile`, its section 9), made with the
-credential Nova already stores, bounded, with one resend. Part 12's media step calls
-`stageReadingMedia` (14.2), which runs `HQ_MEDIA_READ_CONCURRENCY` at a time over at most
-`HQ_MEDIA_FILES_PER_STEP` files and calls, for each file that has no verdict yet:
+credential Nova already stores, bounded, with one resend, under the file's own deadline. Both
+bring-in requests fetch and judge every file the document references, once by `(mediaType,
+multimediaId)`, through one function. A read judges each file and keeps nothing of it. A create
+judges each file again and keeps the bytes of the held ones for its publish (4.1).
 
 ```ts
+/** `lib/deployment/reading/projectData/media.ts`. What judging a file's bytes found. */
+export interface JudgedMediaFile {
+	readonly contentHash: string;
+	readonly mimeType: AssetMimeType;
+	readonly extension: string;
+	readonly kind: MediaKind;
+	readonly sizeBytes: number;
+	readonly mediaFormat: MediaFormatKey;
+	readonly dimensions?: { readonly width: number; readonly height: number };
+	readonly durationMs?: number;
+	/** The name Files shows for it (2.3). */
+	readonly originalFilename: string;
+}
 export type HqMediaVerdict =
-	| { readonly kind: "held"; readonly staged: StagedMediaFile } // lib/media/stagedMediaFile.ts, 2.5
+	| { readonly kind: "held"; readonly file: JudgedMediaFile }
 	| { readonly kind: "missing" }
 	| { readonly kind: "over-limit"; readonly mediaKind: MediaKind; readonly capBytes: number }
 	| { readonly kind: "refused"; readonly reason: ValidationFailureReason;
 	    readonly sniffedMime: string | null }
 	| { readonly kind: "wrong-kind"; readonly sniffedKind: AssetKind };
 
-/** One file, fetched, judged and staged. A failed read is returned for the step to classify. */
-export function fetchAndStageHqMediaFile(input: {
+/**
+ * `lib/deployment/reading/projectData/mediaStore.ts`. Fetches and judges every file of the plan.
+ * Stores nothing.
+ */
+export function judgeReadingMedia(input: {
 	readonly creds: CommCareCredentials;
-	readonly projectId: string;
-	readonly file: HqMediaFile;
-	/** The asset id the reading reserved for this file (14.2). */
-	readonly stagingId: MediaAssetId;
-	readonly signal?: AbortSignal;
-}): Promise<HqMediaVerdict | CommCareApiError>;
+	readonly plan: ReadingMediaPlan; // 14.2
+	/** True in a create: the answered plan keeps the bytes of each held file. */
+	readonly keep: boolean;
+	readonly onProgress: (done: number, total: number) => void;
+	readonly cancel?: AbortSignal;
+}): Promise<
+	| { readonly kind: "done"; readonly plan: ReadingMediaPlan }
+	| { readonly kind: "failed"; readonly failure: HqFailure }>;
 ```
 
+For each file:
+
 1. `readHqMediaFile(creds, file.mediaType, file.multimediaId, { maxBytes:
-   ASSET_SIZE_CAPS_BYTES[file.kind], signal })`.
+   ASSET_SIZE_CAPS_BYTES[file.kind], cancel })`.
 2. `missing` is the verdict `missing`. `too-large` is `over-limit` with that kind and cap. A
-   `CommCareApiError` is returned as it is: `stageReadingMedia` classifies it and part 12 stops the
-   step with `hqReadCircumstance`'s code, since a file CommCare HQ could not send this minute is no
-   fact about the app, and no verdict is written for it.
+   `CommCareApiError` ends the call: the requests in flight are aborted and the answer is `failed`
+   with `classifyHqFailure(error, "media-file")`. A file CommCare HQ could not send this minute is
+   no fact about the app, so part 12 ends the request with `hqReadCircumstance`'s code and no
+   verdict stands for the file.
 3. `validateSniffedMediaBytes(Buffer.from(bytes))` (2.3). Not ok: `refused`. Ok with a kind other
    than `file.kind`: `wrong-kind`. Ok with `sizeBytes` over the sniffed kind's cap cannot happen
    (the gate refuses it as `size-cap-exceeded`, which is `refused`).
-4. `stageMediaBytes({ projectId, stagingId, bytes, validated, originalFilename })` (2.5): `held`.
+4. Otherwise `held`, with the gate's facts and the name of 2.3. The bytes are dropped, unless
+   `keep` is true: the plan then holds them under the file's key until the file is published.
 
-The verdict is filed under `file.key` in the reading's row: its `media` column holds this part's
-`ReadingMediaPlan` (14.2), whose `verdicts` is a `Record<string, HqMediaVerdict>` parsed by
-`hqMediaVerdictSchema: z.ZodType<HqMediaVerdict>` (this file): a `z.discriminatedUnion("kind", ...)`
-of five `z.strictObject` arms holding exactly the members above, `staged` parsed by
-`stagedMediaFileSchema` (2.5), `mediaKind` by `z.enum(MEDIA_KINDS)`, `sniffedKind` by
-`z.enum(ASSET_KINDS)` (both of `lib/domain/multimedia.ts`), `capBytes` a positive integer, `reason`
-a `z.enum` of `ValidationFailureReason`'s members and `sniffedMime` a nullable string. One
-`multimedia_id` is one file's bytes for as long as CommCare HQ holds it
-(`CommCareMultimedia.get_by_data`, `attachment_id`), so a verdict stays true while the reading
-lives, and "Check again" fetches only the files of the fresh read that have none.
+`onProgress` is called as each verdict comes in, with the count of files that have one and
+`plan.files.length`.
+
+**How many at once.** The window is part 05's (its section 9, `HQ_MEDIA_READ_CONCURRENCY` and
+`HQ_MEDIA_IN_FLIGHT_MAX_BYTES`), and this function is what holds a fetch to it: a file starts only
+where fewer than four are in flight and the caps of those in flight plus its own stay within 64
+MiB, a file being in flight from its start until its verdict is in.
+
+**What one request holds.** In a read, the files in flight and nothing more: an app with 500 files
+holds four at a time. In a create, the held files as well, until each is published: at most
+`MAX_MEDIA_EXPORT_BYTES`, because 4.3 starts no file once the held files pass it, plus what was in
+flight at that moment. That is what a publish of the same app already holds in this process
+(`lib/media/exportBudget.ts`: every export path loads every referenced ready asset's bytes into
+memory at once, under that same ceiling), so a bring-in never asks more of the process than
+publishing the same app does.
+
+**No verdict outlives its request.** One `multimedia_id` is one file's bytes for as long as
+CommCare HQ holds it (`CommCareMultimedia.get_by_data`, `attachment_id`), so the read and the
+create judge the same bytes to the same verdict. Where a file changed between them, its content
+hash differs and so does the digest part 12 compares.
 
 ### 2.3 Sniff, then name
 
@@ -595,15 +672,15 @@ The last arm is the shape `classifyStoredMediaBytes` already uses for a stored r
 differs only in where the type comes from. Text kinds never reach it: a document sniffs as itself
 or as nothing.
 
-The response's content type is not read (Departure 9). `StagedMediaFile.originalFilename` (2.5) is
+The response's content type is not read (Departure 9). `JudgedMediaFile.originalFilename` (2.2) is
 the last segment of the file's first path, with the canonical extension appended where the segment
 does not already end in one of that format's declared extensions, so Files shows the name the
 author gave the file in CommCare HQ.
 
 ### 2.4 Verdicts to findings
 
-`mediaFindings` is pure. `readingMediaFindings` (14.2) calls it, and part 12 calls that on every
-read step, so after each media step and at "Check again":
+`mediaFindings` is pure. `readingMediaFindings` (14.2) calls it, and part 12 calls that in both
+requests once the files are judged:
 
 ```ts
 export function mediaFindings(input: {
@@ -628,6 +705,10 @@ export function mediaFindings(input: {
 | `wrong-kind` | `unrecognized` | not-yet | name the path; logged at error |
 | `missing` | section 3, "no file", for each of the file's references, over `plan.references`, `plan.runsOn` and `plan.contentValid` | | |
 | `held`, where `playsOn` is empty and the file's `mediaFormat` does not play on every platform of `runsOn` | `media-not-played-where-app-runs` (13.2) | fix-in-hq | name the path |
+
+The `over-limit` row's sentence is part 01's `media-files` one for `not-yet` (its section 9.2), "A
+media file here is larger than Nova takes, or this app has more media than Nova takes.", which is
+true of the file over its cap and of the app over its budget (4.3) alike.
 
 `hqMediaRefusalEntry(sniffedMime, reason, mediaType): string | null` reads the sniffed type's
 subtype, lower case, and takes the first row that matches:
@@ -658,71 +739,6 @@ A held file that plays on only some platforms narrows the declarations the revie
 `media-not-played-where-app-runs` is raised exactly where `playsOn` is empty, so that no choice
 would be left: on each held file that does not play on every platform of `runsOn`, since each such
 file is part of why. Where `playsOn` holds a platform, no held file raises it.
-
-### 2.5 The pending keys, and their horizon
-
-`lib/media/stagedMedia.ts` (new), with the type and its schema in `lib/media/stagedMediaFile.ts`
-(new, pure: its only run-time import is `zod`), which `stagedMedia.ts` imports (section 14, "Pure
-files and store files"):
-
-```ts
-// lib/media/stagedMediaFile.ts: the schema and the interface. lib/media/stagedMedia.ts: the function.
-export const stagedMediaFileSchema: z.ZodType<StagedMediaFile>;
-export interface StagedMediaFile {
-	/** The id the caller reserved: the object's key, and the asset's id if these bytes are
-	 *  published as a new file. */
-	readonly stagingId: MediaAssetId;
-	readonly contentHash: string;
-	readonly mimeType: AssetMimeType;
-	readonly extension: string;
-	readonly kind: MediaKind;
-	readonly sizeBytes: number;
-	readonly mediaFormat: MediaFormatKey;
-	readonly dimensions?: { readonly width: number; readonly height: number };
-	readonly durationMs?: number;
-	readonly originalFilename: string;
-	readonly stagedAt: string;
-}
-export function stageMediaBytes(input: {
-	readonly projectId: string; readonly stagingId: MediaAssetId; readonly bytes: Buffer;
-	readonly validated: ValidatedMediaMetadata; readonly originalFilename: string;
-}): Promise<StagedMediaFile>;
-```
-
-`stageMediaBytes` writes the validated buffer with `lib/storage/media.ts::uploadAssetBytes` to
-`pendingGcsObjectKeyFor(projectId, stagingId, validated.extension)`, which is
-`pending/<projectId>/<stagingId><ext>`, the key a browser upload's attempt takes. It writes no
-`media_assets` row. So before the app exists a brought-in file is in no one's Files, counts against
-no budget and is no asset state: it is bytes under the prefix the media contract already owns, whose
-rule deletes what nobody confirmed. The id is the caller's because the reading reserves one id per
-file before any byte is fetched (14.2), so the document names the same asset before and after the
-media step, and two drivers of one reading that stage one file write the same bytes to the same key.
-
-**Why no row** (Departure 15). The media contract's pending state is a `media_assets` row with a
-Project and an uploader (`lib/media/CLAUDE.md`, "Two statuses"), and "the dangling row itself is
-never reaped". A reading may be removed, or left for good, with every file staged; rows for those
-files would stay in the Project's table for ever with no reaper, where the bytes under `pending/`
-are deleted by the rule that already exists. The key is the contract's; the row is not written.
-
-**The horizon, decided.** Staged bytes are kept one day, which is what the bucket gives
-(`config/media-bucket-policy.json`). Not done: a longer rule for `pending/`, such as seven days,
-because moving it means an infrastructure apply between the merge and the deploy plus six more days
-of every abandoned browser upload, for a wait that is avoidable another way. So: the reading keeps
-each file's **verdict** for the reading's own life, and the bucket keeps its **bytes** for a day.
-What a person meets:
-
-- "Check again", on any day: Nova asks CommCare HQ only for files with no verdict. A file judged
-  held, over the limit or unplayable is not fetched again to say so.
-- "Create", within a day of the media step: the bytes are there.
-- "Create", later: `publishReadingMedia` (14.2) finds which staged files have lapsed
-  (`publishStagedMedia`'s `lapsed`, 4.1), reads each again from CommCare HQ with the creator's own
-  key, checks that the bytes are the ones that were judged, and publishes them. Creation goes on
-  in part 12's `publishing-media` phase, whose label is part 12's (its Copy C4). A file CommCare HQ
-  no longer has, or whose bytes are now others, loses its verdict: the reading stays `ready`, and
-  a creation step fetches and judges that file again with `stageReadingMedia`, the one judge of a
-  file (14.2; part 12, section 6.1).
-
-`lib/media/CLAUDE.md` gains the sentence under "Upload" (Contracts).
 
 ---
 
@@ -784,7 +800,7 @@ For a reference with no entry or no file, first match:
 |---|---|---|
 | 1 | the app runs on Android, `contentValid !== "yes"`, and `androidInstallCheckReaches` | finding `expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install` (REFUSED, `fix-in-hq`) at the reference's place, name the path |
 | 2 | some platform the app runs on draws it (`mediaSlotDrawnOn`) and there is no entry | finding `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws` (new, REFUSED, `fix-in-hq`; 13.1) |
-| 3 | some platform the app runs on draws it and there is no file | the circumstance `media-file-unreadable` at `{ kind: "media", path }`, name the path |
+| 3 | some platform the app runs on draws it and there is no file | the circumstance `media-file-unreadable` at `{ kind: "media", path }`, name the path, made through part 01's `circumstanceFinding` as every circumstance of this part is (13) |
 | 4 | otherwise | inert: the reference is in `HqMediaPlan.inert`, the reader assembles the slot with no media (its `no-entry` and `unreadable` arms put no asset in a slot), and `HqMediaPlan.claims` files the reference under the INERT entry `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` (13.1) |
 
 "The app runs on" is `runsOn`, the declaration the draft proposes: what the content runs on,
@@ -795,16 +811,16 @@ before the review; the finding's next step is the one that also fixes the app fo
 Row 4's references are listed in the review ("What Nova leaves out", Copy R3). The first publish
 then removes those paths from the forms and menus, and CommCare HQ drops their map entries
 (`remove_unused_mappings`). Nothing a worker sees changes, by 3.1, so the first-publish register
-needs no entry that touches workers; part 09's `FIRST_PUBLISH_CHANGES` (its section 11.2, B7) holds
-row 33, `media-references-with-no-file-removed` (predicate: `mediaLeftOut`, which is
+needs no entry that touches workers; part 09's `FIRST_PUBLISH_CHANGES` (its section 11.2) holds
+the entry `media-references-with-no-file-removed` (predicate: `mediaLeftOut`, which is
 `HqMediaPlan.inert.length`, is above zero; touches workers: no), so the lane's observed difference
-has a name.
+has a name. Its `MEDIA_REFERENCE_PATHS` are the slots `hqMediaReferencesOf` reads (2.1).
 
 ---
 
 ## 4. Media: publication, edges, the budget, paths
 
-### 4.1 Before the birth transaction
+### 4.1 Once the create will create, and before its transaction
 
 `lib/media/publishReadyMedia.ts` (new) is the body of MCP's upload, extracted with no change of
 behavior, and `lib/mcp/tools/uploadMediaAsset.ts` calls it:
@@ -839,40 +855,54 @@ function throws `lib/media/publishReadyMedia.ts::MediaPublishPermissionError`, w
 throws the same two errors it throws today, with today's message. The tool's answers do not change,
 which `uploadMediaAsset.postgres.test.ts` holds with its assertions as they stand.
 
-`lib/media/stagedMedia.ts`:
+A create publishes through it, from the bytes it kept (2.2):
 
 ```ts
-export const STAGED_MEDIA_PUBLISH_CONCURRENCY = 2; // the media contract's two key-lock bodies
-export interface PublishedStagedMedia {
-	/** By `stagingId`. */
-	readonly published: ReadonlyMap<MediaAssetId, { readonly assetId: MediaAssetId;
-		readonly contentHash: string; readonly extension: string }>;
-	/** Staged files whose bytes are gone, or no longer the bytes that were judged. */
-	readonly lapsed: readonly StagedMediaFile[];
-}
-export function publishStagedMedia(input: {
-	readonly actorUserId: string; readonly projectId: string;
-	readonly staged: readonly StagedMediaFile[];
-}): Promise<PublishedStagedMedia>;
+// lib/deployment/reading/projectData/mediaStore.ts
+/** How many files a create publishes at once. */
+export const BRING_IN_MEDIA_PUBLISH_CONCURRENCY = 2;
+
+/** Publishes the kept bytes of each held file to the Project's library. A create alone calls it. */
+export function publishKeptReadingMedia(input: {
+	readonly projectId: string;
+	readonly actorUserId: string;
+	readonly plan: ReadingMediaPlan;
+	readonly onProgress: (done: number, total: number) => void;
+}): Promise<ReadingMediaPlan>;
 ```
 
-For each staged file, two at a time: `downloadAssetBytes(pendingKey,
-ASSET_SIZE_CAPS_BYTES[staged.kind])`, the reader's own signature (a key, a byte cap, an optional
-signal). It streams the object and throws what storage throws, so an absent object is told by the
-error's `code` of 404, as `getStoredObjectSize` and `readTextObject` in that file tell it: that one
-is `lapsed`, and any other failure is thrown. The bytes are judged again with
-`validateSniffedMediaBytes` (the contract's rule that a publication re-derives everything from the
-stored bytes), and a refusal or a `contentHash` other than the staged one is `lapsed`. Then
-`publishReadyMedia` with `assetId: staged.stagingId`, and the pending object is deleted
-(`deleteAsset`, best effort: the bucket's rule is the backstop). Running it twice is safe: the
-second run finds each file by Project and hash.
+For each held file of the plan that `plan.published` does not hold, two at a time:
+`publishReadyMedia` with the kept bytes, the verdict's `JudgedMediaFile` as `validated` (it holds
+every member of `ValidatedMediaMetadata`) and its `originalFilename`, and `assetId` a fresh
+`asMediaAssetId(randomUUID())`, which is how MCP's upload mints the id a new row takes. The
+answer's `assetId` is recorded in `plan.published` under the file's key, and the file's bytes
+leave the plan. That id is the new row's, or the ready file's the Project already held with those
+bytes, which may be one a person uploaded long before. Two files of CommCare HQ's that hold the
+same bytes are two keys and one asset: the second finds the first by Project and hash.
+`onProgress` is called as each file is recorded, with the count of `plan.published` and the count
+of held files.
 
-Creation reaches it through `publishReadingMedia` (14.2), which part 12 calls after the person asks
-to create and before it prepares the candidate, because a deduplicated file's id is an existing
-asset's and the document must name it. `adoptedMediaFiles(files: readonly PublishedReadingFile[]):
-readonly AdoptedMediaFile[]` (`lib/deployment/reading/projectData/media.ts`) then gives part 10's
-type, one per path of each file with `hqPath` as the source spells it, and `readingMediaIndex`
-(14.2) gives the reader the asset id each slot holds on the creation's re-read.
+Two is the bound publication already has: it runs under
+`lib/storage/mediaObjectKeyLock.ts::withMediaObjectKeyLock`, whose session locks are held to one
+fewer than the instance's pooled connections
+(`lib/db/sessionAdvisoryLock.ts::MAX_LOCAL_SESSION_LOCKS`), so a third at once would only wait.
+What `publishReadyMedia` throws is thrown on: a failure of storage or of Postgres, and
+`MediaPublishPermissionError` where the person lost `edit` since the request's own check. Part 12
+answers each. A retry finds what was published by its hash.
+
+**When it runs.** Part 12's create calls it only once its fresh read's digest is the one the
+person reviewed and their answers are ones the review offers, and before it prepares the candidate.
+Three facts put it there. Bytes cannot join a Postgres transaction, and the birth's own media
+admission (`lib/db/canonicalCommitKernel.ts::admitExactMediaReferences`) locks ready rows, so the
+files are ready rows before the transaction opens; `lib/db/CLAUDE.md` says the same of a Project
+move ("Media byte copies are the only non-destructive pre-transaction work"). A deduplicated
+file's id is an existing asset's, and the document must name it, so the publish comes before the
+candidate. And a create that is turned back must add nothing to a Project, so the publish comes
+after every check that can turn it back. A read never calls it.
+
+After the publish, `readingMediaIndex` (14.2) gives the reader the published asset id of each held
+file, and `adoptedMediaFiles(plan)` (14.2) gives part 10's type, one per path of each held file
+with `hqPath` as the source spells it.
 
 ### 4.2 Inside it, and after a failure
 
@@ -882,26 +912,37 @@ format against the declared platforms (`lockAndValidateMediaReferences`, `platfo
 writes the `media_asset_refs` projection; this part changes none of it. Part 10's
 `recordAdoptedDeploymentInTransaction` writes the path rows from `assignMediaPaths`.
 
-A creation that fails after publication leaves ready files no app references. They show in the
-Project's files to every member, under the names of 2.3; a retry finds each by hash and publishes
-nothing twice; anyone with `edit` can delete one. Nova sweeps none: deleting a Project's file needs
-fresh authority and the reference check of `lib/db/mediaDeletion.ts`, and a file another member
-attached to their own app in the meantime is theirs. This is what a failed Project move leaves, for
-the same reason (`lib/db/CLAUDE.md`, "Media byte copies are the only non-destructive pre-transaction
-work").
+A create that ended before its publish leaves nothing. A create that ended after it (the
+connection or the instance was lost, the birth was refused, or part 12's check under the published
+ids failed) leaves ready files no app references. They show in the Project's files to every
+member, under the names of 2.3. A retry fetches each file from CommCare HQ again, because only
+its bytes say what its hash is, finds it by hash and publishes nothing twice. Anyone with `edit`
+can delete one. Nova sweeps none: deleting a Project's file needs fresh authority and the
+reference check of `lib/db/mediaDeletion.ts`, and a file another member attached to their own app
+in the meantime is theirs. This is what a failed Project move leaves, for the same reason.
 
 ### 4.3 The budget
 
 `mediaBudgetFinding(plan, verdicts): Finding | null`: the manifest finding
 `expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app` at
-`{ kind: "app" }`, standing `not-yet`, owner `project-data-at-hq-size`, when:
+`{ kind: "app" }`, whose entry is `not-yet` under `project-data-at-hq-size`, when:
 
 - the plan holds more than `MAX_MEDIA_EXPORT_ASSETS` files: known from the source, so it is in
-  `planHqMedia`'s findings and no file is fetched; `detail.name` is `"<n> media files (Nova takes
-  500 in one app)"`;
-- or, with every verdict in, `exportBudgetExcess` over the held files (as rows `{ status: "ready",
-  kind, sizeBytes }`, one per distinct content hash) is not null: `detail.name` is its `reasons`
-  joined with " and ".
+  `planHqMedia`'s findings before any file is fetched; `detail.name` is `"<n> media files (Nova
+  takes 500 in one app)"`;
+- or `exportBudgetExcess` over the files held so far (as rows `{ status: "ready", kind, sizeBytes
+  }`, one per distinct content hash) is not null: `detail.name` is its `reasons` joined with " and
+  ".
+
+The same two limits bound what one request fetches, so no new number is made:
+
+- Over the count, `judgeReadingMedia` starts no file.
+- Once the held files pass `MAX_MEDIA_EXPORT_BYTES`, it starts no further file. Those in flight
+  finish, and it answers `done` with the plan as it then stands. `readingMediaFindings` (14.2)
+  answers `complete: false` for such a plan, with the budget finding among its findings.
+
+So no request fetches more than 200 MB plus what was in flight, and the account that carries the
+finding says the files were not all checked (part 12's `mediaChecked: false`).
 
 The birth's own readiness check then never fails on media, which is the bar's clause (a): no finding
 is discovered as a gate refusal.
@@ -931,18 +972,16 @@ The reader is pure and binds a lookup read to a table and columns it is handed, 
 be read before it runs, and which tables it needs is known only when it has run. One list read
 breaks the circle:
 
-1. `listHqLookupTables(creds, domain, deadline)`: every table's definition, one throttled read.
+1. `listHqLookupTables(creds, domain, { cancel })`: every table's definition, one throttled read.
 2. `candidateLookupTags(sourceText: string, tables: readonly HqLookupTable[]): readonly string[]`,
    in the list's order: the tags `T` of that list for which the source's text (the raw body and
    every form's attachment) holds the string `item-list:T`. This is a substring test of names
    CommCare HQ gave, and it reads no expression. It can only name too many: a form's
    instance of a table is declared `jr://fixture/item-list:<tag>` whatever id the form builder gave
-   it, and a suite expression names `instance('item-list:<tag>')`. Part 06's `scanFormReads` (its
-   section 17.4) reads the same declarations form by form for the reader's own use; every tag it
-   returns that CommCare HQ's list holds is among these candidates, because the declaration it reads
-   holds this string.
+   it, and a suite expression names `instance('item-list:<tag>')`. The reader plans no scan of its
+   own (part 06, section 17.4).
 3. Rows are read for the candidates only, one table at a time (`readHqLookupTableRows`; part 05,
-   section 3.2).
+   sections 3.2 and 10.2), under the two rules below the type.
 4. The reader runs with the catalog of the candidates Nova can hold (5.5, 14.1). Which of them the
    app reads is read off what the reader returns, by `lookupTagsRead(read: Extract<ReadOutcome, {
    kind: "read" }>, catalog: ReaderLookupCatalog): readonly string[]`: the tags of the table ids
@@ -952,8 +991,8 @@ breaks the circle:
    (5.3) is raised only for those tags. A candidate the reader never read brings nothing in and
    raises nothing here: where the source declares it and nothing reads it, the reader claims the
    manifest's INERT
-   `expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user` itself
-   (B6); where the substring test named it only because its tag is the beginning of another's, the
+   `expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user` itself;
+   where the substring test named it only because its tag is the beginning of another's, the
    source never declared it and there is nothing to claim.
 5. A tag in `ReadFacts.unreadTables` that CommCare HQ's list does not hold is a read of a table
    that is not there: a finding under part 08's entry M2,
@@ -967,17 +1006,34 @@ breaks the circle:
 export type HqLookupTableRead =
 	| { readonly kind: "read"; readonly table: HqLookupTable;
 	    readonly rows: readonly HqFixtureRow[]; readonly canonical: CanonicalLookupTable }
+	/** CommCare HQ's first page named more rows than `LOOKUP_MAX_ROWS`: no further page was read. */
+	| { readonly kind: "over-row-limit"; readonly table: HqLookupTable; readonly totalCount: number }
 	| { readonly kind: "rows-unreadable"; readonly table: HqLookupTable };
 export function readHqLookupTablesForReading(input: {
 	readonly creds: CommCareCredentials; readonly domain: string; readonly sourceText: string;
-	readonly within: HqReadDeadline;
+	readonly cancel?: AbortSignal;
 }): Promise<{ readonly tables: readonly HqLookupTableRead[] } | CommCareApiError>;
 ```
 
-`rows-unreadable` is a non-edge status of 500 or more on one table's rows where the list answered
-(run G7, outcome A). Every other failure is returned, and `readReadingProjectData` (14.1) classifies
-it with part 05's `classifyHqFailure(error, "lookup-tables")` or `"lookup-rows"`, by which read
-failed, before part 12 sees it.
+**A row read stops once the finding is certain.** Each table's rows are read with `stopPast:
+LOOKUP_MAX_ROWS` (part 05, section 10.2). A table over that limit is a `not-yet` finding whatever
+its rows hold (5.3), so where the first page names a total over it the answer is `past-limit`, no
+further page is asked for, and the read is `over-row-limit` with that total. So what one request
+holds of a table is at most what the caps admit.
+
+**Which failed row read is the table's own fault.** A read of a table's rows that answers a
+non-edge status of 500 or more, or fails with `cause: "network"`, is sent once more.
+`rows-unreadable` is where both answers are a non-edge status of 500 or more other than 502, 503
+and 504: CommCare HQ fails that read every time for a row that holds a field with no value
+(`fixtures/models.py::LookupTableRow.fields_without_attributes` raises `IndexError`, and
+`fixtures/resources/v0_1.py::FixtureResource.dehydrate_fields` catches `FixtureVersionError`
+alone). Any other failing pair is returned as the second failure, which part 05 classifies
+(`hq-unavailable` for a 502, 503 or 504). So one outage never tells a person to fix a row that may
+be fine.
+
+Every returned failure is classified by `readReadingProjectData` (14.1) with part 05's
+`classifyHqFailure(error, "lookup-tables")` or `"lookup-rows"`, by which read failed, before part
+12 sees it.
 
 ### 5.2 Columns and cells
 
@@ -1006,10 +1062,10 @@ failed, before part 12 sees it.
 
 `lookupTableFindings(read: HqLookupTableRead, measured: LookupRowsMeasure | null): readonly
 Finding[]` is pure. `measured` is `measureLookupRows`'s answer for the table's rows (below). It is
-null for a `rows-unreadable` read and for rows that hold other than one string a field, which are a
-finding already and have no stored form to measure; the two byte caps are then not judged. It takes
-no list of the fields the app reads: every row below is a fact of the table. Each finding is at
-`{ kind: "lookup-table", tag }`:
+null for a `rows-unreadable` read, for an `over-row-limit` read and for rows that hold other than
+one string a field, which are a finding already and have no stored form to measure; the two byte
+caps are then not judged. It takes no list of the fields the app reads: every row below is a fact
+of the table. Each finding is at `{ kind: "lookup-table", tag }`:
 
 | What | Detected by | Entry | `detail.name` |
 |---|---|---|---|
@@ -1017,7 +1073,7 @@ no list of the fields the app reads: every row below is a fact of the table. Eac
 | a field holding other than one value | `rowsHoldOtherThanOneValue` | the same | `"<tag>: a field with more than one value"` |
 | a row attribute | `unsupportedLookupContent` | `expressions-and-data/item-attributes-and-per-row-attribute-values` | `"<tag>: row attributes"` |
 | rows that go only to their owners | `unsupportedLookupContent` | `expressions-and-data/is-global-false-row-owners-user-group-location` | `"<tag>: rows limited to certain users"` |
-| over a cap (below) | `lookupCapExcess` | `expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64` | `"<tag>: "` and the cap's own phrase, one finding per cap |
+| over a cap (below) | `lookupCapExcess`; or the read is `over-row-limit` (5.1) | `expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64` | `"<tag>: "` and the cap's own phrase, one finding per cap. An `over-row-limit` read gives the rows cap's alone, `<n>` being CommCare HQ's total, since no row was read past the first page |
 | the tag `types`, any case | the tag | `expressions-and-data/tag-types` | `"types"` |
 | a tag holding `casedb` or `ledgerdb` | `reservedInstanceTagCause` | `expressions-and-data/tag-containing-casedb-or-ledgerdb` (REFUSED) | the tag |
 | a tag or a field name outside part 04's grammar | `lookupTagSchema`, `lookupWireNameSchema` | part 04's section 11.2: N4 (a non-ASCII letter), N24 (a period), N5 (a tag equal to an instance name CommCare owns); any other failure is `unrecognized` | the name |
@@ -1031,17 +1087,17 @@ over what one `.ccz` carries (`lookupFixtureBudgetFinding`, below: the caps entr
 `{ kind: "app" }`, `not-yet`), and a table whose rows cannot be a question's choices
 (`table-choices-unusable`, 13.2, `fix-in-hq`).
 
-Every row of the table is `not-yet`, owner `project-data-at-hq-size`, but three: the `casedb` tag
-(REFUSED) and the two circumstances (`fix-in-hq`). A field name is judged whether or not the app
-reads it: a column Nova cannot name cannot be stored, and a copy without it would be pushed short
-to another project space.
+Every entry of the table is `not-yet` under `project-data-at-hq-size`, but for three rows: the
+`casedb` tag (REFUSED) and the two circumstances (`fix-in-hq`). A field name is judged whether or
+not the app reads it: a column Nova cannot name cannot be stored, and a copy without it would be
+pushed short to another project space.
 
 **Why the character row is here.** Every export of an app runs `lookupXmlTextFindings` over every
 table the app reads, in every mode, and refuses with `LOOKUP_CELL_TEXT_UNREPRESENTABLE`
 (`lib/export/boundaryValidation.ts::prepareWithRegistry`), whose sentence sends the person to
 "Remove those characters in Project data". The birth runs no such check, so a table holding such a
 cell would come in clean and then refuse every `.ccz` and every publish of every app that reads it,
-with a remedy Nova itself refuses for a managed table (6.3). Found at the reading, it is a fact of
+with a remedy Nova itself refuses for a managed table (6.3). Found at the read, it is a fact of
 the project space's data with a next step that works: take the character out in CommCare HQ. It is
 a circumstance, not `unrecognized`, because it is no shape of the app's source (part 01, section
 8.3). A cell with leading or trailing white space is different and comes in as it stands (8.2).
@@ -1057,7 +1113,7 @@ table is judged as CommCare HQ's own are and acceptance (part 09, section 4) nev
 together, to `MAX_LOOKUP_FIXTURE_ROWS` (10,000), `MAX_LOOKUP_FIXTURE_CELLS` (100,000) and
 `MAX_LOOKUP_FIXTURE_BYTES` (16 MiB), and two tables of 5,000 rows each pass every cap of one table
 and fail that. The birth's export readiness reads no rows, so the bar's clause (a) would be met and
-the first `.ccz` refused. The reading judges it: `lookupFixtureBudgetFinding(snapshot:
+the first `.ccz` refused. The read judges it: `lookupFixtureBudgetFinding(snapshot:
 LookupFixtureDataSnapshot): Finding | null` takes `readingLookupSnapshot(data, reads)` (14.3), builds
 the fixtures of every table in it (`buildLookupFixtures` over the snapshot's own naming; a Project
 table bound by section 7 is in it with the Project's rows) and, where `lookupFixtureBudgetExcess` is
@@ -1067,8 +1123,8 @@ not null, gives one finding at the app whose `detail.name` joins each axis's phr
 
 `tag-types` stays `not-yet` though a managed copy is never pushed to its own project space: every
 other surface pushes or exports the copy (a second project space, the HQ app file, Manage in Nova),
-and each would need its own refusal for one tag. Step 7's `project-data-at-hq-size` takes it with
-the workbook that could carry it.
+and each would need its own refusal for one tag. Holding it is model Nova lacks, a workbook that
+can carry a table of that tag, which step 7's `project-data-at-hq-size` builds.
 
 **The caps**, each a constant of `lib/lookup/constants.ts`. Four are also a CHECK
 (`lookup_tables.row_count`, `column_count` and `data_bytes`; `lookup_rows.value_bytes`); the cell cap
@@ -1076,9 +1132,9 @@ is held by the writers' input parsing (`lib/lookup/coercion.ts`, `schema.ts`) an
 the managed create and refresh arms hold it through `lookupCapExcess` before they write, and throw
 `LookupError("storage_limit", ...)` where it answers a phrase. `lookupCapExcess` lives in
 `lib/lookup` for that reason (`lib/lookup` may not import `lib/deployment`), in
-`lib/lookup/managedRules.ts` (new, pure), beside `lib/lookup/managed.ts`, which reaches Postgres:
-`lookupTableFindings` runs in the reading's check worker, whose bundle holds no store (section 14,
-"Pure files and store files"). `lookupTableFindings`, the two arms and the re-read (8.1) import it:
+`lib/lookup/managedRules.ts` (new, pure), beside `lib/lookup/managed.ts`, which reaches Postgres,
+so the pure findings import no store (section 14, "Pure files and store files").
+`lookupTableFindings`, the two arms and the re-read (8.1) import it:
 
 ```ts
 /** `lib/lookup/managedRules.ts`. What Postgres measured of a table's candidate rows. */
@@ -1108,8 +1164,8 @@ several.
 
 Rows, columns and cells are counted in TypeScript. Row and table bytes are Postgres's measure of the
 stored value and are never guessed in JavaScript (`lib/lookup/CLAUDE.md`), so `lib/lookup/managed.ts`
-exports a read-only measure the reading step calls with the values keyed by the predeclared column
-ids:
+exports a read-only measure, which the read calls as `ReadingProjectSide.measureRows` (14.1) with
+the values keyed by the derived column ids:
 
 ```ts
 /** The largest candidate row's stored size and the rows' sum, measured by Postgres, writing nothing. */
@@ -1135,31 +1191,44 @@ is `not-yet`.
 
 ### 5.5 Ids
 
-`lib/lookup/managed.ts` exports `mintLookupIds(count: number): Promise<readonly string[]>`, the
-statement of `authoringBatch.ts::mintIds` over the pool. It lives there and nowhere else. Not done:
-a copy in `lib/deployment/reading/store.ts`, because `lib/lookup` is the one place a lookup id is
-minted; part 12 passes this one (or a test's own) as `readReadingProjectData`'s `mintIds`. On the
-reading's first read,
-`readReadingProjectData` (14.1) mints one table id per candidate table and one column id per field,
-and answers them with the tag and field name each belongs to:
+A brought-in table's id and its columns' ids are derived, so the read and the create name the same
+ones and nothing is stored between them:
 
 ```ts
-/** `lib/deployment/reading/projectData/lookupTables.ts`. What the reading's `minted` column holds. */
-export const predeclaredLookupIdsSchema = z.record(lookupTagSchema, z.strictObject({
-	tableId: lookupTableIdSchema,
-	columns: z.record(lookupWireNameSchema, lookupColumnIdSchema),
-}));
-export type PredeclaredLookupIds = z.infer<typeof predeclaredLookupIdsSchema>;
+/** `lib/deployment/reading/projectData/lookupIds.ts`. Pure. */
+export function broughtInLookupTableId(
+	appId: string, readingId: string, tag: string): LookupTableId;
+export function broughtInLookupColumnId(
+	appId: string, readingId: string, tag: string, fieldName: string): LookupColumnId;
 ```
 
-Part 12 stores that value on the reading's row and hands it back on every later call, so every step
-of one reading, and a creation retried after a lost answer, hands the reader the same ids. An id,
-once minted for a tag or a field name, is never replaced; a field or a table that appears on a later
-read of the same reading gets ids minted then and added. Ids are minted for every candidate, whether
-or not the Project holds a table of its tag: a tag that meets a Project table is bound to that
-table's id, and a field that table has no column for takes its predeclared column id (7.4). Row ids
-are not predeclared: no expression, select source or edge names a
-row, so a row takes the column's default `uuidv7()` at insert.
+`appId` is the app's id and `readingId` the reading's, both part 12's: the read mints the reading's
+id, the app's id derives from it, and the create is sent the reading's id back.
+
+- **They are UUIDv7.** Every lookup id must match
+  `lib/domain/lookupIds.ts::LOOKUP_UUID_V7_PATTERN`, which the lookup schemas and the agent's
+  identity schemas hold every lookup id to. So each is `v7({ msecs, random })` of the `uuid`
+  package: `msecs` is the `readingId`'s own time, and `random` the first 16 bytes of the SHA-256 of
+  `canonicalJsonText(["nova-hq-lookup-v1", appId, "table", tag])`, or of `[..., "column", tag,
+  fieldName]`.
+- **That call is a pure function.** Given both options it reads no state of its own:
+  `node_modules/uuid/dist/v7.js::v7` (14.0.2, the installed version) passes `options.random` and
+  `options.msecs` straight to `v7Bytes` and touches its shared `_state` only where no options are
+  given.
+- **The time bits move no order a person relies on.** Columns and rows are read by `order_key`
+  first and by `id` only to break a tie (`lib/lookup/service.ts::orderedColumns`, `orderedRows`),
+  and row ids are the writer's. Tables are listed by name and then by id
+  (`lib/lookup/service.ts::getLookupManifest`), so the time bits decide only the order of two
+  tables of one name, which is an order no person relies on. So a `readingId` a client made up,
+  with any time in it, moves no order a person relies on.
+- **An id is derived for every candidate**, whether or not the Project holds a table of its tag: a
+  tag that meets a Project table is bound to that table's id, and a field that table has no column
+  for takes its derived column id (7.4).
+- **Row ids are not derived.** No expression, select source or edge names a row, so a row takes
+  the column's default `uuidv7()` at insert.
+
+Not done: minting the ids from Postgres at the read and keeping them for the create, because
+nothing is kept between the two requests (part 12), and a derived id needs no keeping.
 
 Section 7 decides what each tag is bound to, as a `LookupTableBinding`:
 
@@ -1200,15 +1269,16 @@ no finding of its own for it.
 ### 6.1 DDL
 
 One ledgered migration, `lib/case-store/migrations/20261202000000_hq_bring_in_project_data.ts`,
-registered in `migrations/index.ts` after part 10's `20261201000000_hq_bring_in_ledger` (B8). If
-`main` holds a later-stamped migration when this pull request is rebased, the stamp moves to the
-next free hour after `main`'s newest, and every later stamp of the stack keeps its order; nothing
-else changes. It is additive: every new column is nullable with no default, so the revision that
-still serves writes rows that pass every new CHECK. Each of the three CHECKs reads only the columns
-this migration adds, and that revision names none of them in any insert or update, so an insert of
-its leaves them null and an update of its leaves them as they were: no statement it runs on these
-three tables can turn a row the CHECKs admit into one they refuse. Each `ADD CONSTRAINT` follows a
-`DROP CONSTRAINT IF EXISTS` of the same name, so every statement replays over its own result.
+registered in `migrations/index.ts` after part 10's `20261201000000_hq_bring_in_ledger`. It reads
+nothing that migration adds: the order is the stamps' alone, and the top-level file says when a
+stamp moves. It is additive, which matters because the migration Job runs while the revision
+before the step still serves (`lib/case-store/CLAUDE.md`): every new column is nullable with no
+default, so that revision writes rows that pass every new CHECK. Each of the three CHECKs reads
+only the columns this migration adds, and that revision names none of them in any insert or
+update, so an insert of its leaves them null and an update of its leaves them as they were: no
+statement it runs on these three tables can turn a row the CHECKs admit into one they refuse. Each
+`ADD CONSTRAINT` follows a `DROP CONSTRAINT IF EXISTS` of the same name, so every statement replays
+over its own result.
 
 ```sql
 ALTER TABLE lookup_tables
@@ -1428,7 +1498,8 @@ export interface ManagedLookupContent {
 	readonly rows: readonly Readonly<Record<string, string>>[];
 }
 
-/** Create tables that CommCare HQ manages, with the ids the reading minted. One revision, one notice. */
+/** Create tables that CommCare HQ manages, with the ids derived for them (5.5). One revision, one
+ *  notice. */
 export function createManagedLookupTablesInTransaction(
 	tx: Transaction<AppDatabase>, scope: LookupScope,
 	tables: readonly { readonly binding: LookupTableBinding; readonly name: string;
@@ -1461,7 +1532,10 @@ export function refreshManagedLookupTableInTransaction(
 after the review, which the birth answers as 7.4 says); `createTable` per table with the binding's
 ids, every column `text` with its label `columnLabelFor(wireName)` (5.2), the table's name `name`
 (the tag, see 7.3), then the eight origin columns in the same statement as the insert; one
-`advanceLookupProjectRevision`; one notice. The scope needs `edit`.
+`advanceLookupProjectRevision`; one notice. The scope needs `edit`. Part 15 is the create arm's
+second caller: a bring-in of changes that reads a table the Project does not hold creates it as a
+copy managed in CommCare HQ, in a short transaction of its own before its commit, under the ids of
+5.5 derived from that review's `readingId` (its section 5.3).
 
 `refreshManagedLookupTableInTransaction`, in order:
 
@@ -1562,8 +1636,8 @@ export function lookupTableStanding(input: {
 	readonly apps: readonly LookupReferencingAppSummary[];
 	/**
 	 * Live mappings of the Project's apps for the Project's table on this project space:
-	 * `readSiblingLookupMappings` (10.1) with the reading's id as the app, which matches no
-	 * deployment, so every app of the Project is a sibling. Empty where there is no table.
+	 * `readSiblingLookupMappings` (10.1) with the app's derived id as the app, which names no
+	 * deployment yet, so every app of the Project is a sibling. Empty where there is no table.
 	 */
 	readonly siblings: readonly SiblingLookupMapping[];
 	/** The field names the reader bound for this tag. */
@@ -1597,8 +1671,8 @@ counts `totalWorkbookRows`, is within `MAX_HQ_FIXTURE_WORKBOOK_ROWS` (`LOOKUP_HQ
 
 | The Project's table of that tag | Result | What creation writes |
 |---|---|---|
-| none | `new` | `createManagedLookupTablesInTransaction` with the predeclared ids |
-| managed in CommCare HQ from this server and project space | `same-managed`: bound to its id, and to its columns by name with predeclared ids for fields it lacks | `refreshManagedLookupTableInTransaction`, mode `refresh`, with those ids |
+| none | `new` | `createManagedLookupTablesInTransaction` with the derived ids (5.5) |
+| managed in CommCare HQ from this server and project space | `same-managed`: bound to its id, and to its columns by name with derived ids for fields it lacks | `refreshManagedLookupTableInTransaction`, mode `refresh`, with those ids |
 | plain, or managed in Nova, and equal, and accounted for, and it passes the project space's rules | `same-equal`: bound to it as it is | nothing; the table stays as it was |
 | any other: not equal; or equal and not accounted for; or equal and accounted for and failing one of the project space's rules; or managed in CommCare HQ from another project space, equal or not | `choice`, `differs` empty where equal | by the answer, 7.2 |
 
@@ -1614,15 +1688,15 @@ Equality alone is not enough, for three cases read at source:
   with no mapping, and stops to ask whether to replace a table Nova didn't make
   (`lookupResourcePlan.ts::planLookupResourcePush`, the arm "Something of that name is there and
   Nova cannot account for it"). That is a question about the table the app came with, asked late.
-  This plan asks no confirmation that the source project space already answers (`../6-bring-in.md`,
-  "The experience in brief"), so it is asked once, in the review, where both answers are worded:
+  This plan asks no confirmation that the source project space already answers
+  (`../6-bring-in.md`), so it is asked once, in the review, where both answers are worded:
   `use-commcare-hq` leaves the table to CommCare HQ, and `use-project` says the publish will ask
   before it replaces the table and what that clears (`LOOKUP_ADOPTION_NOTE`).
 - **Equal, and managed in CommCare HQ from another project space.** The copy follows that other
   space: every refresh takes its rows, and a publish to this app's own space would push that
   space's copy over the table the app came with (8.2). "One copy cannot follow two" is why 7.2
-  refuses `use-commcare-hq` for such a table, and equal content today does not change it. The person
-  is told so (R7, R10), and `use-project` is theirs to choose with that said.
+  refuses `use-commcare-hq` for such a table, and equal content today does not change it. The
+  review says so (R7, R10), and `use-project` is theirs to choose with that said.
 - **Equal, accounted for, and failing one of the project space's rules.** Nova manages the table,
   so the first publish puts it in the workbook, and the export boundary refuses that publish for
   the table's own content. Bound as it stands, the app would be born unable to publish, and
@@ -1633,25 +1707,53 @@ Equality alone is not enough, for three cases read at source:
 
 | | **Use CommCare HQ's table** (`use-commcare-hq`) | **Use {Project}'s table** (`use-project`) |
 |---|---|---|
-| The binding | the Project table's id; its columns by name; predeclared ids for fields it lacks | the Project table as it is |
+| The binding | the Project table's id; its columns by name; derived ids (5.5) for fields it lacks | the Project table as it is |
 | What creation writes | `refreshManagedLookupTableInTransaction`, mode `adopt`: the table takes CommCare HQ's columns and rows and becomes managed in CommCare HQ from this project space | nothing |
 | The other apps that read it | read CommCare HQ's rows from then on. A column one of them reads that CommCare HQ's table lacks stays, with no values (`goneColumns`, named in the choice). Every column becomes text (6.4, step 3), so a column that was a number or a date is compared as text from then on. Nova keeps the table read-only until someone chooses Manage in Nova | unchanged |
 | This app | Preview shows CommCare HQ's rows | Preview shows the Project's rows |
 | The table in the project space | never written | stays as it is until a publish. That publish finds the tag there with no mapping Nova can account for and asks before replacing it, with `LOOKUP_ADOPTION_NOTE`, as it does today |
-| Not offered when, first match | the Project's table is managed in CommCare HQ from another project space (`managed-elsewhere`, `name` that project space): one copy cannot follow two; or the person lacks the Project's `delete` capability (`needs-admin`): turning a table every app shares into a read-only copy is an identity change, the capability `lib/lookup` already asks for a tag or a destructive schema change | the app reads a field the Project's table has no column for (`app-reads-a-missing-column`, `name` the first such field); or the Project's table fails one of the project space's rules of 7.1 (`fails-a-project-space-rule`, `name` null), whether or not it is equal |
+| Not offered when, first match | the Project's table is managed in CommCare HQ from another project space (`managed-elsewhere`, `name` that project space): one copy cannot follow two; or the person lacks the Project's `delete` capability (`needs-admin`): turning a table every app shares into a read-only copy is an identity change, the capability `lib/lookup` already asks for a tag or a destructive schema change | the app reads a field the Project's table has no column for (`app-reads-a-missing-column`, `name` the first such field); or the app could not be born on the Project's table as it stands (`fails-a-project-space-rule`, `name` null; below), whether or not the table is equal |
 
 `managed-elsewhere` is tested first because Copy R7 chooses its form from that reason (14.1), and
 it is true whoever asks.
 
-A `choice` ends no read: the review holds the question open, and only a reading that is ready has a
-review (part 12). Creation does not start until every `choice` has an offered answer:
-`resolveTableChoices` (14.1) says which tags lack one, and part 12 answers that creation `held`
-under part 01's `table-differs-in-project` for a tag with no answer, and refuses an answer whose
-offer is `offered: false`, or one for a tag with no choice, as `choice_not_offered` (part 12, 5.3).
+**"Use {Project}'s table" is offered only where the app could be born on that table.** Under this
+answer the app reads the Project's own rows, which no finding of 5.3 has looked at, and the first
+run that would judge them is the create's check under the answers (part 12, section 5.3, step 8),
+after the person chose Bring it in. So the read judges every answer the review offers, and that
+check finds nothing new. The offer is made exact at the read, and `fails-a-project-space-rule` is
+the reason for four things, each judged for the Project's table as it stands:
+
+- it fails one of the project space's three rules of 7.1 (`lookupTableStanding`, from `existing`);
+- a cell of a column holds a character XML 1.0 cannot carry (`lib/commcare/xmlText.ts::xmlTextIssue`,
+  the test of 5.3; `lookupTableStanding`, from `existing`), which every export of the app would
+  refuse as `LOOKUP_CELL_TEXT_UNREPRESENTABLE`;
+- its rows cannot be the choices of a question or search field that takes them from the tag:
+  `lookupSelectSourceRowFindings(doc, snapshot)` is not empty for the snapshot that holds this
+  table as the Project's (`projectDataReview`, which has the document; 14.1);
+- some set of answers would put the tables the app reads over what one `.ccz` carries (5.3):
+  `projectDataReview` sums the three axes of `lib/commcare/lookup/fixtures.ts::
+  lookupFixtureBudgetExcess` (`rowCount`, `cellCount` and `bytes` of each table's compiled
+  fixture) with every `choice` table counted at the larger of its two forms, and where a sum is
+  over its limit no `choice` table offers `use-project`. The axes add up table by table, so where
+  the sums pass, every set of answers the review offers passes; and where no table offers
+  `use-project`, the tables are CommCare HQ's, which 5.3 has judged together.
+
+The first three are judged one table at a time and the last over the tables together, so every
+set of answers a review offers gives an app that every export takes. A table equal to CommCare
+HQ's can meet only the first: its cells and rows are CommCare HQ's, which 5.3 has judged.
+
+A `choice` ends no read: the review holds the question open. A create does not go on until every
+`choice` has an offered answer: `resolveTableChoices` (14.1) says which tags lack one, and part 12
+refuses a create that leaves a tag unanswered as `choice_missing`, and an answer whose offer is
+`offered: false`, or one for a tag with no choice, as `choice_not_offered` (part 12, section 5.3).
 Where neither answer is offered, the review says so and the way forward is the one the review
-always states beside the question: add the app to another Project (the flow's first step). MCP's
-`bring_in_hq_app` takes `table_choices: Record<tag, LookupTableChoice>` (part 13, section 14.4, B12)
-and answers the same way.
+always states beside the question: add the app to another Project (Copy R11). MCP's
+`bring_in_hq_app` takes `table_choices: Record<tag, LookupTableChoice>` (part 13,
+`13-the-experience.md`, section 14.4) and answers the same way.
+
+A bring-in of changes asks the same question with the same component and the same field, where the
+changed app reads a tag that meets a Project table of another origin (part 15, section 5.3).
 
 ### 7.3 The names
 
@@ -1666,22 +1768,24 @@ export function resolveLookupBindings(
 	reads: readonly Extract<HqLookupTableRead, { kind: "read" }>[],
 	standings: Readonly<Record<string, LookupTableStanding>>,
 	choices: Readonly<Record<string, LookupTableChoice>> | null,
-	predeclared: PredeclaredLookupIds,
+	/** The two ids every lookup id of the reading derives from (5.5). */
+	ids: { readonly appId: string; readonly readingId: string },
 ): readonly LookupTableBinding[];
 ```
 
 | Standing | Choice | Bound to |
 |---|---|---|
-| `new` | | the predeclared table id and column ids |
-| `same-managed` | | the Project table's id; its columns by wire name; predeclared ids for fields it lacks |
+| `new` | | the derived table id and column ids (5.5) |
+| `same-managed` | | the Project table's id; its columns by wire name; derived ids for fields it lacks |
 | `same-equal` | | the Project's table as it is |
-| `choice` | none yet (a read step: `choices` is null, or holds no answer for the tag) | as `same-managed`: the Project table's id; its columns by wire name; predeclared ids for fields it lacks |
+| `choice` | none (`choices` is null, as in both requests' read, or holds no answer for the tag) | as `same-managed`: the Project table's id; its columns by wire name; derived ids for fields it lacks |
 | `choice` | `use-commcare-hq` | as `same-managed` |
 | `choice` | `use-project` | the Project's table as it is |
 
 No answer moves a binding the reader read: `use-commcare-hq` keeps this binding, and `use-project`
 is offered only where every field the app reads has a column (7.2), so it names the same columns.
-Part 12's digest rests on this (its 5.2).
+Part 12's digest rests on this (its section 5.2), and its create holds it before it publishes a
+file (its section 5.3).
 
 The creation's writes for tables, in the birth transaction, are one call:
 
@@ -1690,6 +1794,9 @@ export interface BroughtInTableWrite {
 	readonly read: Extract<HqLookupTableRead, { kind: "read" }>;
 	readonly standing: LookupTableStanding; readonly choice: LookupTableChoice | null;
 	readonly binding: LookupTableBinding;
+	/** The Project table the tag met, at the revisions the read saw; null where none. */
+	readonly projectTable: { readonly tableId: LookupTableId;
+		readonly definitionRevision: string; readonly rowsRevision: string } | null;
 }
 export function writeBroughtInLookupTablesInTransaction(
 	tx: Transaction<AppDatabase>,
@@ -1704,10 +1811,10 @@ first of the seam's two writers (tables, then places, 11.4): after the tail's me
 and its `INSERT apps`, before `lookupContextForAuthoritativeWrite`, so the gate and export
 readiness read the tables on the transaction that made them. It does not run before
 `writePreparedGenesisInTransaction`: taking `lookup_project_state` before the tail's shared
-membership gate can close a cycle with a lookup writer and a membership write (part 12's
-Departure 1, which holds at source: an app-bound lookup writer proves fresh membership before it
-enters the Project-state prefix, `lib/lookup/CLAUDE.md`, "Valid writes"), and the seam needs no
-second gate call.
+membership gate can close a cycle with a lookup writer and a membership write (part 12 argues it
+where it places the seam; it holds at source: an app-bound lookup writer proves fresh membership
+before it enters the Project-state prefix, `lib/lookup/CLAUDE.md`, "Valid writes"), and the seam
+needs no second gate call.
 
 **Authority.** The tail's `assertProjectCapabilityInTransaction(..., "edit")` has run on this
 transaction before the seam. The writer reads the actor's role once more with
@@ -1717,12 +1824,14 @@ arms take, and an `adopt` (the answer `use-commcare-hq`) needs that role to hold
 **What it does.** `lockLookupProjectState`; the Project's tables of the written tags, each with its
 rows, read under that lock; `lookupTableStanding` again for each, with `readSiblingLookupMappings`
 read on the same transaction. Where a standing's kind is no longer the one the binding was made
-for, or an answered offer is no longer offered, it throws `BroughtInTableChangedError(tag)` and the
-birth rolls back whole. Otherwise: one `createManagedLookupTablesInTransaction` for the `new`
+for, or an answered offer is no longer offered, or a Project table's `definition_revision` or
+`rows_revision` is no longer the one `projectTable` holds (7.2's offers were judged for the table
+as it then stood), it throws `BroughtInTableChangedError(tag)` and the birth rolls back whole.
+Otherwise: one `createManagedLookupTablesInTransaction` for the `new`
 tables; `refreshManagedLookupTableInTransaction` in `refresh` mode for each `same-managed`, in
 `adopt` mode for each `use-commcare-hq`; nothing for `same-equal` and `use-project`. A `choice` with
-no answer is an invariant failure here: part 12 answers that creation `held` before the transaction
-opens (7.2).
+no answer is an invariant failure here: part 12 refuses that create before the transaction opens
+(7.2).
 
 ```ts
 /** A table the birth was about to write is no longer the table the review showed. */
@@ -1742,10 +1851,11 @@ new app's own rows. `lib/lookup/CLAUDE.md`'s rule ("No code may hold Project sta
 and later request an app lock") is about a lock another writer can hold, and it stands as written;
 the app-first order is the one that file already gives app-bound writers (Contracts).
 
-**What a changed table means to the person.** Part 12 catches `BroughtInTableChangedError` and a
-`tag_taken` from the create arm: the row goes back to `reading` and the answer is `review-changed`
-(part 12, 6.5), so the page reads again and shows the review with the table as it now stands. This
-part names the error and when it is thrown; part 12 names the answer.
+**What a changed table means to the person.** Part 12 catches `BroughtInTableChangedError`, a
+`tag_taken` from the create arm and a `conflict` from the refresh arm: the birth has rolled back
+whole and the create answers `read-again` (part 12, section 6.5), so the page reads the app again
+and shows the review with the table as it now stands. This part names the errors and when each is
+thrown; part 12 names the answer and its words.
 
 ---
 
@@ -1873,9 +1983,9 @@ target) and the other two modes do not. `prepareWithRegistry` then:
 
 `lookupXmlTextFindings` stays over every table the app reads in every mode, as today: the fixture
 and both workbooks are XML or become it. For a managed table it finds nothing, because a cell it
-would refuse stops the reading (5.3), the re-read (8.1) and a refresh (section 9) before the copy
-takes it. A table handed back, or a Project table an answer made managed, holds CommCare HQ's
-cells by the same refresh arm.
+would refuse is a finding at a bring-in's read (5.3) and stops the re-read (8.1) and a refresh
+(section 9) before the copy takes it. A table handed back, or a Project table an answer made
+managed, holds CommCare HQ's cells by the same refresh arm.
 
 **Where a boundary finding does name a managed table**, its sentence must not send the person to
 edit what Nova refuses to let them edit. Two can: `LOOKUP_CELL_TEXT_CHANGED_BY_HQ` (a managed table
@@ -2087,10 +2197,11 @@ supersedes a mapping it does not name (`recordPushedResources`). Nothing reports
 behind: `resources.ts::leftBehindResources` reports a superseded table only when the Nova table is
 gone or its tag differs, and here neither is so.
 
-**The lookup drift stop for a table Nova manages that came from CommCare HQ.** Step 6 keeps "Publish
-over this" as the one answer in the dialog (bringing CommCare HQ's changes in at the stop is step
-7's `changes-made-in-hq`). The item for such a table gains one sentence that names the second way,
-which already exists on the table's page: Copy P14. `describeLookupChange`'s one caller,
+**The lookup drift stop for a table Nova manages that came from CommCare HQ.** A table Nova manages
+keeps "Publish over this" as its one answer in the dialog. Part 15 brings in changes to the app and
+leaves such a table to this part (`15-changes-made-in-commcare-hq.md`, section 5.3). The item for
+such a table gains one sentence that names the second way, which already exists on the table's
+page: Copy P14. `describeLookupChange`'s one caller,
 `lib/deployment/preflight.ts::lookupRemoteChange`, gains the input `handBackOffered: boolean` (true
 where the definition's `hq.managedBy` is `"nova"`, which the `project-data` edge reads with the
 origins, 10.2) and, where it is true, appends P14 as the last of the change's `parts`.
@@ -2134,11 +2245,11 @@ CommCare HQ is still there (part 10, section 8.2, keeps those mappings). An app 
 takes its rows with it by cascade, and the table then reads as it would to a Project that had never
 published it.
 
-It has a second caller: the reading (7.1), which asks whether a Project table that equals CommCare
-HQ's is already accounted for in the project space the app comes from. `$4` is then the reading's
-id, which is the id the app will take and names no deployment yet, so every app of the Project is a
-sibling. The function also takes an optional transaction, which the birth passes (7.4) so the answer
-it re-derives the standing from is read under the locks it holds.
+It has a second caller: a bring-in's read (7.1), which asks whether a Project table that equals
+CommCare HQ's is already accounted for in the project space the app comes from. `$4` is then the
+app's derived id (part 12, section 2.3), which names no deployment yet, so every app of the Project
+is a sibling. The function also takes an optional transaction, which the birth passes (7.4) so the
+answer it re-derives the standing from is read under the locks it holds.
 
 ### 10.2 The plan
 
@@ -2227,13 +2338,15 @@ trips (`lib/deployment/CLAUDE.md`). So:
 
 ## 11. Places, levels, location properties and worker properties
 
-New files `lib/deployment/reading/projectData/places.ts` (pure), `placeStore.ts` beside it (its one birth
-writer, `writeBroughtInPlacesInTransaction`; section 14, "Pure files and store files"),
-`lib/organization/managed.ts` and `lib/commcare/reader/worldEntities.ts`. The last holds the two pure
-functions the reader itself calls, `worldEntitiesFromReads` (11.5, landing in B6) and `levelsFromHq`
-(11.2, joining it in B9): `lib/commcare/reader` may not import `lib/deployment`, which is its consumer
-(part 06, section 2.4), so they live in the reader, authored here as part 08 authors B2's expression
-files, and `places.ts` imports `levelsFromHq` from the reader (`@/lib/commcare/reader/worldEntities`).
+New files `lib/deployment/reading/projectData/places.ts` (pure), `placeStore.ts` beside it (its one
+birth writer, `writeBroughtInPlacesInTransaction`; section 14, "Pure files and store files"),
+`lib/organization/managed.ts` and `lib/commcare/reader/worldEntities.ts`. The last holds the two
+pure functions the reader itself calls, `worldEntitiesFromReads` (11.5) and `levelsFromHq` (11.2):
+`lib/commcare/reader` may not import `lib/deployment`, which is its consumer (part 06, section
+2.4), so they live in the reader, and `places.ts` imports `levelsFromHq` from the reader
+(`@/lib/commcare/reader/worldEntities`). Both exist before the reader's stages that call them:
+`levelsFromHq` before the structure stage puts levels on its draft (part 06, section 2.3), and
+`worldEntitiesFromReads` before the reader binds expressions (part 08, section 2.5).
 
 ### 11.1 When places come in
 
@@ -2255,17 +2368,25 @@ quoted word and not for `instance('locations')` whole; a double quote inside the
 written `\"`, which still ends in the quote mark the test looks before. A false yes costs two
 reads.
 
-Only then does the reading ask CommCare HQ for `listHqLocationTypes` and `listHqLocations`, under
-part 05's project data deadline. A failed read is classified by part 05 and by nothing here:
-`classifyHqFailure(error, "location-types")` or `"locations"`, then `hqReadCircumstance(failure)`,
-which gives `cannot-read-organization` for the four gates it cannot tell apart and
-`plan-lacks-api-access`, `key-not-accepted` and the rest for what they are.
+Only then does a read ask CommCare HQ for `listHqLocationTypes` and `listHqLocations`, each under
+its own deadline (part 05, section 3.3). A failed read is classified by part 05 and by nothing
+here: `classifyHqFailure(error, "location-types")` or `"locations"`, then
+`hqReadCircumstance(failure)`, which gives `cannot-read-organization` for the four gates it cannot
+tell apart and `plan-lacks-api-access`, `key-not-accepted` and the rest for what they are.
+
+**The place list stops once the finding is certain.** A project space with more places than
+`MAX_LOCATIONS_PER_APP` is a `not-yet` finding whatever the places hold (11.4), so the list is read
+with `stopPast: MAX_LOCATIONS_PER_APP` (part 05, section 10.4). A `past-limit` answer is no
+failure: `readReadingProjectData` keeps its total in `gathered.placesPastLimit` and no place
+(14.1), and `readingProjectDataFindingsFor` raises `places-over-nova-limit` from it where the app
+reads places. Its `detail.name` is the total CommCare HQ reports, spelled with a thousands
+separator, as `"12,400 places"`, or `"more than 10,000 places"` where no page named a total.
 
 **The backstop.** `readReadingProjectData` answers `placesRead: boolean` (14.1). Where the reader's
 document reads places (`documentReadsPlaces`) and `placesRead` is false, the source test missed a
 spelling: part 12 calls `readReadingProjectData` once more with `places: "always"`, runs the reader
-again with the levels in scope, and logs the miss at error with the reading's id, so the spelling is
-added to the test. It is one extra pass, never a loop: the second call always reads places.
+again with the levels in scope, and logs the miss at error, so the spelling is added to the test.
+It is one extra pass in the same request, never a loop: the second call always reads places.
 
 An app whose source passes neither test brings no level and no place. One whose source passes the
 test and whose logic then reads no place (a false yes) holds the levels CommCare HQ lists, because
@@ -2279,13 +2400,13 @@ Every level CommCare HQ lists comes in as a document level, parent before child,
 app's logic names it: a place stands at one, and a tree needs every level between (Departure 16).
 
 ```ts
-/** `lib/commcare/reader/worldEntities.ts`. Added to the file by B9. Pure. */
+/** `lib/commcare/reader/worldEntities.ts`. Pure. */
 export function levelsFromHq(levels: readonly HqLocationType[], resolver: IdentityResolver):
 	{ readonly levels: readonly OrganizationLevel[]; readonly findings: readonly Finding[] };
 ```
 
-The reader's structure stage calls it from B9 and puts `levels` on its draft, so the levels are in
-scope when expressions bind (part 06, section 2.3); it raises none of `findings`. They are raised
+The reader's structure stage calls it and puts `levels` on its draft, so the levels are in scope
+when expressions bind (part 06, section 2.3); it raises none of `findings`. They are raised
 once, by `readingProjectDataFindingsFor` (14.1), and only where the app reads places: a level Nova
 cannot hold is no fact about an app that reads none.
 
@@ -2350,7 +2471,7 @@ export function planManagedPlaces(input: {
 
 | Checked | Result |
 |---|---|
-| more than `MAX_LOCATIONS_PER_APP` (10,000) places | the circumstance `places-over-nova-limit`, name `"<n> places"` |
+| more than `MAX_LOCATIONS_PER_APP` (10,000) places | the circumstance `places-over-nova-limit`, name `"<n> places"`, `<n>` with a thousands separator. Only a refresh hands the function such a list: a bring-in's read stops before it (11.1) and raises the same circumstance from the stop |
 | a site code that fails `siteCodeSchema`, or is not its own lower case, or meets another place's | `place-not-holdable`, name the place's name |
 | a name over `LOCATION_NAME_MAX_LENGTH`, or a coordinate `canonicalCoordinate` refuses | `place-not-holdable` |
 | a parent that is not in the list, or a level that may not nest under its parent's (`levelMayNestUnder`) | `place-not-holdable` |
@@ -2414,12 +2535,11 @@ export function writeBroughtInPlacesInTransaction(
 `app_organization_state` and `app_locations` reference `apps(id)`; and before the tail's
 `applyOrganizationCommitIntegrity` (`lib/db/appGenesis.ts::writePreparedGenesisInTransaction` calls
 it before it returns), which checks every place row against the document's levels and location
-properties and writes `app_location_references`. It does not run after the tail (part 12's
-Departure 1): the integrity step is the one check that proves the copy against the levels the same
-birth saves (`assertLocationPlacementsValid`, `assertLocationValuesValid`), and it must see the
-rows.
+properties and writes `app_location_references`. It does not run after the tail (part 12, section
+6.2): the integrity step is the one check that proves the copy against the levels the same birth
+saves (`assertLocationPlacementsValid`, `assertLocationValuesValid`), and it must see the rows.
 
-**No place id is predeclared**, and none needs to be. A document names a place in two ways (a
+**No place id is derived**, and none needs to be. A document names a place in two ways (a
 persona's assignment, and a `fixed-location` owner term; `lib/organization/CLAUDE.md`, "The two
 directions of cross-store reference"), and a brought-in document holds neither: it has no persona,
 and no reading yields `fixed-location`, whose printed value is Nova's own place UUID and which every
@@ -2463,8 +2583,8 @@ works, which is to change the places in CommCare HQ and refresh. The checks them
 a commit that passes reads nothing more, and an app with no managed copy reads today's sentences.
 
 There is no Manage in Nova for places in step 6. The way to add or change a place is CommCare HQ and
-Refresh, and the banner says so. Taking an organization over is step 7's `changes-made-in-hq`, with
-the merge that would make it safe.
+Refresh, and the banner says so. Taking an organization over is not planned
+(`../7-rest-of-model.md`, "Not planned").
 
 **Refresh.**
 
@@ -2559,7 +2679,7 @@ So a persona standing in a managed place gets that very place in CommCare HQ.
   slug is claimed once, so every claim answers `ok: true`. A slug outside
   `USER_PROPERTY_SLUG_PATTERN`, over its length, or in `BUILT_IN_USER_PROPERTY_SLUGS` is not this
   part's to mint: the reader keeps it in the name-backed `session-user` arm where that arm admits
-  it, and gives its own finding where it does not (B6; part 04's hand-off for unchanged grammars).
+  it, and gives its own finding where it does not (part 08, section 9.2; part 04, section 2.5).
 - Neither has a type in Nova, so nothing is typed from how the app uses it.
 
 **The order, decided.** A read binds to one of these entities by UUID, and only to an entity the
@@ -2572,7 +2692,7 @@ section 9.2). So "one per slug the reader bound" would mint nothing: the leaves 
 the entities. The slugs are learned by a first pass, as the tables are (5.1), and with the one way
 Nova reads an expression's structure, the grammar (root `CLAUDE.md`: "Never regex-parse XPath"):
 
-1. B6's `readExpressions` (part 08) runs once over the document as the structure readers left it,
+1. Part 08's `readExpressions` runs once over the document as the structure readers left it,
    which holds no worker property and no location property. It is asked only for what it met,
    part 08's `ExpressionReading["worldReads"]` (its section 2.5): `{ readonly userFields: readonly
    string[]; readonly locationDataSlugs: readonly string[] }`, the `field` of every name-backed
@@ -2580,13 +2700,13 @@ Nova reads an expression's structure, the grammar (root `CLAUDE.md`: "Never rege
    met, each distinct, in code-unit order. Its trees and its findings from this pass are dropped.
 2. `worldEntitiesFromReads(worldReads: ExpressionReading["worldReads"], resolver: IdentityResolver):
    { readonly userProperties: readonly UserProperty[]; readonly locationProperties: readonly
-   LocationProperty[] }` (`lib/commcare/reader/worldEntities.ts`, B6, pure). A user field comes in
+   LocationProperty[] }` (`lib/commcare/reader/worldEntities.ts`, pure). A user field comes in
    where it passes `userPropertySlugVerdict` and is not in `BUILT_IN_USER_PROPERTY_SLUGS`; a
    location slug where it passes `locationPropertySchema`'s slug grammar. Every other name is left
    out, and the second pass words it. Each list is in the order of its slugs.
 3. The reader adds both lists to its draft document and runs `readExpressions` again. This pass is
    the reading: a read of a minted slug binds by UUID, and anything left name-backed or unknown is
-   B6's finding or its admitted `session-user` leaf.
+   part 08's finding or its admitted `session-user` leaf.
 
 This is no text search over an expression and no second fetch: the same parse runs twice over the
 same strings. Acceptance check 3 (the fixed point) holds, because a re-read of Nova's emission of
@@ -2691,9 +2811,9 @@ action; `ManagedPlacesBanner` calls it once when the snapshot holds `hq`. `hqUrl
 
 A brought-in file is an ordinary file of the Project. Files shows it under the name of 2.3, the last
 segment of its path in CommCare HQ, with its uploader the person who brought the app in. There is no
-new control and no new state: a file is in Files only once it is `ready`, which is at creation. The
-one string this part adds for Files is the review's line that says the files will be there (Copy
-R4), so nobody is surprised by pictures they did not upload.
+new control and no new state: a file is in Files only once it is `ready`, which is when a create
+publishes it (4.1). The one string this part adds for Files is the review's line that says the
+files will be there (Copy R4), so nobody is surprised by pictures they did not upload.
 
 ### 12.4 MCP and the agent
 
@@ -2706,18 +2826,49 @@ R4), so nobody is surprised by pictures they did not upload.
   { project_space: string; refreshed_at: string }`, and its description: "When
   `places_managed_in_commcare_hq` is present, the places are a copy of CommCare HQ's. Levels and
   place information can still be changed; places cannot."
+- `upload_app_to_hq` (MCP only). `lib/mcp/errors.ts::UploadErrorType` and
+  `lib/mcp/tools/uploadAppToHq.ts::UPLOAD_ERROR_TAGS` gain `hq_managed_data_changed` (8.1) and
+  `managed_table_handed_back` (8.2), each with its own arm in the handler, so neither falls to
+  `hq_upload_failed`, which `lib/mcp/errors.ts::HqToolErrorType` describes as CommCare HQ rejecting
+  the upload. CommCare HQ rejects nothing in either: Nova stops both itself, before any lookup
+  table is sent. Each is answered as `hq_table_content_unsupported` is today (`makeGateError` with
+  the placement answer): the `message` followed by the `details` items, which for the first are
+  the items P6 to P11 and P17.
+  The tool's description gains, after its `hq_changed` sentences: " If a lookup table the app reads
+  is managed in CommCare HQ and changed there in a way the app depends on, the call returns
+  `hq_managed_data_changed` before sending anything: relay the `message`, which names each table,
+  what changed and what the user can do, and upload again once that is done. To publish Nova's
+  copy of a table instead, the user can hand it to Nova with `set_lookup_table_management`: show
+  what that does and ask first. `managed_table_handed_back` means a table was handed back to
+  CommCare HQ while the upload was getting ready, and Nova stopped before sending any lookup table
+  or the app's content: upload again, and Nova leaves that table as it is." The doc comments of
+  both files gain the matching items. The tool is served by MCP alone, so
+  `lib/mcp/__tests__/servedSchemas.test.ts` holds the new description and `scripts/test-schema.ts`
+  gains nothing.
+  The plugin's `upload_to_hq` skill gains two bullets in its list of refusals, which part 13's
+  section 16.2 places: "`hq_managed_data_changed`: a lookup table this app reads is managed in
+  CommCare HQ and changed there in a way the app depends on. Nothing was sent. Relay the
+  `message`: each line names a table, what changed and what the user can do, in CommCare HQ or by
+  managing the table in Nova. Call `set_lookup_table_management` only if the user chooses that,
+  after showing them what it does. Then upload again." and "`managed_table_handed_back`: a lookup
+  table this app reads was handed back to CommCare HQ while this upload was getting ready. Nova
+  stopped before sending any lookup table or the app's content. Upload again, and Nova leaves that
+  table as it is."
 - The guide is `lib/agent/authoring/reference.ts::AUTHORING_REFERENCE`. Its `expressions` entry
   holds the paragraph that begins "A form can read a Project data table by its tag", which gains
   one sentence at its end: "A lookup table or a set of places marked managed in CommCare HQ belongs
   to that project space: build on it, and leave changing it to the person."
-- `scripts/test-schema.ts` (B9): it imports `getOrganizationTool` beside `createLocationTool` and
+- `scripts/test-schema.ts`: it imports `getOrganizationTool` beside `createLocationTool` and
   `updateLocationTool` from `lib/agent/tools/organization.ts`, adds the entry `{ name:
   "getOrganization", description: getOrganizationTool.description, schema:
   getOrganizationTool.inputSchema, prompt: "Use getOrganization to read this app's levels and
-  places." }` after `getLookupTables`'s, and adds the name to the header's list of known names. B9
-  runs nothing billed: B12 sends `getLookupTables` and `getOrganization` in its one run.
+  places." }` after `getLookupTables`'s, and adds the name to the header's list of known names.
+  The billed check that sends `getLookupTables` and `getOrganization` is the step's one, named in
+  the top-level file.
 - Two MCP tools, served by MCP alone, each with `oauthScopeChallenge(SCOPES.hqWrite)` since both
-  change what a later publish may write, registered by B12 over this part's services:
+  change what a later publish may write. Part 13 registers them over this part's services (its
+  sections 14.1 and 14.6), and `lib/mcp/__tests__/servedSchemas.test.ts` holds what a client is
+  served, without billing:
 
 | Tool | Input (strict) | Does |
 |---|---|---|
@@ -2731,49 +2882,68 @@ The SA is given neither: a deployment is not authored vocabulary (`lib/deploymen
 
 ## 13. Findings and the manifest
 
-### 13.1 Manifest entries, by id (B9)
+Every finding of this part is made one of two ways, so none carries a standing its producer set
+itself. A circumstance is made through part 01's `lib/publish/hqFindings.ts::circumstanceFinding`
+(its section 8.1), which fills the standing from the code's row and cuts the name. A manifest
+finding is made through this part's one function:
 
-| Entry | Today | From B9 |
+```ts
+/** `lib/deployment/reading/projectData/findings.ts`. Pure. */
+export function manifestFinding(entryId: string, place: HqPlace, name: string): Finding;
+```
+
+It reads the entry from the manifest's index, takes `standing` and `cause` from part 01's
+`standingOf(entry)` and `fixCauseOf(entry)` and `subject` from the entry (part 01, section 8.2),
+cuts the name with `cutFindingName`, and throws on an id the manifest lacks. The reader's own
+manifest findings are made by its `Accounting` (part 06), which this part does not reach.
+
+### 13.1 Manifest entries, by id
+
+| Entry | Today | After this step |
 |---|---|---|
 | `expressions-and-data/media-path-jr-file` | HELD-NEW | HELD, part 01's words (its section 3.5): "the path CommCare HQ holds the file at, kept for the project space the app came from (`app_deployment_media_paths`); every other project space takes Nova's own path", with part 10's sentence on the three re-derived kinds. `subject` and `owner` leave |
 | `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` | HELD-NEW, `valueClass: referenced-path-without-entry` | INERT, `valueClass: path-without-entry-nothing-draws`; `item`: "a media reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file: on Android a menu's, a form's, a case list menu item's or the Register action's icon or audio label; in Web Apps every picture, and every sound or video that is not a question's label or help"; `dispositionCell`: "**INERT**: Web Apps resolves a picture's path through the map and shows nothing without an entry (`formplayer/app.js`, the `resourceMap` reply; `multimedia.html`, the `<img>`'s `visible: mediaSrc`); Android's menu list draws no bitmap and hides the audio button (`MenuAdapter.setupImageView`, `setupAudioButton`), and so does the Register action (`EntityActionViewUtils.setupActionImage`, `setupActionAudio`); the reader leaves the reference out and the review lists it". Platforms `not-applicable`; emission `omit`. `subject` and `owner` leave |
-| `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws` | absent | new, REFUSED, `valueClass: path-without-entry-a-runtime-draws`, `subject: media-files`; `item`: "a media reference with no file on a slot a runtime draws: with no `multimedia_map` entry, a question's label or help, a choice or a case list image column in an app that runs on Android, and a question's label or help audio or video in an app that runs in Web Apps"; reason `{ kind: "broken-at-runtime", named: "Android shows its missing-file prompt, an audio button with nothing to play, or the archive icon (`MediaLayout.showMissingMediaView`, `setupStandardAudio`, `EntityView.setupImageLayout`); Web Apps shows a player with nothing to play (`form_entry/multimedia.html` and `help_multimedia.html`: `visible: caption_audio`, `caption_video`, `help_audio`, `help_video`)" }`; `surfaceKeys: ["schema:Application.multimedia_map"]` |
-| `expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install` | REFUSED, conditioned on `appSettings.multimediaValidation` | the same entry; in `item` and both cells "with `appSettings.multimediaValidation` on" becomes "where the project space's media check at install is on (`cc-content-valid` other than `yes`, kept at CommCare HQ's value)", and "from step 7, which holds both, the validator refuses the combination" leaves: Nova holds no such setting |
+| `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws` | absent | new, REFUSED, `valueClass: path-without-entry-a-runtime-draws`, `subject: missing-media-files`; `item`: "a media reference with no file on a slot a runtime draws: with no `multimedia_map` entry, a question's label or help, a choice or a case list image column in an app that runs on Android, and a question's label or help audio or video in an app that runs in Web Apps"; reason `{ kind: "broken-at-runtime", named: "Android shows its missing-file prompt, an audio button with nothing to play, or the archive icon (`MediaLayout.showMissingMediaView`, `setupStandardAudio`, `EntityView.setupImageLayout`); Web Apps shows a player with nothing to play (`form_entry/multimedia.html` and `help_multimedia.html`: `visible: caption_audio`, `caption_video`, `help_audio`, `help_video`)" }`; `surfaceKeys: ["schema:Application.multimedia_map"]` |
+| `expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install` | REFUSED, conditioned on `appSettings.multimediaValidation` | the same entry, `subject: missing-media-files`; in `item` and both cells "with `appSettings.multimediaValidation` on" becomes "where the project space's media check at install is on (`cc-content-valid` other than `yes`, kept at CommCare HQ's value)", and "from step 7, which holds both, the validator refuses the combination" leaves: Nova holds no such setting |
 
 The three classes on `schema:Application.multimedia_map` beside the TARGET-OWNED entry
 `application-and-settings/multimedia-map` and the REFUSED entry
 `expressions-and-data/multimedia-map-key-not-under-jr-file-that-the-build-keeps` are disjoint by
 3.2's first-match order. No lane value-class reader is added: what a slot draws is not in the
-export, and part 14's variant on `hq-media` holds the REFUSED class in its `expected.json` (its
-section 7.2). The copy needs nothing new: `media-files` has its `fix-in-hq` sentence for
-`breaks-when-run` ("A media file here is in a format CommCare can't play, or is missing from
-CommCare HQ.").
+export, and part 14's variant on `hq-media` holds the REFUSED class in its row of
+`proof/matrix/variants.json` (its section 7.2). The two REFUSED entries share the subject
+`missing-media-files`, and the pair's whole sentence is part 01's (its section 9.2): "The app
+points at a media file here that CommCare HQ doesn't have. Workers meet a missing file there, and
+Android may not start the app at all."
 
 Every lookup entry of 5.3 keeps its disposition, `subject` (`lookup-tables`) and `owner`
 (`project-data-at-hq-size`), as part 01's appendix assigns them. Two are claimed by no reading,
 `expressions-and-data/fields-is-indexed` and
 `expressions-and-data/absent-field-vs-zero-values-vs-empty-string`: no API-key read shows an indexed
-flag, and a field with no value fails the row read (G7). Part 14 exempts both from coverage under
+flag, and a field with no value fails the row read (5.1). Part 14 exempts both from coverage under
 `stated-by-its-part`, with those reasons (its section 7.5).
 
-### 13.2 Circumstances this part needs added to part 01's list
+### 13.2 The circumstances this part raises
 
-Six facts are about a project space's data, not the app's source, so no manifest entry can name
-them (part 01, section 8.3, makes that the test). Each lands in B9, in `READ_CIRCUMSTANCES`,
-`CIRCUMSTANCE_STANDINGS` and `CIRCUMSTANCE_COPY` (these are the exact rows, which part 01's
-sections 8.3 and 9.3 hold too, with their pull request):
+Eight facts are about a project space's data, not the app's source, so no manifest entry can name
+them (part 01, section 8.3, makes that the test). Part 01 holds each code's row (standing, owner,
+when, and what `detail.name` is; its section 8.3) and its block of title, body and next step (its
+section 9.3), and neither is written again here. This part is the producer of all eight:
 
-| Code | Standing | Owner | When | `detail.name` | Title | Body | Next |
-|---|---|---|---|---|---|---|---|
-| `places-over-nova-limit` | not-yet | `project-data-at-hq-size` | the project space has more active places than Nova holds for an app | the count, `"12,400 places"` | This project space has more places than Nova takes | {app} reads places, and {space} has {name}. Nova holds up to 10,000 for an app. | Nothing to change on your side. This will come in once Nova takes larger organizations. |
-| `place-not-holdable` | not-yet | `project-data-at-hq-size` | a level's code, a place's site code, name, coordinates, parent or a value the app reads is outside what Nova's organization holds | the level's or the place's name | A place or level is one Nova can't hold yet | {name} in {space} has a code, a name or a value Nova can't hold yet. | Nothing to change on your side. You can check again after Nova's next update. |
-| `media-not-played-where-app-runs` | fix-in-hq | | a referenced file's format plays on no platform the rest of the app runs on | the path | A media file doesn't play where this app runs | The app points at {name}, and no platform that can run the rest of this app plays that file's format. | You can replace it in CommCare HQ with a PNG or JPEG picture, an MP3 sound or an H.264 MP4 video, then check again. |
-| `table-cell-unrepresentable` | fix-in-hq | | a lookup table the app reads holds, in a field its definition names, a character XML 1.0 cannot carry (`xmlTextIssue`) | `"<tag> (the field <field name>)"` | A lookup table holds a character CommCare can't carry | The lookup table {name} in {space} holds a character CommCare can't carry in a value. | You can take that character out in CommCare HQ, then check again. |
-| `owner-rule-needs-one-place` | not-yet | `project-data-at-hq-size` | an owner rule of the app gives a case to the place at a level below the case's current owner, and in the project space that is not exactly one place below every place that owns cases (11.4) | the level's name | An owner rule needs exactly one place | {app} gives a case to the place at the level {name} below its current owner. In {space} that isn't exactly one place everywhere, and Nova holds the rule only where it is. | Nothing to change on your side. You can check again after Nova's next update. |
-| `table-choices-unusable` | fix-in-hq | | a question or a search field of the app takes its choices from a lookup table, and that table has no rows, or a row whose value is blank, has white space at an end or repeats another's, or whose label is blank | `"<tag> (the field <field name>)"` | A lookup table's rows can't be a question's choices | A question takes its choices from the lookup table {name} in {space}, and that table has no rows there, or has a row whose value is blank, starts or ends with a space or appears twice, or whose label is blank. | You can change those rows in CommCare HQ, then check again. |
+| Code | Raised by | `detail.name` as this part sets it |
+|---|---|---|
+| `media-file-unreadable` | 3.2, row 3 | the path |
+| `media-not-played-where-app-runs` | 2.4 | the path |
+| `table-rows-unreadable` | 5.3, from 5.1's `rows-unreadable` | the tag |
+| `table-cell-unrepresentable` | 5.3 | `"<tag> (the field <field name>)"` |
+| `table-choices-unusable` | 5.3, by `readingProjectDataFindingsFor` (14.1) | `"<tag> (the field <field name>)"` |
+| `places-over-nova-limit` | 11.1 at a bring-in's read; 11.4 at a refresh | the total CommCare HQ reports, `"12,400 places"`, or `"more than 10,000 places"` where the read stopped with no total |
+| `place-not-holdable` | 11.2, 11.4 | the level's or the place's name; `"<place>: <slug>"` for a value |
+| `owner-rule-needs-one-place` | 11.4 | the level's name |
 
-For `table-cell-unrepresentable` and `table-choices-unusable`, `{name}` in the body is the whole
-`detail.name`, so the sentence reads "The lookup table regions (the field district_name) in ...".
+The owner `project-data-at-hq-size` stays on the three place codes' rows of
+`CIRCUMSTANCE_STANDINGS`, and no finding carries it. A create that leaves a table's choice
+unanswered is no circumstance: it is the refusal `choice_missing` (part 12, section 5.3).
 
 `table-choices-unusable` is one finding per table, at `{ kind: "lookup-table", tag }`, however many
 questions read it and however many of the rules it fails (14.1). `<field name>` is the wire name of
@@ -2782,83 +2952,55 @@ the column the first error of that table names, in the order
 `details.columnId`, or, for `LOOKUP_SELECT_SOURCE_EMPTY`, which names no column, the value column
 of the question or search field that reads the table.
 
-### 13.3 Every finding this part raises
+### 13.3 One pass reports every finding
 
-| Where | Finding | Standing |
-|---|---|---|
-| 2.1 | `multimedia-map-key-not-under-jr-file-that-the-build-keeps` | fix-in-hq |
-| 2.1, 2.4, 5.3 | `unrecognized` (a slot naming a file of no media kind; a slot naming a file of another kind, but for an audio slot naming a video; bytes of another kind than CommCare HQ filed them as; a refused format no entry names; a tag or a field name that fails the lookup grammar in a way N4, N5 and N24 do not name; two fields of one table whose names are equal) | not-yet |
-| 2.1 | `audio-m4a-with-another-brand-isom-mp41-mp42-dash` (an audio slot naming a file CommCare HQ files as video) | fix-in-hq |
-| 2.4 | `an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app` (a file; 4.3: the app) | not-yet |
-| 2.4 | `image-svg`, `image-tiff-heif`, `audio-wav-that-is-not-8-or-16-bit-pcm`, `audio-m4a-with-another-brand-isom-mp41-mp42-dash` (the guard row), `audio-3gp`, `video-av1-mov-avi-ogg-theora-h-263-3gp` | fix-in-hq |
-| 2.4 | `media-not-played-where-app-runs` | fix-in-hq |
-| 3.2 | `a-media-reference-with-no-file-on-a-slot-android-s-install`, `a-media-reference-with-no-file-on-a-slot-a-runtime-draws` | fix-in-hq |
-| 3.2 | `media-file-unreadable` | fix-in-hq |
-| 5.3 | the three lookup content entries (5.3's first four rows: `fields-properties-and-multi-valued-cells-name-lang-en-name-name` twice, `item-attributes-and-per-row-attribute-values`, `is-global-false-row-owners-user-group-location`), the caps entry, `tag-types`, part 04's N4, N5, N24 | not-yet |
-| 5.3 | `tag-containing-casedb-or-ledgerdb` | fix-in-hq |
-| 5.3 | `table-rows-unreadable`, `table-cell-unrepresentable`, `table-choices-unusable` | fix-in-hq |
-| 5.3 | the caps entry at the app (the tables together over what one `.ccz` carries) | not-yet |
-| 5.1 | part 08's `an-expression-core-cannot-evaluate-as-its-author-meant` (a select reads a table CommCare HQ does not have) | fix-in-hq |
-| 7.2 | `table-differs-in-project`: raised by part 12, only when creation is asked for with a choice unanswered; it ends no read | stop |
-| 11.1 | whatever `hqReadCircumstance` gives for a failed level or place read, `cannot-read-organization` among them | stop |
-| 11.2, 11.4 | `place-not-holdable`, `places-over-nova-limit`, `owner-rule-needs-one-place` | not-yet |
+Every finding is reported in the pass that finds it, with every other: `planHqMedia`,
+`lookupTableFindings` and `planManagedPlaces` return lists and never stop at the first. Each
+finding's standing is its entry's or its code's (above), stated where the finding is raised: 2.1,
+2.4 and 3.2 for media, 5.1 and 5.3 for tables, 11.1, 11.2 and 11.4 for places.
 
-An entry id in this table, in "Written and not yet run" and in "Decisions in brief" is written
-without its area where the section it cites gives it whole: each is under `expressions-and-data/`.
-
-Every one is reported in the pass that finds it, with every other: `planHqMedia`,
-`lookupTableFindings` and `planManagedPlaces` return lists and never stop at the first.
+An entry id in "Decisions in brief" and in "Written and not yet run" is written without its area
+where the section it cites gives it whole: each is under `expressions-and-data/`.
 
 ---
 
-## 14. The surface the reading and the reader call
+## 14. The surface the two requests and acceptance call
 
 Sections 2 to 11 define this part's functions one at a time. This section is the one surface the
-reading (part 12, B10) and acceptance (part 09, B7) call: each function below is composed from the
-ones above, which stay as its parts and keep their tests. Part 12 calls these names (its sections
-3.3, 3.4, 5.1, 6.1 and 6.3); where a signature could as well have been cut another way, the shape
-taken and its reason are said. B9 lands beneath B7 and B10 (stack B's order is B8, B9, B7, B10), so
-nothing here imports a file of either.
+two bring-in requests (part 12) and acceptance (part 09) call: each function below is composed from
+the ones above, which stay as its parts and keep their tests. Where a signature could as well have
+been cut another way, the shape taken and its reason are said.
 
 The files, all new and all under `lib/deployment/reading/projectData/`:
 
 | File | Holds |
 |---|---|
-| `index.ts` | 14.1 but for the review and the read: `ReadingProjectData`, `ReaderProjectDataReads`, `projectDataReadsOf`, `readingProjectDataFindingsFor`, `readingProjectDataWrite`, `ReadingProjectDataWrite`, `resolveTableChoices`. Pure |
-| `read.ts` | `readReadingProjectData` (14.1), the one function of 14.1 that reads CommCare HQ and Postgres |
+| `index.ts` | 14.1 but for the review and the read: `ReadingProjectData`, `ReaderProjectDataReads`, `projectDataReadsOf`, `underTableChoices`, `readingProjectDataFindingsFor`, `readingProjectDataWrite`, `ReadingProjectDataWrite`, `resolveTableChoices`. Pure |
+| `read.ts` | `readReadingProjectData`, `ReadingProjectSide` and `postgresProjectSide` (14.1): the one file of 14.1 that reads CommCare HQ and Postgres |
 | `reviewTypes.ts` | the types the review's answers carry, with their schemas. Client-safe: its only run-time import is `zod` |
 | `review.ts` | `projectDataReview`. Pure |
-| `media.ts` | sections 2 to 4, 14.2, and `readingMediaRows` (14.3), less the four functions of `mediaStore.ts`. Pure |
-| `mediaStore.ts` | `fetchAndStageHqMediaFile` (2.2), `stageReadingMedia`, `publishReadingMedia`, `discardReadingMedia` (14.2) |
-| `lookupTables.ts` | sections 5 and 7, and `readingLookupSnapshot` (14.3), less the functions of `lookupTableStore.ts`. Pure |
+| `media.ts` | sections 2 to 4, 14.2, and `readingMediaRows` (14.3), less the two functions of `mediaStore.ts`. Pure |
+| `mediaStore.ts` | `judgeReadingMedia` (2.2), `publishKeptReadingMedia` and `BRING_IN_MEDIA_PUBLISH_CONCURRENCY` (4.1) |
+| `lookupTables.ts` | sections 5 and 7, and `readingLookupSnapshot` (14.3), less the functions of `lookupIds.ts` and `lookupTableStore.ts`. Pure |
+| `lookupIds.ts` | `broughtInLookupTableId`, `broughtInLookupColumnId` (5.5). Pure |
 | `lookupTableStore.ts` | `readHqLookupTablesForReading` (5.1), `writeBroughtInLookupTablesInTransaction` and `BroughtInTableChangedError` (7.4) |
 | `places.ts` | section 11 but for the two functions of `lib/commcare/reader/worldEntities.ts` and the one of `placeStore.ts`. Pure |
 | `placeStore.ts` | `writeBroughtInPlacesInTransaction` (11.4) |
 | `settlements.ts` | `HandOffSettlement`, `handOffSettlements` (14.3). Pure |
+| `findings.ts` | `manifestFinding` (13) |
 
-**Pure files and store files.** Part 12 runs the reader, this part's verdicts and acceptance in a
-worker thread, and that worker's bundle holds only what computes (its section 3.6): its build
-throws where the bundle's inputs hold a path under `lib/db/`, `lib/case-store/`, `lib/storage/` or
-`lib/auth/`, `lib/logger.ts`, or anything of `pg`, `@google-cloud/*`, `@sentry/*` or `next`. So no
-file the check imports may import one of those at run time, and a file of this part that would
-have held both kinds of function is two files. The pure file keeps the name the other parts cite.
-The functions that read CommCare HQ, Postgres or the bucket are in the file beside it. A store
-file imports its pure sibling; a pure file takes of a store file its types alone, with `import
-type`. Beneath this directory two more files are cut the same way, because a pure file here
-imports them at run time:
-
-| Pure file | Store file | Which holds what |
-|---|---|---|
-| `lib/lookup/managedRules.ts` | `lib/lookup/managed.ts` | pure: `LookupRowsMeasure`, `lookupCapExcess`, `ManagedLookupContent`, `managedCanonicalSchema`. Store: `mintLookupIds`, `measureLookupRows`, `ManagedOriginWrite`, the create and refresh arms and `ManagedRefreshReceipt` |
-| `lib/media/stagedMediaFile.ts` | `lib/media/stagedMedia.ts` | pure: `StagedMediaFile`, `stagedMediaFileSchema`. Store: `stageMediaBytes`, `publishStagedMedia`, `PublishedStagedMedia`, `STAGED_MEDIA_PUBLISH_CONCURRENCY` |
-
-The build is the judge of the cut, in B10 where the worker is first built: a file it names that
-this section does not is cut by the same rule in that pull request, its exports that import a
-refused module moving to a file beside it whose name ends `Store`. Part 14's reader bundle is the
-lane's own and holds both kinds (its 5.2); the rule is the worker's alone.
+**Pure files and store files.** A file marked pure imports nothing at run time that reaches
+CommCare HQ, Postgres or the bucket. Its functions are tested with no boundary to control, and
+acceptance and the proof lane's reading (part 14) call them with no store behind them. A function
+that reaches one of the three is in the file beside it. A store file imports its pure sibling; a
+pure file takes of a store file its types alone, with `import type`. `lib/lookup` is cut the same
+way, because `lookupTables.ts` imports it at run time: `lib/lookup/managedRules.ts` is pure
+(`LookupRowsMeasure`, `lookupCapExcess`, `ManagedLookupContent`, `managedCanonicalSchema`), and
+`lib/lookup/managed.ts` beside it reaches Postgres (`measureLookupRows`, `ManagedOriginWrite`, the
+create and refresh arms and `ManagedRefreshReceipt`).
 
 `reviewTypes.ts`, whole. Part 12's `lib/deployment/reading/types.ts` re-exports `ReviewTable` and
-`ReviewPlaces` from it (its section 5.1), and part 13 draws them:
+`ReviewPlaces` from it (its section 5.1), and part 13 draws them (its sections 8.4 to 8.6):
 
 ```ts
 import { z } from "zod";
@@ -2940,78 +3082,144 @@ export interface ReadingProjectData {
 	readonly lookups: ReaderLookupCatalog;
 	/** Part 06's `ReaderOrganization`: `{ levelCodes, levels }`, both empty where no place was read. */
 	readonly organization: ReaderOrganization;
-	/** The input's ids with any new ones added, never one replaced (5.5). */
-	readonly minted: PredeclaredLookupIds;
 	/** Whether the levels and places were read (11.1). */
 	readonly placesRead: boolean;
-	/** Everything read and decided, for the functions below. Held in memory, never stored. */
+	/** Everything read and decided, for the functions below. Held in memory for one request. */
 	readonly gathered: {
 		readonly origin: { readonly server: string; readonly domain: string };
+		/** The two ids every lookup id of this reading derives from (5.5). */
+		readonly appId: string; readonly readingId: string;
 		readonly tables: readonly { readonly read: HqLookupTableRead;
 			/** 5.3's findings for this table, raised only if the reader reads it. */
 			readonly findings: readonly Finding[];
 			/** Null where the table cannot come in. */
 			readonly standing: LookupTableStanding | null;
 			readonly binding: LookupTableBinding | null;
+			/** The answer the binding stands under: null as the read returns it, and for a tag
+			 *  that asks none. `underTableChoices` sets it. */
+			readonly choice: LookupTableChoice | null;
 			/** The Project table the tag met, at the revisions step 3 read; null where none. */
 			readonly projectTable: { readonly tableId: LookupTableId;
 				readonly definitionRevision: string; readonly rowsRevision: string } | null }[];
-		/** Step 3's Project read: the Project, its revision, and the rows of each Project table a
-		 *  candidate's tag met, by table id. `readingLookupSnapshot` reads them (14.3). */
+		/** Step 3's answers, kept whole: `readingLookupSnapshot` (14.3) and `projectDataReview`
+		 *  read them. */
 		readonly project: { readonly projectId: string; readonly projectRevision: LookupRevision;
-			readonly rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>> };
+			readonly rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>>;
+			readonly apps: Readonly<Record<string, readonly LookupReferencingAppSummary[]>>;
+			readonly siblings: readonly SiblingLookupMapping[];
+			readonly mayAdminister: boolean };
 		/** Tags of CommCare HQ's list, to tell a table that is not there from one Nova cannot hold. */
 		readonly hqTags: readonly string[];
 		readonly hqLevels: readonly HqLocationType[];
 		readonly hqPlaces: readonly HqLocation[];
+		/** Set where the place list stopped past Nova's limit (11.1): CommCare HQ's total, or null
+		 *  where no page named one. `hqPlaces` is then empty. */
+		readonly placesPastLimit: { readonly totalCount: number | null } | null;
 	};
 }
 
+/** `read.ts`. The Project's side of the read, and Postgres's measure of candidate rows. */
+export interface ReadingProjectSide {
+	/** The Project's tables whose tag is one of `tags`, each with its rows, in one snapshot. */
+	readonly tables: (tags: readonly string[]) => Promise<{
+		readonly projectId: string; readonly projectRevision: LookupRevision;
+		readonly definitions: readonly LookupTableDefinition[];
+		readonly rowsByTable: Readonly<Record<string, readonly LookupFixtureRow[]>> }>;
+	/** The apps that reference each table, by table id. */
+	readonly referencingApps: (tableIds: readonly string[]) =>
+		Promise<Readonly<Record<string, readonly LookupReferencingAppSummary[]>>>;
+	/** Live mappings of the Project's other apps for these tables on the origin (10.1). */
+	readonly siblings: (tableIds: readonly string[]) => Promise<readonly SiblingLookupMapping[]>;
+	/** Whether the actor holds the Project's `delete` capability. */
+	readonly mayAdminister: () => Promise<boolean>;
+	/** What Postgres measures of candidate rows (5.3). */
+	readonly measureRows: (rows: readonly LookupRowValues[]) => Promise<LookupRowsMeasure>;
+}
+/**
+ * Production's binding: `getAllLookupDefinitions` and `getLookupFixtureData` for `tables`, the
+ * summaries `lib/lookup` gives a blocked removal, `readSiblingLookupMappings` with `appId` as
+ * the app (10.1), the actor's role, and `lib/lookup/managed.ts::measureLookupRows`.
+ */
+export function postgresProjectSide(input: {
+	readonly projectId: string; readonly actorUserId: string; readonly appId: string;
+	readonly origin: { readonly server: string; readonly domain: string };
+}): ReadingProjectSide;
+
 export function readReadingProjectData(input: {
 	readonly creds: CommCareCredentials; readonly server: string; readonly domain: string;
-	readonly projectId: string; readonly actorUserId: string;
-	/** The reading's id, which the app takes: the sibling read's app id (10.1). */
-	readonly readingId: string;
+	/** The app's id and the reading's id (part 12): every lookup id derives from them (5.5). */
+	readonly appId: string; readonly readingId: string;
 	readonly source: HqAppSource;
-	readonly minted: PredeclaredLookupIds;
-	/** `lib/lookup/managed.ts::mintLookupIds` in production; a test's own. */
-	readonly mintIds: (count: number) => Promise<readonly string[]>;
-	/** Null at a read step. At creation, the answers `resolveTableChoices` accepted. */
-	readonly choices: Readonly<Record<string, LookupTableChoice>> | null;
+	readonly project: ReadingProjectSide;
 	/** `always` is 11.1's backstop. */
 	readonly places: "when-source-reads" | "always";
-	readonly within: HqReadDeadline; // one HQ_PROJECT_DATA_READING_DEADLINE_MS, part 05
+	/** The caller's way to stop early, joined to each read's own deadline (part 05). */
+	readonly cancel?: AbortSignal;
 }): Promise<
 	| { readonly kind: "read"; readonly data: ReadingProjectData }
 	| { readonly kind: "failed"; readonly failure: HqFailure }>;
 ```
 
+Both requests call it, and both read fresh. Tables and places are rows outside the app's document,
+so the save counter's bracket does not cover them (part 05, section 8.2), and the review's digest
+does (14.1's `ReviewTable` and `ReviewPlaces`, below): a row edited between the review and the
+create changes the digest. Nothing of them is written before the birth (7.4, 11.4).
+
+**The Project's side is handed in.** Production binds it to Postgres with `postgresProjectSide`,
+and the proof lane binds it to a Project that holds nothing and passes its own two ids
+(`LaneReadInput.appId` and `proof/reader/retainedPeer.ts::LANE_READING_ID`; part 14, section 5.2),
+so the lane runs this function and no copy of its steps.
+
 In order:
 
 1. `readHqLookupTablesForReading` (5.1, steps 1 to 3). A returned error is `failed`, classified as
-   5.1 says. A table's `rows-unreadable` is no failure: it is that table's finding.
-2. Ids for every candidate table and field that has none in `minted` (5.5).
-3. The Project's side, each a read that exists: `getAllLookupDefinitions(scope)` for the tables
-   whose tag is a candidate's; `getLookupFixtureData(scope, ids)` for those tables' rows, one
-   snapshot, whose `projectRevision` and rows `gathered.project` keeps; the apps that reference
-   each (the summaries `lib/lookup` gives a blocked removal); `readSiblingLookupMappings` (10.1);
-   and the actor's role. They are separate statements, and need not be one snapshot: the review's
-   digest covers each Project table (`ReviewTable.projectTable`, its two revisions), and the birth
-   derives every standing again under the Project's lock (7.4).
+   5.1 says. A table's `rows-unreadable` and its `over-row-limit` are no failure: each is that
+   table's finding.
+2. The ids of every candidate table and field (5.5). They are derived, so nothing is minted and
+   nothing is read.
+3. The Project's side, through `input.project`: `tables` for the candidates' tags, whose
+   `projectRevision` and rows `gathered.project` keeps; `referencingApps` and `siblings` for the
+   tables that answer; and `mayAdminister`. They are separate statements in production, and need
+   not be one snapshot: the review's digest covers each Project table (`ReviewTable.projectTable`,
+   its two revisions), and the birth derives every standing again under the Project's lock (7.4).
 4. Per candidate: where its rows were read and each holds one string a field,
-   `measureLookupRows` over them keyed by the column ids of step 2 (`measured` is null
+   `input.project.measureRows` over them keyed by the column ids of step 2 (`measured` is null
    otherwise); then `lookupTableFindings` (5.3). Where there are none, `lookupTableStanding` (7)
-   and then `resolveLookupBindings` with `choices` (7.4). A standing's kind does not depend on
+   and then `resolveLookupBindings` with no answer (7.4). A standing's kind does not depend on
    which fields the app reads, so this step passes `appReads: []`; a choice's offers do, and
    `projectDataReview` computes the standing again with the fields the reader read.
 5. `readerLookupCatalog` over the bindings.
 6. Where `places` is `always` or `sourceMayReadPlaces` is true of the source's text:
-   `listHqLocationTypes`, then `listHqLocations`. A returned error is `failed`, classified as 11.1
-   says. Where a place names a level code the level list lacks, the two reads straddled a change
-   in CommCare HQ: both are read once more, and where the second pair disagrees too the answer is
-   `failed` with `{ kind: "hq-unavailable", request: "locations", status: 200 }`, which part 12
-   stops the read with as it does any failed read. `organization.levels` is `hqLevels` and
-   `organization.levelCodes` their codes in that order.
+   `listHqLocationTypes`, then `listHqLocations` with `stopPast: MAX_LOCATIONS_PER_APP` (11.1). A
+   returned error is `failed`, classified as 11.1 says. A `past-limit` answer is no failure:
+   `placesPastLimit` holds its total. Where a place names a level code the level list lacks, the
+   two reads straddled a change in CommCare HQ: both are read once more, and where the second pair
+   disagrees too the answer is `failed` with `{ kind: "hq-unavailable", request: "locations",
+   status: 200 }`, which part 12 ends the request with as it does any failed read.
+   `organization.levels` is `hqLevels` and `organization.levelCodes` their codes in that order.
+
+**An answer is applied to what was gathered, and reads nothing.** A table's answer is validated
+against the fresh review (`resolveTableChoices`, below), so it is known only after the read.
+
+```ts
+/** `index.ts`. The same data with each answered `choice` tag bound as its answer says. Pure. */
+export function underTableChoices(
+	data: ReadingProjectData, choices: Readonly<Record<string, LookupTableChoice>>,
+): ReadingProjectData;
+```
+
+It runs `resolveLookupBindings` again over `gathered.tables` with the answers (7.4), sets each
+answered table's `choice`, runs `readerLookupCatalog` over the result, and changes nothing else. No
+answer moves a binding the reader read (7.4), so the document is the same document. What an answer
+does change is whose columns and rows stand behind a `use-project` tag: the Project's own, with
+their types and their cells. `readingProjectDataWrite` is therefore called on the data under the
+answers, and it is what the birth writes from (part 12, section 5.3).
+
+The create's check under the final ids (part 12, section 5.3, step 8) runs this part's findings and
+acceptance once more over `underTableChoices(data, choices)` and the published plan. Because the
+review offers `use-project` only where the app could be born on the Project's table as it stands
+(7.2), that run passes; where it does not, the offer was Nova's mistake, and part 12 answers
+`check-failed`. The birth's writer then refuses a Project table that moved since the read (7.4).
 
 What the reader read is not known until it has run, and every finding, review entry and write of
 project data depends on it: a table matters only if the app reads it, and levels and places only if
@@ -3066,23 +3274,25 @@ export function resolveTableChoices(
   section 2.2): `unreadTables` is the distinct tags of the account arm's `UnreadTable[]`,
   `readsPlaces` its `readsLocations`, and `lookupFields` is empty. So a table Nova cannot hold and a
   place it cannot hold are in the same account as the app's other findings.
-- **`readingProjectDataFindingsFor`.** For each tag of `lookupFields` and `unreadTables`: that table's
-  `findings`; or, where `hqTags` lacks the tag, 5.1's step 5. Then, over `readingLookupSnapshot(data,
-  reads)` (14.3): `table-cell-unrepresentable` for a table of the snapshot that holds such a cell (5.3),
-  and `lookupFixtureBudgetFinding` (5.3). With a document, one `table-choices-unusable` finding per
-  table, at `{ kind: "lookup-table", tag }`, from
+- **`readingProjectDataFindingsFor`.** For each tag of `lookupFields` and `unreadTables`: that
+  table's `findings`; or, where `hqTags` lacks the tag, 5.1's step 5. Then, over
+  `readingLookupSnapshot(data, reads)` (14.3): `table-cell-unrepresentable` for a table of the
+  snapshot that holds such a cell (5.3), and `lookupFixtureBudgetFinding` (5.3). With a document,
+  one `table-choices-unusable` finding per table, at `{ kind: "lookup-table", tag }`, from
   `lib/commcare/lookup/selectSourceRows.ts::lookupSelectSourceRowFindings(doc,
-  readingLookupSnapshot(data, reads))` (13.2 says which field it names). Where `readsPlaces`: the
-  findings of `levelsFromHq(hqLevels, resolver)` and of `planManagedPlaces` in `birth` mode over those
-  levels and the document's location properties (none where `doc` is null, so a value is judged once the
-  rest of the app can come in), and, with a document, `managedPlacesOwnerFindings` (11.4). The resolver
-  is part 10's `mintingResolver(appId)` with `appId` the reading's id, which the app takes (part 12
-  builds it as `mintingResolver(row.id)`, its 3.3 step 7, and hands the reader the same id as
-  `ReaderInput.appId`), so the level UUIDs are the ones the reader's document holds. A resolver answers a
-  key once (part 10, 2.3) and `levelsFromHq` claims every level's key, so each of the three functions
-  here that take `resolver` is handed one of its own, built the same way; a resolver shared between two
-  of them would answer the second `ok: false`. No other function raises a finding of `levelsFromHq`: the
-  reader's structure stage calls it for the levels alone (11.2).
+  readingLookupSnapshot(data, reads))` (13.2 says which field it names). Where `readsPlaces`:
+  `places-over-nova-limit` where `gathered.placesPastLimit` is set (11.1), and nothing more of
+  places then; otherwise the findings of `levelsFromHq(hqLevels, resolver)` and of
+  `planManagedPlaces` in `birth` mode over those levels and the document's location properties
+  (none where `doc` is null, so a value is judged once the rest of the app can come in), and, with
+  a document, `managedPlacesOwnerFindings` (11.4). The resolver is part 10's
+  `mintingResolver(appId)` over the app's derived id (part 12, section 2.3), the id the reader is
+  handed as `ReaderInput.appId`, so the level UUIDs are the ones the reader's document holds. A
+  resolver answers a key once (part 10, section 2.3) and `levelsFromHq` claims every level's key,
+  so each of the three functions here that take `resolver` is handed one of its own, built the same
+  way; a resolver shared between two of them would answer the second `ok: false`. No other function
+  raises a finding of `levelsFromHq`: the reader's structure stage calls it for the levels alone
+  (11.2).
 - **`projectDataReview`** and **`readingProjectDataWrite`** cover the tables of `lookupFields` and,
   where `readsPlaces`, the places. A `ReviewTable` carries CommCare HQ's digest (`hqDigest`,
   `HqLookupTableRead.canonical.digest`) and, copied from `gathered.tables[i].projectTable`, the two
@@ -3090,18 +3300,25 @@ export function resolveTableChoices(
   places and `ManagedPlacePlan.digest`. That is what part 12's review digest needs of them (its
   section 5.2): a row edited in CommCare HQ, or a Project table edited in Nova, since the review
   changes the digest. `choice` holds the standing's `differs`, `apps` and `options`, computed with
-  the fields the reader read (step 4).
+  the fields the reader read (step 4). `projectDataReview` then closes the `use-project` offer of
+  7.2 with the two things only the document can say: for each `choice` table whose offer still
+  stands, `lookupSelectSourceRowFindings(doc, readingLookupSnapshot(underTableChoices(data, { [tag]:
+  "use-project" }), reads))` must name no finding for that table; and the tables' summed axes must
+  pass, each `choice` table at the larger of its two forms. An offer that fails either becomes
+  `{ offered: false, why: "fails-a-project-space-rule", name: null }`. A `BroughtInTableWrite`
+  takes its `choice` and `projectTable` from `gathered.tables[i]`.
 - **`resolveTableChoices`.** `missing`: a `choice` table with no answer. `unknown`: an answer for a
   tag that holds no choice, or a value outside `LOOKUP_TABLE_CHOICES`. `notOffered`: an answer whose
-  offer is `offered: false`. Part 12's `bringInInputSchema.tableChoices` is this `answers`.
+  offer is `offered: false`. Part 12's `bringInInputSchema.tableChoices` is this `answers`, and its
+  create refuses `missing` as `choice_missing` and the other two as `choice_not_offered` (7.2).
 
-**The shape of these calls, decided where another was weighed**: `mintLookupIds` lives in
-`lib/lookup/managed.ts` alone (5.5); `minted` is `PredeclaredLookupIds`, a record by tag, and not an
-array; `findings`, `review` and `write` are the three functions above, and not members of
-`ReadingProjectData`; `choices`, `places`, `server`, `actorUserId` and `readingId` are in the input;
-step 3 reads the Project's side itself, so part 12 asks `lib/lookup` for no reader of its own; and
-the two birth writers take `(tx, scope, write)` with `write` holding `origin` and `at` (7.4, 11.4),
-since each stamps both on what it writes.
+**The shape of these calls, decided where another was weighed**: the ids are derived inside the
+call from `appId` and `readingId`, so no id is an input or an answer (5.5); `findings`, `review`
+and `write` are the three functions above, and not members of `ReadingProjectData`; the answers
+are no input of the read, and `underTableChoices` applies them to what it gathered; the Project's
+side is an input, which step 3 calls, so part 12 asks `lib/lookup` for no reader of its own and
+the proof lane runs the same function; and the two birth writers take `(tx, scope, write)` with
+`write` holding `origin` and `at` (7.4, 11.4), since each stamps both on what it writes.
 
 **Which form of Copy R7 the review draws**, from a `ReviewTable` alone: where `choice.differs` is
 not empty, the first; where it is empty and `choice.options["use-commcare-hq"]` is `{ offered:
@@ -3113,37 +3330,31 @@ why: "fails-a-project-space-rule" }`: an app of the Project may publish that tab
 ### 14.2 Media
 
 ```ts
-/** `lib/deployment/reading/projectData/media.ts`. What the reading's `media` column holds. */
+/** `lib/deployment/reading/projectData/media.ts`. The media of one request. Never stored. */
 export interface ReadingMediaPlan {
-	/** One per file the document references, in `key` order. No reference and no place is stored. */
+	/** One per file the document references, in `key` order. */
 	readonly files: readonly { readonly key: string; readonly mediaType: HqMediaFile["mediaType"];
 		readonly multimediaId: string; readonly kind: MediaKind; readonly paths: readonly string[];
-		/** The asset id reserved for the file when it was first planned. Never replaced. */
-		readonly reservedId: MediaAssetId }[];
+		/** Part 12's `provisionalReadingMediaId(appId, mediaType, multimediaId)`: the id the
+		 *  document names the file by until the file is published. It never reaches storage. */
+		readonly provisionalId: MediaAssetId }[];
 	readonly verdicts: Readonly<Record<string, HqMediaVerdict>>;
-	/** By file key: what creation has published, written to the row at each recorded step. */
-	readonly published: Readonly<Record<string, PublishedReadingFile>>;
+	/** In a create: the bytes of each held file, by file key, from its verdict to its publication. */
+	readonly kept: ReadonlyMap<string, Buffer>;
+	/** In a create, after the publish: the asset each held file became, by file key. */
+	readonly published: Readonly<Record<string, MediaAssetId>>;
 }
-/**
- * A `z.strictObject` of the three members: `files` an array of strict objects (`mediaType` a
- * `z.enum` of `CommCareImage`, `CommCareAudio` and `CommCareVideo`, `kind` `z.enum(MEDIA_KINDS)`,
- * `reservedId` `mediaAssetIdSchema`), `verdicts` `z.record(z.string(), hqMediaVerdictSchema)`,
- * and `published` `z.record(z.string(), publishedReadingFileSchema)`.
- */
-export const readingMediaPlanSchema: z.ZodType<ReadingMediaPlan>;
-/** How a reading reserves an id: part 12's `provisionalReadingMediaId`, bound to the reading. */
-export type ReserveMediaId = (mediaType: HqMediaType, multimediaId: string) => MediaAssetId;
 
 export function readingMediaIndex(input: {
-	readonly source: HqAppSource; readonly plan: ReadingMediaPlan | null;
-	readonly reserve: ReserveMediaId;
+	readonly source: HqAppSource; readonly appId: string;
+	readonly plan: ReadingMediaPlan | null;
 }): ReaderMediaIndex;
 
 export function planReadingMedia(input: {
-	readonly source: HqAppSource; readonly references: readonly HqMediaReference[];
+	readonly source: HqAppSource; readonly appId: string;
+	readonly references: readonly HqMediaReference[];
 	/** The platforms of the declaration the draft proposes (`planHqMedia`'s `runsOn`, 2.1). */
-	readonly runsOn: readonly Platform[]; readonly previous: ReadingMediaPlan | null;
-	readonly reserve: ReserveMediaId;
+	readonly runsOn: readonly Platform[];
 }): { readonly plan: ReadingMediaPlan; readonly media: HqMediaPlan };
 
 export function readingMediaFindings(input: {
@@ -3154,74 +3365,34 @@ export function readingMediaFindings(input: {
 }): { readonly findings: readonly Finding[]; readonly playsOn: readonly Platform[];
       readonly complete: boolean };
 
-export function stageReadingMedia(input: {
-	readonly readingId: string; readonly projectId: string; readonly actorUserId: string;
-	readonly creds: CommCareCredentials; readonly plan: ReadingMediaPlan;
-	readonly maxFiles: number; readonly signal: AbortSignal;
-}): Promise<
-	| { readonly kind: "staged"; readonly plan: ReadingMediaPlan }
-	| { readonly kind: "failed"; readonly plan: ReadingMediaPlan; readonly failure: HqFailure }>;
-
-export function mergeReadingMediaPlans(theirs: ReadingMediaPlan, mine: ReadingMediaPlan): ReadingMediaPlan;
-
-export interface PublishedReadingFile {
-	readonly mediaType: HqMediaType; readonly multimediaId: string;
-	readonly assetId: MediaAssetId; readonly contentHash: string; readonly extension: string;
-	readonly hqPaths: readonly string[];
-}
-/** A `z.strictObject` of exactly those members; `assetId` by `mediaAssetIdSchema`. */
-export const publishedReadingFileSchema: z.ZodType<PublishedReadingFile>;
-export function stagedReadingFiles(plan: ReadingMediaPlan): readonly PublishedReadingFile[];
-
-export function publishReadingMedia(input: {
-	readonly readingId: string; readonly projectId: string; readonly actorUserId: string;
-	readonly creds: CommCareCredentials; readonly plan: ReadingMediaPlan;
-	readonly deadlineAt: number;
-}): Promise<
-	/** Each `plan` is the input's with this call's publications added to `published`. */
-	| { readonly kind: "more"; readonly plan: ReadingMediaPlan;
-	    readonly done: number; readonly total: number }
-	| { readonly kind: "published"; readonly plan: ReadingMediaPlan;
-	    readonly files: readonly PublishedReadingFile[] }
-	/** A lapsed file is gone from CommCare HQ or holds other bytes: its verdict is dropped. */
-	| { readonly kind: "refetch"; readonly plan: ReadingMediaPlan }
-	| { readonly kind: "failed"; readonly failure: HqFailure }>;
-
-export function discardReadingMedia(input: {
-	readonly projectId: string; readonly plan: ReadingMediaPlan;
-}): Promise<void>;
+/** Part 10's type (its section 4.2), one per path of each held file. */
+export function adoptedMediaFiles(plan: ReadingMediaPlan): readonly AdoptedMediaFile[];
 ```
+
+With `judgeReadingMedia` (2.2) and `publishKeptReadingMedia` (4.1), these are the media surface.
+`judgeReadingMedia` with `keep: false` reaches no store, so the proof lane's reading calls it as
+a read does (part 14, section 5.2).
 
 | Function | Is |
 |---|---|
-| `readingMediaIndex` | part 06's index, by 2.1's rows: a path with no entry is `no-entry`; an entry with a null id, an `unreadable` entry, an entry of type `CommCareMultimedia` and a file whose verdict is `missing` are `unreadable`; any other entry is `asset`, `mediaKind` the entry's kind, `assetId` the published file's where `plan.published` holds the file's key, else the plan's `reservedId`, else `reserve(...)`. So before any byte is fetched every path the map holds has the id it will keep until publication, and at creation the index is built from the row's own plan with no second input |
-| `planReadingMedia` | `planHqMedia` (2.1), then the stored plan: a file `previous` holds keeps its `reservedId`, its verdict and its `published` entry; a new file takes `reserve(...)`; a file the document no longer references leaves, with its verdict and its `published` entry |
+| `readingMediaIndex` | part 06's index, by 2.1's rows: a path with no entry is `no-entry`; an entry with a null id, an `unreadable` entry, an entry of type `CommCareMultimedia` and a file whose verdict is `missing` are `unreadable`; any other entry is `asset`, `mediaKind` the entry's kind, `assetId` the published asset's where `plan.published` holds the file's key, else the file's provisional id. With a null plan every mapped file is named by its provisional id, which is the reader's first run, before any byte is fetched |
+| `planReadingMedia` | `planHqMedia` (2.1), then one plan file per `HqMediaFile` with its provisional id, no verdict, nothing kept and nothing published |
 | `readingMediaFindings` | `media.findings`, then `mediaFindings` (2.4) and `mediaBudgetFinding` (4.3) |
-| `stageReadingMedia` | for at most `maxFiles` files with no verdict, `HQ_MEDIA_READ_CONCURRENCY` at a time: `fetchAndStageHqMediaFile` (2.2) with `stagingId` the file's `reservedId`, each verdict added to the plan. The first returned error stops the step: the plan reached so far and `classifyHqFailure(error, "media-file")` are `failed` |
-| `mergeReadingMediaPlans` | `theirs`, with each verdict and each `published` entry of `mine` for a key `theirs` lacks, so a `published` entry from either side is kept. Two verdicts of one key are equal: one `multimedia_id` is one file's bytes, judged by one function, and both `held` facts name the same `stagingId` and content hash. Two `published` entries of one key are equal too: publication finds a file by Project and hash |
-| `stagedReadingFiles` | one `PublishedReadingFile` per file whose verdict is `held`, `assetId` its `stagingId`: the files as a read step knows them |
-| `publishReadingMedia` | it skips every file `plan.published` holds. Until `deadlineAt`: `publishStagedMedia` (4.1) over the other held files. For each `lapsed` file: `readHqMediaFile` with `creds`, `validateSniffedMediaBytes`, and, where the content hash is the staged one, `publishReadyMedia` from memory with `assetId: staged.stagingId`. A `missing` answer, a refusal or another hash drops that file's verdict, and the answer is `refetch` with the plan less those verdicts (and with this call's publications), which part 12 writes; the row stays `ready` and a creation step fetches the dropped files with `stageReadingMedia`. A returned error is `failed`, and what the call published before it is found again by Project and hash on the next call. `more` where the deadline came first, with `done` the count of `plan.published` and `total` the count of held files. `published` where every held file is in `plan.published`, `files` being its entries in key order. Each answer's `plan` carries the publications of the call, and part 12 writes it at the row's revision: publication deletes each pending object (4.1), so the row is the one record that a file needs no second fetch. It writes nothing to the reading's row itself |
-| `discardReadingMedia` | best effort `deleteAsset` of each held file's pending key (`pendingGcsObjectKeyFor(projectId, stagingId, extension)`). It deletes nothing a ready row names: a ready file's key is `projects/...`, never `pending/...`. What it misses the bucket's rule deletes within a day |
+| `adoptedMediaFiles` | one `AdoptedMediaFile` per path of each file whose verdict is `held`: `hqPath` as the source spells it, `contentHash` and `extension` the verdict's, `assetId` the published asset's where the plan holds one and the provisional id otherwise. So before a publish two files of CommCare HQ's with the same bytes are two assets, and after it they are one, which is why a create checks once more under the published ids (part 12) |
 
-`media_total` is `plan.files.length` and `media_done` the count of files with a verdict.
+**The plan is made once in a request, from the reader's first run.** The reference list is the
+same whichever way the index answers, since `hqMediaReferencesOf` reads the resolved and the
+pending references alike (2.1). Where a file is judged `missing`, the index now answers
+`unreadable` for it, and part 12 runs the reader once more so the document holds no asset in that
+slot; the plan and its verdicts stand.
 
-**The shape of these calls, decided where another was weighed.** A staged file has no `media_assets`
-row (2.5), so the id a staged file is known by is its `reservedId`, the same id before and after
-staging; staged bytes live one day from the moment they are staged, and using them does not extend
-it, and the verdicts live as long as the reading.
-`planReadingMedia` takes the reader's references, not the document: a document holds asset ids and
-no path, and a reference with no file is in no document at all. `readingMediaFindings` takes the
-`HqMediaPlan` of this read, because the stored plan holds no place to put a finding at.
-`readingMediaIndex` and `planReadingMedia` take `reserve`, so B9 imports nothing of B10's
-`mediaIds.ts`. `publishReadingMedia` answers `refetch`, so a file that changed in CommCare HQ since
-it was judged is judged again by `stageReadingMedia` and never by the publisher.
-`discardReadingMedia` takes the Project, by which pending keys are named.
-
-**Part 12's decision, held here** (its Departure 14): publication is recorded on the row.
-`publishStagedMedia` deletes each pending object it publishes, so a creation that runs in more than
-one step could not tell a published file from a lapsed one by the bucket. `ReadingMediaPlan`
-therefore holds `published`, each answer of `publishReadingMedia` hands the plan back with the
-call's publications, and part 12 writes it at each recorded step.
+**The shape of these calls, decided where another was weighed.** `planReadingMedia` takes the
+reader's references, not the document: a document holds asset ids and no path, and a reference
+with no file is in no document at all. `readingMediaFindings` takes the `HqMediaPlan` of this
+read, because the plan of files holds no place to put a finding at. `readingMediaIndex` and
+`planReadingMedia` take the app's id and call part 12's `provisionalReadingMediaId` themselves,
+which names a file from the app's id and CommCare HQ's own two names for it, so the read and the
+create name the same file alike with nothing kept between them.
 
 **The declaration.** `readingMediaFindings().playsOn` is the platforms every held file plays on.
 Part 06's `DeclarationChoices` (its section 16.3) are narrowed by it in one place,
@@ -3233,11 +3404,13 @@ left the result is `kind: "choices"`, with `proposed` the index of that choice a
 `narrowedByHq` and `keepsWebApps` as they were. Where none is left the result is `{ kind: "none",
 blocking: [] }`, which no caller meets: `playsOn` is then empty, `readingMediaFindings` has raised
 `media-not-played-where-app-runs` (2.4), the read is an account, and acceptance, which takes the
-`choices` arm alone (part 09, section 2.2), is not called.
+`choices` arm alone (part 09, section 2.2), is not called. This is why a review is never answered
+before every file is judged: where the app can run depends on where its files play.
 
 ### 14.3 What acceptance reads
 
-Part 09 (B7) lands above B9 and imports three pure exports of it. None imports a type of B7.
+Acceptance (part 09, section 2.2) is handed the answers of three pure exports of this part. None
+of the three imports a type of acceptance's.
 
 ```ts
 /** `lib/deployment/reading/projectData/settlements.ts` (new). */
@@ -3275,25 +3448,29 @@ export function readingMediaRows(
   A hand-off neither settles gets none, and part 09's check 1 words what is left (its section 3).
 - **`readingLookupSnapshot`.** `definitions`: one per table the document reads (the tags of
   `reads.lookupFields`), under its binding's ids, in tag order. A table that comes in as CommCare
-  HQ's (`new`, `same-managed`, the answer `use-commcare-hq`, and a `choice` with no answer yet) is
-  the definition `readerLookupCatalog` gives it (5.5), named by its tag, with `rowsByTable` its
-  rows in CommCare HQ's order, each cell under its column's id. A table bound to a Project table as
-  it stands (`same-equal`, the answer `use-project`) is that table's own definition, with the
-  Project's rows from `gathered.project.rowsByTable`. `projectId` is the reading's Project and
-  `projectRevision` the revision step 3 read with `getLookupFixtureData`, both from
-  `gathered.project`. A row's `id` is the Project row's own, or, for a row of CommCare HQ's,
-  CommCare HQ's id for it (`HqFixtureRow.id`, cast to `LookupRowId`): no document names a row, and
-  the id is read only as an example in a finding's details.
+  HQ's (`new`, `same-managed`, and a `choice` whose `gathered.tables[i].choice` is null or
+  `use-commcare-hq`) is the definition `readerLookupCatalog` gives it (5.5), named by its tag, with
+  `rowsByTable` its rows in CommCare HQ's order, each cell under its column's id. A table bound to
+  a Project table as it stands (`same-equal`, and a `choice` whose `choice` is `use-project`) is
+  that table's own definition, with the Project's rows from `gathered.project.rowsByTable`. So the
+  snapshot acceptance is handed at the read holds every `choice` table as CommCare HQ's; at the
+  create's check under the answers, a `use-project` table is the Project's, which is the form
+  `projectDataReview` built to judge that offer (14.1). `projectId` is the Project the app comes
+  into and `projectRevision` the revision step 3 read, both from `gathered.project`. A row's `id`
+  is the Project row's own, or, for a row of CommCare HQ's, CommCare HQ's id for it
+  (`HqFixtureRow.id`, cast to `LookupRowId`): no document names a row, and the id is read only as
+  an example in a finding's details.
 - **`readingMediaRows`.** The media rows `exportReadinessFindings` takes as its third argument
   (`lib/doc/commitVerdicts.ts`: a `ReadonlyMap<string, MediaAssetRecord>` by asset id), from the
   held files' verdicts: one entry per file whose verdict is `held`, keyed by the id the document
-  names it by (`plan.published[key].assetId` where the file is published, else its `reservedId`).
+  names it by (`plan.published[key]` where the file is published, else its `provisionalId`).
   Each record takes `contentHash`, `mimeType`, `extension`, `sizeBytes`, `dimensions`,
-  `durationMs`, `mediaFormat`, `kind` and `originalFilename` from the verdict's `StagedMediaFile`,
-  `status: "ready"`, and `created_at` from `stagedAt`. `project_id`, `owner` and `gcsObjectKey` are
-  the empty string: the plan names no Project, and the gate's media rules read `status`, `kind`,
-  `mimeType`, `mediaFormat` and `sizeBytes` alone (`lib/commcare/validator/rules/media/`,
-  `lib/media/exportBudget.ts`). The map is acceptance's input and is never stored.
+  `durationMs`, `mediaFormat`, `kind` and `originalFilename` from the verdict's `JudgedMediaFile`
+  (2.2), and `status: "ready"`. `created_at` is the Unix epoch, and `project_id`, `owner` and
+  `gcsObjectKey` are the empty string: the plan names no Project and no time, and the gate's media
+  rules read `status`, `kind`, `mimeType`, `mediaFormat` and `sizeBytes` alone
+  (`lib/commcare/validator/rules/media/`, `lib/media/exportBudget.ts`). The map is acceptance's
+  input and is never stored.
 
 ---
 
@@ -3442,9 +3619,9 @@ For any other project space, upload it on the Lookup Tables page too, the
 same way as the file above.
 ```
 
-**The review, handed to part 13 (B11), which places it.** `projectDataReview(...)` in
-`lib/deployment/reading/projectData/review.ts` returns the data; the sentences are in
-`lib/publish/managedData.ts`.
+**The review.** Part 13 places these on the review (its sections 8.4 to 8.6, and R12 in its 7.1).
+`projectDataReview(...)` in `lib/deployment/reading/projectData/review.ts` returns the data; the
+sentences are in `lib/publish/managedData.ts`.
 
 | Id | Section of the review | Text |
 |---|---|---|
@@ -3464,9 +3641,9 @@ same way as the file above.
 | | under it, gone columns | {apps} read the column {column}, which CommCare HQ's table doesn't have. It stays, with no values. |
 | R9 | answer two | Use {Project}'s table |
 | | under it | This app reads {Project}'s rows in Preview. The table in {domain} stays as it is until someone publishes, and that publish asks before replacing it. |
-| R10 | not offered, by the offer's `why`: `needs-admin` / `managed-elsewhere` / `app-reads-a-missing-column` / `fails-a-project-space-rule` | An admin of {Project} can choose this. / {Project}'s table is managed in CommCare HQ ({otherDomain}), so it can't follow two project spaces. / This app reads the column {column}, which {Project}'s table doesn't have. / {Project}'s table holds something CommCare HQ won't take in {domain} as it is, so this app can't use it there. |
+| R10 | not offered, by the offer's `why`: `needs-admin` / `managed-elsewhere` / `app-reads-a-missing-column` / `fails-a-project-space-rule` | An admin of {Project} can choose this. / {Project}'s table is managed in CommCare HQ ({otherDomain}), so it can't follow two project spaces. / This app reads the column {column}, which {Project}'s table doesn't have. / {Project}'s table, as it stands, holds something this app couldn't be published or exported with, so this app can't use it. |
 | R11 | beside the choice, always | Or go back and add this app to another Project. |
-| R12 | while only step one has run and it found something | Nova checks pictures and sounds once everything else can come in. |
+| R12 | an account answered before the files are judged (part 12's `mediaChecked: false`) | Nova checks pictures and sounds once everything else can come in. |
 
 Which of R7's three forms is drawn is read from the `ReviewTable` alone, by 14.1's rule: the third
 ("managed in CommCare HQ from {otherDomain}") is chosen where `options["use-commcare-hq"]` is
@@ -3475,9 +3652,9 @@ second loses its last sentence where `use-project` is not offered for `fails-a-p
 `{otherDomain}` and `{column}` in R10 are the offer's `name`. Where no app reads the Project's
 table, `{apps}` clauses are dropped: R7 ends "with different {...}.", and its two equal forms end
 "managed in Nova." and "managed in CommCare HQ from {otherDomain}." before their next sentence.
-`{columns}` in R8 is
-`LookupChoiceOffer.retypedColumns`, and in T11 the labels of the table's columns whose type is not
-text, read from the page's own snapshot; the line is left out where there are none.
+`{columns}` in R8 is `LookupChoiceOffer.retypedColumns`, and in T11 the labels of the table's
+columns whose type is not text, read from the page's own snapshot; the line is left out where
+there are none.
 
 ---
 
@@ -3486,7 +3663,7 @@ text, read from the page's own snapshot; the line is left out where there are no
 Nothing here is run by this plan. Each test names its boundary and the failure it would catch.
 Where a pure case needs CommCare HQ's lookup or place answer, it starts from a retained one under
 `proof/hq-reads/lookups/` or `proof/hq-reads/places/`, decoded by part 05's readers, and changes
-the one value the case is about; none is written whole by hand. Part 14 names
+the one value the case is about; none is written out whole. Part 14 names
 `lookupTables.test.ts` and `places.test.ts` as what holds this part's readers outside proof 6 (its
 sections 5.1 and 7.5).
 
@@ -3497,10 +3674,11 @@ sections 5.1 and 7.5).
 | `lib/media/__tests__/validateSniffed.test.ts` | over the package's real byte fixtures: each accepted format passes with the metadata `validateMediaBytes` gives it under its true name; a PNG's bytes pass whatever name CommCare HQ had; random bytes and a TIFF are refused with the reason and `sniffedMime` of 2.3. SVG, four ways, each `svg-not-accepted` with `image/svg+xml`: bare `<svg`, after `<?xml ` (which `file-type` sniffs as `application/xml`), after a byte order mark and a comment, and in UTF-16. An XML document whose root is not `svg` is `mime-claim-mismatch` with `application/xml` | a name deciding the verdict; a refusal losing its sniffed type; an SVG with a declaration filed as Nova's to classify |
 | `lib/deployment/reading/projectData/__tests__/media.test.ts` | `planHqMedia` over a built source: every row of 2.1's table, among them an audio reference naming a `CommCareVideo` (the M4A entry, and the file in no `references`), a picture slot naming a sound (`unrecognized`), and an entry with a null id (no file, not no entry); two paths of one file become one `HqMediaFile`; a file only a mismatched reference names is not in `files`; 501 files give the budget finding and no file list is cut. `hqMediaRefusalEntry`: one refused fixture per row of its table, a format no row names gives `null`, and an Ogg sound refused for its codec gives `null`, not the video entry. `mediaFindings`: each verdict's finding, standing and `detail.name`; a file only Android plays in an app that runs in Web Apps gives `media-not-played-where-app-runs`. Two findings of different kinds are both reported. `hqMediaReferencesOf`: each row of its slot table, and a slot string outside it throws | a finding stopping the pass; a wrong entry id; a format silently accepted; a video handed to an audio slot and refused at the birth |
 | the same file | `mediaSlotDrawnOn` and `androidInstallCheckReaches`: each cell of 3.1 by slot, kind, platform and which of the two is missing (a question's audio with no entry is drawn in Web Apps and its image is not; a choice's media is drawn nowhere in Web Apps; the Register action is drawn nowhere on Android); 3.2's four rows over each slot, each of the three declarations and `contentValid` `"yes"`, `"no"` and null; a menu's audio is reached only when every form and earlier menu carries both | a missing file read as inert where a worker sees a prompt or a player, or a finding where nothing draws |
-| `.../__tests__/readingMedia.test.ts` | section 14.2's pure functions. `readingMediaIndex`: each of its rows; a path keeps one id from before staging to after it, and takes the published id once `plan.published` holds its file. `planReadingMedia`: a file `previous` holds keeps its id, its verdict and its `published` entry; a file no longer referenced leaves with both. `mergeReadingMediaPlans`: a verdict wins over none from either side, and a `published` entry of either side is kept. `stagedReadingFiles`: only held files. `readingMediaPlanSchema`: a plan with `published` round-trips, and an unknown member is refused. `narrowDeclarationsByMedia`: a choice whose platform no held file plays on leaves; the proposal stays where its choice remains and otherwise is the first choice left; `narrowedByHq` and `keepsWebApps` pass through; a `none` input comes back as it is. `readingMediaRows`: one `ready` record per held file under the id the document names, the published id once there is one, and none for a file with another verdict | a document whose asset ids change at the media step; a lost fetch between two drivers; a publication forgotten between two creation steps; a proposal moved though its choice was still offered |
-| `.../__tests__/lookupTables.test.ts` | `candidateLookupTags`: a tag in a form's instance source, in a suite expression, in a search prompt; a tag that is a prefix of another names both. `lookupTableFindings`: each row of 5.3, each cap one over and exactly at (`lookupCapExcess` with a hand-made `LookupRowsMeasure`); a cell holding a character XML cannot carry gives `table-cell-unrepresentable` naming its field; two findings on one table both reported. `columnLabelFor`: a field name of 120 characters is its own label, one of 121 and one of 255 are cut to 120. `lookupFixtureBudgetFinding`: two tables of 5,000 rows give the caps entry at the app. `lookupTableStanding`: each row of 7.1, among them an equal plain table with no sibling mapping (`choice`, `differs` empty), the same with a sibling mapping of that remote id (`same-equal`) and of another remote id (`choice`), and an equal table managed from another project space (`choice`, `use-commcare-hq` not offered); equality with a missing cell against an empty string, with rows in another order, with a typed column; each `LookupChoiceOffer` arm and `retypedColumns`; an equal, accounted-for Project table holding a cell that ends in a space is a `choice` whose `use-project` offer is `fails-a-project-space-rule`, and the same table without that cell is `same-equal`; a table managed from another project space that the person may not administer answers `managed-elsewhere`, not `needs-admin`. `resolveLookupBindings`: each row of 7.4's table, a `choice` with no answer binding the Project table's id as `use-commcare-hq` does. `readingLookupSnapshot`: a table that comes in as CommCare HQ's holds its rows under the binding's column ids in CommCare HQ's order, a table bound as it stands holds the Project's definition and rows, and `projectRevision` is the one step 3 read. `readingProjectDataFindingsFor` over a built `ReadingProjectData`, one case per rule of `lookupSelectSourceRowFindings` (no rows, a blank value, a value with white space at an end, a repeated value, a blank label): each gives one `table-choices-unusable` at the table naming the field, two rules failing on one table still give one finding, and a Project table bound as it stands that holds a character XML cannot carry gives `table-cell-unrepresentable`. `reviewTableSchema` and `reviewPlacesSchema`: `projectDataReview`'s answer round-trips, and a `choice` standing with a null `choice` is what the function never answers. `readerLookupCatalog`: a column per field in CommCare HQ's order, each `text`. `resolveTableChoices`: `missing`, `unknown` and `notOffered` | a table brought in that the app does not read; a first publish that asks about the table the app came with; a choice offered that cannot be written; a birth failing a label's CHECK; an app born unable to publish for a cell of a table it was bound to; a table's rows worded as Nova's mistake by acceptance |
-| `.../__tests__/places.test.ts` | `sourceMayReadPlaces`: `instance('locations')`, `instance("locations")`, `instance( 'locations' )`, the JSON-escaped and the XML-escaped quote, a form's `jr://fixture/locations` under another id, and a source that reads none. `planManagedPlaces`: each row of 11.4 in both modes; the digest ignores the order CommCare HQ listed places in. `managedPlacesOwnerFindings`: an owner rule with two places at its level below one owner, and with none, each give `owner-rule-needs-one-place`; with exactly one, nothing. | a refresh that advances on a reordered list; places never read for an app whose case list filter reads them; a birth refused by the organization's integrity step |
-| `lib/commcare/reader/__tests__/worldEntities.test.ts` (B6 lands the file with its `worldEntitiesFromReads` cases; B9 adds the `levelsFromHq` cases) | `worldEntitiesFromReads`: a slug in the grammar is minted with the resolver's UUID; a built-in worker slug and a slug outside the grammar are not. `levelsFromHq`: parent before child, the `caseFlow` of each of the four flag pairs, and a level whose code Nova cannot hold gives `place-not-holdable` and leaves `levels` with every level beneath it | a level setting invented from `administrative`; a worker property minted for a built-in slug; a draft holding a level the gate refuses |
+| `.../__tests__/readingMedia.test.ts` | section 14.2's pure functions. `readingMediaIndex`: each of its rows; with a null plan every mapped file is named by its provisional id, and a file takes its published id once `plan.published` holds its key. `planReadingMedia`: one plan file per `HqMediaFile`, with no verdict, nothing kept and nothing published; two calls with one `appId` give the same provisional ids. `readingMediaFindings`: a plan with every verdict is `complete`, and one that stopped at the byte ceiling is not and carries the budget finding. `adoptedMediaFiles`: one entry per path of each held file, two files of the same bytes two assets before a publish and one after. `narrowDeclarationsByMedia`: a choice whose platform no held file plays on leaves; the proposal stays where its choice remains and otherwise is the first choice left; `narrowedByHq` and `keepsWebApps` pass through; a `none` input comes back as it is. `readingMediaRows`: one `ready` record per held file under the id the document names, the published id once there is one, and none for a file with another verdict | a document whose asset ids differ between the read and the create; a review answered before every file is judged; a proposal moved though its choice was still offered |
+| `.../__tests__/lookupIds.test.ts` | `broughtInLookupTableId` and `broughtInLookupColumnId`: equal inputs give equal ids, and a change of any one input gives another; each id passes `LOOKUP_UUID_V7_PATTERN`; the time bits are the `readingId`'s; two fields of one table, and one field name under two tags, give different ids | a read and a create naming two tables; an id a lookup schema refuses inside the birth |
+| `.../__tests__/lookupTables.test.ts` | `candidateLookupTags`: a tag in a form's instance source, in a suite expression, in a search prompt; a tag that is a prefix of another names both. `lookupTableFindings`: each row of 5.3, each cap one over and exactly at (`lookupCapExcess` with a hand-made `LookupRowsMeasure`); a cell holding a character XML cannot carry gives `table-cell-unrepresentable` naming its field; two findings on one table both reported. `columnLabelFor`: a field name of 120 characters is its own label, one of 121 and one of 255 are cut to 120. `lookupFixtureBudgetFinding`: two tables of 5,000 rows give the caps entry at the app. `lookupTableStanding`: each row of 7.1, among them an equal plain table with no sibling mapping (`choice`, `differs` empty), the same with a sibling mapping of that remote id (`same-equal`) and of another remote id (`choice`), and an equal table managed from another project space (`choice`, `use-commcare-hq` not offered); equality with a missing cell against an empty string, with rows in another order, with a typed column; each `LookupChoiceOffer` arm and `retypedColumns`; an equal, accounted-for Project table holding a cell that ends in a space is a `choice` whose `use-project` offer is `fails-a-project-space-rule`, and the same table without that cell is `same-equal`; a table managed from another project space that the person may not administer answers `managed-elsewhere`, not `needs-admin`. `resolveLookupBindings`: each row of 7.4's table, a `choice` with no answer binding the Project table's id as `use-commcare-hq` does. `readingLookupSnapshot`: a table that comes in as CommCare HQ's holds its rows under the binding's column ids in CommCare HQ's order, a table bound as it stands holds the Project's definition and rows, and `projectRevision` is the one step 3 read. `readingProjectDataFindingsFor` over a built `ReadingProjectData`, one case per rule of `lookupSelectSourceRowFindings` (no rows, a blank value, a value with white space at an end, a repeated value, a blank label): each gives one `table-choices-unusable` at the table naming the field, two rules failing on one table still give one finding, and a Project table bound as it stands that holds a character XML cannot carry gives `table-cell-unrepresentable`. `reviewTableSchema` and `reviewPlacesSchema`: `projectDataReview`'s answer round-trips, and a `choice` standing with a null `choice` is what the function never answers. `readerLookupCatalog`: a column per field in CommCare HQ's order, each `text`. `resolveTableChoices`: `missing`, `unknown` and `notOffered`. `underTableChoices`: each answered tag takes its answer's binding and `choice`, the catalog follows, and nothing else of the data changes. `projectDataReview`, the offers of 7.2: a `choice` whose Project table holds a character XML cannot carry, or rows that cannot be the choices of the question that reads it, offers no `use-project`, with `fails-a-project-space-rule`; two `choice` tables whose larger forms together pass 10,000 rows offer no `use-project`, and the same two within it offer both | a table brought in that the app does not read; a first publish that asks about the table the app came with; a choice offered that cannot be written; a birth failing a label's CHECK; an app born unable to publish for a cell of a table it was bound to; a table's rows worded as Nova's mistake by acceptance; a review offering an answer the app could not be born on |
+| `.../__tests__/places.test.ts` | `sourceMayReadPlaces`: `instance('locations')`, `instance("locations")`, `instance( 'locations' )`, the JSON-escaped and the XML-escaped quote, a form's `jr://fixture/locations` under another id, and a source that reads none. `planManagedPlaces`: each row of 11.4 in both modes; the digest ignores the order CommCare HQ listed places in. `managedPlacesOwnerFindings`: an owner rule with two places at its level below one owner, and with none, each give `owner-rule-needs-one-place`; with exactly one, nothing. `readingProjectDataFindingsFor` over data whose `placesPastLimit` is set: one `places-over-nova-limit`, named `"12,400 places"` for a total of 12400 and `"more than 10,000 places"` for a null total, and no finding of a level or a place beside it | a refresh that advances on a reordered list; places never read for an app whose case list filter reads them; a birth refused by the organization's integrity step |
+| `lib/commcare/reader/__tests__/worldEntities.test.ts` | `worldEntitiesFromReads`: a slug in the grammar is minted with the resolver's UUID; a built-in worker slug and a slug outside the grammar are not. `levelsFromHq`: parent before child, the `caseFlow` of each of the four flag pairs, and a level whose code Nova cannot hold gives `place-not-holdable` and leaves `levels` with every level beneath it | a level setting invented from `administrative`; a worker property minted for a built-in slug; a draft holding a level the gate refuses |
 | `.../__tests__/settlements.test.ts` | `handOffSettlements`: a hand-off whose path `HqMediaPlan.claims` holds is `inert-claim`; one a finding names, at the media place or at the reference's place, is `finding`; a table tag a finding names is `finding`; a path that is both gets one settlement; a hand-off nothing judged gets none; each settlement carries its hand-off's own `artifact`, `where` and `key` | a hand-off settled twice or never, which acceptance's check 1 would word as Nova's mistake |
 | `lib/deployment/__tests__/lookupResourcePlan.test.ts` (extended) | 10.2's five arms; a sibling mapping with another remote id gives arm 5; any adopted sibling makes the push adopted with the earliest pair; a taken-over table with a re-minted id still compares by content | the sibling refusal coming back; an adoption attributed to the wrong person |
 | `lib/deployment/__tests__/managedReRead.test.ts` | `reReadManagedTablesForPublish` over controlled HQ answers (the `hq/` client's own test doubles for its transport): each row of 8.1's table, the character row among them; two stopping tables are both returned and nothing is refreshed; a table of another project space the publisher cannot read, or whose server is not the publisher's connection's, is `stale` and never stops; a refused rows read is classified `permission` and gives P3 | a publish that sends content reading a column that is gone; a refresh half applied before a stop |
@@ -3510,22 +3688,31 @@ sections 5.1 and 7.5).
 | `lib/deployment/__tests__/workerProvisionPlan.test.ts` (extended) | `workerProvisionProblems` reports no problem for a persona standing in a place `managedPlaceIds` holds, and still reports one for a place neither it nor the mappings hold; `planWorkerProvisioning` sends the `hq_location_id` | a worker refused for standing in a place CommCare HQ manages |
 | `components/builder/project-data/__tests__/projectDataModel.test.ts` (extended) | `tableEditability` for each of the three states under each of view, edit and delete | an edit control offered on a managed table (the state model; the page is Playwright's) |
 | `lib/collab/__tests__/lookupManifestFrame.test.ts` (extended) | a frame with `hq` parses; a plain table's entry has no `hq` key; a malformed `hq` fails the frame | a managed table reaching a tab as an editable one |
-| `lib/mcp/__tests__/servedSchemas.test.ts` (extended, with B12) | the two new tools' served inputs | an input drifting from this table |
+| `lib/mcp/__tests__/servedSchemas.test.ts` (extended) | the two new tools' served inputs | an input drifting from this table |
+
+**CommCare HQ controlled at the HTTP boundary (Vitest, no database).** The peer answers native
+`fetch` from part 05's retained answers, and no reader of `lib/commcare/hq` is replaced.
+
+| File | Holds | Would catch |
+|---|---|---|
+| `.../__tests__/mediaStore.test.ts` | `judgeReadingMedia`. The peer holds its answers open and counts: never more than four requests at once, never more than 64 MiB of the kinds' limits in flight, a video beside at most one sound. With `keep` false the answered plan holds no bytes; with `keep` true it holds each held file's and no other's; in neither does the storage module see a call. Over 500 files: no request at all. Once the held files pass 200 MB: no file is started after, those in flight finish, and the answer is `done`. A 5xx and then the file: one resend, and the verdict stands. Two 5xx: `failed` with the classified failure, and the requests in flight are aborted. `cancel` aborted part way: the requests in flight are aborted and the promise settles. A 404 is `missing`, a body past its kind's cap `over-limit` | a window that lets memory follow the app; a read that stores; bytes kept for a file that will not come in; an unbounded fetch; a wrong retry rule; work that outlives its request |
+| `.../__tests__/lookupTableStore.test.ts` | `readHqLookupTablesForReading`. Rows are asked for the candidates alone, one table at a time. A first page whose total is over `LOOKUP_MAX_ROWS` is `over-row-limit` with that total after one request for that table. The row read's resend (5.1), over part 05's retained `reading/fixture-rows-empty-field.json`: a 503 and then the rows, and the rows are read; a 500 and then a 500, and the table is `rows-unreadable`; a 500 and then a 503, and the call answers the second failure, which part 05 classifies `hq-unavailable`. A failed list read is returned as the error | one outage telling a person to fix a row that may be fine; a million rows read to say a table is too long; a table no form reads fetched |
 
 **Real Postgres (`*.postgres.test.ts`, one invocation per package).**
 
 | File | Holds | Would catch |
 |---|---|---|
 | `lib/lookup/__tests__/managed.postgres.test.ts` | **The refusal arm, one case per writer path of 6.3's table**, each driven through its production entry (`updateLookupTableName`, `updateLookupTableTag`, `addLookupColumn`, `updateLookupColumnLabel`, `updateLookupColumnWireName`, `moveLookupColumn`, `createLookupRow`, `updateLookupRow`, `deleteLookupRow`, `moveLookupRow`, `replaceLookupRows`, `applyLookupSchemaGovernance` for remove column and retype, `applyLookupAuthoringBatchInTransaction` for each `updateTables` operation kind) against a managed table: each throws `managed_in_hq`, the table's rows, columns and both revisions are unchanged, and the Project revision did not advance. The same calls succeed after the takeover pair is set. A table delete succeeds on an unreferenced managed table and is refused as `referenced` on a referenced one. A stale `expectedTableRevision` on a managed table answers `managed_in_hq`, not `conflict` | a writer that reaches a managed table by a path that forgot the purpose |
-| the same file | **The create arm**: tables are created with the predeclared table and column ids, every column `text`, the origin columns set; a field whose name is 200 characters long is created, its wire name whole and its label 120 characters; a tag already taken rolls the whole call back with rows written before the failure gone; one revision advance and one notice for three tables | a document naming an id the table does not have; a half-created set; a label that fails its CHECK inside the birth |
+| the same file | **The create arm**: tables are created with the table and column ids they are given, every column `text`, the origin columns set; a field whose name is 200 characters long is created, its wire name whole and its label 120 characters; a tag already taken rolls the whole call back with rows written before the failure gone; one revision advance and one notice for three tables | a document naming an id the table does not have; a half-created set; a label that fails its CHECK inside the birth |
 | the same file | **The refresh arm**: an equal digest advances nothing and stamps the two columns; changed rows advance `rows_revision` alone; a new field adds a column with the given id; a field gone with no reference removes its column; a field gone that an app's `lookup_column_references` edge names stays, empty, and is returned with the app; `adopt` mode on a plain table sets the origin and clears a takeover; `adopt` mode on a table holding an `int`, a `decimal` and a `date` column, each matched by a field of CommCare HQ's, leaves all three `text`, holds CommCare HQ's strings as they stand (`007` stays `007`), keeps the `lookup_column_references` edges of an app that reads them, and the table's fixture then builds (`buildLookupFixtures` does not throw); `adopt` mode with equal columns and rows still stamps `definition_revision`; `refresh` mode on a table taken over meanwhile throws `conflict`. A real concurrent `updateLookupRow` held at its lock runs after the refresh commits and is refused | a refresh that drops a column an app reads; a lost update between a refresh and an edit; CommCare HQ's text stored under a number column |
 | the same file | the two CHECKs: a row with half the origin columns, and a takeover with no origin, are each refused by the database | a writer leaving a table in no state |
 | `lib/organization/__tests__/managed.postgres.test.ts` | `writeManagedPlacesInTransaction` writes a three-level tree with parents resolved and `hq_location_id` set, and `applyOrganizationCommitIntegrity` run after it on the same transaction, over a document holding those levels and an owner rule with one place at its level, passes; each of `createLocation`, `updateLocation`, `moveLocation`, `setLocationArchived` is refused `managed-in-hq` with no row and no revision changed, and `describeArchiveImpact` on the same app answers its counts; a blueprint commit on a managed app that removes an occupied level, re-parents a level over its places, and makes a location property required over places with no value is refused with Copy O14, O15 and O16 in turn, and the same three commits on an app with no managed copy give today's sentences; `refreshManagedPlacesInTransaction` adds, updates, archives and restores by site code, keeps a place an `app_location_references` row names and reports it, and advances nothing on an equal digest | a place edit that would be pushed nowhere and shown in Preview; a refresh orphaning a persona; a locked read refused as a write; a level edit refused with a remedy Nova refuses |
 | `lib/deployment/__tests__/projectLookupStanding.postgres.test.ts` | **Derived ownership**, through `publishAppToHq` with the HQ client's transport answering as CommCare HQ would: app A publishes table T to a project space, then app B of the same Project publishes: B is not refused, pushes, and records its own mapping `nova-created`; where A adopted T, B's mapping is `adopted` with A's pair; an app of another Project with the same tag is still refused; A in recently deleted still counts; after A is deleted for good B is asked; B's drift check stops on a change made in CommCare HQ after A's push (the shared baseline) | the refusal that asks an app to take over Nova's own table; ownership leaking across Projects |
 | `lib/deployment/__tests__/managedTables.postgres.test.ts` | a publish to the managing project space with every table managed sends no workbook and writes no `lookup-table` mapping; with a changed row in CommCare HQ the copy is refreshed before the boundary reads it and the import's content sees the new generation; with a column the app reads gone it stops `hq_managed_data_changed`, the copy untouched; `manageLookupTableInNova` stamps the table's `definition_revision`, so its `tableRevision` in the next manifest moves, and writes no row; a publish after it records an `adopted` mapping attributed to the person who took it over, and stops `hq_changed` first where CommCare HQ's rows moved since the last refresh; `letHqManageLookupTable` takes CommCare HQ's rows and the next publish leaves the table out; a table handed back between preflight and the upload stops the publish `managed_table_handed_back` with Copy P18 and nothing sent. **Refresh, through its service**: `refreshManagedLookupTable` with CommCare HQ answering through undici's `MockAgent`, as `publishSequence.postgres.test.ts` answers a publish's reads: changed rows give `changed: "rows"` and the copy holds them; a table gone, a field property, a table over a cap and a cell holding a character XML cannot carry each leave the copy as it was with their outcome; a refused rows read gives `cannot-read`; an actor whose stored connection is on another server gives `cannot-read`, and one with none `not-connected` | a managed table written; a takeover that silently replaces a colleague's later upload; an open page left with a stale managed snapshot |
+| `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`, two cases | the tool over `managedTables.postgres.test.ts`'s fixtures | `error_type` `hq_managed_data_changed` with each item's sentence in `message`, and `managed_table_handed_back` with Copy P18. Catches either refusal falling to `hq_upload_failed` |
 | `lib/deployment/__tests__/managedPlaces.postgres.test.ts` | a publish to the managing project space sends no place batch and asks no `organization` plan feature; a publish to another plans the copy; `provisionWorkers` for a persona standing in a managed place is not refused by `workerProvisionProblems` and sends that place's `hq_location_id` | places patched in the space that manages them; a worker made standing nowhere, or refused |
-| `lib/deployment/reading/projectData/__tests__/readingProjectData.postgres.test.ts` | section 14.1 through `readReadingProjectData`, CommCare HQ answering through `MockAgent`: ids are minted once and the second call returns the same `minted`; a `choice` tag binds the Project table's id with and without an answer; a failed list read is `failed` with part 05's kind; `places: "always"` reads places for a source the test says reads none; a place list naming a level code the level list lacks reads both lists once more and then answers `failed` with `hq-unavailable`; a tag that meets a Project table carries that table's id and two revisions in `gathered.tables`, and `projectDataReview` copies them. `readingProjectDataFindingsFor`: a table Nova cannot hold raises its finding only where the reader read it; a tag in `unreadTables` that CommCare HQ's list lacks raises part 08's entry. `writeBroughtInLookupTablesInTransaction` and `writeBroughtInPlacesInTransaction`, in the order and at the point the seam calls them: the case inserts an app row on its own transaction, calls the two writers, then `lookupContextForAuthoritativeWrite` and `applyOrganizationCommitIntegrity`. The lookup context finds the tables, the integrity step passes, and a Project table changed after the read throws `BroughtInTableChangedError` and leaves no row. This is the whole of B9's case and it stays as it is: the seam itself, `writePreparedGenesisInTransaction`'s `afterAppInsert`, is B10's, and part 12's `birth.postgres.test.ts` holds the two writers running through it | the reading and the birth disagreeing on an id; a table found after the gate looked for it |
-| `lib/media/__tests__/stagedMedia.postgres.test.ts` (`@/lib/storage/media` replaced with `vi.mock`, as `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` replaces it: the package has no fake bucket) | `stageMediaBytes` writes the pending key of the id it was given and no row; `publishStagedMedia` publishes a ready row with the staging id, deletes the pending object, and on a second run returns the same asset by hash; bytes already in the Project return the existing asset's id; a download that rejects with `code: 404` is `lapsed` and nothing is published for it, and one that rejects with any other error rejects the call; `downloadAssetBytes` is called with the kind's cap; the caller losing `edit` before publication inserts nothing. `publishReadingMedia`: a lapsed file is read again through `MockAgent` and published under its reserved id; a lapsed file CommCare HQ no longer has answers `refetch` with its verdict gone; the `published` answer's plan holds every file in `published`; a second call handed that plan downloads nothing and publishes nothing; a call cut off by its deadline answers `more` with the files it published in `plan.published` | a file in Files before the app exists; a duplicate row on retry; a storage outage read as lapsed bytes |
+| `lib/deployment/reading/projectData/__tests__/readingProjectData.postgres.test.ts` | section 14.1 through `readReadingProjectData` over `postgresProjectSide`, CommCare HQ answering through `MockAgent`: two calls with one `appId` and `readingId` give the same table and column ids, and nothing is written by either (every table's row count is as it was); a `choice` tag binds the Project table's id; a failed list read is `failed` with part 05's kind; `places: "always"` reads places for a source the test says reads none; a place list past the limit sets `placesPastLimit` and reads no further page; a place list naming a level code the level list lacks reads both lists once more and then answers `failed` with `hq-unavailable`; a tag that meets a Project table carries that table's id and two revisions in `gathered.tables`, and `projectDataReview` copies them. The same function over a hand-made `ReadingProjectSide` that holds nothing answers every table `new`, which is the proof lane's binding. `readingProjectDataFindingsFor`: a table Nova cannot hold raises its finding only where the reader read it; a tag in `unreadTables` that CommCare HQ's list lacks raises part 08's entry. `writeBroughtInLookupTablesInTransaction` and `writeBroughtInPlacesInTransaction`, in the order and at the point the seam calls them: the case inserts an app row on its own transaction, calls the two writers, then `lookupContextForAuthoritativeWrite` and `applyOrganizationCommitIntegrity`. The lookup context finds the tables, the integrity step passes, a table created under the derived ids holds them, and a Project table whose standing or either revision moved after the read throws `BroughtInTableChangedError` and leaves no row. The seam itself, `writePreparedGenesisInTransaction`'s `afterAppInsert`, is part 12's, and its `birth.postgres.test.ts` holds the two writers running through it | the read and the create disagreeing on an id; a read that leaves a row; a table found after the gate looked for it; an app born on a Project table that changed after its offer was judged |
+| `lib/deployment/reading/projectData/__tests__/mediaStore.postgres.test.ts` (`@/lib/storage/media` replaced with `vi.mock`, as `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` replaces it: the package has no fake bucket) | `publishKeptReadingMedia`: each held file is uploaded once and inserted as one ready row with the judged facts and the name of 2.3, never more than two at once, and the answered plan holds every held file in `published` and no bytes; a file with another verdict is not published; two files of the same bytes become one asset under two keys; bytes the Project already holds return the existing asset's id and upload nothing; a second run over a fresh plan of the same bytes uploads nothing and inserts no row; the caller losing `edit` before publication throws `MediaPublishPermissionError` and inserts nothing; a storage failure rejects the call, and the files published before it are found by hash on the next run | a file in Files twice; a duplicate row on a retry; bytes held past their use; a file added for a person who may no longer add one |
 | `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` (existing, unchanged assertions) | the extraction changed no behavior of MCP's upload, its two permission errors among them | a regression in the path it was lifted from |
 | `lib/case-store/migrations/__tests__/hqBringInProjectData.postgres.test.ts` | `up` on a database holding plain tables, places and state rows leaves every row valid; `up` run a second time over its own result, with the ledger row erased, raises nothing; an insert and an update that name none of the new columns (the previous revision's statements) pass on a plain row, and the same update passes on a row whose `hq_*` columns are set; `down` restores the columns' absence; `lock_timeout` is 0 after `up` | a migration that fails over existing rows or on a replay; a CHECK the revision still serving can break |
 
@@ -3546,40 +3733,48 @@ two controls are offered to a connected member and replaced by Copy T4 for one w
 they do is proven in `managedTables.postgres.test.ts` through the services, with `MockAgent`
 answering. Manage in Nova reads no CommCare HQ, which is why it is the one action the spec drives.
 
-**The proof lane (part 14 owns the lane; B9 adds these, as its section 11.2 lists them).**
-`proof/views/test_lookup_upload.py::test_a_replacing_upload_leaves_an_unnamed_table_alone` (run R1).
-The targeted document `targeted-missing-media` and its Android and Web Apps reads (run R2). The
-capture: `proof/corpus/publish.ts` and `proof/corpus/targetPeer.ts`, whose peer answers the lookup
-table reads the `managed-data` preflight makes (part 14, section 2.5), with the matching case in
-`proof/corpus/__tests__/publish.postgres.test.ts`. The bases are part 14's and land in B13 (its
-section 6.2): `hq-media` exhibits a held path, a file two paths name and a menu icon whose path
-has no map entry; `hq-lookups` a table a select reads, one the form declares and nothing reads, and
-a table whose tag holds a hyphen (part 04); `hq-places` two levels with a location property, active
-and archived places and a form whose logic reads the worker's place. Its variants (its section
-7.2): on `hq-media`, a question image whose path has no map entry; on `hq-lookups`, a form that
-reads a tag CommCare HQ's table list lacks.
+**The proof lane (part 14 owns the lane).** This part adds three things to it.
+`proof/views/test_lookup_upload.py::test_a_replacing_upload_leaves_an_unnamed_table_alone` is an
+ordinary test of the lane with one expectation: the control of the fact "Executed during planning"
+decides by reading. The targeted document
+`targeted-missing-media` and its Android and Web Apps reads are run R2. And the capture:
+`proof/corpus/publish.ts` and `proof/corpus/targetPeer.ts`, whose peer answers the lookup table
+reads the `managed-data` preflight makes (part 14, section 2.5), with the matching case in
+`proof/corpus/__tests__/publish.postgres.test.ts`.
+
+The bases are part 14's (its section 6.2): `hq-media` exhibits a held path, a file two paths name
+and a menu icon whose path has no map entry; `hq-lookups` a table a select reads, one the form
+declares and nothing reads, and a table whose tag holds a hyphen (part 04); `hq-places` two levels
+with a location property, active and archived places and a form whose logic reads the worker's
+place. Its variants for this part are two rows of `proof/matrix/variants.json` (its section 7.2):
+on `hq-media`, a question image whose path has no map entry; on `hq-lookups`, a form that reads a
+tag CommCare HQ's table list lacks. A table with a field property and one with a row attribute are
+no variants, since both live in the lookup answers, which no variant changes: part 14 exempts
+their entries with `lookupTables.test.ts` named in each `note` as their evidence (its section
+7.5).
 
 ---
 
 ## Contracts and docs these changes make false
 
-Each lands in B9 unless B14 is named.
+Each sentence is written with the behavior it describes. The public sections that are new are
+written out under the table.
 
 | Where | Old | New |
 |---|---|---|
 | `lib/lookup/CLAUDE.md`, "Valid writes", after the lock order | (no sentence) | "`lockLookupTableForUpdate` takes the write's purpose. A table managed in CommCare HQ (`hq_server` set, no takeover) refuses an `author` write with `managed_in_hq` before its revision is compared; `remove-table` is allowed in every state; `hq-refresh` and `hq-management` are `managed.ts`'s alone. No writer reaches a table row another way." |
 | the same, "No code may hold Project state or a lookup table and later request an app lock." | as quoted | the sentence stands as written; add after it: "A birth that brings tables in from CommCare HQ is app-first like every app-bound writer: it inserts its own app row, which no other session can name, then takes Project state and writes the tables (`lib/db/appGenesis.ts`, the `afterAppInsert` seam), and requests no other app row after." |
-| the same, "Identity and tenancy", first bullet: "Tables, columns, and rows use the distinct server-minted UUIDv7 identities" | as quoted | the sentence stands; add: "A table brought in from CommCare HQ takes table and column ids minted from Postgres when its reading starts (`managed.ts::mintLookupIds`), so every step of the reading names the same ones." |
+| the same, "Identity and tenancy", first bullet: "Tables, columns, and rows use the distinct server-minted UUIDv7 identities" | as quoted | the sentence stands; add: "A table brought in from CommCare HQ takes table and column ids that are UUIDv7 too, derived from the bring-in's reading id and CommCare HQ's own names (`lib/deployment/reading/projectData/lookupIds.ts`), so its read and its create name the same ones with nothing stored. Its rows take server-minted ids, as every row does." |
 | the same, new section "Tables from CommCare HQ" | (none) | the three states of 6.1; what the refresh arm does to columns and rows; that every column of a managed table is text, and that taking CommCare HQ's table over a Project table sets every column to text with no stored value coerced; that `hq_canonical` is `lib/deployment`'s value of which `lib/lookup` reads `digest` and `fields[].name`; that a refresh with an equal digest advances no revision; and that a change of who manages a table stamps `definition_revision`, because every client reads editability from it |
 | the same, "Reads and realtime": "the two CommCare HQ modes turn it into the fixapi workbook" | as quoted | "the two CommCare HQ modes turn it into the fixapi workbook, leaving out a table CommCare HQ manages in the project space the upload is for, and putting such tables in a second workbook of the HQ app file" |
-| `lib/media/CLAUDE.md`, "Upload", after "MCP has no untrusted PUT round trip..." | (no sentence) | "Bringing an app in from CommCare HQ stages each file's validated bytes at the same `pending/<project_id>/<id>` key with no row at all (`stagedMedia.ts`), and publishes them at creation through `publishReadyMedia`, the one in-memory publisher MCP's upload also calls. The bucket's one-day rule is the only keeper of staged bytes; the reading keeps the verdict." |
+| `lib/media/CLAUDE.md`, "Upload", after "MCP has no untrusted PUT round trip..." | (no sentence) | "`publishReadyMedia.ts::publishReadyMedia` is the one in-memory publisher: MCP's upload calls it, and so does a create that brings an app in from CommCare HQ, once it knows it will create. A bring-in stages nothing: it judges each file's bytes in memory and publishes the held ones as ordinary ready files." |
 | the same, "Accepted formats": "`validate.ts::validateMediaBytes` is the format gate (extension allowlist → ...)" | as quoted | add: "`validateSniffedMediaBytes` is its entry for bytes with no trustworthy name: the format is sniffed first and the name built from it." |
-| root `CLAUDE.md`, the `lib/lookup` paragraph: the sentence that begins "every export mode carries the data: local `.ccz` export resolves their current names" and ends "shipped beside the app JSON for a manual import." | as it stands | "every export mode carries the data Nova manages: local `.ccz` export embeds every table as fixture bytes, and the two HQ modes build the fixapi workbook, pushed before the app's content on a direct upload and shipped beside the app JSON for a manual import. A table brought in from CommCare HQ is a copy that project space manages: Nova never writes it there, refuses edits to it, refreshes it before a publish, and ships it in a second workbook of the HQ app file." (B14) |
-| root `CLAUDE.md`, the `lib/deployment` paragraph: "never writes over a remote resource Nova cannot account for: a name clash refuses..." | as quoted | add after it: "A Project's table is accounted for when any of the Project's apps holds a live mapping for the table CommCare HQ has under that tag." (B14) |
-| `docs/architecture/contracts.md`, "Locations and restore scope", first paragraph | "Organization structure lives partly in the blueprint and partly in app-scoped rows, so mutations and row writes share the app-row lock discipline." | the sentence stands; add: "An app brought in from CommCare HQ whose logic reads places holds them as a copy that project space manages: every place write but the refresh is refused, a publish to that project space sends no place, and a publish to any other creates them from the copy. Levels and place information stay document entities and stay editable; level settings no CommCare HQ API returns take Nova's defaults and are said so in Organization." (B14) |
-| `docs/architecture/contracts.md`, "HQ deployment safety": "Remote-resource mappings additionally key the Nova resource UUID and store ownership/adoption, remote id, pushed identity, and revision." | as quoted | add: "A lookup table's standing in a project space is the Project's: a publish reads it from every app of the Project that holds a live mapping for the table CommCare HQ has under the tag, so a second app publishes the Project's own table without being asked to take it over." (B14) |
-| the same: "Nova never auto-adopts a same-named HQ resource, overwrites an unowned resource..." | as quoted | add: "A table or a set of places managed in CommCare HQ is never written in the project space that manages it. Manage in Nova is the one way a person hands such a table to Nova, and it is recorded on the table with who and when." (B14) |
-| `docs/architecture/contracts.md`, "One Postgres system": "Lookup definitions and rows are Project-scoped." | as quoted | add: "A table records where in CommCare HQ it came from and who manages it; an app's organization state records the same for its places." (B14) |
+| root `CLAUDE.md`, the `lib/lookup` paragraph: the sentence that begins "every export mode carries the data: local `.ccz` export resolves their current names" and ends "shipped beside the app JSON for a manual import." | as it stands | "every export mode carries the data Nova manages: local `.ccz` export embeds every table as fixture bytes, and the two HQ modes build the fixapi workbook, pushed before the app's content on a direct upload and shipped beside the app JSON for a manual import. A table brought in from CommCare HQ is a copy that project space manages: Nova never writes it there, refuses edits to it, refreshes it before a publish, and ships it in a second workbook of the HQ app file." |
+| root `CLAUDE.md`, the `lib/deployment` paragraph: "never writes over a remote resource Nova cannot account for: a name clash refuses..." | as quoted | add after it: "A Project's table is accounted for when any of the Project's apps holds a live mapping for the table CommCare HQ has under that tag." |
+| `docs/architecture/contracts.md`, "Locations and restore scope", first paragraph | "Organization structure lives partly in the blueprint and partly in app-scoped rows, so mutations and row writes share the app-row lock discipline." | the sentence stands; add: "An app brought in from CommCare HQ whose logic reads places holds them as a copy that project space manages: every place write but the refresh is refused, a publish to that project space sends no place, and a publish to any other creates them from the copy. Levels and place information stay document entities and stay editable; level settings no CommCare HQ API returns take Nova's defaults and are said so in Organization." |
+| `docs/architecture/contracts.md`, "HQ deployment safety": "Remote-resource mappings additionally key the Nova resource UUID and store ownership/adoption, remote id, pushed identity, and revision." | as quoted | add: "A lookup table's standing in a project space is the Project's: a publish reads it from every app of the Project that holds a live mapping for the table CommCare HQ has under the tag, so a second app publishes the Project's own table without being asked to take it over." |
+| the same: "Nova never auto-adopts a same-named HQ resource, overwrites an unowned resource..." | as quoted | add: "A table or a set of places managed in CommCare HQ is never written in the project space that manages it. Manage in Nova is the one way a person hands such a table to Nova, and it is recorded on the table with who and when." |
+| `docs/architecture/contracts.md`, "One Postgres system": "Lookup definitions and rows are Project-scoped." | as quoted | add: "A table records where in CommCare HQ it came from and who manages it; an app's organization state records the same for its places." |
 | `lib/deployment/CLAUDE.md`, "Preflight is a graph": "`project-data`, `organization` and `target-app` are the three edges that TALK to CommCare HQ" | as quoted | "`managed-data`, `project-data`, `organization` and `target-app` are the four edges that talk to CommCare HQ"; add the paragraph of 8.1 on `managed-data`, its refusal `hq_managed_data_changed`, and that it precedes the export boundary because it can change the lookup generation |
 | the same: "`plan-features`, titled "What this project space needs", asks CommCare HQ nothing and comes before every edge that does." | as quoted | "`plan-features`, titled "What this project space needs", asks CommCare HQ nothing and comes before every edge that writes to CommCare HQ or asks a person about a write. `managed-data` alone precedes it: it only reads CommCare HQ and refreshes Nova's copy of the tables CommCare HQ manages, and the export boundary must validate the refreshed generation. A publish refused later keeps that refresh, which is CommCare HQ's current state and nothing of the publish." |
 | the same, "Ownership, and why superseded rows are kept": "the push is planned against the ownership ledger" and the paragraph that begins "Recording is not optional on a refusal" | as they stand | add the two arms of 10.2 (a sibling's mapping; a takeover) and: "A table CommCare HQ manages in the target has no mapping and is in no workbook." The sentence "There is deliberately no arm for 'matched by name'" stands unchanged: a sibling's mapping accounts for a table by the Nova table's id, a takeover is a person's recorded act, and a tag met at a reading is bound by the review's rule of 7.1 before any app exists, never by a publish. This settles the research's step 6 row. |
@@ -3590,12 +3785,87 @@ Each lands in B9 unless B14 is named.
 | `lib/export/CLAUDE.md`: "`hq-upload` build the fixapi workbook (`lookupWorkbook`)" | as quoted | add `lookupTarget`, `managedLookupTables` and `managedLookupWorkbook`, that the HQ cell-text check judges only the tables a workbook carries, and that both cell-text findings end with the managed remedy for a table CommCare HQ manages |
 | `lib/deployment/CLAUDE.md`, the failure codes | (no entry) | `managed_table_handed_back`: a table became managed in CommCare HQ from the target between preflight and the workbook; nothing was sent |
 | `lib/commcare/surface/entries/expressions-and-data.json` | the four entries of 13.1 | as 13.1 |
-| `content/docs/project-data.mdx` (B14), "What happens to a table when you publish": "**Publishing to CommCare HQ** puts them on the project space before the app's content goes, and replaces their rows with the rows in Nova every time you publish." | as quoted | the bullet stands for a table Nova manages and gains two sentences: "A table managed in CommCare HQ is different: Nova never writes it in the project space that manages it, and checks before each publish that it still holds what your app reads. When several of your Project's apps read one table, each of them publishes it without being asked to take it over." The file also gains a section "Tables managed in CommCare HQ", in the words of T1 to T3, T9, T11 and T16: what the copy is, that Nova keeps it read-only, Refresh, Manage in Nova and what it means for the next publish, handing the table back, and a column that is gone in CommCare HQ |
+| `content/docs/project-data.mdx`, "What happens to a table when you publish": "**Publishing to CommCare HQ** puts them on the project space before the app's content goes, and replaces their rows with the rows in Nova every time you publish." | as quoted | the bullet stands for a table Nova manages and gains two sentences: "A table managed in CommCare HQ is different: Nova never writes it in the project space that manages it, and checks before each publish that it still holds what your app reads. When several of your Project's apps read one table, each of them publishes it without being asked to take it over." The file also gains the section "Tables managed in CommCare HQ", below |
 | the same, "If a cell contains a character CommCare cannot preserve ... You can remove the character" | as quoted | add: "For a table managed in CommCare HQ, you can take the character out there and refresh Nova's copy." |
 | the same, **The CommCare HQ app file** bullet | "comes as a zip with a `lookup-tables.xlsx` beside it" | add: "Tables managed in CommCare HQ come in a second file, `lookup-tables-managed-in-commcare-hq.xlsx`, which you leave out when you import into the project space that already has them." |
-| `content/docs/organization.mdx` (B14): "Nova authors this model, and publishing puts these places on your CommCare HQ project space." and "Publishing puts the places themselves on the project space." | as quoted | each gains "except places managed in CommCare HQ, which Nova copies and never changes there"; the file gains a section "Places managed in CommCare HQ", in the words of O2, O3 and O7: what the copy is, that places change in CommCare HQ and Refresh brings them in, that levels and place information stay editable, and the level settings Nova assumed |
-| `content/docs/publishing.mdx` (B14) | no section | a short section "Lookup tables and places managed in CommCare HQ": the `managed-data` check in the words of P1 and P2, and links to the two sections above, which hold the rest |
-| `content/docs/mcp/tools.mdx` (B14) | no rows | rows for `refresh_managed_data` and `set_lookup_table_management`, and the new result keys of `get_lookup_tables` and `get_organization` |
+| `content/docs/organization.mdx`: "Nova authors this model, and publishing puts these places on your CommCare HQ project space." and "Publishing puts the places themselves on the project space." | as quoted | each gains "except places managed in CommCare HQ, which Nova copies and never changes there"; the file gains the section "Places managed in CommCare HQ", below |
+| `content/docs/publishing.mdx` | no section | the section "Lookup tables and places managed in CommCare HQ", below |
+| `content/docs/mcp/tools.mdx` | no rows | the four rows below |
+| `docs/architecture/complex-apps.md`, "Export, publishing, and the deployment record" | "The `project-data`, `organization`, and project-space compatibility edges talk to HQ during preflight, each appearing only when the app carries that thing;" | "The `managed-data`, `project-data`, `organization`, and project-space compatibility edges talk to HQ during preflight, each appearing only when the app carries that thing. `managed-data` comes first: it reads the lookup tables CommCare HQ manages for the app, refreshes Nova's copy where only rows changed, and stops the publish where something the app reads is gone;" |
+
+The same section of `complex-apps.md` gains one more sentence, on a Project's table being
+accounted for in a project space, which follows a sentence about adoption and is written with it
+(part 10, "Contracts and docs these changes make false").
+
+The sibling plugin's `upload_to_hq` skill says a publish goes "along with the lookup tables it
+reads and the places in its organization", which is no longer true of data CommCare HQ manages.
+Part 13 holds the plugin's sweep and words that claim (its section 16.2). The skill's two bullets
+for this part's refusals are worded in section 12.4.
+
+**`content/docs/publishing.mdx`, a new section after "Changes made in CommCare HQ", "Lookup tables
+and places managed in CommCare HQ".**
+
+> Before a publish, Nova checks the lookup tables CommCare HQ manages for the app. When nothing
+> the app reads is missing, Nova sends none of them and refreshes its own copy. When a table
+> changed in CommCare HQ in a way the app depends on, such as a column it reads being removed,
+> Nova stops before sending anything and shows you what changed.
+> [Project data](/docs/project-data) and [Organization](/docs/organization) say what "managed
+> in CommCare HQ" means for a table and for places.
+
+**`content/docs/project-data.mdx`, a new section before "Who can do what", "Tables managed in
+CommCare HQ".**
+
+> When you bring an app in from CommCare HQ, the lookup tables it reads come with it, marked
+> **Managed in CommCare HQ**. Each one lives in its project space on CommCare HQ. Nova keeps a
+> copy so your apps and Preview can read it, and never changes it there.
+>
+> You can change the table on CommCare HQ's Lookup Tables page, then choose **Refresh from
+> CommCare HQ** on the table's page in Nova. Nova refreshes its copy before each publish too,
+> and the page shows when the copy was last refreshed. While CommCare HQ manages a table it
+> stays read-only in Nova, for you, for Nova in chat and for an MCP agent alike.
+>
+> **Manage in Nova** hands the table to Nova. From then on you change it in Nova, and each
+> publish to that project space replaces the table there with Nova's columns and rows. If
+> someone changes it in CommCare HQ after that, your next publish there stops and shows you
+> what changed before it sends anything. A Project admin can choose this, and Nova names the
+> apps that read the table before you confirm.
+>
+> **Let CommCare HQ manage it again** hands it back. Nova takes CommCare HQ's columns and rows
+> as they are right then and stops changing the table there. Changes made in Nova that were
+> never published there are replaced, and every column becomes text, as CommCare HQ holds it.
+>
+> If a column your apps read is gone in CommCare HQ, Nova keeps the column in its copy, with no
+> values, so those apps keep opening. Their next publish to that project space stops until the
+> column is back in CommCare HQ or the apps stop reading it.
+
+**`content/docs/organization.mdx`, a new section after "Places", "Places managed in CommCare
+HQ".**
+
+> When an app you brought in from CommCare HQ reads places, its places come in as a copy. They
+> live in the project space on CommCare HQ. Nova keeps the copy so Preview can show them, and
+> never changes them there.
+>
+> You can add or change places in CommCare HQ, then choose **Refresh from CommCare HQ** in
+> Organization. Nova refreshes the copy before each publish too. Levels and place information
+> stay yours to change in Nova.
+>
+> CommCare HQ doesn't tell Nova which levels hold workers or how far a worker's phone carries
+> places. Nova assumes every level holds workers and each worker carries their own branch. If
+> your project space is set up differently, you can match it in Organization so Preview shows
+> what workers see.
+
+Each sentence of the three sections that has a row in "Copy" says what the row says (T2, T3, T16,
+O2, O3, P1, P2), and the paragraphs on **Manage in Nova** and **Let CommCare HQ manage it again**
+say what section 9 does and what T9 and T11 ask.
+
+**`content/docs/mcp/tools.mdx`, four rows.**
+
+| Where | Text |
+|---|---|
+| the `get_lookup_tables` row | gains "A table with `managed_in_commcare_hq` (`project_space`, `refreshed_at`) is a copy of a table that lives in CommCare HQ: read it freely. Its rows and columns change in CommCare HQ, and changing them here is refused." |
+| the `get_organization` row | gains "`places_managed_in_commcare_hq` (`project_space`, `refreshed_at`) says the places are a copy of CommCare HQ's: levels and place information can still be changed, places cannot." |
+| a new row, `refresh_managed_data` | "Read a lookup table (`table_id`) or an app's places (`app_id`) of the Project (`project_id`) again from the project space that manages them, and answer what changed. Give exactly one of `table_id` and `app_id`. Requires `nova.hq.write`." |
+| a new row, `set_lookup_table_management` | "Hand a lookup table (`table_id`) of the Project (`project_id`) to Nova (`managed_by: \"nova\"`) or back to CommCare HQ (`\"commcare-hq\"`). With `confirmed: false` it answers what the change does and which apps read the table, and writes nothing; show that to the user and ask before sending `confirmed: true`. Requires `nova.hq.write`." |
 
 ---
 
@@ -3605,15 +3875,17 @@ Each numbered item is a decision of this part with its evidence. Some depart fro
 research or a contract of the repo, and say which. The others record an alternative that was
 weighed and not taken, as "Not done", so that an implementer who reaches for it finds the reason.
 
-1. **Staged bytes are kept one day, and the verdicts for as long as the reading lives** (2.5). Not
-   done: keeping the bytes seven days in the pending state. Evidence:
-   `config/media-bucket-policy.json` deletes `pending/` at one day;
-   `lib/storage/media.ts::verifyMediaBucketStoragePolicy` holds the bucket to that file exactly;
-   changing it is an apply outside a deploy, and step 6 ships by its stacks' ordinary deploys with
-   nothing run beside them (`../6-bring-in.md`, "Migrations and the cutover"); and it would keep
-   every abandoned browser upload six days longer. What the person loses is a second fetch when
-   they create more than a day after the read, during the creation's `publishing-media` phase
-   (part 12, Copy C4).
+1. **Nothing of a file is kept between the read and the create** (2.2, 4.1). Not done: staging
+   each file's validated bytes under the media contract's `pending/` prefix at the read, so the
+   create need not fetch them from CommCare HQ a second time. It would cost a storage layout with
+   no asset row (the contract's pending state is a `media_assets` row, and `lib/media/CLAUDE.md`,
+   "Two statuses", says a pending row a client never confirms is "never reaped"); a second
+   publication path, from stored bytes; a third path for bytes that lapsed after the bucket's one
+   day (`config/media-bucket-policy.json`, which `lib/storage/media.ts::
+   verifyMediaBucketStoragePolicy` holds the bucket to exactly); ids reserved to name the objects;
+   and bytes of an app at rest in Nova for a person who may never create it. What the second
+   fetch costs is a second or two for an app of ordinary size, and 4.3 bounds the rest. So one
+   path is built: fetch, judge, and at a create publish.
 2. **A Project table's standing is derived with no lock held from the plan to the workbook.** Not
    done: deriving it under the Project state lock. Evidence: `lib/deployment/CLAUDE.md`, "No lock
    spans the CommCare HQ round trips". Decision: 10.3, with the window stated.
@@ -3642,8 +3914,9 @@ weighed and not taken, as "Not done", so that an implementer who reaches for it 
 6. **From the research ("a table tagged `types` can be referenced but not adopted"; "its per-table
    caps grow to hold any table HQ holds").** Both stay `not-yet` in step 6 (5.3).
 7. **"Use CommCare HQ's rows" is not offered at the lookup drift stop.** Step 6 keeps one answer at
-   the stop, "Publish over this" (section 9; bringing CommCare HQ's changes in there is step 7's
-   `changes-made-in-hq`), and the table page gives "Let CommCare HQ manage it again", which takes
+   the stop, "Publish over this" (section 9; part 15 brings in changes to the app, and using
+   CommCare HQ's rows for a table Nova manages is not planned: `../7-rest-of-model.md`,
+   "Not planned"), and the table page gives "Let CommCare HQ manage it again", which takes
    CommCare HQ's columns as well as its rows; the stop's item names it (Copy P14). Not done: a
    second answer at the stop that replaces the rows alone, because CommCare HQ's table is its
    columns too (`lib/lookup/service.ts::replaceLookupRows` replaces rows under the table's current
@@ -3661,10 +3934,10 @@ weighed and not taken, as "Not done", so that an implementer who reaches for it 
     is drawn: `PromptToJson.parseSelect` sends no media), and a question's sound or video in Web
     Apps with no map entry (a player is drawn: `multimedia.html`). No cell is held to one side for
     want of a read.
-11. **Six circumstances join part 01's list in B9** (13.2), each a fact of a project space's data
-    that no manifest entry can name. Part 01 holds all six (its sections 8.3 and 9.3). The sixth,
-    `table-choices-unusable`, is part 09's ask: without it acceptance's check 2 would word a
-    table's rows as Nova's mistake.
+11. **Eight circumstances are this part's to raise** (13.2), each a fact of a project space's data
+    that no manifest entry can name. Part 01 holds all eight (its sections 8.3 and 9.3). One of
+    them, `table-choices-unusable`, is there for acceptance: without it check 2 would word a
+    table's rows as Nova's mistake (part 09, section 4).
 12. **From the research (worker and location properties "typed from how it reads them").** Nothing
     is typed; see "Claim corrected".
 13. **No document migration and no document slot.** Every new fact is a nullable column of a
@@ -3680,13 +3953,11 @@ weighed and not taken, as "Not done", so that an implementer who reaches for it 
     the person about a write, before they have confirmed what the project space needs; a read of
     CommCare HQ and a refresh of Nova's own copy is neither. The rule is restated so (Contracts),
     and a publish refused later keeps the refresh, which is what Refresh would have written.
-15. **Staged bytes take the media contract's `pending/` key and no `media_assets` row** (2.5). Not
-    done: fetching into the contract's existing pending state, because that state is a
-    `media_assets` row (`lib/media/CLAUDE.md`, "Two statuses"). Evidence: the same section says a
-    pending row a client never confirms is "never reaped (no row reaper today)", and a reading can
-    be removed or left for good with every file staged, so rows would accumulate in the Project's
-    table with nothing to delete them, where the bucket's rule deletes the bytes. No third asset
-    state is added: there is no asset at all until publication.
+15. **`readReadingProjectData` is handed the Project's side** (14.1). Not done: reading the
+    Project's tables, apps, sibling mappings and role inside the function. The proof lane reads
+    HQ-authored apps into a Project that holds nothing, and a function that reached Postgres
+    itself would leave the lane a copy of its steps to keep true beside it. With the side as an
+    input the lane runs the production function, and a pure test hands it a side of its own.
 16. **Every level CommCare HQ lists comes in once the app reads places, whether or not an
     expression names it** (11.2). Not done: bringing in only the levels the app's logic reads.
     Evidence: a place row names a level (`app_locations.level_uuid`),
@@ -3697,372 +3968,108 @@ weighed and not taken, as "Not done", so that an implementer who reaches for it 
     per slug read (11.5). A source that passes 11.1's text test and whose logic then reads no place
     keeps the levels and brings no place (11.1): the reader puts the levels on its draft before it
     has read an expression.
-17. **The surface of section 14, where another shape was weighed**: staged files have no row and
-    live one day; `mintLookupIds` lives in `lib/lookup/managed.ts` alone; findings, review and
-    write are functions of what the reader read, and not members of what the read returns;
-    `readReadingProjectData` reads the Project's side itself. Each is said with its reason in
-    section 14. Four things are part 12's decisions and are held here, each argued there at
-    source (its Departures 1, 12, 13 and 14): the two birth writers run at the `afterAppInsert`
-    seam (7.4, 11.4); a table that changed under the birth sends the row back to `reading` (7.4);
-    a `choice` tag binds the Project table's id before any answer (7.4); and publication is
-    recorded on the row, so `ReadingMediaPlan` holds `published` and a lapsed file that changed is
-    fetched again from a creation step while the row stays `ready` (14.2).
+17. **The surface of section 14, where another shape was weighed**: findings, review and write
+    are functions of what the reader read, and not members of what the read returns; lookup ids
+    are derived, and not minted from Postgres and kept (5.5). Each is said with its reason where
+    it is designed. Three things are part 12's decisions and are held here, each argued there at
+    source: the two birth writers run at the `afterAppInsert` seam (7.4, 11.4); a table that
+    changed under the birth is answered `read-again` (7.4); and a `choice` tag binds the Project
+    table's id before any answer (7.4).
 18. **Three exports for acceptance** (14.3). `handOffSettlements`, `readingLookupSnapshot` and
-    `readingMediaRows` are part 09's ask, taken whole: B7 does not compile without them, and each
-    is a pure function of values this part already holds.
+    `readingMediaRows` are what acceptance's input needs of this part (part 09, section 2.2), and
+    each is a pure function of values this part already holds.
 19. **Two functions live in the reader.** `levelsFromHq` and `worldEntitiesFromReads` are in
-    `lib/commcare/reader/worldEntities.ts`. Not done: placing them
-    under `lib/deployment/reading/projectData/` with the rest of this part, because the reader
-    calls both and may not import `lib/deployment`; `worldEntitiesFromReads` lands in B6 with the
-    stage that calls it.
+    `lib/commcare/reader/worldEntities.ts`. Not done: placing them under
+    `lib/deployment/reading/projectData/` with the rest of this part, because the reader calls
+    both and may not import `lib/deployment`.
+20. **A table's answer is applied to what the read gathered, and the offer is exact at the read**
+    (7.2, 14.1). Not done, first: handing the answers to `readReadingProjectData`. Both
+    requests run one read, the answers are checked against the review that read gives, and so
+    they are known only after it. Not done, second: leaving the Project's table to be judged for
+    the first time at the create, once the person had answered "Use {Project}'s table". A review
+    could then offer an answer that failed after the person chose Bring it in. So the offer is
+    made exact at the read: it stands only where the Project's table passes what a publish and an
+    export of this app hold a table to, each table counted at the larger of its two forms where
+    the tables are judged together. The create's check under the answers (part 12, section 5.3,
+    step 8) then finds nothing new, and the birth refuses a Project table whose revisions moved
+    since.
+21. **No refusal is built for a project space that manages one of the Project's tables.** A
+    replacing workbook upload leaves a table it does not name alone, read at source ("Executed
+    during planning"), so leaving a managed table out of the workbook is the whole of "never
+    written" (8.2). The lane keeps the control ("Tests").
 
 ---
 
-## Files by pull request
+## Files
 
-**B9.**
+No file is removed. No `/api` route is added, so `lib/hostnames.ts` takes no entry: every new
+browser call of this part is a Server Action.
 
-- New: `lib/media/publishReadyMedia.ts`, `lib/media/stagedMedia.ts` (`stageMediaBytes`,
-  `publishStagedMedia`), `lib/media/stagedMediaFile.ts` (`StagedMediaFile`,
-  `stagedMediaFileSchema`; pure); `lib/lookup/managed.ts` (`mintLookupIds`, `measureLookupRows`,
-  the create and refresh arms), `lib/lookup/managedRules.ts` (`LookupRowsMeasure`,
-  `lookupCapExcess`, `ManagedLookupContent`, `managedCanonicalSchema`; pure);
-  `lib/organization/managed.ts`;
-  `lib/deployment/managedData.ts`, `lib/deployment/managedDataActions.ts`;
-  `lib/deployment/reading/projectData/index.ts` (pure), `read.ts` (`readReadingProjectData`),
-  `reviewTypes.ts` (`LOOKUP_TABLE_CHOICES`,
-  `LookupTableChoice`, `LookupChoiceOffer`, `lookupChoiceOfferSchema`, `ReviewTable`,
-  `reviewTableSchema`, `ReviewPlaces`, `reviewPlacesSchema`), `review.ts` (`projectDataReview`),
-  `media.ts` (pure, with `readingMediaRows`), `mediaStore.ts` (`fetchAndStageHqMediaFile`,
-  `stageReadingMedia`, `publishReadingMedia`, `discardReadingMedia`), `lookupTables.ts` (pure,
-  with `readingLookupSnapshot`), `lookupTableStore.ts` (`readHqLookupTablesForReading`,
-  `writeBroughtInLookupTablesInTransaction`, `BroughtInTableChangedError`),
-  `places.ts` (pure: `documentReadsPlaces`, `sourceMayReadPlaces`, `planManagedPlaces`,
-  `managedPlacesOwnerFindings`), `placeStore.ts` (`writeBroughtInPlacesInTransaction`),
-  `settlements.ts` (`HandOffSettlement`, `handOffSettlements`); `lib/publish/managedData.ts`;
-  `lib/case-store/migrations/20261202000000_hq_bring_in_project_data.ts`;
-  `components/builder/project-data/ManagedTableBanner.tsx`, `ManagedTableDialogs.tsx`;
-  `components/builder/app-setup/ManagedPlacesBanner.tsx`; every test file of "Tests", among them
-  `lib/deployment/reading/projectData/__tests__/settlements.test.ts`; `proof/targeted/` document
-  `targeted-missing-media`.
-- The reader's B9 lines, as part 06 lists them (its "Files by pull request", B9):
-  `lib/commcare/reader/worldEntities.ts` gains `levelsFromHq`, and
-  `lib/commcare/reader/__tests__/worldEntities.test.ts` its cases; `lib/commcare/reader/structure.ts`
-  (`readStructure` puts the levels on the draft and raises none of their findings) with
-  `structure.test.ts`.
-- Changed: `lib/media/validate.ts` (`validateSniffedMediaBytes`); `lib/mcp/tools/uploadMediaAsset.ts`
-  (calls `publishReadyMedia`); `lib/lookup/writerTransaction.ts`, `service.ts`, `authoringBatch.ts`,
-  `schemaGovernance.ts`, `definitionSnapshot.ts`, `types.ts`, `errors.ts`, `actions.ts`;
-  `lib/collab/lookupManifestFrame.ts`; `lib/organization/writerTransaction.ts`, `service.ts`
-  (the two callers' purposes), `commitIntegrity.ts` (the managed sentences; three helpers
-  exported), `errors.ts`, `types.ts`; `lib/db/pg.ts`; `lib/case-store/migrations/index.ts`;
-  `lib/deployment/preflight.ts`, `lookupResourcePlan.ts`, `service.ts`, `store.ts`, `types.ts`
-  (`hq_managed_data_changed`, `managed_table_handed_back`), `workerProvisionPlan.ts` (both maps
-  and the `Pick`), `workers.ts`;
-  `lib/export/boundaryValidation.ts`; `lib/commcare/lookup/xmlText.ts`, `hqCellText.ts` (the
-  managed endings); `lib/publish/manualImportGuide.ts`;
-  `lib/commcare/multimedia/hqJsonExportArchive.ts` (`hqImportFileGuide`,
-  `buildHqJsonExportArchive`); `lib/mcp/tools/compileApp.ts` and `app/api/compile/json/route.ts`
-  (the two callers of both);
-  `lib/agent/tools/getLookupTables.ts` and `lib/agent/tools/organization.ts::getOrganizationTool`
-  (result keys, descriptions);
-  `lib/agent/authoring/reference.ts` (`AUTHORING_REFERENCE.expressions`, one sentence);
-  `scripts/test-schema.ts` (the `getOrganization` entry); `lib/models.ts`
-  (`MODEL_CONTEXT_VERSION`);
-  `lib/publish/hqFindings.ts`, `hqFindingCopy.ts` (the six circumstances of 13.2);
-  `lib/commcare/surface/entries/expressions-and-data.json`;
-  `app/api/projects/[projectId]/lookup/tables/[tableId]/import/route.ts` (the new code's status);
-  `components/builder/project-data/ProjectDataTableListScreen.tsx`, `ProjectDataTableScreen.tsx`,
-  `TableActions.tsx`, `projectDataInspector.tsx`, `ColumnInspectorBody.tsx`,
-  `LookupOrderingSection.tsx`, `useProjectData.ts`, `projectDataModel.ts`;
-  `components/builder/app-setup/OrganizationSection.tsx`, `PlacesSubsection.tsx`,
-  `LevelsSubsection.tsx`, `PersonasSubsection.tsx`; `proof/views/test_lookup_upload.py`;
-  `proof/corpus/publish.ts` and `proof/corpus/targetPeer.ts` (the peer answers the lookup table
-  reads the `managed-data` preflight makes; part 14 section 2.5), with the matching case in
-  `proof/corpus/__tests__/publish.postgres.test.ts`;
-  `e2e/lib/smokeProfiles.ts`, `e2e/lib/smokeSeedFactory.ts` and `e2e/seed.ts` (the seed profile
-  `managed-data`: an app whose table and places carry the origin columns, written through
-  `createManagedLookupTablesInTransaction` and `writeManagedPlacesInTransaction`);
-  `lib/lookup/CLAUDE.md`, `lib/media/CLAUDE.md`, `lib/organization/CLAUDE.md`,
-  `lib/deployment/CLAUDE.md`, `lib/export/CLAUDE.md`.
-- No new `/api` route, so no `lib/hostnames.ts` entry: every new browser call is a Server Action.
+**New.**
 
-**B6** (part 08's pull request) lands `lib/commcare/reader/worldEntities.ts` with
-`worldEntitiesFromReads`, exactly as 11.5 writes it, and
-`lib/commcare/reader/__tests__/worldEntities.test.ts` with that function's cases ("Tests"), beside
-the stage that calls it (part 08, "Files by pull request").
+| File | Holds |
+|---|---|
+| `lib/media/publishReadyMedia.ts` | `publishReadyMedia`, `ReadyMediaPublication`, `MediaPublishPermissionError` (4.1) |
+| `lib/lookup/managed.ts` | `measureLookupRows` (5.3), `ManagedOriginWrite`, the create and refresh arms, `ManagedRefreshReceipt` (6.4) |
+| `lib/lookup/managedRules.ts` | pure: `LookupRowsMeasure`, `lookupCapExcess` (5.3), `ManagedLookupContent` (6.4), `managedCanonicalSchema` (6.2) |
+| `lib/organization/managed.ts` | `ManagedPlaceWrite`, `ManagedPlacePlan`, `writeManagedPlacesInTransaction`, `refreshManagedPlacesInTransaction`, `ManagedPlacesRefresh` (11.4) |
+| `lib/commcare/reader/worldEntities.ts` | pure: `worldEntitiesFromReads` (11.5), `levelsFromHq` (11.2) |
+| `lib/deployment/managedData.ts` | the re-read before a publish (8.1), `baselineFromTableOrigin` (10.2), the three table services and the table view (9), `refreshManagedPlaces` (11.4), `readManagedPlacesView` (12.2) |
+| `lib/deployment/managedDataActions.ts` | the six Server Actions (9) |
+| `lib/deployment/reading/projectData/` | the thirteen files of section 14's table |
+| `lib/publish/managedData.ts` | every string of "Copy" but X1 and X2, with `managedLookupTableRefusal`, `organizationManagedRefusal` and `managedOrganizationCommitRefusal` |
+| `lib/case-store/migrations/20261202000000_hq_bring_in_project_data.ts` | 6.1 |
+| `components/builder/project-data/ManagedTableBanner.tsx`, `ManagedTableDialogs.tsx` | 12.1 |
+| `components/builder/app-setup/ManagedPlacesBanner.tsx` | 12.2 |
+| `proof/targeted/` document `targeted-missing-media`; `proof/android/test_missing_media.py`, `proof/webapps/test_missing_media.py` | run R2 |
+| `e2e/tests/app/managed-project-data.spec.ts` | "Tests" |
+| every new test file of "Tests" | as its row says |
 
-**B12** (part 13) registers `refresh_managed_data` and `set_lookup_table_management` (its section
-14.6) and holds stack B's one billed schema check, which sends `getLookupTables` and
-`getOrganization` (its section 15.3). **B14** (part 15) lands the root `CLAUDE.md`, `contracts.md`
-and public docs rows above. **B7** (part 09) holds the register entry
-`media-references-with-no-file-removed` (its section 11.2, row 33) and imports the three exports
-of 14.3. **B10** (part 12) calls section 14's surface and owns the `afterAppInsert` seam. **B13**
-(part 14) lands the bases `hq-media`, `hq-lookups` and `hq-places` and their variants.
+**Changed.**
 
----
+| File | Change |
+|---|---|
+| `lib/media/validate.ts` | `validateSniffedMediaBytes`, `SniffedMediaValidation` (2.3) |
+| `lib/mcp/tools/uploadMediaAsset.ts` | calls `publishReadyMedia`; maps `MediaPublishPermissionError` to today's two errors (4.1) |
+| `lib/lookup/writerTransaction.ts` | `LookupWritePurpose`; `lockLookupTableForUpdate`'s required purpose and the refusal (6.3) |
+| `lib/lookup/service.ts`, `schemaGovernance.ts`, `authoringBatch.ts` | each caller's purpose (6.3); `authoringBatch.ts` exports `createTable` and `insertRows`, and `createTable` takes its ids (6.4) |
+| `lib/lookup/types.ts`, `definitionSnapshot.ts` | `LookupHqOrigin`, and `hq` on the snapshot, the definition and the manifest entry (6.2) |
+| `lib/lookup/errors.ts`, `actions.ts` | `managed_in_hq` (6.3) |
+| `app/api/projects/[projectId]/lookup/tables/[tableId]/import/route.ts` | the new code's status (6.3) |
+| `lib/collab/lookupManifestFrame.ts` | the optional `hq` key (6.2) |
+| `lib/organization/writerTransaction.ts`, `service.ts`, `errors.ts` | the lock's purpose, the two callers' purposes, `managed-in-hq` (11.4) |
+| `lib/organization/commitIntegrity.ts` | the managed sentences; `reverseHopDestinationLevelUuids`, `reverseLocationOwnerIssue` and `ownerVerdictRows` exported (11.4) |
+| `lib/organization/types.ts` | `OrganizationSnapshot.hq` (12.2) |
+| `lib/db/pg.ts` | the nineteen columns (6.1) |
+| `lib/case-store/migrations/index.ts` | the migration's registration (6.1) |
+| `lib/deployment/preflight.ts` | the `managed-data` edge (8.1); `publishConfirmationNeeds`' fifth parameter and the `project-data` edge's reads (8.2, 10.2); `lookupRemoteChange`'s `handBackOffered` (9); the `organization` edge for managed places (11.4) |
+| `lib/deployment/lookupResourcePlan.ts` | `siblings`, `takenOver`, `adoption`, `baseline`, the five arms (10.2) |
+| `lib/deployment/store.ts` | `SiblingLookupMapping`, `readSiblingLookupMappings` (10.1); `recordPushedResources` writes the planned adoption pair (10.2) |
+| `lib/deployment/service.ts` | the read of the `hq_*` columns before the workbook goes (8.2); `projectSpaceConfirmations` (8.2) |
+| `lib/deployment/types.ts` | `hq_managed_data_changed`, `managed_table_handed_back` |
+| `lib/mcp/errors.ts`, `lib/mcp/tools/uploadAppToHq.ts` | the two tags, their arms and the description's sentences (12.4) |
+| `lib/deployment/workerProvisionPlan.ts`, `workers.ts` | `managedPlaceIds`, in both maps and the `Pick` (11.4) |
+| `lib/export/boundaryValidation.ts` | `lookupTarget`, `managedLookupTables`, `managedLookupWorkbook` (8.2, 8.3) |
+| `lib/commcare/lookup/xmlText.ts`, `hqCellText.ts` | the managed endings X1 and X2 (8.2) |
+| `lib/publish/manualImportGuide.ts` | `MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK`, the step kind and the step (8.3) |
+| `lib/commcare/multimedia/hqJsonExportArchive.ts` | `hqImportFileGuide`, `buildHqJsonExportArchive` (8.3) |
+| `lib/mcp/tools/compileApp.ts`, `app/api/compile/json/route.ts` | the two callers of both (8.3) |
+| `lib/agent/tools/getLookupTables.ts`, `lib/agent/tools/organization.ts::getOrganizationTool` | result keys and descriptions (12.4) |
+| `lib/agent/authoring/reference.ts` | `AUTHORING_REFERENCE.expressions`, one sentence (12.4) |
+| `scripts/test-schema.ts` | the `getOrganization` entry (12.4) |
+| `lib/commcare/surface/entries/expressions-and-data.json` | the four entries of 13.1 |
+| `components/builder/project-data/ProjectDataTableListScreen.tsx`, `ProjectDataTableScreen.tsx`, `TableActions.tsx`, `projectDataInspector.tsx`, `ColumnInspectorBody.tsx`, `LookupOrderingSection.tsx`, `useProjectData.ts`, `projectDataModel.ts` | 12.1 |
+| `components/builder/app-setup/OrganizationSection.tsx`, `PlacesSubsection.tsx`, `LevelsSubsection.tsx`, `PersonasSubsection.tsx` | 12.2 |
+| `proof/views/test_lookup_upload.py` | the control `test_a_replacing_upload_leaves_an_unnamed_table_alone` |
+| `proof/corpus/publish.ts`, `proof/corpus/targetPeer.ts`, `proof/corpus/__tests__/publish.postgres.test.ts` | the peer answers the lookup table reads the `managed-data` preflight makes (part 14, section 2.5), with the matching case |
+| `e2e/lib/smokeProfiles.ts`, `e2e/lib/smokeSeedFactory.ts`, `e2e/seed.ts` | the seed profile `managed-data`: an app whose table and places carry the origin columns, written through `createManagedLookupTablesInTransaction` and `writeManagedPlacesInTransaction` |
+| every extended test file of "Tests" | as its row says |
+| the files of "Contracts and docs these changes make false" | as each row says |
 
-## What this part needs of other parts
+**Moved.** The body of MCP's upload, with `withUploadPermission` and `recoverFailedMcpPublication`,
+from `lib/mcp/tools/uploadMediaAsset.ts` to `lib/media/publishReadyMedia.ts` (4.1).
 
-Each need is met by the part named, at the section named; part 15's is what this part hands the
-stack and the step 7 rewrite.
-
-- **Part 01 (`01-the-bar-and-the-manifest.md`, A2).** Its `READ_CIRCUMSTANCES`,
-  `CIRCUMSTANCE_STANDINGS` and `CIRCUMSTANCE_COPY` take the six rows of 13.2 in B9
-  (`places-over-nova-limit`, `place-not-holdable`, `media-not-played-where-app-runs`,
-  `table-cell-unrepresentable`, `owner-rule-needs-one-place`, `table-choices-unusable`), each
-  written out there with its code, standing, sentence and next step (its sections 8.3 and 9.3),
-  and its completeness test then holds them. Its section 3.5 row for
-  `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` ("an INERT
-  class ... and a `fix-in-hq` class") is met by 13.1: the entry itself becomes the INERT class and
-  a new REFUSED entry,
-  `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`, is the other.
-  Its appendix count for `media-files` moves by one REFUSED entry in B9. `media-file-unreadable`'s
-  "When" already says "on a slot a runtime reads"; 3.2, row 3, is that test.
-- **Part 04 (`04-names.md`, A9).** Its lookup grammar (section 9) is what `lookupTagSchema` and
-  `lookupWireNameSchema` hold when B9 lands, hyphen admitted, and its entries N4, N5 and N24
-  (section 11.2) take the names 5.3 sends them. The hand-off it asked for: this part reads no
-  grammar wider than its own, and a name outside it is a finding, never a late gate refusal.
-- **Part 05 (`05-reading-commcare-hq.md`, B1).** `readHqMediaFile` (its section 9),
-  `listHqLookupTables`, `readHqLookupTableRows` (3.2), `rowsHoldOtherThanOneValue`,
-  `listHqLocationTypes` and `listHqLocations` with their deadline parameter; `HqMediaMapItem` with
-  `unreadable` (7); `HqAppSource.logoRefs`; `HqFailure`, `classifyHqFailure` with its request kinds
-  `lookup-tables`, `lookup-rows`, `location-types`, `locations` and `media-file`, and
-  `hqReadCircumstance` (4); `getHqCredentials(userId, domain)`, its rename of
-  `getCredentialsForUpload` (11); `HQ_MEDIA_READ_CONCURRENCY` and `HQ_MEDIA_FILES_PER_STEP`; run G7.
-  The one project data deadline is opened by part 12's step 5 (its section 3.3) and handed to
-  `readReadingProjectData` as `within`.
-- **Part 10 (`10-identity-and-the-ledger.md`, B8).** `AdoptedMediaFile`, `assignMediaPaths` and the
-  path rows (its section 4.2); `externalKey`'s `organizationLevel`, `locationProperty` and
-  `userProperty` (2.2), which `lib/commcare/reader/identity.ts` holds from B2; the `server` and
-  `domain` it carries onto `app_deployment_resources` are not needed here (10.1 joins the
-  deployment row). Its G2, outcome C, lands as "Written and not yet run" says.
-- **Part 06 (`06-the-reader-forms.md`, B2 and B3) and part 07
-  (`07-the-reader-cases-menus-lists.md`, B4 and B5).** This part builds the three inputs part 06
-  names, in its types: `ReaderLookupCatalog` (`readerLookupCatalog`, 5.5), `ReaderOrganization`
-  (14.1) and `ReaderMediaIndex` (`readingMediaIndex`, 14.2). What it reads of them:
-  - `ReaderOrganization`: part 06 section 2.2 holds `{ levelCodes, levels }`; the structure stage
-    puts the levels on the draft from B9 and raises none of their findings, which
-    `readingProjectDataFindingsFor` raises where the app reads places. No API-key read lists a
-    project space's location properties, so the type names none, and the slugs an app reads are
-    learned from the app (11.5).
-  - `ReadFacts` holds `mediaReferences` and `pendingMedia: readonly PendingMedia[]`, which part
-    06's 17.3 already holds (every reference the index answered `no-entry` or `unreadable`), and
-    lists in the second, with the slot `unheld_itext`, each itext media form on a slot Nova holds
-    no media for whose path has no file, so `hqMediaReferencesOf` (2.1) sees every reference and
-    Android's install check is judged over all of them (3.2). The Register action's two carriers
-    reach it under the `MediaRefLocation` kinds part 02 (A5) adds.
-  - A `ReadOutcome` of kind `account` carries `unreadTables: readonly UnreadTable[]` and
-    `readsLocations` (part 06, section 2.2), so this part's findings for a table or a place Nova
-    cannot hold join the same account (14.1, `projectDataReadsOf`).
-  - The reader claims nothing for a pending media reference and for a select over a table the
-    catalog lacks, and hands each off (`ClaimLog.handOffs`, part 06, section 4.5). This part gives
-    the entry each stands under: `HqMediaPlan.claims` (2.1) and the findings of
-    `readingProjectDataFindingsFor` (14.1), which part 12 adds to the reading's claim log and
-    findings, and `handOffSettlements` (14.3) says which settled each.
-  - Part 07's `readNavMedia`, which resolves through the same `ReaderMediaIndex`; this part adds
-    no second reader of a media map.
-  - `lib/commcare/reader/worldEntities.ts` is this part's file in the reader: B6 lands it with
-    `worldEntitiesFromReads` and B9 adds `levelsFromHq` (part 06, section 2.1 and its "Files by
-    pull request").
-- **Part 08 (`08-the-reader-expressions.md`, B6).** `ExpressionReadEnv.lookup` is
-  `ReaderLookupCatalog.definitions`, a `LookupDefinitionIndex` (5.5). Its entry M2,
-  `expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant`, is the one this
-  part raises for a select over a table CommCare HQ does not have (5.1). And `readExpressions`
-  runs twice (its section 2.5): its first run returns `ExpressionReading.worldReads` (the
-  name-backed `session-user` fields and the `location_data` slugs it met) and nothing else is kept
-  of it; the reader calls `worldEntitiesFromReads`, adds the entities to its draft, and the second
-  run is the reading (11.5). A worker slug outside the property grammar stays B6's own finding or
-  its admitted `session-user` leaf. B6 lands `worldEntities.ts` and its test with that stage.
-- **Part 09 (`09-acceptance-and-the-first-publish.md`, B7).** B7 lands above B9 and imports its
-  pure exports; nothing here imports a type of B7.
-  - `FIRST_PUBLISH_CHANGES` holds row 33, `media-references-with-no-file-removed` (its section
-    11.2), whose predicate reads `mediaLeftOut`: `HqMediaPlan.inert.length`. Its
-    `MEDIA_REFERENCE_PATHS` are the slots `hqMediaReferencesOf` reads (2.1).
-  - `acceptReading` (its section 2.2) is handed `settlements` from `handOffSettlements`, `lookup`
-    from `readingLookupSnapshot`, `media.rows` from `readingMediaRows(plan)` and `media.files` from
-    `adoptedMediaFiles`, and `choices` from `narrowDeclarationsByMedia(draft.declaration,
-    readingMediaFindings(...).playsOn)` (14.2, 14.3). Its fixed-point re-read is handed the same
-    catalog, organization and media index as the reading.
-  - Its check 2 (its section 4) relies on four facts of this part: `table-choices-unusable` is
-    raised before acceptance, so no `LOOKUP_SELECT_SOURCE_*` finding reaches it;
-    `table-cell-unrepresentable` is judged over the snapshot, a bound Project table included
-    (5.3); a Project table that fails one of the three rules of a workbook to the reading's
-    project space is never `same-equal`, and its `use-project` offer is not offered (7.1, 7.2);
-    and the fixture budget is this part's finding (5.3).
-- **Part 12 (`12-the-reading-and-the-birth.md`, B10).** It calls the surface of section 14 and
-  nothing beneath it:
-  - Its `minted` column holds `PredeclaredLookupIds`, and it passes
-    `lib/lookup/managed.ts::mintLookupIds` as `mintIds`; `store.ts::mintLookupIds` is not made.
-  - Its step 5 (its section 3.3) calls `readReadingProjectData`, with `choices: null` at a read
-    step and the accepted answers at creation, and `places: "when-source-reads"`, then `"always"`
-    where the document reads places and `placesRead` is false (11.1).
-  - After the reader it calls `projectDataReadsOf`, then `readingProjectDataFindingsFor`, and for
-    a clean read `projectDataReview` and `readingProjectDataWrite`.
-  - A `choice` tag binds as 7.4 says: the Project table's id, before and after any answer.
-    Creation validates the answers with `resolveTableChoices`, answers an unanswered choice `held`
-    under part 01's `table-differs-in-project` and an unoffered one `choice_not_offered` (its
-    section 5.3).
-  - Its `media` column holds `ReadingMediaPlan`, parsed by `readingMediaPlanSchema`. A staged file
-    has no row and its id is the `reservedId`; it passes its `provisionalReadingMediaId`, bound to
-    the reading, as `reserve`. Staged bytes live one day.
-  - Its media step (its section 3.4) calls `stageReadingMedia`; its read step calls
-    `planReadingMedia` with `hqMediaReferencesOf(draft.facts)`, then `readingMediaFindings`, and
-    narrows the declaration with `narrowDeclarationsByMedia` before acceptance.
-  - Creation (its section 6.1) calls `publishReadingMedia` in recorded steps and writes each
-    answer's `plan` at the row's revision; on `refetch` it writes the plan and keeps the row
-    `ready`, and a creation step fetches the dropped files with `stageReadingMedia`.
-    `Gathered.mediaFiles` is `adoptedMediaFiles(files)`, `files` the `published` arm's.
-  - The two birth writers run at its `afterAppInsert` seam (its section 6.3), tables then places:
-    `writeBroughtInLookupTablesInTransaction(tx, { projectId, actorUserId }, { origin, tables:
-    write.tables, at })`, then `writeBroughtInPlacesInTransaction(tx, { appId, projectId,
-    actorUserId }, { origin, places: write.places, at })`, which takes a null `places`.
-    `BroughtInTableChangedError` and `tag_taken` return the row to `reading` with `review-changed`
-    (its section 6.5).
-  - "Remove" calls `discardReadingMedia({ projectId, plan })`.
-  - Its `types.ts` re-exports `ReviewTable` and `ReviewPlaces` from this part's `reviewTypes.ts`
-    (its section 5.1), and its `bringInInputSchema` reads `LOOKUP_TABLE_CHOICES` from the same
-    module.
-  - Its table of circumstances (its section 3.8) gains the rows of this part's six (13.2): each
-    makes a read an account.
-- **Part 13 (`13-the-experience.md`, B11 and B12).** The review places Copy R1 to R12 from
-  `projectDataReview` (its sections 8.4 to 8.6), draws the choice of 7.2 with the offers and each
-  of R10's four reasons (8.5), and passes the answers; `bring_in_hq_app` takes `table_choices` and
-  names the same reasons (14.4); B12 registers the two tools of 12.4 with their scopes (14.6) and
-  holds the billed check (15.3); the `upload_to_hq` skill's sweep covers "along with the lookup
-  tables it reads and the places in its organization", which is no longer true of data CommCare HQ
-  manages (16.2). It reads `LookupTableChoice`, `ReviewTable` and `ReviewPlaces` from
-  `reviewTypes.ts`, through `lib/deployment/index.ts`'s re-export.
-- **Part 14 (`14-proof.md`, A1 and B13).** Runs R1 and R2 as written (its section 11.2 lists them
-  for B9, with the capture's managed-table reads, its section 2.5). The bases `hq-media`,
-  `hq-lookups` and `hq-places` (6.2). Its variants for this part (7.2): on `hq-media`, a question
-  image whose path has no map entry; on `hq-lookups`, a form that reads a tag CommCare HQ's table
-  list lacks. A table with a field property and one with a row attribute are no variants, since
-  no variant patches a lookup answer: part 14 exempts their entries under `not-in-app-source`
-  with `lookupTables.test.ts` as their evidence, and exempts the two lookup entries of 13.1 under
-  `stated-by-its-part` (7.5). Its `runReadingCheck` builds `ReaderOrganization` as `{ levelCodes,
-  levels }`.
-- **Part 15 (`15-stack-contracts-and-exit.md`; B14).** The rows of "Contracts"
-  marked B14. In the step 7 rewrite: step 7's `changes-made-in-hq` group gains taking an
-  organization over (11.4) and the lookup drift stop's second answer (9); step 7's
-  `project-data-at-hq-size` group gains a table tagged `types`.
-
-## What other parts read from this one
-
-- **The surface of section 14, which is what part 12 (B10), part 09 (B7), part 13 (B11, B12) and
-  part 14 (B13) call and all they call**, every file but the last under
-  `lib/deployment/reading/projectData/`:
-  - `index.ts` (pure): `ReadingProjectData`, `ReaderProjectDataReads`,
-    `projectDataReadsOf`, `readingProjectDataFindingsFor`, `readingProjectDataWrite`,
-    `ReadingProjectDataWrite`, `resolveTableChoices`. `read.ts`: `readReadingProjectData`.
-  - `reviewTypes.ts` (client-safe; its only run-time import is `zod`): `LOOKUP_TABLE_CHOICES`,
-    `LookupTableChoice`, `LookupChoiceOffer`, `lookupChoiceOfferSchema`, `ReviewTable`,
-    `reviewTableSchema`, `ReviewPlaces`, `reviewPlacesSchema`. `ReviewTable` holds `tag`,
-    `standing`, `hqDigest`, `projectTable` and `choice`; `ReviewPlaces` holds `count` and `digest`.
-  - `review.ts`: `projectDataReview`.
-  - `media.ts` (pure): `ReadingMediaPlan` (with `published`), `readingMediaPlanSchema`,
-    `ReserveMediaId`, `readingMediaIndex`, `planReadingMedia`, `readingMediaFindings`,
-    `mergeReadingMediaPlans`, `stagedReadingFiles`, `PublishedReadingFile`,
-    `publishedReadingFileSchema`, `narrowDeclarationsByMedia`, `hqMediaReferencesOf`,
-    `adoptedMediaFiles`, `readingMediaRows`. `mediaStore.ts`: `stageReadingMedia`,
-    `publishReadingMedia`, `discardReadingMedia`.
-  - `lookupTables.ts` (pure): `PredeclaredLookupIds`, `predeclaredLookupIdsSchema`,
-    `LookupTableBinding`, `readerLookupCatalog`, `BroughtInTableWrite`, `readingLookupSnapshot`.
-    `lookupTableStore.ts`: `writeBroughtInLookupTablesInTransaction`,
-    `BroughtInTableChangedError`.
-  - `places.ts` (pure): `documentReadsPlaces`. `placeStore.ts`:
-    `writeBroughtInPlacesInTransaction`.
-  - The cut between each pure file and the store file beside it is section 14's "Pure files and
-    store files": part 12's check worker imports the pure files alone.
-  - `settlements.ts`: `HandOffSettlement`, `handOffSettlements`.
-  - `lib/commcare/reader/worldEntities.ts`, which the reader itself calls (parts 06 and 08):
-    `worldEntitiesFromReads` (B6), `levelsFromHq` (B9).
-- **Media, beneath that surface**: `validateSniffedMediaBytes`, `SniffedMediaValidation`
-  (`lib/media/validate.ts`); `publishReadyMedia`, `ReadyMediaPublication`,
-  `MediaPublishPermissionError` (`lib/media/publishReadyMedia.ts`);
-  `stageMediaBytes`, `publishStagedMedia`, `PublishedStagedMedia`,
-  `STAGED_MEDIA_PUBLISH_CONCURRENCY` (`lib/media/stagedMedia.ts`); `StagedMediaFile`,
-  `stagedMediaFileSchema` (`lib/media/stagedMediaFile.ts`);
-  `HqMediaReference`, `HQ_MEDIA_SLOTS`, `HqMediaSlot`, `HqMediaFile`, `HqMediaPlan`, `planHqMedia`,
-  `HqMediaVerdict`, `hqMediaVerdictSchema`, `mediaFindings`,
-  `mediaBudgetFinding`, `hqMediaRefusalEntry`, `mediaSlotDrawnOn` (slot, kind, platform, missing),
-  `androidInstallCheckReaches` (`lib/deployment/reading/projectData/media.ts`);
-  `fetchAndStageHqMediaFile` (`projectData/mediaStore.ts`).
-- **Lookup tables, beneath it**: `LookupHqOrigin`, `LookupWritePurpose`, the error code
-  `managed_in_hq` (`lib/lookup`); `mintLookupIds` (here and nowhere else), `measureLookupRows`,
-  `ManagedOriginWrite`, `createManagedLookupTablesInTransaction`,
-  `refreshManagedLookupTableInTransaction`, `ManagedRefreshReceipt` (`lib/lookup/managed.ts`);
-  `LookupRowsMeasure`, `lookupCapExcess`, `managedCanonicalSchema`, `ManagedLookupContent`
-  (`lib/lookup/managedRules.ts`);
-  `candidateLookupTags`, `HqLookupTableRead`, `lookupTagsRead`,
-  `lookupTableFindings` (a read and its measure; no list of fields), `lookupFixtureBudgetFinding`
-  (over the snapshot), `columnLabelFor`, `LookupTableStanding`, `lookupTableStanding`,
-  `resolveLookupBindings` (`lib/deployment/reading/projectData/lookupTables.ts`);
-  `readHqLookupTablesForReading` (`projectData/lookupTableStore.ts`).
-- **Managed data**: `refreshManagedLookupTable`, `manageLookupTableInNova`, `letHqManageLookupTable`,
-  `readManagedLookupTableView`, `readManagedPlacesView`, `ManagedTableOutcome`,
-  `ManagedPlacesOutcome`, `reReadManagedTablesForPublish`, `ManagedTableChange`,
-  `ManagedTablesReRead`, `baselineFromTableOrigin`, `refreshManagedPlaces`
-  (`lib/deployment/managedData.ts`); the six actions of `managedDataActions.ts`
-  (`refreshManagedLookupTableAction`, `manageLookupTableInNovaAction`,
-  `letHqManageLookupTableAction`, `readManagedLookupTableViewAction`, `refreshManagedPlacesAction`,
-  `readManagedPlacesViewAction`); the preflight check `managed-data`, which precedes
-  `plan-features`; the failure codes `hq_managed_data_changed` and `managed_table_handed_back`;
-  `publishConfirmationNeeds`' fifth parameter `managedTableIds` and `lookupRemoteChange`'s
-  `handBackOffered`; `PrepareExportBoundaryInput.lookupTarget`,
-  `PreparedExportBoundary.managedLookupTables` and `managedLookupWorkbook`;
-  `MANUAL_IMPORT_MANAGED_LOOKUP_WORKBOOK` (`lib/publish/manualImportGuide.ts`); the guide step kind
-  `managed-lookup-tables`; `hqImportFileGuide`'s `managedLookupWorkbook` and `managedLookupTables`
-  and `buildHqJsonExportArchive`'s `managedLookupWorkbook`.
-- **Ownership**: `SiblingLookupMapping`, `readSiblingLookupMappings` (`lib/deployment/store.ts`);
-  `PlanLookupResourcePushInput.siblings` and `takenOver`; `PlannedLookupPush.adoption` and
-  `baseline`.
-- **Places**: `OrganizationSnapshot.hq` (`server`, `domain`, `refreshedAt`, `leftOut`); the error
-  code `managed-in-hq`; `lockOrganizationForWrite`'s `purpose` (`"author" | "hq-refresh" |
-  "read"`); `ManagedPlaceWrite`, `ManagedPlacePlan`, `writeManagedPlacesInTransaction` (the
-  `lib/organization` writer the birth reaches through `writeBroughtInPlacesInTransaction`),
-  `refreshManagedPlacesInTransaction`, `ManagedPlacesRefresh` (`lib/organization/managed.ts`);
-  `reverseHopDestinationLevelUuids`, `reverseLocationOwnerIssue` and `ownerVerdictRows`, exported
-  from `lib/organization/commitIntegrity.ts`; `sourceMayReadPlaces`, `planManagedPlaces`,
-  `managedPlacesOwnerFindings` (`lib/deployment/reading/projectData/places.ts`); `tableEditability`
-  and `useTableIsEditable` (`components/builder/project-data/`); the provisioning
-  plan's `managedPlaceIds`, read by `workerProvisionProblems` and `planWorkerProvisioning`.
-- **DDL**: the migration `20261202000000_hq_bring_in_project_data`; `lookup_tables.hq_server`,
-  `hq_domain`, `hq_remote_id`, `hq_canonical`, `hq_brought_in_at`, `hq_brought_in_by`,
-  `hq_refreshed_at`, `hq_refreshed_by`, `hq_taken_over_at`, `hq_taken_over_by`; the constraints
-  `lookup_tables_hq_origin_whole` and `lookup_tables_hq_takeover_attributed`; the index
-  `lookup_tables_hq_origin`; `app_organization_state.hq_server`, `hq_domain`, `hq_places_digest`,
-  `hq_left_out`, `hq_brought_in_at`, `hq_brought_in_by`, `hq_refreshed_at`, `hq_refreshed_by` and
-  `app_organization_state_hq_origin_whole`; `app_locations.hq_location_id`.
-- **Manifest and findings**: the new entry
-  `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`; the value classes
-  `path-without-entry-nothing-draws` and `path-without-entry-a-runtime-draws`; the circumstances
-  `places-over-nova-limit`, `place-not-holdable`, `media-not-played-where-app-runs`,
-  `table-cell-unrepresentable`, `owner-rule-needs-one-place` and `table-choices-unusable`, all six
-  landing in B9; the register entry `media-references-with-no-file-removed` (part 09's row 33).
-- **Copy**: `lib/publish/managedData.ts` (T1 to T21, O1 to O17, P1 to P18, G1, R1 to R12,
-  `managedLookupTableRefusal`, `organizationManagedRefusal`, `managedOrganizationCommitRefusal`);
-  X1 and X2 in `lib/commcare/lookup/xmlText.ts` and `hqCellText.ts`. R10 holds four sentences, one
-  per reason an answer is not offered.
-- **MCP**: the tools `refresh_managed_data` and `set_lookup_table_management` (registered by B12);
-  the result keys `managed_in_commcare_hq` and `places_managed_in_commcare_hq`;
-  `MODEL_CONTEXT_VERSION` `v7-hq-round-trip-bring-in.b9`.
-- **Runs**: R1 and R2; the landing of part 05's G7 and part 10's G2 outcome C.
-- **Facts**: one `multimedia_id` is one file's bytes; a picture with no map entry draws nothing in
-  Web Apps, a question's sound or video with none draws a player with nothing to play, and a
-  choice's media is drawn nowhere in Web Apps; on Android a missing file draws inside a form and in
-  a list's image column and nowhere on a menu, a form's tile or the Register action; an audio slot
-  whose map entry CommCare HQ files as video never receives the bytes; a workbook upload leaves a
-  table it does not name alone; `FixtureResource`
-  serves strings and asks for Edit Apps, and a field a row lacks is an empty element on a device
-  either way; the place API returns active places only, no external id, and no level setting but
-  `shares_cases` and `view_descendants`; staged bytes live one day and have no row, and verdicts
-  live as long as the reading; a managed table and managed places have no ledger mapping; every
-  column of a managed table is text; a change of who manages a table stamps its
-  `definition_revision`; a Project table's standing in a project space is the Project's; a tag
-  that meets a Project table binds that table's id before and after any answer; a Project table
-  that a workbook to the reading's project space would refuse is never bound as it stands; the
-  birth writes tables and places inside the genesis tail, at the `afterAppInsert` seam, after the
-  app row and before the lookup context and the organization's integrity step; publication is
-  recorded in the reading's plan; `media-not-played-where-app-runs` is raised exactly where no
-  platform the content runs on plays every held file; a brought-in document names no place.
+Other parts' files hold four things this part states and does not write: the eight circumstance
+rows and their blocks (part 01, sections 8.3 and 9.3), the reader's structure stage that calls
+`levelsFromHq` (part 06, section 2.3), the register entry `media-references-with-no-file-removed`
+(part 09, section 11.2), and the two MCP tools' registration (part 13, sections 14.1 and 14.6).

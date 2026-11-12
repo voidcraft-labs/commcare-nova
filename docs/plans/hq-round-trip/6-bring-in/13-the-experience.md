@@ -2,56 +2,46 @@
 
 This part plans everything a person, an agent or a reader of the docs meets when an app is brought in
 from CommCare HQ: the three entry points; the flow as one URL-backed surface of `/build/new` (choose,
-read, a stop, the account, the review, create, land); the home list's rows; what the Publishing card,
-the Publish dialog, the drift stop and a restore say afterwards; the components, their pure state
-model and their Playwright specs; the six MCP tools stack B registers and what five existing tools
-gain; the guide, `MODEL_CONTEXT_VERSION` and the billed schema check for stack B; the nova-plugin
-skill and its sweep; and the public docs. It plans pull requests **B11** (the experience) and **B12**
-(MCP, the guide, the plugin skill, versions, the billed check) in full. It draws exactly the states,
-answers and sentences that part 01 (`01-the-bar-and-the-manifest.md`, A2, A3), part 05
-(`05-reading-commcare-hq.md`, B1), part 09 (`09-acceptance-and-the-first-publish.md`, B7), part 10
-(`10-identity-and-the-ledger.md`, B8), part 11 (`11-project-data.md`, B9) and part 12
-(`12-the-reading-and-the-birth.md`, B10) define, and adds no reading state. Pull requests are named
-by the plan's ids (A1 to A11, B1 to B15; the top-level file `../6-bring-in.md`, "Work items"), parts by
-their number and file name. The other parts it cites are part 04 (`04-names.md`, A9), part 06
-(`06-the-reader-forms.md`, B2, B3), part 07 (`07-the-reader-cases-menus-lists.md`, B4, B5), part 08
-(`08-the-reader-expressions.md`, B6), part 14 (`14-proof.md`, A1, B13) and part 15
-(`15-stack-contracts-and-exit.md`, A10, A11, B14, B15). A citation "(part 12, 4.3)" is section 4.3 of
-that part's file. Stack B's order is B1 to B6, B8, B9, B7, B10, B11, B12, B13, B14, B15 (part 09,
-Departure 14), so B7 sits above B8 and B9 and beneath B10.
+read, a stop, the account, the review, create, land); what the home list shows; what the Publishing
+card, the Publish dialog, the drift stop and a restore say afterwards; the components, their pure
+state model and their Playwright specs; the six MCP tools this part registers and what five existing
+tools gain; the guide's paragraph; the nova-plugin skill and its sweep; and the public docs. It draws
+exactly the answers and sentences that part 01 (`01-the-bar-and-the-manifest.md`), part 05
+(`05-reading-commcare-hq.md`), part 09 (`09-acceptance-and-the-first-publish.md`), part 10
+(`10-identity-and-the-ledger.md`), part 11 (`11-project-data.md`) and part 12
+(`12-the-reading-and-the-birth.md`) define. It adds nothing a server stores: a read and a create are
+part 12's two requests, and everything between them lives in the page's address and the tab's own
+state. The other parts it cites are part 06 (`06-the-reader-forms.md`), part 08
+(`08-the-reader-expressions.md`) and part 15 (`15-changes-made-in-commcare-hq.md`), which owns
+everything a person meets when a change made in CommCare HQ is brought in. A citation "(part 12,
+5.1)" is section 5.1 of that part's file; where a part's section is named and not numbered, the
+name is its heading.
 
-Citations are `path::symbol`: Nova at `main` `15a00a97`, and the Dimagi checkouts at the pins
+Citations are `path::symbol`: Nova at `main` `1f103305`, and the Dimagi checkouts at the pins
 `proof/pins.json` names: commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android
 `7a5584475580`, commcare-connect `046c7fd78081`, formplayer `24383ac71bfb`, Vellum `01215f251c57`. This
 part couples to CommCare HQ in one place of its own, the addresses of five HQ pages the account links
 to (section 7.4), read at `d6c6e16d8ae1` and lifecycle-cited there. Every other HQ fact it shows a
 person is another part's, cited where it is used.
 
-Versions: `lib/models.ts::MODEL_CONTEXT_VERSION` is `"v6-hq-round-trip-case-writes.14"` at `15a00a97`
-and `"v7-hq-round-trip-bring-in.b9"` beneath B11: B6 sets `.b6` (part 08's opening) and B9 sets
-`.b9` (part 11's opening), each for a guide sentence, and no other pull request of stack B beneath
-B11 moves it. B11 moves nothing. B12 moves it to `"v7-hq-round-trip-bring-in.b12"`, because it adds
-one paragraph to the authoring guide (section 15). `lib/db/appTests.ts::RUNTIME_VERSION` stays `19`,
-the value A9 leaves (part 04, 3.4): no pinned document and no evaluator changes in B11 or B12.
-
-| Section | Owns | Pull request |
-|---|---|---|
-| 2 | the three entry points | B11 |
-| 3 | the flow as one surface: where it mounts, its URL, what a refresh does, its pure state model | B11 |
-| 4 | choosing a Project, a project space and an app; the picker's route and the connection's | B11 |
-| 5 | reading, with its named steps | B11 |
-| 6 | a stop | B11 |
-| 7 | the account | B11 |
-| 8 | the review | B11 |
-| 9 | creating, landing, and what the builder shows first | B11 |
-| 10 | the home list's rows and the empty state | B11 |
-| 11 | after the app is in: the Publishing card, the first publish, the drift stop, a restore | B11 |
-| 12 | component inventory, primitives, state | B11 |
-| 13 | accessibility; empty, error and loading states of every screen | B11 |
-| 14 | MCP: six tools registered, five tools changed, error shapes, budgets, `servedSchemas` | B12 |
-| 15 | the guide, `MODEL_CONTEXT_VERSION`, `scripts/test-schema.ts`, the billed check | B12 |
-| 16 | the nova-plugin: the `bring_in` skill, the `upload_to_hq` sweep, the version | the plugin's pull request, merged after stack B is live |
-| 17 | public docs and `design/readme.md` | text fixed here; B14 lands the pages, B11 lands `design/` |
+| Section | Owns |
+|---|---|
+| 2 | the three entry points |
+| 3 | the flow as one surface: where it mounts, its URL, what a refresh does, its pure state model |
+| 4 | choosing a Project, a project space and an app; the picker's route and the connection's |
+| 5 | reading, with its named stages |
+| 6 | a stop |
+| 7 | the account |
+| 8 | the review |
+| 9 | creating, landing, and what the builder shows first |
+| 10 | the home list: what it does not show, and the empty state's refresh |
+| 11 | after the app is in: the Publishing card, the first publish, the drift stop, a restore |
+| 12 | component inventory, primitives, state |
+| 13 | accessibility; empty, error and loading states of every screen |
+| 14 | MCP: six tools registered, five tools changed, progress, error shapes, `servedSchemas` |
+| 15 | the guide, and what of this part reaches a model |
+| 16 | the nova-plugin: the `bring_in` skill, the sweep, the version |
+| 17 | public docs and `design/readme.md` |
 
 ---
 
@@ -63,72 +53,84 @@ the value A9 leaves (part 04, 3.4): no pinned document and no evaluator changes 
 2. **The flow is a state of `/build/new`, never a dialog** (3.1). It takes the centred column in place
    of the composer, inside `ChatContainer`'s tree, so a created app lands through part 12's
    `landCreatedAppReceipt` and "Creation never navigates" holds.
-3. **The URL is `/build/new?hq=choose` while choosing and `/build/new?hq=<reading id>` from the moment
-   a reading exists** (3.2). A refresh of the first shows the picker with its defaults; a refresh of
-   the second loads the reading and shows whatever state it is in; a reading that is already an app
-   loads `/build/<id>`.
+3. **The URL is `/build/new?hq=choose` while choosing, and from the moment an app is chosen it names
+   that app** (3.2): `/build/new?hq=app` with the Project, the server, the project space and the HQ
+   app's id. A refresh of the first shows the picker with its defaults. A refresh of the second reads
+   the app again and shows where it stands now, unless the tab holds the key of a create in flight
+   for that app, in which case it sends that create again (9.1). The server stores nothing between a
+   read and a create (part 12), so the address is the whole of what comes back after a reload.
 4. **The whole flow is one pure model** (3.3): a reducer over events and a function that says what
-   the driver does next. Vitest tests the model; no component holds a decision.
+   the hook does next. Vitest tests the model; no component holds a decision.
 5. **Step one asks three things in one screen** (4): the Project ("Add it to", preselected to the
    Project the tab is looking at where the person can add to it), the project space, and the app.
    The picker reads CommCare HQ through one new route, `GET /api/commcare/hq-apps`, which
    `/api/commcare` already admits.
 6. **A row the person cannot bring in says why and what to do, in the list** (4.3): already in Nova
-   with Open; already in Nova in a Project they are not part of, with who and when and the two ways
-   forward. A linked or deleted app is learned at the first read step, as a stop (6).
+   with Open; already in Nova in a Project they are not part of, with who to ask, since when, and
+   the two ways forward. A linked or deleted app is learned when the app is read, as a stop (6).
 7. **No connection is a step of the picker, not an error** (4.4): the connection aside the Publish
    dialog shows, extracted and reworded for reading. "Check connection" reads the connection through
    one new route, `GET /api/commcare/connection`, and never through the Next router, in the picker
    and in the Publish dialog alike (Departure 3).
-8. **Reading shows the step that is running, by name, and nothing a row does not hold** (5): part
-   12's `READING_PHASE_LABELS`, the files' count, a reassurance after twenty seconds, and what
-   leaving does: Nova finishes the step in flight and carries on when the person comes back, and
-   the screen says where the reading is kept, by Project. No percent, no ladder of results.
-9. **A stop is its own screen and is never mixed into an account** (6): part 01's block, the one
-   sentence "Nothing was created, and nothing changed in CommCare HQ", and the actions the code
-   allows.
+8. **Reading shows the stage that is running, by name, and a count of files that moves** (5): the
+   stages arrive as lines of the read's own response (part 12, 4.3), under one spinner,
+   with a reassurance after twenty seconds and one sentence on what leaving does. A read is one
+   request: closing the tab stops it, nothing is created, and coming back reads the app afresh. No
+   percent, no ladder of results.
+9. **A stop is its own screen and is never mixed into an account** (6): part 01's block, one
+   sentence that nothing was created (under every stop but `already-in-nova`), and the actions the
+   code allows.
 10. **The account groups findings by place in the app's own order, under three labels explained
     once** (7), each group with a link to that page in CommCare HQ. Under the groups it says a later
     check may find more (part 01's `ACCOUNT_CHECK_AGAIN_LINE`), and it ends in Copy the list, Check
-    again and Done.
+    again and Done. Nova keeps no account: Copy the list is how a person keeps one, and the address
+    and Check again are the way back.
 11. **The review is one screen with no ticks** (8). Where it runs is a preselected choice with the
     reason beside it; the date-and-time split is one of the choices; a table that meets one the
     Project has is two named answers; "After it's in" says what follows, and part 09's "What the
     first publish changes" lists it from the chosen row's own list, redrawn when the row changes.
 12. **"Bring it in" stays enabled** (8.9). Pressed with a table choice unanswered, it sends nothing,
     moves focus to that choice and says what is missing.
-13. **A brought-in app lands on its own home in the builder, with one toast that leads to Publishing**
+13. **A create is one request, and the creating screen stands from the press to its end** (9.1). A
+    review that comes back keeps the person's answers wherever they still apply (`carryAnswers`,
+    3.3), and a reload during a create sends the same create again, from one key kept in the tab.
+14. **A brought-in app lands on its own home in the builder, with one toast that leads to Publishing**
     (9.3). Nothing is written into the conversation.
-14. **The home list gains "Coming in from CommCare HQ"** (10), a sibling of "Designs in progress",
-    drawn from part 12's `listOpenReadings`.
-15. **The Publishing card of a brought-in app says where it came from, and every card with a live
+15. **The home list holds no row for an app that is being read** (10). There is nothing to list: a
+    read leaves nothing behind. The empty state gains the list's own refresh, so a home that was
+    empty when the flow was entered shows the app after it lands.
+16. **The Publishing card of a brought-in app says where it came from, and every card with a live
     app mapping offers "Stop publishing here" to an admin or owner** (11.1; Departure 10), the
     members whose role allows `delete`. An ended deployment draws part 10's line and no ladder.
-16. **The first publish says what it changes in the Publish dialog and over MCP** (11.2), from part
+17. **The first publish says what it changes in the Publish dialog and over MCP** (11.2), from part
     09's `DeploymentView.firstPublish`, the list the person reviewed, which part 09 keeps on the
-    read baseline until Nova's first push (its 12.3). B11 adds no column and no migration.
-17. **A drift stop whose changes hold the app's own offers "Stop publishing here" under the list of
-    changes** (11.3), whatever the app's origin, with part 10's origin-aware sentences.
-18. **B12 registers six MCP-only tools** (14): `list_hq_apps`, `read_hq_app`, `bring_in_hq_app`,
+    read baseline until Nova's first push (its 12.3). This part adds no column and no migration.
+18. **A drift stop whose changes hold the app's own shows part 15's panel where the change can be
+    brought in, and otherwise offers "Stop publishing here" under the list of changes** (11.3),
+    whatever the app's origin, with part 10's origin-aware sentences.
+19. **Six MCP-only tools are registered** (14): `list_hq_apps`, `read_hq_app`, `bring_in_hq_app`,
     `stop_publishing`, `refresh_managed_data` and `set_lookup_table_management`. The Solutions
-    Architect is given none of them.
-19. **`bring_in_hq_app` takes every answer as a required argument and has no default** (14.4): the
-    name, where it runs, the split and each table choice. The Project is the reading's, chosen at
-    `read_hq_app`.
-20. **`check_project_space_compatibility` returns `first_publish`** (14.7): part 09's
+    Architect is given none of them. `read_hq_app` is one whole read and `bring_in_hq_app` one whole
+    create: neither has a deadline of Nova's own, both report progress, and checking again is
+    calling `read_hq_app` again. Part 15 registers two more beside them, `read_hq_changes` and
+    `bring_in_hq_changes` (14.1).
+20. **`bring_in_hq_app` takes every answer as a required argument and has no default** (14.4): the
+    name, where it runs, the split and each table choice, beside the Project, the app and the
+    reading the review came from.
+21. **`check_project_space_compatibility` returns `first_publish`** (14.7): part 09's
     `firstPublishLines` value, built for the publish surface, for an app brought in and not yet
-    published, and null otherwise. `read_hq_app` returns the same object on each `review.runs_on`
+    published and for a `next-publish` list of part 15's (its section 9.4), and null otherwise.
+    `read_hq_app` returns the same object on each `review.runs_on`
     entry, built for the review. An agent relays `workers.lines` first, then `hq_only.lines`, each
     `sentence` as written, then `reassurance` where it is not null, then `note`.
-21. **The guide gains one paragraph and `MODEL_CONTEXT_VERSION` becomes
-    `"v7-hq-round-trip-bring-in.b12"`** (15). The billed check sends the entries the schema-hash
-    run shows moved, `getLookupTables` and `getOrganization` expected, on the person's yes.
-22. **The plugin gains the skill `bring_in`, and `upload_to_hq` is swept for five claims, with one
-    sentence added for part 01** (16). Its version becomes `2.5.0`, and it merges after stack B is
-    live.
-23. **One new docs page, `content/docs/bringing-in-from-commcare-hq.mdx`** (17), and the sentences of
+22. **The guide gains one paragraph** (15). It is the one change of this part that reaches a stored
+    model context: the six new tools and the five changed ones are served by MCP alone.
+23. **The plugin gains the skill `bring_in`, and `upload_to_hq` is swept by claim** (16), two
+    sentences of part 01's and two of part 11's among what it gains. Its version becomes `2.5.0`, and
+    its pull request merges after the step's deploy is live.
+24. **One new docs page, `content/docs/bringing-in-from-commcare-hq.mdx`** (17), and the sentences of
     nine existing pages (the eight of 17.2 and `mcp/tools.mdx`, 17.3), the two Claude Code pages that
-    describe the plugin's commands among them.
+    describe the plugin's commands among them. Each lands with the behavior it describes.
 
 ---
 
@@ -136,21 +138,18 @@ the value A9 leaves (part 04, 3.4): no pinned document and no evaluator changes 
 
 Read, by file and symbol. Nothing was run but `rg`, `sed` over single files and directory listings.
 
-- **The other parts of this plan**: part 01, sections 6.5, 8 and 9; part 04, section 3.4; part 05,
-  sections 4, 5, 11 to 13 and "Copy"; part 06, section 16.3 and Departure 11; part 08, its opening,
-  run E7 and "Copy" (C7, C13, C14); part 09, sections 11 and 12, "Copy", "Contracts", "Files by pull
-  request", "What this part needs of other parts" and "What other parts read from this one"; part
-  10, sections 5.4, 5.5, 6.5, 7, 8 and 9 and "Copy"; part 11, sections 7, 12, 13 and 14.1 and
-  "Copy"; part 12, its opening, sections 2.3 to 2.7, 3.1, 3.2, 3.5, 3.8, 3.9, 4, 5.1, 5.3, 6.5, 6.6,
-  7, 9 and 10, "Copy", "What this part needs of other parts" and "What other parts read from this
-  one".
+- **The other parts of this plan**, for every type, answer and sentence this part draws: part 01
+  (sections 6.5, 8 and 9), part 05 (sections 4, 5, 11 and 13), part 06 (section 16.3), part 08
+  ("Copy"), part 09 (sections 11 and 12 and "Copy"), part 10 (sections 5.4, 5.5, 6.5, 8 and 9 and
+  "Copy"), part 11 (sections 7 and 12 and "Copy"), part 12 (the read, the create, the stream,
+  the review of its 5.1, the receipt of its section 7, and "Copy") and part 15 (sections 8, 9 and
+  10, "Copy" and "Contracts and docs these changes make false").
 - **The design system**: `design/readme.md` whole; `components/CLAUDE.md` whole;
   `components/builder/CLAUDE.md`, "Creation never navigates", "Publishing" and "App setup, Publishing";
   `e2e/CLAUDE.md`, every bullet from "Hermetic, free, no real GCP" through "Case-workspace visual QA
   has one canonical fixture".
 - **Home**: `app/(app)/(site)/app-list.tsx::AppList`; `page.tsx::HomePage`, `GetStarted`,
-  `AppListFallback`; `designs-in-progress.tsx::DesignsInProgress`, `DesignRow`;
-  `app-actions.ts::RestoreAppResult`; `RefreshStaleAppList.tsx` and
+  `AppListFallback`; `app-actions.ts::RestoreAppResult`; `RefreshStaleAppList.tsx` and
   `lib/ui/appListFreshness.ts::markAppListStale`, `consumeAppListStale`, with their one caller.
 - **`/build/new`**: `app/(app)/build/[id]/[[...path]]/page.tsx::BuilderPage`, `freshBuildPage`,
   `resumedDesignPage`; `components/chat/StartFromScratch.tsx::StartFromScratch`;
@@ -180,28 +179,31 @@ Read, by file and symbol. Nothing was run but `rg`, `sed` over single files and 
   (`HqToolErrorType`, `UploadErrorType`, `McpErrorType`, `McpErrorPayload`, `McpInvalidInputError`,
   `toMcpErrorResult`); `lib/mcp/__tests__/servedSchemas.test.ts` whole and the list of
   `lib/mcp/__tests__`; `lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`;
-  `app/api/mcp/dispatch.ts::MCP_MAX_DURATION_SECONDS` and `app/api/mcp/route.ts::maxDuration`;
-  `lib/hostnames.ts::AS_ORIGIN`; `node_modules/zod/v4/core/json-schema-processors.js`, the object
-  processor (when it writes `additionalProperties: false`).
+  `lib/mcp/progress.ts::ProgressStage`, `createProgressEmitter`; `lib/mcp/context.ts::McpCallExtra`,
+  `initMcpCall`; `lib/mcp/tools/uploadAppToHq.ts` (where it sends progress);
+  `config/runtime-capabilities.json::cloudRunRequestSeconds`; `lib/hostnames.ts::AS_ORIGIN`;
+  `lib/utils/canonicalJson.ts::canonicalJsonDigest`;
+  `node_modules/zod/v4/core/json-schema-processors.js`, the object processor (when it writes
+  `additionalProperties: false`).
 - **Shared pieces**: `lib/commcare/servers.ts` whole; `biome.json`, the `noRestrictedImports` rule
   over `@/lib/commcare` and its list of allowed consumers; `lib/deployment/types.ts::
-  deploymentServerLabel`, `DeploymentConfirmationKey`; `lib/deployment/service.ts::hqAppUrlFor`;
+  deploymentServerLabel`, `isDeploymentServer`, `DeploymentConfirmationKey`;
+  `lib/deployment/service.ts::hqAppUrlFor`;
   `lib/deployment/setupArtifact.ts::hqBase` and the addresses it builds; `lib/ui/toastStore.ts::
   showToast`, `showProjectToast`; `lib/session/hooks.tsx::useCanDelete`;
   `components/shadcn/badge.tsx` (its variants) and the list of `components/shadcn`;
-  `lib/domain/uuid.ts::CANONICAL_UUID_PATTERN` through `lib/agent/authoring/workId.ts`;
   `lib/publish/planFeatures.ts::PLAN_FEATURES`; `lib/projects/membership.ts::listUserProjects`,
   `ProjectSummary`; `lib/db/settings.ts::getCommCareSettings`, `CommCareSettingsPublic`;
+  `app/api/media/[assetId]/extract/route.ts::POST` (a route that answers NDJSON lines today);
   `docs/testing.md`, "Do not pin incidental strings" and the MCP handler paragraph.
 - **The agent**: `lib/agent/CLAUDE.md`, the paragraph that binds `MODEL_CONTEXT_VERSION`;
   `lib/agent/authoring/reference.ts::AUTHORING_REFERENCE` (its `workflows` entry);
-  `lib/agent/authoring/__tests__/platformGuide.test.ts` (its head); `lib/chat/__tests__/
-  compaction.test.ts` (that it imports the constant); `scripts/test-schema.ts`, its header and
-  imports.
+  `lib/agent/authoring/__tests__/platformGuide.test.ts` (its head); `lib/agent/sharedToolRegistry.ts`
+  (that it holds none of the deployment tools); `scripts/test-schema.ts`, its header and imports.
 - **The plugin**: `../nova-plugin/.claude-plugin/plugin.json`; `skills/upload_to_hq/SKILL.md`, the
   passages quoted in section 16; `skills/find/SKILL.md`; `README.md`; the `.dev-plugin/` mirror.
 - **Docs**: `content/docs/meta.json`; `index.mdx`; `publishing.mdx`, its opening, "The six stages",
-  the head of "Checked" and "On CommCare HQ" to "Changes made in CommCare HQ";
+  the head of "Checked", "On CommCare HQ" to "Changes made in CommCare HQ", and that section;
   `building-with-nova.mdx`, its head and "Start with a blank
   app"; `mcp/tools.mdx`, "Browsing apps", "Checking project-space compatibility", "Creating and
   deleting apps" and "Publishing"; `project-space-compatibility.mdx`, "Plan features";
@@ -224,16 +226,8 @@ Facts checked at source, each of which a decision of this part rests on:
 - **`NotConfigured` cannot be reused as it stands.** It is a private function of
   `PublishDialogBody.tsx` whose three strings are about uploading ("Connect CommCare HQ to upload",
   "to upload directly from commcare nova", "You can still choose a CommCare HQ app file or mobile app
-  file above"). B11 extracts its frame into `components/builder/HqNotConnected.tsx` with the words
+  file above"). Its frame is extracted into `components/builder/HqNotConnected.tsx` with the words
   as props (4.4).
-- **A read in flight holds no result to show.** A reading's row holds no count before its outcome:
-  part 12 (2.3) stores the account or the review and nothing of a read in flight but `phase`,
-  `media_done`, `media_total` and the mark that a step is running. So no step of the reading screen
-  can carry a result of its own ("2 menus, 5 forms", "1 table", "4 levels, 1,240 places"). The
-  reading screen shows the step's name and the files' count (5).
-- **A step cannot be stopped.** The two long routes do not pass the request's signal to the
-  service, so a closed tab does not stop a step (part 12, 4.3), and a "Stop reading" button would
-  stop nothing. The screen offers leaving, which is safe, and the home row offers Remove (5).
 - **The picker has no row state for an app in Nova's recently deleted.** The claim passes over a
   deleted holder (part 10, Departure 1), so an HQ app whose only Nova app is in recently deleted is
   free in the picker.
@@ -242,13 +236,8 @@ Facts checked at source, each of which a decision of this part rests on:
   button enabled.
 - **The platform choice is not reusable from `AppPlatformsSection.tsx`.** Its `CHOICES` lines are a
   module constant of that file, and its check (`checkPlatformChange`) reads a saved app through the
-  reconciler. The review has no app. B11 moves the three lines to
+  reconciler. The review has no app. The three lines move to
   `lib/domain/platforms.ts::PLATFORM_DECLARATION_LINES`, which both read (8.3).
-- **"Refresh from CommCare HQ" on the Publishing card is A3's.** It is built by A3 (part 01, 6.5),
-  with part 01's Departure 5 on when it writes. B11 adds nothing to the kept list.
-- **B12 registers six tools, not three.** Beside the three that bring an app in, parts 10 and 11
-  give B12 three more (`stop_publishing`; `refresh_managed_data`, `set_lookup_table_management`):
-  part 10's Departure 3 and part 11's section 12.4. B12 registers six (14).
 - **`CommCareConnectionContext` holds no refresh today, so "Check connection" cannot call one.**
   `CommCareConnectionContext.tsx::CommCareConnection` holds `configured`, `server`
   and `availableDomains` and no refresh. The dialog's is `PublishPanel.tsx::
@@ -259,12 +248,13 @@ Facts checked at source, each of which a decision of this part rests on:
   address back on the next router change (`next/dist/client/components/app-router.js`). A refresh
   on `/build/new?hq=choose`, reached from the composer, would put `/build/new` back in the address
   bar. This is the hazard `components/builder/CLAUDE.md` records under "Creation never navigates".
-  B11 gives the context a refresh of its own that does not touch the router (4.4, Departure 3).
-- **`RefreshStaleAppList` as it stands does not cover a home reached with Back after a reading
-  changed.** It refreshes only where `consumeAppListStale()` is true, and the
-  one caller of `markAppListStale()` is `ChatContainer.tsx::installCreatedApp`. The home's empty
-  state does not mount it at all. B11 marks the list stale wherever the flow changes a row, and
-  mounts the refresher in the empty state too (12.3).
+  The context gains a refresh of its own that does not touch the router (4.4, Departure 3).
+- **The home's empty state never refreshes after an app lands.** `RefreshStaleAppList` refreshes
+  where `consumeAppListStale()` is true, a note `ChatContainer.tsx::installCreatedApp` sets for
+  every birth. `app-list.tsx::AppList` mounts it and `page.tsx::HomePage`'s empty branch does not,
+  so a person who starts from "Build your first app", lands an app and presses Back gets the
+  cached empty state. That is so today for a blank or a designed app, and the empty state's new
+  entry (section 2) adds a third way to meet it. The empty branch mounts the refresher too (10).
 - **`hqPlaceUrl` cannot live in `components/bring-in` and read `lib/commcare/servers.ts`.**
   `biome.json` refuses `@/lib/commcare/*` to `components/**`, and
   `lib/deployment/types.ts::deploymentServerLabel` exists for that reason. `hqPlaceUrl` lives in
@@ -275,43 +265,29 @@ Facts checked at source, each of which a decision of this part rests on:
   text, and `"0"` is true; `Application.get_module` and `ModuleBase.get_form` are both wrapped in
   `@parse_int([1])`, and HQ's own `tests/test_views.py::test_view_module_legacy` and
   `test_view_form_legacy` open such addresses and expect the page (7.4).
+- **The tools this part changes are served by MCP alone.** `lib/agent/sharedToolRegistry.ts` holds
+  none of `check_project_space_compatibility`, `get_deployment`, `refresh_deployment`,
+  `upload_app_to_hq` and `get_hq_connection`: `lib/mcp/server.ts` registers each directly. So no
+  description this part changes is in a stored model context (15.2).
 
 ---
 
 ## Written and not yet run
 
-- **E1, the billed schema check for stack B (B12).** Stack B asks one billed check, this one, and its
-  list is whatever the schema-hash run shows moved (part 15, `15-stack-contracts-and-exit.md`, section 3,
-  rule 7): the implementer runs `npx tsx --conditions=react-server scripts/inspect-tool-schema-hashes.ts`
-  at the `main` stack B was cut from and at B12's head (free, no network), and the list is every
-  Solutions Architect tool whose hash differs. `getLookupTables` and `getOrganization` are expected, both
-  moved by B9. Where: the implementer's shell, `npm run test:schema -- <name>` once for each name on the
-  list, each one live OpenAI request on the person's key, never the bare command. Asked once, as the
-  first act of B12, in these words, with the count and the names the run gave in place of these: "Stack B
-  changed the descriptions of two tools the Solutions Architect holds, getLookupTables and
-  getOrganization. Checking that the provider still accepts them costs two live OpenAI requests on your
-  key. May I run them?" A further name joins the list, and the question then names it as one the plan did
-  not expect; an expected name whose hash did not move leaves both. Outcomes: **A**, every entry answers
-  without error: nothing lands, and B12's description records each pass. **B**, an entry is refused: the
-  entry's description or schema is corrected in B12 in the file B9 changed it in
-  (`lib/agent/tools/getLookupTables.ts` or `lib/agent/tools/organization.ts`, which "Files by pull
-  request" lists for this outcome alone), and that one entry is sent again on a fresh yes. **C**, the
-  person says no or not now: nothing is sent, B12 is not merged, and the question is asked again when
-  they next open the stack. No other entry is expected: B6 changes the guide and no tool input schema
-  (part 08, run E7), B8 changes only tools MCP alone serves (part 10's opening: "stack B moves the value
-  in B6, B9 and B12 alone"), no other pull request of stack B changes a tool the Solutions Architect is
-  given, and the six tools of section 14 are served by MCP alone, which
-  `lib/mcp/__tests__/servedSchemas.test.ts` holds without billing.
-- **Part 05's G2, consumed here (B11).** Outcome C (the app list holds no remote app) removes the
-  `remote-app` row from `STOP_ACTIONS` (6.2) and from the model's test table in B11, since B1 then
-  never lands the code. Outcomes A and B change nothing here.
-- **Part 05's G7, consumed here.** `table-rows-unreadable` is an account finding, drawn by 7.2's
-  circumstance block whatever its code, so neither outcome changes a line of this part.
-- **Part 10's G1 and G2, part 11's R1 and R2.** No outcome changes a screen or a tool of this part.
-  G2's outcome B adds one entry to part 09's register, which sections 8.8 and 11.2 draw as they draw
-  every entry.
-- **The Playwright specs of B11** are not a gated run: they decide no fact. They run in the pull
-  request's own CI on hosted runners and never on the person's laptop ("Tests").
+Two things wait on execution, and each ends in an action the session takes alone.
+
+- **The Playwright specs** ("Tests") decide no fact. They run in the work's own CI on hosted
+  runners. A failing spec is a defect in the screen or the spec, and is fixed there.
+- **The plugin sweep** (16.3). Where: the session's shell, at the step's head, free: a reading by
+  claim of `../nova-plugin`'s `skills`, `agents`, `.dev-plugin` and `README.md`, with `rg -i` to
+  find the passages. Outcomes: no sentence beyond the edits of section 16 is made false by the
+  step, and the one plugin pull request carries those edits alone; or a further sentence is made
+  false, and it is corrected in the same pull request, with both `plugin.json` versions moved
+  once. Where the plugin's head has moved since `0a67203`, each version is the next minor from
+  what it then holds.
+
+The billed schema check is the top-level file's (`../6-bring-in.md`). Nothing of this part is on
+its list (15.3).
 
 ---
 
@@ -364,7 +340,7 @@ replacement, and `case-workspace.mdx` says "If an imported app has a different a
 
 ---
 
-## 2. Entry points (B11)
+## 2. Entry points
 
 All three are offered exactly where "New app" or "Start with a blank app" is offered today, under the
 same capability, and all lead to `/build/new?hq=choose`.
@@ -385,16 +361,17 @@ is (`components/CLAUDE.md`, "Icons").
 
 ---
 
-## 3. The flow as one surface (B11)
+## 3. The flow as one surface
 
 ### 3.1 Where it mounts
 
 The flow is a state of `/build/new`. `design/readme.md` gives the dialog pattern to publishing
 ("Publish opens in place, including from Preview"), which acts on an app that is open. Bringing an app
 in has no app to open over, its account can run to hundreds of lines, it must survive a reload and be
-reachable from a home row, and its last act is a birth, which `components/builder/CLAUDE.md` binds to
-the mounted tree: "a route change swaps `BuilderProvider`'s `key={buildId}` and rebuilds every store
-under it". A dialog over the home list could do none of the four.
+reachable by an address a person can keep or send, and its last act is a birth, which
+`components/builder/CLAUDE.md` binds to the mounted tree: "a route change swaps `BuilderProvider`'s
+`key={buildId}` and rebuilds every store under it". A dialog over the home list could do none of
+the four.
 
 `components/chat/ChatSidebar.tsx` gains one prop:
 
@@ -409,18 +386,18 @@ Where `centered` is true and `takeover` is given, the inner card (the `motion.di
 is not rendered. The card keeps its class, so the flow has the composer's width, radius and bounded
 height, and "the header carries the whole lockup on `/build/new`" stays true: the flow draws no logo.
 `ChatContainer` passes `takeover` exactly when all of these hold: the layout is centred, the build is
-not an existing app, `messages.length === 0`, and the URL holds an `hq` value (3.2). A design in
-progress in the tab therefore never loses its conversation to a typed URL.
+not an existing app, `messages.length === 0`, and `bringInLocation` reads the URL as `choose` or an
+app (3.2). A design in progress in the tab therefore never loses its conversation to a typed URL.
 
 The tab's own role is not one of the conditions. `ChatContainer`'s `readOnly` is `!canEdit` for the
 Project the tab is looking at (`lib/session/hooks.tsx::useProjectCanEdit`), and an app is brought in
 to a Project the person chooses, which need not be that one: someone who only views the active
 Project and edits another can add an app to the other. Who may start one is decided by
 `BringInSeed.projects` (3.2): where it is empty the picker shows the sentence of 4.5 and no fields.
-A reading opened by its address is shown whatever that list holds, since part 12 lets its person see
-and remove a reading after losing `edit` (its 2.5). The entries of section 2 stay under
-`canCreateApp`, the role in the active Project, as "New app" is, so a viewer of the active Project
-reaches the flow by its address or after switching Projects.
+An app opened by its address is read whatever that list holds: the read's own check says whether
+the person may add an app to the Project the address names (3.2). The entries of section 2 stay
+under `canCreateApp`, the role in the active Project, as "New app" is, so a viewer of the active
+Project reaches the flow by its address or after switching Projects.
 
 The band is untouched: "`/build/new` before a send has no app, so it claims nothing and wears the site
 band exactly" (`components/CLAUDE.md`), and that stays so through the whole flow, until
@@ -430,31 +407,49 @@ band exactly" (`components/CLAUDE.md`), and that stays so through the whole flow
 
 ```ts
 // lib/routing/bringInLocation.ts (new, client-safe, pure)
+import type { ReadingKey } from "@/lib/deployment";
+
 export type BringInLocation =
 	| { readonly kind: "none" }
 	| { readonly kind: "choose" }
-	| { readonly kind: "reading"; readonly readingId: string };
-/** Reads the `hq` value of a query string: `choose`, a UUID, or anything else as `none`. */
+	/** One HQ app, to be added to one Project: part 12's key of a read. */
+	| { readonly kind: "app"; readonly key: ReadingKey };
+/** Reads the `hq` state of a query string: `choose`, an app's key, or anything else as `none`. */
 export function bringInLocation(search: string): BringInLocation;
-/** The address of a location: `/build/new`, `/build/new?hq=choose` or `/build/new?hq=<id>`. */
+/** The address of a location: `/build/new`, `/build/new?hq=choose` or the app's address below. */
 export function bringInHref(location: BringInLocation): string;
 ```
 
-A reading id is admitted only where it matches `lib/domain/uuid.ts::CANONICAL_UUID_PATTERN`, the
-pattern work ids are held to (`lib/agent/authoring/workId.ts::workIdSchema`). Any other `hq` value is
-`none`: the page shows the composer and says nothing.
+An app's address is
+
+```
+/build/new?hq=app&project=<projectId>&server=<server>&space=<domain>&app=<remoteAppId>
+```
+
+with its values written by `URLSearchParams` in that order. It is admitted only where the four values
+pass part 12's `readingKeySchema` (its 3.1; `lib/deployment/reading/types.ts`, client-safe) and `space`
+is 1 to 255 characters. Any other `hq` value, and an `hq=app` that misses a value, is `none`: the page
+shows the composer and says nothing. The read route holds the project space to CommCare's own slug rule
+(part 12, 4.1) and answers `invalid_input` for one it refuses, which the page shows as that refusal
+(5).
+
+The address names the app and the Project and holds nothing of what Nova read. That is the whole of
+what the page has after a reload, because the server stores nothing between a read and a create
+(part 12): there is no stored account to come back to and no reading to resume. A person who opens
+the address a teammate sent reads the app with their own CommCare HQ key, for the Project the
+address names, and where they cannot add an app to that Project the read's own check answers
+`no_project_access` (5).
 
 | The address | Shows | A refresh |
 |---|---|---|
 | `/build/new?hq=choose` | the picker (4) | the picker again, with the Project preselected to the tab's and nothing else chosen. Nothing was stored, so nothing is lost but the selection |
-| `/build/new?hq=<id>` | the reading with that id, in whatever state its row holds (5 to 9) | loads the row through `GET /api/commcare/readings/<id>` and shows that state. The answers of a review are not kept across a refresh: the review opens again with Nova's preselected choices. A row in state `created` replaces the page with `/build/<id>` (`window.location.replace`). A row that is not found shows the `reading_not_found` sentence (part 12, C1) with **Choose an app** and **Go to your apps** |
+| `/build/new?hq=app&…` | the app it names: the reading screen while the read runs (5), then the stop, the account or the review the read answers (6 to 8) | reads the app again and shows where it stands now. The answers of a review are not kept across a refresh: the review opens again with Nova's preselected choices. Where the tab holds the key of a create in flight for the same app (9.1), the page shows the creating screen and sends that create again |
 
-Moves between the two are History-API calls on the mounted tree: `pushBuilderHistory(bringInHref(…))`
-to enter the picker and to leave a reading for the picker, and `pushBuilderHistory(…, true)` (replace)
-when `startReading` answers, exactly as the first `data-design-session` scope replaces the URL with
-`/build/new?design=<id>` (`components/CLAUDE.md`, "Build recovery is URL-backed"). The reading's id is
-the app's id (part 12, Decision 1), so the address a person bookmarks while reading differs from the
-app's by one path segment.
+Moves between the two are History-API calls on the mounted tree, each a push:
+`pushBuilderHistory(bringInHref(…))` to enter the picker, to open an app from the picker, and to
+leave an app for the picker. So Back from an app returns to the picker with its list as the person
+left it, and Back from the picker returns to the composer. A created app is never reached by this
+address: its landing is the receipt's (9.2).
 
 **No act of the flow calls the Next router while the flow is on screen.** `pushBuilderHistory`
 spreads the entry's existing state into the one it writes (`historyPolicy.ts::
@@ -464,15 +459,14 @@ first move above, Next still holds the address the page was loaded at, and any r
 `router.refresh()`, a revalidating Server Action) makes its history updater write that address
 back (`next/dist/client/components/app-router.js`), which is the rule `components/builder/CLAUDE.md`
 states for a creation: "the router re-render carrying the revalidation restores Next's own
-canonical URL". Every read and write of the flow is therefore a plain `fetch` of a route, and the
-two acts that leave the page for good (a removed reading to `/`, a created reading opened by its
-address) are `window.location.replace`, a page load. Section 4.4 holds "Check connection" to the
-same rule.
+canonical URL". Every read and write of the flow is therefore a plain `fetch` of a route. Section
+4.4 holds "Check connection" to the same rule.
 
 **The first render agrees with the server.** `lib/routing/useClientPath.ts::useBuilderSearch` answers
 `""` on the server, which would draw the composer and then swap it for the flow at hydration. So
-`page.tsx::freshBuildPage` reads `searchParams.hq`, keeps it only where `bringInLocation` admits it,
-and hands the text to the tree; a new hook reads the URL with that text as its server snapshot:
+`page.tsx::freshBuildPage` reads the five query values, keeps them only where `bringInLocation`
+admits them, and hands the tree the query string `bringInHref` writes for that location; a new hook
+reads the URL with that text as its server snapshot:
 
 ```ts
 // lib/routing/useClientPath.ts
@@ -486,7 +480,7 @@ may add an app to.
 ```ts
 // app/(app)/build/[id]/[[...path]]/page.tsx::freshBuildPage passes, through BuilderLayout to ChatContainer:
 export interface BringInSeed {
-	/** `""` or `?hq=…`, already validated. */
+	/** `""`, `?hq=choose` or an app's query, already validated. */
 	readonly initialSearch: string;
 	/**
 	 * Projects where the person holds `edit`: the tab's Project first where it is one of them, the
@@ -503,40 +497,35 @@ export interface BringInSeed {
 
 `projects` is `lib/projects/membership.ts::listUserProjects(userId)` filtered by
 `roleAllowsApp(role, "edit")`, each row's `id`, `name` and `personal` kept: one indexed read on a page
-that already makes three. The tab's Project is the session's (`lib/session/hooks.tsx::useProjectId`),
-which the flow reads where it needs to say that a reading lives somewhere else (5, 7.1). The
+that already makes three. The review names the Project an app is added to from this list (8.2). The
 connection is already in the tree (`CommCareConnectionContext`, provided in `BuilderLayout` from
 `getCommCareSettings`).
 
 ### 3.3 The state model
 
 `components/bring-in/bringInModel.ts` (new, pure, no React import) is the whole flow as data. The
-components render `screenOf(model)` and dispatch events; the driver hook does what `nextAct(model)`
-says and dispatches what came back.
+components render `screenOf(model)` and dispatch events; the hook does what `nextAct(model)` says
+and dispatches what came back.
 
 ```ts
 import type { CircumstanceFinding } from "@/lib/publish/hqFindings";
+// Part 12's types of a read and a create (`lib/deployment/reading/types.ts`) and part 11's
+// `LookupTableChoice`, each re-exported as a type from `lib/deployment`.
 import type {
-	BringInInput, CreateResult, ReadingDeclarationChoice, ReadingRefusal, ReadingReview, ReadingView,
+	AccountAnswer, BringInInput, CreateAnswer, HqAppPicker, LookupTableChoice, ReadingAnswer,
+	ReadingDeclarationChoice, ReadingKey, ReadingRefusal, ReadingReview, ReadingStage,
 } from "@/lib/deployment";
-// `LookupTableChoice` is declared beside `LOOKUP_TABLE_CHOICES` in part 11's client-safe
-// `lib/deployment/reading/projectData/reviewTypes.ts` (B9), and re-exported as a type from
-// `lib/deployment` (part 12, "Files by pull request", B10).
-import type { LookupTableChoice } from "@/lib/deployment";
 import type { Platform } from "@/lib/domain";
 import type { BringInLocation } from "@/lib/routing/bringInLocation";
-import type { HqAppPicker } from "@/lib/deployment";                  // 4.2
 
-/**
- * A request that changes or reads the row. At most one is in flight. `load`, `advance` and `create`
- * are started by the driver from `nextAct`. `start`, `check-again` and `remove` are started by the
- * handler of the button that asks for them, which dispatches `call`, makes the request and
- * dispatches what came back (`row`, `removed`, `refused` or `failed`).
- */
-export type BringInCall = "load" | "start" | "advance" | "check-again" | "create" | "remove";
+/** A request to one of part 12's two routes. At most one is in flight. */
+export type BringInCall = "read" | "create";
+
+/** A read's answer that is a review. */
+export type ReviewAnswer = Extract<ReadingAnswer, { readonly kind: "review" }>;
 
 export interface ReviewAnswers {
-	/** The digest of the review these answer. Answers for another digest are discarded. */
+	/** The digest of the review these answer. */
 	readonly reviewDigest: string;
 	readonly appName: string;
 	readonly runsOnlyOn: Platform | null;
@@ -550,7 +539,7 @@ export interface PickerModel {
 	/** The project spaces the connection reaches, by name. Empty where there is no connection. */
 	readonly domains: readonly string[];
 	readonly domain: string | null;
-	/** `idle` before a project space is chosen; `loading` is what makes the driver list its apps. */
+	/** `idle` before a project space is chosen; `loading` is what makes the hook list its apps. */
 	readonly apps:
 		| { readonly kind: "idle" }
 		| { readonly kind: "loading" }
@@ -560,72 +549,96 @@ export interface PickerModel {
 	readonly filter: string;
 }
 
+/**
+ * Which lead of part 12's `CREATE_ANSWER_LEADS` stands above what a create's answer shows: one for
+ * each answer that did not create and is no refusal, with `changed` told apart by what it carries.
+ */
+export type CreateLead =
+	| "changed-review" | "changed-account" | "changed-stop" | "changed-already-in-nova"
+	| "read-again" | "check-failed" | "held";
+
 export interface BringInModel {
 	readonly location: BringInLocation;
 	readonly picker: PickerModel;
-	readonly reading: ReadingView | null;
+	/**
+	 * False at an app's address until the hook has looked at the tab's key for a create to send
+	 * again (9.1). Nothing is requested before it is true.
+	 */
+	readonly resumeChecked: boolean;
+	/** What the app's last read answered, or what a create said the app is now. Null before one. */
+	readonly answer: ReadingAnswer | null;
+	/** When `answer` arrived, for the date of a copied account (7.5). */
+	readonly answeredAt: number | null;
 	readonly call: BringInCall | null;
-	/**
-	 * True once this tab has taken on advancing the row: from its own start or Check again, or
-	 * once two rows in a row said no step is running (part 12, 3.2 and 4.4).
-	 */
-	readonly driving: boolean;
-	/**
-	 * Rows in a row, the load's among them, that found `reading` or `media` with `stepRunning`
-	 * false while this tab was not driving.
-	 */
-	readonly quietRows: number;
+	/** The last stage the request in flight named, and its last count of files. */
+	readonly stage: ReadingStage | null;
+	readonly files: { readonly done: number; readonly total: number } | null;
 	/** When the wait on screen began, for the reassurance at twenty seconds. */
 	readonly waitingSince: number | null;
-	/** How many times in a row a call failed with no code. Any call that answers makes it 0. */
-	readonly failures: number;
-	/** The call that last failed with no code, so the screen can say which act to try again. */
-	readonly failedCall: BringInCall | null;
+	/** How many requests in a row ended with no last line. Any request that answers makes it 0. */
+	readonly lost: number;
+	/** The request whose stream ended in a `failed` line. Its screen stands until Try again. */
+	readonly failed: BringInCall | null;
 	readonly answers: ReviewAnswers | null;
 	/**
-	 * The input of a creation that has begun and not ended. Set by `create-asked`, kept through an
-	 * `again` answer and a lost request, cleared when creation ends any other way. While it is set
-	 * the screen is `creating`, whatever the row's state.
+	 * The answers a person held when a create answered `read-again`, with the review they answered,
+	 * waiting for the review the next read answers.
+	 */
+	readonly carried: { readonly answers: ReviewAnswers; readonly review: ReadingReview } | null;
+	/**
+	 * The input of a create that has begun and not ended. Set by `create-asked`, kept through a
+	 * lost request and a `failed` line, cleared when the create ends any other way. While it is set
+	 * the screen is `creating` or the failed screen, never the review.
 	 */
 	readonly pendingCreate: BringInInput | null;
+	/** The finding of a create answered `held`. */
 	readonly held: CircumstanceFinding | null;
-	/** `CREATE_RESULT_LEADS`' sentence for the last creation that did not create. */
-	readonly lead: string | null;
+	/** The lead of the last create that did not create, and whether a choice could not be kept. */
+	readonly lead: { readonly kind: CreateLead; readonly dropped: boolean } | null;
 	readonly refusal: ReadingRefusal | null;
-	readonly publishing: { readonly done: number; readonly total: number } | null;
-	readonly landing: "landed" | "leaving" | "unverified" | null;
-	/** True once this tab removed the reading. The next act loads `/`. */
-	readonly removed: boolean;
+	/** How the landing of a created app ended, and that app's id. */
+	readonly landing: {
+		readonly answer: "landed" | "leaving" | "unverified"; readonly appId: string;
+	} | null;
 	/** The tag of the table choice focus was last sent to, with a counter so a second press moves it again. */
 	readonly needsChoice: { readonly tag: string; readonly nonce: number } | null;
 }
 
 export type BringInEvent =
 	| { readonly type: "location"; readonly location: BringInLocation }
+	/** What the tab's key held for the app the location now names: a create to send again, or null. */
+	| { readonly type: "resume"; readonly input: BringInInput | null }
 	/** The connection as the context holds it now: dispatched at mount and whenever it changes. */
 	| { readonly type: "connection"; readonly domains: readonly string[] }
 	| { readonly type: "picker-project"; readonly projectId: string }
 	| { readonly type: "picker-domain"; readonly domain: string }
-	| { readonly type: "picker-apps"; readonly domain: string; readonly projectId: string | null;
-	    readonly picker: HqAppPicker | null }
+	| { readonly type: "picker-apps"; readonly domain: string; readonly picker: HqAppPicker | null }
 	/** "Try again" after a list that failed, and "Check again" on a stop met while choosing. */
 	| { readonly type: "picker-reload" }
 	| { readonly type: "picker-app"; readonly remoteAppId: string }
 	| { readonly type: "picker-filter"; readonly filter: string }
+	/** Check again, on a stop, an account or a refusal: the app is read afresh. */
+	| { readonly type: "read-asked" }
 	/** Bring it in, pressed with every answer given: the input becomes `pendingCreate`. */
 	| { readonly type: "create-asked"; readonly input: BringInInput }
 	| { readonly type: "call"; readonly call: BringInCall; readonly at: number }
-	| { readonly type: "row"; readonly reading: ReadingView; readonly from: "load" | "poll" | "start" | "check-again" }
-	| { readonly type: "advanced"; readonly reading: ReadingView; readonly again: boolean }
-	| { readonly type: "created"; readonly result: CreateResult }
-	| { readonly type: "removed" }
-	| { readonly type: "refused"; readonly call: BringInCall; readonly refusal: ReadingRefusal }
+	/** Lines of the request's stream (part 12, 4.3). */
+	| { readonly type: "stage"; readonly stage: ReadingStage }
+	| { readonly type: "files"; readonly done: number; readonly total: number }
+	| { readonly type: "read-done"; readonly answer: ReadingAnswer; readonly at: number }
+	| { readonly type: "create-done"; readonly answer: CreateAnswer; readonly at: number }
+	/** The stream's last line was `failed`: Nova's own fault, logged on the server. */
 	| { readonly type: "failed"; readonly call: BringInCall }
-	/** "Try again" and "Carry on" after two lost requests: the person asks for the same act again. */
+	/** The response ended with no last line, or was no stream and held no `code`. */
+	| { readonly type: "lost"; readonly call: BringInCall }
+	/** A route refused with a `code` before it opened its stream. */
+	| { readonly type: "refused"; readonly call: BringInCall; readonly refusal: ReadingRefusal }
+	/** "Try again" after a `failed` line or two lost requests: the person asks for the same act. */
 	| { readonly type: "retry" }
 	| { readonly type: "answers"; readonly answers: ReviewAnswers }
 	| { readonly type: "choice-needed"; readonly tag: string }
-	| { readonly type: "landed"; readonly answer: "landed" | "leaving" | "unverified" };
+	| { readonly type: "landed"; readonly answer: "landed" | "leaving" | "unverified";
+	    readonly appId: string };
 
 /** `projectId` is the Project to preselect: the tab's where the seed lists it, else the first, else null. */
 export function initialBringInModel(location: BringInLocation, projectId: string | null): BringInModel;
@@ -634,119 +647,173 @@ export function reduceBringIn(model: BringInModel, event: BringInEvent): BringIn
 export type BringInScreen =
 	| { readonly kind: "none" }
 	| { readonly kind: "choose" }
-	/** `lost`: the load failed with no code, and the screen offers Try again. */
-	| { readonly kind: "opening"; readonly lost: boolean }
-	| { readonly kind: "gone"; readonly refusal: ReadingRefusal }
-	| { readonly kind: "reading"; readonly reading: ReadingView; readonly lost: boolean }
-	| { readonly kind: "stopped"; readonly reading: ReadingView; readonly finding: CircumstanceFinding }
-	| { readonly kind: "account"; readonly reading: ReadingView }
-	| { readonly kind: "review"; readonly reading: ReadingView; readonly answers: ReviewAnswers }
-	/** `lost`: the creation request failed twice, and the screen offers Try again. */
-	| { readonly kind: "creating"; readonly reading: ReadingView; readonly lost: boolean }
+	/** `lost`: two requests in a row ended with no last line, and the screen offers Try again. */
+	| { readonly kind: "reading"; readonly lost: boolean }
+	/** Nova's own fault, in a read or in a create (5, 9.1). */
+	| { readonly kind: "failed"; readonly operation: BringInCall }
+	/** A refusal that leaves nothing else to show (8.10). */
+	| { readonly kind: "refused"; readonly refusal: ReadingRefusal }
+	| { readonly kind: "stopped"; readonly finding: CircumstanceFinding }
+	| { readonly kind: "account"; readonly answer: AccountAnswer }
+	| { readonly kind: "review"; readonly answer: ReviewAnswer; readonly answers: ReviewAnswers }
+	| { readonly kind: "creating"; readonly lost: boolean }
 	/** The app exists and this tab could not open it (9.2). */
 	| { readonly kind: "unopened"; readonly appId: string };
 export function screenOf(model: BringInModel): BringInScreen;
 
 export type BringInAct =
 	| { readonly kind: "none" }
-	| { readonly kind: "list-apps"; readonly domain: string; readonly projectId: string | null }
-	| { readonly kind: "load"; readonly readingId: string }
-	| { readonly kind: "advance"; readonly readingId: string; readonly afterMs: number }
-	| { readonly kind: "poll"; readonly readingId: string; readonly afterMs: 2000 }
-	| { readonly kind: "create"; readonly readingId: string; readonly input: BringInInput;
-	    readonly afterMs: number }
-	| { readonly kind: "replace"; readonly href: string };
+	| { readonly kind: "list-apps"; readonly domain: string }
+	| { readonly kind: "read"; readonly key: ReadingKey; readonly afterMs: number }
+	| { readonly kind: "create"; readonly input: BringInInput; readonly afterMs: number };
 export function nextAct(model: BringInModel): BringInAct;
 ```
 
-**The reducer's rules**, each a row of the model's test table:
+**The reducer's rules**, each a row of the model's test table. "Everything about the app" is
+`answer`, `answeredAt`, `answers`, `carried`, `held`, `lead`, `refusal`, `failed`, `needsChoice`,
+`stage`, `files` and `waitingSince`, with `lost` 0.
 
 | Event | The model becomes |
 |---|---|
-| `location` to `choose` | `reading`, `answers`, `pendingCreate`, `held`, `lead`, `refusal`, `publishing`, `needsChoice` cleared and `failures` 0; `picker` kept, so "Choose another app" returns to the list the person left |
-| `location` to `reading` with another id than `reading.id` | `reading` null and everything about it cleared (`pendingCreate`, `landing` and `removed` among it); `failures` 0; `driving` false |
-| `connection` | `picker.domains` set. Where it holds exactly one and none is chosen: `domain` that one and `apps: loading`, so one project space is never a choice. Where the chosen `domain` is no longer among them: `domain` null, `apps: idle`, `remoteAppId` null. Otherwise nothing else moves |
-| `picker-project` | `picker.projectId`; `apps: loading` where a domain is chosen, because the mark of the person's own open reading depends on the Project, which makes the driver list again |
+| `location` to `choose` | everything about the app cleared, and `pendingCreate`; `picker` kept, so "Choose another app" returns to the list the person left |
+| `location` to `app` with another key than the one held | everything about the app cleared, `pendingCreate` and `landing` among it; `resumeChecked` false |
+| `resume` | `resumeChecked` true. With an input: `pendingCreate` that input, as `create-asked` sets it. With null: nothing else, and the next act is the read |
+| `connection` | `picker.domains` set. Where it holds exactly one and none is chosen: `domain` that one and `apps: loading`, so one project space is never a choice. A picker with no Project (`projectId` null) chooses none, since it shows no fields (4.5). Where the chosen `domain` is no longer among them: `domain` null, `apps: idle`, `remoteAppId` null. Otherwise nothing else moves |
+| `picker-project` | `picker.projectId`, and nothing else: the list is the project space's, whatever the Project |
 | `picker-domain` | `picker.domain`, `apps: loading`, `remoteAppId` null, `filter` "" |
 | `picker-reload` | `apps: loading` where a domain is chosen; nothing otherwise |
-| `picker-apps` | taken only where `apps` is `loading` and its `domain` and `projectId` are still the picker's; `null` is `failed`. `remoteAppId` is cleared where the list holds no row of it that can be chosen |
-| `create-asked` | `pendingCreate` the event's `input`; `held`, `lead`, `refusal`, `needsChoice` and `failedCall` cleared; `failures` 0. No request is in flight yet: the next act is `create` (rule 8), which the driver posts |
-| `call` | `call` set; `waitingSince` set to `at` where it was null; `refusal` and `failedCall` null |
-| `row` from `start` or `check-again` | `reading` set, `call` null, `driving` true, `failures` 0, `answers`, `held`, `lead`, `needsChoice` cleared |
-| `row` from `load` | `reading` set, `call` null, `driving` false, `failures` 0. `quietRows` is 1 where the state is `reading` or `media` and `stepRunning` is false, and 0 otherwise |
-| `row` from `poll` | `reading` replaced only where its `revision` is not lower than the one held, or where it differs only in `stepRunning`, `phase` and `media`. `quietRows` plus one where the state is `reading` or `media`, `stepRunning` is false and `driving` is false, else 0. `driving` becomes true where `quietRows` reaches 2 (part 12, 4.4). So a tab watching a running step never starts a second one, whatever the step's `phase`; a tab that opens a reading nobody is driving takes it on at its first poll, two seconds after its load; and a tab watching a step whose server died takes it on two seconds after the step's mark is thirty seconds old. Two rows are asked, and not one, because between two steps of one driver the row is unmarked for the moment between an outcome's write and the next call's first mark |
-| `advanced` | `reading` set, `call` null, `failures` 0, `driving` kept true where `again`, `waitingSince` null where the state left is not `reading` or `media` |
-| `created`, `again` | `reading`, `publishing` set, `call` null, `failures` 0. `pendingCreate` is kept, so the screen stays `creating` and the next act is `create` with the same input |
-| `created`, `review-changed` | `reading` set, `lead` from `CREATE_RESULT_LEADS` by the state it is now in, `answers`, `held` and `pendingCreate` cleared, `failures` 0, `driving` true (so a row in `reading` or `media` is advanced), `call` null |
-| `created`, `held` | `held` the finding, `lead` the `held` sentence, `call` null, `pendingCreate` cleared, `failures` 0; `answers` kept. Where the finding is `table-differs-in-project`, `needsChoice` names `detail.name` |
-| `created`, `refused` | `refusal` set, `reading` replaced where the answer carries one, `call` null, `pendingCreate` cleared, `failures` 0; `answers` kept |
-| `created`, `created` | `call` stays `create` and `pendingCreate` stays set until `landed` |
+| `picker-apps` | taken only where `apps` is `loading` and its `domain` is still the picker's; `null` is `failed`. `remoteAppId` is cleared where the list holds no row of it that can be chosen |
+| `read-asked` | everything about the app cleared. The next act is the read |
+| `create-asked` | `pendingCreate` the event's `input`; `held`, `lead`, `refusal`, `failed` and `needsChoice` cleared; `lost` 0. No request is in flight yet: the next act is `create`, which the hook posts |
+| `call` | `call` set; `stage` and `files` null; `waitingSince` set to `at` where it was null |
+| `stage` | taken only while a call is in flight: `stage` set, and `files` null where the stage counts no files |
+| `files` | taken only while a call is in flight: `files` set |
+| `read-done` | `answer` and `answeredAt` set; `call`, `stage`, `files` and `waitingSince` null; `lost` 0. Where the answer is a review and `carried` holds answers: `answers` is what `carryAnswers` keeps of them for this review, `lead.dropped` its `dropped`, and `carried` is cleared. Otherwise `answers` and `carried` are null. `held`, `lead` and `refusal` are kept, so what a create left to say stands above what the read answers (8.10) |
+| `create-done`, `created` | `call` stays `create` and `pendingCreate` stays set until `landed`: the hook lands the receipt (9.2) |
+| `create-done`, `changed` | `answer` is `now`, `answeredAt` `at`. `lead` is by what `now` is: `changed-review`, `changed-account`, `changed-already-in-nova` for a stop whose code is `already-in-nova`, `changed-stop` for any other stop. Where `now` is a review and the model held a review with answers: `answers` is what `carryAnswers` keeps, and `lead.dropped` its `dropped`. Otherwise `answers` is null. `pendingCreate`, `held` and `refusal` cleared; `call` null; `lost` 0 |
+| `create-done`, `read-again` | `carried` the answers and the review the model held, where it held both; `answer` and `answers` null; `lead` `read-again`; `pendingCreate` cleared; `call` null; `lost` 0. The next act is the read |
+| `create-done`, `check-failed` | `answer` an account of the one finding (`accountOfOne`, below); `lead` `check-failed`; `answers`, `pendingCreate` and `held` cleared; `call` null; `lost` 0 |
+| `create-done`, `held` | `held` the finding, `lead` `held`, `call` null, `pendingCreate` cleared, `lost` 0; `answers` kept |
+| `create-done`, `refused` | `refusal` set, `call` null, `pendingCreate` cleared, `lost` 0; `answers` kept |
 | `landed` | `landing` set; `call` null and `pendingCreate` null, whatever the answer |
-| `refused` (a route answered a coded refusal) | `refusal` set, `call` null, `pendingCreate` cleared |
-| `failed` | `failures` plus one, `failedCall` the event's `call`, `call` null, and nothing else: `pendingCreate` is kept, so a creation whose request was lost is still a creation on screen. A failed `start`, `check-again` or `remove` leaves the screen as it was, with its sentence (13) |
-| `retry` | `failures` 0, `failedCall` null, and `driving` true where the row is in `reading` or `media`. The next act is then the one that failed |
-| `answers` | taken only where `answers.reviewDigest` is the reading's `reviewDigest`; `needsChoice` cleared where its tag now has an answer; `held` cleared where it was `table-differs-in-project` and no choice is unanswered |
+| `failed` | `failed` the event's `call`; `call`, `stage` and `files` null; `lost` 0. `pendingCreate` is kept, so Try again after a failed create sends the same create |
+| `lost` | `lost` plus one, `call` null, and nothing else: `pendingCreate` is kept, so a create whose request was lost is still a create on screen |
+| `refused` (a route answered a coded refusal before its stream) | `refusal` set, `call` null, `pendingCreate` cleared |
+| `retry` | `lost` 0 and `failed` null. The next act is then the one that was lost or failed: the create where `pendingCreate` is set, else the read |
+| `answers` | taken only where `answers.reviewDigest` is the digest of the review on screen; `needsChoice` cleared where its tag now has an answer; `refusal` cleared where it is `name_missing`, `choice_missing` or `choice_not_offered` |
 | `choice-needed` | `needsChoice` set, with `nonce` raised |
-| `removed` | `removed` true; `call` stays `remove`, so the screen keeps its busy button until the page goes |
+
+A create that answers `held` or a refusal of the person's answers after a reload (9.1) finds no
+review in the model. The next act is then the read (rule 8 below), and the lead, the held block or
+the refusal's sentence stands above the review it answers.
 
 **`screenOf`**, first match:
 
 1. `location.kind === "none"` is `none`; `choose` is `choose`.
-2. `landing === "unverified"` is `unopened`, with the location's reading id as `appId` (a reading's
-   id is its app's).
-3. `refusal === "reading_not_found"` is `gone`.
-4. `reading === null` is `opening`, `lost` where `failures >= 1`.
-5. `pendingCreate !== null`, or `landing` of `landed` or `leaving`, is `creating`, `lost` where
-   `failures >= 2`. This is what keeps the review off the screen between two calls of one creation
-   and during the wait before a retry: part 12 keeps the row `ready` through creation's media steps
-   (its 2.4), so the row's state alone would draw the review again.
-6. Then by `reading.state`: `reading` and `media` are `reading` (`lost` where `failures >= 2`),
-   `stopped` is `stopped` with `outcome.finding`, `account` is `account`, `ready` is `review` with
-   `answers ?? initialAnswers(reading)`, `created` is `creating` with `lost` false (the act is a
-   `replace` to `/build/<id>`), and `removed` is `gone` with `reading_not_found`.
+2. `landing.answer === "unverified"` is `unopened`, with `landing.appId`.
+3. `failed !== null` is `failed`, with that request as `operation`.
+4. `pendingCreate !== null`, or a `landing` of `landed` or `leaving`, is `creating`, `lost` where
+   `lost >= 2`. This is what keeps the review off the screen during a create and during the wait
+   before its one retry.
+5. A `refusal` of `no_project_access`, `invalid_input` or `app_unavailable` is `refused`. Every other
+   refusal is drawn on the review (8.10).
+6. `answer === null` is `reading`, `lost` where `lost >= 2`.
+7. Then by `answer.kind`: `stop` is `stopped`, `account` is `account`, and `review` is `review` with
+   `answers ?? initialAnswers(answer)`.
 
 **`nextAct`**, first match. It is a function of the model alone: nothing it answers depends on which
 event came last.
 
-1. `removed` is `replace` to `/`.
-2. `location.kind === "none"` is `none`. `choose` is `list-apps` with the picker's `domain` and
-   `projectId` where `picker.apps.kind === "loading"`, and `none` otherwise.
+1. `location.kind === "none"` is `none`. `choose` is `list-apps` with the picker's `domain` where
+   `picker.apps.kind === "loading"`, and `none` otherwise.
+2. `resumeChecked` false is `none`.
 3. `landing !== null` is `none`: the builder, the next page or the `unopened` screen has it.
-4. `call !== null` is `poll` at 2000 ms where the call is `advance` or `create`, and `none` for any
-   other call.
-5. `reading === null` is `load` where `refusal === null` and `failures === 0`, and `none` otherwise:
-   a load that failed waits for Try again.
-6. `reading.state === "created"` is `replace` to `/build/<reading.id>`.
-7. `failures >= 2` is `none`: the screen offers Carry on or Try again, which dispatches `retry`.
-8. `pendingCreate !== null` is `create` with that input, `afterMs` 3000 where `failures` is 1 and 0
-   otherwise. So an `again` answer is posted again at once, and one lost request is retried once,
-   three seconds later, with the input the person sent.
-9. `reading.state` of `reading` or `media` is `advance` where `driving` (`afterMs` 3000 where
-   `failures` is 1, else 0) and `poll` otherwise.
+4. `call !== null` is `none`: the hook is reading that request's stream.
+5. `failed !== null` is `none`: a defect answers the same way twice, so the page never sends a
+   failed request again by itself (5).
+6. `lost >= 2` is `none`: the screen offers Try again, which dispatches `retry`.
+7. `pendingCreate !== null` is `create` with that input, `afterMs` 3000 where `lost` is 1 and 0
+   otherwise. So one lost request is sent again once, three seconds later, with the input the person
+   sent.
+8. A `refusal` of `no_project_access`, `invalid_input` or `app_unavailable` is `none`.
+9. `answer === null` is `read` with the location's key, `afterMs` 3000 where `lost` is 1 and 0
+   otherwise.
 10. Everything else is `none`.
 
 ```ts
 /** The review's defaults: HQ's name, the preselected choice, and no table answered. */
-export function initialAnswers(reading: ReadingView): ReviewAnswers;
+export function initialAnswers(answer: ReviewAnswer): ReviewAnswers;
 /** The tags whose review entry asks a choice and has no answer, in tag order. */
-export function unansweredChoices(reading: ReadingView, answers: ReviewAnswers): readonly string[];
-/** `BringInInput` from the answers, name trimmed. */
-export function bringInInputOf(answers: ReviewAnswers): BringInInput;
+export function unansweredChoices(review: ReadingReview, answers: ReviewAnswers): readonly string[];
+/** Part 12's create body: the key, the reading's id, the digest and the answers, name trimmed. */
+export function bringInInputOf(
+	key: ReadingKey, answer: ReviewAnswer, answers: ReviewAnswers,
+): BringInInput;
 /**
- * The `review.runsOn` entry whose `runsOnlyOn` and `splitDatetime` the answers hold. `initialAnswers`
- * and every `answers` event take both from one entry, so there is always exactly one.
+ * The `review.runsOn` entry whose `runsOnlyOn` and `splitDatetime` the answers hold. `initialAnswers`,
+ * `carryAnswers` and every `answers` event take both from one entry, so there is always exactly one.
  */
 export function chosenDeclaration(
 	review: ReadingReview, answers: ReviewAnswers,
 ): ReadingDeclarationChoice;
+/**
+ * What of a person's answers still applies to a review that came back. The name is kept where the
+ * person had changed it from `before.appName`, and is `now.appName` otherwise. The pair
+ * `(runsOnlyOn, splitDatetime)` is kept where it is still a member of `now.runsOn`, and is the
+ * preselected entry's otherwise. Each table answer is kept where `now.tables` still asks a choice
+ * for that tag and still offers that answer, and the tag is left unanswered otherwise. `dropped`
+ * is true where a declaration or a table answer could not be kept.
+ */
+export function carryAnswers(
+	previous: ReviewAnswers, before: ReadingReview, now: ReadingReview, digest: string,
+): { readonly answers: ReviewAnswers; readonly dropped: boolean };
+/**
+ * CommCare HQ's name for the app, where the page knows one: the review's, the account's, or the
+ * chosen row's in a loaded picker. Null otherwise, as on an address opened afresh before its read
+ * answers.
+ */
+export function knownAppName(model: BringInModel): string | null;
+/** The context part 01's `circumstanceBlock` fills a block from (6.1). */
+export function circumstanceContextOf(
+	model: BringInModel, serverLabel: string, formatDate: (iso: string) => string,
+): CircumstanceContext;
+
+/** How long after the press a create kept in the tab is still sent again: one hour. */
+export const BRING_IN_RESUME_WINDOW_MS = 60 * 60 * 1000;
+/**
+ * The create to send again for `key`, from the tab's stored text (9.1): its input where the text
+ * parses, the input passes part 12's `bringInInputSchema`, its four key fields are `key`'s, and it
+ * was written less than `BRING_IN_RESUME_WINDOW_MS` before `now`. Null otherwise.
+ */
+export function resumableCreate(raw: string | null, key: ReadingKey, now: number): BringInInput | null;
 ```
+
+`carryAnswers` is why a review that comes back does not ask a person the same thing twice. A
+`changed` create that carries a review, and the read after a `read-again`, each put the person in
+front of a review whose digest is new, and discarding their answers there would make them choose a
+name, a platform and each table again for a change that may have touched none of them. Where a
+choice could not be kept, the lead gains part 12's one sentence for it (its "Copy"). Across a
+reload nothing is kept (3.2).
 
 The remaining pure functions of the file are given, with their types, where their screen uses them:
 `StopAction` and `STOP_ACTIONS` (6.2), `placeGroupKey`, `accountGroups`, `accountHeading`,
-`accountCounts`, `countLine`, `accountAsText` (7.1, 7.2, 7.5), `declarationRows`, `declarationWhy`
-(8.3) and `chosenDeclaration` (above; used in 8.3 and 8.8). `hqPlaceUrl` (7.4) is `lib/deployment`'s.
+`countLine`, `accountAsText` (7.1, 7.2, 7.5), `declarationRows`, `declarationWhy` (8.3). `hqPlaceUrl`
+(7.4) is `lib/deployment`'s. `CircumstanceContext` is part 01's (its 8.4).
 
-**The driver.**
+One type and one function sit outside the page, because MCP's projection reads them too (14.4):
+
+```ts
+// lib/deployment/reading/answers.ts (new, client-safe; exported from lib/deployment)
+/** A read's answer that is an account. */
+export type AccountAnswer = Extract<ReadingAnswer, { readonly kind: "account" }>;
+/**
+ * The account a `check-failed` create shows: its one finding, `more` 0, `mediaChecked` true, and
+ * `counts` holding 1 under the finding's standing.
+ */
+export function accountOfOne(finding: CircumstanceFinding, appName: string | null): AccountAnswer;
+```
+
+**The hook.**
 
 ```ts
 // components/bring-in/useBringIn.ts
@@ -755,7 +822,7 @@ import type { useProjectToast } from "@/lib/collab/useProjectToast";
 export function useBringIn(input: {
 	/** What `freshBuildPage` handed the tree (3.2). */
 	readonly seed: BringInSeed;
-	/** `ChatContainer`'s own function (part 12, 7.3). */
+	/** `ChatContainer`'s own function (part 12, section 7). */
 	readonly landCreatedAppReceipt: (
 		raw: Record<string, unknown>, origin: "blank" | "brought-in",
 	) => "landed" | "leaving" | "unverified";
@@ -765,92 +832,80 @@ export function useBringIn(input: {
 	readonly model: BringInModel;
 	readonly screen: BringInScreen;
 	readonly dispatch: (event: BringInEvent) => void;
-	/** Read this app, and Carry on (4.1). Does nothing while a call is in flight. */
-	readonly start: () => void;
-	/** Check again, on a stop or an account (6.2, 7.6). */
-	readonly checkAgain: () => void;
-	/** Remove from your list, once the person has confirmed it (6.2). */
-	readonly remove: () => void;
 };
 ```
 
-`components/bring-in/useBringIn.ts` holds `useReducer(reduceBringIn, …)` and one
-effect over `nextAct(model)`, keyed by the act's kind and its fields, so a render that answers the
-same act starts nothing twice. `list-apps`, `load`, `advance`, `create` and `replace` run once for
-each time the act appears: each of the first four changes the model as its first step (a `call`, or
-the list's answer), so the act is another one until its own answer brings it back. `poll` is the one
-act that repeats while it stands: it runs every `afterMs` for as long as `nextAct` stays `poll`. An
-`advance` or a `create` with `afterMs` above zero starts from a timer the effect clears when it is
-torn down. The hook calls the routes through `components/bring-in/bringInClient.ts`, which
-is seven `fetch` wrappers (part 12's six and the picker's one):
+`components/bring-in/useBringIn.ts` holds `useReducer(reduceBringIn, …)` and one effect over
+`nextAct(model)`, keyed by the act's kind and its fields, so a render that answers the same act
+starts nothing twice. Each act changes the model as its first step (a `call`, or the list's
+answer), so the act is another one until its own answer brings it back. A `read` or a `create` with
+`afterMs` above zero starts from a timer the effect clears when it is torn down. The hook calls the
+routes through `components/bring-in/bringInClient.ts`, which is three `fetch` wrappers:
 
 ```ts
 // components/bring-in/bringInClient.ts (new; plain `fetch`, no Next router, no Server Action)
+import type { ReadingEvent } from "@/lib/deployment";
+
 export type BringInAnswer<T> =
 	| { readonly ok: true; readonly value: T }
 	/** A body with a `code` is that refusal. Any other failure, a lost request among them, is null. */
 	| { readonly ok: false; readonly refusal: ReadingRefusal | null };
 
+/** How a request to one of part 12's two routes ended. */
+export type BringInStreamEnd<T> =
+	/** The stream's last line was `done`. */
+	| { readonly kind: "done"; readonly answer: T }
+	/** The stream's last line was `failed`. */
+	| { readonly kind: "failed" }
+	/** The route answered a JSON body with a `code` and opened no stream. */
+	| { readonly kind: "refused"; readonly refusal: ReadingRefusal }
+	/** The stream ended with no last line, or the response was no stream and held no `code`. */
+	| { readonly kind: "lost" };
+
 /** `GET /api/commcare/hq-apps` (4.2). */
 export function fetchHqApps(
-	input: { readonly domain: string; readonly projectId: string | null }, signal: AbortSignal,
+	input: { readonly domain: string }, signal: AbortSignal,
 ): Promise<BringInAnswer<HqAppPicker>>;
-/** `POST /api/commcare/readings`. */
-export function postStartReading(key: {
-	readonly projectId: string; readonly server: CommCareServer;
-	readonly domain: string; readonly remoteAppId: string;
-}): Promise<BringInAnswer<ReadingView>>;
-/** `GET /api/commcare/readings/<id>`. */
-export function fetchReading(
-	readingId: string, signal?: AbortSignal,
-): Promise<BringInAnswer<ReadingView>>;
-/** `POST /api/commcare/readings/<id>/advance`. */
-export function postAdvanceReading(
-	readingId: string,
-): Promise<BringInAnswer<{ readonly reading: ReadingView; readonly again: boolean }>>;
-/** `POST /api/commcare/readings/<id>/check-again`. */
-export function postCheckReadingAgain(readingId: string): Promise<BringInAnswer<ReadingView>>;
-/** `POST /api/commcare/readings/<id>/create`. */
-export function postCreateFromReading(
-	readingId: string, input: BringInInput,
-): Promise<BringInAnswer<CreateResult>>;
-/** `DELETE /api/commcare/readings/<id>`. */
-export function deleteReading(
-	readingId: string,
-): Promise<BringInAnswer<{ readonly removed: true }>>;
+/** `POST /api/commcare/bring-in/read`. `onEvent` takes each `stage` and `files` line as it arrives. */
+export function postRead(
+	key: ReadingKey, onEvent: (event: ReadingEvent) => void, signal: AbortSignal,
+): Promise<BringInStreamEnd<ReadingAnswer>>;
+/** `POST /api/commcare/bring-in/create`. It takes no signal: a create is never stopped (9.1). */
+export function postCreate(
+	input: BringInInput, onEvent: (event: ReadingEvent) => void,
+): Promise<BringInStreamEnd<CreateAnswer>>;
 ```
 
-`CommCareServer` is imported as a type from `@/lib/deployment`, which re-exports it
-(`lib/deployment/types.ts`), so `components/bring-in` names no module of `lib/commcare`; the other
-types are `lib/deployment`'s re-exports too. A body with a `code` is the refusal, and
-any other failure is `refusal: null` (part 12, 4.1: "the page treats any body without a `code` as
-the request failing and offers the same act again"). By act:
+`postRead` and `postCreate` read the response through part 12's one client-side reader,
+`lib/deployment/reading/stream.ts::readBringInStream` (client-safe; the module is imported by its
+path, since `lib/deployment/reading/index.ts` is server-only). `bringInInputSchema` is imported the
+same way from `lib/deployment/reading/types.ts`, and `components/bring-in` names no module of
+`lib/commcare`. By act:
 
-- `list-apps` fetches the picker's route and dispatches `picker-apps` with the `domain` and
-  `projectId` it asked for. The request is aborted when the key changes.
-- `load` dispatches `call`, then `row` from `load`, `refused` or `failed`.
-- `advance` and `create` dispatch `call`, post (for `create`, the act's `input`, which is the
-  model's `pendingCreate`), then dispatch `advanced` or `created`, `refused` or `failed`. Neither is
-  ever aborted, and an answer that arrives after the
-  component unmounted is dropped (`mountedRef`), since the step finishes on the server either way.
-- `poll` fetches the row and dispatches `row` from `poll`. It is aborted when its effect is torn
-  down, and a poll that fails dispatches nothing: the next one runs.
-- `replace` is `window.location.replace(href)`.
+- `list-apps` fetches the picker's route and dispatches `picker-apps` with the `domain` it asked
+  for. The request is aborted when the project space changes.
+- `read` dispatches `call`, posts, dispatches `stage` and `files` for each line, then `read-done`,
+  `failed`, `refused` or `lost`. Its `AbortController` is held in a ref and aborted when the
+  location leaves that app or the flow unmounts, and never because the act changed: the route hands
+  the request's signal to the read (part 12, 4.1), so a read nobody is watching stops at its
+  next call to CommCare HQ. An aborted read dispatches nothing.
+- `create` dispatches `call`, posts the act's `input`, which is the model's `pendingCreate`, dispatches
+  the lines, then `create-done`, `failed`, `refused` or `lost`. It is never aborted, and an answer that
+  arrives after the component unmounted is dropped (`mountedRef`): the create runs to its end on the
+  server either way (part 12, 4.1: the create route is handed no signal). On `created` the hook lands
+  the receipt and dispatches `landed` (9.2). A `location` event never touches `call`, so a person who
+  goes Back from the creating screen leaves the create running: if it answers `created` it lands all
+  the same, since the app exists, and any other answer of it clears `call` and changes nothing else.
 
-The three calls a person starts have no act. The handler of **Read this app** (4.1), of **Check
-again** (6.2, 7.6) and of a confirmed **Remove from your list** (6.2) each dispatches `call`, makes
-its request and dispatches `row` (from `start` or `check-again`) or `removed`, or `refused` or
-`failed`.
-
-The hook subscribes to the URL through `useBuilderSearchFrom` and dispatches `location`, and to
-`useCommCareConnection()` and dispatches `connection` with the names of `availableDomains`. It marks
-the home list stale as 12.3 says. `BringInFlow` calls it, inside `ChatContainer`'s tree, with the
-`landCreatedAppReceipt` that `ChatContainer` hands the flow (9.2, 12.1). Each wrapper returns the
-route's value unwrapped (`picker`, `reading`, or the whole body where the body is the value).
+The hook subscribes to the URL through `useBuilderSearchFrom` and dispatches `location`, and each
+time the location becomes an app it reads the tab's key and dispatches `resume` (9.1). It
+subscribes to `useCommCareConnection()` and dispatches `connection` with the names of
+`availableDomains`. `BringInFlow` calls it, inside `ChatContainer`'s tree, with the
+`landCreatedAppReceipt` that `ChatContainer` hands the flow (9.2, 12.1).
 
 ---
 
-## 4. Choosing: a Project, a project space and an app (B11)
+## 4. Choosing: a Project, a project space and an app
 
 ### 4.1 The screen
 
@@ -862,9 +917,9 @@ One card, in the order a person reads it. Strings are in "Copy" by id.
    in the list, else the first. With one Project it is still shown, as text in the field's place, so
    the person always reads where the app will live. Under it **K4**, which says who will see the app
    (everyone in a shared Project; only the person in their own, by the row's `personal`) and that an
-   app reading lookup tables stays where it is added (`lib/db/apps.ts` refuses that move; part 12,
-   2.7).
-3. **Project space** (**K5**): over `picker.domains`, which the driver keeps equal to
+   app reading lookup tables stays where it is added (`lib/db/apps.ts` refuses that move, as it
+   refuses it for every app that reads Project data tables).
+3. **Project space** (**K5**): over `picker.domains`, which the hook keeps equal to
    `useCommCareConnection()`'s `availableDomains` (3.3, the `connection` event). One: the text
    **K6**, and its apps are listed at once, since the reducer chooses a lone project space. Two to
    eight: a `Select`. More: `components/shadcn/combobox.tsx` with the placeholder **K7**, in
@@ -876,18 +931,15 @@ One card, in the order a person reads it. Strings are in "Copy" by id.
 
 Cancel is `pushBuilderHistory("/build/new", true)`: the composer and both ways of starting come back.
 
-**Read this app** dispatches `call` for `start`, calls `POST /api/commcare/readings` with
-`{ projectId, server, domain, remoteAppId }` (`server` is the loaded list's, `picker.apps.picker
-.server`), dispatches `row` from `start` with the answer, replaces the URL with
-`/build/new?hq=<id>`, and the driver advances it. A coded refusal dispatches `refused` and a failure
-with no code `failed`, which the screen words as section 13's "Picker, starting" row says. Where the
-row chosen holds `openReadingId` the button reads **Carry on** and does the same thing:
-`startReading` returns the open row (part 12, 3.5), so there is one path.
+**Read this app** pushes the app's address, `bringInHref({ kind: "app", key })`, with `key` the
+chosen Project, the loaded list's `server`, the project space and the row's `remoteAppId`. Nothing
+is posted from this screen: the location's change is what starts the read (3.3), and the reading
+screen shows at once, so the button has no in-flight label. Back returns here, with the list as the
+person left it.
 
 ### 4.2 The picker's transport
 
-Part 12 hands the picker's reads to this part ("The picker's reads … are part 13's transport"). They
-are one service function and one route.
+The picker's reads of CommCare HQ are this part's: one service function and one route.
 
 ```ts
 // lib/deployment/reading/pickerTypes.ts (new, client-safe; re-exported as types from lib/deployment)
@@ -900,8 +952,6 @@ export interface HqAppPickerRow {
 	readonly name: string;
 	/** Who holds it in Nova, or null where it is free. */
 	readonly claim: HqAppClaimDetail | null;
-	/** The caller's own open reading of it in the chosen Project, or null. */
-	readonly openReadingId: string | null;
 }
 export type HqAppPicker =
 	| { readonly kind: "apps"; readonly server: CommCareServer; readonly domain: string;
@@ -913,48 +963,44 @@ export type HqAppPicker =
 
 // lib/deployment/reading/picker.ts (new, server-only; exported from lib/deployment/reading/index.ts)
 export function listHqAppsForPicker(
-	actor: ReadingActor,
-	input: { readonly domain: string; readonly projectId: string | null },
+	actor: { readonly userId: string }, input: { readonly domain: string },
 ): Promise<HqAppPicker>;
 ```
 
-In order, with no write:
+In order, with no write. Every stop's finding is made by part 01's `circumstanceFinding` (its 8.1)
+at the place `{ kind: "app" }`:
 
 1. `getHqCredentials(actor.userId, input.domain)` (part 05, section 11). `not_configured` answers
-   `not-connected`. `not_authorized` answers a stop of `not-a-member` at place `{ kind: "app" }`.
-   `ambiguous` cannot be the answer for a named project space and is thrown with part 12's C8
-   sentence.
-2. `listHqApps(creds, domain)` (part 05, 5.1). An error answers the stop
-   `hqReadCircumstance(classifyHqFailure(error, "app-list"))`.
+   `not-connected`. `not_authorized` answers a stop of `key-cannot-reach-space`: the project spaces
+   Nova holds for the stored key do not hold this one, and no request is sent. `ambiguous` cannot
+   be the answer for a named project space, and is thrown with the developer's message of "Copy".
+2. `listHqApps(creds, domain)` (part 05, 5.1). An error answers the stop for
+   `hqReadCircumstance(classifyHqFailure(error, "app-list"))` (part 05, 4.3).
 3. `probeHqApiAccess(creds, domain)` (part 05, 5.2), after the list and never beside it.
    `plan-lacks-api-access` answers that stop, `account-lacks-access-apis` answers `cannot-access-apis`,
-   and `failed` answers `hqReadCircumstance(failure)`. `available` goes on.
+   and `failed` answers the stop for `hqReadCircumstance(failure)`. `available` goes on.
 4. `readHqAppClaims({ viewerUserId, server, domain, remoteAppIds })` (part 10, 5.5), one query. Each
    view becomes the row's `claim` with `remoteAppId` dropped, which is part 01's `HqAppClaimDetail`.
-5. Where `projectId` is given and the caller holds `view` there: `listOpenReadings(actor, projectId)`
-   (part 12, 3.5), and each summary whose `server`, `domain` and `remoteAppId` match a row gives that
-   row its `openReadingId`. A caller without `view` gets none, as that function answers an empty
-   list.
 
 Rows are in CommCare HQ's order, which is by name (part 05, 5.1). The function reads nothing else of
 HQ: part 05 states that a list row cannot say an app is linked, remote, when it was edited or whether
-it is built, so the picker shows the name alone, and a linked, remote or deleted app is a stop of the
-first read step (6).
+it is built, so the picker shows the name alone, and a linked, remote or deleted app is a stop of
+the app's own read (6).
 
 | Route | File | Calls | Request | 200 body |
 |---|---|---|---|---|
-| `GET /api/commcare/hq-apps` | `app/api/commcare/hq-apps/route.ts` (new) | `listHqAppsForPicker` | query `domain` (required, through `lib/commcare/client.ts::isValidDomainSlug`), `projectId` (optional, at most 255 characters) | `{ picker: HqAppPicker }` |
+| `GET /api/commcare/hq-apps` | `app/api/commcare/hq-apps/route.ts` (new) | `listHqAppsForPicker` | query `domain` (required, through `lib/commcare/client.ts::isValidDomainSlug`) | `{ picker: HqAppPicker }` |
 
-A thin shell as part 12's are: `requireSession(req)`, the two query values checked, the service call,
-`handleApiError`. A stop is an answer and is 200. A bad query is 400 with `{ error, code:
-"invalid_input" }` and part 12's sentence. `lib/hostnames.ts::HOSTNAME_ALLOWLIST` holds `/api/commcare`
-for the main host and matches by segment, so the route needs no entry and is not reachable on the MCP
-or docs host; B11's route test holds both, as part 12's does for its six. No `maxDuration` export: the
-two reads are bounded at 30 seconds each by part 05 (its 3.3), with its wait for a throttled answer
-between them.
+A thin shell: `requireSession(req)`, the query value checked, the service call, `handleApiError`. A
+stop is an answer and is 200. A bad query is 400 with `{ error, code: "invalid_input" }` and part
+12's sentence for that refusal. `lib/hostnames.ts::HOSTNAME_ALLOWLIST` holds `/api/commcare` for the
+main host and matches by segment, so the route needs no entry and is not reachable on the MCP or
+docs host; the route test holds both ("Tests"). No `maxDuration` export: the two reads are bounded
+at 30 seconds each by part 05 (its 3.3), with its wait for a throttled answer between them.
 
-It is a route and not a Server Action for part 12's reason (its 4.2): the page may be polling, and
-Next dispatches a client's actions one at a time.
+It is a route and not a Server Action for the reason part 12 gives of its own two routes (its 4.2):
+Next dispatches a client's actions one at a time, and a read of CommCare HQ that takes seconds would
+hold every other action of the tab behind it.
 
 ### 4.3 The rows
 
@@ -964,16 +1010,18 @@ second line.
 | The row | Shows | Can be chosen |
 |---|---|---|
 | free | the name, or **K13** where CommCare HQ holds none | yes |
-| the person's own open reading (`openReadingId`) | the name and a `Badge` **K15** | yes; the footer's button reads **Carry on** |
 | `claim.kind === "open"` | the name, a `Badge` `HQ_APP_CLAIM_OPEN_LABEL` ("Already in Nova"), and a `Button variant="link"` `HQ_APP_CLAIM_OPEN_ACTION` ("Open") rendering a `Link` to `/build/<claim.appId>` | no: the radio is `aria-disabled`, keeps its place in the tab order, and its label says why |
-| `claim.kind === "elsewhere"` | the name, the label `HQ_APP_CLAIM_ELSEWHERE_LABEL` ("Already in Nova, in a Project you're not part of"), and under it part 01's `alreadyInNovaNext(claim)` sentence with its date in the reader's locale (who brought it in or published it and when, and the two ways forward: be invited, or ask them to stop publishing to it) | no, as above |
+| `claim.kind === "elsewhere"` | the name, the label `HQ_APP_CLAIM_ELSEWHERE_LABEL` ("Already in Nova, in a Project you're not part of"), and under it part 01's `alreadyInNovaNext(claim, formatDate)` sentence with its date in the reader's locale (who has the app in Nova and since when, and the two ways forward: be invited, or ask them to stop publishing to it) | no, as above |
 
 The two row labels and the action "Open" are the three exports of `lib/publish/hqAppClaims.ts` (part
-10, 5.5, "The picker's marks", B8), which exports no line. The line under an `elsewhere` row is part
-01's `alreadyInNovaNext(claim)` (its 8.4, A2), called with the row's claim; a picker row is no
-finding, so `circumstanceNext` (6.1) does not apply to it. This part places the four and writes
-none. The holding Project's name and, for `elsewhere`, the Nova app's name are never on the wire
-(part 10, 5.5), so the row cannot show them.
+10, "Copy", "The picker's marks"), which exports no line. The line under an `elsewhere` row is part
+01's `alreadyInNovaNext(claim, formatDate)` (its 8.4 and 9.3), called with the row's claim; a picker
+row is no finding, so `circumstanceBlock` (6.1) does not apply to it. This part places the two and
+writes none. The holding Project's name and, for `elsewhere`, the Nova app's name are never on the
+wire (part 10, 5.5), so the row cannot show them.
+
+A person's own app is one of these rows. Someone who brought an app in and comes back to the picker
+reads "Already in Nova" with **Open**, which is true and is the way to it.
 
 The filter narrows by a case-insensitive match of the name, in the browser, and never selects.
 
@@ -1056,14 +1104,15 @@ the connection, because it reads the same context.
 
 ### 4.5 Stops met while choosing
 
-A `stop` answer is drawn in the App field's place by the same block a stopped reading uses (6.1), with
-part 01's title, body and next for the code, `{space}` the chosen project space and `{server}` the
-connection's label. The codes this screen can meet are the ones steps 1 to 3 of 4.2 give:
-`not-a-member`, `key-not-accepted`, `plan-lacks-api-access`, `api-cut-off`, `cannot-access-apis`,
-`rate-limited`, `hq-unavailable`, `hq-gateway-refused` and `browser-only`. Their actions are
-`STOP_ACTIONS`' (6.2), less "Choose another app" and "Remove from your list", which have nothing to
-act on here; "Check again" dispatches `picker-reload`, which lists again. Choosing another project
-space clears the stop.
+A `stop` answer is drawn in the App field's place by the same block a stopped read uses (6.1):
+part 01's `circumstanceBlock(finding, { server, space, app: null, formatDate })`, with `space` the
+chosen project space and `server` the connection's label. The codes this screen can meet are the
+ones steps 1 to 3 of 4.2 give, ten of them: `key-cannot-reach-space`, `not-a-member`,
+`key-not-accepted`, `plan-lacks-api-access`, `api-cut-off`, `cannot-access-apis`, `rate-limited`,
+`hq-unavailable`, `hq-gateway-refused` and `browser-only`. No block among them names an app (part
+01, 9.3), which is why `app: null` is right here. Their actions are `STOP_ACTIONS`' (6.2), less
+"Choose another app", which has nothing to act on here; "Check again" dispatches `picker-reload`,
+which lists again. Choosing another project space clears the stop.
 
 A person who can add an app to no Project (`BringInSeed.projects` is empty, so `picker.projectId` is
 null; they came by the address, since no entry is offered to them) sees part 12's
@@ -1072,79 +1121,90 @@ views the tab's Project and edits another sees the picker with that other Projec
 
 ---
 
-## 5. Reading (B11)
+## 5. Reading
 
-The screen for a row in state `reading` or `media`.
+The screen while the read of the app the address names is in flight (`screenOf` is `reading`). A
+read is one request (part 12, section 3), and the screen draws what that request's own response
+says as it arrives.
 
-- A status row, `role="status"`, with the one spinner of the screen: **W1**, naming the app once the
-  row holds its name.
-- Under it, the step that is running: `READING_PHASE_LABELS[reading.phase]` (part 12, C4), with
-  `{done}` and `{total}` from `reading.media`; **W2** where `phase` is null. Part 12 reports a
-  phase only while a step is marking the row (its 3.1), so W2 is what the line says in two
-  cases, each of them true: a step has started and named no phase yet, and a step died with its
-  server and this tab is taking the reading on. It never names a step that nothing is running. A
-  step that is waiting for the server's one reading slot has a label of its own, part 12's
-  `waiting` (its 3.6 and C4). It is an `aria-live`
-  region at `polite`, and its text changes only when the label does, so a file count that moves every
-  two seconds is not read out each time: the count is a separate `aria-hidden` span beside a
-  visually hidden sentence that is updated at most every ten files.
+- A status row, `role="status"`, with the one spinner of the screen: **W1**, naming the app where
+  the page knows its name (`knownAppName`, 3.3: the row the person chose in the picker). On an
+  address opened afresh the page knows none until the read answers, and W1 reads its second form.
+- Under it, the stage that is running: part 12's `READING_STAGE_LABELS[stage]` (its "Copy"), with
+  `{done}` and `{total}` from the model's `files` on `checking-media`. Before the first line of
+  the stream arrives the row shows W1 alone. The line is an `aria-live` region at `polite`, and
+  its text changes only when the label does, so a file count that moves several times a second is
+  not read out each time: the count is a separate `aria-hidden` span beside a visually hidden
+  sentence that is updated at most every ten files.
 - After twenty seconds of `waitingSince`: **W3**. This is the design system's rule for a wait, "Long
   operations get patient company ("Still building. Big apps take a minute or two."), not spinners in
   silence or percent counters", and it is why there is no bar.
-- Always: **W4** and **W4b** as one paragraph, and one link, **Go to your apps**.
+- Always: **W4**, and one link, **Go to your apps**.
 
-W4 says what leaving does, and it does not say the read carries on alone, because it does not: no
-worker advances a reading (part 12, 4.3 and 4.4). A tab that closes lets the
-step in flight finish and write its outcome, and nothing runs after it until a tab opens the reading
-again. Until then the home row reads "Paused" (10.2). W4b says where the reading is kept. The home
-list shows the readings of the Project the tab is looking at (10.1), so where the reading's
-`projectId` is not the tab's (`useProjectId()`), W4b names the Project it was added to, from
-`BringInSeed.projects`:
-the person finds the row by switching to that Project, and **Go to your apps** alone would show
-them a list without it.
+W4 says what leaving does, and it is true whichever way the person leaves: the read stops at its
+next call to CommCare HQ once nobody is waiting for it (the hook aborts its request, and the route
+hands the request's signal to the read; part 12, 3.2), it has stored nothing, and the address
+reads the app afresh whenever it is opened again (3.2). There is no "Stop reading" button, because
+leaving is the stop.
 
-The named steps a person can see are part 12's nine labels and no others. Which run, in which order,
-is the row's business: the read step runs before the files are fetched and again after (part 12,
-Decision 8), so the label can return from "Bringing in pictures and sounds" to "Reading the app", and
-each time it says what is true.
+The stages a person can see are the ones a read names (part 12, 4.3): connecting, reading the
+app, reading its lookup tables and places, checking what Nova read, checking pictures and sounds
+with a count, then checking once more. A stage with nothing to do is not named, so an app with no
+files never shows a count. The ordinary read is a matter of seconds (part 12, 3.7); the count is
+what a person watches where an app holds hundreds of files.
 
-**The driver here.** While `nextAct` is `advance`, the hook posts `…/advance` and, while that call is
-in flight (`call` is `advance`, so `nextAct` is `poll`), polls `GET …/<id>` every 2 seconds and
-dispatches `row` from `poll`, so `phase` and `media` move on screen. When the call answers it
-dispatches `advanced` and, where `again`, advances again. A tab that opened a reading it did not
-start only polls while the row says a step is running, and takes the reading on once two rows in
-a row say none is (3.3), which is part 12's rule for who drives (its 4.4). An `advance` answered
-`again` with the row unchanged is a step that waited for the server's reading slot and started
-nothing (its 3.6); the hook advances again as for any `again`, the wait was the server's, so no
-timer is added here, and while it lasts the line reads part 12's `waiting` label.
+**A lost request.** A response that ends with no last line, or that is no stream and holds no
+`code`, is a lost request: the network or the instance ended it. The first shows the amber line
+**W5** ("Trying again", the design system's recovery word) and the hook reads once more after 3
+seconds (`nextAct`, rule 9). The second shows **W6** with **Try again**, which dispatches `retry`.
+Nothing was created either way, and a read that is sent again is a whole read.
 
-**A lost request.** The first failure of an `advance` with no code shows the amber line **W5**
-("Trying again", the design system's recovery word) and retries once after 3 seconds. The second
-shows **W6** with **Carry on**, which dispatches `retry`. Nothing is lost either way: a step that
-did not write left the row as it was (part 12, 3.2).
+**Nova's own failure.** A stream whose last line is `failed` is something thrown on the server
+that is no answer (part 12, 4.3), which it has logged. The screen is `failed` with the operation
+`read`: an amber `tabler:info-circle`, part 12's `READING_FAILED_COPY.read` (its title as the
+`h1`, which takes focus, and its body, with `{app}` the known name or "this app"), **Try again**,
+which dispatches `retry`, and **Go to your apps**. The page never sends a failed request again by
+itself: a lost stream is retried once because the network may have been the cause, and a defect
+answers the same way twice.
 
-A coded refusal is one of two: `project_access_lost` shows its sentence (part 12, C1) with **Go to
-your apps**, and `reading_not_found` is the `gone` screen.
+**A refusal before the stream.** The read route refuses two things as ordinary JSON with a `code`
+before it opens a stream (part 12, 4.1), and each is the `refused` screen, the refusal's sentence
+(part 12's `READING_REFUSAL_COPY`) as its one line:
+
+| Refusal | When | Actions |
+|---|---|---|
+| `no_project_access` | the person cannot add an app to the Project the address names: the address was sent by someone else, or the person's role changed | **Choose another Project**, which pushes `/build/new?hq=choose`, and **Go to your apps** |
+| `invalid_input` | the address held a project space that is no project space slug | **Choose an app**, which pushes `/build/new?hq=choose`, and **Go to your apps** |
+
+The third refusal that takes this screen, `app_unavailable`, comes only from a create (8.10).
 
 ---
 
-## 6. A stop (B11)
+## 6. A stop
 
 ### 6.1 The block
 
-A row in state `stopped`, and a `stop` answer of the picker, draw one component, `BringInStop`:
+One component, `BringInStop`, draws every stop: a read's answer of kind `stop`, a `stop` answer of
+the picker (4.5), and a create's `changed` answer whose `now` is a stop (8.10).
 
 - an amber `tabler:info-circle`, never a tick and never rose: a stop is no error of the person's and
   no failure of Nova's;
-- the title as the screen's `h1` (focus goes to it) and the body, each from
-  `CIRCUMSTANCE_COPY[code]` (part 01, 9.3), and the next step, which is
-  `circumstanceNext(finding)` (part 01, 8.4, landed in B2): the one function that words a
-  circumstance's next step for a stop, the account (7.2) and MCP (14.3) alike. `{space}`,
-  `{server}`, `{app}` and `{name}` are filled from the reading;
-- one line, **S1**: "Nothing was created, and nothing changed in CommCare HQ";
+- the title as the screen's `h1` (focus goes to it), the body and the next step, all three from
+  part 01's `circumstanceBlock(finding, context)` (its 8.4): the one function that words a
+  circumstance for a stop, the account (7.2), the copied text (7.5) and MCP (14.3) alike, with
+  every placeholder filled. The page builds `context` with `circumstanceContextOf` (3.3): the
+  server's label, the project space of the address, the app's name where the page knows one and
+  null where it does not, and the viewer's locale date;
+- one line, **S1**, under every stop but `already-in-nova`. That block's own body and next step
+  say where the app is, and "Nothing was created" beside the name of an app the person may have
+  made a minute ago would read as a contradiction. On a screen drawn from a create's answer (the
+  model holds a `lead`) S1 reads its second form, "No app was created, and nothing changed in
+  CommCare HQ", which is true before the create's files are added to the Project and after;
+- where the model holds a `lead`, part 12's `CREATE_ANSWER_LEADS` sentence for it in a
+  `role="status"` line above the heading;
 - the actions of 6.2.
 
-A `held` answer of creation is the same block with no `S1` and no actions of its own, set above the
+A `held` answer of a create is the same block with no S1 and no actions of its own, set above the
 review (8.10).
 
 ### 6.2 The actions, by code
@@ -1161,8 +1221,6 @@ export type StopAction =
 	| { readonly kind: "check-again" }
 	/** **Choose another app**. */
 	| { readonly kind: "choose-another-app" }
-	/** **Remove from your list**. */
-	| { readonly kind: "remove" }
 	/** **Go to your apps**: a link to `/`. */
 	| { readonly kind: "go-to-apps" }
 	/** **Open {appName}**: a link to `/build/<appId>`. */
@@ -1174,113 +1232,101 @@ export const STOP_ACTIONS: {
 ```
 
 `STOP_ACTIONS` is written with `satisfies Record<StopCircumstance, (finding: CircumstanceFinding) =>
-readonly StopAction[]>`. `StopCircumstance` is part 01's type (its 8.3, A2): every member of
-`READ_CIRCUMSTANCES` whose `CIRCUMSTANCE_STANDINGS` entry is `stop`, which is nineteen codes once B1
-has landed its five (`hq-gateway-refused`, `api-cut-off`, `browser-only`, `remote-app`,
-`cannot-read-organization`). So a `stop` code added to part 01's list fails to compile here until
-it has a row. Every row but `already-in-nova` ignores its argument; that row reads
-`finding.detail.claim` and answers `open-app` where its `kind` is `open`.
+readonly StopAction[]>`. `StopCircumstance` is part 01's type (its 8.3): every member of
+`READ_CIRCUMSTANCES` whose `CIRCUMSTANCE_STANDINGS` entry is `stop`, nineteen codes. So a `stop`
+code added to part 01's list fails to compile here until it has a row. Every row but
+`already-in-nova` ignores its argument; that row reads `finding.detail.claim` and answers `open-app`
+where its `kind` is `open`.
 
 | Code | Actions, in order, the first one primary |
 |---|---|
-| `not-connected`, `key-not-accepted` | **Open Settings** (a link to `/settings` in a new tab), **Check again**, **Remove from your list** |
-| `plan-lacks-api-access`, `not-a-member`, `cannot-edit-apps`, `cannot-access-apis`, `api-cut-off`, `browser-only`, `cannot-read-organization` | **Check again**, **Choose another app**, **Remove from your list** |
+| `not-connected`, `key-not-accepted`, `key-cannot-reach-space` | **Open Settings** (a link to `/settings` in a new tab), **Check again** |
+| `plan-lacks-api-access`, `not-a-member`, `cannot-edit-apps`, `cannot-access-apis`, `api-cut-off`, `browser-only`, `cannot-read-organization` | **Check again**, **Choose another app** |
 | `rate-limited`, `hq-unavailable`, `hq-gateway-refused`, `changed-while-reading` | **Check again**, **Go to your apps** |
-| `app-gone`, `linked-app`, `remote-app` | **Choose another app**, **Remove from your list** |
-| `app-deleted` | **Check again**, **Choose another app**, **Remove from your list** |
-| `already-in-nova`, the holder `open` | **Open {appName}** (a link to `/build/<claim.appId>`), **Choose another app**, **Remove from your list** |
-| `already-in-nova`, any other holder | **Choose another app**, **Check again**, **Remove from your list** |
-| `table-differs-in-project` | none: it is only ever a `held` answer (part 12, 3.8) |
+| `app-gone`, `linked-app`, `remote-app` | **Choose another app**, **Go to your apps** |
+| `app-deleted` | **Check again**, **Choose another app** |
+| `already-in-nova`, the holder `open` | **Open {appName}** (a link to `/build/<claim.appId>`), **Choose another app** |
+| `already-in-nova`, any other holder | **Choose another app**, **Check again** |
 
-**Check again** dispatches `call` for `check-again`, posts `…/check-again` and dispatches `row` from
-`check-again`, after which the driver advances the row. **Choose another app** pushes
-`/build/new?hq=choose`, keeping the picker's Project and project space. **Remove from your list** asks
-with the home row's dialog (10.4) and, on a yes, dispatches `call` for `remove`, sends
-`DELETE …/<id>` and dispatches `removed`, whose act loads `/` (`window.location.replace`, so the
-list is read afresh and Back does not return to a reading that is gone). **Go to your apps** is a
-link to `/`.
+**Check again** dispatches `read-asked`: the app is read afresh and the screen is section 5's. In
+the picker it dispatches `picker-reload` (4.5). **Choose another app** pushes
+`/build/new?hq=choose`, keeping the picker's Project and project space. **Go to your apps** is a
+link to `/`. `key-cannot-reach-space` offers Settings first because that is where the step is:
+Settings reads the key's project spaces again, and Check again then reads the app with what the
+key reaches now (part 01, 8.3).
 
 ### 6.3 Every circumstance, and where it is drawn
 
-Part 01's `READ_CIRCUMSTANCES` holds thirty-five codes once B10 has landed (its 8.3). Each has one
-layout, decided by its standing alone, so a code a later pull request adds needs a row of 6.2 where
-its standing is `stop` and nothing else of this part. The title, the body and the next step of
-every code are part 01's (`CIRCUMSTANCE_COPY`, `circumstanceNext`), in the words of the part that
-proposed the code; this part writes none.
+Part 01's `READ_CIRCUMSTANCES` holds thirty-four codes (its 8.3). Each has one layout, decided by
+its standing alone, so a code added later needs a row of 6.2 where its standing is `stop` and
+nothing else of this part. The title, the body and the next step of every code are part 01's
+(`CIRCUMSTANCE_COPY`, through `circumstanceBlock`); this part writes none.
 
-| Codes | Standing | Lands in | Drawn |
-|---|---|---|---|
-| the nineteen rows of 6.2 | `stop` | A2 (fourteen), B1 (five) | the stop block (6.1) with the actions of 6.2: as the whole screen for a row in state `stopped`, in the App field's place for a `stop` answer of the picker (4.5), and above the review, with no S1 and no actions, for a `held` answer of creation (8.10) |
-| `too-large` | `not-yet` | A2 | the circumstance block of 7.2, in the group of the finding's own place; the heading is A1 (7.1) |
-| `unrecognized`, `read-back-differs` | `not-yet` | A2 | the same block; the heading is A2 where every finding of the account is one of these or `could-not-create`, else A1 (7.1) |
-| `menu-unreadable-in-hq`, `shadow-disagrees`, `media-file-unreadable` | `fix-in-hq` | A2 | the same block, under the amber label |
-| `app-unreadable-in-hq`, `table-rows-unreadable` | `fix-in-hq` | B1 | the same block |
-| `no-platform-runs-everything` | `fix-in-hq` | B2 | the same block; its next step is the second sentence where `detail.reason` is `split-refused`, which `circumstanceNext` chooses |
-| `places-over-nova-limit`, `place-not-holdable`, `owner-rule-needs-one-place` | `not-yet` | B9 | the same block, under the violet label; the heading is A1 |
-| `media-not-played-where-app-runs`, `table-cell-unrepresentable`, `table-choices-unusable` | `fix-in-hq` | B9 | the same block; a finding at a `media` place sits in the "Pictures and sounds" group, its line beginning with the path (7.2) |
-| `could-not-create` | `not-yet` | B10 | the same block; the heading as for `unrecognized` |
+| Codes | Standing | Drawn |
+|---|---|---|
+| the nineteen codes of 6.2 | `stop` | the stop block (6.1) with the actions of 6.2: as the whole screen for a read's `stop` answer and for a create's `changed` answer that carries one, in the App field's place for a `stop` answer of the picker (4.5), and above the review, with no S1 and no actions, for a `held` answer of a create (8.10) |
+| `too-large` | `not-yet` | the circumstance block of 7.2, in the group of the finding's own place; the heading is A1 (7.1) |
+| `unrecognized`, `read-back-differs` | `not-yet` | the same block; the heading is A2 where every finding of the account is one of part 01's `NOVA_FAULT_CIRCUMSTANCES`, else A1 (7.1) |
+| `menu-unreadable-in-hq`, `shadow-disagrees`, `media-file-unreadable`, `app-unreadable-in-hq`, `table-rows-unreadable` | `fix-in-hq` | the same block, under the amber label |
+| `no-platform-runs-everything` | `fix-in-hq` | the same block; its next step is the sentence about the date and time question where `detail.reason` is `split-refused`, which `circumstanceBlock` chooses |
+| `places-over-nova-limit`, `place-not-holdable`, `owner-rule-needs-one-place` | `not-yet` | the same block, under the violet label; the heading is A1 |
+| `media-not-played-where-app-runs`, `table-cell-unrepresentable`, `table-choices-unusable` | `fix-in-hq` | the same block; a finding at a `media` place sits in the "Pictures and sounds" group, its line beginning with the path (7.2) |
 
-An account never holds a `stop` code and a stop never holds one of the other sixteen: part 12
-writes a `stop` finding only as a `stopped` row's outcome or a `held` answer (its 3.8), which is
-what keeps a stop out of every account (Decision 9).
+An account never holds a `stop` code and a stop never holds one of the other fifteen: a stop is
+answered only as a `stop` answer or a `held` answer (part 12, 3.8), which is what keeps a stop out
+of every account (Decision 9).
 
 ---
 
-## 7. The account (B11)
+## 7. The account
 
-A row in state `account`. Its `outcome` is `{ kind: "account", findings, more, mediaChecked }` (part
-12, 2.3), each finding part 01's `Finding`.
+A read's answer of kind `account`: `{ appName, findings, more, counts, mediaChecked }` (part 12,
+3.1), each finding part 01's `Finding`. A create shows this screen too, for a `changed` answer
+that carries an account and for a `check-failed` answer (8.10).
 
 ### 7.1 The screen, top to bottom
 
 1. An amber `tabler:info-circle` and the heading, as `h1`: **A1**, or **A2** where
-   `accountHeading(findings)` says every finding is a fault of Nova's own that a later check can
-   clear (each one a circumstance among `read-back-differs`, `unrecognized` and `could-not-create`).
-   `too-large` and `places-over-nova-limit` are not among them: each is a limit Nova has, `not-yet`
-   in part 01's and part 11's tables (part 01's block for `too-large`: "That limit is Nova's, not the
-   app's"), and "this time" would promise that checking again gets past it. They take **A1**, which
-   says "yet".
-2. The lead: **A3**, or **A4** under heading A2.
-3. The lead of a creation that ended here, where the model holds one: `CREATE_RESULT_LEADS`' sentence
-   for `account` (part 12, C2), as a `role="status"` line above the heading.
-4. The count line, `countLine(accountCounts(findings))`: the parts of **A5** that are not zero,
-   joined by ` · `. Each part is a whole phrase with its own noun, singular at one ("1 thing Nova
-   can't hold yet", "3 things to change in CommCare HQ"). The counts are of the findings the row
-   holds; where the read met more, item 9 says how many.
-5. What Nova has learned, where `reading.learned` is not null: `READING_LEARNED_LINES[learned]` (part
-   12, C3), in `text-nova-violet-bright` with `tabler:sparkles`.
-6. The three labels, each shown only where the account holds a finding of it, as a short definition
+   `accountHeading(findings)` says every finding is a fault of Nova's own (each one a circumstance
+   of part 01's `NOVA_FAULT_CIRCUMSTANCES`, its 8.3). `too-large` and the three place codes are not
+   among them: each is a limit Nova has, and "this time" would promise that checking again gets
+   past it. They take **A1**, which says "yet". `{app}` is the answer's `appName`, or "this app"
+   where the read ended before it learned one.
+2. The lead: **A3**, or **A4** under heading A2. On a screen drawn from a create's answer each
+   reads its second form, with "No app was created" where the first says "Nothing was created".
+3. The lead of a create that ended here, where the model holds one: part 12's
+   `CREATE_ANSWER_LEADS` sentence, as a `role="status"` line above the heading.
+4. The count line, `countLine(answer.counts)`: the parts of **A5** that are not zero, joined by
+   ` · `. Each part is a whole phrase with its own noun, singular at one ("1 thing Nova can't hold
+   yet", "3 things to change in CommCare HQ"). The counts are over every finding the read met, the
+   ones past the listed limit included (part 12, 3.1).
+5. The three labels, each shown only where the account holds a finding of it, as a short definition
    list: the `Badge` of 7.3, then `FINDING_NEXT_STEPS[standing]` (part 01, 9.1). This is where the
    next step of every `not-yet` finding is said once, and not on each of two hundred lines.
-7. The groups (7.2).
-8. `ACCOUNT_CHECK_AGAIN_LINE` (part 01, 9.1; part 06, Departure 11), under the groups of every
-   account, always: "When these are changed, Nova will check the app again and may find more to
-   name." One pass reports everything the reader can decide, and what it postpones out of a reading
-   that holds another finding can surface on a later read, so no screen, tool or page of this part
-   calls an account complete.
-9. `moreFindingsLine(more)` where `more > 0` (part 12, C5).
-10. Part 11's line R12 where `mediaChecked` is false: "Nova checks pictures and sounds once
-    everything else can come in."
-11. The footer, which does not scroll: **Copy the list**, **Check again**, **Done** (a link to `/`),
-    and under them **A8**, which names the reading's Project where it is not the tab's, by the rule
-    W4b follows (5).
+6. The groups (7.2).
+7. `ACCOUNT_CHECK_AGAIN_LINE` (part 01, 9.1; part 06, Departure 11), under the groups of every
+   account, always: "When you check again, Nova may find more to name." One pass reports
+   everything the reader can decide, and what it postpones out of a reading that holds another
+   finding can surface on a later read, so no screen, tool or page of this part calls an account
+   complete.
+8. `moreFindingsLine(more)` where `more > 0` (part 12, "Copy").
+9. Part 11's line R12 where `mediaChecked` is false: "Nova checks pictures and sounds once
+   everything else can come in."
+10. The footer, which does not scroll: **Copy the list**, **Check again**, **Done** (a link to `/`).
+
+Nova keeps no account. The way back to this app is its address and Check again, both of which the
+screen already offers, and Copy the list (7.5) is how a person keeps what this read found.
 
 ```ts
 // components/bring-in/bringInModel.ts
 import type { Finding } from "@/lib/publish/hqFindings";
 
-/** How many findings a list holds under each label. The shape of `ReadingSummary.counts`. */
-export interface AccountCounts {
-	readonly notYet: number;
-	readonly never: number;
-	readonly fixInHq: number;
-}
-export function accountCounts(findings: readonly Finding[]): AccountCounts;
+// `AccountAnswer` is `lib/deployment`'s (3.3).
 /** The A5 parts that are not zero, joined by " · ". The empty string where all three are zero. */
-export function countLine(counts: AccountCounts): string;
+export function countLine(counts: AccountAnswer["counts"]): string;
 /**
- * `this-time` (A2, A4) where every finding is a circumstance among `read-back-differs`,
- * `unrecognized` and `could-not-create`; `yet` (A1, A3) for any other list, the empty one included.
+ * `this-time` (A2, A4) where every finding is a circumstance of `NOVA_FAULT_CIRCUMSTANCES`; `yet`
+ * (A1, A3) for any other list, the empty one included.
  */
 export function accountHeading(findings: readonly Finding[]): "yet" | "this-time";
 ```
@@ -1313,11 +1359,11 @@ export function accountGroups(findings: readonly Finding[]): readonly AccountGro
 ```
 
 `accountGroups(findings)` is pure. It makes one group for each distinct `placeGroupKey(place)`, in the
-order each key first appears in the row's list (part 12 sorts by place in the app's own order, then
-by code), and within a group keeps the row's order. Grouping is by key and not by where the key
-changes, because part 12's order (its 2.3: "forms by index, questions by path") does not promise
-that a form's questions sit directly after that form's own findings, and a heading must never
-appear twice. `placeGroupKey` is this part's, in `bringInModel.ts`; its keys are the middle column:
+order each key first appears in the answer's list (part 12 sorts by place in the app's own order,
+then by code; its 3.1), and within a group keeps the answer's order. Grouping is by key and not by
+where the key changes, because that order does not promise that a form's questions sit directly
+after that form's own findings, and a heading must never appear twice. `placeGroupKey` is this
+part's, in `bringInModel.ts`; its keys are the middle column:
 
 | Place kind | Group key | Group heading |
 |---|---|---|
@@ -1338,10 +1384,13 @@ Within a group each finding is one list item:
   null, "In CommCare HQ: {name}" on its own line with the name in `font-mono` and
   `overflow-wrap: anywhere`, then the finding's label as a `Badge`.
 - **A circumstance finding** (`subject` null): its title in medium weight and its body, from
-  `CIRCUMSTANCE_COPY[code]`, then its next step, `circumstanceNext(finding)` (part 01, 8.4), then
-  the label of its standing as a `Badge`. A circumstance says its own next step because it has one
-  of its own, and one function words it for this screen, a stop (6.1) and MCP (14.3). Section 6.3
-  lists the sixteen codes this block draws.
+  `circumstanceBlock(finding, context)`; then, where `findingLine(finding).named` is not null,
+  "In CommCare HQ: {name}" on its own line, as a manifest finding has it; then the block's next
+  step; then the label of its standing as a `Badge`. A circumstance says its own next step because
+  it has one of its own, and one function words it for this screen, a stop (6.1) and MCP (14.3).
+  The name on its own line is what tells two findings of one code apart: five findings that no one
+  platform runs the whole app would otherwise read alike. Section 6.3 lists the fifteen codes this
+  block draws.
 
 Where a group holds more than twenty findings of one sentence (one unsupported appearance on every
 question of a long form), `accountGroups` folds them into one `fold` item: the sentence once, "on
@@ -1413,42 +1462,47 @@ The links open in the person's own CommCare HQ session. Nova sends no credential
 
 ```ts
 // components/bring-in/bringInModel.ts
-/** The whole account as plain text. `date` is the read's day, already in the reader's locale. */
+/**
+ * The whole account as plain text. `context` is the one the screen's blocks are built from (6.1),
+ * and `date` the day the read answered, already in the reader's locale.
+ */
 export function accountAsText(
-	reading: ReadingView, findings: readonly Finding[], date: string,
+	answer: AccountAnswer, context: CircumstanceContext, date: string,
 ): string;
 ```
 
 `accountAsText` is pure and gives plain text: the heading, the project space
-and the date of the read (**A12**), the count line, then each group's heading followed by one line
-per finding ("- {label}: {sentence}" and, where named, " In CommCare HQ: {name}."; a circumstance's
-sentence is its body, then its next step), and it ends with `ACCOUNT_CHECK_AGAIN_LINE` on a line of
-its own, so "Copy the list" carries the line a person reads on the screen. The button writes it with
-`navigator.clipboard.writeText` and reads **Copied** for two seconds, announced through a
+and the date of the read (**A12**; the date is the model's `answeredAt`), the count line, then each
+group's heading followed by one line per finding ("- {label}: {sentence}" and, where named, " In
+CommCare HQ: {name}."; a circumstance's lines are its body, the name where `named` is not null, and
+its next step, all from `circumstanceBlock`), and it ends with `ACCOUNT_CHECK_AGAIN_LINE` on a line
+of its own, so "Copy the list" carries the line a person reads on the screen. The button writes it
+with `navigator.clipboard.writeText` and reads **Copied** for two seconds, announced through a
 `role="status"` region; where the browser refuses the clipboard the same text opens selected in a
 read-only `Textarea` under the button with the line **A10**, so the list can always be taken away.
 
 ### 7.6 Check again
 
-The handler of 6.2: it posts `…/check-again`; the row goes to `reading` with its verdicts kept (part
-12, 2.4), and the screen is section 5's. A reading whose account was only about Nova's own fault is
-checked the same way:
-part 01's blocks for `read-back-differs` and `unrecognized` already say the gap was reported and that
-checking again after Nova's next update is the way on.
+**Check again** dispatches `read-asked`: the model drops what it held of the app, the hook reads it
+afresh, and the screen is section 5's until the read answers. Every read is whole, so there is
+nothing to say about what a second one skips. An account that held only Nova's own fault is checked
+the same way: part 01's blocks for `read-back-differs` and `unrecognized` already say the gap was
+reported and that checking again after a Nova update is the way on.
 
 ---
 
-## 8. The review (B11)
+## 8. The review
 
-A row in state `ready`. Its `outcome.review` is part 12's `ReadingReview`; `reviewDigest` names it.
-Nothing has been created when this screen shows, and the heading's next line says so.
+A read's answer of kind `review` (part 12, 3.1): its `review` is part 12's `ReadingReview` (its
+5.1), and its `readingId` and `reviewDigest` are what a create is sent back (8.9). Nothing has been
+created when this screen shows, and the heading's next line says so.
 
 ### 8.1 The screen, top to bottom
 
 | # | Section (its `h2`) | Shown |
 |---|---|---|
 | | the heading **V1**, as `h1`; under it **V2** | always |
-| | a creation's lead (`CREATE_RESULT_LEADS`, for `ready`), and a held stop's block (8.10) | where the model holds one |
+| | a create's lead (part 12's `CREATE_ANSWER_LEADS`), and a held stop's block (8.10) | where the model holds one |
 | 1 | **Your app** (8.2) | always |
 | 2 | **Where workers use this app** (8.3) | always |
 | 3 | **Lookup tables** (8.4, 8.5) | where `review.tables` is not empty |
@@ -1466,13 +1520,13 @@ button.
 
 - A `Field` with the label **V4** and an `Input` holding `answers.appName`, which starts as
   `review.appName` (CommCare HQ's name), `maxLength` 255, `autoComplete="off"` and `data-1p-ignore`.
-  Emptied, it shows `READING_REFUSAL_COPY.name_missing` (part 12, C1) as its `FieldError` when Bring
+  Emptied, it shows `READING_REFUSAL_COPY.name_missing` (part 12, "Copy") as its `FieldError` when Bring
   it in is pressed, and takes focus.
 - One line of counts, **V5**: menus, forms, questions and languages, each pluralized, joined by ` · `
-  (the design system's metadata separator). Languages are a count and never a code: "no ISO code
-  appears in any Builder surface" (`components/builder/CLAUDE.md`).
+  (the design system's metadata separator). Languages are a count, the length of `creates.languages`,
+  and never a code: "no ISO code appears in any Builder surface" (`components/builder/CLAUDE.md`).
 - Where `creates.caseTypes` is not empty, **V6** with the names in `font-mono`.
-- **V7**, naming the Project the reading belongs to and who can open the app there (everyone in a
+- **V7**, naming the Project the address names and who can open the app there (everyone in a
   shared Project; only the person in their own, by the seed's `personal`), and where `review.tables`
   is not empty, **V8**.
 
@@ -1482,8 +1536,8 @@ A radio group (12.2) over `review.runsOn`, in the order part 12 gives, the `pres
 chosen. Each row is a declaration the app's content really runs on, so no row is disabled:
 
 - its label, `PLATFORM_DECLARATION_LABELS[runsOnlyOn ?? "both"]` (`lib/domain/platforms.ts`);
-- its line, `PLATFORM_DECLARATION_LINES[runsOnlyOn ?? "both"]`. B11 moves the three lines of
-  `AppPlatformsSection.tsx::CHOICES` to that new export of `lib/domain/platforms.ts`, unchanged, and
+- its line, `PLATFORM_DECLARATION_LINES[runsOnlyOn ?? "both"]`. The three lines of
+  `AppPlatformsSection.tsx::CHOICES` move to that new export of `lib/domain/platforms.ts`, unchanged, and
   `CHOICES` reads them, so App settings and the review say one thing;
 - where `splitDatetime` is true, **V10**, which says how many questions the choice asks in two
   parts and why.
@@ -1542,9 +1596,9 @@ name that keeps its capitals, so no rule lowers a first letter safely. Run into 
 "it uses", such a label breaks sentence case. So V13's lead ends in a colon and each label is an
 item of a list under it, as written, which is the position the label was written for.
 
-`runsOnWhy`, `webAppsOnInHq`, `datetimeQuestions` and `platformsOut` are four values this part needs
-`ReadingReview` to carry, each computed where the choices are computed ("What this part needs of
-other parts", part 12). They are in the review, so they are in its digest.
+`runsOnWhy`, `webAppsOnInHq`, `datetimeQuestions` and `platformsOut` are four values of part 12's
+`ReadingReview`, each computed where the choices are computed (its 5.1). They are in the review, so
+they are in its digest.
 
 This is the plan's decision that the platform declaration is a preselected choice in the review,
 never a gate before the app exists (`../6-bring-in.md`, "What changed from the outline, and why",
@@ -1575,12 +1629,11 @@ R11) and its data (`ReviewTable.choice`):
 - an answer that is not offered is a row that cannot be chosen (`aria-disabled`, in the tab order),
   with its reason under it: **R10**'s sentence for the offer's `why`, one of `needs-admin`,
   `managed-elsewhere`, `app-reads-a-missing-column` and `fails-a-project-space-rule`. The last is
-  part 11's (its 7.2): the Project's table holds something a workbook to the reading's project
-  space would be refused for, so `use-project` is not offered, and R10 says "{Project}'s table holds
-  something CommCare HQ won't take in {domain} as it is, so this app can't use it there.";
+  part 11's (its 7.2): the app could not be born on the Project's table as it stands, so
+  `use-project` is not offered, and R10 says "{Project}'s table, as it stands, holds something this
+  app couldn't be published or exported with, so this app can't use it.";
 - under the group, where at least one answer is offered, **R11**, with the action **Choose another
-  Project**, which pushes `/build/new?hq=choose`. The reading stays on the home list of the Project it
-  was started in, where Remove takes it away.
+  Project**, which pushes `/build/new?hq=choose`, where the picker keeps the project space.
 
 Neither answer is preselected: part 11 (7.2) makes each one a change to a table other apps read or to
 what a later publish asks, so it is the person's to say. Choosing dispatches `answers`.
@@ -1604,11 +1657,10 @@ in CommCare HQ, as it held them on {date}:" and `KEPT_LABELS[id]` for each id as
 id, "Every setting CommCare HQ keeps for this app matches a new app's, as it held them on {date}.";
 then, under either, "Nova doesn't change these when it publishes. A CCZ made for this project space
 follows them." The date is the reader's locale date of `readAt`, with the year where it is not the
-current one, as the card formats it. There is no Refresh here: Check again reads everything. The
-list arrives computed: part 12's read step fills `review.kept` as the `kept` row of its 5.1 says,
+current one, as the card formats it. There is no Refresh here: a reload reads everything again. The
+list arrives computed: part 12's read fills `review.kept` as the `kept` row of its 5.1 says,
 over the source as the adopted baseline will store it. This part writes no call for it and holds no
-source on the client, which is how part 01's need (the kept list "over the reading's own source
-before a baseline exists") is met.
+source on the client, which is how the kept list is shown before any baseline exists (part 01, 9.4).
 
 ### 8.8 After it's in, and the first publish
 
@@ -1616,28 +1668,28 @@ before a baseline exists") is met.
 
 - **V21a**: the app can be worked on in Nova and published back to this app in its project space.
 - **V21b**: a change made in CommCare HQ stops the next publish before anything is sent, and the
-  publish lists what changed.
-- **V21c**: a copy of the app in another project space cannot be updated yet; publishing there makes
-  a new app.
+  publish lists what changed and offers to bring it in.
+- **V21c**: publishing to another project space makes a new app there, and a copy the team already
+  keeps there stays as it is.
 - part 10's `adoptionRecordedFeaturesLine(labels, domain)`, where the chosen row's `recordedFeatures`
   is not empty. `labels` is `PLAN_FEATURES[key.subject].label` (`lib/publish/planFeatures.ts`) for
   each `plan-feature` key, in words. It moves when the person chooses another row, since Web Apps is
   recorded only for a declaration that includes it (part 10, 6.5).
 
-V21b is deliberately modest. Step 6's stop names what changed by menu and form (`describeAppChange`)
-and offers publishing over it or stopping; bringing the changes in is step 7's first group
-(`changes-made-in-hq`), and nothing in the product promises it. V21c states the one thing step 6
-leaves to step 7's `second-project-space` group, updating an existing copy of the app in another
-project space, and D7 says it again in the Publish dialog (11.2).
+V21b says what part 15 builds (`15-changes-made-in-commcare-hq.md`): the stop lists what changed and
+the person can bring it in, publish over it or stop publishing there. V21c says what publishing to
+another project space does, and D7 says it again in the Publish dialog (11.2). Updating a copy that is
+already there is not planned (`../7-rest-of-model.md`, "Not planned"). Neither sentence names a later
+step.
 
 **What the first publish changes** is generated, never one fixed paragraph: the list is the entries
 of part 09's register that apply to this app (its 11 and 12.1), and a fixed paragraph would be true
-of some apps only. Every word of it is part 09's (its 12.2 and its Copy, C1 and
-C2, in `lib/publish/firstPublishCopy.ts`). This part places it and writes no sentence of it.
+of some apps only. Every word of it is part 09's (its 12.2 and its "Copy", in
+`lib/publish/firstPublishCopy.ts`). This part places it and writes no sentence of it.
 
 The list is the chosen row's, not the review's. Three register entries depend on the choice
-(`web-apps-turned-off` and `web-apps-turned-on`, `scope: "declaration"`, and
-`date-and-time-questions-split`, `scope: "birth"`; part 09, 11.2), so part 09 gives each choice its
+(`web-apps-turned-off` and `web-apps-turned-on`, whose `scope` is `declaration`, and
+`date-and-time-questions-split`; part 09, 11.2 and 12.1), so part 09 gives each choice its
 own view (its 12.1: part 12's `ReadingDeclarationChoice` holds `firstPublish: FirstPublishView`,
 taken from the `AcceptedDeclaration` at the same position), and
 `ReadingReview.firstPublish` is only the preselected choice's. The screen reads
@@ -1647,7 +1699,7 @@ Apps on therefore reads that Web Apps will be turned off, in this section, befor
 
 `FirstPublishLines` (12.1; props `{ view, surface }`) draws one `FirstPublishView` for one surface.
 What it draws is decided by part 09's one renderer, `firstPublishLines(view, surface)`
-(`lib/publish/firstPublishCopy.ts`, its 12.2, B7), which returns part 09's `FirstPublishLines`
+(`lib/publish/firstPublishCopy.ts`, its 12.2), which returns part 09's `FirstPublishLines`
 value: `heading`, `lead`, `workers: { label, lines }`, `hqOnly: { label, lines }`, `reassurance`
 and `note`. The component calls it and draws, in this order:
 
@@ -1661,13 +1713,13 @@ and `note`. The component calls it and draws, in this order:
 5. `hqOnly.label` ("Only in CommCare HQ") as an `h3` and its lines as a list;
 6. `note` (`FIRST_PUBLISH_FORM_BUILDER_NOTE`) last.
 
-The component holds no rule: it never reads `view.touchesWorkers`, never sorts a line and never
-picks a string. Part 09's `firstPublishCopy.test.ts` holds the rule; this part adds no model
-function for it. It adds no sentence and drops none, as part 09 asks: "a list is shown whole".
-Part 07's `detail-only-columns-searched`, part 10's media path entries and part 11's
-`media-references-with-no-file-removed` are entries like any other, drawn by steps 3 and 5 with no
-arm of their own here. Where the row changes, the list's `aria-live` region at `polite` announces
-the heading once, not each sentence.
+The component holds no rule: it never reads `view.touchesWorkers`, never sorts a line and never picks a
+string. Part 09's `firstPublishCopy.test.ts` holds the rule; this part adds no model function for it.
+It adds no sentence and drops none, as part 09 asks: "a list is shown whole". Part 10's
+`media-files-renamed` and part 11's `media-references-with-no-file-removed` are entries like any other,
+drawn by steps 3 and 5 with no arm of their own here. A list can hold fewer lines than its view has ids
+(part 09, 12.2), so nothing here counts ids. Where the row changes, the list's `aria-live` region at
+`polite` announces the heading once, not each sentence.
 
 The review, the Publish dialog (11.2) and MCP (14.3, 14.7) all read `firstPublishLines(view,
 surface)`, so the three say one thing in one order.
@@ -1678,82 +1730,128 @@ The button is a `Button` (the default lilac keycap), always enabled while the sc
 
 1. Where the name is empty after trimming or over 255 characters: the name field shows its error and
    takes focus. Nothing is sent.
-2. Else where `unansweredChoices(reading, answers)` is not empty: `choice-needed` is dispatched for
+2. Else where `unansweredChoices(review, answers)` is not empty: `choice-needed` is dispatched for
    the first tag, that `fieldset` scrolls into view, its first radio that can be chosen takes focus
    (its `legend` where none can), and the line **V16** (or **V17**) shows under it with
    `role="alert"`. Nothing is sent.
-3. Else `create-asked` is dispatched with `input: bringInInputOf(answers)`, which the model keeps as
-   `pendingCreate`, and the driver posts `…/create` with it (`nextAct`'s rule 8). The screen becomes
-   section 9.1's at once, so the review's button needs no in-progress label: the creating screen's
-   status row is the progress.
+3. Else `create-asked` is dispatched with `input: bringInInputOf(key, answer, answers)`: the
+   address's key, the review's `readingId` and `reviewDigest`, and the answers (part 12's
+   `BringInInput`, its 5.3). The model keeps it as `pendingCreate`, the hook writes the tab's key
+   (9.1) and posts the create (`nextAct`'s rule 7). The screen becomes section 9.1's at once, so
+   the review's button needs no in-progress label: the creating screen's status row is the
+   progress.
 
-Step 2 is in the browser so nobody waits on a round trip to learn what the screen already knows. The
-server holds the same rule for every other caller (part 12, 5.3, step 3), and its `held` answer is
-handled the same way (8.10).
+Step 2 is in the browser so nobody waits on a round trip to learn what the screen already knows.
+The server holds the same rule for every other caller and refuses a missing answer as
+`choice_missing` (part 12, 5.3).
 
-### 8.10 When creation answers something other than "created"
+### 8.10 When a create answers something other than the app
 
-Part 12's `CreateResult`, by kind:
+Part 12's `CreateAnswer` (its 5.3), by kind. Each lead is part 12's `CREATE_ANSWER_LEADS` sentence
+for the model's `lead` (3.3), and each refusal's sentence is its `READING_REFUSAL_COPY` entry.
 
 | Answer | The screen |
 |---|---|
-| `again` | section 9.1's screen stays (`pendingCreate` is kept), and the same `create` is posted again at once |
-| `review-changed`, the row now `ready` | this screen again with the new review, Nova's preselected choices, and the lead sentence for `ready` in a `role="status"` line above the heading, which takes focus |
-| `review-changed`, the row now `account` or `stopped` | section 7's or 6's screen, with that state's lead above it |
-| `review-changed`, the row now `media` or `reading` | section 5's screen with that state's lead, and the driver advances it; the review returns when the row is `ready` |
-| `held` | this screen with the answers kept; above the heading, the `held` lead and the circumstance's block (6.1). For `table-differs-in-project` the named table's `fieldset` also takes focus, as in 8.9 step 2 |
+| `created` | the landing (9.2) |
+| `changed`, `now` a review | this screen with the new review, the answers `carryAnswers` kept (3.3), and the lead in a `role="status"` line above the heading, which takes focus. Where a choice could not be kept, the lead gains part 12's sentence for that |
+| `changed`, `now` an account | section 7's screen, with the lead above it |
+| `changed`, `now` a stop | section 6's screen, with the lead above it. `already-in-nova` has a lead of its own, which says the app was brought in after the review and that Nova made no second one, and its block offers **Open {appName}** where the person can open it |
+| `read-again` | section 5's screen with the lead above it, while the hook reads the app again. Whatever that read answers is then shown with the lead still above it: a review comes back with the answers `carryAnswers` kept |
+| `check-failed` | section 7's screen for the one finding (`accountOfOne`, 3.3), with the lead in a `role="status"` line above the heading. The heading is A2, and the lead under it is A4 in its form for a create's answer |
+| `held` | this screen with the answers kept; above the heading, the lead and the circumstance's block (6.1), which says what to clear before pressing Bring it in again |
 | `refused`, `name_missing` | the name field's error |
-| `refused`, `choice_not_offered` or `not_ready` | the sentence (part 12, C1) in a `role="alert"` line above the footer, over the row the answer carries (`CreateResult`'s `reading`), which is the screen that row's state draws |
-| `refused`, `project_changed` | the sentence above the footer; Bring it in is offered again |
-| `refused`, `project_access_lost` or `app_unavailable` | the sentence, with **Go to your apps** |
-| `refused`, `reading_not_found` | the `gone` screen |
+| `refused`, `choice_not_offered` | its sentence in a `role="alert"` line above the footer |
+| `refused`, `choice_missing` | its sentence in a `role="alert"` line above the footer, as `choice_not_offered`'s. The page does not reach it: 8.9's step 2 stops a missing answer before anything is sent |
+| `refused`, `project_changed` | its sentence above the footer; Bring it in is offered again |
+| `refused`, `no_project_access` | the `refused` screen of section 5, with **Choose another Project** and **Go to your apps**. The birth checks `edit` once more, so a role that changed during the create is refused here (part 12, 4.1) |
+| `refused`, `app_unavailable` | the `refused` screen, with its sentence and **Go to your apps** |
+
+A lost request and a `failed` line during a create are section 9.1's. A create that was sent again
+after a reload (9.1) can answer `held` or a refusal of the person's answers to a page that holds no
+review: the hook then reads the app, and the lead, the held block or the refusal's sentence stands
+above the review that read answers (3.3).
+
+Three rules keep every one of these screens true, and each is drawn from the model's `lead` alone.
+A create's answer never says "Nothing was created": S1, A3 and A4 read their second form (6.1,
+7.1), which is true before the create adds the app's files to the Project and after. The three
+answers that can come after the files are added (`read-again`, `check-failed` and `refused` with
+`project_changed`) carry part 12's sentence about files, worded with "any" so it is true where
+none had been added. And S1 is not drawn under `already-in-nova`.
 
 ---
 
-## 9. Creating, and landing in the builder (B11)
+## 9. Creating, and landing in the builder
 
 ### 9.1 Creating
 
-While the model holds `pendingCreate` (`screenOf`'s rule 5), from the press of Bring it in until
-creation ends: the card shows a status row **X1** with the spinner, the running step under it from
-`READING_PHASE_LABELS` (`publishing-media` with the count of `publishing`, and without the count
-while `publishing` is null, which is the first call of a creation before any answer; then
-`reading-again`, or `waiting` where the final step waits for the server's reading slot; part 12, C4,
-gives `publishing-media` its two forms), **X2**, and W3's reassurance after twenty seconds. On the
-phase `creating` no step line is drawn under X1, which already says it: part 12's label for that
-phase is "Creating your app", X1's own words. The review's choices are not on screen at any moment
-of it, between two calls and during the wait before a retry included, so nothing can be changed
-under a creation in flight. The driver polls the row for `phase` exactly as in section 5 while a
-call is in flight, and `nextAct`'s rule 8 posts `create` again with the same input while the answer
-is `again` (part 12, 4.5: a creation over an app of `n` files reaches `created` in at most `ceil(n /
-12) + 1` calls that did work, beside any answered `again` because another reading held the server's
-reading slot, which do none).
+While the model holds `pendingCreate` (`screenOf`'s rule 4), from the press of Bring it in until
+the create ends: the card shows a status row **X1** with the spinner; under it the stage the
+create's own stream names, `READING_STAGE_LABELS[stage]`, with the count on `checking-media` and on
+`bringing-in-media`; then **X2**, **X6**, and after twenty seconds **X5**, the creating screen's own
+reassurance. On the stage `creating` no stage line is drawn under X1, which already says it: part
+12's label for that stage is X1's own words. The review's choices are not on screen at any moment
+of it, the wait before a retry included, so nothing can be changed under a create in flight.
 
-**A lost request.** The first `create` that fails with no code shows **W5** and is posted again
-after 3 seconds, with the same input. The second shows **X4** with **Try again**, which dispatches
-`retry`, and the same `create` goes again. The screen is still this one throughout (`creating`
-with `lost`), never the review. Trying again is safe because a retry returns the same app (part 12,
-6.6).
+A create is one request (part 12, 5.3): it reads the app once more, which is why its stream names
+a read's stages first, adds the app's files to the Project only once the review is known to be the
+one the person answered, and creates the app in one transaction. The hook posts it once, reads its
+stream, and never aborts it: the route hands the create no signal (part 12, 4.1), so the work runs
+to its end whether or not the tab stays. Whether the platform keeps an instance with no open
+request long enough to finish is not something this part can promise, so **X6** promises only what
+holds either way: if Nova finishes, the app is in the person's apps, and if it does not, no app is
+created.
 
-**A reload during a creation** drops the model, and the address loads the row. A row that committed
-is `created`, and the tab loads `/build/<id>`. A row that did not is still `ready`, since part 12
-keeps that state through creation's media steps (its 2.4), and the review shows again with Nova's
-preselected choices: nothing was created, the files already published are recorded on the row or
-found again by their hash (part 12, 6.6), and the person presses Bring it in when they are ready.
+**A lost request.** The first response that ends with no last line shows **W5** and the same create
+is posted again after 3 seconds, with the same input. The second shows **X4** with **Try again**,
+which dispatches `retry`, and the same create goes again. The screen is this one throughout
+(`creating` with `lost`), never the review. Trying again is safe because a repeat of one reading's
+create answers the same app, wherever the first one stands (part 12, 6.6).
+
+**Nova's own failure.** A stream whose last line is `failed` shows the `failed` screen with the
+operation `create`: part 12's `READING_FAILED_COPY.create` (title and body, `{app}` the review's
+name), **Try again**, which dispatches `retry` and sends the same create, and **Go to your apps**.
+The page never sends it again by itself (5).
+
+**A reload during a creation sends the same create again.** Nothing on the server says a create is
+in flight, so a page that simply read the app again would either show the stop `already-in-nova`
+for the app the person had just made, or show a review they would answer a second time. One key in
+the tab closes that:
+
+- On `create-asked` the hook writes `sessionStorage["nova:bring-in-create"] =
+  JSON.stringify({ at: Date.now(), input })`, `input` the `BringInInput` it posts.
+- It removes the key on every final answer: `created` (after the landing, 9.2), `changed`,
+  `read-again`, `check-failed`, `held`, `refused`, and a `failed` line. A lost stream keeps it.
+- Each time the location becomes an app, before any read, the hook reads the key and asks the pure
+  `bringInModel.ts::resumableCreate(raw, key, now)` (3.3). It answers the input where the text
+  parses, the input passes part 12's `bringInInputSchema`, its `projectId`, `server`, `domain` and
+  `remoteAppId` are the address's, and `at` is less than `BRING_IN_RESUME_WINDOW_MS` before `now`;
+  otherwise null. The hook dispatches `resume` with the answer. With an input the screen is this
+  one and the act is the create; with null the hook removes the key and the page reads the app.
+
+The create it sends answers `created` where the first committed, joins the first where it is still
+running, and runs whole where the first died (part 12, 6.6). The window is one hour because that is
+the service's request ceiling (`config/runtime-capabilities.json::cloudRunRequestSeconds`): no
+create is still running after it, and a create that starts on a page load long after the person
+asked is one they did not ask for. Every access to `sessionStorage` is inside `try`/`catch`, as the
+landing's marker is (9.2): a browser that refuses storage costs only this, and the stop the reload
+then shows names the app and offers to open it. A tab that was closed has no key, and the picker
+then shows the app as "Already in Nova" with **Open** (4.3), which is true. The key is tab-local
+and holds nothing a member of the Project cannot see: a key, a digest, a name and the answers.
 
 ### 9.2 The landing
 
 On `created`, the hook calls part 12's `landCreatedAppReceipt(result.receipt, "brought-in")`, which
-`ChatContainer` hands it as an argument of `useBringIn`, and dispatches `landed` with its answer:
+`ChatContainer` hands it as an argument of `useBringIn`, and dispatches `landed` with its answer
+and the receipt's `appId`. It then removes the tab's create key (9.1):
 
 | Answer | What the person sees |
 |---|---|
 | `landed` | the builder, in this tab, with no page load: `installCreatedApp` installs the app and promotes the URL to `/build/<id>`, the centred column gives way to the builder as it does for a blank app, and the toast of 9.3 shows |
-| `leaving` | the creating screen stays while the tab loads `/build/<id>` (the app went to another Project than the tab's; part 12, 7.3). The app's own page then shows the toast of 9.3 from a one-time marker (below) |
-| `unverified` | part 12's toast C6 for `brought-in`, which `ChatContainer` shows (`UNVERIFIED_LANDING_TITLE`, "Your app is in, and this tab couldn't open it", with `UNVERIFIED_LANDING_BODY`), and the screen `unopened`: the line `UNVERIFIED_LANDING_TITLE`, the same export of part 12's `lib/publish/hqReadingCopy.ts`, so the toast and the screen say one sentence and this part writes none; **Open your app** (a plain link to `/build/<appId>`, which loads the app's own page through the ordinary hydration read) and **Go to your apps**. The review is not drawn again: the app exists, and a second Bring it in would only answer the same receipt |
+| `leaving` | the creating screen stays while the tab loads `/build/<id>` (the app went to another Project than the tab's; part 12, section 7). The app's own page then shows the toast of 9.3 from a one-time marker (below) |
+| `unverified` | part 12's toast for `brought-in`, which `ChatContainer` shows (`UNVERIFIED_LANDING_TITLE`, "Your app is in, and this tab couldn't open it", with `UNVERIFIED_LANDING_BODY`), and the screen `unopened`: the line `UNVERIFIED_LANDING_TITLE`, the same export of part 12's `lib/publish/hqReadingCopy.ts`, so the toast and the screen say one sentence and this part writes none; **Open your app** (a plain link to `/build/<appId>`, which loads the app's own page through the ordinary hydration read) and **Go to your apps**. The review is not drawn again: the app exists, and a second Bring it in would only answer the same receipt |
 
 **The marker for `leaving`.** `landCreatedAppReceipt` assigns the location itself and only then
-answers `leaving` (part 12, 7.3), so the hook cannot act between the two. It decides before the
+answers `leaving` (part 12, section 7), so the hook cannot act between the two. It decides before the
 call, by the rule that function follows: where `result.receipt.projectId` is not the tab's Project
 (`useProjectId()`), it writes `sessionStorage["nova:brought-in"] = JSON.stringify({ appId, domain,
 name })` (`receipt.appId`, `receipt.adoption.domain`, `receipt.blueprint.appName`), and then
@@ -1782,119 +1880,43 @@ in.
   stays in CommCare HQ and what the first publish changes all live (11.1), and the toast is how a
   person finds it the first time.
 - **The conversation is empty and is not a dead end.** A brought-in app is born with no thread (part
-  12, 6.4 and 9.6: "a first message saying what came in would be a transcript no run wrote"), so the
-  chat panel shows what it shows for every app with no messages yet: `ChatSidebar`'s
+  12, 6.4), since a first message saying what came in would be a transcript no run wrote, so the chat
+  panel shows what it shows for every app with no messages yet: `ChatSidebar`'s
   `ConversationEmptyState` ("Your conversation with Nova appears here. Start it in the box below.")
-  above the composer's "What would you like to change?". B11 changes neither. The first message is an
-  ordinary edit turn.
+  above the composer's "What would you like to change?". This part changes neither. The first message
+  is an ordinary edit turn.
 - **Publishing already holds a card.** The adopted deployment exists from the birth (part 10, 6.1), so
   App setup's Publishing section shows the project space the app came from at once, in the words of
   11.1, before any publish.
 
-Nothing is stored in the session or the document to say an app was brought in (part 12, 7.3). After
+Nothing is stored in the session or the document to say an app was brought in (part 12, section 7). After
 this first minute, the Publishing card is where it is said.
 
 ---
 
-## 10. The home list (B11)
+## 10. The home list
 
-### 10.1 The section
+**No row for an app that is being read.** A read is one request that leaves nothing behind, so
+there is nothing "coming in" to list, and the home list gains no section, no row and no action for
+it. `app/(app)/(site)/app-list.tsx::AppList` changes only by the entry of section 2, and
+`page.tsx::HomePage` only by the empty state's line (2) and the refresh below. Coming back to an
+account or a review is the address (3.2), which a person can keep or send; a brought-in app is a
+row of "Your apps" like any other, and its Publishing card is where its origin is said (11.1).
 
-`app/(app)/(site)/app-list.tsx::AppList` adds `listOpenReadings({ userId }, projectId)` (part 12, 3.5)
-to its `Promise.all` and renders `<ReadingsInProgress readings={…} />` directly under
-`<DesignsInProgress />`. `page.tsx::HomePage` adds `userHasOpenReadings({ userId }, activeProjectId)`
-beside `userHasDesignsInProgress`, and shows the empty state only where the Project has no app, no
-design in progress and no open reading, so a home whose one thing is an app coming in never reads "No
-apps yet".
-
-`app/(app)/(site)/readings-in-progress.tsx` (new, a client component, the shape of
-`designs-in-progress.tsx`): a `section` labelled by its heading **H1**, the line **H2**, and a list of
-rows. Nothing renders where the list is empty. Rows are the person's own readings in the Project the
-tab is looking at (part 12, 2.5), most recently updated first, twenty at most.
-
-### 10.2 A row
-
-`app/(app)/(site)/readingRowModel.ts::readingRow(summary)` (new, pure) gives each row its text and
-its actions from part 12's `ReadingSummary`. The component formats times with
-`components/ui/RelativeTime.tsx`, as a design's row does.
-
-- Icon: `tabler:cloud-download` in the violet tile a design's row uses.
-- Title: `remoteAppName`, or **H3** where the row holds none yet.
-- Under it, "From {domain}" (**H4**) and the relative time of `updatedAt`.
-
-| `state` | The status line | Actions, the first one the row's primary link |
-|---|---|---|
-| `reading` or `media`, `stepRunning` true | `READING_PHASE_LABELS[phase]`, `fetching-media` with the files' count from `media`; **W2** ("Getting ready") where the running step has reported no phase | **Continue**, **Remove** |
-| `reading` or `media`, `stepRunning` false | **H5** ("Paused. Continue picks up where Nova stopped.") | **Continue**, **Remove** |
-| `ready` | **H6** ("Ready for you to review"), with a violet `Badge` | **Review**, **Check again**, **Remove** |
-| `account` | `countLine(counts)` (7.1), then "Checked {relative time of readAt}"; under them, where `learned` is not null, `READING_LEARNED_LINES[learned]` | **See the list**, **Check again**, **Remove** |
-| `stopped` | `CIRCUMSTANCE_COPY[stopCode].title` | **See why**, **Check again**, **Remove** |
-
-A row never draws `publishing-media`, `reading-again` or `creating`: those are the phases of a
-creation, and a row is `ready` through creation (part 12, 2.4), so the `ready` line stands until
-the row is `created` and leaves the list. Status is always text, "never color alone", as the design
-row's comment already requires.
-
-```ts
-// app/(app)/(site)/readingRowModel.ts
-import type { ReadingSummary } from "@/lib/deployment";
-
-export interface ReadingRow {
-	/** `bringInHref({ kind: "reading", readingId: summary.id })`. */
-	readonly href: string;
-	/** `remoteAppName`, or H3. */
-	readonly title: string;
-	/** H4. */
-	readonly from: string;
-	/** The status line. For `account` it is `countLine(counts)`; the component adds H11's time. */
-	readonly status: string;
-	/** For `account`: `readAt`, which the component formats as H11. Null for every other state. */
-	readonly checkedAt: string | null;
-	/** `READING_LEARNED_LINES[learned]` for an account that holds one, else null. */
-	readonly learned: string | null;
-	/** True for `ready`, which wears the violet `Badge`. */
-	readonly ready: boolean;
-	/** The row's primary link, worded by state. */
-	readonly primary: "continue" | "review" | "see-the-list" | "see-why";
-	/** False for `reading` and `media`, which have nothing to check again. */
-	readonly canCheckAgain: boolean;
-}
-/** A row for a summary whose state is one of `OPEN_READING_STATES`. */
-export function readingRow(summary: ReadingSummary): ReadingRow;
-```
-
-### 10.3 What the actions do
-
-- **Continue**, **Review**, **See the list** and **See why** are one link, to
-  `/build/new?hq=<id>`, worded for what the person will find. The flow shows the row's state and, for
-  a `reading` or `media` row with no step running, takes it on at its first poll (3.3).
-- **Check again** posts `…/check-again` from the row. On an answer it calls `markAppListStale()`
-  (12.3) and routes to `/build/new?hq=<id>`, where the flow loads the row, finds it in `reading`
-  with no step running, and takes it on at its first poll (3.3), as it does for any reading opened
-  by its address; while the row's own request waits the button reads **Checking** with
-  `aria-busy`. A refusal or a failed request shows **H9** under the row with `role="alert"`, and the
-  row stays as it was. This is the one click "Nova can now hold everything
-  this list named" asks for, and it reads CommCare HQ only after the person is on the page that shows
-  the progress.
-- **Remove** opens the dialog of 10.4.
-
-### 10.4 Remove
-
-An `AlertDialog` (`components/shadcn/alert-dialog.tsx`), the pattern of a design's Discard: the title
-**H7**, the body **H8** with the app's name, **Keep it** as the cancel and **Remove** as the action,
-which is a `ghost-destructive` button reading **Removing** with `aria-busy` while `DELETE …/<id>` is
-in flight. On success the dialog closes and `router.refresh()` drops the row. On a failure it closes
-and **H10** shows under the row.
-
-The body says what Remove does and does not do, in the design system's manner for a consequence
-("state what happens and how to undo, never alarm or guilt"): nothing was created, nothing changes in
-CommCare HQ, and the app can be brought in again at any time. It says nothing of files: staged bytes
-lapse by the bucket's own rule (part 12, 2.6), and a file a creation step already published is an
-ordinary file of the Project, which the Files dialog shows.
+**The empty state refreshes after a landing.** Next serves Back from its client cache "whatever
+the route's own freshness says" (`RefreshStaleAppList.tsx`), and that component refreshes where
+`lib/ui/appListFreshness.ts::consumeAppListStale()` is true, a note
+`ChatContainer.tsx::installCreatedApp` sets for every birth. `AppList` mounts it and the empty
+branch of `HomePage` does not, so a person who starts from "Build your first app", lands an app and
+presses Back gets the cached empty state. That is so today for a blank app and a designed one, and
+the empty state's new line (N2, N3) adds a third way to meet it. So `HomePage` mounts
+`<RefreshStaleAppList />` in the empty branch too. The flow adds no call of `markAppListStale()`:
+a brought-in app lands through `installCreatedApp` (9.2), which already marks the list, and a
+landing in another Project is a page load.
 
 ---
 
-## 11. After the app is in (B11)
+## 11. After the app is in
 
 ### 11.1 The Publishing card
 
@@ -1928,17 +1950,19 @@ state (part 10, 8.1: "the state would be the wrong witness").
 - Under the project space's name: **D1**, "Brought in from “{domain}” on {date} by {name}", the date
   in the reader's locale as the card formats a confirmation's.
 - The rung "On CommCare HQ" states its condition in text, as every rung does. Where
-  `view.firstPublish` is not null (part 09, 12.3: the live app mapping is `adopted` and the read
-  baseline still holds the list stored for that app, so Nova has not published here yet), that text
-  is **D2**: Nova read
+  `view.firstPublish?.of` is `first-publish` (part 09, 12.3: the baseline still holds the list
+  stored at the bring-in, so Nova has not published here yet), that text is **D2**: Nova read
   the app on that day and has not published to it. It says what Nova did and knows, and makes no
-  claim about what CommCare HQ holds today, which Nova has not looked at since. After the first
-  publish it is today's text. The label is unchanged, and the card never says "Uploaded" of an app
+  claim about what CommCare HQ holds today. After the first publish it is today's text. The label
+  is unchanged, and the card never says "Uploaded" of an app
   Nova did not upload: `DEPLOYMENT_STATE_LABELS.uploaded` is "On CommCare HQ" already.
-- The kept list with its date and **Refresh from CommCare HQ**: A3's block (part 01, 6.5), unchanged.
+- The kept list with its date and **Refresh from CommCare HQ**: part 01's block (its 6.5). Where
+  Refresh answers `changed-in-hq`, its sentence is part 15's C1 with the button C2 beside it (its
+  section 9.6), which opens `HqChangesDialog` on this project space. This holds for every record
+  with a kept list, brought in or made by Nova.
 - The confirmations Nova recorded at the birth are ordinary rows of the card's confirmations
   (`liveConfirmationRows`), attributed to the person who brought the app in, each with Withdraw
-  (part 10, 6.5). B11 adds no row kind.
+  (part 10, 6.5). This part adds no row kind.
 - At the card's foot, for a member whose role allows `delete` (`lib/session/hooks.tsx::useCanDelete`)
   and only while the deployment has a live `app` mapping: a `ghost` `Button`,
   `STOP_PUBLISHING_ACTION` ("Stop publishing here"), with `STOP_PUBLISHING_HELPER` under it as its
@@ -2008,32 +2032,18 @@ an ended deployment, and the line `PUBLISH_PLAN_CREATES_BESIDE` in place of the 
 
 ### 11.2 The first publish
 
-**The data is part 09's, and B11 stores nothing.** The list a person reviewed is kept on the app's
-read baseline, not on the reading (part 09, 12.3):
-
-- the column `app_deployment_baselines.first_publish_changes jsonb`, with a CHECK that holds it null
-  unless the baseline's origin is `read`, lands in B8 (part 10's migration
-  `20261201000000_hq_bring_in_ledger`, its section 11, with part 09's statements, its 12.3);
-- B7 writes it at the birth through `adoptedAppBaselineWrite` as a `StoredFirstPublish` (the ids of
-  the chosen declaration's list less the two Web Apps ids, and CommCare HQ's Web App setting at the
-  reading), the first push ends it, and `recordRefreshedAppBaseline` keeps it;
-- the viewer's reader is B7's `store.ts::readFirstPublishStates`, not `readAppBaseline`, which does
-  not change for it;
-- `DeploymentView.firstPublish: FirstPublishView | null` is filled through
-  `resources.ts::firstPublishOf` (B7), which answers
-  `firstPublishViewFromStored(state.stored, doc.appSettings.runsOnlyOn)` while the live app mapping
-  is the adopted one the list was stored for, and null otherwise.
-
-So the column is in B8; the writer, the reader, `firstPublishOf` and `DeploymentView.firstPublish`
-are in B7; and B11, above both, adds no column, no migration, no store function and no type for it.
-A person who chose a row other than the preselected one reads, at the first publish, the list of
-the row they chose, and a person who has since changed where the app runs in App settings reads the
-two Web Apps lines as they stand for the app now, because those two are worked out again from the
-document and never stored (part 09, 12.3). B11 reads
-`DeploymentView.firstPublish` from the records the dialog and the card already hold
-(`usePublishingRecords`), and imports `FirstPublishView` from
+**The data is part 09's, and this part stores nothing.** The list a person reviewed is kept on the
+app's read baseline (part 09, 12.3): written at the birth from the chosen declaration's view, ended
+by the first push, and read back as `DeploymentView.firstPublish: FirstPublishView | null`, which
+is not null while the live app mapping names the app a list was stored for. So a person who
+chose a row other than the preselected one reads, at the first publish, the list of the row they
+chose, and a person who has since changed where the app runs in App settings reads the two Web Apps
+lines as they stand for the app now, because those two are worked out again from the document and
+never stored. This part reads `DeploymentView.firstPublish` from the records the dialog and the
+card already hold (`usePublishingRecords`), and imports `FirstPublishView` from
 `lib/publish/firstPublishChangeIds.ts` and `firstPublishLines` from
-`lib/publish/firstPublishCopy.ts`, both client-safe.
+`lib/publish/firstPublishCopy.ts`, both client-safe. It adds no column, no migration, no store
+function and no type for the list.
 
 **The Publish dialog.** In `PublishDialogBody.tsx`, the review step of a direct upload shows, for a
 selected project space whose record holds `firstPublish`, a section above the confirmations:
@@ -2044,12 +2054,15 @@ control:
 "Required confirmations and their consequences stay visible" (`design/readme.md`, "Publishing"), and
 this is a consequence. It is not under Details, for the same reason. What the publish asks is
 unchanged: the confirmations part 10 did not record, the project-space settings, and the Web App
-setting where the declaration differs. A record with `firstPublish` null (a Nova-made app, any app
-after its first push, a baseline Nova could not read) shows no section.
+setting where the declaration differs. A record with `firstPublish` null shows no section. A list
+of kind `next-publish`, which part 15 stores after a bring-in of changes or a read that compared
+equal, shows in the same place with part 15's heading and lead (its section 9.4) in place of
+`FIRST_PUBLISH_HEADING` and `FIRST_PUBLISH_LEAD_PUBLISH`. The component and its `surface` prop
+(12.1) do not change for it: part 09's renderer chooses the heading and the lead from `view.of`.
 
 **The plan line.** `publishPlanCopy` and the type it reads, `PublishPlan`, are today private to
 `PublishDialogBody.tsx` (the function takes `plan` alone), so no test and no second surface can
-reach them. B11 moves both to `components/builder/publishOutcome.ts` as exports, with the three
+reach them. Both move to `components/builder/publishOutcome.ts` as exports, with the three
 strings they hold unchanged, and the dialog imports them:
 
 ```ts
@@ -2066,7 +2079,7 @@ It gains two arms:
 | Plan | Today | From step 6 |
 |---|---|---|
 | `creates-beside` (part 10) | no such plan | `PUBLISH_PLAN_CREATES_BESIDE` |
-| `creates`, where some other record of this app has a live `app` mapping whose `ownership` is `adopted` | "This creates a new app in this project space." | **D7**: that sentence, then that Nova can't update a copy of the app already there yet |
+| `creates`, where some other record of this app has a live `app` mapping whose `ownership` is `adopted` | "This creates a new app in this project space." | **D7**: Publishing to another project space makes a new app there. A copy your team already keeps there stays as it is. |
 
 The second arm is the review's V21c said again at the moment it matters: a person reads the review
 once, before the app exists, and meets this line when they are about to publish to another project
@@ -2075,29 +2088,50 @@ records the dialog already holds, and the dialog passes its answer as `context.b
 `publishPlanCopy("creates", { broughtInElsewhere: true })` is D7, and every other plan ignores the
 context.
 
+Where the dialog was opened with a discard from part 15's panel, the plan line is followed by part
+15's line (its section 9.6, "The card's publish-over line") and the footer button reads "Publish
+over these changes".
+
 ### 11.3 The drift stop
 
 Part 10 gives every sentence its origin (`hqChangedMessage`, `baselineUnknownSentence`,
 `hqChangesConfirmedDetail`, `hqChangesNoneDetail`, `webAppsChangeMessage`) and moves
-`PublishDialogBody.tsx` to them in B8, with the reader's own date. B11 adds what stands beside the
-list of changes. Two strings of that dialog are named here, and they are two controls today:
-"Publish over this" is the unticked checkbox on each change (`PublishDialogBody.tsx::
-RemoteChangeChoice`), and "Publish over these changes" is the label the footer's primary button
-takes while the publish holds changes to confirm. B11 changes neither.
+`PublishDialogBody.tsx` to them, with the reader's own date (its section 9). Two strings of that
+dialog are named here, and they are two controls today: "Publish over this" is the unticked checkbox
+on each change (`PublishDialogBody.tsx::RemoteChangeChoice`), and "Publish over these changes" is
+the label the footer's primary button takes while the publish holds changes to confirm. This part
+changes neither.
 
 Where a publish stops on `hq_changed` and the changes hold the app's own (`kind: "app"`), whatever
-the app's origin, the dialog shows, inside `RemoteChangeChoice` and under its list of changes with
-their "Publish over this" ticks:
+the app's origin, the app's item inside `RemoteChangeChoice` is drawn one of two ways, by
+`canBringIn` on that change (part 15, `15-changes-made-in-commcare-hq.md`, section 9.2):
 
-- for a member who may delete: the heading **D8**, the button `STOP_PUBLISHING_ACTION` and
-  `STOP_PUBLISHING_HELPER`. It opens the confirmation of 11.1. On success the dialog drops the
-  refusal and every tick, returns to its destination step with the `role="status"` line **D9**, and
-  its plan line for that project space reads `PUBLISH_PLAN_CREATES_BESIDE`;
-- for an editor: the one line **D8b**, so the third way is known to exist and who can take it.
+- **`canBringIn` true.** The item shows part 15's `HqChangesPanel` and nothing else: its loading
+  row, then one of its states (its section 9.3). The item's own list of parts, its "Publish over
+  this" tick and the stop block below are not drawn while the panel shows its loading row or its
+  states S1 to S3, because the panel's choices are those controls (its section 9.4). Part 15 owns
+  every word of the panel and the headline over it.
+- **`canBringIn` false, and under the panel's S4 and its stops.** The item is drawn with its list
+  of changes and their "Publish over this" ticks, and under them:
+  - for a member who may delete: the heading **D8**, the button `STOP_PUBLISHING_ACTION` and
+    `STOP_PUBLISHING_HELPER`. It opens the confirmation of 11.1. On success the dialog drops the
+    refusal and every tick, returns to its destination step with the `role="status"` line **D9**,
+    and its plan line for that project space reads `PUBLISH_PLAN_CREATES_BESIDE`;
+  - for an editor: the one line **D8b**, so the way is known to exist and who can take it.
 
-The three ways on are then all on one screen and none is chosen for the person: publish over what
-changed (unticked, per change, as today), stop publishing here, or close the dialog and publish
-later. The step 7 answer, bringing the changes in, is not named in the product.
+  Where `canBringIn` is false, part 15 adds one line under the item's parts, its U1 (its sections
+  9.4 and 9.5).
+
+The panel's own "Stop publishing here" (its S2) is this section's button, with the same
+confirmation and the same `onStopped`, and an editor reads D8b in its place. Changes to lookup
+tables and places in the same refusal keep their items and their ticks whichever way the app's item
+is drawn (part 11).
+
+The ways on are then four, and none is chosen for the person: bring the changes in, publish over
+them, stop publishing here, or close the dialog and decide later. Which of them the dialog shows
+on one screen is the panel's state to say (part 15, section 9.3): where bringing the changes in
+removes nothing from Nova (its S1), the panel offers the first two, and "Stop publishing here"
+stays on the project space's card (11.1).
 
 ### 11.4 Restoring an app whose HQ app another Nova app has since taken
 
@@ -2111,7 +2145,7 @@ then shows the ended card of 11.1 with the `claimed-elsewhere` sentence, which n
 
 ---
 
-## 12. Components, primitives and state (B11)
+## 12. Components, primitives and state
 
 ### 12.1 New components
 
@@ -2121,7 +2155,7 @@ renders `screenOf(model)` or a pure function of its props.
 
 | Component (file under `components/bring-in/` unless a path is given) | Renders | Composes |
 |---|---|---|
-| `BringInFlow.tsx` | the card's frame (a heading region, a scrolling middle, a footer that does not scroll) and the screen `screenOf` names. It draws the three short screens itself: `opening`, `gone` and `unopened` (9.2) | `useBringIn`; the eight below; `Spinner`, `Button` |
+| `BringInFlow.tsx` | the card's frame (a heading region, a scrolling middle, a footer that does not scroll) and the screen `screenOf` names. It draws the three short screens itself: `failed` (5, 9.1), `refused` (5, 8.10) and `unopened` (9.2) | `useBringIn`; the eight below; `Spinner`, `Button` |
 | `BringInPicker.tsx` | section 4 | `Field`, `FieldLabel`, `FieldDescription`, `Select`, `Combobox`, `Input`, `RadioGroup`, `Badge`, `Button`, `Skeleton`, `HqNotConnected`, `BringInStop` |
 | `BringInReading.tsx` | sections 5 and 9.1 (one component, two sets of words, each with its `lost` form) | `Spinner`, `Button` |
 | `BringInStop.tsx` | section 6.1 | `Button`; `tabler:info-circle`, `tabler:external-link` |
@@ -2132,8 +2166,10 @@ renders `screenOf(model)` or a pure function of its props.
 | `FirstPublishLines.tsx` | section 8.8's six steps over one view. Props: `{ readonly view: FirstPublishView; readonly surface: "review" \| "publish" }`. It calls part 09's `firstPublishLines(view, surface)` and holds no sentence and no rule. It types the value as `ReturnType<typeof firstPublishLines>`, since part 09's type for it shares the component's name. Used by the review and the Publish dialog | none |
 | `components/chat/StartFromScratch.tsx` (changed) | the second entry (2) | `Button` |
 | `components/builder/HqNotConnected.tsx` | section 4.4 | `Button`; `tabler:info-circle`, `tabler:refresh`, `tabler:external-link` |
-| `app/(app)/(site)/readings-in-progress.tsx` | section 10 | `Badge`, `Button`, `AlertDialog`, `RelativeTime` |
 | `components/builder/StopPublishingDialog.tsx` | the confirmation of 11.1, shared by the card and the drift stop; its props are in 11.1 | `AlertDialog`, `Button` |
+| `components/builder/HqChangesPanel.tsx` (part 15, section 9.3) | every state of the panel, over `hqChangesPanelModel.ts` | `Button`, `Spinner`, `BringInAccount` (its S4), `BringInStop` (its 9.5), `ReviewTableChoice` (its 5.3), `StopPublishingDialog` (its S2) |
+| `components/builder/HqChangesDialog.tsx` (part 15, section 9.1) | the panel in a `Dialog` titled "Changes in CommCare HQ", for the card and the header's button | `Dialog`, `HqChangesPanel` |
+| `components/builder/HqChangesCheck.tsx` (part 15, section 8) | nothing | none |
 
 `BringInFlow` takes the three members of `useBringIn`'s input as its props (`seed`,
 `landCreatedAppReceipt`, `projectToast`; 3.3) and calls the hook itself, so the hook's state lives
@@ -2143,23 +2179,26 @@ Changed, not new: `components/chat/ChatSidebar.tsx` (the `takeover` prop),
 `components/chat/ChatContainer.tsx` (mounts `BringInFlow` as `takeover`, handing it the seed, its
 `landCreatedAppReceipt` and its `projectToast`), `components/builder/BuilderLayout.tsx` (passes
 `BringInSeed` down; shows the `leaving` toast of 9.2),
-`components/builder/CommCareConnectionContext.tsx` (`refresh`, `isRefreshing`, `refreshFailed`;
-4.4), `components/builder/PublishPanel.tsx` (the context's refresh in place of its router
-transition), `components/builder/DeploymentStatus.tsx` (section 11.1, with the prop `canStop`) and
-`PublishDialogBody.tsx` (sections 4.4, 11.2 and 11.3),
+`components/builder/CommCareConnectionContext.tsx` (`refresh`, `isRefreshing`, `refreshFailed`; 4.4),
+`components/builder/PublishPanel.tsx` (the context's refresh in place of its router transition),
+`components/builder/DeploymentStatus.tsx` (section 11.1, with the prop `canStop`, and part 15's C1
+and C2) and `PublishDialogBody.tsx` (sections 4.4, 11.2 and 11.3, and the panel of 11.3),
 `components/builder/app-setup/PublishingSection.tsx` (passes `canStop`),
 `components/builder/publishOutcome.ts` (`PublishPlan`, `publishPlanCopy`),
-`app/(app)/(site)/app-list.tsx`, `page.tsx` and `app-list-body.tsx` (sections 2, 10, 11.4 and
-12.3). `components/builder/PublishDialog.tsx` is not changed: it forwards `PublishDialogProps`
-whole to the body, and the one member that type gains is declared in `PublishDialogBody.tsx`
-(4.4).
+`components/builder/BuilderProvider.tsx` (mounts `HqChangesCheck`),
+`components/builder/BuilderHeader.tsx` (part 15's C3, beside `AppNoticeChip`),
+`app/(app)/(site)/app-list.tsx`, `page.tsx` and `app-list-body.tsx` (sections 2, 10 and 11.4).
+`components/builder/PublishDialog.tsx` is not changed: it forwards `PublishDialogProps` whole to the
+body, and the one member that type gains is declared in `PublishDialogBody.tsx` (4.4). The three
+`HqChanges` components, `BuilderProvider.tsx` and `BuilderHeader.tsx` are placed here and listed in
+part 15's "Files", not in this part's.
 
 ### 12.2 One new primitive: the radio group
 
 `components/shadcn` has no radio group, and three screens here choose exactly one of a few full-width
 rows with a line each (the app, where it runs, a table's answer). `components/CLAUDE.md` forbids
 hand-rolling one and says how a missing primitive lands: "`npx shadcn add <name>` and then gets the
-Nova pass". B11 adds `components/shadcn/radio-group.tsx` (`RadioGroup`, `RadioGroupItem`, on Base
+Nova pass". This part adds `components/shadcn/radio-group.tsx` (`RadioGroup`, `RadioGroupItem`, on Base
 UI's radio) with that pass:
 
 - each item is a row wearing `lib/styles.ts::selectableRowCls`, the shared skin of "a control that
@@ -2205,31 +2244,27 @@ and has a check in flight, which a radio group does not model. Only its three li
 
 ### 12.3 State
 
-- **The URL** owns which screen (`bringInLocation`), as it owns where a person is in the builder.
+- **The URL** owns which screen and which app (`bringInLocation`), as it owns where a person is in
+  the builder.
 - **The model** (`bringInModel.ts`) owns everything else, in `useBringIn`'s reducer. It is component
-  state of `ChatContainer`'s subtree and is gone when the flow unmounts; the row is what is durable.
+  state of `ChatContainer`'s subtree and is gone when the flow unmounts. Nothing on a server stands
+  behind it: an app's address reads the app again.
 - **Nothing goes in the session store or the doc store.** The session store is "ephemeral run/UI
   lifecycle" of a builder with an app, and there is no app until the landing, which is
   `installCreatedApp`'s to write.
-- **The home rows** are server-rendered from `listOpenReadings` and refreshed by `router.refresh()`
-  after a Remove made from the row, as a design's row is after a Discard.
-- **A home reached with Back is told when it is stale.** Next serves Back from its client cache
-  "whatever the route's own freshness says" (`RefreshStaleAppList.tsx`), and that component
-  refreshes only where `lib/ui/appListFreshness.ts::consumeAppListStale()` is true, a note only
-  `installCreatedApp` sets today. So a reading started, checked again or finished from the flow
-  would leave the old rows behind it. `useBringIn` calls `markAppListStale()` in three places: when
-  `row` from `start` or from `check-again` is dispatched; whenever an answer (`advanced`, `created`,
-  a polled `row`) holds a `state` other than the one the model held; and the home row's own Check
-  again calls it before it routes (10.3). A Remove made from the flow loads `/` afresh
-  (`window.location.replace`), which needs no note. And since a person whose Project holds nothing
-  yet starts from the empty state, `page.tsx::HomePage` mounts `<RefreshStaleAppList />` in that
-  branch too: today only `AppList` mounts it, so a home that was empty when the flow was entered
-  would otherwise come back from the cache still reading "Build your first app" over a reading in
-  progress. The note is a module singleton that a page load drops, as its file says, so nothing
-  outlives the tab.
+- **Two keys live in the tab's session storage**, each written and removed by the hook, each read
+  once: `nova:bring-in-create`, which lets a reload send a create again (9.1), and
+  `nova:brought-in`, which carries the landing toast across the one landing that loads a page
+  (9.2). A browser that refuses storage costs those two conveniences and nothing else.
+- **The home list** is section 10's: the flow marks nothing stale, because the landing already
+  does.
 - **The Publishing card** reads `DeploymentView` through `usePublishingRecords`, whose one store per
   app both the section and the dialog share; a stop upserts it and bumps
   `deploymentRecordsRevision`, as a publish does.
+- **One field of the builder session** is part 15's: `hqChangedTargets`, the project spaces its
+  check found changed. It has no pending value, and nothing reads it but the header's button (part
+  15, section 8). `requestPublishDialog` takes an optional `discard`, which the publish dialog puts
+  in the discards it sends (part 15, section 9.3).
 
 ### 12.4 How e2e controls CommCare HQ
 
@@ -2247,12 +2282,12 @@ widens it. Two things exist instead, and this part uses both:
   register.
 
 The server side of every read is held where it belongs: part 05's readers against retained answers
-(`proof/hq-reads/reading/`, undici's `MockAgent`), and part 12's service in real-Postgres tests. The
+(`proof/hq-reads/reading/`, undici's `MockAgent`), and part 12's two requests in real-Postgres tests. The
 specs here prove the screens and the landing. They are listed under "Tests".
 
 ---
 
-## 13. Accessibility; empty, error and loading states (B11)
+## 13. Accessibility; empty, error and loading states
 
 **The frame.** The card is a `section` labelled by its heading. Each screen's heading is the one `h1`
 of the centred column and takes focus when the screen appears, through
@@ -2264,14 +2299,14 @@ the picker's Cancel is a button). Entrances fade and rise on the shared ease; un
 `prefers-reduced-motion` the global near-zero rule applies and no lifecycle depends on an animation
 ending.
 
-**Announcements.** One `role="status"` region per screen carries progress (the step's label, a
-creation's lead, "Copied"). `role="alert"` is used for exactly three things: a refusal's sentence,
-the line that says which choice is missing, and a request that failed and now waits for the person
-(the lines of the Error column below). The one silent retry (**W5**) is progress and rides the
-status region. A stop is not an alert:
-it is the screen's heading. No state is told by color alone: every badge is a word, every rung of the
-card states its condition in text, and amber is used only where the design system gives it meaning
-(a stop, recovering, something to change in CommCare HQ).
+**Announcements.** One `role="status"` region per screen carries progress (the stage's label, a
+create's lead, "Copied"). `role="alert"` is used for exactly three things: a refusal's sentence,
+the line that says which choice is missing, and a request that was lost twice and now waits for the
+person (the lines of the Error column below). The one silent retry (**W5**) is progress and rides
+the status region. A stop is not an alert, and neither is the `failed` screen: each is the screen's
+heading, which takes focus. No state is told by color alone: every badge is a word, every rung of
+the card states its condition in text, and amber is used only where the design system gives it
+meaning (a stop, recovering, something to change in CommCare HQ, a failure Nova owns).
 
 **Links that leave Nova** (each "Open in CommCare HQ", "Open Settings") open a new tab, carry
 `tabler:external-link` and a visually hidden "opens in a new tab".
@@ -2281,41 +2316,44 @@ card states its condition in text, and amber is used only where the design syste
 | Picker, connection | `HqNotConnected`'s button reads "Checking connection" with `aria-busy` while the context's `isRefreshing` is true | no connection: the aside of 4.4 | the context's `refreshFailed`: **K22** under the aside's buttons with `role="alert"`, the button offered again. The Publish dialog shows the same line |
 | Picker, Project | none: the seed is in the page | no Project to add to: part 12's `no_project_access` sentence and **Go to your apps** | none |
 | Picker, apps | three `Skeleton` rows of the row's height and the status **K9**; while no app is chosen the footer's primary is `aria-disabled` with **K18** ("You can read an app once you've chosen one") as its description | **K10**; with a filter that matches nothing, **K12** | a stop: its block (4.5). `picker.apps` of `failed`: **K20** with **Try again**, which dispatches `picker-reload` |
-| Picker, starting | the primary reads **Starting** with `aria-busy` while `call` is `start` | none | a coded refusal's sentence in a `role="alert"` line above the footer; `failedCall` of `start`: **K21** there, and the primary offered again |
-| Opening a reading (`opening`) | the status **W7** ("Opening where you left off") with the spinner | `gone`: the `reading_not_found` sentence, **Choose an app**, **Go to your apps** | `lost` (a load that failed with no code): **W8** with **Try again**, which dispatches `retry` |
-| Reading | the screen is the loading state (5) | none | one silent retry shown as **W5**, then `lost`: **W6** with **Carry on**, which dispatches `retry`; `project_access_lost`: its sentence |
-| Stop | none | none | `failedCall` of `check-again`: **S2** in a `role="alert"` line, the block unchanged. `failedCall` of `remove`: **H10** there |
-| Account | none | an account always holds at least one finding (part 12, 2.4); `accountGroups` of an empty list renders the lead and the footer alone, and logs `[bring-in] account with no findings` at error | `failedCall` of `check-again`: **S2**. Clipboard refused: the text in a `Textarea` with **A10** |
+| Reading | the screen is the loading state (5) | none | one silent retry shown as **W5**, then `lost`: **W6** with **Try again**, which dispatches `retry`. A `failed` line: the `failed` screen. A refusal before the stream: the `refused` screen |
+| Stop | none | none | none of its own: Check again shows the reading screen, and what can go wrong there is the Reading row's |
+| Account | none | a read answers an account only where it met a finding (part 12, 3.3); `accountGroups` of an empty list renders the lead and the footer alone, and logs `[bring-in] account with no findings` at error | clipboard refused: the text in a `Textarea` with **A10** |
 | Review | none | a section whose data is absent is not rendered (8.1) | section 8.10, row by row |
-| Creating (`creating`) | the screen is the loading state (9.1) | none | one silent retry shown as **W5**, then `lost`: **X4** with **Try again**, which dispatches `retry` and posts the same `create` (a retry returns the same app; part 12, 6.6) |
+| Creating (`creating`) | the screen is the loading state (9.1) | none | one silent retry shown as **W5**, then `lost`: **X4** with **Try again**, which dispatches `retry` and posts the same create. A `failed` line: the `failed` screen |
+| Failed (`failed`) | none | none | the screen is the error state (5, 9.1): part 12's `READING_FAILED_COPY` for the operation, **Try again**, **Go to your apps** |
+| Refused (`refused`) | none | none | the screen is the error state (5, 8.10): the refusal's sentence and its two actions |
 | Created, not opened (`unopened`) | none | none | the screen is the error state (9.2): part 12's `UNVERIFIED_LANDING_TITLE`, **Open your app**, **Go to your apps** |
-| Home rows | the list streams with the app list's `Suspense`; `AppListFallback` is unchanged | the section is absent | **H9**, **H10** under the row |
 | Publishing card | as today | as today | a stop that failed: the error's sentence or **D10**, in the dialog |
 
 ---
 
-## 14. MCP (B12)
+## 14. MCP
 
-### 14.1 What B12 registers, and who is given it
+### 14.1 What is registered, and who is given it
 
-Six tools, in `lib/mcp/server.ts::registerNovaTools`, after `registerGetHqConnection`:
+Eight tools, in `lib/mcp/server.ts::registerNovaTools`, after `registerGetHqConnection`. Six are
+this part's. The last two are part 15's: their inputs, answers and descriptions are its section 10
+and are not repeated here.
 
 | Tool | File (`lib/mcp/tools/`) | Scope | Calls |
 |---|---|---|---|
 | `list_hq_apps` | `listHqApps.ts` | `nova.hq.read` | `listHqAppsForPicker` (4.2) |
-| `read_hq_app` | `readHqApp.ts` | `nova.hq.read` | `startReading`, `advanceReadingWithin`, `checkReadingAgain`, `readReading`, `removeReading` (part 12) |
-| `bring_in_hq_app` | `bringInHqApp.ts` | `nova.hq.write` | `createFromReadingWithin` (part 12) |
+| `read_hq_app` | `readHqApp.ts` | `nova.hq.read` | `readHqAppForReview` (part 12, section 3) |
+| `bring_in_hq_app` | `bringInHqApp.ts` | `nova.hq.write` | `createFromReview` (part 12, 5.3) |
 | `stop_publishing` | `stopPublishing.ts` | `nova.hq.write` | `stopPublishing` (part 10, 8.3) |
 | `refresh_managed_data` | `managedData.ts` | `nova.hq.write` | `refreshManagedLookupTable`, `refreshManagedPlaces` (part 11, 12.4) |
 | `set_lookup_table_management` | `managedData.ts` | `nova.hq.write` | `manageLookupTableInNova`, `letHqManageLookupTable` (part 11, 12.4) |
+| `read_hq_changes` | `readHqChanges.ts` | `nova.hq.read` | `reviewHqChanges` (part 15, section 9.2) |
+| `bring_in_hq_changes` | `bringInHqChanges.ts` | `nova.hq.write` | `bringInHqChanges` (part 15, section 9.2) |
 
 Each declares `scopeChallenge: oauthScopeChallenge(ctx, <scope>)` and calls `assertScope(ctx, <scope>,
 "<tool>")` as its first statement, before any read, "so a missing-scope credential can't probe
 whether a record exists" (`lib/mcp/scopes.ts`). The scopes are part 05's (its section 13):
-`read_hq_app` writes Nova's own reading and nothing at CommCare HQ, and `bring_in_hq_app` records a
-deployment that authorizes later writes to that HQ app.
+`read_hq_app` writes nothing, in Nova or in CommCare HQ, and `bring_in_hq_app` records a deployment
+that authorizes later writes to that HQ app.
 
-**The Solutions Architect is given none of the six**, and none enters `SHARED_TOOL_REGISTRY`. The
+**The Solutions Architect is given none of the eight**, and none enters `SHARED_TOOL_REGISTRY`. The
 standing reason is `deploymentTools.ts`'s own: "A deployment is not authored vocabulary: it is durable
 state about somebody else's server, and an agent designing an app has no business reasoning about
 it." Bringing an app in also needs answers only a person gives (a Project, where it runs, what happens
@@ -2323,22 +2361,19 @@ to a table other apps read), and the chat's agent works inside one app that alre
 `scripts/test-schema.ts` entry is added for them: "A tool only MCP serves needs no entry" (root
 `CLAUDE.md`).
 
-**The budget.** `read_hq_app` and `bring_in_hq_app` pass part 12's
-`lib/deployment/reading/budget.ts::HQ_READING_STEP_MS`, 270 seconds, as its `budgetMs`: the one
-budget a step has for every caller, the browser's routes included (its 3.6 and 4.5). They do not
-pass the request's cap. `app/api/mcp/dispatch.ts::MCP_MAX_DURATION_SECONDS` is 300 seconds
-measured from the request's start, and the token's check and the tool's dispatch have spent part
-of it before a tool body runs, so a step given all 300 could not answer inside it. The 30 seconds
-between the two numbers are part 12's `HQ_READING_ROUTE_MARGIN_SECONDS`, and its `budget.test.ts`
-holds the sum equal to the cap, so B12 adds no constant, no `lib/mcp/budget.ts` and no change to
-`dispatch.ts` but a sentence of its comment ("Contracts"). `app/api/mcp/route.ts::maxDuration`
-stays the literal `300` Next requires. Under part 12's rule (its 4.5) one call runs one read step,
-or media steps for its first minute, or creation's final step, and always answers inside its 270
-seconds with the reading's id and state. A call that finds the server's one reading slot taken
-answers `again: true` after at most 20 seconds with the state unchanged (part 12, 3.6), and the
-client calls again as for any `again`. **Resuming is calling the same tool again with the same
-arguments**: every step is idempotent, a reading's id is in every answer, and a creation that
-already committed answers `created` with the same app.
+**One call is one whole read, or one whole create.** `read_hq_app` and `bring_in_hq_app` call the
+two functions the browser's routes call, after the same authorization (`authorizeBringIn`), and
+hand them what part 12 gives a tool call (its 4.4): no deadline of Nova's own; the call's own
+cancellation signal for a read, and none for a create, which runs to its end once asked; and
+progress notifications for each stage and for the file counts, through the one event sink the
+routes use (`readingProgressSink`). So nothing here continues a call or resumes one. Checking again
+is calling `read_hq_app` again. Nothing is kept between the two tools: the client holds the
+`reading_id` and the `review_digest` a read returned, as it holds any tool result, and sends both
+back to `bring_in_hq_app`. A repeated `bring_in_hq_app` with the same arguments answers the same
+app (part 12, 6.6).
+
+Which clients keep a call open while progress arrives is theirs to decide, so each description
+says what is true for one that stops waiting (14.3, 14.4).
 
 ### 14.2 `list_hq_apps`
 
@@ -2347,16 +2382,13 @@ Description: "List the apps in one CommCare HQ project space that can be brought
 them. Each app has its `hq_app_id` and `name`. `in_nova` is null where the app is free to bring in.
 Otherwise it says a Nova app already manages it, since one CommCare HQ app is managed by one Nova app:
 `open` with the Nova `app_id` where the user can open it, or `elsewhere` with `next`, a sentence that
-says who to ask and the two ways forward. Relay `next` as written. Pass `project_id` to also learn
-which apps the user has already started bringing in to that Project (`reading_id`). Reads CommCare HQ
-with the user's own key and changes nothing."
+says who to ask and the two ways forward. Relay `next` as written. Reads CommCare HQ with the
+user's own key and changes nothing."
 
 ```ts
 inputSchema: z.strictObject({
 	domain: z.string().trim().min(1).describe(
 		"Exact CommCare HQ project space the user chose. One of get_hq_connection's available_domains."),
-	project_id: z.string().min(1).max(255).optional().describe(
-		"A Nova Project the user can edit. Marks the apps they have already started bringing in there."),
 })
 ```
 
@@ -2373,120 +2405,108 @@ Result:
 		in_nova:
 			| null
 			| { kind: "open"; app_id: string; app_name: string }
-			| { kind: "elsewhere"; how: "brought-in" | "published"; at: string;
+			| { kind: "elsewhere"; at: string;
 			    contact: { role: "person" | "owners"; names: string[] }; next: string };
-		reading_id: string | null;
 	}[];
 }
 ```
 
-`next` is `alreadyInNovaNext(claim)` with its date as the UTC day. Errors: `not-connected` is the
-existing `hq_not_configured` with the sentence "CommCare HQ is not configured. Add your HQ credentials
-in Settings before listing a project space's apps."; every stop whose code is `not-a-member` is the
-existing `domain_not_authorized`; every other stop is `hq_read_stopped` (14.8).
+`next` is part 01's `alreadyInNovaNext(claim, formatDate)` with `formatDate` the UTC day, and `at`
+is ISO text. Errors: `not-connected` is the existing `hq_not_configured` with **M5**; every stop
+whose code is `key-cannot-reach-space` or `not-a-member` is the existing `domain_not_authorized`;
+every other stop is `hq_read_stopped` (14.8).
 
-`listHqAppsForPicker` answers `not-a-member` from two places (4.2): `getHqCredentials` answering
-`not_authorized`, where the stored key does not list the project space, and CommCare HQ's own
-answer classified by part 05, where the key lists it and HQ turns the account away. A client cannot
-act differently on the two and should not have to tell them apart, so both are one tag, the one
-`check_project_space_compatibility` already uses for a project space the key can't reach. The
-message differs, because what is true differs. Where the stored key does not list the project
-space, it is that tool's own sentence, built from the user's stored project spaces
-(`getCommCareSettings`): "Your stored CommCare HQ API key can't reach the “{domain}” project space.
-It reaches: {reachable}. Pass one of those as `domain`, or update your key in Settings." Where the
-key lists it and CommCare HQ turned the account away, that sentence would name the project space
-as both out of reach and in reach, so the message is part 01's body for `not-a-member`, and the
-payload carries `circumstance: "not-a-member"` with the block's `title` and `next`, which say the
-membership is what to look at.
+Two stops share that tag, because a client acts on them the same way: the stored key does not list
+the project space (`key-cannot-reach-space`), and CommCare HQ turned the account away
+(`not-a-member`). The message differs, because what is true differs. For `key-cannot-reach-space`
+it is the sentence `check_project_space_compatibility` already uses, built from the user's stored
+project spaces (`getCommCareSettings`): "Your stored CommCare HQ API key can't reach the “{domain}”
+project space. It reaches: {reachable}. Pass one of those as `domain`, or update your key in
+Settings." For `not-a-member` it is the block's body. Each carries its `circumstance`, `title` and
+`next`.
 
 ### 14.3 `read_hq_app`
 
 Description: "Read one CommCare HQ app so it can be brought in to Nova, and say whether it can be.
-Nothing is created and nothing changes in CommCare HQ. Start with `project_id`, `domain` and
-`hq_app_id`: where the user can edit more than one Nova Project, ask which one the app should be
+Nothing is created, nothing is kept and nothing changes in CommCare HQ. Send `project_id`, `domain`
+and `hq_app_id`: where the user can edit more than one Nova Project, ask which one the app should be
 added to and never choose it for them, because an app that reads lookup tables stays in the Project
-it is added to; where they can edit one, tell them which it is. Reading takes several
-calls for a large app. While `again` is true, call this tool again with only the `reading_id` it
-returned; each call does one bounded step and is safe to repeat. `state` ends as one of: `ready`,
-with `review` (what will be created; `runs_on`, the ways the app can run, each with
-`first_publish`, what the first upload from Nova changes in CommCare HQ under that choice;
-what stays in CommCare HQ; and `review.review_digest`); `account`, with `account.findings`, each thing
-Nova cannot hold, where it is, and whether it is Nova's to build, something Nova does not bring in, or
-something to change in CommCare HQ; or `stopped`, with `stop`, something that ended the read such as a
-permission, a plan without API access, or an app already in Nova. Relay titles, sentences and next
-steps as written, and do not summarize an account as a failure: it is everything Nova found on this
-read, and `check_again` says a later read may find more. For a `first_publish`, relay
-`workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it
-is not null, then `note`. With
-`action: \"check_again\"` Nova reads the app afresh, after a change in CommCare HQ or a Nova update.
-With `action: \"remove\"` it forgets the reading. An account longer than one answer is paged: pass
-`findings_from` with the `next_from` it gave."
+it is added to; where they can edit one, tell them which it is. One call is one whole read. `state`
+is one of: `review`, with `reading_id` and `review` (what will be created; `runs_on`, the ways the
+app can run, each with `first_publish`, what the first upload from Nova changes in CommCare HQ under
+that choice; what stays in CommCare HQ; and `review.review_digest`); `account`, with
+`account.findings`, each thing Nova cannot hold, where it is, and whether it is Nova's to build,
+something Nova does not bring in, or something to change in CommCare HQ; or `stop`, with `stop`,
+something that ended the read such as a permission, a plan without API access, or an app already in
+Nova. Relay titles, sentences and next steps as written, and do not summarize an account as a
+failure: it is everything Nova found on this read, and `check_again` says a later read may find
+more. For a `first_publish`, relay `workers.lines` first, then `hq_only.lines`, each `sentence` as
+written, then `reassurance` where it is not null, then `note`. To check again after a change in
+CommCare HQ or a Nova update, call this tool again. An account longer than one answer is paged: pass
+`page` with the `next_page` it gave. Each page reads the app again, and where the app changed since
+the last page the answer starts over with `restarted` true. An app with many pictures and sounds can
+take a few minutes, and Nova reports progress while it works. If your client stops waiting before
+the answer comes, the app can be read in Nova in a browser."
 
 ```ts
 inputSchema: z.strictObject({
-	project_id: z.string().min(1).max(255).optional().describe(
-		"To start: the Nova Project the user chose to add the app to. Send with domain and hq_app_id."),
-	domain: z.string().trim().min(1).optional().describe(
-		"To start: the exact CommCare HQ project space the app is in."),
-	hq_app_id: z.string().regex(/^[\w-]{1,255}$/).optional().describe(
-		"To start: the app's hq_app_id from list_hq_apps."),
-	reading_id: z.string().regex(CANONICAL_UUID_PATTERN).optional().describe(
-		"To continue: the reading_id an earlier call returned. Send it alone, or with action or findings_from."),
-	action: z.enum(["continue", "check_again", "remove"]).optional().describe(
-		"With reading_id. continue (the default) does the next step. check_again reads the app afresh. remove forgets the reading."),
-	findings_from: z.number().int().min(0).optional().describe(
-		"With reading_id, for an account: the next_from of the previous answer."),
+	project_id: z.string().min(1).max(255).describe(
+		"The Nova Project the user chose to add the app to."),
+	domain: z.string().trim().min(1).describe(
+		"The exact CommCare HQ project space the app is in."),
+	hq_app_id: z.string().regex(/^[\w-]{1,255}$/).describe(
+		"The app's hq_app_id from list_hq_apps."),
+	page: z.string().regex(/^\d{1,5}:[0-9a-f]{64}$/).optional().describe(
+		"For an account longer than one answer: the next_page of the previous answer."),
 })
 ```
 
-The two forms are checked by the handler, because a choice between property sets is no keyword of an
-object schema the SDK serves and "handler-owned argument validation" is what `McpInvalidInputError`
-is for: exactly the three start fields and nothing else, or `reading_id` with only `action` and
-`findings_from`. Anything else answers `invalid_input` with "Send project_id, domain and hq_app_id to
-start reading an app, or reading_id alone to continue one. This call mixed the two."
-
-Starting resolves the server from the user's connection (`getCommCareSettings`; none is
-`hq_not_configured` with **M6**), calls `startReading`, then `advanceReadingWithin`. Continuing calls
-`advanceReadingWithin`; `check_again` calls `checkReadingAgain` first; `remove` calls `removeReading`
-and answers `{ reading_id, state: "removed" }`. A refusal of part 12 maps as 14.8 says.
+The handler resolves the server from the user's connection (`getCommCareSettings`; none is
+`hq_not_configured` with **M6**), holds `domain` to `lib/commcare/client.ts::isValidDomainSlug`
+(`invalid_input` otherwise, with part 12's sentence), authorizes, and calls `readHqAppForReview`
+with the call's progress sink and its cancellation signal (14.1). A refusal of part 12 maps as
+14.8 says.
 
 Result, built by `lib/mcp/tools/readingProjection.ts` (new):
 
 ```ts
 // lib/mcp/tools/readingProjection.ts
-/** One reading as an MCP client reads it: the object below. */
+/** One read's answer as an MCP client reads it: the object below. */
 export function describeReading(
-	view: ReadingView,
+	answer: ReadingAnswer,
+	key: ReadingKey,
 	options: {
-		/** The first finding of the page, 0 unless the call sent `findings_from`. */
-		readonly findingsFrom: number;
-		/** The `again` that `advanceReadingWithin` answered (part 12, 3.5). */
-		readonly again: boolean;
+		/** The first finding of the page: 0 unless the call sent a `page` that still stands. */
+		readonly from: number;
+		/** True where the call sent a `page` and the app is no longer what that page was cut from. */
+		readonly restarted: boolean;
 	},
 ): ReadingProjection;
-/** The tool error of 14.8 for one refusal of part 12. `projectId` is the call's, where it had one. */
-export function mapReadingRefusal(
-	refusal: ReadingRefusal, projectId: string | null,
-): BringInToolError;
+/** The cursor's two halves, or null for text the schema let through and no account could give. */
+export function parseAccountPage(page: string): { readonly from: number; readonly digest: string } | null;
+/** `canonicalJsonDigest` of an account's whole listed content: its `findings` and its `more`. */
+export function accountDigest(answer: Extract<ReadingAnswer, { readonly kind: "account" }>): string;
+/** The tool error of 14.8 for one refusal of part 12. */
+export function mapReadingRefusal(refusal: ReadingRefusal, projectId: string): BringInToolError;
 
 export interface ReadingProjection {
-	reading_id: string;
 	project_id: string;
 	server: "production" | "india" | "eu";
 	domain: string;
 	hq_app_id: string;
+	/** CommCare HQ's name for the app, where the read learned it. */
 	hq_app_name: string | null;
-	state: "reading" | "media" | "account" | "stopped" | "ready" | "created" | "removed";
-	/** Call read_hq_app again now with reading_id. */
-	again: boolean;
-	/** The step last reported, in words: READING_PHASE_LABELS with its counts filled. */
-	step: string | null;
-	media: { done: number; total: number } | null;
-	read_at: string | null;
-	/** `next` is circumstanceNext(finding), the string the stop screen shows (6.1). */
+	state: "review" | "account" | "stop";
+	/** True where the call sent `page` and Nova answered the fresh read from its start. */
+	restarted: boolean;
+	/** M7 where `restarted` is true, else null. */
+	message: string | null;
+	/** With `review`: sent back to bring_in_hq_app, beside review.review_digest. */
+	reading_id?: string;
+	/** circumstanceBlock(finding, context): the three strings the stop screen shows (6.1). */
 	stop?: { code: string; title: string; body: string; next: string };
 	account?: {
-		/** accountCounts over the findings the row holds (7.1). */
+		/** The answer's counts, over every finding the read met (7.1). */
 		counts: { not_yet: number; never: number; fix_in_hq: number };
 		/** FINDING_LABELS and FINDING_NEXT_STEPS for each standing the account holds. */
 		labels: { standing: "not-yet" | "never" | "fix-in-hq"; label: string; next: string }[];
@@ -2495,27 +2515,27 @@ export interface ReadingProjection {
 			standing: "not-yet" | "never" | "fix-in-hq";
 			/** placeLine(place). */
 			place: string;
-			/** lib/deployment's hqPlaceUrl for the reading's app and this place, for the user to open. */
+			/** lib/deployment's hqPlaceUrl for the app and this place, for the user to open. */
 			hq_url: string | null;
+			/** findingLine's sentence for a manifest finding; a circumstance's body. */
 			sentence: string;
-			/** detail.name, as CommCare HQ shows it. */
+			/** findingLine(finding).named: the name as CommCare HQ shows it, or null. */
 			named: string | null;
-			/** A circumstance's own title, and its next step: circumstanceNext(finding) (7.2). */
+			/** A circumstance's own title and next step, from circumstanceBlock (7.2). */
 			title?: string;
 			next?: string;
 		}[];
-		findings_from: number;
-		next_from: number | null;
+		/** How many findings the account lists, over every page. */
 		total: number;
+		/** The cursor of the next page, or null on the last. */
+		next_page: string | null;
 		/** ACCOUNT_CHECK_AGAIN_LINE (part 01, 9.1): a later read may find more. On every page. */
 		check_again: string;
-		/** moreFindingsLine, where the row holds fewer findings than the read met. */
+		/** moreFindingsLine, where the read met more findings than it lists. */
 		more: string | null;
 		media_checked: boolean;
 		/** Part 11's line R12 where media_checked is false. */
 		note: string | null;
-		/** READING_LEARNED_LINES, where the manifest has moved since this check. */
-		learned: string | null;
 	};
 	review?: {
 		review_digest: string;
@@ -2576,55 +2596,79 @@ export interface ReadingProjection {
 		media: { sentence: string | null; left_out: string | null };
 		after: string[];
 	};
-	app_id?: string;
 }
 ```
 
+`creates.languages` is a count, the length of the review's list of codes, as the screen shows it
+(8.2).
+
 **The first-publish list is on each `runs_on` entry, and the review holds none of its own.** Part 09
-gives B12 one object, `first_publish`: its `firstPublishLines` value with the keys in snake case
+gives one object, `first_publish`: its `firstPublishLines` value with the keys in snake case
 (`heading`, `lead`, `workers: { label, lines: [{ id, sentence }] }`, `hq_only` likewise,
 `reassurance`, `note`; its 12.2). Its own 12.1 makes the list a fact of a choice, so the object
 sits on the choice, built with the surface `review`: an agent that shows the user three ways the
 app can run shows, with each, what choosing it changes, and cannot relay the preselected row's list
 for a row the user did not take (Departure 14, which part 09's 12.2 states the same way). The
 key names, the line shape and the order are part 09's, unchanged, and no `touches_workers` key is
-served: `workers.lines` is empty exactly where `reassurance` is not null.
+served: `workers.lines` is empty exactly where `reassurance` is not null. A list can hold fewer
+lines than its view has ids (part 09, 12.2), and a line's `id` is the one whose sentence it shows.
 
-**A circumstance's next step is one string on every surface.** `stop.next`, a finding's `next`, the
-`stop.next` of a `held` creation (14.4) and the `next` of an `hq_read_stopped` error (14.8) are all
-`circumstanceNext(finding)` (part 01, 8.4), the function the stop screen and the account call, so
-`already-in-nova` and a refused date and time split read the same over MCP as on screen.
+**A circumstance reads the same on every surface.** `stop`, a circumstance finding's `title` and
+`next`, the `stop` of a `held` create (14.4) and the `title` and `next` of an `hq_read_stopped`
+error (14.8) all come from `circumstanceBlock(finding, context)` (part 01, 8.4), the function the
+stop screen and the account call, with `formatDate` the UTC day and `app` the name where the read
+gave one. So `already-in-nova` and a refused date and time split read the same over MCP as on
+screen.
 
 Every sentence is the one the screen shows, from the same exports (`lib/publish/hqFindingCopy.ts`,
 `hqReadingCopy.ts`, `managedData.ts`, `keptValues.ts`, part 09's `firstPublishCopy.ts` and this
-part's `bringInCopy.ts`), with dates as ISO text or the UTC day. **The page of findings fits the client.**
-`describeReading` takes findings from `findings_from` until the JSON of the whole result would pass
-80,000 characters, which is under `lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`, and sets `next_from`
-to the first finding left out, or null. The tool registers `LARGE_RESULT_META`. `total` is how many
-the row holds.
+part's `bringInCopy.ts`), with dates as ISO text or the UTC day.
+
+**A long account, one page at a time.** `describeReading` takes findings from `from` until the JSON
+of the whole result would pass 80,000 characters, which is under
+`lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`, and the tool registers `LARGE_RESULT_META`. Nothing
+is kept between calls, so each page is a fresh read, and two pages could come from two versions of
+the app. One opaque cursor closes that. `next_page` is the text `<index>:<digest>`: the first
+finding the next page holds, and `accountDigest` of the account the page was cut from. The client
+sends it back as `page`, alone beside the three key fields, so no rule pairs two fields. Where the
+fresh read is an account with that digest, the answer is its page from `<index>`. Where it is no
+longer an account, or its account has another digest, the tool answers the fresh read from its
+start with `restarted: true` and **M7** as `message`, so a client never stitches two versions of
+an app into one list.
 
 ### 14.4 `bring_in_hq_app`
 
-Description: "Create a Nova app from a CommCare HQ app that `read_hq_app` found ready. Call it only
-after the user has seen the review and answered it. Every answer is theirs: never choose the name,
-where the app runs, the date-and-time split or a lookup table's answer for them, and never default to
-the preselected choice without saying so and hearing yes. `review_digest` is the review they
-answered. `runs_only_on` and `split_datetime` together must be one of `review.runs_on`. `table_choices`
-holds one answer for each table whose review entry has a `choice`, by tag, and `{}` where none has.
-The result's `status` is `created` (the app exists, in the Project the reading was started in, and
-publishes back to the CommCare HQ app it came from); `again` (call again now with the same arguments,
-Nova is still bringing in its files); `review_changed` (something changed in CommCare HQ or the
-Project, nothing was created, and `reading` holds what stands now, to show the user again); or `held`
-(nothing was created and `stop` says why, such as a table choice still to make or a key CommCare HQ
-turned down). Creating changes nothing in CommCare HQ. Before the first `upload_app_to_hq`, relay
-`first_publish`, from the chosen `review.runs_on` entry or from
-`check_project_space_compatibility`: `workers.lines` first, then `hq_only.lines`, each `sentence` as
-written, then `reassurance` where it is not null, then `note`."
+Description: "Create a Nova app from a CommCare HQ app that `read_hq_app` answered a review for.
+Call it only after the user has seen the review and answered it. Every answer is theirs: never
+choose the name, where the app runs, the date-and-time split or a lookup table's answer for them,
+and never default to the preselected choice without saying so and hearing yes. Send the
+`project_id`, `domain` and `hq_app_id` the read was given, the `reading_id` it returned, and
+`review_digest`, the review they answered. `runs_only_on` and `split_datetime` together must be one
+of `review.runs_on`. `table_choices` holds one answer for each table whose review entry has a
+`choice`, by tag, and `{}` where none has. The result's `status` is `created` (the app exists, in
+that Project, and publishes back to the CommCare HQ app it came from); `changed` (something changed
+in CommCare HQ or the Project since the review, no app was created, and `reading` holds what stands
+now, to show the user again); `read_again` (a lookup table the app reads changed in the Project
+while Nova was creating the app, and no app was created: call `read_hq_app` again and show the user
+the new review); `check_failed` (one of Nova's own checks stopped the create, no app was created,
+and `reading` holds what Nova reported); or `held` (no app was created and `stop` says why, such as
+a key CommCare HQ turned down). Creating changes nothing in CommCare HQ. If this call ends before
+you get an answer, call it again with the same arguments. It answers the app if it was created, and
+creates it if it was not. Before the first `upload_app_to_hq`, relay `first_publish`, from the
+chosen `review.runs_on` entry or from `check_project_space_compatibility`: `workers.lines` first,
+then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then
+`note`."
 
 ```ts
 inputSchema: z.strictObject({
-	reading_id: z.string().regex(CANONICAL_UUID_PATTERN).describe(
-		"The reading_id of a reading whose state is ready."),
+	project_id: z.string().min(1).max(255).describe(
+		"The Nova Project the app is added to: the project_id read_hq_app was given."),
+	domain: z.string().trim().min(1).describe(
+		"The CommCare HQ project space: the domain read_hq_app was given."),
+	hq_app_id: z.string().regex(/^[\w-]{1,255}$/).describe(
+		"The app: the hq_app_id read_hq_app was given."),
+	reading_id: z.string().regex(READING_ID_PATTERN).describe(
+		"The reading_id read_hq_app returned with the review."),
 	review_digest: z.string().regex(/^[0-9a-f]{64}$/).describe(
 		"review.review_digest of the review the user answered."),
 	app_name: z.string().trim().min(1).max(255).describe(
@@ -2639,42 +2683,43 @@ inputSchema: z.strictObject({
 ```
 
 No field is optional and none has a default: that is how "never chooses for the person" is held by
-the schema and not only by a description. `project_id` is not an input: the reading has had its
-Project since `read_hq_app` started it (Departure 1). The handler maps the six fields to
-`BringInInput` (`reviewDigest`, `appName`, `runsOnlyOn`, `splitDatetime`, `tableChoices`) and calls
-`createFromReadingWithin(actor, reading_id, input, HQ_READING_STEP_MS)`. A pair that is none of
-`review.runs_on`, and an answer the review did not offer, are part 12's `choice_not_offered`; a tag
-left unanswered is its `held` with `table-differs-in-project`, whose `detail.name` is the tag (part
-11, 7.2). Why an answer is not offered is already in the review the agent showed: that answer's
-`reason` (14.3), R10's sentence for `needs-admin`, `managed-elsewhere`, `app-reads-a-missing-column`
-or `fails-a-project-space-rule`, the same four the screen draws (8.5). A `choice_not_offered`
-refusal is a tool error with part 12's sentence (14.8); the agent reads the review again with
-`read_hq_app` and relays that answer's `reason`.
+the schema and not only by a description. The Project, the project space and the app are arguments
+because nothing is stored for a `reading_id` to stand for: the create reads the app again from
+these three and proves by the digest that it is what the user reviewed (part 12, 5.3; Departure
+1). `READING_ID_PATTERN` is part 12's (`lib/deployment/reading/types.ts`). The handler resolves the
+server as 14.3 does, maps the fields to part 12's `BringInInput`, authorizes, and calls
+`createFromReview` with the call's progress sink and no cancellation signal (14.1). A pair that is
+none of `review.runs_on`, and an answer the review did not offer, are part 12's
+`choice_not_offered`; a tag left unanswered is its `choice_missing`. Why an answer is not offered
+is already in the review the agent showed: that answer's `reason` (14.3), R10's sentence for
+`needs-admin`, `managed-elsewhere`, `app-reads-a-missing-column` or `fails-a-project-space-rule`,
+the same four the screen draws (8.5). Each refusal is a tool error with part 12's sentence (14.8);
+the agent reads the review again with `read_hq_app` and relays that answer's `reason`.
 
-Result, by part 12's `CreateResult`:
+Result, by part 12's `CreateAnswer`:
 
 ```ts
 | { status: "created"; app_id: string; project_id: string; app_name: string; url: string;
     brought_in_from: { server: "production" | "india" | "eu"; domain: string; hq_app_id: string };
     message: string }
-| { status: "again"; publishing: { done: number; total: number } | null; message: string;
-    reading: ReadingProjection }
-| { status: "review_changed"; message: string; reading: ReadingProjection }
-/** `stop.next` is circumstanceNext(finding), as in 14.3. */
-| { status: "held"; message: string; stop: { code: string; title: string; body: string; next: string };
-    reading: ReadingProjection }
+| { status: "changed"; message: string; reading: ReadingProjection }
+| { status: "read_again"; message: string }
+| { status: "check_failed"; message: string; reading: ReadingProjection }
+/** `stop` is circumstanceBlock's three strings, as in 14.3. */
+| { status: "held"; message: string; stop: { code: string; title: string; body: string; next: string } }
 ```
 
-Each `reading` is `describeReading(result.reading, { findingsFrom: 0, again })`, `again` true
-exactly where the status is `review_changed` and the row is in `reading` or `media`: that reading
-is advanced with `read_hq_app`, and its review is shown when it is `ready` again.
+`changed`'s `reading` is `describeReading(now, key, { from: 0, restarted: false })`, and
+`check_failed`'s is the same over `accountOfOne(finding, appName)` (3.3), the account of the one
+finding. `message` is **M1** for `created` and, for the other four, the sentence of part 12's
+`CREATE_ANSWER_LEADS` the screen sets above the same answer (8.10): for `changed`, the one for what
+`now` is.
 
 `url` is the app's page on the main host: `` `${AS_ORIGIN}/build/${appId}` ``, with
 `lib/hostnames.ts::AS_ORIGIN`, the main host's origin in production and the dev origin locally. No
 MCP tool returns a builder address today (`get_app` returns none), so this is the first, built in
-`bringInHqApp.ts` alone. `message` is **M1** for `created`,
-**M2** for `again`, and `CREATE_RESULT_LEADS`' sentence for the other two. The receipt's blueprint is
-not returned: `get_app` reads the app. A `refused` answer is a tool error (14.8).
+`bringInHqApp.ts` alone. The receipt's blueprint is not returned: `get_app` reads the app. A
+`refused` answer is a tool error (14.8).
 
 ### 14.5 `stop_publishing`
 
@@ -2693,8 +2738,7 @@ beside the one that stays. Nothing is sent to CommCare HQ. Only an admin or owne
 can do this; anyone else gets `permission_denied` with who can. This cannot be undone from Nova, so
 call it only when the user asked for exactly this, after telling them what it does." The result is
 `{ app_id, ...describeDeployment(deployment, identities), setup_artifact }`, as `refresh_deployment`
-returns. `not_permitted` arrives as `permission_denied` with part 10's sentence (its map lands in
-B8).
+returns. `not_permitted` arrives as `permission_denied` with part 10's sentence (its 8.3).
 
 ### 14.6 `refresh_managed_data` and `set_lookup_table_management`
 
@@ -2719,11 +2763,10 @@ Descriptions:
   it back: Nova takes CommCare HQ's columns and rows and stops changing the table there. Never decide
   this for the user."
 
-Results carry the sentences of part 11's `lib/publish/managedData.ts` as `message`, each the one
-its outcome names (its section 9's table of reasons, and its 11.4 for places): for a table, T4 to
-T7 and T13 to T21; for places, O6, O8 to O13 and O17, with T18 and T19, which both share. T4 and
-O17 are what a caller with no CommCare HQ connection is told. For `confirmed: false` the dialog's
-body lines (T9 or T11) are `lines`, with `apps`.
+Results carry, as `message`, the sentence part 11's `lib/publish/managedData.ts` gives the
+outcome (its section 9 for a table, its 11.4 for places), the one a caller with no CommCare HQ
+connection is told among them. For `confirmed: false` the dialog's body lines are `lines`, with
+`apps`.
 
 ### 14.7 Five tools that change
 
@@ -2745,21 +2788,25 @@ first_publish: null | {
 };
 ```
 
-`touches_workers` is not added. The view is the one part 09 keeps on the read baseline and shows as
+`touches_workers` is not added. The view is the one part 09 keeps on the baseline and shows as
 `DeploymentView.firstPublish` (11.2): for the deployment of this app on the checked project space,
-non-null while the live app mapping is the adopted one the list was stored for, and null for an app
-Nova made, for any app after its first push, for an ended deployment and for a project space the
-app has not reached. The tool calls `readFirstPublishStates(scope)` and
+non-null while the live app mapping names the app a list was stored for, and null where no list is
+stored (an app Nova made, and any app after a push, until part 15 stores a `next-publish` list; its
+section 4.4), for an ended deployment and for a project space the app has not reached. The tool
+calls `readFirstPublishStates(scope)` and
 `firstPublishOf(deployment, states.get(deployment.id), doc.appSettings.runsOnlyOn)` (both part
-09's, B7; its 12.3), the function that fills the view for the builder, so the dialog and MCP cannot
+09's; its 12.3), the function that fills the view for the builder, so the dialog and MCP cannot
 answer differently, and returns `firstPublishLines(view, "publish")` with its keys in snake case.
-Its description gains, at its end: " `first_publish`, where it is not null, is what this app's first
-upload changes in the CommCare HQ app it was brought in from. Relay each `sentence` of
-`workers.lines`, then of `hq_only.lines`, then `reassurance` where it is not null, then `note`,
-before the upload." This tool is where an agent learns the first-publish lines of a brought-in app
-before the fact, since `upload_app_to_hq` has no review step (part 09, 12.2).
+Its description gains, at its end: " `first_publish`, where it is not null, is what this app's next
+upload changes in CommCare HQ beyond the user's own edits. Its `lead` says why: the app was brought
+in and Nova has not uploaded to it yet, or CommCare HQ's version holds something Nova writes its own
+way. Relay each `sentence` of `workers.lines`, then of `hq_only.lines`, then `reassurance` where it
+is not null, then `note`, before the upload." This tool is where an agent learns the first-publish
+lines of a brought-in app before the fact, since `upload_app_to_hq` has no review step (part 09,
+12.2), and where it learns a `next-publish` list (part 15, section 9.4) before the upload that
+makes those changes: the same key carries it, with part 15's heading and lead.
 
-**`get_deployment`** and **`refresh_deployment`**: `state` already admits `ended` (B8, part 10); B12
+**`get_deployment`** and **`refresh_deployment`**: `state` admits `ended` (part 10, 8.1); this part
 adds `brought_in` and `ending` and names all three in `get_deployment`'s description.
 `deploymentProjection.ts::describeDeployment` gains
 `brought_in: { at: string; by: string } | null` (from `broughtInOf`'s rule, server-side) and `ending:
@@ -2768,18 +2815,28 @@ adds `brought_in` and `ending` and names all three in `get_deployment`'s descrip
 `get_deployment`'s description changes its state list to "`preflight`, `uploaded`,
 `built`, `released`, `runnable`, `incomplete` or `ended`" and gains: " `brought_in` says the app came
 from CommCare HQ on that project space, when and by whom. `ending` says Nova stopped publishing
-there: the app in CommCare HQ stays, and the next upload makes a new app beside it."
+there: the app in CommCare HQ stays, and the next upload makes a new app beside it." Part 15 adds
+`nova_revision: number | null` beside `pushed_revision` in the same projection, and the sentence
+`refresh_deployment` relays where CommCare HQ's copy changed (its section 10).
 
 **`upload_app_to_hq`**: its description gains: " An app brought in from CommCare HQ updates the app it
 came from, keeping every menu's and form's ID there. `hq_changed` then measures changes since the app
-was brought in: each change's `since` says which (`published` or `brought-in` with `at`), and a date
-in a message is the UTC day. `publishing_stopped` means someone stopped publishing this app to that
-project space while the upload was getting ready; relay the `message`, which says whether anything was
-sent, and do not upload again unless the user wants a new app there." The `remote_changes` entries
-gain `since: { kind: "published" } | { kind: "brought-in"; at: string }` in B12: part 10 gives the
-origin and its instant (its 9.1) and serves no new key in B8 ("`ending`, `brought_in` and `since`
-are B12's", its "Tests"). The error tag `publishing_stopped` joins `UploadErrorType` and the served
-enum in B8 (part 10, 8.5); B12 writes its paragraph in that type's comment and this description.
+was brought in: each change's `since` says which (`published`, `brought-in` with `at`, or
+`changes-brought-in`), and a date in a message is the UTC day. `publishing_stopped` means someone
+stopped publishing this app to that project space while the upload was getting ready; relay the
+`message`, which says whether anything was sent, and do not upload again unless the user wants a new
+app there." The `remote_changes` entries gain `since: { kind: "published" } | { kind: "brought-in";
+at: string } | { kind: "changes-brought-in" }`: part 10 gives the origin and its instant (its 9.1),
+part 15 the third kind (its section 9.3), and the served key is this part's. Each entry also gains
+`can_bring_in: boolean`, false for a table and a place (part 15, section 9.2), and the description
+gains part 15's sentence for it, word for word (its section 10, "Three tools that change"). The
+error tag `publishing_stopped`
+joins `UploadErrorType` and the served enum with part 10's ending (its 8.5); its paragraph in that
+type's comment and in this description is written here. Part 01 adds one more tag and one more
+sentence to this description, for a build profile that names a language the app no longer has
+(its 7.4). Part 11 adds two tags and their sentences, for a lookup table managed in CommCare HQ that
+changed in a way the app depends on and for one handed back to CommCare HQ during the upload (its
+12.4).
 
 **`get_hq_connection`**: its description's "Call this before `upload_app_to_hq` to confirm the
 target" becomes "Call this before `upload_app_to_hq` or `list_hq_apps` to confirm the project space",
@@ -2792,9 +2849,9 @@ file one thrown class that carries them:
 
 ```ts
 export type BringInErrorType =
-	/** A read of CommCare HQ ended before there was a reading to hold it. */
+	/** A read of CommCare HQ ended before there was an app's read to answer. */
 	| "hq_read_stopped"
-	/** A creation Nova refused for a reason that is neither bad input, access, nor absence. */
+	/** A create Nova refused for a reason that is neither bad input nor access. */
 	| "bring_in_refused";
 
 export type McpErrorType =
@@ -2803,12 +2860,12 @@ export type McpErrorType =
 
 export interface McpErrorPayload {
 	// as today, then:
-	/** The READ_CIRCUMSTANCES code, on hq_read_stopped and on a not-a-member domain_not_authorized. */
+	/** The READ_CIRCUMSTANCES code, on hq_read_stopped and on a domain_not_authorized that is a stop. */
 	circumstance?: string;
-	/** The circumstance's title and its circumstanceNext(finding), beside message (its body). */
+	/** The circumstance's title and next step from circumstanceBlock, beside message (its body). */
 	title?: string;
 	next?: string;
-	/** Part 12's ReadingRefusal, wherever a reading refused. */
+	/** Part 12's ReadingRefusal, wherever a read or a create refused. */
 	refusal?: string;
 }
 
@@ -2816,7 +2873,7 @@ export interface McpErrorPayload {
 export class BringInToolError extends Error {
 	constructor(
 		readonly errorType:
-			| BringInErrorType | "not_found" | "permission_denied" | "invalid_input"
+			| BringInErrorType | "permission_denied" | "invalid_input"
 			| "hq_not_configured" | "domain_not_authorized",
 		message: string,
 		readonly fields: {
@@ -2833,58 +2890,58 @@ export class BringInToolError extends Error {
 `toMcpErrorResult` is not a switch over `McpErrorType`: it dispatches on the class of what was
 thrown (`McpInvalidInputError`, `ProjectPermissionError`, `DeploymentError` and the rest), and its
 local `payload(errorType, message)` stamps only `error_type`, `message`, `app_id` and `project_id`.
-So the four fields need a branch of their own. B12 adds one, before the generic classifier: `err
-instanceof BringInToolError` logs `log.warn("[mcp] bring-in refused", { userId, errorType,
-circumstance, refusal })` (an expected outcome, as every other branch of the kind logs at `warn`)
-and returns `payload(err.errorType, err.message)` with `circumstance`, `title`, `next` and
-`refusal` spread on where the error holds them, and `project_id` from `err.fields.projectId` where
-the handler's context gave none. `mapReadingRefusal(refusal, projectId)` in
-`lib/mcp/tools/readingProjection.ts` builds the error for each `ReadingRefusal` from a `satisfies
-Record<ReadingRefusal, …>` table of the rows below, so a refusal part 12 adds fails to compile
-until it has a tag. Adding `BringInErrorType` to the union is what the compiler holds: every
-consumer that switches on `McpErrorType` exhaustively meets the two new tags.
+So the four fields need a branch of their own, before the generic classifier: `err instanceof
+BringInToolError` logs `log.warn("[mcp] bring-in refused", { userId, errorType, circumstance,
+refusal })` (an expected outcome, as every other branch of the kind logs at `warn`) and returns
+`payload(err.errorType, err.message)` with `circumstance`, `title`, `next` and `refusal` spread on
+where the error holds them, and `project_id` from `err.fields.projectId` where the handler's
+context gave none. `mapReadingRefusal(refusal, projectId)` in `lib/mcp/tools/readingProjection.ts`
+builds the error for each `ReadingRefusal` from a `satisfies Record<ReadingRefusal, …>` table of
+the rows below, so a refusal part 12 adds fails to compile until it has a tag. Adding
+`BringInErrorType` to the union is what the compiler holds: every consumer that switches on
+`McpErrorType` exhaustively meets the two new tags.
 
 | What happened | `error_type` | Also carried | `message` |
 |---|---|---|---|
 | a tool called without its scope | `scope_missing` (today's) | `required_scope` | today's |
-| no CommCare HQ connection, at `list_hq_apps` | `hq_not_configured` (today's) | | **M5**: "CommCare HQ is not configured. Add your HQ credentials in Settings before listing a project space's apps." |
-| no CommCare HQ connection, at a starting `read_hq_app` | `hq_not_configured` (today's) | | **M6**: "CommCare HQ is not configured. Add your HQ credentials in Settings before reading an app." |
-| a `not-a-member` stop at `list_hq_apps`, the stored key not listing the project space | `domain_not_authorized` (today's) | | names the project spaces it reaches (14.2) |
-| a `not-a-member` stop at `list_hq_apps`, CommCare HQ turning the account away | `domain_not_authorized` (today's) | `circumstance`, `title`, `next` | the circumstance's body |
+| no CommCare HQ connection, at `list_hq_apps` | `hq_not_configured` (today's) | | **M5** |
+| no CommCare HQ connection, at `read_hq_app` or `bring_in_hq_app` | `hq_not_configured` (today's) | | **M6** |
+| a `key-cannot-reach-space` stop at `list_hq_apps` | `domain_not_authorized` (today's) | `circumstance`, `title`, `next` | names the project spaces the key reaches (14.2) |
+| a `not-a-member` stop at `list_hq_apps` | `domain_not_authorized` (today's) | `circumstance`, `title`, `next` | the circumstance's body |
 | any other stop at `list_hq_apps` | `hq_read_stopped` | `circumstance`, `title`, `next` | the circumstance's body |
-| `reading_not_found` | `not_found` (today's) | `refusal` | part 12's sentence |
-| `no_project_access`, `project_access_lost` | `permission_denied` (today's) | `refusal`, `project_id` | part 12's sentence |
-| `invalid_input`, `name_missing`, `choice_not_offered`, and the handler's own checks | `invalid_input` (today's) | `refusal` where part 12 gave one | the sentence |
-| `not_ready`, `project_changed`, `app_unavailable` | `bring_in_refused` | `refusal` | part 12's sentence |
+| `no_project_access` | `permission_denied` (today's) | `refusal`, `project_id` | part 12's sentence |
+| `invalid_input`, `name_missing`, `choice_not_offered`, `choice_missing`, and the handler's own checks | `invalid_input` (today's) | `refusal` where part 12 gave one | the sentence |
+| `project_changed`, `app_unavailable` | `bring_in_refused` | `refusal` | part 12's sentence |
 | `not_permitted` at `stop_publishing` | `permission_denied` | | part 10's sentence |
 
-A stop, an account and a review that changed are never errors: they are results with a `state` or a
-`status`, as part 12's routes answer them with 200. `not_permitted` at `stop_publishing` does not go
-through `BringInToolError`: part 10's own map for it lands in B8 (14.5).
+A stop, an account, a review and a create that did not create are never errors: they are results
+with a `state` or a `status`, as part 12's routes answer them on the stream's last line. No error
+is added for a deadline, because there is none (part 12, 4.4). Something thrown inside a read or a
+create that is no answer reaches `toMcpErrorResult`'s generic classifier as it does for every
+tool. `not_permitted` at `stop_publishing` does not go through `BringInToolError`: part 10's own
+map carries it (its 8.3).
 
 ### 14.9 `servedSchemas`, and the tools' own tests
 
 `lib/mcp/__tests__/servedSchemas.test.ts` already compiles every served schema and reads every
-pattern with the Rust engine, so the six new tools are held to both by being registered. B12 adds
-five tests there ("Tests"), and the handler tests of each tool under `lib/mcp/__tests__/`, every one
-of them through the real SDK client and server over the linked transport
+pattern with the Rust engine, so the six new tools are held to both by being registered. It gains
+five tests ("Tests"), and each tool has its handler tests under `lib/mcp/__tests__/`, every one of
+them through the real SDK client and server over the linked transport
 (`lib/mcp/__tests__/client.ts::withMcpClient`), as `docs/testing.md` requires of an MCP handler
 test.
 
 ### 14.10 `content/docs/mcp/tools.mdx`
 
-Text fixed here, landed by B14 with the other public docs (17.3).
+Its text is section 17.3's.
 
 ---
 
-## 15. The guide, the versions and the billed check (B12)
+## 15. The guide, and what of this part reaches a model
 
 ### 15.1 The guide
 
 `lib/agent/authoring/reference.ts::AUTHORING_REFERENCE` is the guide both the Solutions Architect and
-an MCP agent read (`lib/agent/tools/getAuthoringGuide.ts`). Stack B has already added to it: part 08's
-sentence C7 (B6, on `list(…)` in a search condition, in `expressions`) and part 11's sentence on
-data managed in CommCare HQ (B9, in `expressions` too). B12 adds one paragraph, as the last
+an MCP agent read (`lib/agent/tools/getAuthoringGuide.ts`). This part adds one paragraph, as the last
 paragraph of the `workflows` entry, after the one that begins "Some edits change where CommCare HQ
 keeps a published app's answers":
 
@@ -2898,49 +2955,43 @@ of the admission bar; part 01, its opening), and it is all an authoring agent ne
 instruction to bring an app in, since the Solutions Architect has no such tool and an MCP agent learns
 the flow from the tools' own descriptions and the plugin's skill.
 `lib/agent/authoring/__tests__/platformGuide.test.ts` pins where the guide's generated platform sentences
-sit and needs no edit. B12 adds no test for this paragraph. One that held the `workflows` entry to end
+sit and needs no edit. No test is added for this paragraph. One that held the `workflows` entry to end
 with these words would pin a prose string whose exact value and position are no contract of any consumer,
 which `docs/testing.md` rules out ("Do not pin incidental strings … unless that exact value or order is
 the external contract"); the platform test is different in kind, since it holds a generated sentence to
-the feature it describes. What holds the paragraph is what holds every guide sentence: the
-`MODEL_CONTEXT_VERSION` move in the same pull request (15.2), which `lib/agent/CLAUDE.md` binds to any
-change of the guide, and the pull request's own review.
+the feature it describes. What holds the paragraph is what holds every guide sentence: the step's
+`MODEL_CONTEXT_VERSION` move (15.2), which `lib/agent/CLAUDE.md` binds to any change of the guide,
+and review.
 
-That is the whole of the final guide's assembly for stack B: three additions in two entries (part
-08's C7 and part 11's sentence both sit in `expressions`; this one is in `workflows`), each written
-by the part that makes it true, with this one last.
+### 15.2 What moves `MODEL_CONTEXT_VERSION`, and what does not
 
-### 15.2 `MODEL_CONTEXT_VERSION` and `RUNTIME_VERSION`
+`lib/models.ts::MODEL_CONTEXT_VERSION` moves once for the whole step (`../6-bring-in.md`). One
+change of this part is among what moves it: the guide's paragraph (15.1), since the constant "moves
+in every pull request that changes … the authoring guide" (`lib/agent/CLAUDE.md`). Nothing else of
+this part reaches a stored model context. The six new tools and the five tools of 14.7 are served
+by MCP alone: `lib/agent/sharedToolRegistry.ts` holds none of them and `lib/mcp/server.ts`
+registers each directly, and "A tool only MCP serves is in no stored model context and does not
+move it". The screens change no tool, no description and no guide sentence.
 
-`lib/models.ts::MODEL_CONTEXT_VERSION` moves from `"v7-hq-round-trip-bring-in.b9"` to
-`"v7-hq-round-trip-bring-in.b12"` in B12, because the guide changed (`lib/agent/CLAUDE.md`: it "moves in
-every pull request that changes … the authoring guide"). The six new tools do not move it: "A tool only
-MCP serves is in no stored model context and does not move it". B11 moves nothing: it changes no tool, no
-description and no guide sentence. Stack B's literals are therefore three, each written by the pull
-request that changes what a model reads: `.b6` (part 08, B6), `.b9` (part 11, B9) and `.b12` here. B8,
-which sits between B6 and B9, and B7 and B10, which sit between B9 and B11, write none (part 10's opening
-says so of B8). `lib/chat/__tests__/compaction.test.ts`, which reads the constant, needs no edit: it
-compares against the import. `lib/db/appTests.ts::RUNTIME_VERSION` stays `19`, the value A9 leaves (part
-04, 3.4): no pinned document and no evaluator changes in B11 or B12.
+`lib/db/appTests.ts::RUNTIME_VERSION` is not moved by anything here: this part changes no pinned
+document and no evaluator.
 
 ### 15.3 `scripts/test-schema.ts`
 
-No entry is added by B11 or B12, and the header's list of known names does not change: B9 already
-added `getOrganization` beside `getLookupTables` (part 11, 12.4). The six tools of section 14 are
-MCP-only. The one billed run of stack B is **E1** ("Written and not yet run"): its list is the
-schema-hash run's between the `main` stack B was cut from and B12's head, with `getLookupTables` and
-`getOrganization` expected, asked once, on the person's yes, never on a standing approval. A tool
-the run names that `scripts/test-schema.ts` does not register was missed by the pull request that
-moved it, so B12 registers it with a prompt that uses one of its inputs, and names it in its
-description (part 15, section 13.4, the same rule as stack A's).
+This part adds no entry, and the header's list of known names does not change for it: every tool it
+adds or changes is MCP-only, held by `lib/mcp/__tests__/servedSchemas.test.ts` without billing ("A
+tool only MCP serves needs no entry", root `CLAUDE.md`). So the step's one billed schema check,
+which the top-level file names (`../6-bring-in.md`), sends nothing of this part: it proves that the
+provider accepts the Solutions Architect's tools the step changed, and this part changes none.
 
 ---
 
 ## 16. The nova-plugin
 
-One pull request in `../nova-plugin`, opened with B12 and merged only after stack B's deploy is live,
-since a skill that names a tool the server does not yet serve fails at its first call. Every file
-below changes in `skills/` and in its mirror under `.dev-plugin/skills/`.
+One pull request in `../nova-plugin`, read at `0a67203`. It is opened against the tool text the
+step serves and merged only after the step's deploy is live, since a skill that names a tool the
+server does not yet serve fails at its first call. Every file below changes in `skills/` and in
+its mirror under `.dev-plugin/skills/`.
 
 ### 16.1 The skill `bring_in`
 
@@ -2973,31 +3024,33 @@ given.
    name and go on: there is nothing to choose, and the user can still stop you. Where they can edit
    none, say so and stop." This is what the screen does: one Project is shown as text in the field's
    place (4.1), and several are a choice.
-5. **Read.** `read_hq_app { project_id, domain, hq_app_id }`, then `read_hq_app { reading_id }` while
-   `again` is true. Tell the user once that a large app takes a few minutes and that nothing is being
-   created or changed. Relay `step` when it changes, not on every call.
-6. **If it stopped** (`state: "stopped"`): relay `stop.title`, `stop.body` and `stop.next` as
-   written. Offer to check again where `next` invites it.
+5. **Read.** `read_hq_app { project_id, domain, hq_app_id }`, once. "Tell the user Nova is reading
+   the app and that nothing is being created or changed. An app with many pictures and sounds can
+   take a few minutes." Keep the `project_id`, `domain` and `hq_app_id` you sent: creating needs
+   the same three.
+6. **If it stopped** (`state: "stop"`): relay `stop.title`, `stop.body` and `stop.next` as
+   written. Offer to read again where `next` invites it.
 7. **If Nova can't bring it in yet** (`state: "account"`): say plainly that nothing was created and
    nothing changed in CommCare HQ. Give the counts, then the findings grouped by `place`, each with
    its `sentence`, its `named` where present, and the label of its standing; give each standing's
-   `next` once. Page with `next_from` until it is null, or offer the rest where the list is long.
-   Relay `learned` and `note` where present, and after the list relay `check_again` as written.
-   "Never tell the user the list is complete: a later check may find more." "Never soften the list,
-   never call it an error, and never offer to bring in part of the app: Nova brings in an app only
-   when it can hold all of it."
-   Tell the user the list is kept on their apps page in Nova, and that `/nova:bring_in` again checks
-   it afresh.
-8. **If it is ready** (`state: "ready"`): show the review in this order: the name; what will be
-   created (`creates`); **where it runs**, every entry of `runs_on` with its `label`, `line` and
-   `split_line`, saying which one Nova proposes, each of `runs_on_notes` and each entry of
-   `cannot_run` (its `sentence`, its `features` as a list, its `files`); each table, with its
-   `sentence` or its `choice` (title, body, and each answer's `label`, `lines` and `reason`); places
-   and media; what stays in CommCare HQ (`kept`); `after`; and **what the first publish changes**,
-   the proposed entry's `first_publish`: its `lead`, then "relay `workers.lines` first, then
-   `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then
-   `note`". "If the user picks another way for the app to run, show that entry's `first_publish`
-   before you create: the list belongs to the choice."
+   `next` once. Page by calling `read_hq_app` with `page` set to `next_page` until it is null, or
+   offer the rest where the list is long. "If an answer has `restarted` true, the app changed while
+   you were paging: relay `message` and start the list over from this answer." Relay `note` where
+   present, and after the list relay `check_again` as written. "Never tell the user the list is
+   complete: a later check may find more." "Never soften the list, never call it an error, and
+   never offer to bring in part of the app: Nova brings in an app only when it can hold all of it."
+   "Nova keeps no list. `/nova:bring_in` again reads the app afresh."
+8. **If it is ready** (`state: "review"`): keep `reading_id` and `review.review_digest`, and show
+   the review in this order: the name; what will be created (`creates`); **where it runs**, every
+   entry of `runs_on` with its `label`, `line` and `split_line`, saying which one Nova proposes,
+   each of `runs_on_notes` and each entry of `cannot_run` (its `sentence`, its `features` as a
+   list, its `files`); each table, with its `sentence` or its `choice` (title, body, and each
+   answer's `label`, `lines` and `reason`); places and media; what stays in CommCare HQ (`kept`);
+   `after`; and **what the first publish changes**, the proposed entry's `first_publish`: its
+   `lead`, then "relay `workers.lines` first, then `hq_only.lines`, each `sentence` as written,
+   then `reassurance` where it is not null, then `note`". "If the user picks another way for the
+   app to run, show that entry's `first_publish` before you create: the list belongs to the
+   choice."
 9. **Ask, and wait.** The name (keep CommCare HQ's or another); where it runs; and each table choice.
    The callout, as a blockquote at the top of this step:
 
@@ -3007,10 +3060,17 @@ given.
    > answer can change what other apps of the Project read. If the user says "use the defaults",
    > say what the defaults are first and get a yes.
 
-10. **Create.** `bring_in_hq_app` with the six fields. While `status` is `again`, call it again with
-    the same arguments. `review_changed`: say what `message` says, show `reading` again from step 6,
-    7 or 8, and ask again; never resend old answers against a new review. `held`: relay `stop`, and
-    for a table choice ask that one question.
+10. **Create.** `bring_in_hq_app` with the nine fields, once. "If the call ends before you get an
+    answer, send it again with the same arguments: it answers the app if it was created." By
+    `status`:
+    - `changed`: "say what `message` says, show `reading` again from step 6, 7 or 8, and ask again;
+      never resend old answers against a new review."
+    - `read_again`: "relay `message`, call `read_hq_app` again, and go on from step 6, 7 or 8 with
+      what it answers. Ask again for any choice the new review changed."
+    - `check_failed`: "relay `message` and the finding in `reading`. Do not send it again by
+      yourself: nothing the user can change clears it."
+    - `held`: "relay `stop`, and send the same arguments again only after the user has done what
+      `stop.next` says."
 11. **Report.** On `created`: the app's name, its `url`, that it is in Nova and nothing changed in
     CommCare HQ, that publishing from Nova updates the same HQ app, and the `after` sentences once
     more. Offer `/nova:show` and `/nova:edit`. "Do not upload it now unless the user asks."
@@ -3020,32 +3080,34 @@ given.
     - "`hq_not_configured`: the user has not connected CommCare HQ. Point at commcare.app/settings
       and stop, as in step 2."
     - "`domain_not_authorized`: the key can't reach that project space, or CommCare HQ turned the
-      account away there. Relay `message`, and `title` and `next` where the response has them.
-      Where the message names project spaces the key reaches, ask whether to use one of those."
-    - "`hq_read_stopped`: CommCare HQ ended the read before Nova had anything to keep. Relay
+      account away there. Relay `message`, `title` and `next`. Where the message names project
+      spaces the key reaches, ask whether to use one of those."
+    - "`hq_read_stopped`: CommCare HQ ended the read before Nova had anything to show. Relay
       `title`, `message` and `next` as written, and try again only where `next` invites it."
-    - "`not_found`: that reading is gone. Relay `message` and offer to start again from step 3."
     - "`permission_denied`: the user can't add an app to that Project, or no longer can. Relay
       `message`, and ask which other Project to use where they can edit one."
-    - "`invalid_input`: an answer was not one the review offered, or the name was missing. Relay
-      `message`, read the review again with `read_hq_app` and the `reading_id`, and ask the user
-      again. Never pick a replacement answer."
-    - "`bring_in_refused`: Nova can't create the app from this reading as it stands. Relay
-      `message` and stop. Do not send `bring_in_hq_app` again until the user asks."
+    - "`invalid_input`: an answer was not one the review offered, a table still needs its answer,
+      or the name was missing. Relay `message`, read the review again with `read_hq_app`, and ask
+      the user again. Never pick a replacement answer."
+    - "`bring_in_refused`: Nova can't create the app as things stand. Relay `message` and stop. Do
+      not send `bring_in_hq_app` again until the user asks."
 
 ### 16.2 The `upload_to_hq` sweep, by claim
 
 The sweep is by what the skill claims, in prose, not by a search for a tool's name. Five claims
-change and one sentence is added for part 01:
+change, two sentences are added for part 01, and two for part 11:
 
 | The claim, in `skills/upload_to_hq/SKILL.md` | Today | From this pull request |
 |---|---|---|
 | the frontmatter `description` | "…along with the lookup tables it reads and the places in its organization. … The first upload to a project space creates the HQ app; uploading again updates that same app in place." | "…along with the lookup tables and places Nova manages for it. … The first upload to a project space creates the HQ app, or updates the HQ app it was brought in from; uploading again updates that same app in place." |
 | the confirmation the skill shows before uploading (step 5) | "a first upload creates the app there, and a later one updates that same HQ app in place. Any Project data tables the app reads and any places in its organization go up with it." | "a first upload creates the app there, and a later one updates that same HQ app in place. If this app was brought in from **<target>**, even the first upload updates the app it came from. Project data tables and places that Nova manages go up with it; ones CommCare HQ manages are left exactly as they are." |
-| before the confirmation (step 4, after the compatibility check) | nothing | a new paragraph: "If the check's `first_publish` is not null, this is Nova's first upload to an app it brought in. In the same message as the confirmation, before the user says yes, relay `workers.lines` first, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`." |
-| the `hq_changed` bullet | "changed in CommCare HQ since Nova last published it" | "changed in CommCare HQ since Nova last published it, or, for an app brought in and not yet published, since it was brought in (each entry's `since` says which, and the `message` names the day in UTC)". The bullet gains: "Where the user would rather leave CommCare HQ's version alone, an admin or owner of the Project can stop publishing there with `stop_publishing`: the app in CommCare HQ stays, and a later upload makes a new app beside it. Say what it does and ask before calling it." |
+| before the confirmation (step 4, after the compatibility check) | nothing | a new paragraph: "If the check's `first_publish` is not null, this upload changes things in CommCare HQ beyond the user's own edits, and its `lead` says why. In the same message as the confirmation, before the user says yes, relay `lead`, then `workers.lines`, then `hq_only.lines`, each `sentence` as written, then `reassurance` where it is not null, then `note`." |
+| the `hq_changed` bullet | "changed in CommCare HQ since Nova last published it" | "changed in CommCare HQ since Nova last published it, or, for an app brought in and not yet published, since it was brought in, or since Nova last brought in changes from it (each entry's `since` says which, and the `message` names the day in UTC)". The bullet gains first: "When the app's change has `can_bring_in` true, read what changed with `read_hq_changes` and show the user both lists. Bringing the changes in keeps everything when `nova_changes` is empty. When it is not empty, it removes every change listed there for good: show that list and ask before calling `bring_in_hq_changes` with `discard_nova_changes` true. The user can also publish over the change instead." Then: "Where the user would rather leave CommCare HQ's version alone, an admin or owner of the Project can stop publishing there with `stop_publishing`: the app in CommCare HQ stays, and a later upload makes a new app beside it. Say what it does and ask before calling it." |
 | the list of refusals | no `publishing_stopped` | a new bullet: "`publishing_stopped`: someone stopped publishing this app to that project space while this upload was getting ready. Relay the `message`, which says whether anything was sent. Uploading again makes a new app there, so ask first." |
-| after the paragraph on `hq_app_empty` and `hq_app_gone` | nothing | "Each deployment can also carry `kept`: the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. Say them when the user asks what Nova leaves alone. `refresh_deployment` with `kept_values: true` reads them again and answers with a sentence instead of a state; relay it as it is." (part 01, "Contracts", A3) |
+| the list of refusals | no `hq_build_profile_language_missing` | the bullet part 01 writes for it (its 7.4), word for word |
+| the list of refusals | no `hq_managed_data_changed` | the bullet part 11 writes for it (its 12.4), word for word |
+| the list of refusals | no `managed_table_handed_back` | the bullet part 11 writes for it (its 12.4), word for word |
+| after the paragraph on `hq_app_empty` and `hq_app_gone` | nothing | "Each deployment can also carry `kept`: the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. Say them when the user asks what Nova leaves alone. `refresh_deployment` with `kept_values: true` reads them again and answers with a sentence instead of a state; relay it as it is." (part 01, section 11) |
 
 Two more sentences are read and left: "`created` also covers an upload that filled the empty app an
 earlier, unfinished first upload left there" and the `left_behind` bullet for `kind: "app"` are both
@@ -3053,25 +3115,27 @@ still true, since an ended deployment's HQ app is named by the deployment's `end
 behind (part 10, 8.6). The report step gains one line: "If `deployment.ending` is not null, say that
 Nova stopped publishing there and relay its `message`."
 
-`skills/build`, `edit`, `autobuild`, `find`, `list` and `show` make no claim this stack changes.
+`skills/build`, `edit`, `autobuild`, `find`, `list` and `show` make no claim this part changes.
 
-### 16.3 The version, the README and the order
+### 16.3 The version, the README, and the sweep at the step's head
 
 `.claude-plugin/plugin.json`'s `version` moves from `2.4.2` to `2.5.0` (a new skill is a minor), and
 `.dev-plugin/.claude-plugin/plugin.json` takes its own next minor from `1.31.0`, `1.32.0`. `README.md`
 gains under "Skills": "- `/nova:bring_in [project space] [app name]`: bring an app you already have
-in CommCare HQ in to Nova (reads it first and creates nothing until you've seen what comes in)". The
-pull request is merged after the Nova deploy that carries stack B is confirmed live, and never
-before.
+in CommCare HQ in to Nova (reads it first and creates nothing until you've seen what comes in)".
+
+The sweep is made once more at the step's head, as a reading by claim of the plugin's `skills`,
+`agents`, `.dev-plugin` and `README.md`, with `rg -i` to find the passages ("Written and not yet
+run"). The same reading looks for what the rest of the step makes false of a skill's own prose,
+which the top-level file lists with the parts that own each claim (`../6-bring-in.md`). A sentence
+it finds is corrected in this one pull request.
 
 ---
 
 ## 17. Public docs, and `design/`
 
-Stack B's public docs land in B14, "Contracts and public docs for stack B" (part 15,
-`15-stack-contracts-and-exit.md`, sections 7.2 and 15). This part fixes their text; B14 lands the
-pages in the same stack, so they are public in the deploy that makes them true. `design/readme.md`
-changes with the screens it describes, in B11.
+Each page changes with the behavior it describes, so every sentence below is public in the deploy
+that makes it true. `design/readme.md` changes with the screens it describes.
 
 ### 17.1 The new page
 
@@ -3104,10 +3168,10 @@ Outline, with the sentences that carry each section:
    so it's worth choosing the Project your team shares." "One CommCare HQ app is managed by one Nova
    app. If someone already brought an app in, the list says so: you can open it, or it tells you who
    to ask."
-4. **While Nova reads.** "Reading a large app takes a few minutes, most of it for pictures and sounds.
-   You can leave the page: Nova pauses after the step it's on and keeps your place under **Coming in
-   from CommCare HQ** on your apps page, in the Project you added the app to. **Continue** picks up
-   where it stopped."
+4. **While Nova reads.** "Reading most apps takes a few seconds. An app with lots of pictures and
+   sounds takes longer, and Nova shows how many it has checked. You can leave the page: nothing is
+   created until you choose **Bring it in**, and Nova reads the app afresh when you come back."
+   "The page's address names the app, so you can keep it or send it to a teammate."
 5. **When Nova can bring it in.** The review, section by section, in the screen's own headings, each
    sentence as given:
    - "Nova shows you one review before anything is created."
@@ -3122,38 +3186,34 @@ Outline, with the sentences that carry each section:
      should use and says what each answer does to your other apps."
    - "**Stays as it is in CommCare HQ** lists the settings Nova leaves alone when it publishes.
      [Publishing](/docs/publishing) shows the same list once the app is in."
-   - part 08's sentence C13, verbatim (its "Copy", B6): "Nova brings in the expressions of your
-     app: display conditions, validation, calculations, case list filters and search filters. It
-     keeps the questions, case properties and tables they name as links, so renaming one later
-     updates every expression that reads it."
+   - part 08's sentence C13, verbatim (its "Copy"), on the expressions that come in.
    - "Nothing is created until you choose **Bring it in**."
 6. **When Nova can't bring it in yet.** "Nova brings in an app only when it can hold every part of it
    exactly, so nothing is lost when you publish back. When it can't, it creates nothing and lists
    every reason it found, grouped by where it is in your app." Then:
    - "Each reason has one of three labels." Then the three labels with part 01's own sentence for
      each (`FINDING_LABELS` and `FINDING_NEXT_STEPS`, its 9.1), verbatim: "**Nova can't hold this
-     yet.** There is nothing for you to change. Nova keeps this list, and you can check again
-     whenever you like." "**Nova doesn't bring this in.** The app can come in once it no longer
+     yet.** There is nothing for you to change. You can check again whenever you
+     like." "**Nova doesn't bring this in.** The app can come in once it no longer
      uses this. If your team relies on it, the app is best kept in CommCare HQ." "**Something to
      change in CommCare HQ.** Once this is changed in CommCare HQ, you can check again and Nova
      will read the app afresh."
-   - "Under the list Nova says: When these are changed, Nova will check the app again and may find
-     more to name." The quoted line is part 01's `ACCOUNT_CHECK_AGAIN_LINE`, verbatim, so the page
-     never calls the list complete.
-   - part 08's sentence C14, verbatim (its "Copy", B6): "A case list column, a filter, a display
-     condition or a search setting that calls a function such as `int()` or `substr()` can't come
-     in yet. Expressions inside forms can use every function CommCare runs."
-   - "The list stays on your apps page. When Nova learns to hold what a list named, the row says
-     so, and **Check again** reads the app afresh."
+   - "Under the list Nova says: When you check again, Nova may find more to name." The quoted line is
+     part 01's `ACCOUNT_CHECK_AGAIN_LINE`, verbatim, so the page never calls the list complete.
+   - part 08's sentence C14, verbatim (its "Copy"), on the functions a case list or a search
+     setting can't bring in.
+   - "Nova keeps no copy of the list. **Copy the list** lets you take it with you, and **Check
+     again** reads the app afresh whenever you like."
    - "Nova doesn't bring in part of an app."
 7. **After it's in.** "The app opens in the builder, and **App setup → Publishing** already shows the
-   project space it came from." Then the review's three sentences, V21a to V21c, with the project
-   space said in general: "You can keep working on it in Nova and publish back to the same app in
-   its project space." "If someone changes it in CommCare HQ, your next publish stops before
-   sending anything and lists what changed." "If your team keeps a copy of this app in another
-   project space, Nova can't update that copy yet. Publishing there makes a new app." And:
-   "Bringing changes made in CommCare HQ in to Nova comes later; for now you can publish over them
-   or stop publishing."
+   project space it came from." Then what the review's V21a to V21c say, with the
+   project space said in general: "You can keep working on it in Nova and publish back to the same
+   app in its project space." "When the app changes in CommCare HQ after you bring it in, your next
+   publish stops and lists what changed. You can bring those changes in to Nova, publish over them,
+   stop publishing to that app, or close the dialog and decide later. [Changes made in CommCare
+   HQ](./publishing.mdx#changes-made-in-commcare-hq) says what each one does." "Publishing to
+   another project space makes a new app there. A copy your team already keeps there stays as it
+   is."
 8. **What the first publish changes** (part 09's heading, and its words). "Nova writes an app in its
    own way, so the first time you publish an app you brought in, some things will differ in CommCare
    HQ. Nova lists them before you bring the app in, and again in the Publish dialog before that
@@ -3174,21 +3234,21 @@ are the screen's own headings.
 
 ### 17.2 Sentences of existing pages
 
-| Page | Today | From stack B (B14) |
+| Page | Today | From step 6 |
 |---|---|---|
 | `building-with-nova.mdx`, "Start with a blank app" | ends "…without the reviewed conversational design flow." | gains a paragraph: "If the app already exists in CommCare HQ, you can [bring it in](./bringing-in-from-commcare-hq.mdx) and carry on from where it is." |
 | `index.mdx`, the line for Building an app | "…resume an unfinished design, or start with a blank app." | unchanged; the new page's line follows it (17.1) |
 | `publishing.mdx`, the opening | "Publishing sends your app to a CommCare HQ project space. Nova remembers where it went, so you can come back at any time and see how far along it is." | gains: "An app you [brought in from CommCare HQ](./bringing-in-from-commcare-hq.mdx) publishes back to the app it came from." |
 | `publishing.mdx`, "On CommCare HQ" | "Publishing again **updates this same app in place**, name included…" | gains before it: "For an app you brought in, this card is there from the start, and its first publish updates the app it came from." Then part 09's one paragraph, as part 09 writes it ("The first time you publish an app you brought in, Nova lists what will differ in CommCare HQ…"; its "Contracts"), and no second wording of it from this part |
 | `publishing.mdx`, "Each publish keeps every menu's and every form's ID in CommCare HQ." | as quoted | gains: "An app you brought in keeps the IDs CommCare HQ gave it, in the project space it came from. In any other project space Nova makes a new app with its own." |
-| `publishing.mdx`, "Changes made in CommCare HQ" | part 10's two changes (its "Public docs") | as part 10 fixes them; this part adds nothing there |
+| `publishing.mdx`, "Changes made in CommCare HQ" | the section offers one way on for a change to the app: "Tick **Publish over this** beside each one you're happy to replace with this app's version…" | part 15's text for the section (its "Contracts and docs these changes make false", "Public docs"): the four ways on, what bringing a change in keeps, what using CommCare HQ's version removes, a replaced picture or sound, and the check when the builder opens. This part writes no sentence of it |
 | `project-space-compatibility.mdx`, "Plan features" | "…The Publish dialog lists each one your app needs, with the forms that need it, and asks you to confirm the project space has it." | gains: "For an app you brought in from that project space, Nova doesn't ask about a feature the app was already using there, because publishing changes nothing about it. Those show on the project space's card with who brought the app in, and you can withdraw one like any other." |
 | `case-workspace.mdx`, "Cases assigned to the person using the app" | "If an imported app has a different assignment rule, Nova keeps it unchanged…" and "…because the imported rule cannot be recovered from the builder afterward." | "If an app you brought in from CommCare HQ has a different assignment rule, Nova keeps it unchanged…" and "…because the rule it came with cannot be recovered from the builder afterward." ("Import" is the CommCare HQ app file and CSV replacement; `../6-bring-in.md`, "What changed from the outline, and why", item 13.) |
 | `projects.mdx`, "When a move waits" | "Apps that use Project data tables can't move yet, those shared tables would be left behind. Nova blocks those moves rather than splitting an app from its data." | gains: "That includes an app brought in from CommCare HQ that reads lookup tables, so it's worth choosing its Project when you bring it in." |
 | `claude-code/commands.mdx`, the opening | "The plugin adds seven `/nova:*` commands." | "The plugin adds eight `/nova:*` commands." The next paragraph, "The intended flow is: build an app…", gains: "If your app already lives in CommCare HQ, `/nova:bring_in` brings it in to Nova first." |
 | `claude-code/commands.mdx`, a new section before "Uploading to CommCare HQ" | none | "## Bringing in an app from CommCare HQ", holding "### `/nova:bring_in [project space] [app name]`" and: "Brings an app you already have in CommCare HQ in to Nova, so you can keep working on it here and publish back to the same HQ app. Nova reads the app first with your API key (saved in [Nova settings](https://commcare.app/settings)) and creates nothing until you've seen what comes in. Name a project space and an app to go straight to them; leave them off and Claude asks." Then: "Claude asks you for each thing that is yours to decide: the Nova Project where you can edit more than one, the app's name, where the app runs, and what to do about a lookup table your Project already has. If Nova can't hold every part of the app yet, Claude shows you the whole list of what and where, and nothing is created." A `text` block: `/nova:bring_in` and `/nova:bring_in my-project-space "vaccine tracking"`. And a link to [Bringing in an app from CommCare HQ](../bringing-in-from-commcare-hq.mdx) |
 | `claude-code/commands.mdx`, `/nova:upload_to_hq`, its last paragraph | "The first upload to a project space creates the app there; uploading again updates that same HQ app in place." | "The first upload to a project space creates the app there, or updates the app it was brought in from; uploading again updates that same HQ app in place. Before the first upload of an app you brought in, Claude shows you what that upload changes in CommCare HQ." |
-| `claude-code/commands.mdx`, `/nova:upload_to_hq`, "Changes made in CommCare HQ" | "…changed in CommCare HQ since Nova last published it…" | "…changed in CommCare HQ since Nova last published it, or since you brought the app in…", as part 10 words the origin in the product. The bullet gains at its end: "An admin or owner of the Project can also stop publishing there, which leaves CommCare HQ's version as it is." |
+| `claude-code/commands.mdx`, `/nova:upload_to_hq`, "Changes made in CommCare HQ" | "…changed in CommCare HQ since Nova last published it…" | "…changed in CommCare HQ since Nova last published it, or since you brought the app in…", as part 10 words the origin in the product. The bullet gains at its end: "Claude can read what changed and bring it in to Nova, and asks before removing anything you changed in Nova. An admin or owner of the Project can also stop publishing there, which leaves CommCare HQ's version as it is." |
 | `claude-code/quickstart.mdx`, the paragraph on uploading | "`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app." | "`/nova:upload_to_hq` pushes a Nova app to CommCare HQ as a new HQ app, or back to the HQ app it was brought in from." |
 
 ### 17.3 `content/docs/mcp/tools.mdx`
@@ -3196,21 +3256,25 @@ are the screen's own headings.
 A new section, "Bringing in an app from CommCare HQ", after "Creating and deleting apps":
 
 > `list_hq_apps`, `read_hq_app` and `bring_in_hq_app` bring an app that already exists in CommCare HQ
-> in to Commcare Nova. Reading creates nothing and changes nothing in CommCare HQ. `read_hq_app` does
-> one bounded step a call: while `again` is true, call it again with the `reading_id`. It ends
-> `ready`, with a review; `account`, with what Nova can't hold yet and where; or `stopped`,
-> with what ended the read. `bring_in_hq_app` takes the user's answers to the review and has no
-> defaults.
+> in to Commcare Nova. Reading creates nothing, keeps nothing and changes nothing in CommCare HQ.
+> One call of `read_hq_app` is one whole read. It answers `review`, with what will come in;
+> `account`, with what Nova can't hold and where; or `stop`, with what ended the read.
+> `bring_in_hq_app` takes the user's answers to the review and has no defaults. Both report
+> progress while they work.
 
 | Tool | What it does |
 |---|---|
 | `list_hq_apps` | List the apps of one CommCare HQ project space by name and `hq_app_id`. `in_nova` says a Nova app already manages one, with the app to open or who to ask. Requires `nova.hq.read`. |
-| `read_hq_app` | Start or continue reading one HQ app into a Nova Project the user chose. Returns `state`, and with it a `review`, an `account` of findings (each with its place, sentence, standing and next step) or a `stop`. `action: "check_again"` reads afresh; `action: "remove"` forgets the reading. Requires `nova.hq.read`. |
-| `bring_in_hq_app` | Create the Nova app from a ready reading, given `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`. `status` is `created`, `again`, `review_changed` or `held`. Nothing is sent to CommCare HQ. Requires `nova.hq.write`. |
+| `read_hq_app` | Read one HQ app for a Nova Project the user chose. Returns `state`, and with it a `review` (with the `reading_id` to create from), an `account` of findings (each with its place, sentence, standing and next step) or a `stop`. A long account is paged with `page` and `next_page`. Calling it again reads afresh. Requires `nova.hq.read`. |
+| `bring_in_hq_app` | Create the Nova app from a review, given the `project_id`, `domain` and `hq_app_id` that were read, the `reading_id`, `review_digest`, `app_name`, `runs_only_on`, `split_datetime` and `table_choices`. `status` is `created`, `changed`, `read_again`, `check_failed` or `held`. Sending it again with the same arguments answers the same app. Nothing is sent to CommCare HQ. Requires `nova.hq.write`. |
 
 A callout after the table: "An agent never chooses the Project, the name, where the app runs, the
 date-and-time split or a lookup table's answer for the user. `bring_in_hq_app` has no defaults for
 that reason."
+
+The same section also documents part 15's two tools, `read_hq_changes` and `bring_in_hq_changes`,
+in two more rows of that table, whose text is part 15's ("Contracts and docs these changes make
+false", "Public docs").
 
 In "Publishing", the table gains `stop_publishing` ("Stop publishing an app to one project space.
 The app in CommCare HQ stays; a later upload makes a new app beside it. Admins and owners of the
@@ -3218,33 +3282,38 @@ app's Project only. Requires `nova.hq.write`."), `get_deployment`'s row gains "`
 list and "`brought_in` and `ending` say where the app came from and whether Nova stopped publishing
 there", and `upload_app_to_hq`'s row gains after its first sentence: "For an app brought in from that
 project space, the first upload updates the app it came from." The row of
-`check_project_space_compatibility` (under "Browsing apps") gains: "`first_publish` is what a first
-upload changes for an app brought in from that project space: `workers.lines` for what workers
-will notice, `hq_only.lines` for what changes only in CommCare HQ, then `reassurance` where it is
-not null and `note`. It is null for any other app." Part 11's rows for
-`refresh_managed_data` and `set_lookup_table_management` land with these.
+`check_project_space_compatibility` (under "Browsing apps") gains: "`first_publish` is what the
+next upload changes in CommCare HQ beyond the user's own edits, for an app brought in from that
+project space and not yet uploaded, and after a change in CommCare HQ that Nova writes its own way:
+`lead` says which, then `workers.lines` for what workers will notice, `hq_only.lines` for what
+changes only in CommCare HQ, then `reassurance` where it is not null and `note`. It is null
+otherwise." Part 11 holds the rows for
+`refresh_managed_data` and `set_lookup_table_management` (its "Contracts"), and part 01 the
+sentence `upload_app_to_hq`'s row gains for a build profile (its 7.4).
 
-### 17.4 `design/readme.md` (B11)
+### 17.4 `design/readme.md`
 
 The voice gains no rule. The look gains one pattern and the system one primitive, each recorded
 where the code will read it:
 
 - After "Publishing", a section **Bringing in**: "Bringing an app in from CommCare HQ is a state of
   the new-app page, not a dialog. One card takes the composer's place, with a heading that takes
-  focus as each step appears, a scrolling middle and a footer that stays. The address holds the
-  app being read, so a reload returns to it and a row on the apps page leads back. A read that
+  focus as each step appears, a scrolling middle and a footer that stays. The address names the
+  app, so a reload reads it again and the address can be kept or sent. A read that
   cannot bring the app in is a full account and never an error: amber, never rose, grouped by
   where each thing lives in the app, with three plain labels explained once. A review asks nothing
   by tick: where the app runs is chosen for the person and theirs to change, and only a real choice
   between two outcomes is left open. Nothing is created until the review's one button."
 - In "Primitive contracts", a row for `RadioGroup.prompt.md` and `components/shadcn/radio-group.tsx`,
   and the contract file `design/components/core/RadioGroup.prompt.md` with section 12.2's five rules.
+- In "Publishing", part 15's four sentences on a change made in CommCare HQ (its "Contracts and docs
+  these changes make false").
 
 ---
 
 ## Copy
 
-Every string B11 and B12 add that a person, an agent or a developer reads. All of it follows
+Every string this part adds that a person, an agent or a developer reads. All of it follows
 `design/readme.md`, "Content fundamentals": "Invite, never instruct" ("Prefer "you can" and "would you
 like" over imperatives; never "you must", never "invalid""); "Take responsibility, offer the next
 step"; sentence case; "No em dashes"; "No ellipsis in buttons, menu items, or placeholders, ever";
@@ -3257,10 +3326,9 @@ beside part 10's strings, which quote it.
 The strings live in one new client-safe file, `lib/publish/bringInCopy.ts`, beside part 01's
 `hqFindingCopy.ts` and part 12's `hqReadingCopy.ts`, because the screens and MCP return the same
 sentences. Every word about what the first publish changes is part 09's, in
-`lib/publish/firstPublishCopy.ts` (its Copy, C1 and C2): this part adds no string to that file and
-no string of that kind to its own. Sentences with a value are functions
-(`pickerProjectLine(project)`), named for their id's meaning. Strings owned by
-another part are named here by their export and not repeated.
+`lib/publish/firstPublishCopy.ts`: this part adds no string to that file and no string of that kind
+to its own. Sentences with a value are functions (`pickerProjectLine(project)`), named for their
+id's meaning. Strings owned by another part are named here by their export and not repeated.
 
 **Entries (N).**
 
@@ -3290,69 +3358,59 @@ another part are named here by their export and not repeated.
 | K11 | filter placeholder | Search apps by name |
 | K12 | filter matches nothing | No app in {domain} matches that |
 | K13 | an app CommCare HQ holds no name for | An app with no name |
-| K14 | a row already in Nova | part 10's three exports of `lib/publish/hqAppClaims.ts` (`HQ_APP_CLAIM_OPEN_LABEL` "Already in Nova", `HQ_APP_CLAIM_OPEN_ACTION` "Open", `HQ_APP_CLAIM_ELSEWHERE_LABEL` "Already in Nova, in a Project you're not part of"), and under an `elsewhere` row part 01's `alreadyInNovaNext(claim)` |
-| K15 | the person's own open reading, badge | You've started bringing this in |
-| K16 | footer | Cancel · Read this app · Carry on · Starting (in flight) |
+| K14 | a row already in Nova | part 10's three exports of `lib/publish/hqAppClaims.ts` (`HQ_APP_CLAIM_OPEN_LABEL` "Already in Nova", `HQ_APP_CLAIM_OPEN_ACTION` "Open", `HQ_APP_CLAIM_ELSEWHERE_LABEL` "Already in Nova, in a Project you're not part of"), and under an `elsewhere` row part 01's `alreadyInNovaNext(claim, formatDate)` |
+| K16 | footer | Cancel · Read this app (no in-flight label: the press shows the reading screen, 4.1) |
 | K17 | beside the footer | Reading creates nothing. You'll see what Nova found first. |
 | K18 | the primary's description while no app is chosen | You can read an app once you've chosen one |
 | K19 | no connection: title, body | Connect CommCare HQ to bring in an app / You can add your CommCare HQ API key in Settings. Nova uses it to read your app. |
 | K20 | the list request failed | Nova couldn't list the apps in {domain} just now. You can try again. |
-| K21 | starting failed | Nova couldn't start reading this app just now. You can try again. |
 | K22 | Check connection could not be read (the picker and the Publish dialog) | Nova couldn't check your connection just now. You can try again. |
 
 K18 is the accessible description of a button that does nothing yet. It says what the button will
 do and when, as an invitation, and never as a step to take or a fault.
 
-**Reading and opening (W).**
+**Reading (W).**
 
 | Id | Where | Text |
 |---|---|---|
-| W1 | status | Reading {app} from CommCare HQ (before the row holds a name: Reading your app from CommCare HQ) |
-| W2 | no step reported yet | Getting ready |
+| W1 | status | Reading {app} from CommCare HQ (where the page knows no name yet: Reading your app from CommCare HQ) |
 | W3 | after twenty seconds | Still reading. Apps with lots of pictures and sounds take a few minutes. |
-| W4 | always | You can leave this page. Nova finishes the step it's on and carries on when you come back to it. |
-| W4b | always, the reading is in the tab's Project | Your place is kept under Coming in from CommCare HQ on your apps page. |
-| | the reading is in another Project the seed names | Your place is kept under Coming in from CommCare HQ on {Project}'s apps page. |
-| | the reading is in a Project the seed does not name (the person no longer edits it) | Your place is kept under Coming in from CommCare HQ, on the apps page of the Project you added it to. |
-| W5 | first lost request | Trying again |
-| W6 | second lost request | Nova lost its connection partway. Nothing was created, and Nova kept its place. |
-| W7 | opening a reading by its address | Opening where you left off |
-| W8 | that load failed | Nova couldn't open this just now. You can try again. |
-| | the steps | part 12's `READING_PHASE_LABELS` |
+| W4 | always | You can leave this page. Nothing is created until you choose Bring it in, and Nova reads the app afresh when you come back. |
+| W5 | first lost request, in a read or a create | Trying again |
+| W6 | second lost request of a read | Nova lost its connection partway. Nothing was created, and you can try again. |
+| | the stages | part 12's `READING_STAGE_LABELS` |
+| | Nova's own failure: title, body | part 12's `READING_FAILED_COPY`, its `read` and `create` forms |
 
 **Shared actions.** Go to your apps · Choose an app · Choose another app · Choose another Project ·
-Check again · Carry on · Try again · Open Settings · Open {appName} · Open your app · Remove from
-your list · Done.
+Check again · Try again · Open Settings · Open {appName} · Open your app · Done.
 
 **A stop (S).**
 
 | Id | Where | Text |
 |---|---|---|
-| S1 | under every stop | Nothing was created, and nothing changed in CommCare HQ |
-| S2 | Check again failed to start | Nova couldn't start checking this again. You can try again. |
-| | title, body | part 01's `CIRCUMSTANCE_COPY` |
-| | next step | part 01's `circumstanceNext(finding)` (its 8.4), for a stop, an account's circumstance and MCP alike |
+| S1 | under every stop but `already-in-nova`, from a read | Nothing was created, and nothing changed in CommCare HQ |
+| | the same, on a screen drawn from a create's answer | No app was created, and nothing changed in CommCare HQ |
+| | title, body, next step | part 01's `circumstanceBlock(finding, context)` (its 8.4), for a stop, an account's circumstance, the copied text and MCP alike |
 
 **The account (A).**
 
 | Id | Where | Text |
 |---|---|---|
-| A1 | heading | Nova can't bring in {app} yet |
-| A2 | heading, where every finding is `read-back-differs`, `unrecognized` or `could-not-create` (7.1) | Nova couldn't bring in {app} this time |
-| A3 | lead | Nothing was created, and nothing changed in CommCare HQ. Nova only brings in an app when it can hold every part of it exactly, so nothing is lost when you publish back. |
-| A4 | lead under A2 | Nothing was created, and nothing changed in CommCare HQ. |
+| A1 | heading | Nova can't bring in {app} yet (where the read learned no name: Nova can't bring in this app yet) |
+| A2 | heading, where every finding is one of Nova's own faults (7.1) | Nova couldn't bring in {app} this time (with no name: Nova couldn't bring in this app this time) |
+| A3 | lead, from a read | Nothing was created, and nothing changed in CommCare HQ. Nova only brings in an app when it can hold every part of it exactly, so nothing is lost when you publish back. |
+| | lead, from a create's answer | No app was created, and nothing changed in CommCare HQ. Nova only brings in an app when it can hold every part of it exactly, so nothing is lost when you publish back. |
+| A4 | lead under A2, from a read | Nothing was created, and nothing changed in CommCare HQ. |
+| | lead under A2, from a create's answer | No app was created, and nothing changed in CommCare HQ. |
 | A5 | the count line's parts, each singular at one | {n} thing Nova can't hold yet / {n} things Nova can't hold yet · {n} thing Nova doesn't bring in / {n} things Nova doesn't bring in · {n} thing to change in CommCare HQ / {n} things to change in CommCare HQ |
 | A6 | a group's link | Open in CommCare HQ |
 | A7 | footer | Copy the list · Copied · Check again · Done |
-| A8 | under the footer, the reading is in the tab's Project | Nova keeps this list under Coming in from CommCare HQ on your apps page |
-| | the reading is in another Project the seed names | Nova keeps this list under Coming in from CommCare HQ on {Project}'s apps page |
-| | the reading is in a Project the seed does not name | Nova keeps this list under Coming in from CommCare HQ, on the apps page of the Project you added it to |
 | A9 | the media group's heading | Pictures and sounds |
 | A10 | the clipboard was refused | Your browser didn't let Nova copy this, so here it is to select and copy. |
 | A11 | a folded run of one sentence | on {n} questions · Show the questions · Hide the questions |
 | A12 | the copied text's first line | {heading} ({domain}, checked {date}) |
-| | under the groups of every account, and the last line of the copied text | part 01's `ACCOUNT_CHECK_AGAIN_LINE` (its 9.1, landed in B2): "When these are changed, Nova will check the app again and may find more to name." This part draws it and writes no line of its own |
-| | labels, next steps, sentences | part 01's `FINDING_LABELS`, `FINDING_NEXT_STEPS`, `findingLine`, `placeLine`, `circumstanceNext`; part 12's `moreFindingsLine`, `READING_LEARNED_LINES`; part 11's R12 |
+| | under the groups of every account, and the last line of the copied text | part 01's `ACCOUNT_CHECK_AGAIN_LINE` (its 9.1): "When you check again, Nova may find more to name." This part draws it and writes no line of its own |
+| | labels, next steps, sentences | part 01's `FINDING_LABELS`, `FINDING_NEXT_STEPS`, `findingLine`, `placeLine`, `circumstanceBlock`; part 12's `moreFindingsLine`; part 11's R12 |
 
 **The review (V).**
 
@@ -3385,14 +3443,14 @@ your list · Done.
 | V18, V19, V20 | sections | Places · Pictures and sounds · Stays as it is in CommCare HQ |
 | V21 | section | After it's in |
 | V21a | | You can keep working on it in Nova and publish back to this app in {domain}. |
-| V21b | | If someone changes it in CommCare HQ, your next publish stops before sending anything and lists what changed. |
-| V21c | | If your team keeps a copy of this app in another project space, Nova can't update that copy yet. Publishing there makes a new app. |
+| V21b | | If someone changes it in CommCare HQ, your next publish stops before sending anything, lists what changed, and offers to bring it in to Nova. |
+| V21c | | Publishing to another project space makes a new app there. A copy your team already keeps there stays as it is. |
 | V22 | section, its lead, its two labels, its sentences and its note | part 09's `FIRST_PUBLISH_HEADING` ("What the first publish changes"), `FIRST_PUBLISH_LEAD_REVIEW`, `FIRST_PUBLISH_WORKERS_LABEL`, `FIRST_PUBLISH_HQ_LABEL`, `FIRST_PUBLISH_NO_WORKER_CHANGE`, `FIRST_PUBLISH_FORM_BUILDER_NOTE` and `FIRST_PUBLISH_SENTENCES`, all through `firstPublishLines(view, "review")`. This part writes none of them |
 | V23 | footer | Choose another app · Bring it in (no in-progress label: the press shows the creating screen, 8.9) |
 | | tables, places, files | part 11's R1 to R11 and R3 to R5; the answer under R11 is the action Choose another Project |
 | | kept list | part 01's 9.4 strings |
 | | recorded features | part 10's `adoptionRecordedFeaturesLine` |
-| | leads, refusals | part 12's `CREATE_RESULT_LEADS`, `READING_REFUSAL_COPY` |
+| | leads, refusals | part 12's `CREATE_ANSWER_LEADS`, `READING_REFUSAL_COPY` |
 
 V13's list items are `PLATFORM_FEATURES[feature].label`, each as written, one to an item and never
 joined into the sentence (8.3). V13's two prepositions are `lib/domain/platforms.ts::inPlatform`.
@@ -3419,8 +3477,8 @@ export function platformOutBlock(entry: {
 };
 ```
 
-V10 and A8 are single lines and end without a period. V12a and V12b are two sentences and keep
-theirs.
+V10 is a single line and ends without a period. V12a, V12b and V21c are two sentences and keep
+theirs. V21b and V21c say what Nova does and name no later step.
 
 **Creating and landing (X, T).**
 
@@ -3428,28 +3486,13 @@ theirs.
 |---|---|---|
 | X1 | status | Creating your app |
 | X2 | under it | Nova reads the app once more, so it creates exactly what you reviewed. |
-| | the landing could not be verified (the `unopened` screen's line) | part 12's `UNVERIFIED_LANDING_TITLE` (`lib/publish/hqReadingCopy.ts`, its C6): "Your app is in, and this tab couldn't open it". This part writes no sentence for it, and the id X3 is not used |
-| X4 | a creation request lost twice | Nova lost its connection while creating your app. Trying again is safe: if the app was created, Nova opens it. |
+| X4 | a create's request lost twice | Nova lost its connection while creating your app. Trying again is safe: if the app was created, Nova opens it. |
+| X5 | after twenty seconds | Still bringing it in. Apps with lots of pictures and sounds take a few minutes. |
+| X6 | always, under X2 | You can leave this page. If Nova finishes, your app will be in your apps. If it doesn't, no app is created, and you can bring it in again. |
+| | the landing could not be verified (the `unopened` screen's line) | part 12's `UNVERIFIED_LANDING_TITLE` (`lib/publish/hqReadingCopy.ts`): "Your app is in, and this tab couldn't open it". This part writes no sentence for it |
 | T1 | toast, title | Your app is here |
 | T2 | toast, body | Nova brought in {name} from {domain}. Publishing shows where it came from and what stays in CommCare HQ. |
 | T3 | toast, action | See what came in |
-
-**The home list (H).**
-
-| Id | Where | Text |
-|---|---|---|
-| H1 | heading | Coming in from CommCare HQ |
-| H2 | under it | Apps Nova is reading, ready for you to review, or can't bring in yet. Only you see these. |
-| H3 | a row with no name yet | An app from {domain} |
-| H4 | under the title | From {domain} |
-| H5 | no step in flight | Paused. Continue picks up where Nova stopped. |
-| H6 | ready | Ready for you to review |
-| H7 | Remove, title | Remove this from your list? |
-| H8 | Remove, body | Nova forgets what it read of {app}. Nothing was created, nothing changes in CommCare HQ, and you can bring it in again any time. |
-| H9 | Check again failed | S2's sentence |
-| H10 | Remove failed | Nova couldn't remove this just now. You can try again. |
-| H11 | an account's date | Checked {relative time} |
-| | actions | Continue · Review · See the list · See why · Check again · Checking (in flight) · Remove · Removing (in flight) · Keep it |
 
 **After (D).**
 
@@ -3457,8 +3500,8 @@ theirs.
 |---|---|---|
 | D1 | the card, under the project space | Brought in from “{domain}” on {date} by {name} |
 | D2 | the rung On CommCare HQ, before Nova's first publish ({date} is the day it was brought in) | Nova read this app from CommCare HQ on {date} and hasn't published to it yet |
-| D3 | the dialog's section: its heading, lead, labels, sentences and note | part 09's `FIRST_PUBLISH_HEADING`, `FIRST_PUBLISH_LEAD_PUBLISH`, the two labels, `FIRST_PUBLISH_NO_WORKER_CHANGE`, `FIRST_PUBLISH_FORM_BUILDER_NOTE` and `FIRST_PUBLISH_SENTENCES`, through `FirstPublishLines` (11.2). This part writes none of them. The ids D4 to D6 are not used, and D7 keeps its number because part 01 cites it (its 2.3) |
-| D7 | plan line, a new app for a brought-in app | This creates a new app in this project space. Nova can't update a copy of this app that's already there yet. |
+| D3 | the dialog's section: its heading, lead, labels, sentences and note | part 09's `FIRST_PUBLISH_HEADING`, `FIRST_PUBLISH_LEAD_PUBLISH`, the two labels, `FIRST_PUBLISH_NO_WORKER_CHANGE`, `FIRST_PUBLISH_FORM_BUILDER_NOTE` and `FIRST_PUBLISH_SENTENCES`, through `FirstPublishLines` (11.2). This part writes none of them. D7 keeps its number because part 01 cites it (its 2.3) |
+| D7 | plan line, a new app for a brought-in app | Publishing to another project space makes a new app there. A copy your team already keeps there stays as it is. |
 | D8 | the drift stop, heading | Or leave CommCare HQ's version as it is |
 | D8b | the drift stop, for an editor | An admin or owner of this Project can also stop publishing here, which leaves CommCare HQ's version as it is. |
 | D9 | the dialog, after stopping | Nova stopped publishing this app to “{domain}”. The app in CommCare HQ stays as it is. |
@@ -3467,35 +3510,38 @@ theirs.
 | D12 | the dialog's compact row | Publishing stopped |
 | | the rest | part 10's `lib/publish/stopPublishing.ts` and its drift sentences |
 
+D2's "yet" is a fact about today, which the first publish ends: it promises nothing.
+
 **MCP and the guide (M, G).** The descriptions are in section 14, in full.
 
 | Id | Where | Text |
 |---|---|---|
 | M1 | `bring_in_hq_app`, `created` | {name} is in Nova. Nothing changed in CommCare HQ. Publishing from Nova updates the app it came from in {domain}. |
-| M2 | `bring_in_hq_app`, `again` | Nova is still bringing in this app's files. Call bring_in_hq_app again with the same arguments. |
-| M3 | `read_hq_app`, the two forms mixed | Send project_id, domain and hq_app_id to start reading an app, or reading_id alone to continue one. This call mixed the two. |
 | M4 | `refresh_managed_data`, both or neither | Send table_id to refresh one lookup table, or app_id to refresh that app's places. This call sent both or neither. |
 | M5 | `list_hq_apps`, no connection | CommCare HQ is not configured. Add your HQ credentials in Settings before listing a project space's apps. |
-| M6 | a starting `read_hq_app`, no connection | CommCare HQ is not configured. Add your HQ credentials in Settings before reading an app. |
+| M6 | `read_hq_app` or `bring_in_hq_app`, no connection | CommCare HQ is not configured. Add your HQ credentials in Settings before reading an app. |
+| M7 | `read_hq_app`, a `page` the app no longer matches | This app changed in CommCare HQ since the last page, so Nova read it again. Here is what Nova found, from the start. |
 | G1 | the guide, `workflows` | the paragraph of 15.1 |
 
 M5 and M6 keep the words of `check_project_space_compatibility`'s own `hq_not_configured` sentence
 (`lib/mcp/tools/checkProjectSpaceCompatibility.ts`: "CommCare HQ is not configured. Add your HQ
 credentials in Settings before checking a project space."), with the act changed, so the three
-tools say one thing. M1 to M6 are exports of `lib/publish/bringInCopy.ts` that B12 adds to the file
-B11 creates, and G1 is B12's in `lib/agent/authoring/reference.ts` ("Files by pull request"). B11
-lands every other id of "Copy".
+tools say one thing. M1 to M7 are exports of `lib/publish/bringInCopy.ts`, and G1 is in
+`lib/agent/authoring/reference.ts`.
 
 **For a developer.**
 
 | Where | Message |
 |---|---|
-| `BringInAccount`, an account with no findings | `[bring-in] account with no findings` at error, with `appId` the reading's id: "The reading ${id} is in state account and holds no finding. An account is written only where a read met one. Look at lib/deployment/reading/gather.ts." |
-| `chosenDeclaration`, answers that match no entry of `review.runsOn` (unreachable from the screen, which sets both answers from one entry) | "The review of reading ${id} offers no way to run that matches the answers held (runsOnlyOn ${runsOnlyOn}, splitDatetime ${splitDatetime}). Answers are taken from one entry of review.runsOn at a time. Look at components/bring-in/bringInModel.ts::reduceBringIn, the answers event." |
+| `BringInAccount`, an account with no findings | `[bring-in] account with no findings` at error: "A read answered an account that holds no finding. An account is answered only where a read met one. Look at lib/deployment/reading/gather.ts::gatherReading." |
+| `chosenDeclaration`, answers that match no entry of `review.runsOn` (unreachable from the screen, which sets both answers from one entry) | "The review offers no way to run that matches the answers held (runsOnlyOn ${runsOnlyOn}, splitDatetime ${splitDatetime}). Answers are taken from one entry of review.runsOn at a time. Look at components/bring-in/bringInModel.ts::reduceBringIn, the answers event, and carryAnswers." |
+| `listHqAppsForPicker`, `getHqCredentials` answering `ambiguous` for a named project space | "listHqAppsForPicker asked for the credentials of one named project space and was told the choice is ambiguous, which a named project space cannot be. Look at lib/db/settings.ts::getHqCredentials." |
 | `BuilderLayout`, a `nova:brought-in` value that is not the three strings it writes | `log.warn("[bring-in] landing marker unreadable")`, the key removed, no toast. A warning and not an error: the value is the browser's to lose, and the Publishing card still says where the app came from |
 | `toMcpErrorResult`, a `BringInToolError` | `log.warn("[mcp] bring-in refused", { userId, errorType, circumstance, refusal })`, as 14.8 says. The message a client reads is the sentence the error carries |
 
-B11 adds no migration, so there is no `down` to word.
+A stored create the tab's key holds that `resumableCreate` does not take (9.1) is logged nowhere:
+text another version of the page wrote is expected, and the page reads the app. This part adds no
+migration, so there is no `down` to word.
 
 ---
 
@@ -3503,164 +3549,165 @@ B11 adds no migration, so there is no `down` to word.
 
 Nothing here is run by this plan. Each test names its boundary and the failure it would catch. No
 test renders a component in jsdom: "UI is f(state)", so the model is tested as data in Vitest and the
-screens in Playwright. Playwright and real-Postgres suites run in the pull request's CI on hosted
-runners, never on the person's laptop.
+screens in Playwright. The Playwright and real-Postgres suites run in the work's own CI, on hosted
+runners.
 
-### Plain Vitest: the model (B11)
+### Plain Vitest: the model
 
 | File | Holds | Would catch |
 |---|---|---|
-| `components/bring-in/__tests__/bringInModel.test.ts` | every row of 3.3's reducer table; `screenOf` over every `ReadingState` through a `satisfies Record<ReadingState, …>` table; `nextAct` for each state with and without `driving`, a call in flight, one failure and two; the driving rule: a `row` from `load` with `stepRunning` false leaves `driving` false with `quietRows` 1, and the next `row` from `poll` with it false sets `driving`, so `nextAct` becomes `advance`; a run of `row` from `poll` events over 5 seconds, each with `stepRunning` true and `phase` null (a step that has named no phase yet), leaves `driving` false and `nextAct` a `poll`; one `row` with `stepRunning` false between two with it true (the moment between two steps of another driver) leaves `driving` false; after rows with `stepRunning` true, two in a row with it false (a killed step, its mark thirty seconds old) set `driving`; a `row` from `poll` that arrives while this tab is driving changes `driving` and `quietRows` not at all | a state part 12 adds with no screen; a second driver for a step that is slow to say what it is doing; a second tab that never takes a stalled reading on; a retry storm after a lost request |
-| the same, a creation as a sequence of events | `create-asked`: `screenOf` is `creating` and `nextAct` is `create` with that input. Then `call` for `create` and `created` with `again`: `screenOf` is `creating` with `call` null and the row still `ready`, and `nextAct` is `create` with the input first sent and `afterMs` 0. Then `failed`: still `creating`, `nextAct` is `create` after 3000. A second `failed`: `creating` with `lost`, `nextAct` is `none`. `retry`: `create` at once, same input. At no step of the sequence is the screen `review` | the review's choices back on screen under a creation in flight; an `again` that is never re-posted because no field remembered it; a lost creation with no way on |
-| the same, the three ends of a landing | `landed` with `unverified`: `screenOf` is `unopened` and `nextAct` is `none`, so no second create can be sent; with `leaving`: `creating` and `none`; with `landed`: `creating` and `none` | Bring it in offered again for an app that exists |
-| the same, the picker | `connection` with one project space chooses it and sets `apps` to `loading`; `nextAct` is then `list-apps` with that project space and the chosen Project; `picker-project` and `picker-reload` return a loaded list to `loading`; a `picker-apps` for another project space or Project is dropped; `connection` that no longer holds the chosen project space clears it; `initialBringInModel` with no Project gives a picker whose `nextAct` is always `none` | a picker with one project space that never lists; a Project change that keeps the other Project's marks; a list for a project space no longer chosen painted over the new one |
-| the same, the person's own calls | `failed` for `start`, `check-again` and `remove` sets `failedCall` and leaves the screen; `removed` makes `nextAct` a `replace` to `/`; `row` from `check-again` zeroes `failures` and sets `driving`; a load that failed is `opening` with `lost` and `nextAct` `none` until `retry` | a load retried forever; a failed Remove worded as a failed check |
-| the same | a poll's row with a lower `revision` than the one held is dropped; `answers` for another digest are dropped | a stale answer painting over a newer screen |
-| the same | `created` with `held` keeps the answers and, for `table-differs-in-project`, sets `needsChoice`; `review-changed` clears them | the person's answers resent against a review that changed |
-| `components/bring-in/__tests__/bringInAccount.test.ts` | `accountGroups` makes one group a key, in first-appearance order, over a list where a form's questions come after another form's findings; folds a run of more than twenty; `accountHeading` is A2 for the three faults and A1 for `too-large`, for `places-over-nova-limit` and for any mix; `accountCounts` and `countLine` singular and plural for each of the three parts and with zero parts left out; `placeGroupKey` gives a form and its questions one key and two menus two; `accountAsText` holds every finding, folded or not, gives a circumstance its `circumstanceNext`, and ends with `ACCOUNT_CHECK_AGAIN_LINE` | a form's heading drawn twice; a finding lost between the row and the screen or the clipboard; "1 things"; "this time" over a limit a retry cannot pass; a copied list that reads as complete |
-| the same | `STOP_ACTIONS satisfies Record<StopCircumstance, …>` (part 01's type), every `StopAction["kind"]` has a label through a `satisfies Record`, and the row of `already-in-nova` answers `open-app` for an `open` claim and none for any other | a circumstance part 01 adds with no way on; Open offered for an app the person cannot open |
+| `components/bring-in/__tests__/bringInModel.test.ts` | every row of 3.3's reducer table; `screenOf` over every `ReadingAnswer["kind"]` through a `satisfies Record` table; `nextAct` at each location, with a call in flight, with one lost request and with two, and after a `failed` line; at an app's address `nextAct` is `none` until `resume` is dispatched, then `read` | an answer kind part 12 adds with no screen; a read sent before the tab's key is looked at; a retry storm after a lost request |
+| the same, a create as a sequence of events | `create-asked`: `screenOf` is `creating` and `nextAct` is `create` with that input. `call`, then `stage` and `files` events: still `creating`, with the stage and the count held. `lost`: still `creating`, and `nextAct` is `create` after 3000 with the input first sent. A second `lost`: `creating` with `lost`, `nextAct` is `none`. `retry`: `create` at once, same input. `failed`: the screen is `failed` with the operation `create`, and `nextAct` is `none` until `retry`, which gives the same create. At no step of the sequence is the screen `review` | the review's choices back on screen under a create in flight; a lost create with no way on; a failed request sent again by the page itself |
+| the same, every `CreateAnswer` | `changed` with a review: the lead is `changed-review` and `answers` are what `carryAnswers` keeps; with an account: the screen is `account` under its lead; with a stop: `stopped`, the lead `changed-stop`, and `changed-already-in-nova` for that code; `read-again`: `carried` holds the answers and their review, `answer` is null, `nextAct` is `read`, and the `read-done` that follows with a review applies `carryAnswers` and keeps the lead; `check-failed`: the account of the one finding, under its lead; `held`: the review with the answers kept and `held` set; each refusal on the review or on the `refused` screen, as 8.10's table has it | the person's answers resent against a review that changed; a lead lost when the read after `read-again` answers; a refusal with no screen |
+| the same, `carryAnswers` | it keeps a name the person had changed and takes the new review's name where they had not; it keeps a declaration still offered and a table answer still offered; it takes the preselected entry, and leaves a tag unanswered, where each is no longer offered, with `dropped` true; its answers carry the new digest | a person asked the same thing twice; an answer kept that the new review does not offer |
+| the same, `resumableCreate` | it answers the input for a stored create of the address's own key written inside the window; null for another app's key, for one written `BRING_IN_RESUME_WINDOW_MS` ago or more, for text that fails `bringInInputSchema`, and for no text | a create started on a page load the person did not ask for; one app's create sent for another |
+| the same, the three ends of a landing | `landed` with `unverified`: `screenOf` is `unopened` with the app's id and `nextAct` is `none`, so no second create can be sent; with `leaving`: `creating` and `none`; with `landed`: `creating` and `none` | Bring it in offered again for an app that exists |
+| the same, the picker | `connection` with one project space chooses it and sets `apps` to `loading`; `nextAct` is then `list-apps` with that project space; `picker-reload` returns a loaded list to `loading`; `picker-project` changes no list; a `picker-apps` for another project space is dropped; `connection` that no longer holds the chosen project space clears it; with no Project, `connection` chooses nothing and `nextAct` stays `none` | a picker with one project space that never lists; a list for a project space no longer chosen painted over the new one |
+| the same | `read-asked` clears what the model held of the app and makes `nextAct` a `read`; a `stage` or `files` event with no call in flight is dropped; `answers` for another digest are dropped; `accountOfOne` counts its one finding under that finding's standing | a stale line painting over a newer screen; a Check again that reads nothing |
+| `components/bring-in/__tests__/bringInAccount.test.ts` | `accountGroups` makes one group a key, in first-appearance order, over a list where a form's questions come after another form's findings; folds a run of more than twenty; `accountHeading` follows part 01's `NOVA_FAULT_CIRCUMSTANCES`: `this-time` for a list of those alone, and `yet` for `too-large` alone, for `places-over-nova-limit` alone and for any mix; `countLine` singular and plural for each of the three parts and with zero parts left out; `placeGroupKey` gives a form and its questions one key and two menus two; a circumstance item whose code's row holds `name: "line"` (part 01, 8.3) draws its `named` line, and one whose row holds none draws no such line; `accountAsText` holds every finding, folded or not, gives a circumstance its body, its name and its next step from `circumstanceBlock`, and ends with `ACCOUNT_CHECK_AGAIN_LINE` | a form's heading drawn twice; a finding lost between the answer and the screen or the clipboard; "1 things"; "this time" over a limit a retry cannot pass; two findings of one code that read alike; a copied list that reads as complete |
+| the same | `STOP_ACTIONS satisfies Record<StopCircumstance, …>` (part 01's type) over the nineteen codes, every `StopAction["kind"]` has a label through a `satisfies Record`, and the row of `already-in-nova` answers `open-app` for an `open` claim and none for any other | a circumstance part 01 adds with no way on; Open offered for an app the person cannot open |
 | `lib/deployment/__tests__/hqPlaceUrl.test.ts` | every `HqPlace["kind"]` through a `satisfies Record`, at index 0 and on each of the three servers | a link to another server's host; `modules-undefined` |
-| `components/bring-in/__tests__/bringInReview.test.ts` | `initialAnswers` takes the preselected choice and HQ's name and answers no table; `unansweredChoices` in tag order; `declarationWhy` for each `runsOnWhy`, both V12 lines and each V13 form, with a feature's label never inside a sentence; `bringInInputOf` trims the name | a default that answers a table for the person; a reason that contradicts the choice |
-| the same, the first-publish list | over a review whose preselected row runs on both platforms and whose other row is Android only with a split, with CommCare HQ's Web Apps on: `firstPublishLines(chosenDeclaration(review, answers).firstPublish, "review")` for the first holds no `web-apps-turned-off` in `workers.lines`; after an `answers` event for the second, `workers.lines` holds `web-apps-turned-off` and `date-and-time-questions-split` and `reassurance` is null; a view with `touchesWorkers` false gives `reassurance` and an empty `workers.lines`; the two surfaces differ only in `lead`. The test holds `chosenDeclaration`, this part's one function in the path; the renderer's own rule is held by part 09's `firstPublishCopy.test.ts` | the preselected row's list shown for the row the person chose; the reassurance over a list that changes what workers see |
-| `lib/routing/__tests__/bringInLocation.test.ts` | `bringInLocation` and `bringInHref` are inverses; any value that is not `choose` or a canonical UUID is `none` | an address that makes the page request a row for arbitrary text |
-| `lib/publish/__tests__/bringInCopy.test.ts` | no export of `bringInCopy.ts` holds an em dash; none holds an ellipsis; no label of a button ends in a period; every string of two or more sentences ends in one. These four are `design/readme.md`'s rules for copy, held over the whole file, and no string's own words are pinned. Part 09's `firstPublishCopy.test.ts` (B7) holds its file | a rule of the voice broken by a later string |
-| `app/(app)/(site)/__tests__/readingRowModel.test.ts` | `readingRow` for every member of `OPEN_READING_STATES` through a `satisfies Record`; the learned line only for an account; the stop's title for a stop | a row with no action; a learned line on a review |
+| `components/bring-in/__tests__/bringInReview.test.ts` | `initialAnswers` takes the preselected choice and HQ's name and answers no table; `unansweredChoices` in tag order; `declarationWhy` for each `runsOnWhy`, both V12 lines and each V13 form, with a feature's label never inside a sentence; `bringInInputOf` carries the address's key, the review's `readingId` and digest, and trims the name | a default that answers a table for the person; a reason that contradicts the choice; a create sent for another app than the one on screen |
+| the same, the first-publish list | over a review whose preselected row runs on both platforms and whose other row is Android only with a split, with CommCare HQ's Web Apps on: `firstPublishLines(chosenDeclaration(review, answers).firstPublish, "review")` for the first holds no line of `web-apps-turned-off` in `workers.lines`; after an `answers` event for the second, `workers.lines` holds the lines of `web-apps-turned-off` and `date-and-time-questions-split` and `reassurance` is null; a view with `touchesWorkers` false gives `reassurance` and an empty `workers.lines`; the two surfaces differ only in `lead`. The test finds a line by its `id` and never counts ids, since a list can hold fewer lines than its view has ids (part 09, 12.2). It holds `chosenDeclaration`, this part's one function in the path; the renderer's own rule is held by part 09's `firstPublishCopy.test.ts` | the preselected row's list shown for the row the person chose; the reassurance over a list that changes what workers see |
+| `lib/routing/__tests__/bringInLocation.test.ts` | `bringInLocation` and `bringInHref` are inverses over `none`, `choose` and an app's key; an `hq=app` with a value missing, a server that is none of the three, or an app id outside its pattern is `none`; any other `hq` value is `none` | an address that makes the page post a read for arbitrary text |
+| `lib/publish/__tests__/bringInCopy.test.ts` | no export of `bringInCopy.ts` holds an em dash; none holds an ellipsis; no label of a button ends in a period; every string of two or more sentences ends in one. These four are `design/readme.md`'s rules for copy, held over the whole file, and no string's own words are pinned. Part 09's `firstPublishCopy.test.ts` holds its file | a rule of the voice broken by a later string |
 | `components/builder/app-setup/__tests__/publishingSectionModel.test.ts` (extended) | `broughtInOf`; `cardKind` is `ended` for a deployment whose state moved to `preflight` after an ending and before a new app; `broughtInElsewhere`; the compact row of an ended deployment | an ended card that returns to a ladder on a refused publish (part 10's 8.1 case) |
 | `components/builder/__tests__/publishOutcome.test.ts` (extended) | `publishPlanCopy`, now an export of `publishOutcome.ts` (11.2): `creates-beside` whatever the context; `creates` with `broughtInElsewhere` true is D7 and false is today's sentence; `updates`, `fills-shell` and `unknown` unchanged by the context | a second project space told "updates"; the move from the dialog changing one of the three strings |
-### Real Postgres (B11)
+
+### Real Postgres
 
 | File | Holds | Would catch |
 |---|---|---|
-| `lib/deployment/reading/__tests__/picker.postgres.test.ts` | `listHqAppsForPicker` over part 05's retained answers served through `MockAgent`: free apps in HQ's order; an `open` claim; an `elsewhere` claim whose JSON holds neither the holding Project's name nor the Nova app's; the caller's own open reading marked only in its Project; no connection; a project space the key does not reach; a plan with no API access; and that no table's row count changes | a claim view that leaks another Project; the probe run beside the list; a read that writes |
+| `lib/deployment/reading/__tests__/picker.postgres.test.ts` | `listHqAppsForPicker` over part 05's retained answers served through `MockAgent`: free apps in HQ's order; an `open` claim; an `elsewhere` claim whose JSON holds neither the holding Project's name nor the Nova app's; no connection; a project space the stored key does not list, which answers `key-cannot-reach-space` with no request sent to the HQ peer; a membership CommCare HQ refuses, which answers `not-a-member`; a plan with no API access; and that no table's row count changes | a claim view that leaks another Project; a key's limit worded as CommCare HQ's refusal; the probe run beside the list; a read that writes |
 | `app/api/commcare/connection/__tests__/route.postgres.test.ts` | with a real `user_settings` row: the body is `getCommCareSettings`' answer for the session's user, and `connection` holds exactly the keys of `CommCareSettingsPublic` (`configured`, `username`, `server`, `availableDomains`), so nothing of the stored key; a second user's row is never the answer; a user with no row answers `{ connection: { configured: false } }`; 401 without a session | another user's connection returned; a credential on the wire |
 
 Where the first-publish list is stored, when it ends and what `DeploymentView.firstPublish` answers
-are part 09's and are held by its `firstPublishBaseline.postgres.test.ts` (B7) and by the CHECK's
-case in part 10's `hqBringInLedger.postgres.test.ts` (B8). B11 adds no test of storage, because it
-adds no storage.
+are part 09's and part 10's, held by their own tests (part 09, "Tests"). This part adds no test of
+storage, because it adds no storage.
 
-### Routes with no database (B11)
+### Routes with no database
 
 | File | Holds | Would catch |
 |---|---|---|
 | `app/api/commcare/hq-apps/__tests__/route.test.ts` (a mocked service) | 401 without a session; 400 for a bad `domain`; a stop is 200; `isPathAllowedOnHost` admits `/api/commcare/hq-apps` and `/api/commcare/connection` on the main host and refuses both on the MCP and docs hosts | the deploy-time 404 the root `CLAUDE.md` warns of |
 
-### Playwright, browser peers (B11)
+### Playwright, browser peers
 
 `e2e/tests/browser/bring-in.spec.ts`, with the peer `e2e/lib/bring-in-client.tsx`, which mounts
 `BringInFlow` inside the production `CommCareConnectionProvider` (given the `settings` the test
 sets) with a `landCreatedAppReceipt` that records its calls and a seed of two Projects, one of them
 `personal`. Every Nova route is answered from `page.route` with typed bodies built from the
-production types (`ReadingView`, `HqAppPicker`, `CreateResult`, `CommCareSettingsPublic`), as
-`publishing.spec.ts` builds `PublishResponseBody`. A route a journey takes away again mid-test (a
-`…/create` whose answer changes between two posts here, and the one held open and then answered in
-the app journeys below) is added through `e2e/lib/routes.ts::removableRoutes` and removed with its
-`removeAll`, as `e2e/CLAUDE.md` requires of every route a test removes ("A route a test removes
-goes through `e2e/lib/routes.ts`"). The file is used and not changed.
+production types (`HqAppPicker`, `ReadingEvent`, `ReadingAnswer`, `CreateAnswer`,
+`CommCareSettingsPublic`), as `publishing.spec.ts` builds `PublishResponseBody`; the read and the
+create are answered as NDJSON bodies, one `ReadingEvent` a line. A route a journey holds open and
+answers later, or answers differently on a second post, is added through
+`e2e/lib/routes.ts::removableRoutes` and removed with its `removeAll`, as `e2e/CLAUDE.md` requires
+of every route a test removes ("A route a test removes goes through `e2e/lib/routes.ts`"). The file
+is used and not changed.
 
 | Journey | Asserts |
 |---|---|
-| choosing | no connection shows the aside; Check connection requests `/api/commcare/connection`, brings the fields back with focus on Project space, and leaves the address at `?hq=choose`; a connection the route could not answer shows K22 and the button again; one project space lists its apps with no choice asked; a chosen project space lists apps; an `open` row has Open and cannot be chosen; an `elsewhere` row reads its line and cannot be chosen; arrow keys move through the rows; the filter narrows; the personal Project reads "Only you can open it"; Read this app posts exactly `{ projectId, server, domain, remoteAppId }` and the address becomes `?hq=<id>`; a seed with no Project shows the `no_project_access` sentence and no fields |
-| reading | the step's label follows the polled row; the reassurance appears after twenty seconds (`page.clock`); two failed advances show Carry on, which posts again; a reading whose Project is not the tab's names that Project in W4b |
-| a stop | for one code of each row of `STOP_ACTIONS`, the title has focus and exactly those actions are offered; Check again posts |
-| the account | each heading once, in the app's order; each label as text; a form group's link ends `modules-0/forms-1/`; a folded run opens; `ACCOUNT_CHECK_AGAIN_LINE` shows under the groups; a `no-platform-runs-everything` finding whose `detail.reason` is `split-refused` reads the second next step; Copy the list puts the whole text on the clipboard, the line included, and with the permission denied the text is selectable on screen |
-| the review | no checkbox exists on the screen; the preselected choice is checked; choosing another choice changes the Web Apps line, the recorded-features line and the list under "What the first publish changes", which gains "Web Apps is turned off for this app" and loses `FIRST_PUBLISH_NO_WORKER_CHANGE` ("Workers see the same questions, and their answers save to the same places."), and keeps `FIRST_PUBLISH_FORM_BUILDER_NOTE` as its last line; a platform the app can't run on shows its features as list items; Bring it in with a table unanswered sends no request, focuses that group and shows V16; a table with neither answer offered shows V17 and not R11; with every choice answered, posts exactly the `BringInInput`; a `held` answer shows the block and focuses the group; a `review-changed` answer shows its lead and Nova's choices again; an empty name focuses the field with its error |
-| creating | from the press on, no radio of the review is on screen; `again` re-posts the same body, and between the two posts the screen is still "Creating your app"; `created` calls the landing once with the receipt; a lost request retries once after three seconds (`page.clock`) with the same body and then offers Try again, which posts it again; a landing that answers `unverified` shows part 12's `UNVERIFIED_LANDING_TITLE` with Open your app, and no Bring it in; while the polled phase is `publishing-media` and no answer has come, the step reads "Adding pictures and sounds to your Project" with no count, and on `creating` no step line shows under X1 |
+| choosing | no connection shows the aside; Check connection requests `/api/commcare/connection`, brings the fields back with focus on Project space, and leaves the address at `?hq=choose`; a connection the route could not answer shows K22 and the button again; one project space lists its apps with no choice asked; a chosen project space lists apps; an `open` row has Open and cannot be chosen; an `elsewhere` row reads its line and cannot be chosen; arrow keys move through the rows; the filter narrows; the personal Project reads "Only you can open it"; Read this app puts the app's four values in the address and posts the read with exactly `{ projectId, server, domain, remoteAppId }`; Back returns to the picker with its list; a seed with no Project shows the `no_project_access` sentence and no fields |
+| reading | the stage's label follows the stream's lines and the count moves; the reassurance appears after twenty seconds (`page.clock`); a response with no last line is read again once after three seconds, and a second shows W6 with Try again, which posts again; a `failed` line shows the read's failed screen and nothing more is posted until Try again; a 403 with `no_project_access` shows its sentence with Choose another Project |
+| a stop | for one code of each row of `STOP_ACTIONS`, the title has focus and exactly those actions are offered; S1 shows under each but `already-in-nova`; Check again posts a read |
+| the account | each heading once, in the app's order; each label as text; a form group's link ends `modules-0/forms-1/`; a folded run opens; a circumstance with a name of its own shows "In CommCare HQ:" and the name; `ACCOUNT_CHECK_AGAIN_LINE` shows under the groups; a `no-platform-runs-everything` finding whose `detail.reason` is `split-refused` reads the next step about the date and time question; Copy the list puts the whole text on the clipboard, the line included, and with the permission denied the text is selectable on screen; Check again posts a read |
+| the review | no checkbox exists on the screen; the preselected choice is checked; choosing another choice changes the Web Apps line, the recorded-features line and the list under "What the first publish changes", which gains "Web Apps is turned off for this app" and loses `FIRST_PUBLISH_NO_WORKER_CHANGE`, and keeps `FIRST_PUBLISH_FORM_BUILDER_NOTE` as its last line; a platform the app can't run on shows its features as list items; Bring it in with a table unanswered sends no request, focuses that group and shows V16; a table with neither answer offered shows V17 and not R11; with every choice answered, posts exactly the `BringInInput`, the address's key and the review's `readingId` and digest in it; an empty name focuses the field with its error |
+| a create's answers | `held` shows the block above the review and keeps every answer; `changed` with a review shows its lead, keeps the name the person typed and the choice that is still offered, and says so where one was dropped; `changed` with a stop of `already-in-nova` shows its own lead, Open, and no S1; `read-again` shows the reading screen under its lead and then the review with the answers kept; `check-failed` shows the account under heading A2 with "No app was created" |
+| creating | from the press on, no radio of the review is on screen; the count reads "Checking pictures and sounds" and then "Bringing in pictures and sounds", and on `creating` no stage line shows under X1; `created` calls the landing once with the receipt; a lost response retries once after three seconds (`page.clock`) with the same body and then offers Try again, which posts it again; a `failed` line shows the create's failed screen, and Try again posts the same body; a landing that answers `unverified` shows part 12's `UNVERIFIED_LANDING_TITLE` with Open your app, and no Bring it in |
+| a reload during a create | with the create held open, a reload shows the creating screen and posts the same body again, with no read between; `sessionStorage` holds `nova:bring-in-create` until the answer and not after it; with a key written for another app, and with one older than an hour (`page.clock`), the page removes the key and posts a read |
 | narrow | at 360px wide the footer's buttons stack at 44px, the middle scrolls, and the document does not scroll sideways |
 
 `e2e/tests/browser/publishing.spec.ts` (extended): a brought-in record shows D1 and D2; Stop
 publishing here is present for a role with `delete` and absent for an editor; its dialog calls the
 action once and the card becomes the ended card with its link; the review step shows "What the
 first publish changes" with its lines, workers' first, for a record with `firstPublish` and no such
-section without; an `hq_changed` refusal that names the app shows D8 for an admin and D8b for an
-editor; the plan line reads D7 for a second project space of a brought-in app; and the dialog's
-Check connection requests `/api/commcare/connection`, shows the upload form when it answers a
-connection, and makes no document or RSC request.
+section without; an `hq_changed` refusal that names the app with `canBringIn` false shows D8 for an
+admin and D8b for an editor, and one with `canBringIn` true shows part 15's panel and no tick (its
+`hq-changes.spec.ts`); the plan line reads D7 for a second project space of a brought-in app; and
+the dialog's Check connection requests `/api/commcare/connection`, shows the upload form when it
+answers a connection, and makes no document or RSC request.
 
-### Playwright, app journeys (B11)
+### Playwright, app journeys
 
 `e2e/tests/app/bring-in.spec.ts`, profile `@seed:bring-in`: the name joins
 `e2e/lib/smokeProfiles.ts::SMOKE_PROFILES`, and its builder, written in `e2e/lib/bringInSeed.ts`, is
 registered under that name in `e2e/lib/smokeSeedFactory.ts`, as `"deep-links"` is. It seeds an owner
-with Projects A (active) and B and a CommCare connection; in A, one reading in `ready`, one in
-`account` and one in `reading` with no phase and no step's mark, written through part 12's own store
-functions over fixture outcomes; one brought-in app in A and one in B, each made by part 12's birth
-over its fixture (no CommCare HQ is read: the birth takes prepared inputs), with each app's receipt
-(`adoptedAppReceipt`) in the typed scenario data; a third Project C of the owner's that holds
-nothing; an editor of A; and a third person who views A and edits B. `…/advance`, `…/create` and
-`/api/commcare/hq-apps` are answered from `page.route`, since each would read CommCare HQ. Every
-other request reaches the production server: starting a reading, loading one, checking again and
-removing make no request to CommCare HQ (part 12, 3.5 and 4.1), and `/api/commcare/connection` reads
-Nova's own row.
+with Projects A (active) and B and a CommCare connection; one brought-in app in A and one in B, each
+made by part 12's birth over the fixture its own birth tests export (no CommCare HQ is read: the
+birth takes prepared inputs), with each app's receipt in the typed scenario data; a third Project C
+of the owner's that holds nothing; an editor of A; and a third person who views A and edits B. It
+plants no reading, because there is none to plant. `/api/commcare/bring-in/read`,
+`/api/commcare/bring-in/create` and `/api/commcare/hq-apps` are answered from `page.route`, since
+each would read CommCare HQ. Every other request reaches the production server, and
+`/api/commcare/connection` reads Nova's own row.
 
 | Journey | Asserts |
 |---|---|
-| the home list | "Coming in from CommCare HQ" holds the three rows with their actions, the `reading` row as "Paused"; a Project whose only content is a reading does not show "No apps yet" |
-| Back to the home list | from the home list, open the `account` row, choose Check again (the real route moves the row to `reading`), then press Back: the home list, served from the router's cache, refreshes itself and the row reads as a reading in progress, not as the account it was; with Project C active, from its empty home, start a reading and press Back: the home shows "Coming in from CommCare HQ" and not the empty state. This is what would catch a home that still shows what a reading was before the flow changed it |
 | the three entries | each reaches `/build/new?hq=choose`; from the button under the chat box, Back returns to the composer with no page load |
 | the address survives a connection check | from the composer, choose the second button (the address becomes `?hq=choose` through the History API), then Check connection: the address is still `/build/new?hq=choose` and the picker is still on screen. This is what would catch a refresh that hands the address back to Next and drops the person on the composer |
 | a viewer who edits elsewhere | as the third person, with A active, `/build/new?hq=choose` shows the picker with B under "Add it to", and the home shows no entry button |
-| a reload | `/build/new?hq=<ready id>` shows the review from the real row; a reload shows it again; `/build/new?hq=nonsense` shows the composer |
-| retry after a reload | `/build/new?hq=<the reading row's id>`, opened by address: after its load and one poll that both find no step running (`stepRunning` false), the page posts `…/advance` once. With the row answered as `stepRunning` true by `page.route`, the page posts nothing and shows the step; once the route has answered false twice it posts once. And during a creation whose `…/create` is held open, a reload shows the review again from the real row (still `ready`), with nothing created; with `…/create` then answered by the seeded receipt, Bring it in lands. This is what would catch a reading nobody drives, and a reload mid-creation that strands the person on a spinner |
-| landing in the tab's Project | Bring it in, with `…/create` answered by A's seeded receipt: the address becomes `/build/<id>` with no document load (a marker set on `window` before the click is still there), the builder is open on the app's own menus, the toast reads T1, and See what came in opens Publishing with D1 |
+| an address | an app's address, opened by typing it, posts one read and shows the review the route answers; a reload posts the read again and shows it again; `/build/new?hq=nonsense`, and an app's address with one value missing, show the composer and post nothing |
+| landing in the tab's Project | Bring it in, with the create answered by A's seeded receipt: the address becomes `/build/<id>` with no document load (a marker set on `window` before the click is still there), the builder is open on the app's own menus, the toast reads T1, and See what came in opens Publishing with D1 |
 | landing in a second Project | the same with B's receipt: the page loads `/build/<id>`, the builder is open, T1 shows once, no "Reload" toast appears, and `sessionStorage` no longer holds `nova:brought-in`. In the first landing journey the key is never written, and T1 shows once |
-| Remove | a row's Remove, confirmed, takes the row off the list across a reload |
+| a reload while a create is held open | Bring it in with the create held open, then a reload: the creating screen shows. The create is then answered with A's seeded receipt: the builder opens, and the home list holds that app once |
+| Back to a home that was empty | with Project C active, from its empty home, start a blank app, which lands with no model call, and press Back: the home shows the app and not "Build your first app". This is what would catch an empty state the router's cache serves after a birth |
 | stopping | as the owner, Stop publishing here on the brought-in app's card gives the ended card; as the editor the button is absent |
 
-In the two landing journeys the receipt names the seeded app, whose id is not the reading on screen.
-In production a reading's id is its app's id, which part 12's real-Postgres tests hold; what these
-journeys prove is the landing itself, on the real builder.
+In the landing journeys the receipt names a seeded app, whose id is not the one the reading on
+screen would derive. In production a brought-in app's id is derived from the reading's id, which
+part 12's real-Postgres tests hold; what these journeys prove is the landing itself, on the real
+builder.
 
-### MCP (B12)
+### MCP
 
 | File | Holds | Would catch |
 |---|---|---|
-| `lib/mcp/__tests__/servedSchemas.test.ts` (extended), "serves bring_in_hq_app with every answer required and no default" | `required` is all six properties; `additionalProperties` is false; `runs_only_on` admits `null`, `"web-apps"` and `"android"` and nothing else; `review_digest` admits 64 lower-case hex and refuses upper case; no schema position holds a `default` | an optional answer an agent can leave for Nova to choose |
-| the same, "serves read_hq_app as one closed object of six optional fields" | the property set; `action`'s three members; `additionalProperties` false | a start field renamed without the description |
-| the same, "serves the four other bring-in tools as closed objects" | the property sets of `list_hq_apps`, `stop_publishing`, `refresh_managed_data` and `set_lookup_table_management`, the last two as part 11's table has them, and `additionalProperties` false on each of the four, which holds only because all four are `z.strictObject` (14.5) | an input drifting from the two parts' tables; a tool served open because it was written `z.object` |
-| the same, "tells a client an agent never chooses for the user" | `bring_in_hq_app`'s description contains "never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them"; `read_hq_app`'s contains "never choose it for them"; `set_lookup_table_management`'s contains "Never decide this for the user." These three phrases are the contract a client is served: they are how the plan's rule that `bring_in_hq_app` never chooses for the person (14.4; `../6-bring-in.md`, "Work items", B12) reaches an agent, which is the exception `docs/testing.md` makes for a pinned string | the rule softened in an edit |
-| the same, "names first_publish, the ending and publishing_stopped where a client reads them" | each of the keys `first_publish`, `check_again`, `brought_in`, `ending` and the tag `publishing_stopped` is named in the description of a tool that returns it (14.3, 14.7), and the three tools that name `first_publish` (`read_hq_app`, `bring_in_hq_app`, `check_project_space_compatibility`) each say to relay `workers.lines` first, then `hq_only.lines`, then `reassurance` where it is not null, then `note` | a projection key no description explains; an agent told to read a key that is no longer served |
-| `lib/mcp/__tests__/readingProjection.test.ts` | `describeReading` for each state; every sentence equals the copy export the screen uses; a stop's `next` and a circumstance finding's `next` equal `circumstanceNext(finding)`, for `already-in-nova` and for a `split-refused` `no-platform-runs-everything` among them; an account holds `check_again` equal to `ACCOUNT_CHECK_AGAIN_LINE` on every page; each `runs_on` entry's `first_publish` equals `firstPublishLines(choice.firstPublish, "review")` with its keys in snake case, so two entries that differ in declaration differ in list, the review holds no list of its own, and no `touches_workers` key is served; `cannot_run` holds a feature's label as an item and never inside `sentence`; with 2,000 findings whose names and places are at their longest, each page's JSON is under 80,000 characters and the pages together hold every finding once; `mapReadingRefusal` is total through its `satisfies Record<ReadingRefusal, …>` table | an answer the client truncates in silence; MCP and the screen saying different things; an agent relaying the proposed row's list for the row the user chose |
+| `lib/mcp/__tests__/servedSchemas.test.ts` (extended), "serves bring_in_hq_app with every answer required and no default" | `required` is all nine properties; `additionalProperties` is false; `runs_only_on` admits `null`, `"web-apps"` and `"android"` and nothing else; `review_digest` admits 64 lower-case hex and refuses upper case; `reading_id` admits a UUIDv7 and refuses a UUIDv4; no schema position holds a `default` | an optional answer an agent can leave for Nova to choose |
+| the same, "serves read_hq_app as one closed object" | `required` is `project_id`, `domain` and `hq_app_id`; `page` is the one optional property, with its pattern; `additionalProperties` false | a continuation field left over from a flow that had steps; a key field renamed without the description |
+| the same, "serves the four other bring-in tools as closed objects" | the property sets of `list_hq_apps` (`domain` alone), `stop_publishing`, `refresh_managed_data` and `set_lookup_table_management`, the last two as part 11's table has them, and `additionalProperties` false on each of the four, which holds only because all four are `z.strictObject` (14.5) | an input drifting from the two parts' tables; a tool served open because it was written `z.object` |
+| the same, "tells a client an agent never chooses for the user" | `bring_in_hq_app`'s description contains "never choose the name, where the app runs, the date-and-time split or a lookup table's answer for them"; `read_hq_app`'s contains "never choose it for them"; `set_lookup_table_management`'s contains "Never decide this for the user." These three phrases are the contract a client is served: they are how the rule that `bring_in_hq_app` never chooses for the person (14.4) reaches an agent, which is the exception `docs/testing.md` makes for a pinned string | the rule softened in an edit |
+| the same, "names each key where a client reads it" | each of the keys `first_publish`, `check_again`, `next_page`, `restarted`, `brought_in`, `ending` and the tag `publishing_stopped` is named in the description of a tool that returns it (14.3, 14.4, 14.7), and the three tools that name `first_publish` (`read_hq_app`, `bring_in_hq_app`, `check_project_space_compatibility`) each say to relay `workers.lines` first, then `hq_only.lines`, then `reassurance` where it is not null, then `note` | a projection key no description explains; an agent told to read a key that is no longer served |
+| `lib/mcp/__tests__/readingProjection.test.ts` | `describeReading` for each of the three answer kinds; every sentence equals the copy export the screen uses; a stop's and a circumstance finding's `title` and `next` equal `circumstanceBlock`'s with the UTC day, for `already-in-nova` and for a `split-refused` `no-platform-runs-everything` among them; a circumstance whose row holds `name: "line"` carries `named`; an account holds `check_again` equal to `ACCOUNT_CHECK_AGAIN_LINE` on every page; each `runs_on` entry's `first_publish` equals `firstPublishLines(choice.firstPublish, "review")` with its keys in snake case, so two entries that differ in declaration differ in list, the review holds no list of its own, and no `touches_workers` key is served; `cannot_run` holds a feature's label as an item and never inside `sentence`; with 2,000 findings whose names and places are at their longest, each page's JSON is under 80,000 characters and following `next_page` to its end gives every finding once; a `page` whose digest is another account's gives the fresh account from its start with `restarted` true and M7; a `page` against a read that is now a review gives the review with `restarted` true; `mapReadingRefusal` is total through its `satisfies Record<ReadingRefusal, …>` table | an answer the client truncates in silence; two versions of an app stitched into one list; MCP and the screen saying different things; an agent relaying the proposed row's list for the row the user chose |
 | `lib/mcp/__tests__/errors.test.ts` (extended) | `toMcpErrorResult(new BringInToolError("hq_read_stopped", body, { circumstance, title, next }))` carries the three fields beside `message`; one with `refusal` and `projectId` carries `refusal` and `project_id`; fields the error does not hold are absent keys, not nulls | a stop that reaches a client as a bare message, with no next step |
-| `lib/mcp/__tests__/bringInToolScopes.test.ts` (no database) | through `withMcpClient` with a token that lacks the tool's scope: each of the six answers `scope_missing` with its `required_scope`, and the service functions, mocked at the module boundary, are never called | a scope hole; a missing-scope credential learning whether a reading exists |
-| `lib/mcp/__tests__/bringInTools.postgres.test.ts` | through `withMcpClient`, over real Postgres and part 05's retained answers served by `MockAgent`: `read_hq_app` from start to `ready` across calls; the two forms mixed is `invalid_input` with M3; `remove`; `bring_in_hq_app` answers `created` twice with one app, and its `url` is `AS_ORIGIN` then `/build/` then the app's id; a table left out is `held` with the tag; a changed review is `review_changed`; each `ReadingRefusal` a call can produce arrives with the `error_type` and `refusal` of 14.8's table; a stop at `list_hq_apps` is `hq_read_stopped` with `circumstance`, `title` and `next`; both kinds of `not-a-member` there are `domain_not_authorized`, each with its own message | a retry that makes a second app; a refusal with no bucket |
+| `lib/mcp/__tests__/bringInToolScopes.test.ts` (no database) | through `withMcpClient` with a token that lacks the tool's scope: each of the six answers `scope_missing` with its `required_scope`, and the service functions, mocked at the module boundary, are never called | a scope hole; a missing-scope credential learning whether an app exists |
+| `lib/mcp/__tests__/bringInTools.postgres.test.ts` | through `withMcpClient`, over real Postgres and part 05's retained answers served by `MockAgent`: `read_hq_app` answers a review with its `reading_id` in one call; with the HQ peer held open and a progress token, a notification arrives for each stage, and with no token none does; a call the client cancels aborts the HQ requests in flight; `bring_in_hq_app` answers `created`, and sent again with the same arguments answers the same `app_id`, and its `url` is `AS_ORIGIN` then `/build/` then the app's id; a table left out is `invalid_input` with `refusal: "choice_missing"`; a source that changed after the read is `changed` with `reading`; a birth whose own check is made to refuse is `check_failed` with the one finding in `reading`; each `ReadingRefusal` a call can produce arrives with the `error_type` and `refusal` of 14.8's table; a stop at `list_hq_apps` is `hq_read_stopped` with `circumstance`, `title` and `next`; `key-cannot-reach-space` and `not-a-member` there are both `domain_not_authorized`, each with its own message | a retry that makes a second app; a client that times out on an app with many files; a refusal with no bucket |
 | `lib/mcp/__tests__/compatibility.postgres.test.ts` (extended) | `first_publish` is null for a Nova-made app and for a brought-in app after its first publish; before it, it equals `firstPublishLines(view, "publish")` in snake case for the declaration the app was created with, for an app whose chosen declaration was not the preselected one; and after `runsOnlyOn` is changed in the document, its two Web Apps lines follow the document (part 09, 12.3) | the list arriving after the fact; the preselected row's list told for an app created with another; a stored Web Apps line told for an app that no longer runs that way |
 | `lib/mcp/__tests__/deploymentTools.postgres.test.ts` (extended) | `brought_in` and `ending` on `get_deployment`; `stop_publishing` as an editor is `permission_denied` with part 10's sentence, and as an owner returns the ended deployment | a member told "not found" for something they can see |
 
-No test of this part holds the tools' budget to the request's cap: part 12's `budget.test.ts` holds
-`HQ_READING_STEP_SECONDS + HQ_READING_ROUTE_MARGIN_SECONDS` equal to `MCP_MAX_DURATION_SECONDS`
-(14.1). No test holds the guide's paragraph (15.1).
+No test holds the guide's paragraph (15.1).
 
 ---
 
 ## Contracts and docs these changes make false
 
-| Where | Today | From step 6 | Pull request |
-|---|---|---|---|
-| `components/builder/CLAUDE.md`, "Creation never navigates" | part 12's sentence, as B10 leaves it beneath this pull request (its "Contracts"): "Every way a receipt reaches the client (the design build's `data-app-materialized` frame, the blank-app Server Action's return value, and the bring-in's create route) hands it the SAME receipt", with part 12's paragraph on the `adoption` key and the one landing that loads a page after it. B11 changes neither | adds only, after part 12's paragraph: "The flow that brings an app in is a state of `/build/new` (`components/bring-in`), inside `ChatContainer`'s tree, so its app lands through the same installer." | B11 |
-| `components/CLAUDE.md`, "Build recovery is URL-backed" | names `/build/new?design=<id>` alone | gains: "A bring-in is URL-backed the same way: `/build/new?hq=choose` is the picker and `/build/new?hq=<reading id>` a reading, whose id is the app's. The flow reads the `hq` value through `useBuilderSearchFrom`, seeded by the server so the first paint agrees." | B11 |
-| `components/CLAUDE.md`, "Primitives come from `components/shadcn`" | the list of primitives has no radio group | the list gains "radio-group (`RadioGroup`, rows wearing `selectableRowCls`; an item that cannot be chosen stays focusable and says why)" | B11 |
-| `components/builder/CLAUDE.md`, "Publishing" | "`RemoteChangeChoice` stands beside `ResourceConflictChoice` … it lists every change made in CommCare HQ since Nova's last push and offers to discard them" | gains: "Where the app itself changed, an admin or owner is also offered Stop publishing here (`StopPublishingDialog`), and an editor is told who can. For an app brought in and not yet published, the review step states what the first publish changes (`FirstPublishLines`), from `DeploymentView.firstPublish`." | B11 |
-| `components/builder/CLAUDE.md`, "App setup, Publishing" | "renders one full `DeploymentStatus` card per project space the app has reached" | gains: "A card says where a brought-in app came from, offers Stop publishing here to a member who may delete, and draws an ended deployment from `deploymentEnding`, never from the state: no ladder, no Check status, no Workers panel." | B11 |
-| `components/builder/PublishDialogBody.tsx`, the comment over `RemoteChangeChoice` | "What changed in CommCare HQ since Nova last published there, and the only thing that lets the publish write over it." | "What changed in CommCare HQ since Nova last published there or brought the app in, and what lets the publish write over it. Stop publishing here stands beside it." | B11 |
-| `components/chat/StartFromScratch.tsx`, its header comment | "the "skip the SA, build it yourself" affordance" | "the two ways to start without describing an app: a blank app, and an app brought in from CommCare HQ" | B11 |
-| `app/(app)/(site)/page.tsx`, the comment on branch 2 | "Authenticated, no apps or active designs → role-aware empty state" | "Authenticated, no apps, no active designs and no app coming in from CommCare HQ → role-aware empty state" | B11 |
-| `lib/routing/CLAUDE.md` | no word of `/build/new`'s query | gains: "`/build/new` carries two query states, each seeded by the server for the first paint: `design` and `hq` (`bringInLocation.ts`)." | B11 |
-| `e2e/CLAUDE.md` | its list of profiles and peers | gains the `@seed:bring-in` profile and the `bring-in` peer, and the sentence "No test reaches a CommCare HQ: a bring-in journey answers the routes that would from `page.route`, and seeds its readings and brought-in apps through the production store and birth." | B11 |
-| `lib/mcp/tools/deploymentTools.ts`, its header | "`nova.get_deployment` and `nova.refresh_deployment`: the read and re-check operations around `upload_app_to_hq`." | unchanged; the same reason is cited by the six new tools' headers | B12 |
-| `lib/mcp/errors.ts`, the comment on `McpErrorType` | "Spans five independent failure sources", over a list that already names six (`not_found`, `invalid_input`, `scope_missing`, `permission_denied`, `UploadErrorType`, `AgentErrorType`) | "Spans seven independent failure sources", with a seventh bullet: "`BringInErrorType`: a read of CommCare HQ that stopped before there was a reading to hold it (`hq_read_stopped`, with the circumstance's code, title and next step), and a creation Nova refused for a reason that is neither input, access nor absence (`bring_in_refused`, with the refusal). Surfaces via `BringInToolError`." | B12 |
-| `app/api/mcp/dispatch.ts`, the comment on `MCP_MAX_DURATION_SECONDS` | "Next requires that export to be a numeric literal, so the two are kept in sync by hand and the route's docblock points back here." | gains: "The tools that advance a reading of a CommCare HQ app give their step `lib/deployment/reading/budget.ts::HQ_READING_STEP_SECONDS`, 30 seconds less than this cap, because the cap is measured from the request's start and a step starts after the caller is checked." | B12 |
-| `components/builder/CommCareConnectionContext.tsx`, its header | "The value is memoized against the settings object (RSC-stable across renders), so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity per page load rather than a fresh array per render." | "The value is memoized against the settings object and the last answer of `refresh`, so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity until a refresh answers. `refresh` reads `GET /api/commcare/connection` and never calls the Next router: on a page whose address the History API wrote, a router refresh would write Next's own address back." | B11 |
-| `lib/ui/appListFreshness.ts`, its header and the comment on `markAppListStale` | "Both ways an app is born now install it in place rather than navigating…" and "Called the moment an app is installed in place." | the header gains: "The flow that brings an app in from CommCare HQ marks it too, whenever a reading it holds is started, checked again or changes state, since the list shows those rows." The comment becomes "Called the moment an app is installed in place, or a reading on the list changes." | B11 |
-| `app/(app)/(site)/RefreshStaleAppList.tsx`, its header | "Refetches the app list once, when the user arrives on a list that was rendered before an app they have since created." | "…before an app they have since created, or before a change to an app they are bringing in. The empty state mounts it too, since a reading can be the first thing a Project holds." | B11 |
-| `components/builder/CLAUDE.md`, "Creation never navigates" (second paragraph) | "…the router re-render carrying the revalidation restores Next's own canonical URL, undoing the promotion." | gains: "The same holds for `router.refresh()`, which is why Check connection reads `GET /api/commcare/connection` through `CommCareConnectionContext`'s `refresh` and not through the router." | B11 |
-| `lib/deployment/CLAUDE.md`, "Surfaces" | names the deployment tools MCP serves | gains `list_hq_apps`, `read_hq_app`, `bring_in_hq_app` and `stop_publishing`, and "none is given to the Solutions Architect" | B12 |
-| `lib/agent/authoring/CLAUDE.md` | no word of a brought-in app | gains: "The guide says one thing about an app brought in from CommCare HQ: it is an ordinary app. It gives no instruction to bring one in." | B12 |
-| root `CLAUDE.md`, the map's builder UI entry | lists `components/builder` and its libraries | gains "`components/bring-in` (the flow that brings an app in from CommCare HQ, a state of `/build/new`)" | B14 |
-| root `CLAUDE.md`, the first paragraph | "The user then refines it by chatting or by editing directly in a visual builder" | unchanged. The sentence before it, "Nova turns a natural-language conversation into a working CommCare app", gains after it: "An app that already lives in CommCare HQ can be brought in and carried on from there." | B14 |
-| `design/readme.md` | no "Bringing in"; no radio group contract | section 17.4 | B11 |
-| public docs | section 17 | section 17 | B14 |
-| `../nova-plugin` | section 16 | section 16 | the plugin's pull request |
+Each row lands with the behavior that makes it true.
+
+| Where | Today | From step 6 |
+|---|---|---|
+| `components/builder/CLAUDE.md`, "Creation never navigates" | the sentence on every way a receipt reaches the client, as part 12 rewrites it for the bring-in's create route (its "Contracts") | adds, after part 12's paragraph: "The flow that brings an app in is a state of `/build/new` (`components/bring-in`), inside `ChatContainer`'s tree, so its app lands through the same installer." |
+| `components/builder/CLAUDE.md`, "Creation never navigates" (second paragraph) | "…the router re-render carrying the revalidation restores Next's own canonical URL, undoing the promotion." | gains: "The same holds for `router.refresh()`, which is why Check connection reads `GET /api/commcare/connection` through `CommCareConnectionContext`'s `refresh` and not through the router." |
+| `components/CLAUDE.md`, "Build recovery is URL-backed" | names `/build/new?design=<id>` alone | gains: "A bring-in is URL-backed too: `/build/new?hq=choose` is the picker, and `/build/new?hq=app&…` names one CommCare HQ app and the Project it is added to. Nothing is stored for it, so opening the address reads the app again. The flow reads the query through `useBuilderSearchFrom`, seeded by the server so the first paint agrees. One key in the tab's session storage lets a reload during a create send that create again." |
+| `components/CLAUDE.md`, "Primitives come from `components/shadcn`" | the list of primitives has no radio group | the list gains "radio-group (`RadioGroup`, rows wearing `selectableRowCls`; an item that cannot be chosen stays focusable and says why)" |
+| `components/builder/CLAUDE.md`, "Publishing" | "`RemoteChangeChoice` stands beside `ResourceConflictChoice` … it lists every change made in CommCare HQ since Nova's last push and offers to discard them" | gains: "Where the app itself changed and its list of changes is drawn, an admin or owner is also offered Stop publishing here (`StopPublishingDialog`), and an editor is told who can. For an app brought in and not yet published, the review step states what the first publish changes (`FirstPublishLines`), from `DeploymentView.firstPublish`." |
+| `components/builder/CLAUDE.md`, "App setup, Publishing" | "renders one full `DeploymentStatus` card per project space the app has reached" | gains: "A card says where a brought-in app came from, offers Stop publishing here to a member who may delete, and draws an ended deployment from `deploymentEnding`, never from the state: no ladder, no Check status, no Workers panel." |
+| `components/builder/PublishDialogBody.tsx`, the comment over `RemoteChangeChoice` | "What changed in CommCare HQ since Nova last published there, and the only thing that lets the publish write over it." | "What changed in CommCare HQ since Nova last published there, brought the app in or brought changes in, and what lets the publish write over it. Where the app's change can be brought in, `HqChangesPanel` takes its item's place; otherwise Stop publishing here stands beside it." |
+| `components/builder/CommCareConnectionContext.tsx`, its header | "The value is memoized against the settings object (RSC-stable across renders), so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity per page load rather than a fresh array per render." | "The value is memoized against the settings object and the last answer of `refresh`, so `PublishPanel`'s memo and the dialog's domain-reset effect see one identity until a refresh answers. `refresh` reads `GET /api/commcare/connection` and never calls the Next router: on a page whose address the History API wrote, a router refresh would write Next's own address back." |
+| `components/chat/StartFromScratch.tsx`, its header comment | "the "skip the SA, build it yourself" affordance" | "the two ways to start without describing an app: a blank app, and an app brought in from CommCare HQ" |
+| `app/(app)/(site)/RefreshStaleAppList.tsx`, its header | "Refetches the app list once, when the user arrives on a list that was rendered before an app they have since created." | gains: "The empty state mounts it too, since the first app a Project holds is created from there." |
+| `lib/routing/CLAUDE.md` | no word of `/build/new`'s query | gains: "`/build/new` carries two query states, each seeded by the server for the first paint: `design`, and `hq` with the key of the app being brought in (`bringInLocation.ts`)." |
+| `e2e/CLAUDE.md` | its list of profiles and peers | gains the `@seed:bring-in` profile and the `bring-in` peer, and the sentence "No test reaches a CommCare HQ: a bring-in journey answers the routes that would from `page.route`, and seeds its brought-in apps through the production birth." |
+| `lib/mcp/errors.ts`, the comment on `McpErrorType` | "Spans five independent failure sources", over a list that already names six (`not_found`, `invalid_input`, `scope_missing`, `permission_denied`, `UploadErrorType`, `AgentErrorType`) | "Spans seven independent failure sources", with a seventh bullet: "`BringInErrorType`: a read of CommCare HQ that stopped before there was an app's read to answer (`hq_read_stopped`, with the circumstance's code, title and next step), and a create Nova refused for a reason that is neither input nor access (`bring_in_refused`, with the refusal). Surfaces via `BringInToolError`." |
+| `lib/deployment/CLAUDE.md`, "Surfaces" | names the deployment tools MCP serves | gains `list_hq_apps`, `read_hq_app`, `bring_in_hq_app` and `stop_publishing`, and "none is given to the Solutions Architect" |
+| `lib/agent/authoring/CLAUDE.md` | no word of a brought-in app | gains: "The guide says one thing about an app brought in from CommCare HQ: it is an ordinary app. It gives no instruction to bring one in." |
+| root `CLAUDE.md`, the map's builder UI entry | lists `components/builder` and its libraries | gains "`components/bring-in` (the flow that brings an app in from CommCare HQ, a state of `/build/new`)" |
+| root `CLAUDE.md`, the first paragraph | "Nova turns a natural-language conversation into a working CommCare app." | gains after it: "An app that already lives in CommCare HQ can be brought in and carried on from there." |
+| `design/readme.md` | no "Bringing in"; no radio group contract | section 17.4 |
+| public docs | section 17 | section 17 |
+| `../nova-plugin` | section 16 | section 16 |
+
+The comments on `app/api/mcp/route.ts::maxDuration` and
+`app/api/mcp/dispatch.ts::MCP_MAX_DURATION_SECONDS`, which this part's tools would otherwise make
+misleading, are part 12's to correct (its 4.4).
 
 ---
 
@@ -3669,15 +3716,16 @@ No test of this part holds the tools' budget to the request's cap: part 12's `bu
 Departures from the outline and the research, and the decisions this part took where an alternative
 was weighed and not taken. Each states the evidence and the decision taken.
 
-1. **`bring_in_hq_app` takes no `project_id`.** Its arguments are the reading, the review's digest, the
-   name, `runs_only_on`, the split answer and the table choices (14.4). A reading belongs to a Project
-   from its start (part 12, 2.5: "`startReading` takes it as an argument"), its lookup ids are minted
-   against that Project and its home row lives there. `read_hq_app` takes `project_id`, and its
-   description makes the agent ask. Not done: a `project_id` argument of `bring_in_hq_app` beside the
-   answers, because a second Project at creation would be a second source of one fact.
+1. **`bring_in_hq_app` is sent the Project, the project space and the app again, beside the
+   reading's id.** Its arguments are the three fields `read_hq_app` took, the `reading_id` and the
+   review's digest it returned, and the answers (14.4). Nothing is stored between a read and a
+   create (part 12, section 2), so the create reads the app again from those three and proves by
+   the digest that it is what the user reviewed. Not done: a `reading_id` that stands for the
+   three, because there is no record for it to name, and a tool that took one would be asking the
+   server to remember what the design says it never keeps.
 2. **Six tools, not three.** Beside the three that bring an app in (`list_hq_apps`, `read_hq_app`,
    `bring_in_hq_app`), `stop_publishing` is part 10's Departure 3, and `refresh_managed_data` and
-   `set_lookup_table_management` are part 11's (its 12.4). B12 registers all six.
+   `set_lookup_table_management` are part 11's (its 12.4). All six are registered here (14.1).
 3. **"Check connection" stops going through the Next router, in the Publish dialog as well as in the
    picker, and one route is added for it.** Today the dialog's `NotConfigured` refreshes with
    `router.refresh()`. Not done: reusing that aside and its refresh in the picker as they stand,
@@ -3691,18 +3739,21 @@ was weighed and not taken. Each states the evidence and the decision taken.
    composer; `components/builder/CLAUDE.md` records the same effect for a revalidation after a
    creation. Decision: `GET /api/commcare/connection` reads the person's own stored connection,
    `CommCareConnectionContext` gains `refresh`, and both surfaces use it (4.4). The route sits under
-   `/api/commcare`, which the allowlist already holds, so the plan's rule that bringing an app in adds
-   no route the proxy allowlist does not already hold (part 12, 4.1) is kept. The dialog changes with
-   the picker and not after it, because one connection read by two mechanisms would let the picker see
-   a key the dialog, minutes later in the same tab, says is missing.
-4. **Reading shows the running step's name, not a ladder of steps with results.** The row holds `phase`,
-   the files' counts and a running step's mark, and nothing else of a read in flight (part 12, 2.3
-   and Decision 4), and this
-   part adds no reading state of its own (its opening). The read still has named steps: each step is
-   named as it runs (5). Not done: a ladder that keeps each finished step on screen with its result
-   ("2 menus, 5 forms", "1 table"), because no row holds such a count before its outcome.
-5. **No "Stop reading".** A step cannot be cancelled (part 12, 4.3). The screen offers leaving, and the
-   home row Remove. Not done: a footer button that stops a read, because it would stop nothing.
+   `/api/commcare`, which the allowlist already holds, so bringing an app in adds no route the
+   proxy's allowlist does not already admit (part 12, 4.1). The dialog changes with the picker,
+   because one connection read by two mechanisms would let the picker see a key the dialog, minutes
+   later in the same tab, says is missing.
+4. **Reading shows the running stage's name and a count of files, not a ladder of steps with
+   results.** A read's stream carries the stage that is running and the file count, and nothing
+   else before its answer (part 12, 4.3). The read still has named stages: each is named as it
+   runs (5). Not done: a ladder that keeps each finished stage on screen with its result ("2 menus,
+   5 forms", "1 table"), because no line of the stream holds such a count, and an ordinary read is
+   over in seconds, which a ladder would only flicker through.
+5. **No "Stop reading" button.** Leaving is the stop: a read whose tab closed or moved on is aborted
+   and ends at its next call to CommCare HQ, having stored nothing (part 12, 3.2). Not done: a
+   footer button that stops a read, because it would do what Back and Go to your apps already do. A
+   create is the opposite case and has no stop either: once asked it runs to its end (9.1), and the
+   screen says what leaving does.
 6. **"Bring it in" is never disabled for a missing answer.** The press moves focus to what is missing
    and says so (8.9), and the server keeps the rule for every other caller. Not done: a button disabled
    until every choice is answered, with the reason beside it, because a disabled button cannot move
@@ -3712,31 +3763,31 @@ was weighed and not taken. Each states the evidence and the decision taken.
    `platformPickerLine`, because `platformPickerLine` words one feature's refusal for the picker of
    that feature; an app can be kept off a platform by several features and by its files, which V13 says
    whole. Part 12's `ReadingReview.runsOn` holds only offered choices.
-8. **The picker marks the person's own open reading.** `startReading` returns the open row for the same
-   key (part 12, 3.5), so without the mark a person who chose the app again would land mid-read with no
-   warning. The mark and the button's "Carry on" say what will happen.
+8. **The address names the app, never a stored reading.** It holds the Project, the server, the
+   project space and the HQ app's id (3.2). Not done: an address that holds a reading's id, because
+   each read mints its own and nothing keeps one, so the id would name nothing a second page load
+   could find. The address is therefore also something a person can send: a teammate who opens it
+   reads the app with their own key, for the Project it names.
 9. **A new primitive, `radio-group`.** Three screens need one-of-several rows with lines,
    `components/shadcn` has none, and `components/CLAUDE.md` forbids a hand-rolled one (12.2).
 10. **"Stop publishing here" is on every deployment's card, not only a brought-in app's.** Part 10's
     ending is a state of any deployment (its section 8), and a Nova-made app's team can want the same
     thing. Not done: offering it only on the card of an app that was brought in, as a way a bring-in
     ends, because the helper's sentence is true of a Nova-made app's deployment too (11.1).
-11. **The public docs of stack B land in B14, with their text fixed here.** B14 is "Contracts and
-    public docs for stack B" (part 15, sections 1.2 and 7), and parts 10, 11 and 12 hand their public
-    sentences to it the same way. Not done: landing the pages in B11 and B12 with the screens and tools
-    they describe, because each stack lands its public docs in one pull request. `design/readme.md`
-    lands in B11 with the screens, since `components/CLAUDE.md` makes it the authority the code
-    follows.
-12. **No header chip and no check on open.** Bringing changes made in CommCare HQ in is step 7's first
-    group (`changes-made-in-hq`; `../7-rest-of-model.md`), and the chip that says CommCare HQ's copy
-    has moved and the check on open that feeds it go with it. Step 6 says what it does do: V21b states
-    that the next publish stops and lists what changed, and the docs page says bringing the changes in
-    comes later (17.1, item 7). It names no step 7 answer in the product (11.3) and adds nothing to the
-    builder's header.
+11. **The home list gains no section for an app that is being read** (10). A read is one request of
+    seconds that leaves nothing behind, so there is no half-done work to list, to continue or to
+    remove. Not done: a list of apps a person read lately, kept in the browser, because an account
+    shown from a copy would be a list CommCare HQ may have left. The two needs such a list would
+    meet are met as they are: the address reads the app as it stands now, and Copy the list (7.5)
+    is how a person keeps what one read found.
+12. **The header's button and the check on open are part 15's.** A check when the builder opens, and
+    the one button it can show, are planned there (its section 8) with the rule that nothing in the
+    builder waits on them. This part places the button beside the notice chip (12.1) and adds no
+    other header control.
 13. **The account's links use HQ's position addresses.** Each group links to the page of CommCare HQ
     that holds its place, where the place has a page (7.2, 7.4). A finding's place holds positions
     (part 01, 8.1), and HQ serves those addresses on purpose and tests them (7.4). Not done: an
-    address built from a menu's or a form's own HQ id, because the reading's real ids are not on a
+    address built from a menu's or a form's own HQ id, because the app's real ids are not on a
     finding.
 14. **Over MCP the first-publish list is on each `runs_on` entry of the review, not once on the
     review.** Evidence: part 09's own 12.1 makes the list a fact of a declaration choice, three of
@@ -3753,6 +3804,27 @@ was weighed and not taken. Each states the evidence and the decision taken.
     description say its name and why it matters and go on (16.1, 14.3). Not done: a skill that always
     asks, even when there is only one Project, because asking a question with one answer is a gate with
     nothing behind it. With two or more, the agent asks and never picks.
+16. **A review that comes back keeps the person's answers** (`carryAnswers`, 3.3). A create that
+    answers `changed` with a review, and the read after a `read-again`, each put the person in front
+    of a review with a new digest. Not done: discarding every answer made for another digest, because
+    the change may have touched none of them, and a person would then choose a name, a platform and
+    each table a second time. What cannot be kept is said (8.10), and across a reload nothing is
+    kept (3.2).
+17. **A reload during a create sends the same create again, from one key in the tab** (9.1). Not
+    done: reading the app again as every other reload does, because the read would then answer
+    `already-in-nova` for the app the person had just made, or a review they would answer twice. Not
+    done either: a record on the server of a create in flight, which would be the stored reading
+    this design does without. A repeat of a create is safe by part 12's own rule (its 6.6), so the
+    tab only has to remember what it sent.
+18. **A long account over MCP is paged by a cursor that carries the account's digest** (14.3). Each
+    page is a fresh read, since nothing is kept. Not done: a bare index, because two pages could
+    then come from two versions of the app and a client would stitch them into one list that never
+    existed. Not done either: the whole account in one answer, which a long one would push past
+    what a client accepts (`lib/mcp/resultSize.ts::MAX_RESULT_SIZE_CHARS`).
+19. **Nova's own failure is a screen of its own, and the page never sends that request again by
+    itself** (5, 9.1). A lost response is retried once, because the network may have been the cause.
+    Not done: one retry rule for both, because a defect answers the same way twice, and a silent
+    second try would only delay the sentence that says the fault is Nova's.
 
 **The outline, item by item, where it touches this part.**
 
@@ -3761,297 +3833,84 @@ was weighed and not taken. Each states the evidence and the decision taken.
 | 5, "Entry points. Import from the builder and over MCP, each confirming the platform declaration before the app exists" | a confirmation step | here: three entries (2); the declaration is a preselected choice of the review, the person's to change, and a required argument over MCP (8.3, 14.4; `../6-bring-in.md`, "What changed from the outline, and why", item 5) |
 | 9, "The person confirms it, or narrows it, before the app exists" and "the first publish after import asks before changing the setting" | | here: 8.3, with V12a and V12b saying what the first publish will ask |
 | 9, "Offered the split, else refused … the person confirms it before the app exists" | | here: the split is a row of the same choice (V10). An app no declaration runs is part 06's `no-platform-runs-everything`, an account finding drawn by 7.2 |
-| 9, "Defect 20's confirmations" and 10, "Confirmations" | asked at import | not asked at a bring-in (part 12, Departures; part 10, 6.5). The review says which plan features Nova will not ask about (`adoptionRecordedFeaturesLine`), and the first publish asks the rest |
-| 4, "Drift merging" | step 6 | step 7's first group, `changes-made-in-hq` (`../6-bring-in.md`, "What changed from the outline, and why", item 4; `../7-rest-of-model.md`). This part words the stop's three ways on (11.3) |
-| 10, "Ending a deployment, this step's lifecycle" | | part 10 (B8) for the state; here for the card, the drift stop and the confirmation (11.1, 11.3) |
+| 9, "Defect 20's confirmations" and 10, "Confirmations" | asked at import | not asked at a bring-in (part 10, 6.5). The review says which plan features Nova will not ask about (`adoptionRecordedFeaturesLine`), and the first publish asks the rest |
+| 4, "Drift merging" | step 6 | part 15, which brings a change in with no merge. This part keeps the layout of the stop and the card (11.1, 11.3) |
+| 10, "Ending a deployment, this step's lifecycle" | | part 10 for the state; here for the card, the drift stop and the confirmation (11.1, 11.3) |
 | 1 to 3, 6 to 8, the cutover | | no screen or tool of this part; parts 01 to 12 and 14 |
 
 ---
 
-## Files by pull request
+## Files
 
-**B11, the experience.** Above B10, below B12.
+**New.**
 
-- New: `components/bring-in/bringInModel.ts`, `bringInClient.ts`, `useBringIn.ts`, `BringInFlow.tsx`,
-  `BringInPicker.tsx`, `BringInReading.tsx`, `BringInStop.tsx`, `BringInAccount.tsx`,
-  `BringInReview.tsx`, `ReviewRunsOn.tsx`, `ReviewTableChoice.tsx`, `FirstPublishLines.tsx`;
-  `components/builder/HqNotConnected.tsx`, `StopPublishingDialog.tsx`;
-  `components/shadcn/radio-group.tsx`; `app/(app)/(site)/readings-in-progress.tsx`,
-  `readingRowModel.ts`; `app/api/commcare/hq-apps/route.ts`,
-  `app/api/commcare/connection/route.ts`; `lib/routing/bringInLocation.ts`;
-  `lib/publish/bringInCopy.ts`; `lib/deployment/reading/picker.ts`, `pickerTypes.ts`;
-  `lib/deployment/hqPlaceUrl.ts`; `design/components/core/RadioGroup.prompt.md`;
-  `e2e/lib/bring-in-client.tsx`, `bringInSeed.ts`; `e2e/tests/browser/bring-in.spec.ts`;
-  `e2e/tests/app/bring-in.spec.ts`; the Vitest and Postgres files of "Tests".
-- Changed: `app/(app)/(site)/app-list.tsx`, `page.tsx` (the empty state's probe, its entry line,
-  and `RefreshStaleAppList` in the empty branch), `app-list-body.tsx`, `RefreshStaleAppList.tsx`
-  (its header);
-  `app/(app)/build/[id]/[[...path]]/page.tsx` (`freshBuildPage`: `BringInSeed`);
-  `components/chat/StartFromScratch.tsx`, `ChatSidebar.tsx`, `ChatContainer.tsx`;
-  `components/builder/BuilderLayout.tsx`, `CommCareConnectionContext.tsx` (`refresh`),
-  `PublishPanel.tsx` (the context's refresh), `DeploymentStatus.tsx` (11.1, with `canStop`),
-  `PublishDialogBody.tsx` (`HqNotConnected` in place of `NotConfigured`, the first-publish
-  section, the drift stop's block, and `PublishDialogProps.hqConnectionRefreshFailed`),
-  `publishOutcome.ts` (`PublishPlan`, `publishPlanCopy`),
-  `app-setup/publishingSectionModel.ts`, `app-setup/PublishingSection.tsx` (passes `canStop`,
-  11.1);
-  `components/builder/detail/appSettings/AppPlatformsSection.tsx` and `lib/domain/platforms.ts`
-  (`PLATFORM_DECLARATION_LINES`); `lib/routing/useClientPath.ts` (`useBuilderSearchFrom`);
-  `lib/ui/appListFreshness.ts` (its comments); `lib/deployment/reading/index.ts`
-  (`listHqAppsForPicker`); `lib/deployment/index.ts` (`hqPlaceUrl`, and `HqAppPicker` and
-  `HqAppPickerRow` as types; the reading's own types are re-exported there by B10);
-  `e2e/lib/smokeProfiles.ts` and `e2e/lib/smokeSeedFactory.ts` (the `bring-in` profile and its
-  builder), `e2e/tests/browser/publishing.spec.ts` and its peer; `design/readme.md`;
-  `components/CLAUDE.md`, `components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`, `e2e/CLAUDE.md`.
-- Used and not changed: `components/builder/PublishDialog.tsx` (it forwards `PublishDialogProps`
-  whole, 4.4); `e2e/lib/routes.ts` ("Tests").
-- Not in B11: `lib/publish/firstPublishCopy.ts` (created by B6, part 08; given its first-publish
-  exports by B7, part 09) and `lib/publish/firstPublishChangeIds.ts` (B7, part 09);
-  `DeploymentView.firstPublish`, `readFirstPublishStates`, `firstPublishOf` (B7); the baseline's
-  column (B8). B11 reads the first two files and `DeploymentView.firstPublish`, and changes none.
-- No migration, no column, no `lib/db/pg.ts` change. No `lib/hostnames.ts` entry (4.2, 4.4). No
-  `MODEL_CONTEXT_VERSION` move. No `scripts/test-schema.ts` entry. No billed run.
+| File | Holds |
+|---|---|
+| `components/bring-in/bringInModel.ts` | the flow's pure model (3.3): `BringInModel`, `PickerModel`, `BringInCall`, `BringInEvent`, `BringInScreen`, `BringInAct`, `CreateLead`, `initialBringInModel`, `reduceBringIn`, `screenOf`, `nextAct`; `ReviewAnswer`, `ReviewAnswers`, `initialAnswers`, `unansweredChoices`, `bringInInputOf`, `chosenDeclaration`, `carryAnswers`; `knownAppName`, `circumstanceContextOf`; `BRING_IN_RESUME_WINDOW_MS`, `resumableCreate`; `StopAction`, `STOP_ACTIONS` (6.2); `placeGroupKey`, `AccountItem`, `AccountGroup`, `accountGroups`, `accountHeading`, `countLine`, `accountAsText` (7); `DeclarationRow`, `declarationRows`, `DeclarationWhy`, `declarationWhy` (8.3) |
+| `components/bring-in/bringInClient.ts` | `BringInAnswer`, `BringInStreamEnd`, `fetchHqApps`, `postRead`, `postCreate` (3.3) |
+| `components/bring-in/useBringIn.ts` | the hook: the reducer, the one effect over `nextAct`, the two session-storage keys (3.3, 9.1, 9.2) |
+| `components/bring-in/BringInFlow.tsx`, `BringInPicker.tsx`, `BringInReading.tsx`, `BringInStop.tsx`, `BringInAccount.tsx`, `BringInReview.tsx`, `ReviewRunsOn.tsx`, `ReviewTableChoice.tsx`, `FirstPublishLines.tsx` | the screens (12.1) |
+| `components/builder/HqNotConnected.tsx` | the connection aside, extracted from `PublishDialogBody.tsx::NotConfigured` (4.4) |
+| `components/builder/StopPublishingDialog.tsx` | the confirmation the card and the drift stop share (11.1) |
+| `components/shadcn/radio-group.tsx` | `RadioGroup`, `RadioGroupItem` (12.2) |
+| `design/components/core/RadioGroup.prompt.md` | the primitive's contract (17.4) |
+| `app/api/commcare/hq-apps/route.ts` | `GET`, the picker's list (4.2) |
+| `app/api/commcare/connection/route.ts` | `GET`, the person's own stored connection (4.4) |
+| `lib/routing/bringInLocation.ts` | `BringInLocation`, `bringInLocation`, `bringInHref` (3.2) |
+| `lib/publish/bringInCopy.ts` | every string of "Copy" that is this part's, `platformOutBlock`, M1 and M4 to M7 |
+| `lib/deployment/reading/pickerTypes.ts` | client-safe: `HqAppPickerRow`, `HqAppPicker` (4.2) |
+| `lib/deployment/reading/picker.ts` | server-only: `listHqAppsForPicker` (4.2) |
+| `lib/deployment/reading/answers.ts` | client-safe: `AccountAnswer`, `accountOfOne` (3.3), which the model and MCP's projection both read |
+| `lib/deployment/hqPlaceUrl.ts` | client-safe: `hqPlaceUrl` (7.4) |
+| `lib/mcp/tools/listHqApps.ts`, `readHqApp.ts`, `bringInHqApp.ts`, `stopPublishing.ts`, `managedData.ts` | the six tools (14.1 to 14.6) |
+| `lib/mcp/tools/readingProjection.ts` | `describeReading`, `parseAccountPage`, `accountDigest`, `mapReadingRefusal`, `ReadingProjection` (14.3) |
+| `e2e/lib/bring-in-client.tsx`, `e2e/lib/bringInSeed.ts`, `e2e/tests/browser/bring-in.spec.ts`, `e2e/tests/app/bring-in.spec.ts` | the peer, the seed and the two specs ("Tests") |
+| the Vitest and Postgres files of "Tests" | as that section names them |
+| `content/docs/bringing-in-from-commcare-hq.mdx` | the new page (17.1) |
+| `../nova-plugin`: `skills/bring_in/SKILL.md` and its `.dev-plugin` mirror | the skill (16.1) |
 
-**B12, MCP, the guide, the plugin skill, versions, the billed check.** Above B11, below B13.
+**Changed.**
 
-- New: `lib/mcp/tools/listHqApps.ts`, `readHqApp.ts`, `bringInHqApp.ts`, `stopPublishing.ts`,
-  `managedData.ts`, `readingProjection.ts` (`describeReading`, `mapReadingRefusal`);
-  `lib/mcp/__tests__/readingProjection.test.ts`,
-  `bringInToolScopes.test.ts`, `bringInTools.postgres.test.ts`.
-- Changed: `lib/mcp/server.ts`; `lib/mcp/errors.ts` (`BringInErrorType`, `BringInToolError`, the
-  payload's four fields, the branch of `toMcpErrorResult`); `app/api/mcp/dispatch.ts`
-  (one sentence of the comment on `MCP_MAX_DURATION_SECONDS`; the constant stands);
-  `lib/mcp/tools/deploymentProjection.ts`,
-  `deploymentTools.ts`, `checkProjectSpaceCompatibility.ts`, `uploadAppToHq.ts`, `getHqConnection.ts`
-  (descriptions and projections of 14.7); `lib/publish/bringInCopy.ts` (M1 to M6, added to the
-  file B11 creates) with `lib/publish/__tests__/bringInCopy.test.ts` unchanged, since its four
-  rules run over every export;
-  `lib/agent/authoring/reference.ts`; `lib/models.ts`;
-  `lib/mcp/__tests__/servedSchemas.test.ts`, `errors.test.ts`, `compatibility.postgres.test.ts`,
-  `deploymentTools.postgres.test.ts`; `lib/deployment/CLAUDE.md`, `lib/agent/authoring/CLAUDE.md`.
-- Under run E1's outcome B alone: `lib/agent/tools/getLookupTables.ts` or
-  `lib/agent/tools/organization.ts`, whichever holds the entry the provider refused.
-- Not in B12: `lib/deployment/resources.ts`, `store.ts` and `actions.ts`. `firstPublishOf` and
-  `readFirstPublishStates` are B7's (part 09, 12.3), and B12 calls them.
-- The billed run E1, asked once at the head of the pull request, over the hash run's list.
-- No route and no migration. No `scripts/test-schema.ts` entry, unless the hash run names a moved
-  tool the script does not register (15.3).
+| File | What changes |
+|---|---|
+| `app/(app)/(site)/app-list.tsx` | the entry button (2) |
+| `app/(app)/(site)/page.tsx` | the empty state's line (2), and `RefreshStaleAppList` in the empty branch (10) |
+| `app/(app)/(site)/app-list-body.tsx` | the restore toast (11.4) |
+| `app/(app)/(site)/RefreshStaleAppList.tsx` | its header ("Contracts") |
+| `app/(app)/build/[id]/[[...path]]/page.tsx` | `freshBuildPage` builds and passes `BringInSeed` (3.2) |
+| `components/chat/StartFromScratch.tsx` | the second button and `onBringIn` (2) |
+| `components/chat/ChatSidebar.tsx` | the `takeover` prop (3.1) |
+| `components/chat/ChatContainer.tsx` | mounts `BringInFlow` as `takeover`, handing it the seed, its `landCreatedAppReceipt` and its `projectToast` (3.1, 9.2) |
+| `components/builder/BuilderLayout.tsx` | passes `BringInSeed` down; shows the toast after a landing that loaded a page (9.2) |
+| `components/builder/CommCareConnectionContext.tsx` | `refresh`, `isRefreshing`, `refreshFailed` (4.4) |
+| `components/builder/PublishPanel.tsx` | the context's refresh in place of its router transition (4.4) |
+| `components/builder/PublishDialogBody.tsx` | `HqNotConnected` in place of `NotConfigured`; `PublishDialogProps.hqConnectionRefreshFailed`; the first-publish section (11.2); the drift stop's block (11.3); `publishPlanCopy` and `PublishPlan` leave it |
+| `components/builder/publishOutcome.ts` | `PublishPlan` and `publishPlanCopy`, moved from `PublishDialogBody.tsx`, with the two new arms (11.2) |
+| `components/builder/DeploymentStatus.tsx` | the brought-in lines, the ended card and the prop `canStop` (11.1) |
+| `components/builder/app-setup/publishingSectionModel.ts` | `broughtInOf`, `cardKind`, `broughtInElsewhere`, the compact row's label (11.1) |
+| `components/builder/app-setup/PublishingSection.tsx` | passes `canStop` (11.1) |
+| `components/builder/detail/appSettings/AppPlatformsSection.tsx`, `lib/domain/platforms.ts` | the three lines of `CHOICES` move to `PLATFORM_DECLARATION_LINES`, which `CHOICES` reads (8.3) |
+| `lib/routing/useClientPath.ts` | `useBuilderSearchFrom` (3.2) |
+| `lib/deployment/reading/index.ts` | exports `listHqAppsForPicker` |
+| `lib/deployment/index.ts` | exports `hqPlaceUrl` and `accountOfOne`, and `HqAppPicker`, `HqAppPickerRow` and `AccountAnswer` as types |
+| `lib/mcp/server.ts` | registers the six tools (14.1) |
+| `lib/mcp/errors.ts` | `BringInErrorType`, `BringInToolError`, the payload's four fields, the branch of `toMcpErrorResult` (14.8) |
+| `lib/mcp/tools/deploymentProjection.ts`, `deploymentTools.ts`, `checkProjectSpaceCompatibility.ts`, `uploadAppToHq.ts`, `getHqConnection.ts` | the descriptions and projections of 14.7 |
+| `lib/agent/authoring/reference.ts` | the guide's paragraph (15.1) |
+| `e2e/lib/smokeProfiles.ts`, `e2e/lib/smokeSeedFactory.ts` | the `bring-in` profile and its builder |
+| `e2e/tests/browser/publishing.spec.ts` and its peer | the cases of "Tests" |
+| `lib/mcp/__tests__/servedSchemas.test.ts`, `errors.test.ts`, `compatibility.postgres.test.ts`, `deploymentTools.postgres.test.ts`; `components/builder/app-setup/__tests__/publishingSectionModel.test.ts`; `components/builder/__tests__/publishOutcome.test.ts` | the extensions of "Tests" |
+| `design/readme.md`; `components/CLAUDE.md`, `components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`, `e2e/CLAUDE.md`, `lib/deployment/CLAUDE.md`, `lib/agent/authoring/CLAUDE.md`, root `CLAUDE.md` | the rows of "Contracts" |
+| `content/docs/meta.json`, `index.mdx`, and the pages of 17.2 and 17.3 | section 17 |
+| `../nova-plugin`: `skills/upload_to_hq/SKILL.md` and its mirror, both `plugin.json` files, `README.md` | section 16 |
 
-**The plugin's pull request** (`../nova-plugin`): `skills/bring_in/SKILL.md` and its `.dev-plugin`
-mirror; `skills/upload_to_hq/SKILL.md` and its mirror; both `plugin.json` files; `README.md`. Merged
-after stack B is live.
+**Used and not changed.** `components/builder/PublishDialog.tsx`, which forwards `PublishDialogProps`
+whole (4.4); `e2e/lib/routes.ts` ("Tests"); `lib/ui/appListFreshness.ts`, whose one caller already
+marks the list for every landing (10); part 09's `lib/publish/firstPublishCopy.ts` and
+`firstPublishChangeIds.ts`, and its `DeploymentView.firstPublish`, `readFirstPublishStates` and
+`firstPublishOf`, which this part reads and calls.
 
-**B14** (part 15) lands `content/docs/bringing-in-from-commcare-hq.mdx` (with part 08's C13 and
-C14 in it, 17.1), `meta.json`, the `index.mdx` line, the rows of 17.2 (`claude-code/commands.mdx`
-and `claude-code/quickstart.mdx` among them) and 17.3, and the two root `CLAUDE.md` sentences of
-"Contracts".
+**Removed.** `PublishDialogBody.tsx`'s private `NotConfigured`, in favor of `HqNotConnected`.
 
----
-
-## What this part needs of other parts
-
-- **Part 12 (`12-the-reading-and-the-birth.md`, B10).** Every need below is one part 12
-  holds as written (its 5.1, "Files by pull request", "Tests" and "Copy"); B11 changes no function
-  of B10's. Four values on `ReadingReview`, in
-  `readingReviewSchema`, filled in `gather.ts` where `runsOn` is, and therefore in the digest:
-
-  ```ts
-  /** Why the preselected choice is the one proposed (part 06's `narrowedByHq` and `keepsWebApps`). */
-  readonly runsOnWhy: "content" | "web-apps-off-in-hq" | "keeps-web-apps";
-  /** `HqAppSource.cloudcareEnabled`. */
-  readonly webAppsOnInHq: boolean;
-  /** How many date-and-time questions a choice that splits changes; 0 where no choice splits. */
-  readonly datetimeQuestions: number;
-  /** Each platform no offered choice declares, with what keeps the app off it. */
-  readonly platformsOut: readonly {
-  	readonly platform: Platform;
-  	/** The distinct features of `platformUses.ts::unavailableUses` for that platform, in table order. */
-  	readonly features: readonly PlatformFeatureId[];
-  	/** A referenced file does not play there (part 11's `readingMediaFindings().playsOn`). */
-  	readonly media: boolean;
-  }[];
-  ```
-
-  `runsOnWhy` is `web-apps-off-in-hq` where the draft's `narrowedByHq` is true and the proposal
-  stands, `keeps-web-apps` where `keepsWebApps` is true and the proposal stands, and `content`
-  otherwise, including where part 11's files removed the proposal. Also: `lib/deployment/index.ts`
-  re-exports, as types, `ReadingView`, `ReadingSummary`, `ReadingReview`, `ReviewTable`,
-  `ReviewPlaces`, `ReadingDeclarationChoice`, `ReadingOutcome`, `ReadingRefusal`, `BringInInput`,
-  `CreateResult`, `AdoptedAppReceipt` and part 11's `LookupTableChoice`, since this part imports no
-  module of `lib/deployment/reading`. `ReviewPlaces` is declared in part 11's `reviewTypes.ts` with
-  the members part 12's 5.1 gives it (`count`, `digest`), and `lib/deployment/index.ts` re-exports
-  it; this part reads `count`. `landCreatedAppReceipt` is reachable where `ChatContainer` mounts
-  `BringInFlow`, which hands it to `useBringIn`. Its birth test's fixture is exported as
-  `lib/deployment/reading/__tests__/adoptionFixture.ts::adoptFixtureApp(input: { projectId: string;
-  actorUserId: string }): Promise<{ appId: string; receipt: AdoptedAppReceipt }>`, which
-  `e2e/lib/bringInSeed.ts` calls. `ReadingView.stepRunning` (its 3.1 and 3.2) is what the model
-  drives by (3.3) and what the home row's status line reads (10.2), and its `phase` is null
-  wherever `stepRunning` is false. An `advance` or a `create` answered `again` with the row
-  unchanged is a step that found the server's reading slot taken (its 3.6), and needs nothing of
-  this part but the call again that every `again` already gets. One more field, which part 09
-  asks of part 12 (its 12.1) and this part's 8.8 and 14.3 read:
-  `ReadingDeclarationChoice.firstPublish: FirstPublishView`, taken from the `AcceptedDeclaration`
-  at the same position, in `readingReviewSchema` and so in the digest. `ReadingReview.firstPublish`
-  stays the preselected choice's and this part reads it nowhere. Three things of its "Copy" and
-  5.1 this part draws and does not word: `READING_PHASE_LABELS`' entry for `publishing-media`,
-  a function of the count with two forms (its C4; 9.1 here); `UNVERIFIED_LANDING_TITLE` and
-  `UNVERIFIED_LANDING_BODY`, exports of `lib/publish/hqReadingCopy.ts` (its C6; 9.2 here); and
-  `review.kept`, filled as the `kept` row of its 5.1 says (8.7 here).
-- **Part 09 (`09-acceptance-and-the-first-publish.md`, B7, with its column in B8's
-  migration).** As written, and nothing renamed: `FIRST_PUBLISH_CHANGE_IDS`, `FirstPublishChangeId`,
-  `FirstPublishView`, `firstPublishViewSchema`, `StoredFirstPublish` and
-  `firstPublishViewFromStored` in `lib/publish/firstPublishChangeIds.ts`;
-  `FIRST_PUBLISH_SENTENCES`, `FirstPublishLine` (`id`, `sentence`), `firstPublishLines(view,
-  surface)` returning `FirstPublishLines` (`heading`, `lead`, `workers`, `hqOnly`, `reassurance`,
-  `note`; each group in registry order), `FIRST_PUBLISH_HEADING`, `FIRST_PUBLISH_LEAD_REVIEW`,
-  `FIRST_PUBLISH_LEAD_PUBLISH`, `FIRST_PUBLISH_WORKERS_LABEL`, `FIRST_PUBLISH_HQ_LABEL`,
-  `FIRST_PUBLISH_NO_WORKER_CHANGE` and `FIRST_PUBLISH_FORM_BUILDER_NOTE` in
-  `lib/publish/firstPublishCopy.ts`; the list kept on
-  `app_deployment_baselines.first_publish_changes`, written at the birth with the chosen
-  declaration's view and ended by the first push; `readFirstPublishStates` (B7); and
-  `DeploymentView.firstPublish: FirstPublishView | null` (the column B8, the rest B7). This part
-  settles every need part 09 states of it: the review and the dialog draw what
-  `firstPublishLines(view, surface)` returns, in its order, and add no rule of their own (8.8,
-  11.2); the review redraws from the chosen `ReadingDeclarationChoice.firstPublish`
-  (8.8); B12 returns `first_publish` on each `runs_on` entry and on
-  `check_project_space_compatibility`, held in `servedSchemas.test.ts` (14.3, 14.7, with the one
-  placement Departure 14 argues). The rule that fills `DeploymentView.firstPublish` is a pure
-  export of part 09's, so MCP and the builder cannot differ:
-
-  ```ts
-  // lib/deployment/resources.ts (B7), beside part 10's deploymentEnding
-  /** The list the person reviewed, while the live app mapping is adopted and names the app the list
-   *  was stored for; null otherwise. */
-  export function firstPublishOf(
-  	deployment: DeploymentWithResources,
-  	state: { readonly remoteAppId: string; readonly stored: StoredFirstPublish } | undefined,
-  	runsOnlyOn: Platform | undefined,
-  ): FirstPublishView | null;
-  ```
-
-  `lib/deployment/actions.ts` fills the view with it and B12's `checkProjectSpaceCompatibility.ts`
-  calls it with `readFirstPublishStates`' entry for the deployment and
-  `doc.appSettings.runsOnlyOn` (14.7). Its publishing paragraph for `publishing.mdx` is placed by
-  17.2.
-- **Part 10 (`10-identity-and-the-ledger.md`, B8).** As written: `DeploymentResource` with
-  `ownership`, `adoptedAt` and `adoptedByName`; `deploymentEnding` in `lib/deployment/resources.ts`,
-  importable by a client component as `activeRemoteApp` is today; `stopPublishingAction` and
-  `DeploymentActionResult`'s `not_permitted`; `NextPublishAction`'s `creates-beside` reaching the
-  dialog's `PublishPlan`; `lib/publish/stopPublishing.ts` and
-  `lib/publish/hqAppClaims.ts`; `adoptionRecordedFeaturesLine`; `RestoreAppResult.stoppedPublishing`;
-  the MCP error map for `not_permitted`, and `ended` and `publishing_stopped` in the served enums,
-  landed in B8. B12 adds the keys `ending`, `brought_in` and `since` to the projections and names
-  `ended`, `ending` and `publishing_stopped` in the tool descriptions (14.7), which is the whole of
-  what part 10 asks of B12 beside `stop_publishing` (14.5) and the skill's sweep (16.2).
-- **Part 11 (`11-project-data.md`, B9).** As written: R1 to R12 as exports of
-  `lib/publish/managedData.ts` that take the values of `ReviewTable` and `ReviewPlaces`;
-  `LookupReferencingAppSummary` carrying each app's name; `LOOKUP_TABLE_CHOICES`,
-  `LookupTableChoice`, `LookupChoiceOffer`, `ReviewTable` and `ReviewPlaces` in
-  `lib/deployment/reading/projectData/reviewTypes.ts`, whose only run-time import is `zod`; the
-  fourth reason an answer is not offered, `fails-a-project-space-rule`, with its R10 sentence
-  (8.5); and the services behind `refresh_managed_data` and `set_lookup_table_management`
-  with their outcome sentences.
-- **Part 01 (`01-the-bar-and-the-manifest.md`, A2, A3).** `CIRCUMSTANCE_STANDINGS` exported
-  as a typed record and `StopCircumstance` over it (its 8.3), so `STOP_ACTIONS` is held total over
-  the `stop` codes at compile time; the copy of sections 9.1 to 9.4 as written. It reads
-  `ACCOUNT_CHECK_AGAIN_LINE` and `circumstanceNext` (part 01, 8.4 and 9.1), both landed in B2.
-- **Part 05 (`05-reading-commcare-hq.md`, B1).** `getHqCredentials`, `listHqApps`,
-  `probeHqApiAccess`, `classifyHqFailure` and `hqReadCircumstance` as written.
-- **Parts 04, 06 and 08.** Nothing asked. This part reads `RUNTIME_VERSION` 19 from part 04 (its
-  3.4, A9); part 06's `narrowedByHq` and `keepsWebApps` through part 12's `runsOnWhy`, its
-  `no-platform-runs-everything` with `detail.reason: "split-refused"` (its 16.3, B2) and its
-  Departure 11, which is why an account says a later check may find more; and part 08's guide
-  sentence C7 (15.1), its docs sentences C13 and C14 (17.1), and its run E7, which this part's E1
-  answers.
-- **Part 14 (`14-proof.md`, A1, B13).** Nothing of the lane. No base, variant or canonicalization
-  comes from this part.
-- **Part 15 (`15-stack-contracts-and-exit.md`, B14, B15).** B11 sits above B10 and B12 above B11. This
-  part adds no migration, so it takes no timestamp. B14 lands section 17's pages, the rows of 17.2 for
-  `claude-code/commands.mdx` and `claude-code/quickstart.mdx` among them, and the two root `CLAUDE.md`
-  sentences. B15 removes nothing of this part: it adds no one-off script and no transitional file. The
-  plugin's pull request is on the stack's checklist as "merge after the deploy is live". Stack B's one
-  billed check is this part's run E1, asked once at B12's head over the hash run's list (part 15, section
-  3, rule 7); part 15 lists it and asks nothing. And `../7-rest-of-model.md` lists, under
-  `second-project-space`, updating an existing copy of the app in another project space, which V21c and
-  D7 state meanwhile; and under `changes-made-in-hq`, a header chip and a check on open (Departure 12).
-
-## What other parts read from this one
-
-- **The flow**: `components/bring-in/` (`BringInFlow`, `useBringIn`, `bringInModel.ts` with
-  `BringInModel`, `PickerModel`, `BringInCall`, `BringInEvent`, `BringInScreen`, `BringInAct`,
-  `initialBringInModel`, `reduceBringIn`, `screenOf`, `nextAct`, `ReviewAnswers`, `initialAnswers`,
-  `unansweredChoices`, `bringInInputOf`, `chosenDeclaration`, `StopAction`, `STOP_ACTIONS`,
-  `placeGroupKey`, `AccountItem`, `AccountGroup`, `accountGroups`, `accountHeading`,
-  `AccountCounts`, `accountCounts`, `countLine`, `accountAsText`, `DeclarationRow`,
-  `declarationRows`, `DeclarationWhy`, `declarationWhy`); `bringInClient.ts` (`BringInAnswer` and
-  its seven wrappers); the component `FirstPublishLines` (props `view`, `surface`), which calls
-  part 09's `firstPublishLines(view, surface)` and holds no rule; `ChatSidebar`'s `takeover` prop;
-  `BringInSeed` (`initialSearch`, `projects` with `id`, `name`, `personal`).
-- **Routing**: `lib/routing/bringInLocation.ts` (`BringInLocation`, `bringInLocation`, `bringInHref`);
-  `useBuilderSearchFrom`; the addresses `/build/new?hq=choose` and `/build/new?hq=<reading id>`.
-- **The picker**: `HqAppPicker`, `HqAppPickerRow` (`lib/deployment/reading/pickerTypes.ts`);
-  `listHqAppsForPicker`; the route `GET /api/commcare/hq-apps`.
-- **The connection**: the route `GET /api/commcare/connection` (`{ connection:
-  CommCareSettingsPublic }`); `CommCareConnection`'s `refresh`, `isRefreshing` and `refreshFailed`;
-  `HqNotConnected` (props `title`, `body`, `note`, `error`, `isRefreshing`, `onRefresh`).
-- **Links to CommCare HQ**: `hqPlaceUrl` (`lib/deployment/hqPlaceUrl.ts`, exported from
-  `lib/deployment`).
-- **The first publish**: nothing of this part's own. It reads part 09's `FirstPublishView`,
-  `firstPublishLines(view, surface)`, its copy and `DeploymentView.firstPublish`, and over MCP its
-  `readFirstPublishStates` and `firstPublishOf` (`lib/deployment`, B7), and adds no column,
-  migration, store function, model function or sentence.
-- **Copy**: `lib/publish/bringInCopy.ts`, with the ids of "Copy" (K22, W4b and `platformOutBlock`
-  among them, M1 to M6 added by B12, and no string about what the first publish changes). No X3:
-  the `unopened` screen draws part 12's `UNVERIFIED_LANDING_TITLE`. The account draws part 01's
-  `ACCOUNT_CHECK_AGAIN_LINE`, and every circumstance's next step is part 01's
-  `circumstanceNext(finding)`.
-- **Publishing**: `broughtInOf`, `cardKind`, `broughtInElsewhere`
-  (`app-setup/publishingSectionModel.ts`); `StopPublishingDialog` (props `open`, `onOpenChange`,
-  `target`, `onStopped`); `DeploymentStatus`'s prop `canStop`;
-  `PublishDialogProps.hqConnectionRefreshFailed`; `PublishPlan` and
-  `publishPlanCopy(plan, { broughtInElsewhere })`, exports of `components/builder/publishOutcome.ts`
-  with two new arms; `PLATFORM_DECLARATION_LINES` (`lib/domain/platforms.ts`).
-- **The home list's freshness**: `markAppListStale()` called by the flow and by the home row's Check
-  again; `RefreshStaleAppList` mounted in the empty state too.
-- **Primitives**: `components/shadcn/radio-group.tsx` (`RadioGroup`, `RadioGroupItem`) and its
-  contract.
-- **The home list**: `ReadingsInProgress`, `ReadingRow`, `readingRow`.
-- **MCP**: the tools `list_hq_apps`, `read_hq_app`, `bring_in_hq_app`, `stop_publishing`,
-  `refresh_managed_data`, `set_lookup_table_management`, each a `z.strictObject`; `describeReading`,
-  `mapReadingRefusal` and `ReadingProjection` (`lib/mcp/tools/readingProjection.ts`);
-  that `read_hq_app` and `bring_in_hq_app` give a step part 12's `HQ_READING_STEP_MS`, 30 seconds
-  inside `MCP_MAX_DURATION_SECONDS`;
-  `BringInErrorType` (`hq_read_stopped`, `bring_in_refused`), `BringInToolError` and
-  `McpErrorPayload`'s `circumstance`, `title`, `next` and `refusal`; `first_publish`, part 09's
-  `firstPublishLines` value in snake case, on each `review.runs_on` entry of `read_hq_app` (built
-  with `review`) and at the top level of `check_project_space_compatibility` (built with `publish`,
-  null where `firstPublishOf` answers null), with no `first_publish_changes` and no
-  `touches_workers` key anywhere; an agent relays `workers.lines` first, then `hq_only.lines`, each
-  `sentence` as written, then `reassurance` where it is not null, then `note`;
-  `account.check_again`; every circumstance `next` as `circumstanceNext(finding)`;
-  `review.cannot_run`; `brought_in` and `ending` on the deployment projection and `since` on
-  `upload_app_to_hq`'s `remote_changes` entries, all three added by B12 (`ended` and
-  `publishing_stopped` are in the served enums from B8); `url` on a `created` answer.
-- **Versions**: `MODEL_CONTEXT_VERSION` `"v7-hq-round-trip-bring-in.b12"` after B12;
-  `RUNTIME_VERSION` stays `19`, the value A9 leaves (part 04, 3.4): no pinned document and no
-  evaluator changes in B11 or B12.
-- **Tests and seeds**: the `@seed:bring-in` profile (`SMOKE_PROFILES`, `smokeSeedFactory.ts`,
-  `e2e/lib/bringInSeed.ts`); the `bring-in` component peer.
-- **The plugin**: the skill `bring_in`; version `2.5.0`.
-- **Docs**: `content/docs/bringing-in-from-commcare-hq.mdx`; the rows of 17.2, the two Claude Code
-  pages among them; the section "Bringing in" of `design/readme.md`.
-- **Facts**: the flow is a state of `/build/new` and never a dialog; its address holds the reading's
-  id, which is the app's; a refresh loads the row and keeps no review answer; a stop is never mixed
-  into an account; the review asks nothing by tick, preselects where the app runs and leaves a table
-  choice open; Bring it in is never disabled for a missing answer; a brought-in app lands on its own
-  home with one toast and an empty conversation; what the first publish changes is part 09's list,
-  drawn in the review from the chosen declaration's own view and in the Publish dialog and over MCP
-  from the read baseline's, and this part stores none of it; no act of the flow calls the Next
-  router while the flow is on screen, and Check connection reads a route in the picker and in the
-  Publish dialog alike; a creation holds the creating screen from the press to its end, through
-  `again` answers and a lost request; a reading added to another Project than the tab's is named
-  with its Project wherever the screen says where it is kept; leaving pauses a read after the step
-  in flight and the copy says so; a viewer of the tab's Project who edits another can use the flow;
-  the Solutions Architect is given none of the bring-in tools; `bring_in_hq_app` has no optional
-  answer and takes no Project; B11 adds no migration, moves no version and asks for no billed run,
-  and B12 asks for one, of two entries.
+This part adds no migration, no column and no `lib/db/pg.ts` change, no `lib/hostnames.ts` entry
+(4.2, 4.4) and no `scripts/test-schema.ts` entry (15.3).

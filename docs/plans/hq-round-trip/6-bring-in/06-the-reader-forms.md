@@ -6,41 +6,43 @@ manifest as the reader reads it at run time, the accounting cursor that makes ad
 the code, the walk of an HQ application, its menus and its forms at the level of their own keys, and
 the whole reading of a form's source: data tree, binds, load-time values, body, text, media references,
 the nodes Nova itself generates, Vellum's shadows, Connect blocks, and the declaration the content
-allows. It plans pull requests B2 (the frame) and B3 (forms) in full. It hands case management, menus,
-lists and search to part 07 (`07-the-reader-cases-menus-lists.md`, B4 and B5), expressions to part 08
-(`08-the-reader-expressions.md`, B6) and acceptance to part 09
-(`09-acceptance-and-the-first-publish.md`, B7), and states exactly what each receives.
+allows. Case management, menus, lists and search are part 07's
+(`07-the-reader-cases-menus-lists.md`), expressions part 08's (`08-the-reader-expressions.md`) and
+acceptance part 09's (`09-acceptance-and-the-first-publish.md`). This part states the frame each of
+them works in.
 
-Citations are `path::symbol`. Nova is read at `main` `15a00a97`; the Dimagi checkouts at the pins
+Citations are `path::symbol`. Nova is read at `main` `1f103305`; the Dimagi checkouts at the pins
 `proof/pins.json` names: commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android
 `7a5584475580`, commcare-connect `046c7fd78081`, formplayer `24383ac71bfb`, Vellum `01215f251c57`. Every
 CommCare fact below was read at those commits for this part. HQ paths are relative to
 `corehq/apps/app_manager/` unless they start with another app's name; Vellum paths to `src/`. A manifest
 entry is named by its full id as `lib/commcare/surface/entries/*.json` holds it.
 
-Nothing in B2 or B3 is reachable by a person: the reader has no caller until B10. Neither pull request
-changes a served tool input, a tool description or the guide, so `lib/models.ts::MODEL_CONTEXT_VERSION`
-and `lib/db/appTests.ts::RUNTIME_VERSION` do not move, and no `scripts/test-schema.ts` entry is added.
+A person reaches the reader only through the read and the create of part 12
+(`12-the-reading-and-the-birth.md`). Nothing in this part changes a served tool input, a tool
+description or the guide, so it gives `lib/models.ts::MODEL_CONTEXT_VERSION` no reason to move and
+adds no `scripts/test-schema.ts` entry. Nothing in it changes what an app test runs, so it gives
+`lib/db/appTests.ts::RUNTIME_VERSION` none either.
 
-| Section | Owns | Pull request |
-|---|---|---|
-| 2 | the package, file by file; `readHqApp`'s input and output; purity; the Biome rule | B2 |
-| 3 | the manifest at run time: `surface/inventory.ts`, the index and the manifest revision | B2 |
-| 4 | the accounting cursor: claims, consumption, the claim log, unknown keys, cost on a large app | B2 |
-| 5 | findings and places as the reader makes them | B2 |
-| 6 | the application walker: every `Application` key, languages and wire codes, the floor, doc types | B2 |
-| 7 | menus and forms at the level of their own keys; identity; the keys left to parts 07 and 08 | B2 |
-| 8 | the XForm reader: parse to model and body, the join | B3 |
-| 9 | the field kind decision table and appearances | B3 |
-| 10 | choices, groups, sections and repeats | B3 |
-| 11 | logic slots as pending text; load-time values and A's effective order | B3 |
-| 12 | itext by reference, prose, markdown copies, media references, translations | B3 |
-| 13 | the generated-node recognizer, purpose by purpose | B3 |
-| 14 | Vellum's shadows and hashtag metadata | B3 |
-| 15 | Connect blocks | B3 |
-| 16 | assembly, the declaration the content allows and the date-and-time split | B2 |
-| 17 | what parts 07, 08, 09, 11 and 12 receive | B2, B3 |
-| 18 | every finding this part can produce | B2, B3 |
+| Section | Owns |
+|---|---|
+| 2 | the package; `readHqApp`'s input and output; purity; the stages; the Biome rule |
+| 3 | the manifest at run time: `surface/inventory.ts` and the index |
+| 4 | the accounting cursor: claims, consumption, the claim log, unknown keys, cost |
+| 5 | findings and places as the reader makes them |
+| 6 | the application walker: every `Application` key, languages and wire codes, the floor, doc types |
+| 7 | menus and forms at the level of their own keys; identity; the keys left to parts 07 and 08 |
+| 8 | the XForm reader: parse to model and body, the join |
+| 9 | the field kind decision table and appearances |
+| 10 | choices, groups, sections and repeats |
+| 11 | logic slots as pending text; load-time values and A's effective order |
+| 12 | itext by reference, prose, markdown copies, media references, translations |
+| 13 | the generated-node recognizer, purpose by purpose |
+| 14 | Vellum's shadows and hashtag metadata |
+| 15 | Connect blocks |
+| 16 | assembly, the declaration the content allows, the date-and-time split, generated translation keys |
+| 17 | what the reader hands the expression stage, acceptance and the request that calls it |
+| 18 | the circumstances this part raises |
 
 ---
 
@@ -52,14 +54,13 @@ and `lib/db/appTests.ts::RUNTIME_VERSION` do not move, and no `scripts/test-sche
    choices and the facts later parts read) or an account. It is outside the `lib/commcare` barrel and
    carries `server-only`. Its stages, 1 to 11 with 5b, run in one fixed order (2.3), with part 07's
    four settle functions after the expressions are bound.
-2. **`biome.json` does not change in B2 or B3** (2.4). The reader's one production consumer is
+2. **The reader needs no new consumer in `biome.json`** (2.4). Its one production consumer is
    `lib/deployment/reading/`, which the rule already admits, and `proof/` is outside the rule. The
    rule's four messages open by calling `lib/commcare` a one-way emission boundary, which the reader
-   makes false; B7 (part 09), which already edits those four strings, rewrites that first sentence.
+   makes false, so this part rewrites that first sentence ("Contracts").
 3. **The manifest's entries are loaded by one server module, `lib/commcare/surface/inventory.ts`** (3),
-   which parses the six area files once and derives each entry's standing, cause, subject and owner
-   through part 01's `standingOf` and `fixCauseOf`. The revision a reading stores is part 12's
-   `surface/revision.ts::surfaceStandingsRevision`, which B2 carries so the census can name it.
+   which parses the six area files once and derives each entry's standing, cause and subject
+   through part 01's `standingOf` and `fixCauseOf`.
 4. **Every claim site is data** (4.2). A reader module declares its claims with `defineClaims`: each
    names one entry id, one surface key and what the site does (`take`, `derived`, `drop`, `refuse` or
    `account`). A test holds every claim to the manifest: the entry exists, its standing permits the use,
@@ -71,9 +72,9 @@ and `lib/db/appTests.ts::RUNTIME_VERSION` do not move, and no `scripts/test-sche
 6. **The claim log is in the proof lane's vocabulary** (4.5): `(artifact, where, key, entry, standing)`,
    with `artifact` and `where` spelled as `proof/checks/manifest_usage.py` spells them. Production keeps
    counts by entry; the full log is materialized only for tests and the lane's judge.
-7. **A stage that has not landed is an unclaimed key** (2.3). B2's reader reports `unrecognized` for
-   everything B3 to B6 will claim. No stub, no flag: the property that refuses an unknown key is the
-   one that keeps a half-built reader from admitting anything.
+7. **A stage absent from `STAGES` leaves its keys unclaimed** (2.3). No stub and no flag: the
+   property that refuses an unknown key is the one that keeps a reader with a stage missing from
+   admitting anything.
 8. **The application walker claims every declared `Application` property by part 01's table** (6), reads
    `langs` into language identities with HQ's codes stored verbatim, and judges `build_spec` against the
    floor. A menu or form of a document type Nova does not hold is one finding at that menu or form, and
@@ -91,10 +92,10 @@ and `lib/db/appTests.ts::RUNTIME_VERSION` do not move, and no `scripts/test-sche
 13. **A model-iteration repeat is held exactly where Nova's own rule runs model iteration** (10.4). The
     three shapes the manifest refuses stay refused; any other shape the rule does not run is a new
     HELD-NEW entry. The outline's wider "load-time rule" is not built in step 6 (Departure 1).
-14. **A logic attribute is never read as text by this part** (11.1). B3 registers each as part 08's
-    `PendingExpression`, under the slot of the document it will live in; stage 7 builds a provisional
-    document in every reading, findings or none, and part 08's `readExpressions` binds against it, so
-    an expression finding is reported beside a structural one.
+14. **A logic attribute is never read as text by this part** (11.1). The forms stage registers each
+    as part 08's `PendingExpression`, under the slot of the document it will live in; stage 7 builds
+    a provisional document in every reading, findings or none, and part 08's `readExpressions` binds
+    against it, so an expression finding is reported beside a structural one.
 15. **A's effective load-time order is computed, and a changed order between a value and the node it
     reads is a finding** (11.3): in the form's own setvalues under a new REFUSED entry, since a save in
     HQ's form builder would reorder them too; for a value HQ's build appends, under part 07's entries.
@@ -113,11 +114,11 @@ and `lib/db/appTests.ts::RUNTIME_VERSION` do not move, and no `scripts/test-sche
 20. **A generated node Nova would name, add or drop differently is a fact for the first-publish
     register, never a refusal** (13.4): the reading lists every node it folded, and part 09 gets the
     difference from its own re-read of Nova's emission.
-21. **A real attribute and its `vellum:` shadow must expand to one tree** (14), compared in B3 over the
-    grammar's syntax tree with the form's own hashtag metadata. A difference is `shadow-disagrees`. A
-    form saved with rich text off has shadows HQ's form builder does not read, and they are inert. A
-    hashtag the head lists with no meaning takes the one the real attribute gives it, once per form.
-    The comparison is this part's alone: part 08 reads `shadowAgrees` and writes none.
+21. **A real attribute and its `vellum:` shadow must expand to one tree** (14), compared by the forms
+    stage over the grammar's syntax tree with the form's own hashtag metadata. A difference is
+    `shadow-disagrees`. A form saved with rich text off has shadows HQ's form builder does not read,
+    and they are inert. A hashtag the head lists with no meaning takes the one the real attribute
+    gives it, once per form. The comparison is this part's alone: part 08 writes none.
 22. **The declaration is a list of choices with one proposed** (16.3): each declaration the content runs
     on, with and without the date-and-time split, the proposal narrowed to Android where HQ holds Web
     Apps off and keeping Web Apps where HQ holds it on. Content no choice runs is a new circumstance,
@@ -125,25 +126,33 @@ and `lib/db/appTests.ts::RUNTIME_VERSION` do not move, and no `scripts/test-sche
 23. **A split question reads back as three ordinary questions** (16.4): a Hidden Value bound
     `xsd:dateTime` whose calculate is the clock-keeping join, beside a date and a time question. The
     reader gives the shape no name of its own.
-24. **One class of finding can wait for a second reading** (16.5): a generated key in `translations`
-    is classified against the strings Nova's build makes of the whole document, so in a reading that
-    already holds a finding it is postponed, never reported as `unrecognized` (Departure 11).
+24. **A generated key in `translations` is classified in the reading that meets it** (16.5), against
+    the strings Nova's build makes of the document as read, wherever the menu or form the key names
+    read whole. A key of a menu or form that holds a finding stands under that finding, and none is
+    ever reported as `unrecognized` or left for a later reading to claim (Departure 11).
 25. **A reference whose standing is project data's is handed off, never left unclaimed** (4.3, 12.4).
     A media path with no file and an itemset over a table the catalog lacks are recorded as hand-offs
-    with their node; the caller settles each through part 11's pure rules in the same check, and
+    with their node; the caller settles each through part 11's pure rules in the same request, and
     acceptance holds that none is left (Departure 13).
 26. **Nova's own defects never reach a person as HQ's content** (5.1). An `unrecognized` finding's
-    `detail.name` is always a surface key; what went wrong inside the reader is a `ReaderDefect`
-    returned beside the findings, which part 12 logs at error and never stores or shows.
+    `detail.name` is a surface key, or the value as the app writes it where the unclaimed thing is a
+    value (an appearance, 9.2); what went wrong inside the reader is a `ReaderDefect` returned beside
+    the findings, which part 12 logs at error and never stores or shows.
 27. **A translation left blank is held in another language and refused in the first** (12.2). A
     blank value in a language other than the first, where the first language holds text, reads as no
     translation, and Nova's first publish writes the first language's text there, as HQ's form
     builder does on every save. A blank in the first language where another language holds text
     stays a refusal, under an entry of its own.
 28. **The reader is handed the project space's levels and the record dialect's judge, and learns
-    worker and location properties from the app** (2.2, 2.3). From B9 the structure stage puts HQ's
-    levels on the draft; from B6 the expression stage runs part 08's `readExpressions` twice, the
-    first run only to learn which worker and location properties the app reads.
+    worker and location properties from the app** (2.2, 2.3). The structure stage puts HQ's levels
+    on the draft, and the expression stage runs part 08's `readExpressions` twice, the first run
+    only to learn which worker and location properties the app reads.
+29. **Text CommCare HQ's build reads as an instance is a finding at the form** (7.4, 15): a form's
+    name in the first language, and a Connect block's name or description, for which part 03's
+    `instanceScanRead` answers. The entries are part 03's (its section 5.1), and the reader adds
+    neither.
+30. **A logo entry CommCare HQ's uploader did not write is refused** (6.1): a slot whose path is
+    not the uploader's, or whose entry holds no `m_id`.
 
 ---
 
@@ -152,13 +161,8 @@ and `lib/db/appTests.ts::RUNTIME_VERSION` do not move, and no `scripts/test-sche
 Read in full unless a range is named.
 
 - **The plan's rules**: `docs/plans/hq-round-trip/README.md` and the outline.
-- **The plan's other parts, for each seam this part states**: part 01 (opening, decisions, 2, 3.5,
-  4.1 to 4.4, 7.1, 8, 9.1, 9.3, files, needs, reads), part 03 (2, 3.1, 4.1 to 4.4, 4.8, 5, 8, 10,
-  reads), part 04 (3, 7, 11, reads), part 05 (7, 8, the question summary type), part 07 (2, 3.7, 5,
-  10.2, 13.3, needs), part 08 (2.5, 3.1 to 3.3, 6.1, 9.3, 10, copy, files, needs), part 09 (4, 5.2,
-  5.4, 6.1, 9, 11.2, Departure 6, needs), part 10 (2, 3.1, needs), part 11 (2.1, 3.2, 5.1, 5.5,
-  11.1, 11.2, 11.5, 14, needs), part 12 (3.3, 3.6, 3.9, 6.4, needs), part 13 (14.4, needs) and part
-  14 (4, 6.2, 8.1, needs).
+- **The plan's other parts**, for each thing of theirs this part uses: parts 01, 03, 04, 05 and 07
+  to 14, at the sections this part cites where it uses them.
 - **The emitter**: `lib/commcare/CLAUDE.md` (the barrel, multilingual emission, the surface manifest,
   typed form expression emission, validation counts, hidden fields, capture uploads, the Vellum
   dual-attribute pattern, bare hashtags, markdown itext, secondary instances, repeat modes, sections,
@@ -203,10 +207,9 @@ Read in full unless a range is named.
 - **Also read in Nova and the lane**: `lib/domain/questionId.ts` (whole);
   `lib/domain/expression/types.ts::SlotContextRef`; `xform/caseSaveReferences.ts::caseSaveReferences`;
   `xmlParse.ts::tryParseXml`; `appStringKeys.ts` (its import of `surface.json`);
-  `vitest.config.mts` (its projects); `docs/testing.md` ("Performance and verification");
-  `lib/doc/commitVerdicts.ts` (its imports of `lib/commcare`);
-  `lib/commcare/hq/locations.ts::HqLocationType`; the manifest entries this part copies fields
-  from, as `lib/commcare/surface/entries/*.json` holds them, and
+  `docs/testing.md` ("Performance and verification"); `lib/doc/commitVerdicts.ts` (its imports of
+  `lib/commcare`); `lib/commcare/hq/locations.ts::HqLocationType`; the manifest entries this part
+  copies fields from, as `lib/commcare/surface/entries/*.json` holds them, and
   `surface/schema.ts::inventoryEntrySchema`; `xform/builder.ts::buildFieldParts` (the constraint
   count's bind and the scalar check); `proof/checks/manifest_usage.py::xform_vocabulary`,
   `namespace_read_holds`, `qualified` and `_element_path`;
@@ -219,6 +222,17 @@ Read in full unless a range is named.
   `models/forms.py::FormSource.__set__`, `xform.py::XMLNode.tag_xmlns`,
   `models/applications.py::Application.scrub_source`, `util.py::update_form_unique_ids` and
   `models/modules.py::ModuleBase.get_or_create_unique_id`.
+- **Also read, for sections 6.1, 7.4, 8.2, 10.2 and 16.5**: commcare-hq `id_strings.py` (every
+  `@pattern`), `hqmedia/views.py::ProcessLogoFileUploadView.process_upload`,
+  `hqmedia/models.py::CommCareMultimedia.get_media_info`, `cloudcare/utils.py::format_app_doc`,
+  `models/applications.py::Application.create_profile`, `xform.py::parse_xml` and
+  `_infer_vellum_type`, `reports/formdetails/readable.py` (its two tests of a question's type) and
+  `export/models/new.py::FormExportDataSchema.datatype_mapping`; commcare-core
+  `FormEntryController.java::isHostWithAppearance`; Nova's `lib/commcare/compiler.ts::compileCcz`
+  (where it fills `appStrings` and `appStringUnits`, and its three oracle gates),
+  `lib/domain/translationUnits.ts::translationUnitOwnerKinds` and
+  `lib/domain/formWireName.ts::formWireName`; and the two retained reads run R1 names, form by
+  form.
 
 **Claims corrected.**
 
@@ -226,7 +240,7 @@ Read in full unless a range is named.
   entries through `surface/gates.ts`, never `surface.json`, so a server bundle carries the gate entries
   alone." `surface/schemaDefaults.ts` imports `surface.json`, and `lib/deployment/hqSourceBaseline.ts`,
   `preflight.ts` and `service.ts` import it. `appStringKeys.ts` imports `surface.json` too. A server
-  bundle already carries the generated surface. B2 replaces the sentence (see "Contracts").
+  bundle already carries the generated surface. This part replaces the sentence ("Contracts").
 - **Claim corrected (the outline, item 9).** "The reader proposes the platforms the content runs on
   (`contentRunsOn`, the rule of `planContentDeclaration` reduced to platforms)". `planContentDeclaration`
   returns one declaration, and offers the split only where the content runs on neither platform. An app
@@ -260,67 +274,76 @@ Read in full unless a range is named.
   `xpath/formParseScope.ts::FormParseScope.sourceProjection` takes a projection under other
   physical names, so the reader hands part 08 the source's own names (17.2) and nothing is renamed
   before binding.
+- **Nova's build is total over a document the gate admits, and over no other.**
+  `compiler.ts::compileCcz` throws where a generated form, suite or media suite fails its oracle,
+  and the oracles are held to pass only for a document the gate admitted. So the app strings of a
+  document that holds a stand-in or a placeholder exist only where the gate admits that document.
+  Section 16.5 rests on this.
+- **Every generated app string that names a menu names it by position.** In `id_strings.py` every
+  `@pattern` that names a menu holds `m%d` as its first number, and one that names a form holds
+  `m%df%d`, with one exception: `custom_assertion.%s.%d` (`custom_assertion_locale`), whose `%s`
+  is `m<n>`, `m<n>.f<n>` or `root`, so its pattern names a menu or a form and holds neither
+  number. Nova's build writes no string under that id: nothing under `lib/` spells
+  `custom_assertion.` but the generated `surface.json`, which lists the pattern. Nova's build
+  fills the other ids from a menu's, a form's, a list's and a search's own text (`compileCcz`,
+  `appStringUnits`), and from one unit that is no menu's: a case property's option label
+  (`translationUnitOwnerKinds`, `case-property-option`), which feeds an enum string in every list
+  that shows the property.
+- **The retained save holds no generated node that was saved.** In
+  `proof/hq-reads/navigation-base/app-source-after-form-builder-save.json` the one form HQ's form
+  builder saved holds one question and no generated node, and the form that holds generated nodes
+  (`nova_trimmed_name`, `nova_trimmed_external`) was not saved: its source is byte-equal to the
+  one in `app-source.json`. Run R1 is written for that.
 
 ---
 
 ## Written and not yet run
 
-Nothing was run for this part: no test, no typecheck, no lane. Every Vitest named under "Tests" runs
-first in the pull request that adds it, in ordinary CI; R2's file alone is outside it. Two runs decide
-something.
+Nothing was run for this part: no test, no typecheck, no lane. Every Vitest named under "Tests" is
+an ordinary CI test. One of them decides something.
 
-**R1 (B3; ordinary CI, `lib/commcare/reader/xform/__tests__/vellumSavedSource.test.ts`).** Whether a
-save in HQ's form builder leaves each generated node in the shape section 13 recognizes. The test reads
-`proof/hq-reads/navigation-base/app-source-after-form-builder-save.json`, a Nova export after HQ's form
-builder saved it with nothing changed, and `proof/hq-reads/navigation-base/app-source.json`, the same
-export before.
+**R1 (ordinary CI, `lib/commcare/reader/xform/__tests__/vellumSavedSource.test.ts`).** Whether a
+save in HQ's form builder leaves each generated node in the shape section 13 recognizes. It has two
+cases, because no one retained read holds both halves of the question:
 
-- *A: every generated node of the saved source folds to the owner the unsaved source folds it to, and
-  the two readings give equal form drafts.* Section 13 stands.
-- *B: a generated node of the saved source fails its comparison because the save re-spelled it* (an
+- **The save's own respelling.** `proof/hq-reads/navigation-base/app-source-after-form-builder-save.json`
+  is a Nova export after HQ's form builder saved one of its forms with nothing changed, and
+  `app-source.json` beside it the same export before. The form that was saved holds no generated
+  node ("Executed during planning"), so this case holds one thing: what a save respells (attribute
+  order, added `vellum:` attributes, the hashtag blocks) does not disturb the read. The two
+  readings give equal form drafts.
+- **A generated node after a save.** `proof/hq-apps/hq-nova-then-builder/app-source.json`, read
+  through `retainedBase`, is a base whose every form was saved in the form builder after Nova
+  wrote it, and it holds Save to Case blocks, guards, keyed creates and a lifted validation count
+  (part 14, section 6.2). Every node of a saved form that carries an allocator name (13.1) folds
+  as the generated node of that purpose, and none reads as a Hidden Value: the base holds no
+  question an author named like one of Nova's. This case needs the base's retained read in the
+  tree, so it joins the test with that read (part 14 says how a base is retained).
+
+Each outcome is settled before the merge:
+
+- *A: every allocator-named node of each saved form folds, and the respelling case reads to equal
+  drafts.* Section 13 stands.
+- *B: a generated node of a saved form fails its comparison because the save re-spelled it* (an
   attribute added or dropped, a type re-cased). The rule of 13.2 for that purpose gains the saved
-  spelling as a second accepted tree, written from the retained read, in B3; the test keeps both
+  spelling as a second accepted tree, written from the retained read, and the test keeps both
   spellings. No other file changes.
-- *C: the save changed what the node computes.* That is a defect of the emitter, not of the reader.
-  B3 stops. The emitter is corrected in a pull request of its own against `main`, outside stack B,
-  because it changes bytes every export writes. That pull request retains the uncorrected export as
-  a control under `proof/controls/`, named by the entry it adds to `proof/fixed-defects.json`
-  (`proof/CLAUDE.md`, "The register is strict"). Stack B is rebased onto it and R1 is run again.
+- *C: the save changed what the node computes.* That is a defect of the emitter, not of the
+  reader. The emitter is corrected in this step, in the file that writes that node (13.2's
+  "Emitter" column names it). The fix changes bytes every export writes, so the uncorrected export
+  is retained as a control under `proof/controls/`, named by the entry the fix adds to
+  `proof/fixed-defects.json` (`proof/CLAUDE.md`, "The register is strict"); the base is emitted
+  and retained again, and R1 runs again.
 
-The retained read holds the generated nodes its document has. The purposes it does not exhibit are held
-by the form fixed point over the fuzz corpus ("Tests") and, after a save, by the lane's two editor saves
-in part 14 (B13).
+The retained reads hold the generated nodes their documents have. The purposes they do not exhibit
+are held by the form fixed point over the fuzz corpus ("Tests").
 
-**R2 (B3; by hand on a hosted runner, `lib/commcare/reader/__tests__/readerScale.scale.test.ts`).**
-Whether the reader fits its share of a step on an app at Nova's own ceiling. The run builds a source of
-150 forms of 200 questions in three languages with the production emitter, reads it in `counts` mode
-five times, and prints the slowest read. It is a measurement and asserts no time, because
-`docs/testing.md` ("Performance and verification") keeps a timing assertion off shared runners.
-
-The share is 20 seconds for one read. A reading's check runs the reader twice (the read, and
-acceptance's re-read of Nova's emission, 17.3) beside a compile, the gate and export readiness, all
-inside part 12's `HQ_READING_CHECK_BUDGET_MS` of 60 seconds, which is itself cut from the 90 seconds
-part 05 leaves a step beyond its HQ reads (`HQ_READING_STEP_REMAINDER_MS`). Two reads at 20 seconds
-leave the other three 20 seconds.
-
-- *A: the slowest read is at or under 20 seconds.* Nothing lands beyond the run and its workflow.
-- *B: it is over.* B3 gains, before it merges, a memo of the expected tree of a generated node by
-  purpose and path shape (13.1): rebuilding that tree for every candidate is the one cost of this
-  design that grows with a form's questions times its generated nodes. A claim's `where` is already
-  built only where the full log is asked for (4.5), so nothing is left to move there. The share does
-  not move, and the run is made again.
-
-Nothing runs it unasked. The file's name ends `.scale.test.ts`; B3 adds `**/*.scale.test.ts` to the
-`exclude` of the `unit` project in `vitest.config.mts` and a third project, `scale`, that includes
-only that pattern, so `npm test` and `npm run test:changed` never reach it on any machine. It runs
-only from `.github/workflows/reader-scale.yml` (new, `workflow_dispatch` alone, one hosted runner,
-`npx vitest run --project scale`), started by hand on B3's branch. It is never run on a person's
-machine.
-
-What ordinary CI holds instead is deterministic: `readerWork.test.ts` ("Tests") reads a form of 200
-questions and one of 400 and requires each counter of `ReadCensus.work` (2.2) to at most double, so a
-stage that goes quadratic fails there with no clock in the test. In production an app that still
-runs long ends as part 12's `too-large` (its 3.6), never as a hung step.
+The reader's time is no run of this part. An app's source is refused above part 12's byte bound
+before it is parsed, and the test at that bound, which holds each synchronous piece of a read
+under five seconds, is part 12's (its "Tests"); `readHqApp` is one such piece. What this part
+holds is deterministic: `readerWork.test.ts` ("Tests") reads a form of 200 questions and one of
+400 and requires each counter of `ReadWork` (2.2) to at most double, so a stage that goes
+quadratic fails there with no clock in the test.
 
 ---
 
@@ -359,52 +382,51 @@ runs long ends as part 12's `too-large` (its 3.6), never as a hung step.
 - **The declaration a document's content allows has one planner.**
   `lib/doc/platformDeclaration.ts::planContentDeclaration` gives one declaration or says the content
   runs on neither platform, and `lib/doc/datetimeSplit.ts::planDatetimeSplits` plans the split.
-- **A person meets none of it.** There is no finding type and no place type before part 01's A2.
+- **A person meets none of it.** There is no finding type and no place type today; part 01 adds
+  both (its section 8).
 
-Stack A changes four things this part reads as its ground, each from the pull request named: a Text
-question's `keypad` and the one writer of `appearance`, `xform/appearance.ts::fieldAppearance` (A6); a
-prose `value` part and `canonicalProseAtom` (A7); `plainHelp`, `Form.plainText`, and no `markdown` copy
-on a hint or a validation message (A8); hyphens in question ids and the doubled hyphen of
-`fieldItextKey`, one-option selects and quote marks in a choice value (A9). Stack B is cut after stack A
-deploys, so B2 and B3 are written against all of it.
+The forms stage reads into four things this step adds on the emission side, and writes each back
+with the production emitter, so each exists in the tree before the code that reads into it: a Text
+question's `keypad` and the one writer of `appearance`, `xform/appearance.ts::fieldAppearance`
+(part 03); a prose `value` part and `canonicalProseAtom` (part 03); `plainHelp`, `Form.plainText`,
+and no `markdown` copy on a hint or a validation message (part 03); hyphens in question ids and
+the doubled hyphen of `fieldItextKey`, one-option selects and quote marks in a choice value (part
+04).
 
 ---
-## 2. The package and its public function (B2)
+## 2. The package and its public function
 
-### 2.1 Files
+### 2.1 The package
 
-`lib/commcare/reader/` is new. Nothing in it is exported from `lib/commcare/index.ts`.
+`lib/commcare/reader/` is new. Nothing in it is exported from `lib/commcare/index.ts`. These are
+its own modules; "Files" lists every other file this part makes or changes.
 
-| File | Pull request | Exports |
-|---|---|---|
-| `lib/commcare/xmlNamespaces.ts` | B2 | `XFORMS_NS`, `XHTML_NS`, `JAVAROSA_NS`, `VELLUM_NS`, `OPENROSA_NS`, `NamespaceScope`, `scopeOf`, `splitName`, `isElement`, `namespacedAttribute`, `elementChildren`, `qualifiedName`. The helpers `hq/publishedCaseBlocks.ts` holds privately today are moved and renamed (`Scope` to `NamespaceScope`, `XFORMS` to `XFORMS_NS`, `XHTML` to `XHTML_NS`, `VELLUM` to `VELLUM_NS`), their bodies unchanged; `JAVAROSA_NS`, `OPENROSA_NS` and `qualifiedName` (4.5) are new. `publishedCaseBlocks.ts` imports them, and so does `xform/deviceForm.ts`, whose own `VELLUM_NAMESPACE` goes |
-| `lib/commcare/surface/inventory.ts` | B2 | section 3 |
-| `lib/commcare/surface/revision.ts` | B2 | `surfaceStandingsRevision`, exactly as part 12's 3.9 writes it; B10 adds that section's other two functions to the file |
-| `reader/index.ts` | B2 | `readHqApp`, `STAGES`, `ReaderStage`, and the types of `types.ts` |
-| `reader/types.ts` | B2 | `ReaderInput`, `ReaderOptions`, `ReadOutcome`, `ReadDraft`, `ReadMenuAndFormIdentities`, `ReadFacts`, `ReadFormFacts`, `ReadGeneratedNode`, `ReadCensus`, `ReaderDefect`, `ReaderLookupCatalog`, `ReaderLookupTable`, `ReaderOrganization`, `ReaderMediaIndex`, `ReaderMediaResolution`, `ReadMediaReference`, `PendingMedia`, `UnreadTable`, `AppStringTable` |
-| `reader/identity.ts` | B2 | part 10's file, exactly as its sections 2.1 to 2.3 write it |
-| `reader/claims.ts` | B2 | `Claim`, `ClaimUse`, `take`, `derived`, `drop`, `refuse`, `account`, `defineClaims`, `claimRegistry` |
-| `reader/accounting.ts` | B2 | `Accounting`, `Admitted`, `ClaimSite`, `ClaimRecord`, `HandOffRecord`, `ClaimLog`, `serializeClaimLog` |
-| `reader/jsonCursor.ts`, `reader/xmlCursor.ts` | B2 | `JsonCursor`, `HandOffKind`; `XmlCursor`, `XmlNode`, `elementWhere` |
-| `reader/place.ts` | B2 | `appPlace`, `appSettingsPlace`, `languagesPlace`, `menuPlace`, `formPlace`, `questionPlace`, `placeOrder`, `whereText`, `placeKey` |
-| `reader/defects.ts` | B2 | `READER_DEFECT_CODES`, `ReaderDefectCode`, `ReaderDefectWhy`, `readerDefect` (5.1), with the six constructors of B2's defects; B3 adds the four of D5 to D7 and D10 with their codes, and B6 the two of D11 and D12 |
-| `reader/context.ts` | B2 | `ReadContext`, `MutableReadFacts`, `DraftApp`, `DraftModule`, `DraftForm` |
-| `reader/pendingExpressions.ts` | B2 | part 08's file, exactly as its section 2.5 writes it: `ReadMode`, `PendingExpression`, `pendingPlaceholder`; and this part's `PendingRegistry` (11.1) |
-| `reader/syntaxCompare.ts` | B2 | `sameXPathText`, `sameSyntax`, `firstDifference`, `CompareOptions`, as part 08's 3.1 writes them, with rows L1 to L6 of its 3.2; B6 adds the record rows S1 and S2 to the same file |
-| `reader/hqInterpolation.ts` | B2 | part 08's file, exactly as its section 6.1 writes it: `interpolateHqXPath`, `dotInterpolate`, `syntaxOf`, `hqInterpolationSlot`, `HqInterpolationSlot`, `HqInterpolated`, `HQ_USERCASE_XPATH`, `hqCaseByIdXPath`. B2 carries it because B4 and B5 call `syntaxOf`, `dotInterpolate` and `hqInterpolationSlot`; B6 adds nothing to it |
-| `reader/provisional.ts` | B2 | `provisionalDocument`; B6 adds `bindExpressions` (stage 7) to the file |
-| `reader/worldEntities.ts` | B6, B9 | part 11's file: `worldEntitiesFromReads` (B6), `levelsFromHq` (B9), exactly as its 11.2 and 11.5 write them |
-| `reader/appShell.ts`, `reader/languages.ts` | B2 | `readApplication`; `languageIdentityForHqCode`, `readLanguages` |
-| `reader/structure.ts` | B2 | `readStructure` |
-| `reader/translations.ts` | B2 | `TranslationSink`, `translationEntryFor` |
-| `reader/generatedTranslationKeys.ts` | B2 | `classifyGeneratedTranslationKeys`, `GeneratedKeyVerdict` (part 01, 7.1) |
-| `reader/assemble.ts` | B2 | `assembleDocument`, `READER_CANONICAL_CHOICES`, `ReaderCanonicalChoice` |
-| `reader/xform/*.ts` | B3 | section 8 lists them |
-| `lib/doc/platformDeclaration.ts` | B2 | adds `planDeclarationChoices`, `DeclarationChoice`, `DeclarationChoices` (16.3) |
-| `lib/commcare/xform/generatedNodes.ts` | B3 | adds `generatedBaseName` (13.1); no behavior changes |
-| `lib/commcare/xform/builder.ts` | B3 | exports `buildQueryRepeat`, `buildRepeatBody`, `buildOwnerNodes`, `buildConnectBlocks`, `whitespaceOutput` and `inDataTreeOrder`, private today, and two trees `buildFieldParts` builds inline today, cut out as named functions it then calls: `constraintCountRelevant(question: FormPath): WireExpr` (the `count(q) > 0` of a constraint count's bind) and `questionScalarCheck(blank: "allow" | "reject"): WireExpr` (`caseScalarTextValueGuard(caseScalarTextValueCalculation(.), blank)`) (13.1); imports `isConsumerWhitespace`. No emitted byte changes |
-| `lib/commcare/xform/consumerWhitespace.ts` | B3 | new: `isConsumerWhitespace`, moved from `builder.ts` (12.3) |
-| `lib/commcare/xmlParse.ts` | B3 | `tryParseXml`'s failure arm gains `kind` (8.2) |
+| File | Exports |
+|---|---|
+| `reader/index.ts` | `readHqApp`, `STAGES`, `ReaderStage`, and the types of `types.ts` |
+| `reader/types.ts` | `ReaderInput`, `ReaderOptions`, `ReadOutcome`, `ReadDraft`, `ReadMenuAndFormIdentities`, `ReadFacts`, `ReadFormFacts`, `ReadGeneratedNode`, `ReadWork`, `ReaderDefect`, `ReaderLookupCatalog`, `ReaderLookupTable`, `ReaderOrganization`, `ReaderMediaIndex`, `ReaderMediaResolution`, `ReadMediaReference`, `PendingMedia`, `UnreadTable`, `AppStringTable` |
+| `reader/claims.ts` | `Claim`, `ClaimUse`, `take`, `derived`, `drop`, `refuse`, `account`, `defineClaims`, `claimRegistry` |
+| `reader/accounting.ts` | `Accounting`, `Admitted`, `ClaimSite`, `ClaimRecord`, `HandOffRecord`, `ClaimLog`, `serializeClaimLog` |
+| `reader/jsonCursor.ts`, `reader/xmlCursor.ts` | `JsonCursor`, `HandOffKind`; `XmlCursor`, `XmlNode`, `elementWhere` |
+| `reader/place.ts` | `appPlace`, `appSettingsPlace`, `languagesPlace`, `menuPlace`, `formPlace`, `questionPlace`, `placeOrder`, `whereText`, `placeKey` |
+| `reader/defects.ts` | `READER_DEFECT_CODES`, `ReaderDefectCode`, `ReaderDefectWhy`, `readerDefect` (5.1) |
+| `reader/context.ts` | `ReadContext`, `MutableReadFacts`, `DraftApp`, `DraftModule`, `DraftForm` |
+| `reader/pendingExpressions.ts` | `PendingRegistry` (11.1), beside part 08's record, which the file also holds: `ReadMode`, `PendingExpression`, `pendingPlaceholder` (part 08, section 2.5) |
+| `reader/provisional.ts` | `provisionalDocument`, `bindExpressions` (2.3) |
+| `reader/appShell.ts`, `reader/languages.ts` | `readApplication`; `languageIdentityForHqCode`, `readLanguages` |
+| `reader/structure.ts` | `readStructure` |
+| `reader/translations.ts` | `TranslationSink`, `translationEntryFor` |
+| `reader/generatedTranslationKeys.ts` | `classifyGeneratedTranslationKeys`, `GeneratedKeyVerdict`, `HeldGeneratedKey`, `generatedKeyOwner`, `GeneratedKeyOwner`, `repositionGeneratedKey` (16.5) |
+| `reader/assemble.ts` | `assembleDocument`, `READER_CANONICAL_CHOICES`, `ReaderCanonicalChoice` |
+| `reader/xform/*.ts` | section 8.1 lists them |
+
+Other parts own the rest of the package, and each states its own file: `reader/identity.ts` (part
+10, sections 2.1 to 2.3), `reader/syntaxCompare.ts` and `reader/hqInterpolation.ts` (part 08,
+sections 3.1 and 6.1), `reader/worldEntities.ts` (part 11, sections 11.2 and 11.5),
+`reader/expressions/` (part 08) and the directories of part 07's stages. Two of those are used
+before the expression reader exists: the forms stage compares trees through
+`syntaxCompare.ts::sameXPathText` under its form rows (13.1), and part 07's stages call
+`hqInterpolation.ts`. Neither file reads anything else of the expression reader.
 
 ### 2.2 The function
 
@@ -419,7 +441,7 @@ export function readHqApp(input: ReaderInput, options?: ReaderOptions): ReadOutc
 ```ts
 // lib/commcare/reader/types.ts
 export interface ReaderInput {
-	/** The reading's id, which becomes the app's id (part 12). */
+	/** The app's id, derived from the reading's id (part 12). */
 	readonly appId: string;
 	/** The project space the source was read from, for a capture's link (13.2, `url`). */
 	readonly target: { readonly origin: string; readonly domain: string };
@@ -427,16 +449,22 @@ export interface ReaderInput {
 	readonly source: HqAppSource;
 	/** Part 05: the aligned menus, each form's real id and HQ's own question summary. */
 	readonly modules: readonly HqAlignedModule[];
-	/** Part 10: `mintingResolver(appId)` for a reading, `matchingResolver` for proof 6. */
+	/** Part 10, section 2.3: `mintingResolver(appId)` for a reading; `matchingResolver` for
+	 *  acceptance's re-read, proof 6 and part 15's two readings (its section 2.2). */
 	readonly resolver: IdentityResolver;
 	readonly lookup: ReaderLookupCatalog;
 	readonly organization: ReaderOrganization;
 	readonly media: ReaderMediaIndex;
-	/** The local app strings Nova's build gives a document (16.5). Pure. */
-	readonly appStrings: (doc: BlueprintDoc) => AppStringTable;
-	/** Added by B6 (part 08, 2.5): whether the record dialect prints a tree and reads it back.
+	/** The local app strings Nova's build gives a document, or `null` where Nova's gate refuses
+	 *  the document, which Nova's build cannot write (16.5). Pure. */
+	readonly appStrings: (doc: BlueprintDoc) => AppStringTable | null;
+	/** Whether the record dialect prints a tree and reads it back (part 08, section 2.5).
 	 *  `RecordDialectJudge` is part 08's type (`reader/expressions/index.ts`). Pure. */
 	readonly recordDialect: RecordDialectJudge;
+	/** Whether the source project space applies "save only if changed", as part 05's probe of
+	 *  it answered; absent where the source holds no `update_mode: "edit"` and no probe was made.
+	 *  Part 07 reads it (its section 3); nothing of this part does. */
+	readonly saveOnlyEditedApplied?: boolean;
 }
 
 export interface ReaderOptions {
@@ -444,7 +472,7 @@ export interface ReaderOptions {
 	readonly claims?: "counts" | "full";
 }
 
-/** The tables of the source project space the app may read, with the ids the reading minted. */
+/** The tables of the source project space the app may read, with the ids part 11 gives them. */
 export interface ReaderLookupCatalog {
 	table(tag: string): ReaderLookupTable | undefined;
 	/** What `FormParseScope.lookup` and the checker read. */
@@ -457,11 +485,10 @@ export interface ReaderLookupTable {
 }
 
 /** HQ's levels as part 11 read them; the slugs an app reads are learned from the app
- *  (part 11, 11.5). Both lists are empty until B9's read fills them. */
+ *  (part 11, 11.5). */
 export interface ReaderOrganization {
 	readonly levelCodes: readonly string[];
-	/** `lib/commcare/hq/locations.ts::HqLocationType`, on `main`; part 05 reuses its reader
-	 *  (its 10.4). */
+	/** `lib/commcare/hq/locations.ts::HqLocationType`, on `main`; part 05 reuses its reader. */
 	readonly levels: readonly HqLocationType[];
 }
 
@@ -478,14 +505,14 @@ export interface ReaderMediaIndex {
 
 export type ReadOutcome =
 	| { readonly kind: "read"; readonly draft: ReadDraft;
-	    readonly census: ReadCensus; readonly claims: ClaimLog;
+	    readonly work: ReadWork; readonly claims: ClaimLog;
 	    readonly defects: readonly ReaderDefect[] }
 	| { readonly kind: "account"; readonly findings: readonly Finding[];
-	    readonly census: ReadCensus; readonly claims: ClaimLog;
+	    readonly work: ReadWork; readonly claims: ClaimLog;
 	    readonly defects: readonly ReaderDefect[];
 	    /** What `ReadFacts.unreadTables` held when the reading closed (17.3). */
 	    readonly unreadTables: readonly UnreadTable[];
-	    /** Whether any slot reads the `locations` instance (2.3). False before B6. */
+	    /** Whether any slot reads the `locations` instance (2.3). */
 	    readonly readsLocations: boolean };
 
 /** What the reader minted for the menus and forms the document holds (part 10, 3.1). */
@@ -517,16 +544,12 @@ export interface ReaderDefect {
 	readonly why: ReaderDefectWhy;
 }
 
-export interface ReadCensus {
-	/** `surface/revision.ts::surfaceStandingsRevision()` (part 12, 3.9). */
-	readonly manifestRevision: string;
-	/** Findings by `code`. */
-	readonly byCode: Readonly<Record<string, number>>;
-	readonly byStanding: Readonly<Record<FindingStanding | "stop", number>>;
-	readonly byOwner: Readonly<Partial<Record<Step7Group, number>>>;
-	/** Work done, a function of the input alone: JSON values and XML nodes visited, texts read
-	 *  with `readFormSyntax`, and expected trees built for a generated node (13.1). */
-	readonly work: { readonly nodes: number; readonly syntaxReads: number; readonly rebuilds: number };
+/** Work done, a function of the input alone: JSON values and XML nodes visited, texts read with
+ *  `readFormSyntax`, and expected trees built for a generated node (13.1). */
+export interface ReadWork {
+	readonly nodes: number;
+	readonly syntaxReads: number;
+	readonly rebuilds: number;
 }
 ```
 
@@ -538,11 +561,14 @@ need where there is no draft: `unreadTables`, and `readsLocations`, so a table o
 cannot hold joins the same account (part 11, 14.1, `projectDataReadsOf`). `ReadStanding` and
 `FindingStanding` are part 01's (its 2.1): the second is the three of the first that make a finding.
 
+`ReadWork` is what `readerWork.test.ts` reads ("Tests"): three counters that grow with the input
+and with nothing else, so a stage's growth can be held with no clock.
+
 `readHqApp` reads nothing of `HqAlignedForm.questions`, HQ's own question summary, which is part
 09's for its check 5. A re-read of Nova's emission may pass an empty list there.
 
 `ReadMenuAndFormIdentities` is defined here and nowhere else. Part 10's
-`lib/deployment/adoption.ts` (B8, its section 3.1) imports it from `@/lib/commcare/reader` and
+`lib/deployment/adoption.ts` (its section 3.1) imports it from `@/lib/commcare/reader` and
 declares none, because `lib/commcare` cannot import that file: no production file of `lib/commcare`
 imports `lib/deployment`, and `lib/deployment` imports `lib/commcare`.
 
@@ -553,14 +579,17 @@ environment, no store, no network. Two calls with equal input give deeply equal 
 caller that reads twice passes a fresh one. It never throws for content: a malformed attachment, an
 unknown key and a shape no stage expects are findings. It throws only for an input that breaks its own
 contract (an `HqAlignedModule` list whose length differs from the source's), which is a defect of the
-caller, and the caller logs it at error and gives `read-back-differs`. From B6 it also throws part
-08's two invariants, its C10 and C11, each a defect of Nova's own code and no fact of an app.
+caller, and the caller logs it at error and gives `read-back-differs`. It also throws three
+invariants, each a defect of Nova's own code and no fact of an app: part 08's two, its C10 and
+C11, and this part's one, a document read with no finding that Nova's gate refuses (16.5; "Copy",
+C9).
 
-**Logging.** The reader holds no logger. Each `unrecognized` finding it produces carries the surface
-key part 01's 8.3 asks for in `detail.name`, and each defect of the reader's own (the twelve of
+**Logging.** The reader holds no logger. Each `unrecognized` finding it produces carries in
+`detail.name` what part 01's 8.3 asks for (4.4), and each defect of the reader's own (the twelve of
 5.1) is a `ReaderDefect` in `defects`, its `why` built from closed slots alone. `lib/deployment/reading/`
-(part 12) logs each finding and each defect at error with the reading's id when it stores the account,
-and stores no defect. A pure function that logged would not be pure under a `matchingResolver` re-read.
+(part 12) logs each finding and each defect at error with the reading's id when it answers the
+account, and shows no defect. A pure function that logged would not be pure under a
+`matchingResolver` re-read.
 
 ### 2.3 The pipeline
 
@@ -571,27 +600,27 @@ in `reader/index.ts::STAGES`:
 ```ts
 // lib/commcare/reader/index.ts
 export type ReaderStage = (ctx: ReadContext) => void;
-/** The stages that have landed, in the order of the table below. */
+/** The stages, in the order of the table below. */
 export const STAGES: readonly ReaderStage[];
 ```
 
 Part 07's functions take the draft as a second argument (`readMenus(ctx, app)`); their entries in
 `STAGES` pass `ctx.draft`.
 
-| # | Stage | Module | Lands |
-|---|---|---|---|
-| 1 | the application: its own keys, languages, the floor | `appShell.ts::readApplication` | B2 |
-| 2 | menus and forms: document types, identity, their own keys; from B9, the project space's levels onto the draft | `structure.ts::readStructure` | B2 |
-| 3 | each form's source: fields, text, media references, generated nodes | `xform/index.ts::readForms` | B3 |
-| 4 | a menu's own shape: its case type, kind and nesting, which every form's reading needs | part 07, `menus/index.ts::readMenus` | B4 |
-| 5 | case management and the case catalog; settles the generated candidates of 13.3 | part 07, `caseManagement/index.ts::readCaseManagement` | B4 |
-| 5b | mint each form's fields in document order, then register their expressions (11.1) | `xform/index.ts::mintFields` | B3 |
-| 6 | case lists and search, every XPath registered as pending; then the entry facts compared and the links' expressions registered, which need every entry's structure and nothing bound | part 07, `caseList/index.ts::readCaseLists`, `search/index.ts::readSearches`, then part 07's `caseManagement/index.ts::compareEntryFacts` and `menus/afterSubmit.ts::registerLinkExpressions` | B5; the last two B4 |
-| 7 | the provisional document, then every pending expression bound against it | `provisional.ts::provisionalDocument` (B2); `provisional.ts::bindExpressions`, which calls part 08's `readExpressions` twice with `worldEntitiesFromReads` between and applies the second answer (B6, in part 08's file list) | B2; B6 |
-| 8 | what part 07 decides over the bound document | part 07, `settleCaseManagement`, `settleCaseLists`, `settleSearches`, `settleMenus`, in that order | B4, B5; `settleSearches` joins `STAGES` in B6, with the search row code it calls |
-| 9 | text: translations from the bound outputs | `xform/prose.ts::finishText` | B3 |
-| 10 | what the bound document decides for a form: repeat counts, model iteration, load order, a Hidden Value's bind type | `xform/afterBinding.ts::finishForms` | B3 |
-| 11 | the declaration's verdict, the late claims, the close, and the draft where no finding stands | `assemble.ts::assembleDocument` | B2 |
+| # | Stage | Module |
+|---|---|---|
+| 1 | the application: its own keys, languages, the floor | `appShell.ts::readApplication` |
+| 2 | menus and forms: document types, identity, their own keys; the project space's levels onto the draft | `structure.ts::readStructure` |
+| 3 | each form's source: fields, text, media references, generated nodes | `xform/index.ts::readForms` |
+| 4 | a menu's own shape: its case type, kind and nesting, which every form's reading needs | part 07, `menus/index.ts::readMenus` |
+| 5 | case management and the case catalog; settles the generated candidates of 13.3 | part 07, `caseManagement/index.ts::readCaseManagement` |
+| 5b | mint each form's fields in document order, then register their expressions (11.1) | `xform/index.ts::mintFields` |
+| 6 | case lists and search, every XPath registered as pending; then the entry facts compared and the links' expressions registered, which need every entry's structure and nothing bound | part 07, `caseList/index.ts::readCaseLists`, `search/index.ts::readSearches`, then part 07's `caseManagement/index.ts::compareEntryFacts` and `menus/afterSubmit.ts::registerLinkExpressions` |
+| 7 | the provisional document, then every pending expression bound against it | `provisional.ts::bindExpressions`, which builds `provisional.ts::provisionalDocument`, calls part 08's `readExpressions` twice with `worldEntitiesFromReads` between and applies the second answer |
+| 8 | what part 07 decides over the bound document | part 07, `settleCaseManagement`, `settleCaseLists`, `settleSearches`, `settleMenus`, in that order |
+| 9 | text: translations from the bound outputs | `xform/prose.ts::finishText` |
+| 10 | what the bound document decides for a form: repeat counts, model iteration, load order, a Hidden Value's bind type | `xform/afterBinding.ts::finishForms` |
+| 11 | the declaration's verdict, the late claims, the close, and the draft where no finding stands | `assemble.ts::assembleDocument` |
 
 This is the order "structure, case management, menus, then expressions" with one reading of it made
 exact, the one part 07's 2.1 argues (Departure 14): a menu's case type, kind and nesting are
@@ -603,19 +632,16 @@ and not after the expressions (part 07, 2.1): every key a fact reads is structur
 the frame cannot withdraw a claim once made, and part 08 takes the verdict before it binds, as
 `ExpressionReadEnv.entryFactsRefused` (17.2).
 
-**The levels.** From B9, `readStructure` puts
+**The levels.** `readStructure` puts
 `levelsFromHq(input.organization.levels, ctx.resolver).levels` on the draft (`DraftApp.levels`,
 which `provisionalDocument` and `assembleDocument` write into the document), so the levels are in
 scope when expressions bind. It raises none of that function's findings: part 11's
 `readingProjectDataFindingsFor` raises them, once, and only where the app reads places (part 11,
-14.1). Before B9 the list is empty, and a test that needs levels puts them on the draft by hand.
+14.1).
 
-A stage that has not landed is absent from `STAGES`. Its keys are then unclaimed, and stage 11 turns
-each into `unrecognized` (4.4). So in B2 every real app reads to an account, in B3 every form with a
-case action or an expression still does, and the first pull request after which a plain app reads clean
-is B6. That is the frame working, not a gap to cover: nothing calls the reader before B10. Stage 7 in
-B2 to B5 builds the provisional document and binds nothing, so every registered expression's node
-stays unclaimed.
+A stage absent from `STAGES` leaves its keys unclaimed, and stage 11 turns each into `unrecognized`
+(4.4). So a reader with a stage missing reads every app that needs that stage to an account and
+admits nothing it cannot read. The frame needs no stub and no flag while its stages are written.
 
 **The provisional document (stage 7).** `provisional.ts::provisionalDocument(ctx)` builds a
 `BlueprintDoc` from the drafts as they stand, in every reading, whether or not a finding stands:
@@ -633,10 +659,8 @@ stays unclaimed.
   expression that reads it a second, false finding.
 
 A provisional document is never returned: `ReadDraft.doc` exists only where no finding stands, and
-then no stand-in exists. A draft form that cannot be made schema-valid even so is left out. The one
-such form is a form with no type, which only a reader before B4 holds (7.4): from B4 every draft
-form has a type, so from B6, where expressions are first bound, no form is left out without a
-finding at or above it, which is what part 08's C10 holds.
+then no stand-in exists. Every draft form has its type by stage 7 (part 07 sets it, 7.4), so no
+form is left out without a finding at or above it, which is what part 08's C10 holds.
 
 `provisionalDocument(ctx)` may be called at any stage before 7; it returns a deeply frozen document,
 the same object until a draft is next written. From stage 7 a stage patches `ctx.doc` only by
@@ -648,11 +672,12 @@ counts a revision, and `provisionalDocument` memoizes on that revision. `provisi
 both halves: two calls with no write between return one object, and no stage function of `STAGES`
 writes a draft outside `writeDraft`.
 
-In B2 to B5 stage 7 is `provisionalDocument` alone: its entry in `STAGES` is
-`(ctx) => { ctx.doc = provisionalDocument(ctx); }`, which binds nothing.
-`provisional.ts::bindExpressions(ctx)` lands in B6, in part 08's pull request, because it names B6's
-exports, and takes that entry's place. It builds `env` with `expressionEnvOf(ctx)` (17.2) and calls
-part 08's `readExpressions(doc, ctx.pending.list(), env)` twice (part 08, 2.5; part 11, 11.5):
+**Binding (stage 7).** Stage 7's entry in `STAGES` is `provisional.ts::bindExpressions(ctx)`. It
+names part 08's exports (`readExpressions`, `ExpressionReading`, `ExpressionReadEnv`) and part
+11's `worldEntitiesFromReads`, so it and `expressionEnvOf` (17.2) are written once those exist. It
+builds `env` with `expressionEnvOf(ctx)` and calls part 08's
+`readExpressions(doc, ctx.pending.list(), env)` twice, `doc` being `provisionalDocument(ctx)` each
+time (part 08, 2.5; part 11, 11.5):
 
 1. The first run is kept only for `ExpressionReading.worldReads`.
    `worldEntitiesFromReads(worldReads, ctx.resolver)` gives the worker properties and location
@@ -666,8 +691,9 @@ part 08's `readExpressions(doc, ctx.pending.list(), env)` twice (part 08, 2.5; p
      `-1` to the `instance` element of the form at its `place` whose `src` its key names (part 08,
      9.3);
    - `ctx.pending.outcome(i)` answers from this run (11.1);
-   - each row of `circumstances` is raised with `Accounting.circumstance` and its registration's
-     node is covered by it (`Accounting.cover`), so the close reports that node once. The frame
+   - each row of `circumstances` is raised with `Accounting.circumstance`, under the row's name
+     alone, and its registration's node is covered by it (`Accounting.cover`), so the close
+     reports that node once. The row's reason goes to the defect's line and to no finding. The frame
      also records part 08's log line C9 for it as a `ReaderDefect` (D11), and its C12 where the
      row's `detail.reason` is `no-case-datum` (D12): the reader holds no logger (2.2), and part 12
      logs every defect at error;
@@ -676,8 +702,9 @@ part 08's `readExpressions(doc, ctx.pending.list(), env)` twice (part 08, 2.5; p
      app), through `Accounting.cover`. Where none stands the frame throws part 08's C10;
    - each tag of `ExpressionReading.unreadTables` is appended to `ReadFacts.unreadTables` as
      `{ tag, place: { kind: "lookup-table", tag } }`, a tag already listed left as it is;
-   - `rewrites` and `declaredProperties` are kept on `ctx.facts` for part 09, and `rounds` as
-     `ReadFacts.expressionRounds` for part 12's log;
+   - `rewrites` is kept on `ctx.facts` for part 09's register (its 11.2), and `rounds` as
+     `ReadFacts.expressionRounds` for part 12's log. `declaredProperties` is not kept: the
+     properties it lists are in the document the run gave, and no part reads the list;
    - `readsLocations` (2.2) is set: true where `worldReads.locationDataSlugs` holds a slug, or some
      tree of `ExpressionReading.bound` holds a `locations`, `location-field`, `location-level` or
      `owner-location-at-level` leaf, the leaves part 11's `documentReadsPlaces` names (its 11.1),
@@ -711,9 +738,9 @@ export interface DraftApp {
 	localization: AppLocalization | undefined;       // set by stage 1, translations filled at stage 9
 	appSettings: Partial<BlueprintDoc["appSettings"]>;
 	readonly modules: DraftModule[];                 // HQ's order
-	/** The project space's levels (`levelsFromHq`); empty until B9. */
+	/** The project space's levels (`levelsFromHq`). */
 	levels: readonly OrganizationLevel[];
-	/** What the app reads of the worker and of places (`worldEntitiesFromReads`); empty until B6. */
+	/** What the app reads of the worker and of places (`worldEntitiesFromReads`). */
 	userProperties: readonly UserProperty[];
 	locationProperties: readonly LocationProperty[];
 }
@@ -739,16 +766,16 @@ export interface DraftForm {
 	readonly form: Partial<Form>;
 	/** Set by stage 3; null where the source held no readable XForm (a finding was made). */
 	xform: ReadXForm | null;
-	/** Added by B4 (part 07, 5.2): each create block's `@case_id` path, absolute from the data
-	 *  root, to the UUID of the operation read from it. Empty until `readCaseManagement` sets it. */
+	/** Part 07's (its 5.2): each create block's `@case_id` path, absolute from the data root, to
+	 *  the UUID of the operation read from it. Empty until `readCaseManagement` sets it. */
 	operationIdPaths: ReadonlyMap<string, Uuid>;
 }
 ```
 
 A menu or form that got a document-type finding (7.1) has no draft and is skipped by every later stage.
 
-**What part 07's words are in this frame.** Part 07 (`07-the-reader-cases-menus-lists.md`; B4, B5)
-speaks this frame through a shorthand its section 2.2 lists, and this is each word's name here. Its
+**What part 07's words are in this frame.** Part 07 (`07-the-reader-cases-menus-lists.md`) speaks
+this frame through a shorthand its section 2.2 lists, and this is each word's name here. Its
 `ctx.claim(node, key, entryId)` and `ctx.inert` are a declared claim (`defineClaims`) used through
 the cursor's `take`, `derived`, `drop`, `refuse` or `account`; its `node.rest()` is the close (4.4);
 its `ctx.finding(entryId, place, detail?)` is `ctx.accounting.finding(claim, place, detail?)` (4.3);
@@ -765,24 +792,22 @@ through `xform/media.ts::readMediaMap` (12.4) over `input.media`.
 
 `biome.json`'s override for `@/lib/commcare` (`includes`: `components/**`, `app/**`, `lib/**`, less the
 listed consumers) already excludes `lib/commcare/**` and `lib/deployment/**`. The reader's production
-consumer is `lib/deployment/reading/` (part 12, section 3), its tests live under
+consumer is `lib/deployment/reading/` (part 12), its tests live under
 `lib/commcare/reader/**/__tests__/`, and the lane's bundle is built from `proof/` (part 14), which the
-override's `includes` does not cover. So B2 and B3 change no line of `biome.json`. The rule's four
-messages each open "lib/commcare is the one-way CommCare emission boundary.", which is false once
-this package reads as well as writes. B7 already edits those four strings to add a consumer, so the
-first sentence of each is rewritten there, to "lib/commcare is the CommCare boundary, the one package
-that speaks CommCare's wire vocabulary." (part 09, `09-acceptance-and-the-first-publish.md`,
-"Contracts"; part 15, `15-stack-contracts-and-exit.md`, section 6.5). What B2 changes is every other
-place that says "one-way" of the package: three sentences of `lib/commcare/CLAUDE.md` and a comment
-each in `lib/commcare/xform/captureUrlNode.ts` and `lib/commcare/xpath/index.ts` ("Contracts"). Each
-of those is true only of import direction, which stands: nothing of `lib/commcare` but its tests
-imports `lib/deployment`. `import "server-only"` at the head of `reader/index.ts` and of
-`surface/inventory.ts` keeps both out of a client bundle, as `hq/appSource.ts` does; a script or bundle
-that loads them under plain Node passes `--conditions=react-server`, as `scripts/test-schema.ts` runs.
+override's `includes` does not cover. So the reader adds no consumer to the rule.
+
+What changes is what the package is called. The rule's four messages each open "lib/commcare is
+the one-way CommCare emission boundary.", which is false once this package reads as well as
+writes, and so is every other sentence that says "one-way" of it. This part rewrites each
+("Contracts"). Each of them is true only of import direction, which stands: nothing of
+`lib/commcare` but its tests imports `lib/deployment`. `import "server-only"` at the head of
+`reader/index.ts` and of `surface/inventory.ts` keeps both out of a client bundle, as
+`hq/appSource.ts` does; a script or bundle that loads them under plain Node passes
+`--conditions=react-server`, as `scripts/test-schema.ts` runs.
 
 ---
 
-## 3. The manifest at run time (B2)
+## 3. The manifest at run time
 
 ```ts
 // lib/commcare/surface/inventory.ts
@@ -794,7 +819,6 @@ export interface IndexedEntry {
 	readonly standing: ReadStanding;            // standingOf(entry)
 	readonly cause: FixCause | null;            // fixCauseOf(entry)
 	readonly subject: Subject | null;
-	readonly owner: Step7Group | null;
 	readonly surfaceKeys: readonly string[];
 	readonly valueClass: string | null;
 }
@@ -812,24 +836,15 @@ export function inventoryIndex(): InventoryIndex;
   `schema.ts::inventoryEntriesFileSchema`, builds the two maps, and memoizes; a file that fails the
   schema throws there, which a deploy's build and `manifest.test.ts` both meet first. It adds no rule:
   `standing` and `cause` are part 01's `surface/standing.ts::standingOf` and `fixCauseOf`.
-- **The revision is not here.** The index holds no revision of its own. The one a reading stores is
-  `lib/commcare/surface/revision.ts::surfaceStandingsRevision()`, as part 12's 3.9 defines it (the
-  first 16 hex characters of the SHA-256 over every entry's `[id, standingOf(entry)]`, sorted by id).
-  B2 carries that file with that one function, because `ReadCensus.manifestRevision` names it from
-  B2; part 12 adds `currentStandingOf` and `isDeclaredSurfaceKey` to it in B10 and owns
-  `whatNovaLearned`, the rule for "Nova can now hold everything this list named". That rule skips
-  a code that is a circumstance, which is right: an account of `shadow-disagrees` names no entry,
-  and no manifest edit makes it hold.
 - **Who else reads it.** Part 01's account never needs the index: a finding carries its standing,
-  cause, subject and owner. Part 14's parity judge loads the JSON files itself in Python.
+  cause and subject. Part 14's parity judge loads the JSON files itself in Python.
 
 `surface/__tests__/inventory.test.ts` holds the index to `loadManifest()`: the same entries, each
-standing equal to `standingOf`, and `naming` equal to a scan. `surface/__tests__/revision.test.ts`
-holds the revision: it changes when a planted entry's standing does and not when its `item` text does.
+standing equal to `standingOf`, and `naming` equal to a scan.
 
 ---
 
-## 4. The accounting cursor (B2)
+## 4. The accounting cursor
 
 ### 4.1 What it guarantees
 
@@ -875,9 +890,9 @@ export function claimRegistry(): ReadonlyMap<string, Claim>;
 | `account` | carries no value: drops under `inert` or `kept`, makes a finding under the other three | every standing but `held` |
 
 `account` is for a key whose value never reaches the document whatever its standing (a setting Nova
-does not own, a server record). A pull request of stack A or of step 7 that moves such an entry between
-kept, inert and refused then changes no reader code. An entry that becomes `held` needs code to read it,
-and its claim then fails the test below until it is a `take`.
+does not own, a server record). A manifest edit that moves such an entry between kept, inert and
+refused, in this step or in step 7, then changes no reader code. An entry that becomes `held` needs
+code to read it, and its claim then fails the test below until it is a `take`.
 
 Every claim in the reader is declared in a module-level `defineClaims` call and used by reference, never
 built at a call site, so `reader/__tests__/claimsBindManifest.test.ts` can hold all of them without
@@ -887,8 +902,8 @@ permits the use; `key` is one of the entry's `surfaceKeys` (or is `null` and the
 a manifest edit and the reader disagree, naming the claim and the entry.
 
 Where one key's values are split among entries by value class, the site holds one claim per class and
-its own code picks. That code is the reader's statement of the class; the variants' `expected.json`
-(part 14) and the parity judge hold it to the manifest's words.
+its own code picks. That code is the reader's statement of the class; the variants (part 14,
+section 7) and the parity judge hold it to the manifest's words.
 
 ### 4.3 The API
 
@@ -904,8 +919,11 @@ export class Accounting {
 	json(root: Readonly<Record<string, unknown>>, place: HqPlace): JsonCursor;
 	/** A cursor over one parsed form, artifact `form:<m>.<f>`. */
 	xml(document: Document, menu: number, form: number, place: HqPlace): XmlCursor;
-	/** A finding no entry names. */
-	circumstance(code: ReadCircumstance, place: HqPlace, detail?: FindingDetail): void;
+	/** A finding no entry names, made through `hqFindings.ts::circumstanceFinding` (part 01, 8.1),
+	 *  whose types say what `detail` a code takes. */
+	circumstance<C extends ReadCircumstance>(
+		code: C, place: HqPlace, detail: CircumstanceDetail<C>,
+	): void;
 	/**
 	 * A manifest finding that is a relation between several nodes, each already claimed (two forms
 	 * of one `xmlns`, a second code for one language, learn beside deliver). The claim's use must be
@@ -930,7 +948,7 @@ export class Accounting {
 	 *  constructor of `defects.ts::readerDefect` and from nowhere else. */
 	defect(place: HqPlace, name: string, why: ReaderDefectWhy): void;
 	/** Every unclaimed use and unread admission becomes `unrecognized`; then the totals. */
-	close(): { readonly findings: readonly Finding[]; readonly census: ReadCensus;
+	close(): { readonly findings: readonly Finding[]; readonly work: ReadWork;
 	           readonly claims: ClaimLog; readonly defects: readonly ReaderDefect[] };
 }
 /** A node of the source: an element or attribute of a form, or a key of a JSON object. */
@@ -970,8 +988,6 @@ export interface JsonCursor {
 	map(key: string, cls: string, claim: Claim): ReadonlyMap<string, JsonCursor>;
 	/** Cover this object, every key at every depth, by one finding. */
 	refuseWhole(claim: Claim, detail?: FindingDetail): void;
-	/** Leave a key for the next reading: no claim and no finding. Honored only in an account. */
-	postpone(key: string): void;
 	/** Hand the key's value to project data: no claim here, a `HandOffRecord` in the log.
 	 *  `subject` is the media path or the table's tag. */
 	handOff(key: string, to: HandOffKind, subject: string): void;
@@ -1036,18 +1052,13 @@ Rules, all in the cursor:
   platforms the app runs on and on HQ's table list, which are part 11's rules
   (`lib/deployment/reading/projectData/`, its 3.2 and 5.1), and `lib/commcare` cannot import them. So
   the cursor records the node as handed off, lists it in `ReadFacts`, and reports neither a claim nor
-  a finding for it. The caller settles each in the same pure check, straight after the reader
-  returns (part 12, 3.3, step 7): `planHqMedia` gives every pending reference a finding or an inert
+  a finding for it. The caller settles each in the same request, after the reader returns (part
+  12's `gatherReading`): `planHqMedia` gives every pending reference a finding or an inert
   claim (`HqMediaPlan.claims`, part 11's 2.1), and `readingProjectDataFindingsFor` every unread tag a
   finding (part 11, 14.1). Part 09's acceptance check 1 (complete accounting) holds that every
   `HandOffRecord` of the log is settled by exactly one of those, and a hand-off left over is
   `unrecognized` there. A reading with a hand-off is therefore never accepted on the reader's word alone
   (Departure 13).
-- **A postponed key** is one whose standing needs the document Nova would write, in a reading that
-  has none because another finding stands (16.1). It is neither claimed nor reported, and the next reading
-  decides it. `close()` honors a postponement only where some other finding stands; in a reading with
-  none, a postponed key is `unrecognized` like any unclaimed key, so nothing can be postponed into a
-  clean read. This is the one place a finding can wait for a second pass, and 16.5 says why.
 - **A use the standing does not permit** (a `take` under an entry that is no longer `held`) is recorded
   as `unrecognized` with `detail.name` the node's surface key, and as the defect D2 (5.1), which
   names the claim, its entry and the entry's standing. The test of 4.2 makes this unreachable on `main`;
@@ -1081,9 +1092,10 @@ Unclaimed nodes under one element collapse to that element's finding when the el
 unclaimed, so a hand-written subtree is one finding and not one per attribute. Findings are deduplicated
 on `(code, place, detail.name)`.
 
-`detail.name` of an `unrecognized` finding is therefore always a surface key, the one thing part 01's
-8.3 lets a person read after "In CommCare HQ:", and what part 12 expects of it. A sentence about the
-reader's own claims never stands there.
+`detail.name` of an `unrecognized` finding is therefore a surface key, or, where the unclaimed
+thing is a value, the value as the app writes it (an appearance, section 9): the one thing part
+01's 8.3 lets a person read after "In CommCare HQ:", and what part 12 expects of it. A sentence
+about the reader's own claims never stands there.
 
 ### 4.5 The claim log
 
@@ -1159,21 +1171,22 @@ export function qualifiedName(namespace: string | null, local: string): string;
 **Cost.** One reading visits each JSON value and each XML node once; a claim is a map write. In `counts`
 mode the log is one integer per entry. In `full` mode the cursor keeps the node and the claim for each
 record and builds `where` only when `records()` is iterated, so a production reading never builds a
-path string. The lane's bases are small, and R2 measures the production mode against its share on an app at
-Nova's ceiling.
+path string. An app's source is bounded before the reader meets it (part 12's byte bound), and
+`readerWork.test.ts` holds each stage's work to grow no faster than its input ("Tests").
 
 ---
 
-## 5. Findings and places (B2)
+## 5. Findings and places
 
 ### 5.1 How a finding is made
 
 The reader never spells a standing. `Accounting` builds a manifest finding from the index
-(`{ code: entry.id, standing, cause, place, subject, owner, detail }`, with `cause` and `owner` present
-as part 01's 8.1 says) and a circumstance finding from `hqFindings.ts::CIRCUMSTANCE_STANDINGS`.
-`detail.name` is cut to 200 characters, the last a `…` when cut. `detail.reason` is set by part 08,
-to the checker's reason, and by this part on `no-platform-runs-everything`, to `split-refused` at a
-date and time question whose split is refused (16.3).
+(`{ code: entry.id, standing, cause, place, subject, detail }`, with `cause` present as part 01's
+8.1 says) and a circumstance finding through `hqFindings.ts::circumstanceFinding` (part 01, 8.1).
+A manifest finding's `detail.name` is cut with `hqFindings.ts::cutFindingName`; the constructor
+cuts a circumstance's. `detail.reason` is set only on `no-platform-runs-everything`, to
+`split-refused` at a date and time question whose split is refused (16.3); part 08's checker
+reason reaches the defect line D11 and no finding (2.3).
 
 What `detail.name` holds, by what the finding is about (part 01, 8.3 and 9.2):
 
@@ -1184,7 +1197,8 @@ What `detail.name` holds, by what the finding is about (part 01, 8.3 and 9.2):
 | a setting, a profile property, a translations key | the key |
 | an element or attribute no entry names | the lane-style name of 4.4 |
 | a language code | the code |
-| a platform use no declaration runs (16.3) | the feature's label and the platform that cannot run it |
+| text CommCare HQ's build reads as an instance (7.4, 15) | the read `instanceScanRead` answered, as the text spells it |
+| a platform use no declaration runs (16.3) | the feature's label in curly quotes and the platform that cannot run it |
 | anything whose place says it all | absent |
 
 **Defects.** Where the reader itself is at fault it raises `unrecognized` at the place, with the
@@ -1193,8 +1207,8 @@ twelve developer lines ("Copy", the defect table, D1 to D12): a second claim, a 
 manifest no longer permits, a held value nothing read, an identity key met twice, a form source only
 Nova's parser refuses, a form's `xmlns` that differs from its source's, an itemset column the catalog
 lacks, a document that does not assemble, an entry id `claimEntry` was handed that no claim
-registers, a translation Nova's own rule refuses after the pairing passed it (12.5), and, from B6,
-part 08's two lines for an expression Nova could not write back (2.3). A person reads only "In
+registers, a translation Nova's own rule refuses after the pairing passed it (12.5), and part
+08's two lines for an expression Nova could not write back (2.3). A person reads only "In
 CommCare HQ: `xform:model/bind@relevant`" under part 01's sentence for `unrecognized`; the developer
 reads `why` in the log beside it.
 
@@ -1233,16 +1247,13 @@ export const readerDefect: {
 		place: HqPlace, role: TranslationUnitRole, language: number,
 		issue: TranslationValueIntegrityIssue,
 	): ReaderDefectWhy;
-	/** B6. `reason` is the row's `detail.reason`, one of part 08's codes (its 9.1). */
+	/** `reason` is the row's `detail.reason`, one of part 08's codes (its 9.1). */
 	expressionNotWrittenBack(place: HqPlace, reason: string): ReaderDefectWhy;
-	/** B6. */
 	noCaseDatum(place: HqPlace): ReaderDefectWhy;
 };
 ```
 
-The list and the object are shown as B6 leaves them. Each code lands with its constructor: B2's six
-(D1 to D4, D8, D9), B3's four (D5 to D7, D10), B6's two (D11, D12). Each constructor fills its row's
-template ("Copy") and nothing else. The slots are closed:
+Each constructor fills its row's template ("Copy") and nothing else. The slots are closed:
 
 | Slot | What it prints |
 |---|---|
@@ -1261,9 +1272,9 @@ template ("Copy") and nothing else. The slots are closed:
 No constructor takes a name, a label, a tag, a column, a question's path, a value, an expression's
 text or a parser's message, so none can print one. A parser's message is replaced by the failure's
 kind (D5), a schema issue's message and path by its code and top-level key (D8), an external key's
-text by its kind (D4). What a developer loses in the line is on the reading's row: the finding
-beside the defect holds the full place and `detail.name`, and the reading's id finds the row (part
-12, section 10). `defects.test.ts` holds the closure (Tests).
+text by its kind (D4). What a developer loses in the line is found by reading the app again:
+nothing of a read is stored, and the log line's ids say whose Project it was read into (part 12,
+section 10). `defects.test.ts` holds the closure (Tests).
 
 ### 5.2 Places
 
@@ -1298,10 +1309,10 @@ export function placeKey(place: HqPlace): string;
 
 ---
 
-## 6. The application walker (B2)
+## 6. The application walker
 
 `appShell.ts::readApplication` opens the root cursor (class `Application`) and claims every key. The
-standing of each is part 01's (`01-the-bar-and-the-manifest.md`, sections 4.1 to 4.4, A2 and A3); this
+standing of each is part 01's (`01-the-bar-and-the-manifest.md`, sections 4.1 to 4.4); this
 table is which claim reads it. Entry ids are under `application-and-settings/`.
 
 ### 6.1 Every declared property
@@ -1317,7 +1328,7 @@ table is which claim reads it. Entry ids are under `application-and-settings/`.
 | `translations` | `map` by language, each key by 6.5 | language names, the app's display name |
 | `profile` | `object`, by 6.6 | `showSavedForms`, `showIncompleteForms` |
 | `build_spec` | by 6.2 | nothing |
-| `logo_refs` | `take(logo-refs-hq-logo-web-apps)` for the slot `hq_logo_web_apps` with the uploader's path; `account(logo-refs-hq-logo-android-home-login-demo)` for the three Android slots; `refuse(logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare)` for a slot whose path is any other | the Web Apps logo, by 12.4's rule for a path: an asset is a `ReadMediaReference` of slot `app_logo`, and a path with no file is handed off |
+| `logo_refs` | `take(logo-refs-hq-logo-web-apps)` for the slot `hq_logo_web_apps` with the uploader's path and an `m_id`; `account(logo-refs-hq-logo-android-home-login-demo)` for the three Android slots, each with an `m_id`; `refuse(logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare)` for a slot whose path is any other, or whose entry holds no `m_id` | the Web Apps logo, by 12.4's rule for a path: an asset is a `ReadMediaReference` of slot `app_logo`, and a path with no file is handed off |
 | `auto_gps_capture` | `account(45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app)` where no form holds a Connect block, else `derived(45-hq-auto-gps-capture)` (decided at stage 11, when 15 has run) | nothing: Nova writes `true` on a Connect app, from `connectType` |
 | `location_fixture_restore` | `derived(50-hq-location-fixture-restore-project-default)`, `derived(50p-hq-location-fixture-restore-both-fixtures-only-flat-fixture)`, `refuse(50pp-hq-location-fixture-restore-only-hierarchical-fixture)` by value | nothing: Nova writes `project_default` and reads the flat fixture, so the two held values are `derived`, as `doc_type` is (6.4) |
 | `application_version` | `account(33-hq-application-version-2-0)`, `account(33p-hq-application-version-1-0)` by value | |
@@ -1336,6 +1347,13 @@ table is which claim reads it. Entry ids are under `application-and-settings/`.
 
 Part 05's source read strips `_id`, `version` and `domain` and keeps the rest in `raw`; a key absent
 from `raw` is at its default and is no use.
+
+CommCare HQ's uploader always stores `m_id`
+(`hqmedia/views.py::ProcessLogoFileUploadView.process_upload` stores what
+`hqmedia/models.py::CommCareMultimedia.get_media_info` returns), and Web Apps and the Android
+profile read an entry's path whether or not it names a file (`cloudcare/utils.py::format_app_doc`,
+`models/applications.py::Application.create_profile`), so an entry without one is never dropped
+unsaid. The entry's wording for it is part 01's (its section 4.3).
 
 **Undeclared keys.** For each key of `undeclared()`: one of the names the entry
 `dynamic-keys-anonymous-cloudcare-enabled-anonymous-cloudcare` lists is `account`ed under it; a name that
@@ -1394,7 +1412,7 @@ language), and HQ falls back to `en` for it (`models/applications.py::Applicatio
 The reader does not guess a language into the document: it is `unrecognized` at the languages place,
 `detail.name` `schema:Application.langs`.
 
-**Manifest edit, B2.** One new entry in `entries/application-and-settings.json`, beside
+**Manifest edit.** One new entry in `entries/application-and-settings.json`, beside
 `langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin`, with its inventory row:
 
 | Field | Value |
@@ -1413,7 +1431,7 @@ The reader does not guess a language into the document: it is `unrecognized` at 
 
 The entry beside it keeps its class and gains to its `item` ", naming a living language of ISO 639-3,
 each language once". `language-codes` has no `not-yet` sentence today (its two entries are
-`fix-in-hq`), so B2 adds one to `hqFindingCopy.ts::FINDING_COPY` ("Copy").
+`fix-in-hq`), so this entry needs one ("Copy").
 
 ### 6.4 Document types
 
@@ -1430,11 +1448,11 @@ once, by part 01's 4.4 classes in this order:
 
 | The key | Claim |
 |---|---|
-| equal to an app language's code | the language's display name: until B8, `derived(translations-lang-code-language-display-names-equal-to-the-label)` where the value equals Nova's label for that identity (`resolvedLanguageDisplayLabel`), else `refuse(translations-lang-code-any-other-value-or-absent-where-hq-s)`; from B8 that entry is kept (part 01, 7.2) and the second claim becomes `account`, an edit B8 makes to `appShell.ts` ("Files by pull request", B8). The first claim is `derived` because the value is read into nothing: Nova derives its label from the language's identity |
+| equal to an app language's code | the language's display name: `derived(translations-lang-code-language-display-names-equal-to-the-label)` where the value equals Nova's label for that identity (`resolvedLanguageDisplayLabel`), else `account(translations-lang-code-any-other-value-or-absent-where-hq-s)`, which part 01 keeps at CommCare HQ's value (its 7.2). The first claim is `derived` because the value is read into nothing: Nova derives its label from the language's identity |
 | `app.display.name` | `take(translations-app-display-name)`: where it differs from `name`, the app name's translation in that language, through `ctx.translations` |
 | `homescreen.title` | `account(translations-homescreen-title)` |
 | a runtime's own UI text (`appStringKeys.ts::isRuntimeUiStringKey`) | `account(translations-key-in-a-runtime-s-ui-string-catalog-core-android)`; HQ's catalog fill for such a key, `account(translations-catalog-key-hq-fills-with-its-own-text-in-a)` |
-| one of HQ's generated patterns (`translationKeyOwner` gives `generated`) | held back to stage 11, and classified there by `classifyGeneratedTranslationKeys` (16.5) |
+| one of HQ's generated patterns (`translationKeyOwner` gives `generated`) | held back to stage 11, and classified or covered there (16.5) |
 | any other | `account(translations-key-no-runtime-reads)` |
 
 A language key of `translations` that is none of the app's codes is `account`ed whole under
@@ -1455,12 +1473,12 @@ key; each key's entries are `index.naming("setting:properties.<key>")` or
 | a key two entries name (`lazy-load-video-files`) | `account` under the one whose class takes the value |
 | a key no `setting:` item names | `account(any-other-profile-properties-features-key-not-in-the-yaml)` |
 
-`custom_properties` is left to part 07 (B5), which derives whether `cc-index-case-search-results` is
-what Nova would write; B2 claims nothing under it, so until B5 a non-empty map is `unrecognized`.
+`custom_properties` is part 07's, which derives whether `cc-index-case-search-results` is what Nova
+would write. This walker claims nothing under it.
 
 ---
 
-## 7. Menus and forms at the level of their own keys (B2)
+## 7. Menus and forms at the level of their own keys
 
 ### 7.1 Document types and drafts
 
@@ -1480,7 +1498,7 @@ lists have one length or the input is broken, 2.2).
 Each is one finding at the menu or the form, whatever the object holds, never one per key: a mirror
 menu is one finding under the subject `mirror-menus`, `not-yet` where it is a version 2 mirror (part
 01, section 2.2 and Appendix A.1). A menu part 05 marked `not-summarized` still gets its draft and its
-structural findings; part 12 adds `menu-unreadable-in-hq` at that menu (its 3.3, step 4), and the
+structural findings; part 12's `gatherReading` adds `menu-unreadable-in-hq` at that menu, and the
 reading ends as an account either way.
 
 ### 7.2 Identity, before any mint
@@ -1493,7 +1511,7 @@ In this order, for the drafts that remain (part 10, 2.2 and 2.3):
    `models/modules.py::ModuleBase.get_or_create_unique_id`, and opening App Preview once saves one),
    so the person must meet this finding and not a stop. On `main` the menu never reaches a reader:
    `hq/appSource.ts::readHqAppSource` answers `malformed` for a menu whose `unique_id` is no string.
-   Part 05 (`05-reading-commcare-hq.md`, B1; its sections 7 and 8.3) admits such a menu under
+   Part 05 (`05-reading-commcare-hq.md`, its sections 7 and 8.3) admits such a menu under
    `admit: "any"` with `uniqueId: null`, aligned by position; a `unique_id` of any other type stays
    `malformed`.
 2. A form whose `xmlns` is null or empty: HQ could not read its source when it was last saved.
@@ -1514,45 +1532,49 @@ the data root's namespace in 8.2.
 
 ### 7.3 A menu's keys
 
-Ids are under `menus-and-case-lists/`. B2 claims the keys that are the menu's own record; every other
-declared key is part 07's, named in the last row so the two parts cannot both claim one. Part 07
-claims no key of the B2 rows: it reads their result from `ctx.draft`.
+Ids are under `menus-and-case-lists/`. The structure stage claims the keys that are the menu's own
+record; every other declared key is part 07's, named in the last row so the two cannot both claim
+one. Part 07 claims no key of the other rows: it reads their result from `ctx.draft`.
 
-| Keys | Claim | Lands |
-|---|---|---|
-| `doc_type`, `module_type` | 7.1; `module_type` is at its class's default or is covered by the document-type finding | B2 |
-| `unique_id` | 7.2 | B2 |
-| `name` | `take(modulebase-name)`: the name in the source language into `module.name`, each other language through `ctx.translations` (12.5's rule) | B2 |
-| `forms` | `list(…, take(module-forms))`, each child's class from its `doc_type` | B2 |
-| `comment` | `account(comment-module)` | B2 |
-| `ref_details`, `referral_list` | `account(module-ref-details)`, `account(module-referral-list)` | B2 |
-| undeclared: `display_separately`; `display_style` on an advanced menu; any other | `account(module-display-separately)`; `account(display-style-on-an-advanced-or-shadow-module)`; `refuse(any-other-undeclared-key)` | B2 |
-| `case_type`, `root_module_id`, `put_in_root`, `parent_select`, `module_filter`, `media_image`, `media_audio`, `use_default_image_for_all`, `use_default_audio_for_all`, `custom_icons`, `case_list`, `case_list_form`, `session_endpoint_id`, `case_list_session_endpoint_id`, `display_style` on a basic menu (where the class declares it), `fixture_select`, `report_context_tile`, `auto_select_case`, `is_training_module`, `lazy_load_case_list_fields`, `show_case_list_optimization_options`, `task_list`, `custom_assertions`, `case_details`, `search_config`, and on an advanced menu `product_details`, `has_schedule`, `schedule_phases` | part 07 | B4, B5 |
+| Keys | Claim |
+|---|---|
+| `doc_type`, `module_type` | 7.1; `module_type` is at its class's default or is covered by the document-type finding |
+| `unique_id` | 7.2 |
+| `name` | `take(modulebase-name)`: the name in the source language into `module.name`, each other language through `ctx.translations` (12.5's rule) |
+| `forms` | `list(…, take(module-forms))`, each child's class from its `doc_type` |
+| `comment` | `account(comment-module)` |
+| `ref_details`, `referral_list` | `account(module-ref-details)`, `account(module-referral-list)` |
+| undeclared: `display_separately`; `display_style` on an advanced menu; any other | `account(module-display-separately)`; `account(display-style-on-an-advanced-or-shadow-module)`; `refuse(any-other-undeclared-key)` |
+| `case_type`, `root_module_id`, `put_in_root`, `parent_select`, `module_filter`, `media_image`, `media_audio`, `use_default_image_for_all`, `use_default_audio_for_all`, `custom_icons`, `case_list`, `case_list_form`, `session_endpoint_id`, `case_list_session_endpoint_id`, `display_style` on a basic menu (where the class declares it), `fixture_select`, `report_context_tile`, `auto_select_case`, `is_training_module`, `lazy_load_case_list_fields`, `show_case_list_optimization_options`, `task_list`, `custom_assertions`, `case_details`, `search_config`, and on an advanced menu `product_details`, `has_schedule`, `schedule_phases` | part 07 |
 
 ### 7.4 A form's keys
 
 Ids are under `forms-and-case-writes/`.
 
-| Keys | Claim | Lands |
-|---|---|---|
-| `doc_type`, `form_type` | 7.1; `take(form-type)` where `form_type` is not the class's default | B2 |
-| `unique_id`, `xmlns` | 7.2 | B2 |
-| `name` | `take(name-lang)`, as a menu's name | B2 |
-| `version` | `account(version)` | B2 |
-| `validation_cache`, `comment`, `submit_notification_label` | `account(validation-cache)`, `account(comment)`, `account(submit-notification-label)` | B2 |
-| `show_count` | `account(show-count-false)` or `account(show-count-true)` by value | B2 |
-| `submit_label` | `account(submit-label-default)` where every language's value is HQ's default or blank, else `account(submit-label-non-default)` | B2 |
-| `is_release_notes_form`, `enable_release_notes` | `account(is-release-notes-form-true-with-or-without-enable-release-notes)` where the first is true, else `account(is-release-notes-form-false-with-enable-release-notes-either-way)` | B2 |
-| `schedule_form_id`, `custom_instances`, `auto_gps_capture` | `account(schedule-form-id-set)`, `account(custom-instances-non-empty)`, `account(auto-gps-capture-form)` | B2 |
-| `case_references_data` | `object`, with `load` under `account(case-references-data-load)` in B3 (8.7); `save` is part 07's (its 5.3), judged in `settleCaseManagement` once the Save to Case blocks are read | B3; B4 |
-| undeclared: `put_in_root`; `no_vellum`; any other | `account(put-in-root-on-a-form-dynamic-key)`; `account(no-vellum-removed-field-dynamic-key)`; `refuse(any-other-undeclared-key)` | B2 |
-| `requires`, `actions`, `form_filter`, `post_form_workflow`, `post_form_workflow_fallback`, `form_links`, `session_endpoint_id`, `respect_relevancy`, `function_datum_endpoints`, `media_image`, `media_audio`, `use_default_image_for_all`, `use_default_audio_for_all`, `custom_icons`, `custom_assertions`, and on an advanced form `arbitrary_datums`, `schedule` | part 07 | B4 |
+| Keys | Claim |
+|---|---|
+| `doc_type`, `form_type` | 7.1; `take(form-type)` where `form_type` is not the class's default |
+| `unique_id`, `xmlns` | 7.2 |
+| `name` | `take(name-lang)`, as a menu's name; where `instanceScanRead` (`lib/commcare/hqInstanceScan.ts`; part 03, section 5.1) answers for the name in the app's first language, the one `formWireName` writes into the form, also `refuse(form-name-read-as-an-instance)`, raised with `Accounting.finding` at the form, `detail.name` the text it answered |
+| `version` | `account(version)` |
+| `validation_cache`, `comment`, `submit_notification_label` | `account(validation-cache)`, `account(comment)`, `account(submit-notification-label)` |
+| `show_count` | `account(show-count-false)` or `account(show-count-true)` by value |
+| `submit_label` | `account(submit-label-default)` where every language's value is HQ's default or blank, else `account(submit-label-non-default)` |
+| `is_release_notes_form`, `enable_release_notes` | `account(is-release-notes-form-true-with-or-without-enable-release-notes)` where the first is true, else `account(is-release-notes-form-false-with-enable-release-notes-either-way)` |
+| `schedule_form_id`, `custom_instances`, `auto_gps_capture` | `account(schedule-form-id-set)`, `account(custom-instances-non-empty)`, `account(auto-gps-capture-form)` |
+| `case_references_data` | `object`, with `load` under `account(case-references-data-load)` (8.7); `save` is part 07's (its 5.3), judged in `settleCaseManagement` once the Save to Case blocks are read |
+| undeclared: `put_in_root`; `no_vellum`; any other | `account(put-in-root-on-a-form-dynamic-key)`; `account(no-vellum-removed-field-dynamic-key)`; `refuse(any-other-undeclared-key)` |
+| `requires`, `actions`, `form_filter`, `post_form_workflow`, `post_form_workflow_fallback`, `form_links`, `session_endpoint_id`, `respect_relevancy`, `function_datum_endpoints`, `media_image`, `media_audio`, `use_default_image_for_all`, `use_default_audio_for_all`, `custom_icons`, `custom_assertions`, and on an advanced form `arbitrary_datums`, `schedule` | part 07 |
 
-`Form.type` is not on the wire: part 07 derives it from `requires` and `actions`. Until it does, a draft
-form has no type and cannot be assembled, which is one more reason no app reads clean before B4.
+`Form.type` is not on the wire: part 07 derives it from `requires` and `actions`, before stage 7.
+
+The entry `form-name-read-as-an-instance` is part 03's, with its subject `instance-text` (its
+section 5.1): a form's name is plain text in the form's source, CommCare HQ's build reads
+`instance('…')` there as an instance read, and Nova's gate refuses the name
+(`FORM_TEXT_READ_AS_INSTANCE`), so the reader refuses what the gate would.
 
 ---
-## 8. The XForm reader: parse and join (B3)
+## 8. The XForm reader: parse and join
 
 ### 8.1 Files
 
@@ -1561,7 +1583,7 @@ another area is written.
 
 | File | Exports |
 |---|---|
-| `index.ts` | `readForms` (stage 3), `mintFields` (stage 5b), `ReadXForm`, `ReadSaveToCaseBlock`, `ReadConnectBlock`, `NodeRole`, `DraftField`, `ReadSourceNames`, `SourceNodeRef` (17.2). B6 adds `expressionEnvOf` to the file (17.2) |
+| `index.ts` | `readForms` (stage 3), `mintFields` (stage 5b), `ReadXForm`, `ReadSaveToCaseBlock`, `ReadConnectBlock`, `NodeRole`, `DraftField`, `ReadSourceNames`, `SourceNodeRef`, `expressionEnvOf` (17.2) |
 | `claims.ts` | `X`, the form reader's `defineClaims("xform", …)` table: one member for each claim sections 8 to 15 write, named by the entry's id less its area, followed by `@<use>` where the reader claims one entry under two uses and by `@<key>` where under two keys |
 | `parse.ts` | `parseXFormSource`, `ParsedXForm` |
 | `model.ts` | `readDataTree`, `readBinds`, `readSetvalues`, `readInstances`, `DataNode`, `BindFacts`, `SetvalueFacts` |
@@ -1593,10 +1615,15 @@ another area is written.
 | it answers `kind: "xml-version"` or `kind: "malformed"` | `unrecognized` at the form, `detail.name` `xform:h:html`, and the defect D5 (5.1) with the failure's `kind`, never the parser's message, which quotes the source. HQ parsed this source to give the form its `xmlns`, so a source Nova's parser alone refuses is Nova's to learn |
 | parsed | `parseXFormSource`, below |
 
+Nova's parser reads no document type declaration, so a source that holds one is refused under
+this entry whether or not it references a declared entity. HQ's own page refuses only a source
+that holds an entity node (`xform.py::parse_xml`) and its import stores any text, so both kinds
+can sit in an app. Part 14's variant shows the one with no reference.
+
 `tryParseXml` answers `{ issue: string }` today, and a document type declaration can be told from any
 other failure only by its message text ("Malformed XML: Document type declarations are not
-supported."). B3 gives the failure arm a kind, set where `xmlParse.ts::parseXml` raises each error and
-never read back from a message:
+supported."). This part gives the failure arm a kind, set where `xmlParse.ts::parseXml` raises
+each error and never read back from a message:
 
 ```ts
 // lib/commcare/xmlParse.ts
@@ -1657,13 +1684,22 @@ element child.
 |---|---|
 | two siblings of one name | `refuse(two-sibling-data-nodes-with-one-name)` at each |
 | a child of the root named `meta` in any case | `refuseSubtree(authored-data-meta-block)` |
-| a name `questionId.ts::questionIdProblem` refuses as `leading-underscore`, `not-letter-first`, `characters` or `xml-prefix`, or as `reserved-name` for `meta` in any letter case or for `instance`, `bind` or `parsererror` as written, on a node that becomes a field | `refuse(question-id-failing-the-grammar-or-meta-in-any-case)` with the name. B3 adds to that entry's `item`: ", or `instance`, `bind` or `parsererror`, which HQ's form builder cannot open" |
-| a name it refuses as `reserved-name` for `case`, `registration` or `script` in any letter case, on a node that becomes a field | `refuse(question-id-case-registration-script)` with the name, the entry B3 re-cuts to HELD-NEW (8.8). The one exception is a root node named `case` as written, which B3 gives no field and leaves whole to part 07 (17.1): its three refusals cover every such node, with the form's actions or without |
+| a name `questionId.ts::questionIdProblem` refuses as `leading-underscore`, `not-letter-first`, `characters` or `xml-prefix`, or as `reserved-name` for `meta` in any letter case or for `instance`, `bind` or `parsererror` as written, on a node that becomes a field | `refuse(question-id-failing-the-grammar-or-meta-in-any-case)` with the name. That entry's `item` gains ", or `instance`, `bind` or `parsererror`, which HQ's form builder cannot open" |
+| a name it refuses as `reserved-name` for `case`, `registration` or `script` in any letter case, on a node that becomes a field | `refuse(question-id-case-registration-script)` with the name, the entry 8.8 re-cuts to HELD-NEW. The one exception is a root node named `case` as written (below) |
 | `vellum:comment` | `drop(vellum-comment)` |
 | `vellum:lock` on a node or a bind | `refuse(vellum-lock-all-locked-question)` |
 | a default-namespace declaration that changes a node's namespace, on a node no plugin owns | `refuse(data-node-xmlns-on-a-hidden-value)` |
 | non-blank text on a leaf that becomes a field | `refuse(default-data-value-datavalue-instance-text)` |
 | any other attribute of a data node | unclaimed: `unrecognized`. Vellum keeps it as a raw attribute and Nova writes none |
+
+**Root nodes named `case` and `commcare_usercase`.** A root node named `case` as written gets the
+role `root-case`, no field, and no claim here. Part 07 claims it whole, under whichever of
+`a-root-question-case-in-a-form-where-hq-writes-the-primary-case` and
+`hand-written-case-block-without-vellum-role-incl-a-root-data` its form's actions make apply; its
+refusals cover every such node, with the form's actions or without. A root node named
+`commcare_usercase` passes the question id rule and is a field this stage claims; where the form
+holds usercase updates part 07 raises `a-root-question-commcare-usercase-in-a-form-with-usercase`
+with `ctx.accounting.finding` at that question, which claims no node.
 
 A node with `vellum:role` is never a field: `SaveToCase` starts a case region (13.3), `Repeat` is a
 model-iteration wrapper (10.3), and the four Connect roles are 15. A role none of these names
@@ -1834,7 +1870,7 @@ export interface ItextTable {
 export type NodeRole =
 	| { readonly kind: "field"; readonly field: DraftField }
 	| { readonly kind: "generated"; readonly purpose: GeneratedNodePurpose; readonly owner: DataNode }
-	/** Proposed by B3, settled by part 07. The purposes are `GeneratedNodePurpose`'s own names. */
+	/** Proposed here, settled by part 07. The purposes are `GeneratedNodePurpose`'s own names. */
 	| { readonly kind: "generated-candidate";
 	    readonly purpose: "url" | "datetime" | "trimmed" | "owner"; readonly owner: DataNode | null;
 	    /** For `owner`: which of the two trees its calculate is (13.2). */
@@ -1842,7 +1878,7 @@ export type NodeRole =
 	| { readonly kind: "query-row"; readonly repeat: DraftField }
 	| { readonly kind: "connect";
 	    readonly block: "learn_module" | "assessment" | "deliver_unit" | "task" }
-	/** A node of the case region (13.3), with the container it is where B3 can tell. */
+	/** A node of the case region (13.3), with the container it is where its name and shape tell. */
 	| { readonly kind: "case-region";
 	    readonly container?: "operations" | "condition" | "keyed" | "keyed-count" | "guard"
 	      | "selected-cases" | "selected-case" | "subcases" }
@@ -1862,7 +1898,7 @@ export interface ReadSaveToCaseBlock {
 	/** Its ancestors between its scope and itself, outermost first, each a `case-region` node. */
 	readonly wrappers: readonly DataNode[];
 }
-/** One Connect element (15), read by B3 and listed for part 07's `connectType` rows. */
+/** One Connect element (15), read here and listed for part 07's `connectType` rows. */
 export interface ReadConnectBlock {
 	readonly block: "learn_module" | "assessment" | "deliver_unit" | "task";
 	readonly id: string;
@@ -1920,27 +1956,25 @@ both (`generatedNodes.ts`, `caseBlocks.ts`).
 
 ### 8.7 `case_references_data`
 
-B3 opens `case_references_data` with `object` (class `CaseReferences`), the container claimed
-`account(forms-and-case-writes/case-references-data-load)` with the key
+The forms stage opens `case_references_data` with `object` (class `CaseReferences`), the container
+claimed `account(forms-and-case-writes/case-references-data-load)` with the key
 `schema:Form.case_references_data` (`schema:AdvancedForm.case_references_data` on an advanced form),
 and claims `load` inside it under the same entry with the key `schema:CaseReferences.load`.
 
-`save` is part 07's, claimed in `settleCaseManagement` (its 5.3), and B3 claims nothing of it. A
-differing map can only be judged once the Save to Case blocks are read: a form whose block is part
-07's own finding raises that finding alone, and its `save` map is not judged. Two readers of one key
-would also be a second claim on one node (4.3). Until B4 a non-empty `save` is therefore unclaimed.
+`save` is part 07's, claimed in `settleCaseManagement` (its 5.3), and this stage claims nothing of
+it. A differing map can only be judged once the Save to Case blocks are read: a form whose block is
+part 07's own finding raises that finding alone, and its `save` map is not judged. Two readers of
+one key would also be a second claim on one node (4.3).
 
-Part 07 cannot call `xform/caseSaveReferences.ts::caseSaveReferences` on a read source as it stands:
-it finds `h:head` and `model` by their prefixed names (`childNamed(root, "h:head")`), takes the
+Part 07 computes the map it compares from the pair `parseXFormSource` already found by namespace,
+`ParsedXForm.model` and `ParsedXForm.dataRoot`. It cannot call
+`xform/caseSaveReferences.ts::caseSaveReferences` on a read source as that function stands: it
+finds `h:head` and `model` by their prefixed names (`childNamed(root, "h:head")`), takes the
 primary instance as the `instance` with no `src` where 8.2 takes the one with no `id`, and throws
-where either is missing, and where a bind has no `nodeset` or one `FormPath.parse` refuses. This
-part's hand-off to it is the pair `parseXFormSource` already found by namespace,
-`ParsedXForm.model` and `ParsedXForm.dataRoot`; part 07 (B4, its 5.3) splits the function into
-`caseSaveReferencesOf(model: Element, dataRoot: Element): Record<string, HqCaseSaveReference>`,
-which takes those two and is total over a read source, and keeps today's `caseSaveReferences(root)`
-as the emitter's wrapper over it, with today's throws.
+where either is missing, and where a bind has no `nodeset` or one `FormPath.parse` refuses. Part
+07's 5.3 splits it into a function of those two elements that is total over a read source.
 
-### 8.8 Manifest edits of this section, B3
+### 8.8 Manifest edits of this section
 
 One new entry in `entries/questions.json`, section "Binds, actions, model and head content", beside
 `data-root-uiversion-other-than-1-or-absent`, with its inventory row:
@@ -1958,7 +1992,7 @@ One new entry in `entries/questions.json`, section "Binds, actions, model and he
 
 Its `area` is `questions`, as its id's prefix requires (`schema.ts`). The REFUSED entry beside it holds
 a value class already (`ui-version-other-than-1`), so the pair is disjoint. `form-source` has no
-`not-yet` sentence today; B3 adds it ("Copy").
+`not-yet` sentence today, so this entry needs one ("Copy").
 
 One entry re-cut, `questions/question-id-case-registration-script`. It is HELD today ("`Field.id`
 (Vellum warning only), except as below"), and that is not what Nova does: `questionIdProblem` answers
@@ -1966,8 +2000,8 @@ One entry re-cut, `questions/question-id-case-registration-script`. It is HELD t
 (`questionId.ts::RESERVED_QUESTION_IDS.anyCase`), the gate refuses the id (`INVALID_FIELD_ID`), and
 neither part 03 nor part 04 changes that set. The bar admits exactly what the gate admits, so a
 reading cannot hold such a question, and the REFUSED entry beside it ("failing the grammar, or `meta`
-in any case") does not describe it and would send a person to change a name HQ only warns about. B3
-re-cuts it:
+in any case") does not describe it and would send a person to change a name HQ only warns about.
+The re-cut:
 
 | Field | Value |
 |---|---|
@@ -1977,14 +2011,14 @@ re-cuts it:
 | `platforms`, `emission`, `gates`, `surfaceKeys`, `valueClass`, `item` | unchanged |
 
 `question-ids` is the subject the REFUSED entry beside it carries (part 01, Appendix A), and it holds
-no `not-yet` sentence today, so B3 adds one ("Copy", C2b). Nova's own exports never use the entry,
-since the gate refuses the name, so no export loses a holder. The re-cut is a reading re-cut,
-and lands in B3 with the reader that first claims it (part 01, section 3, the rule for where an
-edit lands, and its 3.8, which names this entry for B3).
+no `not-yet` sentence today, so the re-cut needs one ("Copy"). Nova's own exports never use the
+entry, since the gate refuses the name, so no export loses a holder. The re-cut is a reading
+re-cut: it changes with the reader that first claims it (part 01, section 3, the rule that an
+entry's standing changes with the code that makes its new wording true).
 
 ---
 
-## 9. Field kinds (B3)
+## 9. Field kinds
 
 ### 9.1 The table
 
@@ -2091,7 +2125,7 @@ a protected message's carrier (13.2), `refuse(bind-readonly)`. A `jr:constraintM
 
 Nova holds four appearance facts, and reads them from the table it writes them with, backwards:
 `xform/appearance.ts::FIELD_DISPLAY_SETTING_TOKENS`, the token table of `fieldAppearance`, which part
-03 exports for this (A6, its 2.3). They are `minimal` on a trigger, `signature` on an image upload,
+03 exports for this (its 2.3). They are `minimal` on a trigger, `signature` on an image upload,
 `field-list` on a group, `numeric` on a text input, each as the whole attribute. Every other string
 is classified, never guessed.
 
@@ -2159,7 +2193,8 @@ export function classifyAppearance(
    `intent-id-on-any-input-naming-no-odkx-intent-in-the-form`). `appearances.ts` writes each of these
    five from its entry's `item`, one function per entry named for it, and nothing in Python checks
    them: what holds them is `appearances.test.ts` over the examples each `item` gives, and one variant
-   per entry in part 14 whose `expected.json` names the entry. Parity is not claimed for them.
+   per entry in part 14 whose row of `proof/matrix/variants.json` names the entry. Parity is not
+   claimed for them.
 3. **A row of `APPEARANCE_ROWS`**, the table below: the entry whose control and token match.
 4. **Read by no runtime.** `appearanceReads` is empty for the value on this control and it is no
    `intent:` value on an input: `account(any-other-value-read-by-no-runtime-not-an-intent-value-on-an)`.
@@ -2237,7 +2272,7 @@ section or is one of the kind rows of 9.1.
 
 ---
 
-## 10. Choices, groups and repeats (B3)
+## 10. Choices, groups and repeats
 
 ### 10.1 Choices
 
@@ -2267,10 +2302,10 @@ declarations. The nodeset's head must be `instance('<id>')`.
 | the same | `jr:itext(…)` as the label | `refuse(itemset-label-jr-itext-field)` |
 | the same | a name the table has no column for | left unclaimed: `unrecognized`, `detail.name` `xform:itemset/value@ref` or `xform:itemset/label@ref`, and the defect D7 (5.1), which says which of the two refs it was and names neither the column nor the table: the catalog part 11 built holds every field HQ lists for the table, so a missing one is Nova's to learn |
 | the same shape, `input.lookup.table(tag)` undefined | | `handOffSubtree(itemset, "lookup-table-read", tag)`, and `{ tag, place }` in `facts.unreadTables` (4.3; 17.4). The select gets no `optionsSource`, so the draft is no document Nova would return, and part 11's finding for the table is what the person reads |
-| `instance('casedb')/casedb/case…` with the value ref `@case_id` | one property or attribute step | B3 proposes `optionsSource: { kind: "cases", caseType, labelProperty }` from the nodeset's own `@case_type` literal and the label ref, registers the rest of the nodeset's predicate as a pending expression under the field's `lookup_options_source` slot (11.1), and in stage 10, with the filter bound, rebuilds the nodeset with `caseOptions.ts::caseOptionsNodeset` and compares it through `sameTree`: equal, the itemset is `take(itemset-over-casedb-in-nova-s-case-choices-shape)`; different, `refuse(itemset-over-casedb-or-another-instance-advanced-data-source)` |
+| `instance('casedb')/casedb/case…` with the value ref `@case_id` | one property or attribute step | the forms stage proposes `optionsSource: { kind: "cases", caseType, labelProperty }` from the nodeset's own `@case_type` literal and the label ref, registers the rest of the nodeset's predicate as a pending expression under the field's `lookup_options_source` slot (11.1), and in stage 10, with the filter bound, rebuilds the nodeset with `caseOptions.ts::caseOptionsNodeset` and compares it through `sameTree`: equal, the itemset is `take(itemset-over-casedb-in-nova-s-case-choices-shape)`; different, `refuse(itemset-over-casedb-or-another-instance-advanced-data-source)` |
 | any other | | `refuseSubtree(itemset-over-casedb-or-another-instance-advanced-data-source)` |
 
-**Manifest edit, B3.** Nova writes a casedb itemset today (`builder.ts::buildFieldParts`, the `caseSource`
+**Manifest edit.** Nova writes a casedb itemset today (`builder.ts::buildFieldParts`, the `caseSource`
 branch) and no entry holds it by name. New entry `questions/itemset-over-casedb-in-nova-s-case-choices-shape`,
 section "Question types", beside `itemset-over-casedb-or-another-instance-advanced-data-source`:
 `valueClass` `case-choices`; `disposition` `HELD`; `item` "itemset over `casedb` whose value is
@@ -2295,12 +2330,17 @@ A `group` control that does not wrap a repeat is a `group` field over its data n
 | a repeat whose rows the worker adds, anywhere under a Question List | | `refuse(user-controlled-repeat-inside-a-question-list-a-group-whose)` at the repeat |
 | any other appearance | | 9.2 |
 
-Core reads `field-list` ignoring case (`surface.json`, `appearance:core/field-list`: `whole`,
-`ignore-case`), Vellum only as written (`parser.js`: `appearance === 'field-list'`). A case variant is a
-Question List on a device and a plain group in HQ's form builder; the reader holds it as `fieldList`,
-and Nova writes `field-list`, which the outline's item 10 gave this step. No runtime reads the two
-spellings differently, so the re-spelling is a spelling rule the lane proves (part 14), not a change
-the first publish declares.
+The runtimes read `field-list` in any letter case (Core's
+`FormEntryController.isHostWithAppearance` compares ignoring case, and Formplayer, the Web Apps
+client and a device run Core). CommCare HQ's form builder and its question summary read only the
+lower-case token as a Question List (`parser.js`: `appearance === 'field-list'`;
+`xform.py::_infer_vellum_type`); HQ's reports and exports treat `Group` and `FieldList` alike
+(`reports/formdetails/readable.py`,
+`export/models/new.py::FormExportDataSchema.datatype_mapping`). So the reader holds a case variant
+as `fieldList`, and Nova writes `field-list`. After a first publish HQ shows such a group as the
+Question List it already ran as, which is Nova's spelling of the form and is declared by
+`forms-and-settings-rewritten`. Acceptance draws no difference from HQ's own summary of that
+group: HQ's type there follows a spelling, not what the form runs as (part 09, Departure 18).
 
 **Sections.** `containers.ts::rootSections` runs after the root's fields are known. The form's root
 fields all become `section`s exactly when: there is at least one; every root field is a Question List;
@@ -2373,7 +2413,7 @@ The two manifest refusals are claimed only where the blank answer is certain, be
 sends a person to change the form in CommCare HQ, and that is wrong advice for a form that works. Every
 other shape is `not-yet`.
 
-**Manifest edit, B3.** New entry `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`,
+**Manifest edit.** New entry `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`,
 beside `repeat-model-iteration-vellum-role-repeat-ids-count-current`: `valueClass`
 `model-iteration-outside-nova-s-rule`; `disposition` `HELD-NEW`, `subject: "repeats"`, `owner: "xform"`;
 `item` "a model-iteration repeat with a display condition, or whose query reads a form answer set when
@@ -2384,26 +2424,26 @@ values"); Nova runs model iteration only where nothing the query reads can chang
 types"; `surfaceKeys`, `platforms` (RUNS / RUNS on both), `emission` and `gates` (`[]`) copied value
 for value from the entry it sits beside; no `slotChanges`, as a HELD-NEW entry holds none. That
 entry's `item` gains ", un-nested, with no display condition, whose query reads no answer of the
-form". The new entry joins the pair `repeats` at `not-yet`, whose sentence A2 words for button captions
-alone, so B3 re-words it ("Copy", C2c).
+form". The new entry joins the pair `repeats` at `not-yet`, whose sentence must then hold of a
+repeat's button captions and of this shape alike ("Copy").
 
 ---
 
-## 11. Logic slots and load-time values (B3)
+## 11. Logic slots and load-time values
 
 ### 11.1 Pending expressions
 
-B3 parses no expression for its meaning. For each attribute that holds one it registers a
-`PendingExpression` and claims nothing; stage 7 hands every registration to part 08's
+The forms stage parses no expression for its meaning. For each attribute that holds one it
+registers a `PendingExpression` and claims nothing; stage 7 hands every registration to part 08's
 `readExpressions`, which binds it against the provisional document (2.3), and the frame applies each
 `ExpressionClaim` it answers to the node the expression was registered with. An attribute nothing
-registers, or one registered before B6 lands, is unclaimed.
+registers is unclaimed.
 
 The record is part 08's, exactly as its section 2.5 writes it (`ReadMode`, `PendingExpression` with
 `ref`, `text`, `mode`, `place` and `key`, and `pendingPlaceholder`), in
-`lib/commcare/reader/pendingExpressions.ts`, which B2 carries. This part adds to that file only the
-registry that keeps what the record does not hold: the node, a default's event, and what the
-expression stage answered for it.
+`lib/commcare/reader/pendingExpressions.ts`. This part adds to that file only the registry that
+keeps what the record does not hold: the node, a default's event, and what the expression stage
+answered for it.
 
 ```ts
 // lib/commcare/reader/pendingExpressions.ts
@@ -2423,10 +2463,10 @@ export interface PendingRegistry {
 }
 ```
 
-`outcome` is filled by `bindExpressions` (B6) from the run it applies: `expression` is
+`outcome` is filled by `bindExpressions` from the run it applies: `expression` is
 `ExpressionReading.bound[index]`, and `claim` is the claim whose `source` is `index`, the slot's own
 (the one whose `key` is the registration's `key`, where part 08 also answers surface-use claims for
-the same expression). Before B6, and for a registration nothing bound, both are undefined. Parts 07
+the same expression). For a registration nothing bound, both are undefined. Parts 07
 and 08 read a registration's result through it and no other way.
 
 `ref` is a `SlotContextRef` (`lib/domain/expression/types.ts`), so the slot must exist in the
@@ -2450,7 +2490,7 @@ a `vellum:` shadow is judged here (14.2), once, and part 08 compares none.
 | a Connect block's calculate (15) | the form, slot `assessment_user_score`, `deliver_entity_id` or `deliver_entity_name` | `xform:model/bind@calculate` |
 
 Three things are not registered. The `calculate` of a `nova_constraint_<q>_<n>` node (13.2) is no slot
-of the document: B3 gives it to part 08 in `env.generatedValues` (17.2), and part 08 puts it back where
+of the document: it goes to part 08 in `env.generatedValues` (17.2), and part 08 puts it back where
 the question's `validate` reads the node. An `<output>` of any language but the source is matched to a
 source output and never bound on its own (12.5). And the attributes of a stand-in (2.3) are covered
 by its finding.
@@ -2525,7 +2565,7 @@ always the end of the load.
 A form HQ's form builder saved has no such pair of its own: `writer.js::createSetValues` writes the
 form-level setvalues and then each question's in data-tree order, which is Nova's order.
 
-**Manifest edit, B3.** New entry
+**Manifest edit.** New entry
 `questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes`, section "Binds, actions,
 model and head content", beside `a-second-default-setvalue-on-one-question`: `surfaceKeys`
 `["xform:setvalue"]`; `valueClass` `order-a-save-changes`; `disposition` `REFUSED`, `reasons: [{ kind:
@@ -2562,7 +2602,7 @@ number or a date). Every other type changes what a calculated or defaulted node 
   the comparison for that question is skipped: its inputs are not known, and the finding that
   stands already sends the person to that question or that form.
 
-**Manifest edit, B3.** New entry `questions/hidden-value-bound-a-type-nova-would-not-write`, beside
+**Manifest edit.** New entry `questions/hidden-value-bound-a-type-nova-would-not-write`, beside
 `hidden-value-bound-xsd-datetime`: `surfaceKeys` `["xform:model/bind@type"]`; `valueClass`
 `hidden-value-other-bind-type`; `disposition` `HELD-NEW`, `subject: "question-types"`, `owner: "xform"`;
 `item` "a Hidden Value whose bind type is one Nova would not write for it: any type but `xsd:string` and
@@ -2576,7 +2616,7 @@ bind type, which decides what Core stores for its value (`Recalculate.java::wrap
 
 ---
 
-## 12. Text (B3)
+## 12. Text
 
 ### 12.1 Itext, by reference
 
@@ -2610,11 +2650,10 @@ never content: the `text@id` attribute is `drop(itext-ids-other-than-a-pragma-ke
 | a `jr:constraintMsg` and an `alert` naming two ids | left unclaimed |
 | one id referenced by two slots or two questions | each slot reads the text as its own: Nova holds a text per slot, and writes two entries of equal text, which HQ's build merges again (`XForm.normalize_itext`) |
 
-After every reference is read, B3 finds which ids an expression reads. It reads the text of every
-logic attribute, setvalue value and output of the form (the texts 11.1 registers) with
-`readFormSyntax` and collects each call of `jr:itext` whose one argument is a string: the grammar's
-tree, never a pattern over text. It needs no binding, so it runs in stage 3 and does not wait for B6.
-Then:
+After every reference is read, the forms stage finds which ids an expression reads. It reads the
+text of every logic attribute, setvalue value and output of the form (the texts 11.1 registers)
+with `readFormSyntax` and collects each call of `jr:itext` whose one argument is a string: the
+grammar's tree, never a pattern over text. It needs no binding, so it runs in stage 3. Then:
 
 | A `text` no slot references | Result |
 |---|---|
@@ -2684,14 +2723,14 @@ Rules that complete the table:
   where the first language's text is not blank, is
   `take(an-explicitly-blank-value-in-a-non-default-language-where-the)`: read as no translation
   (`translationEntryFor` gives no entry) and counted in `ReadFormFacts.blankTranslations` (part 09,
-  Decision 20). A `value` present and empty in the first language where another language holds text
+  Decision 19). A `value` present and empty in the first language where another language holds text
   is `refuse(an-explicitly-blank-value-in-the-first-language-where-another-holds-text)`, new. A
   missing `text` or `value` is no blank: it reads as untranslated. Two cases the pair leaves: a
   blank `value` in another language of a text refused this way is claimed under the same refusal,
   one finding at the question; and a text whose values are blank in every language is the default
   row of the table, read as a blank text.
 
-**Manifest edits, B3.** Three entries, each with its inventory row.
+**Manifest edits.** Three entries, each with its inventory row.
 
 - NEW `questions/a-markdown-form-in-a-form-whose-text-formatting-is-off`, as part 03's section 10
   writes it (REFUSED, `not-hq-editable`, `subject: "question-text"`, `surfaceKeys`
@@ -2718,7 +2757,7 @@ Rules that complete the table:
   and label text"; the refused arm's fixed `platforms` `{ kind: "none", cell: "\u2014" }` and
   `emission` `{ cell: "\u2014", markers: [] }`; `gates` `[]`.
 
-Part 09's Departure 21 argues the held half at source: Nova's first publish fills a blank from the
+Part 09's Departure 17 argues the held half at source: Nova's first publish fills a blank from the
 default language as the form builder does on save, and a reading's source language is its first
 language (6.3). The first-language half stays refused because no first-language text exists to
 fill from, and the form builder would fill it from whichever language holds text.
@@ -2740,18 +2779,17 @@ A `value` element's children become prose parts in order.
 | an element in the XHTML namespace | `refuseSubtree(xhtml-namespace-child-elements-inside-a-value)` |
 | any other element | `dropSubtree(other-child-elements-inside-a-value)` |
 
-B3 claims no entry for an output it registers: the claim is B6's, made once the value is bound.
-That holds for the two entries part 03 (A7) adds only under a run's outcome,
+The forms stage claims no entry for an output it registers: the claim is part 08's, made once the
+value is bound. That holds for the two entries part 03 adds only under a run's outcome,
 `questions/output-value-holding-text-the-form-builder-rewrites` (its G1 outcome B) and
 `questions/output-value-in-a-validation-message-core-cannot-compose` (its G3 outcome C, second
 case). Each class is a property of the bound value, so part 08's prose slot row claims each ahead
-of `questions/output-value-any-other-expression`, by the predicate A7 exports for it (part 08,
+of `questions/output-value-any-other-expression`, by the predicate part 03 exports for it (part 08,
 sections 9.1 and 9.2), and nothing of `reader/xform/` names either.
 
 `prose.ts::literalOutputText(value: string): string | undefined` is the one reader of those two
-shapes, over `readFormSyntax`'s tree, and it lands here in B3, three pull requests before B6. Part
-08 (`08-the-reader-expressions.md`, B6; its 10.2) says the same: the function is this part's, and
-B6 exports nothing for it. A literal output read as text is confirmed by the print, as
+shapes, over `readFormSyntax`'s tree. It needs no bound tree, and the expression reader writes no
+second (part 08, its 10.2). A literal output read as text is confirmed by the print, as
 every proposal is: `builder.ts::buildLabelNodes` over the proposed text must write that same output
 back, and where it writes a plain text node the output is kept as the value it is, a `value` part.
 
@@ -2769,8 +2807,8 @@ holds media for: a question's label (`label_media`), its help (`help_media`) and
   a `text` for the id, and present in all or in none. Then the slot holds that kind, under
   `take(label-image-audio-video-same-asset-every-language)`, `take(help-media)`, `take(choice-image)` or
   `take(choice-audio-video)`. A path that differs between two languages, or is present in one and absent
-  in another, is `refuse(label-or-option-media-differing-by-language)` at the question (part 01's 3.5
-  wording, which B3 lands on the three media rows of questions and forms).
+  in another, is `refuse(label-or-option-media-differing-by-language)` at the question (part 01's
+  3.5 holds the wording of the three media rows of questions and forms).
 - **The file.** `input.media.resolve(path)`: `asset` puts the asset id in the slot, makes the `take`
   claim above on each language's `value`, and adds a `ReadMediaReference` to `facts.mediaReferences`.
   `no-entry` and `unreadable` put nothing in the slot and hand each language's `value` off
@@ -2891,7 +2929,7 @@ that owns the unit, `detail.name` `xform:model/itext/translation/text/value`, an
 ("Copy") with the unit's role, the language's position among the app's languages and the issue's
 code. The unit's id is not in it: it is built from question ids.
 
-**Manifest edit, B3.** New entry `questions/a-text-whose-languages-show-different-values`, section
+**Manifest edit.** New entry `questions/a-text-whose-languages-show-different-values`, section
 "Itext, markdown and label text", beside `output-value-of-a-question-case-or-user-reference`:
 `surfaceKeys` `["xform:model/itext/translation/text/value/output"]`; `valueClass`
 `outputs-differing-by-language`; `disposition` `HELD-NEW`, `subject: "question-text"`,
@@ -2903,7 +2941,7 @@ other values than its source text"; `area` `questions`; `platforms`
 sits beside; no `slotChanges`. That entry gains `valueClass: "outputs-equal-in-every-language"`.
 
 ---
-## 13. Generated nodes (B3)
+## 13. Generated nodes
 
 ### 13.1 The method
 
@@ -2945,25 +2983,32 @@ export function generatedBaseName(
   `reader/syntaxCompare.ts::sameXPathText(sourceText, print, { ruleSet: "form" })`. That function is
   part 08's (its 3.1), the one comparison of two XPath texts in the reader: it reads both with
   `readFormSyntax` and compares the trees under rows L1 to L6 of its 3.2 (spacing, grouping
-  parentheses, the quote mark, a number's spelling, axis spellings, `./.`). B3 needs it three pull
-  requests before B6, and it needs nothing B6 adds (`readFormSyntax` and `formSyntax.ts` are on
-  `main`), so B2 carries the file with those six rows and B6 adds its two record rows to it. No rule
-  of this part matches a string, and none compares `formSyntaxKey`s on its own.
+  parentheses, the quote mark, a number's spelling, axis spellings, `./.`). Those six rows need
+  nothing else of the expression reader (`readFormSyntax` and `formSyntax.ts` are on `main`), so
+  this recognizer does not wait for it. No rule of this part matches a string, and none compares
+  `formSyntaxKey`s on its own.
 - **The expected tree comes from the emitter.** Each rule calls the function the emitter calls for that
-  node (`caseScalarTextValueCalculation`, `datetimeCaseValueCalculate`, `captureUrlCalculate`,
+  node (`caseScalarTextValueCalculation`, `datetimeCaseValue`, `captureUrlCalculate`,
   `countPlacementRowPieces`, `protectConstraintMessage`, the `w` builders of
-  `builder.ts::buildQueryRepeat`) over the proposed owner's path. The first five are exported today.
-  B3 exports from `builder.ts` the ones that are private there (2.1), bodies unchanged, and touches
-  neither `caseOps.ts` nor `countPlacementRow.ts`.
+  `builder.ts::buildQueryRepeat`) over the proposed owner's path. Four of the first five are exported
+  today, and part 03 exports `datetimeCaseValue` in place of `datetimeCaseValueCalculate`
+  (`03-questions-and-text.md`, section 7.1).
+  `builder.ts` exports the ones that are private there ("Files"), bodies unchanged, and neither
+  `caseOps.ts` nor `countPlacementRow.ts` is touched. Rebuilding that tree for every candidate is
+  the one cost of this design that grows with a form's questions times its generated nodes, and
+  `ReadWork.rebuilds` counts it (2.2). Where `readerWork.test.ts` finds `rebuilds` growing faster
+  than the form, the fix is a memo of the expected tree by purpose and path shape, in
+  `generated.ts`. A claim's `where` is already built only where the full log is asked for (4.5),
+  so nothing is left to move there.
 - **The name must be the allocator's.** `generatedNodes.ts` gains
   `generatedBaseName(purpose, ownerId, part?)`, the base-name templates the allocator holds inline today
   (`nova_constraint_<id>_<n>`, `nova_constraint_message_<id>`, `nova_url_<id>`, `nova_datetime_<id>`,
   `nova_trimmed_<id>`, `repeatCountBaseName`, `queryRepeatBaseNames`, `nova_keyed_<id>`,
-  `nova_count_<keyed>`, `nova_condition_<id>`, `nova_guard_<id>_<kind>`, `nova_owner_<id>`), which the
-  allocator then calls. A node is a candidate for an owner only where its name is that base, or the
-  base followed by `_` and a whole number from 1 with no leading zero, the suffix
-  `namespace.ts::Namespace.peek` gives. The name orders the proposals and never proves one: the tree
-  names the owner's path, so at most one owner can match.
+  `nova_count_<keyed>`, `nova_condition_<id>`, `nova_guard_<id>_<kind>`, `nova_owner_<id>`,
+  `nova_instant_<operation id>_<n>`), which the allocator then calls. A node is a candidate for an
+  owner only where its name is that base, or the base followed by `_` and a whole number from 1 with
+  no leading zero, the suffix `namespace.ts::Namespace.peek` gives. The name orders the proposals and
+  never proves one: the tree names the owner's path, so at most one owner can match.
 - **Everything of the node is claimed under one entry.** A recognized node's element, its bind and each
   bind attribute are claimed `derived` under the entry of its purpose's row, so a generated node's
   `type="xsd:int"` is never mistaken for a question's.
@@ -2988,9 +3033,10 @@ attributes listed, shadows aside.
 | `query-index` | the same | a child of `item`, named `nova_query_index_<r>` | `type="xsd:int"`, no calculate; a `jr-insert` setvalue `position(..)` | the same | nothing: the row's index |
 | the row guard | `builder.ts::buildQueryRepeat` | the `item` row's bind | `relevant` the tree `position() < ../<count>`, or an `and` whose last operand is that tree | | the repeat's `relevant` is the rest of the `and`, registered with the source text of the left operand as its `text`; with no `and`, no condition |
 | `url` | `captureUrlNode.ts` | a sibling of a capture question `q`, named `nova_url_<q>` | `type="xsd:string"`; `calculate` the tree `captureUrlCalculate(q, input.target)`; `relevant` `count(q) > 0` | a case action names it (part 07) | part 07: the write's value is `capture-link(q)` |
-| `datetime` | `datetimeCaseValue.ts` | a sibling of `q`, named `nova_datetime_<q>` | `type="xsd:string"`; `calculate` the tree `datetimeCaseValueCalculate(q)`; `relevant` `count(q) > 0` | a case action names it, or `q`'s trimmed sibling reads it (part 07) | part 07: the write reads `q` |
+| `datetime` | `datetimeCaseValue.ts` | a sibling of `q`, named `nova_datetime_<q>` | `type="xsd:string"`; `calculate` the tree `datetimeCaseValue` of `q` as a field read (part 03, section 7.1), or the earlier tree `typedInstantValue(q)`, which an app Nova published before step 6 holds; `relevant` `count(q) > 0` | a case action names it, or `q`'s trimmed sibling reads it (part 07) | part 07: the write reads `q`. Under the earlier tree the fold also appends `{ entry, path, register: "date-and-time-saved-as-hq-stores-it" }` to `ReadFacts.sameStateRewrites` (part 09, section 11.2) |
 | `trimmed` | `builder.ts::buildFieldParts` | a sibling of `q`, named `nova_trimmed_<q>` | no type; `calculate` the tree `caseScalarTextValueCalculation(v)`, `v` the path of `q` or of its `datetime` sibling; `relevant` `count(q) > 0` | a case action names it as a name or an external id (part 07) | part 07: the action reads `q` |
 | `owner` | `builder.ts::buildOwnerNodes` | the last child of its scope with no control, named `nova_owner_<operation id>` | `calculate` the tree `instance('commcaresession')/session/context/userid`, or the string `-`; nothing else | an advanced open action names it as its `owner_id` (part 07) | part 07: the operation's `owner` |
+| `instant` | `datetimeCaseValue.ts`, called from `caseOps.ts` | a Hidden Value in an operation's `nova_operations` group, named `nova_instant_<operation id>_<n>`, with no control | no `type`; `calculate` the tree `typedInstantValue(leaf)` | the Save to Case row of its operation reads it as `if(N = '', '', storedInstantOfText(N))` (part 03, section 7.1) | part 07, section 5.2: the row takes `leaf` in the node's place, and the node becomes no field |
 | `keyed`, `keyed-count`, `condition`, `guard` | `caseOps.ts::buildCaseOperations` | inside a case region (13.3) | | | part 07 |
 
 **The scalar check on `q`.** A question with a recognized `trimmed` sibling carries, on its own
@@ -3009,27 +3055,30 @@ names their trees.
 ### 13.3 Candidates, the case region, and who settles them
 
 A node whose purpose is settled by `case-management` cannot be decided from the form alone: `url`,
-`datetime`, `trimmed` and `owner` are Nova's only where a case action names them. B3 gives such a node
-the role `generated-candidate` and mints nothing for it. Part 07's case management stage (stage 5)
-settles each through `ReadXForm.settle(node, "generated" | "field")`: named by an action in the shape the
-emitter writes, it is generated; otherwise it is the person's own Hidden Value. Stage 5b,
-`xform/index.ts::mintFields`, then settles every candidate still open as a field and mints the form's
-fields in document order (8.5), so expressions bind against the final structure. In B3, with no part 07,
-every candidate becomes a Hidden Value, which is the safe reading.
+`datetime`, `trimmed` and `owner` are Nova's only where a case action names them. The forms stage
+gives such a node the role `generated-candidate` and mints nothing for it. Part 07's case
+management stage (stage 5) settles each through `ReadXForm.settle(node, "generated" | "field")`:
+named by an action in the shape the emitter writes, it is generated; otherwise it is the person's
+own Hidden Value. Stage 5b, `xform/index.ts::mintFields`, then settles every candidate still open
+as a field and mints the form's fields in document order (8.5), so expressions bind against the
+final structure. A candidate nothing settles becomes a Hidden Value, which is the safe reading.
 
 **The case region.** A data node is case scaffolding where every leaf under it lies in a
 `vellum:role="SaveToCase"` element or is a keyed create's count node (a bind-only node typed `xsd:int`
-whose `calculate` is the number `1`), and its body control, where it has one, is a `group` with no
-label and no appearance or the `group` and `repeat` of a one-row repeat. Such nodes, their controls,
-binds and setvalues take the role `case-region`, each with the `container` B3 can tell from its name
-and shape (`generatedBaseName`: `nova_operations`, `nova_condition_<id>`, `nova_keyed_<id>` and its
-count node, `nova_guard_<id>_<kind>`, the selected-cases wrapper and row, `nova_subcases`). B3 claims
-nothing in them and lists them in `ReadXForm.caseRegion`. Every `vellum:role="SaveToCase"` element,
-inside the region or under an authored group, is also a `ReadSaveToCaseBlock` in
-`ReadXForm.saveToCaseBlocks`, with its path, its repeat, the binds and setvalues under it and its
-wrappers, which is what part 07's `readSaveToCaseBlocks` takes (its section 5). The data path of
-every case region container and of every Save to Case block is listed in
-`ReadFormFacts.caseRegionPaths` (17.3), in document order, for part 09's check 5 (its 7.5). Part 07
+whose `calculate` is the number `1`), or is an operation's clock node (a bind-only node with no type,
+named `nova_instant_<operation id>_<n>`, whose `calculate` is `typedInstantValue` of a leaf; part 03,
+section 7.1), and its body control, where it has one, is a `group` with no label and no appearance or
+the `group` and `repeat` of a one-row repeat. Such nodes, their controls, binds and setvalues take
+the role `case-region`, each with the `container` its name and shape tell (`generatedBaseName`:
+`nova_operations`, `nova_condition_<id>`, `nova_keyed_<id>` and its count node,
+`nova_guard_<id>_<kind>`, the selected-cases wrapper and row, `nova_subcases`, the clock nodes
+`nova_instant_<operation id>_<n>` of `nova_operations`). The forms stage claims nothing in them and
+lists them in `ReadXForm.caseRegion`. Every `vellum:role="SaveToCase"` element, inside the region or
+under an authored group, is also a `ReadSaveToCaseBlock` in `ReadXForm.saveToCaseBlocks`, with its
+path, its repeat, the binds and setvalues under it and its wrappers, which is what part 07's
+`readSaveToCaseBlocks` takes (its section 5). The data path of every case region container and of
+every Save to Case block is listed in
+`ReadFormFacts.caseRegionPaths` (17.3), in document order, for part 09's check 5 (its 7.4). Part 07
 reads every block, container, condition group, guard and keyed repeat, and what it does not claim
 is `unrecognized`. A labelled group around a Save to Case block is an ordinary group field with a
 case region inside it.
@@ -3049,15 +3098,15 @@ case region inside it.
 - **A name Nova would now spell or place otherwise.** A folded `nova_trimmed_x_1` whose sibling
   `nova_trimmed_x` is gone reads as the trimmed sibling of `x`, and Nova writes `nova_trimmed_x`. An
   HQ-authored form has no trimmed sibling at all, and Nova writes one. Each is a change to a generated
-  node's path, with no change to what any question asks or stores. B3 records every generated node it
-  folded (`ReadFormFacts.generated`, 17.3); part 09 re-reads Nova's emission for the fixed point with
-  this same reader, and the difference of the two lists is exactly the nodes Nova adds, renames and
-  drops. That difference feeds the first-publish register's entries drawn from `GeneratedNodePurpose`
-  (part 09, 11.2 and 11.3). It is never a finding of this part.
+  node's path, with no change to what any question asks or stores. The forms stage records every
+  generated node it folded (`ReadFormFacts.generated`, 17.3); part 09 re-reads Nova's emission for
+  the fixed point with this same reader, and the difference of the two lists is exactly the nodes
+  Nova adds, renames and drops. That difference feeds the first-publish register's entries drawn
+  from `GeneratedNodePurpose` (part 09, 11.2 and 11.3). It is never a finding of this part.
 
 ---
 
-## 14. Vellum's shadows and hashtag metadata (B3)
+## 14. Vellum's shadows and hashtag metadata
 
 ### 14.1 What a shadow is, and when it is read
 
@@ -3151,10 +3200,10 @@ the form's bindings of `null` hashtags so far and `metadata.root` the data root'
   `getPathFromControlElement`).
 - One enclosing group around a whole expression is ignored on both sides.
 
-This is the reader's one shadow comparison, and part 08 (B6; its 10.1) says the same: a shadow is a
-fact of the form's source and needs no bound tree, B3 has judged every shadow before B6 runs, a
-`PendingExpression` holds no shadow (11.1), and B6 reads the real attribute and writes no comparison
-of its own.
+This is the reader's one shadow comparison (part 08, its 10.1): a shadow is a fact of the form's
+source and needs no bound tree, stage 3 has judged every shadow before stage 7 binds, a
+`PendingExpression` holds no shadow (11.1), and the expression reader reads the real attribute and
+writes no comparison of its own.
 
 `shadow-disagrees` is part 01's circumstance (`fix-in-hq`), placed at the question, with the shadow
 attribute claimed `drop` so it is not also `unrecognized`. Opening the form in HQ's form builder and
@@ -3178,7 +3227,7 @@ to one tree, `drop(vellum-requiredcondition-expr-vellum-requiredcondition-equal-
 
 ---
 
-## 15. Connect blocks (B3)
+## 15. Connect blocks
 
 `connect.ts::readConnectBlocks` reads the root's children that carry a Connect role, against the shapes
 `builder.ts::buildConnectBlocks` writes. The Connect namespace is
@@ -3203,11 +3252,16 @@ Each block's subtree and binds are claimed under its entry. A block whose wrappe
 | a block inside a group or a repeat; two blocks of one kind other than assessments; a `relevant` on a wrapper; a `time_estimate` that is 0 or no whole number; an `entity_id` or `entity_name` with no calculate; an assessment or deliver unit id of 51 to 100 characters where Nova's grammar stops at 50 | `refuse(connect-blocks-beyond-one-of-each-kind)` |
 | an id `lib/domain/forms.ts::CONNECT_ID_PATTERN` refuses (part 04, section 10) | `refuse(question-id-failing-the-grammar-or-meta-in-any-case)` |
 | a deliver unit and a task in one form | `refuse(connect-deliver-unit-and-task-in-one-form)`, new, raised with `Accounting.finding` at the form: each block is claimed under its own entry, and the finding is the pair |
+| a learn module's or task's name or description, or a deliver unit's name, for which `instanceScanRead` answers | `refuse(connect-block-text-read-as-an-instance)`, raised with `Accounting.finding` at the form, `detail.name` the text it answered: the block is claimed under its own entry, and the finding is the text |
+
+The last row's entry, like `form-name-read-as-an-instance` (7.4), is part 03's and exists with
+its gate rule (its section 5.1), so the reader adds neither. Their subject `instance-text` holds a
+whole sentence (part 01, section 9.2), so no copy is added here.
 
 Connect blocks are read here and nowhere else. They are form content with no case action, and a
 Connect id takes the question id rule (part 04, section 10), which is why an id the pattern refuses is
 the question id entry's and not N15's. Two readers of one element would be a second claim on every
-node of it, so part 07 (B4; its 10.2) builds no Connect reader and claims no Connect entry. It reads
+node of it, so part 07 (its 10.2) builds no Connect reader and claims no Connect entry. It reads
 the result: `ReadXForm.connectBlocks` and the draft form's `connect`, for its own rows that turn on
 `connectType`.
 
@@ -3218,7 +3272,7 @@ new, raised with `Accounting.finding`: Nova's document holds one `connectType`, 
 block of the other kind (`CONNECT_MODE_MISMATCH`). The provisional document then takes the kind of
 the first block in document order, so the forms still bind.
 
-**Manifest edits, B3.** Two entries in `entries/questions.json`, section "Question types", beside
+**Manifest edits.** Two entries in `entries/questions.json`, section "Question types", beside
 `connect-task`, each with `surfaceKeys` `["mug:ConnectDeliverUnit", "mug:ConnectTask"]` for the first and
 `["mug:ConnectLearnModule", "mug:ConnectDeliverUnit"]` for the second, `gates`
 `["toggle/COMMCARE_CONNECT"]` (added to that gate's `contentEntries` after `questions/connect-task`),
@@ -3239,7 +3293,7 @@ disjoint.
 
 ---
 
-## 16. Assembly, the declaration and the split (B2)
+## 16. Assembly, the declaration and the split
 
 ### 16.1 Assembly
 
@@ -3252,26 +3306,27 @@ reading.
 2. **What the document decides, in every reading.** The declaration's verdict (16.3) over `ctx.doc`:
    its `none` arm makes its findings here, whether or not another finding stands. (11.4's bind-type
    comparison has already run, per form, in stage 10.)
-3. **If any finding stands, no document is returned.** The generated translation keys (16.5) need
-   the strings of a document Nova would write, which a reading with a finding has none of, so each
-   is postponed (`JsonCursor.postpone`), the accounting is closed, and the outcome is the account,
-   with `unreadTables` and `readsLocations` from `ctx.facts` (2.2). The provisional document is
+3. **The document, where no finding stands yet.** There is then no stand-in and no placeholder
+   left: every draft is whole and every expression held. It takes `ctx.doc` as the normalized
+   `BlueprintDoc`: `appId` from the input, `appName`, `connectType` (15), `localization` with the
+   translations of 12.5, `appSettings` as `lib/domain/blueprint.ts::NEW_APP_SETTINGS` gives them
+   with `showSavedForms` and `showIncompleteForms` as read (a key the profile lacks reads as
+   `NEW_APP_SETTINGS` holds it, which is what HQ's build writes for an absent key) and no
+   `runsOnlyOn`, the organization's levels and the worker and location properties the draft holds
+   (2.3), the entity maps keyed by UUID, and `moduleOrder`, `formOrder` and `fieldOrder` in HQ's
+   order. It parses the whole with `lib/domain/blueprint.ts`'s document schema. A failure is a
+   reader defect: `unrecognized` at the app, `detail.name` `schema:Application.modules`, and the
+   defect D8 (5.1) with the first issue's top-level key and code. The issue's deeper path and its
+   message are not in it: a path can hold a case type's name and a message can quote a value.
+4. **The generated translation keys, in every reading** (16.5). Each is covered by a finding that
+   stands at what it names, or classified against the strings Nova's build makes of the document:
+   step 3's where there is one, `ctx.doc` otherwise. A fold in a reading that holds no finding
+   rebuilds the document once, and the keys folded are counted in
+   `ReadFacts.foldedTranslationKeys`.
+5. **The close.** `Accounting.close()`. If a finding stands, the outcome is the account, with
+   `unreadTables` and `readsLocations` from `ctx.facts` (2.2), and the provisional document is
    dropped.
-4. **The document.** With no finding there is no stand-in and no placeholder left: every draft is
-   whole and every expression held. It takes `ctx.doc` as the normalized `BlueprintDoc`: `appId` from
-   the input, `appName`, `connectType` (15), `localization` with the translations of 12.5,
-   `appSettings` as `lib/domain/blueprint.ts::NEW_APP_SETTINGS` gives them with `showSavedForms` and
-   `showIncompleteForms` as read and no `runsOnlyOn`, the organization's levels and the worker and
-   location properties the draft holds (2.3), the entity maps keyed by UUID, and
-   `moduleOrder`, `formOrder` and `fieldOrder` in HQ's order. It parses the whole with
-   `lib/domain/blueprint.ts`'s document schema. A failure is a reader defect: `unrecognized` at the
-   app, `detail.name` `schema:Application.modules`, and the defect D8 (5.1) with the first issue's
-   top-level key and code. The issue's deeper path and its message are not in it: a path can hold a
-   case type's name and a message can quote a value.
-5. **The generated translation keys** (16.5) are claimed now that the document exists; a fold rebuilds
-   the document once, and the keys folded are counted in `ReadFacts.foldedTranslationKeys`.
-6. **The close.** `Accounting.close()`. If a finding stands, the outcome is the account.
-7. **The draft.** `batch` is `lib/doc/diffDocsToMutations.ts::diffDocsToMutations` from
+6. **The draft.** `batch` is `lib/doc/diffDocsToMutations.ts::diffDocsToMutations` from
    `lib/doc/scaffolds.ts::emptyBlueprintDoc(appId)` to the document, the construction a birth applies
    (as `e2e/lib/smokeSeedFactory.ts` builds one today). Its last mutation is the one
    `holdPlacements` that function writes for held slots, carrying every query repeat's `placement`
@@ -3295,7 +3350,7 @@ kind: "one-wire" | "not-carried"; readonly apply: (doc: BlueprintDoc) => Bluepri
 rewriting every instance of the pair to the member the reader returns; the table keeps its columns
 (the two shapes, the one returned) as prose. It is what part 09's `canonDocument` wraps and proof 6
 calls on a Nova-born document before it compares (part 09, section 9; part 14, 5.5; part 09's
-`canon.test.ts` (B7) proves each pair prints equal bytes).
+`canon.test.ts` proves each pair prints equal bytes).
 
 ```ts
 // lib/commcare/reader/assemble.ts
@@ -3310,7 +3365,7 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[];
 
 | Id | Kind | The pair | The reader returns |
 |---|---|---|---|
-| `root-question-lists-are-sections` | `one-wire` | a root of sections, and a root of `fieldList` groups with no condition, no label media and no worker-added repeat | sections (10.2) |
+| `root-question-lists-are-sections` | `one-wire` | a root of sections, and a root of `fieldList` groups with no condition and no worker-added repeat | sections (10.2) |
 | `translation-equal-to-source-is-absent` | `one-wire` | a translation equal to its source text, and none | none (12.5) |
 | `plain-flag-on-blank-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` on a text blank in every language, and no flag | no flag (12.2; part 03's first) |
 | `plain-flag-under-plain-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` in a form holding `plainText`, and no flag | no flag (12.2; part 03's second) |
@@ -3326,11 +3381,16 @@ since removed (`localization.ts::translationEntrySchema`) and entries waiting on
 writes every translation it reads as human and reviewed against the current source. Without the two
 rows proof 6 would fail on every such document.
 
-Part 07 adds five rows: in B4 `registration-form-last`, `create-name-required-is-absent` and
-`default-post-submit-is-absent`; in B5 `dormant-tile-cells` and `case-catalog-is-as-read`. Part 08
-adds none: its `expression-print-collisions` is `canonicalExpression`, which `canon.ts` wraps (part
-09, section 9). `blank-translation-is-absent` is not a row of this list: it is `canon.ts`'s own
-(B7), though B3 reads a held blank translation as absent from the start (12.2).
+The first row names no label media: a group's label in a Nova document holds text alone
+(`lib/domain/fields/base.ts::containerFieldBase`), so only the reading rule of 10.2, which judges
+a source, has that condition.
+
+Part 07 adds its own rows to the list and states each where it reads the pair (its "Tests", the
+paragraph on the canonical choices). One of them, `unheld-placements-are-held`, covers the query
+repeat placements this part reads too (16.1, step 6). Part 08 adds none: its `expression-print-collisions` is
+`canonicalExpression`, which `canon.ts` wraps (part 09, section 9). `blank-translation-is-absent`
+is not a row of this list: it is part 09's `canon.ts`'s own, though the forms stage reads a held
+blank translation as absent from the start (12.2).
 
 ### 16.3 The declaration the content allows
 
@@ -3398,18 +3458,19 @@ judges the files the app references against the platforms the choices declare.
 
 **In the reader.** `assembleDocument` calls it over `ctx.doc` with `webAppsOnInHq` from
 `cloudcare_enabled`, in every reading (16.1, step 2). `none` makes one finding per blocking use, the
-circumstance `no-platform-runs-everything` (worded here, held by part 01's 8.3; "Copy"), at the use's
-place, with `detail.name` the feature's label and the platform (`PLATFORM_FEATURES[feature].label`,
-then ", which Web Apps can't run" or ", which Android can't run"); where `splitRefused` is set the
-finding at that question carries `detail.reason: "split-refused"`, and part 01's `circumstanceNext`
-then words its next step ("Copy"). Over a provisional document the verdict is sound one way: every use it
+circumstance `no-platform-runs-everything` (part 01, 8.3 and 9.3), at the use's place, with
+`detail.name` the feature's label in curly quotes and the platform
+(`PLATFORM_FEATURES[feature].label` between `“` and `”`, then ", which Web Apps can't run" or ",
+which Android can't run"; "Copy"); where `splitRefused` is set the finding at that question carries
+`detail.reason: "split-refused"`, and part 01's `circumstanceBlock` then words its next step. Over
+a provisional document the verdict is sound one way: every use it
 finds is a use the source holds, so a finding it makes is true, and a use inside a menu or form that got
 no draft is not seen (Departure 11). `choices` goes into the draft, which exists only where no finding
 stands, so the choices a person is offered are always over the whole document.
 
 The choices leave this part as the content allows them. One later narrowing is another part's: part
 11's `narrowDeclarationsByMedia` (its 14.2) drops a choice that declares a platform a referenced
-file does not play on, before acceptance (part 12, 3.3, step 7). Part 09's check 2 then drops none:
+file does not play on, before acceptance (part 12's `gatherReading`). Part 09's check 2 then drops none:
 it runs the gate and export readiness over the document under each remaining choice's mutations,
 and one failing choice fails the reading (its section 4).
 
@@ -3439,13 +3500,15 @@ which the review says where it offers the choice (part 13).
 ### 16.5 Generated translation keys
 
 Part 01's 7.1 classifies a key of `translations` that matches one of HQ's generated patterns against
-the app strings Nova's own build gives the document. The reader takes those strings as an input, so it
-stays pure and needs no target or media manifest of its own:
+the app strings Nova's own build gives the document, and holds the three entries a key is claimed
+under. The reader takes those strings as an input, so it stays pure and needs no target or media
+manifest of its own:
 
 ```ts
 // lib/commcare/reader/types.ts, a member of ReaderInput
-/** The local app strings of a document, by language code, with each string's source. */
-readonly appStrings: (doc: BlueprintDoc) => AppStringTable;
+/** The local app strings of a document, by language code, with each string's source; `null`
+ *  where Nova's gate refuses the document. */
+readonly appStrings: (doc: BlueprintDoc) => AppStringTable | null;
 
 export interface AppStringTable {
 	readonly languages: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -3454,91 +3517,135 @@ export interface AppStringTable {
 }
 ```
 
+The answer can be `null` because Nova's build is total only over a document the gate admits
+("Executed during planning"), and the reader cannot ask the gate itself (16.1). The request that
+calls the reader passes the production function: part 09's `readingAppStrings` (its section 15.1),
+which puts Nova's gate in front of `localAppStringTable` and answers `null` for a document the gate
+refuses. It is called only where a key is left to classify, which most apps never reach.
+
 ```ts
 // lib/commcare/reader/generatedTranslationKeys.ts
+/** What a generated key's id names. `menu` and `form` are positions, as the id spells them. */
+export type GeneratedKeyOwner =
+	| { readonly kind: "app" }
+	| { readonly kind: "menu"; readonly menu: number }
+	| { readonly kind: "form"; readonly menu: number; readonly form: number };
+export function generatedKeyOwner(key: string): GeneratedKeyOwner;
+/** The key with its menu's and its form's numbers replaced: the same string as a document spells
+ *  it whose menus and forms stand at other positions. */
+export function repositionGeneratedKey(
+	key: string, to: { readonly menu: number; readonly form?: number },
+): string;
+export interface HeldGeneratedKey {
+	readonly language: string;
+	/** The key as `translations` holds it. */
+	readonly key: string;
+	/** The same string's id in the table (`repositionGeneratedKey`). */
+	readonly id: string;
+	readonly value: string;
+}
 export type GeneratedKeyVerdict =
 	| { readonly kind: "inert" }
 	| { readonly kind: "fold"; readonly unit: TranslationUnitId; readonly language: string;
 	    readonly value: string }
 	| { readonly kind: "not-yet" };
 export function classifyGeneratedTranslationKeys(
-	held: readonly { readonly language: string; readonly key: string; readonly value: string }[],
-	table: AppStringTable,
+	held: readonly HeldGeneratedKey[], table: AppStringTable,
 ): readonly GeneratedKeyVerdict[];
 ```
 
-It is part 01's five rules, in its order: a blank value, a key no string of the table has, and a value
-equal to the table's string are inert; a key whose source is one translation unit, where every other
-key that unit feeds holds the same value in that language or is this key, folds; anything else, a key
-whose source is several units among it, is not-yet. `assembleDocument` claims each key with
-`account(translations-generated-key-with-no-effect)`, `take(translations-generated-key-over-one-text)`
-(writing the value as the unit's text in that language through the translation sink, once per unit) or
-`refuse(translations-generated-key-anything-else)` with the key in `detail.name`, and rebuilds the
-document when anything folded.
+**What a key names.** `generatedKeyOwner` reads it from the generated pattern the key matches
+(`appStringKeys.ts::GENERATED_APP_STRING_PATTERNS`): a pattern that holds `m#f#` names a form by
+those two numbers, any other that holds `m#` names a menu by that number, and one that holds
+neither names the app. Every pattern holds `m#` at most once and at one of two places, its start
+or straight after its first `.`, so a key that matches two patterns reads the same under both.
 
-Where the reading already holds a finding there is no document Nova would write and so no table (the
-provisional one holds placeholders and stand-ins, whose strings are not the app's), and a generated
-key is postponed (4.3): it is classified in the reading that follows the person's fix. The reader
-reports every finding in one pass (Decision 1), and this class cannot be given in it: its standing
-is a fact about the strings Nova's build makes of the whole app. Departure 11 states this limit and
-the two smaller ones beside it. A postponed key is never reported as `unrecognized`, which would blame
-Nova for a key it reads perfectly well.
+One pattern holds neither and its keys still name a menu or a form: `custom_assertion.*.#`,
+whose `*` is `m<n>`, `m<n>.f<n>` or `root` ("Executed during planning"). Its key is read as the
+app's, and that is right. Nova's build writes no `custom_assertion` string, so no table has the
+id at any position and the key is inert whichever menu it names (step 4): there is nothing to
+reposition and nothing a menu's finding could withhold. An app that holds a custom assertion
+stands under that assertion's own finding, at the app (`non-empty-custom-assertions-app`, 6.1),
+the menu or the form (`custom-assertions-module-non-empty`, `custom-assertions-form-non-empty`;
+the key is part 07's at both, 7.3 and 7.4), so a reading that gives a document holds no custom
+assertion for the key to override.
 
-B2 lands the three entries, the subject `translation-overrides` with its label and sentence (part 01,
-files of B2) and the classifier with its tests over hand-built tables. The production value of
-`appStrings` is part 09's (17.5), since it needs the compile of a reading's document.
+**Every key is decided in the reading that meets it.** Stage 11 does this in every reading (16.1,
+step 4), in order:
+
+1. **A key stands under a finding where what it names did not read whole.** It is not classified
+   and not reported again: `Accounting.cover` puts it under the finding named.
+
+   | The key | The finding it stands under |
+   |---|---|
+   | is in a language the reading could not name (6.3) | that code's finding at the languages place |
+   | names a menu, or a form, that got no draft (7.1, 7.2) | the finding at that menu or form |
+   | names a menu, and a finding stands at that menu, its case list, its case detail or its search | the first such finding in `placeOrder` |
+   | names a form, and a finding stands at that form | the first such finding in `placeOrder` |
+
+   A finding at a question covers no key: no generated string comes from a question, whose text
+   is itext in its form.
+2. **The table.** Where a key is left, the frame asks `input.appStrings` for the strings of the
+   document: the one of 16.1's step 3, or `ctx.doc` where a finding stands. In that document a
+   menu or a form stands at its position among the ones that got a draft, so each key's `id` is
+   `repositionGeneratedKey` to those positions; in a reading that left nothing out the two are
+   equal. A key that names a position the app holds no menu or form at keeps its own spelling,
+   which no string of the table has.
+3. **No table.** `null` in a reading that holds a finding means the provisional document leans
+   on something a finding withheld, so Nova's build cannot write it. No key is classified: each
+   stands under the reading's first finding in `placeOrder`. `null` in a reading that holds no
+   finding means the reader built a document Nova's gate refuses, which is the reader's own
+   defect: `readHqApp` throws ("Copy", C9), and its caller answers `read-back-differs` as for any
+   throw (2.2).
+4. **The verdicts.** `classifyGeneratedTranslationKeys` is part 01's five rules, in its order,
+   over ids: a blank value, an id no string of the table has, and a value equal to the table's
+   string are inert; an id whose source is one translation unit, where every other id that unit
+   feeds holds the same value in that language or is this one, folds; anything else, an id whose
+   source is several units among it, is not-yet. `held` lists every generated key whose menu and
+   form have drafts, the covered ones among them, because the fold rule reads the stored value of
+   every id a unit feeds; a verdict is applied only to a key step 1 did not cover.
+   `assembleDocument` claims each such key with
+   `account(translations-generated-key-with-no-effect)`,
+   `take(translations-generated-key-over-one-text)` (writing the value as the unit's text in that
+   language through the translation sink, once per unit) or
+   `refuse(translations-generated-key-anything-else)` with the key in `detail.name`.
+
+Over a provisional document the verdicts are sound one way, as 16.3's are. A `not-yet` it raises
+is true of the source: the key's menu or form read whole, so its strings and their sources are
+the ones the finished document holds. What it can miss is one case. One kind of unit feeds
+strings of several menus, a case property's option label, which every list that shows the
+property spells as its own string ("Executed during planning"). Where one of those menus got no
+draft, or holds the finding that covered its keys, the fold rule runs without that menu's string,
+and two overrides that differ between the menus read as a fold now and as not-yet once the other
+menu reads. Departure 11 states this with the reading's other limit, and part 01's account line
+says a later check may find more (its 9.1). No key is ever reported as `unrecognized`, which
+would blame Nova for a key it reads perfectly well, and none is left unclaimed for a later
+reading to meet.
 
 ---
 
-## 17. What other parts receive
+## 17. What the reader hands on
 
-### 17.1 Part 07 (B4, B5): case management, menus, lists and search
+### 17.1 The case management, menu, list and search stages
 
-- **The stages.** Its ten functions are stages 4, 5, 6 and 8 of 2.3, in the order its 2.1 gives:
-  `readMenus`, `readCaseManagement`, `readCaseLists`, `readSearches`, `compareEntryFacts`,
-  `registerLinkExpressions`, and the four settle functions.
-- **The drafts.** `ctx.draft.modules[i].json` and each form's `json`, with the keys of 7.3's and
-  7.4's last rows left unclaimed for it, and `module`, `form` to set slots on, each write inside
-  `ctx.writeDraft` (2.3). `Form.type`, `caseOperations`, `postSubmit`, the links and every menu slot
-  are its to set before stage 7, with `pendingPlaceholder` in a required expression slot. After
-  stage 7 it reads `ctx.doc` and patches it by assigning a new frozen document (2.3).
-- **The frame's names for its shorthand** are the paragraph that closes 2.3: declared claims through
-  the cursors, `ctx.accounting.finding`, `ctx.pending.register` and `outcome`,
-  `provisionalDocument(ctx)`, `ctx.translations`, `readMediaMap`.
-- **A form's source.** `DraftForm.xform` (`ReadXForm`): the parsed source, the data nodes by path, each
-  node's role, the binds by node, the setvalues, the cursor to claim with, `caseRegion` with each
-  node's container, `saveToCaseBlocks` and `connectBlocks` (8.6).
-- **Candidates.** `ReadXForm.candidates`, each a node whose role names the purpose (`url`, `datetime`,
-  `trimmed`, `owner`, the emitter's own names) and the owner it was proposed for, an `owner`
-  candidate with its value (`acting-user` or `unowned`); `settle(node, verdict)` (13.3). It settles
-  them in stage 5.
-- **The scalar check** recorded on a draft field (13.2, `DraftField.scalarCheck`), which its
-  `settleCaseManagement` holds to `caseScalarTextGuards` of the bound document (its 3.5).
-- **Load order.** A value HQ's build appends (basic `case_preload` and `usercase_preload`, an
-  advanced load's `preload`) is its own to judge, with its `laterLoadReaders` in `settlePreloads`
-  (its 3.7). This part's `loadOrderConflicts` judges the form's own setvalues alone (11.3).
-- **Root nodes named `case` and `commcare_usercase`.** A root node named `case` has the role
-  `root-case`, no field, and nothing of it claimed (8.3): part 07 claims it under whichever of
-  `a-root-question-case-in-a-form-where-hq-writes-the-primary-case` and
-  `hand-written-case-block-without-vellum-role-incl-a-root-data` its form's actions make apply. A
-  root node named `commcare_usercase` passes the question id rule and is a field B3 claimed; where
-  the form holds usercase updates part 07 raises
-  `a-root-question-commcare-usercase-in-a-form-with-usercase` with `ctx.accounting.finding` at that
-  question, which claims no node.
-- **`case_references_data.save`** and the model and data root to compute it from (8.7).
-- **The translation sink**, for every localized map it reads, under 12.5's rule.
+Part 07's ten functions are stages 4, 5, 6 and 8 (2.3). Everything they read of this part is
+stated where it is defined: the frame and its names for part 07's shorthand (2.3), the keys left
+unclaimed for them (7.3, 7.4, 6.6), a form's parsed source with its roles, case region, Save to
+Case blocks and Connect blocks (8.6), the candidates they settle (13.3), the scalar check they
+hold (13.2), the root nodes they claim (8.3), `case_references_data.save` (8.7), the load-time
+values they judge (11.3), and the translation sink and `readMediaMap` (12.5, 12.4). They set
+`Form.type`, `caseOperations`, `postSubmit`, the links and every menu slot before stage 7, each
+write inside `ctx.writeDraft`, with `pendingPlaceholder` in a required expression slot. After
+stage 7 they read `ctx.doc` and patch it by assigning a new frozen document (2.3).
 
-### 17.2 Part 08 (B6): expressions
+### 17.2 The expression stage
 
 - **The registrations.** `ctx.pending.list()`: every `PendingExpression` of 11.1, in registration
-  order, each under a slot the provisional document holds. Stage 7 (`bindExpressions`, the frame's
-  code, landing in B6 with what it calls) runs `readExpressions(doc, pending, env)` twice and
-  applies what the second run answers (2.3): the document, the claims by their `source` index, the
-  circumstances, the ownerless registrations, the unread tables, the rewrites, the declared
-  properties and the rounds.
-- **`env`**, from `xform/index.ts::expressionEnvOf(ctx: ReadContext): ExpressionReadEnv`, which B6
-  adds to that file. It builds the members part 08's `ExpressionReadEnv` names (its 2.5), the
-  per-form ones from each `ReadXForm`, keyed by the form's UUID:
+  order, each under a slot the provisional document holds. Stage 7 runs part 08's
+  `readExpressions(doc, pending, env)` twice and applies what the second run answers (2.3).
+- **`env`**, from `xform/index.ts::expressionEnvOf(ctx: ReadContext): ExpressionReadEnv`. It
+  builds the members part 08's `ExpressionReadEnv` names (its 2.5), the per-form ones from each
+  `ReadXForm`, keyed by the form's UUID:
 
   | `env` member | Built from |
   |---|---|
@@ -3546,7 +3653,7 @@ files of B2) and the classifier with its tests over hand-built tables. The produ
   | `sourceNames` | `ReadXForm.sourceNames`, below |
   | `itextUnits` | `ItextTable.owners`: each source text id a control references, to the unit of its first owning slot in document order (`itextIds.ts`'s unit for that field, slot and option) |
   | `instanceSources` | `ReadXForm.instanceSources` |
-  | `generatedValues` | each node B3 folded as a `constraint-count` (13.2), by absolute path, with its `calculate` text |
+  | `generatedValues` | each node folded as a `constraint-count` (13.2), by absolute path, with its `calculate` text |
   | `operationIdPaths` | each `DraftForm.operationIdPaths`, which part 07's `readCaseManagement` set (its 5.2), keyed by the form's UUID |
   | `recordDialect` | `input.recordDialect` |
   | `entryFactsRefused` | `ctx.facts.entryFactsRefused`, as a set: the forms part 07's `compareEntryFacts` found differing (stage 6) |
@@ -3581,16 +3688,11 @@ files of B2) and the classifier with its tests over hand-built tables. The produ
 - **A prose slot's value parts**: one registration per `value` part of a slot, in part order.
   `readExpressions` writes the tree of the i-th registration under a `ProseSlotRef` into that slot's
   i-th `value` part.
-- **What it reads of B2 and B3 and does not write**: `sameXPathText` with `sameSyntax`,
-  `firstDifference` and `CompareOptions` in `reader/syntaxCompare.ts`, which B2 carries with the form
-  rows and to which B6 adds its record rows S1 and S2; `reader/hqInterpolation.ts`, which B2 carries
-  whole; `literalOutputText` in `reader/xform/prose.ts` (12.3); and the shadow comparison of
-  `reader/xform/shadow.ts` (14.2), of which B6 writes no second.
 - **The comparisons that wait for bound trees** are this part's code over `ctx.doc`, in stage 10: the
   protected message's expression (13.2), the case choices itemset (10.1), the count and
   model-iteration verdicts (10.3, 10.4), the load order (11.3) and the Hidden Value bind types (11.4).
 
-### 17.3 Part 09 (B7): acceptance and the first-publish register
+### 17.3 Acceptance and the first-publish register
 
 ```ts
 // lib/commcare/reader/types.ts
@@ -3601,14 +3703,14 @@ export interface ReadFacts {
 	readonly mediaReferences: readonly ReadMediaReference[];
 	/** Every media reference handed off: no file for its path (12.4). */
 	readonly pendingMedia: readonly PendingMedia[];
-	/** Every itemset over a table the catalog does not hold, handed off (10.1); from B6 also each
-	 *  tag an expression reads that the catalog lacks, at the place `{ kind: "lookup-table", tag }`. */
+	/** Every itemset over a table the catalog does not hold, handed off (10.1), and each tag an
+	 *  expression reads that the catalog lacks, at the place `{ kind: "lookup-table", tag }`. */
 	readonly unreadTables: readonly UnreadTable[];
 	/** The generated translation keys `assembleDocument` folded (16.5). */
 	readonly foldedTranslationKeys: number;
 	readonly forms: readonly ReadFormFacts[];
 
-	// Added by B4 (part 07): its 2.2, 13.3 and 6.3.
+	// Part 07's (its 2.2, 13.3 and 6.3).
 	/** Each same-state rule applied: the entry, a JSON Pointer, and the id of the row of part 09's
 	 *  `FIRST_PUBLISH_CHANGES` the rule falls under. */
 	readonly sameStateRewrites: readonly {
@@ -3617,10 +3719,9 @@ export interface ReadFacts {
 	/** The forms `compareEntryFacts` found differing. */
 	readonly entryFactsRefused: readonly Uuid[];
 
-	// Added by B6 (part 08): `bindExpressions` fills them from the run it applies (2.3).
-	/** Part 08's reports, passed through: the rewrites it applied and the properties it declared. */
+	// `bindExpressions` fills these from the run it applies (2.3).
+	/** Part 08's report, passed through: the rewrites it applied. */
 	readonly rewrites: ExpressionReading["rewrites"];
-	readonly declaredProperties: ExpressionReading["declaredProperties"];
 	/** `ExpressionReading.rounds`, for the reading's log. */
 	readonly expressionRounds: number;
 }
@@ -3653,34 +3754,40 @@ export interface ReadGeneratedNode {
 }
 ```
 
-The members marked B4 and B6 land in `types.ts` with the pull request named, which also lists the
-file; every other member is B2's. `ReadGeneratedNode.owner`'s rule is held to the emitter's plan by
-part 09's `generatedNodes.parity.test.ts` (B7). Part 09 gets the register's generated-node entries
-by comparing `forms[i].generated` of the reading with the same list of its fixed-point re-read
-(13.4). Its check 4 cuts the paths of `inertAppearances` from CommCare HQ's side (its 6.3), its
-check 5 reads `caseRegionPaths` (its 7.5), and rows 23 and 28 of its register read
-`foldedTranslationKeys` and `blankTranslations` (its 11.2). `ReadFormFacts` holds no bind type:
-check 4 reads each bind from the form's XML itself, through a module that imports no reader module,
-so a mistake of the reader's cannot agree with itself (its 6.1 and Departure 6). Every member of
-`ReadFacts` and `ReadFormFacts` has a reader named in this section or in 2.3: a fact no part reads
-is not kept, so the form's itext ids, a count of dropped markdown copies, the form's load order and
-a machine reason beside a finding are in neither type. Its check 3 re-read calls `readHqApp` again over
-Nova's emission with a fresh resolver (its 5.2), which is why the function is pure. Its check 1, complete
-accounting, includes the hand-offs: every `HandOffRecord` of `ReadOutcome.claims.handOffs` must be
-settled by exactly one finding or one inert claim of part 11's (4.3), and one left over is `unrecognized`
-at its place.
+`ReadGeneratedNode.owner`'s rule is held to the emitter's plan by part 09's
+`generatedNodes.parity.test.ts`. Every member of `ReadFacts` and `ReadFormFacts` has a reader.
+Part 09 compares `forms[i].generated` of the reading with `emittedGeneratedNodes` of the document
+under each declaration choice, through `generatedDifference`, for the register's generated-node
+entries (its sections 11.1 and 12.1; 13.4 here), cuts the paths of `inertAppearances` from
+CommCare HQ's side in its check 4 (its 6.3), reads `caseRegionPaths` in its check 5 (its 7.4), and
+reads `foldedTranslationKeys`, `blankTranslations`, `rewrites` and `sameStateRewrites` for the
+register entries that name them, `translation-overrides-folded` and `blank-translations-filled`
+among them (its 11.2). Part 11 reads the two media lists and
+`unreadTables` (17.4), part 08 `entryFactsRefused` (17.2), and part 12 `webAppsOnInHq` for the
+review and `expressionRounds` for its log. A fact no part reads is not kept, so the form's itext
+ids, a count of dropped markdown copies, the form's load order and a machine reason beside a
+finding are in neither type. `ReadFormFacts` holds no bind type: part 09's check 4 reads each bind
+from the form's XML itself, through a module that imports no reader module, so a mistake of the
+reader's cannot agree with itself (its 6.1 and Departure 6).
 
-### 17.4 Parts 11 and 12: project data
+Acceptance re-reads Nova's emission by calling `readHqApp` again with a fresh resolver (part 09,
+its 5.2), which is why the function is pure. Its check 1 holds every `HandOffRecord` of
+`ReadOutcome.claims.handOffs` settled by exactly one finding or one inert claim of part 11's
+(4.3), and one left over is `unrecognized` at its place.
 
-The reader takes the lookup catalog and the media index as inputs, so the reading must fetch the
-tables before it calls the reader. It does so without the reader: part 11's
+### 17.4 The request: project data
+
+The reader takes the lookup catalog and the media index as inputs, so the request reads the tables
+before it calls the reader. It does so without the reader: part 11's
 `candidateLookupTags(sourceText, tables)` and `sourceMayReadPlaces(sourceText)` (its 5.1 and 11.1)
 test the source's text for the names HQ gave, inside its `readReadingProjectData` (its 14.1), which
-part 12's read step calls before the check that runs the reader (its 3.3, step 5). This part plans
-no scan of its own. The levels reach the reader as `input.organization` (2.2), and from B9 the
-structure stage puts them on the draft (2.3).
+part 12's `gatherReading` calls before the reader. This part plans no scan of its own. The levels
+reach the reader as `input.organization` (2.2), and the structure stage puts them on the draft
+(2.3). Part 11 builds the reader's three inputs from what the request gathered: the catalog
+(`readerLookupCatalog`, its 5.5), the organization (its 14.1) and the media index
+(`readingMediaIndex`, its 14.2).
 
-What the reader gives back, for part 11's rules to judge in the same check:
+What the reader gives back, for part 11's rules to judge in the same request:
 
 - `facts.mediaReferences` and `facts.pendingMedia` (12.4), which part 11's `hqMediaReferencesOf`
   turns into its `HqMediaReference` list for `planHqMedia`;
@@ -3689,117 +3796,85 @@ What the reader gives back, for part 11's rules to judge in the same check:
   `projectDataReadsOf` reads (its 14.1); in an account, where there is no draft, the same list and
   `readsLocations` on the outcome itself (2.2);
 - the claim log's `handOffs` (4.5), one per node behind the media list and the itemset tags, which
-  acceptance holds settled. A tag part 08 appends in B6 has no hand-off: its expression's node is
-  claimed by part 08 under its own entry.
+  acceptance holds settled. A tag the expression stage appends has no hand-off: its expression's
+  node is claimed by part 08 under its own entry.
 
 A table the catalog holds is bound by the reader itself, through `input.lookup.table(tag)` and
-`column(fieldName)`. Before any byte of a file is fetched, the media index answers a path the map
-holds with the id the reading has reserved for that file (part 12, 3.3, step 6), so the document is
-the same before the media step and after it.
-
-### 17.5 The production `appStrings`
-
-`ReaderInput.appStrings` (16.5) needs the strings Nova's build gives a document, with each string's
-source. `compiler.ts::compileCcz` builds exactly that pair (`appStrings`, `appStringUnits`) as locals and
-returns an archive. Part 09 (B7; its section 15) is the first to compile a reading's document, so it
-splits `compileCcz` there and passes the function; until then tests pass a table by hand.
+`column(fieldName)`. The media index is built for one request and stored nowhere. It answers a
+path the map holds with the provisional id part 12 derives for that file
+(`mediaIds.ts::provisionalReadingMediaId`) before any byte of a file is fetched, so the document
+is the same before the files are judged and after. Where a file then proves missing, the request
+runs the reader once more with that path answered `unreadable` (part 12's `gatherReading`).
 
 ---
 
-## 18. Every finding this part can produce
+## 18. The circumstances this part raises
 
-Manifest findings are every `refuse` and every `account` whose entry is not kept or inert, in sections
-6 to 15; each takes its standing, cause, subject and owner from the entry. This table is the index, by
-where a person meets it. Ids under `questions/` are written bare.
-
-| Where | Entries |
-|---|---|
-| the app | `application-and-settings/34p-hq-build-spec-below-nova-s-floor`; the `account` rows of 6.1 that part 01 leaves refused or not-yet (`39-hq-case-sharing`, `46-hq-use-grid-menus`, `47-hq-grid-form-menus-none-all-some`, `41p-hq-use-custom-suite-true`, `44p-hq-translation-strategy-select-known`, `48p-hq-target-commcare-flavor-commcare-commcare-lts`, `33p-hq-application-version-1-0`, `50pp-hq-location-fixture-restore-only-hierarchical-fixture`, `build-profiles-non-empty`, `non-empty-custom-assertions-app`, `logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare`, `an-unknown-top-level-key-naming-an-application-read-only`); the profile rows of 6.6; `translations-generated-key-anything-else`; until B8, `translations-lang-code-any-other-value-or-absent-where-hq-s`; `connect-learn-and-deliver-blocks-in-one-app` |
-| the languages | `langs-containing-an-empty-code`, `a-non-empty-langs-code-outside-that-grammar-or-repeated`, `langs-code-nova-s-language-registry-cannot-name` |
-| a menu | the document types of 7.1; `menus-and-case-lists/module-unique-id-missing`; `menus-and-case-lists/any-other-undeclared-key` |
-| a form | the document types of 7.1; `forms-and-case-writes/blank-source-or-no-non-group-question`; `forms-and-case-writes/two-non-shadow-forms-sharing-an-xmlns`; the `account` rows of 7.4 that are refused or not-yet (`show-count-true`, `submit-label-non-default`, `is-release-notes-form-true-with-or-without-enable-release-notes`, `schedule-form-id-set`, `custom-instances-non-empty`, `auto-gps-capture-form`, `any-other-undeclared-key`); every refusal of 8.2; `content-marked-vellum-ignore-retain-vellum-ignored`; `data-root-element-named-other-than-data` |
-| a question: what it is | the refusals of 8.3 to 8.5 and of 9.1, `question-id-case-registration-script` among them; the appearance entries of 9.2; part 04's seven entries for a slot a kind does not hold; `bind-calculate-on-a-visible-question`; `bind-readonly`; `hidden-value-with-children`; `hidden-value-with-both-calculate-and-a-default-by-any-expression`; `hidden-value-bound-a-type-nova-would-not-write` |
-| a question: its choices | the refusals of 10.1 |
-| a group or a repeat | `user-controlled-repeat-inside-a-question-list-a-group-whose`; the refusals of 10.3 and 10.4; the repeat captions |
-| a question: its logic | the setvalue refusals of 11.2; `default-setvalues-in-an-order-a-save-in-the-form-builder-changes`; `validation-message-without-a-validation-condition`; `requiredcondition-differing-from-a-present-non-false-required` |
-| a question: its text and media | the refusals of 12.1 and 12.2, `an-explicitly-blank-value-in-the-first-language-where-another-holds-text` among them; `label-or-option-media-differing-by-language`; `a-text-whose-languages-show-different-values` |
-| a Connect block | the refusals of 15 |
-
-Circumstances this part raises:
+A manifest finding is a `refuse`, or an `account` whose entry is not kept or inert, and each is
+stated in the section that reads its key (6 to 15); it takes its standing, cause and subject from
+the entry. The circumstances are these:
 
 | Code | Where | When |
 |---|---|---|
-| `unrecognized` | any place | 4.4: a use nothing claimed, and each of the reader's own defects (5.1), every one with a surface key in `detail.name` and its `ReaderDefect` beside it |
+| `unrecognized` | any place | 4.4: a use nothing claimed, and each of the reader's own defects (5.1), every one with a surface key or the app's own value in `detail.name` (4.4), a defect with its `ReaderDefect` beside it |
 | `shadow-disagrees` | a question | 14.2 |
-| `no-platform-runs-everything` | each use | 16.3; worded here, held by part 01 (its 8.3 and 9.3), landing in B2 |
+| `no-platform-runs-everything` | each use | 16.3; part 01 holds its row and its block (its 8.3 and 9.3) |
 
 It raises no `stop`: every `stop` is the HQ read's (part 05) or the reading's (part 12). It never raises
 `read-back-differs`, which is part 09's for acceptance checks 3 to 5.
 
 ---
+
 ## Copy
 
 Every string this part adds that a person, a developer or a model reads.
 
-**For a person (finding copy, `lib/publish/hqFindingCopy.ts`).** Each new HELD-NEW or REFUSED entry of
-this part takes a subject part 01 already words, except three pairs that have no sentence today and one
-sentence its model iteration entry makes false. The pull request that adds the entry adds or re-words
-the sentence, as part 01's 2.6 requires.
+**For a person.** Every manifest finding of this part is worded by its subject and standing, and
+every sentence is part 01's (its 9.2). Four pairs of that table are there because of this part's
+entries: `language-codes`, `form-source` and `question-ids` at `not-yet` (6.3, 8.8), and `repeats`
+at `not-yet`, whose sentence holds of a repeat's button captions and of 10.4's model iteration
+entry alike. This part writes none of them.
 
-| # | Pull request | Where | String |
-|---|---|---|---|
-| C1 | B2 | `FINDING_COPY["language-codes"]["not-yet"]` | "A language code here is one Nova can't hold yet." |
-| C2 | B3 | `FINDING_COPY["form-source"]["not-yet"]` | "A form's source here is built in a way Nova can't hold yet." |
-| C2b | B3 | `FINDING_COPY["question-ids"]["not-yet"]` | "A question ID here is one Nova can't hold yet." |
-| C2c | B3 | `FINDING_COPY["repeats"]["not-yet"]`, replacing A2's sentence | "A repeat group here is set up in a way Nova can't hold yet." |
+**The circumstance this part raises** (`no-platform-runs-everything`). Its row and its block are
+part 01's (its 8.3 and 9.3), and its `circumstanceBlock` fills them (its 8.4), choosing the second
+next step where `detail.reason` is `split-refused`. What this part writes is the finding's name,
+which the block's body opens with:
 
-C2c replaces a sentence where the other three add one: A2 words the pair for a repeat's button captions
-alone ("A repeat group here has its own wording on its buttons, which Nova can't hold yet."), and 10.4's
-entry `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule` joins the pair in B3, of
-which that sentence would be false. The new sentence is true of both entries (part 01, 9.2's second
-table).
-
-**The circumstance this part words** (`no-platform-runs-everything`). Part 01 owns the list: its 8.3
-holds the row and its 9.3 the block, both landing in B2 ("What this part needs of other parts").
-
-| Field | String |
+| When | `detail.name` |
 |---|---|
-| title | "No one platform runs this whole app" |
-| body | "Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work." |
-| next | "You can change one of these in CommCare HQ so one platform runs everything, then check again." |
-| next, where the finding carries `detail.reason: "split-refused"` | "You can change how the date and time question {question} reads its own answer in CommCare HQ, then check again." |
-| `detail.name`, Web Apps | "<feature label>, which Web Apps can't run" |
-| `detail.name`, Android | "<feature label>, which Android can't run" |
+| Web Apps cannot run the use | `“<feature label>”, which Web Apps can't run` |
+| Android cannot run the use | `“<feature label>”, which Android can't run` |
 
-Part 01's `lib/publish/hqFindingCopy.ts::circumstanceNext(finding)` (its 8.4, B2) chooses between the
-two next steps, for the account screen and MCP alike: the second where `detail.reason` is
-`split-refused`, with `{question}` the last segment of `place.path`, and the first otherwise.
 `<feature label>` is `lib/domain/platforms.ts::PLATFORM_FEATURES[feature].label` ("Date and time
-questions", "Forms that read the search"), which is already written in Nova's voice.
+questions", "Forms that read the search"). The labels are headings, so the name sets one in curly
+quotes, as Nova quotes a name inside a sentence (`lib/deployment/preflight.ts`: "can't reach the
+project space “{domain}”").
 
-**The account's line.** "When these are changed, Nova will check the app again and may find more to
-name." is part 01's `ACCOUNT_CHECK_AGAIN_LINE` (its 9.1, B2), shown under the groups of every
-account (part 13, 7.1). Departure 11 is why it exists.
+**The account's line.** Part 01's `ACCOUNT_CHECK_AGAIN_LINE` (its 9.1) is shown under the groups of
+every account (part 13, 7.1). Departure 11 is why it exists.
 
 **For a developer.**
 
-| # | Pull request | Where | String |
-|---|---|---|---|
-| C3 | B2 | `readHqApp`, a broken input | "The reader was given <n> aligned menus for a source that holds <m>. Pass the menus of the same reading the source came from." |
-| C4 | B2 | `claimsBindManifest.test.ts`, an entry that is gone | "The claim <module.name> names the entry <entry>, which no area file of lib/commcare/surface/entries holds. Check the id's spelling, or point the claim at the entry that took its place." |
-| C5 | B2 | the same, a use the standing forbids | "The claim <module.name> would <use> a value under <entry>, and that entry is now <standing>. Change the claim to a use its standing permits (take or derived: held; drop: inert or kept; refuse: not-yet, never or fix-in-hq; account: any but held), or put the entry back." |
-| C6 | B2 | the same, a key the entry lacks | "The claim <module.name> reads the surface key <key>, which <entry> does not list. Name one of the entry's surfaceKeys, or add the key to the entry." |
-| C7 | B3 | `appearanceRows.test.ts` | "The appearance entry <entry> is named by no rule of lib/commcare/reader/xform/appearances.ts. Give it a row of APPEARANCE_ROWS, or the refused-class port that reads it." |
-| C8 | B2 | `inventoryIndex()`, a file that fails the schema | Zod's own issue, prefixed "lib/commcare/surface/entries/<area>.json does not match the manifest schema: " |
+| # | Where | String |
+|---|---|---|
+| C3 | `readHqApp`, a broken input | "The reader was given <n> aligned menus for a source that holds <m>. Pass the menus of the same reading the source came from." |
+| C4 | `claimsBindManifest.test.ts`, an entry that is gone | "The claim <module.name> names the entry <entry>, which no area file of lib/commcare/surface/entries holds. Check the id's spelling, or point the claim at the entry that took its place." |
+| C5 | the same, a use the standing forbids | "The claim <module.name> would <use> a value under <entry>, and that entry is now <standing>. Change the claim to a use its standing permits (take or derived: held; drop: inert or kept; refuse: not-yet, never or fix-in-hq; account: any but held), or put the entry back." |
+| C6 | the same, a key the entry lacks | "The claim <module.name> reads the surface key <key>, which <entry> does not list. Name one of the entry's surfaceKeys, or add the key to the entry." |
+| C7 | `appearanceRows.test.ts` | "The appearance entry <entry> is named by no rule of lib/commcare/reader/xform/appearances.ts. Give it a row of APPEARANCE_ROWS, or the refused-class port that reads it." |
+| C8 | `inventoryIndex()`, a file that fails the schema | Zod's own issue, prefixed "lib/commcare/surface/entries/<area>.json does not match the manifest schema: " |
+| C9 | `readHqApp`, a document read with no finding that Nova's gate refuses (16.5) | "The reader read this app with no finding and built a document Nova's gate refuses, so the app's strings could not be built. A reading with no finding should be a document the gate admits. Run the gate over the reading's document to see which rule refuses it, then look at the reader stage that set that slot." |
 
 **In an account, from the reader itself** (`detail.name` of an `unrecognized` finding, shown after part
-01's sentence as "In CommCare HQ: <name>"). It is always a surface key in the lane's vocabulary, the
-name of what Nova met in the app, and never a sentence about the reader:
+01's sentence as "In CommCare HQ: <name>"). It is a surface key in the lane's vocabulary, or the
+app's own value where what Nova met is a value: the name of what Nova met in the app, and never a
+sentence about the reader:
 
 | When | `detail.name` |
 |---|---|
 | an unclaimed JSON key, or one the reader mishandled | `schema:<Class>.<key>`, or `<Class>.<key>` for an undeclared key |
 | an unclaimed element or attribute, or one the reader mishandled | `xform:<name>`, `xform:<element>@<attribute>` |
+| an appearance a runtime reads that no row names (9.2) | the appearance string as written |
 | a source Nova's parser refuses | `xform:h:html` |
 | an `xmlns` that differs | `schema:Form.xmlns` |
 | a document that does not assemble | `schema:Application.modules` |
@@ -3820,51 +3895,42 @@ every slot is one of 5.1's closed slots, so no line holds a word of an app:
 | D8 | a document that does not assemble | `assembly`, `assembly` | "assembly at <place>: <top-level key>: <issue code>" |
 | D9 | an entry id `claimEntry` was handed that no claim registers | `unregistered-expression-claim`, `unregisteredExpressionClaim` | "expression claim at <place> names <entry>, which no registered claim holds" |
 | D10 | a translation Nova's own rule refuses after the pairing passed it (12.5) | `translation`, `translation` | "translation at <place>: <role>, language <n>: <issue>" |
-| D11 | from B6: an expression Nova could not write back (2.3) | `expression-not-written-back`, `expressionNotWrittenBack` | part 08's log line C9, as its "Copy" words it, its `{place}` filled by `placeKey` and its `{reason}` by the row's `detail.reason` |
-| D12 | from B6: the same, where `detail.reason` is `no-case-datum` | `no-case-datum`, `noCaseDatum` | part 08's log line C12, as its "Copy" words it, its `{place}` filled by `placeKey` |
+| D11 | an expression Nova could not write back (2.3) | `expression-not-written-back`, `expressionNotWrittenBack` | part 08's log line C9, as its "Copy" words it, its `{place}` filled by `placeKey` and its `{reason}` by the row's `detail.reason` |
+| D12 | the same, where `detail.reason` is `no-case-datum` | `no-case-datum`, `noCaseDatum` | part 08's log line C12, as its "Copy" words it, its `{place}` filled by `placeKey` |
 
-D1 to D4, D8 and D9 are B2's; D5 to D7 and D10 land in B3 with the form reader; D11 and D12 in B6.
 The reading's id is in no line: part 12's log line carries it as the `appId` tag.
 
-No string of this part reaches a model: B2 and B3 add no tool, no tool description and no guide text.
+No string of this part reaches a model: it adds no tool, no tool description and no guide text.
 
 ---
 
 ## Tests
 
-Vitest, in ordinary CI but for R2's one file, at the reader's own boundary: inputs are retained HQ reads
+Vitest, in ordinary CI, at the reader's own boundary: inputs are retained HQ reads
 (`proof/hq-reads/`, HQ's own answers held byte for byte by the lane) and sources the production emitter
 or a person's hand built; outputs are what `readHqApp` and its stages return. No test runs HQ, no test
 touches a database, and none renders a component. Each names the failure it would catch.
 
-**B2**
-
 | Test | Boundary | Catches |
 |---|---|---|
 | `lib/commcare/surface/__tests__/inventory.test.ts` | `inventoryIndex()` against `loadManifest()` | an entry the index drops; a standing that differs from `standingOf` |
-| `lib/commcare/surface/__tests__/revision.test.ts` | the revision's cases of part 12's 3.9: `surfaceStandingsRevision()` over the manifest with one entry's standing planted, and with one `item` text edited. B10 adds the cases of the two functions it adds | a revision that moves on a text edit or stays on a standing flip |
-| `reader/__tests__/syntaxCompare.test.ts` | `sameXPathText` over pairs for rows L1 to L6 of part 08's 3.2, and pairs that differ in an operator, a name, a string or the order of operands | two texts of one tree read as different; two trees read as one |
-| `reader/__tests__/hqInterpolation.test.ts`, with `reader/__tests__/interpolationVectors.ts` | part 08's, its 6.1: the port of HQ's interpolation over its vectors | the failures part 08's "Tests" names for it |
-| `reader/__tests__/provisional.test.ts` | `provisionalDocument` over drafts holding a refused question that another question's `relevant` reads, a mirror menu, and a form with a refused control; two calls with no draft write between, and two with one; every stage function of `STAGES` run over drafts a test proxy watches. The case "`bindExpressions` with a hand-written `ExpressionReading`" is B6's, added with the function | a provisional document the schema refuses; a stand-in in a returned document; a document that is not frozen, or a new object where no draft changed, or the same object after one did; a draft written outside `ctx.writeDraft` |
-| `reader/__tests__/onePass.test.ts` | `readHqApp` over one source that holds a mirror menu, a refused appearance, a default order a save changes and (from B6) an expression the checker refuses | any of the findings missing from the one account, which is the test of one pass (Decision 1) |
-| `reader/__tests__/defects.test.ts` | each of B2's defects (D1 to D4, D8, D9) provoked through a test claim table; B3 adds the cases of D5 to D7 and D10, B6 those of D11 and D12. And the closure, one case over every constructor of `readerDefect` (a constructor joins the case in the pull request that adds it): called with a place whose every name, path and tag is a marker string, with each member of each closed argument, with a claim name the registry lacks, an entry id the index lacks and an issue whose path and message hold the marker, it returns exactly its row's template of "Copy" with the closed slots filled | a defect's sentence in `detail.name`, where a person would read it; a defect with no finding; a `why` that holds a marker, which is a word of an app in the log; a `why` built outside a constructor; an unknown claim or entry printed as given |
-| `lib/commcare/reader/__tests__/claimsBindManifest.test.ts` | every registered claim against the index | a claim under a renamed or flipped entry (C4 to C6); it is the test a manifest edit in any later pull request trips |
+| `reader/__tests__/syntaxCompare.test.ts` | the form-row cases this part's recognizer rests on, in the test file part 08 owns: `sameXPathText` over pairs for rows L1 to L6 of part 08's 3.2, and pairs that differ in an operator, a name, a string or the order of operands | two texts of one tree read as different; two trees read as one |
+| `reader/__tests__/provisional.test.ts` | `provisionalDocument` over drafts holding a refused question that another question's `relevant` reads, a mirror menu, and a form with a refused control; two calls with no draft write between, and two with one; every stage function of `STAGES` run over drafts a test proxy watches; `bindExpressions` with a hand-written `ExpressionReading` | a provisional document the schema refuses; a stand-in in a returned document; a document that is not frozen, or a new object where no draft changed, or the same object after one did; a draft written outside `ctx.writeDraft` |
+| `reader/__tests__/onePass.test.ts` | `readHqApp` over one source that holds a mirror menu, a refused appearance, a default order a save changes and an expression the checker refuses | any of the findings missing from the one account, which is the test of one pass (Decision 1) |
+| `reader/__tests__/defects.test.ts` | each of the twelve defects provoked, D1 to D4, D8 and D9 through a test claim table. And the closure, one case over every constructor of `readerDefect`: called with a place whose every name, path and tag is a marker string, with each member of each closed argument, with a claim name the registry lacks, an entry id the index lacks and an issue whose path and message hold the marker, it returns exactly its row's template of "Copy" with the closed slots filled | a defect's sentence in `detail.name`, where a person would read it; a defect with no finding; a `why` that holds a marker, which is a word of an app in the log; a `why` built outside a constructor; an unknown claim or entry printed as given |
+| `lib/commcare/reader/__tests__/claimsBindManifest.test.ts` | every registered claim against the index | a claim under a renamed or flipped entry (C4 to C6); it is the test a manifest edit trips |
 | `reader/__tests__/accounting.test.ts` | `Accounting` over hand-built objects and documents | a used key that passes unclaimed; a default-valued key counted as a use; a held value dropped after `take`; a second claim; `refuseWhole` leaking a nested `unrecognized`; a handed-off node reported as `unrecognized` or missing from `handOffs`; `finding` accepted under a held entry; a list of strings claimed per element; a second `claimEntry` on one node refused under another key, or accepted under the same key; a node `cover` marked reported again at the close; an absent declared key counted as a use |
 | `reader/__tests__/placeVectors.test.ts`, with `proof/checks/test_place_vectors.py` | `elementWhere`, `qualifiedName` and the pointer escape against `proof/checks/fixtures/place-vectors.json`, which the Python test holds to `_element_path`, `qualified`, `pointer_token` and, for one vector that is a default `xmlns`, the `/namespace()` place `xform_vocabulary` records | the two sides spelling one place two ways, which would make part 14's parity join miss |
-| `reader/__tests__/appShell.test.ts` | `readApplication` over `proof/hq-reads/shell/app-source.json`, `shell/app-source-after-app-settings-save.json`, `hq-built/app-source.json`, `navigation-base/app-source-after-ui-translations-save.json` | an `Application` key HQ's own pages write that the walker leaves unclaimed; a setting accounted under the wrong value class |
+| `reader/__tests__/appShell.test.ts` | `readApplication` over `proof/hq-reads/shell/app-source.json`, `shell/app-source-after-app-settings-save.json`, `hq-built/app-source.json`, `navigation-base/app-source-after-ui-translations-save.json` | an `Application` key HQ's own pages write that the walker leaves unclaimed; a setting accounted under the wrong value class; and, over hand-built sources, a logo entry with no `m_id` admitted, and a language's display name that differs from Nova's label raised as a finding where the manifest keeps it |
 | `reader/__tests__/appShellTotality.test.ts` | the same sources with one unknown key planted at the root, in `profile.properties` and in `translations` | an unknown key admitted; the wrong undeclared entry |
 | `reader/__tests__/languages.test.ts` | `readLanguages` over a table of code lists | `en` beside `eng` held twice; a macrolanguage code minted to no identity; a code HQ's grammar refuses held; `pt-br`, `zh-hans` and `cmn-hantcn` read without their region or script, since the suffix is lower case |
-| `reader/__tests__/structure.test.ts` | `readStructure` over hand-built menus and forms | a mirror menu read key by key into dozens of findings; two forms of one `xmlns` both minted; and, with a report menu and a shadow form in one app, that both findings are in one account |
-| `reader/__tests__/generatedTranslationKeys.test.ts` | the classifier over hand-built tables, one case per rule of part 01's 7.1 and the two-key fold | an override of a constant string called inert; one fold applied twice |
-| `reader/__tests__/assemble.test.ts` | `assembleDocument` over complete drafts built through the stages' own setters | a document the schema refuses; a `batch` that does not rebuild the document (`applyMutations(emptyBlueprintDoc(appId), batch)` must equal `doc`); a generated translation key reported as `unrecognized` in an account, or postponed out of a clean read; a `batch` whose held placements are not its one trailing `holdPlacements`; a document of content no platform runs whole returned without `no-platform-runs-everything`, alone and beside another finding |
+| `reader/__tests__/structure.test.ts` | `readStructure` over hand-built menus and forms | a mirror menu read key by key into dozens of findings; two forms of one `xmlns` both minted; with a report menu and a shadow form in one app, that both findings are in one account; and a form named `instance('casedb') practice` read to anything but the one finding `form-name-read-as-an-instance` |
+| `reader/__tests__/generatedTranslationKeys.test.ts` | the classifier over hand-built tables, one case per rule of part 01's 7.1 and the two-key fold; `generatedKeyOwner` and `repositionGeneratedKey` over a key for every pattern of `GENERATED_APP_STRING_PATTERNS`; the keys `custom_assertion.m0.f1.3`, `custom_assertion.m0.3` and `custom_assertion.root.3`, each read as the app's and classified inert against a table built for a document with two menus | an override of a constant string called inert; one fold applied twice; a pattern whose key names no owner or the wrong one; a key repositioned at any number but its menu's and form's; a `custom_assertion` key read as a menu's or a form's, or given any verdict but inert (16.5) |
+| `reader/__tests__/generatedKeysInAccount.test.ts` | `readHqApp` over hand-built sources, with `appStrings` a hand-built function: a mirror menu standing before a plain menu whose name holds an override; a key on a menu whose case list holds a finding; a key under a language code the reading cannot name; `appStrings` answering `null` beside a finding, and with none; an option label's override in two menus, one of them a mirror | a key whose menu read whole left out of an account that holds another menu's finding; a key judged against the string of the menu that now stands at its number; a covered key reported, as a finding or as `unrecognized`; a key left unclaimed where there is no table; a clean read whose document the gate refuses returned and not thrown (C9); a `not-yet` raised for a key the source does not make one |
+| `reader/__tests__/assemble.test.ts` | `assembleDocument` over complete drafts built through the stages' own setters | a document the schema refuses; a `batch` that does not rebuild the document (`applyMutations(emptyBlueprintDoc(appId), batch)` must equal `doc`); a generated translation key reported as `unrecognized`; a fold that does not reach the returned document, or is counted twice; a `batch` whose held placements are not its one trailing `holdPlacements`; a document of content no platform runs whole returned without `no-platform-runs-everything`, alone and beside another finding |
 | `reader/__tests__/readerPurity.test.ts` | `readHqApp` twice over one input with fresh resolvers | hidden state; an order that depends on a `Map`'s insertion history |
 | `lib/doc/__tests__/declarationChoices.test.ts` | `planDeclarationChoices` over production documents: plain; date-and-time questions alone; a date-and-time question beside a feature Android cannot run; uses neither platform runs; a refused split; each with HQ's setting on and off. And over the fuzz documents: every choice's mutations leave no unavailable use, and `planContentDeclaration`'s declaration is among the choices | a choice the gate would refuse; the split offered where it adds nothing; the proposal ignoring HQ's setting; "Android only" proposed, with Web Apps on in HQ, for an app the split would keep in Web Apps |
 | `lib/commcare/hq/__tests__/publishedCaseBlocks.test.ts` | unchanged | the helpers' move changing what it reads |
-
-**B3**
-
-| Test | Boundary | Catches |
-|---|---|---|
 | `reader/xform/__tests__/formFixedPoint.fuzz.test.ts` | for each form of the fuzz documents (`lib/commcare/__tests__/xformDocArbitrary.ts::blueprintDocArbitrary`), `buildXFormSource` then stages 3 and 5b; the reading's fields compared with the document's: path, kind, order, repeat mode and placement, `fieldList`, section, `keypad`, plain flags, choices and their values, media, and each text in each language | a slot the emitter writes and the reader does not read; a generated node read as a field; a kind row that is wrong; a canonical choice applied where the pair differs |
 | `reader/xform/__tests__/kinds.test.ts` | each row of `FIELD_KIND_ROWS` as a minimal hand-written source; and every `FieldKind` emitted alone and read back | a row unreachable or shadowed by an earlier one; a kind Nova gains with no row; a question named `registration` refused under the grammar entry, or held |
 | `reader/xform/__tests__/appearances.test.ts`, `appearanceRows.test.ts` | `classifyAppearance` over the examples each entry's `item` gives (`minimal` with a trailing space, `combobox2`, `x2-per-row`, `minimal foo`, `Numeric`, `compact-3`) and the four held tokens; the table against the manifest's section | an inert claim for a string a runtime reads; an entry no rule reaches (C7); a row whose entry is HELD; one of the five refused classes with no lane reader misread, which nothing in Python would catch; a control missing from `inertAppearances`, or one listed whose appearance made a finding |
@@ -3875,49 +3941,50 @@ touches a database, and none renders a component. Each names the failure it woul
 | `reader/xform/__tests__/shadow.test.ts` | pairs of real and shadow text with head metadata: agreeing through `#form/`, through a `hashtags` entry, through a prefix; disagreeing; unexpandable; under `vellum:ignore="richText"`; a hashtag the map holds as `null`, used twice over one subtree and twice over two; a prefix that is a longer key's beginning; the three `requiredCondition` rows | a disagreement read as agreement; an inert shadow refused; a form HQ's form builder reads through a `null` hashtag sent back to be fixed; the longest key taken where Vellum takes the exact prefix |
 | `reader/xform/__tests__/repeats.test.ts` | each row of 10.3 by hand, and both placements emitted and read | a count repeat over a Hidden Value read as a generated count; a wrapper missing a setvalue held |
 | `reader/xform/__tests__/loadOrder.test.ts` | `effectiveLoadOrder` and `loadOrderConflicts` with reads given by hand | a reordered dependent pair missed; an independent reordering refused |
-| `reader/xform/__tests__/connect.test.ts` | the four blocks emitted and read; each refusal row by hand; learn and deliver blocks in two forms of one app | a deliver unit beside a task held; an app of both kinds read as `unrecognized` |
-| `reader/xform/__tests__/retainedForms.test.ts` | stage 3 over every form of `hq-built/app-source.json`, `navigation-base/app-source.json`, `case-list-inline/app-source.json` and each `navigation-base/app-source-after-*-save.json` | an element or attribute HQ's own pages or builder write that the form reader neither claims nor leaves pending. The test's `PENDING_AFTER_B3` lists what B3 leaves to later stages by design (the logic attributes of 11.1, `setvalue@value`, non-literal outputs, itemset nodesets, instance declarations, the case region, a root node named `case`, `case_references_data.save`, the form keys of 7.4's last row); B4 to B6 each remove their lines, and B6 deletes the constant |
+| `reader/xform/__tests__/connect.test.ts` | the four blocks emitted and read; each refusal row by hand; learn and deliver blocks in two forms of one app | a deliver unit beside a task held; an app of both kinds read as `unrecognized`; a learn module whose description holds `instance('casedb')` read to anything but the one finding `connect-block-text-read-as-an-instance` |
+| `reader/xform/__tests__/retainedForms.test.ts` | `readHqApp`, every stage, over `hq-built/app-source.json`, `navigation-base/app-source.json`, `case-list-inline/app-source.json` and each `navigation-base/app-source-after-*-save.json`, with an empty catalog and a media index that answers every path as an asset | an element or attribute HQ's own pages or builder write that no stage claims: any `unrecognized` at a form or a question of those sources |
 | `reader/xform/__tests__/xmlTotality.test.ts` | each retained form with one unknown attribute planted on one element of each qualified name, and one unknown element under each | an unknown construct admitted in a form |
-| `reader/xform/__tests__/vellumSavedSource.test.ts` | R1 | |
-| `reader/__tests__/readerScale.scale.test.ts` | R2: by hand on a hosted runner, outside every default project | |
-| `reader/__tests__/readerWork.test.ts` | `ReadCensus.work` of one emitted form of 200 questions and one of 400, in three languages, with generated nodes of every purpose | a stage whose work more than doubles when the form does; deterministic, with no clock |
+| `reader/xform/__tests__/vellumSavedSource.test.ts` | R1's two cases ("Written and not yet run") | a save's respelling read as a difference; a generated node a save left in place read as a Hidden Value |
+| `reader/__tests__/readerWork.test.ts` | `ReadWork` of one emitted form of 200 questions and one of 400, in three languages, with generated nodes of every purpose | a stage whose work more than doubles when the form does; deterministic, with no clock. Where `rebuilds` is the counter that fails, 13.1 names the fix |
 | `reader/xform/__tests__/media.test.ts` | `readMediaForms` and `readMediaMap` over an index that answers `asset`, `no-entry` and `unreadable`: held slots, a hint's and a group label's media, a path differing by language | a path with no file read as `unrecognized`, or claimed held; an unheld slot's missing file left out of `pendingMedia`; a hand-off with no `HandOffRecord` |
 | `lib/commcare/__tests__/xmlParseKind.test.ts` | `tryParseXml` over a document type declaration, an XML 1.1 declaration and unclosed markup | a kind told from a message; `xmlParseIssue`'s text changing |
 
 What these do not hold, stated so no one reads more into them: that an expression means what the
 source's did (part 08's tests and lane proof 3), that a whole app reads to itself (part 09's fixed point
-and proof 6), and that the reader's standings equal the lane's (part 14's parity).
+and proof 6), that the reader's standings equal the lane's (part 14's parity), and that a read of
+an app at the byte bound is short (part 12's test at the bound).
 
 ---
 
 ## Contracts and docs these changes make false
 
-| File | Sentence today | Replacement | Pull request |
-|---|---|---|---|
-| `lib/commcare/CLAUDE.md`, opening | "One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive)." | "The CommCare boundary. It emits a `BlueprintDoc` as CommCare's wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive), and, in `reader/`, reads an HQ app back into one. Nothing outside this package speaks the wire vocabulary in either direction." | B2 |
-| `lib/commcare/CLAUDE.md`, the opening's last sentence | "A Biome `noRestrictedImports` rule enforces the one-way direction." | "A Biome `noRestrictedImports` rule holds who may import it." | B2 |
-| `lib/commcare/CLAUDE.md`, "capture URL node" | "from the caller (`lib/deployment/attachmentTarget.ts`), because the emission boundary is one-way;" | "from the caller (`lib/deployment/attachmentTarget.ts`), because `lib/commcare` imports nothing of the deployment layer;" | B2 |
-| `lib/commcare/xform/captureUrlNode.ts`, the header of `AttachmentUrlTarget` | "because `lib/commcare` is a one-way emission boundary: the deployment layer may read the wire package, never the other way round." | "because `lib/commcare` imports nothing of the deployment layer: the deployment layer may read the wire package, never the other way round." | B2 |
-| `lib/commcare/xpath/index.ts`, the header comment | "the package's \"one-way emission boundary\" rule is scoped to wire-format emission (XForm XML, HqApplication JSON)," | "the package's import rule (`biome.json`) is scoped to the wire formats (XForm XML, HqApplication JSON)," | B2 |
-| `biome.json`, the four messages of the rule on `@/lib/commcare` | each opens "lib/commcare is the one-way CommCare emission boundary." | each opens "lib/commcare is the CommCare boundary, the one package that speaks CommCare's wire vocabulary." B2 changes no line of the file; the sentence lands with part 09's edit of the same four strings | B7 |
-| `lib/commcare/CLAUDE.md`, "The surface manifest" | "Server code reads gate entries through `surface/gates.ts`, never `surface.json`, so a server bundle carries the gate entries alone." | "Server code reads the manifest through five modules and nothing else: `surface/gates.ts` (a gate's identity), `surface/schemaDefaults.ts` (a declared property's default, from `surface.json`), `appStringKeys.ts` (HQ's generated app string patterns, from `surface.json`), `surface/inventory.ts` (every inventory entry with its standing, for the reader) and `surface/revision.ts` (the revision of every entry's standing). `inventory.ts` is `server-only`." | B2 |
-| `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility" | "Server code reads gate entries through `surface/gates.ts`, never the generated `surface.json`." | "Server code reads gate entries through `surface/gates.ts`." (the five readers are listed under "The surface manifest") | B2 |
-| `lib/commcare/CLAUDE.md`, new section "### The reader" after "The surface manifest" | none | "`reader/index.ts::readHqApp` is the one function that turns an HQ app into a document. It is pure and reads only its arguments. Admission is an accounting: every JSON key at a value other than HQ's default and every XML element and attribute must be claimed against a manifest entry (`reader/claims.ts::defineClaims`), the entry's standing decides whether the value is read, dropped or a finding, and whatever is left unclaimed is the circumstance `unrecognized`. A claim is data, held to the manifest by `reader/__tests__/claimsBindManifest.test.ts`, so a manifest edit and the reader cannot drift. A reader stage reads nothing it does not claim. Two uses are handed off instead of claimed, a media path with no file and an itemset over a table the catalog lacks, because project data's rules name their entry; the caller settles each and acceptance holds none is left. The stages run in the order of `reader/index.ts::STAGES`: structure and forms, menus, case management, lists and search, then every expression bound against a provisional document that is built whether or not a finding stands, then the settle passes and assembly. An `unrecognized` finding names a surface key; what the reader itself got wrong is a `ReaderDefect`, logged and never shown." | B2 |
-| the same section, second paragraph | none | "A form is read as HQ's form builder reads it (`reader/xform/`): data tree, binds, setvalues, then the control tree, joined by path. A field's kind comes from one table (`xform/kinds.ts`). Text is found by what references it, never by an itext id. A node Nova generates is recognized by rebuilding it with the emitter's own function and comparing parsed trees (`xform/generated.ts`), with the allocator's name as a precondition; an edited or renamed one is the author's Hidden Value. A real attribute and its `vellum:` shadow must expand to one tree. Logic is never read as text here: each attribute is registered as a pending expression the expression reader binds. Two XPath texts are compared in one place, `reader/syntaxCompare.ts::sameXPathText`." | B3 |
-| `lib/commcare/CLAUDE.md`, "XForm parse-time oracle + fuzzer", the `xmlParse.ts` paragraph | "DTDs and XML 1.1 declarations are outside Nova's generated resource vocabulary." | the same, followed by "`tryParseXml` names which of the three a failure is (`doctype`, `xml-version`, `malformed`), and no caller reads a message to tell." | B3 |
-| `docs/testing.md`, "Performance and verification" | no mention of a scale project | adds "A file named `*.scale.test.ts` belongs to the `scale` Vitest project, which no default run includes. It is a measurement started by hand on a hosted runner (`.github/workflows/reader-scale.yml`) and asserts no time." | B3 |
-| `lib/commcare/CLAUDE.md`, "Validation counts keep their evaluation context" | "The name is not reserved: an authored sibling of the same name makes the allocator take the next suffix." | the same, followed by "Each base name comes from `generatedNodes.ts::generatedBaseName`, which the reader's recognizer reads too." | B3 |
-| `lib/doc/CLAUDE.md`, the paragraph on `platformDeclaration.ts` | names `planContentDeclaration` as the one planner | adds "`planDeclarationChoices` gives every declaration a document's content runs on, with and without the date-and-time split, and the one to propose; a reading's review offers them." | B2 |
-| `docs/research/2026-09-26-hq-round-trip/inventory/application-and-settings.md` | no row | the row of `langs-code-nova-s-language-registry-cannot-name` beside the code-spelling row | B2 |
-| `docs/research/2026-09-26-hq-round-trip/inventory/questions.md` | no rows | the rows of the ten entries B3 adds, each beside the row it splits from or sits beside; the two re-cut rows, `question-id-case-registration-script` (8.8) and `an-explicitly-blank-value-in-a-non-default-language-where-the` (12.2); the re-worded cells of the entries B3 edits (8.3, 10.1, 10.4, 12.5); and part 01's 3.5 wording on the question media rows | B3 |
-| `docs/research/2026-09-26-hq-round-trip/inventory/forms-and-case-writes.md` | the form media pair as the research wrote it | part 01's 3.5 wording on the pair | B3 |
-| root `CLAUDE.md`, "The mental models", item 3 | "CommCare's wire vocabulary is quarantined behind `lib/commcare`, a one-way emission boundary enforced by a Biome import rule." | "CommCare's wire vocabulary is quarantined behind `lib/commcare`, the one boundary that writes it and, for an app brought in from CommCare HQ, reads it, enforced by a Biome import rule." The clause is false from B2 and is rewritten with the root file's other stack B sentences (part 15, section 6.2). The next sentence, "The SA and the builder never speak CommCare.", is unchanged | B14 |
-| root `CLAUDE.md`, "The map", `lib/commcare` | "`BlueprintDoc` → wire (XForm XML, HQ JSON, suite.xml, `.ccz`), the validator and its parse-time oracles" | "`BlueprintDoc` → wire (XForm XML, HQ JSON, suite.xml, `.ccz`) and, in `reader/`, an HQ app back to a `BlueprintDoc`; the validator and its parse-time oracles" | B14 |
-| the same bullet | "This is the compile / export / HQ-upload path; the barrel is client-safe and consumers are allowlisted in `biome.json`." | "This is the compile / export / HQ-upload path and the path an app is brought in through; the barrel is client-safe, the reader sits outside it, and consumers are allowlisted in `biome.json`." (part 15, section 6.2) | B14 |
+| File | Sentence today | Replacement |
+|---|---|---|
+| `lib/commcare/CLAUDE.md`, opening | "One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive)." | "The CommCare boundary. It emits a `BlueprintDoc` as CommCare's wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive), and, in `reader/`, reads an HQ app back into one. Nothing outside this package speaks the wire vocabulary in either direction." |
+| `lib/commcare/CLAUDE.md`, the opening's last sentence | "A Biome `noRestrictedImports` rule enforces the one-way direction." | "A Biome `noRestrictedImports` rule holds who may import it." |
+| `lib/commcare/CLAUDE.md`, "capture URL node" | "from the caller (`lib/deployment/attachmentTarget.ts`), because the emission boundary is one-way;" | "from the caller (`lib/deployment/attachmentTarget.ts`), because `lib/commcare` imports nothing of the deployment layer;" |
+| `lib/commcare/xform/captureUrlNode.ts`, the header of `AttachmentUrlTarget` | "because `lib/commcare` is a one-way emission boundary: the deployment layer may read the wire package, never the other way round." | "because `lib/commcare` imports nothing of the deployment layer: the deployment layer may read the wire package, never the other way round." |
+| `lib/commcare/xpath/index.ts`, the header comment | "the package's \"one-way emission boundary\" rule is scoped to wire-format emission (XForm XML, HqApplication JSON)," | "the package's import rule (`biome.json`) is scoped to the wire formats (XForm XML, HqApplication JSON)," |
+| `biome.json`, the four messages of the rule on `@/lib/commcare` | each opens "lib/commcare is the one-way CommCare emission boundary." | each opens "lib/commcare is the CommCare boundary, the one package that speaks CommCare's wire vocabulary." Part 09's edit of the same four strings adds a consumer and leaves this sentence as written here |
+| `lib/commcare/CLAUDE.md`, "The surface manifest" | "Server code reads gate entries through `surface/gates.ts`, never `surface.json`, so a server bundle carries the gate entries alone." | "Server code reads the manifest through `surface/gates.ts` (a gate's identity), `surface/schemaDefaults.ts` (a declared property's default, from `surface.json`), `appStringKeys.ts` (HQ's generated app string patterns, from `surface.json`) and `surface/inventory.ts` (every inventory entry with its standing, for the reader) and `surface/revision.ts` (`isDeclaredSurfaceKey`, part 12's). `inventory.ts` is `server-only`." |
+| `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility" | "Server code reads gate entries through `surface/gates.ts`, never the generated `surface.json`." | "Server code reads gate entries through `surface/gates.ts`." (the readers are listed under "The surface manifest") |
+| `lib/commcare/CLAUDE.md`, new section "### The reader" after "The surface manifest" | none | "`reader/index.ts::readHqApp` is the one function that turns an HQ app into a document. It is pure and reads only its arguments. Admission is an accounting: every JSON key at a value other than HQ's default and every XML element and attribute must be claimed against a manifest entry (`reader/claims.ts::defineClaims`), the entry's standing decides whether the value is read, dropped or a finding, and whatever is left unclaimed is the circumstance `unrecognized`. A claim is data, held to the manifest by `reader/__tests__/claimsBindManifest.test.ts`, so a manifest edit and the reader cannot drift. A reader stage reads nothing it does not claim. Two uses are handed off instead of claimed, a media path with no file and an itemset over a table the catalog lacks, because project data's rules name their entry; the caller settles each and acceptance holds none is left. The stages run in the order of `reader/index.ts::STAGES`: structure and forms, menus, case management, lists and search, then every expression bound against a provisional document that is built whether or not a finding stands, then the settle passes and assembly. An `unrecognized` finding names a surface key, or the app's own value where what was unclaimed is a value (an appearance); what the reader itself got wrong is a `ReaderDefect`, logged and never shown." |
+| the same section, second paragraph | none | "A form is read as HQ's form builder reads it (`reader/xform/`): data tree, binds, setvalues, then the control tree, joined by path. A field's kind comes from one table (`xform/kinds.ts`). Text is found by what references it, never by an itext id. A node Nova generates is recognized by rebuilding it with the emitter's own function and comparing parsed trees (`xform/generated.ts`), with the allocator's name as a precondition; an edited or renamed one is the author's Hidden Value. A real attribute and its `vellum:` shadow must expand to one tree. Logic is never read as text here: each attribute is registered as a pending expression the expression reader binds. Two XPath texts are compared in one place, `reader/syntaxCompare.ts::sameXPathText`." |
+| `lib/commcare/CLAUDE.md`, "XForm parse-time oracle + fuzzer", the `xmlParse.ts` paragraph | "DTDs and XML 1.1 declarations are outside Nova's generated resource vocabulary." | the same, followed by "`tryParseXml` names which of the three a failure is (`doctype`, `xml-version`, `malformed`), and no caller reads a message to tell." |
+| `lib/commcare/CLAUDE.md`, "Validation counts keep their evaluation context" | "The name is not reserved: an authored sibling of the same name makes the allocator take the next suffix." | the same, followed by "Each base name comes from `generatedNodes.ts::generatedBaseName`, which the reader's recognizer reads too." |
+| `lib/doc/CLAUDE.md`, the paragraph on `platformDeclaration.ts` | names `planContentDeclaration` as the one planner | adds "`planDeclarationChoices` gives every declaration a document's content runs on, with and without the date-and-time split, and the one to propose; a reading's review offers them." |
+| `docs/research/2026-09-26-hq-round-trip/inventory/application-and-settings.md` | no row | the row of `langs-code-nova-s-language-registry-cannot-name` beside the code-spelling row |
+| `docs/research/2026-09-26-hq-round-trip/inventory/questions.md` | no rows | the rows of the ten entries this part adds to the area, each beside the row it splits from or sits beside; the two re-cut rows, `question-id-case-registration-script` (8.8) and `an-explicitly-blank-value-in-a-non-default-language-where-the` (12.2); the re-worded cells of the entries this part edits (8.3, 10.1, 10.4, 12.5); and part 01's 3.5 wording on the question media rows |
+| `docs/research/2026-09-26-hq-round-trip/inventory/forms-and-case-writes.md` | the form media pair as the research wrote it | part 01's 3.5 wording on the pair |
+| `lib/domain/expression/CLAUDE.md` | "CommCare names and wire function spelling are provided at the one-way emission boundary." | "CommCare names and wire function spelling are provided at the `lib/commcare` boundary." |
+| `docs/architecture/multilingual-localization.md` | "CommCare's localized maps and resources exist only at the one-way `lib/commcare` emission boundary." | "CommCare's localized maps and resources exist only at the `lib/commcare` boundary, which writes them on emission and reads them when an app is brought in from CommCare HQ." |
+| root `CLAUDE.md`, "The mental models", item 3 | "CommCare's wire vocabulary is quarantined behind `lib/commcare`, a one-way emission boundary enforced by a Biome import rule." | "CommCare's wire vocabulary is quarantined behind `lib/commcare`, the one boundary that writes it and, for an app brought in from CommCare HQ, reads it, enforced by a Biome import rule." The next sentence, "The SA and the builder never speak CommCare.", is unchanged |
+| root `CLAUDE.md`, "The map", `lib/commcare` | "`BlueprintDoc` → wire (XForm XML, HQ JSON, suite.xml, `.ccz`), the validator and its parse-time oracles" | "`BlueprintDoc` → wire (XForm XML, HQ JSON, suite.xml, `.ccz`) and, in `reader/`, an HQ app back to a `BlueprintDoc`; the validator and its parse-time oracles" |
+| the same bullet | "This is the compile / export / HQ-upload path; the barrel is client-safe and consumers are allowlisted in `biome.json`." | "This is the compile / export / HQ-upload path and the path an app is brought in through; the barrel is client-safe, the reader sits outside it, and consumers are allowlisted in `biome.json`." |
 
-The outline this plan replaces is removed by the plan's own pull request, before either stack, so
-no pull request of B2 or B3 touches it. Nothing public changes in B2 or B3: no page of
-`content/docs/` describes what no person can reach yet.
+Every "one-way" row above rests on one fact (2.4): the old sentences are true only of import
+direction, and that stands. No page of `content/docs/` changes with this part: what a person does
+with the reader is part 13's to document.
 
 ---
 
@@ -3932,7 +3999,7 @@ parts cite them.
    loads, an analysis Nova has nowhere; `queryRepeatPlacement.ts::queryRepeatPlacementNeeds` is read by
    the gate (`QUERY_REPEAT_MODEL_ITERATION_SHAPE`), both exports and Preview, so widening it is a new
    authoring rule on four surfaces; and the top-level file `../6-bring-in.md` ("What changed from the
-   outline, and why", item 16) lists every concept that comes into step 6, and this is not among them.
+   outline, and why") lists every concept that comes into step 6, and this is not among them.
    Decision: a model-iteration repeat is held where Nova's rule runs it, the three manifest refusals
    stay, and any other shape is the new HELD-NEW entry
    `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`, owner `xform` (10.4).
@@ -3949,10 +4016,10 @@ parts cite them.
 4. **From the outline, item 1 ("into one construction batch that passes the absolute gate, or
    refuses with the place and the reason").** `readHqApp` returns more than a batch and runs no
    gate. It returns the document beside its batch, the identities, the declaration choices, the
-   facts later parts read, the census, the claim log with its hand-offs and its own defects, and
-   findings only where there is no draft. Evidence: part 09's gate and fixed point take a document
-   (16.1 says why the reader does not run the gate itself); part 12 stores the census and logs the
-   defects; part 14's judge takes the log. One call builds them all from one walk. Not done: a
+   facts later parts read, the claim log with its hand-offs and its own defects, and findings only
+   where there is no draft. Evidence: part 09's gate and fixed point take a document (16.1 says
+   why the reader does not run the gate itself); part 12 logs the defects; part 14's judge takes
+   the log. One call builds them all from one walk. Not done: a
    reader that returns a construction batch, identities and findings alone, because each of those
    callers needs what the same walk already holds.
 5. **The claim log names a place with two fields.** A record is
@@ -3973,25 +4040,27 @@ parts cite them.
    node of the same shape under another name (`trim_x`) is a path HQ's exports and a case action
    already name; folding it would rename that path at the first publish, and reading it as the
    author's Hidden Value changes nothing.
-8. **The classifier of part 01's 7.1 takes the app strings as an input of the reader.** The classifier
-   lands in B2 as part 01 writes it and takes the strings of the document without its generated keys
-   (part 01's `D0`) through `ReaderInput.appStrings`; the production function lands in B7 (17.5; part
-   01's "What this part needs of other parts" says the same). Not done: the reader taking those strings
-   from the production emitter in B2. Evidence: the strings exist only as locals of
-   `compiler.ts::compileCcz`, whose inputs (a target, a media manifest, lookup naming) a reading first
-   has at acceptance. Until B7 no production `appStrings` exists; the reader claims generated keys from
-   B2 through its input, which B2's tests supply by hand, and nothing calls the reader in production
-   before B10.
-9. **Beyond the manifest as `main` holds it: eleven manifest entries and two re-cuts** (one entry in B2,
-   ten in B3). The first re-cut is `questions/question-id-case-registration-script`, HELD to HELD-NEW
+8. **The classifier of part 01's 7.1 takes the app strings as an input of the reader, and the
+   input may answer that there are none.** The reader takes the strings of the document without
+   its generated keys (part 01's `D0`) through `ReaderInput.appStrings`, which answers `null`
+   where Nova's gate refuses the document (16.5). Not done: the reader building the strings
+   itself. Evidence: they exist only as locals of `compiler.ts::compileCcz`, whose inputs (a
+   target, a media manifest, lookup naming) the request holds and the reader does not, and that
+   compile is total only over a document the gate admits, which the reader cannot ask (16.1). Not
+   done: a table built from a walk of text slots alone, which would need no gate. It would be a
+   second statement of which ids the emitters write, since the case list and search emitters name
+   their strings as they print, and the classifier's own precondition is that Nova's ids are the
+   build's (part 01, 7.1).
+9. **Beyond the manifest as `main` holds it: eleven manifest entries and two re-cuts.** The first
+   re-cut is `questions/question-id-case-registration-script`, HELD to HELD-NEW
    (8.8): Nova's question id rule refuses the three names, so the entry said held of something no
    document can hold. The second is
    `questions/an-explicitly-blank-value-in-a-non-default-language-where-the`, REFUSED to HELD (12.2),
-   which part 09's Departure 21 argues: Nova's first publish fills such a blank from the first language,
+   which part 09's Departure 17 argues: Nova's first publish fills such a blank from the first language,
    as the form builder does on save, and declares it. Each of the eleven new entries is a shape HQ can
    hold that Nova's gate would refuse or Nova's emitter would change, which no entry named, found by
    reading the emitter and the gate against the reader's rows:
-   `application-and-settings/langs-code-nova-s-language-registry-cannot-name` (B2);
+   `application-and-settings/langs-code-nova-s-language-registry-cannot-name`;
    `questions/data-root-element-named-other-than-data`,
    `questions/itemset-over-casedb-in-nova-s-case-choices-shape` (HELD: Nova writes it today),
    `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`,
@@ -4001,37 +4070,43 @@ parts cite them.
    `questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text` (the half of the
    blank row that stays refused, since one entry has one disposition),
    `questions/connect-deliver-unit-and-task-in-one-form`,
-   `questions/connect-learn-and-deliver-blocks-in-one-app` (B3); and part 03's
-   `questions/a-markdown-form-in-a-form-whose-text-formatting-is-off`, which B3 lands. The rule of the
+   `questions/connect-learn-and-deliver-blocks-in-one-app`; and part 03's
+   `questions/a-markdown-form-in-a-form-whose-text-formatting-is-off` (12.2). The rule of the
    bar is why: the reader admits exactly what the gate admits, so each of these is a finding with a place
    and a sentence, never a gate refusal a person meets after the review.
 10. **One circumstance this part adds to part 01's list**, `no-platform-runs-everything`
     (Departure 2), which part 01 holds (its 8.3 and 9.3), with `detail.reason: "split-refused"`
     for its second next step.
 11. **The limits of one pass.** The reader reports every finding in one pass (Decision 1; the
-    top-level file `../6-bring-in.md`, "The experience in brief", "Every finding in one pass"). It
-    reports everything the reader can decide from the source, structure and expressions together, because
-    stage 7 builds a provisional document and binds every expression in every reading (2.3). Three
-    things are outside it, each for a stated reason, and the cursor and the tests hold that nothing
-    else is:
-    - **A generated key in `translations`, in a reading that holds another finding** (16.5). Part
-      01's 7.1 classifies such a key against the app strings of the document Nova would write, and a
-      reading with a finding has no such document. Calling every such key `not-yet` would report
-      overrides Nova reads exactly, and calling it `unrecognized` would blame Nova. Nothing can be
-      postponed out of a clean read (4.3).
-    - **What stands under a thing that got no draft.** A mirror menu, a shadow form, and a question
-      whose kind or id is refused are one finding each, and their keys, their expressions and their
-      platform uses are covered by it: there is no slot to bind an expression in and no owner to
-      count a use against. The person changes that thing first either way.
+    top-level file `../6-bring-in.md` states it as a principle). It reports everything the reader
+    can decide from the source, structure and expressions together, because stage 7 builds a
+    provisional document and binds every expression in every reading (2.3), and stage 11 decides
+    every generated key of `translations` over that document (16.5). Two things are outside it,
+    each for a stated reason, and the cursor and the tests hold that nothing else is:
+    - **What stands under a thing that got no draft, or under a finding at the thing itself.** A
+      mirror menu, a shadow form, and a question whose kind or id is refused are one finding each,
+      and their keys, their expressions and their platform uses are covered by it: there is no
+      slot to bind an expression in and no owner to count a use against. A generated key of
+      `translations` that names such a menu or form, or a menu, list, detail, search or form that
+      holds a finding of its own, stands under that finding the same way, and so does the one
+      string a shared option label gives that menu (16.5). The person changes that thing first
+      either way.
     - **A check whose inputs another finding withheld.** A Hidden Value's bind type is compared only
       where its calculate was held and the form's case writes were read (11.4); a model-iteration
-      verdict and a load-order conflict only over expressions that bound. Each skipped check is at a
-      question or a form that already carries the finding that withheld it.
+      verdict and a load-order conflict only over expressions that bound; and the generated keys
+      are classified only where Nova's build can write the provisional document, which it cannot
+      where that document leans on something a finding withheld (16.5). Each skipped check is at a
+      place that already carries the finding that withheld it, or, for the keys, in a reading
+      whose findings did.
 
-    Part 01 gains one line for the account so a person is not told a list is complete when it may
-    not be ("What this part needs of other parts").
-12. **No document migration, no flag, no rollout.** B2 and B3 add no stored key. `planDeclarationChoices`
-    is a new function beside `planContentDeclaration`, which keeps its callers.
+    Not done: leaving a generated key for the reading that follows the person's fix, unclaimed
+    and unreported, whenever any finding stands. A key whose menu read whole can be judged now,
+    and a person who fixes an account should not meet it for the first time on the next check.
+    Part 01's account line says a later check may find more (its 9.1), for the two limits that
+    remain.
+12. **No document migration, no flag, no rollout.** This part adds no stored key.
+    `planDeclarationChoices` is a new function beside `planContentDeclaration`, which keeps its
+    callers.
 13. **Two uses are handed off, neither claimed nor a finding.** Anything else left unclaimed is a finding
     (4.1). These two are neither when the reader returns: a media path with no file, and an itemset over
     a table the catalog lacks. They are handed off (4.3). Evidence: which entry each stands under is
@@ -4040,23 +4115,25 @@ parts cite them.
     them. Not done: leaving the two unclaimed, because every app with a path missing from its media map
     would then read to `unrecognized`, blamed on Nova, where part 11's rule (its 3.2) makes such a
     reference inert and listed. Not done: moving part 11's classifier into the reader, because its inputs
-    (the map's entries, the file verdicts of a later step, the declaration a person has not chosen yet)
-    are the reading's, and it runs again after the media step with no new read of the source. The
-    property is kept by other means: a hand-off is a typed record with its node, only those two kinds
-    exist, the caller settles each in the same pure check, and acceptance check 1 refuses a reading with
-    one left over.
+    (the map's entries, the verdict on each file once it is fetched, the declaration a person has not
+    chosen yet) are the request's, and it runs again once the files are judged with no new read of the
+    source. The property is kept by other means: a hand-off is a typed record with its node, only
+    those two kinds exist, the caller settles each in the same request, and acceptance check 1
+    refuses a reading with one left over.
 14. **The stage order, made exact.** The reader's order is structure, case management, menus, then
     expressions (2.3), with a menu read in two places. A menu's own shape (case type, kind, nesting) is
     read before case management, and what a menu holds that needs bound expressions is settled after them
     (2.3). Evidence: part 07's 2.1, which shows a form's type and its placements cannot be read without
     its menu's case type and kind, and that a link's held-case guards can only be checked over bound
     trees. Not done: one menus stage between case management and expressions, for those two reasons.
-15. **B2 and B3 land three things part 08 specifies.** B2 lands `reader/syntaxCompare.ts` (part
-    08's 3.1) with the form rows, and B3 lands `shadowAgrees` and `literalOutputText` in
-    `reader/xform/` (part 08's 10.1 and 10.2 say the same). Not done: landing the three in B6 with
-    the expression reader. Evidence: B3 compares generated nodes, shadows and literal outputs
-    three pull requests before B6 exists, and a second `shadowAgrees` with another prefix rule would
-    raise `shadow-disagrees` twice for one attribute and differently.
+15. **The shadow comparison and the literal-output reader are the forms stage's, and it uses the
+    tree comparison before the expression reader exists.** `shadowAgrees` and `literalOutputText`
+    are in `reader/xform/` (14.2, 12.3), and the generated-node recognizer calls part 08's
+    `reader/syntaxCompare.ts` under its form rows alone (13.1). Not done: the three in the
+    expression reader. Evidence: each is a fact of a form's source that needs no bound tree, the
+    forms stage judges generated nodes, shadows and literal outputs before any expression binds,
+    and a second `shadowAgrees` with another prefix rule would raise `shadow-disagrees` twice for
+    one attribute and differently.
 16. **One reader for `case_references_data.save`, and one for Connect blocks.** `save` is part 07's (8.7)
     and Connect blocks are this part's (15). Not done: either part reading both, because two readers of
     one node are a second claim on it. One reader per node is the frame's rule (4.3).
@@ -4067,7 +4144,7 @@ parts cite them.
 |---|---|
 | 1, the reader reads source and forms into one batch or refuses with the place and reason | sections 2 to 16; identity is part 10's; the UI-catalog keys are kept (part 01); no `Form.xmlns` slot (part 10) |
 | 5, the platform declaration confirmed before the app exists | 16.3: choices with a proposal, applied at the birth; the surfaces are part 13's |
-| 8, output expressions and `instance(…)` text in prose | part 03 (A7) for the concept; 12.3 for the reading |
+| 8, output expressions and `instance(…)` text in prose | part 03 for the concept; 12.3 for the reading |
 | 8, the other bullets (project-timezone days, several `_xpath_query` rows, HQ's escape hatches, the lowered comparison) | parts 07 and 08 |
 | 9, the proposed declaration and the split | 16.3; Departure 2 |
 | 9, media by platform | part 11 |
@@ -4080,333 +4157,48 @@ parts cite them.
 
 ---
 
-## Files by pull request
+## Files
 
-**B2: the reader's frame**
+One list: every file this part makes, changes or moves, with what it holds. Paths under
+`lib/commcare/reader/` are written from `reader/`.
+
+**New**
+
+| File | Holds |
+|---|---|
+| `reader/index.ts`, `reader/types.ts`, `reader/context.ts` | the public function, `STAGES` and the types (2) |
+| `reader/claims.ts`, `reader/accounting.ts`, `reader/jsonCursor.ts`, `reader/xmlCursor.ts` | claims as data, the accounting and its two cursors, the claim log (4) |
+| `reader/place.ts`, `reader/defects.ts` | places, and the reader's own defects with their closed templates (5) |
+| `reader/pendingExpressions.ts` | `PendingRegistry` (11.1), in the file that holds part 08's record (its 2.5) |
+| `reader/provisional.ts` | `provisionalDocument` and `bindExpressions` (2.3) |
+| `reader/appShell.ts`, `reader/languages.ts`, `reader/structure.ts` | the application walker, languages, and menus and forms at their own keys (6, 7) |
+| `reader/translations.ts` | the translation sink (12.5) |
+| `reader/generatedTranslationKeys.ts`, `reader/assemble.ts` | the generated key classifier and its owner rule (16.5); assembly and the canonical choices (16.1, 16.2) |
+| `reader/xform/*.ts` | the twenty files of 8.1 |
+| `lib/commcare/xmlNamespaces.ts` | `XFORMS_NS`, `XHTML_NS`, `JAVAROSA_NS`, `VELLUM_NS`, `OPENROSA_NS`, `NamespaceScope`, `scopeOf`, `splitName`, `isElement`, `namespacedAttribute`, `elementChildren`, `qualifiedName`. The helpers `hq/publishedCaseBlocks.ts` holds privately today are moved here and renamed (`Scope` to `NamespaceScope`, `XFORMS` to `XFORMS_NS`, `XHTML` to `XHTML_NS`, `VELLUM` to `VELLUM_NS`), their bodies unchanged; `JAVAROSA_NS`, `OPENROSA_NS` and `qualifiedName` (4.5) are new |
+| `lib/commcare/surface/inventory.ts` | the manifest's index (3) |
+| `lib/commcare/xform/consumerWhitespace.ts` | `isConsumerWhitespace`, moved from `builder.ts` (12.3) |
+| `proof/checks/fixtures/place-vectors.json`, `proof/checks/test_place_vectors.py` | the place vectors both sides are held to ("Tests") |
+| the tests of "Tests" | each under the `__tests__` directory its row names |
+
+**Changed**
 
 | File | Change |
 |---|---|
-| `lib/commcare/xmlNamespaces.ts` | new: the namespace helpers moved from `hq/publishedCaseBlocks.ts` and renamed (2.1), `JAVAROSA_NS`, `OPENROSA_NS` and `qualifiedName` |
-| `lib/commcare/hq/publishedCaseBlocks.ts`, `lib/commcare/xform/deviceForm.ts` | import the helpers and `VELLUM_NS`; no behavior change |
-| `lib/commcare/surface/inventory.ts` | new (3) |
-| `lib/commcare/surface/revision.ts` | new: `surfaceStandingsRevision` (part 12, 3.9) |
-| `lib/commcare/reader/index.ts`, `types.ts`, `context.ts` | new (2) |
-| `lib/commcare/reader/pendingExpressions.ts` | new: part 08's 2.5 shape, and `PendingRegistry` (11.1) |
-| `lib/commcare/reader/syntaxCompare.ts` | new: part 08's 3.1, with rows L1 to L6 |
-| `lib/commcare/reader/hqInterpolation.ts`, `lib/commcare/reader/__tests__/hqInterpolation.test.ts`, `lib/commcare/reader/__tests__/interpolationVectors.ts` | new: part 08's, its 6.1 |
-| `lib/commcare/reader/provisional.ts` | new: `provisionalDocument` (2.3) |
-| `lib/commcare/reader/identity.ts` | new: part 10's sections 2.1 to 2.3 |
-| `lib/commcare/reader/claims.ts`, `accounting.ts`, `jsonCursor.ts`, `xmlCursor.ts`, `place.ts`, `defects.ts` | new (4, 5) |
-| `lib/commcare/reader/appShell.ts`, `languages.ts`, `structure.ts`, `translations.ts` | new (6, 7, 12.5's sink) |
-| `lib/commcare/reader/generatedTranslationKeys.ts`, `assemble.ts` | new (16) |
-| `lib/doc/platformDeclaration.ts` | `planDeclarationChoices`, `DeclarationChoice`, `DeclarationChoices` |
-| `lib/commcare/xform/captureUrlNode.ts`, `lib/commcare/xpath/index.ts` | a comment each: the two "one-way emission boundary" rows of "Contracts"; no code changes |
-| `lib/commcare/surface/entries/application-and-settings.json` | part 01's three generated-key entries and its re-wording (its files of B2); the new language entry and the re-worded one beside it (6.3) |
-| `lib/publish/hqFindings.ts` | part 01's B2 lines (its "Files by pull request", B2): `translation-overrides` in `SUBJECTS`; `no-platform-runs-everything` in `READ_CIRCUMSTANCES` and `CIRCUMSTANCE_STANDINGS` (its 8.3) |
-| `lib/publish/hqFindingCopy.ts` | part 01's B2 lines: the label and sentence of `translation-overrides`; the block of `no-platform-runs-everything` with its second next step (its 9.3); `circumstanceNext` (its 8.4); `ACCOUNT_CHECK_AGAIN_LINE` (its 9.1); and C1 |
-| `lib/publish/__tests__/hqFindingCopy.test.ts` | part 01's "From B2" cases |
-| `docs/research/2026-09-26-hq-round-trip/inventory/application-and-settings.md` | the rows of those entries |
-| `proof/checks/fixtures/place-vectors.json`, `proof/checks/test_place_vectors.py` | new: the shared place vectors |
-| the tests of "Tests", B2 | new, `lib/commcare/surface/__tests__/revision.test.ts` with the revision's cases of part 12's 3.9 among them; `reader/__tests__/identity.test.ts` is part 10's |
-| `lib/commcare/CLAUDE.md`, `lib/doc/CLAUDE.md` | "Contracts", B2 rows |
-
-**B3: the reader, forms**
-
-| File | Change |
-|---|---|
-| `lib/commcare/reader/xform/*.ts` | new, the twenty files of 8.1 |
-| `lib/commcare/reader/index.ts` | `STAGES` gains stages 3, 5b, 9 and 10 |
-| `lib/commcare/reader/defects.ts` | the codes and constructors of D5 to D7 and D10 (5.1) |
-| `lib/commcare/reader/__tests__/defects.test.ts` | the cases of D5 to D7 and D10, their four constructors joined to the closure case |
-| `lib/commcare/xform/generatedNodes.ts` | `generatedBaseName`, called by the allocator |
-| `lib/commcare/xform/consumerWhitespace.ts` | new: `isConsumerWhitespace`, moved from `builder.ts` |
-| `lib/commcare/xform/builder.ts` | exports the builders 2.1 names and imports `isConsumerWhitespace`; no emitted byte changes, which the existing expander and oracle suites hold |
-| `lib/commcare/xmlParse.ts` | `XmlParseFailureKind`, `XmlParseError`, the `kind` of `tryParseXml`'s failure arm (8.2) |
-| `vitest.config.mts`, `.github/workflows/reader-scale.yml` | the `scale` project and its hand-started workflow (R2) |
-| `docs/testing.md` | "Contracts", B3 row |
+| `lib/commcare/hq/publishedCaseBlocks.ts`, `lib/commcare/xform/deviceForm.ts` | import the namespace helpers and `VELLUM_NS`; `deviceForm.ts`'s own `VELLUM_NAMESPACE` goes. No behavior change |
+| `lib/doc/platformDeclaration.ts` | adds `planDeclarationChoices`, `DeclarationChoice`, `DeclarationChoices` (16.3) |
+| `lib/commcare/xform/generatedNodes.ts` | adds `generatedBaseName` (13.1), which the allocator then calls. No behavior change |
+| `lib/commcare/xform/builder.ts` | exports `buildQueryRepeat`, `buildRepeatBody`, `buildOwnerNodes`, `buildConnectBlocks`, `whitespaceOutput` and `inDataTreeOrder`, private today, and two trees `buildFieldParts` builds inline today, cut out as named functions it then calls: `constraintCountRelevant(question: FormPath): WireExpr` (the `count(q) > 0` of a constraint count's bind) and `questionScalarCheck(blank: "allow" \| "reject"): WireExpr` (`caseScalarTextValueGuard(caseScalarTextValueCalculation(.), blank)`) (13.1); imports `isConsumerWhitespace`. No emitted byte changes, which the existing expander and oracle suites hold |
+| `lib/commcare/xmlParse.ts` | `XmlParseFailureKind`, `XmlParseError`, and the `kind` of `tryParseXml`'s failure arm (8.2) |
+| `lib/commcare/xform/captureUrlNode.ts`, `lib/commcare/xpath/index.ts` | a comment each ("Contracts"); no code changes |
+| `biome.json` | the first sentence of the four messages of the rule on `@/lib/commcare` ("Contracts") |
+| `lib/commcare/surface/entries/application-and-settings.json` | the new language entry and the re-worded one beside it (6.3) |
 | `lib/commcare/surface/entries/questions.json` | the ten new entries, the two re-cuts (`question-id-case-registration-script`, 8.8; `an-explicitly-blank-value-in-a-non-default-language-where-the`, 12.2) and the re-worded ones (8.3, 10.1, 10.4, 12.5), by the manifest edits of 8.8, 10.1, 10.4, 11.3, 11.4, 12.2, 12.5 and 15; part 01's 3.5 wording on `label-or-option-media-differing-by-language` and its held sibling |
 | `lib/commcare/surface/entries/forms-and-case-writes.json` | part 01's 3.5 wording on the form media pair |
-| `lib/commcare/surface/entries/gates.json` | `toggle/COMMCARE_CONNECT`'s `contentEntries` gains the two Connect entries |
-| `lib/publish/hqFindingCopy.ts` | C2, C2b, and C2c in place of A2's `repeats` sentence |
-| `docs/research/2026-09-26-hq-round-trip/inventory/questions.md`, `forms-and-case-writes.md` | the rows |
-| the tests of "Tests", B3 | new |
-| `lib/commcare/CLAUDE.md` | "Contracts", B3 rows |
+| `lib/commcare/surface/entries/gates.json` | `toggle/COMMCARE_CONNECT`'s `contentEntries` gains the two Connect entries (15) |
+| `docs/research/2026-09-26-hq-round-trip/inventory/application-and-settings.md`, `questions.md`, `forms-and-case-writes.md` | the rows of those entries ("Contracts") |
+| `lib/commcare/CLAUDE.md`, `lib/doc/CLAUDE.md`, `lib/domain/expression/CLAUDE.md`, `docs/architecture/multilingual-localization.md`, root `CLAUDE.md` | "Contracts" |
 
-**Later pull requests, this part's lines.** Each edit below is to a file B2 or B3 creates, lands in
-the pull request named, and is written in this part at the section cited. The part named beside the
-pull request lists the file too.
-
-**B4 and B5 (part 07's pull requests)**
-
-| File | Change |
-|---|---|
-| `lib/commcare/reader/index.ts` | `STAGES` gains part 07's functions of stages 4, 5, 6 and 8, less `settleSearches` (2.3) |
-| `lib/commcare/reader/types.ts` | B4: `ReadFacts.sameStateRewrites` and `entryFactsRefused` (17.3) |
-| `lib/commcare/reader/context.ts` | B4: `DraftForm.operationIdPaths` (2.3) |
-| `lib/commcare/reader/assemble.ts` | part 07's rows of `READER_CANONICAL_CHOICES`: three in B4, two in B5 (16.2) |
-| `lib/commcare/reader/xform/__tests__/retainedForms.test.ts` | each removes its lines of `PENDING_AFTER_B3` |
-
-**B6 (part 08's pull request)**
-
-| File | Change |
-|---|---|
-| `lib/commcare/reader/provisional.ts` | `bindExpressions` (2.3, 11.1), which takes stage 7's entry in `STAGES` |
-| `lib/commcare/reader/index.ts` | `STAGES`: stage 7's entry is `bindExpressions`; stage 8 gains `settleSearches` (2.3) |
-| `lib/commcare/reader/types.ts` | `ReaderInput.recordDialect` (2.2); `ReadFacts.rewrites`, `declaredProperties` and `expressionRounds` (17.3) |
-| `lib/commcare/reader/xform/index.ts` | `expressionEnvOf` (17.2) |
-| `lib/commcare/reader/worldEntities.ts`, `lib/commcare/reader/__tests__/worldEntities.test.ts` | new: part 11's `worldEntitiesFromReads` (its 11.5) |
-| `lib/commcare/reader/syntaxCompare.ts` | part 08's record rows S1 and S2 |
-| `lib/commcare/reader/defects.ts` | the constructors of D11 and D12, `expressionNotWrittenBack` and `noCaseDatum` (5.1) |
-| `lib/commcare/reader/__tests__/provisional.test.ts`, `defects.test.ts`, `onePass.test.ts` | the `bindExpressions` case; the cases of D11 and D12; the expression the checker refuses |
-| `lib/commcare/reader/xform/__tests__/retainedForms.test.ts` | `PENDING_AFTER_B3` is deleted |
-
-**B8 (part 01's lines)**
-
-| File | Change |
-|---|---|
-| `lib/commcare/reader/appShell.ts`, `lib/commcare/reader/__tests__/appShell.test.ts` | the application walker's second claim for a language's display name becomes `account` (6.5), since part 01 flips that entry to kept in B8 (its 7.2), with its case in the test |
-
-**B9 (part 11's pull request)**
-
-| File | Change |
-|---|---|
-| `lib/commcare/reader/worldEntities.ts`, `lib/commcare/reader/__tests__/worldEntities.test.ts` | part 11's `levelsFromHq` (its 11.2), with its cases |
-| `lib/commcare/reader/structure.ts`, `lib/commcare/reader/__tests__/structure.test.ts` | `readStructure` puts `levelsFromHq(input.organization.levels, ctx.resolver).levels` on the draft and raises none of its findings (2.3); the case holds both |
-
----
-
-## What this part needs of other parts
-
-Each paragraph states the seam as the part named writes it, by section; part 15's is what this part
-hands the stack. Nothing here is asked of a part that no section of that part names.
-
-**Part 01 (`01-the-bar-and-the-manifest.md`; A2, A3, and the manifest and copy lines of B2).** It
-holds what this part worded, each landing in B2 through this part's file list:
-
-| What | Where part 01 holds it |
-|---|---|
-| the circumstance `no-platform-runs-everything`: `fix-in-hq`, no owner, `name` the feature's label and the platform that cannot run it, `reason` `split-refused` at a date and time question whose split is refused | its section 8.3 |
-| the circumstance's block, with its second next step | its section 9.3 |
-| `circumstanceNext(finding)`, which chooses between the two next steps | its section 8.4 |
-| `ACCOUNT_CHECK_AGAIN_LINE`, "When these are changed, Nova will check the app again and may find more to name.", which Departure 11 needs | its section 9.1 |
-| the `not-yet` sentences C1, C2 and C2b for `language-codes`, `form-source` and `question-ids`, and C2c, the re-worded `not-yet` sentence of `repeats` | its section 9.2, second table |
-
-Its Appendix A takes this part's eleven entries and two re-cuts at B2 and B3 (A.1 and A.2). Its 8.3
-row for `unrecognized` stands as written (`name`: the surface key), and this part meets it
-everywhere (5.1). `SUBJECTS` holds every subject used here. Its B8 lines change the application
-walker's claim for a language's display name ("Files by pull request", B8; 6.5). Nothing is left to
-ask of it.
-
-**Part 03 (`03-questions-and-text.md`; A6 to A8).** `xform/appearance.ts::FIELD_DISPLAY_SETTING_TOKENS`,
-the token table of `fieldAppearance`, exported for the reader to read backwards (its 2.3; 9.2 here);
-`canonicalProseAtom`; `labelShowsAsTyped`, `helpShowsAsTyped`; the entries
-`help-text-with-no-markdown-form` and `hint-markdown-form`; a prose `value` part and `ProseSlotRef`
-as a `SlotContextRef`; and the entry its section 10 writes, which B3 lands (12.2). Its hand-off to
-B3 is met in 9.1, 9.2, 12.2 and 12.3.
-
-**Part 04 (`04-names.md`; A9).** The grammars of its "What other parts read" and the entries N6 and N15
-to N23, which this part claims. It leaves `RESERVED_QUESTION_IDS` as it is, which 8.8's re-cut rests on.
-
-**Part 05 (`05-reading-commcare-hq.md`; B1).** `HqAppSource.raw` holds the stored document less the keys
-the view strips; each `HqAppSourceForm.attachment` is the form's source text; `cloudcareEnabled`;
-`HqAlignedModule` in the source's order and length. Its sections 7 and 8.3 admit, under
-`admit: "any"`, a menu whose `unique_id` is absent, null or the empty string, with `uniqueId: null`
-and aligned by position; a `unique_id` of any other type stays `malformed`. The reader then raises
-`menus-and-case-lists/module-unique-id-missing` at that menu (7.2), whose next step (open App
-Preview once in CommCare HQ) is the one that fixes it, where on `main` the person would meet the
-unreadable-answer stop. `ReaderOrganization.levels` holds
-`lib/commcare/hq/locations.ts::HqLocationType`, which is on `main`; its 10.4 reuses that file's
-readers.
-
-**Part 07 (`07-the-reader-cases-menus-lists.md`; B4, B5).** It speaks this part's frame, by the
-names that close 2.3 (its 2.1 and 2.2):
-
-- **Stages.** Its ten functions run as stages 4, 5, 6 and 8 of 2.3, the order its own 2.1 gives:
-  `readMenus`, `readCaseManagement`, `readCaseLists`, `readSearches`, `compareEntryFacts`,
-  `registerLinkExpressions` and the four settle functions. `settleSearches` and the search row code
-  it calls land in B6, with part 08's files they name (2.3).
-- **The API.** Declared claims (`defineClaims`) used through `JsonCursor` and `XmlCursor`;
-  `ctx.accounting.finding(claim, place, detail?)` for a finding outside a node;
-  `ctx.pending.register(expression, at)` with part 08's `PendingExpression`, a settle function
-  reading `ctx.pending.outcome(i)` (11.1); `provisionalDocument(ctx)` before stage 7 and `ctx.doc`
-  after; every write to a draft inside `ctx.writeDraft(() => { … })`; `DraftApp`, `DraftModule` and
-  `DraftForm`; `ctx.translations`; `ctx.facts.pendingMedia`; and `readNavMedia` reading each map
-  through `readMediaMap` (12.4).
-- **What it claims.** Every menu key of 7.3's last row, every form key of 7.4's last row,
-  `case_references_data.save` (8.7; its 5.3) and `profile.custom_properties` (6.6), and no key of
-  the other rows: those are claimed in B2, and it reads their result from `ctx.draft`.
-- **Generated nodes.** Candidates carry the emitter's purpose names (`url`, `datetime`, `trimmed`,
-  `owner`). The join of a date and a time question is no purpose: it is an ordinary Hidden Value
-  (16.4), and part 07 types the property it writes `datetime`. Case-region nodes carry `container`;
-  every Save to Case element is a `ReadSaveToCaseBlock` (8.6, 13.3; its section 5). It settles
-  candidates in stage 5, before `mintFields`, and reads everything in `caseRegion`.
-- **Connect.** It builds no Connect reader and claims no Connect entry (its 10.2; 15 here). It
-  reads `ReadXForm.connectBlocks` and the draft's `connect` for its rows that turn on
-  `connectType`, and `buildConnectBlocks` is exported by B3 (2.1).
-- **Root nodes.** It claims a root node named `case` whole, and raises the `commcare_usercase`
-  refusal with `ctx.accounting.finding` (17.1).
-- **Slots.** It sets `Form.type` and every other slot of a draft menu and form it reads before
-  stage 7; it lists a folded hidden menu in the identities under `syntheticModuleUuid(formUuid)`
-  (its 8.7; part 10, 3.1).
-- **Load order.** It judges a value HQ's build appends with its own `laterLoadReaders`, in
-  `settlePreloads` (its 3.7). This part's `loadOrderConflicts` judges the form's own setvalues
-  (11.3), and neither calls the other.
-- **Canonical choices.** It adds five rows to `READER_CANONICAL_CHOICES`, each `{ id, kind, apply }`
-  (16.2): in B4 `registration-form-last` (its 8.7), `create-name-required-is-absent` (its section 3)
-  and `default-post-submit-is-absent` (its 9.1); in B5 `dormant-tile-cells` (its 11.5) and
-  `case-catalog-is-as-read` (its section 7). For the second, a required condition on a question
-  that names a created case is read as none, and the bind's own `required` is claimed under the
-  INERT entry it adds in B4, `questions/bind-required-on-the-question-that-names-a-created-case`
-  (its section 14): HQ's build writes `required="true()"` on that bind whatever the source holds
-  (`xform.py::XFormCaseBlock.add_create_block`), and so does `builder.ts::buildFieldParts`.
-- **Facts.** It adds `sameStateRewrites` and `entryFactsRefused` to `ReadFacts` in B4 (17.3), and
-  `operationIdPaths` to `DraftForm` (2.3; its 5.2). It keeps no machine reason beside a finding: no
-  part reads one (its 13.1).
-- **Three seams its sections name.** `caseSaveReferencesOf(model, dataRoot)`, split from
-  `caseSaveReferences` in B4 (8.7), over the two elements this part's `ParsedXForm` holds: its 5.3
-  writes the split and lists the file. The scalar check recorded on a draft field (13.2,
-  `DraftField.scalarCheck`), which its `settleCaseManagement` holds to `caseScalarTextGuards` of
-  the bound document (its 3.5). And its read functions write `DraftModule.module` and
-  `DraftForm.form` only inside `ctx.writeDraft(() => { … })` (2.3; its 2.2).
-
-**Part 08 (`08-the-reader-expressions.md`; B6).** Its record and its entry point stand, and its
-"What this part needs", Part 06, states the same seam:
-
-- **Stands.** `ReadMode`, `PendingExpression`, `pendingPlaceholder` (its 2.5), which B2 carries in
-  `reader/pendingExpressions.ts`; `readExpressions(doc, pending, env)` and `ExpressionReading`, which
-  stage 7 calls and applies (2.3). It binds every registration and answers one slot claim each, in
-  registration order, with the checker's reason in `detail.reason` where it refuses.
-- **Carried by B2.** Its three files: `reader/pendingExpressions.ts`; `reader/syntaxCompare.ts`
-  (`sameXPathText`, `sameSyntax`, `firstDifference`, `CompareOptions`) with rows L1 to L6 (its 3.1
-  and 3.2); and `reader/hqInterpolation.ts` with its test and vectors (its 6.1), which holds
-  `syntaxOf`, `dotInterpolate` and `hqInterpolationSlot`. B6 adds rows S1 and S2 to
-  `syntaxCompare.ts` and nothing else to the three, and its `reader/expressions/syntaxCompare.ts` is
-  not made.
-- **This part's, in B3.** `literalOutputText` (`reader/xform/prose.ts`) and `shadowAgrees`
-  (`reader/xform/shadow.ts`); its 10.1 and 10.2 say the same. `ExpressionReading`'s circumstances
-  never hold `shadow-disagrees`, a `PendingExpression` has no `shadow` member, and `env` holds no
-  `hashtags`.
-- **Lands in B6, in its file list.** `provisional.ts::bindExpressions` (2.3);
-  `xform/index.ts::expressionEnvOf` (17.2); `ReaderInput.recordDialect`, typed by its
-  `RecordDialectJudge`; `ReadFacts.rewrites`, `declaredProperties` and `expressionRounds`;
-  `reader/worldEntities.ts` with part 11's `worldEntitiesFromReads`; and `settleSearches` in
-  `STAGES`.
-- **Names.** `FormParseScope.sourceProjection` is built from `ReadSourceNames` (17.2), the names
-  the source holds (its 3.3).
-- **Prose.** It writes the i-th registration under a `ProseSlotRef` into that slot's i-th `value`
-  part (17.2; its 10.2).
-- **Instances.** It claims each secondary instance declaration (8.3; its 9.3).
-- **Canonical choices.** It adds no row (16.2).
-- **Claims.** It registers every entry id its tables can answer with
-  `defineClaims("expressions", …)`, as `EXPRESSION_CLAIMS` in `expressions/findings.ts` (its 9.2),
-  and adds that file's import to `claimsBindManifest.test.ts`, which then holds them (4.3).
-
-**Part 09 (`09-acceptance-and-the-first-publish.md`; B7).**
-
-- **`appStrings`.** It supplies the production `ReaderInput.appStrings`,
-  `lib/commcare/appStrings.ts::localAppStringTable`, cut from `compileCcz` (its 15.1; 17.5 here).
-- **The re-read.** Its check 3 calls `readHqApp` over Nova's emission with `mintingResolver` (its
-  5.2), and with `matchingResolver` over a document a split was applied to (its 5.4; 16.4 here). It
-  may pass an empty question summary, which the reader never reads (2.2).
-- **Facts it reads.** The two readings' `generated` lists, for the register's generated-node
-  entries (13.4); `inertAppearances` in check 4 (its 6.3); `caseRegionPaths` in check 5 (its 7.5);
-  `foldedTranslationKeys` and `blankTranslations` in rows 23 and 28 of its register (its 11.2);
-  `rewrites` and `sameStateRewrites` in the rows that name them. It reads no bind type from the
-  reader (its Departure 6), and 17.3 holds none.
-- **Hand-offs.** Its check 1 holds every `HandOffRecord` settled exactly once (its section 3).
-- **Declarations.** Its check 2 drops no choice: one failing choice fails the reading (its section
-  4; 16.3 here).
-- **`canon`.** `lib/commcare/reader/canon.ts::canonDocument` wraps each row of
-  `READER_CANONICAL_CHOICES` as `{ id, kind, apply }` (its section 9), and its `canon.test.ts`
-  proves each pair prints equal bytes. `blank-translation-is-absent` is its own row (16.2).
-- **Scale.** Its run K4 takes the source of run R2 and runs through `reader-scale.yml`.
-
-**Part 10 (`10-identity-and-the-ledger.md`; B8).** `lib/deployment/adoption.ts` imports
-`ReadMenuAndFormIdentities` from `@/lib/commcare/reader` and declares none (its 3.1; 2.2 here). The
-reader returns the identities on the draft: on a `ReadOutcome` of kind `read`,
-`draft.identities: { entries, modules, forms }`. `reader/identity.ts` is its file, carried by B2
-(its 2.1 to 2.3).
-
-**Part 11 (`11-project-data.md`; B9).** It builds the reader's three inputs from what the reading
-gathered: `ReaderLookupCatalog` (`readerLookupCatalog`, its 5.5), `ReaderOrganization` as
-`{ levelCodes, levels }` (its 14.1) and `ReaderMediaIndex` (`readingMediaIndex`, its 14.2). It
-authors `reader/worldEntities.ts`: `worldEntitiesFromReads` (its 11.5, B6) and `levelsFromHq` (its
-11.2, B9). What it reads here: `facts.mediaReferences` and `facts.pendingMedia` through its
-`hqMediaReferencesOf` (its 2.1), with exactly the slot strings of 12.4 (`field_media_bundle`,
-`option_media`, `app_logo`, `unheld_itext`, and part 07's menu and list kinds); `facts.unreadTables`
-as `{ tag, place }`; and, on an account, `unreadTables` and `readsLocations` (its 14.1,
-`projectDataReadsOf`). An unheld slot's media form is listed only where its path has no file: one
-with a file is accounted and inert and reaches no list (12.2). Its `HqMediaPlan.claims` and the
-findings of `readingProjectDataFindingsFor` settle the hand-offs, each naming the reference or the
-tag a `HandOffRecord.subject` holds. It raises the findings of `levelsFromHq`, once, where the app
-reads places; the structure stage raises none (2.3).
-
-**Part 12 (`12-the-reading-and-the-birth.md`; B10).** Its 3.3, step 7, calls
-`readHqApp({ appId, target, source, modules, resolver, lookup, organization, media, appStrings,
-recordDialect })`, with `recordDialect` part 08's `recordDialectRoundTrip`, and reads `draft`. It
-logs `ReadOutcome.defects` at error with the reading's id beside each `unrecognized` and never
-stores them. `ReadCensus.manifestRevision` is `surfaceStandingsRevision()`, whose file B2 carries
-with that one function (3); B10 adds `currentStandingOf` and `isDeclaredSurfaceKey` to the file
-(its 3.9). It calls no scan of this part's (17.4). It applies the chosen `DeclarationChoice`'s
-mutations at the birth after the batch (its 6.2), records the held placements of the batch's last
-mutation (its 6.4), and gives `read-back-differs` where `readHqApp` throws C3 (its 3.3, step 8).
-Its run M1 runs through `reader-scale.yml` over run R2's source, and under M1's outcome B it
-lowers, in B10, the size `readerScale.scale.test.ts` builds and the ceiling R2 states, by the
-ladder part 09's K4 uses (125, 100, 75 forms); the smaller of K4's and M1's is the ceiling.
-
-**Part 13 (`13-the-experience.md`; B11, B12).** It draws the review's declaration control and the
-split's offer from part 12's review (its 8.3), whose `runsOnWhy` is `web-apps-off-in-hq` where
-`narrowedByHq` is true and `keeps-web-apps` where `keepsWebApps` is. `bring_in_hq_app` takes
-`runs_only_on` and `split_datetime`, which together must be one of the review's choices (its
-14.4). It shows `ACCOUNT_CHECK_AGAIN_LINE` under the groups of every account (its 7.1).
-
-**Part 14 (`14-proof.md`; A1, B13).** Its parity judge joins on `(artifact, where)` and reads the
-claimed entry's keys (its 8.1; 4.5 here), with a default `xmlns` at `/namespace()` and each
-hand-off joined to part 11's claim for it before it judges. Parity covers three of the eight
-refused appearance classes; the other five rest on one variant each (9.2; its 7.2). Its bundle of
-the reader is built with the `react-server` condition (its 5.2). Proof 6 calls part 09's
-`canonDocument`, which wraps `READER_CANONICAL_CHOICES` (its 5.5). Its rule
-`field-list-appearance-case` proves the spelling rule for `field-list` written in another case
-(its section 4; 10.2 here). Of its bases (its 6.2), `hq-questions` holds the held rows of 9.1, a
-Question List root, a count repeat over a question and over a Hidden Value and a model-iteration
-repeat; `hq-languages` holds shared and renamed itext ids and a label left blank in a second
-language; `hq-nova-then-builder` holds forms saved in HQ's form builder after Nova wrote them. Its
-variants (its 7.2) hold each of this part's refusals with `expected.json` naming the entry, a menu
-with no `unique_id` among them. Runs R1 and R2 are in its 11.2: R1 in B3's own CI, R2 by hand
-through `reader-scale.yml`.
-
-**Part 15 (`15-stack-contracts-and-exit.md`; B14, B15).** The root `CLAUDE.md`
-bullet of "Contracts", in B14; gated runs R1 and R2, for the stack's checklist.
-
-## What other parts read from this one
-
-| Name | Where | Who reads it |
-|---|---|---|
-| `readHqApp`, `STAGES`, `ReaderStage`, `ReaderInput` (with `target` and `appStrings`, and from B6 `recordDialect`), `ReaderOptions`, `ReadOutcome` (with `defects`, and on an account `unreadTables` and `readsLocations`), `ReadDraft`, `ReadMenuAndFormIdentities`, `ReadCensus` (with `work`), `ReaderDefect`, `ReadFacts`, `ReadFormFacts`, `ReadGeneratedNode`, `ReadMediaReference`, `PendingMedia`, `UnreadTable`, `ReaderLookupCatalog`, `ReaderLookupTable`, `ReaderOrganization`, `ReaderMediaIndex`, `ReaderMediaResolution`, `AppStringTable` | `lib/commcare/reader/index.ts`, `types.ts` | parts 09, 10, 11, 12, 14 |
-| `inventoryIndex`, `InventoryIndex`, `IndexedEntry` | `lib/commcare/surface/inventory.ts` | the reader's parts |
-| `surfaceStandingsRevision` | `lib/commcare/surface/revision.ts` (part 12's function, carried by B2) | part 12 |
-| `Claim`, `ClaimUse`, `take`, `drop`, `refuse`, `account`, `derived`, `defineClaims`, `claimRegistry` | `reader/claims.ts` | parts 07, 08 |
-| `Accounting` (with `finding`, `claimEntry`, `cover`, `defect`), `Admitted`, `ClaimSite`, `JsonCursor`, `XmlCursor`, `XmlNode`, `HandOffKind`, `ClaimRecord`, `HandOffRecord`, `ClaimLog`, `serializeClaimLog`, `elementWhere` | `reader/accounting.ts`, `jsonCursor.ts`, `xmlCursor.ts` | parts 07, 08; part 09 (the hand-offs); part 14 (the log) |
-| `ReadContext` (with `writeDraft`), `MutableReadFacts`, `DraftApp`, `DraftModule`, `DraftForm` | `reader/context.ts` | parts 07, 08 |
-| `ReadMode`, `PendingExpression`, `pendingPlaceholder` (part 08's, carried by B2), `PendingRegistry` (with `register`'s index and `outcome`) | `reader/pendingExpressions.ts` | parts 07, 08 |
-| `sameXPathText`, `sameSyntax`, `firstDifference`, `CompareOptions` (part 08's, carried by B2) | `reader/syntaxCompare.ts` | parts 07, 08 |
-| `interpolateHqXPath`, `dotInterpolate`, `syntaxOf`, `hqInterpolationSlot`, `HqInterpolationSlot`, `HqInterpolated`, `HQ_USERCASE_XPATH`, `hqCaseByIdXPath` (part 08's, carried by B2) | `reader/hqInterpolation.ts` | parts 07, 08 |
-| `provisionalDocument` (B2), `bindExpressions` (B6, in part 08's file list) | `reader/provisional.ts` | part 07 (the document before stage 7, and what `ctx.doc` is after), part 08 (what calls it) |
-| `worldEntitiesFromReads` (B6), `levelsFromHq` (B9), both part 11's | `reader/worldEntities.ts` | this part's stages 2 and 7; parts 08, 11, 12 |
-| `appPlace`, `appSettingsPlace`, `languagesPlace`, `menuPlace`, `formPlace`, `questionPlace`, `placeOrder`, `whereText`, `placeKey` | `reader/place.ts` | every reader part |
-| `READER_DEFECT_CODES`, `ReaderDefectCode`, `ReaderDefectWhy`, `readerDefect` | `reader/defects.ts` | part 08 (its C9 and C12 are the templates of two constructors), part 10 (the line of an identity key met twice), part 12 (what it logs as `defects`) |
-| `TranslationSink`, `translationEntryFor` | `reader/translations.ts` | part 07 |
-| `classifyGeneratedTranslationKeys`, `GeneratedKeyVerdict` | `reader/generatedTranslationKeys.ts` | part 09 (through `appStrings`) |
-| `assembleDocument`, `READER_CANONICAL_CHOICES`, `ReaderCanonicalChoice` | `reader/assemble.ts` | part 07 (its five rows), part 09 (`canonDocument` wraps each row), part 14 (proof 6, through `canonDocument`) |
-| `planDeclarationChoices`, `DeclarationChoice`, `DeclarationChoices` (with `keepsWebApps`) | `lib/doc/platformDeclaration.ts` | parts 09, 12, 13 |
-| `ReadXForm` (`parsed`, `nodes`, `roles`, `binds`, `setvalues`, `cursor`, `candidates`, `settle`, `caseRegion`, `saveToCaseBlocks`, `connectBlocks`, `instanceSources`, `sourceNames`, `itext`), `ReadSaveToCaseBlock`, `ReadConnectBlock`, `NodeRole`, `DraftField`, `DataNode`, `BindFacts`, `SetvalueFacts`, `ParsedXForm`, `ReadSourceNames`, `SourceNodeRef`, `mintFields`, and from B6 `expressionEnvOf` | `reader/xform/index.ts`, `model.ts`, `parse.ts` | parts 07, 08 |
-| `effectiveLoadOrder`, `loadOrderConflicts`, `LoadStep` | `reader/xform/loadOrder.ts` | this part's stage 10; part 09 names `loadOrderConflicts` among what holds a default's order (its section 8) |
-| `GENERATED_RULES`, `sameTree`, `generatedBaseName` | `reader/xform/generated.ts`, `lib/commcare/xform/generatedNodes.ts` | part 07 (the case-region purposes) |
-| `shadowAgrees`, `readHashtagMetadata`, `SHADOWED_ATTRIBUTES` | `reader/xform/shadow.ts` | part 08, which writes no shadow comparison of its own |
-| `literalOutputText` | `reader/xform/prose.ts` | part 08 |
-| `readMediaForms`, `readMediaMap` | `reader/xform/media.ts` | part 07 (menu and list media) |
-| `XmlParseFailureKind`, `tryParseXml`'s `kind` | `lib/commcare/xmlParse.ts` | part 07 (a case block it parses) |
-| `scopeOf`, `isElement`, `namespacedAttribute`, `elementChildren`, `qualifiedName`, `NamespaceScope` and the namespace constants | `lib/commcare/xmlNamespaces.ts` | part 07 (the extended `publishedCaseBlocks`) |
-| the circumstance `no-platform-runs-everything` and its block, with `detail.reason: "split-refused"`; the account line of Departure 11 | worded here, held by part 01 (its 8.3, 8.4, 9.1 and 9.3) | parts 12, 13 |
-| eleven manifest entries and two re-cuts. Added in B2: `application-and-settings/langs-code-nova-s-language-registry-cannot-name`. Added in B3: `questions/data-root-element-named-other-than-data`, `questions/itemset-over-casedb-in-nova-s-case-choices-shape`, `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`, `questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes`, `questions/hidden-value-bound-a-type-nova-would-not-write`, `questions/a-text-whose-languages-show-different-values`, `questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text`, `questions/connect-deliver-unit-and-task-in-one-form`, `questions/connect-learn-and-deliver-blocks-in-one-app`, `questions/a-markdown-form-in-a-form-whose-text-formatting-is-off`. Re-cut in B3: `questions/question-id-case-registration-script`, HELD to HELD-NEW; `questions/an-explicitly-blank-value-in-a-non-default-language-where-the`, REFUSED to HELD | the manifest | part 01 (Appendix A), part 09 (the held blank, its Decision 20), part 14 (variants) |
-| gated runs R1 and R2; `.github/workflows/reader-scale.yml` and the `scale` Vitest project | this file | part 09 (run K4), part 12 (run M1), part 14 (its 11.2), part 15 (the stack's checklist) |
+Nothing is removed. The finding types, the circumstance's row and block, and every sentence a
+person reads are in part 01's files (`lib/publish/hqFindings.ts`, `hqFindingCopy.ts`), and the two
+entries of 7.4 and 15 that name text read as an instance are in part 03's.

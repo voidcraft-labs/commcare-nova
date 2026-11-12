@@ -2,14 +2,13 @@
 
 These plans carry out the HQ round-trip research
 ([`docs/research/2026-09-26-hq-round-trip/`](../../research/2026-09-26-hq-round-trip/README.md)):
-Nova brings in any app CommCare HQ's editors can build, holds it typed, edits it,
-and publishes it back. The research is the design. Its "Order of work" gives
-seven steps, each with one cutover. These plans follow that order with at most
-one cutover a step: step 6 has none and ships as two deploys, for the reason
-"Rules every plan follows" gives. Where a
-plan cites a defect, a section or a contract row, it means the research's
-"Defects in Nova today", its section of that name, or its "Contracts this work
-changes" table.
+Nova brings in any app CommCare HQ's editors can build, holds it typed, edits
+it, and publishes it back. The research is the design. Its "Order of work"
+gives seven steps, each with one cutover. These plans follow that order with
+at most one cutover a step: step 6 has none, for the reason "Rules every plan
+follows" gives. Where a plan cites a defect, a section or a contract row, it
+means the research's "Defects in Nova today", its section of that name, or its
+"Contracts this work changes" table.
 
 | Step | Plan | Depth |
 |---|---|---|
@@ -18,8 +17,8 @@ changes" table.
 | 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
 | 5 | Case writes, forms and navigation | done: ["Step 5 is done"](#step-5-is-done) |
-| 6 | [Bringing an app in from CommCare HQ](6-bring-in.md), with its parts in [`6-bring-in/`](6-bring-in/), which replace the outline this row held | planned in full |
-| 7 | [The rest of the model](7-rest-of-model.md) | outline: changes made in CommCare HQ first, then the model groups in the order the census of step 6's readings gives |
+| 6 | [Bringing an app in from CommCare HQ](6-bring-in.md), with its fifteen parts in [`6-bring-in/`](6-bring-in/), which replace the outline this row held | planned in full |
+| 7 | [The rest of the model](7-rest-of-model.md) | outline: the model Nova does not hold yet, in eight groups with a default order |
 
 ## Step 1 is done
 
@@ -232,11 +231,13 @@ finding 74. What endures lives where it is read:
   confirmation and defect 21, which step 5 took (["Step 5 is
   done"](#step-5-is-done));
   the split's read-back and the guarded and `current()` reads in item 9 of
-  the outline, which step 6's plan settles
+  the outline, which step 6's plan settles: the split in its item 9
   ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why),
-  "What changed from the outline, and why", item 9); a child module of a
-  search-first parent,
-  `fingerprintquery` and an ordinary search's results detail in
+  "What changed from the outline, and why"), and the two reads in part 08
+  ([`08-the-reader-expressions.md`](6-bring-in/08-the-reader-expressions.md),
+  sections 5.3 and 5.2: the guard reads back as the bare read, and
+  `current()` as a read spelled `current`); a child module of a search-first
+  parent, `fingerprintquery` and an ordinary search's results detail in
   [`7-rest-of-model.md`](7-rest-of-model.md).
 - **The baseline step 4's plan was written against**: `main` at `e9e6cd93`,
   which is step 3's stack (#773 to #791) merged and its cutover run, then
@@ -371,26 +372,21 @@ before it exits, against the code as it then stands.
 - One concept per meaning; no reference a reader of the repo cannot see.
 - One name for bringing an app in. Wherever a person reads it, step 6's feature is "Bring in an app
   from CommCare HQ" and its verb is "bring in", never "import", which already names the files Nova
-  sends to CommCare HQ and a CSV that replaces a table's rows. In code its nouns are the reader (the
-  pure function under `lib/commcare/reader/`), a reading (the durable record of reading one HQ app
-  for one person in one Project), a finding (one thing the reader could not hold), the account (a
-  reading's findings as the person sees them), the review (what a readable app will create) and
-  adoption (the app's birth with the deployment ledger's record of it).
+  sends to CommCare HQ and a CSV that replaces a table's rows. Step 6's plan gives the nouns its
+  code uses, once ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why), "What
+  changed from the outline, and why", item 13).
 - At most one cutover per step. A step that changes the stored shape of Nova documents
   migrates all of that step's changes in one direct maintenance cutover
   (`docs/architecture/contracts.md`), with its production scan first, and
   leaves every document valid. One-off data migrations ship as a read-only scan
   script plus a separate migrate script in `scripts/`, which are removed after
   they run. Step 6 migrates no stored document, so it has no maintenance cutover: every stored slot
-  it adds is optional or a wider grammar, its four migrations are additive, and the cutover the
-  research and the outline give it, a merge of each lookup table's deployment records, has no data
-  to move, because a table's ownership is derived from the live mappings of the Project's apps. It
-  ships as two stacks with one ordinary deploy each, where steps 2 to 5 each shipped as one. "What a
-  plain app holds" (pull requests A1 to A11) is complete authoring features and the manifest's
-  emission side, useful with no reader. "Bring in" (B1 to B15) is the reader and the experience,
-  with its entry point at its top, and it merges no sooner than the first green scheduled night
-  after the first stack is live, because its pull requests read `main`'s evidence store, which
-  holds no record made under the first stack's keys until that night.
+  it adds is optional or a wider grammar, its four migrations change no stored document and each
+  applies while the revision before the step still serves
+  ([`6-bring-in.md`](6-bring-in.md#migrations-and-the-deploy), "Migrations and the deploy"), and the
+  cutover the research and the outline give it, a merge of each lookup table's deployment records,
+  has no data to move, because a table's ownership is derived from the live mappings of the
+  Project's apps. It ships as one stack and one deploy, as steps 2 to 5 each did.
 - No rollouts, flags, leases or transitional cutovers.
 - Tests earn their boundary (`docs/testing.md`).
 - Every CommCare fact a plan relies on is settled at source, in local
@@ -491,7 +487,7 @@ Step 5's plan reads `main` at `2f985ed6`. After `e9e6cd93`:
   the model step 5's `commtrack-off` follows, Preview per platform, and
   `RUNTIME_VERSION` 17.
 
-Step 6's plan reads `main` at `15a00a97`. After `2f985ed6`:
+Step 6's plan reads `main` at `1f103305`. After `2f985ed6`:
 
 - #832, step 5's plan, and #833 (the proof lane's nightly reader failures: HQ answers a view's
   exception with its own `handler500` in the lane, as a deployed HQ does).
@@ -518,6 +514,9 @@ Step 6's plan reads `main` at `15a00a97`. After `2f985ed6`:
   step 6's calculated values in prose build on.
 - #874 and #888 (the lane: its search checks, the weekly audit's eligibility and setup, reader
   scheduling, named configuration slices for a run started by hand, and the pinned JDK).
+- #902 and #903 (the lane: identity registers kept apart in a private proof run, nested logs
+  retained, and HQ's own deployment timeouts for the lane's Elasticsearch requests). Both touch
+  `proof/` alone.
 - #860, #872 and #891 (dependency upgrades); #863, #864, #868, #869, #871, #873, #876, #877 and #896
   (observability, agent work limits, query batching, App Test journey bounds, OAuth issuer discovery
   for MCP clients, maintenance host matching, focus, unsaved edits on leaving, Cloud Run bounds);
@@ -525,7 +524,7 @@ Step 6's plan reads `main` at `15a00a97`. After `2f985ed6`:
   #894 hold the newest migrations on `main` (`20261112000000_incremental_transcripts`,
   `20261112010000_retained_conversation_sources`), which step 6's four migrations are stamped after.
   And #894 moved `MODEL_CONTEXT_VERSION` to `v6-hq-round-trip-case-writes.14` (`lib/models.ts`), the
-  value step 6's first move of it replaces.
+  value step 6's one move of it replaces.
 
 No defect the research lists changed behavior before `7b153dc3` but finding 52.
 After it, #749 to #767 are step 2, which fixed defects 1 to 10 and 12 to 16 and

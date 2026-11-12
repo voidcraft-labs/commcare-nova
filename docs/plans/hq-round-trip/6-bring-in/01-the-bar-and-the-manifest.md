@@ -4,18 +4,16 @@ Part of step 6's plan, "Bringing an app in from CommCare HQ". This part makes th
 mechanical. It plans the surface manifest's new fields and rules (the six standings, `subject`, `owner`,
 value classes, and what CI fails on), every manifest row re-cut by value, the kept test applied to every
 top-level property of an HQ application with the table `KEPT_AT_HQ`, the projection `TargetFacts` and its
-three readers (the `.ccz`, Preview and the Publishing card), and the finding type with its circumstances
-and its complete copy. It plans pull requests A2 and A3 in full and writes the manifest lines of B2,
-the circumstance lines of B1 and the two overlay rules of B8; it names the manifest edits it hands to
-A4 to A9, B3 to B6, B8 and B9 by entry id. It is also the one home of every circumstance, subject and
-finding sentence the later parts add: sections 2.2, 8.3, 9.2 and 9.3 and Appendix A hold each with
-the pull request that lands it.
+three readers (the `.ccz`, Preview and the Publishing card), four rules that sit beside the kept test,
+and the finding type with its circumstances and its complete copy. It is the one home of every
+circumstance, subject and finding sentence of the step: sections 2.2, 8.3, 9.2 and 9.3 and Appendix A
+hold each once, and a part that raises a finding cites them.
 
 **The admission bar.** An HQ app A comes in exactly when a Nova document D and ledger rows L exist
 such that (a) D passes the absolute gate and export readiness, with no reader-only leniency: the
 reader admits exactly what the gate admits; (b) publishing D with L back to A changes nothing a
 runtime, CommCare HQ's servers or existing data read, apart from the declared first-publish changes
-(part 09, `09-acceptance-and-the-first-publish.md`, section 11, B7); (c) re-reading Nova's own
+(part 09, `09-acceptance-and-the-first-publish.md`, section 11); (c) re-reading Nova's own
 emission of D gives D exactly; and (d) every item of A's source has exactly one standing. "The
 bar's clause (a)" to "(d)" in any part of this plan names one of these four. Acceptance holds them
 on every reading (part 09, sections 3 to 6: complete accounting for (d), the gate for (a), the fixed
@@ -23,39 +21,36 @@ point for (c), and identity agreement for (b) as far as a source alone can show 
 is, and where each comes from, is this part's: the standings of section 2, the kept test of section
 4 and the findings of section 8.
 
-In stack A, A2 sits on A1 and A3 on A2: the stack's order is A1 to A11 by number (part 15,
-`15-stack-contracts-and-exit.md`). A2 reads nothing A1 lands. A3 needs A2, whose `subject` and `owner`
-its flips remove and whose TARGET-OWNED schema arm its entries parse under (2.5, 3.8).
-
-Citations are `path::symbol`. Nova is read at `main` `15a00a97`; the Dimagi checkouts at the pins
+Citations are `path::symbol`. Nova is read at `main` `1f103305`; the Dimagi checkouts at the pins
 `proof/pins.json` names: commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`, commcare-android
 `7a5584475580`, commcare-connect `046c7fd78081`, formplayer `24383ac71bfb`, Vellum `01215f251c57`. Every
 CommCare fact below was read at those commits for this part. HQ paths are relative to
 `corehq/apps/app_manager/` unless they start with another app's name.
 
-Versions at `15a00a97`: `lib/models.ts::MODEL_CONTEXT_VERSION` is `"v6-hq-round-trip-case-writes.14"` and
-`lib/db/appTests.ts::RUNTIME_VERSION` is `18`. Nothing in A2 or A3 moves either: no tool the Solutions
-Architect holds changes, so this part adds no `scripts/test-schema.ts` entry and asks for no billed run.
-`compile_app`, `refresh_deployment` and `get_deployment` are tools only MCP serves
-(`lib/mcp/tools/compileApp.ts`, `lib/mcp/tools/deploymentTools.ts`), so A3, which adds an input and two
-description sentences to the last two (6.5, 9.6), moves no `MODEL_CONTEXT_VERSION`: `lib/agent/CLAUDE.md`
-exempts a tool only MCP serves, and `lib/mcp/__tests__/servedSchemas.test.ts` holds what a client
-receives. The lines this part writes for B1, B2 and B8 move neither version (part 15,
-`15-stack-contracts-and-exit.md`, decision 3, holds the chain of literals).
+**Versions.** Nothing this part plans changes a tool the Solutions Architect holds, a description it
+reads or the guide, so nothing here reaches `lib/models.ts::MODEL_CONTEXT_VERSION`, and this part adds
+no `scripts/test-schema.ts` entry. The tools it changes are ones only MCP serves: `refresh_deployment`
+gains an input and a description sentence and `get_deployment` a description sentence and a result
+field (6.5, 9.6), `upload_app_to_hq` gains a refusal and a description sentence (7.4), and
+`compile_app` answers the kept advisories (6.3, 7.2). `lib/agent/CLAUDE.md` exempts a tool only MCP
+serves, and `lib/mcp/__tests__/servedSchemas.test.ts` holds what a client receives. Nothing here
+changes how an App Test reads the document its journey pinned: the list filter has no App Test step,
+and a grouped observation only gains one field (6.4). So nothing here moves
+`lib/db/appTests.ts::RUNTIME_VERSION`.
 
-| Section | Owns | Pull request |
-|---|---|---|
-| 2 | the six standings, `subject`, `owner`, value classes, what CI fails on | A2 |
-| 3 | every row re-cut by value, with its evidence and the pull request that flips it | A2, A3; named for A4 to A9, B2 to B6, B8, B9 |
-| 4 | the kept test over every `Application` property, profile property and translations key class | A3 |
-| 5 | `KEPT_AT_HQ`, the full table | A3 (one row in B8) |
-| 6 | `TargetFacts`: type, projection, the view-capable reader, the `.ccz`, Preview, the refresh | A3 |
-| 7 | the generated translation key rule, the language display name rule and the seeded settings rule | B2, B8 |
-| 8 | the finding type, `HqPlace`, `FixCause`, `READ_CIRCUMSTANCES`, the copy model | A2 (types and copy, twenty circumstances), B1 (seven circumstances), B2 (first use, one circumstance, `circumstanceNext`), B9 (six circumstances), B10 (one) |
-| 9 | every string this part adds, and every finding string a later part adds | A2, A3; the strings of A9, B1 to B6, B8, B9 and B10 marked there |
-| 10 | tests | A2, A3; the B2 and B8 cases marked there |
-| 11 | contracts and docs these changes make false | A2, A3; the lines of B8, B12 and B14 marked there |
-| Appendix A | `subject` and `owner` for every HELD-NEW and REFUSED entry (A.1, A.2), with the entries later pull requests add in each list's closing block, and what each pull request adds or re-cuts (A.3) | A2; a joining entry in the pull request its block names |
+| Section | Owns |
+|---|---|
+| 2 | the six standings, `subject`, `owner`, value classes, what CI fails on |
+| 3 | every row re-cut by value, with its evidence and what makes each new wording true |
+| 4 | the kept test over every `Application` property, profile property and translations key class |
+| 5 | `KEPT_AT_HQ`, the full table |
+| 6 | `TargetFacts`: type, projection, the view-capable reader, the `.ccz`, Preview, the refresh |
+| 7 | four rules beside the kept test: a generated translation key, a language's display name and the seeded settings on an app Nova brought in, and a build profile that names a language the app no longer has |
+| 8 | the finding type, `HqPlace`, `FixCause`, `READ_CIRCUMSTANCES`, the copy model |
+| 9 | every string this part adds, and every finding string of the step |
+| 10 | tests |
+| 11 | contracts and docs these changes make false |
+| Appendix A | `subject` and `owner` for every HELD-NEW and REFUSED entry the manifest holds today (A.1, A.2), and for every entry the step adds |
 
 ---
 
@@ -68,21 +63,22 @@ receives. The lines this part writes for B1, B2 and B8 move neither version (par
    app runs, either by case, or it is below the version floor), because the sentence a person reads
    differs by it.
 2. **`subject` is required on every HELD-NEW and REFUSED entry and forbidden elsewhere** (2.2). It is one
-   of 75 slugs in `lib/publish/hqFindings.ts::SUBJECTS` in A2 (76 after A9, 77 after B2, 78 after B4, 79
-   after B5, 78 after B8), each a noun a person would use. Appendix A assigns the 586 entries the manifest
-   holds today, and A2's own new entry (3.7) makes it `subject` on 587 entries and `owner` on 238. 2.2
-   gives the slug each new entry of parts 02 and 04 takes, and the closing blocks of Appendix A.1 and
-   A.2 list the entries later pull requests add, which A.3 counts by pull request.
-3. **`owner` is required on every HELD-NEW entry and forbidden elsewhere** (2.3). It is one of step 7's
-   ten group ids. An entry step 6 itself flips carries the group it would fall to; the field leaves with
-   the flip. Two groups own no entry, because what they hold is no content of an app.
+   of 78 slugs in `lib/publish/hqFindings.ts::SUBJECTS`, each a noun a person would use. Appendix A
+   assigns the 586 entries the manifest holds today and every entry the step adds. Where every run
+   gives the outcome its part plans for, 645 entries hold one when the step is done: 285 HELD-NEW and
+   360 REFUSED.
+3. **`owner` is required on every HELD-NEW entry and forbidden elsewhere** (2.3). It is one of the
+   eight step 7 group ids, the groups of `7-rest-of-model.md`. An entry step 6 itself flips carries
+   the group it would fall to until it flips.
 4. **A HELD-NEW entry that shares a surface key with an allowing entry carries a value class** (2.4).
    Three entries gain one; the other 143 hold one already.
 5. **The schema lets a TARGET-OWNED entry keep its per-platform reading** (2.5), so the fifteen settings
    keep the Web Apps and Android cells their rows state. Their Preview answer moves from the platform cell
    table to `KEPT_AT_HQ`.
-6. **INERT and kept re-cuts land in stack A; a re-cut that claims HELD for something only a reader does
-   lands with that reader** (3). A2 carries the re-cuts no code change makes true; A3 the kept flips.
+6. **An entry flips together with the code that makes its new wording true** (3). A re-cut no code
+   change makes true (an inert class, a split that only narrows, a re-wording, a stale cell) needs
+   nothing else. A kept flip needs the `.ccz` and Preview to read the kept value. A re-cut that claims
+   HELD for something only a reader does needs that reader.
 7. **`case_tile_field` blank, or on a list with no tile template or the custom one, is inert, and so is
    every tile cell key on a list that is no custom tile** (3.1, 3.2). HQ's Case List page writes all of
    them on every save; HQ reads `case_tile_field` only to fill a template's slots, and the cell keys
@@ -90,8 +86,8 @@ receives. The lines this part writes for B1, B2 and B8 move neither version (par
 8. **The ten "outside Predicate / ValueExpression" rows are re-worded against the checker's rule set
    for the slot** (3.4), which is `record` for all ten: the HELD class is what `checkExpression` admits
    in the slot today, the HELD-NEW class what HQ's validator accepts and the checker refuses. No
-   disposition moves in A2.
-9. **Twenty-three entries become kept in A3** (3.6): the fifteen seeded profile settings,
+   disposition moves.
+9. **Twenty-three entries become kept** (3.6): the fifteen seeded profile settings,
    `cc-log-entity-detail-enabled`, runtime UI text in `translations` (two entries), the Android logo
    slots, `mobile_ucr_restore_version` at `1.0` or `1.5`, `auto_gps_capture` on an app that is no Connect
    app, `persistent_menu` and `show_breadcrumbs`.
@@ -100,17 +96,16 @@ receives. The lines this part writes for B1, B2 and B8 move neither version (par
 11. **`mobile_ucr_restore_version` is kept at `1.0` and `1.5`; `2.0` stays inert** (4.3). Its readers
     are report menus and mobile report choice lists, which their own entries refuse, Nova's publish never
     writes the key, and HQ's three starter apps hold `1.0`, as does the fourth directory of
-    `template_apps/`, `wash_before_cond_case_update`, a second copy of `wash` that part 14 counts as
-    no base.
-12. **Non-empty `build_profiles` is not-yet; empty is kept** (4.3). `features.dependencies` stays
-    not-yet: the plan privilege that decides whether HQ writes it is unreadable, and it gates the whole
-    app on a phone.
+    `template_apps/`, `wash_before_cond_case_update`, which is `wash`'s content from before case updates
+    stored `update_mode` and which part 14 counts as no base (`14-proof.md`, section 6.2).
+12. **Non-empty `build_profiles` is not-yet; empty is kept** (3.7). `features.dependencies` stays
+    not-yet (4.2): the plan privilege that decides whether HQ writes it is unreadable, and it gates the
+    whole app on a phone.
 13. **Android logos are kept, with a stated `.ccz`** (4.3). Nova holds no bytes for them, so the archive
     says it carries none.
-14. **`KEPT_AT_HQ` holds one row per TARGET-OWNED entry, 49 after A3** (5), each with a `.ccz` cell, a
-    Preview cell, an other-project-space cell and the base that exhibits it (`null` for the one row
-    whose value no lane configuration can author). A binding test holds the table to the manifest both
-    ways.
+14. **`KEPT_AT_HQ` holds one row per TARGET-OWNED entry, 50 when the step is done** (5), each with a
+    `.ccz` cell, a Preview cell, an other-project-space cell and the base that exhibits it. A binding
+    test holds the table to the manifest both ways.
 15. **`TargetFacts` is a pure projection of a deployment's stored baseline source** (6.1), with no new
     column and no backfill. An absent or unread baseline gives none, and Nova's constants stand. The
     type and the reading of HQ's keys live in `lib/commcare/targetFacts.ts`, which the emitter reads;
@@ -120,38 +115,53 @@ receives. The lines this part writes for B1, B2 and B8 move neither version (par
 17. **The `.ccz` mirrors HQ's build of the kept values** (6.3): the fifteen settings and the detail-view
     log at the project space's value, its runtime UI text, `PostURL` on the secure receiver where the app
     submits securely, the three profile URLs on its custom base URL's origin, location capture where the
-    app captures it, and the worker activity credential where the project space issues one. Three
-    things it cannot follow it states in the download's advisories.
+    app captures it, and the worker activity credential where the project space issues one. Four
+    things it cannot follow it states in the download's advisories: runtime UI text a language has
+    none of, the Android logos, the practice mobile worker, and a language name CommCare HQ fills in
+    itself (7.2).
 18. **Preview's list filter follows the project space's fuzzy search** (6.4), by Core's own rule, with
-    the two things each platform does around it: how it splits the typed text, and whether closeness
-    reorders the rows (Android) or the list's own order stands (Web Apps). The same change makes the
-    filter fold accents as Core does, which it does not today.
-19. **Preview learns the facts through a second stream frame, `preview-target-facts`** (6.4), under the
+    the three things each platform does around it: how it splits the typed text, whether closeness
+    reorders the rows (Android) or the list's own order stands (Web Apps), and what an emptied box does
+    (on a phone it drops a row whose every field is blank). The same change makes the filter fold
+    accents as Core does, which it does not today. A grouped tile list under the filter is drawn from
+    the rows that remain, as Web Apps draws it: the groups in the order of each one's first match, and
+    each card's heading and its one choice taken from that first match. Today Preview keeps the
+    unfiltered order and takes both from the group's first case, which the filter may have removed.
+    Nothing in the document, the wire or the gate changes.
+19. **Preview marks a required question as the platform it plays does** (6.4): every one in Web Apps,
+    and on Android only where the project space's setting says so, which a new app's does not. Today
+    Preview marks every required question on both.
+20. **Preview learns the facts through a second stream frame, `preview-target-facts`** (6.4), under the
     rule that names `commcare_project`: one reached project space or none.
-20. **"Refresh from CommCare HQ" rewrites the baseline only where nothing Nova writes has changed** (6.5).
-    Where something has, it writes nothing and says the next publish will show the changes. It is
-    offered on every reached card that has a baseline, a card with nothing to list included. The date
-    of the kept list is always the baseline's own, worded the same whatever wrote the baseline.
-21. **A generated key in `translations` is never kept** (7.1). It is inert where it names no string of
+21. **"Refresh from CommCare HQ" rewrites the baseline only where nothing Nova writes has changed** (6.5).
+    Where something has, it writes nothing, says so, and offers to show what changed (part 15,
+    `15-changes-made-in-commcare-hq.md`, section 9.6). It is offered on every reached card that has
+    a baseline, a card with nothing to list included. The date of the kept list is always the
+    baseline's own, worded the same whatever wrote the baseline.
+22. **A generated key in `translations` is never kept** (7.1). It is inert where it names no string of
     the app, is blank or equals the text the app's own fields give; held, folded into the one translation
     unit that feeds the string, where that changes no other string; not-yet otherwise.
-22. **On a deployment whose app mapping is `adopted`, a language's display name is CommCare HQ's** (7.2):
+23. **On a deployment whose app mapping is `adopted`, a language's display name is CommCare HQ's** (7.2):
     a name the project space holds is carried, and an absent one stays absent. Nova writes its label only
-    where it created the HQ app. This lands in B8.
-23. **On a deployment whose app mapping is `adopted`, a publish seeds none of the fifteen settings**
+    where it created the HQ app.
+24. **On a deployment whose app mapping is `adopted`, a publish seeds none of the fifteen settings**
     (7.3). A setting the project space holds no value for stays absent, in the publish and in the
-    `.ccz`, so no worker's own choice on a phone is reset by bringing an app in. This lands in B8.
-24. **A finding is `{ code, standing, place, subject, detail }`, and a `fix-in-hq` one also carries its
-    `cause`** (8.1). `code` is a manifest entry id or a circumstance: 20 codes in A2, 27 after B1 adds
-    the seven part 05 found, 28 after B2, 34 after B9 and 35 after B10 (8.3). A media file over Nova's
-    size limit and a table over Nova's caps are manifest entries, not circumstances. A `stop` is no
-    standing of anything the app holds: it says the read ended.
-25. **Copy is one sentence per subject and standing for `not-yet` and `never` (74 in A2), one per
-    subject and cause for `fix-in-hq` (81 pairs in A2, from 45 stems, three cause clauses and 11 whole
-    sentences), and one block per circumstance** (9), held complete both ways by tests. A pull request
-    that empties a pair removes its sentence, and one that adds a pair adds its sentence, which 9.2
-    gives with its pull request. One function, `circumstanceNext`, words every circumstance's next step
-    for the account and MCP alike (8.4).
+    `.ccz`, so no worker's own choice on a phone is reset by bringing an app in.
+25. **A publish stops where a build profile on the target's app names a language the app no longer
+    has** (7.4). No API key can change a build profile, so Nova never leaves one stale: the stop is a
+    blocking edge of preflight, it names the profile and the language, and it says where the person
+    changes it. Removing a language stays always allowed in Nova.
+26. **A finding is `{ code, standing, place, subject, detail }`, and a `fix-in-hq` one also carries its
+    `cause`** (8.1). `code` is a manifest entry id or one of 34 circumstances (8.3). Nothing parses a
+    finding at run time, so there is no schema: one typed constructor makes a circumstance finding and
+    the reader's index makes a manifest one. A media file over Nova's size limit and a table over Nova's
+    caps are manifest entries, not circumstances. A `stop` is no standing of anything the app holds: it
+    says the read ended.
+27. **Copy is one sentence per subject and standing for `not-yet` and `never` (54 and 29), one per
+    subject and cause for `fix-in-hq` (87 pairs, from 45 stems, three cause clauses and 13 whole
+    sentences), and one block per circumstance** (9), held complete both ways by tests. One function,
+    `circumstanceBlock`, words every circumstance for the stop block, the account, the copied text and
+    MCP alike, with every placeholder filled (8.4).
 
 ---
 
@@ -200,7 +210,27 @@ Read, by `file::symbol` group. Nothing was run but `rg`, `python3` over the mani
   `receiver_post_with_app_id`); `xform.py` (`has_case_sharing`, `get_auto_gps_capture`'s callers);
   `static/app_manager/js/settings/bootstrap3/commcare_settings.js` (`disabledButHasValue`, `hasError`);
   `hqmedia/models.py::ApplicationMediaMixin.logo_paths`, `remove_unused_mappings`;
-  `suite_xml/features/case_tiles.py::case_tile_template_config`, `CaseTileTemplates`.
+  `suite_xml/features/case_tiles.py::case_tile_template_config`, `CaseTileTemplates`. For the build
+  profile rule (7.4): `models/applications.py::BuildProfile`, `ApplicationBase.get_build_langs`,
+  `Application.create_all_files`, `_create_app_from_doc`; `views/releases.py::LanguageProfilesView`,
+  `release_build`; `tasks.py::create_build_files_for_all_app_profiles`;
+  `views/download.py::download_file`, `_get_build_profile_id`; `xform.py::XForm.exclude_languages`,
+  `set_default_language`; `suite_xml/sections/resources.py::LocaleResourceContributor`;
+  `decorators.py::require_can_edit_apps`; `templates/app_manager/partials/releases/build_profiles.html`;
+  `static/app_manager/js/releases/bootstrap5/language_profiles.js`;
+  `accounting/bootstrap/features.py::advanced_v0`. For Preview (6.4):
+  `cloudcare/static/cloudcare/js/formplayer/menus/views.js::CaseTileGroupedListView.initialize`,
+  `CaseTileGroupedView.templateContext`, `getIndexedRowDataList`, `CaseView.rowClick`,
+  `CaseListView.caseListSearch`, `menus/api.js` (the request's `search_text`, `offset` and
+  `cases_per_page`), `utils/utils.js` (`setSearch`),
+  `cloudcare/templates/cloudcare/partials/case_list/tile_grouped_item.html` and
+  `cloudcare/templates/cloudcare/partials/form_entry/question.html` (the `required` class). For three
+  circumstance codes (8.3):
+  `api/resources/v0_4.py::BaseApplicationResource.obj_get`, `ApplicationResource.dehydrate_module`,
+  `_design/views/applications_brief/map.js`, `views/cli.py::list_apps`,
+  `fixtures/resources/v0_1.py::FixtureResource.dehydrate_fields`,
+  `fixtures/models.py::LookupTableRow.fields_without_attributes`. For two blank labels (Appendix
+  A.1): `app_strings.py::_create_case_list_app_strings`, `_create_case_list_form_app_strings`.
 - **Runtimes.** commcare-core `util/EntitySortUtil.java::sortEntities`,
   `cases/util/StringUtils.java::fuzzyMatch`, `normalize`, `cases/entity/Entity.java::getSortFieldPieces`,
   `cases/entity/EntityStringFilterer.java`; commcare-android
@@ -211,23 +241,31 @@ Read, by `file::symbol` group. Nothing was run but `rg`, `python3` over the mani
   `activities/connect/viewmodel/PersonalIdWorkHistoryViewModel.kt::getWorkHistoryForAppRecord`;
   formplayer `util/FormplayerPropertyManager.java`, `session/MenuSession.java`,
   `libs/commcare/src/cli/java/org/commcare/util/screen/EntityScreenHelper.java` (`filterEntities`,
-  `sortEntities`, `groupEntities`).
+  `sortEntities`, `groupEntities`). For a grouped tile list under the filter (6.4): commcare-core
+  `util/screen/EntityScreenHelper.java::initEntities`, `util/screen/EntityListSubscreen.java` (its
+  constructor), `cases/entity/NodeEntityFactory.java::getEntity` (the group key); formplayer
+  `beans/menus/EntityListResponse.java::paginateEntities`, `getEntitiesForCurrentPage`,
+  `toEntityBean`, `beans/SessionNavigationBean.java` (`search_text`). commcare-android holds no
+  reader of `Detail.getGroup`, `DetailGroup`, `getGroupKey` or `header-rows` (searched under
+  `app/src`). For the asterisk (6.4): commcare-android
+  `views/widgets/QuestionWidget.java::setTextFromPrompt`; no reader of the setting in formplayer,
+  commcare-core or the Web Apps client. For the build profile rule (7.4): commcare-core
+  `resources/model/installers/LocaleFileInstaller.java`, `xform/parse/XFormParser.java` (the
+  default locale); commcare-android `utils/ChangeLocaleUtil.java`.
 - **A retained HQ read.** `proof/hq-reads/case-list-inline/app-source.json` holds every key section 6
   projects (`secure_submissions`, `custom_base_url`, `build_profiles`, `practice_mobile_worker_id`,
   `persistent_menu`, `show_breadcrumbs`, `logo_refs`, `mobile_ucr_restore_version`, `auto_gps_capture`,
   `profile`, `translations`), so the source read serves them and the stored baseline keeps them.
-- **The other parts, where they meet this one.** Part 02 (`02-menus.md`, its section 14 and its
-  needs), part 03 (`03-questions-and-text.md`, its two new entries), part 04 (`04-names.md`, its
-  sections 2.4 and 11 and its needs), part 05 (`05-reading-commcare-hq.md`, its sections 4, 8 and 12,
-  its "Copy" and its needs) and part 10 (`10-identity-and-the-ledger.md`, the claim and its section
-  5.5, the `read` baseline of its 6.3, the drift wording of its 9, its "Contracts" and its needs).
-  For the rows of later parts this part holds: part 06 (`06-the-reader-forms.md`, sections 6.3, 8.8,
-  12.2 and 16.3), part 07 (`07-the-reader-cases-menus-lists.md`, section 14 and its "Copy"), part 08
-  (`08-the-reader-expressions.md`, section 11), part 09 (`09-acceptance-and-the-first-publish.md`,
-  sections 9, 11.2 and 14), part 11 (`11-project-data.md`, section 13), part 12
-  (`12-the-reading-and-the-birth.md`, sections 2.3, 3.8 and 6.5), part 13 (`13-the-experience.md`,
-  sections 7 and 8.7) and part 14 (`14-proof.md`, sections 6.2 and 7.5). Where one of them asked
-  something of this part, the answer is under "What this part needs of other parts".
+- **Languages, preflight and the grouped read.** `lib/doc/mutations/app.ts` (the language arms);
+  `lib/commcare/languageWire.ts`, `localization.ts`, `expander.ts::appLevelValues`,
+  `classicLanguages.ts`; `lib/deployment/preflight.ts` (the `target-app` edge),
+  `service.ts::publishAppToHq` (the second read), `hqSourceBaseline.ts::ownedProjection`;
+  `proof/corpus/targetPeer.ts`, `proof/targeted/documents/hqSideState.ts`, `proof/fixed-defects.json`;
+  `lib/case-store/postgres/store.ts::queryGrouped`;
+  `lib/preview/engine/caseDataBindingHelpers.ts::readGroupedCases`; `lib/preview/caseTileGrouping.ts`;
+  `components/preview/screens/CaseListScreen.tsx`, `components/preview/shared/CaseTileGroup.tsx`;
+  `components/preview/form/InteractiveFormRenderer.tsx`, `virtual/rows/FieldRow.tsx`;
+  `lib/preview/platform.ts`; `lib/db/settings.ts` (`not_authorized`, `refreshApprovedDomains`).
 
 Claims of a manifest cell or a code comment found false, facts verified at source that a decision
 here rests on, and defects of today's Nova found while reading:
@@ -248,7 +286,7 @@ here rests on, and defects of today's Nova found while reading:
   (`models/applications.py::ApplicationBase.secure_submissions`); but a project space's security page
   rewrites every app when its setting changes (`domain/forms.py::PrivacySecurityForm.save`), so a
   Nova-created app can come to hold `true`, and an app made in HQ holds the project space's setting
-  from the start (`views/apps.py::new_app`, `default_new_app`). A3 replaces the comment and the
+  from the start (`views/apps.py::new_app`, `default_new_app`). Section 6.3 replaces the comment and the
   assumption.
 - **Claim corrected (manifest entry `application-and-settings/32-features-credentials`):** that
   nothing on a phone reads the profile's `<credentials>`. Android's work
@@ -265,13 +303,31 @@ here rests on, and defects of today's Nova found while reading:
 - **Found while planning, Preview:** `components/preview/shared/listFilter.tsx::rowMatchesFilterText`
   lower-cases and compares, where Core's filter first removes accents from both sides
   (`StringUtils.normalize`: NFD, combining marks removed, lower case). A worker who types "jose" finds
-  "José" on a device and not in Preview. A3 fixes it with the fuzzy rule, since both are one function.
+  "José" on a device and not in Preview. Section 6.4 fixes it with the fuzzy rule, since both are one
+  function.
+- **Found while planning, Preview:** under the list filter, a grouped tile list is drawn wrong in
+  three ways that have one cause. Formplayer filters the whole list, then sorts it, then gathers
+  groups in order of first appearance (`EntityScreenHelper.java::initEntities`), so the client
+  receives only the matches: its groups are in the order of each one's first match, and the one
+  model it keeps per group, which draws the heading and takes the tap, is that first match
+  (`views.js::CaseTileGroupedListView.initialize`, `CaseTileGroupedView.templateContext`,
+  `CaseView.rowClick`). Preview filters inside each group it already drew
+  (`components/preview/screens/CaseListScreen.tsx::CaseListScreen`, the memo `filteredGroups`), so
+  the groups keep their unfiltered order, the heading is drawn from the group's own first case, and
+  a tap opens that case even where the filter removed it (`ResultsTiles`, `actionRow`). With visits
+  ordered by name, Ada and Cal in one household and Ben and Dot in another, a filter that matches
+  Ben, Cal and Dot gives, in Web Apps, Ben's household first (heading from Ben, a tap opens Ben)
+  and then Cal's (heading from Cal, a tap opens Cal). Preview gives Cal's household first, with
+  its heading from Ada, and a tap there opens Ada. Section 6.4 fixes all three.
 - **Found while planning, the two runtimes around Core's filter:** Android splits the typed text on
   runs of whitespace (`EntityListAdapter.java::filterByString`, `split("\\s+")`) and shows the matches
   in the order the filter returns them, closest first under fuzzy search. Formplayer splits on single
   spaces (`EntityScreenHelper.java::filterEntities`, `split(" ")`) and then sorts the matches by the
   list's own order and groups them (`sortEntities`, `groupEntities`), so in Web Apps closeness orders
-  only rows the list's order ties. Preview follows each on the platform it plays (6.4).
+  only rows the list's order ties. A phone whose filter box was typed in and then cleared runs one
+  empty term, which drops a row whose every field is blank (`filterByString`;
+  `EntityStringFilterer.java`, `isFilterEmpty`), where Web Apps skips an empty text. Preview follows
+  each on the platform it plays (6.4).
 - **Found while planning, publish:** the fifteen seeded settings are written wherever the project
   space holds no value (`targetOverlay.ts::projectProfileForTarget`, `holdsNoValue`), and each is
   written forced but the map layer. HQ's build writes nothing for an absent one
@@ -279,71 +335,98 @@ here rests on, and defects of today's Nova found while reading:
   settings into forced ones, and a forced setting returns a worker's own choice on the phone to that
   value at every update (`appProfileSettings.ts`, its header). On an app Nova created that is Nova's
   own stated behavior. On an app Nova brings in it would be a change to workers' phones, so an adopted
-  deployment is not seeded (7.3, B8).
-- **Found while planning, Preview:** Preview marks every required question, on either platform. Android
-  marks one only where `cc-label-required-questions-with-asterisk` is `yes`, and Nova's own value is
-  `no`. No doc states it. A3 states it (5, row 30); changing what Preview draws is not this step's.
+  deployment is not seeded (7.3).
+- **Found while planning, Preview:** Preview marks every required question, on either platform.
+  Android marks one only where `cc-label-required-questions-with-asterisk` is `yes`
+  (`views/widgets/QuestionWidget.java::setTextFromPrompt`,
+  `HiddenPreferences.java::shouldLabelRequiredQuestionsWithAsterisk`, whose default is `no`), and
+  Nova's own value is `no`, so a phone running an app Nova made marks none. Web Apps marks every
+  one (`cloudcare/templates/cloudcare/partials/form_entry/question.html`). No doc states it.
+  Section 6.4 fixes it: Preview marks a required question as the platform it plays does.
 - **Found while planning, publish:** a language a Nova author removes stays in each of HQ's build
   profiles, because an update writes `langs` and never `build_profiles`, where HQ's own Languages page
-  removes it from both (`views/apps.py::edit_app_langs`, the loop over `app.build_profiles`). This
-  predates step 6 and reaches only an app whose HQ copy has build profiles. Its owner is step 7's
-  group `settings-nova-comes-to-own`, through the new entry
-  `application-and-settings/build-profiles-non-empty`, and A2's implementer files it as an issue
-  before A2 opens (3.7).
+  removes it from both (`views/apps.py::edit_app_langs`, the loop over `app.build_profiles`). It
+  reaches only an app whose HQ copy has build profiles. Step 6 fixes it: a publish stops before it
+  would leave such a profile (section 7.4).
+- **Read, the finding copy against the manifest:** every sentence of 9.2 was read against every
+  entry Appendix A gives its pair, the entries this step adds among them. Thirteen entries a
+  sentence was untrue of are filed under the subject whose sentence is true of them (2.2), and no
+  test can hold this (2.6).
+- **Decided by reading, three circumstance codes** (8.3). A remote app is in the app list and
+  answers 404 at the application resource; CommCare HQ's summary of an app is an error entry per
+  menu and never an error for the app whole; and a table row holding a field with no value raises
+  an error the fixture resource does not catch. So `remote-app`, `app-unreadable-in-hq` and
+  `table-rows-unreadable` stand with no condition.
 
 ---
 
 ## Written and not yet run
 
-**Run 1: the `.ccz` mirror, on a kept configuration.** Where: the proof lane, in the pinned image, by
-hand on hosted runners, with pull request A3. What: the targeted corpus document
-`targeted-kept-values` (part 14, `14-proof.md`, section 11.1, A3's row), which declares Android,
-published to an HQ app whose source was first given each mirrored value of section 5 (the fifteen
-settings at a choice other than Nova's seed, `cc-log-entity-detail-enabled`, one runtime UI text key in
-each language, `secure_submissions: true`, `auto_gps_capture: true`, and
-`profile.features.credentials: "3MON_ACTIVE"`), then proof 3 between HQ's build and
-the local archive, and proof 2 over `profile.ccpr` and each `app_strings.txt`.
+Four checks wait on execution. Each names where it runs and what the session does for every outcome.
+A fix lands in the function the outcome names before the merge, with no register entry: the plan and
+the build must agree. Before any outcome that narrows what Nova holds, the session reads which side
+is wrong, and corrects Nova's emitter, port or Preview where it is Nova's.
 
-| Outcome | What lands |
+**Run 1: the `.ccz` mirror, on a kept configuration.** Where: the proof lane, in the dispatch the
+session starts itself over the step's targeted documents, with every reader. What: the targeted
+corpus document `targeted-kept-values` (part 14, `14-proof.md`, section 12.1, counts it), which
+declares Android, published to an HQ app whose source was first given each mirrored value of section 5
+(the fifteen settings at a choice other than Nova's seed, `cc-log-entity-detail-enabled`, one runtime
+UI text key in each language, `secure_submissions: true`, `auto_gps_capture: true`, and
+`profile.features.credentials: "3MON_ACTIVE"`), then proof 3 between HQ's build and the local
+archive, and proof 2 over `profile.ccpr` and each `app_strings.txt`.
+
+| Outcome | What the session does |
 |---|---|
-| No difference | The cells of section 5 stand. The document stays in the corpus as the control of the kept rows and stays beside B13's base `hq-kept-settings`: the two are different deployments, a Nova-born app whose kept values a person saved in HQ and an app made in HQ and brought in (part 14, section 11.2). |
-| A profile property differs in value or `force` | The fix is in `lib/commcare/keptProfile.ts::targetProfileProperties`, in A3, before it merges. No register entry: the plan and the build must agree. |
-| A property HQ writes is absent from the archive for a key section 4 calls inert | That entry is not inert on Android. Its row moves to kept with `mirrors`, the key joins `KEPT_PROFILE_PROPERTY_KEYS`, in A3. |
-| An app string differs for a runtime UI key | The fix is in `compileCcz`'s table merge (6.3), in A3. |
-| `PostURL` differs under `secure_submissions` | The fix is in `profileServerProperties`, in A3. |
-| The `<credentials>` block differs or is absent on one side | The fix is in `generateProfile`'s features (6.3), in A3. Where HQ's build writes none for a stored level, the row moves to `no-reader` and `credentialLevel` leaves `TargetFacts`, in A3. |
-| HQ's build shows a difference no row of section 5 names | The key is put to the kept test of section 4, in A3, before it merges. Where no publish writes it, nothing the document holds does something different under it, and the archive can write HQ's value from the stored source or state the difference in an advisory, its entry becomes TARGET-OWNED with a `KEPT_AT_HQ` row (`mirrors` or `states`). Where clause 2 or clause 3 fails, its entry moves to not-yet with owner `settings-nova-comes-to-own`. |
+| No difference | Nothing. The cells of section 5 stand. The document stays in the corpus as the control of the kept rows and stays beside the base `hq-kept-settings`: the two are different deployments, a Nova-born app whose kept values a person saved in HQ and an app made in HQ and brought in (part 14, section 6.2). |
+| A profile property differs in value or `force` | It corrects `lib/commcare/keptProfile.ts::targetProfileProperties`. |
+| A property HQ writes is absent from the archive for a key section 4 calls inert | That entry is not inert on Android. It moves the entry's row to kept with `mirrors`, and the key joins `KEPT_PROFILE_PROPERTY_KEYS`. |
+| An app string differs for a runtime UI key | It corrects `compileCcz`'s table merge (6.3). |
+| `PostURL` differs under `secure_submissions` | It corrects `profileServerProperties`. |
+| The `<credentials>` block differs or is absent on one side | It corrects `generateProfile`'s features (6.3). Where HQ's build writes none for a stored level, the row moves to `no-reader` and `credentialLevel` leaves `TargetFacts`. |
+| HQ's build shows a difference no row of section 5 names | Where the archive misses something a row of section 5 already promises, it corrects the archive. Otherwise it puts the key to the kept test of section 4. Where no publish writes the key, nothing the document holds does something different under it, and the archive can write HQ's value from the stored source or state the difference in an advisory, its entry becomes TARGET-OWNED with a `KEPT_AT_HQ` row (`mirrors` or `states`). Where clause 2 or clause 3 fails, the value is content Nova has no place for: its entry moves to not-yet with owner `settings-nova-comes-to-own`, and the list of kept settings in `content/docs/publishing.mdx` (9.7) loses the setting where it names it. |
 
-`custom_base_url` is not in the run: the setting shows only under the flag `CUSTOM_APP_BASE_URL`, which
-the lane's project spaces do not hold. Its row rests on reading `ApplicationBase.url_base` and
-`absolute_url_property`, and on a Vitest over `profileServerProperties` whose vectors include a base
-URL with a path.
+`custom_base_url` is not in this document. It is shown on the base `hq-kept-settings` (part 14, section
+6.2), which posts it through `views/apps.py::edit_app_attr`, and a Vitest over
+`profileServerProperties` holds the vectors, one of them a base URL with a path (section 10).
 
-**Run 2: Core's fuzzy match, natively.** Where: the proof lane's native family `expression`, with A3.
-What: the vectors of `lib/preview/__tests__/listFilterMatch.test.ts` (section 10) run through
+**Run 2: Core's fuzzy match, natively.** Where: the work's own CI, in the proof lane every pull
+request runs, native family `expression`. What: the vectors of
+`lib/preview/__tests__/listFilterMatch.test.ts` (section 10) run through
 `org.commcare.cases.util.StringUtils.fuzzyMatch` and `normalize`.
 
-| Outcome | What lands |
+| Outcome | What the session does |
 |---|---|
-| Every vector agrees | Nothing more. The native test stays as the control. |
-| A vector differs | The port in `lib/preview/listFilterMatch.ts` is corrected in A3 and the vector kept. |
+| Every vector agrees | Nothing. The native test stays as the control. |
+| A vector differs | It corrects the port in `lib/preview/listFilterMatch.ts` and keeps the vector. |
 
 The run holds Core's two functions alone. How each runtime splits the typed text and orders the matches
 is read at source (6.4) and held by Vitest vectors worked from Java's `String.split`.
 
-**Run 3: an app made in HQ with an empty profile, brought in.** Where: the proof lane, inside part
-14's P2 dispatch on B13's branch, on the base `hq-new-app` (whose profile holds none of the fifteen
-settings), which lands in B13; B8 lands the code and its Vitest (`keptProfile.test.ts`), and an
-outcome that changes code amends B8 on the stack before stack B merges. What: the
-first publish over the adopted deployment, then proof 3 between HQ's build and the local archive made
-for that deployment, and proof 1 over `profile` against the first-publish register.
+**Run 3: an app made in HQ with an empty profile, brought in.** Where: the proof lane, in the dispatch
+the session starts itself over the bases (part 14's run P2), on the base `hq-new-app`, whose profile
+holds none of the fifteen settings. What: the first publish over the adopted deployment, then proof 3
+between HQ's build and the local archive made for that deployment, and proof 1 over `profile` against
+the first-publish register.
 
-| Outcome | What lands |
+| Outcome | What the session does |
 |---|---|
-| The publish leaves `profile.properties` without the fifteen, and the archive writes none of them | Section 7.3 stands. The base stays as its control. |
-| The publish writes a seeded key | The fix is in `projectProfileForTarget`'s `seeds` option or in `publishAppToHq`'s choice of it (7.3), in B8. No register entry: an adopted deployment is not seeded. |
-| The archive writes a seeded key HQ's build does not | The fix is in `targetProfileProperties` (6.3, 7.3), in B8. |
-| HQ's build writes a property for an absent key of the fifteen | That setting has a default HQ writes on its own. For an adopted deployment the archive writes HQ's default at HQ's `force` for it (`targetProfileProperties`), and the publish still writes nothing, in B8. |
+| The publish leaves `profile.properties` without the fifteen, and the archive writes none of them | Nothing. Section 7.3 stands, and the base stays as its control. |
+| The publish writes a seeded key | It corrects `projectProfileForTarget`'s `seeds` option or `publishAppToHq`'s choice of it (7.3). An adopted deployment is not seeded. |
+| The archive writes a seeded key HQ's build does not | It corrects `targetProfileProperties` (6.3, 7.3). |
+| HQ's build writes a property for an absent key of the fifteen | That setting has a default HQ writes on its own. For an adopted deployment the archive then writes HQ's default at HQ's `force` for it (`targetProfileProperties`), and the publish still writes nothing. |
+
+**Run 4: the Web Apps client's cards for a grouped tile list under a filter.** Where: the proof lane,
+in the one slice the session starts itself for the step's three tests that take the Web Apps reader
+(part 14, `14-proof.md`, section 12.4, holds the command, which names this test by its node id).
+Core's half of the same rule needs no dispatch: the intent check runs the two expectations of
+`targeted-tile-group-filter` on every pull request (6.4, "Proof"). What:
+`test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves`.
+
+| Outcome | What the session does |
+|---|---|
+| The cards are the ones 6.4 states: three before the search, then Ben's and Cal's, each with its first match's id and heading | Nothing. The test stays as the control of the rule. |
+| CommCare gives a value differently, here or in the intent check | Section 6.4 misread CommCare. It corrects `tileGroupCards`, its vectors, the two expectations and the smoke step to what CommCare gave. |
 
 No other fact of this part waits on a run. No production read is needed: nothing here migrates or scans.
 
@@ -400,11 +483,31 @@ strings hold no key Nova did not make; and `addMetaBlock` captures location only
 several give `null`); the builder page seeds `DeploymentTargetProvider`, a publish and a Check status
 return it, and `/api/apps/{id}/stream` announces it in a `preview-project-space` frame
 (`lib/collab/previewProjectSpaceFrame.ts`). Preview reads no profile setting: its list filter is an exact
-substring match (`components/preview/shared/listFilter.tsx::rowMatchesFilterText`).
+substring match (`components/preview/shared/listFilter.tsx::rowMatchesFilterText`), and it marks every
+required question on both platforms (`components/preview/form/InteractiveFormRenderer.tsx`).
+
+**A grouped tile list under the filter.** The case store clusters a grouped list in the statement
+that pages it: each row's position under the list's order, each group's first position, the groups
+ranked by it, a page of whole groups (`lib/case-store/postgres/store.ts::queryGrouped`, which
+reproduces `EntityScreenHelper.java::groupEntities` and
+`EntityListResponse.java::getEntitiesForCurrentPage`). It computes each row's position
+(`ROW_ORDINAL_ALIAS`) and drops it from the row it returns (`GROUPED_ROW_ALIASES`, in
+`shapeCaseRow`). `lib/preview/engine/caseDataBindingHelpers.ts::readGroupedCases` hands the groups
+on, and `rows` as the page in clustered order. The screen then filters inside each group and keeps
+the group's first case as its heading and its choice
+(`components/preview/screens/CaseListScreen.tsx::CaseListScreen`, the memo `filteredGroups`; the
+type `ResultsTileGroup`, whose `header` is "the group's own first case even when the list filter
+has narrowed `rows`"; `ResultsTiles`, whose `actionRow` is that header; `chooseVisibleCases`, which
+adds each group's header). So no filtered group can move, since the browser holds no order between
+two rows of different groups, and a card's heading and choice can name a case the filter removed.
+
+**Languages and build profiles.** Removing a language, or relabelling the one language of a
+single-language app, changes the document alone (`lib/doc/mutations/app.ts`), and the next publish
+writes `langs` from it and never `build_profiles`. Nothing reads the profiles an HQ app holds (7.4).
 
 ---
 
-## 2. The manifest's new fields and rules (A2)
+## 2. The manifest's new fields and rules
 
 ### 2.1 Standings
 
@@ -485,8 +588,8 @@ entry; it sits with `broken-at-runtime` because what it would say to a person is
 it and it does not run. A `below-commcare-version-floor` reason stands alone on its entry (one entry
 today), and the manifest test holds that (2.6), so `below-floor` never mixes.
 
-The reader's runtime index of entry id to standing, cause, subject and owner is part 06's
-(`06-the-reader-forms.md`, section 3, B2); it calls `standingOf` and `fixCauseOf` and adds no rule of
+The reader's runtime index of entry id to standing, cause and subject is part 06's
+(`06-the-reader-forms.md`, section 3); it calls `standingOf` and `fixCauseOf` and adds no rule of
 its own.
 
 ### 2.2 `subject`
@@ -496,7 +599,7 @@ client copy, and holds no manifest JSON.
 
 ```ts
 export const SUBJECTS = [
-	/* the slugs of the table below, in its order; a row marked new joins in its pull request */
+	/* the slugs of the table below, in its order */
 ] as const;
 export type Subject = (typeof SUBJECTS)[number];
 // lib/commcare/surface/schema.ts
@@ -507,160 +610,153 @@ export const subjectSchema = z.enum(SUBJECTS);
 arm. The other arms stay strict objects without it, so a HELD, TARGET-OWNED or INERT entry that names a
 subject fails to parse.
 
-The closed set is 75 in A2. A9 adds `case-types` with part 04's entry that uses it (the table under
-this one), B2 adds `translation-overrides` with the entry that uses it, B4 adds `advanced-menus` and B5
-`list-and-search-filters` with part 07's entries that use them (`07-the-reader-cases-menus-lists.md`,
-section 14), and B8 removes `language-display-names` with the flip of its one entry. So the set runs
-75 (A2), 76 (A9), 77 (B2), 78 (B4), 79 (B5), 78 (B8). Each row gives the count of entries that take
-the subject by standing (not-yet / never / fix-in-hq) as the manifest stands today. Appendix A lists
-the entries of each.
+The closed set is 78. Each row gives the subject's label (`SUBJECT_LABELS`, 8.4), what it names, and the
+count of entries that take it by standing (not-yet / never / fix-in-hq) when the step is done.
+Appendix A lists the entries of each.
 
-| Subject | What it names to a person | Entries |
-|---|---|---|
-| `advanced-forms` | the cases an advanced form loads or opens | 7 / 0 / 23 |
-| `advanced-menus` | an advanced menu | 1 / 0 / 0 (new entry, B4) |
-| `after-submit` | where a form goes after it is sent | 0 / 2 / 4 |
-| `android-app-dependencies` | Android apps the phone must have | 1 / 0 / 1 |
-| `app-document` | how CommCare HQ stores the app | 0 / 1 / 7 |
-| `app-logos` | app logos | 1 / 0 / 1 |
-| `app-settings` | an app setting | 5 / 2 / 3 |
-| `auto-select` | choosing a case for the worker | 2 / 0 / 3 |
-| `blank-form` | a form with no questions | 0 / 0 / 1 |
-| `build-profiles` | build profiles | 1 / 0 / 0 (new entry, 3.7) |
-| `call-center-indicators` | call center indicators | 0 / 1 / 0 |
-| `case-attachments` | pictures or files saved on a case | 0 / 4 / 0 |
-| `case-detail-tabs` | tabs on the case detail screen | 5 / 0 / 1 |
-| `case-list-callout` | a lookup from the case list into another Android app | 8 / 0 / 2 |
-| `case-list-columns` | a case list or case detail column | 20 / 3 / 18 |
-| `case-list-filter` | the case list filter | 1 / 0 / 1 |
-| `case-list-optimizations` | a case list speed setting | 2 / 2 / 0 |
-| `case-list-registration` | a form offered from the case list | 4 / 0 / 2 |
-| `case-list-setup` | how a case list is set up | 0 / 0 / 4 |
-| `case-list-sorting` | the order of a case list | 6 / 0 / 2 |
-| `case-list-text` | a list's own wording | 2 / 0 / 0 |
-| `case-preloads` | a question that loads a case value | 3 / 0 / 5 |
-| `case-property-names` | a case property name | 0 / 0 / 5 |
-| `case-sharing` | case sharing | 2 / 0 / 1 |
-| `case-tiles` | a case tile | 8 / 0 / 7 |
-| `child-cases` | a child case | 0 / 1 / 8 |
-| `commcare-version` | the CommCare version the app is built for | 0 / 0 / 1 |
-| `connect-blocks` | a CommCare Connect block | 1 / 0 / 2 |
-| `custom-assertions` | custom assertions | 0 / 3 / 0 |
-| `custom-device-properties` | custom device properties | 0 / 1 / 0 |
-| `data-registry` | a data registry | 0 / 4 / 0 |
-| `data-sources` | data a form or list reads from the device | 1 / 0 / 8 |
-| `deep-links` | a deep link | 2 / 0 / 1 |
-| `display-conditions` | a menu's or form's display condition | 3 / 0 / 5 |
-| `display-only-forms` | forms shown in the menu above their own | 1 / 0 / 4 |
-| `expressions` | an expression | 0 / 0 / 9 |
-| `form-case-management` | a form's case management | 0 / 0 / 11 |
-| `form-settings` | a form setting | 2 / 0 / 2 |
-| `form-source` | a form's source | 0 / 0 / 8 |
-| `hand-written-content` | hand-written XML or settings no HQ page edits | 0 / 19 / 0 |
-| `hierarchical-locations` | the older, nested list of places | 0 / 3 / 0 |
-| `language-codes` | a language code | 0 / 0 / 2 |
-| `language-display-names` | the app's own name for a language | 1 / 0 / 0 |
-| `linked-app` | a linked app | 0 / 0 / 2 |
-| `list-and-search-filters` | a case list filter its search doesn't share | 1 / 0 / 0 (new entry, B5) |
-| `lookup-selection` | choosing from a lookup table before the case list | 0 / 2 / 0 |
-| `lookup-tables` | a lookup table | 7 / 0 / 2 |
-| `media-by-language` | a picture or sound that differs by language | 3 / 0 / 0 |
-| `media-files` | a media file | 3 / 0 / 8 |
-| `menu-badges` | a badge on a menu or form | 2 / 0 / 0 |
-| `menu-display` | grid menus | 3 / 0 / 0 |
-| `menu-settings` | a menu setting | 0 / 0 / 1 |
-| `menu-structure` | how menus are nested | 0 / 1 / 2 |
-| `mirror-menus` | a mirror menu | 4 / 2 / 5 |
-| `mobile-reports` | mobile reports | 0 / 5 / 0 |
-| `parent-selection` | choosing a parent case first | 0 / 2 / 3 |
-| `print-templates` | a print template | 0 / 2 / 0 |
-| `question-appearance` | how a question looks | 56 / 6 / 2 |
-| `question-choices` | a question's choices | 4 / 0 / 8 |
-| `question-ids` | a question ID | 0 / 1 / 2 |
-| `question-logic` | a question's logic | 0 / 0 / 5 |
-| `question-media` | a picture, sound or label form on a question | 4 / 0 / 1 |
-| `question-text` | a question's text | 4 / 0 / 7 |
-| `question-types` | a kind of question | 9 / 0 / 12 |
-| `remote-app` | a remote app | 0 / 1 / 0 |
-| `repeats` | a repeat group | 1 / 0 / 14 |
-| `save-to-case` | a Save to Case question | 6 / 2 / 5 |
-| `search-default-filters` | a search filter | 12 / 1 / 4 |
-| `search-expressions` | a search expression | 1 / 2 / 4 |
-| `search-fields` | a search field | 8 / 0 / 6 |
-| `search-setup` | how the search is set up | 9 / 2 / 4 |
-| `shadow-forms` | a shadow form | 4 / 0 / 3 |
-| `supply-features` | CommCare Supply features | 0 / 9 / 0 |
-| `training-menus` | a training menu or release notes form | 0 / 3 / 0 |
-| `translation-overrides` | changed wording for a menu, form or list held in the app's translations | 1 / 0 / 0 (new entry, B2) |
-| `visit-scheduler` | a visit schedule | 0 / 5 / 0 |
-| `worker-record` | the worker's own record | 4 / 1 / 4 |
-| `writer-types` | answers of different kinds saved to one case property | 5 / 0 / 0 |
+| Subject | Label | What it names to a person | Entries |
+|---|---|---|---|
+| `advanced-forms` | Advanced forms | the cases an advanced form loads or opens | 11 / 0 / 23 |
+| `advanced-menus` | Advanced menus | an advanced menu | 1 / 0 / 0 |
+| `after-submit` | After a form is sent | where a form goes after it is sent | 0 / 2 / 4 |
+| `android-app-dependencies` | Android app dependencies | Android apps the phone must have | 1 / 0 / 1 |
+| `app-document` | The app as stored | how CommCare HQ stores the app | 0 / 1 / 9 |
+| `app-logos` | App logos | app logos | 0 / 0 / 1 |
+| `app-settings` | App settings | an app setting | 0 / 2 / 3 |
+| `auto-select` | Choosing a case automatically | choosing a case for the worker | 2 / 0 / 3 |
+| `blank-form` | Forms with no questions | a form with no questions | 0 / 0 / 1 |
+| `build-profiles` | Build profiles | build profiles | 1 / 0 / 0 |
+| `call-center-indicators` | Call center indicators | call center indicators | 0 / 2 / 0 |
+| `case-attachments` | Files saved on a case | pictures or files saved on a case | 0 / 4 / 0 |
+| `case-detail-tabs` | Case detail tabs | tabs on the case detail screen | 5 / 0 / 1 |
+| `case-list-callout` | Case list lookups | a lookup from the case list into another Android app | 8 / 0 / 2 |
+| `case-list-columns` | Case list and detail columns | a case list or case detail column | 25 / 2 / 18 |
+| `case-list-filter` | Case list filters | the case list filter | 1 / 0 / 1 |
+| `case-list-optimizations` | Case list speed settings | a case list speed setting | 2 / 2 / 0 |
+| `case-list-registration` | Registration from the case list | a form offered from the case list | 7 / 0 / 3 |
+| `case-list-setup` | Case list setup | how a case list is set up | 1 / 0 / 4 |
+| `case-list-sorting` | Case list order | the order of a case list | 5 / 0 / 2 |
+| `case-list-text` | Case list wording | a list's own wording | 2 / 0 / 0 |
+| `case-preloads` | Loading case values into questions | a question that loads a case value | 4 / 0 / 4 |
+| `case-property-names` | Case property names | a case property name | 2 / 0 / 5 |
+| `case-sharing` | Case sharing | case sharing | 2 / 0 / 1 |
+| `case-tiles` | Case tiles | a case tile | 9 / 0 / 7 |
+| `case-types` | Case types | a case type | 0 / 0 / 1 |
+| `child-cases` | Child cases | a child case | 0 / 1 / 8 |
+| `commcare-version` | CommCare version | the CommCare version the app is built for | 0 / 0 / 1 |
+| `connect-blocks` | CommCare Connect | a CommCare Connect block | 4 / 0 / 3 |
+| `custom-assertions` | Custom assertions | custom assertions | 0 / 3 / 0 |
+| `custom-device-properties` | Custom device properties | custom device properties | 0 / 1 / 0 |
+| `data-registry` | Data registries | a data registry | 0 / 4 / 0 |
+| `data-sources` | Data a form or list reads | data a form or list reads from the device | 2 / 0 / 8 |
+| `deep-links` | Deep links | a deep link | 1 / 1 / 4 |
+| `display-conditions` | Display conditions | a menu's or form's display condition | 3 / 0 / 6 |
+| `display-only-forms` | Forms shown in the menu above | forms shown in the menu above their own | 2 / 0 / 4 |
+| `expressions` | Expressions | an expression | 1 / 0 / 11 |
+| `form-case-management` | Case management | a form's case management | 3 / 0 / 11 |
+| `form-settings` | Form settings | a form setting | 2 / 0 / 2 |
+| `form-source` | A form's source | a form's source | 1 / 0 / 8 |
+| `hand-written-content` | Hand-written XML | hand-written XML or settings no HQ page edits | 0 / 22 / 0 |
+| `hierarchical-locations` | The older organization list | the older, nested list of places | 0 / 3 / 0 |
+| `instance-text` | Text read as a data source | a name or description CommCare HQ reads as a data source | 0 / 0 / 2 |
+| `language-codes` | Language codes | a language code | 1 / 0 / 2 |
+| `list-and-search-filters` | Case list and search filters | a case list filter its search doesn't share | 1 / 0 / 0 |
+| `lookup-selection` | Choosing from a lookup table first | choosing from a lookup table before the case list | 0 / 2 / 0 |
+| `lookup-tables` | Lookup tables | a lookup table | 10 / 0 / 2 |
+| `media-by-language` | Media by language | a picture or sound that differs by language | 3 / 0 / 0 |
+| `media-files` | Media files | a media file | 1 / 0 / 7 |
+| `menu-badges` | Menu badges | a badge on a menu or form | 2 / 0 / 0 |
+| `menu-display` | Grid menus | grid menus | 3 / 0 / 0 |
+| `menu-settings` | Menu settings | a menu setting | 0 / 0 / 1 |
+| `menu-structure` | How menus are nested | how menus are nested | 1 / 1 / 2 |
+| `mirror-menus` | Mirror menus | a mirror menu | 4 / 1 / 3 |
+| `missing-media-files` | Missing media files | a media file the app points at that CommCare HQ doesn't have | 0 / 0 / 2 |
+| `mobile-reports` | Mobile reports | mobile reports | 0 / 4 / 0 |
+| `parent-selection` | Choosing a parent case first | choosing a parent case first | 1 / 2 / 3 |
+| `print-templates` | Print templates | a print template | 0 / 2 / 0 |
+| `question-appearance` | How a question looks | how a question looks | 56 / 6 / 2 |
+| `question-choices` | Choices | a question's choices | 5 / 0 / 8 |
+| `question-ids` | Question IDs | a question ID | 1 / 1 / 2 |
+| `question-logic` | Question logic | a question's logic | 3 / 0 / 6 |
+| `question-media` | Media on questions | a picture, sound or label form on a question | 5 / 0 / 1 |
+| `question-text` | Question text | a question's text | 6 / 0 / 8 |
+| `question-types` | Kinds of question | a kind of question | 9 / 0 / 12 |
+| `repeats` | Repeat groups | a repeat group | 2 / 0 / 14 |
+| `save-to-case` | Save to Case questions | a Save to Case question | 8 / 0 / 5 |
+| `search-default-filters` | Search filters | a search filter | 13 / 2 / 4 |
+| `search-expressions` | Search expressions | a search expression | 4 / 2 / 5 |
+| `search-fields` | Search fields | a search field | 13 / 0 / 6 |
+| `search-setup` | Search setup | how the search is set up | 12 / 1 / 4 |
+| `shadow-forms` | Shadow forms | a shadow form | 4 / 0 / 3 |
+| `supply-features` | CommCare Supply | CommCare Supply features | 0 / 9 / 0 |
+| `training-menus` | Training menus | a training menu or release notes form | 0 / 3 / 0 |
+| `translation-overrides` | Changed wording in translations | changed wording for a menu, form or list held in the app's translations | 1 / 0 / 0 |
+| `visit-scheduler` | Visit schedules | a visit schedule | 0 / 5 / 0 |
+| `worker-record` | The worker's own record | the worker's own record | 4 / 1 / 4 |
+| `writer-types` | Answers of different kinds | answers of different kinds saved to one case property | 4 / 0 / 0 |
 
 How Appendix A was cut, so a new entry takes its subject the same way: (1) a `retiring` reason whose
 flag is CommCare Supply, mobile reports, the visit scheduler, a data registry, case attachments, training
 menus, the nested location list, custom assertions or printing takes that feature's subject, wherever
 the row sits; (2) a `freeform` reason with no closer subject takes `hand-written-content`; (3) otherwise
 the entry takes the subject of the thing its author would name, which is nearly always its inventory
-section's.
+section's. An entry whose pair's sentence would be untrue of it takes the subject whose sentence is
+true: a call center indicator column is `call-center-indicators` and no column format, an endpoint
+id is `deep-links` whatever menu holds it, and a media file CommCare HQ does not have is
+`missing-media-files`, where a file in a format that does not play is `media-files`.
 
 **The subjects of entries other parts add.** Each new entry of parts 02 and 04 takes a slug of the
-closed set; the words in quotation marks below say what the entry is about. The pull request that
-adds the entry adds any sentence its pair lacks, because the completeness test of section 10 fails
-without it. No sentence waits for stack B.
+closed set; the words in quotation marks below say what the entry is about.
 
-| Part | Entries | Subject | What the pull request adds to the copy |
-|---|---|---|---|
-| 02 (A5) | its six new HELD-NEW `case-list-form-…` entries, and the two it keeps HELD-NEW (the eight ids are in Appendix A.1, two in its `menus-and-case-lists/` block and six in its closing block) | `case-list-registration` | nothing: the `not-yet` sentence exists |
-| 02 (A5) | its new REFUSED entry `case-list-form-post-form-workflow-default-on-a-multi-select-host` (`broken-at-runtime`; it names no subject there) | `case-list-registration` | nothing: the subject's stem and the `breaks-when-run` clause compose its sentence (8.4) |
-| 04 (A9) | N1, a case type outside the menu page's grammar ("a case type") | `case-types`, new in A9: label "Case types" | `SUBJECTS` gains it; whole sentence for `hq-refuses`: "A case type here holds a character CommCare HQ's menu settings can't save." |
-| 04 (A9) | N2, N7 ("a case property") | `case-property-names` | `not-yet`: "A case property name here is one Nova can't hold yet." |
-| 04 (A9) | N3, N8 ("a Search field") | `search-fields` | nothing |
-| 04 (A9) | N4, N5 ("a lookup table") and N24 (`expressions-and-data/tag-or-field-name-holding-a-period`, owner `project-data-at-hq-size`) | `lookup-tables` | nothing |
-| 04 (A9) | N6 ("a choice") | `question-choices` | the `not-yet` sentence is re-worded to hold a choice's own value too: "A question's choices here are set up in a way Nova can't hold yet." |
-| 04 (A9) | N9 ("a menu": a child menu of another case type under a parent with no forms) | `menu-structure` | `not-yet`: "How this menu is nested is something Nova can't hold yet." |
-| 04 (A9) | N14 ("a menu": a parent menu of another case type) | `parent-selection` | `not-yet`: "This chooses a parent case first in a way Nova can't hold yet." |
-| 04 (A9) | N10 ("a case list") | `case-list-setup` | `not-yet`: "This case list is set up in a way Nova can't hold yet." |
-| 04 (A9) | N11, N12, N13 ("a case list column") | `case-list-columns` | nothing |
-| 04 (A9) | N15, N16 ("a CommCare Connect block") | `connect-blocks` | the `not-yet` sentence is re-worded to hold every block: "A CommCare Connect block here is set up in a way Nova can't hold yet." |
-| 04 (A9) | N17, N18, N19 ("a question": required, a validation condition or a default on a kind Nova gives none) | `question-logic` | `not-yet`: "A question's logic here is something Nova can't hold yet." |
-| 04 (A9) | N20, N21, N23 ("a question": hint, help or validation text on a kind Nova gives none) | `question-text` | nothing |
-| 04 (A9) | N22 ("a question": help media on a kind Nova gives none) | `question-media` | the `not-yet` sentence is re-worded to hold help media too: "A question here carries a kind of media or label form Nova can't hold yet." |
+| Part | Entries | Subject |
+|---|---|---|
+| 02 | its new HELD-NEW `case-list-form-…` entries, and the two it keeps HELD-NEW (the ids are in Appendix A.1) | `case-list-registration` |
+| 02 | its new REFUSED entry `case-list-form-post-form-workflow-default-on-a-multi-select-host` (`broken-at-runtime`; it names no subject there) | `case-list-registration` |
+| 04 | N1, a case type outside the menu page's grammar ("a case type") | `case-types`, a subject this step adds for it |
+| 04 | N2, N7 ("a case property") | `case-property-names` |
+| 04 | N3, N8 ("a Search field") | `search-fields` |
+| 04 | N4, N5 ("a lookup table") and N24 (`expressions-and-data/tag-or-field-name-holding-a-period`, owner `project-data-at-hq-size`) | `lookup-tables` |
+| 04 | N6 ("a choice") | `question-choices` |
+| 04 | N9 ("a menu": a child menu of another case type under a parent with no forms) | `menu-structure` |
+| 04 | N14 ("a menu": a parent menu of another case type) | `parent-selection` |
+| 04 | N10 ("a case list") | `case-list-setup` |
+| 04 | N11, N12, N13 ("a case list column") | `case-list-columns` |
+| 04 | N15, N16 ("a CommCare Connect block") | `connect-blocks` |
+| 04 | N17, N18, N19 ("a question": required, a validation condition or a default on a kind Nova gives none) | `question-logic` |
+| 04 | N20, N21, N23 ("a question": hint, help or validation text on a kind Nova gives none) | `question-text` |
+| 04 | N22 ("a question": help media on a kind Nova gives none) | `question-media` |
 
-Part 03's two new entries name slugs of the set already:
-`questions/a-markdown-form-in-a-form-whose-text-formatting-is-off` takes `question-text` and lands in
-B3 (part 06, section 12.2), and `case-search/title-label-blank-in-some-languages` takes `search-setup`
-and lands in B5 (part 07, section 14).
+Part 03's entries name slugs of the set too.
+`questions/a-markdown-form-in-a-form-whose-text-formatting-is-off` takes `question-text` (part 06,
+`06-the-reader-forms.md`, section 12.2), and `case-search/title-label-blank-in-some-languages` takes
+`search-setup` (part 07, `07-the-reader-cases-menus-lists.md`, section 14). Its two REFUSED entries for
+text CommCare HQ's build reads as a data source, `questions/connect-block-text-read-as-an-instance`
+and `forms-and-case-writes/form-name-read-as-an-instance` (part 03, `03-questions-and-text.md`,
+section 5.1), take `instance-text`, a subject this step adds for them.
 
-**The subjects and sentences stack B's readers add.** A reader part that adds an entry names a subject
-of this set, or asks for a new one with its label and what it names. Two were asked for and are in the
-table above: `advanced-menus` (B4) and `list-and-search-filters` (B5), both part 07's. Every sentence
-such an entry's pair lacks is in 9.2's second table with the pull request that lands it, and every
-entry is in the closing block of Appendix A.1 with its subject and owner, or of A.2 with its subject
-and standing.
+A part that adds an entry names a subject of this set. Every sentence is in 9.2, and every entry is
+in Appendix A with its subject and its owner or standing.
 
 ### 2.3 `owner`
 
-`hqFindings.ts` also exports step 7's group ids, the ten groups `7-rest-of-model.md` plans, in its
-order (its sections 1 to 10, each headed by its id):
+`hqFindings.ts` also exports the ids of the eight groups of `7-rest-of-model.md`, in its order:
 
 ```ts
 export const STEP_7_GROUPS = [
-	"changes-made-in-hq", "project-data-at-hq-size", "settings-nova-comes-to-own",
-	"question-display", "case-list-and-detail", "menus", "case-search",
-	"forms-and-case-management", "xform", "second-project-space",
+	"project-data-at-hq-size", "settings-nova-comes-to-own", "question-display",
+	"case-list-and-detail", "menus", "case-search", "forms-and-case-management", "xform",
 ] as const;
 export type Step7Group = (typeof STEP_7_GROUPS)[number];
 ```
 
 `inventoryEntrySchema`'s HELD-NEW arm gains `owner: z.enum(STEP_7_GROUPS)`; no other arm admits it.
-Appendix A.1 assigns all 237. Counts after A2: `question-display` 63, `case-list-and-detail` 56,
-`case-search` 30, `forms-and-case-management` 23, `xform` 24, `menus` 15,
-`settings-nova-comes-to-own` 15 (the 14 of the appendix and the new build-profiles entry),
-`project-data-at-hq-size` 12. `changes-made-in-hq` and `second-project-space` own no entry: bringing in
-what changed in HQ and updating a copy in a second project space are things Nova does, not content an
-app holds. A reading meets neither: it reads one app in one project space once. Step 6 states the
-first at the drift stop (part 10, section 9; part 13, 11.3) and the second in the review and the
-publish dialog (part 13, V21c and D7). No finding and no circumstance carries either owner.
+Appendix A.1 assigns every one. Where every run gives the outcome its part plans for, the counts when
+the step is done are `question-display` 63, `case-list-and-detail` 62, `case-search` 42, `xform` 40,
+`forms-and-case-management` 33, `menus` 22, `project-data-at-hq-size` 13 and
+`settings-nova-comes-to-own` 10 (the manifest test computes them). Updating a copy in a second
+project space is a thing Nova does, not content an app holds, so no entry can name it and the list
+does not hold it. A reading does not meet it: it reads one app in one project space once. Step 6
+states it in the review and the publish dialog (part 13, `13-the-experience.md`, V21c and D7).
 
 The eighteen entries that neither the outline nor step 7's outline at `main` (`7-rest-of-model.md`)
 named now have owners:
@@ -674,13 +770,18 @@ named now have owners:
 | `questions/connect-work-area-update` | `xform` | a form builder block |
 | `questions/data-node-xmlns-on-a-hidden-value` | `xform` | form source |
 
+One entry's owner is not its subject's usual group.
+`questions/intent-id-on-any-input-other-than-an-intent-typed-one-where-id` is a `question-appearance`
+entry owned by `xform`, because a reference to a callout from another input cannot be built without the
+callout question kind, which is `xform`'s.
+
 An entry step 6 flips carries the group it would fall to and no marker of the flip, so no value of
-`owner` is transitional. Section 3.8 lists those entries with the pull request that removes the field.
+`owner` is transitional. Section 3.8 lists those entries.
 
 ### 2.4 Value classes
 
-Rule, from A2: **a HELD-NEW entry that shares a surface key with a HELD, TARGET-OWNED or INERT entry
-carries a `valueClass`.** 146 HELD-NEW entries share one; 143 hold a class today. A2 adds three:
+Rule: **a HELD-NEW entry that shares a surface key with a HELD, TARGET-OWNED or INERT entry
+carries a `valueClass`.** 146 HELD-NEW entries share one; 143 hold a class today. Three gain one:
 
 | Entry | Shares its key with | `valueClass` added |
 |---|---|---|
@@ -690,27 +791,28 @@ carries a `valueClass`.** 146 HELD-NEW entries share one; 143 hold a class today
 
 A value class stays a slug whose meaning is the entry's `item` and `dispositionCell`. What makes it
 mechanical is not the manifest but the two things that read it: the reader's claim (each claim names the
-entry id whose class it decided; part 06, `06-the-reader-forms.md`, section 4.2, B2) and the variants'
-`expected.json` (part 14, `14-proof.md`, section 7.1, B13). The manifest's
-own duty, which CI holds, is that the classes of one key do not overlap and that none is missing where a
-key is split.
+entry id whose class it decided; part 06, `06-the-reader-forms.md`, section 4.2) and the lane's
+variants, each a row that names the entry it exhibits (part 14, `14-proof.md`, section 7). The
+manifest's own duty, which CI holds, is that the classes of one key do not overlap and that none is
+missing where a key is split.
 
 ### 2.5 A kept entry keeps its platform reading
 
 `inventoryEntrySchema`'s third arm takes `TARGET-OWNED` and `INERT` with `notApplicablePlatformsSchema`.
-From A2 it splits: `INERT` keeps `notApplicablePlatformsSchema`, and `TARGET-OWNED` takes
+It splits: `INERT` keeps `notApplicablePlatformsSchema`, and `TARGET-OWNED` takes
 `heldPlatformsSchema`, as HELD and HELD-NEW do. The 26 TARGET-OWNED entries of today keep
 `kind: "not-applicable"`, which `heldPlatformsSchema` admits. The fifteen settings keep the Web Apps and
-Android cells their rows state when A3 flips them, so no inventory row loses a reading.
+Android cells their rows state when they flip (3.6), so no inventory row loses a reading. The split
+comes before those flips: their entries parse only under the new arm.
 
 `surface/__tests__/platformFeatures.test.ts::readingsOf` and
 `lib/preview/__tests__/platformCells.test.ts::requiredCells` read HELD entries alone and stay as they
-are. So in A3 the flipped entries leave `platformFeatureEntries.ts::AMBIENT_PLATFORM_ENTRIES` (rule 2 of
+are. So the flipped entries leave `platformFeatureEntries.ts::AMBIENT_PLATFORM_ENTRIES` (rule 2 of
 that test refuses a named entry that is not HELD) and `platformCells.ts::PLATFORM_CELLS` (the cell test
-refuses a row that outlives its cell): the thirteen ids of section 3.6's last column. What Preview does
-for each is `KEPT_AT_HQ`'s Preview cell from then on.
+refuses a row that outlives its cell) with the flip: the thirteen ids of section 3.6's last column.
+What Preview does for each is `KEPT_AT_HQ`'s Preview cell from then on.
 
-### 2.6 What CI fails on, from A2
+### 2.6 What CI fails on
 
 **The schema holds the two required fields.** `subject` and `owner` are required by
 `inventoryEntrySchema`'s arms (2.2, 2.3), so an entry without one never reaches a rule: `loadManifest`
@@ -725,92 +827,88 @@ through each field's `error`:
 The existing test "parses no entries file that breaks the schema" gains a planted entry for each and
 holds the message. Zod's issue path names the file's entry, as it does for every schema failure today.
 
-`surface/__tests__/manifest.test.ts` gains five rules, each one function over the parsed manifest with
+`surface/__tests__/manifest.test.ts` gains four rules, each one function over the parsed manifest with
 a planted failing case beside it, as its existing rules have.
 
 | Rule | Fails when | Message |
 |---|---|---|
 | subject used | a member of `SUBJECTS` is the subject of no entry | `The subject <subject> is the subject of no entry. Remove it from SUBJECTS and its sentences from the finding copy, or give it to the entry it was added for.` |
 | class on a shared key | a HELD-NEW entry shares a surface key with an allowing entry and has no `valueClass` | `<id> is HELD-NEW and shares <key> with <other id>, which holds the rest of that key's values. Give <id> the value class that says which values it takes.` |
-| standing total | `standingOf` throws for an entry, or `fixCauseOf` gives `null` for a `fix-in-hq` entry | `<id> has no standing: <error>.` |
 | mixed reasons are listed | a REFUSED entry holds a kind of both groups and is not in the test's list `MIXED_REASON_ENTRIES`, which holds the two ids of 2.1 | `<id> holds a reason a fix in CommCare HQ lifts and one it does not, so it reads as "never": a person is told the app can't come in while it uses this, and is not sent to change it. Where that is true of it, add its id to MIXED_REASON_ENTRIES in this test. Where a change in CommCare HQ would lift it, drop the reason that does not apply.` |
 | the version floor stands alone | a REFUSED entry holds `below-commcare-version-floor` beside another kind of `FIX_IN_HQ_REASON_KINDS` | `<id> is refused for the CommCare version floor and for something else. Give the other reason its own entry: a person reads one sentence, and the floor's names the version.` |
 
-**A pull request that empties a pair removes its sentence.** The copy test of section 10 holds the
-finding copy to the manifest both ways, so a flip that takes the last entry of a subject and standing
-(or a subject and cause) removes that sentence in the same pull request, and one that takes a
-subject's last entry removes the subject. In step 6 that is: A3, `app-settings` and `app-logos` at
-`not-yet`; A4, `display-only-forms` at `not-yet`; B8, the subject `language-display-names`.
+No rule holds that `standingOf` answers for every entry: it cannot fail. The schema asks at least one
+reason of a closed kind on every REFUSED entry, the two reason lists are a partition at compile time
+(2.1), and the floor rule above keeps `below-floor` alone.
 
-**A pull request that adds a pair adds its sentence.** The same test fails an entry whose subject and
-standing have no sentence. In step 6 that is, each with the words 9.2's second table gives: A9, the
-sentences of 2.2's table; B2, `translation-overrides` and `language-codes` at `not-yet`; B3,
-`form-source` and `question-ids` at `not-yet`; B4, `display-only-forms` at `not-yet`, added back with
-a new sentence, `form-case-management` and `menu-settings` at `not-yet`, and the new subject
-`advanced-menus`; B5, the new subject `list-and-search-filters`; B6, `expressions` at `not-yet`.
+**The copy follows the manifest.** The copy test of section 10 holds the finding copy to the manifest
+both ways: an entry whose subject and standing, or subject and cause, has no sentence fails it, and
+so does a sentence, a stem or a subject that no entry gives. No test can hold that a sentence is true
+of every entry of its pair. So whoever adds an entry to a pair, or moves one, reads the pair's
+sentence against it and re-words the sentence where it is not true of it.
 
-**A pull request that widens a pair re-words its sentence.** No test can hold this one: a sentence
-written for the one entry of its pair stays present, and goes false, when a second entry of another
-shape joins the pair. So each joining entry of Appendix A was read against the sentence it would
-show. A9 re-words three `not-yet` sentences for its entries (2.2's table), and B3 re-words the
-`not-yet` sentence of `repeats`, which A2 words for a repeat's button captions alone, for part 06's
-model iteration entry (9.2's second table). The `not-yet` sentence of `case-list-columns` is worded
-in A2 for every entry the pair holds by B5: a column's format, its expression, its header, and
-its property's name where that is outside Nova's grammar (part 07's
-`menus-and-case-lists/column-field-outside-nova-s-property-grammar`, B5). "Set up in a way" is true
-of each, where "shows its value in a way" would be false of the last, so no later pull request
-re-words it.
+**The tables of this part are the step's end state, and the rules hold at every commit CI runs.** So
+where the schema's rule lands before an entry of 3.8 has flipped, that entry carries the subject and
+owner Appendix A.1 names for it, and its pair keeps a sentence, until the flip removes all three
+(3.8 gives the two sentences that exist only for that time).
 
-The coverage line the test prints gains the standings: "472 of 1,253 entries held; 26 kept, 168 inert,
-238 not yet, 93 never, 256 to change in CommCare HQ" (the numbers as A2 leaves them: its three new
-entries are two inert and one not yet; the test computes them).
+The coverage line the test prints gains the standings, in the form "N of M entries held; N kept, N
+inert, N not yet, N never, N to change in CommCare HQ". The test computes each number.
 
 The proof lane reads entries by key and ignores a field it does not name
-(`proof/checks/manifest_usage.py`, its `Entry`), so `subject` and `owner` change no lane verdict. No
-entry A2 or A3 moves has a reader in `manifest_value_classes.py::VALUE_CLASSES`, whose tile readers
-already test `case_tile_template` before they call a use refused.
+(`proof/checks/manifest_usage.py`, its `Entry`), so `subject` and `owner` change no lane verdict. One
+entry this part moves has a reader in `manifest_value_classes.py::VALUE_CLASSES`: the logo entry of
+3.5, whose reader gains the `m_id` test. The tile readers already test `case_tile_template` before
+they call a use refused, so 3.1 and 3.2 change none.
 
 ---
+
 ## 3. Rows re-cut by value
 
 Each row below names the entry, its cell today, the new wording, the inventory row that moves with it
-(a file under `docs/research/2026-09-26-hq-round-trip/inventory/`, in the same pull request), the
-evidence at source, and the pull request that makes the edit. The rule for where an edit lands: A2
-carries a re-cut that no code change makes true (an inert class, a split that only narrows, a re-wording,
-a stale cell); A3 carries the kept flips, which its `.ccz` and Preview readers make true; a re-cut that
-calls a value HELD because a reader recognizes it lands in the stack B pull request whose reader first
-claims it, and an entry a new concept holds flips in that concept's pull request of stack A. Every edit
-keeps the manifest test green in its own pull request.
+(a file under `docs/research/2026-09-26-hq-round-trip/inventory/`, changed together with the entry) and
+the evidence at source.
 
-### 3.1 `case_tile_field` (A2)
+One rule decides when an entry's wording may change: **an entry flips together with the code that
+makes its new wording true.** A re-cut that no code change makes true (an inert class, a split that
+only narrows, a re-wording, a stale cell: 3.1 to 3.4 and 3.7) needs nothing else. The kept flips (3.6)
+are true once the `.ccz` and Preview read the kept values (section 6). A re-cut that calls a value
+HELD because a reader recognizes it (3.5) is true once that reader claims it, and an entry a new
+concept holds flips with that concept (3.5, its last paragraph). The manifest test stays green at
+every commit CI runs.
+
+### 3.1 `case_tile_field`
 
 | | |
 |---|---|
 | Entry | `menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid` |
 | Today | HELD-NEW, no value class, on `schema:DetailColumn.case_tile_field`: "`column.tileSlot`". Read mechanically, `""` on any column refuses the app. |
-| From A2 | The entry gains `valueClass: "slot-on-a-template-tile"`, `subject: "case-tiles"`, `owner: "case-list-and-detail"`; its `item` becomes "`case_tile_field` holding text, on a detail whose `case_tile_template` is a template with slots: `icon_text_grid`, or `person_simple` or a removed template, where the detail's own REFUSED entry also applies". A new entry beside it: `menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile`, INERT, `valueClass: "blank-or-off-a-template-tile"`, same surface key, `item`: "`case_tile_field` `\"\"` or `null`, or any value on a detail with no `case_tile_template` or with `custom`", `dispositionCell`: "**INERT**: HQ's Case List page writes `\"\"` on every column at every save (`details/bootstrap5/column.js`, `serialize`), and HQ reads the key only to fill a template's slots, which a detail with no template, or with the `custom` one, has none of (`suite_xml/features/case_tiles.py::case_tile_template_config`, `CaseTileHelper._get_matched_detail_column`; `helpers/validators.py`, the tile checks)", platforms `not-applicable` (`n/a`), emission `omit` with the marker `omit`, no gates. The two classes split every value of the key: blank anywhere, and text on a detail with no slots, are inert; text on a detail with slots is the HELD-NEW entry's. |
+| New | The entry gains `valueClass: "slot-on-a-template-tile"`, `subject: "case-tiles"`, `owner: "case-list-and-detail"`; its `item` becomes "`case_tile_field` holding text, on a detail whose `case_tile_template` is a template with slots: `icon_text_grid`, or `person_simple` or a removed template, where the detail's own REFUSED entry also applies". A new entry beside it: `menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile`, INERT, `valueClass: "blank-or-off-a-template-tile"`, same surface key, `item`: "`case_tile_field` `\"\"` or `null`, or any value on a detail with no `case_tile_template` or with `custom`", `dispositionCell`: "**INERT**: HQ's Case List page writes `\"\"` on every column at every save (`details/bootstrap5/column.js`, `serialize`), and HQ reads the key only to fill a template's slots, which a detail with no template, or with the `custom` one, has none of (`suite_xml/features/case_tiles.py::case_tile_template_config`, `CaseTileHelper._get_matched_detail_column`; `helpers/validators.py`, the tile checks)", platforms `not-applicable` (`n/a`), emission `omit` with the marker `omit`, no gates. The two classes split every value of the key: blank anywhere, and text on a detail with no slots, are inert; text on a detail with slots is the HELD-NEW entry's. |
 | Inventory | `menus-and-case-lists.md`, the row "`case_tile_field` (template slot) on `icon_text_grid`": re-worded, and the new row added under it. |
 | Evidence | `models/case_list.py::DetailColumn.case_tile_field` is a `StringProperty(exclude_if_none=True)`, default `None`. `column.js` sets `self.original.case_tile_field = … \|\| ""` and `serialize` writes `column.case_tile_field = self.case_tile_field()` for every column. Readers: `CaseTileHelper.__init__` builds `cols_by_tile_field`, read only by `_get_matched_detail_column`, which `build_case_tile_detail` calls for each of `case_tile_template_config(template).fields` in its branch for a template other than `custom`; `suite_xml/sections/details.py` reaches the helper only under `if detail.case_tile_template:`; `case_tile_template_config("custom")` returns no fields, and both members of `CaseTileTemplates` (`person_simple`, `icon_text_grid`) load a file that names them; the validator's slot check runs inside `if detail.case_tile_template:` over the same `fields`. No reader in Core, Android or Formplayer: the key never reaches a suite. A column's slot on `person_simple` is `not-yet` like one on `icon_text_grid`, since it is the same Nova slot (`column.tileSlot`) that would hold it; the `person_simple` template itself keeps its own REFUSED entry (`detail-case-tile-template-person-simple`), so such an app is told both. No key is added to a REFUSED entry, so the lane's readers of those classes (`manifest_value_classes.py::VALUE_CLASSES`) meet no new key. Lifecycle: alive. |
 
-### 3.2 Tile cell keys on a list that is no tile (A2)
+### 3.2 Tile cell keys on a list that is no tile
 
 | | |
 |---|---|
 | Entries | `menus-and-case-lists/grid-x-grid-y-width-height-custom-tile` (HELD, `placed-custom-tile-column`), `horizontal-align-vertical-align` (HELD, `explicit-value`), `font-size` (HELD, `explicit-value`), `show-border-show-shading` (HELD, `custom-tile-column`), and the three REFUSED null rows (`custom-tile-column-with-grid-null-unplaced`, `horizontal-align-null-on-a-placed-custom-tile-column`, `custom-tile-font-size-null`) |
 | Today | Each HELD class is worded for a custom tile. No entry says what the nine keys mean on a detail with no tile, where HQ's page writes `grid_x: 0`, `grid_y: 0`, a width and a height, `horizontal_align: "left"`, a `vertical_align`, `font_size: "medium"`, `show_border` and `show_shading` on every column. |
-| From A2 | A new entry `menus-and-case-lists/tile-cell-keys-on-a-list-that-is-not-a-tile`, INERT, `valueClass: "off-a-custom-tile"`, surface keys `schema:DetailColumn.grid_x`, `.grid_y`, `.width`, `.height`, `.horizontal_align`, `.vertical_align`, `.font_size`, `.show_border`, `.show_shading`, `item`: "`grid_x`, `grid_y`, `width`, `height`, `horizontal_align`, `vertical_align`, `font_size`, `show_border`, `show_shading` at any value, on a detail with no `case_tile_template` or with a template other than `custom`, whose layout is the template's own", `dispositionCell`: "**INERT**: HQ's Case List page writes all nine on every column at every save, and HQ reads them only while it builds a custom tile (`CaseTileHelper.build_case_tile_detail`, under `case_tile_template == CUSTOM`). Read as cells they would stack every column at the top left; Nova reads none and writes none while a list has no tile", platforms `not-applicable`, emission `omit`. The four HELD entries' `item` cells gain "on a detail whose `case_tile_template` is `custom`", which their value classes already say. |
+| New | A new entry `menus-and-case-lists/tile-cell-keys-on-a-list-that-is-not-a-tile`, INERT, `valueClass: "off-a-custom-tile"`, surface keys `schema:DetailColumn.grid_x`, `.grid_y`, `.width`, `.height`, `.horizontal_align`, `.vertical_align`, `.font_size`, `.show_border`, `.show_shading`, `item`: "`grid_x`, `grid_y`, `width`, `height`, `horizontal_align`, `vertical_align`, `font_size`, `show_border`, `show_shading` at any value, on a detail with no `case_tile_template` or with a template other than `custom`, whose layout is the template's own", `dispositionCell`: "**INERT**: HQ's Case List page writes all nine on every column at every save, and HQ reads them only while it builds a custom tile (`CaseTileHelper.build_case_tile_detail`, under `case_tile_template == CUSTOM`). Read as cells they would stack every column at the top left; Nova reads none and writes none while a list has no tile", platforms `not-applicable`, emission `omit`. The four HELD entries' `item` cells gain "on a detail whose `case_tile_template` is `custom`", which their value classes already say. |
 | Inventory | `menus-and-case-lists.md`, "Detail columns": the new row, and the four re-worded. |
 | Evidence | `column.js`, `serialize`: `column.grid_x = self.tileColumnStart() - 1` and the eight beside it, unconditionally. `CaseTileHelper.build_case_tile_detail` builds a `Style` from them only in its `CUSTOM` branch. `lib/commcare/hqJson/caseList.ts::applyTileLayoutToShortDetail` writes them only while the list has a tile layout (`lib/domain/modules.ts::tileCellFor`), so Nova's exports hold none off a tile and the lane sees no new use. Lifecycle: alive. |
 
-A Nova document may hold cells while its tile layout is off (`tileCellFor` keeps the drawing). Those cells
-reach no wire, so a reading of Nova's own export gives a document without them. That is the
-canonicalization `dormant-tile-cells`: a row of `READER_CANONICAL_CHOICES` part 07 adds in B5
+A Nova document may hold cells that `lib/domain/modules.ts::tileCellFor` gives no square for: the
+list's layout is no tile, or the column is not shown in Results (`tileCellFor` keeps the drawing).
+Those cells reach no wire, so a reading of Nova's own export gives a document without them. That is
+the canonicalization `dormant-tile-cells`: a row of `READER_CANONICAL_CHOICES` part 07 adds
 (`07-the-reader-cases-menus-lists.md`, section 11.5), proven by part 09's `canon.test.ts`
-(`09-acceptance-and-the-first-publish.md`, section 9, B7).
+(`09-acceptance-and-the-first-publish.md`, section 9).
 
-### 3.3 Stale cells (A2)
+### 3.3 Stale cells
 
-Each is a re-wording with no disposition change. The inventory row takes the same words.
+Each is a re-wording with no disposition change. The inventory row takes the same words. Three of
+these entries also flip in this step (the language display name, 7.2; the date and time join and the
+query rows, 3.5): the words below hold until the flip gives each its new cell.
 
 | Entry | Stale words | New words |
 |---|---|---|
@@ -819,26 +917,34 @@ Each is a re-wording with no disposition change. The inventory row takes the sam
 | `menus-and-case-lists/modulebase-unique-id` | emission: "(today random per expansion)" | emission: "the target's recorded id; derived from the menu's UUID elsewhere (`wireIdentity.ts`)" |
 | `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time` | cell: "arriving with step 4" | cell: "a datetime writer Nova emits from step 4 (`nova_datetime_<question>`); no reader recognizes it yet" |
 | `case-search/several-xpath-query-rows` | cell: "(today Nova emits one row per top-level conjunct…)" | cell: "Nova emits one row per top-level conjunct of its composed condition (`xpathQuery.ts::composeXPathQueryEmission`), and HQ joins every row with `and` (`case_search/utils.py::_apply_filter`); no reader reads rows back yet" |
-| `forms-and-case-writes/xmlns-form-json-and-xform-data-node` | cell: "…; widen: `Form.xmlns`, a stored submission identity an import keeps for a new project space and the local `.ccz`", and that `widen` in `slotChanges` | `slotChanges: []`, and the cell part 10 fixes (`10-identity-and-the-ledger.md`, "Contracts", the surface manifest row; B8 plans the ledger, A2 lands this cell): "**HELD**: derived from the form's UUID (`wireIdentity.ts::derivedFormXmlns`), or the `xmlns` the deployment ledger records for that project space (`app_deployment_identities`, `wireIdentity.ts::targetWireIdentity`): an app brought in from CommCare HQ keeps HQ's `xmlns` for every form on the project space it came from, and takes the derived one everywhere else" |
+| `forms-and-case-writes/xmlns-form-json-and-xform-data-node` | cell: "…; widen: `Form.xmlns`, a stored submission identity an import keeps for a new project space and the local `.ccz`", and that `widen` in `slotChanges` | `slotChanges: []`, and the cell part 10 fixes (`10-identity-and-the-ledger.md`, "Contracts", the surface manifest row): "**HELD**: derived from the form's UUID (`wireIdentity.ts::derivedFormXmlns`), or the `xmlns` the deployment ledger records for that project space (`app_deployment_identities`, `wireIdentity.ts::targetWireIdentity`): an app brought in from CommCare HQ keeps HQ's `xmlns` for every form on the project space it came from, and takes the derived one everywhere else" |
+| `project-space-setting/Domain.commtrack_enabled` (`lib/commcare/surface/entries/gates.json`) | `content` ends: "…(HQ's substring test, `entries.py::entry_for_module`); import asks the same from step 6" | `content` ends: "…(HQ's substring test, `entries.py::entry_for_module`)" |
 
-The `xmlns` row is row 20 of part 04's table of widens (`04-names.md`, section 2.4, A9), which hands
-it to A2. What makes the widen false is this plan's decision that a form has no stored `xmlns` slot:
-an adopted app's `xmlns` is a ledger row of its one deployment (part 10, sections 2 to 4;
-`../6-bring-in.md`, "What changed from the outline, and why", item 17). Nova's exports already hold
-an `xmlns` this way.
+The `xmlns` row is row 20 of part 04's table of widens (`04-names.md`, section 2.4), settled here.
+What makes the widen false is this plan's decision that a form has no stored `xmlns` slot: an adopted
+app's `xmlns` is a ledger row of its one deployment (part 10, sections 2 to 4; `../6-bring-in.md`,
+"What changed from the outline, and why"). Nova's exports already hold an `xmlns` this way.
+
+The CommTrack cell loses its last clause because bringing an app in asks no confirmation: the app
+already runs in its source project space, so the plan features it uses are recorded and the rest is
+asked at the first publish, as today (part 07, Departure 11; part 10, section 6.5). The inventory
+says the same thing in prose and changes with the cell:
+`docs/research/2026-09-26-hq-round-trip/inventory/gates.md`, the paragraph that begins "Publish
+also checks gates outside the app-building flags above", loses the clause ", with import asking
+the same from step 6".
 
 `case-search/title-label-or-blank-hq-s-default`'s cell ("step 7's migration writes \"Search\"") and
-`menus-and-case-lists/blanks-first-last`'s row are re-written by A8, which holds their concepts (part
-03, `03-questions-and-text.md`).
+`menus-and-case-lists/blanks-first-last`'s row are re-written by part 03
+(`03-questions-and-text.md`), which holds their concepts.
 
-### 3.4 The ten "outside" rows (A2: wording; B5: the search text; B6: the reader)
+### 3.4 The ten "outside" rows
 
 The pairs are cut by two type names that no longer exist. The stored union is one `Expression`
 (`lib/domain/expression/types.ts`), judged per slot by `checkExpression` under the slot's profile, whose
 rule set is `record` or `form` (`lib/domain/expression/profiles.ts::SlotProfile`). All ten slots take
 the `record` rule set (`lib/domain/expression/context.ts::slotContext`: a choice list's filter and
 every case operation slot are `record` slots that also read the form's answers, as part 08 found,
-`08-the-reader-expressions.md`). From A2 each pair reads:
+`08-the-reader-expressions.md`). Each pair reads:
 
 - the HELD class: "an expression Nova's checker admits in this slot (`checkExpression` under the slot's
   profile, the `record` rule set)";
@@ -862,40 +968,43 @@ Value class slugs do not change, so no other file moves. The pairs, HELD then HE
 
 Evidence that the wording is true of Nova's exports today: every expression Nova stores passed
 `checkExpression` at commit, so every use an export holds is in the HELD class. The line itself
-becomes a reader's fact in B6: B5 registers the text of the four search pairs; part 08's binder
-claims them (B6). For every pair the reader parses HQ's text, binds it, runs the same checker, and
-claims the HELD entry where it passes and the HELD-NEW entry, with the checker's reason in the
-finding's `detail`, where it does not (part 08, section 9.2). No row flips there; a row would flip
-only if a later step widens a rule set.
+becomes a reader's fact with part 08's binder (`08-the-reader-expressions.md`, section 9.2): part 07
+registers the text of the four search pairs (its section 14), and for every pair the reader parses
+HQ's text, binds it, runs the same checker, and claims the HELD entry where it passes and the
+HELD-NEW entry, with the checker's reason in the finding's `detail`, where it does not. No row flips
+there; a row would flip only if a later step widens a rule set.
 
-### 3.5 Reading re-cuts this part words and another pull request lands
+### 3.5 Re-cuts a reader makes true
 
-| Entry | Today | New wording | Lands in |
+This part words each; the reader named in the last column makes it true and flips it.
+
+| Entry | Today | New wording | True with |
 |---|---|---|---|
-| `case-search/several-xpath-query-rows` | HELD-NEW: "each row a typed default filter kept as its own row" | HELD, `valueClass` kept: "several `_xpath_query` rows, read as one condition: their conjunction. HQ joins every row with `and`, so one row or several find the same cases, and Nova writes one row per top-level conjunct of what it holds". No `subject`, no `owner`. A row whose own text is an `and` reads as two conjuncts and is written back as two rows, which finds the same cases; the first-publish register declares the changed row count under the id `search-filter-rows-recut` (part 09, `09-acceptance-and-the-first-publish.md`, section 11.2, B7). B5 lands this wording with the narrowing part 07 adds to it (`07-the-reader-cases-menus-lists.md`, section 14, "B5, re-cut": which conjuncts the HELD class takes). | B5 |
-| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time` | HELD-NEW | HELD: "a date question and a time question joined into one date and time for a case property, the shape step 4's split writes (`lib/doc/datetimeSplit.ts`); the reader recognizes the join by re-emitting it" | B4 |
-| the media rows of "a reference identical in every language" (`menus-and-case-lists/media-image-media-audio-differing-by-language`, `forms-and-case-writes/media-image-media-audio-differing-by-language`, `questions/label-or-option-media-differing-by-language`) | HELD-NEW, each beside a HELD row for the shared slot | The HELD-NEW rows keep their disposition and gain to their `item`: "a path present in one language and absent in another counts as differing". Their HELD siblings gain: "the same path in every language the app has reads as the one shared slot". | B3 (questions and forms), B4 (menus) |
-| `expressions-and-data/media-path-jr-file` | HELD-NEW: a held media path | HELD: "the path CommCare HQ holds the file at, kept for the project space the app came from (`app_deployment_media_paths`); every other project space takes Nova's own path" | B9 |
-| `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` | HELD-NEW, `valueClass: "referenced-path-without-entry"` | Split, as part 11 writes it (`11-project-data.md`, section 13.1). The entry becomes INERT with `valueClass: "path-without-entry-nothing-draws"`: a reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file, which the reader leaves out and the review lists. A new entry beside it, `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`, REFUSED (`broken-at-runtime`), `valueClass: "path-without-entry-a-runtime-draws"`, `subject: "media-files"`, takes the slots a runtime draws; its standing is `fix-in-hq`. | B9 |
-| `application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s` | HELD-NEW | TARGET-OWNED, section 7.2 | B8 |
+| `case-search/several-xpath-query-rows` | HELD-NEW: "each row a typed default filter kept as its own row" | HELD, `valueClass` kept: "several `_xpath_query` rows, read as one condition: their conjunction. HQ joins every row with `and`, so one row or several find the same cases, and Nova writes one row per top-level conjunct of what it holds". No `subject`, no `owner`. A row whose own text is an `and` reads as two conjuncts and is written back as two rows, which finds the same cases; the first-publish register holds the changed row count under the id `search-filter-rows-recut` (part 09, `09-acceptance-and-the-first-publish.md`, section 11.2). Part 07 adds the narrowing to this wording (`07-the-reader-cases-menus-lists.md`, section 14: which conjuncts the HELD class takes). | part 07's search reader |
+| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time` | HELD-NEW | HELD: "a date question and a time question joined into one date and time for a case property, the shape step 4's split writes (`lib/doc/datetimeSplit.ts`); the reader recognizes the join by re-emitting it" | part 07's case reader |
+| the media rows of "a reference identical in every language" (`menus-and-case-lists/media-image-media-audio-differing-by-language`, `forms-and-case-writes/media-image-media-audio-differing-by-language`, `questions/label-or-option-media-differing-by-language`) | HELD-NEW, each beside a HELD row for the shared slot | The HELD-NEW rows keep their disposition and gain to their `item`: "a path present in one language and absent in another counts as differing". Their HELD siblings gain: "the same path in every language the app has reads as the one shared slot". | part 06's reader (questions and forms), part 07's (menus) |
+| `expressions-and-data/media-path-jr-file` | HELD-NEW: a held media path | HELD: "the path CommCare HQ holds the file at, kept for the project space the app came from (`app_deployment_media_paths`); every other project space takes Nova's own path" | part 11's media reading |
+| `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` | HELD-NEW, `valueClass: "referenced-path-without-entry"` | Split, as part 11 writes it (`11-project-data.md`, section 13.1). The entry becomes INERT with `valueClass: "path-without-entry-nothing-draws"`: a reference with no `multimedia_map` entry on a slot no runtime the app runs on draws without its file, which the reader leaves out and the review lists. A new entry beside it, `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`, REFUSED (`broken-at-runtime`), `valueClass: "path-without-entry-a-runtime-draws"`, `subject: "missing-media-files"`, takes the slots a runtime draws; its standing is `fix-in-hq`. | part 11's media reading |
+| `application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare` | REFUSED: a `path` other than the uploader's | Its `item` becomes "`logo_refs[slot]` the uploader did not write: a `path` other than `jr://file/commcare/logo/data/<slot><ext>`, or an entry with no `m_id`", and its first reason's `named` gains "and always stores `m_id` (`hqmedia/models.py::CommCareMultimedia.get_media_info`)". The `valueClass` stays `path-not-from-uploader`. `proof/checks/manifest_value_classes.py::path_not_from_uploader` gains the `m_id` test (an entry that is no object, or whose `m_id` is no non-empty string), with its case in `proof/checks/test_manifest_value_classes.py`. The inventory row in `application-and-settings.md` takes the same words. | part 06's application walker, which refuses it (4.3 gives the evidence) |
+| `application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s` | HELD-NEW | TARGET-OWNED, section 7.2 | the overlay's `languageNames` option (7.2) |
 
-The concept flips of stack A, each in the pull request that builds the concept, with the entry edits
-that part writes: `menus-and-case-lists/put-in-root-display-only-forms` (A4);
-`menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module` and
-`case-list-form-media-image-media-audio` (A5); `questions/phone-number-xsd-string-appearance-numeric`
-(A6); `questions/output-value-any-other-expression` (A7);
+**The concept flips**, each with the concept that holds it and with the entry edits its part writes:
+`menus-and-case-lists/put-in-root-display-only-forms`,
+`case-list-form-pointing-at-a-registration-form-in-another-module` and
+`case-list-form-media-image-media-audio` (part 02, `02-menus.md`);
+`questions/phone-number-xsd-string-appearance-numeric`, `questions/output-value-any-other-expression`,
 `case-search/title-label-or-blank-hq-s-default`, `menus-and-case-lists/blanks-first-last` and
-`questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable` (A8). Every `widen` on a HELD
-row other than the sixteen of 3.6 and the `xmlns` row of 3.3 is part 04's (`04-names.md`), decided row
-by row (A9; its row 30 lands with A5).
+`questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable` (part 03,
+`03-questions-and-text.md`). Every `widen` on a HELD row other than the sixteen of 3.6 and the `xmlns`
+row of 3.3 is part 04's (`04-names.md`), decided row by row.
 
-### 3.6 The kept flips (A3)
+### 3.6 The kept flips
 
 Each entry below becomes TARGET-OWNED, loses `slotChanges`, `subject` and `owner` where it holds them,
 keeps its surface keys, value class and platform cells, and takes the `dispositionCell` and emission
-shown. `KEPT_AT_HQ` (section 5) gains its row in the same pull request.
+shown. `KEPT_AT_HQ` (section 5) gains its row with the flip.
 
-| Entry | Today | `dispositionCell` from A3 | Leaves `AMBIENT_PLATFORM_ENTRIES` and `PLATFORM_CELLS` |
+| Entry | Today | New `dispositionCell` | Leaves `AMBIENT_PLATFORM_ENTRIES` and `PLATFORM_CELLS` |
 |---|---|---|---|
 | `application-and-settings/1-properties-cc-autoup-freq`, `4-properties-cc-days-form-retain`, `5-properties-logenabled`, `13-properties-cc-autosync-freq`, `17-properties-cc-content-valid`, `18-properties-unsent-number-limit`, `19-properties-unsent-time-limit`, `22-properties-cc-resize-images`, `23-properties-cc-fuzzy-search-enabled`, `25-properties-cc-login-duration-seconds`, `26-properties-cc-inflation-target-density`, `27-properties-cc-gps-auto-capture-accuracy`, `28-properties-cc-maps-default-layer`, `29-properties-cc-enable-tts`, `30-properties-cc-label-required-questions-with-asterisk` | HELD, "Nova's seed `<value>` … widen: `appSettings.<slot>`, any of the setting's choices" | "**TARGET-OWNED**: kept at the project space's value, any of the setting's choices. A publish writes Nova's value `<value>` only where the project space holds none (`targetOverlay.ts::projectProfileForTarget`); a `.ccz` made for the project space writes its value (`keptProfile.ts::targetProfileProperties`)". Emission: "the project space's value where it holds one; Nova's `<value>` where it holds none, on both paths". | yes, the thirteen that hold a row (all but 13 and 23, which read `runs` on both platforms) |
 | `application-and-settings/24-properties-cc-log-entity-detail-enabled` | HELD-NEW, "`appSettings.logCaseDetailViews`" | "**TARGET-OWNED**: kept at the project space's value. Nova writes none; a publish carries it (`projectProfileForTarget` keeps every key it does not name) and a `.ccz` made for the project space writes it where it is set". Emission: "the project space's value where it is set; nothing otherwise". | no row |
@@ -915,7 +1024,8 @@ where only `cc-show-saved`, `cc-show-incomplete` and `log_prop_weekly` do);
 own defaults for `cc-fuzzy-search-enabled` and `cc-content-valid` are `yes`, where Nova's value is
 `no`, and HQ's starter apps hold them so. `static/app_manager/template_apps/` holds four
 directories, the three starter apps (agriculture, health, wash) and `wash_before_cond_case_update`,
-a second copy of `wash` (part 14, `14-proof.md`, section 6.2): all four `app.json` files hold
+which is `wash`'s content from before case updates stored `update_mode` and which part 14 counts as
+no base (`14-proof.md`, section 6.2): all four `app.json` files hold
 `cc-fuzzy-search-enabled: yes`, three hold
 `cc-content-valid: yes`, and the health app `cc-resize-images: full`. None of the fifteen changes
 what a form asks or stores: each is read by commcare-android's preferences
@@ -931,9 +1041,9 @@ matches typed text, and Preview claims to run that, so clause 3 answers it: Prev
 
 Clause 1 holds for the fifteen on a deployment Nova created by Nova's own stated behavior: the seed is
 written once, where the project space holds no value, and a later publish finds a value and leaves it.
-On a deployment Nova brought in, a seed would be a change, so none is written (7.3, B8).
+On a deployment Nova brought in, a seed would be a change, so none is written (7.3).
 
-**One kept entry is re-worded in A3 without a flip.**
+**One kept entry is re-worded without a flip.**
 `application-and-settings/32-features-credentials` stays TARGET-OWNED. Its cell becomes
 "**TARGET-OWNED**: written by the project space's credential settings from its `CredentialApplication`
 row (`domain/views/settings.py::CredentialsApplicationSettingsView`); HQ's build writes it as the
@@ -946,59 +1056,66 @@ type=\"APP_ACTIVITY\"/></credentials>` where the project space holds a level", a
 leaves it, since `omit` says Nova writes nothing (`schema.ts::EMISSION_MARKERS`). The entry already
 names the profile parser's `credentials` keys, so the archive's use of them is held by it.
 
-### 3.7 `build_profiles` (A2)
+### 3.7 `build_profiles`
 
 | | |
 |---|---|
 | Entry | `application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker` |
 | Today | TARGET-OWNED, no value class |
-| From A2 | The entry gains `valueClass: "empty"` and its `item` becomes "`build_profiles` `{}`". A new entry `application-and-settings/build-profiles-non-empty`, HELD-NEW, `valueClass: "non-empty"`, same surface keys and gate (`privilege/build_profiles`), `subject: "build-profiles"`, `owner: "settings-nova-comes-to-own"`, `item`: "`build_profiles` holding a profile (its `name`, `langs`, `practice_mobile_worker_id`)", `dispositionCell`: "**HELD-NEW**: build profiles Nova keeps in step with the app's languages. HQ builds each profile with its own `langs` (`app_strings.py::_create_custom_app_strings`, `ApplicationBase.get_build_langs`) and an update never writes the key, so a language Nova adds reaches no profile and one it removes stays in each", platforms `not-applicable`, emission `omit`. |
-| Inventory | `application-and-settings.md`, the `build_profiles` row split in two. |
-| Evidence | `ApplicationBase._update_excluded_fields` lists `build_profiles`. HQ's own Languages page removes a deleted language from every profile (`views/apps.py::edit_app_langs`, the loop over `app.build_profiles`); Nova's update writes `langs` alone. `views/releases.py` makes a build per profile under the `build_profiles` privilege. Lifecycle: alive, behind a plan privilege. |
+| New | The entry gains `valueClass: "empty"` and its `item` becomes "`build_profiles` `{}`". A new entry `application-and-settings/build-profiles-non-empty`, HELD-NEW, `valueClass: "non-empty"`, same surface keys and gate (`privilege/build_profiles`), `subject: "build-profiles"`, `owner: "settings-nova-comes-to-own"`, `item`: "`build_profiles` holding a profile (its `name`, `langs`, `practice_mobile_worker_id`)", `dispositionCell`: "**HELD-NEW**: build profiles as part of the app Nova holds. HQ builds each profile with its own `langs` (`app_strings.py::_create_custom_app_strings`, `ApplicationBase.get_build_langs`) and an update never writes the key, so a language Nova adds joins no profile, and a publish stops where a profile names a language the app no longer has (`hq_build_profile_language_missing`)", platforms `not-applicable`, emission `omit`. |
+| Inventory | `application-and-settings.md`, the `build_profiles` row split in two. Each disposition cell gains "; a publish reads the profiles and stops where one names a language the app no longer has". |
+| Evidence | `ApplicationBase._update_excluded_fields` lists `build_profiles`. HQ's own Languages page removes a deleted language from every profile (`views/apps.py::edit_app_langs`, the loop over `app.build_profiles`); Nova's update writes `langs` alone. `views/releases.py` makes a build per profile under the `build_profiles` privilege. No request an API key can send writes the key: `LanguageProfilesView` and `edit_app_langs` are `require_can_edit_apps`, a browser session. Lifecycle: alive, behind a plan privilege. |
 
-**The defect this row names has an owner before A2 opens.** A language a Nova author removes stays
-in each of CommCare HQ's build profiles, on an app whose HQ copy has any ("Executed during
-planning"). Step 6 does not fix it: A2 only gives the shape its entry. Before A2 opens, its
-implementer files the GitHub issue "A language removed in Nova stays in CommCare HQ's build
-profiles", assigned to themselves, with the Evidence cell above as its body, and names its number
-in A2's description. Step 7's group `settings-nova-comes-to-own`, the entry's owner, is where Nova
-comes to keep build profiles in step with an app's languages, and that group's plan closes the
-issue. It is the third of the three issues part 15 has filed before their pull requests open (its
-section 3, rule 12, and section 10.3), with A3's of 6.4 and A7's of part 03.
+A publish holds every build profile on the target's app to the languages it writes, and stops
+where one names a language the app no longer has (section 7.4). That closes the defect this
+key had: before it, a language removed in Nova stayed in each of HQ's profiles.
 
-### 3.8 Entries that leave HELD-NEW in step 6
+### 3.8 Entries that leave HELD-NEW or REFUSED in step 6
 
-Each holds `subject` and `owner` from A2 and loses both in the pull request named.
+Each entry below is HELD-NEW today and ends the step with neither `subject` nor `owner`: the flip
+removes both.
 
-| Entry | Pull request |
-|---|---|
-| `application-and-settings/24-properties-cc-log-entity-detail-enabled`, `51-hq-persistent-menu`, `52-hq-show-breadcrumbs`, `translations-key-in-a-runtime-s-ui-string-catalog-core-android`, `translations-catalog-key-hq-fills-with-its-own-text-in-a`, `logo-refs-hq-logo-android-home-login-demo` | A3 |
-| `menus-and-case-lists/put-in-root-display-only-forms` | A4 |
-| `menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module`, `case-list-form-media-image-media-audio` | A5 |
-| `questions/phone-number-xsd-string-appearance-numeric` | A6 |
-| `questions/output-value-any-other-expression` | A7 |
-| `case-search/title-label-or-blank-hq-s-default`, `menus-and-case-lists/blanks-first-last`, `questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable` | A8 |
-| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time`, `forms-and-case-writes/loadupdateaction-preload-question-property` (HELD-NEW to HELD) | B4 |
-| `case-search/several-xpath-query-rows` | B5 |
-| `application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s` | B8 |
-| `expressions-and-data/media-path-jr-file`, `a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` | B9 |
+| Entry | Becomes | With |
+|---|---|---|
+| `application-and-settings/24-properties-cc-log-entity-detail-enabled`, `51-hq-persistent-menu`, `52-hq-show-breadcrumbs`, `translations-key-in-a-runtime-s-ui-string-catalog-core-android`, `translations-catalog-key-hq-fills-with-its-own-text-in-a`, `logo-refs-hq-logo-android-home-login-demo` | TARGET-OWNED | 3.6 |
+| `application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s` | TARGET-OWNED | 7.2 |
+| `menus-and-case-lists/put-in-root-display-only-forms`, `case-list-form-pointing-at-a-registration-form-in-another-module`, `case-list-form-media-image-media-audio` | HELD | part 02's concepts (3.5) |
+| `questions/phone-number-xsd-string-appearance-numeric`, `questions/output-value-any-other-expression`, `questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable`, `case-search/title-label-or-blank-hq-s-default`, `menus-and-case-lists/blanks-first-last` | HELD | part 03's concepts (3.5) |
+| `forms-and-case-writes/update-through-the-date-and-time-join-of-a-date-and-a-time`, `forms-and-case-writes/loadupdateaction-preload-question-property`, `case-search/several-xpath-query-rows` | HELD | part 07's readers (3.5; part 07, section 14) |
+| `expressions-and-data/media-path-jr-file` (HELD), `a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` (INERT) | | part 11's media reading (3.5) |
 
-Three entries join HELD-NEW in stack B and gain both fields there:
-`questions/question-id-case-registration-script` (B3, part 06),
-`forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held` (B4, part
-07) and `menus-and-case-lists/6-late-flag-late-flag-1` (B5, part 07). The closing block of Appendix
-A.1 gives each its subject and owner, with every entry a later pull request adds as HELD-NEW.
+Where the schema's rule lands before one of these flips (2.6), the entry carries the subject and owner
+Appendix A.1 gives it until then, and its pair needs a sentence for that time. Two pairs exist only
+that way and are no rows of 9.2: `app-settings` at `not-yet`, "This uses an app setting, which Nova
+can't hold yet.", and `app-logos` at `not-yet`, "This uses logos for the Android home, sign-in and
+practice screens, which Nova can't hold yet." The language display name entry takes `app-settings` for
+that time. Every other pair these entries give is one a row of 9.2 holds.
+
+Three entries leave REFUSED. `application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5` becomes
+TARGET-OWNED (3.6).
+`forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held` becomes HELD-NEW
+(part 07, section 14). `questions/an-explicitly-blank-value-in-a-non-default-language-where-the` becomes
+HELD: a blank in a language other than the first, where the first holds text, is read as no translation
+(part 09, Departure 17), and the blank in the first language gets its own REFUSED entry
+(`questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text`, part 06's;
+Appendix A.2).
+
+Three entries join HELD-NEW as re-cuts of entries the manifest holds today under another disposition,
+and gain both fields with the re-cut: `questions/question-id-case-registration-script` (HELD today;
+part 06), `forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held`
+(REFUSED today; part 07) and `menus-and-case-lists/6-late-flag-late-flag-1` (HELD today; part 07).
+The last block of Appendix A.1 gives each its subject and owner, with every entry the step adds as
+HELD-NEW.
 
 ---
 
-## 4. The kept test, key by key (A3)
+## 4. The kept test, key by key
 
 The kept test is this plan's rule for content outside `modules` that Nova's publish never writes
-(`../6-bring-in.md`, "What changed from the outline, and why", item 15, summarizes it; this section
-holds it). A top-level item is kept only when (1) Nova's publish never changes
-it on that deployment, (2) nothing the document holds does something different under its value, and (3)
-every Nova surface that claims to show or run what it changes reads the target's value or states the
-difference. Clause 2 names what a question asks or stores, who owns a case Nova's forms create and
+(`../6-bring-in.md`, "Executed during planning", says why it exists; this section holds it). A
+top-level item is kept only when (1) Nova's publish never changes it on that deployment, (2) nothing
+the document holds does something different under its value, and (3) every Nova surface that claims
+to show or run what it changes reads the target's value or states the difference. Clause 2 names what a question asks or stores, who owns a case Nova's forms create and
 which cases a list shows; behavior HQ's build adds beside Nova's content passes it only where Nova's
 `.ccz` mirrors that behavior. Everything inside `modules` and every form attachment is held, inert or
 refused, never kept. Clause 1 is decided here by two readings: the key is in
@@ -1011,7 +1128,7 @@ refused, never kept. Clause 1 is decided here by two readings: the key is in
 their mixins), 75 undeclared ones, which are Python properties and methods, and the sentinel
 `schema:Application.<undeclared>`. A stored key naming one of the 75 is refused by
 `application-and-settings/an-unknown-top-level-key-naming-an-application-read-only`. Each declared
-property, with what Nova's publish does to it and its standing from A3:
+property, with what Nova's publish does to it and its standing:
 
 | Property | HQ's update | Nova's body | Standing | Entry |
 |---|---|---|---|---|
@@ -1020,7 +1137,7 @@ property, with what Nova's publish does to it and its standing from A3:
 | `short_odk_url`, `short_odk_media_url` | excluded | absent | kept (server record) | `short-odk-url-short-odk-media-url` |
 | `built_with`, `build_signed`, `built_on`, `build_comment`, `comment_from`, `last_released`, `build_broken`, `build_broken_reason`, `is_auto_generated`, `is_released` | written if sent | absent | kept (server record) | `built-with-build-signed-built-on-build-comment-comment-from-last` |
 | `date_created` | excluded | absent | kept (server record) | `date-created-created-from-template-last-modified-has-submissions` |
-| `created_from_template` | set to `import_app_api` by the import view on every import | absent | kept (server record); the first publish over an adopted app changes it, which the first-publish register declares under the id `marked-as-updated-from-a-file` (part 09, section 11.2, B7) | `date-created-created-from-template-last-modified-has-submissions` |
+| `created_from_template` | set to `import_app_api` by the import view on every import | absent | kept (server record); the first publish over an adopted app changes it, which no page and no runtime reads; the pointer is one the first-publish register allows under `forms-and-settings-rewritten` (part 09, section 11.2) | `date-created-created-from-template-last-modified-has-submissions` |
 | `last_modified`, `has_submissions` | written by HQ's own saves | absent | kept (server record) | `date-created-created-from-template-last-modified-has-submissions` |
 | `copy_history`, `family_id` | excluded | absent | kept (server record) | `copy-history-family-id` |
 | `external_blobs` | popped by `export_json` | absent | kept (server record) | `external-blobs` |
@@ -1036,7 +1153,7 @@ property, with what Nova's publish does to it and its standing from A3:
 | `location_fixture_restore` | written | `project_default` | held; `only_hierarchical_fixture` refused | `50-hq-location-fixture-restore-project-default`, `50p-hq-location-fixture-restore-both-fixtures-only-flat-fixture`, `50pp-hq-location-fixture-restore-only-hierarchical-fixture` |
 | `cloudcare_enabled` | written | the declaration | held | `40-hq-cloudcare-enabled` |
 | `auto_gps_capture` | written if sent | `true` for a Connect app only | held on a Connect app; kept otherwise | `45-hq-auto-gps-capture`, `45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app` (new, 3.6) |
-| `logo_refs` | written if sent | sent only to remove a path-only entry | Web Apps slot held; Android slots kept; another path refused | `logo-refs-hq-logo-web-apps`, `logo-refs-hq-logo-android-home-login-demo`, `logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare` |
+| `logo_refs` | written if sent | sent only to remove a path-only entry | Web Apps slot held; Android slots kept; another path, or an entry with no `m_id`, refused | `logo-refs-hq-logo-web-apps`, `logo-refs-hq-logo-android-home-login-demo`, `logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare` |
 | `multimedia_map` | excluded; the import prunes unused paths | absent | kept (identity) | `multimedia-map` |
 | `archived_media` | written if sent | absent | kept (server record) | `archived-media` |
 | `build_spec` | excluded | absent | kept at or above 2.57; refused below | `34-hq-build-spec-at-or-above-nova-s-floor-2-57`, `34p-hq-build-spec-below-nova-s-floor` |
@@ -1063,7 +1180,7 @@ manifest test's rule "every key an entry names exists" holds the other direction
 `commcare-profile-settings.yml` holds 32 settings. `create_profile` writes a `properties` or `features`
 setting from `app.profile`, and four keys from elsewhere.
 
-| Setting | Standing from A3 | Why |
+| Setting | Standing | Why |
 |---|---|---|
 | the fifteen of 3.6 | kept | 3.6 |
 | `cc-show-saved`, `cc-show-incomplete` | held (`appSettings`) | Nova owns both and writes them on every publish |
@@ -1100,8 +1217,8 @@ location (`suite_xml/generator.py`). `absolute_url_property` is `urljoin(self.ur
 a path that starts at the root, so only the base's scheme, host and port reach a URL; a path on the
 base is dropped. The suite's own request URLs do not follow it: the claim, search and case fixture
 URLs are `absolute_reverse` (`remote_requests.py`, `entries.py`). Excluded from an update. Lifecycle:
-flag-gated (`CUSTOM_APP_BASE_URL`). Kept; the `.ccz` mirrors the three profile URLs on the base's
-origin.
+flag-gated (`CUSTOM_APP_BASE_URL`) on the Settings page; `views/apps.py::edit_app_attr` takes the key
+whatever the flag. Kept; the `.ccz` mirrors the three profile URLs on the base's origin.
 
 **`build_spec`.** Excluded from an update and deleted on a create, so the server's default build stands
 and a person sets it in HQ. Nova reads its version at publish and stops below 2.57
@@ -1117,17 +1234,18 @@ privilege. Kept; the `.ccz` cannot hold another worker's restore and says so.
 
 **`logo_refs`, Android slots.** `create_profile` writes each as a profile property naming the logo's
 path, under the logo privilege; the file is in HQ's media map, which the import's prune keeps
-(`hqmedia/models.py::ApplicationMediaMixin.remove_unused_mappings` permits `logo_paths`). Nova writes
-`logo_refs` only to drop an entry whose only key is `path`, which HQ's own uploader never stores; such
-an entry on an app Nova did not make is the existing REFUSED row's neighbor and is declared by the
-first-publish register (`logo-path-only-entry-removed`; part 09, section 11.2, B7). Clause 2: device
-chrome. Kept; the `.ccz` holds no bytes for them and says so.
+(`hqmedia/models.py::ApplicationMediaMixin.remove_unused_mappings` permits `logo_paths`). On an app
+Nova published, Nova writes `logo_refs` only to drop an entry whose only key is `path`, which an
+earlier Nova wrote. On an app made in CommCare HQ such an entry is refused: HQ's own uploader always
+stores `m_id` (`hqmedia/views.py::ProcessLogoFileUploadView.process_upload` stores what
+`hqmedia/models.py::CommCareMultimedia.get_media_info` returns), so the existing REFUSED row holds it
+(3.5). Clause 2: device chrome. Kept; the `.ccz` holds no bytes for them and says so.
 
 **`auto_gps_capture`.** `FormBase.get_auto_gps_capture` is true where the form or the app says so, and
 `xform.py::XForm._add_meta_2` then adds `meta/location` and its sensor to every form HQ builds. Nova
 writes the key `true` for a Connect app (`applicationShell`), so clause 1 fails there: on a Connect app
 it is held and derived, and where HQ held `false` the first publish changes it (the register's
-`connect-app-captures-location`; part 09, section 11.2, B7). On any other app the key is never sent and is
+`connect-app-captures-location`; part 09, section 11.2). On any other app the key is never sent and is
 kept; the `.ccz` mirrors HQ's build through `addMetaBlock`. Web Apps submits `meta/location` empty
 either way. Lifecycle: alive.
 
@@ -1142,7 +1260,8 @@ choice list is refused by those entries. The setting is `disabled: true` in
 where the page marks any other value an error and offers `2.0`
 (`commcare_settings.js`, `disabledButHasValue`, `hasError`). A person on a project space without the
 flag sees no setting at all, and HQ's three starter apps hold `1.0`, as does the fourth directory
-beside them, a second copy of `wash` (`static/app_manager/template_apps/*/app.json`, four files), so
+beside them, `wash`'s content from before case updates stored `update_mode`
+(`static/app_manager/template_apps/*/app.json`, four files), so
 refusing the value, as the entry does today, would
 turn away every app made from one over a value none of its content reads. Kept at `1.0` and `1.5`;
 `2.0` is the default and stays inert (`49-hq-mobile-ucr-restore-version-2-0`).
@@ -1179,7 +1298,7 @@ over everything.
 |---|---|---|---|
 | `app.display.name`, `homescreen.title` | the key | held (the app's name); `homescreen.title` inert | existing |
 | a language's code, equal to Nova's label, or absent where HQ's default name is that label | the key and value | held | existing |
-| a language's code, any other value, or absent where HQ's default differs | the key and value | not-yet until B8, kept from B8 | 7.2 |
+| a language's code, any other value, or absent where HQ's default differs | the key and value | kept | 7.2 |
 | a key a runtime reads as its own UI text (the surface's `ui-string:` family) | `translationKeyOwner` gives `target` and `appStringKeys.ts::isRuntimeUiStringKey` holds (6.1) | kept | 3.6 |
 | HQ's catalog fill for such a key | follows from the row above | kept | 3.6 |
 | a key matching one of HQ's generated patterns (the surface's `app-string-id:` family, less `android.package.name.*`) | `translationKeyOwner` gives `generated` | inert, held or not-yet by value | 7.1 |
@@ -1187,7 +1306,7 @@ over everything.
 
 ---
 
-## 5. `KEPT_AT_HQ` (A3)
+## 5. `KEPT_AT_HQ`
 
 New file `lib/commcare/surface/keptAtHq.ts`, pure, holding entry ids as strings and nothing of the
 manifest JSON. It imports two types from `lib/publish`, `KeptLabelId` (`keptValues.ts`, 9.4) and
@@ -1200,8 +1319,12 @@ reaches the browser as label ids (`DeploymentView.kept`, 6.5), which a component
 export type KeptKind = "setting" | "identity" | "server-record" | "project-state";
 
 export type KeptCczCell =
-	/** The archive writes what HQ's build writes from the value, read from `TargetFacts`. */
-	| { readonly does: "mirrors"; readonly by: string }
+	/**
+	 * The archive writes what HQ's build writes from the value, read from `TargetFacts`.
+	 * `advisory` names what the download says where the value is absent and the archive
+	 * cannot write what HQ's build fills in.
+	 */
+	| { readonly does: "mirrors"; readonly by: string; readonly advisory?: KeptExportAdvisoryId }
 	/** The archive cannot follow; the download says so through this advisory. */
 	| { readonly does: "states"; readonly advisory: KeptExportAdvisoryId }
 	/** Nothing an archive holds derives from the value. */
@@ -1211,7 +1334,6 @@ export type KeptCczCell =
 
 export type KeptPreviewCell =
 	| { readonly does: "reads"; readonly by: string }
-	| { readonly does: "states"; readonly docs: typeof PREVIEW_DOCS_SECTION }
 	| { readonly does: "no-claim"; readonly why: string };
 
 export type KeptElsewhereCell =
@@ -1229,25 +1351,21 @@ export interface KeptRow {
 	readonly ccz: KeptCczCell;
 	readonly preview: KeptPreviewCell;
 	readonly elsewhere: KeptElsewhereCell;
-	/**
-	 * The HQ-authored base that holds it at a value other than the default;
-	 * null exactly for an entry `proof/matrix/exemptions.json` names.
-	 */
-	readonly base: string | null;
+	/** The HQ-authored base that holds it at a value other than the default. */
+	readonly base: string;
 }
 
 export const KEPT_AT_HQ: Readonly<Record<string, KeptRow>>;
 ```
 
-`PREVIEW_DOCS_SECTION` is the literal
-`"content/docs/building-with-nova.mdx#preview-on-web-apps-and-android"`, declared in `keptAtHq.ts` and
-held equal to `lib/preview/__tests__/platformCells.ts::PREVIEW_DOCS_SECTION` by the binding test.
-Bases are part 14's (`14-proof.md`, section 6.2; they land in B13). This part names three of them:
-`hq-new-app` (a just-created app), `hq-kept-settings` (an app authored through HQ's pages and models
-that declares both platforms and holds every labelled `setting` row but the custom base URL at a
-value other than its default), and `starter-health` (HQ's health starter app). One row has no base:
-`36-hq-custom-base-url` takes `null`, because the value exists only under a flag no lane configuration
-grants, and part 14's `proof/matrix/exemptions.json` names its entry (its section 7.5).
+Preview has two answers and no third: it reads the value, or it claims nothing the value changes. A
+difference Preview would only state is a Preview that plays something no platform does, so the one
+setting that was stated, the asterisk on required questions, is read (6.4).
+
+Bases are part 14's (`14-proof.md`, section 6.2). This part names three of them: `hq-new-app` (a
+just-created app), `hq-kept-settings` (an app authored through HQ's pages and models that declares
+both platforms and holds every labelled `setting` row at a value other than its default, the custom
+base URL among them as a second origin with a path), and `starter-health` (HQ's health starter app).
 
 The table. "n-i-a" abbreviates `no-reader`. The Label column shows the words; the row holds the
 label's id, which 9.4 lists beside each. A cell's text after its colon is its `why`, `value` or `by`
@@ -1255,9 +1373,11 @@ as the file holds it. A cell written with no such text takes these: `mirrors` al
 `by: "lib/commcare/keptProfile.ts::targetProfileProperties"`, as the first row; a `mirrors` with a
 symbol in parentheses takes that symbol's `path::symbol` (`compiler.ts::compileCcz`,
 `compiler.ts::generateProfile`, `xform/metaBlock.ts::addMetaBlock`,
-`runtimeTarget.ts::profileServerProperties`, each under `lib/commcare/`); "the same" repeats the `why`
-of the row above; `n-i-a` alone is `why: "Nothing an archive holds derives from this value."`;
-`no-claim` alone is `why: "Preview claims nothing this value changes."`; and `default` alone is
+`runtimeTarget.ts::profileServerProperties`, each under `lib/commcare/`); a `reads` with a symbol in
+parentheses takes that symbol's (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`,
+`lib/preview/platform.ts::requiredMarkShown`); "the same" repeats the `why` of the row above; `n-i-a`
+alone is `why: "Nothing an archive holds derives from this value."`; `no-claim` alone is
+`why: "Preview claims nothing this value changes."`; and `default` alone is
 `value: "CommCare HQ's own default"`.
 
 | Entry (`application-and-settings/` unless another area is named) | Kind | Label | `.ccz` | Preview | Another project space | Base |
@@ -1276,17 +1396,18 @@ of the row above; `n-i-a` alone is `why: "Nothing an archive holds derives from 
 | `27-properties-cc-gps-auto-capture-accuracy` | setting | Accuracy for automatic location capture | mirrors | no-claim: Preview captures no location on its own | seeds `10` | `hq-kept-settings` |
 | `28-properties-cc-maps-default-layer` | setting | Default map layer | mirrors | no-claim: the map is Google's own in Preview | seeds `normal` | `hq-kept-settings` |
 | `29-properties-cc-enable-tts` | setting | Text to speech | mirrors | no-claim: Preview speaks no label | seeds `no` | `hq-kept-settings` |
-| `30-properties-cc-label-required-questions-with-asterisk` | setting | Asterisk on required questions | mirrors | states (the docs section) | seeds `no` | `hq-kept-settings` |
+| `30-properties-cc-label-required-questions-with-asterisk` | setting | Asterisk on required questions | mirrors | reads (`requiredMarkShown`, 6.4) | seeds `no` | `hq-kept-settings` |
 | `24-properties-cc-log-entity-detail-enabled` | setting | Logging of case detail views | mirrors | no-claim: Preview sends no device log | default: not written | `hq-kept-settings` |
 | `translations-key-in-a-runtime-s-ui-string-catalog-core-android` | setting | CommCare's own screens, reworded | mirrors (`compileCcz`, the table merge) | no-claim: Preview's chrome is Nova's own | default: CommCare's wording | `hq-kept-settings` |
 | `translations-catalog-key-hq-fills-with-its-own-text-in-a` | setting | (none: shown with the row above) | states (`kept_ui_text_falls_back`) | no-claim: the same | default: CommCare's wording | `hq-kept-settings` |
+| `translations-lang-code-any-other-value-or-absent-where-hq-s` | setting | Language names | mirrors (`compileCcz`), with the advisory `kept_language_names_differ` where HQ holds no name (7.2) | no-claim: the language menu is Nova's own control | seeds Nova's label | `hq-kept-settings` |
 | `logo-refs-hq-logo-android-home-login-demo` | setting | Android logos | states (`kept_android_logos_absent`) | no-claim: Preview draws no Android home or sign-in screen logo | default: none | `hq-kept-settings` |
 | `49p-hq-mobile-ucr-restore-version-1-0-1-5` | setting | Mobile report version | n-i-a: an archive holds no report | no-claim: Preview runs no report | default: `2.0` | `starter-health` |
 | `45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app` | setting | Location captured with every form | mirrors (`addMetaBlock`) | no-claim: Preview submits no `meta/location` | default: off | `hq-kept-settings` |
 | `51-hq-persistent-menu` | setting | Persistent menu in Web Apps | n-i-a: only Web Apps reads it, from HQ's build | no-claim: Preview draws no persistent menu | default: off | `hq-kept-settings` |
 | `52-hq-show-breadcrumbs` | setting | Breadcrumbs in Web Apps | n-i-a: the same | no-claim: the trail above Preview is the builder's | default: on | `hq-kept-settings` |
 | `43-hq-secure-submissions` | setting | Secure submissions | mirrors (`profileServerProperties`) | no-claim: Preview posts to no receiver | default: off (the import that makes Nova's app copies no project space setting) | `starter-health` |
-| `36-hq-custom-base-url` | setting | Custom base URL | mirrors (`profileServerProperties`) | no-claim: the same | default: none | `null`: the value exists only under the flag `CUSTOM_APP_BASE_URL`, which no lane configuration grants, so `proof/matrix/exemptions.json` names the entry |
+| `36-hq-custom-base-url` | setting | Custom base URL | mirrors (`profileServerProperties`) | no-claim: the same | default: none | `hq-kept-settings`, which holds a second origin with a path |
 | `35-hq-practice-mobile-worker-id` | setting | Practice mobile worker | states (`kept_practice_worker_absent`) | no-claim: Preview has no practice mode | default: none | `hq-kept-settings` |
 | `34-hq-build-spec-at-or-above-nova-s-floor-2-57` | setting | (none: a version at or above the floor is no difference a person set against Nova) | own: the profile requires Nova's floor, 2.57 | no-claim: Preview runs Nova's own engine | default: the server's default build | `hq-new-app` |
 | `build-profiles-each-profile-s-name-langs-practice-mobile-worker` | setting | (none: empty) | n-i-a: an archive is one build | no-claim | default: none | `hq-new-app` |
@@ -1303,9 +1424,9 @@ of the row above; `n-i-a` alone is `why: "Nothing an archive holds derives from 
 | `expressions-and-data/is-synced-last-modified` | server-record | | own: the archive embeds the Project's table | reads: Preview reads the Project's table | its-own | `hq-new-app` |
 | `case-search/domain-casesearchconfig-sync-cases-on-form-entry`, `forms-and-case-writes/supply-point-id-datum-hq-injects-under-commtrack-enabled-into`, `forms-and-case-writes/data-dictionary-caseproperty-data-type`, `forms-and-case-writes/usercase-creation-and-sync-hq-user-id` | project-state | | n-i-a: the app's source holds none of it; publish asks a person where it matters | no-claim | its-own | `hq-new-app` |
 
-The table has 49 rows: one for each of the 26 entries that are TARGET-OWNED today and the 23 of 3.6.
-Rows written here on one line for several ids are one row each in the file. B8 adds the fiftieth,
-`translations-lang-code-any-other-value-or-absent-where-hq-s` (7.2).
+The table has 50 rows: one for each of the 26 entries that are TARGET-OWNED today, the 23 of 3.6 and
+the language display name's (7.2). Rows written here on one line for several ids are one row each in
+the file.
 
 `label` names what the kept list shows; a row without one is never listed (a person has no use for
 "the app's revision stays in CommCare HQ"). The kept list of one deployment is the labelled `setting`
@@ -1314,7 +1435,8 @@ rows whose value in its `TargetFacts` differs from what a first publish elsewher
 has an empty list, and its card says so and still offers the refresh (6.5).
 
 ---
-## 6. `TargetFacts` (A3)
+
+## 6. `TargetFacts`
 
 ### 6.1 The type and the projection
 
@@ -1361,6 +1483,14 @@ export interface TargetFacts {
 	readonly mobileReportVersion: string;
 	/** The worker activity level the project space issues a credential for, or null. */
 	readonly credentialLevel: string | null;
+	/**
+	 * On a deployment Nova brought the app in from: per language of the source, each language code
+	 * that language's `translations` entry holds a non-empty name for. Null where Nova created
+	 * the HQ app (7.2).
+	 */
+	readonly languageNames: Readonly<Record<string, Readonly<Record<string, string>>>> | null;
+	/** Who fills a seeded setting the project space holds no value for (7.3). */
+	readonly seeds: "nova" | "target";
 }
 
 /** The facts one normalized source read holds. A source that is no object gives null. */
@@ -1370,6 +1500,8 @@ export function targetFactsFromSource(
 		readonly observedAt: string;
 		/** True where Nova's own body set `auto_gps_capture` (the baseline's ownership). */
 		readonly novaOwnsAutoGpsCapture: boolean;
+		/** True where Nova brought the app in: the live app mapping is `adopted` (part 10, section 6.3). */
+		readonly adopted: boolean;
 	},
 ): TargetFacts | null;
 
@@ -1401,6 +1533,8 @@ surface's `app-string-id:` items this way.
 ```ts
 export function targetFactsFromBaseline(
 	baseline: Extract<AppBaseline, { source: unknown }>,
+	/** The live app mapping's ownership. */
+	adopted: boolean,
 ): TargetFacts | null;
 
 /** The label ids of the kept settings this project space holds at another value than a new one would. */
@@ -1414,16 +1548,19 @@ export function keptAdvisoryFacts(
 ```
 
 `TargetFacts` carries no origin. Every origin that gives facts words its date the same way (6.5), so
-nothing would read one.
+nothing would read one. `targetFactsFromSource` takes a source and not a baseline, so a reading can
+project the app it has just read before any baseline exists: part 12's review fills its kept list
+that way (`12-the-reading-and-the-birth.md`, section 5.1).
 
 `targetFactsFromBaseline` returns `null` for a baseline whose origin is `create`, and otherwise
 `targetFactsFromSource(baseline.source, { observedAt: baseline.observedAt, novaOwnsAutoGpsCapture:
-baseline.ownership.autoGpsCapture })`. A `create` baseline describes a shell, and a shell is never a
-project space a `.ccz`, Preview or a card reads facts for: its mapping carries no pushed revision
+baseline.ownership.autoGpsCapture, adopted })`. A `create` baseline describes a shell, and a shell is
+never a project space a `.ccz`, Preview or a card reads facts for: its mapping carries no pushed revision
 (`store.ts::recordCreatedRemoteApp`), and `readReachedDeploymentTargets` never lists a mapping to the
 empty shell, whatever the record displays. The fill that follows writes a `push` baseline, which is
-what gives the first facts. For `push` and `cutover` (and `read`, from B8)
-`targetFactsFromSource` reads, from the source as an object:
+what gives the first facts. For `push`, `cutover` and `read` (the origin part 10 gives an app brought
+in, `10-identity-and-the-ledger.md`, section 6.3) `targetFactsFromSource` reads, from the source as
+an object:
 
 | Field | Read from | Rule |
 |---|---|---|
@@ -1439,6 +1576,8 @@ what gives the first facts. For `push` and `cutover` (and `read`, from B8)
 | `persistentMenu` | `persistent_menu` | `=== true` |
 | `breadcrumbs` | `show_breadcrumbs` | `!== false` |
 | `mobileReportVersion` | `mobile_ucr_restore_version` | the string, or `"2.0"` |
+| `languageNames[lang][code]` | `translations[lang][code]`, for each language code of the source | `null` for the whole field where `adopted` is false; else each value that is a non-empty string |
+| `seeds` | the input | `"target"` where `adopted` is true, else `"nova"` |
 
 `hqProfileValueText` restates `Application.create_profile`'s `if setting_value:` and the template's
 print of the value: `null`, `undefined`, `""`, `false` and `0` give `null`; `true` gives `"True"`; a
@@ -1446,8 +1585,8 @@ number gives its decimal text; a string gives itself; anything else gives `null`
 own Settings save stores for `cc-gps-auto-capture-accuracy` therefore reads `"10"`.
 
 A generated key never enters `uiText`: `translationKeyOwner` gives it `generated`, and a publish drops
-it, so it is no fact of the target (7.1). A language's own code is `language-name` and stays out until
-B8 (7.2).
+it, so it is no fact of the target (7.1). A language's own code is `language-name` and never enters
+`uiText`: `languageNames` holds it on a deployment Nova brought in (7.2).
 
 `uiText` and `uiTextKeys` differ on purpose. `uiText` holds every `target` key with text, a key no
 runtime reads included, because the archive mirrors HQ's build and HQ's build writes every stored
@@ -1481,7 +1620,7 @@ export async function readTargetFacts(
 
 It authorizes `view` (`roleAllowsApp(scope.role, "view")`, else `deploymentNotFound()`), where
 `readAppBaseline` keeps `edit`: the reader returns the typed projection and never the source, and every
-value of the projection is one a viewer's own `.ccz` already carries from A3. The two readers share the
+value of the projection is one a viewer's own `.ccz` already carries (6.3). The two readers share the
 row's verification, extracted as a function private to the store:
 
 ```ts
@@ -1498,17 +1637,17 @@ A row that does not verify answers `null`, which gives `null` here and `unread` 
 `log.error` the existing reader writes, now written inside this function.
 
 It reads in two steps, so a builder page load does not unzip an app's source each time. First it selects
-`deployment_id`, `origin`, `source_digest`, `ownership` and `observed_at`, with no bytes; `unread`,
-`create` or no row answers `null`. A module-level map of at most 64 entries, keyed by
-`deployment_id` and `source_digest`, then answers a source it has projected before; only a miss selects
-`source_gzip`. The digest names the bytes, so an entry is never stale, and the cap bounds an instance's
-memory.
+`deployment_id`, `origin`, `source_digest`, `ownership` and `observed_at`, with no bytes, and with
+the row the live app mapping's ownership (`adopted` or not); `unread`, `create` or no row answers
+`null`. A module-level map of at most 64 entries, keyed by `deployment_id`, `source_digest` and
+`adopted`, then answers a source it has projected before; only a miss selects `source_gzip`. The
+digest names the bytes, so an entry is never stale, and the cap bounds an instance's memory.
 
 ### 6.3 The `.ccz`
 
 Today's path, and each change:
 
-| Where | Today | From A3 |
+| Where | Today | New |
 |---|---|---|
 | `lib/deployment/runtimeTarget.ts::ReachedDeploymentTarget` | `emptyCaseListText`, `earlierHqApps` | unchanged; the facts are not a column and do not ride the reached list |
 | `lib/deployment/downloadTarget.ts::resolveDownloadTarget`, the `ccz` arm | reads `readDeploymentIdentityOverrides` for the chosen target | also awaits `readTargetFacts(scope, target)`; `DownloadTarget`'s `ccz` arm gains `readonly targetFacts: TargetFacts \| null`. A fault throws, as the identity read's does. |
@@ -1529,7 +1668,7 @@ Today's path, and each change:
 `facts.profileProperties["cc-log-entity-detail-enabled"]` is present, that property with `force: true`.
 With `facts` `null` it returns `appProfileProperties(doc)`. This is `projectProfileForTarget`'s rule
 read from the other side: after any Nova publish the target holds exactly these values, so the archive
-and HQ's build of the same project space state one profile. B8 gives both sides the same second rule
+and HQ's build of the same project space state one profile. Both sides take the same second rule
 for a deployment Nova brought in (7.3).
 
 **`profileServerProperties(target, facts)`.** `base` is `facts.customBaseUrl` where it is set, else the
@@ -1555,7 +1694,7 @@ build puts a stored translation over every string (4.4), and a publish carries t
 directory takes the default language's, as it takes that language's whole table. A language of
 `uiText` the app does not have writes nothing, as HQ builds no table for it.
 
-**What the archive states.** `lib/publish/exportAdvisories.ts` gains three advisory ids and one
+**What the archive states.** `lib/publish/exportAdvisories.ts` gains four advisory ids and one
 parameter:
 
 ```ts
@@ -1563,7 +1702,8 @@ export type ExportAdvisoryId =
 	| "attachment_links_without_target"
 	| "kept_ui_text_falls_back"
 	| "kept_android_logos_absent"
-	| "kept_practice_worker_absent";
+	| "kept_practice_worker_absent"
+	| "kept_language_names_differ";
 
 /** The advisories that say what a `.ccz` cannot follow of a kept value. */
 export type KeptExportAdvisoryId = Extract<ExportAdvisoryId, `kept_${string}`>;
@@ -1573,6 +1713,8 @@ export interface KeptAdvisoryFacts {
 	readonly uiTextFallsBack: boolean;
 	readonly androidLogos: boolean;
 	readonly practiceWorker: boolean;
+	/** Some language name in the archive is Nova's where CommCare HQ holds none (7.2). */
+	readonly languageNames: boolean;
 }
 
 export function exportAdvisories(
@@ -1583,7 +1725,9 @@ export function exportAdvisories(
 ```
 
 `keptAdvisoryFacts(facts, languageCodes)` gives `uiTextFallsBack` true where some key of `uiTextKeys`
-has no entry in `uiText[code]` for some `code` of the app's languages; the other two from their fields.
+has no entry in `uiText[code]` for some `code` of the app's languages; `androidLogos` and
+`practiceWorker` from their fields; and `languageNames` true where `facts.languageNames` is not `null`
+and some app language's table lacks a held name for some app language's code (7.2).
 `uiTextKeys` holds runtime UI text keys alone (6.1), so a stored key no runtime reads raises no
 advisory. The HQ import file passes `null`: it is made for no project space. The attachment advisory
 keeps its place first. Copy is in section 9.
@@ -1594,10 +1738,11 @@ project space, on the custom base URL and the secure receiver where the project 
 
 ### 6.4 Preview
 
-Preview reads one kept value, fuzzy search in a case list, and reads it on both platforms: Android's
+Preview reads two kept values. Fuzzy search in a case list it reads on both platforms: Android's
 list and Formplayer's both filter through Core's `EntitySortUtil.sortEntities` with the profile's
 `cc-fuzzy-search-enabled` (`MainConfigurablePreferences.isFuzzySearchEnabled`,
-`FormplayerPropertyManager.isFuzzySearchEnabled`).
+`FormplayerPropertyManager.isFuzzySearchEnabled`). The asterisk on required questions it reads where
+it plays Android, the one platform that reads the setting.
 
 **The rule, ported.** New file `lib/preview/listFilterMatch.ts`, pure:
 
@@ -1626,16 +1771,20 @@ order, for each field in order, the field matches where its normalized text is n
 the term; otherwise, with `fuzzy` on, where `fuzzyMatch(term, piece)` holds for a whitespace-separated
 piece of the field's normalized `sortText`, which adds that distance to the score; a term no field
 matches fails the row. An empty term is contained in every field that shows text, so it passes a row
-with any text and fails a row whose every field is blank.
+with any text and fails a row whose every field is blank. No terms at all pass every row.
 
-**What each runtime does around Core's rule.** The two differ in two places, and Preview plays one
+**What each runtime does around Core's rule.** The two differ in three places, and Preview plays one
 platform at a time, so `lib/preview/platform.ts::PreviewPlatformRules` gains one rule:
 
 ```ts
-/** How the list's filter box splits what a worker types, and what closeness does to the order. */
+/**
+ * How the list's filter box splits what a worker types, what closeness does to the order,
+ * and what an emptied box does.
+ */
 readonly listFilter: {
 	readonly terms: "single-spaces" | "whitespace-runs";
 	readonly fuzzyOrder: "list-order" | "closest-first";
+	readonly emptyText: "skipped" | "runs-once-edited";
 };
 ```
 
@@ -1643,48 +1792,297 @@ readonly listFilter: {
 |---|---|---|
 | The split | `single-spaces`: `searchText.split(" ")` (`EntityScreenHelper.java::filterEntities`). Two spaces in a row give an empty term between them, and a tab is no separator. | `whitespace-runs`: `filterRaw.split("\\s+")` (`EntityListAdapter.java::filterByString`). Text that starts with whitespace gives an empty first term. |
 | The order with fuzzy search on | `list-order`: after the filter, Formplayer sorts the matches by the list's own order (`EntityScreenHelper.java::sortEntities`, a stable sort) and then gathers groups in order of first appearance (`groupEntities`). Closeness decides only between rows the list's order ties. | `closest-first`: the adapter shows the matches as the filter returns them (`EntityStringFilterer.java::buildMatchList`), stably re-sorted by ascending score over the list's order. |
+| An empty box | `skipped`: `filterEntities` skips an empty text, so every row shows. | `runs-once-edited`: before anything is typed every row shows. Once the worker has typed, the adapter runs the filter on every change, an empty text included: `"".split("\\s+")` is one empty term, and the filter counts as empty only where there are no terms (`EntityStringFilterer.java`, `isFilterEmpty`). So a box typed in and cleared drops a row whose every field is blank. |
 
 `filterTerms` gives what Java's `String.split` gives for each: trailing empty strings dropped, an
-empty string between two separators kept, and for `whitespace-runs` an empty first term where the
-text begins with a separator. Preview keeps one rule of its own on both platforms, today's: while the
-box is empty or holds only whitespace, every row shows. That is Web Apps' own rule
-(`filterEntities` skips an empty text) and a phone's before anything is typed; a phone that has had
-text typed and cleared runs one empty term, which drops a row whose every field is blank, and Preview
-does not follow that one case.
+empty string between two separators kept, for `whitespace-runs` an empty first term where the text
+begins with a separator, one empty term for an empty text, and no terms for a text of separators
+alone. Today Preview shows every row while the box is empty or holds only whitespace, on both
+platforms. That stays true of Web Apps, and of a text of whitespace alone on a phone. What changes is
+the one case a phone treats differently: on Android, once the worker has edited the box, Preview runs
+an empty text as its one empty term.
 
 `components/preview/shared/listFilter.tsx::rowMatchesFilterText` becomes
 `rowsMatchingFilterText(columns, rows, filterText, context, plan, options: { fuzzy: boolean; rules:
-PreviewPlatformRules["listFilter"] })`, which returns the matching rows: in their given order with
-`fuzzy` off or `fuzzyOrder` `list-order`, and stably re-sorted by ascending score with `fuzzy` on and
-`closest-first`. Under `list-order` Preview does not reorder rows the list's order ties: its order
-among such rows is the case store's tie-break by case id on every list, filtered or not
+PreviewPlatformRules["listFilter"]; edited: boolean })`, which returns the matching rows: in their
+given order with `fuzzy` off or `fuzzyOrder` `list-order`, and stably re-sorted by ascending score
+with `fuzzy` on and `closest-first`. `edited` is whether the worker has changed the box since the list
+opened; with `emptyText` `skipped`, or with `edited` false, an empty text returns every row. Under
+`list-order` Preview does not reorder rows the list's order ties: its order among such rows is the
+case store's tie-break by case id on every list, filtered or not
 (`caseDataBindingHelpers.ts::buildCaseStoreSortKeys`, `stablePageTieBreaker`), where a runtime's is
-the order its case database returns, so that tie order is no claim Preview makes with or without
-fuzzy search. Its fields are today's (each shown column's text, each hidden
-field's, each carrier's raw value); `sortText` is the value the field's `CaseListShortField.key` orders
-by, or `null` where the field keeps no key: for `property`, the raw value; for `option-label`,
-`interval-text`, `link-text` and `calculated`, the column's shown text; for `mapping-position`, the
-position text the plan orders by; a carrier's raw value is its own sort text.
-`components/preview/screens/CaseListScreen.tsx` calls it at its two filter sites with
-`fuzzy: useDeploymentTargetFacts()?.fuzzyListSearch ?? false` and `rules: platformRules.listFilter`.
-The accent fold applies at every value of the setting: it is Core's rule for the exact match too.
+the order its case database returns, which is the order of a restore and of local saves and which
+no read gives Nova. So that tie order is no claim Preview makes, with or without fuzzy search. Its
+fields are today's (each shown column's text, each hidden field's, each carrier's raw value);
+`sortText` is the value the field's `CaseListShortField.key` orders by, or `null` where the field
+keeps no key: for `property`, the raw value; for `option-label`, `interval-text`, `link-text` and
+`calculated`, the column's shown text; for `mapping-position`, the position text the plan orders by; a
+carrier's raw value is its own sort text. `components/preview/screens/CaseListScreen.tsx` calls it at
+its one filter site with `fuzzy: useDeploymentTargetFacts()?.fuzzyListSearch ?? false`,
+`rules: platformRules.listFilter` and `edited` from the one piece of state it holds for the box. The
+accent fold applies at every value of the setting: it is Core's rule for the exact match too.
 
-**Grouped tiles.** The second site filters inside each group (`filteredGroups`). Groups are drawn only
-where Preview plays Web Apps (`tileGrouping: "grouped"`; Android draws tiles flat), which is
-`list-order`: the members of a group keep their order and a group with no match leaves, with fuzzy
-search on as with it off. On Android the list is flat, so `closest-first` reorders the one list.
+**Grouped tiles.** Groups are drawn only where Preview plays Web Apps
+(`lib/preview/platform.ts`, `tileGrouping: "grouped"`). On Android the list is flat
+(`"flat"`): commcare-android reads no group, the read takes no grouped path
+(`caseDataBindingHelpers.ts::readCases`), and `closest-first` reorders the one list. Nothing below
+runs there.
 
-One difference at that site predates this part and does not turn on fuzzy search: Formplayer orders
-the groups that remain by each one's first matching member (`groupEntities` runs after the filter),
-and Preview keeps the groups' unfiltered order, because its groups arrive paged from the case store
-with no flat position to reorder by. The two differ only where a group's earlier members fail the
-filter and a later group's first member passes. A3 changes nothing there. Before A3 opens, its
-implementer files the GitHub issue "Preview keeps a filtered tile list's groups in their unfiltered
-order, where Web Apps orders them by each group's first match", assigned to themselves, with this
-paragraph as its body, and names its number in A3's description, so the difference has an owner.
+**What Web Apps does, in order.** The client sends the typed text with the request
+(`menus/api.js`, `search_text`) and Formplayer builds the list from it in four steps
+(`EntityListSubscreen.java`'s constructor calls `EntityScreenHelper.java::initEntities`):
 
-**How the fact reaches Preview.** It travels the way `commcare_project` does, as the server's
-resolution, never a client's claim.
+1. `filterEntities` keeps the rows that match, over the whole list.
+2. `sortEntities` puts them in the list's own order, a stable sort.
+3. `groupEntities` gives each group key the ordinal of its first appearance among those rows and
+   sorts by it, also stable. So the groups stand in the order of each one's first match, and a
+   group's members keep the list's order. A case with no such connection has the key `""`, a key
+   like any other (`NodeEntityFactory.java::getEntity`).
+4. `EntityListResponse.java::getEntitiesForCurrentPage` cuts a page that counts group boundaries.
+
+The client then keeps one model per group key, the first, and removes the rest from what it
+renders (`views.js::CaseTileGroupedListView.initialize`). That one model draws the heading
+(`CaseTileGroupedView.templateContext` reads `this.options.model.get('data')` at the header
+indices), every model of the group draws a body row (`getIndexedRowDataList`), and a tap or a
+checkbox on the card names that one model's id (`CaseView.rowClick`). Under a filter the first
+model of a group is its first match, because no other row reached the client.
+
+So three things follow the filter in Web Apps, and one rule gives all three: **the cards are made
+from the rows that remain.** The groups are in the order of each one's first match. A card's
+heading is drawn from its first match. Choosing a card, in one-case and several-case lists alike,
+chooses its first match.
+
+**Why that is right for the worker and the author.** A worker who types a name to find one visit
+sees its group with that visit under the heading, and a tap opens it. Opening the group's first
+case in its place, a case the worker filtered away and cannot see on the card, is the worst of
+the three differences: Preview then shows an author a journey no worker can take. The filter is
+also the only way a worker reaches a case that is not first in its group, so an author checking
+that journey in Preview must see it work.
+
+**The rule, ported.** `lib/preview/caseTileGrouping.ts` gains, pure:
+
+```ts
+/**
+ * One card of a grouped tile list: a group key and the cases the card holds, in the list's
+ * order. `rows[0]` is the case the heading is drawn from and the one case choosing the card
+ * chooses.
+ */
+export interface TileGroupCard<Row> {
+	readonly key: string;
+	readonly rows: readonly [Row, ...Row[]];
+}
+
+/** A grouped page as the list's own run of rows: each row in the list's order, and its group. */
+export interface GroupedPageRows<Row> {
+	readonly rows: readonly Row[];
+	readonly keyOf: (row: Row) => string;
+}
+
+/** The page's rows put back in the list's own order, each still knowing its group. */
+export function groupedPageRows<Row extends { readonly case_id: string }>(page: {
+	readonly groups: readonly { readonly key: string; readonly rows: readonly Row[] }[];
+	readonly listOrder: readonly string[];
+}): GroupedPageRows<Row>;
+
+/**
+ * The cards for the rows that remain, given in the list's order: Core's
+ * `EntityScreenHelper.groupEntities` (a group's place is its first appearance, its members keep
+ * their order) and the client's one model a group (`CaseTileGroupedListView.initialize`).
+ */
+export function tileGroupCards<Row>(
+	rowsInListOrder: readonly Row[],
+	keyOf: (row: Row) => string,
+): readonly TileGroupCard<Row>[];
+```
+
+`tileGroupCards` walks the rows once, in order, and appends each to its key's card, a new key
+making a new card at the end. An empty input gives no cards. `groupedPageRows` orders the page's
+rows by their place in `listOrder`; it is total: a row `listOrder` does not name sorts after
+those it names, in its clustered order, and the store's test holds that there is none.
+
+**The read carries the list's order.** Reordering groups needs the order between two rows of
+different groups, which the browser does not hold today. The case store already computes it and
+throws it away. `lib/case-store/store.ts::GroupedQueryResult` gains
+
+```ts
+/**
+ * The page's case ids in the list's own order, the order the rows held before they were
+ * clustered. With it a reader can re-cluster whatever a filter leaves of the page.
+ */
+readonly listOrder: readonly string[];
+```
+
+and `lib/case-store/postgres/store.ts::queryGrouped` fills it from the position it already
+selects: the page's rows sorted by `ROW_ORDINAL_ALIAS`, each mapped to its `case_id`. The
+statement does not change. An empty page gives `[]`. That order is total, since every list read
+ends with the case id tie-break (`caseDataBindingHelpers.ts::buildCaseStoreSortKeys`,
+`stablePageTieBreaker`). `lib/preview/engine/caseDataBindingTypes.ts::LoadCasesResult`'s `grouped`
+slot gains `listOrder: ReadonlyArray<string>`, and `caseDataBindingHelpers.ts::readGroupedCases`
+hands it on. `rows` stays the page in clustered order and `groups` stays as it is, so App Tests,
+which read `grouped.groups` and have no filter step (`lib/preview/app-tests/run.ts`,
+`appTestActionSchema`), see only one more field in a grouped observation's raw result.
+
+**The screen.** `components/preview/screens/CaseListScreen.tsx::CaseListScreen` filters once.
+Where the read is grouped it takes `groupedPageRows(groupedResult)`, filters those rows with
+`rowsMatchingFilterText` (which, under Web Apps' `list-order`, returns the matches in the order
+given), and makes the cards with `tileGroupCards(matches, keyOf)`. With no text the cards are the
+store's groups, by the same function. `filteredRows`, which the counts read, is that one list of
+matches; the second filter site and the type `ResultsTileGroup` leave. `ResultsTiles` takes
+`groups: readonly TileGroupCard<CaseRowWithCalculated>[] | undefined` and reads `card.rows[0]` as
+the card's `actionRow`; `chooseVisibleCases` adds each card's `rows[0]`.
+`components/preview/shared/CaseTileGroup.tsx::CaseTileGroup` loses its `headerRow` prop and draws
+the heading from `rows[0]`, so a heading and a choice cannot name two cases.
+
+| | Web Apps | Android |
+|---|---|---|
+| A grouped tile list with text in the filter | cards made from the matches: groups in the order of each one's first match, the heading and the choice from that match, a group with no match gone | no groups: one tile a case, filtered and ordered as every list is (`listFilter`) |
+
+Two groups whose first matches the list's order ties stand in the tie order this section already
+describes, which is no claim Preview makes with or without a filter.
+
+**What the filter reaches stays as it is.** The filter narrows the page Preview has read, on
+every list, grouped or not, and says so on screen where there are more pages ("Filter this page",
+"on this page", `runtimeMessages.ts::pageFilterScope`) and in
+`content/docs/case-workspace.mdx`. Formplayer filters the whole list before it pages. Within the
+page the fix is whole: Preview draws what Web Apps draws for a list of those cases. A list of 50
+groups or fewer is one page (`CASE_LIST_PAGE_SIZE`), so it is filtered whole. Preview's page is
+its own window and no runtime's: Web Apps' page size is the worker's own setting (`menus/api.js`,
+the `cases-per-page-limit` cookie, else 10, or 5 on a small screen). The filter matches the text a
+cell shows (a formatted date, a choice's label, a calculated answer), which exists only once the
+browser has projected a row, and which rows a page holds is the case store's compiler's decision
+alone (the root `CLAUDE.md`, the map entry for `lib/case-store`). A filter that reached other
+pages would need every case of the list read and projected on each change of the text. Departure
+16 weighs it.
+
+**The worker's sentence stays.** A grouped list says "Choosing a group selects its first case.
+The rows beneath are there to read." (`runtimeMessages.ts`, `groupSelection`). Under a filter the
+card holds only matches, so its first case is the first case it shows, and the sentence is true
+of what is on screen.
+
+**What does not change.** The document, the validator, the emitter and a publish: Nova writes
+the same `<group function="string(./index/<identifier>)" header-rows="<n>"/>`
+(`lib/commcare/suite/case-list/tileGroup.ts`), and nothing is refused, so no saved app and no app
+brought in from CommCare HQ needs a migration. The manifest entry
+`menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows` keeps its cells (HELD;
+Web Apps runs it, Android ignores it): this fix is what makes Preview's play of the first true
+under a filter. The builder's grouping section
+(`components/builder/case-list-config/tile/TileGroupingSection.tsx`) and the tool descriptions
+(`lib/agent/tools/case-list-config/shared.ts`, `lib/agent/summarizeBlueprint.ts`,
+`content/docs/mcp/tools.mdx`) say a group's choice is its first case, which stays true of a card,
+so no served schema moves and nothing is sent to the provider. What a person sees change: in
+Preview as Web Apps, a filtered grouped list reorders, a card's heading can change with the text
+where its heading reads a member's own value, and a tap or a checkbox takes the first match.
+
+**Proof.** The rule is CommCare's, so CommCare's own code holds it, in two places.
+
+A targeted document, `proof/targeted/documents/tileGroupFilter.ts` (`tileGroupFilter`, id
+`targeted-tile-group-filter`, `rows: ["a grouped tile list's cards under a filter"]`), listed in
+`proof/targeted/index.ts::TARGETED_DOCUMENTS`: case types `household` and `visit` (`parent_type`
+`household`); one menu, "Visits", over `visit` with a follow-up form and a tile grouped by `parent`
+with one header row; three plain columns of the visit, `seen_by` in the header row, `case_name`
+(ordered ascending, priority 0) and `outcome` in the row below. The heading reads a value of the
+visit's own on purpose, so the case a heading is drawn from can be told apart. Its restore holds
+two households and five visits, each with an id named from the document's (`targeted-ada-visit`
+and so on), each visit but Eve with a `parent` index:
+
+| Visit | Household | `seen_by` | `outcome` |
+|---|---|---|---|
+| Ada | Kijiji | Nurse Amani | Seen |
+| Ben | Riverside | Nurse Chiku | Referred |
+| Cal | Kijiji | Nurse Baraka | Referred |
+| Dot | Riverside | Nurse Dalila | Referred |
+| Eve | none | Nurse Imani | Seen |
+
+No name and no `seen_by` holds the letters of "referred", so that text matches on `outcome` alone.
+
+*Core, on every pull request.* Two intent expectations on the local export, each
+`session: { command: "m0-f0" }`, as `targeted-tile-hidden-order` writes its own:
+
+| Id | `caseList` | `/caseList/rows/<n>/caseId`, in order |
+|---|---|---|
+| `grouped-unfiltered` | `{}` | Ada, Cal, Ben, Dot, Eve |
+| `grouped-filtered` | `{ searchText: "Referred" }` | Ben, Dot, Cal |
+
+The second order is neither the list's own order of the matches (Ben, Cal, Dot) nor the
+unfiltered group order (Cal, Ben, Dot), so it holds the sequence filter, sort, group and nothing
+else. The intent check runs it on Core's own `EntityScreen`
+(`proof/core/src/nova/proof/core/Evaluate.java::caseList`, which builds the screen with the
+search text, and `SessionOp.java::describeList`, which reports `EntityListSubscreen.getEntities`
+in Core's order), in the lane every pull request runs.
+
+*The Web Apps client, with the readers.* `proof/webapps/test_tiles.py` gains
+`test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves`, written as
+`test_web_apps_lays_out_a_tiles_placed_cells_alone_and_orders_and_searches_by_a_hidden_order_rule`
+beside it is: the document released under `maximum`, its restore's cases served
+(`casedata.database_of_restore`, which keeps their indices), the list read (`steps.SCREEN`), then
+`steps.search_list("Referred")` and the list read again. Contract: before the search the list
+holds three cards, `row-targeted-ada-visit`, `row-targeted-ben-visit` and
+`row-targeted-eve-visit`, whose first cells read Nurse Amani, Nurse Chiku and Nurse Imani; after
+it, two cards, `row-targeted-ben-visit` and then `row-targeted-cal-visit`, whose first cells read
+Nurse Chiku and Nurse Baraka, the second holding Cal's row alone. A card's id is the id of the
+one model it keeps (`views.js::CaseView.attributes`), which is the model a tap names. Plausible
+failures: a client that kept each group's own first case (the second card would be
+`row-targeted-ada-visit` under Nurse Amani), groups left in their unfiltered order, and a search
+that never reached Formplayer (three cards after it). It is a reader's own test, so it runs in
+the lane's scheduled runs with the readers and, before the merge, in Run 4's slice.
+
+The values of both are fixed from the source read above, and one thing of them is unverified: that
+`proof/editors/driver/steps/webapps/screen.js` reads a grouped card's cells heading first (it reads
+every `.box` of a row in document order, and `tile_grouped_item.html` writes the heading's boxes
+before the body rows'). A value CommCare gives differently means this section misread CommCare:
+`tileGroupCards`, its vectors and the smoke step then follow what CommCare gave, in this step
+(Run 4).
+
+**The asterisk on required questions.** Web Apps marks every required question, whatever the
+setting: its question template binds the class `required` on every question
+(`cloudcare/templates/cloudcare/partials/form_entry/question.html`), and neither Formplayer nor the
+client reads `cc-label-required-questions-with-asterisk`. Android appends the mark only where the
+app's profile holds the setting as `yes` (`views/widgets/QuestionWidget.java::setTextFromPrompt`,
+`preferences/HiddenPreferences.java::shouldLabelRequiredQuestionsWithAsterisk`, whose default is
+`no`). Nova's own value is `no` (`lib/commcare/appProfileSettings.ts`), so on a phone running an app
+Nova made, no required question carries a mark until the worker tries to move past it. Preview
+marks every required question on both platforms today, so on Android it draws something a phone
+does not. `PreviewPlatformRules` gains a second rule, and `lib/preview/platform.ts` one pure
+function:
+
+```ts
+/**
+ * Whether a required question carries the asterisk. Web Apps marks every one
+ * (`form_entry/question.html`, the `required` class); Android only where the profile's
+ * `cc-label-required-questions-with-asterisk` is `yes`
+ * (`QuestionWidget.java::setTextFromPrompt`).
+ */
+readonly requiredMark: "always" | "by-setting";
+
+/** Whether Preview draws the mark on a required question. */
+export function requiredMarkShown(
+	rule: PreviewPlatformRules["requiredMark"],
+	/** The reached project space's setting, or null where Preview holds no facts. */
+	settingOn: boolean | null,
+): boolean;
+```
+
+`always` for Web Apps and `by-setting` for Android. `requiredMarkShown` is true under `always`, and
+under `by-setting` exactly where `settingOn` is true. With no facts it answers by Nova's own value,
+`no`: Preview on Android shows no mark, as a phone running a Nova-made app does. An app brought in
+whose project space holds no value shows none either, which is the phone's own default.
+
+`components/preview/form/InteractiveFormRenderer.tsx` draws the asterisk and the word a screen reader
+reads for it (`runtimeMessages.ts`, `requiredLabel`) together, at both of its sites, where
+`state.required && requiredMarkShown(rules.requiredMark,
+useDeploymentTargetFacts()?.markRequiredQuestions ?? null)`. What required means does not change: a
+worker who moves past an unanswered required question is stopped and told, on both platforms. Two marks
+stay as they are, because neither is a platform's drawing of a form question: the builder's canvas marks
+a required question in edit mode (`components/preview/form/virtual/rows/FieldRow.tsx`), which is the
+builder's own sign of the setting, and a required Search field keeps its mark
+(`components/preview/shared/SearchInputForm.tsx`), which the setting's one reader, the question widget,
+never draws.
+
+**How the facts reach Preview.** They travel the way `commcare_project` does, as the server's
+resolution, never a client's claim. The page load seeds them, and a stream frame keeps them current.
+The frame is there for an open tab: a publish or a refresh, the tab's own or another member's,
+changes what the project space holds while the builder is open, and without the frame Preview would
+go on playing the settings as of the page load until someone reloaded.
 
 - `lib/deployment/previewTarget.ts` gains
   `resolvePreviewFactsTarget(deployments: readonly Pick<DeploymentRecord, "state" | "resumePhase" |
@@ -1694,11 +2092,16 @@ resolution, never a client's claim.
 - `lib/deployment/previewSpace.ts` gains
   `previewTargetFactsFor(scope): Promise<PreviewTargetFacts | null>`, which resolves that target, calls
   `readTargetFacts`, and returns `{ fuzzyListSearch: facts.profileProperties["cc-fuzzy-search-enabled"]
-  === "yes" }`. It degrades to `null` on a fault with one `log.warn`, as `previewProjectSpaceFor` does.
+  === "yes", markRequiredQuestions:
+  facts.profileProperties["cc-label-required-questions-with-asterisk"] === "yes" }`. It degrades to
+  `null` on a fault with one `log.warn`, as `previewProjectSpaceFor` does.
 - `lib/collab/previewTargetFactsFrame.ts` (new) holds the wire contract of a second frame:
 
   ```ts
-  export const previewTargetFactsSchema = z.strictObject({ fuzzyListSearch: z.boolean() });
+  export const previewTargetFactsSchema = z.strictObject({
+  	fuzzyListSearch: z.boolean(),
+  	markRequiredQuestions: z.boolean(),
+  });
   export type PreviewTargetFacts = z.infer<typeof previewTargetFactsSchema>;
   export const previewTargetFactsFrameSchema = z.strictObject({
   	facts: previewTargetFactsSchema.nullable(),
@@ -1709,8 +2112,8 @@ resolution, never a client's claim.
   ```
 
   A new frame name, not a new key on `preview-project-space`: that frame's schema is strict, so a tab
-  still running the earlier build would drop a widened frame whole and lose `commcare_project` with
-  it, where it simply does not listen for a name it does not know.
+  still running the build from before the deploy would drop a widened frame whole and lose
+  `commcare_project` with it, where it simply does not listen for a name it does not know.
 - `app/api/apps/[id]/stream/route.ts`'s deployment lane resolves both in one run and sends
   `preview-target-facts` when the canonical JSON of the facts differs from what it last announced,
   the connect-time emit included. No new route, so no hostname allowlist entry.
@@ -1735,8 +2138,8 @@ resolution, never a client's claim.
   `PublishDialogBody.tsx` and `app-setup/PublishingSection.tsx` apply it where they apply the project
   space.
 
-With no facts (no reached project space, several, or an unread baseline) Preview filters as a new
-project space would: exactly, which is Nova's own value `no`.
+With no facts (no reached project space, several, or an unread baseline) Preview plays what a new
+project space would give: an exact filter and, on Android, no mark, which are Nova's own values `no`.
 
 ### 6.5 The Publishing card: the list, its date, and the refresh
 
@@ -1760,7 +2163,11 @@ baseline: "as it held them on {date}". A baseline's origin does not say when it 
 keeps the origin and moves the date), so no sentence here names a publish or a bringing in. The date
 is the viewer's locale date, with the year where it is not the current year.
 
-**The refresh.** `lib/deployment/service.ts` gains:
+**The refresh.** Nova reads a project space's kept values only when it reads the app's source, which
+today is at a publish. A person who turns fuzzy search or the asterisk on in CommCare HQ, rewords a
+screen or sets a custom base URL would otherwise wait for the next publish before Preview and a
+downloaded `.ccz` follow it, and publishing an app is the wrong way to read a setting. The refresh is
+that read without a publish. `lib/deployment/service.ts` gains:
 
 ```ts
 export type KeptRefreshOutcome =
@@ -1773,7 +2180,9 @@ export type KeptRefreshOutcome =
 	| { readonly kind: "app-gone" }
 	/** CommCare HQ answered with something that is no app Nova can read. */
 	| { readonly kind: "unreadable" }
-	/** CommCare HQ turned the key or the account away for this read. */
+	/** CommCare HQ did not accept the stored key for this read. */
+	| { readonly kind: "key-not-accepted" }
+	/** CommCare HQ turned the account away for this read. */
 	| { readonly kind: "no-permission" }
 	| { readonly kind: "unavailable" };
 
@@ -1796,15 +2205,19 @@ member's own key. Every outcome but `refreshed` writes nothing. In order:
 3. Take `observedAt = new Date().toISOString()`, before the request is sent.
 4. Read the app's source (`hq/appSource.ts::readHqAppSource`) for the mapping's remote id. `gone`
    answers `app-gone`. `unsupported`, and a failure whose `cause` is `malformed`, answer `unreadable`.
-   A failure of status 401 or 403 that is not an edge's answers `no-permission`. Any other failure
-   answers `unavailable`. From B1 the last three are chosen by `classifyHqFailure(error,
-   "app-source").kind`, by the rule part 05 gives its source read ladder
-   (`05-reading-commcare-hq.md`, section 12):
-   `key-not-accepted`, `plan-lacks-api-access`, `api-cut-off`, `not-a-member` and `permission` are
-   `no-permission`, `answer-unreadable` is `unreadable`, and every other kind is `unavailable`.
+   Any other failure is chosen by `classifyHqFailure(error, "app-source").kind`, by the rule part
+   05 gives its source read ladder (`05-reading-commcare-hq.md`, section 12): `key-not-accepted`
+   answers `key-not-accepted`; `not-a-member` and `permission` answer `no-permission`, as do
+   `plan-lacks-api-access` and `api-cut-off`, which the source read cannot give
+   (`views/apps.py::app_source` runs `api_auth` and `require_can_edit_apps`, with no plan check and
+   no cut-off check, so its 401 is the key alone); `answer-unreadable` answers `unreadable`; every
+   other kind answers `unavailable`.
 5. Normalize it (`normalizeHqAppSource` over the read's `raw`); `{ malformed }` answers `unreadable`.
 6. Compare it with the baseline by the publish's own comparison, `diffHqAppSource({ baseline, current,
-   ownership, shell: false, schemaDefault })`. Any part answers `changed-in-hq`.
+   ownership, shell: false, schemaDefault, mediaChanged })`, with `mediaChanged` part 15's
+   `movedRecordedPaths(baseline.mediaFiles, source.multimediaMap ?? [])` over the read of step 4
+   (`15-changes-made-in-commcare-hq.md`, section 7.5): the count of recorded files whose id moved,
+   read from the map with no file fetched. Any part answers `changed-in-hq`.
 7. No part: write through the new store writer below. `written` answers `refreshed`, and `superseded`
    answers `superseded`, each with the deployment as it now stands.
 
@@ -1825,6 +2238,10 @@ export async function recordRefreshedAppBaseline(
 			AppBaselineWrite,
 			"sourceGzip" | "sourceBytes" | "sourceDigest" | "observedAt"
 		>;
+		/** Part 15's: the list the next publish shows (its section 4.4). Absent: the stored one stays. */
+		readonly firstPublish?: StoredFirstPublish;
+		/** Part 15's: the media record with an id a review learned (its section 7.8). Absent: it stays. */
+		readonly mediaFiles?: HqMediaRecord;
 	},
 ): Promise<{
 	readonly outcome: "written" | "superseded";
@@ -1834,17 +2251,19 @@ export async function recordRefreshedAppBaseline(
 
 Inside `withDeploymentRow(scope, target, { ensure: false }, …)`, which locks the app row and takes the
 deployment row `FOR UPDATE`, it selects the stored baseline's `remote_app_id`, `origin`,
-`source_digest`, `ownership` and `observed_at`. Where the row is gone, its `remote_app_id` is not
-`input.remoteAppId`, its origin is `unread` or `create`, its digest is not `comparedDigest`, its
-`observed_at` is later than the read's `observedAt`, or the live `app` mapping no longer names that
-remote id, it writes nothing and answers `superseded`. Otherwise it calls
-`writeAppBaseline` with the stored origin and ownership, the read, and `discard: null` (which keeps a
-stored discard record), calls `notifyAppDeployments(tx, scope.appId)` so every open tab's Preview
-follows, and answers `written`. The stored origin is kept because it says how the app came to be
-there, which a refresh does not change; `types.ts::AppBaselineWrite.origin` is `"create" | "push" |
-"unread"` today, so A3 widens it with `"cutover"` for this one writer, and B8 with `"read"`. From B8
-the writer takes `expectedEndings` as the other baseline writers do (part 10,
-`10-identity-and-the-ledger.md`, section 8.5).
+`source_digest`, `ownership`, `nova_revision` and `observed_at`. Where the row is gone, its
+`remote_app_id` is not `input.remoteAppId`, its origin is `unread` or `create`, its digest is not
+`comparedDigest`, its `observed_at` is later than the read's `observedAt`, or the live `app` mapping
+no longer names that remote id, it writes nothing and answers `superseded`. Otherwise it calls
+`writeAppBaseline` with the stored origin, ownership and `nova_revision`, the read, `discard: null`
+(which keeps a stored discard record), and `keep` for the media record and the first-publish list
+unless the input carries one (part 15, sections 3, 4.4 and 7.8), calls
+`notifyAppDeployments(tx, scope.appId)` so every open tab's Preview follows, and answers `written`.
+The stored origin is kept because it says how the app came to be there, which a refresh does not
+change; `types.ts::AppBaselineWrite.origin` is `"create" | "push" | "unread"` today, so this writer
+widens it with `"cutover"`, and part 10 with `"read"` and `"changes"` (its section 6.3). The writer
+takes `expectedEndings` as the other baseline writers do (part 10, `10-identity-and-the-ledger.md`,
+section 8.5).
 
 **Why no stale read can land.** A publish writes its read-back baseline under the same row lock
 (`recordRemoteResource`), so the digest test and the write are one step against it: where a publish
@@ -1858,11 +2277,15 @@ the one case the digest cannot, a publish whose read-back equals the old baselin
 Stamping the read when its answer arrives would let a slow answer outdate a publish that finished
 meanwhile, and the next publish would then stop with `hq_changed` over Nova's own push.
 
+Part 15's `peekHqAppChanged` is steps 1 to 6 of `refreshKeptValues` with no step 7, for its check
+when the builder opens (its section 8.1), and its bring-in is the second caller of this writer, for
+a review that answered `nothing` with the reason `reads-the-same` (its section 4.4).
+
 Why the whole baseline and not a splice of the kept keys: a baseline must stay one read of HQ, with one
 date. Replacing it only where nothing Nova writes has moved changes no later drift verdict (the
 comparison that would run at the next publish has just run and found nothing). Where something Nova
-writes has changed in HQ, the kept list keeps its date and the person is told why; the drift stop of
-the next publish names the changes.
+writes has changed in HQ, the kept list keeps its date and the card says why, with a button that
+shows what changed (part 15, section 9.6).
 
 `lib/deployment/actions.ts` gains the action, which returns the outcome with the refreshed view
 where the outcome carries a deployment:
@@ -1878,7 +2301,7 @@ export type KeptRefreshView =
 	| {
 			readonly kind:
 				| "changed-in-hq" | "no-baseline" | "app-gone"
-				| "unreadable" | "no-permission" | "unavailable";
+				| "unreadable" | "key-not-accepted" | "no-permission" | "unavailable";
 	  };
 
 export async function refreshKeptValuesAction(input: {
@@ -1903,16 +2326,16 @@ status's does. Scope: `nova.hq.write`, which `refresh_deployment` declares today
 
 ---
 
-## 7. Three rules that land in stack B
+## 7. Four rules beside the kept test
 
-### 7.1 A generated key (the manifest lines of B2)
+### 7.1 A generated key in `translations`
 
 HQ writes a string for each id its patterns name (`id_strings.py::REGEXES`; the surface's
 `app-string-id:` family) from the app's own fields, and a non-empty value stored under that id in
 `translations` replaces it at runtime (4.4). Nova never carries such a key
 (`appStringKeys.ts::translationKeyOwner`, `generated`), so it can never be kept: a publish removes it,
-and the worker would see the field's text again. B2 adds three entries on
-`schema:Application.translations`, and re-words one:
+and the worker would see the field's text again. Three entries join
+`schema:Application.translations`, and one is re-worded:
 
 | Entry | Disposition | Value class | `item` |
 |---|---|---|---|
@@ -1921,14 +2344,12 @@ and the worker would see the field's text again. B2 adds three entries on
 | `application-and-settings/translations-generated-key-anything-else` | HELD-NEW, `subject: "translation-overrides"`, `owner: "settings-nova-comes-to-own"` | `generated-key-other` | any other such key: an override of a string Nova writes from a constant or derives, or of one string of a text that feeds several |
 | `application-and-settings/translations-key-no-runtime-reads` (existing, INERT) | unchanged | unchanged | gains "a key no generated pattern and no runtime catalog names" |
 
-`SUBJECTS` gains `translation-overrides` and the copy table its `not-yet` sentence in B2, with the
-entry that uses it.
-
-The classifier part 06 implements (`06-the-reader-forms.md`, section 16.5, B2), stated so no part
-decides it. Let `D0` be the document read
-without any generated key, and `T0` its local app strings by language with each string's source
-(`compileCcz` builds exactly this map: `appStrings` and `appStringUnits`, id to constant or to
-translation unit). For each language `L`, key `K` matching a generated pattern, and value `V`:
+The classifier part 06 implements (`06-the-reader-forms.md`, section 16.5), stated here so no other
+part decides it. Every reading drafts a provisional document, and a generated key is classified in the
+same reading against the app strings that draft gives. Let `D0` be that draft read without any
+generated key, and `T0` its local app strings by language with each string's source (`compileCcz`
+builds exactly this map: `appStrings` and `appStringUnits`, id to constant or to translation unit).
+For each language `L`, key `K` matching a generated pattern, and value `V`:
 
 1. `V` is blank: inert (`non_empty_only` drops it).
 2. `K` is no id of `T0`: inert (HQ generates no such string for this app, so no suite names it).
@@ -1938,15 +2359,21 @@ translation unit). For each language `L`, key `K` matching a generated pattern, 
    once.
 5. Otherwise: not-yet, with `detail.name` the key.
 
+Two limits stand, and part 06 says which finding a key stands under in each
+(`06-the-reader-forms.md`, section 16.5, steps 1 and 3). A key is not classified where what it names
+did not read whole: its language could not be named, its menu or form got no draft, or a finding
+stands at its menu, its case list, its case detail, its search or its form. And no key is classified
+where Nova's own build cannot write the provisional document, because that document leans on
+something a finding withheld. They are the two limits the account's last line names (9.1).
+
 Rules 2 to 4 read Nova's local app strings for `D0` as if they were HQ's. That holds only where the
 two builds name the same strings: among ids that match a generated pattern, the set HQ's build writes
 for the app equals the set the local archive writes for `D0`. Where HQ's build held such an id Nova
 spells another way or does not write, rule 2 would call an override of it inert while HQ's build
 applied it. So the equality is a stated precondition of the classifier, held by proof 2 on every
 HQ-authored base (the generated ids of each `app_strings.txt` of HQ's build against the local
-archive's, per language), which part 14 carries (`14-proof.md`, section 4; named under "What this
-part needs of other parts"). An id on one side alone is a failure of that proof, fixed in the
-emitter or by a new entry, never classified around.
+archive's, per language), which part 14 carries (`14-proof.md`, section 4). An id on one side alone
+is a failure of that proof, fixed in the emitter or by a new entry, never classified around.
 
 Languages of `translations` the app does not have are skipped: HQ builds no strings for them. Rule 4's
 "once" is what makes the fixed point hold: Nova's emission of the folded document gives `V` for every
@@ -1954,12 +2381,12 @@ id `U` feeds, a re-reading meets no generated key, and the document is unchanged
 form's own name field then shows the override's wording, where before it showed the field's, and the
 `translations` key is gone; no runtime shows a different word. That is one first-publish change
 (`translation-overrides-folded`, no worker impact), an entry of part 09's register
-(`09-acceptance-and-the-first-publish.md`, section 11.2, B7).
+(`09-acceptance-and-the-first-publish.md`, section 11.2).
 
 `homescreen.title` and `app.display.name` keep their own entries: they are generated patterns Nova does
 write.
 
-### 7.2 A language's display name (B8)
+### 7.2 A language's display name
 
 HQ's build names an app's languages in one table only, the `default` one: for each language of the
 build it writes its registry's name for the code (`langcodes.get_name`, or the code itself), put into
@@ -1974,7 +2401,8 @@ language into every table, not `default` alone (`compiler.ts::compileCcz`, `tabl
 localization.languageName(code)`). On an app Nova brought in, the first would replace HQ's name, or
 the name a person typed, wherever the two differ.
 
-From B8, the pull request that first writes an `adopted` app mapping:
+So on a deployment whose app mapping is `adopted` (part 10, `10-identity-and-the-ledger.md`, section
+6.3), a language's display name is CommCare HQ's:
 
 - `targetOverlay.ts::projectTranslationsForTarget(application, current, options)` gains
   `options: { readonly languageNames: "nova" | "target" }`. With `"target"` a key that is a language's
@@ -1982,39 +2410,35 @@ From B8, the pull request that first writes an `adopted` app mapping:
   absent. `projectApplicationForTarget` takes the same option, and
   `lib/deployment/importApplication.ts::hqImportApplication` passes
   `HqImportApplicationInput.languageNames`, which `publishAppToHq` sets to `"target"` exactly where
-  the mapping it updates in place is `adopted`, and to `"nova"` otherwise (part 10,
-  `10-identity-and-the-ledger.md`, section 6.3).
+  the mapping it updates in place is `adopted`, and to `"nova"` otherwise (part 10, section 6.3).
 - `hqSourceBaseline.ts::ownedTranslations` takes the same option, so the drift comparison stops
   reading language names on an adopted deployment: they are the project space's there.
-- `TargetFacts` gains `readonly languageNames: Readonly<Record<string, Readonly<Record<string,
-  string>>>> | null`: `null` on a deployment Nova created, and on an adopted one, per language of the
-  source, each language code that language's `translations` entry holds a non-empty name for.
-  `targetFactsFromSource`'s input gains `readonly adopted: boolean`, which `targetFactsFromBaseline`
-  takes as a second argument from the live app mapping's ownership, so its B8 signature is
-  `targetFactsFromBaseline(baseline: Extract<AppBaseline, { source: unknown }>, adopted: boolean):
-  TargetFacts | null` (`readTargetFacts` reads the ownership with the row, and the key of its
-  projection cache gains it beside the digest). `targetFactsFromBaseline`
-  projects a `read` baseline as it does a `push` one; there is no origin on the facts for B8 to widen.
+- `TargetFacts.languageNames` (6.1) carries the names: `null` on a deployment Nova created, and on an
+  adopted one, per language of the source, each language code that language's `translations` entry
+  holds a non-empty name for. `adopted` reaches `targetFactsFromSource` as its input, which
+  `targetFactsFromBaseline` takes as its second argument from the live app mapping's ownership.
 - `compileCcz` writes `table[code] = facts.languageNames[language]?.[code] ??
   localization.languageName(code)` where `facts.languageNames` is not `null`. Where HQ holds no name,
   the archive writes Nova's label, in every table, and HQ's build writes its registry's name in the
   language's own tongue, in `default` alone. Nova cannot compute HQ's registry name, so the row states
-  the difference rather than mirror it: the advisory says what a person would see, that the language
+  the difference where it cannot mirror: the advisory says what a person would see, that the language
   picker may name a language differently (9.5), which is true of both differences.
 - The entry `application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s`
   becomes TARGET-OWNED: "**TARGET-OWNED**: on a project space Nova brought the app in from, a
   language's display name is CommCare HQ's: a name it holds is carried and an absent one stays absent
   (`projectTranslationsForTarget`, `languageNames: \"target\"`). Where Nova created the HQ app it writes
-  its own label, which is the HELD row above". Its `KEPT_AT_HQ` row: kind `setting`, label "Language
-  names", `.ccz` `mirrors` for a name HQ holds and `states` (`kept_language_names_differ`) for an
-  absent one, Preview `no-claim` ("the language menu is Nova's own control"), another project space
-  `seeds` Nova's label, base `hq-kept-settings`. The subject `language-display-names` and its sentence
-  leave `SUBJECTS` and the copy table with the flip.
-- A fourth kept advisory id, `kept_language_names_differ`, shown where `facts.languageNames` is not
-  `null` and some app language's table lacks a held name for some app language's code (copy in
-  section 9). `KeptAdvisoryFacts` gains `readonly languageNames: boolean` for it.
+  its own label, which is the HELD row above". Its `KEPT_AT_HQ` row is in section 5's table: kind
+  `setting`, label "Language names", `.ccz` `mirrors` (`compileCcz`) with the advisory
+  `kept_language_names_differ` for a name HQ holds none of, Preview `no-claim` ("the language menu is
+  Nova's own control"), another project space `seeds` Nova's label, base `hq-kept-settings`. The entry
+  ends the step with no subject (3.8), so no subject names a language's display name. A reading
+  claims a name under it as kept: the claim is part 06's application walker's
+  (`06-the-reader-forms.md`, section 6.5).
+- The advisory `kept_language_names_differ` (6.3) is shown where `KeptAdvisoryFacts.languageNames`
+  is true: `facts.languageNames` is not `null` and some app language's table lacks a held name for
+  some app language's code. Its copy is in 9.5.
 
-### 7.3 The fifteen settings on an app Nova brought in (B8)
+### 7.3 The fifteen settings on an app Nova brought in
 
 `projectProfileForTarget` writes each of the fifteen seeded settings where the project space holds no
 value (`holdsNoValue`: absent, `null` or `""`), and all but the map layer are written forced. For an
@@ -2027,11 +2451,10 @@ Nova's stated behavior from its first publish. On an app made in HQ it would be 
 publish makes to workers' phones, and the bar's clause (b) admits such a change only declared. This
 plan reads the original's behavior exactly wherever it can and declares a change only where it
 cannot: of the three answers part 09 gives each candidate change (read exactly, refuse, declare;
-`09-acceptance-and-the-first-publish.md`, section 11.4), it takes the first wherever it is open, as
-part 07 does (`07-the-reader-cases-menus-lists.md`, Departure 7), and here that costs nothing: Nova
-leaves the key absent.
+`09-acceptance-and-the-first-publish.md`, section 11.4), it takes the first wherever it is open, and
+here that costs nothing: Nova leaves the key absent.
 
-From B8, the pull request that first writes an `adopted` app mapping:
+So on a deployment whose app mapping is `adopted`:
 
 - `targetOverlay.ts::projectProfileForTarget(application, current, targetState, options)` gains
   `options: { readonly seeds: "nova" | "target" }`. With `"target"` a seeded key is written only where
@@ -2039,14 +2462,14 @@ From B8, the pull request that first writes an `adopted` app mapping:
   key it holds no value for is left as it is, absent, `null` or `""`. The two owned settings are
   written either way. `projectApplicationForTarget` takes the option beside `languageNames` (7.2), and
   `hqImportApplication` passes `HqImportApplicationInput.seeds`, which `publishAppToHq` sets to
-  `"target"` exactly where the mapping it updates in place is `adopted` (part 10, 6.3).
+  `"target"` exactly where the mapping it updates in place is `adopted` (part 10, section 6.3).
 - The ownership descriptor does not change: it names the two owned settings alone
   (`OWNED_PROFILE_PROPERTY_KEYS`), so the drift comparison already reads none of the fifteen.
-- `TargetFacts` gains `readonly seeds: "nova" | "target"`, from the same `adopted` input 7.2 adds.
+- `TargetFacts.seeds` (6.1) is `"target"` on an adopted deployment and `"nova"` otherwise.
   `keptProfile.ts::targetProfileProperties` writes a seeded setting the facts hold no value for at
   Nova's seed where `seeds` is `"nova"`, and leaves it out where it is `"target"`, so the archive and
   HQ's build of an adopted deployment state one profile. With `facts` `null` it returns
-  `appProfileProperties(doc)` as before: no facts means no reached deployment was read.
+  `appProfileProperties(doc)`: no facts means no reached deployment was read.
 - The fifteen entries' cells (3.6) gain: "On a project space Nova brought the app in from, a publish
   writes none of them: a setting it holds no value for stays absent (`projectProfileForTarget`,
   `seeds: \"target\"`)". Their `KEPT_AT_HQ` rows are unchanged: another project space is a deployment
@@ -2055,15 +2478,326 @@ From B8, the pull request that first writes an `adopted` app mapping:
 - Run 3 ("Written and not yet run") holds this on HQ's real build. `keptProfile.test.ts`'s property
   (section 10) runs under both values of the option.
 
-An adopted deployment stays `adopted` across publishes (part 10, section 7.1, B8), so the rule does
+An adopted deployment stays `adopted` across publishes (part 10, section 7.1), so the rule does
 not lapse after the first one. A person who wants one of the fifteen set on such an app sets it on
 the app's Settings page in CommCare HQ, where it is kept.
+
+### 7.4 A build profile that names a language the app no longer has
+
+A build profile is CommCare HQ's name for a set of an app's languages that one group of phones
+installs (`models/applications.py::BuildProfile`: `name`, `langs`, `practice_mobile_worker_id`). HQ's
+own page calls it an application profile (the Application Profiles tab of the app's Releases page,
+`templates/app_manager/partials/releases/releases.html`), so every sentence a person reads here says
+"application profile". Profiles need the `build_profiles` plan privilege, first in the Advanced plan
+(`accounting/bootstrap/features.py::advanced_v0`).
+
+**What happens today.** A person with that privilege adds a profile to an app Nova published, on
+that tab (`views/releases.py::LanguageProfilesView.post`, which replaces `app.build_profiles` whole
+with what the page posts). Later an author removes one of the profile's languages in Nova, or relabels
+the one language of a single-language app:
+
+- `lib/doc/mutations/app.ts`, the `removeLanguage` arm, takes the tag out of
+  `localization.languageOrder`, `translations` and `wireCodes`. The `relabelSourceLanguage` arm
+  replaces the one language and its wire code. Neither knows a project space exists, and neither
+  should: the document belongs to no target.
+- The next publish writes `langs` from the document
+  (`lib/commcare/expander.ts::appLevelValues`, `langs: [...localization.languages]`, the codes
+  `lib/commcare/languageWire.ts::planLanguageWire` reads from `wireCodes`), and never writes
+  `build_profiles`: the body does not carry the key, and HQ's update would drop it if it did
+  (`models/applications.py::_merge_source_into_app` leaves out every key of
+  `ApplicationBase._update_excluded_fields`, which lists `build_profiles`).
+  `lib/commcare/targetOverlay.ts::projectApplicationForTarget` projects only `translations`,
+  `add_ons` and `profile`, and `projectTranslationsForTarget` already drops the name of a language
+  the app no longer has. Nothing reads the profiles.
+- So after the publish HQ's app holds `langs` without the language and a profile that still names
+  it. HQ's own Languages page never leaves that state: it takes a deleted language out of every
+  profile in the same save (`views/apps.py::edit_app_langs`, the loop over `app.build_profiles`).
+- The drift check does not see it either. `lib/deployment/hqSourceBaseline.ts::ownedProjection`
+  compares only what Nova writes, and `build_profiles` is not among it.
+
+**What HQ then does with that profile.** Every file of a profile's build is made from the profile's
+own `langs` (`models/applications.py::ApplicationBase.get_build_langs`), by
+`Application.create_all_files(build_profile_id)`, which HQ runs for each profile when a build is
+released (`views/releases.py::release_build`, `tasks.py::create_build_files_for_all_app_profiles`)
+and again when a phone asks for a file the build does not hold yet
+(`views/download.py::download_file`).
+
+- *The profile still names a language the app has.* Each form keeps its other translations
+  (`xform.py::XForm.exclude_languages` removes only what the profile does not name), and the build
+  succeeds. But the suite carries a locale resource for the removed code
+  (`suite_xml/sections/resources.py::LocaleResourceContributor`), the default strings carry its
+  name (`app_strings.py::_create_custom_app_strings`, the loop over `ccz_langs`), and its
+  `app_strings.txt` is filled from the app's other languages (`clean_trans` over
+  `[lang] + app.langs`). A phone lists every locale its suite installs
+  (commcare-core `resources/model/installers/LocaleFileInstaller.java`,
+  commcare-android `utils/ChangeLocaleUtil.java::getLocaleCodes`), so a worker on that profile is
+  offered a language the author removed, and choosing it shows the app in another language. Where
+  the removed language is the profile's first, the profile's `cur_locale` is that code
+  (`Application.create_profile`, `locale = self.get_build_langs(build_profile_id)[0]`) and no
+  translation of any form is marked default (`XForm.set_default_language`); Core then takes the
+  form's first translation as its default (commcare-core
+  `xform/parse/XFormParser.java`, `l.setDefaultLocale(l.getAvailableLocales()[0])`).
+- *The profile names no language the app has.* `exclude_languages` removes every translation of
+  every form and raises `XFormException` ("Form does not contain any translations for any of the
+  build languages"), so HQ cannot make that profile's files at all. The lane shows this every run:
+  the fixed entry `d1-language-codes-build-profile-raised` on the control `targeted-hq-side-state`
+  holds exactly this raise, from the time a code Nova renamed left a profile naming none of the
+  app's languages. What a phone installed from that profile shows when its update finds no files is
+  unverified: no reader in the lane installs a profile's build.
+
+**Why the fix is a stop, and where.** The right end state is the one HQ's Languages page makes: the
+removed language gone from every profile. Nova cannot make it. No request an API key can send
+writes `build_profiles`: the import's update leaves the key out (above), and the two views that do
+write it, `LanguageProfilesView.post` and `edit_app_langs`, take a signed-in browser session
+(`app_manager/decorators.py::require_can_edit_apps` is `require_permission` with its default
+`login_and_domain_required`, where the import is `login_decorator=api_auth()`). What Nova can do is
+never produce the state. A publish reads the app's source before it writes anything, and that read
+carries the profiles (`views/apps.py::app_source` serves `export_json`, which holds every declared
+property; all forty retained reads under `proof/hq-reads/` hold `build_profiles`). So a publish
+that would leave a profile naming a language the published app does not have stops before it sends
+anything, names the profile and the language, and says where the person changes it. The stop is a
+blocking edge, not a line in the setup artifact: the profile is easiest to change before the
+publish, while HQ's page still offers the language, and an instruction read after the fact would
+leave the bad build in place until someone followed it.
+
+It is not a rule of the commit gate, and no validator code is added. Removing a language stays
+always allowed in Nova: the document holds no profile and belongs to no project space, and one app
+can be published to several. For the same reason the builder's and the tools' language removal say
+nothing about profiles: the only profiles Nova could name there would be a stored reading of a
+past publish, which may no longer be true, and the publish reads the real ones.
+
+**The rule.** Every language code a build profile on the target's app names is one of the codes
+this publish writes as `langs`. It is a property of two things read fresh, HQ's source and the
+document being sent, so it needs no history: it holds a removed language, a relabelled single
+language, and a profile left stale by a publish made before this rule existed, alike.
+
+- A profile with no languages names none, so it passes. HQ's own Languages page can leave one (it
+  removes a deleted language and keeps the profile), and it is HQ's state on an app Nova did not
+  change; a publish neither makes nor worsens it.
+- A language Nova adds joins no profile. That is a profile's meaning (a chosen set), and HQ's own
+  page adds none either.
+- Reordering languages (`setDefaultLanguage`) changes no code, and each profile keeps its own
+  order, so it never stops a publish.
+
+**The code.**
+
+- *The reader.* `lib/commcare/hq/appSource.ts::HqAppSource` gains `buildProfiles` (part 05,
+  `05-reading-commcare-hq.md`, section 7, states the member and its shape check; the reader has to
+  give it before this rule can run).
+  A source whose `build_profiles` cannot be read is `malformed`, which a publish already answers
+  with `hq_app_state_unknown`: reading it as "no profiles" would pass the very state this rule
+  exists to stop.
+- *The comparison.* New file `lib/commcare/targetBuildProfiles.ts`, pure, beside `targetOverlay.ts`
+  and `targetLogoRefs.ts`:
+
+  ```ts
+  /** The codes one publish of `doc` writes as `langs`, in order. */
+  export function publishedLanguageCodes(doc: BlueprintDoc): readonly string[];
+
+  export interface BuildProfileLanguageGap {
+  	readonly id: string;
+  	/** The profile's name as HQ holds it; `""` where it has none. */
+  	readonly name: string;
+  	/** The codes the profile names that the app does not have, in the profile's order. */
+  	readonly missing: readonly string[];
+  	/** True where the profile names no language the app has. */
+  	readonly emptied: boolean;
+  }
+
+  /** One gap per profile that names a code outside `langs`, in HQ's profile order. */
+  export function buildProfileLanguageGaps(
+  	langs: readonly string[],
+  	profiles: readonly HqBuildProfile[],
+  ): readonly BuildProfileLanguageGap[];
+  ```
+
+  `publishedLanguageCodes` returns
+  `planLanguageWire(effectiveAppLocalization(doc.localization)).languages`, the list
+  `localization.ts::commCareLocalization` hands `expander.ts::appLevelValues`. A test holds it
+  equal to the `langs` of `expandDoc` and of `expandAppShell` (below), so the check and the body
+  cannot read different codes.
+- *Preflight.* `lib/deployment/preflight.ts`, the `target-app` edge, which runs whenever
+  `plannedInPlaceUpdate` names an app, so on every update and on the retry that fills an empty app
+  an earlier try made. After the version floor and before the comparison with the baseline, it
+  calls `buildProfileLanguageGaps(publishedLanguageCodes(input.doc), read.source.buildProfiles)`.
+  A gap blocks: the edge's check row is `blocked` with the message as its detail and one item per
+  profile, and the outcome is `blockedOutcome(now, "hq_build_profile_language_missing", message,
+  details)` from the new `preflight.ts::buildProfileLanguageFailure(domain, gaps, duringPush)`.
+  Nothing was written, so on a target that is already reached the record does not change
+  (`stateMachine.ts::applyAttemptOutcome`), as with every refused attempt. Preflight always runs
+  over the document that is sent: where recording placements moves the head, the publish reads the
+  head and runs preflight again.
+- *The second read.* A publish that pushed a lookup table or a place reads the source again before
+  the import (`lib/deployment/service.ts::publishAppToHq`, where `diffHqAppSource` compares that
+  read with the one before it). The same call runs over that read, after the drift comparison
+  passes, and a gap stops the publish at `upload` with the same code and the during-push message.
+  A profile saved in HQ while the tables and places went would otherwise be written past, in a
+  window as long as the push; with the check the window is one round trip, the same as for every
+  key the body carries. It costs one pure call over a read the publish already holds.
+- *The read after a first publish's create is not checked.* The app was made a moment earlier from
+  Nova's own shell, which carries no `build_profiles` (`expander.ts::APP_SHELL_KEYS`), and HQ's
+  create makes the app from the body it is given and nothing else
+  (`models/applications.py::_create_app_from_doc`). A stop there could never fire.
+- *The code and its place in the types.* `lib/deployment/types.ts::DEPLOYMENT_FAILURE_CODES` gains
+  `"hq_build_profile_language_missing"`, with the comment "A build profile of the app on CommCare
+  HQ names a language this app no longer has, and no API key can change a build profile. Nothing
+  of this publish's content was sent." `blockedOutcome`'s code union gains it. The refusal carries
+  no new structured field: the message and `details` say everything, and `PublishOutcome.hqAppUrl`
+  already carries the app's address on a refused update.
+- *What does not change.* The body: `hqImportApplication` still sends no `build_profiles`. The
+  drift check: a person's change to a profile is no change to anything Nova writes, so the publish
+  after it meets no `hq_changed`. The local `.ccz`: an archive is one build with every language and
+  holds no profile. The HQ import file: a manual import makes a new app, which has no profile.
+  Preview: it plays the document's languages, and which of them one phone installs is not something
+  the document holds, so neither platform's Preview changes.
+
+**Copy.** `buildProfileLanguageFailure` builds the message and one `details` line per profile. A
+language is written as its English name and its code, `French (fra)`, from
+`lib/commcare/classicLanguages.ts::classicLanguageRow(code)`, or as the code alone where the catalog
+has no row for it (`cmn-hant`): HQ's tab lists codes, so the code is what the person looks for.
+
+| Case | Message |
+|---|---|
+| One profile, one language, at preflight | An application profile of the app on “`<domain>`” includes a language this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all. |
+| Several profiles or languages, at preflight | Application profiles of the app on “`<domain>`” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all. |
+| Either, found on the second read | The same sentences, with "so Nova stopped before sending anything" replaced by "which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content". |
+
+| Profile | `details` line |
+|---|---|
+| Named, keeps another language | “`<name>`”: French (fra) |
+| Named, several missing | “`<name>`”: French (fra), Hausa (hau) |
+| Names no language the app has | “`<name>`”: French (fra), the only language it has (or "the only languages it has") |
+| No name | A profile with no name: French (fra) |
+
+"Remove the profile" is offered every time because it always works: the page posts the profiles
+it shows, and HQ replaces the app's with them. A phone installed from a removed profile is then
+served the app's own build, with every language (`views/download.py::_get_build_profile_id`
+answers no profile for an id the app no longer holds, and `download_file` then serves the default
+files). How the tab draws a profile whose language the app already lacks, the state a publish made
+before this rule leaves, is unverified in a browser: the template binds the choices to the app's
+languages (`partials/releases/build_profiles.html`, `options: $root.app_langs, selectedOptions:
+langs`), so the copy does not promise that the stale language shows there.
+
+**Surfaces.**
+
+- *The publish dialog* (`components/builder/PublishDialogBody.tsx`) draws the refusal as it draws
+  every other: the message, then each `details` line. The link "Open the app in CommCare HQ", which
+  it shows today for `hq_app_version_below_floor`, shows for this code too. `hqAppUrl` is the app's
+  page, which is its Releases page (`app_manager/urls.py` gives `view_app` and `release_manager`
+  one view). No new control: the way forward is in CommCare HQ, then "Publish again".
+- *MCP.* `lib/mcp/errors.ts::UploadErrorType` and `lib/mcp/tools/uploadAppToHq.ts::UPLOAD_ERROR_TAGS`
+  gain `hq_build_profile_language_missing`. The tool answers `{ error_type, message, app_id, url }`
+  with the placement answer, as for the version floor, the message followed by the `details` lines
+  on their own lines. The tool's description gains one sentence after the `hq_app_state_unknown`
+  one: "If an application profile of the app on CommCare HQ includes a language the app no longer
+  has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay
+  the `message` and its `url`, and upload again once the user has changed the profile there." The
+  doc comments of both files gain the matching item. The tool is served by MCP alone, so
+  `lib/mcp/__tests__/servedSchemas.test.ts` holds the new description and `scripts/test-schema.ts`
+  gains nothing.
+- *The Solutions Architect* has no deployment surface and gains none. `remove_language` and
+  `update_language` keep their descriptions and results, so this fix changes nothing the chat
+  model reads.
+- *The plugin.* `../nova-plugin/skills/upload_to_hq/SKILL.md` lists each refusal the tool answers.
+  It gains: "`hq_build_profile_language_missing`: an application profile of the app on CommCare HQ
+  includes a language the app no longer has. Its content was not sent. Relay the `message` and its
+  `url`, the app's page in CommCare HQ, where the user takes the language out of the profile or
+  removes the profile on the Application Profiles tab. Then upload again." It rides the step's one
+  plugin pull request, which moves the version once and merges once Nova's deploy is live (part 13,
+  section 16).
+
+**Public docs.**
+
+- `content/docs/publishing.mdx`, under "Checked", a new subsection after "The CommCare version":
+
+  > #### Application profiles
+  >
+  > In CommCare HQ, an app can have application profiles, each a set of the app's languages for one
+  > group of phones. Nova keeps them as they are and can't change them. If you remove a language in
+  > Nova that a profile there still includes, the next publish to that project space stops before
+  > it sends anything and names the profile and the language. You can take the language out of the
+  > profile, or remove the profile, on the Application Profiles tab of the app's Releases page in
+  > CommCare HQ, then publish again. A language you add in Nova joins no profile until you add it
+  > there.
+
+  The list of what "Checked" covers, in that section's first paragraph, gains "that no application
+  profile there includes a language the app no longer has" after the CommCare version clause.
+- `content/docs/languages.mdx`, after the sentence that says adding or removing a language leaves
+  the others' codes as they are: "If the app in CommCare HQ has an application profile that
+  includes a language you remove, the next publish there stops and names it
+  ([Publishing](/docs/publishing#application-profiles))."
+- `content/docs/mcp/tools.mdx`, the `upload_app_to_hq` row, gains the description's new sentence.
+- `content/docs/claude-code/commands.mdx`, the list of what Claude checks in about before an
+  upload, gains: "**Application profiles.** If an application profile of the app in CommCare HQ
+  includes a language you removed, Nova sends none of the app's content, and Claude gives you the
+  link to the app in CommCare HQ, where you can change the profile before uploading again."
+
+**What existing apps see.**
+
+- *Saved apps.* None changes. No rule of the gate is added, no document is rewritten, and no
+  migration runs. Every language removal that is allowed today stays allowed.
+- *HQ apps with no build profile.* Nothing changes. This is every app Nova created that nobody gave
+  a profile, and every app in a project space below the Advanced plan.
+- *HQ apps whose profiles name only languages the app has.* Nothing changes; the publish goes
+  through and the profiles stay as HQ holds them.
+- *HQ apps that already hold a profile naming a language the app lacks.* The only route to one is a
+  Nova publish, made before this rule, that removed or relabelled a language after a person saved
+  the profile. Its next publish stops with this refusal instead of going through. Nothing on HQ
+  changes because of the stop, and the app there is exactly as it was the day before: its profile
+  was already offering a language with no text, or already failing to build. The stop is the first
+  notice anyone gets, and it says what to do. Nova has no migration to offer, because no API key
+  can change a profile, and it writes no notice ahead of time, because nothing in an app changed
+  and the stop explains itself at the moment it matters.
+- *An app brought in.* Bringing in an app whose `build_profiles` holds a profile stays `not-yet`
+  (section 3.7), so an adopted app starts with none. One a person adds later is held to the same
+  rule as on an app Nova created.
+
+**Tests.** None renders a component in jsdom.
+
+| Test | Boundary | Catches |
+|---|---|---|
+| `lib/commcare/__tests__/appSource.test.ts`, new cases | the reader over HQ's own retained answers | `proof/hq-reads/targeted-hq-side-state/app-source-after-buildProfiles.json`, a real read holding a profile, reads `[{ id: "mandarin-only", name: "Mandarin", langs: ["zho"] }]`, and a read with `{}` reads `[]`. The same body with `build_profiles` deleted, set to a list, or holding a profile whose `langs` has a number each read `malformed`. Catches a reader that takes an unreadable `build_profiles` for none, which would let the stale profile through unseen |
+| `lib/commcare/__tests__/targetBuildProfiles.test.ts`, new | pure | `buildProfileLanguageGaps`: a profile inside `langs` gives no gap; one outside gives its codes in the profile's order and `emptied: false`; a profile wholly outside gives `emptied: true`; a profile with no languages gives none. `publishedLanguageCodes(doc)` equals `expandDoc(doc).langs` and `expandAppShell(doc).langs` on a document with a suffixed code (`cmn-hant`). Catches the check reading other codes than the body writes |
+| `lib/deployment/__tests__/publishGates.postgres.test.ts`, a new `describe` | `publishAppToHq` over real Postgres and controlled HQ answers | (1) An update over a source whose profile names a held code lands, and its body holds no `build_profiles`. (2) After `removeLanguage`, the publish refuses at `preflight` with the code, the exact message and `details`, `hqAppUrl` set, the only request since the mark `GET` of the source, and the deployment record unchanged. (3) A single-language app relabelled, over a profile naming the old code, refuses the same way. (4) With the profile then served without the language, the publish lands and meets no `hq_changed`. (5) With a lookup table, a clean source at `target-app` and a stale profile on the second read: the workbook is posted, no import is, and the refusal is at `upload` with the during-push message. (6) The retry of a first publish over an empty app that holds such a profile refuses at `preflight`. (7) A source with `build_profiles` absent refuses `hq_app_state_unknown` and sends nothing. Catches a stop that fires after a write, a stop that reads as drift, and a fix in HQ that the next publish does not accept |
+| `lib/mcp/__tests__/uploadAppToHq.postgres.test.ts`, one case | the tool over the same fixtures | the answer's `error_type`, its `url`, and the `details` lines in `message`. Catches a refusal that falls to the generic upload error |
+| `lib/mcp/__tests__/servedSchemas.test.ts` | what a client receives | the description's new sentence |
+| `components/builder/__tests__/publishOutcome.test.ts`, one case | the dialog's state model | a refused answer with this code keeps its `details` and `hqAppUrl`. Catches the link's condition missing the code |
+| `e2e/tests/browser/publishing.spec.ts`, one case beside the version floor's | Playwright | the dialog shows the message, a line per profile and the link to the app. Catches the lines not drawn |
+
+Every fixture that answers the source read with a body written by hand gains `build_profiles: {}`,
+since the reader now requires the key (the publish and MCP Postgres suites' HQ stand-ins). A
+fixture built from a retained read under `proof/hq-reads/` already holds it.
+
+The lane's part is in part 14 (`14-proof.md`): the capture peer serves the profiles a person saves,
+and `targeted-hq-side-state` still publishes over its profile with no stop.
+
+**Contracts this makes false, with their words.**
+
+- `lib/deployment/CLAUDE.md`, "Preflight is a graph with two kinds of edge": the list of blocking
+  edges gains "a build profile on HQ's app that names a language the app no longer has"; the
+  `target-app` paragraph gains "`target-app` also holds that read's build profiles to the
+  languages this publish writes (`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`,
+  the refusal `hq_build_profile_language_missing`): no API key can change a profile, so a publish
+  that would leave one naming a language the app lacks stops before any write, and the same check
+  runs on the second read, where it stops at `upload`."
+- `lib/deployment/CLAUDE.md`, "What the check cannot close": gains "A profile saved in HQ between
+  the publish's last read and its import is not seen until the next publish, which stops."
+- `lib/commcare/CLAUDE.md`, "CommCare HQ upload", after "An update never writes `multimedia_map`,
+  `build_profiles`, `custom_base_url` or `practice_mobile_worker_id`": "`readHqAppSource` reads
+  `build_profiles` so that a publish can refuse to leave a profile naming a language the app no
+  longer has (`targetBuildProfiles.ts`)."
+- Root `CLAUDE.md`, the `lib/deployment` paragraph, after "a publish stops below CommCare 2.57 and
+  without a confirmed plan feature": ", and where a build profile on HQ's app names a language the
+  app no longer has".
+- `docs/research/2026-09-26-hq-round-trip/inventory/application-and-settings.md`, the
+  `build_profiles` rows (split in two by section 3.7): each disposition cell gains "; a publish
+  reads the profiles and stops where one names a language the app no longer has".
 
 ---
 
 ## 8. Findings
 
-### 8.1 The type (A2)
+### 8.1 The type
 
 `lib/publish/hqFindings.ts` also holds the finding type. The reader produces findings; the account
 renders them; nothing in the file reads an app or names a wire key.
@@ -2106,7 +2840,7 @@ export type HqAppClaimDetail =
 	| { readonly kind: "open"; readonly appId: string; readonly appName: string }
 	| {
 			readonly kind: "elsewhere";
-			readonly how: "brought-in" | "published";
+			/** When the Nova app began to manage the HQ app. */
 			readonly at: string;
 			readonly contact: {
 				readonly role: "person" | "owners";
@@ -2116,7 +2850,11 @@ export type HqAppClaimDetail =
 
 /** What the finding is about, in the app's own words where it has some. */
 export interface FindingDetail {
-	/** The thing's own name: an appearance, a setting, a property, a key, a file. At most 200 characters. */
+	/**
+	 * The thing's own name: an appearance, a setting, a property, a key, a file. At most 200
+	 * characters. On a circumstance it is present exactly where the code's row of
+	 * `CIRCUMSTANCE_STANDINGS` holds `name`, which also says where it is shown (8.3).
+	 */
 	readonly name?: string;
 	/**
 	 * Nova's checker reason, for an expression the checker refuses; `split-refused` on
@@ -2134,7 +2872,6 @@ export type ManifestFinding = {
 	readonly cause?: FixCause;
 	readonly place: HqPlace;
 	readonly subject: Subject;
-	readonly owner?: Step7Group; // present exactly when standing is "not-yet"
 	readonly detail: FindingDetail;
 };
 
@@ -2143,40 +2880,59 @@ export type CircumstanceFinding = {
 	readonly standing: FindingStanding | "stop";
 	readonly place: HqPlace;
 	readonly subject: null;
-	readonly owner?: Step7Group;
 	readonly detail: FindingDetail;
 };
 
 export type Finding = ManifestFinding | CircumstanceFinding;
-export const findingSchema: z.ZodType<Finding>;
+
+/** The most characters a finding's name holds. */
+export const FINDING_NAME_MAX_LENGTH = 200;
+/** `name` cut to the bound, its last character `…` where it was cut. */
+export function cutFindingName(name: string): string;
+
+/** What `detail` holds for one code, read off its row of `CIRCUMSTANCE_STANDINGS`. */
+export type CircumstanceDetail<C extends ReadCircumstance> =
+	((typeof CIRCUMSTANCE_STANDINGS)[C] extends { readonly name: string }
+		? { readonly name: string }
+		: { readonly name?: never })
+	& (C extends "no-platform-runs-everything"
+		? { readonly reason?: "split-refused" }
+		: { readonly reason?: never })
+	& (C extends "already-in-nova"
+		? { readonly claim?: HqAppClaimDetail }
+		: { readonly claim?: never });
+
+/** The one way a circumstance finding is made. `standing` is the row's, and the name is cut. */
+export function circumstanceFinding<C extends ReadCircumstance>(
+	code: C, place: HqPlace, detail: CircumstanceDetail<C>,
+): CircumstanceFinding;
 ```
 
 `place.name` is the menu's or form's name in the app's first language, or the same fallback
 `diffHqAppSource` uses where it has none. A menu's and a form's index is HQ's position, so two findings
-of one form group together and sort in the app's own order. `findingSchema` is what the reading's row
-stores (part 12, `12-the-reading-and-the-birth.md`, section 2.3, B10) and what `read_hq_app` returns
-(part 13, `13-the-experience.md`, section 14.3, B12); `standing` and `cause` on a manifest finding
-are checked against `standingOf` and `fixCauseOf` by the reader's index, not re-derived by a consumer.
+of one form group together and sort in the app's own order.
 
-`findingSchema` is `z.union([manifestFindingSchema, circumstanceFindingSchema])`, two
-`z.strictObject`s private to the file. The manifest arm holds `code: z.string().min(1)`, `standing:
-z.enum(["not-yet", "never", "fix-in-hq"])`, `cause: z.enum(FIX_CAUSES).optional()`, `place`,
-`subject: z.enum(SUBJECTS)`, `owner: z.enum(STEP_7_GROUPS).optional()` and `detail`, and refines:
-`owner` present exactly under `not-yet`, `cause` present exactly under `fix-in-hq`, no `detail.claim`.
-The circumstance arm holds `code: z.enum(READ_CIRCUMSTANCES)`, `standing` the manifest arm's three or
-`"stop"`, `subject: z.null()`, `owner` optional and `detail`, and refines: `standing` and `owner`
-equal `CIRCUMSTANCE_STANDINGS[code]`'s, and `detail.claim` only on `already-in-nova`. `place` is a
-`z.discriminatedUnion("kind", …)` over the ten arms above with non-negative integer indexes;
-`detail` is a strict object of `name` (`z.string().max(200)`), `reason` and `claim`, each optional.
-A manifest code is never a member of `READ_CIRCUMSTANCES` (an entry id holds a `/`), so the union
-has one reading of every value.
+Nothing parses a finding at run time: a request answers its findings on the response it computed them
+in, and nothing stores one. So there is no schema. A circumstance finding is made only by
+`circumstanceFinding`. Its types refuse a name where the code's row holds none, a missing name where it
+holds one, a `claim` on any code but `already-in-nova` and a `reason` on any code but
+`no-platform-runs-everything`, and it fills `standing` from the row. A manifest finding is made only by
+part 06's `Accounting` (`06-the-reader-forms.md`, section 5.1) and, for the findings part 11 raises
+outside the reader, by its `findings.ts::manifestFinding` (`11-project-data.md`, section 13). Each
+makes it from the index, which derives `standing`, `cause` and `subject` through `standingOf` and
+`fixCauseOf` and cuts the name with `cutFindingName`. A finding with `subject: null` is a
+circumstance, and a manifest code is never a member of `READ_CIRCUMSTANCES` (an entry id holds a
+`/`). A finding carries no `owner`: no screen draws one and MCP returns none, so the owner stays data
+of the manifest and of `CIRCUMSTANCE_STANDINGS`, where step 7 reads it.
 
 `HqAppClaimDetail` is part 10's `HqAppClaimView` (`lib/deployment/store.ts::readHqAppClaims`;
-`10-identity-and-the-ledger.md`, section 5.5, B8) without `remoteAppId`, declared here because a
+`10-identity-and-the-ledger.md`, section 5.5) without `remoteAppId`, declared here because a
 finding is client-safe and the store is not; the store's type is this one with that key added. It
-never holds the holding Project's name or,
-for `elsewhere`, the Nova app's. A circumstance carries nothing else of what failed: three permission
-needs are three codes (8.3), and a read that timed out shares `hq-unavailable`, whose body says so.
+never holds the holding Project's name or, for `elsewhere`, the Nova app's. It does not say whether
+the holder brought the app in or published it: the person's step is the same under both, word for
+word, and `at` is when the mapping began under either (part 10: `adopted_at`, or the mapping's
+`created_at`). A circumstance carries nothing else of what failed: three permission needs are three
+codes (8.3), and a read that timed out shares `hq-unavailable`, whose body says so.
 
 ### 8.2 Where a finding's fields come from
 
@@ -2186,133 +2942,168 @@ needs are three codes (8.3), and a read that timed out shares `hq-unavailable`, 
 | `standing` | `standingOf(entry)` | the table of 8.3 |
 | `cause` | `fixCauseOf(entry)`, present where it is not `null` | absent: a circumstance has its own copy |
 | `subject` | the entry's `subject` | `null`: a circumstance has its own copy |
-| `owner` | the entry's `owner` | the table of 8.3, where it has one |
 | `place` | the reader's position | the reader's position, or `{ kind: "app" }` |
 | `detail` | set by the claim | set where the table of 8.3 says |
 
-### 8.3 `READ_CIRCUMSTANCES` (20 codes in A2; 27 after B1, 28 after B2, 34 after B9, 35 after B10)
+### 8.3 `READ_CIRCUMSTANCES`
 
 `hqFindings.ts` exports the closed list, the codes of the table below in its order, and
-`CIRCUMSTANCE_STANDINGS`, this table's Standing and Owner columns as data. Each pull request of the
-"Lands in" column adds its rows to both and its blocks to `CIRCUMSTANCE_COPY` (9.3).
+`CIRCUMSTANCE_STANDINGS`, this table's Standing, Owner and Name columns as data.
 
 ```ts
 export const READ_CIRCUMSTANCES = [ /* the Code column below, in its order */ ] as const;
 export type ReadCircumstance = (typeof READ_CIRCUMSTANCES)[number];
 
-/** One row per code: its standing, and its step 7 owner where the table gives one. */
+/** One row per code: its standing, its step 7 owner where it has one, and where its name goes. */
 export const CIRCUMSTANCE_STANDINGS = {
 	"not-connected": { standing: "stop" },
-	// ... one member per code ...
-	"too-large": { standing: "not-yet", owner: "project-data-at-hq-size" },
+	// ... one member per code, as the table below gives it ...
+	"too-large": { standing: "not-yet" },
+	"places-over-nova-limit": { standing: "not-yet", owner: "project-data-at-hq-size", name: "body" },
+	"unrecognized": { standing: "not-yet", name: "line" },
+	"read-back-differs": { standing: "not-yet", name: "internal" },
 } as const satisfies Record<
 	ReadCircumstance,
-	{ readonly standing: FindingStanding | "stop"; readonly owner?: Step7Group }
+	{
+		readonly standing: FindingStanding | "stop";
+		readonly owner?: Step7Group;
+		/** Where `detail.name` goes: in the block's body, on its own line, or to the log alone. */
+		readonly name?: "body" | "line" | "internal";
+	}
 >;
 
-/** The codes that end or hold a reading. A table keyed by this type is total over them. */
+/** The `not-yet` circumstances that are Nova's own fault: reported, and cleared by a Nova update. */
+export const NOVA_FAULT_CIRCUMSTANCES = ["unrecognized", "read-back-differs"] as const;
+
+/** The codes that end a reading. A table keyed by this type is total over them. */
 export type StopCircumstance = {
 	[K in ReadCircumstance]: (typeof CIRCUMSTANCE_STANDINGS)[K]["standing"] extends "stop" ? K : never;
 }[ReadCircumstance];
 ```
 
+A type-level check holds that each member of `NOVA_FAULT_CIRCUMSTANCES` is `not-yet` in
+`CIRCUMSTANCE_STANDINGS` and holds no owner. Part 13's `accountHeading` reads the list
+(`13-the-experience.md`, section 7.1): a missing owner alone does not say a fault is Nova's, since
+`too-large` has none either.
+
 The record keeps each member's literal type (`as const satisfies`), which is what lets part 13 hold
-its table of a stop's actions total over the `stop` codes at compile time (`13-the-experience.md`,
-section 6.2, B11). A `stop` is no finding about the app and no standing of anything in it: it says the
-read ended, or holds the creation until a person acts. It is shown where the person stands and is
-never mixed into an account.
+its table of a stop's actions total over the `stop` codes at compile time (section 6.2). A `stop` is
+no finding about the app and no standing of anything in it: it says the read ended. It is shown where
+the person stands and is never mixed into an account.
 
-| Code | Standing | Owner | When | `detail` | Lands in |
+The table holds 34 codes: the 19 stops, then the 15 an account can hold.
+
+| Code | Standing | Owner | Name | When | `detail` |
 |---|---|---|---|---|---|
-| `not-connected` | stop | | the person has no CommCare HQ connection on that server | | A2 |
-| `key-not-accepted` | stop | | HQ refuses the stored key | | A2 |
-| `plan-lacks-api-access` | stop | | the project space's plan has no API access | | A2 |
-| `not-a-member` | stop | | the account is no member of the project space | | A2 |
-| `cannot-edit-apps` | stop | | the account lacks Edit Apps there, on a read that names it | | A2 |
-| `cannot-access-apis` | stop | | the account lacks Access APIs there, on a read that names it alone | | A2 |
-| `app-gone` | stop | | HQ holds no app by that id | | A2 |
-| `app-deleted` | stop | | HQ holds it as deleted | | A2 |
-| `linked-app` | stop | | the source's `doc_type` is `LinkedApplication` | | A2 |
-| `rate-limited` | stop | | HQ answered that it is too busy, after the read's retries | | A2 |
-| `hq-unavailable` | stop | | HQ did not answer in time, or answered with nothing Nova can read | | A2 |
-| `changed-while-reading` | stop | | the app's version moved during the read, after the restart | | A2 |
-| `already-in-nova` | stop | | another Nova app manages this HQ app | `claim`, where the holder is known | A2 |
-| `too-large` | not-yet | `project-data-at-hq-size` | the app's source is over the read's byte bound, or reading and checking it takes more time or more memory than one of Nova's steps allows, or saving it takes longer than one allows | `name`: `checking` where the check ran out of time or memory, `saving` where the birth ran out of time; absent where a body was over its byte bound | A2; B10 for the check's time and memory causes and the birth's time cause, their `detail.name` and the block's new body |
-| `menu-unreadable-in-hq` | fix-in-hq | | HQ's own summary of a menu is an error | none: the place names the menu | A2 |
-| `shadow-disagrees` | fix-in-hq | | an attribute and its `vellum:` shadow differ in meaning | `name`: the attribute | A2 |
-| `table-differs-in-project` | stop | | a table the app reads meets a table of that tag in the Project that asks the person's choice (part 11, 7.1), and creation was asked for with that choice unanswered | `name`: the tag | A2 |
-| `media-file-unreadable` | fix-in-hq | | HQ's media map holds an entry for the path and HQ serves no file for it, on a slot a runtime reads | `name`: the path | A2 |
-| `unrecognized` | not-yet | | the reader met something no manifest entry names | `name`: the surface key, or the key's path | A2 |
-| `read-back-differs` | not-yet | | acceptance failed after a clean read: a failing check 2 to 5, or a reader defect beside a clean read (part 09, `09-acceptance-and-the-first-publish.md`, section 14, B7) | `name`: one of `accounting`, `gate`, `fixed-point`, `identity`, `summary`, `reader` | A2 |
-| `hq-gateway-refused` | stop | | a gateway in front of HQ refused the request | | B1 |
-| `api-cut-off` | stop | | HQ's 401 says API access is paused for the account or the project space | | B1 |
-| `browser-only` | stop | | HQ answered a redirect or a page where data was asked | | B1 |
-| `remote-app` | stop | | the app list holds the app and the application resource has none | | B1 |
-| `cannot-read-organization` | stop | | a 403 on the level or the place read | | B1 |
-| `app-unreadable-in-hq` | fix-in-hq | | HQ's summary is an error for every menu it would summarize, or for the app whole | | B1 |
-| `table-rows-unreadable` | fix-in-hq | | the rows of one table answer an error where the table list answered | `name`: the tag | B1 |
-| `no-platform-runs-everything` | fix-in-hq | | no declaration runs all of the app's content: some use runs only in Web Apps and some only on Android | `name`: the feature's label and the platform that cannot run it; `reason`: `split-refused` at a date and time question whose split is refused (8.4) | B2 |
-| `places-over-nova-limit` | not-yet | `project-data-at-hq-size` | the project space has more active places than Nova holds for an app | `name`: the count, `"12,400 places"` | B9 |
-| `place-not-holdable` | not-yet | `project-data-at-hq-size` | a level's code, a place's site code, name, coordinates, parent or a value the app reads is outside what Nova's organization holds | `name`: the level's or the place's name | B9 |
-| `media-not-played-where-app-runs` | fix-in-hq | | a referenced file's format plays on no platform the rest of the app runs on | `name`: the path | B9 |
-| `table-cell-unrepresentable` | fix-in-hq | | a lookup table the app reads holds, in a field its definition names, a character XML 1.0 cannot carry | `name`: `"<tag> (the field <field name>)"` | B9 |
-| `owner-rule-needs-one-place` | not-yet | `project-data-at-hq-size` | an owner rule of the app gives a case to the place at a level below the case's current owner, and in the project space that is not exactly one place below every place that owns cases | `name`: the level's name | B9 |
-| `table-choices-unusable` | fix-in-hq | | a question or a search field of the app takes its choices from a lookup table, and that table has no rows, or a row whose value is blank, has white space at an end or repeats another's, or whose label is blank | `name`: `"<tag> (the field <field name>)"` | B9 |
-| `could-not-create` | not-yet | | the birth's own checks refused a reading that acceptance had passed | `name`: `gate`, `export`, `integrity`, `identity` or `bindings` | B10 |
+| `not-connected` | stop | | | the person has no CommCare HQ connection on that server | |
+| `key-not-accepted` | stop | | | CommCare HQ refuses the stored key | |
+| `key-cannot-reach-space` | stop | | | the project spaces Nova holds for the stored key do not hold this one (`getHqCredentials` answers `not_authorized`); no request is sent | |
+| `plan-lacks-api-access` | stop | | | the project space's plan has no API access | |
+| `api-cut-off` | stop | | | CommCare HQ's 401 says API access is paused for the account or the project space | |
+| `not-a-member` | stop | | | CommCare HQ says the account is no member of the project space | |
+| `cannot-edit-apps` | stop | | | the account lacks Edit Apps there, on a read that names it | |
+| `cannot-access-apis` | stop | | | the account lacks Access APIs there, on a read that names it alone | |
+| `cannot-read-organization` | stop | | | a 403 on the level or the place read | |
+| `app-gone` | stop | | | CommCare HQ holds no app by that id | |
+| `app-deleted` | stop | | | CommCare HQ holds it as deleted | |
+| `linked-app` | stop | | | the source's `doc_type` is `LinkedApplication` | |
+| `remote-app` | stop | | | the app list holds the app and the application resource has none | |
+| `rate-limited` | stop | | | CommCare HQ answered that it is too busy, after the read's resends | |
+| `hq-unavailable` | stop | | | CommCare HQ did not answer in time, or answered with nothing Nova can read | |
+| `hq-gateway-refused` | stop | | | a gateway in front of CommCare HQ refused the request | |
+| `browser-only` | stop | | | CommCare HQ answered a redirect or a page where data was asked | |
+| `changed-while-reading` | stop | | | the app's save counter moved during the read, and again when the request read the app once more | |
+| `already-in-nova` | stop | | | another Nova app manages this HQ app | `claim`, where the holder is known |
+| `too-large` | not-yet | | | a body of the app's read, the application resource's or the source's, is over the bring-in's byte bound (`HQ_BRING_IN_APP_MAX_BYTES`, 16 MiB) | none |
+| `menu-unreadable-in-hq` | fix-in-hq | | | CommCare HQ's own summary of a menu is an error | none: the place names the menu |
+| `app-unreadable-in-hq` | fix-in-hq | | | CommCare HQ's summary is an error for every menu it would summarize, and there are at least two | none |
+| `shadow-disagrees` | fix-in-hq | | line | an attribute and its `vellum:` shadow differ in meaning | `name`: the attribute |
+| `media-file-unreadable` | fix-in-hq | | body | CommCare HQ's media map holds an entry for the path and CommCare HQ serves no file for it, on a slot some platform the app runs on draws | `name`: the path |
+| `media-not-played-where-app-runs` | fix-in-hq | | body | a referenced file's format plays on no platform the rest of the app runs on | `name`: the path |
+| `table-rows-unreadable` | fix-in-hq | | body | a read of one table's rows answers a status of 500 or more that is not the edge's and is not 502, 503 or 504, and answers one again when it is sent once more, where the table list answered | `name`: the tag |
+| `table-cell-unrepresentable` | fix-in-hq | | body | a lookup table the app reads holds, in a field its definition names, a character XML 1.0 cannot carry | `name`: `"<tag> (the field <field name>)"` |
+| `table-choices-unusable` | fix-in-hq | | body | a question or a search field of the app takes its choices from a lookup table, and that table has no rows, or a row whose value is blank, has white space at an end or repeats another's, or whose label is blank | `name`: `"<tag> (the field <field name>)"` |
+| `no-platform-runs-everything` | fix-in-hq | | body | no declaration runs all of the app's content: some use runs only in Web Apps and some only on Android | `name`: the feature's label in curly quotes and the platform that cannot run it, `“Date and time questions”, which Web Apps can't run`; `reason`: `split-refused` at a date and time question whose split is refused (8.4) |
+| `places-over-nova-limit` | not-yet | `project-data-at-hq-size` | body | the project space has more active places than Nova holds for an app | `name`: the count CommCare HQ reports, `"12,400 places"`, or `"more than 10,000 places"` where it reports none |
+| `place-not-holdable` | not-yet | `project-data-at-hq-size` | body | a level's code, a place's site code, name, coordinates, parent or a value the app reads is outside what Nova's organization holds | `name`: the level's or the place's name |
+| `owner-rule-needs-one-place` | not-yet | `project-data-at-hq-size` | body | an owner rule of the app gives a case to the place at a level below the case's current owner, and in the project space that is not exactly one place below every place that owns cases | `name`: the level's name |
+| `unrecognized` | not-yet | | line | the reader met something no manifest entry names | `name`: the surface key, or the app's own value where what was unclaimed is a value (an appearance, as written) |
+| `read-back-differs` | not-yet | | internal | one of Nova's own checks on what it read did not pass: acceptance failed after a clean read (a failing check, or a reader defect beside a clean read; part 09, section 14), or the birth's own checks refused what acceptance had passed (part 12, section 6.5) | `name`: the check. From acceptance: `accounting`, `gate`, `fixed-point`, `identity`, `summary` or `reader`. From the birth: `birth-gate`, `birth-export`, `birth-integrity`, `birth-identity` or `birth-bindings` |
 
-**Twenty codes in A2.** Permissions are two of them, `cannot-edit-apps` and `cannot-access-apis`,
-chosen by the read ("Which permission code a 403 becomes", below; B1 adds the third,
-`cannot-read-organization`). `shadow-disagrees` words the reader's rule
-for a real attribute and its `vellum:` shadow that disagree (part 06, `06-the-reader-forms.md`,
-section 14.2, B3), which no manifest entry can name because it is a relation between two attributes.
-`unrecognized` and `read-back-differs` are Nova's own shortfalls, so their standing is
-`not-yet`, their copy takes the blame, and the reader logs each at error (`log.error`, which mirrors to
-Sentry) with the reading's id. A media file over Nova's size limit and a table over Nova's caps are no
-circumstances: they are content the manifest names
-(`expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
-`table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64`), so their findings carry those entry
-ids, the subject and the owner.
+`name` says where `detail.name` goes. `body`: the block's body fills `{name}`, and no line repeats it.
+`line`: the account, the copied text and MCP draw it after the block's body as "In CommCare HQ:
+{name}", as they do for a manifest finding. `internal`: it is Nova's own word, for the log and for
+telling two findings apart, and no surface shows it. A code with no `name` carries none.
 
-**Seven more in B1.** Part 05 (`05-reading-commcare-hq.md`, the HQ reads) classifies every failed
-answer and found seven that none of the twenty words truthfully (its section 4.3). This part takes all
-seven, with the standings it proposes and the blocks it wrote, which 9.3 holds as the binding copy. B1
-adds each to `READ_CIRCUMSTANCES`, `CIRCUMSTANCE_STANDINGS` and `CIRCUMSTANCE_COPY`, and the
-completeness test of section 10 holds each to its block from then on. Two of the seven rest on a run
-of part 05 ("Written and not yet run"): under its run G2's outcome C `remote-app` does not land, and
-under its run G7's outcome B `table-rows-unreadable` does not land, each with its row, its block and
-its member of `READ_CIRCUMSTANCES`; every count of this section then falls by one for each.
-`menu-unreadable-in-hq` carries no `detail.name`, as part 05 asks: HQ's message there is the text of
-an exception, which goes to the log with the menu's position and to no person.
+**Who raises each.** Part 05's `hqReadCircumstance` gives thirteen from a failed read
+(`05-reading-commcare-hq.md`, section 4.3). The bring-in's own reads give the rest of the stops:
+`not-connected` and `key-cannot-reach-space` from part 05's `getHqCredentials` (its section 11),
+`already-in-nova` from the claim (part 10, section 5.5), and `app-deleted`, `linked-app`, `remote-app`
+and `changed-while-reading` from the bracketed read (part 05, section 8.2). `notSummarizedMenus` gives
+`menu-unreadable-in-hq` and `app-unreadable-in-hq` (part 05, section 8.3). The reader gives
+`shadow-disagrees`, `unrecognized` and `no-platform-runs-everything` (part 06, sections 14.2, 4.4 and
+16.3). Part 11 gives the two media codes, the three table codes and the three place codes
+(`11-project-data.md`, section 13.2). Acceptance and the birth give `read-back-differs` (part 09, section
+14; part 12, `12-the-reading-and-the-birth.md`, section 6.5). What a read and a create answer for each is
+part 12's table (its section 3.8).
 
-**Eight more in stack B.** The later parts each found facts no code above words and no manifest entry
-can name. Each is taken as its part words it, and this table and 9.3 are their one home.
-`no-platform-runs-everything` is part 06's (`06-the-reader-forms.md`, section 16.3, B2): the
-app's content leaves no declaration that runs all of it. The six of B9 are part 11's
-(`11-project-data.md`, section 13.2): facts about a project space's data, not the app's source.
-`could-not-create` is part 12's (`12-the-reading-and-the-birth.md`, section 6.5, B10): the birth's
-own last checks turned down a reading acceptance had passed, which `read-back-differs`' block would
-word falsely. B10 also widens `too-large` to the check's time and memory limits and the birth's
-time (part 12, section 3.6). What each
-circumstance does to a reading (a `stopped` row, an account, a creation held) is part 12's table
-(its section 3.8).
+`shadow-disagrees` words the reader's rule for a real attribute and its `vellum:` shadow that
+disagree, which no manifest entry can name because it is a relation between two attributes.
+`unrecognized` and `read-back-differs` are Nova's own shortfalls, so their standing is `not-yet`,
+their copy takes the blame, and each is logged at error (`log.error`, which mirrors to Sentry).
+`read-back-differs` is one code for acceptance's failure and for the birth's own refusal of what
+acceptance passed: one situation for the person and one step. A developer tells the two apart by
+`detail.name`, where the birth's names take the prefix `birth-`, and by the two log lines.
+`too-large` has one cause, a body over the byte bound, and no owner: the bound is a plain limit
+(`lib/commcare/hq/appReading.ts::HQ_BRING_IN_APP_MAX_BYTES`, 16 MiB; part 05, section 3.3, holds it
+and why), never a size step 7 is asked to design for, and its block promises no update. A media
+file over Nova's size limit and a table over Nova's caps are no circumstances: they are content the
+manifest names (`expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`,
+`table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64`), so their findings carry those
+entry ids and the subject. `menu-unreadable-in-hq` carries no `detail.name`: CommCare HQ's message
+there is the text of an exception, which goes to the log with the menu's position and to no person.
+The three place codes are kept apart though a person does nothing for any of them: each is a separate
+piece of step 7's work, and its exit rule reads their owner off `CIRCUMSTANCE_STANDINGS`.
+
+**Three codes are decided by the source, with no condition.** Each was read at the pin.
+`remote-app`: the app list holds a remote app and the application resource answers 404 for it
+(`app_manager/_design/views/applications_brief/map.js` emits `RemoteApp`, `views/cli.py::list_apps`
+reads that view through `Domain.applications`, and
+`api/resources/v0_4.py::BaseApplicationResource.obj_get` admits `Application` and `LinkedApplication`
+alone). `app-unreadable-in-hq`: every step of a menu's summary runs inside
+`ApplicationResource.dehydrate_module`'s `try`, which catches `Exception`, so the resource answers 200
+with an error entry for each menu and never an error for the app whole; the code is every menu an
+error, where there are at least two. `table-rows-unreadable`:
+`fixtures/models.py::LookupTableRow.fields_without_attributes` raises `IndexError` for a field with no
+value, and `fixtures/resources/v0_1.py::FixtureResource.dehydrate_fields` catches `FixtureVersionError`
+alone. The status CommCare HQ answers for that uncaught error is unverified (the API library is not
+among the checkouts), so the code is raised for a status of 500 or more that is not 502, 503 or 504,
+answered again when the read is sent once more: one 503 does not tell a person to change a row that
+may be fine.
 
 **The codes and the names other parts use for them.** The binding names are this table's. Part
 05's answers of a read are its own words and no codes: its `deleted` is the code `app-deleted`, its
 `gone` is `app-gone`, its `linked` is `linked-app`, its `remote` is `remote-app`, its media read's
 `missing` is `media-file-unreadable` where a platform the app runs on draws the slot, and a media
 file over Nova's limit is no circumstance (the manifest entry above carries it). Its section 4.3
-maps every failure kind to this table's names, and B1's
+maps every failure kind to this table's names, and its
 `lib/commcare/hq/failure.ts::hqReadCircumstance(failure: HqFailure): ReadCircumstance` holds those.
 
-**Which permission code a 403 becomes.** HQ does not always say which permission is missing, so the
-code follows the read, by part 05's `HqPermissionNeed` (its sections 4.2 and 4.3):
+**Which code a key or a permission becomes.** A stored key whose project spaces do not list this one
+is `key-cannot-reach-space`, decided before any request: CommCare HQ said nothing, the key may be
+limited to another project space (`settings/forms.py::HQApiKeyForm`;
+`domain/auth.py::HQApiKeyAuthentication.is_authenticated` filters by it) or the person joined after
+it was saved, and the step is in Settings, whose Refresh reads the project spaces again
+(`lib/db/settings.ts::refreshApprovedDomains`). `not-a-member` is CommCare HQ's own 403 alone. HQ does
+not always say which permission is missing, so a 403's code follows the read, by part 05's
+`HqPermissionNeed` (its sections 4.2 and 4.3):
 
 | The read | What its 403 can mean | Code |
 |---|---|---|
 | the app's source, an import | Edit Apps | `cannot-edit-apps` |
 | the API access probe, the application resource, the table list | Access APIs | `cannot-access-apis` |
 | a table's rows | Edit Apps or Access APIs, which HQ checks together; the reading reached the rows only after the application resource answered with Access APIs, so Edit Apps is the one that can be missing | `cannot-edit-apps` |
-| the levels, the places | two plan features and two permissions, which HQ does not tell apart | `cannot-read-organization` (B1) |
+| the levels, the places | Locations on the plan, or Edit Locations on the account. A plan without API access answers 401, which is another code, and the reading proved Access APIs at the application resource | `cannot-read-organization` |
 
 A 403 from an account that is no member is `not-a-member` on every read. `cannot-edit-apps`'s block
 (9.3) is worded for the app and for a table's rows alike.
@@ -2331,21 +3122,21 @@ might, and neither does:
   read (`hq-unavailable`), the reading ends at the `stop`, and the person reads the circumstance's
   block alone. So one thing never shows two standings: the entry's standing is the manifest's record
   of the document, and the `stop` is what a reading says. The four sit on part 14's exemption list
-  (`proof/matrix/exemptions.json`, reason `stated-by-its-part`; `14-proof.md`, section 7.5, B13) with
-  the note "no reading claims it: the HQ read stops first", and their
-  subjects and sentences exist because the schema asks a subject of every REFUSED entry and the
-  completeness test a sentence of every pair; no account shows them.
+  (`proof/matrix/exemptions.json`, reason `stated-by-its-part`; `14-proof.md`, section 7.5) with
+  the note "no reading claims it: the HQ read stops first", and they take the subjects `app-document`
+  and `hand-written-content`. No account shows their sentences, so `app-document`'s sentence is not
+  read against the two linked app entries.
 - **A media reference with no file.** `media-file-unreadable` is about HQ's server, not the app's
   source: `multimedia_map` holds an entry for the path, and HQ has no file to serve for it. The
-  manifest's two entries are about the source: a reference with no `multimedia_map` entry at all
-  (`expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`, and
+  manifest's entries are about the source: a reference with no `multimedia_map` entry at all
+  (`expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`,
   `a-media-reference-with-no-file-on-a-slot-android-s-install` for the slots Android's install
-  checks; from B9 a third, `a-media-reference-with-no-file-on-a-slot-a-runtime-draws`, 3.5). A path is
-  in the map or it is not, and part 11's first-match order (`11-project-data.md`, section 3.2) gives a
-  reference with no entry exactly one of the source entries, so one reference meets one standing and
-  never two.
+  checks, and `a-media-reference-with-no-file-on-a-slot-a-runtime-draws`, 3.5). The two REFUSED ones
+  take the subject `missing-media-files`. A path is in the map or it is not, and part 11's
+  first-match order (`11-project-data.md`, section 3.2) gives a reference with no entry exactly one
+  of the source entries, so one reference meets one standing and never two.
 
-### 8.4 The copy model (A2)
+### 8.4 The copy model
 
 New file `lib/publish/hqFindingCopy.ts`, client-safe, importing `hqFindings.ts`. It sits in
 `lib/publish` beside the other copy the builder and MCP share (`placementMoves.ts`, `planFeatures.ts`),
@@ -2378,11 +3169,27 @@ export interface CircumstanceCopy {
 
 /** The sentence a `fix-in-hq` finding of this subject and cause reads. */
 export function fixInHqSentence(subject: Subject, cause: FixCause): string;
+
+/** What a surface knows when it draws a circumstance. */
+export interface CircumstanceContext {
+	/** The server's label. */
+	readonly server: string;
+	/** The project space. */
+	readonly space: string;
+	/** The HQ app's name, or null where none is known. */
+	readonly app: string | null;
+	/** How this surface writes a date: the viewer's locale date on screen, the UTC day over MCP. */
+	readonly formatDate: (iso: string) => string;
+}
+/** A circumstance as every surface shows it, with every placeholder filled. */
+export function circumstanceBlock(
+	finding: CircumstanceFinding, context: CircumstanceContext,
+): { readonly title: string; readonly body: string; readonly next: string };
 /** `already-in-nova`'s next step, which depends on who holds the app. */
-export function alreadyInNovaNext(claim: HqAppClaimDetail | undefined): string;
-/** A circumstance's next step, for the account, a stop and MCP alike. Lands in B2. */
-export function circumstanceNext(finding: CircumstanceFinding): string;
-/** The line under every account's groups (9.1). Lands in B2. */
+export function alreadyInNovaNext(
+	claim: HqAppClaimDetail | undefined, formatDate: (iso: string) => string,
+): string;
+/** The line under every account's groups (9.1). */
 export const ACCOUNT_CHECK_AGAIN_LINE: string;
 
 /** A place, as one line: "Registration, in the menu Households". */
@@ -2391,9 +3198,8 @@ export function placeLine(place: HqPlace): string;
 export function findingLine(finding: Finding): {
 	readonly sentence: string;
 	/**
-	 * `detail.name`, shown after the sentence as "In CommCare HQ: <name>"; null where the finding
-	 * holds none, and for `read-back-differs`, `could-not-create` and `too-large`, whose
-	 * `detail.name` is Nova's own word and no name in the app.
+	 * `detail.name`, shown after the sentence as "In CommCare HQ: <name>", for a manifest finding
+	 * and for a circumstance whose row holds `name: "line"`; null otherwise.
 	 */
 	readonly named: string | null;
 };
@@ -2403,31 +3209,40 @@ A `not-yet` or `never` finding's sentence is `FINDING_COPY[subject][standing]`. 
 finding's is `fixInHqSentence(subject, cause)`: `FIX_IN_HQ_SENTENCES[subject]?.[cause]` where there is
 one, else `FIX_IN_HQ_STEMS[subject]`, a space, and `FIX_CAUSE_CLAUSES[cause]`. One stem serves every
 cause a subject's entries give, so an entry that brings a new cause to a subject needs no new string.
-A circumstance finding's sentence is its `body`, and its next step is `circumstanceNext(finding)`,
-the one function every surface calls (the account screen, a stop and MCP's `read_hq_app`). It
-answers `alreadyInNovaNext(finding.detail.claim)` for `already-in-nova` (9.3); for
-`no-platform-runs-everything` with `detail.reason === "split-refused"`, "You can change how the date
-and time question {question} reads its own answer in CommCare HQ, then check again.", `{question}`
-the last segment of `place.path`; otherwise `CIRCUMSTANCE_COPY[code].next`. `CIRCUMSTANCE_COPY`
-holds `alreadyInNovaNext`'s answer for an unknown holder as that code's `next`, so the record stays
-total. A2 lands `CIRCUMSTANCE_COPY` and `alreadyInNovaNext`; `circumstanceNext` lands in B2, with the
-circumstance whose second next step it chooses and the reader that first makes a finding.
+
+A circumstance is worded by `circumstanceBlock(finding, context)`, the one function every surface
+calls: the stop block, the account, the copied text and MCP. `CIRCUMSTANCE_COPY` holds templates, and
+one function fills them so that no two surfaces can fill them differently. It fills `{server}`,
+`{space}` and `{name}`. It fills `{app}` with the app's name, or with "this app" where the context
+holds none ("This app" at the start of a sentence): MCP is sent an id, and a read from the address
+knows no name until the app answers. Its `next` is `alreadyInNovaNext(finding.detail.claim,
+context.formatDate)` for `already-in-nova` (9.3); for `no-platform-runs-everything` with
+`detail.reason === "split-refused"`, "You can change how the date and time question {question} reads
+its own answer in CommCare HQ, then check again.", `{question}` the last segment of `place.path`;
+otherwise the template's `next`. `CIRCUMSTANCE_COPY` holds `alreadyInNovaNext`'s answer for an unknown
+holder as that code's `next`, so the record stays total.
+
 `findingLine` and `fixInHqSentence` throw for a pair with no sentence, which the completeness test
 makes unreachable. The account's grouping, its headings and its buttons are part 13's
-(`13-the-experience.md`, section 7, B11); this file holds the words.
+(`13-the-experience.md`, section 7); this file holds the words.
 
 ---
+
 ## 9. Copy
 
 Every string this part adds, as it ships. All of it follows `design/readme.md`, "Content fundamentals".
 
-### 9.1 The three labels and their next steps (A2, `hqFindingCopy.ts`)
+### 9.1 The three labels and their next steps (`hqFindingCopy.ts`)
 
 | Standing | `FINDING_LABELS` | `FINDING_NEXT_STEPS` |
 |---|---|---|
-| `not-yet` | Nova can't hold this yet | There is nothing for you to change. Nova keeps this list, and you can check again whenever you like. |
+| `not-yet` | Nova can't hold this yet | There is nothing for you to change. You can check again whenever you like. |
 | `never` | Nova doesn't bring this in | The app can come in once it no longer uses this. If your team relies on it, the app is best kept in CommCare HQ. |
 | `fix-in-hq` | Something to change in CommCare HQ | Once this is changed in CommCare HQ, you can check again and Nova will read the app afresh. |
+
+The `not-yet` step promises no update and keeps no list: Nova stores nothing of a reading, the line
+is drawn above `too-large`, whose block promises none on purpose, and a `not-yet` finding also clears
+when the app stops using the thing.
 
 `placeLine`, by place kind: `app` "The app"; `app-settings` "App settings"; `languages` "Languages";
 `menu` "The menu {name}"; `case-list` "The case list of {name}"; `case-detail` "The case details of
@@ -2435,25 +3250,111 @@ Every string this part adds, as it ships. All of it follows `design/readme.md`, 
 question {path}, in {formName}"; `lookup-table` "The lookup table {tag}"; `media` "The file {path}";
 `organization` "The organization". `findingLine`'s `named` renders as "In CommCare HQ: {name}".
 
-One more export lands in B2, with the reader:
-`ACCOUNT_CHECK_AGAIN_LINE = "When these are changed, Nova will check the app again and may find more to name."`
-One pass reports everything the reader can decide, and three things are postponed out of a reading
-that holds another finding (part 06, `06-the-reader-forms.md`, Departure 11), so an account says a
-later read may find more. Part 13 draws the line under the groups of every account and MCP returns it
-as `check_again` (`13-the-experience.md`, sections 7.1 and 14.3).
+One more export:
+`ACCOUNT_CHECK_AGAIN_LINE = "When you check again, Nova may find more to name."`
+One pass reports everything the reader can decide, with two limits (part 06,
+`06-the-reader-forms.md`, Departure 11): what sits beneath a thing Nova could not read is not judged,
+and a check whose inputs another finding withheld does not run. So an account says a later check may
+find more. The line claims no more than that, because it sits under every account, one that holds
+only things the person cannot change included, and Nova checks nothing by itself: the person chooses
+Check again. Part 13 draws the line under the groups of every account and MCP returns it as
+`check_again` (`13-the-experience.md`, sections 7.1 and 14.3).
 
-### 9.2 The sentences of manifest findings (A2; `SUBJECT_LABELS` is the Label column)
+### 9.2 The sentences of manifest findings
 
-"Here" in a sentence is the place the account prints above it. The first table is A2's. After it: A3
-and A4 remove three `not-yet` rows (2.6), A9 adds and re-words the rows of 2.2's table, the row for
-`translation-overrides` lands in B2, the rows of the second table land in the stack B pull requests it
-names, and the row for `language-display-names` leaves in B8. `findingLine` gives the sentence and
-`named`; it answers `named: null` for `read-back-differs`, `could-not-create` and `too-large`, whose
-`detail.name` is Nova's own word (8.4).
+"Here" in a sentence is the place the account prints above it. `SUBJECT_LABELS` is the Label column of
+2.2's table. `findingLine` gives the sentence and `named` (8.4).
 
-A `not-yet` or `never` row's last cell is the whole sentence (`FINDING_COPY`). A `fix-in-hq` row is
-one of two things. Where its last cell ends in "is" or "are" it is the subject's stem
-(`FIX_IN_HQ_STEMS`), which a cause clause completes:
+A `not-yet` or `never` finding reads its pair's sentence (`FINDING_COPY`), 54 and 29 of them:
+
+| Subject | Standing | Sentence |
+|---|---|---|
+| `advanced-forms` | `not-yet` | This uses a way of loading or opening cases in an advanced form, which Nova can't hold yet. |
+| `advanced-menus` | `not-yet` | This advanced menu is set up in a way Nova would change when it publishes, so Nova can't hold it yet. |
+| `after-submit` | `never` | This uses a destination after the form is sent, which Nova doesn't bring in. |
+| `android-app-dependencies` | `not-yet` | This uses a list of Android apps the phone must have, which Nova can't hold yet. |
+| `app-document` | `never` | A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by. |
+| `app-settings` | `never` | This uses an app setting, which Nova doesn't bring in. |
+| `auto-select` | `not-yet` | This uses a setting that chooses a case for the worker, which Nova can't hold yet. |
+| `build-profiles` | `not-yet` | This uses build profiles, which Nova can't hold yet. |
+| `call-center-indicators` | `never` | This uses call center indicators, which Nova doesn't bring in. |
+| `case-attachments` | `never` | This uses pictures or files saved on a case itself, which Nova doesn't bring in. |
+| `case-detail-tabs` | `not-yet` | This uses tabs on the case detail screen, which Nova can't hold yet. |
+| `case-list-callout` | `not-yet` | This uses a lookup from the case list into another Android app, which Nova can't hold yet. |
+| `case-list-columns` | `never` | This uses a column format, which Nova doesn't bring in. |
+| `case-list-columns` | `not-yet` | A column here is set up in a way Nova can't hold yet. |
+| `case-list-filter` | `not-yet` | The case list filter here is more than Nova can read as a condition yet. |
+| `case-list-optimizations` | `never` | This uses a case list speed setting, which Nova doesn't bring in. |
+| `case-list-optimizations` | `not-yet` | This uses a case list speed setting, which Nova can't hold yet. |
+| `case-list-registration` | `not-yet` | This uses a way of offering a form from the case list, which Nova can't hold yet. |
+| `case-list-setup` | `not-yet` | This case list is set up in a way Nova can't hold yet. |
+| `case-list-sorting` | `not-yet` | This uses a way of ordering the case list, which Nova can't hold yet. |
+| `case-list-text` | `not-yet` | This uses its own wording for an empty list or the Continue button, which Nova can't hold yet. |
+| `case-preloads` | `not-yet` | This uses a way of loading a case value into a question, which Nova can't hold yet. |
+| `case-property-names` | `not-yet` | A case property name here is one Nova can't hold yet. |
+| `case-sharing` | `not-yet` | This uses case sharing, which Nova can't hold yet. |
+| `case-tiles` | `not-yet` | This uses a case tile layout, which Nova can't hold yet. |
+| `child-cases` | `never` | This form opens a case of its menu's own type, and this project space leaves out the link between the two. |
+| `connect-blocks` | `not-yet` | A CommCare Connect block here is set up in a way Nova can't hold yet. |
+| `custom-assertions` | `never` | This uses custom assertions, which Nova doesn't bring in. |
+| `custom-device-properties` | `never` | This uses custom device properties, which Nova doesn't bring in. |
+| `data-registry` | `never` | This uses a data registry, which Nova doesn't bring in. |
+| `data-sources` | `not-yet` | A results screen or a form here reads a search answer in a way Nova can't hold yet. |
+| `deep-links` | `never` | A deep link ID on a mirror menu here has a space at its start or end, which Nova can't keep exactly. |
+| `deep-links` | `not-yet` | This uses a deep link with its own arguments, which Nova can't hold yet. |
+| `display-conditions` | `not-yet` | A display condition here is more than Nova can read as a condition yet. |
+| `display-only-forms` | `not-yet` | A form here goes back to, or opens through, the menu above in a way Nova can't hold yet. |
+| `expressions` | `not-yet` | An expression here is more than Nova can read yet. |
+| `form-case-management` | `not-yet` | This form's case management is set up in a way Nova can't hold yet. |
+| `form-settings` | `not-yet` | This uses a form setting, which Nova can't hold yet. |
+| `form-source` | `not-yet` | A form's source here is built in a way Nova can't hold yet. |
+| `hand-written-content` | `never` | This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in. |
+| `hierarchical-locations` | `never` | This uses the older, nested list of places, which Nova doesn't bring in. |
+| `language-codes` | `not-yet` | A language code here is one Nova can't hold yet. |
+| `list-and-search-filters` | `not-yet` | The case list here filters cases its search doesn't, which Nova can't hold yet. |
+| `lookup-selection` | `never` | This uses choosing from a lookup table before the case list, which Nova doesn't bring in. |
+| `lookup-tables` | `not-yet` | A lookup table here uses something Nova can't hold yet, or is larger than Nova takes. |
+| `media-by-language` | `not-yet` | This uses a picture or sound that differs by language, which Nova can't hold yet. |
+| `media-files` | `not-yet` | A media file here is larger than Nova takes, or this app has more media than Nova takes. |
+| `menu-badges` | `not-yet` | This uses a badge on a menu or form, which Nova can't hold yet. |
+| `menu-display` | `not-yet` | This uses grid menus, which Nova can't hold yet. |
+| `menu-structure` | `never` | The menus here are in an order that separates a menu from the one above it. |
+| `menu-structure` | `not-yet` | How this menu is nested is something Nova can't hold yet. |
+| `mirror-menus` | `never` | This uses the older kind of mirror menu, which Nova doesn't bring in. |
+| `mirror-menus` | `not-yet` | This uses a mirror menu, which Nova can't hold yet. |
+| `mobile-reports` | `never` | This uses mobile reports, which Nova doesn't bring in. |
+| `parent-selection` | `never` | This uses a first case that is no parent of the second, which Nova doesn't bring in. |
+| `parent-selection` | `not-yet` | This chooses a parent case first in a way Nova can't hold yet. |
+| `print-templates` | `never` | This uses a print template, which Nova doesn't bring in. |
+| `question-appearance` | `never` | This uses a display style, which Nova doesn't bring in. |
+| `question-appearance` | `not-yet` | A question here has a display style Nova can't hold yet. |
+| `question-choices` | `not-yet` | A question's choices here are set up in a way Nova can't hold yet. |
+| `question-ids` | `never` | Two questions here share one place in the form's data, so Nova can't tell them apart. |
+| `question-ids` | `not-yet` | A question ID here is one Nova can't hold yet. |
+| `question-logic` | `not-yet` | A question's logic here is something Nova can't hold yet. |
+| `question-media` | `not-yet` | A question here carries a kind of media or label form Nova can't hold yet. |
+| `question-text` | `not-yet` | This uses a kind of question text, which Nova can't hold yet. |
+| `question-types` | `not-yet` | A question here is of a kind, or is set up in a way, that Nova can't hold yet. |
+| `repeats` | `not-yet` | A repeat group here is set up in a way Nova can't hold yet. |
+| `save-to-case` | `not-yet` | This uses a Save to Case question, which Nova can't hold yet. |
+| `search-default-filters` | `never` | A search filter here sets how the search itself runs from a value worked out on the device. |
+| `search-default-filters` | `not-yet` | This uses a search filter, which Nova can't hold yet. |
+| `search-expressions` | `never` | This uses a search expression, which Nova doesn't bring in. |
+| `search-expressions` | `not-yet` | This uses a search expression, which Nova can't hold yet. |
+| `search-fields` | `not-yet` | A search field here is set up in a way Nova can't hold yet. |
+| `search-setup` | `never` | This uses a search setting, which Nova doesn't bring in. |
+| `search-setup` | `not-yet` | This uses a search setting, which Nova can't hold yet. |
+| `shadow-forms` | `not-yet` | This uses a shadow form, which Nova can't hold yet. |
+| `supply-features` | `never` | This uses CommCare Supply features, which Nova doesn't bring in. |
+| `training-menus` | `never` | This uses a training menu or release notes form, which Nova doesn't bring in. |
+| `translation-overrides` | `not-yet` | This uses its own wording for a menu, form or list, kept in the app's translations, which Nova can't hold yet. |
+| `visit-scheduler` | `never` | This uses a visit schedule, which Nova doesn't bring in. |
+| `worker-record` | `never` | A question here is named commcare_usercase, the name CommCare HQ gives the worker's own record. |
+| `worker-record` | `not-yet` | This reads or writes the worker's own record in a way Nova can't hold yet. |
+| `writer-types` | `not-yet` | A case property here takes answers of kinds that don't match, which Nova can't hold yet. |
+
+A `fix-in-hq` finding reads its subject's stem (`FIX_IN_HQ_STEMS`), which ends in "is" or "are" and
+which the clause of the finding's cause completes:
 
 | Cause | `FIX_CAUSE_CLAUSES` | A whole sentence it makes |
 |---|---|---|
@@ -2461,250 +3362,156 @@ one of two things. Where its last cell ends in "is" or "are" it is the subject's
 | `breaks-when-run` | set up in a way that doesn't work when the app runs, though CommCare HQ builds it. | A lookup table is set up in a way that doesn't work when the app runs, though CommCare HQ builds it. |
 | `either` | set up in a way CommCare HQ can't save or build, or that doesn't work when the app runs. | A deep link is set up in a way CommCare HQ can't save or build, or that doesn't work when the app runs. |
 
-Where a `fix-in-hq` row names a cause beside its standing, its last cell is a whole sentence for that
-subject and cause (`FIX_IN_HQ_SENTENCES`), and the subject has no stem. Eight subjects are worded
-that way, in eleven sentences, because a plainer thing can be said of them than the clause says.
+The 45 stems:
 
-| Subject | Label | Standing | Sentence |
-|---|---|---|---|
-| `advanced-forms` | Advanced forms | `not-yet` | This uses a way of loading or opening cases in an advanced form, which Nova can't hold yet. |
-| `advanced-forms` | Advanced forms | `fix-in-hq` | The cases this advanced form loads or opens are |
-| `after-submit` | After a form is sent | `never` | This uses a destination after the form is sent, which Nova doesn't bring in. |
-| `after-submit` | After a form is sent | `fix-in-hq` | Where this form goes after it is sent is |
-| `android-app-dependencies` | Android app dependencies | `not-yet` | This uses a list of Android apps the phone must have, which Nova can't hold yet. |
-| `android-app-dependencies` | Android app dependencies | `fix-in-hq` | The Android apps this app depends on are |
-| `app-document` | The app as stored | `never` | A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by. |
-| `app-document` | The app as stored | `fix-in-hq`, `hq-refuses` | Part of how this app is stored is something CommCare HQ can't save or build. |
-| `app-logos` | App logos | `not-yet` | This uses logos for the Android home, sign-in and practice screens, which Nova can't hold yet. |
-| `app-logos` | App logos | `fix-in-hq` | An app logo is |
-| `app-settings` | App settings | `not-yet` | This uses an app setting, which Nova can't hold yet. |
-| `app-settings` | App settings | `never` | This uses an app setting, which Nova doesn't bring in. |
-| `app-settings` | App settings | `fix-in-hq` | An app setting is |
-| `auto-select` | Choosing a case automatically | `not-yet` | This uses a setting that chooses a case for the worker, which Nova can't hold yet. |
-| `auto-select` | Choosing a case automatically | `fix-in-hq` | Choosing a case automatically is |
-| `blank-form` | Forms with no questions | `fix-in-hq`, `hq-refuses` | A form here has no questions, which CommCare HQ won't build. |
-| `build-profiles` | Build profiles | `not-yet` | This uses build profiles, which Nova can't hold yet. |
-| `call-center-indicators` | Call center indicators | `never` | This uses call center indicators, which Nova doesn't bring in. |
-| `case-attachments` | Files saved on a case | `never` | This uses pictures or files saved on a case itself, which Nova doesn't bring in. |
-| `case-detail-tabs` | Case detail tabs | `not-yet` | This uses tabs on the case detail screen, which Nova can't hold yet. |
-| `case-detail-tabs` | Case detail tabs | `fix-in-hq` | A tab on the case detail screen is |
-| `case-list-callout` | Case list lookups | `not-yet` | This uses a lookup from the case list into another Android app, which Nova can't hold yet. |
-| `case-list-callout` | Case list lookups | `fix-in-hq` | A lookup from the case list is |
-| `case-list-columns` | Case list and detail columns | `not-yet` | A column here is set up in a way Nova can't hold yet. |
-| `case-list-columns` | Case list and detail columns | `never` | This uses a column format, which Nova doesn't bring in. |
-| `case-list-columns` | Case list and detail columns | `fix-in-hq` | A column is |
-| `case-list-filter` | Case list filters | `not-yet` | The case list filter here is more than Nova can read as a condition yet. |
-| `case-list-filter` | Case list filters | `fix-in-hq` | The case list filter is |
-| `case-list-optimizations` | Case list speed settings | `not-yet` | This uses a case list speed setting, which Nova can't hold yet. |
-| `case-list-optimizations` | Case list speed settings | `never` | This uses a case list speed setting, which Nova doesn't bring in. |
-| `case-list-registration` | Registration from the case list | `not-yet` | This uses a way of offering a form from the case list, which Nova can't hold yet. |
-| `case-list-registration` | Registration from the case list | `fix-in-hq` | The form offered from the case list is |
-| `case-list-setup` | Case list setup | `fix-in-hq` | The case list is |
-| `case-list-sorting` | Case list order | `not-yet` | This uses a way of ordering the case list, which Nova can't hold yet. |
-| `case-list-sorting` | Case list order | `fix-in-hq` | A sort rule is |
-| `case-list-text` | Case list wording | `not-yet` | This uses its own wording for an empty list or the Continue button, which Nova can't hold yet. |
-| `case-preloads` | Loading case values into questions | `not-yet` | This uses a way of loading a case value into a question, which Nova can't hold yet. |
-| `case-preloads` | Loading case values into questions | `fix-in-hq` | A question that loads a case value is |
-| `case-property-names` | Case property names | `fix-in-hq` | A case property name is |
-| `case-sharing` | Case sharing | `not-yet` | This uses case sharing, which Nova can't hold yet. |
-| `case-sharing` | Case sharing | `fix-in-hq` | Case sharing is |
-| `case-tiles` | Case tiles | `not-yet` | This uses a case tile layout, which Nova can't hold yet. |
-| `case-tiles` | Case tiles | `fix-in-hq` | A case tile is |
-| `child-cases` | Child cases | `never` | This form opens a case of its menu's own type, and this project space leaves out the link between the two. |
-| `child-cases` | Child cases | `fix-in-hq` | A child case is |
-| `commcare-version` | CommCare version | `fix-in-hq`, `below-floor` | This app is built for a CommCare version below 2.57, the earliest Nova publishes to. |
-| `connect-blocks` | CommCare Connect | `not-yet` | This uses a CommCare Connect work area update, which Nova can't hold yet. |
-| `connect-blocks` | CommCare Connect | `fix-in-hq` | A CommCare Connect block is |
-| `custom-assertions` | Custom assertions | `never` | This uses custom assertions, which Nova doesn't bring in. |
-| `custom-device-properties` | Custom device properties | `never` | This uses custom device properties, which Nova doesn't bring in. |
-| `data-registry` | Data registries | `never` | This uses a data registry, which Nova doesn't bring in. |
-| `data-sources` | Data a form or list reads | `not-yet` | The results' detail screen reads a search answer, which Nova can't hold yet. |
-| `data-sources` | Data a form or list reads | `fix-in-hq` | Something this app reads from the device is |
-| `deep-links` | Deep links | `not-yet` | This uses a deep link with its own arguments, which Nova can't hold yet. |
-| `deep-links` | Deep links | `fix-in-hq` | A deep link is |
-| `display-conditions` | Display conditions | `not-yet` | A display condition here is more than Nova can read as a condition yet. |
-| `display-conditions` | Display conditions | `fix-in-hq` | A display condition is |
-| `display-only-forms` | Forms shown in the menu above | `not-yet` | This uses forms shown in the menu above their own, which Nova can't hold yet. |
-| `display-only-forms` | Forms shown in the menu above | `fix-in-hq` | A menu whose forms show in the menu above is |
-| `expressions` | Expressions | `fix-in-hq`, `hq-refuses` | An expression here is one CommCare HQ can't build. |
-| `expressions` | Expressions | `fix-in-hq`, `breaks-when-run` | An expression here is one CommCare can't run, though CommCare HQ builds it. |
-| `expressions` | Expressions | `fix-in-hq`, `either` | An expression here is one CommCare can't run or CommCare HQ can't build. |
-| `form-case-management` | Case management | `fix-in-hq` | This form's case management is |
-| `form-settings` | Form settings | `not-yet` | This uses a form setting, which Nova can't hold yet. |
-| `form-settings` | Form settings | `fix-in-hq` | A form setting is |
-| `form-source` | A form's source | `fix-in-hq` | Part of this form's source is |
-| `hand-written-content` | Hand-written XML | `never` | This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in. |
-| `hierarchical-locations` | The older organization list | `never` | This uses the older, nested list of places, which Nova doesn't bring in. |
-| `language-codes` | Language codes | `fix-in-hq`, `hq-refuses` | A language code here is one CommCare HQ's Languages page can't save. |
-| `language-display-names` | Language names | `not-yet` | This uses its own name for a language, which Nova can't hold yet. |
-| `linked-app` | Linked apps | `fix-in-hq`, `hq-refuses` | This is a linked app, which CommCare HQ updates from another app. |
-| `lookup-selection` | Choosing from a lookup table first | `never` | This uses choosing from a lookup table before the case list, which Nova doesn't bring in. |
-| `lookup-tables` | Lookup tables | `not-yet` | A lookup table here uses something Nova can't hold yet, or is larger than Nova takes. |
-| `lookup-tables` | Lookup tables | `fix-in-hq` | A lookup table is |
-| `media-by-language` | Media by language | `not-yet` | This uses a picture or sound that differs by language, which Nova can't hold yet. |
-| `media-files` | Media files | `not-yet` | A media file here is larger than Nova takes, or sits somewhere Nova can't hold yet. |
-| `media-files` | Media files | `fix-in-hq`, `hq-refuses` | A media file here is kept at a path CommCare HQ can't build into the app. |
-| `media-files` | Media files | `fix-in-hq`, `breaks-when-run` | A media file here is in a format CommCare can't play, or is missing from CommCare HQ. |
-| `menu-badges` | Menu badges | `not-yet` | This uses a badge on a menu or form, which Nova can't hold yet. |
-| `menu-display` | Grid menus | `not-yet` | This uses grid menus, which Nova can't hold yet. |
-| `menu-settings` | Menu settings | `fix-in-hq` | A menu setting is |
-| `menu-structure` | How menus are nested | `never` | The menus here are in an order that separates a menu from the one above it. |
-| `menu-structure` | How menus are nested | `fix-in-hq` | How this menu is nested is |
-| `mirror-menus` | Mirror menus | `not-yet` | This uses a mirror menu, which Nova can't hold yet. |
-| `mirror-menus` | Mirror menus | `never` | This uses a mirror menu, which Nova doesn't bring in. |
-| `mirror-menus` | Mirror menus | `fix-in-hq` | A mirror menu is |
-| `mobile-reports` | Mobile reports | `never` | This uses mobile reports, which Nova doesn't bring in. |
-| `parent-selection` | Choosing a parent case first | `never` | This uses a first case that is no parent of the second, which Nova doesn't bring in. |
-| `parent-selection` | Choosing a parent case first | `fix-in-hq` | Choosing a parent case first is |
-| `print-templates` | Print templates | `never` | This uses a print template, which Nova doesn't bring in. |
-| `question-appearance` | How a question looks | `not-yet` | A question here has a display style Nova can't hold yet. |
-| `question-appearance` | How a question looks | `never` | This uses a display style, which Nova doesn't bring in. |
-| `question-appearance` | How a question looks | `fix-in-hq` | A question's display style is |
-| `question-choices` | Choices | `not-yet` | This uses a way of supplying choices, which Nova can't hold yet. |
-| `question-choices` | Choices | `fix-in-hq` | A question's choices are |
-| `question-ids` | Question IDs | `never` | Two questions here share one place in the form's data, so Nova can't tell them apart. |
-| `question-ids` | Question IDs | `fix-in-hq`, `hq-refuses` | A question ID here is one CommCare HQ's form builder can't keep. |
-| `question-logic` | Question logic | `fix-in-hq` | A question's logic is |
-| `question-media` | Media on questions | `not-yet` | This uses a label form, which Nova can't hold yet. |
-| `question-media` | Media on questions | `fix-in-hq` | Media on a question is |
-| `question-text` | Question text | `not-yet` | This uses a kind of question text, which Nova can't hold yet. |
-| `question-text` | Question text | `fix-in-hq` | A question's text is |
-| `question-types` | Kinds of question | `not-yet` | This uses a kind of question, which Nova can't hold yet. |
-| `question-types` | Kinds of question | `fix-in-hq` | A question is |
-| `remote-app` | Remote apps | `never` | This is a remote app, which holds no menus or forms for Nova to read. |
-| `repeats` | Repeat groups | `not-yet` | A repeat group here has its own wording on its buttons, which Nova can't hold yet. |
-| `repeats` | Repeat groups | `fix-in-hq` | A repeat group is |
-| `save-to-case` | Save to Case questions | `not-yet` | This uses a Save to Case question, which Nova can't hold yet. |
-| `save-to-case` | Save to Case questions | `never` | This uses a Save to Case question, which Nova doesn't bring in. |
-| `save-to-case` | Save to Case questions | `fix-in-hq` | A Save to Case question is |
-| `search-default-filters` | Search filters | `not-yet` | This uses a search filter, which Nova can't hold yet. |
-| `search-default-filters` | Search filters | `never` | A search filter here sets how the search itself runs from a value worked out on the device. |
-| `search-default-filters` | Search filters | `fix-in-hq` | A search filter is |
-| `search-expressions` | Search expressions | `not-yet` | This uses a search expression, which Nova can't hold yet. |
-| `search-expressions` | Search expressions | `never` | This uses a search expression, which Nova doesn't bring in. |
-| `search-expressions` | Search expressions | `fix-in-hq` | A search expression is |
-| `search-fields` | Search fields | `not-yet` | This uses a kind of search field, which Nova can't hold yet. |
-| `search-fields` | Search fields | `fix-in-hq` | A search field is |
-| `search-setup` | Search setup | `not-yet` | This uses a search setting, which Nova can't hold yet. |
-| `search-setup` | Search setup | `never` | This uses a search setting, which Nova doesn't bring in. |
-| `search-setup` | Search setup | `fix-in-hq` | The search is |
-| `shadow-forms` | Shadow forms | `not-yet` | This uses a shadow form, which Nova can't hold yet. |
-| `shadow-forms` | Shadow forms | `fix-in-hq` | A shadow form is |
-| `supply-features` | CommCare Supply | `never` | This uses CommCare Supply features, which Nova doesn't bring in. |
-| `training-menus` | Training menus | `never` | This uses a training menu or release notes form, which Nova doesn't bring in. |
-| `translation-overrides` | Changed wording in translations | `not-yet` | This uses its own wording for a menu, form or list, kept in the app's translations, which Nova can't hold yet. |
-| `visit-scheduler` | Visit schedules | `never` | This uses a visit schedule, which Nova doesn't bring in. |
-| `worker-record` | The worker's own record | `not-yet` | This reads or writes the worker's own record in a way Nova can't hold yet. |
-| `worker-record` | The worker's own record | `never` | A question here is named commcare_usercase, the name CommCare HQ gives the worker's own record. |
-| `worker-record` | The worker's own record | `fix-in-hq` | A use of the worker's own record is |
-| `writer-types` | Answers of different kinds | `not-yet` | Answers of different kinds are saved to one case property here, which Nova can't hold yet. |
+| Subject | Stem |
+|---|---|
+| `advanced-forms` | The cases this advanced form loads or opens are |
+| `after-submit` | Where this form goes after it is sent is |
+| `android-app-dependencies` | The Android apps this app depends on are |
+| `app-logos` | An app logo is |
+| `app-settings` | An app setting is |
+| `auto-select` | Choosing a case automatically is |
+| `case-detail-tabs` | A tab on the case detail screen is |
+| `case-list-callout` | A lookup from the case list is |
+| `case-list-columns` | A column is |
+| `case-list-filter` | The case list filter is |
+| `case-list-registration` | The form offered from the case list is |
+| `case-list-setup` | The case list is |
+| `case-list-sorting` | A sort rule is |
+| `case-preloads` | A question that loads a case value is |
+| `case-property-names` | A case property name is |
+| `case-sharing` | Case sharing is |
+| `case-tiles` | A case tile is |
+| `child-cases` | A child case is |
+| `connect-blocks` | A CommCare Connect block is |
+| `data-sources` | Something this app reads from the device is |
+| `deep-links` | A deep link is |
+| `display-conditions` | A display condition is |
+| `display-only-forms` | A menu whose forms show in the menu above is |
+| `form-case-management` | This form's case management is |
+| `form-settings` | A form setting is |
+| `form-source` | Part of this form's source is |
+| `lookup-tables` | A lookup table is |
+| `menu-settings` | A menu setting is |
+| `menu-structure` | How this menu is nested is |
+| `mirror-menus` | A mirror menu is |
+| `parent-selection` | Choosing a parent case first is |
+| `question-appearance` | A question's display style is |
+| `question-choices` | A question's choices are |
+| `question-logic` | A question's logic is |
+| `question-media` | Media on a question is |
+| `question-text` | A question's text is |
+| `question-types` | A question is |
+| `repeats` | A repeat group is |
+| `save-to-case` | A Save to Case question is |
+| `search-default-filters` | A search filter is |
+| `search-expressions` | A search expression is |
+| `search-fields` | A search field is |
+| `search-setup` | The search is |
+| `shadow-forms` | A shadow form is |
+| `worker-record` | A use of the worker's own record is |
 
-**The rows stack B's readers add.** Each is a `not-yet` sentence of `FINDING_COPY`, with the next
-step `FINDING_NEXT_STEPS["not-yet"]`, and lands with the first entry that gives its pair (Appendix
-A.1's closing block). The part that asked for each words it; these are the binding words. The row
-for `repeats` replaces A2's sentence, as 2.6 says.
+Where a plainer thing can be said of a subject and cause than the clause says, the pair has a whole
+sentence (`FIX_IN_HQ_SENTENCES`) and the subject has no stem. Ten subjects are worded that way, in
+thirteen sentences:
 
-| Subject | Label | Standing | Sentence | Lands in | Asked by |
-|---|---|---|---|---|---|
-| `language-codes` | (unchanged) | `not-yet` | A language code here is one Nova can't hold yet. | B2 | part 06 |
-| `form-source` | (unchanged) | `not-yet` | A form's source here is built in a way Nova can't hold yet. | B3 | part 06 |
-| `question-ids` | (unchanged) | `not-yet` | A question ID here is one Nova can't hold yet. | B3 (A9, with the same words, where part 04's run R2 falls back and adds a `not-yet` entry of the subject first) | part 06 |
-| `repeats` | (unchanged) | `not-yet` | A repeat group here is set up in a way Nova can't hold yet. | B3, in place of A2's sentence | this part: A2's sentence names a repeat's button captions, and part 06's `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule` joins the pair |
-| `display-only-forms` | (unchanged) | `not-yet` | A form here goes back to, or opens through, the menu above in a way Nova can't hold yet. | B4 (A4 removed A2's sentence) | part 07 |
-| `form-case-management` | (unchanged) | `not-yet` | This form's case management is set up in a way Nova can't hold yet. | B4 | part 07 |
-| `menu-settings` | (unchanged) | `not-yet` | This uses a menu setting, which Nova can't hold yet. | B4 | part 07 |
-| `advanced-menus` (new) | Advanced menus | `not-yet` | This advanced menu is set up in a way Nova would change when it publishes, so Nova can't hold it yet. | B4 | part 07 |
-| `list-and-search-filters` (new) | Case list and search filters | `not-yet` | The case list here filters cases its search doesn't, which Nova can't hold yet. | B5 | part 07 |
-| `expressions` | (unchanged) | `not-yet` | An expression here is more than Nova can read yet. | B6 | part 08 |
+| Subject | Cause | Sentence |
+|---|---|---|
+| `app-document` | `hq-refuses` | Part of how this app is stored is something CommCare HQ can't save or build. |
+| `blank-form` | `hq-refuses` | A form here has no questions, which CommCare HQ won't build. |
+| `case-types` | `hq-refuses` | A case type here holds a character CommCare HQ's menu settings can't save. |
+| `commcare-version` | `below-floor` | This app is built for a CommCare version below 2.57, the earliest Nova publishes to. |
+| `expressions` | `breaks-when-run` | An expression here is one CommCare can't run, though CommCare HQ builds it. |
+| `expressions` | `either` | An expression here is one CommCare can't run or CommCare HQ can't build. |
+| `expressions` | `hq-refuses` | An expression here is one CommCare HQ can't build. |
+| `instance-text` | `either` | A name or description here holds text that CommCare HQ reads as a data source. A space before its bracket keeps it as text. |
+| `language-codes` | `hq-refuses` | A language code here is one CommCare HQ's Languages page can't save. |
+| `media-files` | `breaks-when-run` | A media file here is in a format CommCare can't show or play. |
+| `media-files` | `hq-refuses` | A media file here is kept at a path CommCare HQ can't build into the app. |
+| `missing-media-files` | `breaks-when-run` | The app points at a media file here that CommCare HQ doesn't have. Workers meet a missing file there, and Android may not start the app at all. |
+| `question-ids` | `hq-refuses` | A question ID here is one CommCare HQ's form builder can't keep. |
 
-No other entry a later part adds needs a new string: each takes a subject whose sentence for its
-standing, or whose stem or whole sentence for its cause, the first table or 2.2's table already
-holds. Two pairs
-are worth saying, since a reviewer would look: part 11's new `media-files` entry is `breaks-when-run`
-and reads the whole sentence of that pair, and part 08's M1, M2 and M5 read the `expressions` and
-`search-expressions` rows for their causes.
+The stems and whole sentences compose 87 pairs of subject and cause. Under the `instance-text`
+sentence the account shows the text that was found, as "In CommCare HQ: instance('casedb')"
+(`findingLine`'s `named`, from the finding's `detail.name`). A missing file has its own subject and
+sentence, apart from a file in a format that does not play, because the person's step differs: upload
+the file again, or replace it with another format.
 
-### 9.3 One block per circumstance (A2, `CIRCUMSTANCE_COPY`)
+### 9.3 One block per circumstance (`CIRCUMSTANCE_COPY`)
 
-`{server}` is the server's label, `{space}` the project space, `{app}` the HQ app's name, `{name}`
-`detail.name`.
+`{server}` is the server's label, `{space}` the project space, `{app}` the HQ app's name, or "this
+app" where none is known ("This app" at the start of a sentence), and `{name}` `detail.name`.
+`circumstanceBlock` fills them (8.4). No block a stop of the picker can draw names `{app}`: the picker
+meets a stop with no app chosen. This section holds each block once, and the parts that raise a
+code cite it.
 
 | Code | Title | Body | Next |
 |---|---|---|---|
 | `not-connected` | Nova isn't connected to CommCare HQ on {server} yet | Nova has no CommCare HQ account of yours on {server} to read with. | You can connect one in Settings, then come back here. |
 | `key-not-accepted` | CommCare HQ didn't accept your API key | Nova tried to read {space} with your saved key and CommCare HQ turned it down. The key may have been removed or replaced. | You can save a new key in Settings, then check again. |
+| `key-cannot-reach-space` | Your saved key doesn't reach this project space | The CommCare HQ key Nova has for you on {server} doesn't list {space}. It may be limited to another project space, or you may have joined {space} after it was saved. | You can refresh your project spaces or save a new key in Settings, then check again. |
 | `plan-lacks-api-access` | This project space's plan has no API access | Nova reads an app through CommCare HQ's API, and {space}'s plan doesn't include it. | Once the plan includes API access, you can check again. Someone who manages the project space's subscription can say when. |
+| `api-cut-off` | CommCare HQ has paused API access | CommCare HQ has paused API access for your account or for {space} after too many requests. Your key and the plan are fine. | Dimagi support (support@dimagi.com) can turn it back on. Then you can check again. |
 | `not-a-member` | Your account isn't part of this project space | CommCare HQ says your account is no member of {space}, so Nova can't read its apps. | You can ask an admin of {space} to add you, or choose another project space. |
 | `cannot-edit-apps` | Your account can't edit apps here | Reading an app and the lookup tables it uses needs the Edit Apps permission on {space}, and your account doesn't have it. | You can ask an admin of {space} for Edit Apps, then check again. |
 | `cannot-access-apis` | Your account can't use the API here | Reading an app's forms and its list of lookup tables needs the Access APIs permission on {space}, and your account doesn't have it. | You can ask an admin of {space} for Access APIs, then check again. |
-| `app-gone` | CommCare HQ no longer has this app | Nova asked {space} for {app} and CommCare HQ holds no app by that ID. It may have been deleted since the list loaded. | You can go back and choose from the apps {space} has now. |
+| `cannot-read-organization` | Nova couldn't read this project space's organization | {app} reads places, and reading them from {space} needs Locations on its plan and the Edit Locations permission on your account. CommCare HQ doesn't say which of the two is missing. | An admin of {space} can check both. Then you can check again. |
+| `app-gone` | CommCare HQ no longer has this app | Nova asked {space} for {app}, and CommCare HQ holds no app by that ID. It may have been deleted. | You can go back and choose from the apps {space} has now. |
 | `app-deleted` | This app was deleted in CommCare HQ | {app} is in {space}'s deleted apps, so there is nothing current for Nova to read. | If it was deleted by mistake, you can restore it in CommCare HQ and check again. |
 | `linked-app` | Nova can't bring in a linked app | {app} is a linked app. CommCare HQ rewrites it from another app each time that one is pulled, so nothing Nova published to it would stay. | You can bring in the app it is linked from instead. |
-| `rate-limited` | CommCare HQ is busy | CommCare HQ asked Nova to slow down while it read {app}, and it was still busy after Nova waited. | You can check again in a few minutes. Nothing was changed. |
-| `hq-unavailable` | CommCare HQ didn't answer | Nova couldn't finish reading {app} because CommCare HQ didn't answer in time or sent something Nova couldn't read. | You can check again. If it keeps happening, CommCare HQ's status page may say why. |
+| `remote-app` | This app isn't kept in CommCare HQ | {app} is hosted outside CommCare HQ, which only links to it, so there's nothing here for Nova to bring in. | You can go back and choose another app from {space}. |
+| `rate-limited` | CommCare HQ is busy | CommCare HQ asked Nova to slow down, and it was still busy after Nova waited. | You can check again in a few minutes. Nothing was changed. |
+| `hq-unavailable` | CommCare HQ didn't answer | Nova couldn't finish reading from CommCare HQ. It didn't answer in time, or it sent something Nova couldn't read. | You can check again. If it keeps happening, CommCare HQ's status page may say why. |
+| `hq-gateway-refused` | A security gateway turned Nova away | A security gateway in front of CommCare HQ turned Nova's request away before CommCare HQ saw it, so it says nothing about your key or your permissions. | You can check again in a few minutes. If it keeps happening, Dimagi support (support@dimagi.com) can help. |
+| `browser-only` | CommCare HQ sent a page meant for a browser | Nova asked {space} for an app and CommCare HQ answered with a page meant for a person, as it does when a project space asks you to sign in another way or isn't active. | Opening {space} in CommCare HQ shows what it's asking for. Once that's settled, you can check again. |
 | `changed-while-reading` | The app changed while Nova was reading it | Someone saved {app} in CommCare HQ while Nova read it, twice in a row, so Nova stopped short of mixing two versions. | You can check again once the edits there have settled. |
-| `already-in-nova` | This app is already in Nova | {app} is managed by a Nova app already, and one CommCare HQ app is managed by one Nova app so two can't publish over each other. | `alreadyInNovaNext(detail.claim)`, the table under this one. Stored as `next`: its sentence for an unknown holder. |
-| `too-large` | This app is larger than Nova can read yet | A2: {app}'s source is bigger than Nova reads in one go. That limit is Nova's, not the app's. From B10, which adds the check's time and memory causes and the birth's time cause: {app} is bigger than Nova can bring in in one go. That limit is Nova's, not the app's. | There is nothing for you to change. Nova keeps this list, and you can check again whenever you like. |
+| `already-in-nova` | This app is already in Nova | {app} is managed by a Nova app already, and one CommCare HQ app is managed by one Nova app so two can't publish over each other. | `alreadyInNovaNext(detail.claim, formatDate)`, the table under this one. Stored as `next`: its sentence for an unknown holder. |
+| `too-large` | This app is larger than Nova brings in | {app} is larger than the apps Nova brings in. That limit is Nova's, not the app's. | There is nothing for you to change in the app. If you'd like Nova to bring in an app this size, you can tell the team through Give feedback in Nova's account menu. |
 | `menu-unreadable-in-hq` | CommCare HQ can't summarize this menu | CommCare HQ returned an error where its own summary of this menu's forms should be, so Nova has nothing sure to check its reading against. | Opening each of the menu's forms in CommCare HQ's form builder usually shows which one is broken. Once it saves cleanly, you can check again. |
+| `app-unreadable-in-hq` | CommCare HQ can't summarize this app | CommCare HQ returned an error where its own summary of this app's forms should be, so Nova has nothing sure to check its reading against. | Opening the app's forms in CommCare HQ's form builder usually shows which one is broken. If they all open, Dimagi support (support@dimagi.com) can help. Then you can check again. |
 | `shadow-disagrees` | A question's logic says two things | This question's logic and the copy the form builder keeps of it don't match, so Nova can't tell which one the author meant. | Opening the form in CommCare HQ's form builder and saving it makes them match. Then you can check again. |
-| `table-differs-in-project` | A lookup table needs your choice | This app reads the lookup table {name}, and your Project already has a table by that name. | You can choose what to do with it in the review. |
-| `media-file-unreadable` | CommCare HQ doesn't have this file | The app points at {name}, and CommCare HQ has no file there, so phones can't show it either. | You can upload the file again in CommCare HQ, or remove it from the app there, then check again. |
-| `unrecognized` | Nova met something it doesn't know | Nova found something in this app it has no reading for yet. That gap is Nova's, and it has been reported to the team with what it was. | There is nothing for you to change. You can check again after Nova's next update. |
-| `read-back-differs` | Nova couldn't confirm its own reading | Nova read this app and then checked its own reading, and the check didn't pass. That's Nova's mistake, not the app's, and Nova has told the team. | Nova keeps this reading so you can check again, and nothing was created or changed. |
+| `media-file-unreadable` | CommCare HQ doesn't have this file | The app points at {name}, and CommCare HQ has no file there, so the app can't show or play it either. | You can upload the file again in CommCare HQ, or remove it from the app there, then check again. |
+| `media-not-played-where-app-runs` | A media file doesn't play where this app runs | The app points at {name}, and no platform that can run the rest of this app plays that file's format. | You can replace it in CommCare HQ with a PNG or JPEG picture, an MP3 sound or an H.264 MP4 video, then check again. |
+| `table-rows-unreadable` | CommCare HQ couldn't send this table's rows | CommCare HQ listed the lookup table {name} and then couldn't send its rows. A row that holds a field with no value is one cause Nova knows of. | You can open the table in CommCare HQ and fill in or remove that row, then check again. |
+| `table-cell-unrepresentable` | A lookup table holds a character CommCare can't carry | The lookup table {name} in {space} holds a character CommCare can't carry in a value. | You can take that character out in CommCare HQ, then check again. |
+| `table-choices-unusable` | A lookup table's rows can't be a question's choices | A question takes its choices from the lookup table {name} in {space}, and that table has no rows there, or has a row whose value is blank, starts or ends with a space or appears twice, or whose label is blank. | You can change those rows in CommCare HQ, then check again. |
+| `no-platform-runs-everything` | No one platform runs this whole app | This uses {name}. Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work. | You can change one of these in CommCare HQ so one platform runs everything, then check again. Under `detail.reason: "split-refused"`: You can change how the date and time question {question} reads its own answer in CommCare HQ, then check again. |
+| `places-over-nova-limit` | This project space has more places than Nova takes | {app} reads places, and {space} has {name}. Nova holds up to 10,000 for an app. | There is nothing for you to change. You can check again after a Nova update. |
+| `place-not-holdable` | A place or level is one Nova can't hold yet | {name} in {space} has a code, a name or a value Nova can't hold yet. | There is nothing for you to change. You can check again after a Nova update. |
+| `owner-rule-needs-one-place` | An owner rule needs exactly one place | {app} gives a case to the place at the level {name} below its current owner. In {space} that isn't exactly one place everywhere, and Nova holds the rule only where it is. | There is nothing for you to change. You can check again after a Nova update. |
+| `unrecognized` | Nova met something it doesn't know | Nova found something in this app it has no reading for yet. That gap is Nova's, and it has been reported to the team with what it was. | There is nothing for you to change. You can check again after a Nova update. |
+| `read-back-differs` | Nova couldn't confirm what it read | Nova read {app}, and one of Nova's own checks on what it read didn't pass. That's Nova's mistake, not the app's, and it has been reported to the team. | You can check again after a Nova update. |
 
-**`already-in-nova`'s next step** (`alreadyInNovaNext`, A2). `{name}` is the one contact's name,
-`{names}` the contacts' names in words, `{date}` the claim's `at` as the viewer's locale date. The
-four `elsewhere` sentences are also the lines the picker shows under its mark for the same view
-(part 10, `10-identity-and-the-ledger.md`, "Copy", "The picker's marks"; part 13 places them in B11),
-so the picker and a reading say one thing: they live here, part 10's `lib/publish/hqAppClaims.ts`
-exports the row labels and no line, and the picker calls `alreadyInNovaNext(claim)`. The facts are
-part 10's claim view, which tells `brought-in` from `published`: "It was brought in" would be false
-of an app made in Nova and published.
+For `table-cell-unrepresentable` and `table-choices-unusable`, `{name}` is the whole `detail.name`,
+so a body reads "The lookup table regions (the field district_name) in ...". For
+`no-platform-runs-everything`, `{name}` is the feature's label in curly quotes and the platform that
+cannot run it, so a body opens "This uses “Date and time questions”, which Web Apps can't run."; the
+labels are headings (`lib/domain/platforms.ts`), which a bare label mid-sentence would read wrong.
+`too-large`'s next step names a thing the person can do today: Give feedback is the account menu's
+own link (`components/ui/AccountMenu.tsx`). Where a wait is on Nova, every block says "after a Nova
+update", which promises no particular one.
+
+**`already-in-nova`'s next step** (`alreadyInNovaNext`). `{name}` is the one contact's name,
+`{names}` the contacts' names in words, and `{date}` is `formatDate(claim.at)`. The two `elsewhere`
+sentences are also the lines the picker shows under its mark for the same view (part 10,
+`10-identity-and-the-ledger.md`, "Copy", "The picker's marks"; part 13 places them), so the picker
+and a reading say one thing: they live here, part 10's `lib/publish/hqAppClaims.ts` exports the row
+labels and no line, and the picker calls `alreadyInNovaNext(claim, formatDate)`.
 
 | `detail.claim` | Next |
 |---|---|
 | absent (the holder could not be read) | You can check again in a moment to see where it is. |
 | `open` | It's {appName}, in a Project you're part of. You can open it from your apps. |
-| `elsewhere`, `brought-in`, contact `person` | {name} brought it in on {date}. You can ask {name} to invite you, or to stop publishing to it from Nova so you can bring it in yourself. |
-| `elsewhere`, `published`, contact `person` | {name} published it from Nova on {date}. You can ask {name} to invite you, or to stop publishing to it from Nova so you can bring it in yourself. |
-| `elsewhere`, `brought-in`, contact `owners` | It was brought in to Nova on {date}. {names} can invite you, or stop publishing to it from Nova so you can bring it in yourself. |
-| `elsewhere`, `published`, contact `owners` | It was published from Nova on {date}. {names} can invite you, or stop publishing to it from Nova so you can bring it in yourself. |
+| `elsewhere`, contact `person` | {name} has had it in Nova since {date}. You can ask {name} to invite you, or to stop publishing to it from Nova so you can bring it in yourself. |
+| `elsewhere`, contact `owners` | It has been in Nova since {date}. {names} can invite you, or stop publishing to it from Nova so you can bring it in yourself. |
 
-**The seven blocks B1 adds** (8.3), as part 05 wrote them (its "Copy") and as they ship; a change to
-one is made in both places:
-
-| Code | Title | Body | Next |
-|---|---|---|---|
-| `hq-gateway-refused` | A security gateway turned Nova away | A security gateway in front of CommCare HQ turned Nova's request away before CommCare HQ saw it, so it says nothing about your key or your permissions. | You can check again in a few minutes. If it keeps happening, Dimagi support (support@dimagi.com) can help. |
-| `api-cut-off` | CommCare HQ has paused API access | CommCare HQ has paused API access for your account or for {space} after too many requests. Your key and the plan are fine. | Dimagi support (support@dimagi.com) can turn it back on. Then you can check again. |
-| `browser-only` | CommCare HQ sent a page meant for a browser | Nova asked {space} for an app and CommCare HQ answered with a page meant for a person, as it does when a project space asks you to sign in another way or isn't active. | Opening {space} in CommCare HQ shows what it's asking for. Once that's settled, you can check again. |
-| `remote-app` | This app isn't kept in CommCare HQ | {app} is hosted outside CommCare HQ, which only links to it, so there's nothing here for Nova to bring in. | You can go back and choose another app from {space}. |
-| `cannot-read-organization` | Nova couldn't read this project space's organization | {app} reads places, and reading them from {space} needs Locations and API access on its plan, and the Edit Locations and Access APIs permissions on your account. CommCare HQ doesn't say which one is missing. | An admin of {space} can check these four. Then you can check again. |
-| `app-unreadable-in-hq` | CommCare HQ can't summarize this app | CommCare HQ returned an error where its own summary of this app's forms should be, so Nova has nothing sure to check its reading against. | Opening the app's forms in CommCare HQ's form builder usually shows which one is broken. If they all open, Dimagi support (support@dimagi.com) can help. Then you can check again. |
-| `table-rows-unreadable` | CommCare HQ couldn't send this table's rows | CommCare HQ listed the lookup table {name} and then couldn't send its rows. A row that holds a field with no value is one cause Nova knows of. | You can open the table in CommCare HQ and fill in or remove that row, then check again. |
-
-**The eight blocks stack B adds** (8.3), each worded by the part that raises it and binding here; a
-change to one is made in both places. For `table-cell-unrepresentable` and `table-choices-unusable`,
-`{name}` is the whole `detail.name`, so a body reads "The lookup table regions (the field
-district_name) in ...".
-
-| Code | Title | Body | Next | Lands in |
-|---|---|---|---|---|
-| `no-platform-runs-everything` | No one platform runs this whole app | Part of this app runs only in Web Apps and part only on Android, so workers on either would meet something that doesn't work. | You can change one of these in CommCare HQ so one platform runs everything, then check again. | B2 |
-| `places-over-nova-limit` | This project space has more places than Nova takes | {app} reads places, and {space} has {name}. Nova holds up to 10,000 for an app. | Nothing to change on your side. This will come in once Nova takes larger organizations. | B9 |
-| `place-not-holdable` | A place or level is one Nova can't hold yet | {name} in {space} has a code, a name or a value Nova can't hold yet. | Nothing to change on your side. You can check again after Nova's next update. | B9 |
-| `media-not-played-where-app-runs` | A media file doesn't play where this app runs | The app points at {name}, and no platform that can run the rest of this app plays that file's format. | You can replace it in CommCare HQ with a PNG or JPEG picture, an MP3 sound or an H.264 MP4 video, then check again. | B9 |
-| `table-cell-unrepresentable` | A lookup table holds a character CommCare can't carry | The lookup table {name} in {space} holds a character CommCare can't carry in a value. | You can take that character out in CommCare HQ, then check again. | B9 |
-| `owner-rule-needs-one-place` | An owner rule needs exactly one place | {app} gives a case to the place at the level {name} below its current owner. In {space} that isn't exactly one place everywhere, and Nova holds the rule only where it is. | Nothing to change on your side. You can check again after Nova's next update. | B9 |
-| `table-choices-unusable` | A lookup table's rows can't be a question's choices | A question takes its choices from the lookup table {name} in {space}, and that table has no rows there, or has a row whose value is blank, starts or ends with a space or appears twice, or whose label is blank. | You can change those rows in CommCare HQ, then check again. | B9 |
-| `could-not-create` | Nova couldn't create this app | Nova read {app} and every check passed, and then Nova's own last check before saving turned the app down. That is Nova's mistake, not the app's, and it has been reported to the team. Nothing was created. | Nova keeps what it read, and you can check again after Nova's next update. | B10 |
-
-`no-platform-runs-everything` has a second next step, which `circumstanceNext` gives where the
+`no-platform-runs-everything` has a second next step, which `circumstanceBlock` gives where the
 finding carries `detail.reason: "split-refused"` (8.4): "You can change how the date and time
 question {question} reads its own answer in CommCare HQ, then check again." It is a string of
-`hqFindingCopy.ts` beside the block and lands in B2 with it.
+`hqFindingCopy.ts` beside the block.
 
-### 9.4 The kept list (A3)
+### 9.4 The kept list
 
 `lib/publish/keptValues.ts` (new, client-safe, importing nothing of `lib/deployment` or
 `lib/commcare`) holds the lead sentence, the row sentences, the labels and the refresh's sentences,
@@ -2724,7 +3531,7 @@ export const KEPT_FOLLOWS_LINE: string;
 /** The kinds of `lib/deployment/service.ts::KeptRefreshOutcome`, restated so this file stays client-safe. */
 export type KeptRefreshKind =
 	| "refreshed" | "changed-in-hq" | "superseded" | "no-baseline"
-	| "app-gone" | "unreadable" | "no-permission" | "unavailable";
+	| "app-gone" | "unreadable" | "key-not-accepted" | "no-permission" | "unavailable";
 
 export function keptRefreshSentence(
 	outcome: {
@@ -2755,11 +3562,12 @@ is not the current one ("10 November 2025"); MCP gives the ISO date.
 | Button, while reading | Reading from CommCare HQ |
 | Outcome `refreshed`, list changed | Updated. This is what CommCare HQ holds now. |
 | Outcome `refreshed`, list unchanged | Nothing has changed. This is still what CommCare HQ holds. |
-| Outcome `changed-in-hq` | CommCare HQ's copy of this app has changes Nova hasn't seen, so these stay as of {date}. The next publish here will show you what changed. |
+| Outcome `changed-in-hq` | part 15's C1, `lib/publish/hqChangesCopy.ts::KEPT_CHANGED_IN_HQ` (`15-changes-made-in-commcare-hq.md`, section 9.6, which holds its words). The card draws part 15's button C2 beside it. |
 | Outcome `superseded` | Someone published here while Nova was reading, so this is as that publish left it. |
 | Outcome `no-baseline` | Nova hasn't read this app from CommCare HQ since its last publish here, so it has nothing to refresh. Publishing again reads it. |
 | Outcome `app-gone` | CommCare HQ no longer has this app in {space}. Check status shows where things stand. |
 | Outcome `unreadable` | CommCare HQ answered with something Nova couldn't read as this app, so these stay as of {date}. Opening the app in CommCare HQ shows whether it still opens there. |
+| Outcome `key-not-accepted` | CommCare HQ didn't accept your saved API key, so these stay as of {date}. You can save a new key in Settings, then refresh again. |
 | Outcome `no-permission` | CommCare HQ didn't let your account read this app, so these stay as of {date}. Reading it needs permission to edit apps in {space}. You can check the connected account, then refresh again. |
 | Outcome `unavailable` | Nova couldn't reach CommCare HQ just now. You can try again in a moment. Nothing was changed. |
 | Raised, `hq_not_connected` | CommCare HQ isn't connected on your account, so Nova can't read these again. You can add your API key in Settings, then refresh. |
@@ -2796,18 +3604,18 @@ The labels. `KEPT_AT_HQ`'s rows name them by id (section 5), and `KEPT_LABELS` w
 | `custom-base-url` | Custom base URL | `36-hq-custom-base-url` |
 | `practice-mobile-worker` | Practice mobile worker | `35-hq-practice-mobile-worker-id` |
 | `worker-activity-credential` | Worker activity credential | `32-features-credentials` |
-| `language-names` (B8) | Language names | `translations-lang-code-any-other-value-or-absent-where-hq-s` |
+| `language-names` | Language names | `translations-lang-code-any-other-value-or-absent-where-hq-s` |
 
-### 9.5 The `.ccz`'s advisories (A3, `exportAdvisories.ts`)
+### 9.5 The `.ccz`'s advisories (`exportAdvisories.ts`)
 
 | Id | Title | Message |
 |---|---|---|
 | `kept_ui_text_falls_back` | Some of CommCare's own wording differs in this file | This project space rewords some of CommCare's own screens. This CCZ carries each rewording it holds. Where a language has none, an app installed from CommCare HQ shows CommCare HQ's translation and this file shows the phone's built-in wording. |
 | `kept_android_logos_absent` | This file has no Android logos | This project space's app has its own logos for the Android home, sign-in or practice screen. They live in CommCare HQ, so this CCZ shows CommCare's own. An app installed from CommCare HQ shows yours. |
 | `kept_practice_worker_absent` | Practice mode uses CommCare's sample worker in this file | This project space's app has a practice mobile worker. That worker's data lives in CommCare HQ, so practice mode in this CCZ opens CommCare's own sample worker. |
-| `kept_language_names_differ` (B8) | Some language names may differ in this file | CommCare HQ names a language itself where this app gives none, and this CCZ uses Nova's name for it. The language picker may show a different spelling than an app installed from CommCare HQ. |
+| `kept_language_names_differ` | Some language names may differ in this file | CommCare HQ names a language itself where this app gives none, and this CCZ uses Nova's name for it. The language picker may show a different spelling than an app installed from CommCare HQ. |
 
-### 9.6 MCP (A3)
+### 9.6 MCP
 
 `refresh_deployment`'s description gains, after its last sentence: "Pass `kept_values: true` to read
 again the settings this project space keeps in CommCare HQ (the `kept` list of `get_deployment`)
@@ -2815,16 +3623,18 @@ without asking about builds. It updates them only where nothing Nova publishes h
 HQ since the last publish, and says so otherwise." The input: `kept_values`, optional boolean,
 described "Read the project space's kept settings again, in place of the build and release check."
 `get_deployment`'s description gains: "`deployment.kept` lists the settings that stay as CommCare HQ
-holds them on that project space, with the date Nova read them."
+holds them on that project space, with the date Nova read them." `upload_app_to_hq`'s new refusal and
+the sentence its description gains are in 7.4.
 
-### 9.7 Public docs (A3)
+### 9.7 Public docs
 
 `content/docs/building-with-nova.mdx`, the section "Preview on Web Apps and Android", gains one
-paragraph: "Preview marks every required question with an asterisk. Web Apps does the same. An Android
-phone marks them only where the app's CommCare HQ setting for it is on, which a new app's is not, so a
-required question can look unmarked on a phone until the worker tries to move past it. Preview's case
-list search follows your project space's fuzzy search setting once the app is published to one project
-space: with it on, a near miss of four letters or more still finds its case, as it does for a worker.
+paragraph: "Preview marks a required question the way the platform it is playing does. Web Apps marks
+every required question with an asterisk. An Android phone marks them only where the app's CommCare HQ
+setting for it is on, which a new app's is not, so on Android a required question looks unmarked until
+the worker tries to move past it. Once the app is published to one project space, Preview follows
+that project space's setting. Preview's case list search follows its fuzzy search setting the same
+way: with it on, a near miss of four letters or more still finds its case, as it does for a worker.
 On Android the closest matches come first, and in Web Apps the list keeps its own order."
 
 `content/docs/publishing.mdx` gains a section "What stays as it is in CommCare HQ": "Some of an app's
@@ -2834,100 +3644,144 @@ publishes, so you can keep setting them on the app's Settings page in CommCare H
 section lists the ones your project space holds differently from a new app, with the date Nova last
 read them, and Refresh from CommCare HQ reads them again. A CCZ you download for that project space
 follows them. Two things it can't carry, your Android logos and a practice mobile worker, it tells you
-about when you download it."
+about when you download it. An app you brought in from CommCare HQ keeps these settings exactly as it
+had them, including the ones it never set. Nova fills in its own defaults only on an app it created
+there." The last two sentences are the rule of 7.3.
 
-B14 adds to that section, for the behavior of 7.3 that B8 lands (stack B's public docs land in B14
-with their text fixed in the part that words them; part 15, `15-stack-contracts-and-exit.md`,
-section 7): "An app you brought in from
-CommCare HQ keeps these settings exactly as it had them, including the ones it never set. Nova fills
-in its own defaults only on an app it created there."
+`content/docs/case-workspace.mdx`, "Group cases under a connected case", the first of the four
+things to know becomes: "**Choosing a group uses its first case.** With Several cases, each group
+has one checkbox and adds its first case. The other rows are there to read, not to choose. When
+someone filters the list, a group shows only the cases that match, so its first case is the first
+match: the heading is drawn from it, choosing the group uses it, and the groups are ordered by
+it. If people need to choose every case separately, keep the ungrouped tile."
+
+The pages a build profile's stop changes (`publishing.mdx`, `languages.mdx`, `mcp/tools.mdx` and
+`claude-code/commands.mdx`) are in 7.4, with their words.
 
 ---
 
 ## 10. Tests
 
-Each test names its boundary and the failure it would catch. None renders a component in jsdom.
+Each test names its boundary and the failure it would catch. None renders a component in jsdom. The
+tests of a build profile's stop are in 7.4, with the rest of that rule.
 
-**A2**
+**The manifest and the findings**
 
 | Test | Boundary | Catches |
 |---|---|---|
-| `lib/commcare/surface/__tests__/standing.test.ts` | pure | `standingOf` over one planted entry per disposition and per reason kind, and the two mixed entries by id: a kind moved between the lists, or a new kind in `REFUSAL_REASON_KINDS` with no group (also a compile error). `fixCauseOf` over one planted entry per row of 2.1's cause table, a planted entry holding both groups under conditions (`either`), `null` for every entry that is not `fix-in-hq`, and the real manifest's counts by cause (179, 63, 13, 1 today, computed and printed, not pinned) |
-| `surface/__tests__/manifest.test.ts`, the five rules of 2.6 | pure, over the real manifest | each rule with its planted failing entry: a HELD-NEW entry without a class on a shared key; an unused subject; a new mixed-reason entry; a version-floor reason beside another fix kind |
+| `lib/commcare/surface/__tests__/standing.test.ts` | pure | `standingOf` over one planted entry per disposition and per reason kind, and the two mixed entries by id: a kind moved between the lists, or a new kind in `REFUSAL_REASON_KINDS` with no group (also a compile error). `fixCauseOf` over one planted entry per row of 2.1's cause table, a planted entry holding both groups under conditions (`either`), and `null` for every entry that is not `fix-in-hq` |
+| `surface/__tests__/manifest.test.ts`, the four rules of 2.6 | pure, over the real manifest | each rule with its planted failing entry: a HELD-NEW entry without a class on a shared key; an unused subject; a new mixed-reason entry; a version-floor reason beside another fix kind |
 | `surface/__tests__/manifest.test.ts`, "parses no entries file that breaks the schema" (extended) | pure | a planted HELD-NEW entry without `subject`, a planted REFUSED one without it, a planted HELD-NEW one without `owner`, and a planted HELD entry that names a subject: each fails to parse, and the first three with the message of 2.6 |
 | `surface/__tests__/manifest.test.ts`, the re-cut entries | pure | the two new inert entries and the build-profiles split parse, name existing keys, and overlap no class of their key; the `xmlns` entry holds no `slotChanges` |
-| `lib/publish/__tests__/hqFindingCopy.test.ts` | pure, over the real manifest (`loadManifest`) | both directions of completeness. For `not-yet` and `never`: every `(subject, standing)` an entry gives has a sentence in `FINDING_COPY`, and every sentence's pair is given by some entry. For `fix-in-hq`: `fixInHqSentence` answers for every `(subject, fixCauseOf(entry))` an entry gives; every stem's subject and every whole sentence's pair is given by some entry; no subject holds both a stem and a whole sentence for every cause its entries give; the composed sentence of every such pair is printed once in the test's output so a reviewer reads all 81. Every member of `READ_CIRCUMSTANCES` has a block and no block names another code (20 members in A2, 27 after B1, 28 after B2, 34 after B9, 35 after B10; the test reads the list and pins no count); `alreadyInNovaNext` answers for an absent claim and for each of the six rows of 9.3's table, and no answer holds a `{` placeholder; every subject has a label. `findingLine` answers `named: null` for `read-back-differs` and `too-large` whatever `detail.name` holds (and for `could-not-create` from B10). From B2: `circumstanceNext` answers for every member of `READ_CIRCUMSTANCES`, gives `alreadyInNovaNext`'s answer for `already-in-nova`, the second sentence of `no-platform-runs-everything` under `detail.reason: "split-refused"` with the question's name in place of `{question}`, and the block's `next` otherwise; that second sentence and `ACCOUNT_CHECK_AGAIN_LINE` are held to the voice rules with the rest. And the voice rules a machine can hold, each over the strings it fits: no em dash, no ellipsis and no "import" as a word, in every string; sentence case at the start, in every string; a full stop at the end, in every sentence, body and next step (a stem joined to each clause it takes counts as a sentence), and none at the end of a label, a title or a stem |
-| `lib/publish/__tests__/hqFindings.test.ts` | pure | `findingSchema` refuses a manifest finding with `owner` under a standing other than `not-yet`, one with `cause` under a standing other than `fix-in-hq` or a `fix-in-hq` one without it, a circumstance finding with a subject, a `stop` on a manifest code, and a `claim` on any code but `already-in-nova`. A type-level check holds part 10's `HqAppClaimView` to `HqAppClaimDetail` with `remoteAppId` added, from B8 |
+| `lib/publish/__tests__/hqFindingCopy.test.ts` | pure, over the real manifest (`loadManifest`) | both directions of completeness. For `not-yet` and `never`: every `(subject, standing)` an entry gives has a sentence in `FINDING_COPY`, and every sentence's pair is given by some entry. For `fix-in-hq`: `fixInHqSentence` answers for every `(subject, fixCauseOf(entry))` an entry gives; every stem's subject and every whole sentence's pair is given by some entry; no subject holds both a stem and a whole sentence for every cause its entries give. Every stem ends in " is" or " are"; every clause begins "set up in a way" and ends with a full stop; `fixInHqSentence` returns a stem, one space and a clause, or a whole sentence. No two labels of `SUBJECT_LABELS` are equal. `alreadyInNovaNext` answers for an absent claim and for each of the three other rows of 9.3's table, and no answer holds a `{`. `circumstanceBlock` answers for every member of `READ_CIRCUMSTANCES`, with `app` a name and with `app` null, and with `detail.name` set where the code's row holds `name`: three strings with no `{` in them; it gives `alreadyInNovaNext`'s answer for `already-in-nova`, and the second sentence of `no-platform-runs-everything` under `detail.reason: "split-refused"` with the question's name in place of `{question}`. A template of `CIRCUMSTANCE_COPY` holds `{name}` exactly where the code's row holds `name: "body"`. `findingLine` answers `named` as `detail.name` for a manifest finding and for each code whose row holds `name: "line"`, and null for each code whose row holds `body` or `internal`. And the voice rules a machine can hold, each over the strings it fits, `ACCOUNT_CHECK_AGAIN_LINE` among them: no em dash, no ellipsis and no "import" as a word, in every string; sentence case at the start, in every string; a full stop at the end, in every sentence, body and next step (a stem joined to each clause it takes counts as a sentence), and none at the end of a label, a title or a stem |
+| `lib/publish/__tests__/hqFindings.test.ts` | type-level and pure | `circumstanceFinding("too-large", place, { name: "x" })`, `circumstanceFinding("unrecognized", place, {})`, a `claim` on `key-not-accepted` and a `reason` on `unrecognized` each fail to compile (`// @ts-expect-error`). The finding `circumstanceFinding` returns holds the standing of its code's row, for every code. `cutFindingName` returns a name of 200 characters or fewer unchanged and a longer one at 200 characters, the last `…`. Each member of `NOVA_FAULT_CIRCUMSTANCES` is `not-yet` and holds no owner. A type-level check holds part 10's `HqAppClaimView` to `HqAppClaimDetail` with `remoteAppId` added |
 
-**A3**
+That a block exists for every code and a label for every subject is the compiler's: `CIRCUMSTANCE_COPY`
+and `SUBJECT_LABELS` are records over the closed lists. Two tests of part 05's hold the other half of
+the codes (`05-reading-commcare-hq.md`, its tests): the set `hqReadCircumstance` returns over every
+kind, request and permission is exactly thirteen codes, and no template of a code a picker stop can
+be holds `{app}`.
+
+**Kept at CommCare HQ's value**
 
 | Test | Boundary | Catches |
 |---|---|---|
-| `lib/commcare/surface/__tests__/keptAtHq.test.ts` | pure, over the real manifest | the binding, both ways: every TARGET-OWNED entry has a `KEPT_AT_HQ` row and every row names a TARGET-OWNED entry; every `setting` row with a `label` is reached by `keptListFor` for some planted `TargetFacts`; every `states` cell names an advisory id that `exportAdvisories` can return; every `mirrors` cell's `by` names an exported symbol; a planted TARGET-OWNED entry with no row fails. The base rule: every row names a base of part 14's 6.2, or is null and its entry is exempt. In A3, where no base exists yet, the test holds each `base` to one of the three ids section 5 names and `null` to `36-hq-custom-base-url` alone; from B13 part 14's `lib/commcare/surface/__tests__/entryCoverage.test.ts` (its section 7.5, rule 2) holds each `base` to a base whose `claimed` holds the entry and `null` to an entry `proof/matrix/exemptions.json` names |
-| `lib/commcare/__tests__/targetFacts.test.ts` | pure, over the retained read `proof/hq-reads/case-list-inline/app-source.json` and edits of it. The file is an HTTP envelope (`status`, `headers`, `body`), so the test takes `body` and normalizes it with `normalizeHqAppSource`, as a stored baseline is | `targetFactsFromSource`, each row of 6.1's table: a setting at another choice, the numeric `10`, a boolean `true` and `false`; a runtime UI text key, a `target` key no runtime reads (in `uiText`, not in `uiTextKeys`) and a generated key in `translations`; each logo slot; `auto_gps_capture` under each ownership; a custom base URL with a path, with a trailing slash and with no scheme; a credential level; a source that is no object gives `null`. `isRuntimeUiStringKey`: a key the surface holds with a reader, a key under a `.*` item, a key of HQ's catalog no runtime reads, an unknown key |
-| `lib/deployment/__tests__/targetFacts.test.ts` | pure | `targetFactsFromBaseline`: `create` gives `null`; `push` and `cutover` give the source's facts with the baseline's `observedAt` and its ownership of `auto_gps_capture`. `keptListFor` over planted facts: each label id under its predicate, none for facts at every default |
+| `lib/commcare/surface/__tests__/keptAtHq.test.ts` | pure, over the real manifest | the binding, both ways: every TARGET-OWNED entry has a `KEPT_AT_HQ` row and every row names a TARGET-OWNED entry; every `setting` row with a `label` is reached by `keptListFor` for some planted `TargetFacts`; every cell that names an advisory names an id `exportAdvisories` can return; every `mirrors` cell's `by` and every `reads` cell's `by` names an exported symbol; a planted TARGET-OWNED entry with no row fails. The base rule: every row names a base of part 14's 6.2, and part 14's `lib/commcare/surface/__tests__/entryCoverage.test.ts` (its section 7.5, rule 2) holds each `base` to a base whose `claimed` holds the entry |
+| `lib/commcare/__tests__/targetFacts.test.ts` | pure, over the retained read `proof/hq-reads/case-list-inline/app-source.json` and edits of it. The file is an HTTP envelope (`status`, `headers`, `body`), so the test takes `body` and normalizes it with `normalizeHqAppSource`, as a stored baseline is | `targetFactsFromSource`, each row of 6.1's table: a setting at another choice, the numeric `10`, a boolean `true` and `false`; a runtime UI text key, a `target` key no runtime reads (in `uiText`, not in `uiTextKeys`) and a generated key in `translations`; each logo slot; `auto_gps_capture` under each ownership; a custom base URL with a path, with a trailing slash and with no scheme; a credential level; `languageNames` null and `seeds` `"nova"` with `adopted` false, and a held language name and `seeds` `"target"` with it true; a source that is no object gives `null`. `isRuntimeUiStringKey`: a key the surface holds with a reader, a key under a `.*` item, a key of HQ's catalog no runtime reads, an unknown key |
+| `lib/deployment/__tests__/targetFacts.test.ts` | pure | `targetFactsFromBaseline`: `create` gives `null`; `push`, `cutover` and `read` give the source's facts with the baseline's `observedAt`, its ownership of `auto_gps_capture` and the mapping's `adopted`. `keptListFor` over planted facts: each label id under its predicate, none for facts at every default |
 | `lib/deployment/__tests__/targetFacts.postgres.test.ts` | real Postgres | `readTargetFacts` answers a viewer and refuses a non-member; returns `null` for no row, an `unread` row and a row whose digest does not verify; a second read of an unchanged row selects no `source_gzip` (the query log shows one statement); a rewritten baseline is read afresh |
-| `lib/deployment/__tests__/refreshKeptValues.postgres.test.ts` | real Postgres, HQ answered by the controlled client the publish tests use | `refreshed` rewrites source, digest and `observed_at` (the instant taken before the request) and keeps origin, a `cutover` one included, ownership and a stored discard, and notifies the deployment lane; `changed-in-hq` (a form edited in the answer) writes nothing; `no-baseline` for no live mapping, for an `unread` and a `create` baseline and for a baseline of another remote app; `app-gone`; `unreadable` for a linked app's answer and for a malformed one; `no-permission` for a 401 and a 403; `unavailable` for a 500 and a timeout; each writes nothing. `superseded`: a publish's baseline written between the refresh's comparison and its write is kept, and the answer carries the deployment as that publish left it. A refresh whose answer arrives after a publish's read-back, having been asked before it, does not replace it. The three raised `DeploymentError`s (no key, a key that cannot reach the project space, a key on another server) write nothing. A viewer is refused |
-| `lib/commcare/__tests__/keptProfile.test.ts` | pure | `targetProfileProperties` with no facts equals `appProfileProperties`; with facts, each seeded key takes the target's value and keeps its `force`; the two owned settings never move; the log setting appears only when held; the first fifteen of `KEPT_PROFILE_PROPERTY_KEYS` equal `SEEDED_PROFILE_PROPERTIES`' keys in order. From B8: with `seeds: "target"` a seeded key the facts hold no value for is left out |
+| `lib/deployment/__tests__/refreshKeptValues.postgres.test.ts` | real Postgres, HQ answered by the controlled client the publish tests use | `refreshed` rewrites source, digest and `observed_at` (the instant taken before the request) and keeps origin, a `cutover` one included, ownership and a stored discard, and notifies the deployment lane; `changed-in-hq` (a form edited in the answer) writes nothing; a recorded file whose id moved answers `changed-in-hq` with no file read, and a path with no record does not; `no-baseline` for no live mapping, for an `unread` and a `create` baseline and for a baseline of another remote app; `app-gone`; `unreadable` for a linked app's answer and for a malformed one; `key-not-accepted` for a 401; `no-permission` for a 403; `unavailable` for a 500 and a timeout; each writes nothing. `superseded`: a publish's baseline written between the refresh's comparison and its write is kept, and the answer carries the deployment as that publish left it. A refresh whose answer arrives after a publish's read-back, having been asked before it, does not replace it. The three raised `DeploymentError`s (no key, a key that cannot reach the project space, a key on another server) write nothing. A viewer is refused |
+| `lib/commcare/__tests__/keptProfile.test.ts` | pure | `targetProfileProperties` with no facts equals `appProfileProperties`; with facts, each seeded key takes the target's value and keeps its `force`; the two owned settings never move; the log setting appears only when held; the first fifteen of `KEPT_PROFILE_PROPERTY_KEYS` equal `SEEDED_PROFILE_PROPERTIES`' keys in order; with `seeds: "target"` a seeded key the facts hold no value for is left out |
 | `lib/commcare/__tests__/runtimeTarget.test.ts` (extended) | pure | `PostURL` on the secure receiver; all three URLs on a custom base's origin; `cc_user_domain` unmoved. The vectors are worked from `urljoin`: a base of `https://example.org`, of `https://example.org/`, of `https://example.org/hq/` and of `https://example.org:8443/x` give `https://example.org/a/<domain>/…` for the first three and `https://example.org:8443/a/<domain>/…` for the last |
-| `lib/commcare/__tests__/keptArchive.test.ts` | wire through an independent consumer: the archive is unzipped and its `profile.ccpr`, each `app_strings.txt` and one form are parsed with `xmlParse.ts` and the locale reader | a `.ccz` compiled with facts holds the target's settings, the UI text in each language and in `default` (a stored text for `case_autoload.usercase.case_missing` in place of Nova's message), `cc:location` with its sensor, the secure `PostURL`, and the `<credentials>` block as the last child of `<features>` with the level and `type="APP_ACTIVITY"`; compiled with `null` it is byte for byte today's archive (the existing fixture) |
-| the same file, a property | pure | for any source profile whose kept settings hold values of their own choices, the seventeen keys of `projectProfileForTarget(appJson, sourceProfile, "not-needed")` equal what `targetProfileProperties` writes from that source's facts: the publish and the archive cannot state different settings for one project space. From B8 the property runs under `seeds: "nova"` and `seeds: "target"`, with the facts' `seeds` to match |
+| `lib/commcare/__tests__/keptArchive.test.ts` | wire through an independent consumer: the archive is unzipped and its `profile.ccpr`, each `app_strings.txt` and one form are parsed with `xmlParse.ts` and the locale reader | a `.ccz` compiled with facts holds the target's settings, the UI text in each language and in `default` (a stored text for `case_autoload.usercase.case_missing` in place of Nova's message), a held language name in every table, `cc:location` with its sensor, the secure `PostURL`, and the `<credentials>` block as the last child of `<features>` with the level and `type="APP_ACTIVITY"`; compiled with `null` it is byte for byte today's archive (the existing fixture) |
+| the same file, a property | pure | for any source profile whose kept settings hold values of their own choices, the seventeen keys of `projectProfileForTarget(appJson, sourceProfile, "not-needed")` equal what `targetProfileProperties` writes from that source's facts: the publish and the archive cannot state different settings for one project space. The property runs under `seeds: "nova"` and `seeds: "target"`, with the facts' `seeds` to match |
 | `lib/publish/__tests__/exportAdvisories.test.ts` (extended) | pure | each kept advisory appears exactly under its predicate; the attachment advisory stays first; `null` facts add none |
-| `lib/publish/__tests__/keptValues.test.ts` | pure | every member of `KEPT_LABEL_IDS` has a label and no two labels are equal; `keptRefreshSentence` answers for every `KeptRefreshKind` under both values of `listChanged`, and `keptLead` under both of `hasLabels`, with no `{` placeholder left in an answer; and the voice rules of `hqFindingCopy.test.ts` over every string of the file and over the title and message of each `kept_` advisory: no em dash, no ellipsis, no "import" as a word, sentence case at the start, a full stop at the end of a sentence (the lead with labels ends in its colon) and none at the end of a label or a title. The two button labels of 9.4 are the card's own strings |
-| `lib/preview/__tests__/listFilterMatch.test.ts` | pure, vectors worked from Core's source | `normalizeForFilter("José")` is `"jose"`; `fuzzyMatch("smith", "smyth")` matches at 1; `("smit", "smith")` at 1; `("smi", "smith")` does not (length 3); `("john", "johnathan")` matches at 2 after the cut to six characters; `("maria", "mark")` matches at 2; `("maria", "peter")` does not; a row matched exactly scores 0; with `fuzzy` off no near miss matches; an empty term passes a row with any text and fails a row whose every field is blank. `filterTerms`, vectors worked from Java's `String.split`: `"ann  lee "` is `["ann", "lee"]` under `whitespace-runs` and `["ann", "", "lee"]` under `single-spaces`; `" ann"` is `["", "ann"]` under both; `"ann\tlee"` is two terms under `whitespace-runs` and one under `single-spaces`; `"José"` is `["jose"]` |
-| `components/preview/shared/__tests__/listFilter.test.ts` | state model: the function over production `Column`s and a `CaseListOrderPlan` from `caseListOrderPlan` | a field with no sort key is never matched fuzzily; a carrier's raw value is; order with `fuzzy` off is the input's; with `fuzzy` on, `closest-first` puts an exact match before a near miss that came first in the list, and `list-order` leaves the list's order; empty and all-space text keeps every row under both rules |
-| `lib/preview/__tests__/platform.test.ts` (extended) | pure | `listFilter` is `single-spaces` and `list-order` for Web Apps, `whitespace-runs` and `closest-first` for Android |
-| `lib/collab/__tests__/previewTargetFactsFrame.test.ts` | pure | a malformed frame parses to `null`; `{ facts: null }` parses |
-| `app/api/apps/[id]/stream/__tests__/stream.postgres.test.ts` (extended) | real Postgres | the lane sends `preview-target-facts` on connect and after a baseline write that changes the fuzzy setting, and not after one that leaves it |
-| `lib/deployment/__tests__/previewTarget.test.ts` (new; `resolvePreviewDeploymentTarget`'s own cases stay in `setupArtifact.test.ts`, where they are today) | pure | `resolvePreviewFactsTarget`: one deployment; none; two domains; one domain on two servers gives `null` |
-| `e2e/tests/app/preview-kept.spec.ts`, with its seed `e2e/lib/keptBaselineSeed.ts` beside the other app seeds | Playwright against the production server and the job's own Postgres: `e2e/tests/browser/` starts no server and no database (`e2e/CLAUDE.md`), and this journey needs `app_deployment_baselines` rows, the builder page's `previewTargetFactsFor` and the Publishing section. The seed writes a reached deployment with a `push` baseline holding `cc-fuzzy-search-enabled: yes`, and a twin holding `no` | typing a near miss in Preview's list filter finds the case, and does not on the twin; the Publishing card lists "Fuzzy search in case lists" with its date and the Refresh button; the twin's card reads the no-label sentence and still offers the button |
+| `lib/publish/__tests__/keptValues.test.ts` | pure | every member of `KEPT_LABEL_IDS` has a label and no two labels are equal; `keptRefreshSentence` answers for every one of the nine `KeptRefreshKind`s under both values of `listChanged`, and `keptLead` under both of `hasLabels`, with no `{` placeholder left in an answer; and the voice rules of `hqFindingCopy.test.ts` over every string of the file and over the title and message of each `kept_` advisory: no em dash, no ellipsis, no "import" as a word, sentence case at the start, a full stop at the end of a sentence (the lead with labels ends in its colon) and none at the end of a label or a title. The two button labels of 9.4 are the card's own strings |
 | `lib/mcp/__tests__/servedSchemas.test.ts` (updated snapshot) | pure | `refresh_deployment`'s `kept_values` and the two descriptions are what a client receives |
-| `surface/__tests__/platformFeatures.test.ts`, `lib/preview/__tests__/platformCells.test.ts` | unchanged code | pass once the thirteen rows leave both tables; fail in A3 if one is left |
+| `surface/__tests__/platformFeatures.test.ts`, `lib/preview/__tests__/platformCells.test.ts` | unchanged code | pass once the thirteen rows leave both tables; fail if one is left |
 
-**B2** adds to `hqFindingCopy.test.ts` the `circumstanceNext` and `ACCOUNT_CHECK_AGAIN_LINE` cases
-its row above marks "From B2", and **B10** the `named: null` case for `could-not-create`. No other
-case is added by a later pull request: the completeness rules already force each new subject's
-label, each new pair's sentence (9.2's second table) and each new circumstance's block (9.3) in the
-pull request that adds the entry or the code. A re-worded sentence (2.6) is held by no test; the
-pull request that lands it shows the old and the new sentence in its description.
+**Preview**
+
+| Test | Boundary | Catches |
+|---|---|---|
+| `lib/preview/__tests__/listFilterMatch.test.ts` | pure, vectors worked from Core's source | `normalizeForFilter("José")` is `"jose"`; `fuzzyMatch("smith", "smyth")` matches at 1; `("smit", "smith")` at 1; `("smi", "smith")` does not (length 3); `("john", "johnathan")` matches at 2 after the cut to six characters; `("maria", "mark")` matches at 2; `("maria", "peter")` does not; a row matched exactly scores 0; with `fuzzy` off no near miss matches; an empty term passes a row with any text and fails a row whose every field is blank; no terms pass every row. `filterTerms`, vectors worked from Java's `String.split`: `"ann  lee "` is `["ann", "lee"]` under `whitespace-runs` and `["ann", "", "lee"]` under `single-spaces`; `" ann"` is `["", "ann"]` under both; `"ann\tlee"` is two terms under `whitespace-runs` and one under `single-spaces`; `"José"` is `["jose"]`; `""` is `[""]` under both, and `"  "` is `[]` under both |
+| `components/preview/shared/__tests__/listFilter.test.ts` | state model: the function over production `Column`s and a `CaseListOrderPlan` from `caseListOrderPlan` | a field with no sort key is never matched fuzzily; a carrier's raw value is; order with `fuzzy` off is the input's; with `fuzzy` on, `closest-first` puts an exact match before a near miss that came first in the list, and `list-order` leaves the list's order; all-space text keeps every row under both rules; an empty text keeps every row under `skipped`, and under `runs-once-edited` with `edited` false, and drops the row whose every field is blank under `runs-once-edited` with `edited` true |
+| `lib/preview/__tests__/platform.test.ts` (extended) | pure | `listFilter` is `single-spaces`, `list-order` and `skipped` for Web Apps, and `whitespace-runs`, `closest-first` and `runs-once-edited` for Android; `requiredMark` is `always` for Web Apps and `by-setting` for Android. `requiredMarkShown`: true under `always` whatever the setting; under `by-setting`, false with `null`, false with `false`, true with `true` |
+| `lib/preview/__tests__/caseTileGrouping.test.ts` (new) | pure, vectors worked from `EntityScreenHelper.java::groupEntities` and `views.js::CaseTileGroupedListView.initialize` | `tileGroupCards` over rows in list order Ada (K), Ben (R), Cal (K), Dot (R), Eve (`""`): all five give K [Ada, Cal], R [Ben, Dot], `""` [Eve]; the matches Ben, Cal, Dot give R [Ben, Dot] then K [Cal], so a card order kept from the unfiltered list fails, and K's `rows[0]` is Cal, so a heading or a choice kept from the group's first case fails; the matches Eve, Ada give `""` [Eve] then K [Ada], so the empty key is a key like any other; no rows give no cards. `groupedPageRows` over groups K [Ada, Cal], R [Ben, Dot] with `listOrder` Ada, Ben, Cal, Dot gives the rows in that order and each row's own key; a row `listOrder` does not name comes last |
+| the same file, a property (`fast-check`) | pure | for any rows in list order with any keys, and any subset kept: every kept row is in exactly one card, all rows of a key share a card, each card's rows are in list order, and the cards are in the order of their `rows[0]`. With every row kept, the cards equal the groups a first-appearance clustering of the input gives, which is what `queryGrouped` returns, so the filtered and the unfiltered list cannot be drawn by two rules |
+| `lib/case-store/postgres/__tests__/queryGrouped.postgres.test.ts` (extended) | real Postgres | `listOrder` on the seeded page is the flat order under the user's sort (Ada, Ben, Cal, Dot, Eve), equal to `query` under the same sort, where the groups read Ada, Cal, Ben, Dot, Eve: a `listOrder` built in clustered order fails. On a page of one group it names that group's rows alone (Ada, Cal): an order that reached other pages fails. On a page past the end it is empty. Under a descending sort it reverses, and it is a permutation of the page's case ids in every case above |
+| `lib/collab/__tests__/previewTargetFactsFrame.test.ts` | pure | a malformed frame parses to `null`; `{ facts: null }` parses; a frame missing either fact parses to `null` |
+| `app/api/apps/[id]/stream/__tests__/stream.postgres.test.ts` (extended) | real Postgres | the lane sends `preview-target-facts` on connect and after a baseline write that changes the fuzzy setting or the asterisk setting, and not after one that leaves both |
+| `lib/deployment/__tests__/previewTarget.test.ts` (new; `resolvePreviewDeploymentTarget`'s own cases stay in `setupArtifact.test.ts`, where they are today) | pure | `resolvePreviewFactsTarget`: one deployment; none; two domains; one domain on two servers gives `null` |
+| `e2e/tests/app/preview-kept.spec.ts`, with its seed `e2e/lib/keptBaselineSeed.ts` beside the other app seeds | Playwright against the production server and the job's own Postgres: `e2e/tests/browser/` starts no server and no database (`e2e/CLAUDE.md`), and this journey needs `app_deployment_baselines` rows, the builder page's `previewTargetFactsFor` and the Publishing section. The seed writes a reached deployment with a `push` baseline holding `cc-fuzzy-search-enabled: yes` and `cc-label-required-questions-with-asterisk: yes`, and a twin holding `no` for both | typing a near miss in Preview's list filter finds the case, and does not on the twin; with Preview on Android a required question carries the asterisk, and carries none on the twin, where Preview on Web Apps marks it on both; the Publishing card lists "Fuzzy search in case lists" and "Asterisk on required questions" with its date and the Refresh button; the twin's card reads the no-label sentence and still offers the button |
+| `e2e/tests/app/authed.spec.ts`, "a grouped case list draws one card per group and opens the group's first case" (one step added, last; the seed is unchanged) | Playwright against the production server | typing `Referred` in "Filter results" leaves two cards: the first holds Ben and the second holds Cal, neither holds Ada or Dot; there are two card actions, and the second names Cal (its label matches `/View details for .*Cal/`) and opens Cal's Details. Today the cards stand in the other order and the second action names and opens Ada. This is the one place the wiring is held: the screen feeding the cards from rows in clustered order, `CaseTileGroup` drawing a heading from another row, or the action bound to another case each fail here and in no pure test |
+| `proof/targeted/__tests__/targeted.test.ts` | unchanged code | holds `targeted-tile-group-filter` to admission with every other targeted document |
+| the proof lane's intent check over `targeted-tile-group-filter` | Core's own `EntityScreen` over Nova's local archive, on every pull request | Core's rows under the filter are Ben, Dot, Cal: a pin move that changes the order of filter, sort and group, or a group key Nova's suite stops writing, fails by name |
+| `proof/webapps/test_tiles.py::test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves` | HQ's own Web Apps client against Formplayer, in the lane's scheduled runs with the readers and in Run 4 | the client's half of the rule: after the search the cards are Ben's and then Cal's, each with its first match's id and its first match's heading. A client change that keeps another model for a group, or draws the heading from another, fails by name |
+
+Fixtures that write a `GroupedQueryResult` by hand gain `listOrder`, which the compiler names:
+`lib/preview/engine/__tests__/withSchemaHeal.test.ts` and
+`lib/preview/app-tests/__tests__/searchResultsEntry.test.ts`. No test is added for
+`readGroupedCases` handing `listOrder` on: the field is required, so dropping it does not compile.
 
 What these tests do not hold, and what does: that a `mirrors` cell is true of HQ's real build is Run 1
 and then proof 3 on the base `hq-kept-settings`; that each kept entry's clause 1 is true is proof 1 on
 the HQ-authored bases against the first-publish register; that Core's fuzzy rule is ported right is
 Run 2; that an adopted deployment is seeded nowhere is Run 3. How Android and Formplayer split the
 typed text and order the matches is read at source and held by the vectors above, with no native run:
-the two functions sit in each runtime's own screen code, outside what the native families load.
+the two functions sit in each runtime's own screen code, outside what the native families load. That
+the vectors of `caseTileGrouping.test.ts` are CommCare's rule is the lane's
+`targeted-tile-group-filter`: Core's rows in the order the vectors assume, on every pull request,
+and the client's cards, each one its group's first match, in the runs with the readers (Run 4).
+What an Android phone draws for a required question is read at source (6.4) and has no device run
+here: the mark is one branch on one preference in `QuestionWidget.java::setTextFromPrompt`.
 
 ---
 
 ## 11. Contracts and docs these changes make false
 
-| Where | Sentence today | Replacement | PR |
-|---|---|---|---|
-| `lib/commcare/CLAUDE.md`, "The surface manifest" | "its disposition (HELD, HELD-NEW, TARGET-OWNED, INERT or REFUSED), the slot change or the refusal's reason, the Web Apps and Android behavior, the gates it needs, and its emission." | adds: "A HELD-NEW or REFUSED entry names its `subject`, the noun a person reads (`lib/publish/hqFindings.ts::SUBJECTS`), and a HELD-NEW entry its `owner`, the step 7 group that will hold it. An entry's standing for a reading (`held`, `kept`, `inert`, `not-yet`, `never`, `fix-in-hq`) is derived by `surface/standing.ts::standingOf`, never written, and so is the cause of a `fix-in-hq` entry (`fixCauseOf`), which chooses the sentence a person reads." | A2 |
-| same section | "`surface/__tests__/manifest.test.ts`, in ordinary CI, holds the entries to the schema and to the surface (…)" | the parenthesis gains: "every HELD-NEW and REFUSED entry names a subject, every subject is used, every HELD-NEW entry names an owner and carries a value class where it shares a key with an allowing entry" | A2 |
-| same section | "A change to an entry edits its row in the inventory under `docs/research/2026-09-26-hq-round-trip/inventory/` in the same pull request" | adds: "`subject` and `owner` are fields of the manifest alone: the inventory has no column for either, and an edit to them alone moves no inventory row." | A2 |
-| same section, new paragraph | (none) | "A TARGET-OWNED entry is content Nova leaves at CommCare HQ's value under the kept test: a publish never changes it, nothing the document holds does something different under it, and every Nova surface that shows or runs what it changes reads the target's value or says so. `surface/keptAtHq.ts::KEPT_AT_HQ` holds one row per such entry (what a `.ccz` does, what Preview does, what a first publish to another project space does, and the base that exhibits it), bound to the manifest by `surface/__tests__/keptAtHq.test.ts`." | A3 |
-| `lib/commcare/CLAUDE.md`, "Runtime request destinations" | "The seventeen settings of `appProfileSettings.ts::appProfileProperties` follow in its order, each with the `force` its table gives." | "The seventeen settings follow in `appProfileProperties`' order, each with the `force` its table gives: the two the app owns at the app's value, and each of the fifteen others at the value the archive's project space holds, or Nova's where it holds none (`keptProfile.ts::targetProfileProperties`, over the deployment's `TargetFacts`), then `cc-log-entity-detail-enabled` where the project space sets it." | A3 |
-| same paragraph | "its profile names that space's four server properties (`ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`)" | adds: ", on the origin of the project space's custom base URL and on its secure receiver where its app holds them" | A3 |
-| same paragraph | "`<features>` opens with `<checkoff active=\"true\"/>`, without which a device hides its saved forms whatever the setting says." | adds: "It ends with the `<credentials>` block HQ's build writes where the project space issues a worker activity credential (`TargetFacts.credentialLevel`), which Android's work history reads." | A3 |
-| `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility" | "(`cc-show-saved` and `cc-show-incomplete` always; a constant setting only where the target holds no value for it)" | "(`cc-show-saved` and `cc-show-incomplete` always; a constant setting only where the target holds no value for it, and never on a deployment whose app Nova brought in, where an absent setting stays absent)" | B8 |
-| `lib/commcare/appProfileSettings.ts`, header | "the overlay (`targetOverlay.ts::projectProfileForTarget`) keeps a value the target already holds for any of the fifteen, and always writes Nova's two." | adds: "On a deployment whose app Nova brought in from CommCare HQ it writes none of the fifteen (`seeds: \"target\"`)." | B8 |
-| `lib/deployment/CLAUDE.md`, "One publish lifecycle" | "`hqImportApplication` projects `profile`, `translations` and `add_ons` on the publish's last read of the app's source before the import" | adds: "On a deployment whose live app mapping is `adopted` it asks the overlay to leave the target's language names and its absent profile settings as they are (`languageNames: \"target\"`, `seeds: \"target\"`), so the first publish over an app Nova brought in changes neither." | B8 |
-| `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility" | "Seventeen ordinary profile properties are stated by `appProfileSettings.ts::appProfileProperties`: `cc-show-saved` and `cc-show-incomplete` are app content (`appSettings`), and the other fifteen are constants, each the value a device reads when the key is absent." | "…and the other fifteen are CommCare HQ's to keep: Nova states its own value, the one a device reads when the key is absent, only where a project space holds none." | A3 |
-| `lib/commcare/CLAUDE.md`, "Form `<meta>` block" | "For a Connect app the local block also captures location, as HQ's build does" | "For a Connect app, and for an app whose project space captures location with every form (`TargetFacts.autoGpsCapture`), the local block also captures location, as HQ's build does" | A3 |
-| `lib/export/CLAUDE.md` | "(`compileLocalArchive(prepared, runtimeTarget, identity, deployment)`, the target, that deployment's ids and the reached target's `emptyCaseListText` and `earlierHqApps` required)" | "…and the reached target's `emptyCaseListText`, `earlierHqApps` and `targetFacts` required; `targetFacts` is what the project space holds of the values Nova leaves to CommCare HQ, or `null` where Nova has not read them" | A3 |
-| `lib/deployment/CLAUDE.md`, "Baselines" | (after "It holds no form ids…") | adds: "`targetFacts.ts::targetFactsFromBaseline` projects the stored source to `TargetFacts`, what the project space holds of the values Nova leaves to CommCare HQ. `store.ts::readTargetFacts` returns that projection to a viewer and never the source. A `.ccz`, Preview and the Publishing card read it; an absent, unread or shell baseline gives none, and Nova's own values stand. `service.ts::refreshKeptValues` replaces the baseline with a fresh read only where the publish's own comparison finds no change, so it moves no later drift verdict. Its write (`store.ts::recordRefreshedAppBaseline`) lands only while the stored baseline is still the one compared, and its date is taken before CommCare HQ is asked, so a read that predates a publish never replaces that publish's. The type and the reading of CommCare HQ's own keys are `lib/commcare/targetFacts.ts`'s." | A3 |
-| `lib/deployment/CLAUDE.md`, "Two things the record answers besides publishing" | the three bullets | a fourth: "`previewSpace.ts::previewTargetFactsFor` names what Preview may read of the kept values, for the one reached `(server, domain)` or not at all." | A3 |
-| `lib/preview/CLAUDE.md`, "`commcare_project` comes from the deployment record" | "Preview names the project space a worker signed into exactly when one deployment of this app has reached `uploaded`" | adds a paragraph: "The same rule carries one kept setting, fuzzy search in case lists. The list filter is Core's entity filter (`lib/preview/listFilterMatch.ts`): accents folded, every term required, and with the project space's `cc-fuzzy-search-enabled` on, a near miss matched against each sorted field's words. The platform rule `listFilter` holds what each runtime does around it: Web Apps splits the typed text on single spaces and keeps the list's own order, Android splits on runs of whitespace and puts the closest matches first. The fact arrives as the `preview-target-facts` frame and through `DeploymentTargetProvider`; with none, the filter is exact." | A3 |
-| `lib/preview/__tests__/platformCells.ts`, the constant `PROFILE_PROPERTY_ONLY_ANDROID_READS` | "A profile property only Android reads; Preview reads no profile property." | removed with its thirteen rows; the two remaining profile rows (`20`, `21`) keep their own reasons | A3 |
-| `lib/commcare/runtimeTarget.ts::profileServerProperties`, comment | "with the receiver URL in its plain form because every app Nova imports has `secure_submissions` off" | section 6.3's sentence | A3 |
-| `lib/commcare/appProfileSettings.ts`, header | "On a publish they are seeded, not owned" | adds: "and a `.ccz` made for a project space writes that space's value (`keptProfile.ts`)" | A3 |
-| `components/builder/CLAUDE.md`, the Publishing section's paragraph | "one full `DeploymentStatus` card per project space the app has reached, with Check status, the Workers panel, and a \"Publish again\"" | adds: ", and the list of what stays as it is in CommCare HQ with its date and Refresh from CommCare HQ" | A3 |
-| `docs/architecture/contracts.md`, "Nova is not CommCare HQ." | (the two HQ facts) | a new paragraph after it, in these words: "**Some of an app stays CommCare HQ's.** Content outside an app's menus that Nova's publish never writes is kept at CommCare HQ's value only when three things hold: no publish changes it on that project space; nothing the document holds does something different under its value; and every Nova surface that shows or runs what it changes reads the project space's value or says how it differs. `lib/commcare/surface/keptAtHq.ts::KEPT_AT_HQ` holds one row per kept entry with what a `.ccz` does, what Preview does and what a first publish to another project space does, and a test binds it to the manifest both ways." | A3, which lands the behavior. A11 does not re-word it; it adds the contracts of the stack's other pull requests |
-| `docs/research/2026-09-26-hq-round-trip/inventory/*.md` | the rows of section 3 | as section 3 words them; the Counts table stays the research's | A2, A3 |
-| `content/docs/publishing.mdx`, `content/docs/building-with-nova.mdx`, `content/docs/mcp/tools.mdx` (`refresh_deployment`, `get_deployment` rows) | | section 9.6 and 9.7 | A3; B14 for 9.7's last paragraph |
-| `../nova-plugin/skills/upload_to_hq/SKILL.md` (the sibling repo's skill that names `refresh_deployment` and `get_deployment`) | swept for A3: it says `refresh_deployment` "returns the same shape; report `state`", that it "can also answer with an ERROR instead of a state", and that `get_deployment` "reports every project space an app has been published to without contacting CommCare HQ" | none of the three is made false: a call without `kept_values` answers as before, a raised `DeploymentError` is still an error and no verdict on the app, and `get_deployment` still reads nothing of HQ. The skill gains, after its paragraph on `hq_app_empty` and `hq_app_gone`: "Each deployment can also carry `kept`: the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. Say them when the user asks what Nova leaves alone. `refresh_deployment` with `kept_values: true` reads them again and answers with a sentence instead of a state; relay it as it is." | B12, with the stack B sweep of that skill and its `plugin.json` bump, merged after the Nova deploy that serves `kept_values` is live |
+| Where | Sentence today | Replacement |
+|---|---|---|
+| `lib/commcare/CLAUDE.md`, "The surface manifest" | "its disposition (HELD, HELD-NEW, TARGET-OWNED, INERT or REFUSED), the slot change or the refusal's reason, the Web Apps and Android behavior, the gates it needs, and its emission." | adds: "A HELD-NEW or REFUSED entry names its `subject`, the noun a person reads (`lib/publish/hqFindings.ts::SUBJECTS`), and a HELD-NEW entry its `owner`, the step 7 group that will hold it. An entry's standing for a reading (`held`, `kept`, `inert`, `not-yet`, `never`, `fix-in-hq`) is derived by `surface/standing.ts::standingOf`, never written, and so is the cause of a `fix-in-hq` entry (`fixCauseOf`), which chooses the sentence a person reads." |
+| same section | "`surface/__tests__/manifest.test.ts`, in ordinary CI, holds the entries to the schema and to the surface (…)" | the parenthesis gains: "every HELD-NEW and REFUSED entry names a subject, every subject is used, every HELD-NEW entry names an owner and carries a value class where it shares a key with an allowing entry" |
+| same section | "A change to an entry edits its row in the inventory under `docs/research/2026-09-26-hq-round-trip/inventory/` in the same pull request" | adds: "`subject` and `owner` are fields of the manifest alone: the inventory has no column for either, and an edit to them alone moves no inventory row." |
+| same section, new paragraph | (none) | "A TARGET-OWNED entry is content Nova leaves at CommCare HQ's value under the kept test: a publish never changes it, nothing the document holds does something different under it, and every Nova surface that shows or runs what it changes reads the target's value or says so. `surface/keptAtHq.ts::KEPT_AT_HQ` holds one row per such entry (what a `.ccz` does, what Preview does, what a first publish to another project space does, and the base that exhibits it), bound to the manifest by `surface/__tests__/keptAtHq.test.ts`." |
+| `lib/commcare/CLAUDE.md`, "Runtime request destinations" | "The seventeen settings of `appProfileSettings.ts::appProfileProperties` follow in its order, each with the `force` its table gives." | "The seventeen settings follow in `appProfileProperties`' order, each with the `force` its table gives: the two the app owns at the app's value, and each of the fifteen others at the value the archive's project space holds, or Nova's where it holds none (`keptProfile.ts::targetProfileProperties`, over the deployment's `TargetFacts`), then `cc-log-entity-detail-enabled` where the project space sets it." |
+| same paragraph | "its profile names that space's four server properties (`ota-restore-url`, `PostURL`, `key_server` and `cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`)" | adds: ", on the origin of the project space's custom base URL and on its secure receiver where its app holds them" |
+| same paragraph | "`<features>` opens with `<checkoff active=\"true\"/>`, without which a device hides its saved forms whatever the setting says." | adds: "It ends with the `<credentials>` block HQ's build writes where the project space issues a worker activity credential (`TargetFacts.credentialLevel`), which Android's work history reads." |
+| `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility" | "(`cc-show-saved` and `cc-show-incomplete` always; a constant setting only where the target holds no value for it)" | "(`cc-show-saved` and `cc-show-incomplete` always; a constant setting only where the target holds no value for it, and never on a deployment whose app Nova brought in, where an absent setting stays absent)" |
+| `lib/commcare/appProfileSettings.ts`, header | "the overlay (`targetOverlay.ts::projectProfileForTarget`) keeps a value the target already holds for any of the fifteen, and always writes Nova's two." | adds: "On a deployment whose app Nova brought in from CommCare HQ it writes none of the fifteen (`seeds: \"target\"`)." |
+| `lib/deployment/CLAUDE.md`, "One publish lifecycle" | "`hqImportApplication` projects `profile`, `translations` and `add_ons` on the publish's last read of the app's source before the import" | adds: "On a deployment whose live app mapping is `adopted` it asks the overlay to leave the target's language names and its absent profile settings as they are (`languageNames: \"target\"`, `seeds: \"target\"`), so the first publish over an app Nova brought in changes neither." |
+| `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility" | "Seventeen ordinary profile properties are stated by `appProfileSettings.ts::appProfileProperties`: `cc-show-saved` and `cc-show-incomplete` are app content (`appSettings`), and the other fifteen are constants, each the value a device reads when the key is absent." | "…and the other fifteen are CommCare HQ's to keep: Nova states its own value, the one a device reads when the key is absent, only where a project space holds none." |
+| `lib/commcare/CLAUDE.md`, "Form `<meta>` block" | "For a Connect app the local block also captures location, as HQ's build does" | "For a Connect app, and for an app whose project space captures location with every form (`TargetFacts.autoGpsCapture`), the local block also captures location, as HQ's build does" |
+| `lib/export/CLAUDE.md` | "(`compileLocalArchive(prepared, runtimeTarget, identity, deployment)`, the target, that deployment's ids and the reached target's `emptyCaseListText` and `earlierHqApps` required)" | "…and the reached target's `emptyCaseListText`, `earlierHqApps` and `targetFacts` required; `targetFacts` is what the project space holds of the values Nova leaves to CommCare HQ, or `null` where Nova has not read them" |
+| `lib/deployment/CLAUDE.md`, "Baselines" | (after "It holds no form ids…") | adds: "`targetFacts.ts::targetFactsFromBaseline` projects the stored source to `TargetFacts`, what the project space holds of the values Nova leaves to CommCare HQ. `store.ts::readTargetFacts` returns that projection to a viewer and never the source. A `.ccz`, Preview and the Publishing card read it; an absent, unread or shell baseline gives none, and Nova's own values stand. `service.ts::refreshKeptValues` replaces the baseline with a fresh read only where the publish's own comparison finds no change, so it moves no later drift verdict. Its write (`store.ts::recordRefreshedAppBaseline`) lands only while the stored baseline is still the one compared, and its date is taken before CommCare HQ is asked, so a read that predates a publish never replaces that publish's. The type and the reading of CommCare HQ's own keys are `lib/commcare/targetFacts.ts`'s." |
+| `lib/deployment/CLAUDE.md`, "Two things the record answers besides publishing" | the three bullets | a fourth: "`previewSpace.ts::previewTargetFactsFor` names what Preview may read of the kept values, for the one reached `(server, domain)` or not at all." |
+| `lib/preview/CLAUDE.md`, "`commcare_project` comes from the deployment record" | "Preview names the project space a worker signed into exactly when one deployment of this app has reached `uploaded`" | adds a paragraph: "The same rule carries two kept settings. Fuzzy search in case lists: the list filter is Core's entity filter (`lib/preview/listFilterMatch.ts`), with accents folded, every term required, and with the project space's `cc-fuzzy-search-enabled` on, a near miss matched against each sorted field's words. The platform rule `listFilter` holds what each runtime does around it: Web Apps splits the typed text on single spaces, keeps the list's own order and skips an empty text; Android splits on runs of whitespace, puts the closest matches first and, once the worker has typed, runs an emptied box as one empty term. The asterisk on required questions: the platform rule `requiredMark` marks every required question in Web Apps and, on Android, only where the project space's `cc-label-required-questions-with-asterisk` is `yes` (`requiredMarkShown`). The facts arrive as the `preview-target-facts` frame and through `DeploymentTargetProvider`; with none, the filter is exact and Android shows no mark." |
+| `lib/preview/__tests__/platformCells.ts`, the constant `PROFILE_PROPERTY_ONLY_ANDROID_READS` | "A profile property only Android reads; Preview reads no profile property." | removed with its thirteen rows; the two remaining profile rows (`20`, `21`) keep their own reasons |
+| `lib/commcare/runtimeTarget.ts::profileServerProperties`, comment | "with the receiver URL in its plain form because every app Nova imports has `secure_submissions` off" | section 6.3's sentence |
+| `lib/commcare/appProfileSettings.ts`, header | "On a publish they are seeded, not owned" | adds: "and a `.ccz` made for a project space writes that space's value (`keptProfile.ts`)" |
+| `components/builder/CLAUDE.md`, the Publishing section's paragraph | "one full `DeploymentStatus` card per project space the app has reached, with Check status, the Workers panel, and a \"Publish again\"" | adds: ", and the list of what stays as it is in CommCare HQ with its date and Refresh from CommCare HQ" |
+| `docs/architecture/contracts.md`, "Nova is not CommCare HQ." | (the two HQ facts) | a new paragraph after it, in these words: "**Some of an app stays CommCare HQ's.** Content outside an app's menus that Nova's publish never writes is kept at CommCare HQ's value only when three things hold: no publish changes it on that project space; nothing the document holds does something different under its value; and every Nova surface that shows or runs what it changes reads the project space's value or says how it differs. `lib/commcare/surface/keptAtHq.ts::KEPT_AT_HQ` holds one row per kept entry with what a `.ccz` does, what Preview does and what a first publish to another project space does, and a test binds it to the manifest both ways." |
+| `docs/research/2026-09-26-hq-round-trip/inventory/*.md` | the rows of section 3 | as section 3 words them; the Counts table stays the research's |
+| `content/docs/publishing.mdx`, `content/docs/building-with-nova.mdx`, `content/docs/case-workspace.mdx`, `content/docs/mcp/tools.mdx` (`refresh_deployment`, `get_deployment` rows) |  | sections 9.6 and 9.7 |
+| `../nova-plugin/skills/upload_to_hq/SKILL.md` (the sibling repo's skill that names `refresh_deployment` and `get_deployment`) | it says `refresh_deployment` "returns the same shape; report `state`", that it "can also answer with an ERROR instead of a state", and that `get_deployment` "reports every project space an app has been published to without contacting CommCare HQ" | none of the three is made false: a call without `kept_values` answers as before, a raised `DeploymentError` is still an error and no verdict on the app, and `get_deployment` still reads nothing of HQ. The skill gains, after its paragraph on `hq_app_empty` and `hq_app_gone`: "Each deployment can also carry `kept`: the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them. Say them when the user asks what Nova leaves alone. `refresh_deployment` with `kept_values: true` reads them again and answers with a sentence instead of a state; relay it as it is." It also gains 7.4's item for `hq_build_profile_language_missing`. Both ride the step's one sweep of that skill, with its `plugin.json` bump (part 13, `13-the-experience.md`, section 16.2), and that pull request merges only after the Nova deploy that serves `kept_values` is live |
+| `lib/commcare/surface/entries/gates.json`, `project-space-setting/Domain.commtrack_enabled`, `content` | "…(HQ's substring test, `entries.py::entry_for_module`); import asks the same from step 6" | "…(HQ's substring test, `entries.py::entry_for_module`)" (3.3) |
+| `docs/research/2026-09-26-hq-round-trip/inventory/gates.md`, the paragraph "Publish also checks gates outside the app-building flags above" | "…(HQ's substring test, `entries.py::entry_for_module`), with import asking the same from step 6, by asking the person to confirm, that CommTrack is off in the project space (defect 20)." | "…(HQ's substring test, `entries.py::entry_for_module`), by asking the person to confirm, that CommTrack is off in the project space (defect 20)." |
+| `lib/preview/CLAUDE.md`, "Case tiles in the running app", the bullet "A grouped tile draws one card per GROUP, and that card is one choice" | "`rows` stays the flat page in clustered order so every row-reading consumer keeps working, and the extra `grouped` slot carries the clustering plus a window whose unit is GROUPS while `totalCount` still counts cases." | adds: "The slot also carries `listOrder`, the page's case ids in the list's own order. Under the list filter the cards are made from the rows that remain, as Formplayer makes them (`EntityScreenHelper.java::initEntities` filters, sorts, then gathers groups): `caseTileGrouping.ts::groupedPageRows` puts the page back in list order and `tileGroupCards` clusters the matches, so the groups stand in the order of each one's first match and a card's first case, which draws its heading and is its one choice, is its first match." |
+| `lib/preview/CLAUDE.md`, the paragraph on several-case Results | "A grouped tile is still one runtime choice whose id is the group's first case; its body rows remain display-only even in multiple-selection mode." | "A grouped tile is still one runtime choice whose id is the first case its card holds, the group's first match while the list is filtered; its body rows remain display-only even in multiple-selection mode." |
+| `lib/case-store/CLAUDE.md`, "`queryGrouped`" | "It returns the groups plus `totalGroups` (the pager's denominator) and `totalRows`, all from one statement" | "It returns the groups, `listOrder` (the page's case ids in the user's sort, before clustering, which lets a reader re-cluster what a filter leaves of the page), `totalGroups` (the pager's denominator) and `totalRows`, all from one statement" |
+| `docs/architecture/complex-apps.md`, the bullet "A group is ONE choice, and it opens the group's first case." | (ends) "rather than inventing a per-row selection the device does not have." | adds: "Formplayer filters before it groups (`EntityScreenHelper.java::initEntities`), so under the list's filter a group's first case is its first match, and the groups stand in the order of those matches. Preview makes its cards from the rows that remain by the same rule (`lib/preview/caseTileGrouping.ts::tileGroupCards`)." |
+| `docs/architecture/complex-apps.md`, the paragraph on several-case selection | "A grouped tile remains one selectable group whose selection is its first case; its other body rows are display only." | "A grouped tile remains one selectable group whose selection is its first case, its first match while the list is filtered; its other body rows are display only." |
+| `components/preview/screens/CaseListScreen.tsx`, the comments on `filteredGroups` and on `ResultsTileGroup` | "the ones that survive keep drawing their header from the group's OWN first case, because the header names the group rather than one of the matches" | removed with the code they describe |
+| `components/preview/shared/CaseTileGroup.tsx`, header comment | "the tile's header rows once, from the group's first case" | "the tile's header rows once, from the first case the card holds, which under the list filter is the group's first match" |
+| `lib/preview/engine/caseDataBindingTypes.ts::LoadCasesResult`, the comment on `grouped` | "this adds the clustering the tile renderer draws from" | adds: "and `listOrder`, the page's case ids in the list's own order, from which the renderer re-clusters what the list filter leaves" |
+| `content/docs/case-workspace.mdx` | the bullet "Choosing a group uses its first case." | section 9.7 |
+| `proof/README.md`, "Targeted documents" | (the paragraph that describes the documents the harness keeps) | adds: "`targeted-tile-group-filter` holds a grouped tile list with and without text in its filter: Core's rows, the groups in the order of each one's first match, and in `proof/webapps/test_tiles.py` the client's cards, each one its group's first match. It is the rule Preview's cards follow (`lib/preview/caseTileGrouping.ts::tileGroupCards`)." |
+
+The contracts a build profile's stop makes false are in 7.4, with their words: `lib/deployment/CLAUDE.md`
+("Preflight is a graph with two kinds of edge", "What the check cannot close"), `lib/commcare/CLAUDE.md`
+("CommCare HQ upload"), the root `CLAUDE.md` and the inventory's `build_profiles` rows.
 
 ---
 
@@ -2983,25 +3837,25 @@ numbers are cited from other files, so none moves.
    key").** Such an app comes in: the keys are kept (3.6). The outline's reason, that Nova holds none,
    is the reason they are kept, not refused.
 8. **From the outline, item 6 ("every `widen:` change a HELD row names").** Seventeen of the 45 are
-   settled here by removing the widen: fifteen settings become kept (A3), `Form.autoCaptureLocation`
-   is left to the per-form entry that already names it and stays not-yet (A3), and the `xmlns` row's
-   widen goes because this plan gives a form no stored `xmlns` slot (A2, 3.3; part 10, sections 2 to
+   settled here by removing the widen: fifteen settings become kept (3.6), `Form.autoCaptureLocation`
+   is left to the per-form entry that already names it and stays not-yet (3.6), and the `xmlns` row's
+   widen goes because this plan gives a form no stored `xmlns` slot (3.3; part 10, sections 2 to
    4). The other 28 are part 04's (`04-names.md`).
 9. **From the outline, item 9, "Defect 20's confirmations", item 10, "Confirmations", and items 2 to 5,
    7 and the cutover.** None is this part's: confirmations at adoption are recorded by part 10
-   (`10-identity-and-the-ledger.md`, section 6.5, B8) at the birth part 12 plans
-   (`12-the-reading-and-the-birth.md`, B10), the birth owner and the ledger
-   are B8's and B10's (parts 10 and 12), project data is B9's (part 11, `11-project-data.md`), drift
-   merging is step 7's first group (`changes-made-in-hq`), entry points are B11's and B12's (part 13,
-   `13-the-experience.md`), the bases are B13's (part 14, `14-proof.md`), and the cutover is replaced
-   by derived ownership (part 11, Departure 5). That cutover is the outline's one-time move of
-   existing deployments; the baseline origin `"cutover"` of 6.5 is a value
-   `app_deployment_baselines.origin` holds today and is no part of it. Items 8 to 10's reading rules
-   are the reader parts' (parts 06, 07 and 08; B2 to B6); this part words the manifest rows they flip
-   (3.5).
+   (`10-identity-and-the-ledger.md`, section 6.5) at the birth part 12 plans
+   (`12-the-reading-and-the-birth.md`), the birth owner and the ledger are parts 10 and 12's, project
+   data is part 11's (`11-project-data.md`), bringing in what changed in CommCare HQ is part 15's
+   (`15-changes-made-in-commcare-hq.md`), entry points are part 13's (`13-the-experience.md`), the
+   bases are part 14's (`14-proof.md`), and the cutover is replaced by derived ownership (part 11,
+   Departure 5).
+   That cutover is the outline's one-time move of existing deployments; the baseline origin
+   `"cutover"` of 6.5 is a value `app_deployment_baselines.origin` holds today and is no part of it.
+   Items 8 to 10's reading rules are the reader parts' (parts 06, 07 and 08); this part words the
+   manifest rows they flip (3.5).
 10. **This part adds no Python reader for the HELD-NEW value classes on shared keys** (2.4). Not
     done: one lane reader in `manifest_value_classes.py::VALUE_CLASSES` for each such class. Parity
-    between the reader and the lane is part 14's (`14-proof.md`, section 8, B13), on the uses Python
+    between the reader and the lane is part 14's (`14-proof.md`, section 8), on the uses Python
     decides, and the rest rests on variants (part 14, section 7).
 11. **A `fix-in-hq` manifest finding carries its `cause`, and `fix-in-hq` copy is one sentence per
     subject and cause** (2.1, 8.4). Not done: a finding of `{ code, standing, place, subject, detail }`
@@ -3012,17 +3866,21 @@ numbers are cited from other files, so none moves.
     (`case-sharing`, `connect-blocks`, `lookup-tables`, `search-expressions`, `question-media`), so
     "set up in a way CommCare HQ can't save or build" would be false of an app HQ builds. `not-yet` and
     `never` keep one sentence per subject.
-12. **Permissions are three codes, and `READ_CIRCUMSTANCES` closes at thirty-five.** Permissions are
+12. **Permissions are three codes, and `READ_CIRCUMSTANCES` closes at thirty-four.** Permissions are
     three codes, chosen by the read (8.3): HQ says which permission only through which read it
     refused, and one sentence naming every permission would send a person to ask for ones they hold.
-    Not done: one `permissions` code, or a list closed at the codes A2 lands. B1 adds seven
-    circumstances part 05 found by classifying
-    every failed answer (an edge's refusal, a paused API, a browser page, a remote app, the
-    organization's four gates, an app HQ cannot summarize, a table whose rows HQ cannot send), each an
-    answer none of the listed codes words truthfully. Stack B's later pull requests add eight more,
-    each a fact the part that found it could give no existing code and no manifest entry (8.3): one
-    in B2, six in B9 and one in B10. The list stays closed; it is longer: 20 codes in
-    A2, 27 after B1, 28 after B2, 34 after B9, 35 after B10.
+    Not done: one `permissions` code, or a list closed at the plain failures of a read. The parts
+    that classify what they read each found facts no other code words truthfully and no manifest
+    entry can name: part 05 seven answers of a read (an edge's refusal, a paused API, a browser page,
+    a remote app, the organization's gates, an app HQ cannot summarize, a table whose rows HQ cannot
+    send), part 06 one (no platform runs the whole app) and part 11 six facts of a project space's
+    data. One more tells a stored key that does not list the project space from an account that is
+    no member of it (`key-cannot-reach-space`): CommCare HQ said nothing in the first case, so
+    `not-a-member`'s block, "CommCare HQ says your account is no member", would be false of it, and
+    the person's step is in Settings and not with an admin. Not done either: a code for the birth's
+    own refusal, or for a table choice left unanswered. The first is `read-back-differs` with a
+    `birth-` name, one situation and one step for the person. The second is a refusal of the create
+    (`choice_missing`, part 12), since no read raises it and no stop action serves it.
 13. **From `targetOverlay.ts::projectProfileForTarget` as it stands, which seeds each of the fifteen
     settings wherever the target holds no value.** On a deployment
     whose app Nova brought in, a publish seeds none of the fifteen (7.3). Evidence: the seed turns an
@@ -3030,277 +3888,147 @@ numbers are cited from other files, so none moves.
     (`appProfileSettings.ts`), and `Application.create_profile` writes nothing for an absent key. That
     is a change to what a runtime reads, which the bar's clause (b) admits only declared, and this
     plan reads the original's behavior exactly wherever it can before it declares a change (part 09,
-    section 11.4, gives the three answers; part 07, Departure 7, takes the first wherever it is
-    open). Leaving the key absent is exact and needs no register entry. The same reasoning gives a
-    language's display name its rule on an adopted deployment (7.2).
-14. **Every sentence part 04's entries need lands in A9, with the entry.** Part 04's subjects are slugs
-    of the closed set (2.2's table), and each sentence a new pair needs lands in A9 with the entry.
-    Not done: a new subject for each noun part 04's entries are about, or a sentence left for stack
-    B's copy to add.
-    Evidence: the completeness test A2 lands (section 10) fails a pull request that adds an entry
-    whose pair has no sentence, so the copy cannot wait for stack B; and nine of its ten nouns are
-    subjects that already exist, so one new subject (`case-types`) is added, not ten.
+    section 11.4, gives the three answers). Leaving the key absent is exact and needs no register
+    entry. The same reasoning gives a language's display name its rule on an adopted deployment (7.2).
+14. **Every sentence part 04's entries need is in 9.2, under a subject of the closed set.** Part
+    04's subjects are slugs of the closed set (2.2's table). Not done: a new subject for each noun
+    part 04's entries are about. Evidence: nine of its ten nouns are subjects that already exist, so
+    one new subject (`case-types`) is added, not ten.
 15. **`TargetFacts` holds no origin, and the kept list has one lead** (6.1, 6.5, 9.4). Not done: a
-    `TargetFacts.origin` that gains `read` in B8, with a lead sentence per origin.
+    `TargetFacts.origin` with a lead sentence per origin, one of them for an app brought in.
     Evidence: a refresh keeps a baseline's origin and moves
     its date, so "when Nova last published here on {date}" and "when Nova brought the app in on
     {date}" would each name a day that may be a refresh's. The one lead words the date without an
-    origin ("as it held them on {date}", 9.4). What B8 does instead is in "What this part needs of
-    other parts".
+    origin ("as it held them on {date}", 9.4). `targetFactsFromBaseline` projects a `read` baseline
+    as it does a `push` one, and part 10's drift wording dates "brought it in" from the mapping's
+    `adoptedAt` and never from the baseline's `observedAt` (its section 9), which is what a refresh
+    needs of it.
+16. **A filtered grouped list is re-clustered from its matches, on the page Preview has read**
+    (6.4). Three things not done.
+    Not done: moving the groups and leaving each card's heading and choice on the group's own first
+    case. That is the difference as it was first noted, and it is the smaller half. Web Apps' client
+    never sees a row the filter removed, so its card is its first match in every respect; a Preview
+    that moved the card and still opened a filtered-away case would show a journey no worker has.
+    Evidence: `views.js::CaseTileGroupedListView.initialize`, `CaseView.rowClick`.
+    Not done: a filter that reaches every page, as Formplayer's does. The filter matches the text a
+    cell shows, which the browser makes from a row, so reaching every page means reading and
+    projecting every case of the list on each change of the text, in a second place that chooses a
+    page's rows beside the case store's compiler. Preview's page is its own window on every list and
+    is said on screen and in the docs; a list of 50 groups or fewer is filtered whole. Evidence:
+    `runtimeMessages.ts` (`filterPage`, `pageFilterScope`), `content/docs/case-workspace.mdx`,
+    `lib/preview/CLAUDE.md` ("Quick Filter is explicitly page-local whenever more matching cases
+    exist").
+    Not done: the position on each row, or `rows` handed back in list order. A row travels to
+    Details, to a form's case data and to an App Test's observation, where a position in one page
+    read means nothing, and `rows` in clustered order is what those readers and App Tests'
+    observations hold today. One list of ids on the grouped slot is the whole of what the screen
+    lacked.
+17. **Preview draws the asterisk a platform draws, and states no difference** (6.4). Not done: keeping
+    the mark on every required question in Preview on Android and saying in the docs that a phone
+    may show none. Evidence: the kept test's clause 3 admits a stated difference only where a surface
+    cannot follow the value, and Preview can: the setting is one preference with one reader
+    (`QuestionWidget.java::setTextFromPrompt`), and the frame that carries fuzzy search carries it.
+    A Preview that marks what a phone leaves unmarked shows an author a form no worker sees. So
+    `KeptPreviewCell` has no `states` arm (section 5).
+18. **Nothing parses a finding, so no schema holds one** (8.1). Not done: a `findingSchema` with
+    refinements for the standing, the cause and the claim. Evidence: a request answers its findings
+    on the response it computed them in and nothing stores one, so every refinement would assert only
+    over values a test built by hand, and a producer that set a wrong standing would ship unrefused.
+    The constructor's types hold the same rules where a finding is made. For the same reason a
+    finding carries no `owner`: its readers were a stored count by owner, which this plan does not
+    keep.
+19. **`STEP_7_GROUPS` holds the eight groups an entry can name** (2.3). Not done: a ninth id for
+    updating a copy of an app in a second project space, which the step 7 outline names among what
+    is not planned (`../7-rest-of-model.md`, "Not planned"). Evidence: it owns no entry and no
+    circumstance, so the schema would admit an owner no entry may truthfully take, and nothing in
+    code reads it.
 
 ---
 
-## Files by pull request
+## Files
 
-**A2: manifest schema and the emission-side re-cuts**
+A test file stands with its source and is named only where it is new or where section 10 or 7.4
+changes it. No file is moved or removed.
+
+**New**
+
+| File | Holds |
+|---|---|
+| `lib/publish/hqFindings.ts` | `READ_STANDINGS`, `ReadStanding`, `FindingStanding`, `FIX_CAUSES`, `FixCause`, `SUBJECTS`, `Subject`, `STEP_7_GROUPS`, `Step7Group`, `HqPlace`, `HqAppClaimDetail`, `FindingDetail`, `Finding`, `ManifestFinding`, `CircumstanceFinding`, `FINDING_NAME_MAX_LENGTH`, `cutFindingName`, `CircumstanceDetail`, `circumstanceFinding`, `READ_CIRCUMSTANCES`, `ReadCircumstance`, `CIRCUMSTANCE_STANDINGS`, `NOVA_FAULT_CIRCUMSTANCES`, `StopCircumstance` (2.1 to 2.3, 8.1, 8.3) |
+| `lib/publish/hqFindingCopy.ts` | 9.1 to 9.3: `FINDING_LABELS`, `FINDING_NEXT_STEPS`, `SUBJECT_LABELS`, `FINDING_COPY`, `FIX_IN_HQ_STEMS`, `FIX_CAUSE_CLAUSES`, `FIX_IN_HQ_SENTENCES`, `fixInHqSentence`, `CIRCUMSTANCE_COPY`, `CircumstanceContext`, `circumstanceBlock`, `alreadyInNovaNext`, `ACCOUNT_CHECK_AGAIN_LINE`, `placeLine`, `findingLine` (8.4) |
+| `lib/publish/keptValues.ts` | the kept list's labels, lead and refresh sentences (9.4) |
+| `lib/commcare/surface/standing.ts` | `NEVER_REASON_KINDS`, `FIX_IN_HQ_REASON_KINDS`, `standingOf`, `fixCauseOf` (2.1) |
+| `lib/commcare/surface/keptAtHq.ts` | `KEPT_AT_HQ` and its row and cell types (5) |
+| `lib/commcare/targetFacts.ts` | `TargetFacts`, `KEPT_PROFILE_PROPERTY_KEYS`, `targetFactsFromSource`, `hqProfileValueText` (6.1) |
+| `lib/commcare/keptProfile.ts` | `targetProfileProperties` (6.3, 7.3) |
+| `lib/commcare/targetBuildProfiles.ts` | `publishedLanguageCodes`, `buildProfileLanguageGaps` (7.4) |
+| `lib/deployment/targetFacts.ts` | `targetFactsFromBaseline`, `keptListFor`, `keptAdvisoryFacts` (6.1) |
+| `lib/preview/listFilterMatch.ts` | Core's filter, ported: `normalizeForFilter`, `fuzzyMatch`, `filterTerms`, `rowFilterScore` (6.4) |
+| `lib/collab/previewTargetFactsFrame.ts` | the frame `preview-target-facts` and `PreviewTargetFacts` (6.4) |
+| `proof/targeted/documents/tileGroupFilter.ts` | the targeted document `targeted-tile-group-filter` (6.4, "Proof") |
+| `lib/commcare/surface/__tests__/standing.test.ts`, `keptAtHq.test.ts`; `lib/publish/__tests__/hqFindings.test.ts`, `hqFindingCopy.test.ts`, `keptValues.test.ts`; `lib/commcare/__tests__/targetFacts.test.ts`, `keptProfile.test.ts`, `keptArchive.test.ts`, `targetBuildProfiles.test.ts`; `lib/deployment/__tests__/targetFacts.test.ts`, `targetFacts.postgres.test.ts`, `refreshKeptValues.postgres.test.ts`, `previewTarget.test.ts`; `lib/preview/__tests__/listFilterMatch.test.ts`, `caseTileGrouping.test.ts`; `components/preview/shared/__tests__/listFilter.test.ts`; `lib/collab/__tests__/previewTargetFactsFrame.test.ts`; `e2e/tests/app/preview-kept.spec.ts`, `e2e/lib/keptBaselineSeed.ts` | section 10 and 7.4 |
+
+**Changed**
 
 | File | Change |
 |---|---|
-| `lib/publish/hqFindings.ts` | new: `READ_STANDINGS`, `ReadStanding`, `FindingStanding`, `FIX_CAUSES`, `FixCause`, `SUBJECTS`, `Subject`, `STEP_7_GROUPS`, `Step7Group`, `HqPlace`, `HqAppClaimDetail`, `FindingDetail`, `Finding`, `ManifestFinding`, `CircumstanceFinding`, `findingSchema`, `READ_CIRCUMSTANCES`, `ReadCircumstance`, `CIRCUMSTANCE_STANDINGS` (8.3's table as data, its twenty A2 rows), `StopCircumstance` |
-| `lib/commcare/surface/standing.ts` | new: `NEVER_REASON_KINDS`, `FIX_IN_HQ_REASON_KINDS`, `standingOf`, `fixCauseOf` |
-| `lib/commcare/surface/schema.ts` | `subjectSchema`; `subject` on the HELD-NEW and REFUSED arms and `owner` on the HELD-NEW arm, each required with the message of 2.6; the TARGET-OWNED arm split from INERT and given `heldPlatformsSchema` |
-| `lib/commcare/surface/entries/*.json` | `subject` on 587 entries and `owner` on 238 (Appendix A.1 and A.2, and A2's own `application-and-settings/build-profiles-non-empty`); three value classes (2.4); the entries of 3.1, 3.2, 3.7; the re-wordings of 3.3 (the `xmlns` entry's among them) and 3.4 |
-| `docs/research/2026-09-26-hq-round-trip/inventory/menus-and-case-lists.md`, `application-and-settings.md`, `case-search.md`, `forms-and-case-writes.md`, `questions.md`, `expressions-and-data.md` | the rows of 3.1 to 3.4 and 3.7, and the three rows that gain a value class in 2.4 (`groups` in `expressions-and-data.md`, the two datum rows in `forms-and-case-writes.md`), each re-worded to say which values the class takes. `subject` and `owner` move no row: the inventory has no column for either (section 11) |
-| `lib/publish/hqFindingCopy.ts` | new: 9.1 to 9.3 (`FINDING_LABELS`, `FINDING_NEXT_STEPS`, `SUBJECT_LABELS`, `FINDING_COPY`, `FIX_IN_HQ_STEMS`, `FIX_CAUSE_CLAUSES`, `FIX_IN_HQ_SENTENCES`, `fixInHqSentence`, `CIRCUMSTANCE_COPY`, `alreadyInNovaNext`, `placeLine`, `findingLine`) |
-| `lib/commcare/surface/__tests__/manifest.test.ts` (changed), `standing.test.ts` (new); `lib/publish/__tests__/hqFindings.test.ts`, `hqFindingCopy.test.ts` (both new) | section 10 |
-| `lib/commcare/CLAUDE.md` | section 11 |
-
-**A3: kept at CommCare HQ's value**
-
-| File | Change |
-|---|---|
-| `lib/commcare/surface/keptAtHq.ts` | new: section 5 |
-| `lib/commcare/surface/entries/application-and-settings.json`, `forms-and-case-writes.json` | the flips of 3.6, and the re-wording of `32-features-credentials` |
-| `lib/publish/hqFindingCopy.ts` | `app-settings` and `app-logos` lose their `not-yet` sentences, whose last entries flip here (2.6) |
-| `lib/commcare/surface/platformFeatureEntries.ts`, `lib/preview/__tests__/platformCells.ts` | thirteen rows leave each |
-| `lib/commcare/targetFacts.ts` | new: `TargetFacts`, `KEPT_PROFILE_PROPERTY_KEYS`, `targetFactsFromSource`, `hqProfileValueText` (6.1) |
-| `lib/commcare/appStringKeys.ts` | `isRuntimeUiStringKey` |
-| `lib/deployment/targetFacts.ts` | new: `targetFactsFromBaseline`, `keptListFor`, `keptAdvisoryFacts` (6.1) |
-| `lib/deployment/store.ts` | `readTargetFacts`, `verifiedBaselineSource`, `recordRefreshedAppBaseline` |
-| `lib/deployment/types.ts` | `AppBaselineWrite.origin` admits `"cutover"` (6.5) |
-| `lib/deployment/downloadTarget.ts`, `lib/export/localArchive.ts` | `targetFacts` carried to the compiler |
-| `lib/commcare/keptProfile.ts` | new: `targetProfileProperties` |
-| `lib/commcare/compiler.ts`, `lib/commcare/runtimeTarget.ts` | 6.3 |
-| `app/api/compile/route.ts`, `app/api/compile/json/route.ts`, `app/api/compile/prepareCompileRequest.ts`, `lib/mcp/tools/compileApp.ts`, `proof/corpus/publish.ts` | pass the facts and the kept advisories; the JSON route passes `null` for `exportAdvisories`' new parameter |
-| `lib/publish/exportAdvisories.ts`, `lib/publish/keptValues.ts` (new) | 9.4, 9.5 |
-| `lib/preview/listFilterMatch.ts` (new), `lib/preview/platform.ts` (the rule `listFilter`), `components/preview/shared/listFilter.tsx`, `components/preview/screens/CaseListScreen.tsx` | 6.4 |
-| `lib/deployment/previewTarget.ts`, `previewSpace.ts`, `lib/collab/previewTargetFactsFrame.ts` (new), `lib/collab/ReconcilerProvider.tsx`, `lib/collab/context.ts`, `components/builder/DeploymentTargetProvider.tsx`, `components/builder/BuilderProvider.tsx`, `app/(app)/build/[id]/[[...path]]/page.tsx`, `app/api/apps/[id]/stream/route.ts` | the Preview channel |
-| `lib/deployment/service.ts`, `actions.ts`, `app/api/commcare/upload/route.ts`, `components/builder/publishOutcome.ts`, `PublishDialogBody.tsx`, `DeploymentStatus.tsx`, `app-setup/PublishingSection.tsx` | the kept list and the refresh (6.5; `app-setup/publishingSectionModel.ts` does not change) |
-| `lib/mcp/tools/deploymentTools.ts`, `deploymentProjection.ts` | 9.6 |
-| the tests of section 10, `lib/publish/__tests__/keptValues.test.ts` among the new ones; `e2e/tests/app/preview-kept.spec.ts`; `e2e/lib/keptBaselineSeed.ts` | section 10 |
-| the docs of section 11, `docs/architecture/contracts.md` among them; `content/docs/*.mdx` | sections 9.7 and 11 |
-| the inventory rows of 3.6 | `application-and-settings.md` |
-
-**B1 (the circumstance lines only):** the seven codes of 8.3 in `READ_CIRCUMSTANCES` and
-`CIRCUMSTANCE_STANDINGS`, and their blocks (9.3) in `CIRCUMSTANCE_COPY`. Part 05 lists the files.
-
-**B2 (the manifest and copy lines only; part 06 lists the files):** the three entries and the
-re-wording of 7.1 in `entries/application-and-settings.json` with their inventory rows;
-`translation-overrides` in `SUBJECTS`, `SUBJECT_LABELS` and `FINDING_COPY`; in
-`lib/publish/hqFindings.ts`, `no-platform-runs-everything` in `READ_CIRCUMSTANCES` and
-`CIRCUMSTANCE_STANDINGS` (8.3); in `lib/publish/hqFindingCopy.ts`, its block and its second next
-step (9.3), `circumstanceNext` (8.4), `ACCOUNT_CHECK_AGAIN_LINE` (9.1) and the `not-yet` sentence of
-`language-codes` (9.2); the "From B2" cases of `lib/publish/__tests__/hqFindingCopy.test.ts`.
-
-**B3, B4, B5, B6 (the copy lines only; parts 06, 07 and 08 list the files):** in
-`lib/publish/hqFindingCopy.ts`, the `not-yet` sentences of 9.2's second table, each in the pull
-request it names, the re-worded `repeats` sentence in B3 among them; in `lib/publish/hqFindings.ts`,
-`advanced-menus` (B4) and `list-and-search-filters` (B5) in `SUBJECTS`, with their labels in
-`SUBJECT_LABELS`. Each lands with the manifest entry that first gives its pair (Appendix A.1's
-closing block).
-
-**B9 (the circumstance lines only; part 11 lists the files):** the six codes of 8.3 marked B9 in
-`READ_CIRCUMSTANCES` and `CIRCUMSTANCE_STANDINGS`, and their blocks (9.3) in `CIRCUMSTANCE_COPY`.
-
-**B10 (the circumstance lines only; part 12 lists the files):** `could-not-create` in
-`READ_CIRCUMSTANCES`, `CIRCUMSTANCE_STANDINGS` and `CIRCUMSTANCE_COPY`; `too-large`'s new body (9.3);
-`findingLine`'s `named: null` for `could-not-create` (8.4), with its case in `hqFindingCopy.test.ts`.
-
-**B8 (written here, listed by part 10):** 7.2 and 7.3: `lib/commcare/targetOverlay.ts` (the two
-options), `lib/deployment/importApplication.ts`, `hqSourceBaseline.ts::ownedTranslations`,
-`lib/commcare/targetFacts.ts` (`languageNames`, `seeds`, the `adopted` input),
-`lib/deployment/targetFacts.ts` and `store.ts::readTargetFacts` (the mapping's ownership),
-`lib/commcare/keptProfile.ts`, `compiler.ts`, `lib/publish/exportAdvisories.ts` and `keptValues.ts`
-(the fourth advisory, the label `language-names`), the fiftieth `KEPT_AT_HQ` row, the sixteen entry
-cells of 7.2 and 7.3, `lib/publish/hqFindings.ts` and `hqFindingCopy.ts` (`language-display-names`
-leaves `SUBJECTS`, `SUBJECT_LABELS` and `FINDING_COPY`), `lib/commcare/reader/appShell.ts`, the
-application walker that makes the claims of part 06's section 6.5 (the language display name's second
-claim becomes `account`), with its case in `reader/__tests__/appShell.test.ts`, and the contract
-lines of section 11 marked B8. `publishAppToHq` computes `seeds` beside `languageNames` and hands both
-to `hqImportApplication` on `HqImportApplicationInput`, as part 10 writes it (its section 6.3).
-
-**B14:** the last paragraph of 9.7 in `content/docs/publishing.mdx` (section 11).
-
-**B12:** the sentence the `upload_to_hq` skill gains in `../nova-plugin` (section 11).
-
-**Named for other pull requests, written here:** the entry edits of 3.5 (B3, B4, B5, B9); the
-subjects and sentences of 2.2's table (A5, A9); the sentence removals of 2.6 (A4); the subject and
-the owner or standing of every entry a later pull request adds (the closing blocks of Appendix A.1
-and A.2: A5, A9, B2 to B6, B9).
+| `lib/commcare/surface/schema.ts` | `subjectSchema`; `subject` on the HELD-NEW and REFUSED arms and `owner` on the HELD-NEW arm, each required with the message of 2.6; the TARGET-OWNED arm split from INERT and given `heldPlatformsSchema` (2.5) |
+| `lib/commcare/surface/entries/*.json` | `subject` and `owner` on every entry Appendix A lists; three value classes (2.4); the entries of 3.1, 3.2 and 3.7; the re-wordings of 3.3 (`entries/gates.json` among them) and 3.4; the flips of 3.6 and the re-wording of `32-features-credentials`; the logo entry of 3.5; the three entries and the re-wording of 7.1; the language display name's flip (7.2) and the sentence the fifteen cells gain (7.3) |
+| `docs/research/2026-09-26-hq-round-trip/inventory/menus-and-case-lists.md`, `application-and-settings.md`, `case-search.md`, `forms-and-case-writes.md`, `questions.md`, `expressions-and-data.md`, `gates.md` | the rows of section 3 and 7.1 to 7.4, and the three rows that gain a value class in 2.4 (`groups` in `expressions-and-data.md`, the two datum rows in `forms-and-case-writes.md`), each re-worded to say which values the class takes; the CommTrack clause of `gates.md` (3.3). `subject` and `owner` move no row: the inventory has no column for either (section 11) |
+| `lib/commcare/surface/platformFeatureEntries.ts`, `lib/preview/__tests__/platformCells.ts` | thirteen rows leave each (2.5, 3.6) |
+| `proof/checks/manifest_value_classes.py`, `proof/checks/test_manifest_value_classes.py` | `path_not_from_uploader` gains the `m_id` test and its case (3.5) |
+| `lib/commcare/appStringKeys.ts` | `isRuntimeUiStringKey` (6.1) |
+| `lib/deployment/store.ts` | `readTargetFacts`, `verifiedBaselineSource`, `recordRefreshedAppBaseline` (6.2, 6.5) |
+| `lib/deployment/types.ts` | `AppBaselineWrite.origin` admits `"cutover"` (6.5); `DEPLOYMENT_FAILURE_CODES` gains `hq_build_profile_language_missing` (7.4) |
+| `lib/deployment/downloadTarget.ts`, `lib/export/localArchive.ts` | `targetFacts` carried to the compiler (6.3) |
+| `lib/commcare/compiler.ts`, `lib/commcare/runtimeTarget.ts` | the profile's settings, features and server properties, the app string tables, location capture and language names from `TargetFacts` (6.3, 7.2) |
+| `app/api/compile/route.ts`, `app/api/compile/json/route.ts`, `app/api/compile/prepareCompileRequest.ts`, `lib/mcp/tools/compileApp.ts`, `proof/corpus/publish.ts` | pass the facts and the kept advisories; the JSON route passes `null` for `exportAdvisories`' new parameter (6.3) |
+| `lib/publish/exportAdvisories.ts` | the four kept advisories and `KeptAdvisoryFacts` (6.3, 7.2, 9.5) |
+| `lib/commcare/targetOverlay.ts`, `lib/deployment/importApplication.ts`, `lib/deployment/hqSourceBaseline.ts` | the options `languageNames` and `seeds`, handed on from `publishAppToHq` (7.2, 7.3; part 10, section 6.3, computes them) |
+| `lib/preview/platform.ts` | the rules `listFilter` and `requiredMark`, and `requiredMarkShown` (6.4) |
+| `components/preview/shared/listFilter.tsx`, `components/preview/screens/CaseListScreen.tsx` | `rowsMatchingFilterText`; one filter site; the cards of a grouped list made from the matches (6.4) |
+| `lib/preview/caseTileGrouping.ts`, `components/preview/shared/CaseTileGroup.tsx` | `TileGroupCard`, `groupedPageRows`, `tileGroupCards`; the heading drawn from `rows[0]` (6.4) |
+| `lib/case-store/store.ts`, `lib/case-store/postgres/store.ts`, `lib/preview/engine/caseDataBindingTypes.ts`, `lib/preview/engine/caseDataBindingHelpers.ts` | `listOrder` on a grouped read (6.4) |
+| `components/preview/form/InteractiveFormRenderer.tsx` | the asterisk drawn by `requiredMarkShown` (6.4) |
+| `lib/deployment/previewTarget.ts`, `previewSpace.ts`, `lib/collab/ReconcilerProvider.tsx`, `lib/collab/context.ts`, `components/builder/DeploymentTargetProvider.tsx`, `components/builder/BuilderProvider.tsx`, `app/(app)/build/[id]/[[...path]]/page.tsx`, `app/api/apps/[id]/stream/route.ts` | the channel that carries the facts to Preview (6.4) |
+| `lib/deployment/service.ts`, `actions.ts`, `app/api/commcare/upload/route.ts`, `components/builder/publishOutcome.ts`, `PublishDialogBody.tsx`, `DeploymentStatus.tsx`, `app-setup/PublishingSection.tsx` | the kept list and the refresh (6.5; `app-setup/publishingSectionModel.ts` does not change); the second read's build profile check and the dialog's link for the new refusal (7.4) |
+| `lib/commcare/hq/appSource.ts`, `lib/deployment/preflight.ts` | `HqAppSource.buildProfiles`, which part 05 states (`05-reading-commcare-hq.md`, section 7); the `target-app` edge's check and `buildProfileLanguageFailure` (7.4) |
+| `lib/mcp/tools/deploymentTools.ts`, `deploymentProjection.ts`, `lib/mcp/errors.ts`, `lib/mcp/tools/uploadAppToHq.ts` | `kept_values` and `kept` (6.5, 9.6); the refusal `hq_build_profile_language_missing` and its description sentence (7.4) |
+| `proof/targeted/index.ts`, `proof/webapps/test_tiles.py`, `proof/corpus/targetPeer.ts` | the targeted document and the Web Apps test (6.4); the capture peer's build profiles, which part 14 states (7.4) |
+| the tests section 10 marks extended or updated, and those of 7.4 | sections 10 and 7.4 |
+| `lib/commcare/CLAUDE.md`, `lib/deployment/CLAUDE.md`, `lib/preview/CLAUDE.md`, `lib/case-store/CLAUDE.md`, `lib/export/CLAUDE.md`, `components/builder/CLAUDE.md`, the root `CLAUDE.md`, `docs/architecture/contracts.md`, `docs/architecture/complex-apps.md`, `proof/README.md`, `content/docs/*.mdx`, and the source comments section 11 names | sections 9.7, 11 and 7.4 |
+| `../nova-plugin/skills/upload_to_hq/SKILL.md` | the sentences of section 11 and 7.4, in the step's one plugin pull request (part 13, section 16), merged after the Nova deploy is live |
 
 ---
 
-## What this part needs of other parts
+## Appendix A: `subject` and `owner`, entry by entry
 
-Each need says what that part does, as it states it; part 15's is what this part hands the stack
-and the step 7 rewrite.
+Slugs are entry ids without their area, which each block's heading gives. The area blocks of A.1 and
+A.2 hold the entries the manifest holds today: they were produced by one script over the manifest and
+cover every HELD-NEW entry (237) and every REFUSED entry (349). Four `questions/` entries about Hidden
+Values that the script had filed under a search subject are filed by the manifest's own section
+(Question types) and 2.3, and thirteen entries are filed under the subject whose sentence is true
+of them (2.2). An entry marked † leaves its list in this step (3.8): it holds the fields shown only
+until it flips. The manifest test's rules of 2.6 fail on any entry the lists miss.
 
-- **Part 06 (`06-the-reader-forms.md`, B2, B3).** Each claim names one entry id (its section 4.2), and
-  the reader's index gives a finding its `standing`, `cause`, `subject` and `owner` through
-  `standingOf`, `fixCauseOf` and the entry's own fields (its sections 3 and 5.1). The classifier of
-  7.1 lands in B2 as written (its section 16.5) and takes `D0`'s app strings as a reader input,
-  `ReaderInput.appStrings`; the production function, `lib/commcare/appStrings.ts::localAppStringTable`,
-  is part 09's and lands in B7 (its section 15.1), since the strings are locals of `compileCcz` whose
-  inputs a reading first has at acceptance. `detail.name` is set as 8.3's table and 9.2's sentences
-  assume (the appearance string, the setting's name, the key, the path), at most 200 characters. B2
-  raises `no-platform-runs-everything` with `detail.reason: "split-refused"` where the split is
-  refused (its section 16.3) and lands that code, its block, `circumstanceNext`,
-  `ACCOUNT_CHECK_AGAIN_LINE` and the `not-yet` sentence of `language-codes`; B3 lands the `not-yet`
-  sentences of `form-source` and `question-ids` (9.2). B3 also lands the re-worded `not-yet` sentence
-  of `repeats` (9.2's second table), a fourth copy line, its C2c: its section 10.4 gives its model
-  iteration entry that subject, and A2's sentence is true of button captions alone.
-  Its application walker's claim for a language's display name is changed by B8 (Files, B8).
-- **Part 05 (`05-reading-commcare-hq.md`, B1).** It adds its seven circumstances with the standings of
-  8.3 and the blocks of 9.3, and B1's
-  `lib/commcare/hq/failure.ts::hqReadCircumstance(failure: HqFailure): ReadCircumstance` holds 8.3's
-  names, which its section 4.3 uses. Its section 4.3 is what answers which permission code each
-  read reports, and its section 3 the retry after which `rate-limited` is raised. Its two requests of
-  this part are met: `linked-app` is the source's `doc_type` `LinkedApplication` alone, and
-  `menu-unreadable-in-hq` carries no `detail.name`. Its runs G2 and G7 decide whether `remote-app` and
-  `table-rows-unreadable` land (8.3). From B1, `refreshKeptValues` chooses its three failure outcomes
-  by `classifyHqFailure` (6.5).
-- **Part 02 (`02-menus.md`, A4, A5).** A4 removes `display-only-forms`' `not-yet` sentence from
-  `FINDING_COPY` with the flip that empties the pair (2.6). A5's eight HELD-NEW entries and its new
-  REFUSED one take the subject `case-list-registration` (2.2), as its section 14 writes. The rows
-  it names for B4 and B5 are landed by part 07 (Appendix A.1 and A.2, the closing blocks).
-- **Part 03 (`03-questions-and-text.md`, A6 to A8).** The entry edits 3.5 lists for A6, A7 and A8,
-  and the removal of `subject` and `owner` with each flip. Its two new entries land in B3 and B5
-  (2.2).
-- **Part 04 (`04-names.md`, A9).** Every `widen` on a HELD row but the sixteen of 3.6 and the `xmlns`
-  row A2 takes (3.3), each built or split. Its new entries N1 to N24 take the subjects of 2.2's table,
-  and A9 adds `case-types` to `SUBJECTS` with its label and lands every sentence that table names,
-  re-wordings included, in the pull request that adds the entries. No sentence of its entries waits
-  for stack B (Departure 14).
-- **Part 07 (`07-the-reader-cases-menus-lists.md`, B4, B5).** The entry edits of 3.5 for B4 and B5
-  and the entries of its section 14 (Appendix A). B4 adds `advanced-menus` to `SUBJECTS` with its
-  label and lands the four `not-yet` sentences 9.2 marks B4; B5 adds `list-and-search-filters` and
-  its sentence. It adds the row `dormant-tile-cells` to part 06's `READER_CANONICAL_CHOICES` in B5
-  (its section 11.5), which is what 3.2 names.
-- **Part 08 (`08-the-reader-expressions.md`, B6).** Its binder claims the ten pairs of 3.4, the four
-  search pairs among them, and sets `detail.reason` to the checker's reason. B6 lands the `not-yet`
-  sentence of `expressions` with its entry M3 (9.2).
-- **Part 10 (`10-identity-and-the-ledger.md`, B8).** The `adopted` mapping, from which
-  `publishAppToHq` computes `languageNames` and `seeds` once and hands both to its three
-  `hqImportApplication` calls on `HqImportApplicationInput` (its section 6.3; 7.2 and 7.3 here); the
-  `read` origin in the baseline's CHECK, in `readAppBaseline` and in `AppBaselineWrite.origin`.
-  `TargetFacts` holds no origin (Departure 15): `targetFactsFromBaseline` projects a `read` baseline
-  as it does a `push` one, and the one lead of 9.4 serves it, so B8 adds no origin to `TargetFacts`.
-  Its drift wording dates "brought it in" from the mapping's `adoptedAt` and never from the
-  baseline's `observedAt` (its section 9), which is what a refresh needs of it.
-  `recordRefreshedAppBaseline` is the baseline write its `expectedEndings` rule names (its section
-  8.5), and `refreshKeptValues` answers `no-baseline` for a deployment with no live `app` mapping,
-  as it asks (its section 8.6). Its `HqAppClaimView` is `HqAppClaimDetail` (8.1) with `remoteAppId`,
-  and the four lines under its picker's `elsewhere` marks are `alreadyInNovaNext`'s (9.3): its
-  `lib/publish/hqAppClaims.ts` exports the row labels and no line.
-- **Part 11 (`11-project-data.md`, B9).** The split of
-  `expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` and the flip of
-  `media-path-jr-file`, as 3.5 gives them from its section 13.1; that `media-file-unreadable` is
-  raised only for a path HQ's media map holds an entry for (8.3); and the six circumstances of its
-  section 13.2, which B9 adds to `READ_CIRCUMSTANCES`, `CIRCUMSTANCE_STANDINGS` and
-  `CIRCUMSTANCE_COPY` with the rows of 8.3 and the blocks of 9.3. When a table asks a person's
-  choice is its section 7.1.
-- **Part 09 (`09-acceptance-and-the-first-publish.md`, B7).** Five register entries of its
-  `FIRST_PUBLISH_CHANGES` (its section 11.2) that this part found: `connect-app-captures-location`
-  (4.3), `logo-path-only-entry-removed` (4.3), `translation-overrides-folded` (7.1),
-  `search-filter-rows-recut` (3.5) and `marked-as-updated-from-a-file`, the change of
-  `created_from_template` (4.1). The fifteen settings need none: an adopted deployment is not seeded
-  (7.3), and proof 1 on the base `hq-new-app` holds that no difference of `profile` appears (Run 3).
-  It raises `read-back-differs` with the `detail.name` values 8.3 lists (its section 14).
-- **Part 12 (`12-the-reading-and-the-birth.md`, B10).** Its row stores findings parsed by
-  `findingSchema` (its section 2.3). It raises `table-differs-in-project` at a creation that leaves a
-  choice unanswered, answered `held`, and `could-not-create` at the birth, and widens `too-large`
-  (its sections 3.6, 3.8 and 6.5); B10 lands those lines here (Files, B10). Its read step fills the
-  review's kept list from `keptListFor(targetFactsFromSource(source))` on the reading's own source,
-  before any baseline exists (its section 5.1).
-- **Part 14 (`14-proof.md`, A1, B13).** The bases `hq-new-app`, `hq-kept-settings` and
-  `starter-health` under those ids (its section 6.2), with `hq-kept-settings` declaring both platforms
-  and holding every labelled `setting` row of section 5 but the custom base URL at a value other than
-  its default, the credential level among them, and `hq-new-app` holding none of the fifteen settings;
-  the exemption of `36-hq-custom-base-url`, whose row holds `base: null` (its section 7.5); Run 1's
-  targeted document `targeted-kept-values` in A3, which stays beside the base; Run 2's native vectors;
-  Run 3 inside P2 (B13), judging B8's code. Proof 2 on every HQ-authored base holds the precondition
-  of 7.1's classifier: per language, the app-string ids matching a generated pattern that HQ's build
-  writes equal the ones the local archive writes. Its `proof/matrix/exemptions.json` names the four
-  `doc_type` entries of 8.3 with the note given there.
-- **Part 13 (`13-the-experience.md`, B11, B12).** The account's and the review's layout, which render
-  `FINDING_LABELS`, `FINDING_NEXT_STEPS`, `placeLine`, `findingLine`, `circumstanceNext` and
-  `ACCOUNT_CHECK_AGAIN_LINE`, and the kept list of 9.4 in the review (its section 8.7), worded through
-  `keptLead`, `KEPT_LABELS` and `KEPT_FOLLOWS_LINE`. Its `STOP_ACTIONS` is total over
-  `StopCircumstance` (its section 6.2). The picker's lines and `already-in-nova`'s next step are
-  written here (9.3); B11 places them. B12's `read_hq_app` returns `findingSchema` findings, the
-  account's sentences and `check_again`, and B12 adds the skill's sentence of section 11 with its
-  sweep of `upload_to_hq`.
-- **Part 15 (`15-stack-contracts-and-exit.md`; A10, A11, B14, B15).** B14 lands 9.7's last paragraph in
-  `content/docs/publishing.mdx`. The step 7 rewrite takes the owners of Appendix A.1, its closing
-  block included. A2's issue of 3.7 and A3's issue of 6.4 are on the stack's checklist (its section
-  3, rule 12).
-
-## What other parts read from this one
-
-| Name | Where | Who reads it |
-|---|---|---|
-| `standingOf`, `fixCauseOf`, `NEVER_REASON_KINDS`, `FIX_IN_HQ_REASON_KINDS` | `lib/commcare/surface/standing.ts` | part 06 (the reader's index, B2), part 14 (the parity judge, B13) |
-| `READ_STANDINGS`, `ReadStanding`, `FindingStanding`, `FIX_CAUSES`, `FixCause`, `SUBJECTS`, `Subject`, `STEP_7_GROUPS`, `Step7Group` | `lib/publish/hqFindings.ts` | every part that adds an entry (parts 02, 04, 06, 07, 08 and 11); part 12's census (counts by owner, its section 8, B10) |
-| `Finding`, `ManifestFinding` (with `cause`), `CircumstanceFinding`, `HqPlace`, `FindingDetail` (`name`, `reason`, `claim`), `HqAppClaimDetail`, `findingSchema`, `READ_CIRCUMSTANCES`, `ReadCircumstance`, `CIRCUMSTANCE_STANDINGS`, `StopCircumstance` | `lib/publish/hqFindings.ts` | part 06 (the reader, B2), part 12 (the reading's row, B10), part 13 (the account and its stop actions in B11, `read_hq_app` in B12); part 05 (`ReadCircumstance`, to which B1 adds seven members); part 10 (`HqAppClaimDetail`, which its `HqAppClaimView` extends) |
-| the circumstance codes: 20 codes in A2, 27 after B1, 28 after B2, 34 after B9, 35 after B10. Twenty in A2 (`not-connected`, `key-not-accepted`, `plan-lacks-api-access`, `not-a-member`, `cannot-edit-apps`, `cannot-access-apis`, `app-gone`, `app-deleted`, `linked-app`, `rate-limited`, `hq-unavailable`, `changed-while-reading`, `already-in-nova`, `too-large`, `menu-unreadable-in-hq`, `shadow-disagrees`, `table-differs-in-project`, `media-file-unreadable`, `unrecognized`, `read-back-differs`), seven in B1 (`hq-gateway-refused`, `api-cut-off`, `browser-only`, `remote-app`, `cannot-read-organization`, `app-unreadable-in-hq`, `table-rows-unreadable`), one in B2 (`no-platform-runs-everything`), six in B9 (`places-over-nova-limit`, `place-not-holdable`, `media-not-played-where-app-runs`, `table-cell-unrepresentable`, `owner-rule-needs-one-place`, `table-choices-unusable`) and one in B10 (`could-not-create`) | `READ_CIRCUMSTANCES` | parts 05, 09, 11, 12 and 13 |
-| `FINDING_LABELS`, `FINDING_NEXT_STEPS`, `SUBJECT_LABELS`, `FINDING_COPY` (`not-yet` and `never`), `FIX_IN_HQ_STEMS`, `FIX_CAUSE_CLAUSES`, `FIX_IN_HQ_SENTENCES`, `fixInHqSentence`, `CIRCUMSTANCE_COPY`, `alreadyInNovaNext`, `placeLine`, `findingLine`; from B2 `circumstanceNext` and `ACCOUNT_CHECK_AGAIN_LINE` | `lib/publish/hqFindingCopy.ts` | part 13 (the account UI in B11, MCP in B12); every part that adds an entry (a `not-yet` or `never` pair needs a sentence, a `fix-in-hq` subject a stem or a whole sentence); the picker's marks of part 10, placed by part 13 (`alreadyInNovaNext`) |
-| the subjects other parts' entries take: `case-list-registration` (part 02), and for part 04 `case-types` (new in A9), `case-property-names`, `search-fields`, `lookup-tables`, `question-choices`, `menu-structure`, `parent-selection`, `case-list-setup`, `case-list-columns`, `connect-blocks`, `question-logic`, `question-text`, `question-media`; for part 07 the two new subjects `advanced-menus` (B4) and `list-and-search-filters` (B5); and the subject of every entry of the closing blocks of Appendix A.1 and A.2 | 2.2's table, Appendix A | parts 02, 04, 06, 07, 08 and 11 |
-| `KEPT_AT_HQ`, `KeptRow` (its `label` a `KeptLabelId`) and its cell types | `lib/commcare/surface/keptAtHq.ts` | part 12's review (the kept list, through `keptListFor`), part 14 (each row's `base`, `string \| null`, held by its `entryCoverage.test.ts`) |
-| `TargetFacts` (no `origin`; `credentialLevel`; from B8 `languageNames` and `seeds`), `targetFactsFromSource`, `KEPT_PROFILE_PROPERTY_KEYS`, `KeptProfilePropertyKey`, `hqProfileValueText` | `lib/commcare/targetFacts.ts` | the emitter; part 12's read step, which calls `targetFactsFromSource` on the reading's own source before any baseline exists (its section 5.1); B8 |
-| `isRuntimeUiStringKey` | `lib/commcare/appStringKeys.ts` | part 06 (4.4's kept and inert key classes, its section 6.5, B2) |
-| `targetFactsFromBaseline`, `keptListFor`, `keptAdvisoryFacts` | `lib/deployment/targetFacts.ts` | part 12's review (`keptListFor`), B8, the lane's capture (part 14) |
-| `KEPT_LABEL_IDS`, `KeptLabelId`, `KEPT_LABELS`, `keptLead`, `KEPT_FOLLOWS_LINE`, `KeptRefreshKind`, `keptRefreshSentence` | `lib/publish/keptValues.ts` | the Publishing card, part 13's review (its section 8.7), MCP |
-| `readTargetFacts`, `recordRefreshedAppBaseline`, `refreshKeptValues`, `KeptRefreshOutcome`, `previewTargetFactsFor`, `resolvePreviewFactsTarget` | `lib/deployment/store.ts`, `service.ts`, `previewSpace.ts`, `previewTarget.ts` | part 13 (B11); part 10 (the ended-deployment rule over the refresh's write, its sections 8.5 and 8.6, B8) |
-| `targetProfileProperties`; `profileServerProperties(target, facts)` | `lib/commcare/keptProfile.ts`, `runtimeTarget.ts` | the lane's capture (`proof/corpus/publish.ts`; part 14) |
-| the overlay options `languageNames` and `seeds`, each `"nova" \| "target"` | `lib/commcare/targetOverlay.ts::projectApplicationForTarget`, from B8 | part 10 (`publishAppToHq` computes `HqImportApplicationInput.languageNames` and `.seeds`, `"target"` for an adopted mapping, and `hqImportApplication` passes both on; its section 6.3) |
-| `rowsMatchingFilterText`, `rowFilterScore`, `filterTerms`, `normalizeForFilter`, `fuzzyMatch`; the platform rule `listFilter` | `components/preview/shared/listFilter.tsx`, `lib/preview/listFilterMatch.ts`, `lib/preview/platform.ts` | none outside this part |
-| the frame `preview-target-facts`, `PreviewTargetFacts`, `useDeploymentTargetFacts` | `lib/collab/previewTargetFactsFrame.ts`, `components/builder/DeploymentTargetProvider.tsx` | part 13, where a landed adoption seeds the builder (B11) |
-| the advisory ids `kept_ui_text_falls_back`, `kept_android_logos_absent`, `kept_practice_worker_absent`, `kept_language_names_differ`; `KeptExportAdvisoryId` | `lib/publish/exportAdvisories.ts` | B8 (the fourth) |
-| entry ids added: `menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile`, `menus-and-case-lists/tile-cell-keys-on-a-list-that-is-not-a-tile`, `application-and-settings/build-profiles-non-empty`, `application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app`, `application-and-settings/translations-generated-key-with-no-effect`, `application-and-settings/translations-generated-key-over-one-text`, `application-and-settings/translations-generated-key-anything-else` | the manifest | the reader's claims (part 06), the variants' `expected.json` (part 14) |
-| the base ids `hq-new-app`, `hq-kept-settings`, `starter-health`; the canonicalization `dormant-tile-cells`; the register entries `connect-app-captures-location`, `logo-path-only-entry-removed`, `translation-overrides-folded`, `search-filter-rows-recut`, `marked-as-updated-from-a-file` | named here. The bases are part 14's (B13). `dormant-tile-cells` is a row of `READER_CANONICAL_CHOICES` part 07 adds in B5, proven by part 09's `canon.test.ts`. The register entries are part 09's (B7) | parts 14, 07 and 09 |
-
----
-
-## Appendix A: `subject` and `owner`, entry by entry (A2)
-
-Slugs are entry ids without their area, which each block's heading gives. An entry of A.1 marked with
-a pull request in parentheses leaves HELD-NEW there (3.8), and an entry of A.2 so marked leaves REFUSED
-there (3.6, and the re-cuts A.3 lists). The area blocks of A.1 and A.2 were produced by one script
-over the manifest at `15a00a97` and cover every HELD-NEW entry (237) and every REFUSED entry (349); A2
-corrects four `questions/` entries about Hidden Values the script had filed under a search subject,
-which now follow the manifest's own section (Question types) and 2.3. The manifest test's rules of 2.6
-fail on any entry the lists miss.
-
-Each list ends with a closing block, "Joining, by pull request": the entries that become HELD-NEW or
-REFUSED after the script ran, each written with its area, under the subject and the owner or
-standing the part that plans it gives it. Those entries are not among the 237 and the 349, and the
-counts by owner under A.1's area blocks leave them out. A.3 counts, by pull request, what joins and
-what leaves, and names the new entries that carry neither field.
+Each list ends with a block, "Entries this step adds": the entries that become HELD-NEW or REFUSED
+in this step, each written with its area, under the subject and the owner or standing the part that
+plans it gives it. Those entries are not among the 237 and the 349, and the counts by owner under
+A.1's area blocks leave them out.
 
 ### A.1 Every HELD-NEW entry: subject and owner
 
 **`application-and-settings/`** (11)
 
 - `android-app-dependencies` → `settings-nova-comes-to-own`: `31-features-dependencies`
-- `app-logos` → `settings-nova-comes-to-own`: `logo-refs-hq-logo-android-home-login-demo` (A3)
+- `app-logos` → `settings-nova-comes-to-own`: `logo-refs-hq-logo-android-home-login-demo` †
 - `app-settings` → `settings-nova-comes-to-own`:
-  `translations-key-in-a-runtime-s-ui-string-catalog-core-android` (A3),
-  `translations-catalog-key-hq-fills-with-its-own-text-in-a` (A3),
-  `24-properties-cc-log-entity-detail-enabled` (A3), `51-hq-persistent-menu` (A3),
-  `52-hq-show-breadcrumbs` (A3)
+  `translations-key-in-a-runtime-s-ui-string-catalog-core-android` †,
+  `translations-catalog-key-hq-fills-with-its-own-text-in-a` †,
+  `24-properties-cc-log-entity-detail-enabled` †, `51-hq-persistent-menu` †,
+  `52-hq-show-breadcrumbs` †, `translations-lang-code-any-other-value-or-absent-where-hq-s` † (it
+  takes `app-settings` only until it flips, 3.8)
 - `case-sharing` → `settings-nova-comes-to-own`: `39-hq-case-sharing`
-- `language-display-names` → `settings-nova-comes-to-own`:
-  `translations-lang-code-any-other-value-or-absent-where-hq-s` (B8)
 - `menu-display` → `settings-nova-comes-to-own`: `46-hq-use-grid-menus`,
   `47-hq-grid-form-menus-none-all-some`
 
@@ -3332,12 +4060,12 @@ what leaves, and names the new entries that carry neither field.
 - `case-list-optimizations` → `case-list-and-detail`: `module-show-case-list-optimization-options`,
   `optimization-cache-lazy-load-cache-and-lazy-load`
 - `case-list-registration` → `menus`: `case-list-form-pointing-at-a-registration-form-in-another-module`
-  (A5), `case-list-form-pointing-at-a-follow-up-form-of-the-parent-case`,
+  †, `case-list-form-pointing-at-a-follow-up-form-of-the-parent-case`,
   `case-list-form-relevancy-expression-with-followup-forms-as-case`,
-  `case-list-form-media-image-media-audio` (A5)
+  `case-list-form-media-image-media-audio` †
 - `case-list-sorting` → `case-list-and-detail`:
   `type-int-or-double-differing-from-the-derived-type-on-a-column`, `type-distance`, `blanks-first-last`
-  (A8), `display-lang-sort-by-label-on-a-sort-only-element`,
+  †, `display-lang-sort-by-label-on-a-sort-only-element`,
   `display-lang-on-a-sort-joined-to-an-invisible-column`,
   `sort-calculation-authored-calculation-row-field`
 - `case-list-text` → `case-list-and-detail`:
@@ -3348,7 +4076,7 @@ what leaves, and names the new entries that carry neither field.
   `case-tile-field-template-slot-on-icon-text-grid`, `invisible-or-address-column-in-a-custom-tile`,
   `a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced`
 - `display-conditions` → `menus`: `module-filter-value-outside-predicate-any-xpath-hq-s-validator`
-- `display-only-forms` → `menus`: `put-in-root-display-only-forms` (A4)
+- `display-only-forms` → `menus`: `put-in-root-display-only-forms` †
 - `media-by-language` → `question-display`: `media-image-media-audio-differing-by-language`
 - `menu-badges` → `menus`: `custom-icons-0-badge-localized-text-or-xpath`
 - `menu-display` → `settings-nova-comes-to-own`:
@@ -3361,7 +4089,6 @@ what leaves, and names the new entries that carry neither field.
 
 **`case-search/`** (31)
 
-- `deep-links` → `case-search`: `case-search-endpoint-id`
 - `search-default-filters` → `case-search`:
   `default-properties-entry-keyed-by-a-plain-property-property-p`,
   `default-properties-entry-keyed-by-an-ancestor-path-parent-p`,
@@ -3373,7 +4100,7 @@ what leaves, and names the new entries that carry neither field.
   `blacklisted-owner-ids-expression-outside-valueexpression`,
   `hidden-exclude-without-a-default-value-on-a-prompt-with-no`,
   `hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`,
-  `hidden-on-a-prompt-that-carries-an-itemset-input-type-or`, `several-xpath-query-rows` (B5)
+  `hidden-on-a-prompt-that-carries-an-itemset-input-type-or`, `several-xpath-query-rows` †
 - `search-expressions` → `case-search`: `date-only-comparison-on-date-opened-closed-on-last-modified`
 - `search-fields` → `case-search`: `appearance-address-geocoder-broadcast-emitted-input-address`,
   `input-checkbox-itemset`, `itemset-nodeset-filter-predicate-outside-predicate`,
@@ -3382,10 +4109,11 @@ what leaves, and names the new entries that carry neither field.
 - `search-fields` → `project-data-at-hq-size`:
   `itemset-refs-to-item-attributes-attr-or-property-qualified`
 - `search-setup` → `case-search`: `custom-sort-properties-property-name-sort-type-exact-date`,
-  `search-button-display-condition-outside-predicate`, `title-label-or-blank-hq-s-default` (A8),
+  `search-button-display-condition-outside-predicate`, `title-label-or-blank-hq-s-default` †,
   `instance-name-without-casedb-ledgerdb-fixture-or-session-in-it`, `additional-case-types`,
   `custom-related-case-property`, `include-all-related-cases-false-where-nova-s-relation-reads`,
-  `include-all-related-cases-authored-without-relation-reads`, `search-on-clear`
+  `include-all-related-cases-authored-without-relation-reads`, `search-on-clear`,
+  `case-search-endpoint-id`
 
 **`forms-and-case-writes/`** (26)
 
@@ -3395,9 +4123,10 @@ what leaves, and names the new entries that carry neither field.
   `arbitrary-datums-datum-id-datum-function`
 - `case-preloads` → `forms-and-case-management`:
   `case-preload-from-any-other-index-path-host-user-a-mixed-path`,
-  `loadupdateaction-preload-question-property` (B4),
-  `an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or`
+  `loadupdateaction-preload-question-property` †
 - `deep-links` → `menus`: `function-datum-endpoints`
+- `form-case-management` → `forms-and-case-management`:
+  `an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or`
 - `display-conditions` → `menus`: `form-filter-outside-predicate-parent-host-user-usercase-reads`,
   `user-prop-in-module-filter-form-filter-case-list-slots-the`
 - `form-settings` → `forms-and-case-management`: `submit-label-non-default`
@@ -3411,7 +4140,7 @@ what leaves, and names the new entries that carry neither field.
 - `worker-record` → `forms-and-case-management`:
   `update-key-whose-index-segments-include-user-each-parent-host-or`
 - `writer-types` → `forms-and-case-management`:
-  `update-through-the-date-and-time-join-of-a-date-and-a-time` (B4), `writers-int-decimal`,
+  `update-through-the-date-and-time-join-of-a-date-and-a-time` †, `writers-int-decimal`,
   `writers-single-select-multi-select`, `any-other-mixed-writer-pair`,
   `a-datetime-question-saved-straight-to-a-case`
 
@@ -3428,7 +4157,7 @@ what leaves, and names the new entries that carry neither field.
   `text-receive-topic-field`, `barcode-numeric-address-or-receive-topic-field`,
   `hint-as-placeholder-on-text-other-than-a-secret-without-numeric`,
   `hint-as-placeholder-on-any-other-entry`,
-  `intent-id-on-any-input-other-than-an-intent-typed-one-where-id`, `barcode-quick`, `date-ethiopian`,
+  `barcode-quick`, `date-ethiopian`,
   `date-nepali`, `date-gregorian-gregorian-cancel`, `time-12-hour`, `geopoint-maps`, `barcode-editable`,
   `image-acquire`, `image-overlay-small`, `audio-legacy`, `audio-acquire-or-upload`, `audio-long`,
   `video-acquire`, `trigger-selectable`, `floating-good-floating-caution-floating-bad`,
@@ -3442,15 +4171,16 @@ what leaves, and names the new entries that carry neither field.
   `a-multi-token-string-holding-tokens-no-runtime-reads-on-that`,
   `a-single-string-no-row-names-that-holds-values-android-matches`,
   `a-case-variant-of-numbers-nepali-or-maps-of-video-acquire-or-of`
+- `question-appearance` → `xform`: `intent-id-on-any-input-other-than-an-intent-typed-one-where-id`
 - `question-choices` → `project-data-at-hq-size`: `itemset-refs-to-attr-or-property-qualified-fields`
 - `question-choices` → `xform`: `itemset-sort-ref`, `itemset-filter-outside-predicate`,
   `itemset-over-casedb-or-another-instance-advanced-data-source`
 - `question-media` → `question-display`: `long-form`, `label-video-inline`, `label-qrcode`, `label-tts`
-- `question-text` → `xform`: `vellum-ignore-containing-markdown-on-h-html-vellum-s-disable` (A8),
-  `output-value-any-other-expression` (A7),
+- `question-text` → `xform`: `vellum-ignore-containing-markdown-on-h-html-vellum-s-disable` †,
+  `output-value-any-other-expression` †,
   `a-question-text-label-hint-help-validation-message-repeat-add`,
   `a-question-text-whose-itext-id-is-pragma-form-descriptor-where`
-- `question-types` → `xform`: `phone-number-xsd-string-appearance-numeric` (A6),
+- `question-types` → `xform`: `phone-number-xsd-string-appearance-numeric` †,
   `acknowledge-label-a-trigger-whose-appearance-is-neither-exactly`,
   `jr-imagedimensionscaledmax-250-500-1000px-or-another-positive`, `face-capture-image-face`,
   `android-app-callout-input-appearance-intent-id-bind-type-intent`,
@@ -3477,140 +4207,130 @@ what leaves, and names the new entries that carry neither field.
   `fields-is-indexed`, `absent-field-vs-zero-values-vs-empty-string`,
   `table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64`
 - `media-files` → `project-data-at-hq-size`:
-  `an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`, `media-path-jr-file` (B9),
-  `a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` (B9)
+  `an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app`, `media-path-jr-file` †,
+  `a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map` †
 
-Counts by owner: `case-list-and-detail` 56, `case-search` 30, `forms-and-case-management` 23,
-`menus` 15, `project-data-at-hq-size` 12, `question-display` 63, `settings-nova-comes-to-own` 14,
-`xform` 24.
+Counts by owner over these 237: `case-list-and-detail` 56, `case-search` 30,
+`forms-and-case-management` 23, `menus` 15, `project-data-at-hq-size` 12, `question-display` 62,
+`settings-nova-comes-to-own` 14, `xform` 25.
 
-**Joining, by pull request**
+**Entries this step adds**
 
-Each entry below becomes HELD-NEW in the pull request named and gains both fields there. The part
-and section in each heading write the entry's other fields. An entry marked "re-cut" exists today
-under another disposition.
+Each entry below becomes HELD-NEW in this step and holds both fields from then on. The part and
+section beside it write the entry's other fields. An entry marked "re-cut" exists today under another
+disposition. There are 68.
 
-A2 (this part, 3.7; one entry):
-
-- `build-profiles` → `settings-nova-comes-to-own`: `application-and-settings/build-profiles-non-empty`
-
-A5 (part 02, `02-menus.md`, section 14; six entries):
-
-- `case-list-registration` → `menus`:
+- `advanced-forms` → `forms-and-case-management` (part 07, `07-the-reader-cases-menus-lists.md`,
+  section 14): `forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain`,
+  `forms-and-case-writes/load-changing-no-case-with-a-tag-nova-does-not-derive`,
+  `forms-and-case-writes/case-tag-holding-a-hyphen`,
+  `forms-and-case-writes/index-identifier-outside-an-xml-element-name`
+- `advanced-menus` → `forms-and-case-management` (part 07, section 14):
+  `menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one`
+- `build-profiles` → `settings-nova-comes-to-own` (3.7):
+  `application-and-settings/build-profiles-non-empty`
+- `case-list-columns` → `case-list-and-detail` (part 04, `04-names.md`, section 11.2):
+  `menus-and-case-lists/enum-mappingitem-alt-text-non-blank`,
+  `menus-and-case-lists/10-markdown-outside-the-link-shape`,
+  `menus-and-case-lists/21-translatable-enum-outside-nova-s-two-projections`
+- `case-list-columns` → `case-list-and-detail` (part 07, section 14):
+  `menus-and-case-lists/column-field-outside-nova-s-property-grammar`,
+  `menus-and-case-lists/6-late-flag-late-flag-1` (re-cut from HELD)
+- `case-list-registration` → `menus` (part 02, `02-menus.md`, section 14):
   `menus-and-case-lists/case-list-form-post-form-workflow-default-on-the-hidden-module-shape`,
-  `menus-and-case-lists/case-list-form-label-empty`,
   `menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`,
   `menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case`,
   `menus-and-case-lists/case-list-form-naming-a-form-another-list-offers-after-an-empty-search`,
   `menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case`
-  (not added under part 02's run G6, outcome B)
-
-A9 (part 04, `04-names.md`, section 11.2, N2 to N24; twenty-three entries):
-
-- `case-property-names` → `forms-and-case-management`:
-  `forms-and-case-writes/update-keys-location-id-hq-user-id`,
-  `forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character`
-- `search-fields` → `case-search`: `case-search/prompt-key-outside-nova-s-name-grammar`,
-  `case-search/default-value-on-a-date-range-input`
-- `lookup-tables` → `project-data-at-hq-size`:
-  `expressions-and-data/tag-or-field-name-with-non-ascii-letters`,
-  `expressions-and-data/tag-equal-to-an-instance-name-commcare-owns`,
-  `expressions-and-data/tag-or-field-name-holding-a-period`
-- `question-choices` → `xform`:
-  `questions/choice-value-holding-both-an-apostrophe-and-a-double-quote`
-- `menu-structure` → `menus`:
-  `menus-and-case-lists/child-menu-of-another-case-type-under-a-parent-with-no-forms`
-- `case-list-setup` → `case-list-and-detail`: `menus-and-case-lists/detail-max-select-value-above-100`
-- `case-list-columns` → `case-list-and-detail`:
-  `menus-and-case-lists/enum-mappingitem-alt-text-non-blank`,
-  `menus-and-case-lists/10-markdown-outside-the-link-shape`,
-  `menus-and-case-lists/21-translatable-enum-outside-nova-s-two-projections`
-- `parent-selection` → `menus`:
-  `menus-and-case-lists/parent-select-naming-a-module-outside-the-declared-parent-type`
-- `connect-blocks` → `xform`: `questions/connect-blocks-beyond-one-of-each-kind`,
-  `questions/connect-deliver-unit-work-area-id-expression`
-- `question-logic` → `xform`: `questions/bind-required-on-a-label`,
-  `questions/bind-constraint-on-a-capture-question-or-a-label`,
-  `questions/default-on-a-capture-question-or-a-label`
-- `question-text` → `xform`: `questions/hint-text-on-a-label`,
-  `questions/help-text-on-a-capture-question-or-a-label`,
-  `questions/validation-message-on-a-capture-question-or-a-label`
-- `question-media` → `xform`: `questions/help-media-on-a-capture-question-or-a-label`
-
-A HELD-NEW entry a fallback row of part 04's run R2 adds is no row here: it takes its subject by
-2.2's rule and the owner that row names, in A9.
-
-B2 (this part, 7.1; part 06, `06-the-reader-forms.md`, section 6.3; two entries):
-
-- `translation-overrides` → `settings-nova-comes-to-own`:
-  `application-and-settings/translations-generated-key-anything-else`
-- `language-codes` → `settings-nova-comes-to-own`:
-  `application-and-settings/langs-code-nova-s-language-registry-cannot-name`
-
-B3 (part 06, sections 8.8, 10.4, 11.4, 12.5 and 15; six entries, one a re-cut):
-
-- `form-source` → `xform`: `questions/data-root-element-named-other-than-data`
-- `question-ids` → `xform`: `questions/question-id-case-registration-script` (re-cut from HELD)
-- `repeats` → `xform`: `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`
-- `question-types` → `xform`: `questions/hidden-value-bound-a-type-nova-would-not-write`
-- `question-text` → `question-display`: `questions/a-text-whose-languages-show-different-values`
-- `connect-blocks` → `xform`: `questions/connect-learn-and-deliver-blocks-in-one-app`
-
-B4 (part 07, `07-the-reader-cases-menus-lists.md`, section 14; fifteen entries, two of them the rows
-part 02 names for B4, one a re-cut):
-
-- `save-to-case` → `xform`: `questions/savetocase-block-outside-nova-s-own-block-shape`,
-  `questions/savetocase-link-name-outside-nova-s-identifier-grammar`
-- `advanced-forms` → `forms-and-case-management`:
-  `forms-and-case-writes/advanced-form-loads-other-than-its-menu-s-one-chain`,
-  `forms-and-case-writes/load-changing-no-case-with-a-tag-nova-does-not-derive`,
-  `forms-and-case-writes/case-tag-holding-a-hyphen`,
-  `forms-and-case-writes/index-identifier-outside-an-xml-element-name`
-- `case-preloads` → `forms-and-case-management`:
+- `case-list-setup` → `case-list-and-detail` (part 04, section 11.2):
+  `menus-and-case-lists/detail-max-select-value-above-100`
+- `case-preloads` → `forms-and-case-management` (part 07, section 14):
   `forms-and-case-writes/loadupdateaction-preload-read-later-in-the-load`,
   `forms-and-case-writes/case-preload-into-a-question-that-holds-no-default`,
   `forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held` (re-cut from
   REFUSED)
-- `form-case-management` → `forms-and-case-management`:
+- `case-property-names` → `forms-and-case-management` (part 04, section 11.2):
+  `forms-and-case-writes/update-keys-location-id-hq-user-id`,
+  `forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character`
+- `case-tiles` → `case-list-and-detail` (part 07, section 14):
+  `menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name`
+- `connect-blocks` → `xform` (part 04, section 11.2): `questions/connect-blocks-beyond-one-of-each-kind`,
+  `questions/connect-deliver-unit-work-area-id-expression`
+- `connect-blocks` → `xform` (part 06, `06-the-reader-forms.md`, section 15):
+  `questions/connect-learn-and-deliver-blocks-in-one-app`
+- `data-sources` → `menus` (part 08, `08-the-reader-expressions.md`, section 11):
+  `expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu`
+- `display-only-forms` → `menus` (part 07, section 14):
+  `forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu`,
+  `forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`
+- `expressions` → `xform` (part 08, section 11):
+  `expressions-and-data/a-form-expression-outside-what-nova-types`
+- `form-case-management` → `forms-and-case-management` (part 07, section 14):
   `forms-and-case-writes/update-mode-edit-off-a-follow-up-form-s-own-update`,
   `forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix`
-- `advanced-menus` → `forms-and-case-management`:
-  `menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one`
-- `menu-settings` → `menus`: `menus-and-case-lists/module-case-list-label-empty`
-- `display-only-forms` → `menus`:
-  `forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu`,
-  `forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case` (not added
-  under part 02's run G6, outcome B)
-
-B5 (part 07, section 14; twelve entries, one the row part 02 names for B5, one the row part 03
-names, one a re-cut):
-
-- `search-fields` → `case-search`: `case-search/date-prompt-matched-by-hq-s-own-rule`,
-  `case-search/prompt-named-for-a-case-attribute-hq-matches-itself`,
-  `case-search/search-field-over-a-property-of-another-type`
-- `search-setup` → `case-search`: `case-search/list-first-with-a-search-that-skips-to-results`,
-  `case-search/search-on-a-put-in-root-module`, `case-search/title-label-blank-in-some-languages`
-- `search-default-filters` → `case-search`:
+- `form-source` → `xform` (part 06, section 8.8): `questions/data-root-element-named-other-than-data`
+- `language-codes` → `settings-nova-comes-to-own` (part 06, section 6.3):
+  `application-and-settings/langs-code-nova-s-language-registry-cannot-name`
+- `list-and-search-filters` → `case-search` (part 07, section 14):
+  `case-search/case-list-filter-clause-the-search-does-not-restate`
+- `lookup-tables` → `project-data-at-hq-size` (part 04, section 11.2):
+  `expressions-and-data/tag-or-field-name-with-non-ascii-letters`,
+  `expressions-and-data/tag-equal-to-an-instance-name-commcare-owns`,
+  `expressions-and-data/tag-or-field-name-holding-a-period`
+- `menu-structure` → `menus` (part 04, section 11.2):
+  `menus-and-case-lists/child-menu-of-another-case-type-under-a-parent-with-no-forms`
+- `parent-selection` → `menus` (part 04, section 11.2):
+  `menus-and-case-lists/parent-select-naming-a-module-outside-the-declared-parent-type`
+- `question-choices` → `xform` (part 04, section 11.2):
+  `questions/choice-value-holding-both-an-apostrophe-and-a-double-quote`
+- `question-ids` → `xform` (part 06, section 8.8): `questions/question-id-case-registration-script`
+  (re-cut from HELD)
+- `question-logic` → `xform` (part 04, section 11.2): `questions/bind-required-on-a-label`,
+  `questions/bind-constraint-on-a-capture-question-or-a-label`,
+  `questions/default-on-a-capture-question-or-a-label`
+- `question-media` → `xform` (part 04, section 11.2):
+  `questions/help-media-on-a-capture-question-or-a-label`
+- `question-text` → `xform` (part 04, section 11.2): `questions/hint-text-on-a-label`,
+  `questions/help-text-on-a-capture-question-or-a-label`,
+  `questions/validation-message-on-a-capture-question-or-a-label`
+- `question-text` → `question-display` (part 06, section 12.5):
+  `questions/a-text-whose-languages-show-different-values`
+- `question-types` → `xform` (part 06, section 11.4):
+  `questions/hidden-value-bound-a-type-nova-would-not-write`
+- `repeats` → `xform` (part 06, section 10.4):
+  `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule`
+- `save-to-case` → `xform` (part 07, section 14):
+  `questions/savetocase-block-outside-nova-s-own-block-shape`,
+  `questions/savetocase-link-name-outside-nova-s-identifier-grammar`
+- `search-default-filters` → `case-search` (part 07, section 14):
   `case-search/xpath-query-row-reading-a-field-hq-also-matches`,
   `case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s`
-- `list-and-search-filters` → `case-search`:
-  `case-search/case-list-filter-clause-the-search-does-not-restate`
-- `case-list-columns` → `case-list-and-detail`:
-  `menus-and-case-lists/column-field-outside-nova-s-property-grammar`,
-  `menus-and-case-lists/6-late-flag-late-flag-1` (re-cut from HELD)
-- `case-tiles` → `case-list-and-detail`:
-  `menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name`
-
-Under part 07's run G2, outcome B, B5 adds a thirteenth:
-`case-search/excluded-prompt-no-filter-reads`, `search-fields` → `case-search`.
-
-B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four entries):
-
-- `expressions` → `xform`: `expressions-and-data/a-form-expression-outside-what-nova-types`
-- `search-expressions` → `case-search`:
+- `search-expressions` → `case-search` (part 08, section 11):
   `case-search/a-search-value-that-queries-cases-a-table-or-places`,
   `case-search/required-or-validation-test-outside-what-nova-types`,
   `case-search/xpath-query-condition-outside-what-nova-types`
+- `search-fields` → `case-search` (part 04, section 11.2):
+  `case-search/prompt-key-outside-nova-s-name-grammar`,
+  `case-search/default-value-on-a-date-range-input`
+- `search-fields` → `case-search` (part 07, section 14):
+  `case-search/date-prompt-matched-by-hq-s-own-rule`,
+  `case-search/prompt-named-for-a-case-attribute-hq-matches-itself`,
+  `case-search/search-field-over-a-property-of-another-type`
+- `search-setup` → `case-search` (part 07, section 14):
+  `case-search/list-first-with-a-search-that-skips-to-results`,
+  `case-search/search-on-a-put-in-root-module`, `case-search/title-label-blank-in-some-languages`
+- `translation-overrides` → `settings-nova-comes-to-own` (7.1):
+  `application-and-settings/translations-generated-key-anything-else`
+
+Two labels with no text in any language are no rows here, because each is read as the text CommCare
+HQ writes for it and so is held. A registration label:
+`app_strings.py::_create_case_list_form_app_strings` writes "Create a new Case" for a blank one, and
+part 02's entry `menus-and-case-lists/case-list-form-label-empty` is HELD (`02-menus.md`, section
+14). A case list menu item's label: `_create_case_list_app_strings` writes "Case List", and part 07
+reads it so and adds no entry for it (`07-the-reader-cases-menus-lists.md`, section 8.6).
+
+An entry a run's outcome adds is no row here either: a fallback row of part 04's run R2, or part 02's
+run G3 under its outcome C. It takes its subject by 2.2's rule and the owner its part names.
 
 ### A.2 Every REFUSED entry: subject and standing
 
@@ -3620,7 +4340,8 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `profile-properties-or-features-dependencies-value-outside-its`
 - `app-document`, `fix-in-hq`: `unknown-doc-type`,
   `an-unknown-top-level-key-naming-an-application-read-only`, `33p-hq-application-version-1-0`,
-  `37-hq-profile-url-on-an-application`
+  `37-hq-profile-url-on-an-application`, `doc-type-linkedapplication-downstream-app`,
+  `upstream-app-id-upstream-version-linked-app-translations-linked`
 - `app-logos`, `fix-in-hq`: `logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare`
 - `app-settings`, `fix-in-hq`: `41p-hq-use-custom-suite-true`,
   `44p-hq-translation-strategy-select-known`,
@@ -3630,13 +4351,11 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
 - `commcare-version`, `fix-in-hq`: `34p-hq-build-spec-below-nova-s-floor`
 - `custom-assertions`, `never`: `non-empty-custom-assertions-app`
 - `custom-device-properties`, `never`: `profile-custom-properties-any-other-entry-incl-formplayer-keys`
+- `hand-written-content`, `never`: `doc-type-remoteapp-profile-url-manage-urls-questions-map`
 - `hierarchical-locations`, `never`: `50pp-hq-location-fixture-restore-only-hierarchical-fixture`
 - `language-codes`, `fix-in-hq`: `a-non-empty-langs-code-outside-that-grammar-or-repeated`,
   `langs-containing-an-empty-code`
-- `linked-app`, `fix-in-hq`: `doc-type-linkedapplication-downstream-app`,
-  `upstream-app-id-upstream-version-linked-app-translations-linked`
-- `mobile-reports`, `never`: `49p-hq-mobile-ucr-restore-version-1-0-1-5` (A3)
-- `remote-app`, `never`: `doc-type-remoteapp-profile-url-manage-urls-questions-map`
+- `mobile-reports`, `never`: `49p-hq-mobile-ucr-restore-version-1-0-1-5` †
 
 **`menus-and-case-lists/`** (85)
 
@@ -3644,6 +4363,7 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
 - `app-document`, `never`: `module-unique-id-missing`
 - `auto-select`, `fix-in-hq`: `auto-select-case-true-on-a-basic-module-an-advanced-form-s-load`,
   `detail-auto-select-true-on-a-single-select-basic-list`
+- `call-center-indicators`, `never`: `indicator-call-center-name`
 - `case-attachments`, `never`: `17-picture`, `18-audio`, `attachment-name-with-any-other-format`
 - `case-detail-tabs`, `fix-in-hq`: `columns-above-the-first-tab-when-tabs-exist`
 - `case-list-callout`, `fix-in-hq`: `callout-with-no-extras-or-no-responses`,
@@ -3661,7 +4381,7 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `24p-filter-otherwise`, `more-than-one-address-column-or-more-than-one-image-or-geo`,
   `more-than-one-image-or-geo-column-of-the-same-format-in-a-detail`,
   `property-x-or-prefix-x-with-a-prefix-hq-registers-no-generator`, `indicator-any-other-set-name`
-- `case-list-columns`, `never`: `15-address-popup`, `22-graph`, `indicator-call-center-name`
+- `case-list-columns`, `never`: `15-address-popup`, `22-graph`
 - `case-list-filter`, `fix-in-hq`: `detail-filter-failing-etree-xpath-dummy-filter`
 - `case-list-optimizations`, `never`: `module-lazy-load-case-list-fields-true`,
   `type-index-cache-and-index-order-2`
@@ -3679,6 +4399,9 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `custom-tile-column-with-grid-null-unplaced`, `horizontal-align-null-on-a-placed-custom-tile-column`,
   `custom-tile-font-size-null`, `a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`
 - `custom-assertions`, `never`: `custom-assertions-module-non-empty`
+- `deep-links`, `fix-in-hq`: `module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed`,
+  `two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form`
+- `deep-links`, `never`: `a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding`
 - `display-conditions`, `fix-in-hq`: `module-filter-referencing-case-parent-host-or-a-bare`,
   `module-filter-failing-hq-s-validate-xpath`
 - `display-only-forms`, `fix-in-hq`: `put-in-root-session-endpoint-id-or-inline-search-or-an-end-of`,
@@ -3693,11 +4416,8 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `root-module-id-naming-a-missing-module-or-a-cycle`
 - `menu-structure`, `never`: `menu-order-that-separates-a-child-from-its-parent`
 - `mirror-menus`, `fix-in-hq`: `shadowmodule-with-no-source-module-id-or-one-naming-no-module`,
-  `any-other-module-under-a-shadow-menu`,
-  `module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed`,
-  `two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form`, `shadowmodule-case-list-show-true`
-- `mirror-menus`, `never`: `shadowmodule-version-1-or-key-absent-model-default-1`,
-  `a-shadow-menu-s-own-or-mirror-form-endpoint-id-with-surrounding`
+  `any-other-module-under-a-shadow-menu`, `shadowmodule-case-list-show-true`
+- `mirror-menus`, `never`: `shadowmodule-version-1-or-key-absent-model-default-1`
 - `mobile-reports`, `never`: `reportmodule-mobile-ucr-and-all-of-report-configs`,
   `report-context-tile-true`
 - `parent-selection`, `fix-in-hq`: `parent-select-naming-a-module-that-searches-inline-under-the`,
@@ -3722,7 +4442,8 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `default-properties-entry-with-no-defaultvalue-hq-stores-an-empty`,
   `a-default-filter-and-a-search-property-sharing-one-name`,
   `hidden-together-with-required-or-validations`
-- `search-default-filters`, `never`: `default-properties-entry-keyed-x-commcare-endpoint-id`
+- `search-default-filters`, `never`: `default-properties-entry-keyed-x-commcare-endpoint-id`,
+  `a-commcare-sort-x-commcare-custom-related-case-property-or-case`
 - `search-expressions`, `fix-in-hq`: `p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of`,
   `date-opened-closed-on-or-last-modified-compared-with-any`,
   `a-function-call-written-unparenthesized-as-the-2nd-or-later`,
@@ -3736,8 +4457,7 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
 - `search-setup`, `fix-in-hq`: `an-x-commcare-custom-related-case-property-entry-together-with`,
   `search-button-label-any-other-value`, `instance-name-containing-casedb-ledgerdb-fixture-or-session`,
   `a-module-whose-effective-results-instance-results-instance-name`
-- `search-setup`, `never`: `a-commcare-sort-x-commcare-custom-related-case-property-or-case`,
-  `workflow-legacy-classic-auto-launch-false-in-an-app-with`
+- `search-setup`, `never`: `workflow-legacy-classic-auto-launch-false-in-an-app-with`
 
 **`forms-and-case-writes/`** (85)
 
@@ -3774,7 +4494,7 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
 - `case-attachments`, `never`: `update-from-an-upload-question-attachment-mode`
 - `case-preloads`, `fix-in-hq`:
   `case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module`,
-  `case-preload-into-a-question-outside-any-repeat-where-the-held` (B4),
+  `case-preload-into-a-question-outside-any-repeat-where-the-held` †,
   `load-from-form-naming-a-path-the-form-no-longer-has-on-a-form`,
   `case-preload-on-a-requires-none-form-naming-a-reserved-or`,
   `loadupdateaction-preload-or-case-properties-property-with-on-a`
@@ -3839,7 +4559,9 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `send-submission`, `authored-orx-pollsensor`,
   `unknown-namespace-model-children-named-itext-instance-bind`,
   `other-h-head-children-whose-local-name-or-a-descendant-s-core-or`,
-  `xhtml-namespace-child-elements-inside-a-value`
+  `xhtml-namespace-child-elements-inside-a-value`,
+  `hand-written-case-block-without-vellum-role-incl-a-root-data`,
+  `bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model`
 - `print-templates`, `never`: `print-callout-class-org-commcare-dalvik-action-print-extra-cc`
 - `question-appearance`, `fix-in-hq`: `intent-id-naming-an-odkx-intent-that-no-callout-question-writes`,
   `intent-id-on-any-input-naming-no-odkx-intent-in-the-form`
@@ -3866,7 +4588,7 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
 - `question-text`, `fix-in-hq`: `markdown-form-differing-from-the-default-text`,
   `a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk`,
   `a-label-whose-itext-in-the-first-translation-has-no-default-form`,
-  `an-explicitly-blank-value-in-a-non-default-language-where-the` (B3),
+  `an-explicitly-blank-value-in-a-non-default-language-where-the` †,
   `itext-entry-referenced-only-from-jr-itext-in-an-expression`,
   `itext-pragma-entries-pragma-form-descriptor-pragma-skip-full`,
   `duplicate-text-id-in-one-translation-jr-itext-with-double-quotes`
@@ -3892,8 +4614,6 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
 - `save-to-case`, `fix-in-hq`: `savetocase-create-at-the-form-root-whose-authored-case-id-xpath`,
   `relevance-bound-on-the-savetocase-node-itself`, `constraint-on-savetocase-case-leaves`,
   `type-on-a-savetocase-property-leaf-a-create-update-or-index`, `attachment-inside-a-savetocase-block`
-- `save-to-case`, `never`: `hand-written-case-block-without-vellum-role-incl-a-root-data`,
-  `bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model`
 - `supply-features`, `never`: `balance-transfer-dispense-receive-ledger-blocks`
 - `worker-record`, `fix-in-hq`: `savetocase-create-close-or-link-of-commcare-user-or-type-user`
 - `worker-record`, `never`: `a-root-question-commcare-usercase-in-a-form-with-usercase`
@@ -3920,8 +4640,8 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `tag-containing-casedb-or-ledgerdb`
 - `media-files`, `fix-in-hq`: `image-svg`, `image-tiff-heif`, `audio-wav-that-is-not-8-or-16-bit-pcm`,
   `audio-m4a-with-another-brand-isom-mp41-mp42-dash`, `audio-3gp`,
-  `video-av1-mov-avi-ogg-theora-h-263-3gp`, `multimedia-map-key-not-under-jr-file-that-the-build-keeps`,
-  `a-media-reference-with-no-file-on-a-slot-android-s-install`
+  `video-av1-mov-avi-ogg-theora-h-263-3gp`, `multimedia-map-key-not-under-jr-file-that-the-build-keeps`
+- `missing-media-files`, `fix-in-hq`: `a-media-reference-with-no-file-on-a-slot-android-s-install`
 - `mobile-reports`, `never`: `reports-commcare-reports-commcare-reports-commcare-reports`
 - `parent-selection`, `never`: `case-module-slug-unrelated-parent-select-case`
 - `print-templates`, `never`: `print-template-jr-file-commcare-text-id-html`
@@ -3931,87 +4651,35 @@ B6 (part 08, `08-the-reader-expressions.md`, section 11, M3, M4, M6 and M7; four
   `ledgerdb-vellum-id-ledger`, `commtrack-products-commtrack-programs`
 - `visit-scheduler`, `never`: `schedule-m-p-f`
 
-**Joining, by pull request**
+**Entries this step adds**
 
-Each entry below becomes REFUSED in the pull request named and gains `subject` there. Every one is
-`fix-in-hq`; the cause beside it is what `fixCauseOf` gives its reason, which chooses its sentence
-(8.4).
+Each entry below becomes REFUSED in this step and holds `subject` from then on. Every one is
+`fix-in-hq`; the cause beside it is what `fixCauseOf` gives its reasons, which chooses its sentence
+(8.4). There are 14.
 
-A5 (part 02, `02-menus.md`, section 14; one entry):
-
-- `case-list-registration`, `fix-in-hq` (`breaks-when-run`):
+- `case-list-registration`, `fix-in-hq` (`breaks-when-run`; part 02, `02-menus.md`, section 14):
   `menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host` (not added
   under part 02's run G3, outcome B)
-
-A9 (part 04, `04-names.md`, section 11.2, N1; one entry):
-
-- `case-types`, `fix-in-hq` (`hq-refuses`):
+- `case-types`, `fix-in-hq` (`hq-refuses`; part 04, `04-names.md`, section 11.2):
   `menus-and-case-lists/case-type-outside-the-menu-page-s-grammar`
-
-B3 (part 06, `06-the-reader-forms.md`, sections 11.3, 12.2 and 15; four entries):
-
-- `question-logic`, `fix-in-hq` (`hq-refuses`):
+- `connect-blocks`, `fix-in-hq` (`breaks-when-run`; part 06, `06-the-reader-forms.md`, section 15):
+  `questions/connect-deliver-unit-and-task-in-one-form`
+- `deep-links`, `fix-in-hq` (`breaks-when-run`; part 07, `07-the-reader-cases-menus-lists.md`,
+  section 14): `menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module`
+- `display-conditions`, `fix-in-hq` (`breaks-when-run`; part 07, section 14):
+  `menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first`
+- `expressions`, `fix-in-hq` (`breaks-when-run`; part 08, `08-the-reader-expressions.md`, section
+  11): `expressions-and-data/session-data-datum-the-entry-does-not-supply`,
+  `expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant`
+- `instance-text`, `fix-in-hq` (`either`; part 03, `03-questions-and-text.md`, section 5.1):
+  `questions/connect-block-text-read-as-an-instance`,
+  `forms-and-case-writes/form-name-read-as-an-instance`
+- `missing-media-files`, `fix-in-hq` (`breaks-when-run`; part 11, `11-project-data.md`, section
+  13.1): `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`
+- `question-logic`, `fix-in-hq` (`hq-refuses`; part 06, section 11.3):
   `questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes`
-- `question-text`, `fix-in-hq` (`hq-refuses`):
+- `question-text`, `fix-in-hq` (`hq-refuses`; part 06, section 12.2):
   `questions/a-markdown-form-in-a-form-whose-text-formatting-is-off`,
   `questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text`
-- `connect-blocks`, `fix-in-hq` (`breaks-when-run`):
-  `questions/connect-deliver-unit-and-task-in-one-form`
-
-B4 (part 07, `07-the-reader-cases-menus-lists.md`, section 14, the two REFUSED rows part 02 names;
-two entries):
-
-- `deep-links`, `fix-in-hq` (`breaks-when-run`):
-  `menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module`
-- `display-conditions`, `fix-in-hq` (`breaks-when-run`):
-  `menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first`
-
-B6 (part 08, `08-the-reader-expressions.md`, section 11, M1, M2 and M5; three entries):
-
-- `expressions`, `fix-in-hq` (`breaks-when-run`):
-  `expressions-and-data/session-data-datum-the-entry-does-not-supply`,
-  `expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant`
-- `search-expressions`, `fix-in-hq` (`hq-refuses`):
+- `search-expressions`, `fix-in-hq` (`hq-refuses`; part 08, section 11):
   `case-search/required-or-validation-test-reading-the-case`
-
-B9 (part 11, `11-project-data.md`, section 13.1; one entry):
-
-- `media-files`, `fix-in-hq` (`breaks-when-run`):
-  `expressions-and-data/a-media-reference-with-no-file-on-a-slot-a-runtime-draws`
-
-### A.3 What each pull request adds or re-cuts
-
-The count of entries that join each list (the closing blocks above), the entries that leave one
-(marked in A.1 and A.2 with the pull request), and the new entries that carry neither field. Counts
-are for every gated run giving the outcome its part plans for. The closing blocks name the four
-entries a run of part 02 or part 07 can leave out or add, and a fallback row of part 04's run R2
-adds its own entry in A9.
-
-| Pull request | Joins A.1 | Joins A.2 | Leaves A.1 | Leaves A.2 | New, with neither field | Written in |
-|---|---|---|---|---|---|---|
-| A2 | 1 | 0 | 0 | 0 | INERT: `menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile`, `menus-and-case-lists/tile-cell-keys-on-a-list-that-is-not-a-tile` | this part, 3.1, 3.2, 3.7 |
-| A3 | 0 | 0 | 6, to TARGET-OWNED | 1, to TARGET-OWNED | TARGET-OWNED: `application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app` | this part, 3.6 |
-| A4 | 0 | 0 | 1, to HELD | 0 | none | part 02 (`02-menus.md`), section 14 |
-| A5 | 6 | 1 | 2, to HELD | 0 | INERT: `menus-and-case-lists/case-list-form-fields-beside-a-blank-form-id` | part 02, section 14 |
-| A6 | 0 | 0 | 1, to HELD | 0 | none | part 03 (`03-questions-and-text.md`), section 10 |
-| A7 | 0 | 0 | 1, to HELD | 0 | none | part 03, section 10 |
-| A8 | 0 | 0 | 3, to HELD | 0 | HELD: `questions/help-text-with-no-markdown-form`. INERT: `questions/hint-markdown-form` | part 03, section 10 |
-| A9 | 23 | 1 | 0 | 0 | none | part 04 (`04-names.md`), section 11.2 |
-| B2 | 2 | 0 | 0 | 0 | INERT: `application-and-settings/translations-generated-key-with-no-effect`. HELD: `application-and-settings/translations-generated-key-over-one-text` | this part, 7.1; part 06 (`06-the-reader-forms.md`), section 6.3 |
-| B3 | 6 | 4 | 0 | 1, to HELD | HELD: `questions/itemset-over-casedb-in-nova-s-case-choices-shape` | part 06, sections 8.8, 10.1, 10.4, 11.3, 11.4, 12.2, 12.5 and 15 |
-| B4 | 15 | 2 | 2, to HELD | 1, to HELD-NEW | INERT: `menus-and-case-lists/module-case-list-label-or-media-beside-show-false`, `questions/bind-required-on-the-question-that-names-a-created-case` | part 07 (`07-the-reader-cases-menus-lists.md`), section 14 |
-| B5 | 12 | 0 | 1, to HELD | 0 | INERT: `menus-and-case-lists/sort-elements-sharing-a-join-text` | part 07, section 14 |
-| B6 | 4 | 3 | 0 | 0 | none | part 08 (`08-the-reader-expressions.md`), section 11 |
-| B8 | 0 | 0 | 1, to TARGET-OWNED | 0 | none | this part, 7.2 |
-| B9 | 0 | 1 | 2, one to HELD and one to INERT | 0 | none | part 11 (`11-project-data.md`), section 13.1 |
-
-Three of the entries that join A.1 are re-cuts of entries the manifest holds today, so the manifest
-gains no entry with them. `questions/question-id-case-registration-script` (B3) and
-`menus-and-case-lists/6-late-flag-late-flag-1` (B5) are HELD today.
-`forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held` leaves A.2
-and joins A.1 in B4, and is counted in both columns. One entry leaves A.2 for HELD, in B3:
-`questions/an-explicitly-blank-value-in-a-non-default-language-where-the`:
-a blank in a language other than the first, where the first holds text, is read as no translation
-(part 09, `09-acceptance-and-the-first-publish.md`, Departure 21). The blank in the first language
-gets its own REFUSED entry in the same pull request, which is one of B3's four that join A.2.
-
