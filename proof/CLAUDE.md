@@ -96,7 +96,7 @@ harness keeps, each with its reason.
     (`proof/connect/checkout.py`). It works, and keeps a repository that
     carries no license out of a public image; its environment is built from
     its own lock in the image.
-- **The harness's own settings are these five, each for its reason; a new
+- **The harness's own settings are these six, each for its reason; a new
   one is a claim to justify here.** None changes what HQ, Formplayer or the
   client decide of a Nova export; each takes away something of the
   machine a run happens on.
@@ -104,6 +104,14 @@ harness keeps, each with its reason.
     They measure the host's whole volume, and past the flood stage the
     server makes every index read-only, so a lane on a fuller runner would
     read differently: no result may depend on how full a runner's disk is.
+  - *HQ's ordinary Elasticsearch timeout is its deployment default*
+    (`proof/hq/boot.py` reads HQ's `settings.ES_SEARCH_TIMEOUT` before
+    constructing clients), not `testsettings`' five-second shortcut.
+    The lane indexes through real services beside the readers; a unit-test
+    fail-fast setting must not reject work the normal deployment allows.
+    The export client's longer timeout stays intact. A transport failure
+    still fails the check and retains the server logs under
+    `elasticsearch-failures/` before session teardown removes them.
   - *Postgres takes 125 clients a worker, and never fewer than 500*
     (`proof/compose.yaml`, set by `proof/run.mjs` from the worker count).
     Each worker holds HQ's connections and a pool for every Formplayer it
