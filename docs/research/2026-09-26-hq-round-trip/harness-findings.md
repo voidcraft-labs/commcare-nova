@@ -44,6 +44,9 @@ was executed at the same commits, which `proof/pins.json` names still.
 What step 4's planning found ("Found while planning step 4") was read at the
 same commits; its one CommCare execution ran Pillow 12.3.0, the version
 commcare-hq's `uv.lock` pins.
+What step 6's planning found ("Found while planning step 6") was read at the
+same commits and executed nowhere; finding 76 holds its number until run G2 of
+step 6's plan, in its pull request A7, settles it.
 
 Citations use `file::symbol`; documents are the corpus ids that show the
 symptom.
@@ -1883,6 +1886,497 @@ the lane, which stand as its evidence:
   case of its own menu's case type and defect 20's `product_id` datum become produced and checked at
   publish, and move to `proof/targeted/__tests__/publishChecks.test.ts` (pull request 8). The
   supply-point read bullet stays.
+
+### Found while planning step 6
+
+Step 6's plan read its CommCare facts at the pins (commcare-hq `d6c6e16d8ae1`, commcare-core
+`8e9ba8d908e9`, commcare-android `7a5584475580`, formplayer `24383ac71bfb`, commcare-connect
+`046c7fd78081`, and Vellum `01215f251c57`, the build HQ vendors at its pin) and Nova at `15a00a97`.
+It read the manifest's entries by script, the retained HQ reads under `proof/hq-reads/` and the starter
+apps HQ ships, and ran nothing in HQ, Core, Formplayer, Android, Connect or a lane. It found claims of
+the research, of step 6's outline (the file step 6's plan replaced and removed), of the manifest and of
+Nova's contracts and comments that the pins or `main` contradict, and defects of Nova's own that no
+check of the lane observes. None of those is numbered: the numbered findings are what the harness
+showed. One defect takes a number, 76, because a run the plan writes shows it in the lane. Each names
+the part of step 6's plan (`docs/plans/hq-round-trip/6-bring-in/`) and the pull request of its two
+stacks (A1 to A11, B1 to B15) that carries the consequence; where a gated run of the plan still settles
+one, the bullet names the run and says what each outcome means for it.
+The plan's own pull request writes this heading and every bullet under it. A pull request of the stacks
+adds no heading and no bullet of its own. It writes here in one case: a gated run it holds gave an
+outcome that corrects what a bullet, or the closing paragraph, says, and then it writes that outcome
+into the bullet or paragraph that names the run. An outcome the bullet already describes as the one
+it expects writes nothing (part 15, `15-stack-contracts-and-exit.md`, sections 1.4 and 8.1, which list
+every such run with its pull request).
+
+**Claims of the research corrected.**
+
+- **A superuser's API key does not reach the plan check as a superuser** (README, "Source: HQ's API,
+  only": "an HQ superuser's unscoped credential passes both checks in every project space except one
+  that restricts superusers"). `api/resources/__init__.py::HqBaseResource.dispatch` tests
+  `request.user.is_superuser` before tastypie authenticates the request, and no entry of
+  `settings.py::MIDDLEWARE` authenticates an API key, so a key's request reaches that test as the
+  anonymous user and passes only where the project space holds the privilege. Read, not run.
+  *Step 6:* part 05 (`05-reading-commcare-hq.md`), pull request B1. Subject to its run G1, a retained
+  read made by hand on hosted runners on B1's branch
+  (`proof/hq-reads/reading/application-no-api-access-superuser.json`). Outcome A, a 401 with the
+  subscription sentence, confirms this bullet, and `lib/commcare/CLAUDE.md` gains "A superuser's key
+  does not pass the plan check." Outcome B, a 200, withdraws it: the research's sentence stands, and
+  that file gains "A superuser's key passes the plan check, so Dimagi staff may read a project space
+  whose plan has no API access." Under outcome C the lane's test client cannot run the request
+  through HQ's middleware, so the read is made through `operations.api_request`: this bullet stays
+  read, not run, and that file gains "Read, not run: no middleware authenticates an API key before
+  the plan check, so a superuser's key does not pass it."
+- **Nova reads a lookup table's rows through `FixtureResource`, and the resource the research names
+  lists every row of the project space** (README, "Reads": `v0_6.py::LookupTableItemResource`; the
+  docstring of `proof/surface/families/hq_api.py`, which records that resource as the one "the plan
+  names for reading an HQ table's rows"). `lib/commcare/hq/lookupTables.ts::readHqLookupTableRows`
+  asks `fixtures/resources/v0_1.py::FixtureResource` with `fixture_type_id`, the filter
+  `FixtureResource.obj_get_list` reads; `LookupTableItemResource.obj_get_list` takes no table, and
+  Nova calls it nowhere. `FixtureResource.Meta.limit` is `0`, so the page size is HQ's to choose and
+  a reader follows `meta.next`. *Step 6:* part 05, pull request B1, reads rows this way under one
+  deadline (its section 10) and records the resource Nova calls in the `hq-api` family in place of
+  the one it does not (its section 14).
+- **Hyphenated question ids are sound on the wire and not in three of Nova's derivations** (README,
+  "External identity": "sound end to end"). `lib/commcare/xform/itextIds.ts::fieldItextKey` joins a
+  field's path with `-`, so a group `a` holding `b-c` and a group `a-b` holding `c` would share every
+  itext id; `lib/preview/engine/queryWrapperName.ts::previewQueryWrapperName` names Preview's wrapper
+  `<id>-query` on the stated ground that no question id holds a hyphen; and
+  `lib/commcare/xform/formPath.ts::FormPath` refuses a name outside
+  `lib/commcare/constants.ts::XML_ELEMENT_NAME_REGEX`, which admits none. *Step 6:* part 04
+  (`04-names.md`), pull request A9, changes the three with the grammar (its section 3). Subject to
+  part 04's run R2, the lane with every reader over `targeted-hyphenated-question-ids`, started by
+  hand on hosted runners at A9's head: if a reader cannot read an authored hyphenated id, the wire
+  half of this bullet is withdrawn, question ids keep today's grammar under the HELD-NEW entry
+  `questions/question-id-holding-a-hyphen`, and this bullet records what the reader showed; if only
+  HQ's form builder changes a generated node whose name holds a hyphen, authored ids keep their
+  hyphens and Nova's generated names spell an owner's `-` as `_`.
+- **A lookup tag or field name holding `.` has no spelling in the slots HQ rewrites** (README,
+  "External identity"; the manifest's
+  `expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any`, "any name
+  HQ accepts, held verbatim"). HQ's build passes a case list filter, a form's and a menu's display
+  condition and a Search field's required condition through
+  `app_manager/xpath.py::interpolate_xpath`. With a case
+  (`suite_xml/sections/entries.py::EntriesHelper.get_filter_xpath` for the filter, and
+  `suite_xml/sections/menus.py::MenuContributor._get_commands` for a form that needs a case) it ends
+  in `dot_interpolate`, which replaces every `.` outside a quoted string that stands between two
+  characters that are not digits with the case's path. Without one (`_get_commands` for a form that
+  needs no case, `MenuContributor._generate_menu` for a menu, and
+  `suite_xml/post_process/remote_requests.py::RemoteRequestFactory.build_query_prompts` for a
+  required condition) `_ensure_no_case_references` raises on the same shape. Nova writes lookup
+  reads into each of those slots (`lib/commcare/hqJson/xpath.ts::hqXPath`, its `"case"` and
+  `"no-case"` interpolations, from `hqJson/caseList.ts` and `expander.ts`), and
+  `lib/commcare/xpath/wire/serialize.ts::printPath` refuses only a self or parent step there, so a
+  step named `geo.lat` would reach HQ's suite rewritten or stop the build. *Step 6:* part 04, pull
+  request A9, widens lookup names over unaccented letters, digits, `_` and `-`, and a name holding a
+  period is not held yet (the new HELD-NEW entry
+  `expressions-and-data/tag-or-field-name-holding-a-period`; its sections 9.1 and 9.4). Subject to
+  part 04's run R2 over `targeted-lookup-names`: if HQ's upload, its restore, its build of a filter
+  or a display condition, or Core's read fails on a `-`, nothing of the widening lands and the whole
+  row is not held yet, recorded here; if one fails only on a name starting `XML`, that class alone
+  stays refused under the HELD-NEW entry
+  `expressions-and-data/tag-or-field-name-starting-xml-in-another-case`.
+- **A worker property has no type to give** (README, "Proof when a feature is built", proof 6:
+  "Worker and location properties come from the slugs the app reads, typed from how it reads them").
+  `lib/domain/users.ts::userPropertySchema` holds `uuid`, `slug`, `label`, `required` and `choices`.
+  *Step 6:* part 11 (`11-project-data.md`), pull request B9, types nothing from use.
+- **One feature-matrix app an entry cannot be built** (README, "The corpus": "Feature-matrix apps, at
+  least one per inventory entry"; the outline's item 7). Of the manifest's 1,250 inventory entries at
+  `15a00a97`, 45 can sit in no app's source: 21 name no surface key, 17 name only keys of families an
+  app's source never holds (`lookup-model:`, `lookup-workbook:`, `lookup-code:`, `hq-api:`,
+  `project-setting:`) and 7 name only `parser:` keys, which a runtime reads from a build; 18 of the
+  45 are REFUSED or HELD-NEW and 27 allow. *Step 6:* part 14 (`14-proof.md`), pull request B13,
+  defines coverage as three sets and a closed exemption list (`proof/matrix/exemptions.json`), held
+  by `lib/commcare/surface/__tests__/entryCoverage.test.ts`.
+- **Step 6 has no cutover** (README, "Order of work", step 6: "a cutover that merges each lookup
+  table's per-app deployment records into one per Project table and project space"; the outline's
+  "Cutover and migration" says the same). A table's ownership is derived from the live mappings of
+  the Project's apps, so there is no `referenced` record, no Project-level record and no data to
+  move. *Step 6:* part 11, pull request B9 (its Departure 5 and section 10); part 15
+  (`15-stack-contracts-and-exit.md`), section 5.4, says why each of the step's four migrations
+  needs no maintenance window.
+
+**Claims of step 6's outline corrected.**
+
+- **The app source and the application resource are two requests with no shared revision** (item 1,
+  "the stored app source and form JSON" as one reading). The source read strips `version`
+  (`app_manager/models/applications.py::ApplicationBase._meta_fields`, removed by
+  `Application.export_json`), so nothing in the two answers ties them to one save. *Step 6:* part
+  05, pull request B1, reads the save counter after both (its section 8), and a counter that moved
+  answers `changed`.
+- **The genesis writer has three owners today** (item 2, "the third owner of the one genesis
+  writer"): `lib/db/appGenesis.ts::createExplicitBlankApp` and
+  `lib/agent/change-set/materializeGenesis.ts::materializeAppFromGenesis` and
+  `materializeSessionGenesis`, as `docs/architecture/contracts.md` says ("All three use one genesis
+  writer"). *Step 6:* part 12 (`12-the-reading-and-the-birth.md`), pull request B10, adds
+  `hq-adoption` as the fourth.
+- **Every id an adopted app's target holds differs from Nova's derivation** (item 2, "writes the ids
+  its target holds that differ"). Nova derives a menu's and a form's HQ id from the entity's UUID
+  (`lib/commcare/wireIdentity.ts`), which the reader mints, and HQ's ids are HQ's own. *Step 6:* part
+  10 (`10-identity-and-the-ledger.md`), pull request B8, writes a row for every one.
+- **Not every reader of the union handles a run-time list or a read outside the chosen case** (item
+  8, "the checker, the emitter, Preview's fold and Postgres handle them").
+  `lib/agent/authoring/printQueryExpression.ts::queryPrinter` throws "has no record value spelling"
+  for `value-list`, `cases`, `table-rows`, `locations`, `selected-cases`, `call` and a read that is
+  not a property of the case chosen in a menu, and `lib/agent/authoring/output.ts` prints every
+  expression of a menu for the Solutions Architect and MCP, so no agent could read a document
+  holding one. *Step 6:* part 08 (`08-the-reader-expressions.md`), pull request B6, gives a list of
+  values a spelling an agent reads and keeps (`list(…)`, never authored anew) and does not hold a
+  read of the device's data inside a search value yet (its section 8.3).
+- **A function call in a record slot is more than a Postgres compiler** (item 8, "Postgres compiles
+  none of `call`'s functions in step 3" as its whole cost). The checker refuses the arm in every
+  record slot (`lib/domain/expression/typeChecker.ts::checkExpression`, the refusal
+  `arm-unavailable`), the builder has no card
+  for it (`components/builder/shared/expressionEditorSchemas.ts::CardValueKind` leaves `call` out),
+  and the record dialect has no spelling. *Step 6:* part 08, pull request B6, holds no `call` in a
+  record slot yet and reads `cond` as nested `if` (its sections 8.1 and 5.3). Subject to part 08's
+  run E1, the native family `expression` in B6's own lane run: under its outcome C, where Core
+  evaluates `cond` and the nested `if` apart, the fold leaves B6, a record slot holding `cond`
+  binds as a `call` and is not held yet either, and this bullet records it.
+- **HQ's search has a `today()` of its own** (item 8, which gives Nova's search the worker's day for
+  `today()` and names no other). HQ evaluates `today()` in a search as the project space's day
+  (`case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`,
+  `xpath_functions/value_functions.py::today`), beside the day a device sends
+  (`lib/domain/expression/searchRuntimeValues.ts`). *Step 6:* part 08, pull request B6, reads HQ's
+  as Nova's `today` and declares the difference among the first publish's changes (its section 7.5).
+- **Nothing turns a lowered instant back into text** (item 8, "an integer opposite a lowered operand
+  is a folded literal, read back as its `…Z` spelling" through `literalInstantText`).
+  `lib/domain/expression/instantOperand.ts::literalInstantText` takes a literal's own text and
+  reprints it; no function takes microseconds. *Step 6:* part 08, pull request B6, adds the inverse
+  (`instantTextOfMicros`, its section 5.3).
+- **`planContentDeclaration` proposes one declaration, not the platforms content runs on** (item 9,
+  "the rule of `lib/doc/platformDeclaration.ts::planContentDeclaration` reduced to platforms"). It
+  offers the split only where content runs on neither platform, so an app that runs on Android alone
+  only because of its date-and-time questions gets `runsOnlyOn: "android"` and no offer, though the
+  split would let it run on both. *Step 6:* part 06 (`06-the-reader-forms.md`), pull request B2,
+  adds `planDeclarationChoices` beside it (its section 16.3), which gives every declaration the
+  content runs on, with the split and without.
+- **An advanced menu stores no parent selection** (item 10, "An advanced form's case selections":
+  the reader tests an advanced form's loads against "its module's parent-selection chain"). HQ's
+  `app_manager/models/modules.py::AdvancedModule` extends `ModuleBase` alone, and `parent_select` is
+  declared on `Module` and `ShadowModule` only, so an HQ source holds no chain to test against.
+  *Step 6:* part 07 (`07-the-reader-cases-menus-lists.md`), pull request B4, builds the chain from
+  the loads (its section 4.2).
+- **`hasMarkdown` is no fact of a form's source** (item 10, "reads `plainLabel` from an item's
+  `hasMarkdown`"). It is a property of the form builder's in-memory item (Vellum's
+  `src/javaRosa/plugin.js::loadXML` sets it from a copy it read); in a source the fact is whether
+  the text's entry holds a `<value form="markdown">`. *Step 6:* part 06, pull request B3, reads
+  that.
+- **A hint or a validation message with no formatted copy needs no slot** (item 10, "This step
+  holds a hint or validation message imported without a markdown form, which otherwise gains one on
+  republish"). No runtime reads either text's formatted copy ("Found while planning step 5",
+  above), and HQ's form builder keeps a text without one as it is (Vellum's
+  `src/javaRosa/plugin.js::contributeToModelXML` writes the copy only where the item has it), so a
+  stored setting would change nothing a worker sees. *Step 6:* part 03
+  (`03-questions-and-text.md`), pull request A8, writes no formatted copy for a hint or a validation
+  message in any app, so the next publish of an existing app drops the ones Nova wrote, and stores
+  a setting only for help text, `plainHelp`, whose copy Android reads (its sections 8.1 and 8.2).
+- **Model iteration is not read by a load-time rule** (item 10, "Model iteration's admission widens
+  from step 5's structural rule to the research's load-time rule for imported repeats"). Telling a
+  query that reads an answer set at load from one that reads a blank answer needs an analysis of
+  load-time values Nova does not have, and
+  `lib/domain/queryRepeatPlacement.ts::queryRepeatPlacementNeeds` would have to hold the same
+  analysis for the gate, Preview and both exports. *Step 6:* part 06,
+  pull request B3, holds a model-iteration repeat where Nova's own rule runs it and gives any other
+  shape the new HELD-NEW entry
+  `questions/model-iteration-repeat-outside-nova-s-model-iteration-rule` (its Departure 1 and
+  section 10.4).
+- **Ending a deployment decides nothing for placements** (item 10, ending "decides which deployments
+  stop counting as published for placements"). No file of `lib/doc`, `lib/db/placementAuthority.ts`
+  or `lib/db/placementRecords.ts` imports `lib/deployment`: a held placement is the document's.
+  *Step 6:* part 10, pull request B8, ends a deployment without changing a hold (its section 8.6).
+
+**Manifest cells corrected, and one row the manifest lacks.**
+
+- **`application-and-settings/32-features-credentials` names no reader of the setting, and Android
+  reads it.** Its disposition cell names only what writes the setting and its emission cell is
+  `omit`, so a `.ccz` leaves the block out. Android's work history reads the profile's
+  `<credentials>` from each installed app
+  (`activities/connect/viewmodel/PersonalIdWorkHistoryViewModel.kt::getWorkHistoryForAppRecord`,
+  `profile.credentials`, which is Core's `Profile.getCredentials`). *Step 6:* part 01
+  (`01-the-bar-and-the-manifest.md`), pull request A3, re-words the entry's disposition and emission
+  cells to name the reader and keeps the setting at HQ's value, which a `.ccz` made for the project
+  space mirrors (its sections 3.6, 4.2 and 5).
+- **`application-and-settings/multimedia-map` cites an emitter that is gone.** Its emission cell
+  names `bundle.ts::buildMultimediaMap`; no such function is in `lib/`, and Nova sends no
+  `multimedia_map` in any mode (`lib/commcare/CLAUDE.md`). *Step 6:* part 01, pull request A2,
+  re-words the cell (its section 3.3).
+- **The CommTrack gate promises a question step 6 does not ask.** The `content` of
+  `project-space-setting/Domain.commtrack_enabled` (`lib/commcare/surface/entries/gates.json`) ends
+  "import asks the same from step 6", as the outline's items 9 and 10 have bringing an app in ask
+  the confirmations a publish asks. Step 6 asks none when an app is brought in: it records the plan
+  features the app already uses, and `commtrack-off`, `form-entry-sync-off` and the
+  `same-type-child-links` check stay the first publish's (part 07, Departure 11; part 10,
+  `10-identity-and-the-ledger.md`, section 6.5). *Step 6:* pull request A2 removes the clause (part
+  15, section 8.3).
+- **The manifest has no row for the fields of a registration block that names no form.** Two
+  display-only menus of HQ's wash starter app hold a `case_list_form` with a label, the workflow
+  `case_list` and a blank `form_id` (`static/app_manager/template_apps/wash/app.json`), and the
+  rows over the block's label, workflow and media each read them beside a form. Every reader of the
+  block tests `form_id` first (`app_manager/app_strings.py::_create_case_list_form_app_strings`,
+  `app_manager/models/forms.py::FormBase.case_list_modules`,
+  `helpers/validators.py::ModuleBaseValidator.validate_case_list_form`, and the detail's own test
+  in `suite_xml/sections/details.py`), so the other fields do nothing. *Step 6:* part 02
+  (`02-menus.md`), pull request A5, adds the INERT entry
+  `menus-and-case-lists/case-list-form-fields-beside-a-blank-form-id` (its section 14).
+- **`menus-and-case-lists/put-in-root-display-only-forms` names a parent a menu need not have.** Its
+  cell proposes the slot `Module.showFormsInParent`. A top-level menu has no parent, and every menu
+  of HQ's starter apps that sets `put_in_root` is top-level
+  (`static/app_manager/template_apps/*/app.json`: eight of twelve menus over agriculture, health and
+  wash, none with a `root_module_id`). *Step 6:* part 02 (`02-menus.md`), pull request A4, names the
+  slot `Module.formsInMenuAbove`.
+- **`menus-and-case-lists/modulebase-case-type` gives one grammar where HQ has two.** Its cell reads
+  "the editor's ASCII `^[\w-]+$`". The page's check is ASCII
+  (`static/app_manager/js/bootstrap5/app_manager.js`, `valueIncludeInvalidCharacters`, a JavaScript
+  `\w`), and the server compiles the same text in Python (`app_manager/util.py::is_valid_case_type`,
+  `CASE_TYPE_REGEX`), where `\w` is every Unicode word character. The cell also says nothing of the
+  names Nova refuses on its own
+  (`lib/commcare/validator/reservedNamespaces.ts::RESERVED_CASE_TYPE_NAMES`), one of which, `case`,
+  is the type HQ gives a new menu in an app that holds none
+  (`views/modules.py::_init_module_case_type`). *Step 6:* part 04, pull request A9, takes the page's
+  grammar for a case type (`^[A-Za-z0-9_-]+$`) and refuses no case type for being a reference word
+  (its section 4). Subject to part 04's run R2 over `targeted-case-type-names`: if a reader fails on
+  a type that starts with a digit or a hyphen, the grammar is `^[A-Za-z_][A-Za-z0-9_-]*$` and that
+  class is not held yet (`menus-and-case-lists/case-type-starting-with-a-digit-or-a-hyphen`); if
+  one fails on a type named `case`, `parent`, `form`, `user` or `search`, that name stays refused
+  under a HELD-NEW entry of its own (`menus-and-case-lists/case-type-named-<name>`). Either is
+  recorded here.
+- **`menus-and-case-lists/6-late-flag-late-flag-1` is HELD with an emission Nova does not write.**
+  Its emission cell reads "`late-flag` + `late_flag`". Nova writes an interval column as a calculated
+  `translatable-enum` (`lib/commcare/hqJson/caseList.ts::projectColumnToDetail`), with a header where
+  HQ's `detail_screen.py::LateFlag` writes an empty one on the case list (it extends
+  `HideShortHeaderColumn`), as `lib/commcare/suite/case-list/columns.ts` says of its own header. A
+  late flag read as an interval column would gain a header at its first publish. *Step 6:* part 07,
+  pull request B5, re-cuts the entry to HELD-NEW (its section 11.2).
+- **`case-search/input-date` is HELD as a shape Nova does not write.** Its cell reads "scalar
+  `date`". `lib/commcare/suite/case-search/simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`
+  answers true for every exact date field, so Nova's date field is always left out of HQ's own
+  matcher and carries a whole-day clause; a date prompt HQ's matcher compares is no shape Nova
+  emits. *Step 6:* part 07, pull request B5, splits the entry (its section 12.2).
+- **A media reference with no file draws differently by slot, not by platform alone**
+  (`expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map`: "Android
+  shows its missing-media placeholder", and Web Apps "no image"). Android draws the placeholder for
+  a question's or a choice's image (`views/media/MediaLayout.java`, `showMissingMediaView`) and an
+  archive icon in a case list's image column (`views/EntityView.java::setupImageLayout`,
+  `ic_menu_archive`), and draws nothing on a menu's or a form's tile
+  (`adapters/MenuAdapter.java::setupImageView`, `setupAudioButton`) or on the Register action
+  (`views/EntityActionViewUtils.java::setupActionAudio`, which shows its audio button only where
+  `FileUtil.referenceFileExists`). Web Apps shows no picture, and shows a player with nothing to play
+  for a question's sound or video: the client binds the players' visibility to the paths themselves
+  (`cloudcare/templates/cloudcare/partials/form_entry/multimedia.html`, `caption_audio`,
+  `caption_video`), which Formplayer sends whatever the media map holds
+  (`api/json/PromptToJson.java`, `caption_audio` from `prompt.getAudioText()`). *Step 6:* part 11,
+  pull request B9, decides each slot at source: the entry becomes INERT for the slots nothing draws,
+  beside a new REFUSED entry for the slots a runtime draws (its section 3). Subject to its run R2
+  (the Android and Web Apps client readers over `targeted-missing-media`, by hand on hosted
+  runners): each of its outcomes B to E moves one slot between the drawn and the inert side for one
+  platform, with the two entries' `item` cells, in B9, and B9 corrects the sentence of this bullet
+  that the outcome contradicts.
+
+**Contracts and comments corrected.**
+
+- **A server bundle carries the generated surface** (`lib/commcare/CLAUDE.md`, "The surface
+  manifest": "Server code reads gate entries through `surface/gates.ts`, never `surface.json`, so a
+  server bundle carries the gate entries alone"). `lib/commcare/surface/schemaDefaults.ts` and
+  `lib/commcare/appStringKeys.ts` import `surface.json`, and `lib/deployment/hqSourceBaseline.ts`,
+  `preflight.ts` and `service.ts` import those. *Step 6:* part 06, pull request B2, replaces the
+  sentence.
+- **Not every app Nova publishes to has `secure_submissions` off**
+  (`lib/commcare/runtimeTarget.ts::profileServerProperties`, its comment: "every app Nova imports has
+  `secure_submissions` off"). A project space's security page rewrites every app when its setting
+  changes (`domain/forms.py::PrivacySecurityForm.save`), and an app made in HQ takes the project
+  space's setting from the start (`app_manager/views/apps.py::new_app`, `default_new_app`). *Step
+  6:* part 01, pull request A3, writes the receiver URL HQ's own `post_url` picks.
+- **`category` and `state` are ordinary properties on a device too**
+  (`docs/architecture/complex-apps.md`, the reserved write properties: "dedicated client setters and
+  no server mapping at all, so the same block sets a reserved slot on the device and an ordinary
+  dynamic property on HQ"). Core's setters store into the property map itself
+  (`cases/model/Case.java::setCategory`, `setState`: `data.put(...)`, the map `setProperty` writes and
+  `getProperties` returns), and `cases/instance/CaseChildElement.java::setCaseProperties` exposes
+  every key of it as a child, beside an attribute of the same name. *Step 6:* part 04, pull request
+  A9, admits both as case properties and rewrites the paragraph (its section 6). Subject to part
+  04's run R2 over `targeted-case-write-names`: if HQ's case processing and Core disagree about a
+  saved `state` or `category`, this bullet is withdrawn, both names stay forbidden as write
+  properties and are not held yet, and the disagreement is recorded here.
+- **A quote mark in a choice's value breaks no literal** (`lib/domain/selectOptionValue.ts`, header:
+  "A quote breaks the XPath literal a value is compared with"). Since step 3 every literal prints
+  through `lib/commcare/xpath/wire/serialize.ts::literalTokens`, which spells a value holding `'`
+  between `"` and one holding both as `concat(…)`. *Step 6:* part 04, pull request A9, admits a
+  quote mark in a choice's value and holds back only a value with both kinds, which a form's text
+  cannot spell (its section 7). Subject to part 04's run R2 over `targeted-choice-values`: if a
+  reader shows a difference for a value holding a quote mark, `SELECT_OPTION_VALUE_PATTERN` stays,
+  such a value is not held yet (`questions/choice-value-holding-a-quote-mark`), and this bullet
+  records the reader and what it showed.
+- **The case store has no `indexName`** (`lib/case-store/store.ts` and
+  `lib/case-store/postgres/store.ts`, two comments naming an `indexName` defense). No function of
+  that name is in `lib/`, and since #870 no authored name becomes a Postgres identifier
+  (`lib/case-store/CLAUDE.md`, "Fixed case indexes"). *Step 6:* part 04, pull request A9, removes
+  the two comments.
+- **`hqLoadReference` takes text** (`lib/commcare/hashtags.ts`, header: it "projects typed case
+  reads"). Its first parameter is a reference's text, and it dispatches on the text's namespace,
+  throwing for `case` and `search`. *Step 6:* part 04, pull request A9, gives it a case type and a
+  property.
+- **`namespaceOf` has no caller** (`lib/references/config.ts::namespaceOf`, doc: "every node-attr
+  write site derives the namespace through one rule"). Only a comment in
+  `lib/tiptap/refSuggestion.ts` names it. *Step 6:* part 04, pull request A9, deletes it (its
+  section 5.2).
+- **`create_form` and `create_module` take no fields and no select source**
+  (`lib/agent/toolSchemaGenerator.ts`, two comments: `projectedOptionsSourceSchema` is "shared by
+  add_fields, create_form, create_module, and edit_field", and the `addFields` item shape is "also
+  embedded by `createForm` / `createModule` for their `fields` arrays").
+  `lib/agent/tools/createForm.ts` and `createModule.ts` import no field or option schema. *Step 6:*
+  part 04, pull request A9, corrects both comments.
+- **HQ's source read serves more than the reader's comments say** (`lib/commcare/hq/appSource.ts`:
+  of another `doc_type`, "the one HQ's source view serves is `LinkedApplication`"; and on
+  `HqAppSourceModule.caseType`, "the empty string for a menu with none"). The source view also
+  serves a build's id, as `Application` (`app_manager/dbaccessors.py::get_app` tests `copy_of` only
+  under `latest`). A mirror menu stores `"case_type": null`
+  (`app_manager/models/modules.py::ShadowModule.case_type` is a property;
+  `app_manager/tests/data/suite/shadow_module.json`), a shadow form stores `"xmlns": null`
+  (`app_manager/models/forms.py::ShadowForm.xmlns` is a property;
+  `proof/hq-reads/hq-built/app-source.json`, the third form of the second menu), and a report menu
+  stores `""` (`ReportModule.new_module`). Today's reader answers `malformed` for the first two.
+  *Step 6:* part 05, pull request B1, admits the three for a reading alone and rewrites both
+  comments (its sections 6 and 7). Subject to its run G4, which retains HQ's answers for each
+  (`proof/hq-reads/reading/source-shadow.json`, `application-shadow.json`): where an answer differs
+  from this bullet, B1 writes the answer HQ gave here.
+- **A row that stands before an app is not what the birth contract forbids**
+  (`docs/architecture/contracts.md`: "a persisted empty app, optional seed path, independently
+  reconstructed starter, or pre-app placeholder row is forbidden"). The sentence means a placeholder
+  `apps` row: `design_sessions` already holds a row before its app exists (`lib/db/CLAUDE.md`,
+  "`design_sessions` is the pre-app generation target"), and a reading is another. *Step 6:* pull
+  request B14 re-words the sentence so it stays true, in the words part 12
+  (`12-the-reading-and-the-birth.md`) fixes under "Contracts and docs these changes make false":
+  a placeholder `apps` row is forbidden, and a design session and a reading are records of work
+  toward an app.
+
+**Planning's own first readings, corrected so they are not repeated.** Three readings that a first
+pass over HQ's source invites, each given here as the fact the plan rests on in its place: that a
+`RemoteApp` answers a source read, that a column's `endpoint_action_id` holds a form id, as its
+declaration suggests, and that every save of a working app raises its `version`. A `RemoteApp` has
+no source to read: `export_json` and `scrub_source` are defined on `Application` alone
+(`app_manager/models/applications.py::Application.export_json`), `RemoteApp` extends
+`ApplicationBase`, and the source view calls `export_json` (`app_manager/views/apps.py::app_source`),
+so it fails on the missing method before any source is built. The classes are read; the failure is
+inferred, and part 05's run G2 retains what each read answers; where the retained source read
+answers a source and not the failure, B1 rewrites this sentence to what it answered.
+`app_manager/models/case_list.py::DetailColumn.endpoint_action_id` is declared a `FormIdProperty`
+and holds a form's session endpoint id
+(`helpers/validators.py::ModuleBaseValidator.validate_case_list_field_actions` compares it with
+`form.session_endpoint_id`), so no form id resolves it. And not every save of a working app raises
+its `version`: HQ's restore of a deleted app
+(`app_manager/models/delete_records.py::DeleteApplicationRecord.undo`) and a linked app's pull
+(`app_manager/views/utils.py::_update_forms`) save with `increment_version=False`. *Step 6:* part
+05, pull request B1, holds all three (its section 8).
+
+**A defect of Nova's own that a run of the plan shows.**
+
+76. **Label text that holds `instance('…')` reaches HQ's build as text HQ reads for instances.**
+    Nova writes a label's literal text as a text node
+    (`lib/commcare/xform/builder.ts::literalLabelNodes`), and HQ's build renders the whole form and
+    searches it for instance reads, labels included (`xform.py::XForm.add_missing_instances`;
+    `suite_xml/post_process/instances.py::get_instance_names`, a pattern over the unescaped text).
+    For a name the form does not declare, HQ adds the instance where it knows the name and refuses
+    the build otherwise ("is missing some instance declarations that can't be automatically
+    added"). Nova already keeps an XPath string literal from matching
+    (`lib/commcare/xpath/wire/serialize.ts::literalPieces`); a label has no such guard. Step 6's
+    outline held the shape to be one "only an imported app holds" (item 8); any author can type it
+    today. *Harm:* a label that mentions `instance('abc')` stops HQ's build of the app, and one that
+    mentions `instance('casedb')` gains a declaration nothing reads. *Step 6:* part 03
+    (`03-questions-and-text.md`), pull request A7, writes the bracket after `instance` as a literal
+    output, so a worker reads the same characters and HQ's pattern finds no match (its section 5).
+    Read, not run: the number is held until part 03's run G2 settles it
+    (`proof/hq/test_label_instance_text.py`, HQ's own build over two hand-written controls and the
+    new spelling of each, in A7's lane run). Outcome A confirms this entry, and the two controls
+    stay as its evidence. Under outcome B HQ builds both controls with no refusal and no added
+    instance: the change leaves A7, this entry is removed, 76 is the number of the next finding,
+    and the test stays as the proof that label text needs no protection. Under outcome C HQ still
+    reads the new spelling as an instance: A7 also writes the quote mark after the bracket as a
+    literal output of its own, and this entry records that spelling. If HQ reads that spelling too,
+    the change leaves A7, this entry stands with the controls as its evidence and no fix, and the
+    label joins the issue of the Connect bullet below, whose title then reads "A label, or a
+    Connect block's name or description, holding instance('…') reaches CommCare HQ's instance
+    scan". *Documents:* none in the corpus; the two hand-written controls of
+    `proof/hq/test_label_instance_text.py`.
+
+**Defects of Nova's own, found by reading.**
+
+- **A CommCare Connect block's name and description meet the same scan.** They are text nodes in
+  the form's data (`lib/commcare/xform/builder.ts::buildConnectBlocks`), which HQ's instance scan
+  reads as it reads a label, and no protected spelling exists inside instance data. *Step 6:* not
+  fixed here. Before pull request A7 opens, its implementer files the issue "A Connect block's name
+  or description holding instance('…') reaches CommCare HQ's instance scan", assigned to
+  themselves, and names its number in A7's description (part 03, "What this part needs of other
+  parts").
+- **Preview's list filter does not fold accents.**
+  `components/preview/shared/listFilter.tsx::rowMatchesFilterText` lower-cases and compares, where
+  Core's filter first removes accents from both sides (`cases/util/StringUtils.java::normalize`). A
+  worker who types "jose" finds "José" on a device and not in Preview. Around Core's filter the two
+  runtimes differ as well: Android splits the typed text on runs of whitespace
+  (`adapters/EntityListAdapter.java::filterByString`), and the screen Formplayer runs on single
+  spaces (commcare-core `util/screen/EntityScreenHelper.java::filterEntities`). Preview is not a
+  lane reader, so no check observes it. *Step 6:* part 01, pull request A3, ports Core's `normalize`
+  and its fuzzy match to Preview (`lib/preview/listFilterMatch.ts`) and splits the typed text as the
+  platform Preview plays does (its section 6.4).
+- **Preview keeps a filtered tile list's groups in their unfiltered order.** Formplayer filters,
+  sorts and then groups (commcare-core `util/screen/EntityScreenHelper.java`, `filterEntities`,
+  `sortEntities`, `groupEntities` in that order), so in Web Apps the groups that remain stand in the
+  order of each one's first matching member. Preview filters inside each group
+  (`components/preview/screens/CaseListScreen.tsx`, `filteredGroups`) and keeps the groups as the
+  case store paged them. The two differ only where a group's earlier members fail the filter and a
+  later group's first member passes, and no check observes it. *Step 6:* not fixed here. Before
+  pull request A3 opens, its implementer files the issue "Preview keeps a filtered tile list's
+  groups in their unfiltered order, where Web Apps orders them by each group's first match",
+  assigned to themselves, and names its number in A3's description (part 01, section 6.4).
+- **Preview marks every required question, and an Android phone marks none of a Nova app's.**
+  Preview draws the asterisk wherever a question is required, on either platform
+  (`components/preview/form/InteractiveFormRenderer.tsx::InteractiveField`). Android draws it only
+  where the profile's `cc-label-required-questions-with-asterisk` is `yes`
+  (`views/widgets/QuestionWidget.java`, which asks
+  `preferences/HiddenPreferences.java::shouldLabelRequiredQuestionsWithAsterisk`), and Nova writes
+  `no` (`lib/commcare/appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`). No doc
+  states the difference. *Step 6:* part 01, pull request A3, keeps the setting at HQ's value and
+  states the difference in the public docs (its sections 5 and 9.7); what Preview draws does not
+  change.
+- **A publish turns a profile setting the HQ app holds no value for into a forced one.** Fifteen
+  settings are written wherever the project space's app holds none
+  (`lib/commcare/targetOverlay.ts::projectProfileForTarget`, `holdsNoValue`), all but the map layer
+  with `force`, where HQ's build writes nothing for an absent one
+  (`app_manager/models/applications.py::Application.create_profile`), and a forced setting returns
+  a worker's own choice of fuzzy search, automatic updates or text to speech to that value at every
+  update (`lib/commcare/appProfileSettings.ts`, its header). On an app Nova created that is Nova's
+  stated behavior from its first publish. Over an app made in HQ it would change workers' phones,
+  and no lane document is such an app. *Step 6:* part 01, pull request B8, seeds none of the
+  fifteen on a deployment Nova brought in (its section 7.3).
+- **`publishedCaseBlocks` leaves a form out without saying why.**
+  `lib/commcare/hq/publishedCaseBlocks.ts::readForm` answers `undefined` for a form it cannot read
+  (a shadow form, a missing or unparsed XForm, a block that depends on what the source does not
+  say), and the function returns a map of the forms it read, whose header leaves the count of the
+  rest to the caller. It has no production caller today, so nothing is harmed yet; a reading would
+  take a form left out for a form that writes no case. *Step 6:* part 07, pull request B4, returns
+  every form left out with its reason (`PublishedCaseBlocks.unread`, its section 6.1), and part 09
+  (`09-acceptance-and-the-first-publish.md`), pull request B7, fails acceptance on any form left
+  out, so none passes silently.
+- **A language removed in Nova stays in HQ's build profiles.** An update writes `langs` and never
+  `build_profiles` (`lib/commcare/CLAUDE.md`), where HQ's own Languages page removes the language
+  from both (`app_manager/views/apps.py::edit_app_langs`, its loop over `app.build_profiles`). It
+  reaches only an app whose HQ copy has build profiles. *Step 6:* not fixed here. Before pull
+  request A2 opens, its implementer files the issue "A language removed in Nova stays in CommCare
+  HQ's build profiles", assigned to themselves, and names its number in A2's description. A2 adds
+  the entry `application-and-settings/build-profiles-non-empty` (HELD-NEW), whose owner, step 7's
+  group `settings-nova-comes-to-own`, is where Nova comes to keep build profiles in step with an
+  app's languages (part 01, section 3.7).
+
+**Gated runs that write here.** Beside the runs the bullets above name, three more of the plan's
+runs record an outcome under this heading, each written into this paragraph by the pull request that
+holds the run, and only under the outcome named.
+Part 07's run G1 reads a form-builder save of Nova's Save to Case shapes; its retained case lands
+in B13 and runs in B13's own CI, and its outcomes B and C amend B4 before stack B merges. Outcome C
+is a save that changes the structure of a Save to Case block of Nova's shape, recorded here with
+the shape. Part 08's run E1 (pull request B6) records two outcomes: B, a lexical spelling row Core
+reads apart, with the row; and D, a casedb `name` step that Core reads blank or refuses, where
+`lib/commcare/xpath/formPathBinding.ts::rowValue` reads it as `case_name` today, with what the
+reader then binds. Part 11's run R1 (pull request B9) records outcome B, an upload with "replace"
+on that changes a table it does not name.
 
 ### Found of the lane itself
 
