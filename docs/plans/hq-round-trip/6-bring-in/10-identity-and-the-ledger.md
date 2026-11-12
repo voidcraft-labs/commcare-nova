@@ -130,8 +130,9 @@ client receives. Nothing here changes how Preview runs an app, so nothing here m
     `nova_revision`, `media_files` and the origin `changes`, whose writers, readers and rules are
     part 15's (its sections 3, 4.4 and 7.2).
 20. **No HQ app is mapped by two Nova apps today, and none is planned for.** The claim scan found
-    none ("Executed during planning"), it runs once more before the merge, and the migration's own
-    guard refuses the deploy if one appeared in between ("Written and not yet run", 11).
+    none when it ran ("Executed during planning"). It runs once more before the merge, the
+    migration's own guard refuses the deploy if one appeared in between, and from the migration on
+    the unique index holds the rule against both revisions ("Written and not yet run", 11).
 
 ---
 
@@ -325,6 +326,22 @@ It prints two numbers and nothing else: groups whose `live_apps` is 2 or more, a
   numbers. No handling is planned: no product path makes this state (every `app` mapping today was
   written from HQ's answer to that app's own create), the scan found none, and the migration's
   guard refuses the deploy with nothing changed while such a group is there.
+
+**After that run.** The scan says what the tables held when it ran, and the revision that serves
+until the deploy finishes still writes mappings. Two things hold the rule from there, so the scan
+has no run after a deploy that went through.
+
+- *Until the migration.* Statement 8 asks the scan's question again inside the batch. Where a
+  group has two live apps it raises, the batch rolls back with none of the step's four migrations
+  applied, the Job fails and the deploy is blocked with the previous revision serving. The
+  session then runs the scan once more, which reads the schema it was written for, and stops with
+  its two numbers. The top-level file's item 1 covers that run.
+- *From the migration on.* The unique index of statement 9 holds one CommCare HQ app to one live,
+  unreleased mapping against both revisions (section 11, "With the previous revision serving").
+  A run of the scan after it would also misread what it found: its query knows no `released_at`,
+  so a mapping that statement 7 released, on an app the previous revision then restored, counts
+  as a second live claim. It is none: until it is settled no reader treats that deployment as
+  published, and the app's next publish settles it (5.3 and 7.1).
 
 The lane's assertion on held media paths (4.7) is no run of this list, because it decides nothing:
 it is a control on a fact read at source, and 4.7 says what the session writes if it ever fails.
@@ -2255,9 +2272,11 @@ ALTER TABLE app_deployment_baselines
 	ADD CONSTRAINT app_deployment_baselines_origin_check
 		CHECK (origin IN ('create', 'push', 'cutover', 'read', 'changes', 'unread')),
 	ADD COLUMN IF NOT EXISTS nova_revision bigint,
+	-- The floor is pushed_revision's (20260806000000_deployments: pushed_revision >= 0), so the
+	-- copy of 10b cannot be refused: an app's sequence starts at 0 (apps.mutation_seq DEFAULT 0).
 	DROP CONSTRAINT IF EXISTS app_deployment_baselines_nova_revision_is_a_sequence,
 	ADD CONSTRAINT app_deployment_baselines_nova_revision_is_a_sequence
-		CHECK (nova_revision IS NULL OR nova_revision >= 1),
+		CHECK (nova_revision IS NULL OR nova_revision >= 0),
 	ADD COLUMN IF NOT EXISTS media_files jsonb,
 	DROP CONSTRAINT IF EXISTS app_deployment_baselines_media_files_is_a_map,
 	ADD CONSTRAINT app_deployment_baselines_media_files_is_a_map
@@ -2298,6 +2317,30 @@ only where a copy differs from its deployment, 7 only where a mapping is still u
 10b only where a `push` row holds no revision yet. On the tables
 as the claim scan found them, statement 7 changes no row and statement 8 raises nothing.
 
+**Every value a statement copies passes the constraint it lands under**, and so does every stored
+value under a CHECK this migration replaces. Each was read against the column it reads from, as
+`main` declares it:
+
+| Statement | Reads | What that column admits | The constraint it lands under |
+|---|---|---|---|
+| 1 | every stored `app_deployments.state` | the seven states of `20260818010000_deployment_resource_push` | the replaced `app_deployments_state_check`: the same seven and `ended` |
+| 10 | every stored `app_deployment_baselines.origin` | `create`, `push`, `cutover` and `unread` (`20261015020000_hq_round_trip_deployment_ledger`) | the replaced `app_deployment_baselines_origin_check`: the same four, `read` and `changes` |
+| 5 | `app_deployments.server`, `domain` | both `NOT NULL` (`20260806000000_deployments`), and every mapping names a deployment (`deployment_id` is `NOT NULL` with a foreign key) | statement 6's two `NOT NULL`s and its composite foreign key, which the copy satisfies by being the deployment's own pair |
+| 7 | nothing: it writes `now()` | | `app_deployment_resources_release_is_an_apps`, and the statement's own `WHERE` names `kind = 'app'` |
+| 10b | `app_deployment_resources.pushed_revision` | null, or 0 or more (`CHECK (pushed_revision >= 0)`, the same file) | `app_deployment_baselines_nova_revision_is_a_sequence`, which admits null and 0 or more |
+
+A revision of 0 is a real value here, not a blank: an app's sequence is `apps.mutation_seq`, which
+`20260708000000_app_state` declares `DEFAULT 0` and `lib/utils/persistedSequence.ts::
+safePersistedSequence` admits from 0, and a publish records the head it compiled
+(`service.ts::publishAppToHq`, `pushedRevision: seq`). Today's genesis writer births an app at
+sequence 1 (`lib/db/appGenesis.ts::writePreparedGenesisInTransaction`), so no publish of this step
+writes 0, but a mapping written for an app row born at 0 and published before its first accepted
+change holds it, and the database admits it. A CHECK of 1 or more would have failed the whole
+batch on such a row, with the deploy refused and no repair planned. So the floor is the source
+column's. Part 15 reads a `nova_revision` of 0 as a pair it cannot use, since no fold baseline
+sits before sequence 1, and the deployment gains a usable pair at its next publish (its section
+3, test 4).
+
 **With the previous revision serving.** The step ships as one deploy, so the revision that serves
 while this migration runs is `main` before the step. Statements 1, 3 and 10 add nullable or
 defaulted columns and widen two CHECKs, so every row that revision writes still passes. Statement
@@ -2337,12 +2380,17 @@ rules `CONCURRENTLY` out, and the table holds one row per published resource, so
 
 **Locks.** Statements 1, 2, 3, 6 and 10 take `ACCESS EXCLUSIVE` on `app_deployments`,
 `app_deployment_resources` and `app_deployment_baselines`, three tables the serving revision reads
-and writes, and hold them until the batch commits. A lock request that queues behind one long reader
-would stall every deployment read behind it, so statement 0 bounds the wait at five seconds, as
-`20261112000000_incremental_transcripts` does, and statement 12 sets the timeout back to `0`, as
-`20260724030000_opaque_case_ids` does, for whatever migration shares the batch. A timeout fails the
-migration Job with nothing changed, since the batch is one transaction; the Job's failure blocks the
-deploy, and running the deploy again tries again.
+and writes, and hold them until the batch commits. Statement 11's new table holds a foreign key to
+`media_assets`, and PostgreSQL takes `SHARE ROW EXCLUSIVE` on a table a new foreign key points at:
+that holds back the serving revision's writes of `media_assets` (an upload, a deletion) and none of
+its reads, and it too is held until the batch commits. A lock request that queues behind one long
+reader would stall every deployment read behind it, so statement 0 bounds each wait at five seconds,
+as `20261112000000_incremental_transcripts` does, and statement 12, which follows statement 11, sets
+the timeout back to `0`, as `20260724030000_opaque_case_ids` does, for whatever migration shares the
+batch. A timeout raises SQLSTATE `55P03` and fails the migration Job with nothing changed, since the
+batch is one transaction; the Job's failure blocks the deploy, and running the deploy again tries
+again. The top-level file ("Migrations and the deploy") says once what the whole batch holds and for
+how long.
 
 **What the previous revision does with a row only the new one writes.** A `read` or a `changes`
 baseline makes its `readAppBaseline` throw "which Nova does not know" for that deployment's
@@ -2536,9 +2584,12 @@ Each line names the failure it would catch.
   released and the index builds; a second live claim across two Projects is refused with `23505` on
   `app_deployment_resources_hq_app_claim`, and admitted once the first is superseded or released; the
   CHECKs refuse an ending with no person, a release on a mapping of any kind but `app`, a media
-  path with `..`, a backslash, no directory or a space at either end, a `nova_revision` of zero,
-  and a `media_files` value that is no JSON object; statement 10b pairs a `push` row with its live
-  mapping's revision, leaves every other origin null, and changes nothing on a replay; **the
+  path with `..`, a backslash, no directory or a space at either end, a `nova_revision` below
+  zero, and a `media_files` value that is no JSON object; statement 10b pairs a `push` row with its
+  live mapping's revision, leaves every other origin null, and changes nothing on a replay; **a
+  mapping published at revision 0**: over a `push` baseline whose live `app` mapping holds
+  `pushed_revision` 0, a value `main`'s CHECK admits, `up` succeeds and the baseline's
+  `nova_revision` is 0, so the copy can never fail the batch; **the
   previous revision's supersede on a released row**: over a mapping statement
   7 released, the test runs the statement `store.ts::writeResourceMapping` runs at `1f103305`
   (`UPDATE app_deployment_resources SET superseded_at = $now WHERE deployment_id = $1 AND kind =
@@ -2556,7 +2607,13 @@ Each line names the failure it would catch.
   run a second time over its own result, with the ledger row erased as the adoption tests erase it,
   raises nothing and changes no catalog row and no data row: this is the run that fails if statement
   2 drops the constraint statement 6's foreign key depends on. After `up`, `SHOW lock_timeout` in
-  the same transaction answers `0`, so a migration that shares the batch keeps its own.
+  the same transaction answers `0`, so a migration that shares the batch keeps its own. **The lock
+  wait**: with a second connection holding `ACCESS SHARE` on `app_deployment_baselines` in an open
+  transaction, `up`, run in one transaction as the migrator runs it, is refused with SQLSTATE
+  `55P03` after five seconds and before ten, and the rolled-back transaction leaves every catalog
+  row and data row as it was; once the second connection's transaction ends, `up` succeeds. The
+  second connection is released in a `finally`. This is the case that fails if statement 0 is
+  lost.
 - `lib/db/__tests__/privilegeConvergence.postgres.test.ts` and `privilegeConvergence.test.ts`
   (additions). The runtime role inserts and deletes rows of both tables and is refused an UPDATE with
   `42501`; the new routine is in the expected inventory. `runtimeRowLockPrivileges.test.ts` keeps
@@ -2941,7 +2998,8 @@ for, and why it is not built.
    the preflight refuses, and it would be stale from the moment someone changed the flag.
 9. **No duplicate claim is handled, because none exists.** The claim scan found no HQ app that two
    Nova apps map, and no product path makes one. Decision: the scan runs once more before the merge,
-   and the migration's guard refuses the deploy if one appeared in between. Not done: a step that
+   the migration's guard refuses the deploy if one appeared in between, and the unique index holds
+   the rule from the migration on ("Written and not yet run"). Not done: a step that
    has someone choose which app keeps publishing and moves the others to recently deleted, because
    it would be a procedure for a state that is not there. Statement 7 stays, since it is what makes
    the migration true to this part's rule whatever the tables hold: an app in recently deleted holds

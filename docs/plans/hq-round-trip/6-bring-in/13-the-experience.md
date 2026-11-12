@@ -2966,12 +2966,21 @@ and review.
 ### 15.2 What moves `MODEL_CONTEXT_VERSION`, and what does not
 
 `lib/models.ts::MODEL_CONTEXT_VERSION` moves once for the whole step (`../6-bring-in.md`). One
-change of this part is among what moves it: the guide's paragraph (15.1), since the constant "moves
-in every pull request that changes … the authoring guide" (`lib/agent/CLAUDE.md`). Nothing else of
-this part reaches a stored model context. The six new tools and the five tools of 14.7 are served
-by MCP alone: `lib/agent/sharedToolRegistry.ts` holds none of them and `lib/mcp/server.ts`
-registers each directly, and "A tool only MCP serves is in no stored model context and does not
-move it". The screens change no tool, no description and no guide sentence.
+change of this part is among what moves it: the guide's paragraph (15.1), since a build whose
+authoring guide differs from the build deployed before it must carry a different value. That is
+the rule as this step writes it into `lib/agent/CLAUDE.md` ("Provider contract"). The sentence
+there today says the constant "moves in every pull request that changes" a served tool or the
+guide, which a step of many changes and one deploy does not do, and which its own reason never
+asked: a stored model context is replayed only under the catalog it was made against, and
+production stores one only under a deployed build. "Contracts and docs these changes make false"
+holds the old sentence and its replacement in full, and the top-level file's exit check 8 fails
+while the old one stands.
+
+Nothing else of this part reaches a stored model context. The six new tools and the five tools of
+14.7 are served by MCP alone: `lib/agent/sharedToolRegistry.ts` holds none of them and
+`lib/mcp/server.ts` registers each directly, and "A tool only MCP serves is in no stored model
+context and does not move it", a sentence of that paragraph that stands. The screens change no
+tool, no description and no guide sentence.
 
 `lib/db/appTests.ts::RUNTIME_VERSION` is not moved by anything here: this part changes no pinned
 document and no evaluator.
@@ -3699,6 +3708,7 @@ Each row lands with the behavior that makes it true.
 | `lib/mcp/errors.ts`, the comment on `McpErrorType` | "Spans five independent failure sources", over a list that already names six (`not_found`, `invalid_input`, `scope_missing`, `permission_denied`, `UploadErrorType`, `AgentErrorType`) | "Spans seven independent failure sources", with a seventh bullet: "`BringInErrorType`: a read of CommCare HQ that stopped before there was an app's read to answer (`hq_read_stopped`, with the circumstance's code, title and next step), and a create Nova refused for a reason that is neither input nor access (`bring_in_refused`, with the refusal). Surfaces via `BringInToolError`." |
 | `lib/deployment/CLAUDE.md`, "Surfaces" | names the deployment tools MCP serves | gains `list_hq_apps`, `read_hq_app`, `bring_in_hq_app` and `stop_publishing`, and "none is given to the Solutions Architect" |
 | `lib/agent/authoring/CLAUDE.md` | no word of a brought-in app | gains: "The guide says one thing about an app brought in from CommCare HQ: it is an ordinary app. It gives no instruction to bring one in." |
+| `lib/agent/CLAUDE.md`, "Provider contract", the rule for `MODEL_CONTEXT_VERSION` | "`lib/models.ts::MODEL_CONTEXT_VERSION` moves in every pull request that changes the name, the description or the input schema of a tool the Solutions Architect is offered, or the authoring guide (`lib/agent/authoring/reference.ts`), because a stored model context is replayed only under the catalog it was made against." | "`lib/models.ts::MODEL_CONTEXT_VERSION` differs between any two deployed builds that differ in the name, the description or the input schema of a tool the Solutions Architect is offered, or in the authoring guide (`lib/agent/authoring/reference.ts`), because a stored model context is replayed only under the catalog it was made against, and production stores one only under a deployed build. A set of changes that merges and deploys together moves it once, in that set. A change that deploys alone moves it in its own pull request." The sentence after it stands word for word ("A tool only MCP serves is in no stored model context and does not move it, and neither does a field added to a shared read tool's result with no change to the tool's name, description or input."). This step is the first set of that kind: the whole step moves the value once (the top-level file, "Versions"). Every other place that names the constant was read, and none restates the rule: `lib/agent/authoring/CLAUDE.md` ("a change to a platform note or remedy changes the guide and moves `MODEL_CONTEXT_VERSION`") states a consequence the new sentence keeps true, so it is not edited; the closing sentence of the same section of `lib/agent/CLAUDE.md` ("A pull request finds what it moved by hashing every shared tool's served schema at its base and head") says how a change finds the schemas it moved and stays true; `lib/commcare/CLAUDE.md`, the root `CLAUDE.md`, `docs/architecture/` and `docs/testing.md` do not name the constant; and the comment over it in `lib/models.ts` ("A compaction item is replayable only inside this model-context contract.") stands |
 | root `CLAUDE.md`, the map's builder UI entry | lists `components/builder` and its libraries | gains "`components/bring-in` (the flow that brings an app in from CommCare HQ, a state of `/build/new`)" |
 | root `CLAUDE.md`, the first paragraph | "Nova turns a natural-language conversation into a working CommCare app." | gains after it: "An app that already lives in CommCare HQ can be brought in and carried on from there." |
 | `design/readme.md` | no "Bringing in"; no radio group contract | section 17.4 |
@@ -3900,7 +3910,7 @@ was weighed and not taken. Each states the evidence and the decision taken.
 | `e2e/lib/smokeProfiles.ts`, `e2e/lib/smokeSeedFactory.ts` | the `bring-in` profile and its builder |
 | `e2e/tests/browser/publishing.spec.ts` and its peer | the cases of "Tests" |
 | `lib/mcp/__tests__/servedSchemas.test.ts`, `errors.test.ts`, `compatibility.postgres.test.ts`, `deploymentTools.postgres.test.ts`; `components/builder/app-setup/__tests__/publishingSectionModel.test.ts`; `components/builder/__tests__/publishOutcome.test.ts` | the extensions of "Tests" |
-| `design/readme.md`; `components/CLAUDE.md`, `components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`, `e2e/CLAUDE.md`, `lib/deployment/CLAUDE.md`, `lib/agent/authoring/CLAUDE.md`, root `CLAUDE.md` | the rows of "Contracts" |
+| `design/readme.md`; `components/CLAUDE.md`, `components/builder/CLAUDE.md`, `lib/routing/CLAUDE.md`, `e2e/CLAUDE.md`, `lib/deployment/CLAUDE.md`, `lib/agent/authoring/CLAUDE.md`, `lib/agent/CLAUDE.md`, root `CLAUDE.md` | the rows of "Contracts" |
 | `content/docs/meta.json`, `index.mdx`, and the pages of 17.2 and 17.3 | section 17 |
 | `../nova-plugin`: `skills/upload_to_hq/SKILL.md` and its mirror, both `plugin.json` files, `README.md` | section 16 |
 

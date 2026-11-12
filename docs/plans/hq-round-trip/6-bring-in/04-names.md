@@ -1223,6 +1223,8 @@ migration finds each by its text and replaces it:
 
 ```ts
 export async function up(db: Kysely<unknown>): Promise<void> {
+	// Wait five seconds for a lock, and no longer, while the previous revision serves.
+	await sql`SET LOCAL lock_timeout = '5s'`.execute(db);
 	await sql`
 		DO $$
 		DECLARE held record;
@@ -1256,6 +1258,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			AND wire_name !~ '^xml'
 		)
 	`.execute(db);
+	// Hand the batch back as it was found.
+	await sql`SET LOCAL lock_timeout = 0`.execute(db);
 }
 ```
 
@@ -1302,8 +1306,27 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 ```
 
 Every stored row passes the new checks, since each passed the narrower ones, so `ADD CONSTRAINT`
-validates without a scan script, and it holds its lock for one pass over two small tables. The migration
-is additive in what it admits, so it is safe while `main` as it stood before the step still serves:
+validates without a scan script.
+
+**Locks.** The two `DROP CONSTRAINT`s take `ACCESS EXCLUSIVE` on `lookup_tables` and on
+`lookup_columns`, two tables the serving revision reads and writes. The migrator runs every pending
+migration in one transaction (`lib/case-store/CLAUDE.md`: "Kysely wraps the whole migration batch in
+ONE transaction"), and this migration is the first of the step's four by stamp, so both locks are held
+until the whole batch commits: through this migration's two validation passes and through the three
+migrations after it, and not for this migration's statements alone. The top-level file ("Migrations and
+the deploy") says once what that hold is made of and why it needs no maintenance window. What this
+migration owes that argument is the bound on its own wait. `up` opens with
+`SET LOCAL lock_timeout = '5s'`, as `20261112000000_incremental_transcripts` and part 10's migration do
+(`10-identity-and-the-ledger.md`, section 11, statement 0), so a lock request that queues behind one
+long reader gives up after five seconds, where an unbounded request would stall every lookup read
+behind it for as long as that reader ran. It closes by setting the timeout back to `0`, as
+`20260724030000_opaque_case_ids` does, so each migration of the batch states its own. A request that
+times out raises SQLSTATE `55P03` and fails the migration Job with nothing changed, since the batch is
+one transaction; the Job's failure blocks the deploy, and running the deploy again tries again. T18
+holds the bound and the reset.
+
+**With the previous revision serving.** The migration is additive in what it admits, so it is safe
+while `main` as it stood before the step still serves:
 that revision's own schema (`lib/lookup/schema.ts::wireIdentifierSchema` at `1f103305`) lets it write
 only names the old checks accept, and the new checks accept every one of those. A name holding a
 hyphen exists only once the new revision serves and someone saves one; no code mints one, since
@@ -1677,7 +1700,7 @@ extended, rewritten or existing is in the tree at `1f103305`; every other file i
 | T15 | `lib/doc/__tests__/selectOptionCount.test.ts` | `mutationSchema`, the reducer and the gate | `removeOption` to one option commits; to none is refused `SELECT_NO_OPTIONS`; a `convertField` seeded with one option commits | a one-option state some path still refuses |
 | T16 | `lib/domain/__tests__/caseWriteProperties.test.ts` | the gate over built documents | a write to `first-name`, `state` or `category` passes; to `location_id` or `hq_user_id` is refused; the emitted Save to Case row and the local basic block name the leaf | a forbidden name left in one set; a leaf `FormPath` refuses |
 | T17 | `lib/case-store/__tests__/hyphenatedProperty.postgres.test.ts` | real Postgres through the store's submission path | a submission that saves `first-name`, `state` and a choice value `it's` stores them, and a case list filtered on each returns the row | a name or value the SQL compiler mishandles |
-| T18 | `lib/case-store/migrations/__tests__/lookupNames.postgres.test.ts` | the production migration chain | inserts of tags `health-facility-v2`, `XMLcodes`, `a-b_c` and wire names `geo-lat`, `XMLcode` succeed; `health-facility.v2`, `geo.lat`, `xmlcodes`, `1a`, `-a`, `a b`, `ñ` and a 33-character tag fail with SQLSTATE 23514; exactly one check constraint remains on each column; `down` restores the old refusals; a namespace `nova_create_app_test_namespace` makes after the migration takes the tag `health-facility-v2` | a check the migration missed or doubled; a new App Test namespace left with the old check |
+| T18 | `lib/case-store/migrations/__tests__/lookupNames.postgres.test.ts` | the production migration chain | inserts of tags `health-facility-v2`, `XMLcodes`, `a-b_c` and wire names `geo-lat`, `XMLcode` succeed; `health-facility.v2`, `geo.lat`, `xmlcodes`, `1a`, `-a`, `a b`, `ñ` and a 33-character tag fail with SQLSTATE 23514; exactly one check constraint remains on each column; `down` restores the old refusals; a namespace `nova_create_app_test_namespace` makes after the migration takes the tag `health-facility-v2`; the lock wait: with a second connection holding `ACCESS SHARE` on `lookup_columns` in an open transaction, `up`, run in one transaction as the migrator runs it, is refused with SQLSTATE `55P03` after five seconds and before ten, the rolled-back transaction leaves both columns the checks they had, and once the second connection's transaction ends `up` succeeds; after `up`, `SHOW lock_timeout` in the same transaction answers `0`. The second connection is released in a `finally` | a check the migration missed or doubled; a new App Test namespace left with the old check; a lock request that waits with no bound behind a reader of the serving revision; a timeout left set for the next migration of the batch |
 | T19 | `lib/lookup/__tests__/schema.test.ts` (extended) | `lookupTagSchema`, `lookupWireNameSchema` | the same accept and refuse lists as T18, so the schema and the database agree; every wire name the schema admits matches `HASHTAG_SEGMENT_SOURCE` whole (property test), so `#row/<wireName>` is always one reference | a name one layer takes and the other refuses; a column the SA's dialect cannot name |
 | T20 | `lib/commcare/lookup/__tests__/names.test.ts` | `fixtures.ts`, `workbook.ts`, a form read, and the HQ JSON's case list filter and `form_filter` for a case form and a survey form, parsed back with `parseXml` and `parser.parse` | the fixture's elements, the workbook's headers and sheet name and each printed read hold the names verbatim; each HQ JSON string is one HQ's build leaves alone: a port of `xpath.py::dot_interpolate`'s character walk (quote state, the digit test on each side), run with an empty replacement, returns the string unchanged, which is the test `_ensure_no_case_references` itself makes | an element or step altered or refused; a read HQ's build would rewrite |
 | T21 | `lib/domain/__tests__/searchInputName.test.ts` and `lib/commcare/suite/case-search/__tests__/hyphenatedName.test.ts` | the schema, then the prompt, query and locale emitters read by the suite oracle | `first-name` is a name; the prompt's key, the `field[@name=…]` read and the locale id hold it | a key and its read disagreeing |
@@ -1822,8 +1845,8 @@ Paths are under the directory each bullet names. Nothing moves; one symbol chang
 **New.**
 
 - `lib/case-store/migrations/20261113000000_hq_round_trip_lookup_names.ts`: the two lookup name checks,
-  found by their text and replaced by named, wider ones, and a `down` that refuses where a stored name
-  needs the wider grammar (9.3).
+  found by their text and replaced by named, wider ones, under a lock wait of at most five seconds, and
+  a `down` that refuses where a stored name needs the wider grammar (9.3).
 - `proof/targeted/documents/`: `hyphenatedQuestionIds.ts`, `caseTypeNames.ts`, `choiceValues.ts`,
   `lookupNames.ts`, `searchFieldNames.ts`, `caseWriteNames.ts`, each one document of section 12.
 - `lib/commcare/__tests__/namesDocArbitrary.ts`: the generator of the names fuzz family ("Tests").

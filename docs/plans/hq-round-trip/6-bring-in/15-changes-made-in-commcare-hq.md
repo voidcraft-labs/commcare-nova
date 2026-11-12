@@ -784,9 +784,12 @@ publish and is not looked for. Section 5.3 says what follows.
 A baseline's source is only useful with the Nova document it corresponds to. A bring-in of
 changes has to move the two without a push, so the pair is stored as one fact.
 
-**The one thing stored.** `app_deployment_baselines.nova_revision`, a nullable `bigint` of 1 or
+**The one thing stored.** `app_deployment_baselines.nova_revision`, a nullable `bigint` of 0 or
 more (part 10, section 11, statement 10, holds its DDL): the revision of the Nova app whose
-document this source describes. Null where the source describes no Nova document.
+document this source describes. Null where the source describes no Nova document. Every writer
+of this step writes 1 or more, since an app is born at sequence 1 and each commit adds one. The
+floor is 0 because the fill below copies `pushed_revision`, whose own floor is 0, the value an
+app's sequence starts at (`apps.mutation_seq`, `DEFAULT 0`). Test 4 below says how a 0 is read.
 
 | Baseline origin | `nova_revision` |
 |---|---|
@@ -805,7 +808,9 @@ the origin `changes` (and `storedOrigin` admits it), in the statement that admit
 holds the SQL) fills the column for every row whose origin is `push` from the live app mapping of
 the same deployment and the same `remote_app_id`, where that mapping's `pushed_revision` is not
 null. The pairing holds for those rows because one transaction wrote both. Rows of any other
-origin stay null. It replays over its own result and migrates no document.
+origin stay null. It replays over its own result and migrates no document. The column's CHECK
+admits every value that copy can produce, a `pushed_revision` of 0 included (part 10, section
+11, the table of what each statement reads).
 
 **When there is a usable pair.** A bring-in of changes is offered only where all hold:
 
@@ -813,10 +818,22 @@ origin stay null. It replays over its own result and migrates no document.
    (`store.ts::readAppBaseline`);
 2. its `nova_revision` is not null;
 3. for a `push` baseline, `nova_revision` equals the live app mapping's `pushed_revision`;
-4. `nova_revision` is at or after `greatestFoldBaselineSeq` of the app.
+4. the app has a fold baseline, and `nova_revision` is at or after the greatest one
+   (`greatestFoldBaselineSeq`, which answers null for an app with none).
+
+Test 4 is the whole rule for a `nova_revision` of 0, and no test asks for 1 or more. Every fold
+baseline sits at sequence 1 or later: a birth writes its app's at sequence 1, and a cutover's is
+admitted only beside the `fold-baseline` change that cutover appended in the same transaction,
+at the app's new head (`nova_admit_app_change_fold_baseline_insert`, as
+`20261110020000_hq_round_trip_case_writes_fold_horizon` leaves it). So a revision of 0 is behind
+every baseline, `loadCanonicalBlueprintAtSequence` could not rebuild the document it names, and
+the pair is unusable until the deployment's next publish writes both. `usablePair` compares the
+two numbers and holds no special case for 0. A null `foldSeq` is unusable for the same reason:
+with no baseline at or before a revision, that loader throws.
 
 `reference.ts::usablePair(baseline, mapping, foldSeq)` is the one function that answers it, for
-the publish's `canBringIn` (9.4), the review and section 8's check. Test 3 is what keeps the pair
+the publish's `canBringIn` (9.4), the review and section 8's check. `foldSeq` is `number | null`,
+`greatestFoldBaselineSeq`'s answer as it stands. Test 3 is what keeps the pair
 honest across the deploy: the migration runs while the previous revision serves, and that
 revision's publish upserts a baseline's source and the mapping's `pushed_revision` and leaves
 `nova_revision` as the fill left it. The two then disagree, the pair reads as unusable, and the
@@ -916,8 +933,11 @@ END IF;
 ```
 
 It is `CREATE OR REPLACE`, so it replays over its own result, and it is additive in effect: every
-row the revision before writes still passes, and that revision writes no row of the kind. `down`
-throws, as that migration's does.
+row the revision before writes still passes, and that revision writes no row of the kind. It is
+one statement, and replacing a routine takes no lock on `app_changes` or on any other table the
+serving revision reads or writes: the trigger that calls the routine is left as it is. So it has
+no lock wait to bound, unlike the step's three other migrations (the top-level file, "Migrations
+and the deploy"). `down` throws, as that migration's does.
 
 `lib/db/placementAuthority.ts::PLACEMENT_RECORDING_KINDS` gains the kind: where CommCare HQ keeps a
 case change is a fact about CommCare HQ, the reader holds each placement as it read it (part 07,
@@ -2424,7 +2444,7 @@ jsdom: the panel's states are a model, tested as a model, and drawn under Playwr
 | `lib/publish/__tests__/hqChangesCopy.test.ts`, `documentChangeCopy.test.ts` | pure | every sentence of sections 6.2 and 9 exactly, singular and plural, each `since` kind; the Nova side's form line names every question and the CommCare HQ side's counts them; no em dash, no ellipsis in a button |
 | `lib/deployment/hqChanges/__tests__/plan.fuzz.test.ts` | pure, production reducers and the production reader | below, "The round trip over generated documents" |
 | `lib/deployment/hqChanges/__tests__/plan.test.ts` | pure | each arm of `HqChangePlan`; each row of 5.3 that has a decided outcome, built from production builders: a removed read of a worker property keeps the property and every persona's value; a newly read slug Nova holds binds to it and adds nothing; a reworded source keeps the translation as `needs-review` (two readings built by hand, since Nova's own emission of a reworded text prints the source for its translations); a change both sides made alike is off Nova's list and gives an empty batch; a rename since the reference gives the lists and no batch; a rename of the app in Nova is on Nova's list; a gate refusal caused by an automation clears after an edit to the automation, and the next plan is applied to the head; a property the changed app stops naming keeps its declaration and its label, and one only a save gave is in `removedCaseProperties`; a `setCaseProperty` moves the type and keeps the label; a case type the changed app drops is retired and is in `removedCaseTypes`; with the changes applied to the published document, a property the head declared since stays in the target and the batch holds no `removeCaseProperty`; for each of the four rows 5.3 names (a condition added to a one-screen group, a list switched to a tile over a dormant cell, formatting turned on over dormant flags, a menu's forms reordered around a registration form) the first take check fails, the touched form or menu takes the reader's spelling, the change is taken, `respelled` names it and nothing outside it moved; `touchedBy` over each mutation family |
-| `lib/deployment/hqChanges/__tests__/reference.postgres.test.ts` | real Postgres | a recorded hold after the publish and an accepted move are in the reference, and the plan is applied to the head; a `blueprint-migration` row that applies is in the reference; one that does not answers `nova-updated`; a rename and its rename back give no `renamesSince`; the worker setup and the logo are the head's, the name is the published document's, and a worker property's slug renamed since is the published one; a Project move after the publish with no person's change before it is in the reference, the plan is applied to the head and Nova's list is empty; a Project move that follows a person's change answers `app-moved`; two properties left holding one slug bind the slug to the published one, and the bring-in answers `gate` with the duplicate-slug finding; `usablePair` over every origin, a null revision, a `push` row whose revision is not the mapping's, and a revision behind a fold baseline |
+| `lib/deployment/hqChanges/__tests__/reference.postgres.test.ts` | real Postgres | a recorded hold after the publish and an accepted move are in the reference, and the plan is applied to the head; a `blueprint-migration` row that applies is in the reference; one that does not answers `nova-updated`; a rename and its rename back give no `renamesSince`; the worker setup and the logo are the head's, the name is the published document's, and a worker property's slug renamed since is the published one; a Project move after the publish with no person's change before it is in the reference, the plan is applied to the head and Nova's list is empty; a Project move that follows a person's change answers `app-moved`; two properties left holding one slug bind the slug to the published one, and the bring-in answers `gate` with the duplicate-slug finding; `usablePair` over every origin, a null revision, a `push` row whose revision is not the mapping's, a revision behind a fold baseline, a revision of 0 beside a mapping whose `pushed_revision` is 0 (unusable, by test 4 alone), and a null `foldSeq` |
 | `lib/deployment/hqChanges/__tests__/baselineSource.test.ts` | pure, the reader | W1's property over every retained read |
 | `lib/doc/__tests__/diffDocsToMutations.provenance.test.ts` | pure | the third arm emits a removed and an added property and never a rename; a source guard holds its callers to `plan.ts` |
 | `lib/deployment/__tests__/hqChanges.postgres.test.ts` | real Postgres, HQ answered by the controlled client the publish tests use | one `hq-changes` row at the expected head; the baseline, its `nova_revision`, its `media_files`, identity rows and media paths in that transaction, and all of them gone where the batch's write is made to fail after the record; a change that adds a case type leaves that type's schema synced, and one that drops a case type leaves its schema inactive and its rows in place; a change that stops naming a declared property commits over cases that hold a value for it; a bring-in that takes something whose emission needs an add-on writes an ownership that holds it, and a later change to that add-on in CommCare HQ stops the next publish; two requests of one member with one digest answer one commit; a second member's request that races the first answers `changed`, and so does a retry sent after the commit; a replaced file at a held path deletes the old asset's path row and inserts the new one's; a moved head and a moved baseline each write nothing and answer `changed`; a repeat answers the same commit; the gate's refusal writes nothing; a second review is `nothing`; an empty batch writes no app change and moves the pair to the reviewed head; a `nothing` review's record keeps origin and `nova_revision`; the stored list is written, kept and cleared exactly where 4.4's item 4 says; `D_ref` rebuilt across an `hq-changes` row |

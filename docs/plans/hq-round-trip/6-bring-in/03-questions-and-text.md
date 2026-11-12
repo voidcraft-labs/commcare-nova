@@ -114,8 +114,9 @@ and not yet run" that settles it.
     `vellum:ignore="markdown"`, and each text's own setting is kept for when the switch goes back on.
 21. **One rule of this part narrows the gate for a stored document: 5.1's.** Every other new refusal
     is of a shape no stored document holds (a new key's value, a new prose arm). For 5.1 a read-only
-    scan of every saved app found none holding the text, and the session runs it once more before
-    the merge (5.1, "What existing apps see").
+    scan of every saved app found none holding the text when it ran. The session runs it once more
+    before the merge and once more when the deploy has ended, and the deploy's own probe covers the
+    time between (5.1, "What existing apps see").
 22. **This part's changes reach served tool inputs, descriptions and the guide** (9.5 lists them), so
     they are part of the step's one move of `MODEL_CONTEXT_VERSION`, and `setFormSections` joins
     `scripts/test-schema.ts`, since this step is the first to change its served schema (section 9).
@@ -502,8 +503,9 @@ slice the session starts for the step's tests that take the Web Apps reader (par
 
 No other fact of this part waits on execution. One thing of this part touches production, and the
 top-level file's list of what needs a yes names it: the read-only scan of 5.1, which found nothing
-during planning and is run once more before the merge. 5.1 ("What existing apps see") says what the
-scan reads and prints and what the session does with each answer. Nothing of this part writes
+during planning and is run once more before the merge and once more when the deploy has ended. 5.1
+("What existing apps see") says what the scan reads and prints and what the session does with each
+answer. Nothing of this part writes
 production.
 
 ---
@@ -1588,21 +1590,29 @@ subject `instance-text` with the text it found, and comes in once a space stands
 admitted document.
 
 *An app saved in Nova.* The gate is absolute, so a saved app holding the text would stop at its next
-edit. No saved app holds it: a read-only scan of every saved app, run during planning, found none.
-It looked for `instance(` followed by a quote mark in every saved form row, translation and other
+edit. No saved app held it when a read-only scan of every saved app ran during planning. It looked
+for `instance(` followed by a quote mark in every saved form row, translation and other
 entity row, which is more than this rule refuses. `scripts/scan-instance-text.ts` is that scan in
 the repository's form: read-only, over every stored app, loaded by
 `lib/db/apps.ts::loadSchemaAdmittedAppForInspection` (the loader for a scan that looks for what a
 new rule refuses: it applies the stored schema and skips today's gate), it asks `instanceScanRead`
 of every `formSourceTexts` entry and prints the id of each app that holds such a text, and app ids
-alone: no name, no form and never the text. It writes nothing. The session runs it once more
-against production (`--prod`, through `scripts/lib/prodDb.ts`) once the rule exists and before the
-merge, and the top-level file's list of what needs a yes names it. Where it prints nothing, the
-session goes on and removes the script in the last commit before the merge. Where it prints an
-app, the session stops before the merge and says what the scan printed. Either way no refused app
-is served: the migration job's runtime database probe reruns the whole gate over every saved app
-and raises on any finding (`lib/db/runtimeDatabaseProbe.ts::runCanonicalRuntimeDatabaseProbe`),
-which stops the deploy before the new revision serves.
+alone: no name, no form and never the text. It writes nothing.
+
+A scan is a fact about the moment it ran, and the revision that serves until the deploy finishes
+is `main` before the step, which still admits the text. So the session runs the scan twice more
+against production (`--prod`, through `scripts/lib/prodDb.ts`), and the top-level file's list of
+what needs a yes names both runs and what each is for (its item 1). The first is once the rule
+exists and just before the merge. Where it prints nothing, the session goes on and removes the
+script in the last commit before the merge. Where it prints an app, the session stops before the
+merge and says what the scan printed. From that run until the migration Job, the deploy itself
+holds the rule: the Job's runtime database probe reruns the whole gate over every saved app and
+raises on any finding (`lib/db/runtimeDatabaseProbe.ts::runCanonicalRuntimeDatabaseProbe`), which
+blocks the deploy with the previous revision still serving and no app changed. The second run is
+when the deploy has ended. Where the deploy is live, it finds an app saved after the probe and
+before the new revision held all traffic. Where the probe refused the deploy, it names the app,
+since the probe reports counts. Where it prints an app, the session stops and says what the scan
+printed, and no repair is planned for either run.
 
 ---
 
@@ -2467,7 +2477,7 @@ One line per place of step 5's checklist (its section 6), per concept. "None" ca
 | 9 SA and MCP | `keypad` | `{{= }}` | title arm, `blanks`, `plain_help`, `plain_text` | none: the refusal's message |
 | 10 Public docs | section "Contracts and docs" | the same | the same | two paragraphs, in the same section |
 | 11 Proof | `targeted-number-keypad`, G5 | `targeted-prose-value`, G1 and G3, the label controls of `proof/hq/test_instance_text.py` | three targeted documents, G4, one spelling rule | `proof/hq/test_instance_text.py`: the vectors and the build controls |
-| 12 Existing documents | none: optional key | none: new arm | none: optional keys, a wider grammar; every app's next publish drops hint and validation copies (8.2) | none: a scan found no saved app holding the text, and it is run once more before the merge (5.1) |
+| 12 Existing documents | none: optional key | none: new arm | none: optional keys, a wider grammar; every app's next publish drops hint and validation copies (8.2) | none: a scan found no saved app holding the text; it is run once more before the merge and once more when the deploy has ended, and the deploy's probe covers the time between (5.1) |
 | 13 `MODEL_CONTEXT_VERSION` | reaches served inputs (9.5) | reaches served descriptions and the guide (9.5) | reaches served inputs and the guide (9.5) | reaches none |
 | 14 Billed check | no new entry; two prompts gain `keypad` | registers `setFormSections`; one prompt gains a formula | no new entry; four prompts gain an input (section 9) | nothing to send: no schema or description changes |
 | 15 Docs | section "Contracts and docs" | the same | the same | the same |
@@ -2932,7 +2942,7 @@ alternatives it weighed and did not take. Each item is this plan's decision, wit
 - `components/builder/case-list-config/sortBlanksChoice.ts`: `blanksAfterDirectionChange` (7).
 - `lib/agent/authoring/proseSlots.ts`: `proseSlotAt` (9.2).
 - `scripts/scan-instance-text.ts`: the read-only scan of 5.1, removed in the last commit before the
-  merge.
+  merge. Its run when the deploy has ended reads it as the top-level file says (its item 1).
 - `lib/domain/__tests__/hqInstantText.vectors.ts`: the vectors Vitest and the lane share (G6).
 - The tests "Tests" marks new, among them `e2e/tests/app/number-keypad.spec.ts`,
   `e2e/tests/app/text-and-lists.spec.ts` and the fixture

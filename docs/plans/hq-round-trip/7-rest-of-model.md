@@ -332,9 +332,13 @@ section 4).
   export rule `MEDIA_FORMAT_NOT_PLAYED`) judges each file on every platform the app declares.
 - How a translation whose shown values differ from its source text is stored (part 06, section 12.5),
   given that prose parts hold identity and a changed shape re-fingerprints translations.
-- Its platform rows: 50 of the 62 entries of this group that the manifest holds at `1f103305` read
-  `ignored` or `different` on a platform (25 are ignored on Web Apps and run on Android, 15 the
-  reverse), so nearly every setting adds a feature row and Preview cells.
+- Its platform rows. A display setting is something one platform draws and the other may not, in
+  both directions: among this group's entries are ones that read `ignored` on Web Apps and run on
+  Android, and ones that read the reverse. Each entry whose readings differ takes a feature row
+  with its Preview cells, or a place on the ambient list, in the change that flips it ("What every
+  group lands with", "Platform rows"). Which entries those are is read from the manifest when the
+  group is planned: the entries whose `owner` is this group's id and whose `platforms` readings
+  differ. This file copies no count of them.
 
 **Exit.** A base per palette question with each appearance HQ's form builder offers comes in, and a
 multilingual base with media that differs by language republishes with each language's file.

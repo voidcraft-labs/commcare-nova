@@ -2077,8 +2077,13 @@ authoring surface stores one today and the reader refuses the search values that
 document holds one and nothing is shown that cannot be edited. A spelling and a card for them is a
 query sublanguage in a search value: model Nova does not hold, owned by step 7's `case-search` group.
 
-The comment in `printQueryExpression.ts` that names this plan's top-level file by its path is
-replaced by C8, which says what is true and names no plan file.
+The comment over the default arm of `printQueryExpression.ts::queryPrinter` names no plan file. It
+says that `value-list` and the device-data reads have no record spelling and that reading them
+back belongs to bringing an app in from CommCare HQ. This section makes both halves false: the
+`value-list` case above gives the list its spelling and takes it out of the default arm, and the
+reads that stay there never reach the printer, since the reader refuses the search values that
+hold one. So the change that adds the `value-list` case replaces the comment with C8 in the same
+edit, and the default arm keeps its throw for the reads that stay.
 
 `list` is no escape hatch added because HQ has one: the arm, its checker rule, its emitter, its
 Preview fold and its Postgres compilation ship today, and the dialect and the card were the two
@@ -2604,8 +2609,8 @@ you can change the condition to “Is any of”." is removed.
 
 **Comments.**
 
-- C8, `lib/agent/authoring/printQueryExpression.ts`, in place of the default arm's comment, which
-  names the plan's top-level file by its path: "The device-data reads (`cases`, `table-rows`,
+- C8, `lib/agent/authoring/printQueryExpression.ts`, in place of the default arm's comment, in the
+  change that adds the `value-list` case (8.3): "The device-data reads (`cases`, `table-rows`,
   `locations`, `selected-cases`, a `project` that is no chosen case's property) have no record
   spelling. No authoring surface stores one and the reader of CommCare HQ's apps refuses the search
   values that hold one (`lib/commcare/reader/expressions/csqlRead.ts`), so none reaches this printer."
@@ -2732,7 +2737,7 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | `components/builder/shared/expressionEditorSchemas.ts`, the comment over `isAuthorableExpressionKind` and the one inside it; `cards/expression/GeneralValueCards.tsx`, the comment over `ValueListCard` | "the display-only value list"; "A list held from an imported search renders, and no menu offers one."; "No step authors one, so the card is display only" | each says what is true: the list is offered where the slot's profile is the server search's alone, and the card edits its items |
 | `lib/domain/expression/CLAUDE.md`, "The semantic authority", where it names `literalInstantText` | no inverse | adds: "`instantTextOfMicros` is its inverse for a count of microseconds: the canonical UTC text, or an offset behind UTC where the UTC year is past 9999. The reader of CommCare HQ's apps writes a folded literal back with it." |
 | `lib/commcare/xpath/wire/CLAUDE.md`, "Printing" | `literalTokens` private | adds: "`serialize.ts` exports `literalTokens` for one reader, the canonical form of a `concat` of literals (`lib/commcare/reader/expressions/canonical.ts`); no emitter calls it." |
-| `lib/agent/authoring/printQueryExpression.ts`, the default arm's comment | names the plan's top-level file by its path, `docs/plans/hq-round-trip/6-bring-in.md`, a file removed when the step ships | C8 (Copy) |
+| `lib/agent/authoring/printQueryExpression.ts`, the default arm's comment | "`value-list` and the other held reads (`cases`, `table-rows`, `locations`, `selected-cases`) have no record spelling, and no authoring surface stores one. An app made in CommCare HQ can hold them, and reading those back belongs to bringing such an app in." It names no plan file | C8 (Copy), with the `value-list` case that makes the old comment false (8.3) |
 | `proof/README.md`, "Native proofs" | the families' tests | adds `ReaderSpellingRuntimeTest` (family `expression`), the two new cases of `test_hq_interpolation.py` with its rewritten `limits` line, and `test_csql_reader_parity.py` (family `csql`), each with one sentence of what it holds; and the two new expectations of `RowPredicateCurrentRuntimeTest` (run E4), in the sentence that describes that test |
 | `docs/research/2026-09-26-hq-round-trip/inventory/expressions-and-data.md`, `case-search.md` | the rows of the eight edited entries | the cells of section 11, and the eight new rows beside the rows they split from |
 | `docs/architecture/complex-apps.md` | no account of HQ's interpolation | a subsection "How CommCare HQ rewrites a display condition and a filter": the table of section 6.1 (slot, call, case path, dots), and "HQ replaces these as text, inside string literals too, so Nova splits a literal that holds one and reads HQ's text through the same replacement before parsing it." |

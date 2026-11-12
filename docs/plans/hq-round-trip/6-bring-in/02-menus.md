@@ -100,8 +100,9 @@ Every CommCare fact below was read at those commits for this part; HQ paths are 
     and `case-list-menu-item`, a module's case list item in its menu. The second closes a gap of
     today's Nova, where the builder sets that item's icon and spoken label and no tool can.
 17. **No document migrates and no reducer mints anything**: both slots are optional, and the
-    discriminated union admits every stored `after-empty-search` arm as it is. No saved app holds the
-    one shape a new rule refuses (section 16).
+    discriminated union admits every stored `after-empty-search` arm as it is. No saved app held the
+    one shape a new rule refuses when every saved app was scanned, and two more runs of the scan and
+    the deploy's own probe hold that through the deploy (section 16).
 18. **`previous` is not offered to a form that lists on the app's first menu** (sections 5.1, 5.6,
     6.3). Wherever every such form opens with one chosen case, HQ's frame for it holds that case and no
     command, which no screen stands for and which the two platforms read differently. Its case-loading
@@ -1431,7 +1432,8 @@ counted by HQ and are admitted. The `after-empty-search` arm's message: `Module 
 HQ offers a form from a case list only where it registers one. You can move the other "<type>" case
 into a repeat or to another form, or stop offering "<form>" there.` The `always` arm's is in the
 table. `main` admits this shape for the `after-empty-search` arm today, and this rule closes it there
-too, since CommCare HQ's build refuses the app either way. No saved app holds it (section 16).
+too, since CommCare HQ's build refuses the app either way. No saved app held it when scanned
+(section 16).
 
 | Code | When | Message |
 |---|---|---|
@@ -2258,14 +2260,20 @@ unchanged under the union.
 
 **The one rule that could newly refuse a stored document** is the reason `several-registrations`
 (section 11.3), where an `after-empty-search` form also creates a case of its list's type at its
-root, a shape `main` admits and CommCare HQ's build refuses. No saved app holds it: a read-only scan
-of every saved app, run during planning, found none, and the same scan runs once more before the
-merge (the top-level file, "What needs your yes before this starts"). It reports each app with a
-module whose `caseListRegistrationForm` names a form for which `rootBasicSubcaseCreates` holds a
-create of that module's case type, by id alone, so what it proves is that the refusal meets no saved
-app and the deploy's own gate over every saved app (`lib/db/runtimeDatabaseProbe.ts`) passes. No
-repair is planned: where the scan prints an app, the top-level file's "If a scan finds something"
-says what the session does.
+root, a shape `main` admits and CommCare HQ's build refuses. No saved app held it when a read-only
+scan of every saved app ran during planning. That is a fact about one moment: the revision that
+serves until the deploy finishes is `main` before the step, which still admits the shape, so an app
+saved after a scan can hold it. Three things hold it through the deploy. The same scan runs once
+more just before the merge. The deploy's migration Job then runs this gate over every saved app and
+fails on a finding, which blocks the deploy with the previous revision still serving
+(`lib/db/runtimeDatabaseProbe.ts::runCanonicalRuntimeDatabaseProbe`). And the scan runs once more
+when the deploy has ended, for an app saved after that probe and before the new revision held all
+traffic. The top-level file holds the runs, what each is for and how the last one reads a script
+that has left the tree ("What needs your yes before this starts", item 1). The scan reports each
+app with a module whose `caseListRegistrationForm` names a form for which
+`rootBasicSubcaseCreates` holds a create of that module's case type, by id alone. No repair is
+planned: where a run prints an app, the session stops and reports the ids, as the top-level file's
+"If a scan finds something" says.
 
 **Case data.** Neither concept changes Postgres: no case data, no submission change and no DDL. A
 registration opened from a case list submits as any registration form does.
@@ -2587,7 +2595,8 @@ CommCare HQ, and the alternatives weighed and not taken, each with its evidence.
    stored document. The reason `several-registrations` refuses, for the `after-empty-search` arm
    too, a form that registers two cases of its list's type, which `main` admits and HQ's build
    refuses. It is closed here, in the rule this part already edits, because the app cannot build in
-   CommCare HQ either way. No saved app holds the shape (section 16), so nothing is repaired. Not
+   CommCare HQ either way. No saved app held the shape when scanned, and the scan's two later runs
+   and the deploy's probe hold that through the deploy (section 16), so no repair is planned. Not
    done: leaving the `after-empty-search` arm as `main` has it, which would keep a document the gate
    admits and no export can build.
 6. **Stricter than HQ's page on `previous`.** HQ's form page offers `previous` in a menu that shows
@@ -2666,7 +2675,8 @@ CommCare HQ, and the alternatives weighed and not taken, each with its evidence.
   `lib/agent/tools/__tests__/registerFromCaseListTools.test.ts`,
   `e2e/tests/app/menu-above.spec.ts`, `e2e/tests/app/register-from-list.spec.ts`.
 - `scripts/scan-case-list-registration-registrations.ts`: the read-only scan of section 16, written
-  for its one run before the merge and removed before the merge.
+  for its run before the merge and its run when the deploy has ended, and removed in the last commit
+  before the merge.
 
 **Changed.**
 

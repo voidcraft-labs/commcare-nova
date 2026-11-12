@@ -1281,6 +1281,9 @@ statement it runs on these three tables can turn a row the CHECKs admit into one
 over its own result.
 
 ```sql
+-- First: wait five seconds for a lock, and no longer, while the previous revision serves.
+SET LOCAL lock_timeout = '5s';
+
 ALTER TABLE lookup_tables
 	ADD COLUMN IF NOT EXISTS hq_server text,
 	ADD COLUMN IF NOT EXISTS hq_domain text,
@@ -1339,12 +1342,24 @@ ALTER TABLE app_organization_state ADD CONSTRAINT app_organization_state_hq_orig
 
 ALTER TABLE app_locations ADD COLUMN IF NOT EXISTS hq_location_id text
 	CHECK (hq_location_id IS NULL OR btrim(hq_location_id) <> '');
+
+-- Last: hand the batch back as it was found.
+SET LOCAL lock_timeout = 0;
 ```
 
 The three server names are the ledger's (`20261015020000_hq_round_trip_deployment_ledger.ts`,
-`SERVERS`). `down` drops the index, the three constraints and the nineteen columns. `ADD CONSTRAINT`
-validates over rows whose new columns are all null, one pass over two small tables, under
-`lock_timeout = '5s'` set and reset as part 10's migration does.
+`SERVERS`). `down` drops the index, the three constraints and the nineteen columns. Each
+`ADD CONSTRAINT` validates over rows whose new columns are all null.
+
+**Locks.** The statements take `ACCESS EXCLUSIVE` on `lookup_tables`, `app_organization_state` and
+`app_locations`, three tables the serving revision reads and writes, and hold them until the batch
+commits, since the migrator runs every pending migration in one transaction
+(`lib/case-store/CLAUDE.md`). Part 04's migration, earlier in the same batch, already holds
+`lookup_tables`. The first statement bounds each lock wait at five seconds and the last sets the
+timeout back to `0`, as part 10's migration does (its section 11, statements 0 and 12) and for
+its reasons: a request that times out raises SQLSTATE `55P03` and fails the migration Job with
+nothing applied, which blocks the deploy, and running the deploy again tries again. The top-level
+file ("Migrations and the deploy") says once what the whole batch holds and for how long.
 
 Each App Test namespace clones `lookup_tables` and `app_locations` `LIKE ... INCLUDING CONSTRAINTS`
 (`20261004000000_app_test_lookup_definitions.ts`). A namespace made after the migration has the new
@@ -3714,7 +3729,7 @@ sections 5.1 and 7.5).
 | `lib/deployment/reading/projectData/__tests__/readingProjectData.postgres.test.ts` | section 14.1 through `readReadingProjectData` over `postgresProjectSide`, CommCare HQ answering through `MockAgent`: two calls with one `appId` and `readingId` give the same table and column ids, and nothing is written by either (every table's row count is as it was); a `choice` tag binds the Project table's id; a failed list read is `failed` with part 05's kind; `places: "always"` reads places for a source the test says reads none; a place list past the limit sets `placesPastLimit` and reads no further page; a place list naming a level code the level list lacks reads both lists once more and then answers `failed` with `hq-unavailable`; a tag that meets a Project table carries that table's id and two revisions in `gathered.tables`, and `projectDataReview` copies them. The same function over a hand-made `ReadingProjectSide` that holds nothing answers every table `new`, which is the proof lane's binding. `readingProjectDataFindingsFor`: a table Nova cannot hold raises its finding only where the reader read it; a tag in `unreadTables` that CommCare HQ's list lacks raises part 08's entry. `writeBroughtInLookupTablesInTransaction` and `writeBroughtInPlacesInTransaction`, in the order and at the point the seam calls them: the case inserts an app row on its own transaction, calls the two writers, then `lookupContextForAuthoritativeWrite` and `applyOrganizationCommitIntegrity`. The lookup context finds the tables, the integrity step passes, a table created under the derived ids holds them, and a Project table whose standing or either revision moved after the read throws `BroughtInTableChangedError` and leaves no row. The seam itself, `writePreparedGenesisInTransaction`'s `afterAppInsert`, is part 12's, and its `birth.postgres.test.ts` holds the two writers running through it | the read and the create disagreeing on an id; a read that leaves a row; a table found after the gate looked for it; an app born on a Project table that changed after its offer was judged |
 | `lib/deployment/reading/projectData/__tests__/mediaStore.postgres.test.ts` (`@/lib/storage/media` replaced with `vi.mock`, as `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` replaces it: the package has no fake bucket) | `publishKeptReadingMedia`: each held file is uploaded once and inserted as one ready row with the judged facts and the name of 2.3, never more than two at once, and the answered plan holds every held file in `published` and no bytes; a file with another verdict is not published; two files of the same bytes become one asset under two keys; bytes the Project already holds return the existing asset's id and upload nothing; a second run over a fresh plan of the same bytes uploads nothing and inserts no row; the caller losing `edit` before publication throws `MediaPublishPermissionError` and inserts nothing; a storage failure rejects the call, and the files published before it are found by hash on the next run | a file in Files twice; a duplicate row on a retry; bytes held past their use; a file added for a person who may no longer add one |
 | `lib/mcp/__tests__/uploadMediaAsset.postgres.test.ts` (existing, unchanged assertions) | the extraction changed no behavior of MCP's upload, its two permission errors among them | a regression in the path it was lifted from |
-| `lib/case-store/migrations/__tests__/hqBringInProjectData.postgres.test.ts` | `up` on a database holding plain tables, places and state rows leaves every row valid; `up` run a second time over its own result, with the ledger row erased, raises nothing; an insert and an update that name none of the new columns (the previous revision's statements) pass on a plain row, and the same update passes on a row whose `hq_*` columns are set; `down` restores the columns' absence; `lock_timeout` is 0 after `up` | a migration that fails over existing rows or on a replay; a CHECK the revision still serving can break |
+| `lib/case-store/migrations/__tests__/hqBringInProjectData.postgres.test.ts` | `up` on a database holding plain tables, places and state rows leaves every row valid; `up` run a second time over its own result, with the ledger row erased, raises nothing; an insert and an update that name none of the new columns (the previous revision's statements) pass on a plain row, and the same update passes on a row whose `hq_*` columns are set; `down` restores the columns' absence; `lock_timeout` is 0 after `up`; with a second connection holding `ACCESS SHARE` on `app_locations` in an open transaction, `up`, run in one transaction as the migrator runs it, is refused with SQLSTATE `55P03` after five seconds and before ten, the rolled-back transaction leaves no column added, and once the second connection's transaction ends `up` succeeds (the second connection is released in a `finally`) | a migration that fails over existing rows or on a replay; a CHECK the revision still serving can break; a lock request that waits with no bound behind a reader of the serving revision |
 
 **Playwright (`e2e/tests/app/`).** `managed-project-data.spec.ts`, tagged `@seed:managed-data`, over
 a seeded app whose table and places carry the origin columns (the profile is new in

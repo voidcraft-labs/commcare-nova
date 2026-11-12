@@ -38,12 +38,14 @@ fifteen parts, and it divides the work itself.
 
 One yes covers this list. Nothing else in the step asks a person anything: every check's outcomes
 are written in the part that owns it, with what the session does for each. Two outcomes end in a
-stop and a report, never in a question: a scan that finds something (item 1), and a tool definition
-the provider still refuses after three sends (item 2).
+stop and a report, never in a question: a saved app or a claim that a new rule refuses, found by a
+scan or by the deploy's own checks (item 1), and a tool definition the provider still refuses after
+three sends (item 2).
 
-**1. Three read-only scans of production, each run once more just before the merge.** Each ran
-during planning and found nothing. Each runs with `--prod` through `scripts/lib/prodDb.ts`, as your
-gcloud identity, writes nothing, and its output is never committed.
+**1. Three read-only scans of production, each run once more just before the merge, and two of
+them once more when the deploy has ended.** Each ran during planning and found nothing. Each runs
+with `--prod` through `scripts/lib/prodDb.ts`, as your gcloud identity, writes nothing, and its
+output is never committed.
 
 | Scan | What it looks for | What it prints | Why it is needed |
 |---|---|---|---|
@@ -51,15 +53,49 @@ gcloud identity, writes nothing, and its output is never committed.
 | `scripts/scan-instance-text.ts` (part 03, section 5.1) | a saved app whose form name, or CommCare Connect block name or description, holds text CommCare HQ's build reads as a data source | the id of each such app: no name, no form, never the text | the gate rule `FORM_TEXT_READ_AS_INSTANCE` is absolute |
 | `scripts/scan-hq-app-claims.ts` (part 10, "Written and not yet run") | a CommCare HQ app that two live Nova apps publish to | two counts and nothing else: the CommCare HQ apps that two or more live Nova apps publish to, and those that several Nova apps publish to with at most one of them live | the ledger migration's unique index admits one |
 
+**The runs, and what each is for.** A scan says what production held at the moment it ran. Until
+the deploy finishes, the revision that serves is `main` before the step, and it still admits each
+shape a new rule refuses. So an app saved after a scan can hold one, and one run cannot stand for
+the whole deploy. Three things hold it between them, and none of them asks a person anything.
+
+- **The run just before the merge**, of all three scans. It is what keeps the step from merging
+  over a saved app, or a claim, that a new rule refuses.
+- **The deploy's own two checks**, for whatever is saved between that run and the migration Job.
+  The ledger migration's guard raises on a CommCare HQ app that two live Nova apps publish to, and
+  since the batch is one transaction none of the four migrations is applied (part 10, section 11,
+  statement 8). After the migrations commit, the same Job runs the incoming gate over every saved
+  app and fails on any finding (`lib/db/runtimeDatabaseProbe.ts::runCanonicalRuntimeDatabaseProbe`,
+  whose `auditRuntimeProbeParsedBlueprint` counts the findings of an empty batch through
+  `mutationCommitVerdict`). Either failure fails the Job, which blocks the deploy: the previous
+  revision keeps serving and no saved app is changed. After a probe failure that revision serves
+  over the four migrations, which "Migrations and the deploy" argues it can.
+- **The run when the deploy has ended**, of the registration scan and the instance text scan.
+  Where the deploy is live, it covers the one stretch nothing above does: from the probe until the
+  new revision holds all traffic, the previous revision can still save such an app. Where the probe
+  refused the deploy, it names the app, since the probe's report holds counts and no id. The claim
+  scan runs then only where the guard refused the deploy, to give its two counts. It has no run
+  after a deploy that went through: from the migration on, the unique index holds one CommCare HQ
+  app to one live Nova app against both revisions (part 10, section 11), and the scan's question
+  is asked of the schema before the migration, where a mapping an app has since given up would
+  count as a second claim and is none.
+
+The three scripts leave the tree in the last commit before the merge (exit check 9). For the later
+run the session writes the scripts it needs back into its working tree from the commit before that
+one (`git show <commit>:<path>`), untracked, over the merged tree, runs them and deletes them, so
+nothing is committed.
+
 **If a scan finds something.** No part plans a repair or the handling of a duplicate: each scan
 found nothing, and no product path writes what the claim scan counts (part 10, "Written and not yet
-run"). Where the registration scan or the instance text scan prints an app, or the claim scan's
-first count is above zero, the session stops before the merge and reports what the scan printed,
-which is ids or counts alone, and nothing merges. The deploy would refuse it in any case: the
-runtime probe reruns the gate over every saved app
-(`lib/db/runtimeDatabaseProbe.ts::runCanonicalRuntimeDatabaseProbe`), and the ledger migration's
-guard raises with nothing changed (part 10, section 11). The yes covers these three reads and
-nothing that writes production.
+run"). At either run, where the registration scan or the instance text scan prints an app, or the
+claim scan's first count is above zero, the session stops and reports what the scan printed, which
+is ids or counts alone. Before the merge, nothing merges. After a deploy the probe or the guard
+refused, production is as the bullets above leave it. After a deploy that is live, the app is as
+its person saved it, and the new revision answers its next edit with the rule's own sentence
+(part 02, section 11.3; part 03, section 5.1). What is done about such an app is yours to decide,
+with the ids in hand. Where the probe refused the deploy and neither scan prints an app, the
+finding comes from a rule no part expected a saved app to meet. The session stops there too and
+reports the probe's counts, since naming that app takes a read of production this list does not
+hold. The yes covers these reads, at both runs, and nothing that writes production.
 
 **2. One billed check of tool definitions.** `npm run test:schema -- <name>`, once for each tool the
 Solutions Architect is given whose served input schema or description differs between `main` at the
@@ -113,12 +149,14 @@ is running. Part 14's section 12.4 holds each command and its cost:
 **4. The merge, and the deploy it starts.** It is neither billed nor a read of production. It is on
 this list because nothing after the yes waits on a person, the merge included. Once every check of
 "Checks before the merge" holds, the session merges the stack in one merge, which deploys to
-production; watches the deploy until exit check 7 holds; and then merges the plugin's pull request
-("The plugin"). It then reads the exit's checks: 1, 3, 4, 6, 8 and 9 from `main` and the merge
-commit's check-runs, and 2 and 5 from the first scheduled night with every reader once its gate
-reports (part 14, section 12.2, says how long that night runs). Where one fails, the session fixes
-it forward in an ordinary pull request, merges it once its own checks pass, and reads that check
-again. This yes covers each such merge and the deploy it starts.
+production; watches the deploy until it is live or refused; runs item 1's later scans, and stops
+there where one prints something or the deploy was refused over a saved app or a claim; and, once
+exit check 7 holds, merges the plugin's pull request ("The plugin"). It then reads the exit's
+checks: 1, 3, 4, 6, 8 and 9 from `main` and the merge commit's check-runs, and 2 and 5 from the
+first scheduled night with every reader once its gate reports (part 14, section 12.2, says how
+long that night runs). Where one fails, the session fixes it forward in an ordinary pull request,
+merges it once its own checks pass, and reads that check again. This yes covers each such merge
+and the deploy it starts.
 
 Nothing heavy runs on your machine: no lane, no image build, and no suite run more than once for a
 change. Before each push the session runs, once, what CI could fail for that change: the tests the
@@ -300,12 +338,14 @@ brief" and "Departures", and is not collected here.
     takes Nova's derivation. A stored slot would carry one project space's identity into every
     other. Part 10, sections 2 to 4.
 
-**What this plan's own pull request changes.** It is docs, and one path in one source comment. It
+**What this plan's own pull request changes.** It is docs, and one source comment. It
 writes this file and its parts, rewrites [`7-rest-of-model.md`](7-rest-of-model.md), edits
 [`README.md`](README.md), writes the bullets of "Found while planning step 6" in
 `harness-findings.md`, and removes the outline. The comment is in
-`lib/agent/authoring/printQueryExpression.ts`: it named the outline's path and now names this
-file's, until part 08 rewrites it to name no plan file (its C8).
+`lib/agent/authoring/printQueryExpression.ts`: it named the outline's path, and it now says the
+same thing in plain words and names no plan file. So no source file cites this plan, at this pull
+request or after it, and nothing in source has to change when the plan leaves. Part 08 replaces
+the comment with the change that makes it false (its section 8.3 and C8).
 
 ## The order of work
 
@@ -448,19 +488,52 @@ real Postgres test and its argument, statement by statement.
 A stamp moves in one case: where `main` holds a later-stamped migration when the work is rebased,
 the stamp moves to the next free hour after `main`'s newest, and the four keep their order.
 
-**What holds for the deploy.** The four apply in one run of the migration Job, while `main` as it
-stood before the step still serves, and none needs a maintenance window, because each is additive
-for that revision: every new column is nullable, defaulted or filled by a trigger where an older
-insert leaves it out; every replaced check and routine admits every stored row and every row that
-revision writes; and every new check and the new unique index hold for every row that revision
-writes, which part 10 argues constraint by constraint (its section 11) and part 11 by the columns
-its checks read (its section 6.1). A migration that refuses fails the Job, which blocks the deploy
-with nothing changed. Three statements write existing rows, all in the ledger migration and all
-safe to replay: one copies a mapping's server and project space from its deployment, one releases
-a deleted app's mapping that another duplicates, and one fills `nova_revision` for published
-baselines.
+**What holds for the deploy.** The four apply in one run of the migration Job and in one
+transaction (`lib/case-store/CLAUDE.md`: "Kysely wraps the whole migration batch in ONE
+transaction"), while `main` as it stood before the step still serves. None needs a maintenance
+window. The argument has two halves, and it is made here once; each part holds its own
+migration's share of it.
 
-**No stored document migrates, there is no maintenance window, and nothing is announced.** Every
+*What that revision writes still passes.* Each migration is additive for it: every new column is
+nullable, defaulted or filled by a trigger where an older insert leaves it out; every replaced
+check and routine admits every stored row and every row that revision writes; and every new check
+and the new unique index hold for every row that revision writes, which part 10 argues constraint
+by constraint (its section 11) and part 11 by the columns its checks read (its section 6.1).
+Three statements write existing rows, all in the ledger migration and all safe to replay: one
+copies a mapping's server and project space from its deployment, one releases a deleted app's
+mapping that another duplicates, and one fills `nova_revision` for published baselines. Each value
+they copy passes the constraint it lands under, a revision of 0 included (part 10, section 11).
+
+*What that revision waits for is bounded.* Three of the four lock tables that revision reads and
+writes. They take `ACCESS EXCLUSIVE` on `lookup_tables` and `lookup_columns` (part 04's, and part
+11's on the first), on `app_deployments`, `app_deployment_resources` and
+`app_deployment_baselines` (part 10's) and on `app_organization_state` and `app_locations` (part
+11's), and part 10's new table takes the lock a new foreign key takes on `media_assets`, which
+holds back writes of that table and none of its reads. The remaining migration, part 15's, replaces
+a routine and locks no table. Because the batch is one transaction, a lock is held from the
+statement that takes it until the batch commits, so the first migration's locks are held through
+all four. Two bounds keep that a pause:
+
+- *The wait for a lock.* Each of the three opens with `SET LOCAL lock_timeout = '5s'` and closes
+  by setting it back to `0`. A lock request that queues behind a long reader would stall every
+  later request for that table behind it, so none waits more than five seconds. One that times
+  out fails the Job with nothing applied, which blocks the deploy, and running the deploy again
+  tries again. Each migration's own real Postgres test holds its bound.
+- *The time under the locks.* It is the statements' own work and at most five seconds for each of
+  the seven tables the batch locks after the first. That work is catalog changes, one validation
+  pass for each new check, three updates and the index builds, over tables that hold one row for
+  each lookup table, lookup column, deployment, published resource, baseline, organization state
+  and place. The one other table a statement reads is `apps`, for whether an app is in recently
+  deleted. No statement reads a case, a lookup row, an app change or a blueprint entity.
+
+While the batch holds a lock, a request of that revision that needs the table waits for the commit
+and then runs. Where such a request already holds a lock the batch asks for, PostgreSQL ends one
+of the two: the Job, which is run again, or the request's transaction, which
+`lib/db/pg.ts::withAppTx` runs again where the request goes through it.
+
+A migration that refuses fails the Job, which blocks the deploy with nothing applied.
+
+**No stored document migrates, and nothing is announced.** Every
 document slot the step adds is optional or a wider grammar, and no stored document holds one. No
 stored case row is rewritten. The cutover the outline gave the step has no data to move (item 11).
 No notice is written for any change of the step, no flag gates any of it, and no Job is planned.
@@ -481,8 +554,12 @@ context is replayed only under the catalog it was made against, and only a deplo
 one, so one literal separates every context made before the step from the catalog after it. A
 correction before the merge keeps the literal, since no context was stored under it.
 `lib/agent/CLAUDE.md` says the literal moves "in every pull request that changes" a served tool or
-the guide; with this step that sentence reads "once in every deploy that changes", which is what
-its own reason asks.
+the guide. This step does not do that, so it rewrites the sentence to what its own reason asks:
+the value differs between any two deployed builds whose served tool names, descriptions, input
+schemas or guide differ, and a set of changes that merges and deploys together moves it once.
+Part 13 holds the old sentence and its replacement in full, with every other place that names the
+constant ("Contracts and docs these changes make false"), and exit check 8 fails while the old
+sentence stands.
 
 `lib/db/appTests.ts::RUNTIME_VERSION` moves once, from 18 to 19, for two reasons: Preview's query
 repeat wrapper is renamed (part 04, section 3.4), and Preview stores a date and time saved to a case
@@ -548,11 +625,14 @@ entry.
 7. **The deploy is live**, its migration Job applied the four migrations, and the runtime probe
    refused no saved app: every check-run of the merge commit concludes `success`, listed first with
    `gh api repos/{owner}/{repo}/commits/<sha>/check-runs`. An empty list is an error to look into.
+   And the registration scan and the instance text scan, run once the deploy was live, printed
+   nothing (item 1 of "What needs your yes before this starts").
 8. **The contracts, the docs and the source say what is so.** The first, second and fourth commands
    below print nothing, and the third prints only the four lines that keep the word for something
    else: records from elsewhere (`building-with-nova.mdx`), a CSV that replaces a table's rows
    (`project-data.mdx`) and the CommCare HQ app file (`project-space-compatibility.mdx`,
-   `publishing.mdx`).
+   `publishing.mdx`). The fourth holds at every commit from this plan's own pull request on: no
+   source file names a plan file of this step.
 9. **Nothing one-off is left, and the plan has left.** `git ls-files scripts` lists none of the three
    scans; `docs/plans/hq-round-trip/` holds `README.md` and `7-rest-of-model.md`; the plugin's pull
    request is merged.
@@ -565,7 +645,8 @@ git ls-files -z -- '*CLAUDE.md' docs/architecture docs/testing.md content/docs d
   -e 'explicit-blank\s+\|\s+design-slice`' -e 'All\s+three\s+use\s+one\s+genesis\s+writer' \
   -e 'Both\s+ways\s+an\s+app\s+is\s+born' -e 'the\s+three\s+edges\s+that\s+TALK' \
   -e '[Pp]roofs\s+1\s+to\s+5' -e 'Five\s+sources' -e 'without\s+the\s+hyphen' -e 'quotes\s+dropped' \
-  -e 'at\s+least\s+two\s+((fully\s+)?UUID-identified\s+)?options'
+  -e 'at\s+least\s+two\s+((fully\s+)?UUID-identified\s+)?options' \
+  -e 'moves\s+in\s+every\s+pull\s+request'
 
 rg -n -U -e '[Oo]ne-way\s+(CommCare\s+|`lib/commcare`\s+)?emission' \
   -e 'emission\s+boundary\s+is\s+one-way' lib app components proof scripts biome.json
@@ -575,12 +656,15 @@ rg -n -w -i -e 'imported|importing' content/docs
 rg -n -e '6-import' -e '6-bring-in' lib app components proof scripts
 ```
 
-Run at the baseline, the first command finds sixteen of its patterns in thirteen files, the second
-nine lines (four messages of `biome.json`'s rule, two source comments, three contract sentences),
-the third six, and the fourth one: the comment of `lib/agent/authoring/printQueryExpression.ts`
-that names a plan file, which part 08 rewrites (its C8). Each other hit is a sentence a part
-rewrites under "Contracts and docs these changes make false", so silence after the step is
-evidence. A hit is fixed in the file that part names.
+Run at the baseline, the first command finds seventeen of its patterns in fourteen files, the
+second nine lines (four messages of `biome.json`'s rule, two source comments, three contract
+sentences), the third six, and the fourth one: the comment of
+`lib/agent/authoring/printQueryExpression.ts`, which named the outline's path there. This plan's
+own pull request rewords that comment to name no plan file, so from that pull request on the
+fourth command prints nothing. The first command's last pattern is the sentence of
+`lib/agent/CLAUDE.md` that moves `MODEL_CONTEXT_VERSION` "in every pull request", which part 13
+rewrites. Each other hit is a sentence a part rewrites under "Contracts and docs these changes
+make false", so silence after the step is evidence. A hit is fixed in the file that part names.
 
 **When the step ships, this plan leaves `docs/plans/`**, in the stack that ships it, as the
 repository's rule for a finished plan says. `6-bring-in.md` and `6-bring-in/` are removed. The
