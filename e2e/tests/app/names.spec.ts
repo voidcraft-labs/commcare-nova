@@ -35,7 +35,7 @@ async function addSingleSelect(page: Page, appId: string) {
 	expect((await added).ok()).toBe(true);
 }
 
-test("a question ID takes a hyphen, and a choice holds a quote mark and stands alone", {
+test("a question ID takes a hyphen and its reference resolves, and a choice holds a quote mark and stands alone", {
 	tag: "@seed:open",
 }, async ({ scenario, page }) => {
 	const { openAppId } = seedFor(scenario, "open");
@@ -82,6 +82,28 @@ test("a question ID takes a hyphen, and a choice holds a quote mark and stands a
 	await expect(idInput).toHaveValue("first-name");
 	await expect(values).toHaveCount(1);
 	await expect(values.first()).toHaveValue("it's");
+
+	// The starter question's label reads the renamed question: the hashtag
+	// suggestion offers it by its hyphenated path, and its chip resolves to
+	// that path before and after a reload, never to a repair chip.
+	const main = page.getByRole("main");
+	await main.getByRole("button", { name: "Question 1", exact: true }).click();
+	const label = main.getByRole("textbox", { name: "Label", exact: true });
+	await expect(label).toBeFocused();
+	await label.press("End");
+	await label.pressSequentially(" #form/first");
+	await page.getByRole("option", { name: /#form\/first-name$/ }).click();
+	const chip = '[data-ref-raw="#form/first-name"]';
+	await expect(label.locator(chip)).toBeVisible();
+	const referenced = savedWith(page, openAppId, ['"kind":"field-ref"']);
+	await label.press("ControlOrMeta+Enter");
+	expect((await referenced).ok()).toBe(true);
+	await expect(main.locator(chip)).toBeVisible();
+	await expect(main.locator("[data-reference-repair]")).toHaveCount(0);
+
+	await reloadBuilder(page);
+	await expect(main.locator(chip)).toBeVisible();
+	await expect(main.locator("[data-reference-repair]")).toHaveCount(0);
 });
 
 test("a case type typed with a space and a leading digit is created as HQ's menu page takes it", {

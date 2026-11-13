@@ -180,7 +180,7 @@ export interface EmitInput {
 	 * documents leaves it unset.
 	 */
 	readonly leftOut?: LeftOut;
-	/** Further timings the caller measured (the Vitest writers, the HQ side), in seconds. */
+	/** Further timings the caller measured (the Vitest writers), in seconds. */
 	readonly timings?: Readonly<Record<string, number>>;
 	readonly log?: (line: string) => void;
 }

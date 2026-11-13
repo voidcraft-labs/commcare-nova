@@ -305,6 +305,31 @@ describe("circumstanceBlock", () => {
 		}
 	});
 
+	it("puts a name that holds a placeholder's spelling into the next step as written", () => {
+		const claimed = circumstanceFinding(
+			"already-in-nova",
+			{ kind: "app" },
+			{
+				claim: {
+					kind: "open",
+					appId: "app-1",
+					appName: "Visits {space} {name}",
+				},
+			},
+		);
+		expect(circumstanceBlock(claimed, withApp).next).toBe(
+			"It's Visits {space} {name}, in a Project you're part of. You can open it from your apps.",
+		);
+		const refused = circumstanceFinding(
+			"no-platform-runs-everything",
+			{ ...questionPlace, path: "visit_details/{app}" },
+			{ name: "Date and time questions", reason: "split-refused" },
+		);
+		expect(circumstanceBlock(refused, withoutApp).next).toBe(
+			"You can change how the date and time question {app} reads its own answer in CommCare HQ, then check again.",
+		);
+	});
+
 	it("names the date and time question whose split is refused", () => {
 		const name = "“Date and time questions”, which Web Apps can't run";
 		const refused = circumstanceFinding(
@@ -373,6 +398,7 @@ describe("findingLine", () => {
 			if (CIRCUMSTANCE_STANDINGS[code].standing === "stop") continue;
 			const line = findingLine(findingFor(code));
 			expect(line.sentence).toBe(CIRCUMSTANCE_COPY[code].title);
+			expect(line.sentence, code).not.toContain("{");
 			expect(line.named, code).toBe(row === "line" ? "Regions of Kenya" : null);
 		}
 	});

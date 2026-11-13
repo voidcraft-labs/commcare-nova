@@ -8,26 +8,49 @@
  *
  * The other generators draw names from fixed lists, and the proof lane's fuzz
  * documents are drawn from them (`proof/corpus/fuzzSample.ts`), so a longer
- * list there would move every existing seed's draws. This family draws a
- * document of `suiteDocArbitrary` beside a stream of its own name draws and
- * applies the names after both draws, with no further random call. Only
- * documents the commit gate admits are kept.
+ * list there would move every existing seed's draws. This family draws three
+ * things side by side: a document of `suiteDocArbitrary`, which gives the
+ * module shapes; a form core as `xformDocArbitrary` draws one (field trees of
+ * groups and repeats nested two deep and, for about one form in four, pages),
+ * which joins the first form; and a stream of its own name draws. It applies
+ * the names after every draw, with no further random call, to the children of
+ * every form and every group, repeat and page, so a group `a` holding `a-b`
+ * meets the itext key's doubled hyphen at any depth.
  */
 import * as fc from "fast-check";
+import { Immer } from "immer";
+import { expect } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { runValidation } from "@/lib/commcare/validator/runner";
+import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { holdsUserRepeat } from "@/lib/doc/groupFieldLists";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	effectiveSimpleSearchModeKind,
 	type Field,
 	isContainer,
 	proseText,
+	type SearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
+import {
+	buildField,
+	type FieldBuildCtx,
+	type FieldDraft,
+	type FieldGenSpec,
+	fieldSpecArb,
+	hasSectionedForm,
+	IdMinter,
+	mappedAsTheCutoverMaps,
+	pickSiblingId,
+	resolveArbitraryDocument,
+	sectionRoot,
+	sectionsChoiceArb,
+} from "./xformDocArbitrary";
 
 export const NAMES_FIELD_IDS = [
 	"first-name",
@@ -61,7 +84,8 @@ export const NAMES_SEARCH_FIELD = "first-name";
 
 /** The names one document takes, drawn apart from the document. */
 interface NameDraws {
-	/** A field id for each of the first root fields of each form, in order. */
+	/** A field id for each of the first children of every form and every
+	 *  group, repeat and page, by position. */
 	readonly fieldIds: readonly string[];
 	/** The case type each of the document's case types becomes, in catalog order. */
 	readonly caseTypes: readonly string[];
@@ -137,34 +161,45 @@ function renameCaseTypes(
 	};
 }
 
-/** Give the first root fields of each form the drawn ids, where no sibling holds one. */
-function renameFields(doc: BlueprintDoc, ids: readonly string[]): void {
-	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
-		const children = doc.fieldOrder[formUuid] ?? [];
-		const taken = new Set(children.map((uuid) => doc.fields[uuid]?.id));
-		children.forEach((uuid, index) => {
-			const field = doc.fields[uuid];
-			const id = ids[index];
-			if (field === undefined || id === undefined || taken.has(id)) return;
-			taken.delete(field.id);
-			taken.add(id);
-			doc.fields[uuid] = { ...field, id } as Field;
-		});
-		// A group named `a` holding `a-b` meets the itext key's doubled hyphen.
-		for (const uuid of children) {
-			const field = doc.fields[uuid];
-			if (field === undefined || !isContainer(field)) continue;
-			const nested = doc.fieldOrder[uuid] ?? [];
-			const [first] = nested;
-			const child = first === undefined ? undefined : doc.fields[first];
-			if (
-				child !== undefined &&
-				first !== undefined &&
-				!nested.some((sibling) => doc.fields[sibling]?.id === "a-b")
-			)
-				doc.fields[first] = { ...child, id: "a-b" } as Field;
-		}
+/** Give the first children of `parentUuid` the drawn ids, where no sibling
+ *  holds one, then do the same inside each container among them; a
+ *  container's first child is named `a-b`, so a container the draws name `a`
+ *  holds `a-b` and meets the itext key's doubled hyphen. */
+function renameChildren(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+	ids: readonly string[],
+): void {
+	const children = doc.fieldOrder[parentUuid] ?? [];
+	const taken = new Set(children.map((uuid) => doc.fields[uuid]?.id));
+	children.forEach((uuid, index) => {
+		const field = doc.fields[uuid];
+		const id = ids[index];
+		if (field === undefined || id === undefined || taken.has(id)) return;
+		taken.delete(field.id);
+		taken.add(id);
+		doc.fields[uuid] = { ...field, id } as Field;
+	});
+	for (const uuid of children) {
+		const field = doc.fields[uuid];
+		if (field === undefined || !isContainer(field)) continue;
+		renameChildren(doc, uuid, ids);
+		const nested = doc.fieldOrder[uuid] ?? [];
+		const [first] = nested;
+		const child = first === undefined ? undefined : doc.fields[first];
+		if (
+			child !== undefined &&
+			first !== undefined &&
+			!nested.some((sibling) => doc.fields[sibling]?.id === "a-b")
+		)
+			doc.fields[first] = { ...child, id: "a-b" } as Field;
 	}
+}
+
+/** Give every form's field tree the drawn ids, at every depth. */
+function renameFields(doc: BlueprintDoc, ids: readonly string[]): void {
+	for (const formUuid of Object.keys(doc.forms) as Uuid[])
+		renameChildren(doc, formUuid, ids);
 }
 
 /** Add, to the first form, a single select over the drawn choices and a text
@@ -234,53 +269,198 @@ function addChoicesAndWrites(
 	doc.fieldOrder[formUuid] = order;
 }
 
-/** Name the first Search field of the first menu that has one `first-name`. */
+/**
+ * Whether a Search field keeps a name that differs from the property it
+ * searches. A simple range field and a simple multiple-choice field match
+ * the property their name spells, so each must keep the name equal to it.
+ */
+function takesAnotherName(input: SearchInputDef): boolean {
+	return (
+		input.kind !== "simple" ||
+		(effectiveSimpleSearchModeKind(input) !== "range" &&
+			input.type !== "multi-select")
+	);
+}
+
+/** Name `first-name` the first Search field, of the first menu holding one,
+ *  whose name may differ from the property it searches. */
 function renameSearchField(doc: BlueprintDoc): void {
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		const inputs = mod?.caseListConfig?.searchInputs ?? [];
-		const [first] = inputs;
-		if (mod?.caseListConfig === undefined || first === undefined) continue;
+		if (mod?.caseListConfig === undefined) continue;
 		if (inputs.some((input) => input.name === NAMES_SEARCH_FIELD)) return;
+		const index = inputs.findIndex(takesAnotherName);
+		if (index === -1) continue;
 		doc.modules[moduleUuid] = {
 			...mod,
 			caseListConfig: {
 				...mod.caseListConfig,
-				searchInputs: [
-					{ ...first, name: NAMES_SEARCH_FIELD },
-					...inputs.slice(1),
-				],
+				searchInputs: inputs.map((input, at) =>
+					at === index ? { ...input, name: NAMES_SEARCH_FIELD } : input,
+				),
 			},
 		};
 		return;
 	}
 }
 
-/** The drawn document with the drawn names applied. */
-export function withNames(drawn: BlueprintDoc, draws: NameDraws): BlueprintDoc {
-	const doc = renameCaseTypes(structuredClone(drawn), draws.caseTypes);
+/** A form core as `xformDocArbitrary` draws one: its root field trees and,
+ *  where drawn, its page titles. */
+interface FormCoreDraw {
+	readonly fields: readonly FieldGenSpec[];
+	readonly sections: ReadonlyArray<string | undefined> | undefined;
+}
+
+/** `xformDocArbitrary`'s form core, drawn from its own arbitraries: a paged
+ *  form's trees hold no repeat workers add rows to, as there. */
+const formCoreDrawArbitrary: fc.Arbitrary<FormCoreDraw> =
+	sectionsChoiceArb.chain((sections) =>
+		fc.record({
+			fields: fc.array(
+				fieldSpecArb(2, { noUserRepeat: sections !== undefined }),
+				{ minLength: 1, maxLength: 4 },
+			),
+			sections: fc.constant(sections),
+		}),
+	);
+
+/** A minter whose identities no draw of `suiteDocArbitrary` holds, nor any
+ *  other minter of this family, each naming its own `namespace`. */
+class FormCoreMinter extends IdMinter {
+	constructor(private readonly namespace: string) {
+		super();
+	}
+	override uuid(prefix: string): Uuid {
+		return super.uuid(`names-${this.namespace}-${prefix}`);
+	}
+}
+
+/** The document's first form, the one the form core and the choices join. */
+function firstFormUuid(doc: BlueprintDoc): Uuid | undefined {
+	return Object.keys(doc.forms)[0] as Uuid | undefined;
+}
+
+const UNFROZEN = new Immer({ autoFreeze: false });
+
+/** The document with each date-and-time question split where the app it
+ *  was drawn for runs in Web Apps, which has no entry for one: the drawn
+ *  module shapes keep the declaration they were drawn under, and the form
+ *  core runs where they run (`lib/doc/datetimeSplit.ts`, the split the
+ *  platform declaration makes). */
+function runsWhereDrawn(doc: BlueprintDoc): BlueprintDoc {
+	if (doc.appSettings.runsOnlyOn === "android") return doc;
+	const split = planDatetimeSplits(structuredClone(doc));
+	if (!split.ok) throw new Error(split.message);
+	if (split.mutations.length === 0) return doc;
+	return UNFROZEN.produce(doc, (draft) => {
+		applyMutations(draft, split.mutations);
+	});
+}
+
+/** The document with the drawn field trees added to the root of its first
+ *  form, each under a sibling-pool id no root sibling holds, their drawn
+ *  expressions bound and mapped as every generator maps a draw, and run
+ *  where the drawn app runs. */
+function withFormCore(doc: BlueprintDoc, core: FormCoreDraw): BlueprintDoc {
+	const formUuid = firstFormUuid(doc);
+	if (formUuid === undefined) return doc;
+	const fieldOrder = doc.fieldOrder;
+	fieldOrder[formUuid] ??= [];
+	const ctx: FieldBuildCtx = {
+		minter: new FormCoreMinter("core"),
+		fields: doc.fields as Record<Uuid, FieldDraft>,
+		fieldOrder,
+		caseWrites: new Map(),
+	};
+	const taken = new Set(
+		fieldOrder[formUuid].map((uuid) => doc.fields[uuid]?.id),
+	);
+	let pool = 0;
+	for (const spec of core.fields) {
+		while (taken.has(pickSiblingId(pool))) pool++;
+		const id = pickSiblingId(pool);
+		taken.add(id);
+		buildField(ctx, formUuid, id, spec);
+	}
+	return runsWhereDrawn(
+		withoutReferenceIndex(
+			mappedAsTheCutoverMaps(
+				resolveArbitraryDocument(withoutReferenceIndex(doc)),
+			),
+		),
+	);
+}
+
+/** Page the first form as `xformDocArbitrary` pages a form, after every
+ *  question has joined it, where it holds no repeat workers add rows to. */
+function pageFirstForm(doc: BlueprintDoc, core: FormCoreDraw): void {
+	const formUuid = firstFormUuid(doc);
+	if (
+		formUuid === undefined ||
+		core.sections === undefined ||
+		holdsUserRepeat(doc, formUuid)
+	)
+		return;
+	sectionRoot(
+		{
+			minter: new FormCoreMinter("page"),
+			fields: doc.fields as Record<Uuid, FieldDraft>,
+			fieldOrder: doc.fieldOrder,
+			caseWrites: new Map(),
+		},
+		formUuid,
+		core.sections,
+	);
+}
+
+/** `doc` without its reference index, which edits made in place leave
+ *  behind; the next reader builds it again. */
+function withoutReferenceIndex(doc: BlueprintDoc): BlueprintDoc {
+	const { refIndex: _refIndex, ...rest } = doc;
+	return rest as BlueprintDoc;
+}
+
+/** The drawn document with the drawn form core joined and the drawn names
+ *  applied. */
+export function withNames(
+	drawn: BlueprintDoc,
+	core: FormCoreDraw,
+	draws: NameDraws,
+): BlueprintDoc {
+	const grafted = withFormCore(structuredClone(drawn), core);
+	const doc = renameCaseTypes(withoutReferenceIndex(grafted), draws.caseTypes);
 	renameFields(doc, draws.fieldIds);
 	addChoicesAndWrites(doc, draws.choiceValues, draws.writtenProperties);
 	renameSearchField(doc);
+	pageFirstForm(doc, core);
 	rebuildFieldParent(doc);
-	return doc;
+	return withoutReferenceIndex(doc);
 }
 
-/** Whether the commit gate admits the document. */
-function admitted(doc: BlueprintDoc): boolean {
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0;
-}
-
+/**
+ * Every document the family draws. None is filtered: the commit gate inside
+ * `compilerEvidence.ts::checkCompilerEvidence` judges each one, so a name the
+ * gate refuses fails the sample that drew it.
+ */
 export const namesDocArbitrary: fc.Arbitrary<BlueprintDoc> = fc
-	.tuple(suiteDocArbitrary, nameDrawsArbitrary)
-	.map(([drawn, draws]) => withNames(drawn, draws))
-	.filter(admitted);
+	.tuple(suiteDocArbitrary, formCoreDrawArbitrary, nameDrawsArbitrary)
+	.map(([drawn, core, draws]) => withNames(drawn, core, draws));
 
 // ── Census ─────────────────────────────────────────────────────────
 
 /** Whether a question id holds a hyphen. */
 export function hasHyphenatedFieldId(doc: BlueprintDoc): boolean {
 	return Object.values(doc.fields).some((field) => field.id.includes("-"));
+}
+
+/** Whether a container holds a child whose id holds a hyphen. */
+export function hasNestedHyphenatedFieldId(doc: BlueprintDoc): boolean {
+	return Object.entries(doc.fieldOrder).some(
+		([parentUuid, children]) =>
+			doc.fields[parentUuid as Uuid] !== undefined &&
+			children.some((uuid) => doc.fields[uuid]?.id.includes("-")),
+	);
 }
 
 /** Whether a case type starts with a digit. */
@@ -337,4 +517,56 @@ export function hasNamedWrite(doc: BlueprintDoc): boolean {
 			),
 		),
 	);
+}
+
+/** What a names sample drew, counted per document. */
+export interface NamesCensus {
+	total: number;
+	hyphenatedId: number;
+	nestedHyphenatedId: number;
+	pagedForm: number;
+	digitType: number;
+	typeNamedCase: number;
+	oneOption: number;
+	quotedValue: number;
+	namedWrite: number;
+	hyphenatedSearchField: number;
+}
+
+export function emptyNamesCensus(): NamesCensus {
+	return {
+		total: 0,
+		hyphenatedId: 0,
+		nestedHyphenatedId: 0,
+		pagedForm: 0,
+		digitType: 0,
+		typeNamedCase: 0,
+		oneOption: 0,
+		quotedValue: 0,
+		namedWrite: 0,
+		hyphenatedSearchField: 0,
+	};
+}
+
+/** Count one document the sample checked. */
+export function countNames(census: NamesCensus, doc: BlueprintDoc): void {
+	census.total++;
+	if (hasHyphenatedFieldId(doc)) census.hyphenatedId++;
+	if (hasNestedHyphenatedFieldId(doc)) census.nestedHyphenatedId++;
+	if (hasSectionedForm(doc)) census.pagedForm++;
+	if (hasDigitLeadingCaseType(doc)) census.digitType++;
+	if (hasCaseNamedCase(doc)) census.typeNamedCase++;
+	if (hasOneOptionSelect(doc)) census.oneOption++;
+	if (hasQuotedChoiceValue(doc)) census.quotedValue++;
+	if (hasNamedWrite(doc)) census.namedWrite++;
+	if (hasHyphenatedSearchField(doc)) census.hyphenatedSearchField++;
+}
+
+/** Each sample held every class of name the family draws, so a generator
+ *  that stops drawing one fails by that class's name. */
+export function expectNamesCensus(census: NamesCensus, runs: number): void {
+	expect(census.total).toBe(runs);
+	for (const [name, count] of Object.entries(census)) {
+		expect(count, `documents holding ${name}`).toBeGreaterThan(0);
+	}
 }

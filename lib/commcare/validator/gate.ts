@@ -124,9 +124,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MUTATION_TARGET_INVALID: "soundness",
 	MUTATION_CASE_PROPERTY_RENAME_INVALID: "soundness",
 	MUTATION_WIRE_CANONICALITY_INVALID: "soundness",
-	// A catalog choice value holding whitespace or a quote reaches the suite
-	// as an XPath literal (`field = 'value'`) and the device as a select
-	// value it refuses; the wire cannot carry it.
+	// A catalog choice value that is empty or holds whitespace reaches the
+	// device as a select value it refuses, and one holding both an apostrophe
+	// and a double quote has no XPath string literal to spell it in the
+	// suite's `field = 'value'`; the wire cannot carry either.
 	CASE_PROPERTY_OPTION_VALUE_INVALID: "soundness",
 	// A saved value of a catalog with two equal choices can't say which.
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: "soundness",
@@ -373,9 +374,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_NOT_AN_OPTION: "soundness",
 	SELECT_NO_OPTIONS: "shape",
-	// A choice value holding whitespace or a quote: CommCare Android throws
-	// on any select value with a space, and a multi-select answer is a
-	// space-joined token list, so the form cannot run with it.
+	// A choice value that is empty, holds whitespace, or holds both an
+	// apostrophe and a double quote: CommCare Android throws on any select
+	// value with a space, a multi-select answer is a space-joined token list,
+	// and no XPath string literal can spell a value holding both quote marks,
+	// so the form cannot run with it.
 	SELECT_OPTION_VALUE_INVALID: "soundness",
 	// HQ's form builder refuses two choices of one question with one value.
 	SELECT_OPTION_VALUE_DUPLICATE: "soundness",
@@ -507,6 +510,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	HQJSON_BAD_SEARCH_BUTTON_LABEL: "oracle",
 	HQJSON_BAD_SEARCH_ITEMSET: "oracle",
 	HQJSON_OPEN_CASE_EXTERNAL_ID: "oracle",
+	HQJSON_UPDATE_WITHOUT_CASE: "oracle",
 	HQJSON_BAD_NAV_MEDIA_VALUE: "oracle",
 	// ── Binding-resolution oracle ────────────────────────────────────
 	BINDING_RESOLUTION_INSTANCE_UNDECLARED: "oracle",

@@ -889,7 +889,7 @@ const sectionTitlesArb: fc.Arbitrary<ReadonlyArray<string | undefined>> =
 		maxLength: 4,
 	});
 
-const sectionsChoiceArb: fc.Arbitrary<
+export const sectionsChoiceArb: fc.Arbitrary<
 	ReadonlyArray<string | undefined> | undefined
 > = fc.oneof(
 	{ weight: 3, arbitrary: fc.constant(undefined) },

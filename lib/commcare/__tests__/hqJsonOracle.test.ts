@@ -707,6 +707,32 @@ describe("HQ-JSON oracle — external id spelling", () => {
 	});
 });
 
+// ── an update with no case to update ────────────────────────────────
+
+describe("HQ-JSON oracle — an update on a form that neither opens nor requires a case", () => {
+	const never = {
+		type: "never",
+		question: null,
+		answer: null,
+		operator: null,
+		doc_type: "FormActionCondition",
+	} as const;
+
+	it("flags an active update_case on a form that requires none and opens none", () => {
+		const app = baselineApp();
+		moduleOf(app).forms[0].actions.open_case.condition = { ...never };
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_UPDATE_WITHOUT_CASE"]);
+	});
+
+	it("accepts the same form once its update is never, as a survey's is", () => {
+		const app = baselineApp();
+		const actions = moduleOf(app).forms[0].actions;
+		actions.open_case.condition = { ...never };
+		actions.update_case.condition = { ...never };
+		expect(codes(validateHqJson(app))).toEqual([]);
+	});
+});
+
 // ── subcase relationship choice ─────────────────────────────────────
 
 describe("HQ-JSON oracle — subcase relationship choice slot", () => {

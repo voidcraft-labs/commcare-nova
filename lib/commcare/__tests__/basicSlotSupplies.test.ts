@@ -7,10 +7,15 @@
  * (`lib/domain/basicCaseSlots.ts`). Catches a read the checker admits of a
  * datum the entry does not declare, which the emitter cannot print.
  */
+import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
+import { compileCcz } from "@/lib/commcare/compiler";
+import { expandDoc } from "@/lib/commcare/expander";
 import { planPlacements } from "@/lib/commcare/placement";
 import { caseListRegistrationForm } from "@/lib/commcare/validator/rules/case-search/caseListRegistration";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -22,11 +27,20 @@ import {
 	type DatumRef,
 	datumRefKey,
 	entryDatumSupplies,
+	proseText,
 	type Uuid,
 } from "@/lib/domain";
-import { gt, literal } from "@/lib/domain/expression/builders";
+import {
+	concat,
+	formField,
+	gt,
+	literal,
+	term,
+} from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
+import { checkCompilerEvidence } from "./compilerEvidence";
 import { expectEntryDatumAgreement } from "./entryDatumAgreement";
+import { asBasicModule } from "./hqBasicShape";
 import {
 	childCreate,
 	OP,
@@ -36,6 +50,7 @@ import {
 	read,
 	U,
 } from "./placementFixture";
+import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 const over18: Expression = gt(read("age"), literal(18));
 
@@ -159,6 +174,99 @@ describe("a registration whose own arm takes Save to Case", () => {
 			formName: doc.forms[formUuid]?.name,
 			reason: "own-case-save-to-case",
 		});
+	});
+});
+
+describe("a registration named by a computed value", () => {
+	const FIRST = testUuid("computed-name-first");
+	const LAST = testUuid("computed-name-last");
+
+	/** A plain `patient` app whose one registration names its case
+	 *  `concat(first, ' ', last)`, which keeps the own arm off Case
+	 *  Management, so a Save to Case block creates the case. */
+	function computedNameDoc(): BlueprintDoc {
+		const doc = buildDoc({
+			appName: "Computed name",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: "computed-name-form",
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({ uuid: "computed-name-first", kind: "text", id: "first" }),
+								f({ uuid: "computed-name-last", kind: "text", id: "last" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = testUuid("computed-name-form");
+		const form = doc.forms[formUuid];
+		doc.forms[formUuid] = {
+			...form,
+			caseOperations: (form.caseOperations ?? []).map((operation) =>
+				operation.action === "own"
+					? ({
+							...operation,
+							name: concat(
+								term(formField(FIRST)),
+								term(literal(" ")),
+								term(formField(LAST)),
+							),
+						} as CaseOperation)
+					: operation,
+			),
+		};
+		return doc;
+	}
+
+	it("creates its case in its own block, with no update HQ's build refuses and no undeclared datum", () => {
+		const doc = computedNameDoc();
+		const formUuid = testUuid("computed-name-form");
+		const ownUuid = doc.forms[formUuid].caseOperations?.[0]?.uuid;
+		expect(ownUuid).toBeDefined();
+		expect(
+			planPlacements(doc, formUuid).placements.get(ownUuid as Uuid)?.placement
+				.kind,
+		).toBe("save-to-case");
+		// Every oracle, the binding oracle over the local archive included.
+		checkCompilerEvidence(doc);
+
+		const hq = expandDoc(doc);
+		const hqForm = asBasicModule(hq.modules[0]).forms[0];
+		expect(hqForm.requires).toBe("none");
+		expect(hqForm.actions.open_case.condition.type).toBe("never");
+		expect(hqForm.actions.update_case.condition.type).toBe("never");
+
+		// The local archive holds the Save to Case block and no form-level
+		// `case` block reading a session case.
+		const zip = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
+		const local = zip.readAsText("modules-0/forms-0.xml");
+		const data = elements(parseDocument(local, { xmlMode: true })).find(
+			(element) => element.name === "data",
+		);
+		expect(data).toBeDefined();
+		expect(
+			(data as Element).children.filter(isTag).map((child) => child.name),
+		).not.toContain("case");
+		expect(local).not.toContain("session/data/case_id");
+		expect(local).toContain("nova_operations");
 	});
 });
 
