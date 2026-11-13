@@ -49,12 +49,14 @@ type SuggestionItem = Reference | NamespaceItem;
 /**
  * Parse the suggestion query text into a namespace + partial path, validating
  * the namespace against the live list (`form`/`user` + each readable case
- * type as its reference text spells it, `ReferenceProvider.namespaces`).
+ * type as its reference text spells it, `ReferenceProvider.namespaces`, and
+ * each type's long spelling, `ReferenceProvider.recordNamespaces`).
  * The query is everything after the trigger char "#".
  *   - "fo" → { namespace: null, partial: "fo" } (still typing namespace)
  *   - "form/" → { namespace: "form", partial: "" }
  *   - "mother/hou" → { namespace: "mother", partial: "hou" }
  *   - "record/case/reg" → { namespace: "record/case", partial: "reg" }
+ *   - "record/mother/hou" → { namespace: "record/mother", partial: "hou" }
  */
 function parseQuery(
 	query: string,
@@ -94,11 +96,20 @@ export function createRefSuggestion(
 		items: ({ query }: { query: string }): SuggestionItem[] => {
 			const formUuid = getFormUuid();
 			const namespaces = provider.namespaces(formUuid);
-			const { namespace, partial } = parseQuery(query, namespaces);
+			const recordNamespaces = provider.recordNamespaces(formUuid);
+			const { namespace, partial } = parseQuery(query, [
+				...namespaces,
+				...recordNamespaces,
+			]);
 
-			/* Namespace stage: no namespace yet — show namespace options filtered by partial. */
+			/* Namespace stage: no namespace yet — show namespace options filtered
+			 * by partial, each record type in its long spelling once the person
+			 * has typed "record/". */
 			if (!namespace) {
-				return namespaces
+				const offered = partial.startsWith("record/")
+					? recordNamespaces
+					: namespaces;
+				return offered
 					.filter((ns) => ns.startsWith(partial.toLowerCase()))
 					.map((ns) => ({
 						kind: "namespace" as const,

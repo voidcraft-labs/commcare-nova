@@ -1139,6 +1139,13 @@ export const SEARCH_INPUT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 export const SEARCH_INPUT_NAME_REJECTION =
 	"A Search field's name starts with a letter or an underscore, then holds only letters, digits, underscores and hyphens. CommCare sends the field's answer under this name, and a rule reads it back by it.";
 
+/** The sentence `name` is refused with as a Search field's name, or `undefined` where it is one. */
+export function searchInputNameRefusal(name: string): string | undefined {
+	return SEARCH_INPUT_NAME_PATTERN.test(name)
+		? undefined
+		: SEARCH_INPUT_NAME_REJECTION;
+}
+
 // Common slots present on every SearchInputDef arm.
 //
 // `name` is written as an attribute value (`<prompt key="X">`), a string

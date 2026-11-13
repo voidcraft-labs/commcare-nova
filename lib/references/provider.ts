@@ -464,6 +464,18 @@ export class ReferenceProvider {
 	}
 
 	/**
+	 * The long spelling of every record type `namespaces` offers,
+	 * `record/<type>` (`#record/<type>/<property>` reads any record type),
+	 * for a person who has typed `#record/`. `search` takes each token.
+	 */
+	recordNamespaces(formUuid?: string): string[] {
+		if (!formUuid) return [];
+		const cache = this.ensureCache(formUuid);
+		if (!cache) return [];
+		return [...cache.accept.keys()].map((caseType) => `record/${caseType}`);
+	}
+
+	/**
 	 * Parse a raw `#namespace/path` string into its namespace + path. Pure
 	 * string parsing — no blueprint lookup. The namespace must be a legal
 	 * segment; `classifyNamespace` decides the family, and a case family's

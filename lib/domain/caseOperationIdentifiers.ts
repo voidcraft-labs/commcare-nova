@@ -47,10 +47,6 @@ export function ownCaseOperationId(
 ): string {
 	const spelled = caseType.replace(/[^A-Za-z0-9_]/g, "_");
 	const base =
-		spelled.length === 0
-			? "change"
-			: questionIdProblem(spelled) === undefined
-				? spelled
-				: `case_${spelled}`;
+		questionIdProblem(spelled) === undefined ? spelled : `case_${spelled}`;
 	return suffixUntilFree(base, takenIds);
 }

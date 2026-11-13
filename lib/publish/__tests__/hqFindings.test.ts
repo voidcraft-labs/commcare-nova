@@ -99,6 +99,33 @@ describe("cutFindingName", () => {
 			"😀".repeat(FINDING_NAME_MAX_LENGTH),
 		);
 	});
+
+	it("counts a letter with its combining mark as one character, and never parts them", () => {
+		// "e" followed by U+0301 COMBINING ACUTE ACCENT: two code points, one character.
+		const accented = "e\u0301";
+		expect(cutFindingName(accented.repeat(FINDING_NAME_MAX_LENGTH))).toBe(
+			accented.repeat(FINDING_NAME_MAX_LENGTH),
+		);
+		expect(cutFindingName(accented.repeat(FINDING_NAME_MAX_LENGTH + 1))).toBe(
+			`${accented.repeat(FINDING_NAME_MAX_LENGTH - 1)}…`,
+		);
+		// A cut that falls between the letter and its mark keeps both.
+		const straddling = `${"n".repeat(FINDING_NAME_MAX_LENGTH - 2)}${accented}${"n".repeat(5)}`;
+		expect(cutFindingName(straddling)).toBe(
+			`${"n".repeat(FINDING_NAME_MAX_LENGTH - 2)}${accented}…`,
+		);
+	});
+
+	it("counts an emoji sequence joined by a zero-width joiner as one character, and never parts it", () => {
+		// Woman, ZWJ, laptop: three code points, one character.
+		const technologist = "\u{1F469}\u200D\u{1F4BB}";
+		expect(cutFindingName(technologist.repeat(FINDING_NAME_MAX_LENGTH))).toBe(
+			technologist.repeat(FINDING_NAME_MAX_LENGTH),
+		);
+		expect(
+			cutFindingName(technologist.repeat(FINDING_NAME_MAX_LENGTH + 1)),
+		).toBe(`${technologist.repeat(FINDING_NAME_MAX_LENGTH - 1)}…`);
+	});
 });
 
 describe("the circumstance table", () => {

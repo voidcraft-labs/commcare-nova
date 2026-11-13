@@ -245,12 +245,19 @@ export type Finding = ManifestFinding | CircumstanceFinding;
 /** The most characters a finding's name holds. */
 export const FINDING_NAME_MAX_LENGTH = 200;
 
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 /**
- * `name` cut to the bound, its last character `…` where it was cut. Characters
- * are counted as code points, so a cut never splits a character in two.
+ * `name` cut to the bound, its last character `…` where it was cut. A
+ * character is what a person reads as one, a grapheme cluster (a letter with
+ * its combining marks, an emoji sequence joined by a zero-width joiner), so a
+ * cut never splits one.
  */
 export function cutFindingName(name: string): string {
-	const characters = Array.from(name);
+	const characters = Array.from(
+		GRAPHEMES.segment(name),
+		(part) => part.segment,
+	);
 	if (characters.length <= FINDING_NAME_MAX_LENGTH) return name;
 	return `${characters.slice(0, FINDING_NAME_MAX_LENGTH - 1).join("")}…`;
 }

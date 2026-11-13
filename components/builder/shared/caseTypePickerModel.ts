@@ -42,7 +42,9 @@ function creationErrorMessage(
 		case "empty":
 			return "Use at least one letter or number";
 		case "illegal_format":
-			return "Letters, numbers and underscores all work in a case type name";
+			// The candidate is `slugifyId`'s, which the grammar always takes, so
+			// this arm says only what the verdict says of the grammar.
+			return verdict.userMessage;
 		case "too_long":
 			return "Use a shorter name";
 		case "duplicate":

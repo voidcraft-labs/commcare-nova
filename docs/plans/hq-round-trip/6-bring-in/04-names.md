@@ -758,11 +758,7 @@ row, as the two reserved words on a basic menu already have for the same reason 
   ): string {
   	const spelled = caseType.replace(/[^A-Za-z0-9_]/g, "_");
   	const base =
-  		spelled.length === 0
-  			? "change"
-  			: questionIdProblem(spelled) === undefined
-  				? spelled
-  				: `case_${spelled}`;
+  		questionIdProblem(spelled) === undefined ? spelled : `case_${spelled}`;
   	return suffixUntilFree(base, takenIds);
   }
   ```
@@ -772,7 +768,9 @@ row, as the two reserved words on a basic menu already have for the same reason 
   its default reserved names, a new import inside `lib/domain`. `case_<spelled>` always passes it: it
   starts with a letter, holds only letters, digits and underscores, never starts `XML`, and no reserved
   name starts `case_`. So `1st-visit` gives `case_1st_visit`, `-flagged` gives `case__flagged`, `2024`
-  gives `case_2024`, `case` gives `case_case`, and `XMLrecord` gives `case_XMLrecord`. Among the types
+  gives `case_2024`, `case` gives `case_case`, and `XMLrecord` gives `case_XMLrecord`. Every caller passes
+  a case type, which is never empty, so the minter holds no arm for an empty one; it stays total all the
+  same, since `""` fails the rule and gives `case_`. Among the types
   today's grammar admits, every one mints the id it mints today but those the question id rule refuses
   as they stand: `meta`, `registration` and `script` in any letter case, `instance`, `bind`,
   `parsererror`, and a type starting `XML`. No stored id changes: an id is minted once, at the
@@ -842,8 +840,10 @@ Copy C2 to C6.
 
 The builder's picker follows. `components/builder/shared/caseTypePickerModel.ts::creationErrorMessage`
 switches on the verdict's code, so its `reserved` arm is deleted with the code (a type error otherwise),
-and its `illegal_format` line, "Start the name with a word, not a number", stops being true and becomes
-Copy C22. `planCaseTypeCreation` keeps slugging what a person types through `idSlug.ts::slugifyId`, which
+and its `illegal_format` line, "Start the name with a word, not a number", stops being true and gives way
+to the verdict's own sentence, Copy C2 (C22). The arm is unreachable, since the candidate is
+`slugifyId`'s and the grammar takes every slug, so the picker keeps the switch total without a second
+wording of the grammar. `planCaseTypeCreation` keeps slugging what a person types through `idSlug.ts::slugifyId`, which
 lowers it and joins its words with underscores, so typing "1st visit" now creates `1st_visit`, which the
 earlier rule refused, and typing "Case" creates `case`. The builder mints underscores; a hyphen in a case
 type arrives through the Solutions Architect, MCP and a reading of an HQ app.
@@ -933,9 +933,9 @@ stays text.
 | `lib/agent/authoring/text.ts::printAuthoringText` | prints one part through `printProseTemplate` and strips a leading `#form/` from any result | strips `#form/` only where `part.kind === "field-ref"`, so a case reference is never shown to the SA as an answer reference |
 | `lib/doc/expressionText.ts::parseProseReference` | a non-`form`, non-`user` namespace with one segment is a case type; `case` is the selected type in the authoring scope; `search` fails | after `form`, `user` and the authoring `case`: `readCaseReference(namespace, segments)` gives the `case-ref`, so `{{#record/case/region}}` reads the type `case`; `search`, `row` and a one-segment `record` fail as today's unknown reference does |
 | `lib/references/config.ts::namespaceOf`, `classifyNamespace` | `namespaceOf` has no caller; `classifyNamespace` reads every namespace but `form` and `user` as a case type | `namespaceOf` is deleted with the comment in `refSuggestion.ts` that names it; `classifyNamespace` returns `"case"` for `record` too |
-| `lib/references/provider.ts` | `ReferenceProvider.parse` reads `#<ns>/<path>`: `form` and `user` are fixed, `case` is no reference, any other namespace is a case type. `search`, `resolve` and the unresolved arm print `` `#${caseType}/…` `` as `raw` and `repairText` | `parse` splits the path on `/` and asks `readCaseReference`, so `record` with two segments is `{ type: "case", caseType: segments[0], path: segments[1] }`, and `case`, `search`, `row` and a one-segment `record` are no reference in prose. `raw` is `caseReferenceText(caseType, property)` and `repairText` is `caseReferencePrefix(caseType)` then `[reference needs repair]`. `namespaces(formUuid)` spells each readable type as its reference text does before the property (`caseReferencePrefix(type)` without `#` and the last `/`: `mother`, or `record/user` for a type named `user`), and `search(namespace, query, formUuid)` takes that token and reads its type with `hashtagSegments.ts::caseReferenceNamespaceType`. Keying both by the bare case type would send a type named `user` or `form` into the fixed `user` and `form` arms |
-| `lib/tiptap/refSuggestion.ts` | both namespace items label a type `` `#${ns}/` ``, the namespace command inserts `` `#${props.namespace}/` ``, and `parseQuery` reads the namespace as the text before the first `/` | the label and the inserted text are `caseReferencePrefix(type)`, so a type named `case` is offered and inserted as `#record/case/`; `parseQuery` matches the longest namespace token the provider offers that the query starts with, so it reads `record/<type>/<query>` as that type and its query, and hands `provider.search` the token |
-| `lib/codemirror/xpath-autocomplete.ts`, `xpath-chips.ts` | the namespace stage labels a type `` `#${typeName}/` ``, the property stage labels `` `#${namespace}/${prop}` ``, and the namespace is the text before the first `/`; chips come from parse spans | the namespace stage labels `caseReferencePrefix(typeName)`, the property stage `caseReferenceText(type, prop)`, and a `record` namespace's type is its first segment; chips need nothing |
+| `lib/references/provider.ts` | `ReferenceProvider.parse` reads `#<ns>/<path>`: `form` and `user` are fixed, `case` is no reference, any other namespace is a case type. `search`, `resolve` and the unresolved arm print `` `#${caseType}/…` `` as `raw` and `repairText` | `parse` splits the path on `/` and asks `readCaseReference`, so `record` with two segments is `{ type: "case", caseType: segments[0], path: segments[1] }`, and `case`, `search`, `row` and a one-segment `record` are no reference in prose. `raw` is `caseReferenceText(caseType, property)` and `repairText` is `caseReferencePrefix(caseType)` then `[reference needs repair]`. `namespaces(formUuid)` spells each readable type as its reference text does before the property (`caseReferencePrefix(type)` without `#` and the last `/`: `mother`, or `record/user` for a type named `user`), and `search(namespace, query, formUuid)` takes that token and reads its type with `hashtagSegments.ts::caseReferenceNamespaceType`. Keying both by the bare case type would send a type named `user` or `form` into the fixed `user` and `form` arms. `recordNamespaces(formUuid)` gives every readable type's long spelling, `record/<type>`, which `search` takes too, for a person who has typed `#record/` |
+| `lib/tiptap/refSuggestion.ts` | both namespace items label a type `` `#${ns}/` ``, the namespace command inserts `` `#${props.namespace}/` ``, and `parseQuery` reads the namespace as the text before the first `/` | the label and the inserted text are `caseReferencePrefix(type)`, so a type named `case` is offered and inserted as `#record/case/`; `parseQuery` matches the longest namespace token the provider offers that the query starts with, `namespaces` and `recordNamespaces` both, so it reads `record/<type>/<query>` as that type and its query for every readable type, and hands `provider.search` the token; once the query starts `record/`, the namespace stage offers `recordNamespaces` |
+| `lib/codemirror/xpath-autocomplete.ts`, `xpath-chips.ts` | the namespace stage labels a type `` `#${typeName}/` ``, the property stage labels `` `#${namespace}/${prop}` ``, and the namespace is the text before the first `/`; chips come from parse spans | the namespace stage labels `caseReferencePrefix(typeName)`, the property stage `caseReferenceText(type, prop)`, and a `record` namespace's type is its first segment; where the typed text starts `#record/`, every option takes that spelling (the namespace stage offers `#record/<type>/` for every readable type, a bare `#record/` included, and the property stage labels `#record/<type>/<property>`), since an option is filtered against the text typed; chips need nothing |
 | `components/builder/editor/fields/caseWritePresentation.ts::destinationRef` | `#user/<property>` for the worker's record, else `` `#${caseType}/${property}` `` | the worker's arm stands; else `caseReferenceText(caseType, property)` |
 | `lib/commcare/validator/formLogicFindings.ts`, `details.hashtag` of `CASE_HASHTAG_ON_CREATE_FORM` | `` `#${term.caseType}/${term.property}` `` | `caseReferenceText(term.caseType, term.property)` |
 | `lib/commcare/formActions.ts::buildCaseReferencesLoad` | re-assembles the text for `hqLoadReference` | passes the typed read (section 4.3); it prints no reference text |
@@ -1309,8 +1309,9 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 }
 ```
 
-Every stored row passes the new checks, since each passed the narrower ones, so `ADD CONSTRAINT`
-validates without a scan script.
+Every stored row passes the new checks, since each passed the narrower ones, so each `ADD CONSTRAINT`'s
+validation, one pass over its table's stored rows under the lock its drop took, refuses none, and the
+change needs no scan script.
 
 **Locks.** The two `DROP CONSTRAINT`s take `ACCESS EXCLUSIVE` on `lookup_tables` and on
 `lookup_columns`, two tables the serving revision reads and writes. The migrator runs every pending
@@ -1669,7 +1670,7 @@ Every string this part adds or changes. Unchanged strings are not listed.
 | C19 | `connectSlugs.ts::CONNECT_ID_FIELD_DESCRIPTION` (today's text with "digits or underscores" become "digits, underscores or hyphens") | `` `Leave unset. Nova derives a valid unique id from the name. Set only to pin one: a letter first, then letters, digits, underscores or hyphens, not starting with XML, at most ${CONNECT_SLUG_MAX_LENGTH} characters, unique in the app, and none of assessment, deliver, module, task, work_area_update, meta, case, registration, script, instance, bind, parsererror. CommCare Connect keys its records by these ids, so change one only when the person asks, and publish that change after an opportunity manager has added the new deliver unit to a payment unit.` `` |
 | C20 | `userFacingErrors.ts`, the fallback of `INVALID_FIELD_ID` and of `CONNECT_ID_INVALID_FORMAT` | `` `${q(fieldName(e))} in ${q(formName(e))} has an ID that won't work. Letters, numbers, underscores and hyphens all work, with a letter first.` `` and `` `The Connect ID ${q(id)} in ${q(formName(e))} won't work. Letters, numbers, underscores and hyphens all work, with a letter first.` `` |
 | C21 | `CreateTableDialog.tsx`, the tag's description; `AddColumnDialog.tsx`, the column name's | `Letters, digits, underscores and hyphens, with a letter or an underscore first. Changing it later needs admin access.` and `Letters, digits, underscores and hyphens, with a letter or an underscore first. This is the heading a CSV import must use.` |
-| C22 | `caseTypePickerModel.ts::creationErrorMessage`, `illegal_format` | `Letters, numbers and underscores all work in a case type name` (no closing period, as its sibling lines) |
+| C22 | `caseTypePickerModel.ts::creationErrorMessage`, `illegal_format` | the verdict's `userMessage`, C2's `A case type holds only letters, digits, underscores and hyphens.`, never a wording of its own: the arm is unreachable through `slugifyId`, and an earlier wording of its own left out the hyphen |
 | C23 | the option editor's refusal beside the value box (`optionsDraftModel.ts`), where the question and the form are already on screen | `This value holds both an apostrophe and a double quote. Keeping one kind works.` |
 
 The sentence a reading shows for each manifest entry of 11.2 is part 01's (`lib/publish/hqFindingCopy.ts`,
