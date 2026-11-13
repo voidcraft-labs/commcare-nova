@@ -2,12 +2,13 @@
 
 These plans carry out the HQ round-trip research
 ([`docs/research/2026-09-26-hq-round-trip/`](../../research/2026-09-26-hq-round-trip/README.md)):
-Nova imports any app CommCare HQ's editors can build, holds it typed, edits it,
-and publishes it back. The research is the design. Its "Order of work" gives
-seven steps, each with one cutover, and these plans follow that order. Where a
-plan cites a defect, a section or a contract row, it means the research's
-"Defects in Nova today", its section of that name, or its "Contracts this work
-changes" table.
+Nova brings in any app CommCare HQ's editors can build, holds it typed, edits
+it, and publishes it back. The research is the design. Its "Order of work"
+gives seven steps, each with one cutover. These plans follow that order with
+at most one cutover a step: step 6 has none, for the reason "Rules every plan
+follows" gives. Where a plan cites a defect, a section or a contract row, it
+means the research's "Defects in Nova today", its section of that name, or its
+"Contracts this work changes" table.
 
 | Step | Plan | Depth |
 |---|---|---|
@@ -16,8 +17,8 @@ changes" table.
 | 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
 | 5 | Case writes, forms and navigation | done: ["Step 5 is done"](#step-5-is-done) |
-| 6 | [Import](6-import.md) | outline |
-| 7 | [The rest of the model](7-rest-of-model.md) | outline |
+| 6 | [Bringing an app in from CommCare HQ](6-bring-in.md), with its fifteen parts in [`6-bring-in/`](6-bring-in/), which replace the outline this row held | planned in full |
+| 7 | [The rest of the model](7-rest-of-model.md) | outline: the model Nova does not hold yet, in eight groups with a default order |
 
 ## Step 1 is done
 
@@ -153,8 +154,11 @@ is read:
 - **What planning step 3 found**,
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
   "Found while planning step 3".
-- **What step 3 left to later steps**, each with its reason, in
-  [`6-import.md`](6-import.md) and [`7-rest-of-model.md`](7-rest-of-model.md);
+- **What step 3 left to later steps**, each with its reason, in item 8 of
+  the outline, which step 6's plan settles
+  ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why),
+  "What changed from the outline, and why", item 8), and in
+  [`7-rest-of-model.md`](7-rest-of-model.md);
   what step 4 took of it is in ["Step 4 is done"](#step-4-is-done), and what
   step 5 took of it in ["Step 5 is done"](#step-5-is-done).
 - **The cutover's trace.** The cutover ran once, before the merge, and its
@@ -226,9 +230,14 @@ finding 74. What endures lives where it is read:
 - **What step 4 left to later steps**, each with its reason: CommTrack's
   confirmation and defect 21, which step 5 took (["Step 5 is
   done"](#step-5-is-done));
-  the split's read-back and the guarded and `current()` reads in
-  [`6-import.md`](6-import.md); a child module of a search-first parent,
-  `fingerprintquery` and an ordinary search's results detail in
+  the split's read-back and the guarded and `current()` reads in item 9 of
+  the outline, which step 6's plan settles: the split in its item 9
+  ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why),
+  "What changed from the outline, and why"), and the two reads in part 08
+  ([`08-the-reader-expressions.md`](6-bring-in/08-the-reader-expressions.md),
+  sections 5.3 and 5.2: the guard reads back as the bare read, and
+  `current()` as a read spelled `current`); a child module of a search-first
+  parent, `fingerprintquery` and an ordinary search's results detail in
   [`7-rest-of-model.md`](7-rest-of-model.md).
 - **The baseline step 4's plan was written against**: `main` at `e9e6cd93`,
   which is step 3's stack (#773 to #791) merged and its cutover run, then
@@ -241,7 +250,7 @@ finding 74. What endures lives where it is read:
   and never ran it. What it left is the five
   ledgered migrations of step 4 with `mediaFormat.postgres.test.ts`
   (`lib/case-store/migrations/`); `lib/doc/platformDeclaration.ts`, which
-  the fuzz mapping and step 6's import proposal read; each changed app's
+  the fuzz mapping and step 6's proposed declaration read; each changed app's
   `blueprint-migration` row by `system:hq-round-trip-platforms`
   (`lib/db/CLAUDE.md`); each affected app's notice, cutover
   `hq-round-trip-platforms`, whose lead, four reasons
@@ -309,8 +318,11 @@ publish, and defect 20's CommTrack half. What endures lives where it is read:
 - **What planning step 5 found**,
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
   "Found while planning step 5".
-- **What step 5 left to later steps**, each with its reason, in
-  [`6-import.md`](6-import.md) and [`7-rest-of-model.md`](7-rest-of-model.md).
+- **What step 5 left to later steps**, each with its reason, in item 10 of
+  the outline, which step 6's plan settles
+  ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why),
+  "What changed from the outline, and why", item 10), and in
+  [`7-rest-of-model.md`](7-rest-of-model.md).
 - **The baseline step 5's plan was written against**: `main` at `2f985ed6`,
   which is step 4's stack (#809 to #825) merged and its cutover run, at the
   CommCare pins named under "Rules every plan follows".
@@ -358,18 +370,29 @@ before it exits, against the code as it then stands.
 - A plan states decisions as decisions. It names what Nova does today in the
   present tense and what changes as "from step N".
 - One concept per meaning; no reference a reader of the repo cannot see.
-- One cutover per step. A step that changes the stored shape of Nova documents
+- One name for bringing an app in. Wherever a person reads it, step 6's feature is "Bring in an app
+  from CommCare HQ" and its verb is "bring in", never "import", which already names the files Nova
+  sends to CommCare HQ and a CSV that replaces a table's rows. Step 6's plan gives the nouns its
+  code uses, once ([`6-bring-in.md`](6-bring-in.md#what-changed-from-the-outline-and-why), "What
+  changed from the outline, and why", item 13).
+- At most one cutover per step. A step that changes the stored shape of Nova documents
   migrates all of that step's changes in one direct maintenance cutover
   (`docs/architecture/contracts.md`), with its production scan first, and
   leaves every document valid. One-off data migrations ship as a read-only scan
   script plus a separate migrate script in `scripts/`, which are removed after
-  they run.
+  they run. Step 6 migrates no stored document, so it has no maintenance cutover: every stored slot
+  it adds is optional or a wider grammar, its four migrations change no stored document and each
+  applies while the revision before the step still serves
+  ([`6-bring-in.md`](6-bring-in.md#migrations-and-the-deploy), "Migrations and the deploy"), and the
+  cutover the research and the outline give it, a merge of each lookup table's deployment records,
+  has no data to move, because a table's ownership is derived from the live mappings of the
+  Project's apps. It ships as one stack and one deploy, as steps 2 to 5 each did.
 - No rollouts, flags, leases or transitional cutovers.
 - Tests earn their boundary (`docs/testing.md`).
 - Every CommCare fact a plan relies on is settled at source, in local
   checkouts of the Dimagi repositories at the commits `proof/pins.json` names
   when the plan is written, which the plan states. Step 2's, step 3's, step
-  4's and step 5's plans read commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`,
+  4's, step 5's and step 6's plans read commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`,
   commcare-android `7a5584475580`, commcare-connect `046c7fd78081` and formplayer
   `24383ac71bfb`, with Vellum `01215f251c57` (the build HQ vendors at that
   pin). The research cites commcare-hq `f57e85e02913` (with `525becc2963`
@@ -464,6 +487,45 @@ Step 5's plan reads `main` at `2f985ed6`. After `e9e6cd93`:
   the model step 5's `commtrack-off` follows, Preview per platform, and
   `RUNTIME_VERSION` 17.
 
+Step 6's plan reads `main` at `1f103305`. After `2f985ed6`:
+
+- #832, step 5's plan, and #833 (the proof lane's nightly reader failures: HQ answers a view's
+  exception with its own `handler500` in the lane, as a deployed HQ does).
+- #837 to #855, step 5's stack, merged together ("Step 5 is done", above). What step 6 builds on is
+  one concept for a form's case writes (`Form.caseOperations`, the own case among them), the place
+  each published case change holds and `lib/commcare/hq/publishedCaseBlocks.ts`, advanced modules,
+  `caseSearchConfig.workflow` and `formsReadSearch`, `Module.caseListMenuItem` and
+  `Module.caseListRegistrationForm`, `Form.otherwise`, `group.fieldList` and `plainLabel`, the
+  `commtrack-off` confirmation and the `same-type-child-links` capability, an empty known-defect
+  register, `MODEL_CONTEXT_VERSION` `v6-hq-round-trip-case-writes.13` (#852, the stack's last move
+  of it) and `RUNTIME_VERSION` 18.
+- #866 (a submission's values keep their meaning through SQL evaluation) and #867 (authoring reads
+  no longer depend on case-write emission: `lib/commcare/formCaseEntryPlan.ts` holds what a form's
+  entry needs, apart from `casePlacementPlan.ts`).
+- #870 (fixed case scope indexes replace the per-property ones, so the case store derives no
+  Postgres identifier from a case type or a property, which step 6's wider name grammars rest on).
+- #878 and #879 (a choice question's starting value is held to its choices,
+  `lib/commcare/validator/rules/selectPreloadWriterOptions.ts`, and its repair runs through the
+  fenced maintenance Job).
+- #880 (the Publish dialog's body is `components/builder/PublishDialogBody.tsx`, loaded when the
+  dialog opens, with the destination chosen apart from the review), which step 6's connection check
+  and first-publish list build on.
+- #887 (authored prose stays literal through the XML export, `lib/commcare/xform/builder.ts`), which
+  step 6's calculated values in prose build on.
+- #874 and #888 (the lane: its search checks, the weekly audit's eligibility and setup, reader
+  scheduling, named configuration slices for a run started by hand, and the pinned JDK).
+- #902 and #903 (the lane: identity registers kept apart in a private proof run, nested logs
+  retained, and HQ's own deployment timeouts for the lane's Elasticsearch requests). Both touch
+  `proof/` alone.
+- #860, #872 and #891 (dependency upgrades); #863, #864, #868, #869, #871, #873, #876, #877 and #896
+  (observability, agent work limits, query batching, App Test journey bounds, OAuth issuer discovery
+  for MCP clients, maintenance host matching, focus, unsaved edits on leaving, Cloud Run bounds);
+  and #892 to #894 and #897 (chat sources and transcripts). Of these step 6 reads two facts. #893 and
+  #894 hold the newest migrations on `main` (`20261112000000_incremental_transcripts`,
+  `20261112010000_retained_conversation_sources`), which step 6's four migrations are stamped after.
+  And #894 moved `MODEL_CONTEXT_VERSION` to `v6-hq-round-trip-case-writes.14` (`lib/models.ts`), the
+  value step 6's one move of it replaces.
+
 No defect the research lists changed behavior before `7b153dc3` but finding 52.
 After it, #749 to #767 are step 2, which fixed defects 1 to 10 and 12 to 16 and
 every finding of the harness it registered but finding 56; no other pull
@@ -472,4 +534,12 @@ request in that span changed a defect's behavior. After `5cf6e327`, #773 to
 other pull request in that span changed a defect's behavior. After `e9e6cd93`,
 #809 to #825 are step 4, which fixed the second half of defect 11, defects 18
 and 19, defect 20's sync on form entry and finding 74; no other pull request
-in that span changed a defect's behavior.
+in that span changed a defect's behavior. After `2f985ed6`, #837 to #855 are
+step 5, which fixed defects 21 to 30, defect 12's links between cases of the
+same type at publish and defect 20's CommTrack half, and left the known-defect
+register empty. #878 widened the refusal that fixed finding 72, from a literal
+default outside a choice question's options to every authored value that
+reaches a choice question as its starting value
+(`lib/commcare/validator/rules/selectPreloadWriterOptions.ts`, with the new
+`SELECT_DEFAULT_VALUES_UNBOUNDED` for a value it cannot bound); no other pull
+request in that span changed a defect's behavior.

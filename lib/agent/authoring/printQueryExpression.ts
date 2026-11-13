@@ -255,8 +255,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			default:
 				// `value-list` and the other held reads (`cases`, `table-rows`,
 				// `locations`, `selected-cases`) have no record spelling, and no
-				// authoring surface stores one; their read-back belongs to the
-				// step that imports them (`docs/plans/hq-round-trip/6-import.md`).
+				// authoring surface stores one. An app made in CommCare HQ can hold
+				// them, and reading those back belongs to bringing such an app in.
 				throw new Error(
 					`The saved ${value.kind} tree has no record value spelling.`,
 				);
