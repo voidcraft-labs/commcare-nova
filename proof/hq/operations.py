@@ -40,7 +40,14 @@ runs.
   ``location_patch``, ``location_type_write``: the reads and writes Nova's
   client makes of HQ's lookup table, row, location and level resources,
   through ``api_request`` (the table list in the order of its tables' ids,
-  ``lookup_tables_in_id_order``).
+  ``lookup_tables_in_id_order``);
+- ``app_list_read``, ``application_read``, ``api_access_read``,
+  ``project_spaces_read``: the reads Nova's client makes to bring an app in,
+  of HQ's app list, application resource, lookup table list (for one row, the
+  API access check) and project-space list, through ``api_request``;
+  ``client_request``: a request behind HQ's own middleware, for the one read
+  whose answer may depend on it (a superuser's key, ``seed_api_superuser``);
+  ``remote_app_through_hq``: a remote app saved by HQ's model.
 """
 
 import json
@@ -490,6 +497,11 @@ def api_request(
         return HqAnswer(404, {}, "")
     except PermissionDenied:
         return HqAnswer(403, {}, "")
+    return _answered(response)
+
+
+def _answered(response) -> HqAnswer:
+    """A Django response as an ``HqAnswer``: its status, the headers Nova's client reads, and its body as text."""
     if hasattr(response, "render") and not getattr(response, "is_rendered", True):
         response.render()
     content = b"".join(response.streaming_content) if response.streaming else response.content
@@ -534,6 +546,21 @@ def seed_api_key(state, username: str, *, active=True, domain: str | None = None
     user = User.objects.get(username=username)
     key = HQApiKey.objects.create(user=user, name=f"nova-proof-{username}", is_active=active, domain=domain or "")
     return ApiCredential(username, key.plaintext_key)
+
+
+def seed_api_superuser(state, username: str) -> ApiCredential:
+    """The member ``seed_api_user`` makes, with its key through ``seed_api_key``, then made a superuser by HQ's own
+    model: ``is_superuser`` set on its ``WebUser`` and saved, which writes the flag to its Django user
+    (``users/models.py::CouchUser.save``, ``sync_to_django_user``), where HQ's plan check reads it
+    (``api/resources/__init__.py::HqBaseResource.dispatch``, ``request.user.is_superuser``). ``seed_api_user`` alone
+    makes a role-scoped member and cannot make a superuser."""
+    from corehq.apps.users.models import WebUser
+
+    credential = seed_api_user(state, username)
+    user = WebUser.get_by_username(username)
+    user.is_superuser = True
+    user.save()
+    return credential
 
 
 def source_read(state, app_id, credential: ApiCredential) -> HqAnswer:
@@ -632,6 +659,86 @@ def current_version_read(state, app_id, credential: ApiCredential) -> HqAnswer:
     return api_request(state, "GET", f"/a/{state.domain}/apps/view/{app_id}/current_version/", credential=credential)
 
 
+def _resource_read(state, path, credential: ApiCredential) -> HqAnswer:
+    """A GET of a tastypie resource through ``api_request``, with a lookup that found nothing answered as tastypie
+    answers it on a server: 404, alone.
+
+    Tastypie answers an exception its view raised with a status of its own
+    choosing (``tastypie/resources.py::Resource.wrap_view``, at 0.15.1, the
+    version HQ's ``uv.lock`` pins): a ``NotFound``, ``ObjectDoesNotExist`` or
+    ``Http404`` with a 404 (``Resource.get_response_class_for_exception``),
+    except where the request names its server ``testserver``, as every
+    request Django's ``RequestFactory`` builds does, where it raises the
+    exception again for a test to see. A resource's ``obj_get`` that finds no
+    document it admits raises ``ObjectDoesNotExist``
+    (``api/util.py::get_object_or_not_exist``, ``object_does_not_exist``), so
+    that answer reaches here raised, and is kept as the status HQ's server
+    sends for it, which is all Nova reads of it, as ``api_request`` keeps a
+    raised ``Http404``. Any other exception propagates, as a server answers it
+    with a 500.
+    """
+    from django.core.exceptions import ObjectDoesNotExist
+    from tastypie.exceptions import NotFound
+
+    try:
+        return api_request(state, "GET", path, credential=credential)
+    except (NotFound, ObjectDoesNotExist):
+        return HqAnswer(404, {}, "")
+
+
+def app_list_read(state, credential: ApiCredential) -> HqAnswer:
+    """``app_manager/views/cli.py::list_apps`` (``api_auth``, ``api_throttle``), as Nova's ``listHqApps`` reads it:
+    ``GET /a/<state.domain>/apps/api/list_apps/`` through ``api_request``."""
+    return api_request(state, "GET", f"/a/{state.domain}/apps/api/list_apps/", credential=credential)
+
+
+def application_read(state, app_id, credential: ApiCredential) -> HqAnswer:
+    """``api/resources/v0_4.py::ApplicationResource`` for ``app_id``, as Nova's ``readHqApplication`` reads it, with
+    no ``extras``: ``GET /a/<state.domain>/api/application/v1/<app_id>/``, an id the resource admits no document for
+    (``BaseApplicationResource.obj_get``) answered with its 404 (``_resource_read``)."""
+    return _resource_read(state, f"/a/{state.domain}/api/application/v1/{app_id}/", credential)
+
+
+def api_access_read(state, credential: ApiCredential) -> HqAnswer:
+    """The API access check's read, as Nova's ``probeHqApiAccess`` makes it: one row of
+    ``fixtures/resources/v0_1.py::LookupTableResource``'s list, ``GET /a/<state.domain>/api/lookup_table/v1/?limit=1``
+    through ``api_request``, the list in the order of its tables' ids (``lookup_tables_in_id_order``), so the row a
+    page of one holds is the same on every run."""
+    with lookup_tables_in_id_order():
+        return api_request(state, "GET", f"/a/{state.domain}/api/lookup_table/v1/?limit=1", credential=credential)
+
+
+def project_spaces_read(state, credential: ApiCredential, *, feature_flag: str | None = None) -> HqAnswer:
+    """``api/resources/v0_5.py::UserDomainsResource``, as Nova's ``listDomainsMatching`` reads it:
+    ``GET /api/user_domains/v1/?limit=100``, with ``&feature_flag=<slug>`` where one is named, through
+    ``api_request``."""
+    query = "?limit=100" + (f"&feature_flag={feature_flag}" if feature_flag else "")
+    return api_request(state, "GET", f"/api/user_domains/v1/{query}", credential=credential)
+
+
+def client_request(state, method: str, path: str, *, credential: ApiCredential | None) -> HqAnswer:
+    """HQ's answer to one request behind its own middleware (``settings.MIDDLEWARE``), as a client outside HQ sends
+    it, with the credential's ``Authorization`` header as ``api_request`` writes it.
+
+    The request is answered by the handler the lane answers Formplayer's
+    requests with (``proof/formplayer/hq.py::respond``, over
+    ``django_request``), so every middleware runs before the view, an
+    exception is answered by HQ's ``handler500``, and what the middleware
+    leaves on the thread (the request field audit keeps, the active language)
+    is put back after it, as a server's next request would replace it. The
+    answer is built as ``api_request`` builds one. Used for the one read whose
+    answer may depend on what the middleware does with the key: a superuser's
+    read without the plan's API access."""
+    from proof.formplayer import hq as formplayer_hq
+    from proof.formplayer.client import HqRequest
+
+    target, _, query = path.partition("?")
+    headers = () if credential is None else (("Authorization", f"ApiKey {credential.username}:{credential.key}"),)
+    with formplayer_hq._language_put_back():
+        response = formplayer_hq.respond(formplayer_hq.django_request(HqRequest(method, target, query, headers, b"")))
+        return _answered(response)
+
+
 def session_post(state, view_name, *args, pairs=()):
     """A form POST of ``pairs`` the state's web user's browser makes to the view ``view_name`` (its URL's
     arguments after the project space), answered by it with its decorators."""
@@ -672,6 +779,16 @@ def link_app_through_hq(state, app_id, master_id="nova-proof-master-app"):
 
     held = held_app(state, app_id).to_json()
     link_app(LinkedApplication.wrap({**held, "doc_type": "LinkedApplication"}), LINKED_MASTER_DOMAIN, master_id)
+
+
+def remote_app_through_hq(state, name="Remote app") -> str:
+    """A ``RemoteApp`` document made and saved by HQ's model in the state's project space
+    (``models/applications.py::RemoteApp.new_app``, ``ApplicationBase.save``). Returns its id."""
+    from corehq.apps.app_manager.models import RemoteApp
+
+    app = RemoteApp.new_app(state.domain, name)
+    app.save()
+    return app.get_id
 
 
 # Build -------------------------------------------------------------------
