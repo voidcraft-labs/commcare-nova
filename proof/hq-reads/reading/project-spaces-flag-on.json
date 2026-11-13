@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"meta\": {\"total_count\": 1}, \"objects\": [{\"domain_name\": \"nova-proof\", \"project_name\": \"nova-proof\"}]}"
+}
