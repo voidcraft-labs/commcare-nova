@@ -9,6 +9,7 @@ import {
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_NAME_REJECTION,
 	searchInputDefSchema,
+	searchInputNameRefusal,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { HASHTAG_SEGMENT_SOURCE } from "@/lib/domain/hashtagSegments";
@@ -60,6 +61,17 @@ describe("a Search field's name", () => {
 		expect(messages(parsed.error?.issues ?? [])).toContain(
 			SEARCH_INPUT_NAME_REJECTION,
 		);
+	});
+
+	it("is refused by the editors' check exactly where the schema refuses it, with the schema's sentence", () => {
+		for (const name of ["first-name", "first_name", "_private", "a-"]) {
+			expect(searchInputNameRefusal(name), name).toBeUndefined();
+		}
+		for (const name of ["-first", "1st", "first.name", "first name", ""]) {
+			expect(searchInputNameRefusal(name), name).toBe(
+				SEARCH_INPUT_NAME_REJECTION,
+			);
+		}
 	});
 
 	it("is always one hashtag segment, so #search/<name> reads it back", () => {

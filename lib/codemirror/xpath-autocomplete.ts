@@ -150,15 +150,21 @@ function findDataPathRoot(node: SyntaxNode): SyntaxNode | null {
 }
 
 /** Read the namespace (`form`, `user`, a record type's short form, or
- * `record/<type>`) from a HashtagRef node's text. */
+ * `record/<type>`) from a HashtagRef node's text, or `undefined` for a bare
+ * `record`, whose record type is still to be chosen. */
 function readHashtagNamespace(
 	node: SyntaxNode,
 	doc: { sliceString(from: number, to: number): string },
-): string {
+): string | undefined {
 	const parts = doc.sliceString(node.from + 1, node.to).split("/"); // skip "#"
-	return parts[0] === "record" && parts.length >= 2
-		? `record/${parts[1]}`
-		: parts[0];
+	if (parts[0] !== "record") return parts[0];
+	return parts.length >= 2 ? `record/${parts[1]}` : undefined;
+}
+
+/** Whether the person is writing a record reference in its long spelling,
+ * `#record/<type>/`, which every option they are offered then takes. */
+function typedLongSpelling(typed: string): boolean {
+	return typed.startsWith("#record/");
 }
 
 /** The namespace of the hashtag text typed so far, or `undefined` while the
@@ -249,10 +255,25 @@ export function hashtagSource(
 				)
 			: undefined;
 
+		const typed = state.doc.sliceString(from, pos);
+		const longSpelling = typedLongSpelling(typed);
+
 		// Namespace stage: inside HashtagRef but no "/" typed yet — show the
 		// fixed prefixes plus one per readable case type. A session-scoped
 		// slot (an after-submit link) runs after the form has closed, so
-		// `#form/` is withheld rather than offered and then refused.
+		// `#form/` is withheld rather than offered and then refused. After
+		// `#record/` the stage offers each readable type in that spelling.
+		if (namespace === undefined && longSpelling) {
+			const options: Completion[] = [...(accept?.keys() ?? [])].map(
+				(typeName) => ({
+					label: `#record/${typeName}/`,
+					type: "namespace",
+					detail: "case property",
+					boost: 2,
+				}),
+			);
+			return options.length === 0 ? null : { from, options };
+		}
 		if (namespace === undefined) {
 			const options: Completion[] = STATIC_NAMESPACE_OPTIONS.filter(
 				(option) => option.label !== "#form/" || reference?.scope !== "session",
@@ -310,7 +331,11 @@ export function hashtagSource(
 					? undefined
 					: reference?.reachableCaseTypes?.get(caseType);
 			options = [...(accepted ?? [])].map((prop) => ({
-				label: caseReferenceText(caseType ?? namespace, prop),
+				// In the spelling the person typed, so the typed text filters it.
+				label:
+					longSpelling && caseType !== undefined
+						? `#record/${caseType}/${prop}`
+						: caseReferenceText(caseType ?? namespace, prop),
 				detail: typeEntry?.properties.get(prop)?.label,
 				type: "property",
 			}));
@@ -320,7 +345,6 @@ export function hashtagSource(
 
 		/* Suppress the dropdown when the typed text already exactly matches a
        known reference — the chip is rendered and there's nothing to complete. */
-		const typed = state.doc.sliceString(from, pos);
 		if (options.some((o) => o.label === typed)) return null;
 
 		return { from, options };

@@ -498,3 +498,49 @@ describe("ReferenceProvider — record types named for a fixed word", () => {
 		expect(provider.resolve("#case/region", "visit")).toBeNull();
 	});
 });
+
+describe("ReferenceProvider — a record type's long spelling", () => {
+	const caseTypes: CaseType[] = [
+		{
+			name: "mother",
+			properties: [
+				{ name: "household_code", label: proseText("Household code") },
+			],
+		},
+		{
+			name: "case",
+			parent_type: "mother",
+			properties: [{ name: "region", label: proseText("Region") }],
+		},
+	];
+	const provider = new ReferenceProvider((formUuid) =>
+		formUuid === "visit" ? caseCtx("visit", "case", caseTypes) : undefined,
+	);
+
+	it("offers every readable type as record/<type>, whatever its name, and nothing without a form", () => {
+		expect(provider.recordNamespaces("visit")).toEqual([
+			"record/case",
+			"record/mother",
+		]);
+		expect(provider.recordNamespaces()).toEqual([]);
+		expect(provider.namespaces("visit")).toEqual([
+			"form",
+			"user",
+			"record/case",
+			"mother",
+		]);
+	});
+
+	it("searches a type that is no fixed word under its long spelling as under its short one", () => {
+		const long = provider.search("record/mother", "house", "visit");
+		expect(long).toEqual(provider.search("mother", "house", "visit"));
+		expect(long).toMatchObject([
+			{
+				type: "case",
+				caseType: "mother",
+				path: "household_code",
+				raw: "#mother/household_code",
+			},
+		]);
+	});
+});

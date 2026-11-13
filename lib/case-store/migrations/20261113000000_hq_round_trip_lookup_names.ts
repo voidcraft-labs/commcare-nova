@@ -7,9 +7,11 @@ import { type Kysely, sql } from "kysely";
  * (`fixtures/utils.py::is_identifier_invalid`). The two checks
  * `20260722053000_lookup_tables` wrote inline carry no name the migration
  * chose, so each is found by its text and replaced by a named, wider one.
- * Every stored row passed the narrower check, so the wider one validates
- * without a scan, and the revision serving while this runs writes only
- * names both checks accept. Run again over the same schema (the adoption
+ * Each `ADD CONSTRAINT` validates the rows already stored in one pass over
+ * its table, holding the lock the drop took, whose wait the five-second
+ * lock timeout set below bounds; both tables are small, and every stored
+ * row passed the narrower check, so the pass refuses none. The revision serving while this
+ * runs writes only names both checks accept. Run again over the same schema (the adoption
  * replay), it finds its own checks by the same text and writes them again.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

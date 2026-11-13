@@ -28,9 +28,8 @@ import {
 	type CaseType,
 	type HiddenSearchInputDef,
 	hiddenSearchInputDef,
-	SEARCH_INPUT_NAME_PATTERN,
-	SEARCH_INPUT_NAME_REJECTION,
 	type SearchInputDef,
+	searchInputNameRefusal,
 	type UserProperty,
 	type Uuid,
 } from "@/lib/domain";
@@ -104,8 +103,11 @@ export function HiddenSearchValueEditor({
 	 * sentence instead of bouncing off the gate. */
 	const [nameRefusal, setNameRefusal] = useState<string | null>(null);
 	const setName = (name: string) => {
-		if (name.length > 0 && !SEARCH_INPUT_NAME_PATTERN.test(name)) {
-			setNameRefusal(SEARCH_INPUT_NAME_REJECTION);
+		// An empty name is the row's own empty state, which the row says below.
+		const grammarRefusal =
+			name.length === 0 ? undefined : searchInputNameRefusal(name);
+		if (grammarRefusal !== undefined) {
+			setNameRefusal(grammarRefusal);
 			return;
 		}
 		setNameRefusal(null);
