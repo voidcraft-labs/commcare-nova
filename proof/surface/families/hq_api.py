@@ -14,10 +14,10 @@ the current version (``views/releases.py::current_app_version``), the
 application resource (``api/resources/v0_4.py::ApplicationResource``), a
 build's files (``views/download.py::download_file``), the lookup table list
 and upload (``fixtures/resources/v0_1.py::LookupTableResource``,
-``fixtures/views.py::upload_fixture_api``), the location type and location
-resources, and the mobile worker resources (``CommCareUserResource``,
-``BulkUserResource``). ``fixtures/resources/v0_6.py::LookupTableItemResource``,
-which the plan names for reading an HQ table's rows, is recorded beside them.
+``fixtures/views.py::upload_fixture_api``), the lookup table rows
+(``fixtures/resources/v0_1.py::FixtureResource``), the location type and
+location resources, and the mobile worker resources
+(``CommCareUserResource``, ``BulkUserResource``).
 
 Keys:
 
@@ -89,7 +89,7 @@ RESOURCES = (
     ("corehq.apps.api.resources.v0_5", "UserDomainsResource"),
     ("corehq.apps.api.resources.v0_4", "ApplicationResource"),
     ("corehq.apps.fixtures.resources.v0_1", "LookupTableResource"),
-    ("corehq.apps.fixtures.resources.v0_6", "LookupTableItemResource"),
+    ("corehq.apps.fixtures.resources.v0_1", "FixtureResource"),
     ("corehq.apps.locations.resources.v0_5", "LocationTypeResource"),
     ("corehq.apps.locations.resources.v0_6", "LocationResource"),
     ("corehq.apps.api.resources.v0_5", "CommCareUserResource"),
