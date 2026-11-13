@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json; charset=utf-8"
+	},
+	"body": "{\"build_comment\": null, \"built_from_app_id\": null, \"built_on\": null, \"id\": \"f7417093c78a4720b746b6427d33153d\", \"is_released\": false, \"modules\": [{\"error\": \"Error in form \\\"Visit [en] \\\": <item> (A choice with no value) has no <value>\"}, {\"case_properties\": [\"external_id\", \"name\", \"notes\"], \"case_type\": \"patient\", \"forms\": [{\"name\": {\"en\": \"Added in HQ\"}, \"questions\": [], \"unique_id\": \"62a2cfe6b64940978e3fa3e65442de09\", \"xmlns\": \"http://openrosa.org/formdesigner/D3DE3FDE-5CB8-46A7-8E2A-0B423C9AC30F\"}], \"name\": {\"en\": \"Added in HQ\"}, \"unique_id\": \"94877c41a42f44b4ae949894bec1a599\"}], \"name\": \"Patients & visits <Café>\", \"resource_uri\": \"\", \"version\": 3, \"versions\": [{\"build_comment\": \"\", \"built_on\": \"2026-10-05T10:02:19.000000Z\", \"id\": \"eb416ebed03c4f12ad1f4663065939cb\", \"is_released\": false, \"version\": 2}]}"
+}
