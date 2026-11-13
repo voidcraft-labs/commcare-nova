@@ -1859,7 +1859,10 @@ in `rows`, `singleFlags` where its symptom needs a flag beyond the
 minimum, and `edit`, `hqSide` or `projectSettings` where it needs them;
 list its maker in `TARGETED_DOCUMENTS` (`proof/targeted/index.ts`).
 `proof/targeted/__tests__/targeted.test.ts`, in ordinary CI, holds every
-targeted document to admission.
+targeted document to admission, and `publishable.test.ts` beside it holds
+each, and each edit written for one, to Nova's publish and local export as
+the emission judges them, so a document whose Project data or export Nova
+refuses fails there by name rather than at the lane's emission.
 
 ## How the lane observes
 

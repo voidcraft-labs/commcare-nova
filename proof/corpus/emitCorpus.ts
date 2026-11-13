@@ -485,6 +485,90 @@ async function refusal(
 	return undefined;
 }
 
+/** A corpus document Nova's publish and local export take. */
+interface AdmittedDocument {
+	/** The document as its source wrote it, before its first publish. */
+	readonly authored: CorpusDocument;
+	/** The document as stored after its first publish. */
+	readonly document: CorpusDocument;
+	/** D, hydrated: `document`'s. */
+	readonly doc: BlueprintDoc;
+	/** What the first publish recorded (`firstPublishRecord`). */
+	readonly placements: readonly Mutation[];
+}
+
+/**
+ * D as the emission judges it: admitted, and stored as its first publish
+ * leaves it, or refused by Nova's publish or local export.
+ */
+async function judgedFirstPublish(
+	authored: CorpusDocument,
+): Promise<{ admitted: AdmittedDocument } | { refused: RefusedDocument }> {
+	const unrecorded = admittedDoc(authored);
+	const why = await refusal(publishDocument(authored, 1), unrecorded);
+	return why === undefined
+		? { admitted: { authored, ...firstPublished(authored, unrecorded) } }
+		: { refused: { id: authored.id, source: authored.source, ...why } };
+}
+
+/**
+ * D′ as the emission judges it: the publish that sends it, or what of Nova's
+ * publish or local export refuses it.
+ */
+async function judgedEdit(
+	document: CorpusDocument,
+	batch: KeptEditBatch,
+): Promise<{ publish: PublishDocument } | { refused: RefusedDocument }> {
+	const publish = publishDocument(
+		document,
+		2,
+		storedDocument(batch.nextDoc),
+		editedMedia(document, batch.nextDoc),
+	);
+	const why = await refusal(publish, batch.nextDoc);
+	return why === undefined
+		? { publish }
+		: {
+				refused: {
+					id: document.id,
+					source: document.source,
+					...why,
+					kind: batch.intendedKind,
+				},
+			};
+}
+
+/**
+ * What Nova's publish and local export refuse of `documents` and of the edits
+ * written for them, judged exactly as the emission judges the fixed floor:
+ * each D as its source wrote it, then each written edit over D as its first
+ * publish stored it (`targetedBatch`). The edit generator's balanced batches
+ * are a property of the whole floor, so a document without a written edit
+ * (every source but the targeted documents) is judged for its D alone.
+ * Throws, as the emission does, for a document that fails the strict schema
+ * or full validation.
+ */
+export async function writtenRefusals(
+	documents: readonly CorpusDocument[],
+	seed: number,
+): Promise<Pick<PartCensus, "refused" | "editsRefused">> {
+	const refused: RefusedDocument[] = [];
+	const editsRefused: RefusedDocument[] = [];
+	for (const authored of documents) {
+		const judged = await judgedFirstPublish(authored);
+		if ("refused" in judged) {
+			refused.push(judged.refused);
+			continue;
+		}
+		const { document, doc, placements } = judged.admitted;
+		const batch = targetedBatch(document, doc, placements, seed);
+		if (batch === undefined) continue;
+		const edit = await judgedEdit(document, batch);
+		if ("refused" in edit) editsRefused.push(edit.refused);
+	}
+	return { refused, editsRefused };
+}
+
 /**
  * The upload an edit's new media slot holds: one real, decodable file per
  * kind, from the media family's fixture (`mediaWireFixtures.ts::mediaManifest`).
@@ -753,25 +837,12 @@ async function emitPart(
 	const started = performance.now();
 	const perDocument = new Map<string, number>();
 	const refused: RefusedDocument[] = [];
-	const admitted: {
-		/** The document as its source wrote it, before its first publish. */
-		authored: CorpusDocument;
-		/** The document as stored after its first publish. */
-		document: CorpusDocument;
-		/** D, hydrated: `document`'s. */
-		doc: BlueprintDoc;
-		/** What the first publish recorded (`firstPublishRecord`). */
-		placements: readonly Mutation[];
-	}[] = [];
+	const admitted: AdmittedDocument[] = [];
 	for (const authored of documents) {
 		const t = performance.now();
-		const unrecorded = admittedDoc(authored);
-		const why = await refusal(publishDocument(authored, 1), unrecorded);
-		if (why === undefined) {
-			admitted.push({ authored, ...firstPublished(authored, unrecorded) });
-		} else {
-			refused.push({ id: authored.id, source: authored.source, ...why });
-		}
+		const judged = await judgedFirstPublish(authored);
+		if ("refused" in judged) refused.push(judged.refused);
+		else admitted.push(judged.admitted);
 		perDocument.set(authored.id, performance.now() - t);
 	}
 
@@ -813,18 +884,14 @@ async function emitPart(
 		if (batch === undefined) {
 			if (document.source.kind !== "targeted") withoutEdit.push(document.id);
 		} else {
-			const editPublish = publishDocument(
-				document,
-				2,
-				storedDocument(batch.nextDoc),
-				editedMedia(document, batch.nextDoc),
-			);
-			const why = await refusal(editPublish, batch.nextDoc);
-			if (why === undefined) {
+			const judged = await judgedEdit(document, batch);
+			if ("refused" in judged) {
+				editsRefused.push(judged.refused);
+			} else {
 				edit = {
 					batch,
 					nextDoc: batch.nextDoc,
-					publish: editPublish,
+					publish: judged.publish,
 					footprint: batchFootprint(
 						doc,
 						batch.nextDoc,
@@ -832,13 +899,6 @@ async function emitPart(
 						document.lookup,
 					),
 				};
-			} else {
-				editsRefused.push({
-					id: document.id,
-					source: document.source,
-					...why,
-					kind: batch.intendedKind,
-				});
 			}
 		}
 		prepared.push({
