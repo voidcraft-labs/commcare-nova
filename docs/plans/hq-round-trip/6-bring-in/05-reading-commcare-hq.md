@@ -303,7 +303,11 @@ circumstance code. Each retained file is the control of its fact.
   `views/cli.py::list_apps` reads that view through `domain/models.py::Domain.applications`, and
   `api/resources/v0_4.py::BaseApplicationResource.obj_get` admits `Application` and
   `LinkedApplication` alone, through `api/util.py::get_object_or_not_exist`.
-  `reading/application-remote.json` is `{status: 404}`. The source read of the same id is a raised
+  `reading/application-remote.json` is `{status: 404}`: tastypie answers the `ObjectDoesNotExist` that
+  `get_object_or_not_exist` raises with a 404 (`tastypie/resources.py::Resource.wrap_view`,
+  `get_response_class_for_exception`), and raises it again only for a request whose server is
+  `testserver`, which every request of the lane's `RequestFactory` names, so
+  `operations.application_read` keeps it as that 404, alone. The source read of the same id is a raised
   `AttributeError` (inferred, "Claims corrected"; section 8 does not depend on it), kept as
   `reading/source-remote.json`.
 - **G3, a form whose XML `XForm.get_questions` refuses.** The application resource answers 200 with
@@ -329,7 +333,7 @@ planning step 6", the sentence that states it, and goes on.
 
 | Check | Question | Outcomes, and what the session does for each |
 |---|---|---|
-| G1 | Does a superuser's key pass the plan check on a project space without API access? The key is `operations.seed_api_superuser`'s (section 14.1). Made through Django's test `Client` with `raise_request_exception=False`, so `settings.py::MIDDLEWARE` runs and an exception is answered by `handler500` (`operations.client_request`, section 14.1). | **A**, 401 with the subscription sentence: `reading/application-no-api-access-superuser.json` holds it; `lib/commcare/CLAUDE.md` gains "A superuser's key does not pass the plan check." **B**, 200: the file holds the 200; the sentence reads "A superuser's key passes the plan check, so Dimagi staff may read a project space whose plan has no API access.", and the session rewrites the bullet "A superuser's API key does not reach the plan check as a superuser" under "Found while planning step 6" in `harness-findings.md` to say that it is withdrawn and the research's sentence stands, with the retained file as its evidence. **C**, the test `Client` cannot run in the lane's boot (a middleware asks for a service the lane does not hold): the read is made through `operations.api_request`, the file holds its 401, and the sentence reads "Read, not run: no middleware authenticates an API key before the plan check, so a superuser's key does not pass it." Under A and C the bullet stands as written: it already says what each means. |
+| G1 | Does a superuser's key pass the plan check on a project space without API access? The key is `operations.seed_api_superuser`'s (section 14.1). Made behind HQ's own middleware, through the handler the lane answers Formplayer's requests with (`proof/formplayer/hq.py::respond`), so `settings.py::MIDDLEWARE` runs and an exception is answered by `handler500` (`operations.client_request`, section 14.1). | **A**, 401 with the subscription sentence: `reading/application-no-api-access-superuser.json` holds it; `lib/commcare/CLAUDE.md` gains "A superuser's key does not pass the plan check." **B**, 200: the file holds the 200; the sentence reads "A superuser's key passes the plan check, so Dimagi staff may read a project space whose plan has no API access.", and the session rewrites the bullet "A superuser's API key does not reach the plan check as a superuser" under "Found while planning step 6" in `harness-findings.md` to say that it is withdrawn and the research's sentence stands, with the retained file as its evidence. **C**, a middleware cannot run in the lane's boot (it asks for a service the lane does not hold, and the file holds `handler500`'s 500): the read is made through `operations.api_request`, the file holds its 401, and the sentence reads "Read, not run: no middleware authenticates an API key before the plan check, so a superuser's key does not pass it." Under A and C the bullet stands as written: it already says what each means. |
 | G4 | What do the two reads answer for a mirror menu, a mirror menu whose source menu is gone, a report menu and a shadow form (section 14.1's `shadow` state)? | **A**, as read: the source holds `case_type: null` on both mirror menus, `""` on the report menu and `xmlns: null` with `shadow_parent_form_id` on the shadow form; the resource holds the mirror menu and the report menu each as a summarized entry with no forms (the mirror menu with its source's case type, the report menu with `""`, which `ModuleBase.get_case_types` gives the property map as a key), the shadow form with its parent's `xmlns`, and the sourceless mirror menu as an `error` entry (its case type is `None`, which the map does not hold). `reading/source-shadow.json` and `application-shadow.json` hold them; `hqAppReading.test.ts` expects `read`, three menus `aligned` and one `not-summarized`, and `notSummarizedMenus` naming no menu (section 8.3). **B**, the resource summarizes the sourceless mirror menu, or returns the report menu as an error: the file holds it; the test expects that entry as the file gives it, and nothing else moves, because section 8.3 judges a menu by the source's `docType` either way. The session writes the answer CommCare HQ gave into the bullet "HQ's source read serves more than the reader's comments say" under "Found while planning step 6" in `harness-findings.md`. |
 | G5 | Does a throttled tastypie read carry `Retry-After`? Made at the limiter's floor, as `publish/import-429-second.json` is. | **A**, 429 with no `Retry-After`: `reading/application-429.json`; `hqReadJson.test.ts` serves it for the one second wait. **B**, 429 with `Retry-After`: the file holds the header; the test expects the header's wait; `HQ_THROTTLE_ABSENT_WAIT_MS` stays for an edge's 429. |
 | G6 | What do the source read and the application resource answer for an id that is an app of another project space? | **A**, source a raised `AppInDifferentDomainException`, resource 404: `reading/source-other-space.json` (the kept exception), `application-other-space.json`. **B**, the source answers 404: the file holds it. Either way the answer is `gone`: `readHqAppForReading` reads the resource first, the list does not hold the id, and section 8.2 reads every answer of the source read but "deleted" and "a source" as `gone`. `hqAppReading.test.ts` serves the retained pair and expects it. |
@@ -1998,7 +2002,7 @@ otherwise. Its module docstring gains the group's paragraph, a fourth item of it
 | `list-apps-429` | `list_apps` at the limiter's floor | `Retry-After` on a function view |
 | `api-access`, `api-access-no-plan`, `api-access-no-permission` | the probe's read; without `API_ACCESS`; with a role lacking `access_api` | section 5.2's three answers |
 | `application` | the application resource of `navigation-base` | real form ids, the summary's shape |
-| `application-error-module` | one form's XML replaced by text `XForm.get_questions` refuses | G3 |
+| `application-error-module` | a second menu added by HQ's model (`navigation-base` holds one, so without it no other menu could be seen whole), and one form of the first given a choice with no value, which `XForm.get_questions` refuses while the form still parses | G3 |
 | `application-no-api-access` | without `API_ACCESS` | the plan sentence, byte for byte |
 | `application-no-api-access-superuser` | the same, a superuser's key, through the middleware | G1 |
 | `application-api-cut-off` | the configuration's `flags` with `API_BLACKLIST` | the cut-off sentence |
@@ -2024,25 +2028,30 @@ def app_list_read(state, credential: ApiCredential) -> HqAnswer:
 
 def application_read(state, app_id, credential: ApiCredential) -> HqAnswer:
     """``api/resources/v0_4.py::ApplicationResource`` for ``app_id``, as Nova's ``readHqApplication``
-    reads it: ``GET /a/<state.domain>/api/application/v1/<app_id>/`` through ``api_request``."""
+    reads it: ``GET /a/<state.domain>/api/application/v1/<app_id>/`` through ``api_request``, an id
+    the resource admits no document for answered with tastypie's 404, alone (G2)."""
 
 def api_access_read(state, credential: ApiCredential) -> HqAnswer:
     """The probe's read, as Nova's ``probeHqApiAccess`` makes it:
-    ``GET /a/<state.domain>/api/lookup_table/v1/?limit=1`` through ``api_request``."""
+    ``GET /a/<state.domain>/api/lookup_table/v1/?limit=1`` through ``api_request``, the list in the
+    order of its tables' ids (``lookup_tables_in_id_order``)."""
 
 def remote_app_through_hq(state) -> str:
     """A ``RemoteApp`` document saved by HQ's model in the state's project space. Returns its id."""
 
 def seed_api_superuser(state, username: str) -> ApiCredential:
-    """The member ``seed_api_user`` makes, with ``is_superuser`` then set and saved on its Django
-    user by HQ's model, and its key through ``seed_api_key``. ``seed_api_user`` alone makes a
-    role-scoped member and cannot make a superuser."""
+    """The member ``seed_api_user`` makes, with its key through ``seed_api_key``, then
+    ``is_superuser`` set on its ``WebUser`` and saved by HQ's model, which writes it to its Django
+    user (``CouchUser.save``). ``seed_api_user`` alone makes a role-scoped member and cannot make a
+    superuser."""
 
 def client_request(state, method: str, path: str, *, credential: ApiCredential | None) -> HqAnswer:
-    """One request through ``django.test.Client(raise_request_exception=False)``, with the
-    credential's ``Authorization`` header as ``api_request`` writes it, so HQ's middleware runs and
-    an exception is answered by HQ's ``handler500``. The answer is built as ``api_request`` builds
-    one. Used for the superuser's read alone."""
+    """One request through the handler the lane answers Formplayer's requests with
+    (``proof/formplayer/hq.py::respond``), with the credential's ``Authorization`` header as
+    ``api_request`` writes it, so HQ's middleware runs, an exception is answered by HQ's
+    ``handler500``, and what the middleware leaves on the thread (field audit's request, the active
+    language) is put back after it. The answer is built as ``api_request`` builds one. Used for the
+    superuser's read alone."""
 
 def project_spaces_read(
     state, credential: ApiCredential, *, feature_flag: str | None = None

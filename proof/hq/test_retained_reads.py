@@ -10,11 +10,12 @@ fails here and Nova's tests are never fed a stale one. Each file is
 ``{ status, headers?, body? }`` (``operations.HqAnswer.retained``): the
 headers Nova's client reads, and the body as HQ sent it.
 
-Every request is made through ``operations.api_request``, so HQ's URLconf,
-API-key authentication, permission check, privilege check and rate limiter
-run, the limiter over counters the harness answers: within its limits
-(``seams.api_rate_limits``), or as Redis does (``seams.RedisCounters``) for
-the answers it refuses with 429.
+Every request is made through ``operations.api_request`` (one read of the
+``reading`` group through ``operations.client_request``, behind HQ's
+middleware as well), so HQ's URLconf, API-key authentication, permission
+check, privilege check and rate limiter run, the limiter over counters the
+harness answers: within its limits (``seams.api_rate_limits``), or as Redis
+does (``seams.RedisCounters``) for the answers it refuses with 429.
 
 - ``publish``: the source read of a live app (``navigation-base`` as Nova's
   first publish leaves it), of the empty shell, of an app HQ's own delete
@@ -43,6 +44,22 @@ the answers it refuses with 429.
   request with none (``lookup-upload/``).
 - the migration groups: each migration witness's A, published as Nova's
   first publish before step 5 left it, read once (``app-source``).
+- ``reading``: the reads that bring an app in, over ``navigation-base`` as
+  Nova's first publish leaves it with a linked app, a remote app, a
+  soft-deleted app and a build beside it: the app list, and the app list at
+  the limiter's floor; the API access probe with the privilege, without it
+  and under a role lacking ``access_api``; the application resource of the
+  live app, of an app one of whose forms HQ cannot summarize, without the
+  privilege (for a member's key and for a superuser's, the second through
+  HQ's middleware), with ``API_BLACKLIST`` on, under a role lacking
+  ``access_api``, of the linked, the deleted and the remote app, of an app of
+  another project space, of a build, and at the limiter's floor; the source
+  read of the remote app and of the other project space's app; the source
+  read and the application resource of the ``hq-built`` app with two mirror
+  menus added; the current version before and after a save; the rows of a
+  table one of whose rows holds a field with no value; and the project space
+  list, whole, and filtered by ``SAVE_ONLY_EDITED_FORM_FIELDS`` with that
+  flag on and off. Its requests are ``proof/hq/operations.py``'s.
 
 Each read's project space is the document's configuration (a witness's
 retained one) with HQ's API access privilege beside it, which every one of
@@ -389,8 +406,8 @@ def _document_reads(documents, document_id, member_name):
     return retained
 
 
-def _hq_built(retained, export, member_name):
-    """``navigation-base`` after HQ's own models give it every form-id reference path: a case-list form, an
+def _hq_built_app(state, app_id):
+    """The published ``navigation-base`` given every form-id reference path by HQ's own models: a case-list form, an
     advanced menu holding two forms, a shadow form of the first and a two-phase visit schedule, and a report menu
     with two configs, one with a slug."""
     from corehq.apps.app_manager.models import (
@@ -401,33 +418,38 @@ def _hq_built(retained, export, member_name):
         SchedulePhaseForm,
     )
 
+    app = operations.held_app(state, app_id)
+    menu = app.get_module(0)
+    register = next(form for form in menu.get_forms() if not form.requires_case())
+    menu.case_list_form.form_id = register.unique_id
+    menu.case_list_form.label = {app.langs[0]: "Register"}
+    advanced = app.add_module(AdvancedModule.new_module("Schedule", app.langs[0]))
+    advanced.case_type = menu.case_type
+    first = advanced.new_form("First visit", app.langs[0])
+    second = advanced.new_form("Second visit", app.langs[0])
+    shadow = advanced.new_shadow_form("First visit again", app.langs[0])
+    shadow.shadow_parent_form_id = first.unique_id
+    advanced.has_schedule = True
+    advanced.schedule_phases = [
+        SchedulePhase(anchor="edd", forms=[SchedulePhaseForm(form_id=first.unique_id)]),
+        SchedulePhase(anchor="add", forms=[SchedulePhaseForm(form_id=second.unique_id)]),
+    ]
+    reports = app.add_module(ReportModule.new_module("Reports", app.langs[0]))
+    reports.report_configs = [
+        ReportAppConfig(report_id="nova-proof-report-one"),
+        ReportAppConfig(report_id="nova-proof-report-two", report_slug="second_report"),
+    ]
+    app.save()
+
+
+def _hq_built(retained, export, member_name):
+    """``navigation-base`` after HQ's own models give it every form-id reference path (``_hq_built_app``)."""
     with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
         with _operation(state, "api-user"):
             member = operations.seed_api_user(state, member_name)
         app_id = _first_publish(state, export)
         with _operation(state, "hq-built"):
-            app = operations.held_app(state, app_id)
-            menu = app.get_module(0)
-            register = next(form for form in menu.get_forms() if not form.requires_case())
-            menu.case_list_form.form_id = register.unique_id
-            menu.case_list_form.label = {app.langs[0]: "Register"}
-            advanced = app.add_module(AdvancedModule.new_module("Schedule", app.langs[0]))
-            advanced.case_type = menu.case_type
-            first = advanced.new_form("First visit", app.langs[0])
-            second = advanced.new_form("Second visit", app.langs[0])
-            shadow = advanced.new_shadow_form("First visit again", app.langs[0])
-            shadow.shadow_parent_form_id = first.unique_id
-            advanced.has_schedule = True
-            advanced.schedule_phases = [
-                SchedulePhase(anchor="edd", forms=[SchedulePhaseForm(form_id=first.unique_id)]),
-                SchedulePhase(anchor="add", forms=[SchedulePhaseForm(form_id=second.unique_id)]),
-            ]
-            reports = app.add_module(ReportModule.new_module("Reports", app.langs[0]))
-            reports.report_configs = [
-                ReportAppConfig(report_id="nova-proof-report-one"),
-                ReportAppConfig(report_id="nova-proof-report-two", report_slug="second_report"),
-            ]
-            app.save()
+            _hq_built_app(state, app_id)
         reads = []
         for name in ("app-source", "app-source-again"):
             with _operation(state, f"hq-built-{name}"):
@@ -847,6 +869,313 @@ def test_the_lookup_and_place_reads_nova_is_served_are_hqs_own(hq, core_runner, 
     _lookup_upload_reads(upload, documents, "member-upload@example.org")
     for group in (lookups, places, upload):
         group.hold(READS / group.group)
+
+
+# The reading group -------------------------------------------------------------------------------------------
+
+READING_FILES = (
+    "api-access",
+    "api-access-no-permission",
+    "api-access-no-plan",
+    "application",
+    "application-429",
+    "application-api-cut-off",
+    "application-build",
+    "application-deleted",
+    "application-error-module",
+    "application-linked",
+    "application-no-api-access",
+    "application-no-api-access-superuser",
+    "application-no-permission",
+    "application-other-space",
+    "application-remote",
+    "application-shadow",
+    "current-version",
+    "current-version-after-save",
+    "fixture-rows-empty-field",
+    "list-apps",
+    "list-apps-429",
+    "project-spaces",
+    "project-spaces-flag-off",
+    "project-spaces-flag-on",
+    "source-other-space",
+    "source-remote",
+    "source-shadow",
+)
+READER = "member-reading@example.org"
+# A member whose role holds Edit Apps and not Access APIs.
+READER_WITHOUT_API = "member-reading-no-api@example.org"
+READER_SUPERUSER = "superuser-reading@example.org"
+# The project space beside the configuration's that holds an app of its own, which the reads name from this one.
+OTHER_SPACE = "nova-proof-other-space"
+# The flag HQ answers every API request of a user or a project space it is on for with its cut-off sentence
+# (``api/resources/__init__.py::HqBaseResource.dispatch``).
+API_BLACKLIST = "API_BLACKLIST"
+# The one flag a bring-in reads of its source project space, by the project-space list's filter.
+SAVE_ONLY_EDITED = "SAVE_ONLY_EDITED_FORM_FIELDS"
+XHTML = "http://www.w3.org/1999/xhtml"
+XFORMS = "http://www.w3.org/2002/xforms"
+
+
+def _flags_with(state, record, symbol, on):
+    """The flag seam answering for the block from the configuration's flags with ``symbol`` on or off, as a
+    sensitivity flip answers them (``proof/observe/sensitivity.py``)."""
+    from proof.hq import seams
+
+    flags = state.configuration.flags | {symbol} if on else state.configuration.flags - {symbol}
+    return seams.flags(dataclasses.replace(state.configuration, flags=frozenset(flags)), record)
+
+
+def _mirror_menus(state, app_id):
+    """Two mirror menus added to the app by HQ's own model (``models/modules.py::ShadowModule.new_module``): one
+    whose source is the app's first menu, and one that names no source."""
+    from corehq.apps.app_manager.models import ShadowModule
+
+    app = operations.held_app(state, app_id)
+    mirror = app.add_module(ShadowModule.new_module("Mirror", app.langs[0]))
+    mirror.source_module_id = app.get_module(0).unique_id
+    app.add_module(ShadowModule.new_module("Mirror of nothing", app.langs[0]))
+    app.save()
+
+
+def _unsummarizable_form(state, app_id):
+    """The app with a second menu HQ's model adds (the first menu's case type, one blank form), and its first menu's
+    first form given a choice question whose one choice holds no value, which ``XForm.get_questions`` refuses
+    (``app_manager/xform.py::XForm.get_questions``, its ``_get_select_question_option``) while the form still parses:
+    the question has its data node and its bind, and only the summary of its options reads a value."""
+    from corehq.apps.app_manager.models import Module
+    from lxml import etree
+
+    app = operations.held_app(state, app_id)
+    first = app.get_module(0)
+    added = app.add_module(Module.new_module("Added in HQ", app.langs[0]))
+    added.case_type = first.case_type
+    added.new_form("Added in HQ", app.langs[0])
+    form = first.get_form(0)
+    root = etree.fromstring(form.source.encode("utf-8"))
+    model = root.find(f"{{{XHTML}}}head/{{{XFORMS}}}model")
+    # The form's own instance, the one that names no id; the others are the external instances it reads.
+    instance = next(found for found in model.findall(f"{{{XFORMS}}}instance") if found.get("id") is None)
+    data = next(child for child in instance if isinstance(child.tag, str))
+    name = etree.QName(data)
+    etree.SubElement(data, etree.QName(name.namespace, "nova_proof_unsummarizable"))
+    path = f"/{name.localname}/nova_proof_unsummarizable"
+    etree.SubElement(model, f"{{{XFORMS}}}bind", nodeset=path, type="xsd:string")
+    question = etree.SubElement(root.find(f"{{{XHTML}}}body"), f"{{{XFORMS}}}select1", ref=path)
+    etree.SubElement(question, f"{{{XFORMS}}}label").text = "A choice HQ cannot summarize"
+    choice = etree.SubElement(question, f"{{{XFORMS}}}item")
+    etree.SubElement(choice, f"{{{XFORMS}}}label").text = "A choice with no value"
+    form.source = etree.tostring(root, encoding="unicode")
+    app.save()
+
+
+def _table_with_an_empty_field(state):
+    """A lookup table made by HQ's own models, one of whose rows holds no value in one of its fields. Returns the
+    table's id."""
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, TypeField
+
+    table = LookupTable.objects.create(
+        domain=state.domain,
+        tag="empty_field",
+        is_global=True,
+        fields=[TypeField(name="code"), TypeField(name="name")],
+    )
+    LookupTableRow.objects.create(
+        domain=state.domain, table=table, fields={"code": [Field(value="001")], "name": []}, sort_key=0
+    )
+    return table.id.hex
+
+
+def _answer(answers, name) -> operations.HqAnswer:
+    """The answer kept under ``name``, which HQ gave rather than raised."""
+    answer = answers[name]
+    assert isinstance(answer, operations.HqAnswer), f"HQ raised {answer['exception']} for the read {name}."
+    return answer
+
+
+def _reading_reads(retained, export):
+    """Every read of the reading group over one unit: ``navigation-base`` as Nova's first publish leaves it, with a
+    linked app, a remote app, a soft-deleted app, a build of the published app and an app of another project space
+    beside it. A read without API access on the project space's plan takes the privilege away for that read alone
+    (``seams.withheld``), and one with a flag on or off flips it for that read alone (``_flags_with``); each fork
+    puts back what its state changed. Returns each answer by name, and the ids the reads named."""
+    from corehq import privileges, toggles
+    from corehq.apps.app_manager.models import Application
+
+    from proof.hq.seams import another_project_space, build_seams, withheld
+    from proof.hq.state import domain_document
+    from proof.webapps import hq as webapps_hq
+
+    answers = {}
+    ids = {}
+
+    def kept(state, name, read):
+        with _operation(state, name):
+            answers[name] = _keep_raised(retained, name, read)
+
+    configuration = _with_api_access(export)
+    with hq_check(configuration) as (state, record), _services(state):
+        with api_rate_limits(state):
+            with _operation(state, "api-users"):
+                member = operations.seed_api_user(state, READER)
+                without_api = operations.seed_api_user(state, READER_WITHOUT_API, access_api=False)
+                superuser = operations.seed_api_superuser(state, READER_SUPERUSER)
+            app_id = ids["live"] = _first_publish(state, export)
+            with _operation(state, "linked"):
+                linked = ids["linked"] = operations.apply_upload(state, export.create.upload()).response["app_id"]
+                operations.link_app_through_hq(state, linked)
+            with _operation(state, "deleted"):
+                deleted = ids["deleted"] = operations.apply_upload(state, export.create.upload()).response["app_id"]
+                operations.delete_app_through_view(state, deleted)
+            with _operation(state, "remote"):
+                remote = ids["remote"] = operations.remote_app_through_hq(state)
+            with _operation(state, "build"), build_seams():
+                build = ids["build"] = webapps_hq._make_build(state, operations.held_app(state, app_id))._id
+
+            kept(state, "list-apps", lambda: operations.app_list_read(state, member))
+            kept(state, "api-access", lambda: operations.api_access_read(state, member))
+            kept(state, "api-access-no-permission", lambda: operations.api_access_read(state, without_api))
+            kept(state, "application", lambda: operations.application_read(state, app_id, member))
+            with withheld(privileges.API_ACCESS):
+                kept(state, "api-access-no-plan", lambda: operations.api_access_read(state, member))
+                kept(state, "application-no-api-access", lambda: operations.application_read(state, app_id, member))
+                kept(
+                    state,
+                    "application-no-api-access-superuser",
+                    lambda: operations.client_request(
+                        state, "GET", f"/a/{state.domain}/api/application/v1/{app_id}/", credential=superuser
+                    ),
+                )
+            with _flags_with(state, record, API_BLACKLIST, True):
+                kept(state, "application-api-cut-off", lambda: operations.application_read(state, app_id, member))
+            kept(state, "application-no-permission", lambda: operations.application_read(state, app_id, without_api))
+            kept(state, "application-linked", lambda: operations.application_read(state, linked, member))
+            kept(state, "application-deleted", lambda: operations.application_read(state, deleted, member))
+            kept(state, "application-remote", lambda: operations.application_read(state, remote, member))
+            kept(state, "application-build", lambda: operations.application_read(state, build, member))
+            kept(state, "source-remote", lambda: operations.source_read(state, remote, member))
+
+            with another_project_space(OTHER_SPACE, configuration.privileges):
+                with _operation(state, "other-space"):
+                    # The second project space as the harness seeds its own (``proof.hq.state``).
+                    state.couch.seed(domain_document(dataclasses.replace(configuration, domain=OTHER_SPACE)))
+                    other = Application.new_app(OTHER_SPACE, "Another project space's app")
+                    other.save()
+                    ids["other"] = other.get_id
+                kept(state, "application-other-space", lambda: operations.application_read(state, ids["other"], member))
+                kept(state, "source-other-space", lambda: operations.source_read(state, ids["other"], member))
+
+            slug = toggles.SAVE_ONLY_EDITED_FORM_FIELDS.slug
+            kept(state, "project-spaces", lambda: operations.project_spaces_read(state, member))
+            with _flags_with(state, record, SAVE_ONLY_EDITED, True):
+                kept(
+                    state,
+                    "project-spaces-flag-on",
+                    lambda: operations.project_spaces_read(state, member, feature_flag=slug),
+                )
+            with _flags_with(state, record, SAVE_ONLY_EDITED, False):
+                kept(
+                    state,
+                    "project-spaces-flag-off",
+                    lambda: operations.project_spaces_read(state, member, feature_flag=slug),
+                )
+
+            with state.fork():
+                with _operation(state, "unsummarizable"):
+                    _unsummarizable_form(state, app_id)
+                kept(state, "application-error-module", lambda: operations.application_read(state, app_id, member))
+            with state.fork():
+                with _operation(state, "shadow-hq-built"):
+                    _hq_built_app(state, app_id)
+                with _operation(state, "shadow-mirrors"):
+                    _mirror_menus(state, app_id)
+                kept(state, "source-shadow", lambda: operations.source_read(state, app_id, member))
+                kept(state, "application-shadow", lambda: operations.application_read(state, app_id, member))
+            with state.fork():
+                with _operation(state, "empty-field"):
+                    table = _table_with_an_empty_field(state)
+                kept(state, "fixture-rows-empty-field", lambda: operations.fixture_rows_read(state, table, member))
+
+            kept(state, "current-version", lambda: operations.current_version_read(state, app_id, member))
+            with _operation(state, "save"):
+                operations.held_app(state, app_id).save()
+            kept(state, "current-version-after-save", lambda: operations.current_version_read(state, app_id, member))
+
+        # Two reads in one second: the second is refused at the limiter's floor, the counts of each kept apart.
+        for name, read in (
+            ("list-apps-429", lambda: operations.app_list_read(state, member)),
+            ("application-429", lambda: operations.application_read(state, app_id, member)),
+        ):
+            with rate_counters(RedisCounters()), state.fork(), _operation(state, name):
+                answers[f"{name}-first"] = read()
+                answers[name] = retained.keep(name, read())
+    return answers, ids
+
+
+@pytest.mark.under_determinism
+def test_the_reading_reads_nova_is_served_are_hqs_own(hq, core_runner, documents):
+    export = documents[DOCUMENT].exports["minimum"]
+    retained = Retained("reading")
+    answers, ids = _reading_reads(retained, export)
+
+    def body(name):
+        return _body(_answer(answers, name))
+
+    def refused(name):
+        answer = _answer(answers, name)
+        return answer.status, json.loads(answer.body)["error"]
+
+    listed = {row["app_id"] for row in body("list-apps")["applications"]}
+    assert listed == {ids["live"], ids["linked"], ids["remote"]}, (listed, ids)
+    for name in ("list-apps-429", "application-429"):
+        assert _answer(answers, f"{name}-first").status == 200 and _answer(answers, name).status == 429, name
+    assert "Retry-After" in _answer(answers, "list-apps-429").headers
+    assert body("api-access")["meta"]["limit"] == 1
+    assert _answer(answers, "api-access-no-permission").status == 403
+    plan = refused("api-access-no-plan")
+    assert plan[0] == 401 and refused("application-no-api-access") == plan
+    cut_off = refused("application-api-cut-off")
+    assert cut_off[0] == 401 and cut_off[1] != plan[1]
+    # A superuser's key through HQ's middleware either passes the plan check or meets it.
+    assert _answer(answers, "application-no-api-access-superuser").status in (200, 401)
+    application = body("application")
+    assert application["id"] == ids["live"] and application["built_from_app_id"] is None
+    assert [version["id"] for version in application["versions"]] == [ids["build"]]
+    assert application["modules"] and all("error" not in module for module in application["modules"])
+    no_permission = _answer(answers, "application-no-permission")
+    assert no_permission.status == 403 and not no_permission.body
+    assert body("application-linked")["id"] == ids["linked"]
+    for name in ("application-deleted", "application-remote", "application-other-space"):
+        assert _answer(answers, name).retained() == {"status": 404}, name
+    built = body("application-build")
+    assert built["built_from_app_id"] == ids["live"] and built["versions"] == []
+    # The menu one of whose forms HQ cannot summarize is an error entry, and the other is summarized whole.
+    errored, whole = body("application-error-module")["modules"]
+    assert set(errored) == {"error"} and "error" not in whole and whole["forms"]
+    # The source read of another project space's app raises or answers 404.
+    other_source = answers["source-other-space"]
+    assert isinstance(other_source, dict) or other_source.status == 404, other_source
+    shadow_source = body("source-shadow")
+    assert [module["doc_type"] for module in shadow_source["modules"]] == [
+        "Module",
+        "AdvancedModule",
+        "ReportModule",
+        "ShadowModule",
+        "ShadowModule",
+    ]
+    assert len(body("application-shadow")["modules"]) == len(shadow_source["modules"])
+    assert body("current-version-after-save")["currentVersion"] > body("current-version")["currentVersion"]
+    # A row with a field holding no value raises in the row resource.
+    assert answers["fixture-rows-empty-field"] == {"exception": "IndexError"}
+
+    def domains(name):
+        return {entry["domain_name"] for entry in body(name)["objects"]}
+
+    domain = export.configuration.hq().domain
+    assert domain in domains("project-spaces") and domain in domains("project-spaces-flag-on")
+    assert domain not in domains("project-spaces-flag-off")
+    assert sorted(retained.made) == sorted(READING_FILES)
+    retained.hold(READS / "reading")
 
 
 def _stripped(value, items):
