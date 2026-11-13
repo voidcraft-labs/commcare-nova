@@ -71,13 +71,14 @@ export function labelFromProperty(property: string): string {
 }
 
 /**
- * Property name → a legal search-input wire `name` (XML element
- * vocabulary: leading letter/underscore, then letters/digits/
- * underscores). Properties admit hyphens; names don't.
+ * Property name → a legal search-input wire `name`
+ * (`SEARCH_INPUT_NAME_PATTERN`: a letter or underscore first, then
+ * letters, digits, underscores and hyphens), so a property's own name is
+ * kept wherever it can be.
  */
 export function xmlNameFromProperty(property: string): string {
-	const cleaned = property.replace(/[^A-Za-z0-9_]/g, "_");
-	if (cleaned === "" || /^[0-9]/.test(cleaned)) return `_${cleaned}`;
+	const cleaned = property.replace(/[^A-Za-z0-9_-]/g, "_");
+	if (cleaned === "" || /^[0-9-]/.test(cleaned)) return `_${cleaned}`;
 	return cleaned;
 }
 

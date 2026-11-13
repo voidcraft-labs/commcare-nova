@@ -8,7 +8,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 
 | HQ item | Disposition | Web Apps / Android | Emission |
 |---|---|---|---|
-| Question ID matching `^(?!XML)[a-zA-Z][\w-]*$` | **HELD**: `Field.id`; widen: hyphens; narrow: no leading underscore, no leading `XML`, and not `meta` in any case (Nova admits `[a-zA-Z_][a-zA-Z0-9_]*`, including those); a rename would move the submission path | n/a | the id verbatim |
+| Question ID matching `^(?!XML)[a-zA-Z][\w-]*$` | **HELD**: `Field.id`; narrow: no leading underscore, no leading `XML`, and not `meta` in any case; a rename would move the submission path | n/a | the id verbatim |
 | Question ID `case`, `registration`, `script` | **HELD**: `Field.id` (Vellum warning only), except as below | n/a | verbatim |
 | a root question `case` in a form where HQ writes the primary case block | **REFUSED**: not HQ-buildable: `XForm._create_casexml` "You cannot use the Case Management UI if you already have a case block in your form." (executed) | — | — |
 | a root question `commcare_usercase` in a form with usercase updates | **REFUSED**: unrepresentable identity: `XForm._add_usercase` appends HQ's own `commcare_usercase` beside it (executed: the build succeeds with both) | — | — |
@@ -31,9 +31,10 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | Date and Time (`xsd:dateTime`) | **HELD**: `datetime` | UNAVAILABLE ("web entry cannot support"; submit can silently fail) / RUNS | `xsd:dateTime` |
 | GPS (`geopoint`) | **HELD**: `geopoint` | DIFFERENT (map-picked point, altitude/accuracy 0) / RUNS | `geopoint` |
 | Barcode (`barcode`) | **HELD**: `barcode` | DIFFERENT (text box) / RUNS | `barcode` |
-| Multiple Choice (`<select1>` + `<item>`) | **HELD**: `single_select`; widen: one option (Vellum and Core allow it; Nova needs ≥2) | RUNS / RUNS | `select1` |
-| Checkbox (`<select>` + `<item>`) | **HELD**: `multi_select` (same widening) | RUNS / RUNS | `select` |
-| choice value containing `'`, `"` or `` ` `` | **HELD**: option `value`; widen the option grammar (Vellum forbids whitespace, duplicates and an empty value) and escape in Nova's XPath emitters | RUNS / RUNS | the value |
+| Multiple Choice (`<select1>` + `<item>`) | **HELD**: `single_select`, one option or more | RUNS / RUNS | `select1` |
+| Checkbox (`<select>` + `<item>`) | **HELD**: `multi_select`, one option or more | RUNS / RUNS | `select` |
+| choice value containing `'`, `"` or `` ` ``, and not both `'` and `"` | **HELD**: option `value` | RUNS / RUNS | the value |
+| choice value containing both `'` and `"` | **HELD-NEW**: a value no XPath string literal spells, so a rule naming the choice has no form text | RUNS / RUNS | the value |
 | choice value with whitespace, empty, or duplicated | **REFUSED**: not HQ-editable: Vellum error (`mugs/types/select.js`, and `mugs.js` for a required value); multi-select stops Web Apps | — | — |
 | select bind `type` `xsd:string`, or a choice type matching the control (`listItem`/`select1` on `<select1>`, `listItems`/`select` on `<select>`) | **HELD**: same state: Vellum writes no type on selects and Core infers the matching choice type (`XFormParser::applyControlProperties`) | RUNS / RUNS | no `type` (Nova writes `xsd:string`: equivalent) |
 | a choice bind type contradicting the control (`listItem`/`select1` on `<select>`, `listItems`/`select` on `<select1>`) | **REFUSED**: not HQ-editable: a Vellum save drops the type, and Core then infers the other choice type (`applyControlProperties` keeps an explicit choice type, and Web Apps renders by it) | — | — |
@@ -106,7 +107,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | SaveToCase update (Case ID XPath) | **HELD**: `caseOperations[] {action: update, target: expression}` | RUNS / RUNS | `@case_id` bind |
 | SaveToCase property rows (calculation + condition) lifting into ValueExpression/Predicate | **HELD**: `writes[] {property, value, condition}` | RUNS / RUNS | update leaves with `calculate`/`relevant` |
 | SaveToCase expressions outside Nova's typed vocabularies (case id, owner, open/close conditions, property values) | **HELD-NEW**: typed expression model in `caseOperations` | RUNS / RUNS | printed |
-| SaveToCase property names with hyphens (`^[a-z][\w-]*$`, case-insensitive) | **HELD**: `writes[].property`; widen `CASE_OPERATION_PROPERTY_REGEX` | RUNS / RUNS | verbatim |
+| SaveToCase property names with hyphens (`^[a-z][\w-]*$`, case-insensitive) | **HELD**: `writes[].property` | RUNS / RUNS | verbatim |
 | SaveToCase Open Case Condition | **HELD**: operation `condition` (Vellum puts it on `…/case`, so the whole block is conditional) | RUNS / RUNS | binds |
 | a close-only SaveToCase block with a Close Condition | **HELD-NEW**: two operations sharing the block: an update with no writes, which touches the case (a transaction and a new `modified_on`) on every submission that reaches the block, and a close under the Close Condition, since Vellum puts it on `…/case/close` alone (`saveToCase.js`; HQ processes a case block with no action, `form_processor/backends/sql/update_strategy.py`); Nova's close condition gates the whole block today | RUNS / RUNS | binds |
 | a SaveToCase block that creates or updates and also closes (under its own Close Condition) or closes and links | **HELD-NEW**: two operations sharing the block, the create or update and a close of the same case under the block's Close Condition (Vellum makes only create and update exclusive, `saveToCase.js`, and puts the Close Condition on `…/case/close` alone; Nova's close arm today gates the whole operation and takes no links) | RUNS / RUNS | binds |
@@ -122,10 +123,12 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | create `@case_id` live calculate outside a repeat | **REFUSED**: not HQ-editable: Vellum rewrites it to an `xforms-ready` setvalue | — | — (Nova's `idFrom` at the root: save-breaking) |
 | SaveToCase create, close or link of `commcare-user`, or type `user-owner-mapping-case` | **REFUSED**: not HQ-editable: Vellum error | — | — |
 | hand-written `<case>` block without `vellum:role` (incl. a root `/data/case` with no Case Management) | **REFUSED**: freeform: Vellum discards its attribute binds, so every submission fails after a save | — | — (Nova's `__nova_guard_*` blocks: save-breaking) |
-| Connect Learn Module | **HELD**: `Form.connect.learn_module`; widen (all four Connect blocks, an assessment at most once per submission, as the next row refuses): hyphens in block ids, as Vellum's id rule allows (`util.js` `/^(?!XML)[a-zA-Z][\w-]*$/`), and narrow: no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block and Nova admits today (executed; defect 15), and the id length each block's Connect column takes (50 for a learn module or task, 100 for a deliver unit, any for an assessment, which Connect does not store; Nova caps every id at 50 today), a display condition per block, blank entity expressions, a `time_estimate` of 0, several blocks per form, and placement inside groups and repeats, as Vellum allows | RUNS / RUNS | `vellum:role="ConnectLearnModule"`; COMMCARE_CONNECT |
+| Connect Learn Module | **HELD**: `Form.connect.learn_module`; narrow (all four Connect blocks): no leading `_` or `XML` and not `meta` in any case, which Vellum refuses on every Connect block | RUNS / RUNS | `vellum:role="ConnectLearnModule"`; COMMCARE_CONNECT |
+| a Connect block with an id over 50 characters, a display condition, a blank entity expression or a `time_estimate` of 0; several blocks of one kind in a form; a block inside a group or a repeat | **HELD-NEW**: Connect blocks as questions at authored positions | RUNS / RUNS | `vellum:role="ConnectLearnModule"`; COMMCARE_CONNECT |
 | several Connect assessment blocks in one form, or one inside a repeat (a block per row) | **REFUSED**: broken at runtime: Connect stores one assessment per submission and raises "Learn Assessment is already completed" for the second block (commcare-connect `form_receiver/processor.py::process_assessments`) | — | — |
 | Connect Assessment | **HELD**: `connect.assessment` | RUNS / RUNS | same |
-| Connect Deliver Unit | **HELD**: `connect.deliver_unit`; widen: a `work_area_id` expression | RUNS / RUNS | with an empty `<work_area_id/>` (Vellum adds it; equivalent) |
+| Connect Deliver Unit | **HELD**: `connect.deliver_unit`, with an empty `work_area_id` | RUNS / RUNS | with an empty `<work_area_id/>` (Vellum adds it; equivalent) |
+| Connect Deliver Unit with a `work_area_id` expression | **HELD-NEW**: a `work_area_id` expression | RUNS / RUNS | with an empty `<work_area_id/>` (Vellum adds it; equivalent) |
 | Connect Task | **HELD**: `connect.task` | RUNS / RUNS | same |
 | a Connect learn module or task id longer than 50 characters, or deliver unit id longer than 100 | **REFUSED**: broken at runtime: Connect keeps these ids in slug columns of those lengths (commcare-connect `opportunity/models.py` `LearnModule.slug`, `TaskType.slug`, `DeliverUnit.slug`): a longer learn module or deliver unit id fails where Connect writes it (`opportunity/tasks.py`, `form_receiver/processor.py`), and a longer task id matches no task type (`processor.py` looks tasks up by `task_type__slug`), while Vellum allows any length | — | — |
 | Connect Work Area Update | **HELD-NEW**: `connect.work_area_update` | RUNS / RUNS | same |
@@ -148,13 +151,15 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 |---|---|---|---|
 | bind `nodeset` (absolute or relative) | **HELD**: the field's path | n/a | absolute (Vellum's spelling) |
 | bind `relevant` | **HELD**: `Field.relevant` | RUNS / RUNS | `relevant` |
-| bind `required="true()"` | **HELD**: `Field.required` (`true()`); widen: on labels, where it is the acknowledge label's required (Question types, acknowledge label) | RUNS / RUNS | `required="true()"` |
-| bind `required="<expr>"` | **HELD**: `Field.required` (expression); widen: on labels, as above | RUNS / RUNS | `required` (Vellum adds `requiredCondition` itself) |
+| bind `required="true()"` on a question other than a label | **HELD**: `Field.required` (`true()`) | RUNS / RUNS | `required="true()"` |
+| bind `required="<expr>"` on a question other than a label | **HELD**: `Field.required` (expression) | RUNS / RUNS | `required` (Vellum adds `requiredCondition` itself) |
+| bind `required` on a label | **HELD-NEW**: the acknowledge label's required | RUNS / RUNS | `required="true()"` |
 | Vellum `requiredCondition="<expr>"` / `vellum:requiredCondition` equal to `required`, or beside an absent or `false()` `required` | **INERT**: ignored by JavaRosa (unused-attribute warning); Vellum's own mirror of `required` | n/a | omit |
 | `requiredCondition` differing from a present, non-false `required` | **REFUSED**: not HQ-editable: a Vellum save rewrites `required` to it (`parser.js` reads it first, `mugs/defaultOptions.js::getBindList` writes it; executed) | — | — |
 | Required Condition without Required | **INERT**: Vellum warning only; `required` absent means not required | n/a | omit |
 | `jr:requiredMsg` | **INERT**: not parsed by JavaRosa (`processStandardBindAttributes` usedAtts) | n/a | omit |
-| bind `constraint` | **HELD**: `Field.validate`; widen: on geopoint, image, audio, video, signature and file questions and labels, which Vellum offers it on and Core reads on any question (`mugs/types/misc.js`, `group.js` disallow it only on hidden values and groups) | RUNS / RUNS | `constraint` (Nova drops it on `barcode`/`secret` today, an emitter bug) |
+| bind `constraint` | **HELD**: `Field.validate` | RUNS / RUNS | `constraint` on every kind that carries validation, `barcode` and `secret` among them (`fieldKindCarriesValidation`) |
+| bind `constraint` on a geopoint, image, audio, video, signature or file question or a label | **HELD-NEW**: `Field.validate` on those kinds | RUNS / RUNS | `constraint` on every kind that carries validation, `barcode` and `secret` among them (`fieldKindCarriesValidation`) |
 | Validation Message without a Validation Condition | **REFUSED**: not HQ-editable: a Vellum error, which puts it outside the envelope (Rule 1) though no runtime shows the message (a runtime shows it only when a constraint fails, `FormEntryActivityUIController.showConstraintWarning`) | — | — |
 | `jr:constraintMsg="jr:itext('id')"` or `<alert ref="jr:itext('id')">` | **HELD**: `Field.validate_msg` (Vellum adds the `<alert>`: equivalent) | RUNS / RUNS | `jr:constraintMsg` + `<alert>` |
 | literal `jr:constraintMsg="text"` (no itext) | **REFUSED**: not HQ-editable: Vellum keeps it only as the hidden `constraintMsgAttr` property (`javaRosa/plugin.js`), written back verbatim, which no editor sets | — | — |
@@ -168,7 +173,8 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | a control whose `ref` names no node | **REFUSED**: not HQ-buildable: JavaRosa "Question bound to non-existent node" (`XFormParser::verifyControlBindings`) | — | — |
 | bind on an attribute path not owned by a plugin (SaveToCase, model iteration) | **REFUSED**: freeform: Vellum discards it ("Bind Node … will be discarded") | — | — |
 | bind `type` | → Question types (per control) | — | — |
-| `<setvalue event="xforms-ready">` default on a question outside repeats, not reading form nodes by absolute path | **HELD**: `Field.default_value`; widen: on image, audio, video, signature and file questions and labels (`baseSpecs.js` hides it only on triggers, choices and groups) | RUNS (new sessions only) / RUNS (new instances only) | `setvalue xforms-ready` |
+| `<setvalue event="xforms-ready">` default on a question outside repeats, not reading form nodes by absolute path | **HELD**: `Field.default_value` | RUNS (new sessions only) / RUNS (new instances only) | `setvalue xforms-ready` |
+| a default on an image, audio, video, signature or file question or a label | **HELD-NEW**: `Field.default_value` on those kinds | RUNS (new sessions only) / RUNS (new instances only) | `setvalue xforms-ready` |
 | `<setvalue event="jr-insert">` default inside a repeat, not reading form nodes by absolute path (a relative read such as `../a` is HELD-NEW, XPath functions and structure; Vellum flags only `#form/` reads, executed; HQ's editors produce it with the flag off) | **HELD**: `Field.default_value` | RUNS / RUNS | `setvalue jr-insert` |
 | a default value that reads `#form/…` nodes | **HELD**: `Field.default_value` holding the read as today's field reference, which the emitter prints relatively (defect 13), the same state: Vellum reports it without VELLUM_DATA_IN_SETVALUE, and Core resolves both spellings to the same node, inside and outside repeats (executed) | RUNS / RUNS | the read printed relatively |
 | a second default setvalue on one question | **REFUSED**: not HQ-editable: Vellum keeps one (`parser.js::parseSetValue`) | — | — |
@@ -311,11 +317,15 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | label `tts` | **HELD-NEW**: `labelForms.speech` | IGNORED / DIFFERENT (only with no `audio`) | `form="tts"` |
 | custom form names | **INERT**: no runtime reads them | n/a | omit |
 | a label whose itext in the first `<translation>` has no default-form value (only `long`/custom/media; another language lacking it builds, and Core falls back per key) | **REFUSED**: not HQ-buildable: HQ's build raises 'Unrecognized value of "form" attribute' when any form other than image, audio, video, video-inline or markdown is present (`VALID_VALUE_FORMS`), and otherwise "has no <value>" (`xform.py::XForm.localize`, which checks the first `<translation>`) | — | — |
-| hint text | **HELD**: `Field.hint`; widen: on labels (`javaRosa/plugin.js` disallows it only on special groups) | DIFFERENT (always markdown) / DIFFERENT (plain) | `<hint>` itext |
+| hint text | **HELD**: `Field.hint` | DIFFERENT (always markdown) / DIFFERENT (plain) | `<hint>` itext |
+| hint text on a label | **HELD-NEW**: `Field.hint` on a label | DIFFERENT (always markdown) / DIFFERENT (plain) | `<hint>` itext |
 | hint media, other than a missing file the Media section refuses | **INERT**: no accessor on either runtime | n/a | omit (Nova emits `hint_media` today; inert on both runtimes) |
-| help text (+ markdown form) | **HELD**: `Field.help` (widen: on image, audio, video, signature and file questions and labels), markdown on (Nova always writes the markdown form, so Android always renders help as markdown) | DIFFERENT / DIFFERENT | `<help>` itext |
-| help media | **HELD**: `Field.help_media`; widen: on the kinds `Field.help` widens to | DIFFERENT (only when help has text) / RUNS | itext media |
-| validation message text | **HELD**: `Field.validate_msg`; widen: on the kinds `Field.validate` widens to | RUNS / RUNS | itext |
+| help text (+ markdown form) | **HELD**: `Field.help`, markdown on (markdown off is `plainHelp`) | DIFFERENT / DIFFERENT | `<help>` itext |
+| help text on an image, audio, video, signature or file question or a label | **HELD-NEW**: `Field.help` on those kinds | DIFFERENT / DIFFERENT | `<help>` itext |
+| help media | **HELD**: `Field.help_media` | DIFFERENT (only when help has text) / RUNS | itext media |
+| help media on an image, audio, video, signature or file question or a label | **HELD-NEW**: `Field.help_media` on those kinds | DIFFERENT (only when help has text) / RUNS | itext media |
+| validation message text | **HELD**: `Field.validate_msg` | RUNS / RUNS | itext |
+| validation message text on a geopoint, image, audio, video, signature or file question or a label | **HELD-NEW**: a validation message on those kinds | RUNS / RUNS | itext |
 | validation message markdown form | **HELD**: same text (neither runtime renders markdown there) | IGNORED / IGNORED | copy |
 | validation message media (`constraintMediaIText`), other than a missing file the Media section refuses | **INERT**: no runtime reads it (Android shows the message's text only, `FormEntryActivity`; Formplayer returns its text only, `JsonActionUtils`) | n/a | omit (Nova emits `validate_msg_media` today: defect 16) |
 | choice label text (+ markdown) | **HELD**: option `label`, markdown on (markdown off is `plainLabel`) | DIFFERENT (markdown in lists) / DIFFERENT (markdown in some widgets) | item itext |

@@ -17,7 +17,7 @@ const UUID = testUuid("00000000-0000-4000-8000-000000000000");
 describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", () => {
 	// The mapped type guarantees each builder's STRUCTURE matches its kind, but
 	// the Zod schema carries runtime constraints the type can't express
-	// (`options.min(2)`, non-empty visible label). This is the guard that a
+	// (`options.min(1)`, non-empty visible label). This is the guard that a
 	// freshly-inserted field of ANY kind round-trips through `fieldSchema`, the
 	// exact thing the auto-save validates, so the insertion can never mint an
 	// unsaveable field again (the `hidden` + `label` regression).

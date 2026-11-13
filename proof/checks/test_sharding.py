@@ -129,11 +129,11 @@ def test_each_groups_items_run_together_in_first_appearance_order():
 
 
 def test_each_group_is_collected_from_where_its_tests_are():
-    roots = sharding.collection_roots(["corpus:a", "control:x", "surface", "proof/hq", "proof", "hq-selfchecks"])
+    roots = sharding.collection_roots(["corpus:a", "control:x", "surface", "proof/hq", "proof"])
     assert PROOF / "checks" in roots and PROOF / "surface" in roots and PROOF / "hq" in roots
     top = {path for path in roots if path.parent == PROOF and path.suffix == ".py"}
     assert top == set(PROOF.glob("test_*.py")) and top, "proof's own test modules"
-    assert len(roots) == 3 + len(top)  # no test module belongs to the HQ self-checks, so they name nothing
+    assert len(roots) == 3 + len(top)
     assert sharding.collection_roots(["corpus:a@minimum"]) == [PROOF / "checks"]
 
 

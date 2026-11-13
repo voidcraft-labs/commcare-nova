@@ -141,11 +141,11 @@ function wireIdentifierSchema(kind: "tag" | "column") {
 		.max(maxLength, `${label} must be at most ${maxLength} characters.`)
 		.regex(
 			LOOKUP_WIRE_IDENTIFIER_PATTERN,
-			`${label} must start with an ASCII letter or underscore and contain only ASCII letters, digits, and underscores.`,
+			`${label} starts with a letter or an underscore, then holds only unaccented letters, digits, underscores and hyphens.`,
 		)
 		.refine(
 			(value) => !LOOKUP_XML_PREFIX_PATTERN.test(value),
-			`${label} may not start with xml.`,
+			`${label} can't start with lowercase "xml", which CommCare HQ keeps for itself. A capital first letter works.`,
 		)
 		.superRefine((value, ctx) => {
 			if (kind !== "tag") return;

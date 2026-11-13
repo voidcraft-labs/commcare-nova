@@ -230,9 +230,10 @@ harness keeps, each with its reason.
 - **An existing fuzz sample keeps its draws.** A generator change that
   repairs an inadmissible value maps the value after its draw, without a
   new random call or a retry: a select's default becomes its first drawn
-  option. A new expression family has its own sample, and plans applied
-  after the document's draw leave an absent target alone rather than
-  drawing again. Existing document ids and every unrelated draw stay the
+  option. A new family (the expression family, the advanced family) draws
+  a stream of its own, so its draws move no other family's; the expression
+  family's plans, applied after the document's draw, leave an absent target
+  alone rather than drawing again. Existing document ids and every unrelated draw stay the
   same, so the frozen comparison can identify each deliberate change.
 - **A zoned Core class runs in a test JVM of its own, once per zone, never
   in the suite's.** Core reads the JVM's default zone where no installed

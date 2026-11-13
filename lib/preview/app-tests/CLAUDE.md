@@ -97,7 +97,8 @@ document whose expressions the current model does not read. Version 17 fences pl
 a journey started before it ran Preview's former mix of runtimes.
 Version 18 fences repeats and case writes: a journey started before it pinned
 a document whose query repeats, counts and case operations the current
-runtime reads differently. A session's
+runtime reads differently. Runtime version 19 names a query repeat's
+wrapper `<id>.query`. A session's
 platform is its own `platform`, else the start's, else the one the saved app
 previews on by default (`context.ts::appTestPlatform`, which refuses a platform
 the app does not declare with `platformUnavailableSentence`); the session keeps

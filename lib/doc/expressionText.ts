@@ -22,6 +22,7 @@ import type {
 	Expression,
 	ExpressionSlotRef,
 } from "@/lib/domain/expression/types";
+import { readCaseReference } from "@/lib/domain/hashtagSegments";
 import { type ProseReferencePart, prosePartSchema } from "@/lib/domain/prose";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { asUuid } from "@/lib/domain/uuid";
@@ -82,25 +83,25 @@ export function parseProseReference(
 		if (uuid === undefined || form?.fields.has(asUuid(uuid)) !== true)
 			return fail();
 		result = { kind: "field-ref", uuid: asUuid(uuid) };
-	} else {
+	} else if (namespace === "user") {
 		if (segments.length !== 1) return fail();
-		const property = segments[0];
-		if (namespace === "user") {
-			const worker = formUserProperty(scope, property, "worker-record");
-			if (worker.kind === "session-user-property")
-				result = {
-					kind: "user-property-ref",
-					userPropertyUuid: worker.userPropertyUuid,
-				};
-			else if (worker.kind === "session-user")
-				result = { kind: "user-ref", property: worker.field };
-			else return fail();
-		} else {
-			const caseType =
-				namespace === "case" ? scope.authoring?.selectedCaseType : namespace;
-			if (caseType === undefined || namespace === "search") return fail();
-			result = { kind: "case-ref", caseType, property };
-		}
+		const worker = formUserProperty(scope, segments[0], "worker-record");
+		if (worker.kind === "session-user-property")
+			result = {
+				kind: "user-property-ref",
+				userPropertyUuid: worker.userPropertyUuid,
+			};
+		else if (worker.kind === "session-user")
+			result = { kind: "user-ref", property: worker.field };
+		else return fail();
+	} else if (namespace === "case") {
+		const caseType = scope.authoring?.selectedCaseType;
+		if (caseType === undefined || segments.length !== 1) return fail();
+		result = { kind: "case-ref", caseType, property: segments[0] };
+	} else {
+		const read = readCaseReference(namespace, segments);
+		if (read === undefined) return fail();
+		result = { kind: "case-ref", ...read };
 	}
 	const valid = prosePartSchema.safeParse(result);
 	return valid.success && valid.data.kind !== "text" ? valid.data : fail();

@@ -36,51 +36,29 @@ const HQ_CASE_GENERATION_PREFIXES = [
 	"#case/grandparent/",
 ] as const;
 
-/** Parse the namespace out of a full hashtag ref string (`#mother/x` → `mother`).
- *  Returns `undefined` for a malformed ref (no leading `#` or no segment). */
-function hashtagNamespace(ref: string): string | undefined {
-	const slash = ref.indexOf("/");
-	return ref.startsWith("#") && slash > 1 ? ref.slice(1, slash) : undefined;
-}
-
 /**
- * Translate one extracted hashtag ref into the vocabulary HQ's
- * `case_references_data.load` map speaks. HQ parses a load entry's case type
- * by prefix — ONLY `#case/` and `#user/` are recognized
+ * HQ's `case_references_data.load` entry for one typed case read, or
+ * `undefined` where the form reaches no case of that type. HQ parses a load
+ * entry's case type by prefix — ONLY `#case/` and `#user/` are recognized
  * (`commcare-hq/corehq/apps/app_manager/app_schemas/app_case_metadata.py::
  * _parse_case_type`), with a leading `grandparent/` normalized to
- * `parent/parent/` — so a per-case-type ref must land there as its
- * `#case/`-generation equivalent or HQ records the raw `#<type>/…` string as a
- * literal property name of the module's case type.
+ * `parent/parent/` — so a read of any case type lands as its
+ * `#case/`-generation equivalent, whatever the type is called.
  *
  * Depth ≥ 3 (beyond HQ's three named generations) falls back to the
  * parent-chain spelling (`#case/parent/parent/parent/<prop>`) — HQ's own
  * normalization shows chains are its internal canonical form, and the load map
- * is string-recorded metadata, not editor-parsed XPath. `#user/` is already
- * target vocabulary and passes through. Literal authored `#case/` is rejected:
- * only this function's typed-reference projection may generate it.
+ * is string-recorded metadata, not editor-parsed XPath. This projects the
+ * typed read, never reference text.
  */
 export function hqLoadReference(
-	ref: string,
+	caseType: string,
+	property: string,
 	caseTypeDepths: ReadonlyMap<string, number>,
-): string {
-	const ns = hashtagNamespace(ref);
-	if (ns === undefined) return ref;
-	if (ns === "search") {
-		throw new Error(
-			"A #search/ reference reads the search-input instance, not a case; it has no HQ load entry",
-		);
-	}
-	if (ns === "case") {
-		throw new Error(
-			'Authored "#case/..." is not a Nova reference; HQ case vocabulary is generated only from an explicit case-type namespace',
-		);
-	}
-	if (ns === "user") return ref;
-	const depth = caseTypeDepths.get(ns);
-	if (depth === undefined) return ref;
-	const rest = ref.slice(ns.length + 2);
+): string | undefined {
+	const depth = caseTypeDepths.get(caseType);
+	if (depth === undefined) return undefined;
 	const prefix =
 		HQ_CASE_GENERATION_PREFIXES[depth] ?? `#case/${"parent/".repeat(depth)}`;
-	return prefix + rest;
+	return prefix + property;
 }

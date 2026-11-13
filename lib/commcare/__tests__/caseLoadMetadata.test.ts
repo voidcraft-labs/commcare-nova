@@ -13,27 +13,114 @@ describe("hqLoadReference", () => {
 		["village", 3],
 	]);
 
-	it("translates per-type refs to the #case/ generation vocabulary", () => {
-		expect(hqLoadReference("#pregnancy/ga", depths)).toBe("#case/ga");
-		expect(hqLoadReference("#mother/code", depths)).toBe("#case/parent/code");
-		expect(hqLoadReference("#household/head", depths)).toBe(
+	it("projects a typed read into the #case/ generation vocabulary", () => {
+		expect(hqLoadReference("pregnancy", "ga", depths)).toBe("#case/ga");
+		expect(hqLoadReference("mother", "code", depths)).toBe("#case/parent/code");
+		expect(hqLoadReference("household", "head", depths)).toBe(
 			"#case/grandparent/head",
 		);
 	});
 
 	it("falls back to a parent chain past the named generations", () => {
-		expect(hqLoadReference("#village/name", depths)).toBe(
+		expect(hqLoadReference("village", "name", depths)).toBe(
 			"#case/parent/parent/parent/name",
 		);
 	});
 
-	it("rejects authored #case/ and passes #user/ plus unreachable namespaces through", () => {
-		expect(() => hqLoadReference("#case/ga", depths)).toThrow(
-			'Authored "#case/..." is not a Nova reference',
-		);
-		expect(hqLoadReference("#user/role", depths)).toBe("#user/role");
-		expect(hqLoadReference("#unknown/x", depths)).toBe("#unknown/x");
+	it("gives no entry for a type the form does not reach", () => {
+		expect(hqLoadReference("unknown", "x", depths)).toBeUndefined();
 	});
+});
+
+/** A follow-up form over `ownType`, whose parent type is `parentType`, reading
+ * `code` from both, one worker property, and a type it does not reach. */
+function followupReading(ownType: string, parentType: string) {
+	const workerProperty = asUuid("22222222-2222-4222-8222-222222222222");
+	const read = (caseType: string): Expression => ({
+		kind: "term",
+		term: { kind: "form-case", caseType, property: "code" },
+	});
+	const original = buildDoc({
+		caseTypes: [
+			{
+				name: ownType,
+				parent_type: parentType,
+				properties: [{ name: "code", label: "Code" }],
+			},
+			{ name: parentType, properties: [{ name: "code", label: "Code" }] },
+			{ name: "elsewhere", properties: [{ name: "code", label: "Code" }] },
+		],
+		modules: [
+			{
+				name: "Records",
+				caseType: ownType,
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "own",
+								calculate: read(ownType),
+							}),
+							f({
+								kind: "hidden",
+								id: "parent",
+								calculate: read(parentType),
+							}),
+							f({
+								kind: "hidden",
+								id: "unreached",
+								calculate: read("elsewhere"),
+							}),
+							f({
+								kind: "hidden",
+								id: "worker",
+								calculate: {
+									kind: "term",
+									term: {
+										kind: "session-user-property",
+										userPropertyUuid: workerProperty,
+										source: "worker-record",
+									},
+								},
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const doc = {
+		...original,
+		userProperties: {
+			[workerProperty]: {
+				uuid: workerProperty,
+				slug: "region",
+				label: "Region",
+			},
+		},
+		userPropertyOrder: [workerProperty],
+	};
+	return { doc, formUuid: doc.formOrder[doc.moduleOrder[0]][0] };
+}
+
+describe("case types named for a reference word", () => {
+	const words = ["case", "user", "search", "form", "row", "record"] as const;
+	for (const [index, ownType] of words.entries()) {
+		const parentType = words[(index + 1) % words.length];
+		it(`records a ${ownType} follow-up's reads as case reads, its ${parentType} parent included`, () => {
+			const { doc, formUuid } = followupReading(ownType, parentType);
+			expect(
+				buildCaseReferencesLoad(doc, formUuid, undefined, ownType),
+			).toEqual({
+				"/data/own": ["#case/code"],
+				"/data/parent": ["#case/parent/code"],
+				"/data/worker": ["#user/region"],
+			});
+		});
+	}
 });
 
 it("derives HQ load metadata from typed case and worker-record reads only", () => {

@@ -210,8 +210,6 @@ def collection_roots(groups, proof_dir: Path = PROOF_DIR) -> list[Path]:
     A document's or control's checks come from the check modules in
     ``proof/checks``; the surface's from ``proof/surface``; a package's from
     its directory; ``proof``'s from the test modules at ``proof/`` itself.
-    No test module belongs to ``hq-selfchecks``, so it names nothing, and a
-    queue naming it fails the verify, which finds no item of it.
     """
     roots = set()
     for group in groups:

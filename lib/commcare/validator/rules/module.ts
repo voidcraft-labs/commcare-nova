@@ -189,7 +189,7 @@ function invalidCaseTypeFormat(
 		validationError(
 			"INVALID_CASE_TYPE_FORMAT",
 			"module",
-			`Module "${mod.name}" has case_type "${mod.caseType}" which isn't a valid identifier. Case type names must start with a letter and can only contain letters, digits, underscores, or hyphens (for example "patient", "home_visit", or "health-check").`,
+			`Module "${mod.name}" has case_type "${mod.caseType}", which holds a character a case type can't. A case type holds only letters, digits, underscores and hyphens (for example "patient", "home_visit" or "1st-visit").`,
 			{ moduleUuid, moduleName: mod.name },
 			{ caseType: mod.caseType },
 		),

@@ -28,7 +28,8 @@ export { SESSION_USER_FIELD_PATTERN } from "../externalUserProperty";
 export type { DistanceUnit } from "./distance";
 
 export type CheckPath = readonly (string | number)[];
-export const CASE_TYPE_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+/** CommCare HQ's case type grammar, as its menu page checks it. */
+export const CASE_TYPE_PATTERN = /^[A-Za-z0-9_-]+$/;
 export const CASE_PROPERTY_PATTERN = AUTHORED_CASE_PROPERTY_NAME_PATTERN;
 export const XML_ELEMENT_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 export const caseTypeNameSchema = z.string().regex(CASE_TYPE_PATTERN);

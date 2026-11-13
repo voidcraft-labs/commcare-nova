@@ -122,6 +122,7 @@
 		"valueClass": "update-without-open",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `_create_casexml` raises `CaseError` (\"To update a case you must either open a case or require a case to begin with\")",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -244,6 +245,7 @@
 		"valueClass": "child-cases-without-open",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no editor produces it, since the Case Management tab offers only open and update (`caseConfigViewModel.actionType`) and an open writes its condition as `always` (`case_config_ui.js`)",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -311,6 +313,7 @@
 		"valueClass": "close-without-open-without-case-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `no case type` (`Form.requires_case_type` reads `close_case`, `helpers/validators.py::FormValidator.validate_for_module`)",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -336,6 +339,7 @@
 		"valueClass": "referral",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: removed from the Case Management select",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -387,6 +391,8 @@
 		"valueClass": "shadow-form",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Form.shadowOf` (Shadow forms)",
+		"subject": "shadow-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -412,6 +418,7 @@
 		"valueClass": "unknown-doc-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: in an advanced module, not HQ-buildable (`FormBase.wrap` raises); in a basic module, not HQ-editable: it wraps as a `Form` still carrying the unknown `doc_type`, which no editor writes (`Module.forms` is `SchemaListProperty(Form)`)",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -443,6 +450,7 @@
 		"valueClass": "blank-or-no-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `blank form`",
+		"subject": "blank-form",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -468,6 +476,7 @@
 		"valueClass": "shared-with-another-form",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `duplicate xmlns`",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -652,6 +661,7 @@
 		"valueClass": "true",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no UI (raw `edit_form_attr` only)",
+		"subject": "form-settings",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -740,6 +750,8 @@
 		"valueClass": "differing-by-language",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `localizedMedia`",
+		"subject": "media-by-language",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -804,6 +816,8 @@
 		"valueClass": "form-badge",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Form.badge`",
+		"subject": "menu-badges",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (hides `0`; shows text longer than 3 characters as `999+` when it parses as an integer and otherwise as its first 3 characters and `..`, `MenuAdapter.updateBadgeView`)",
@@ -864,6 +878,8 @@
 		"valueClass": "typed-expression",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model in `Form.displayCondition`",
+		"subject": "display-conditions",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -893,6 +909,7 @@
 		"valueClass": "case-attribute-hashtag",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: HQ's parser rejects `@` after `#case/` (\"Expecting 'QNAME', got 'AT'\"; `form filter has xpath error`)",
+		"subject": "display-conditions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -922,6 +939,7 @@
 		"valueClass": "case-reference-without-a-case",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `invalid case xpath reference` (`suite_xml/sections/menus.py::_get_commands`)",
+		"subject": "display-conditions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -951,6 +969,7 @@
 		"valueClass": "fixture-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (FIXTURE_CASE_SELECTION)",
+		"subject": "lookup-selection",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1163,6 +1182,7 @@
 		"valueClass": "refused-by-build",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable (`helpers/validators.py::FormBaseValidator.validate_for_module`)",
+		"subject": "display-only-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1192,6 +1212,7 @@
 		"valueClass": "not-offered",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the settings save posts `error` → `BadValueError` (`form_workflow.js`)",
+		"subject": "after-submit",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1281,6 +1302,7 @@
 		"valueClass": "not-offered-under-conditional-link",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: cleared to `''` on save, which drops the frame HQ builds for it (`workflow.py::_get_static_stack_frame`)",
+		"subject": "after-submit",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1473,6 +1495,7 @@
 		"valueClass": "other-module-target",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (FORM_LINK_ADVANCED_MODE) for a child menu HQ does not match; not HQ-editable for a display-only-forms menu, which HQ never offers",
+		"subject": "after-submit",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1608,6 +1631,7 @@
 		"valueClass": "target-case-id-left-empty",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the target form opens with no case, and its case reads and writes fail",
+		"subject": "after-submit",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1640,6 +1664,7 @@
 		"valueClass": "other-datum-names-or-module-target",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (FORM_LINK_ADVANCED_MODE)",
+		"subject": "after-submit",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1699,6 +1724,7 @@
 		"valueClass": "failing-link-checks",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable",
+		"subject": "after-submit",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable"
@@ -1748,6 +1774,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Form.autoCaptureLocation` (effective = form OR app, `FormBase.get_auto_gps_capture`)",
+		"subject": "form-settings",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1800,6 +1828,8 @@
 		"valueClass": "non-default",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Form.submitLabel` (editor: Bulk App Translations edits the existing string)",
+		"subject": "form-settings",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -1854,6 +1884,7 @@
 		"valueClass": "release-notes-form",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (TRAINING_MODULE)",
+		"subject": "training-menus",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1909,6 +1940,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (VISIT_SCHEDULER)",
+		"subject": "visit-scheduler",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1941,6 +1973,7 @@
 		"valueClass": "form-assertions",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform + retiring (CUSTOM_ASSERTIONS)",
+		"subject": "custom-assertions",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -1975,6 +2008,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform (arbitrary suite `<instance>` ids and srcs)",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -2059,6 +2093,7 @@
 		"valueClass": "save-differing-from-vellum",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the next Vellum save of the form rewrites it (opening and saving the form once in HQ's form builder fixes it)",
+		"subject": "form-settings",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2124,6 +2159,7 @@
 		"valueClass": "not-a-slug-or-duplicated",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: under SESSION_ENDPOINTS, which every endpoint needs, a form-settings save fails (`views/utils.py::set_session_endpoint`), or strips surrounding whitespace (`get_cleaned_session_endpoint_id`); a duplicate is also broken at runtime (Module fields)",
+		"subject": "deep-links",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2186,8 +2222,11 @@
 			"schema:AdvancedForm.function_datum_endpoints",
 			"schema:ShadowForm.function_datum_endpoints"
 		],
+		"valueClass": "computed-endpoint-argument",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `entryPoint.computedDatumArguments`",
+		"dispositionCell": "**HELD-NEW**: `entryPoint.computedDatumArguments`. The class takes a non-empty list, on any form a shadow form included; the empty list is HQ's default, which the shadow own fields row holds on a shadow form",
+		"subject": "deep-links",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2364,6 +2403,7 @@
 		"valueClass": "non-empty-conflicts",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `conflicting questions` / `conflicting delete`",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2426,6 +2466,7 @@
 		"valueClass": "bare-string-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `wrap_app` raises `BadValueError` (`UpdateCaseAction.update` is `SchemaDictProperty(ConditionalCaseUpdate)`), so HQ cannot load the app",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2545,6 +2586,7 @@
 		"valueClass": "update-if-question-missing",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: its question is still path-checked, `path error`",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2637,6 +2679,7 @@
 		"valueClass": "update-never-followup-alone",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the Case Management save writes `always` and HQ then adds a NOOP case touch",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2727,6 +2770,7 @@
 		"valueClass": "question-not-offered-by-picker",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the picker omits labels and, where the transaction takes no repeat, repeat questions (`case_config_utils.js::getQuestions`), apart from the usercase's, whose picker offers them and marks each \"Inside the wrong repeat!\"; every picker marks a stored one \"Unidentified Question\" (`case_knockout_bindings.js::questionsSelect`), and gives \"Inside the wrong repeat!\" for a question outside the transaction's repeat (`case_config_ui.js`, `advanced/case_properties.js`); Nova refuses the own-case and usercase repeat halves already (`PRIMARY_CASE_FIELD_IN_REPEAT`, `USERCASE_FIELD_IN_REPEAT`)",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2786,6 +2830,7 @@
 		"valueClass": "index-key-on-opened-case",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the ancestor's id reads an index of the case being created, which is not in the case database during entry, so the block's `case_id` is empty and Core rejects the submission (`CaseXmlParserUtil.validateMandatoryProperty`); HQ builds it",
+		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -2815,6 +2860,8 @@
 		"valueClass": "user-index-key-on-loaded-case",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the write's `via` through the loaded case's indices, `user` naming an index called `user`: HQ's build writes through `index/user` (`xform.py::get_case_parent_id_xpath`), not to the usercase, so where the case has no such index the block's `case_id` is empty and Core rejects the submission",
+		"subject": "worker-record",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2844,6 +2891,7 @@
 		"valueClass": "unrecognized-index-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the Case Management tab marks it an error (\"Property uses unrecognized prefix\", `case_config_ui.js::caseProperty.validate`, which accepts `parent`, `host` and, with usercase access, `user`)",
+		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2905,6 +2953,8 @@
 		"valueClass": "date-and-time-join",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a datetime writer, arriving with step 4 (the reader recognizes exactly that calculate)",
+		"subject": "writer-types",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2955,21 +3005,47 @@
 		"id": "forms-and-case-writes/update-keys-location-id-hq-user-id-category-state",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update keys `location_id`, `hq_user_id`, `category`, `state`",
+		"item": "update keys `category`, `state`",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update"
 		],
-		"valueClass": "location-user-category-state-keys",
+		"valueClass": "category-state-keys",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.caseWrite`; widen: remove them from `FORBIDDEN_CASE_WRITE_PROPERTIES` (HQ's reserved list omits them)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "remove them from `FORBIDDEN_CASE_WRITE_PROPERTIES` (HQ's reserved list omits them)"
+		"dispositionCell": "**HELD**: a case write's property",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "the key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/update-keys-location-id-hq-user-id",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "update keys `location_id`, `hq_user_id`",
+		"surfaceKeys": [
+			"schema:Form.actions",
+			"schema:FormActions.update_case",
+			"schema:UpdateCaseAction.update"
 		],
+		"valueClass": "location-id-hq-user-id-keys",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a write CommCare HQ stores elsewhere: `location_id` becomes the case's own column and `hq_user_id` is copied to its external id (`update_strategy.py::_apply_update_action`)",
+		"subject": "case-property-names",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2999,6 +3075,7 @@
 		"valueClass": "illegal-or-reserved-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `update_case word illegal` / `update_case uses reserved word`",
+		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3019,21 +3096,47 @@
 		"id": "forms-and-case-writes/update-key-whose-characters-after-the-ascii-first-are-all-core-s",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update key whose characters after the ASCII first are all Core's name characters (README \"External identity\"), non-ASCII ones included",
+		"item": "update key matching `^[A-Za-z][A-Za-z0-9_-]*$`, other than the keys the rows around this one name",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
 			"schema:UpdateCaseAction.update"
 		],
-		"valueClass": "core-name-key",
+		"valueClass": "ascii-name-key",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.caseWrite.property`; widen the property grammar to what both HQ (`validate_property`) and Core read",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "the property grammar to what both HQ (`validate_property`) and Core read"
+		"dispositionCell": "**HELD**: a case write's property",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "the key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "update key whose characters after the ASCII first are all Core's name characters, at least one of them non-ASCII",
+		"surfaceKeys": [
+			"schema:Form.actions",
+			"schema:FormActions.update_case",
+			"schema:UpdateCaseAction.update"
 		],
+		"valueClass": "non-ascii-core-name-key",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the property grammar over what both HQ (`validate_property`) and Core read, which needs a name token proven on each runtime's Unicode tables",
+		"subject": "case-property-names",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3063,6 +3166,7 @@
 		"valueClass": "non-core-name-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `validate_property` accepts it, but the bind HQ writes for the update (`xform.py`, `/data/case/update/<key>`) does not parse in Core's `XFormParser` (`Lexer.matchNCName`, which reads one UTF-16 unit at a time), which Formplayer's `validate_form` runs on each form during the build (executed with Core's parser)",
+		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3093,6 +3197,7 @@
 		"valueClass": "upload-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MM_CASE_PROPERTIES; a capture reaches a case as a link to the submitted file instead)",
+		"subject": "case-attachments",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -3155,6 +3260,7 @@
 		"valueClass": "path-names-no-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `path error`",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3255,6 +3361,7 @@
 		"valueClass": "own-case-condition-not-offered-or-quoted",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the question picker offers select/select1/hidden/label outside repeats, and saves strip quotes (`edit_form_actions`)",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3287,6 +3394,7 @@
 		"valueClass": "subcase-or-advanced-condition-not-offered",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the condition picker offers select, select1, hidden and label questions only, and repeat questions only where the transaction takes them (`case_config_ko_templates.html` `case-config:condition`, `advanced/actions.js`), marking any other \"Unidentified Question\"; an answer beginning or ending with `\"`, which only a basic form's own case's save strips (`views/forms.py::edit_form_actions`), and an advanced open action's repeat question are held; an answer containing `'` is refused (the next row)",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3322,6 +3430,7 @@
 		"valueClass": "answer-with-apostrophe",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ writes `path = '<answer>'` or `selected(path, '<answer>')` unescaped (`xform.py::XForm.action_relevance`), which Core's parser rejects or reads as a different condition, while HQ's build passes (executed; under `boolean_true` the answer is never written); every condition row holds only answers without `'`",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3415,6 +3524,7 @@
 		"valueClass": "multi-select-top-level",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ loads it from `session/data/case_id` (`xform.py::get_add_case_preloads_case_id_xpath`), which the entry never sets (its datum is `selected_cases`), and Core throws when the form opens (\"Logic references instance(commcaresession)/session/data/case_id which is not a valid question or value\"; executed)",
+		"subject": "case-preloads",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3474,6 +3584,7 @@
 		"valueClass": "load-changes-values",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no editor writes basic `case_preload` (the basic Case Management page has no load section), and no default value an editor writes gives Core's load the same values",
+		"subject": "case-preloads",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3533,6 +3644,8 @@
 		"valueClass": "other-index-path",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a default value reading that ancestor's property through the expanded casedb path (typed expression model), since Vellum's `#case/` names only `parent` and `grandparent` (`app_schemas/casedb_schema.py`)",
+		"subject": "case-preloads",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3620,6 +3733,7 @@
 		"valueClass": "usercase-key-with-slash",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: the build raises `ValueError` writing the element, since usercase keys are written without the ancestor grouping (`xform.py::XForm._add_usercase`; executed), though the User Properties editor accepts it (`case_config_ui.js`)",
+		"subject": "worker-record",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3703,6 +3817,7 @@
 		"valueClass": "usercase-preload-other",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the User Properties editor only saves (`partials/forms/usercase_config.html`), and without an active update the preload alone adds the `usercase_id` datum and assertion, which a `#user/` default does not",
+		"subject": "worker-record",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3755,6 +3870,7 @@
 		"valueClass": "load-from-form-path-missing",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `path error` (`FormValidator.check_actions`)",
+		"subject": "case-preloads",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3850,6 +3966,7 @@
 		"valueClass": "referral-active-without-case-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `no case type`",
+		"subject": "form-case-management",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3951,6 +4068,7 @@
 		"valueClass": "multi-select-case-sharing-without-owner",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ adds the `case_sharing.exactly_one_group` assertion, which blocks a worker not in exactly one group from a form that opens no case (`entries.py::case_sharing_requires_assertion`; executed)",
+		"subject": "case-sharing",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4027,6 +4145,7 @@
 		"valueClass": "preload-on-survey-reserved-or-illegal",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `FormActions.all_property_names` includes it, and `check_case_properties` fails the build",
+		"subject": "case-preloads",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4089,6 +4208,7 @@
 		"valueClass": "extension",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no Case Management path sets it, and a save resets it to `child` (`case_config_ui.js` omits it), which changes HQ's form export schema (the index path `case/index/host/…` becomes `case/index/parent/…`, and the `@relationship` column disappears, `export/models/new.py`); the build itself ignores it",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4153,6 +4273,7 @@
 		"valueClass": "subcase-never",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no UI path to `never` for a child case",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4265,6 +4386,7 @@
 		"valueClass": "custom-index-name",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the `custom-parent-ref` flag that offered it was removed",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4324,6 +4446,7 @@
 		"valueClass": "not-name-question-repeat",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the Case Management save recomputes it from the name question (`case_config_ui.js`, `get_repeat_context`)",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4385,6 +4508,7 @@
 		"valueClass": "not-a-module-case-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: \"Case type … does not exist\"",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4414,6 +4538,7 @@
 		"valueClass": "own-case-type-where-same-type-unindexed",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (DONT_INDEX_SAME_CASETYPE): HQ drops the parent index at build there (`xform.py`); import from and publish to such a project space both refuse it; publish refuses it with the offered move to Save to Case (`same-type-child-links`)",
+		"subject": "child-cases",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -4523,6 +4648,8 @@
 		"noSurfaceKey": "A relation among the questions that write one case property (an integer and a decimal writer), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: writer-type join `decimal` (Nova's field rule refuses mixed writers today)",
+		"subject": "writer-types",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4543,6 +4670,8 @@
 		"noSurfaceKey": "A relation among the questions that write one case property (a single-select and a multi-select writer), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: join `multi_select`",
+		"subject": "writer-types",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4563,6 +4692,8 @@
 		"noSurfaceKey": "A relation among the questions that write one case property (writers of two other types), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: join `text`",
+		"subject": "writer-types",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4604,6 +4735,8 @@
 		"noSurfaceKey": "A relation between a writer and the case property it writes (the type a date-and-time question gives it), which no single surface item holds; the question and the case write are named by their own rows.",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a date-and-time question writing its date to a `date` property (Nova routes every date-and-time writer through the `nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`)",
+		"subject": "writer-types",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4702,6 +4835,7 @@
 		"valueClass": "tag-with-slash",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable where the action writes a case block (`ValueError`, `xform.py::_make_elem`; executed), and broken at runtime otherwise: the session datum is `case_id_<a>/<b>`, which a preload reads as `session/data/case_id_<a>/<b>`, a child step that finds nothing (executed)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4736,6 +4870,7 @@
 		"valueClass": "blank-tag",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor marks any blank tag \"Case Tag required\" (`actions.js::actionBase.validate`), whatever the retiring ALLOW_BLANK_CASE_TAGS says",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4764,6 +4899,7 @@
 		"valueClass": "tag-failing-editor-check",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the advanced Case Management page marks it an error, though its save posts it",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4841,6 +4977,7 @@
 		"valueClass": "other-case-type-or-missing-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `ParentModuleReferenceError` (`entries.py::get_target_module`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4866,6 +5003,8 @@
 		"valueClass": "selection-preload",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a default value reading the selected case's property (preload as a default value), emitted as the advanced action's preload and so held with its place in the load, after every Vellum setvalue (`xform.py::_create_casexml_advanced` → `add_setvalue`; README, \"Load-time values\"), which the builder, SA and MCP state beside the default",
+		"subject": "case-preloads",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4923,6 +5062,7 @@
 		"valueClass": "slash-property-on-indexed-load",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `update_case word illegal` (`AdvancedFormValidator.check_actions` passes such a load's names as subcase names; executed), and not HQ-editable (\"Parent property references not allowed for subcases\", `advanced/case_properties.js`)",
+		"subject": "case-preloads",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -5047,6 +5187,7 @@
 		"valueClass": "index-on-auto-select-or-first-load",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor offers \"This case is a subcase of the previous case\" only on a load after the first that does not auto-select (`case_config_advanced.html`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5076,6 +5217,7 @@
 		"valueClass": "tag-names-no-action",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `missing parent tag`",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -5104,6 +5246,7 @@
 		"valueClass": "tag-names-other-than-previous-load",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor links a load only to the load before it (`advanced/actions.js` `subcase.write`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5133,6 +5276,8 @@
 		"valueClass": "auto-select-raw",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSelections[].autoSelect {kind: expression}`",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5162,6 +5307,8 @@
 		"valueClass": "auto-select-user",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: userData, key}`",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5192,6 +5339,8 @@
 		"valueClass": "auto-select-fixture",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: lookupRow, table, column}`",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5253,6 +5402,8 @@
 		"valueClass": "auto-select-case-index",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `autoSelect {kind: index, selection, index}`",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5282,6 +5433,7 @@
 		"valueClass": "auto-select-case-not-an-earlier-load",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the source select lists only earlier loads (`advanced/case_config_ui.js::getCaseTags('auto-select')`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5312,6 +5464,7 @@
 		"valueClass": "auto-select-missing-key-or-source",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `auto select key` / `auto select source` / `auto select case ref`",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -5341,6 +5494,7 @@
 		"valueClass": "auto-select-blank-mode-or-case-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the advanced editor marks it an error (`advanced/actions.js` `loadUpdateAction.validate`: \"Autoselect mode required\", \"Expected case type required\"), though HQ builds it (a blank mode becomes a manual selection, `entries.py::get_datum_meta_assertions_advanced`; `no case type in action` skips auto-select loads, `AdvancedFormValidator.check_actions`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5375,6 +5529,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: its case datum has no `detail-select`, so Web Apps shows \"Can't handle entity selection with blank detail definition\" and Android crashes unless one case auto-selects; its datum id is the bare tag while its preloads read `case_id_<tag>`",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -5403,6 +5558,7 @@
 		"valueClass": "commtrack-on",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK)",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -5604,6 +5760,7 @@
 		"valueClass": "open-action-slash-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable on an indexed open action (\"Parent property references not allowed for subcases\", `advanced/case_properties.js`), and not HQ-buildable: `update_case word illegal` on an indexed one, whose names HQ checks as subcase names (`AdvancedFormValidator.check_actions`, `get_subcase_actions`), and otherwise `validate_app` raises `ValueError` building the element (executed)",
+		"subject": "case-property-names",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5640,6 +5797,8 @@
 		"valueClass": "label-question",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a label's value as an advanced write or name source, and a preload into a label: the advanced pickers offer labels (`advanced/case_config_ui.js::getQuestions` passes no trigger exclusion), and HQ's build accepts them (`models/forms.py::cached_get_questions` includes triggers)",
+		"subject": "form-case-management",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5723,6 +5882,7 @@
 		"valueClass": "shared-block-in-repeat",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ nests a block under `case_<tag>` only when at least two indexed open actions share the repeat (`xform.py::_create_casexml_advanced` `get_action_path`, `AdvancedFormActions.count_subcases_per_repeat_context`), so their blocks share every bind at `<repeat>/case`: both cases take one name and an index from one to the other resolves to the child's own id (executed in Core)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -5748,6 +5908,7 @@
 		"valueClass": "not-name-question-repeat",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the advanced save recomputes it from the name question (`advanced/actions.js` `openCaseAction.unwrap`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5839,6 +6000,7 @@
 		"valueClass": "tag-names-own-or-later-open-action",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the parent tag select lists loads and earlier open actions only (`advanced/case_config_ui.js::getCaseTags('subcase')`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5868,6 +6030,8 @@
 		"valueClass": "question-relationship-to-load",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a case-operation link whose relationship is chosen per submission",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5896,6 +6060,7 @@
 		"valueClass": "load-with-renamed-datum",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the index reads `case_id_<tag>` (`xform.py::_create_casexml_advanced`), which the entry never sets, while HQ builds it (executed)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -5921,6 +6086,7 @@
 		"valueClass": "relationship-question-in-repeat",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the question picker excludes repeat questions (`case_config_advanced.html`, `getQuestions('all', false, false)`), so a stored one shows \"Unidentified Question\"",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5950,6 +6116,7 @@
 		"valueClass": "question-relationship-to-open-action",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ writes the relationship and owner binds on the parent's block, since resolving the parent overwrites the child's path (`xform.py::_create_casexml_advanced`), so the child submits its index with the literal relationship `@relationship` (`xform.py::add_index_ref`), which HQ's case processing does not map, and the unowned owner `-` whatever the answer, while the parent's owner follows the child's question (executed in Core)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -5979,6 +6146,7 @@
 		"valueClass": "question-relationship-after-open-action-index",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: resolving the earlier parent replaces the child's path, so HQ writes this index's relationship and owner binds on that parent's block, as in the row above (`xform.py::_create_casexml_advanced`; built in HQ, executed)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -6007,6 +6175,7 @@
 		"valueClass": "question-relationship-without-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `missing relationship question`",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6036,6 +6205,7 @@
 		"valueClass": "outside-parent-repeat",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable where it does not start with the parent's path (`subcase repeat context`, `AdvancedFormValidator.check_actions`); broken at runtime where it only shares leading text (`/data/rep2` beside `/data/rep`), since HQ's check is a string prefix: the child's index then reads every row's parent id and fails once the parent repeat has two rows (executed in Core)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6097,6 +6267,7 @@
 		"valueClass": "not-a-module-case-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: \"Case type … does not exist\"",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6124,8 +6295,11 @@
 			"schema:ArbitraryDatum.datum_id",
 			"schema:ArbitraryDatum.datum_function"
 		],
+		"valueClass": "computed-datum",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.computedDatums[] {id, expression}`",
+		"dispositionCell": "**HELD-NEW**: `Form.computedDatums[] {id, expression}`. The class takes a non-empty list, on an advanced form or a shadow form; the empty list is HQ's default, which the shadow own fields row holds on a shadow form",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6166,6 +6340,7 @@
 		"valueClass": "schedule-enabled",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (VISIT_SCHEDULER)",
+		"subject": "visit-scheduler",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -6221,6 +6396,7 @@
 		"valueClass": "schedule-disabled-condition-names-missing-question",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `path error` (`AdvancedFormValidator.check_actions`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6246,6 +6422,7 @@
 		"valueClass": "case-read-without-manual-load",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `filtering without case`",
+		"subject": "display-conditions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6274,6 +6451,7 @@
 		"valueClass": "breaks-case-list-form-rules",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable (`AdvancedModuleValidator.validate_with_raise`)",
+		"subject": "advanced-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6299,6 +6477,8 @@
 		"valueClass": "advanced-form-parent",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Form.shadowOf` (runs the parent's XForm and xmlns under its own entry)",
+		"subject": "shadow-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6324,6 +6504,7 @@
 		"valueClass": "basic-or-shadow-parent",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: `ShadowForm.get_shadow_parent_options` offers advanced forms only, and no shadow",
+		"subject": "shadow-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -6349,6 +6530,7 @@
 		"valueClass": "missing-or-dangling",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `missing shadow parent`, `shadow parent does not exist`",
+		"subject": "shadow-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6435,6 +6617,8 @@
 		"valueClass": "shadow-selection-override",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `shadowOf.selectionOverrides[]`",
+		"subject": "shadow-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6464,6 +6648,8 @@
 		"valueClass": "shadow-extra-selection",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `shadowOf.extraSelections[]` (datum only; the parent XForm never reads it)",
+		"subject": "shadow-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6492,6 +6678,7 @@
 		"valueClass": "shadow-parent-tag-not-repeated",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the shadow's entry has no `case_id_<tag>` datum (`ShadowForm._merge_actions`; `ShadowFormValidator.check_actions` is never called), so its preloads read nothing and a case block keyed on the tag is submitted with an empty `case_id`, which Core rejects (`CaseXmlParserUtil.validateMandatoryProperty`); HQ builds it, since it never renders a shadow's own XForm (`_get_form_files`, `exclude_form`)",
+		"subject": "shadow-forms",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -6569,6 +6756,7 @@
 		"valueClass": "shadow-commtrack-on",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK)",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -6647,6 +6835,8 @@
 		"valueClass": "usercase-term",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: usercase term in Predicate (Predicate `session-user` reads session user data, a different source)",
+		"subject": "display-conditions",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6718,6 +6908,7 @@
 		"origin": "export-use",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: kept by HQ as a jsonobject dynamic property its builder does not model (each class's `schema:<Class>.<undeclared>` surface item: declared false, kept true); the reader refuses a key it does not recognize (README, \"Refused\")",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",

@@ -42,9 +42,7 @@ function creationErrorMessage(
 		case "empty":
 			return "Use at least one letter or number";
 		case "illegal_format":
-			return "Start the name with a word, not a number";
-		case "reserved":
-			return `Choose a more specific name, such as ${humanizeId(candidate)} record`;
+			return "Letters, numbers and underscores all work in a case type name";
 		case "too_long":
 			return "Use a shorter name";
 		case "duplicate":

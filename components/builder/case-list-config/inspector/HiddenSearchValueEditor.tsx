@@ -15,7 +15,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import {
 	buildValidityIndex,
@@ -28,6 +28,8 @@ import {
 	type CaseType,
 	type HiddenSearchInputDef,
 	hiddenSearchInputDef,
+	SEARCH_INPUT_NAME_PATTERN,
+	SEARCH_INPUT_NAME_REJECTION,
 	type SearchInputDef,
 	type UserProperty,
 	type Uuid,
@@ -98,6 +100,18 @@ export function HiddenSearchValueEditor({
 			),
 		);
 
+	/* A name outside the Search field grammar is held with the schema's
+	 * sentence instead of bouncing off the gate. */
+	const [nameRefusal, setNameRefusal] = useState<string | null>(null);
+	const setName = (name: string) => {
+		if (name.length > 0 && !SEARCH_INPUT_NAME_PATTERN.test(name)) {
+			setNameRefusal(SEARCH_INPUT_NAME_REJECTION);
+			return;
+		}
+		setNameRefusal(null);
+		rebuild({ name });
+	};
+
 	return (
 		<EditorVocabularyProvider
 			caseTypes={caseTypes}
@@ -165,9 +179,10 @@ export function HiddenSearchValueEditor({
 				>
 					<BlurCommitTextInput
 						value={value.name}
-						onCommit={(name) => rebuild({ name })}
+						onCommit={setName}
 						ariaLabel={`Hidden search value ${index + 1} name used in other conditions`}
 					/>
+					{nameRefusal !== null && <InlineError errors={[nameRefusal]} />}
 					{resolved.nameState.kind === "empty" && (
 						<InlineError errors={["Enter a name used in other conditions"]} />
 					)}

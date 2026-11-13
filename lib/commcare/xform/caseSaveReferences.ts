@@ -27,7 +27,7 @@
  *    `close` makes a block that closes.
  * 4. Only bound leaves count, read in bind order: `case/create/<name>` and
  *    `case/update/<name>`. Every element name `FormPath` reads matches
- *    `[a-zA-Z_][a-zA-Z0-9_]*`, which the editor's `[\w-]+` admits whole, so
+ *    `[a-zA-Z_][a-zA-Z0-9_-]*`, which the editor's `[\w-]+` admits whole, so
  *    every such leaf counts. The create binds of `case_type`, `case_name` and
  *    `owner_id` are read apart; `index` leaves and attachments are never
  *    listed.

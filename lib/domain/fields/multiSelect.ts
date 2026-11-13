@@ -1,8 +1,8 @@
 // lib/domain/fields/multiSelect.ts
 //
 // Multi-choice select field. Maps to CommCare <select> control — the user can
-// pick one or more options from a fixed list. Options must have at least two
-// entries (a single-option multi-select is semantically meaningless).
+// pick one or more options from a fixed list of at least one option (a
+// single option is a checkbox, such as "I have read this to the client").
 //
 // Stored value is a space-separated string of selected option values, which is
 // the CommCare/XForms convention for multi-select bindings.

@@ -11,8 +11,7 @@
 // `/^(?!XML)[a-zA-Z][\w-]*$/` (case-sensitive `XML`) or is `meta` in any case
 // (Vellum `src/util.js::isValidElementName`, `src/mugs/baseSpecs.js`
 // `databind.nodeID.validationFunc`), and warns on `case`, `registration` and
-// `script` in any case (`src/mugs/baseSpecs.js::RESERVED_NAMES`). Nova keeps
-// refusing the hyphen Vellum accepts, a rule of its own. HQ's build removes a
+// `script` in any case (`src/mugs/baseSpecs.js::RESERVED_NAMES`). HQ's build removes a
 // root node named `meta` (`xform.py::XForm.already_has_meta`), and a root
 // `case` in a form with basic case actions is read as the form's own case
 // block (`xform.py::XForm.case_node`). Vellum finds `instance`, `bind` and
@@ -32,8 +31,8 @@
 
 import { type FreeNameOffer, freeNameClause, suffixUntilFree } from "./idSlug";
 
-/** A letter first, then letters, digits or underscores, never `XML` first. */
-export const QUESTION_ID_PATTERN = /^(?!XML)[A-Za-z][A-Za-z0-9_]*$/;
+/** A letter first, then letters, digits, underscores or hyphens, never `XML` first. */
+export const QUESTION_ID_PATTERN = /^(?!XML)[A-Za-z][A-Za-z0-9_-]*$/;
 
 /**
  * Names refused by one rule: `anyCase` compared lowercased, as Vellum
@@ -92,7 +91,7 @@ export function questionIdProblem(
 ): QuestionIdProblem | undefined {
 	if (id.startsWith("_")) return "leading-underscore";
 	if (!/^[A-Za-z]/.test(id)) return "not-letter-first";
-	if (!/^[A-Za-z0-9_]*$/.test(id)) return "characters";
+	if (!/^[A-Za-z0-9_-]*$/.test(id)) return "characters";
 	if (id.startsWith("XML")) return "xml-prefix";
 	if (
 		isReservedName(id, RESERVED_QUESTION_IDS) ||
@@ -105,15 +104,16 @@ export function questionIdProblem(
 /**
  * The one normalizer every minter and every refusal's offered replacement
  * use. Its result always passes `questionIdProblem`
- * with the same `alsoReserved`: `_notes` → `notes`, `_1st` → `q1st`,
- * `XMLcode` → `qXMLcode`, `Meta` → `q_Meta`, `first name` → `first_name`.
+ * with the same `alsoReserved`: `_notes` → `notes`, `-notes` → `notes`,
+ * `_1st` → `q1st`, `XMLcode` → `qXMLcode`, `Meta` → `q_Meta`,
+ * `first name` → `first_name`, and `first-name` stays as it is.
  * The caller settles a collision with `suffixUntilFree`.
  */
 export function editorSafeQuestionId(
 	id: string,
 	alsoReserved?: ReservedNames,
 ): string {
-	let safe = id.replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+/, "");
+	let safe = id.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[_-]+/, "");
 	if (!/^[A-Za-z]/.test(safe) || safe.startsWith("XML")) safe = `q${safe}`;
 	if (
 		isReservedName(safe, RESERVED_QUESTION_IDS) ||
@@ -154,7 +154,7 @@ export function questionIdProblemSentence(
 		case "not-letter-first":
 			return `${subject} starts with a letter, and CommCare HQ's form builder can't keep one that doesn't. ${free}`;
 		case "characters":
-			return `${subject} holds only letters, digits and underscores. ${free}`;
+			return `${subject} holds only letters, digits, underscores and hyphens. ${free}`;
 		case "xml-prefix":
 			return `${subject} can't start with "XML", because CommCare HQ's form builder can't keep it. ${free}`;
 		case "reserved-name":

@@ -4,7 +4,7 @@
  * publish sends under each configuration, its local exports and its input
  * manifest, in the layout the checks read (`proof/checks/corpus.py`):
  *
- *   <out>/index.json                  {seed, sample, entropy, shard?, documents, hq, census}
+ *   <out>/index.json                  {seed, sample, entropy, shard?, documents, census}
  *   <out>/inputs.json                 each document's input manifest digest (`./inputs.ts`)
  *   <out>/timings.json                what each part took (the one file that
  *                                     differs between two emissions)
@@ -42,7 +42,13 @@
  * A document Nova's publish or local export refuses is not a corpus
  * document: it is left out and named, with the boundary's findings, in the
  * census. A document that fails the strict schema or full validation stops
- * the emission, since every source constructs admitted documents.
+ * the emission, since every source constructs admitted documents. With
+ * `leftOut` (`proof/corpus/left-out.json`, which the lane's emission reads),
+ * the fixed floor's census must name exactly the documents and edits the
+ * list names, or the emission stops before any document is written, naming
+ * each one that left or joined (`leftOutDifferences`): a rule that newly
+ * refuses a fixed document cannot make the corpus smaller unseen. The
+ * sample's census is not held to it, since its draws are the generators'.
  *
  * Each part's census names, per mutation kind, the documents whose written
  * edit batch was drawn for it (`landed`). With `requireEveryKind`, a kind
@@ -80,6 +86,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 import {
 	mediaIds,
 	mediaManifest,
@@ -165,20 +172,17 @@ export interface EmitInput {
 	 * caller emitting a handful of documents leaves it off.
 	 */
 	readonly requireEveryKind?: boolean;
-	/** HQ's self-check apps already written under `<out>/hq/`, listed in the index. */
-	readonly hq?: readonly HqIndexEntry[];
+	/**
+	 * What the fixed floor leaves out, as `proof/corpus/left-out.json` names
+	 * it: the emission stops, before writing any document, where the fixed
+	 * floor's census differs from it (`leftOutDifferences`). The lane's
+	 * emission (`./emit.ts`) passes it; a caller emitting a handful of
+	 * documents leaves it unset.
+	 */
+	readonly leftOut?: LeftOut;
 	/** Further timings the caller measured (the Vitest writers, the HQ side), in seconds. */
 	readonly timings?: Readonly<Record<string, number>>;
 	readonly log?: (line: string) => void;
-}
-
-/** One HQ self-check app under `<out>/hq/<id>/`, as `python -m proof.corpus.hq` lists it. */
-export interface HqIndexEntry {
-	readonly id: string;
-	readonly source: Readonly<Record<string, unknown>>;
-	readonly group: string;
-	/** `app.json` (an app as HQ's import receives it) or `app.ccz` (an HQ-built archive). */
-	readonly file: "app.json" | "app.ccz";
 }
 
 /** A document left out of the corpus, and why. */
@@ -223,7 +227,6 @@ export interface CorpusIndex {
 	/** The selection written, when not every document was (`EmitInput.select`). */
 	readonly selection?: string;
 	readonly documents: readonly IndexEntry[];
-	readonly hq: readonly HqIndexEntry[];
 	readonly census: {
 		readonly fixed: PartCensus;
 		readonly sample: PartCensus;
@@ -259,6 +262,168 @@ export class UnlandedKindsError extends Error {
 	) {
 		super(message);
 		this.name = "UnlandedKindsError";
+	}
+}
+
+// ── What the fixed floor leaves out ─────────────────────────────────
+
+/** A fixed document, or a fixed document's edit, the emission leaves out, and what refuses it. */
+export interface LeftOutEntry {
+	readonly id: string;
+	readonly by: RefusedDocument["by"];
+	readonly codes: readonly string[];
+	/** For an edit, the kind its batch was drawn for. */
+	readonly kind?: MutationKind;
+}
+
+/** What the fixed floor leaves out, as `proof/corpus/left-out.json` names it. */
+export interface LeftOut {
+	readonly documents: readonly LeftOutEntry[];
+	readonly edits: readonly LeftOutEntry[];
+}
+
+const refusedBySchema = z.enum(["publish", "hq-upload", "ccz"]);
+const refusalCodesSchema = z.array(z.string().min(1)).min(1);
+
+/** One list of `left-out.json`, in id order with one entry an id. */
+function inIdOrder(
+	entries: readonly { readonly id: string }[],
+	context: z.RefinementCtx,
+	list: string,
+): void {
+	for (const [at, entry] of entries.entries()) {
+		const previous = entries[at - 1];
+		if (previous !== undefined && !(previous.id < entry.id)) {
+			context.addIssue({
+				code: "custom",
+				path: [list, at, "id"],
+				message: `proof/corpus/left-out.json lists its ${list} in id order, one entry an id, and ${JSON.stringify(entry.id)} follows ${JSON.stringify(previous.id)}.`,
+			});
+		}
+	}
+}
+
+/** The file `proof/corpus/left-out.json`. */
+export const leftOutSchema = z
+	.strictObject({
+		documents: z.array(
+			z.strictObject({
+				id: z.string().min(1),
+				by: refusedBySchema,
+				codes: refusalCodesSchema,
+			}),
+		),
+		edits: z.array(
+			z.strictObject({
+				id: z.string().min(1),
+				by: refusedBySchema,
+				codes: refusalCodesSchema,
+				kind: z
+					.string()
+					.refine((kind): kind is MutationKind =>
+						(EDIT_KINDS as readonly string[]).includes(kind),
+					),
+			}),
+		),
+	})
+	.superRefine((value, context) => {
+		inIdOrder(value.documents, context, "documents");
+		inIdOrder(value.edits, context, "edits");
+	});
+
+/** One way the fixed floor's census differs from what `left-out.json` names. */
+export interface LeftOutDifference {
+	/**
+	 * `leaves`: the corpus leaves out what the list does not name, or names
+	 * with another refusal (`entry` is the census's); `takes`: the list names
+	 * what the corpus takes (`entry` is the list's).
+	 */
+	readonly change: "leaves" | "takes";
+	readonly part: "document" | "edit";
+	readonly entry: LeftOutEntry;
+}
+
+function leftOutEntry(refused: RefusedDocument): LeftOutEntry {
+	return {
+		id: refused.id,
+		by: refused.by,
+		codes: refused.codes,
+		...(refused.kind !== undefined && { kind: refused.kind }),
+	};
+}
+
+function sameRefusal(a: LeftOutEntry, b: LeftOutEntry): boolean {
+	return (
+		a.by === b.by &&
+		a.kind === b.kind &&
+		[...a.codes].sort().join("\n") === [...b.codes].sort().join("\n")
+	);
+}
+
+/**
+ * How the fixed floor's census differs from what `left-out.json` names, by
+ * documents and then edits, each in id order: every document or edit the
+ * census leaves out that the list does not name with the same refusal, and
+ * every one the list names that the census takes. Empty when the two are
+ * equal.
+ */
+export function leftOutDifferences(
+	census: Pick<PartCensus, "refused" | "editsRefused">,
+	named: LeftOut,
+): LeftOutDifference[] {
+	const differences: LeftOutDifference[] = [];
+	const parts = [
+		["document", census.refused, named.documents],
+		["edit", census.editsRefused, named.edits],
+	] as const;
+	for (const [part, refused, listed] of parts) {
+		const held = new Map(
+			refused.map((entry) => [entry.id, leftOutEntry(entry)] as const),
+		);
+		const names = new Map(listed.map((entry) => [entry.id, entry] as const));
+		const found: LeftOutDifference[] = [];
+		for (const entry of held.values()) {
+			const name = names.get(entry.id);
+			if (name === undefined || !sameRefusal(entry, name)) {
+				found.push({ change: "leaves", part, entry });
+			}
+		}
+		for (const entry of names.values()) {
+			if (!held.has(entry.id)) found.push({ change: "takes", part, entry });
+		}
+		found.sort((a, b) =>
+			a.entry.id < b.entry.id ? -1 : a.entry.id > b.entry.id ? 1 : 0,
+		);
+		differences.push(...found);
+	}
+	return differences;
+}
+
+const REFUSED_BY_WORDS: Readonly<Record<RefusedDocument["by"], string>> = {
+	publish: "publish",
+	"hq-upload": "upload to CommCare HQ",
+	ccz: "local export",
+};
+
+/** A difference as the sentence the emission stops with. */
+export function leftOutMessage(difference: LeftOutDifference): string {
+	const { entry } = difference;
+	const id =
+		difference.part === "document"
+			? entry.id
+			: entry.kind === undefined
+				? `the edit of ${entry.id}`
+				: `the ${entry.kind} edit of ${entry.id}`;
+	return difference.change === "leaves"
+		? `The corpus now leaves out ${id}: Nova's ${REFUSED_BY_WORDS[entry.by]} refuses it (${entry.codes.join(", ")}). The fixed corpus leaves out only what proof/corpus/left-out.json names, so a rule that refuses more can't shrink it unseen. If the rule is right, change the document's source so it holds what Nova holds, or name it in left-out.json. If it isn't, the rule refuses too much.`
+		: `proof/corpus/left-out.json names ${id} as left out, and the corpus now takes it. Take it off the list.`;
+}
+
+/** The fixed floor's census differs from what `proof/corpus/left-out.json` names. */
+export class LeftOutError extends Error {
+	constructor(readonly differences: readonly LeftOutDifference[]) {
+		super(differences.map(leftOutMessage).join("\n"));
+		this.name = "LeftOutError";
 	}
 }
 
@@ -697,6 +862,13 @@ async function emitPart(
 				: [{ documentId: document.id, intendedKind: edit.batch.intendedKind }],
 		),
 	);
+	if (part === "fixed" && input.leftOut !== undefined) {
+		const differences = leftOutDifferences(
+			{ refused, editsRefused },
+			input.leftOut,
+		);
+		if (differences.length > 0) throw new LeftOutError(differences);
+	}
 	if (part === "fixed" && input.requireEveryKind === true) {
 		const unlanded = EDIT_KINDS.filter((kind) => landed[kind].length === 0);
 		if (unlanded.length > 0) {
@@ -854,8 +1026,8 @@ export function formatPartCensus(
 /**
  * Emit the corpus into `input.out` and write `index.json`, `inputs.json`
  * and `timings.json`. Returns the index and the timings. Each corpus
- * document's directory is replaced; anything else in the directory (HQ's
- * self-check apps under `hq/`) is left alone.
+ * document's directory is replaced; anything else in the directory is left
+ * alone.
  */
 export async function emitCorpus(input: EmitInput): Promise<EmittedCorpus> {
 	const log = input.log ?? (() => {});
@@ -866,12 +1038,9 @@ export async function emitCorpus(input: EmitInput): Promise<EmittedCorpus> {
 				`Two corpus documents share the id ${document.id}; each names its own directory.`,
 			);
 		}
-		if (
-			document.id === "hq" ||
-			!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(document.id)
-		) {
+		if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(document.id)) {
 			throw new Error(
-				`The corpus document id ${JSON.stringify(document.id)} cannot name a directory beside hq/: use letters, digits, dots, dashes and underscores.`,
+				`The corpus document id ${JSON.stringify(document.id)} cannot name a directory: use letters, digits, dots, dashes and underscores.`,
 			);
 		}
 		ids.add(document.id);
@@ -893,7 +1062,6 @@ export async function emitCorpus(input: EmitInput): Promise<EmittedCorpus> {
 		entropy: entropySeeded() ? "seeded" : "real",
 		...(input.select !== undefined && { selection: input.select.label }),
 		documents: all.map((entry) => entry.index),
-		hq: input.hq ?? [],
 		census: { fixed: fixed.census, sample: sample.census },
 	};
 	const timings: CorpusTimings = {

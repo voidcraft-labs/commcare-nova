@@ -7,6 +7,13 @@ import type { Uuid } from "@/lib/domain";
 import { advancedDocArbitrary, CARRIED_CREATE } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
+	hasHyphenatedFieldId,
+	hasNamedWrite,
+	hasOneOptionSelect,
+	hasQuotedChoiceValue,
+	namesDocArbitrary,
+} from "./namesDocArbitrary";
+import {
 	blueprintDocArbitrary,
 	hasFormItextMedia,
 	hasSectionedForm,
@@ -89,4 +96,35 @@ it("compiles advanced forms whose carried create is an open action", {
 	);
 	expect(census.total).toBe(60);
 	expect(census.openAction / census.total).toBeGreaterThan(0.5);
+});
+
+// The names family: question ids holding hyphens, selects of one option and
+// choice values holding a quote mark reach every XForm, HQ JSON and binding
+// oracle. The census fails by name if the generator stops drawing them.
+it("compiles forms whose question ids, choices and written properties fill Nova's name grammars", {
+	timeout: 60_000,
+}, () => {
+	const census = {
+		total: 0,
+		hyphenatedId: 0,
+		oneOption: 0,
+		quotedValue: 0,
+		namedWrite: 0,
+	};
+	assertGenerated(
+		fc.property(namesDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			census.total++;
+			if (hasHyphenatedFieldId(doc)) census.hyphenatedId++;
+			if (hasOneOptionSelect(doc)) census.oneOption++;
+			if (hasQuotedChoiceValue(doc)) census.quotedValue++;
+			if (hasNamedWrite(doc)) census.namedWrite++;
+		}),
+		{ seed: 20261113, numRuns: 80 },
+	);
+	expect(census.total).toBe(80);
+	expect(census.hyphenatedId).toBeGreaterThan(0);
+	expect(census.oneOption).toBeGreaterThan(0);
+	expect(census.quotedValue).toBeGreaterThan(0);
+	expect(census.namedWrite).toBeGreaterThan(0);
 });

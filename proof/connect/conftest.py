@@ -629,17 +629,20 @@ ACCEPTED_NAMES = {
     DELIVER_DEFAULT: {
         **{
             f"deliver-{name}": (FIRST_FORM_AT, block_named("deliver", name))
-            for name in ("q_deliver", "q_work_area_update", "module", "assessment")
+            for name in ("q_deliver", "q_work_area_update", "module", "assessment", "home-visit")
         },
-        **{f"task-{name}": (TASK_FORM_AT, block_named("task", name)) for name in ("q_task", "Task")},
+        **{f"task-{name}": (TASK_FORM_AT, block_named("task", name)) for name in ("q_task", "Task", "follow-up")},
         "questions": (FIRST_FORM_AT, question_named("deliver", "task", "work_area_update")),
     },
     LEARN: {
         **{
             f"module-{name}": (FIRST_FORM_AT, block_named("module", name))
-            for name in ("q_module", "Module", "deliver", "task", "work_area_update")
+            for name in ("q_module", "Module", "deliver", "task", "work_area_update", "intro-module")
         },
-        "assessment-q_assessment": (FIRST_FORM_AT, block_named("assessment", "q_assessment")),
+        **{
+            f"assessment-{name}": (FIRST_FORM_AT, block_named("assessment", name))
+            for name in ("q_assessment", "intro-check")
+        },
         "questions": (FIRST_FORM_AT, question_named("module", "assessment")),
     },
 }

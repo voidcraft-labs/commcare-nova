@@ -48,21 +48,29 @@ type SuggestionItem = Reference | NamespaceItem;
 
 /**
  * Parse the suggestion query text into a namespace + partial path, validating
- * the namespace against the live list (`form`/`user` + readable case types).
+ * the namespace against the live list (`form`/`user` + each readable case
+ * type as its reference text spells it, `ReferenceProvider.namespaces`).
  * The query is everything after the trigger char "#".
  *   - "fo" → { namespace: null, partial: "fo" } (still typing namespace)
  *   - "form/" → { namespace: "form", partial: "" }
  *   - "mother/hou" → { namespace: "mother", partial: "hou" }
+ *   - "record/case/reg" → { namespace: "record/case", partial: "reg" }
  */
 function parseQuery(
 	query: string,
 	namespaces: string[],
 ): { namespace: string | null; partial: string } {
-	const slashIdx = query.indexOf("/");
-	if (slashIdx < 0) return { namespace: null, partial: query };
-	const ns = query.slice(0, slashIdx);
-	if (!namespaces.includes(ns)) return { namespace: null, partial: query };
-	return { namespace: ns, partial: query.slice(slashIdx + 1) };
+	const ns = namespaces
+		.filter((candidate) => query.startsWith(`${candidate}/`))
+		.reduce<string | null>(
+			(longest, candidate) =>
+				longest === null || candidate.length > longest.length
+					? candidate
+					: longest,
+			null,
+		);
+	if (ns === null) return { namespace: null, partial: query };
+	return { namespace: ns, partial: query.slice(ns.length + 1) };
 }
 
 /**
@@ -124,9 +132,8 @@ export function createRefSuggestion(
 				return;
 			}
 
-			/* Reference stage: insert a commcareRef node. `refType` carries the
-			 * namespace (a case-type name for case refs), derived through
-			 * `namespaceOf` — never the literal coarse "case". */
+			/* Reference stage: insert a commcareRef node for the chosen
+			 * reference, whose case refs carry their own case type. */
 			const ref = props as Reference;
 			insertProseReference(editor, range, ref, provider, getFormUuid());
 		},

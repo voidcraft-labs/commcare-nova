@@ -852,7 +852,7 @@ describe("disjoint collection edits merge", () => {
 		expect(proseTemplateText(greenLabel)).toBe("Emerald");
 	});
 
-	it("removeOption below two options is gate-rejected (SELECT_TOO_FEW_OPTIONS)", () => {
+	it("concurrent removeOptions commit down to one option and are refused at none (SELECT_NO_OPTIONS)", () => {
 		const doc = canonicalFixture(
 			buildDoc({
 				modules: [
@@ -897,23 +897,30 @@ describe("disjoint collection edits merge", () => {
 		) {
 			throw new Error("expected inline select field");
 		}
-		const batch: Mutation[] = [
-			{
-				kind: "removeOption",
-				fieldUuid: field.uuid,
-				uuid: field.optionsSource.options[0].uuid,
-			},
-		];
-		const verdict = mutationCommitVerdict(
+		const [red, green] = field.optionsSource.options;
+		const removeRed: Mutation = {
+			kind: "removeOption",
+			fieldUuid: field.uuid,
+			uuid: red.uuid,
+		};
+		const removeGreen: Mutation = {
+			kind: "removeOption",
+			fieldUuid: field.uuid,
+			uuid: green.uuid,
+		};
+		// One peer's removal alone leaves one option, which a select holds.
+		expect(
+			mutationCommitVerdict(doc, [removeRed], LOOKUP_CONTEXT_UNAVAILABLE).ok,
+		).toBe(true);
+		// Both peers' removals merged leave none, which the gate refuses.
+		const merged = mutationCommitVerdict(
 			doc,
-			batch,
+			[removeRed, removeGreen],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(
-				verdict.findings.some((e) => e.code === "SELECT_TOO_FEW_OPTIONS"),
-			).toBe(true);
+		expect(merged.ok).toBe(false);
+		if (!merged.ok) {
+			expect(merged.findings.map((e) => e.code)).toContain("SELECT_NO_OPTIONS");
 		}
 	});
 });

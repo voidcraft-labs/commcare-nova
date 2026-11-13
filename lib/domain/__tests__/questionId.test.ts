@@ -20,8 +20,12 @@ describe("questionIdProblem", () => {
 		["_1st", "leading-underscore"],
 		["1st", "not-letter-first"],
 		["", "not-letter-first"],
-		["first-name", "characters"],
+		["-a", "not-letter-first"],
+		["_a", "leading-underscore"],
 		["first name", "characters"],
+		["a b", "characters"],
+		["a.b", "characters"],
+		["XMLa", "xml-prefix"],
 		["XMLcode", "xml-prefix"],
 		["XML", "xml-prefix"],
 		["Meta", "reserved-name"],
@@ -52,8 +56,12 @@ describe("questionIdProblem", () => {
 		"PARSERERROR",
 		"itext",
 		"task",
+		"first-name",
+		"a-",
+		"copy-1-of-x",
 	])("accepts %j", (id) => {
 		expect(questionIdProblem(id)).toBeUndefined();
+		expect(QUESTION_ID_PATTERN.test(id)).toBe(true);
 	});
 
 	it("refuses Connect's own names only when they are passed, and exactly", () => {
@@ -109,6 +117,11 @@ describe("editorSafeQuestionId", () => {
 		["case", "q_case"],
 		["instance", "q_instance"],
 		["first name", "first_name"],
+		["first-name", "first-name"],
+		["-notes", "notes"],
+		["1st", "q1st"],
+		["a b", "a_b"],
+		["a.b", "a_b"],
 		["", "q"],
 		["___", "q"],
 		["notes", "notes"],
@@ -124,8 +137,19 @@ describe("editorSafeQuestionId", () => {
 	});
 
 	it("always answers an id the grammar admits", () => {
+		const refusedSpellings = fc.oneof(
+			fc.string(),
+			fc
+				.array(
+					fc.constantFrom("-", "_", " ", ".", "a", "B", "1", "X", "M", "L"),
+					{
+						maxLength: 12,
+					},
+				)
+				.map((characters) => characters.join("")),
+		);
 		fc.assert(
-			fc.property(fc.string(), fc.boolean(), (id, connect) => {
+			fc.property(refusedSpellings, fc.boolean(), (id, connect) => {
 				const reserved = connect ? RESERVED_CONNECT_BLOCK_IDS : undefined;
 				expect(
 					questionIdProblem(editorSafeQuestionId(id, reserved), reserved),

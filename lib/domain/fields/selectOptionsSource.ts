@@ -6,7 +6,7 @@ import { type SelectOption, selectOptionSchema } from "./base";
 
 export const inlineOptionsSourceSchema = z.strictObject({
 	kind: z.literal("inline"),
-	options: z.array(selectOptionSchema).min(2),
+	options: z.array(selectOptionSchema).min(1),
 });
 
 /** Choices read the worker's available records; their values are case identities. */

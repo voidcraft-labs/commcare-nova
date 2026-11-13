@@ -1,6 +1,7 @@
 /** Shared UUID-addressed vocabulary for case-operation tools. */
 
 import { z } from "zod";
+import { MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
 import { caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import {
 	caseOperationIdVerdict,
@@ -24,7 +25,11 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
-import { conditionSchema, valueSchema } from "@/lib/domain/expression";
+import {
+	CASE_TYPE_PATTERN,
+	conditionSchema,
+	valueSchema,
+} from "@/lib/domain/expression";
 
 export {
 	type CasePlacementRead,
@@ -35,15 +40,15 @@ export {
 	resolveFormAddress as resolveOperationAddress,
 } from "../shared/entityAddresses";
 
-const CASE_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,254}$/;
 const CASE_TYPE_FORMAT_MESSAGE =
-	"Case type must start with a letter and use only letters, digits, underscores, or hyphens.";
+	"A case type holds only letters, digits, underscores, or hyphens.";
 const RESERVED_CASE_TYPE_MESSAGE =
 	"That case type is platform-owned and cannot be changed by an authored operation.";
 
 const caseTypeInputSchema = z
 	.string()
 	.regex(CASE_TYPE_PATTERN, CASE_TYPE_FORMAT_MESSAGE)
+	.max(MAX_CASE_TYPE_LENGTH)
 	.refine(
 		(value) => !RESERVED_CASE_OPERATION_TYPES.has(value),
 		RESERVED_CASE_TYPE_MESSAGE,
@@ -55,6 +60,7 @@ const caseTypeInputSchema = z
 const updateCaseTypeInputSchema = z
 	.string()
 	.regex(CASE_TYPE_PATTERN, CASE_TYPE_FORMAT_MESSAGE)
+	.max(MAX_CASE_TYPE_LENGTH)
 	.refine(
 		(value) =>
 			value === USERCASE_CASE_TYPE || !RESERVED_CASE_OPERATION_TYPES.has(value),

@@ -8,6 +8,15 @@
  * read back from the JSON the writer writes, passes the strict schema and
  * full validation.
  *
+ * The advanced family draws its own stream (`DEFAULT_ADVANCED_SAMPLE_SIZE`
+ * at the corpus seed). Its contract is that every draw's export holds an
+ * advanced menu, or names the blocker that kept the creating form's menu
+ * basic, and that its draws hold at least one, so a generator change that
+ * stops drawing advanced menus fails here by name; and that adding it moves
+ * no draw of the original 24 or the expression eight, which are what each of
+ * those generators draws on its own stream. The observation is the HQ JSON
+ * Nova's expander writes for each draw and each generator's own stream.
+ *
  * Run as a Vitest writer (`proof/corpus/emit.ts` does, inside the proof
  * image) with `NOVA_CORPUS_SAMPLE_DIR`, `NOVA_CORPUS_SAMPLE_SIZE` and
  * `NOVA_CORPUS_SAMPLE_SEED` set, the same tests run over that sample and it
@@ -19,11 +28,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CARRIED_CREATE } from "@/lib/commcare/__tests__/advancedDocArbitrary";
 import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
+import { expandDoc } from "@/lib/commcare/expander";
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	advancedKindBlockers,
 	type BlueprintDoc,
 	blueprintDocSchema,
 	CASE_LOADING_FORM_TYPES,
@@ -37,11 +50,16 @@ import {
 } from "@/lib/domain";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import {
+	DEFAULT_ADVANCED_SAMPLE_SIZE,
 	DEFAULT_CORPUS_SEED,
 	DEFAULT_EXPRESSION_SAMPLE_SIZE,
 } from "../defaults";
-import { writtenDocument } from "../documents";
-import { type SampledDocument, sampleFuzzDocuments } from "../fuzzSample";
+import { FUZZ_GENERATORS, fuzzSplit, writtenDocument } from "../documents";
+import {
+	type SampledDocument,
+	sampleFuzzDocuments,
+	sampleFuzzGenerator,
+} from "../fuzzSample";
 
 const destination = process.env.NOVA_CORPUS_SAMPLE_DIR;
 
@@ -59,6 +77,10 @@ function wholeNumber(name: string, fallback: number): number {
 
 const seed = wholeNumber("NOVA_CORPUS_SAMPLE_SEED", DEFAULT_CORPUS_SEED);
 const size = wholeNumber("NOVA_CORPUS_SAMPLE_SIZE", 4);
+
+/** The draws every sample holds beside the original `size`: the expression and advanced streams. */
+const SEPARATE_STREAMS =
+	DEFAULT_EXPRESSION_SAMPLE_SIZE + DEFAULT_ADVANCED_SAMPLE_SIZE;
 
 /** A sampled document as the writer writes it, parsed back from its JSON text. */
 function asWritten(sampled: SampledDocument): unknown {
@@ -218,7 +240,7 @@ describe("the corpus's fuzz sample", () => {
 	});
 
 	it("admits every document, read back from what the writer writes", () => {
-		expect(sample).toHaveLength(size + DEFAULT_EXPRESSION_SAMPLE_SIZE);
+		expect(sample).toHaveLength(size + SEPARATE_STREAMS);
 		for (const sampled of sample) {
 			const written = asWritten(sampled) as { doc: unknown };
 			const parsed = blueprintDocSchema.safeParse(written.doc);
@@ -254,6 +276,7 @@ describe("the corpus's fuzz sample", () => {
 				{ length: DEFAULT_EXPRESSION_SAMPLE_SIZE },
 				() => "expression",
 			),
+			...Array.from({ length: DEFAULT_ADVANCED_SAMPLE_SIZE }, () => "advanced"),
 		]);
 		for (const document of smaller) {
 			expect(larger.has(document.document.id), document.document.id).toBe(true);
@@ -343,13 +366,88 @@ describe("the corpus's fuzz sample", () => {
 			);
 	});
 
+	it("draws an advanced menu in its advanced family, and every advanced draw's export holds one or names what kept its menu basic", () => {
+		const family = sampleFuzzGenerator({
+			generator: "advanced",
+			count: DEFAULT_ADVANCED_SAMPLE_SIZE,
+			seed: DEFAULT_CORPUS_SEED,
+			manifestFor,
+		});
+		expect(family).toHaveLength(DEFAULT_ADVANCED_SAMPLE_SIZE);
+		let advanced = 0;
+		for (const sampled of family) {
+			const id = sampled.document.id;
+			const written = (asWritten(sampled) as { doc: unknown }).doc;
+			const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(written));
+			const creating = Object.values(doc.forms).find((form) =>
+				(form.caseOperations ?? []).some(
+					(operation) => operation.uuid === CARRIED_CREATE,
+				),
+			);
+			const moduleUuid =
+				creating === undefined
+					? undefined
+					: moduleUuidOfForm(doc, creating.uuid);
+			if (moduleUuid === undefined) {
+				throw new Error(
+					`The advanced draw ${id} holds no form with the carried create, so the family drew a document its generator never makes.`,
+				);
+			}
+			const exported = expandDoc(doc, {
+				assets: manifestFor(doc),
+			}).modules.filter((module) => module.doc_type === "AdvancedModule");
+			const kind = emittedModuleKind(doc, moduleUuid);
+			expect(exported.length > 0, id).toBe(kind === "advanced");
+			if (kind === "advanced") {
+				advanced += 1;
+			} else {
+				expect(
+					advancedKindBlockers(doc, moduleUuid).map((blocker) => blocker.kind),
+					`${id} exports no advanced menu, so a blocker keeps the creating form's menu basic`,
+				).not.toEqual([]);
+			}
+		}
+		expect(
+			advanced,
+			`The advanced family's ${DEFAULT_ADVANCED_SAMPLE_SIZE} draws at the corpus seed hold no advanced menu, so the family checks nothing. Raise DEFAULT_ADVANCED_SAMPLE_SIZE (proof/corpus/defaults.ts) until they hold one, or look at what advancedDocArbitrary now draws.`,
+		).toBeGreaterThan(0);
+	});
+
+	it("moves no draw of the original generators or the expression family by drawing the advanced family", () => {
+		const whole = new Map(
+			sampleFuzzDocuments({
+				size: 24,
+				seed: DEFAULT_CORPUS_SEED,
+				manifestFor,
+			}).map((sampled) => [sampled.document.id, asWritten(sampled)]),
+		);
+		const split = fuzzSplit(24);
+		expect(split).toEqual({
+			xform: 12,
+			suite: 12,
+			expression: DEFAULT_EXPRESSION_SAMPLE_SIZE,
+			advanced: DEFAULT_ADVANCED_SAMPLE_SIZE,
+		});
+		for (const generator of FUZZ_GENERATORS) {
+			if (generator === "advanced") continue;
+			const own = sampleFuzzGenerator({
+				generator,
+				count: split[generator],
+				seed: DEFAULT_CORPUS_SEED,
+				manifestFor,
+			});
+			expect(own).toHaveLength(split[generator]);
+			for (const sampled of own)
+				expect(whole.get(sampled.document.id), sampled.document.id).toEqual(
+					asWritten(sampled),
+				);
+		}
+	});
+
 	afterAll(() => {
 		// A sample that could not be drawn in full is not written; the
 		// failing test says why.
-		if (
-			destination === undefined ||
-			sample.length !== size + DEFAULT_EXPRESSION_SAMPLE_SIZE
-		)
+		if (destination === undefined || sample.length !== size + SEPARATE_STREAMS)
 			return;
 		mkdirSync(destination, { recursive: true });
 		for (const sampled of sample) {

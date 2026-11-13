@@ -1160,7 +1160,7 @@ function validateCaseType(
 				ctx,
 				operation,
 				"CASE_OPERATION_INVALID_CASE_TYPE",
-				`Case type "${caseType}" must start with a letter, contain only letters, digits, underscores, or hyphens, and be at most ${MAX_CASE_TYPE_LENGTH} characters.`,
+				`Case type "${caseType}" holds only letters, digits, underscores, or hyphens, and is at most ${MAX_CASE_TYPE_LENGTH} characters.`,
 			),
 		);
 	}

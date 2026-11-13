@@ -583,7 +583,16 @@ describe("identity and identifier boundaries", () => {
 			).toStrictEqual({ ...property, property: propertyName });
 		},
 	);
-	it.each(["", "patient' or 1=1", "with whitespace", "9patient", "_patient"])(
+	it.each(["9patient", "_patient", "1st-visit"])(
+		"admits case-type identifier %s",
+		(caseType) => {
+			expect(termSchema.parse({ ...property, caseType })).toStrictEqual({
+				...property,
+				caseType,
+			});
+		},
+	);
+	it.each(["", "patient' or 1=1", "with whitespace", "visité"])(
 		"refuses case-type identifier %s",
 		(caseType) => {
 			expect(termSchema.safeParse({ ...property, caseType }).success).toBe(

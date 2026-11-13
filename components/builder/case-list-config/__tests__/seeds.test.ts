@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type CaseType,
+	SEARCH_INPUT_NAME_PATTERN,
+} from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/expression";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import {
@@ -221,13 +225,16 @@ describe("custom-to-standard recovery fallback", () => {
 		).toBeUndefined();
 	});
 	it.each([
-		["follow-up-date", "follow_up_date"],
+		["follow-up-date", "follow-up-date"],
 		["2nd_visit", "_2nd_visit"],
+		["-flagged", "_-flagged"],
+		["a.b c", "a_b_c"],
 		["", "_"],
 	])(
 		"normalizes lower-boundary name %s without assuming it is an admitted property",
 		(source, expected) => {
 			expect(xmlNameFromProperty(source)).toBe(expected);
+			expect(SEARCH_INPUT_NAME_PATTERN.test(expected)).toBe(true);
 		},
 	);
 });

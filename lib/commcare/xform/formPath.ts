@@ -118,7 +118,7 @@ export class FormPath {
 			throw new Error(
 				`FormPath.child got invalid element name "${name}". XForm ` +
 					`element names must match ${XML_ELEMENT_NAME_REGEX} (letter or ` +
-					`underscore, then letters / digits / underscores).`,
+					`underscore, then letters / digits / underscores / hyphens).`,
 			);
 		}
 		return new FormPath([...this._segments, { kind: "element", name }]);
@@ -135,7 +135,7 @@ export class FormPath {
 			throw new Error(
 				`FormPath.attr got invalid attribute name "${name}". XForm ` +
 					`attribute names must match ${XML_ELEMENT_NAME_REGEX} (letter or ` +
-					`underscore, then letters / digits / underscores).`,
+					`underscore, then letters / digits / underscores / hyphens).`,
 			);
 		}
 		return new FormPath([...this._segments, { kind: "attribute", name }]);

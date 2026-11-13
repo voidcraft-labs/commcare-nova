@@ -752,8 +752,8 @@ It runs the documents and controls you name and the controls of the
 register's entries naming those documents, each state served to Formplayer, the Web Apps client, a device
 and, for a Connect app, Connect; the Android reader's own checks and its
 predicates, in the job that builds or finds the reader's runtime; and the
-groups that read no corpus (the packages `proof`, `proof/android`,
-`proof/core` and `proof/corpus`, and the surface block). It runs nothing
+groups that read no corpus (the packages `proof`, `proof/android` and
+`proof/core`, and the surface block). It runs nothing
 else: no other document, no other control, and no package that reads the
 corpus (`proof/lane/blocks.py::CORPUS_PACKAGES`: `proof/checks`,
 `proof/connect`, `proof/editors`, `proof/formplayer`, `proof/hq`,
@@ -1147,9 +1147,16 @@ feed it:
 - **the targeted documents** (`proof/targeted/`), below;
 - **a fixed-seed sample of the compiler fuzz generators**
   (`proof/corpus/fuzzSample.ts`: the XForm oracle's and the suite oracle's,
-  24 documents by default, plus eight of the expression generator). The
+  24 documents by default, plus eight of the expression generator and eight
+  of the advanced generator, a third stream of its own). The
   expression family has its own sample: it adds plans to an already drawn
-  suite document and never redraws because a target is absent. The original
+  suite document and never redraws because a target is absent. The advanced
+  family's draws are suite draws whose form creates a case an after-submit
+  link carries, which makes the creating form's menu advanced
+  (`lib/commcare/__tests__/advancedDocArbitrary.ts`), so every check reads
+  Nova's own advanced menus and carried cases;
+  `proof/corpus/__tests__/fuzzSample.test.ts` holds that its draws at the
+  corpus seed hold at least one advanced menu. The original
   24 keep their draws; a select's default maps onto its first drawn option
   after the draw, so the default is offered without changing another draw.
   A document's id
@@ -1159,7 +1166,8 @@ feed it:
 Every document passes Nova's strict schema and full validation, or the
 emission stops. A document Nova's publish or local export refuses is not a
 corpus document: the emission leaves it out and names it, with the boundary's
-findings, in the census (`index.json`).
+findings, in the census (`index.json`). The emission holds that list to
+`proof/corpus/left-out.json` and stops where it moves.
 
 ### Platforms
 
@@ -1489,6 +1497,29 @@ beside a hidden column over the same property, the one shape where a sort
 key on another field would change what a fuzzy search finds (finding 51);
 its control holds the rule on the hidden column, which Nova now refuses
 (`CASE_LIST_SORT_PROPERTY_AMBIGUOUS`).
+
+`targeted-hyphenated-question-ids` holds question ids with hyphens (`first-name`, `copy-1-of-age`,
+`a-`), two groups whose paths differ only in where a hyphen falls, a question beside each generated
+name a hyphen could collide with, and an edit that renames two of them.
+`targeted-case-type-names` holds menus of the case types `case`, `parent`, `1st-visit`, `-flagged`
+and `2024`, a read of the type `case` written `#record/case/region`, and a Save to Case block named
+by each id Nova mints for a type that is no question ID as it stands.
+`targeted-choice-values` holds a single select and a multi-select with one choice each, and choice
+values holding an apostrophe, a double quote and a backtick, each compared in a display condition,
+saved to a case and shown in a case list column.
+`targeted-lookup-names` holds a table whose tag and column names hold hyphens and one column name
+that starts `XML`, read by a select, a calculation, a calculated column, a case list filter and two
+display conditions, the three slots CommCare HQ's build rewrites as text among them.
+`targeted-search-field-names` holds a Search field named `first-name`, read by a filter and by the
+forms the search opens.
+`targeted-case-write-names` holds saves to `state`, `category` and two hyphenated properties, from a
+form's own case and from a Save to Case update of a parent, each read back by a follow-up form and a
+case list column.
+`targeted-connect-deliver-hyphen-ids` holds a deliver unit and a task whose ids hold hyphens, on
+Android only, with an edit that renames both.
+`targeted-connect-learn-hyphen-ids` holds a learn module and an assessment whose ids hold hyphens,
+on Android only, with an edit that renames both.
+
 `targeted-blank-labels` passes with no entry and no control: a question whose
 label is blank in every language and carries no media, one with label media
 and no text, and a choice with media and no text, which two saves in HQ's
@@ -1829,18 +1860,6 @@ minimum, and `edit`, `hqSide` or `projectSettings` where it needs them;
 list its maker in `TARGETED_DOCUMENTS` (`proof/targeted/index.ts`).
 `proof/targeted/__tests__/targeted.test.ts`, in ordinary CI, holds every
 targeted document to admission.
-
-### HQ's apps as self-checks
-
-`python -m proof.corpus.hq --out <corpus>/hq` (or the emission's `--with-hq`)
-writes HQ's own apps beside the corpus: the app JSONs of
-`corehq/apps/app_manager/tests/data` and its `suite` folder, HQ's template
-apps, the HQ-built `.ccz` apps in Core's and Android's test resources, and the
-apps HQ's own app-manager tests build, harvested by running each test whole
-(`proof/corpus/hq/harvest.py`), each at CommCare 2.54.0 with every privilege.
-`proof/corpus/hq`'s tests hold the harvest and the copied sources to what the
-research counted. No lane check builds them: no test module belongs to their
-group, `hq-selfchecks` (`proof/checks/sharding.py`), and no queue holds it.
 
 ## How the lane observes
 
@@ -3860,7 +3879,8 @@ build:
   receiver on every submission of its form. The names Nova offers in their
   place (`q_task` and the others), the same names in another case or in the
   other kind of app, and a hidden value named like a key, which HQ never
-  forwards, are received.
+  forwards, are received. Its accepted names hold four hyphenated ids, one
+  for each kind of block.
 - Finding 61: a deliver form that also holds a task loses its own visit while
   the task is assigned. With the task in a form of its own, in either order,
   the task is completed and the next delivery is approved and paid.

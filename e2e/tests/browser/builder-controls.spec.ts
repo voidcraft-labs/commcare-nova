@@ -3011,7 +3011,7 @@ test("native inline validity refuses Enter and blur with the actual Connect iden
 	await input.fill("bad code");
 	await expect(input).toHaveAttribute("aria-invalid", "true");
 	await expect(input).toHaveAccessibleDescription(
-		/holds only letters, digits and underscores/,
+		/holds only letters, digits, underscores and hyphens/,
 	);
 	await input.press("Enter");
 	await expect(saved).toHaveText("starting_code");

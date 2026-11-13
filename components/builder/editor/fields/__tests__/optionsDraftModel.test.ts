@@ -95,9 +95,10 @@ describe("actual option draft mutations", () => {
 		expect(on[0]).not.toHaveProperty("plainLabel");
 		expect(optionsSnapshotKey(on)).toBe(optionsSnapshotKey([red, blue]));
 	});
-	it("protects the two-option floor and removes by exact occurrence", () => {
-		const pair = [red, blue];
-		expect(removeOptionDraft(pair, 0)).toBe(pair);
+	it("protects the one-option floor and removes by exact occurrence", () => {
+		const one = [red];
+		expect(removeOptionDraft(one, 0)).toBe(one);
+		expect(removeOptionDraft([red, blue], 0)).toEqual([blue]);
 		const third = { ...red, uuid: testUuid("other-red") };
 		const three = [red, blue, third];
 		expect(removeOptionDraft(three, 3)).toBe(three);
@@ -136,5 +137,18 @@ describe("the value a row may keep beside its siblings", () => {
 		expect(optionValueRefusal(draft, 1)).toBeUndefined();
 		expect(optionValueRefusal(draft, 3)).toBeUndefined();
 		expect(optionValueRefusal(draft, 9)).toBeUndefined();
+	});
+
+	it("keeps one kind of quote mark and refuses a value holding both", () => {
+		const draft = [
+			option("It's", "it's"),
+			option("Say hi", 'say"hi"'),
+			option("Both", `it's_"x"`),
+		];
+		expect(optionValueRefusal(draft, 0)).toBeUndefined();
+		expect(optionValueRefusal(draft, 1)).toBeUndefined();
+		expect(optionValueRefusal(draft, 2)).toBe(
+			"This value holds both an apostrophe and a double quote. Keeping one kind works.",
+		);
 	});
 });

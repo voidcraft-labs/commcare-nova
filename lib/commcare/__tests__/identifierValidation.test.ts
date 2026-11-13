@@ -8,37 +8,30 @@ import {
 
 describe("wire identifier admission", () => {
 	it("preserves valid case types and property names without normalization", () => {
-		for (const name of ["patient", "Case_Type2", "case-type"]) {
+		for (const name of [
+			"patient",
+			"Case_Type2",
+			"case-type",
+			"1case",
+			"_case",
+		]) {
 			expect(validateCaseType(name)).toBe(name);
 		}
-		for (const name of ["age", "_private", "Full_Name2"]) {
+		for (const name of ["age", "_private", "Full_Name2", "visit-count"]) {
 			expect(validatePropertyName(name)).toBe(name);
 		}
 	});
 
-	it.each([
-		"",
-		"1case",
-		" patient",
-		"patient\n",
-		"a/b",
-		"case' or true()",
-		"café",
-	])("refuses unsupported case type %j before XPath interpolation", (name) => {
-		expect(() => validateCaseType(name)).toThrow(
-			`Invalid case type: "${name}"`,
-		);
-	});
+	it.each(["", " patient", "patient\n", "a/b", "case' or true()", "café"])(
+		"refuses unsupported case type %j before XPath interpolation",
+		(name) => {
+			expect(() => validateCaseType(name)).toThrow(
+				`Invalid case type: "${name}"`,
+			);
+		},
+	);
 
-	it.each([
-		"",
-		"1property",
-		" property",
-		"property\n",
-		"a/b",
-		"visit-count",
-		"p:q",
-	])(
+	it.each(["", "1property", " property", "property\n", "a/b", "-count", "p:q"])(
 		"refuses property %j outside Nova's emitted element-name vocabulary",
 		(name) => {
 			expect(() => validatePropertyName(name)).toThrow(
