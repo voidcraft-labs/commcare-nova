@@ -312,8 +312,8 @@ export function applyFieldMutation(
 			});
 			if (!reconciled) {
 				// Reachable on one real path: a conversion into a select kind
-				// (options `.min(2)` required) whose mutation carries no — or
-				// too few — seed options from a source kind with no options of
+				// (options `.min(1)` required) whose mutation carries no seed
+				// options from a source kind with no options of
 				// its own (text → single_select). The batch-building layers
 				// (the SA tool, the builder gesture) always attach the seed, so
 				// hitting this is a caller bug; every other kind pair in a
@@ -399,9 +399,9 @@ export function applyFieldMutation(
  *
  * These reducers mutate the inline `field.optionsSource.options` IN PLACE and
  * DELIBERATELY do not
- * re-parse the field through `fieldSchema` (which carries `options.min(2)`):
- * a `removeOption` dropping below two options must reach the commit gate as a
- * sub-2 candidate so `SELECT_TOO_FEW_OPTIONS` can reject it — a re-parse here
+ * re-parse the field through `fieldSchema` (which carries `options.min(1)`):
+ * a `removeOption` that takes the last option must reach the commit gate as a
+ * select with no options so `SELECT_NO_OPTIONS` can reject it — a re-parse here
  * would warn-skip the reducer and the gate would see no change. `update`
  * A content `update` cannot clobber a concurrent `moveOption`: place is the
  * array position, which an update never touches.

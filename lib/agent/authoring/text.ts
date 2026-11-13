@@ -99,6 +99,8 @@ export function printAuthoringText(
 ): string {
 	return printInterpolatedText(value.parts, (part) => {
 		const reference = printProseTemplate({ parts: [part] }, doc);
-		return reference.startsWith("#form/") ? reference.slice(6) : reference;
+		return part.kind === "field-ref" && reference.startsWith("#form/")
+			? reference.slice(6)
+			: reference;
 	});
 }

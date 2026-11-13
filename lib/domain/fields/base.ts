@@ -178,9 +178,9 @@ export const selectOptionSchema = z.strictObject({
 });
 
 /**
- * A fresh select's two starter options — the smallest set the select
- * schemas admit (`options` is `.min(2)`), named so the user's only job
- * is renaming them. Shared by every surface that mints a select with no
+ * A fresh select's two starter options, named so the user's only job is
+ * renaming them. The select schemas admit one option or more (`options`
+ * is `.min(1)`); two starters show the shape of a list. Shared by every surface that mints a select with no
  * authored options yet: the builder's insert picker and the builder's
  * convert-to-select gesture (the SA passes real options instead, so its
  * paths never consume this).

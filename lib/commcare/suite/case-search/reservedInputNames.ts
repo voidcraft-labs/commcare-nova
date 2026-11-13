@@ -39,7 +39,7 @@ export const RESERVED_SEARCH_INPUT_NAMES: readonly string[] = [
 
 /**
  * Every request key prefix HQ reads as part of the search request. A Search
- * question's name cannot hold a dot (`XML_ELEMENT_NAME_PATTERN`), so no stored
+ * question's name cannot hold a dot (`SEARCH_INPUT_NAME_PATTERN`), so no stored
  * name meets it; it is carried so the set equals the surface's family.
  */
 export const RESERVED_SEARCH_INPUT_NAME_PREFIXES: readonly string[] = [

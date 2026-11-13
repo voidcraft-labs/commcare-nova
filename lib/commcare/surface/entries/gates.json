@@ -389,6 +389,7 @@
 			"case-search/input-checkbox-itemset",
 			"case-search/input-date",
 			"case-search/default-value-lifting-into-valueexpression",
+			"case-search/default-value-on-a-date-range-input",
 			"case-search/default-value-outside-valueexpression",
 			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
 			"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
@@ -2208,6 +2209,7 @@
 		"contentEntries": [
 			"application-and-settings/connect-app-opened-in-the-connect-app",
 			"questions/connect-learn-module",
+			"questions/connect-blocks-beyond-one-of-each-kind",
 			"questions/connect-assessment",
 			"questions/connect-deliver-unit",
 			"questions/connect-task",

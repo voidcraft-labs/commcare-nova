@@ -3223,7 +3223,9 @@ otherwise the template's `next`. `CIRCUMSTANCE_COPY` holds `alreadyInNovaNext`'s
 holder as that code's `next`, so the record stays total.
 
 `findingLine` and `fixInHqSentence` throw for a pair with no sentence, which the completeness test
-makes unreachable. The account's grouping, its headings and its buttons are part 13's
+makes unreachable. For a circumstance an account holds, `findingLine`'s `sentence` is the block's
+title, which holds no placeholder for any code an account can hold; the account takes the body and
+next step from `circumstanceBlock`. `findingLine` throws for a `stop`, which no account holds. The account's grouping, its headings and its buttons are part 13's
 (`13-the-experience.md`, section 7); this file holds the words.
 
 ---

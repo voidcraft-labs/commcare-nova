@@ -30,6 +30,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the form builder redirects away from linked apps (`AM/views/formdesigner.py`) and every upstream pull overwrites content (`views/utils.py::update_linked_app`)",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -60,6 +61,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable, as for `LinkedApplication` (row above), the only doc type that carries them",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -90,6 +92,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: a hand-written profile and suite at a URL; no structured editor (`commcare_settings.py::_load_commcare_settings_layout` RemoteApp branch)",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",
@@ -115,6 +118,7 @@
 		"noSurfaceKey": "An unknown `doc_type` names a class HQ's registry does not hold, so the surface has no item for it; an export whose root is such a class uses `schema:<that class>`, which decision 7 refuses as an item no entry names (manifest_usage.app_json_uses).",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `util.py::get_correct_app_class` raises",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -497,6 +501,7 @@
 		"valueClass": "invalid-or-repeated-code",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the Languages page marks it an error and blocks the save (`supported_languages.js::validateLanguage`; `validate_lang` enforces the grammar on rename)",
+		"subject": "language-codes",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -522,6 +527,7 @@
 		"valueClass": "empty-code",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `empty lang` (`ApplicationValidator.validate_app`)",
+		"subject": "language-codes",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -679,6 +685,8 @@
 		"valueClass": "language-name-other",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a per-language display name, which may be HQ's default (HQ writes `langcodes.get_name` of the code, translated, when the key is absent or empty: `app_strings.py::_create_custom_app_strings`; Nova derives every name today, `lib/domain/languageRegistry/names.ts::resolvedLanguageDisplayLabel` through `lib/commcare/languageWire.ts::planLanguageWire`)",
+		"subject": "app-settings",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -704,6 +712,8 @@
 		"valueClass": "ui-string-override",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `uiStringOverrides[lang][key]`, keyed by the typed set of strings the runtimes read (editor: CommCare Translations; `${N}` checked)",
+		"subject": "app-settings",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -729,6 +739,8 @@
 		"valueClass": "hq-catalog-key",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `uiStringCatalogKeys`, the per-key set of catalog keys for which HQ emits its own catalog text in every language that has no override (English from its catalog at the app's version; other languages from HQ's default file or its unversioned catalogs): `SelectKnownAppStrings.get_app_translation_keys` takes the union of keys across languages, so any language's key, empty or not, puts it in the set; an empty value adds nothing else",
+		"subject": "app-settings",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -938,6 +950,7 @@
 		"valueClass": "app-non-empty",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform + retiring (CUSTOM_ASSERTIONS)",
+		"subject": "custom-assertions",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -1030,6 +1043,8 @@
 		"valueClass": "android-logos",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `androidLogos.{home, login, demo}`",
+		"subject": "app-logos",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1055,6 +1070,7 @@
 		"valueClass": "path-not-from-uploader",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the logo uploader writes only that path (`hqmedia/views.py::ProcessLogoFileUploadView.form_path`); not HQ-buildable (`MediaResourceError`) when the path is also a `multimedia_map` key outside `jr://file/`",
+		"subject": "app-logos",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1123,6 +1139,7 @@
 		"valueClass": "names-a-read-only-property-or-method",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `dbaccessors.py::wrap_app` raises for a read-only property (`WrappingAttributeError`) and for some methods (`get_modules`: `TypeError`), `validate_app` raises for others (`create_all_files`: `TypeError`), and any other shadows a method HQ's servers call (`is_remote_app`, which the data dictionary refresh calls) (executed)",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1208,6 +1225,7 @@
 		"valueClass": "true",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (LAZY_LOAD_MULTIMEDIA)",
+		"subject": "app-settings",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1686,6 +1704,8 @@
 		"surfaceKeys": ["setting:properties.cc-log-entity-detail-enabled"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `appSettings.logCaseDetailViews`",
+		"subject": "app-settings",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1904,6 +1924,8 @@
 		"valueClass": "within-choices",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `appSettings.androidAppDependencies`",
+		"subject": "android-app-dependencies",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1978,6 +2000,7 @@
 		"valueClass": "1-0",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `Application.assert_app_v2`",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2044,6 +2067,7 @@
 		"valueClass": "below-floor",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: below the CommCare version floor (HQ silently leaves out features that need a newer version; raising it in HQ fixes it)",
+		"subject": "commcare-version",
 		"reasons": [
 			{
 				"kind": "below-commcare-version-floor",
@@ -2110,6 +2134,7 @@
 		"surfaceKeys": ["setting:hq.profile_url"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable (`Application.profile_url` is a read-only property, so `wrap_app` raises `WrappingAttributeError`)",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2155,6 +2180,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSharing`: owner from the user's case-sharing group plus the entry assertion (`xform.py::XFormCaseBlock.add_create_block`, `entries.py::add_case_sharing_assertion`)",
+		"subject": "case-sharing",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2233,6 +2260,7 @@
 		"valueClass": "true",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: a disabled setting holding a non-default value, which the settings page marks an error (`commcare_settings.js`: `disabledButHasValue` → `hasError`); HQ's build then emits no `<detail>` (`suite_xml/sections/details.py::DetailContributor.get_section_elements`)",
+		"subject": "app-settings",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2326,6 +2354,7 @@
 		"valueClass": "not-select-known",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable (disabled: \"discontinued\")",
+		"subject": "app-settings",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2387,6 +2416,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `menuStyle.rootGrid`",
+		"subject": "menu-display",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (grid audio IGNORED: no audio control) / RUNS",
@@ -2415,6 +2446,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `menuStyle.formMenus`",
+		"subject": "menu-display",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (grid audio IGNORED) / RUNS",
@@ -2466,6 +2499,7 @@
 		"valueClass": "commcare-or-commcare-lts",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (TARGET_COMMCARE_FLAVOR; the settings file spells its gate `toggles:`, so HQ shows the setting everywhere)",
+		"subject": "app-settings",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2517,6 +2551,7 @@
 		"valueClass": "1-0-or-1-5",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
+		"subject": "mobile-reports",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2596,6 +2631,7 @@
 		"valueClass": "only-hierarchical-fixture",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (HIERARCHICAL_LOCATION_FIXTURE)",
+		"subject": "hierarchical-locations",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2624,6 +2660,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `appSettings.persistentMenu`",
+		"subject": "app-settings",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2651,6 +2689,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `appSettings.breadcrumbs` (absent key = model default `true`)",
+		"subject": "app-settings",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2745,6 +2785,7 @@
 		"valueClass": "sense-or-review-entry-mode",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no settings control produces either (settings saves keep them, `views/settings.py::edit_commcare_profile`), and HQ's build then prefixes every menu and form name that does not start with a digit with `${0} ` (from CommCare 2.8) (`app_strings.py::_maybe_add_index`), which Android strips and Web Apps shows literally",
+		"subject": "app-settings",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2866,6 +2907,7 @@
 		"valueClass": "outside-choices",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the settings page marks it an error (`commcare_settings.js`, `widgets.select.valueIsLegal`, and `widgets.multiSelect.valueIsLegal` for `features.dependencies`)",
+		"subject": "android-app-dependencies",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2920,6 +2962,7 @@
 		"valueClass": "custom-property-other",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: arbitrary device-profile properties with no typed editor",
+		"subject": "custom-device-properties",
 		"reasons": [
 			{
 				"kind": "freeform",

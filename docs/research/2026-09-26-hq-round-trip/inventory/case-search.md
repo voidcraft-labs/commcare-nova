@@ -71,7 +71,8 @@ Case search as a whole needs SYNC_SEARCH_CASE_CLAIM plus the target's `CaseSearc
 
 | HQ item | Disposition | Web Apps / Android | Emission |
 |---|---|---|---|
-| `name` (prompt key = case property) | **HELD**: `searchInputs[].property` (+ `name`); widen: `name` to HQ's key grammar (hyphens, `/` ancestor paths) | RUNS / RUNS | `name` |
+| `name` (prompt key) matching `^[A-Za-z_][A-Za-z0-9_-]*$` | **HELD**: `searchInputs[].name` | RUNS / RUNS | `name` |
+| `name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$` | **HELD-NEW**: a Search field whose property and relation are read from its key | RUNS / RUNS | `name` |
 | a prompt that reaches HQ as its own key, named as a `CONFIG_KEYS_MAPPING` key or value, a `CASE_SEARCH_TAGS_MAPPING` key, `include_closed`, `commcare_blacklisted_owner_ids`, `commcare_project`, `_xpath_query` (compiled as CSQL, `CASE_SEARCH_XPATH_QUERY_KEY`) or `indices.<identifier>` (a reverse-index filter) | **REFUSED**: broken at runtime: HQ does not search it, taking it as request configuration, a metrics tag, an ignored key (`case_search/models.py` `UNSEARCHABLE_KEYS`), an owner, project space or reverse-index filter, or CSQL instead (defect 14) | — | — |
 | `label{lang}` | **HELD**: `searchInputs[].label` | RUNS / RUNS | `label` |
 | `hint{lang}` | **HELD**: `searchInputs[].hint` | RUNS / IGNORED | `hint` |
@@ -91,7 +92,8 @@ Case search as a whole needs SYNC_SEARCH_CASE_CLAIM plus the target's `CaseSearc
 | `itemset.nodeset` filter predicate lifting into Predicate | **HELD**: `options.filter` | RUNS / RUNS | nodeset `[filter]` |
 | `itemset.nodeset` filter predicate outside Predicate | **HELD-NEW**: typed expression model in `options.filter` | RUNS / RUNS | nodeset `[filter]` |
 | `itemset` scheme other than `item-list:`/`commcare-reports:` | **REFUSED**: not HQ-buildable: `case search nodeset invalid` | — | — |
-| `default_value` lifting into ValueExpression | **HELD**: `searchInputs[].default`; widen: a default on `date-range` inputs, which HQ's editor offers and Core seeds (`RemoteQuerySessionManager.initUserAnswers`), while Nova's date-range arms carry none today | RUNS / RUNS (supported input types only) | `default_value`; CASE_SEARCH_ADVANCED |
+| `default_value` lifting into ValueExpression, on a prompt other than `daterange` | **HELD**: `searchInputs[].default` | RUNS / RUNS (supported input types only) | `default_value`; CASE_SEARCH_ADVANCED |
+| `default_value` on a `daterange` prompt | **HELD-NEW**: a default on a date-range Search field, which HQ's editor offers and Core seeds (`RemoteQuerySessionManager.initUserAnswers`) | RUNS / RUNS (supported input types only) | `default_value`; CASE_SEARCH_ADVANCED |
 | `default_value` outside ValueExpression | **HELD-NEW**: typed expression model | RUNS / RUNS | printed; CASE_SEARCH_ADVANCED |
 | `hidden` + `exclude` with a `default_value`, on a prompt with no itemset, input type or appearance | **HELD**: `kind: hidden` (never a filter) | RUNS / DIFFERENT (shown, editable) | `hidden: true`, `exclude: true`; CASE_SEARCH_ADVANCED |
 | `hidden` + `exclude` without a `default_value`, on a prompt with no itemset, input type or appearance | **HELD-NEW**: the hidden arm with an optional value (Nova's `hiddenSearchInputSchema` requires `value` today) | RUNS / DIFFERENT (shown, editable) | `hidden: true`, `exclude: true`; CASE_SEARCH_ADVANCED |

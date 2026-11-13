@@ -16,9 +16,11 @@ describe("selectOptionValueSchema", () => {
 		["", false],
 		[" ", false],
 		["a b", false],
-		["a'b", false],
-		['a"b', false],
-		["a`b", false],
+		["a'b", true],
+		['a"b', true],
+		["a`b", true],
+		["it's", true],
+		[`a'b"c`, false],
 		["ok", true],
 		["sí", true],
 		["a-b.c", true],
@@ -29,9 +31,21 @@ describe("selectOptionValueSchema", () => {
 		(value, accepted) => {
 			expect(selectOptionValueSchema.safeParse(value).success).toBe(accepted);
 			expect(isValidSelectOptionValue(value)).toBe(accepted);
-			expect(SELECT_OPTION_VALUE_PATTERN.test(value)).toBe(accepted);
 		},
 	);
+
+	it("states in its pattern everything but the both-quotes refusal", () => {
+		// The served pattern carries what every provider's engine reads; a
+		// value holding both quote marks passes it and is refused beside it.
+		expect(SELECT_OPTION_VALUE_PATTERN.test(`a'b"c`)).toBe(true);
+		const refused = selectOptionValueSchema.safeParse(`a'b"c`);
+		expect(refused.success).toBe(false);
+		expect(refused.error?.issues.map((issue) => issue.message)).toEqual([
+			"Nova can't yet write a rule that names a choice holding both an apostrophe and a double quote. Keeping one kind of quote mark, or neither, works.",
+		]);
+		expect(SELECT_OPTION_VALUE_PATTERN.test("a b")).toBe(false);
+		expect(SELECT_OPTION_VALUE_PATTERN.test("")).toBe(false);
+	});
 });
 
 describe("selectOptionValueProblem", () => {
@@ -51,25 +65,32 @@ describe("selectOptionValueProblem", () => {
 		}
 	});
 
-	it("names an empty value or the first forbidden character", () => {
+	it("names an empty value, whitespace, or both quote marks in one value", () => {
 		expect(selectOptionValueProblem("")).toBe("empty");
 		expect(selectOptionValueProblem("Prefer not to say")).toBe("whitespace");
 		expect(selectOptionValueProblem("tab\there")).toBe("whitespace");
 		expect(selectOptionValueProblem("line\nbreak")).toBe("whitespace");
-		expect(selectOptionValueProblem("don't")).toBe("quote");
 		expect(selectOptionValueProblem('say "hi"')).toBe("whitespace");
-		expect(selectOptionValueProblem("`tick`")).toBe("quote");
 		expect(selectOptionValueProblem(" ")).toBe("whitespace");
+		expect(selectOptionValueProblem(`a'b"c`)).toBe("both-quotes");
+	});
+
+	it("admits a value holding one kind of quote mark", () => {
+		for (const value of ["it's", 'a"b', "a`b", "`tick`", "don't"]) {
+			expect(selectOptionValueProblem(value)).toBeUndefined();
+		}
 	});
 });
 
 describe("sanitizeSelectOptionValue", () => {
-	it("joins whitespace runs with one underscore and drops quote marks", () => {
+	it("joins whitespace runs with one underscore and keeps quote marks", () => {
 		expect(sanitizeSelectOptionValue("Prefer not   to say")).toBe(
 			"Prefer_not_to_say",
 		);
-		expect(sanitizeSelectOptionValue("don't know")).toBe("dont_know");
-		expect(sanitizeSelectOptionValue(' "quoted" ')).toBe("_quoted_");
+		expect(sanitizeSelectOptionValue("don't know")).toBe("don't_know");
+		expect(sanitizeSelectOptionValue(' "quoted" ')).toBe('_"quoted"_');
+		expect(sanitizeSelectOptionValue("it's")).toBe("it's");
+		expect(sanitizeSelectOptionValue("a`b")).toBe("a`b");
 	});
 
 	it("keeps case and every other character, so deliberate codes survive", () => {
@@ -90,9 +111,9 @@ describe("sanitizeSelectOptionValue", () => {
 		expect(seen).toEqual(["a", "a_", "a_b", "a_b_", "a_b_c"]);
 	});
 
-	it("returns the empty string only when nothing survives", () => {
+	it("returns the empty string only for an empty box", () => {
 		expect(sanitizeSelectOptionValue("")).toBe("");
-		expect(sanitizeSelectOptionValue("''")).toBe("");
+		expect(sanitizeSelectOptionValue("''")).toBe("''");
 		expect(sanitizeSelectOptionValue("   ")).toBe("_");
 	});
 

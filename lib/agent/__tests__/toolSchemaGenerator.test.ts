@@ -103,19 +103,17 @@ describe("toolSchemaGenerator", () => {
 				kind: "single_select",
 			}).success,
 		).toBe(false);
-		// A STATED override must still be a real choice list — a 1-entry
-		// list is wrong on every path, case-bound included.
-		expect(
+		// A STATED override holds one choice or more, case-bound included;
+		// an empty list is no choice list on any path.
+		const statedOverride = (options: { value: string; label: unknown }[]) =>
 			generated.addFieldsItemSchema.safeParse({
 				id: "blood_type",
 				kind: "single_select",
 				caseWrite: { caseType: "patient", property: "blood_type" },
-				optionsSource: {
-					kind: "inline",
-					options: [{ value: "a", label: proseText("A") }],
-				},
-			}).success,
-		).toBe(false);
+				optionsSource: { kind: "inline", options },
+			}).success;
+		expect(statedOverride([{ value: "a", label: proseText("A") }])).toBe(true);
+		expect(statedOverride([])).toBe(false);
 	});
 
 	it("keeps a friendly field id independent from its complete case destination", () => {
@@ -434,7 +432,9 @@ describe("toolSchemaGenerator", () => {
 			});
 		expect(withValue("prefer_not_to_say").success).toBe(true);
 		expect(withValue("ICD10").success).toBe(true);
-		for (const bad of ["Prefer not to say", "don't_know", 'say_"hi"', ""]) {
+		expect(withValue("don't_know").success).toBe(true);
+		expect(withValue('say_"hi"').success).toBe(true);
+		for (const bad of ["Prefer not to say", `it's_"x"`, ""]) {
 			const result = withValue(bad);
 			expect(result.success).toBe(false);
 			expect(result.error?.issues[0]?.path).toEqual(["options", 0, "value"]);

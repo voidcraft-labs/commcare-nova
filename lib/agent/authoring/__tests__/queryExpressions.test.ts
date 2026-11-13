@@ -106,6 +106,9 @@ function bindings(caseType = "Client", tableId?: string): QueryBindings {
 				property: namespace === "record" ? path[1] : name,
 			};
 		},
+		recordProperty(recordType, property) {
+			return { kind: "prop", caseType: recordType, property };
+		},
 		forRelation(relation) {
 			return bindings(
 				relation.kind === "subcase" || relation.kind === "any-relation"

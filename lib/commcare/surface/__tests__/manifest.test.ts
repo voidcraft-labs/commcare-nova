@@ -19,12 +19,21 @@
  * and an entry with neither keys nor a reason is one the check can never
  * consult.
  *
+ * The rules a reading of an app in CommCare HQ rests on: every subject is
+ * some entry's, so no finding sentence is written for nothing; a HELD-NEW
+ * entry that shares a key with an allowing entry says by its value class
+ * which values it takes; a REFUSED entry whose reasons mix a kind a change in
+ * CommCare HQ lifts with one it does not is listed, because it reads as never;
+ * and the version floor's reason stands alone, because its sentence names the
+ * version. The schema asks the subject of every HELD-NEW and REFUSED entry
+ * and the owner of every HELD-NEW one, and refuses either elsewhere.
+ *
  * Each rule is read by one function over the manifest's files, which the real
  * manifest passes; each rule then has a failing case planted into the real
  * manifest beside it, so a rule that stops reading its field fails here.
- * The test also prints the coverage number the plan names, "N of M entries
- * held": the inventory entries whose disposition is HELD (a Nova slot holds
- * them today) of all inventory entries.
+ * The test also prints the coverage, "N of M entries held" (the inventory
+ * entries whose disposition is HELD, which a Nova slot holds today, of all
+ * inventory entries), followed by the count of each other standing.
  */
 
 import { describe, expect, it } from "vitest";
@@ -34,12 +43,19 @@ import {
 	isMediaKind,
 	MEDIA_FORMATS,
 } from "@/lib/domain/multimedia";
+import { type ReadStanding, SUBJECTS } from "@/lib/publish/hqFindings";
 import {
 	type GateEntry,
 	INVENTORY_AREAS,
 	type InventoryEntry,
 	inventoryEntriesFileSchema,
+	type RefusalReasonKind,
 } from "../schema";
+import {
+	FIX_IN_HQ_REASON_KINDS,
+	NEVER_REASON_KINDS,
+	standingOf,
+} from "../standing";
 import { loadManifest, type Manifest, readJson } from "./loadManifest";
 
 /** The gates an inventory entry links: its own and its retiring reasons'. */
@@ -180,6 +196,100 @@ function unexplained(manifest: Manifest): string[] {
 	});
 }
 
+/**
+ * Every subject is some entry's: a subject no entry gives has a sentence no
+ * finding reads.
+ */
+function unusedSubjects(manifest: Manifest): string[] {
+	const used = new Set(
+		manifest.inventory.flatMap((entry) =>
+			entry.disposition === "HELD-NEW" || entry.disposition === "REFUSED"
+				? [entry.subject]
+				: [],
+		),
+	);
+	return SUBJECTS.filter((subject) => !used.has(subject)).map(
+		(subject) =>
+			`The subject ${subject} is the subject of no entry. Remove it from SUBJECTS and its sentences from the finding copy, or give it to the entry it was added for.`,
+	);
+}
+
+/**
+ * A HELD-NEW entry that shares a surface key with an allowing entry (HELD,
+ * TARGET-OWNED or INERT) says by its value class which of the key's values
+ * it takes; without one, the reader cannot tell a value Nova does not hold
+ * yet from one the allowing entry holds.
+ */
+function unclassedHeldNew(manifest: Manifest): string[] {
+	const allowing = new Map<string, InventoryEntry[]>();
+	for (const entry of manifest.inventory)
+		if (
+			entry.disposition === "HELD" ||
+			entry.disposition === "TARGET-OWNED" ||
+			entry.disposition === "INERT"
+		)
+			for (const key of entry.surfaceKeys)
+				allowing.set(key, [...(allowing.get(key) ?? []), entry]);
+	return manifest.inventory.flatMap((entry) => {
+		if (entry.disposition !== "HELD-NEW" || entry.valueClass !== undefined)
+			return [];
+		const key = entry.surfaceKeys.find((each) => allowing.has(each));
+		const other = key === undefined ? undefined : allowing.get(key)?.[0];
+		if (key === undefined || other === undefined) return [];
+		return [
+			`${entry.id} is HELD-NEW and shares ${key} with ${other.id}, which holds the rest of that key's values. Give ${entry.id} the value class that says which values it takes.`,
+		];
+	});
+}
+
+/**
+ * The REFUSED entries whose reasons hold a kind a change in CommCare HQ lifts
+ * beside one it does not, each of which reads as never: changing either in
+ * CommCare HQ leaves it on a retiring flag.
+ */
+const MIXED_REASON_ENTRIES: ReadonlySet<string> = new Set([
+	"forms-and-case-writes/form-links-target-any-other-module",
+	"menus-and-case-lists/any-module-under-a-training-menu",
+]);
+
+const NEVER_KINDS: ReadonlySet<RefusalReasonKind> = new Set(NEVER_REASON_KINDS);
+const FIX_KINDS: ReadonlySet<RefusalReasonKind> = new Set(
+	FIX_IN_HQ_REASON_KINDS,
+);
+
+function unlistedMixedReasons(manifest: Manifest): string[] {
+	return manifest.inventory.flatMap((entry) => {
+		if (entry.disposition !== "REFUSED" || MIXED_REASON_ENTRIES.has(entry.id))
+			return [];
+		const kinds = entry.reasons.map((reason) => reason.kind);
+		const mixed =
+			kinds.some((kind) => NEVER_KINDS.has(kind)) &&
+			kinds.some((kind) => FIX_KINDS.has(kind));
+		return mixed
+			? [
+					`${entry.id} holds a reason a fix in CommCare HQ lifts and one it does not, so it reads as "never": a person is told the app can't come in while it uses this, and is not sent to change it. Where that is true of it, add its id to MIXED_REASON_ENTRIES in this test. Where a change in CommCare HQ would lift it, drop the reason that does not apply.`,
+				]
+			: [];
+	});
+}
+
+/** A version floor reason stands alone among the reasons a change in CommCare HQ lifts. */
+function floorBesideAnotherFix(manifest: Manifest): string[] {
+	return manifest.inventory.flatMap((entry) => {
+		if (entry.disposition !== "REFUSED") return [];
+		const kinds = entry.reasons.map((reason) => reason.kind);
+		const floor = kinds.includes("below-commcare-version-floor");
+		const other = kinds.some(
+			(kind) => kind !== "below-commcare-version-floor" && FIX_KINDS.has(kind),
+		);
+		return floor && other
+			? [
+					`${entry.id} is refused for the CommCare version floor and for something else. Give the other reason its own entry: a person reads one sentence, and the floor's names the version.`,
+				]
+			: [];
+	});
+}
+
 const RULES = {
 	"every key an inventory entry names is a surface item": missingKeys,
 	"every gate entry's symbols are held by their surface items": unheldSymbols,
@@ -189,6 +299,13 @@ const RULES = {
 		deadBesideClasslessRefusal,
 	"every inventory entry names a surface key or says why it cannot":
 		unexplained,
+	"every subject is the subject of some entry": unusedSubjects,
+	"a HELD-NEW entry sharing a key with an allowing entry has a value class":
+		unclassedHeldNew,
+	"every REFUSED entry whose reasons mix the groups is listed":
+		unlistedMixedReasons,
+	"the version floor stands alone among the reasons a fix lifts":
+		floorBesideAnotherFix,
 } as const;
 
 type Rule = keyof typeof RULES;
@@ -238,6 +355,32 @@ const RETIRING = MANIFEST.inventory.find(
 const KEYLESS = MANIFEST.inventory.find(
 	(each) => each.noSurfaceKey !== undefined,
 );
+// A HELD-NEW entry whose value class sets it apart from the HELD entries on
+// its keys, and a REFUSED entry to plant reasons on.
+const CLASSED_HELD_NEW = entry(
+	"expressions-and-data/groups-jr-fixture-user-groups",
+);
+const REFUSED_ENTRY = MANIFEST.inventory.find(
+	(each) => each.disposition === "REFUSED",
+);
+
+function withReasons(
+	id: string,
+	kinds: readonly RefusalReasonKind[],
+): InventoryEntry {
+	if (REFUSED_ENTRY?.disposition !== "REFUSED")
+		throw new Error("The inventory holds no REFUSED entry to plant on.");
+	return {
+		...REFUSED_ENTRY,
+		id: `${REFUSED_ENTRY.area}/${id}`,
+		valueClass: "planted",
+		reasons: kinds.map((kind) =>
+			kind === "retiring"
+				? { kind, gate: "toggle/SESSION_ENDPOINTS", named: "planted" }
+				: { kind },
+		),
+	};
+}
 
 /**
  * The typed instance reads and the reads of the form's own text are emittable
@@ -298,14 +441,21 @@ describe("the manifest", () => {
 		expect(RULES[rule](MANIFEST)).toEqual([]);
 	});
 
-	const held = MANIFEST.inventory.filter(
-		(each) => each.disposition === "HELD",
-	).length;
-	const coverage = `${held} of ${MANIFEST.inventory.length} entries held`;
+	const standings = new Map<ReadStanding, number>();
+	for (const each of MANIFEST.inventory) {
+		const standing = standingOf(each);
+		standings.set(standing, (standings.get(standing) ?? 0) + 1);
+	}
+	const count = (standing: ReadStanding) => standings.get(standing) ?? 0;
+	const held = count("held");
+	const coverage = `${held} of ${MANIFEST.inventory.length} entries held; ${count("kept")} kept, ${count("inert")} inert, ${count("not-yet")} not yet, ${count("never")} never, ${count("fix-in-hq")} to change in CommCare HQ`;
 	it(`counts its coverage: ${coverage}`, () => {
 		console.info(coverage);
 		expect(held).toBeGreaterThan(0);
 		expect(held).toBeLessThan(MANIFEST.inventory.length);
+		expect([...standings.values()].reduce((sum, n) => sum + n, 0)).toBe(
+			MANIFEST.inventory.length,
+		);
 	});
 });
 
@@ -468,6 +618,55 @@ describe("each rule refuses a planted entry the real manifest lacks", () => {
 			problem:
 				"/planted-both names surface keys and also says why it names none (noSurfaceKey).",
 		},
+		{
+			rule: "every subject is the subject of some entry",
+			planted: () => ({
+				...MANIFEST,
+				inventory: MANIFEST.inventory.filter(
+					(each) =>
+						!(
+							(each.disposition === "HELD-NEW" ||
+								each.disposition === "REFUSED") &&
+							each.subject === "writer-types"
+						),
+				),
+			}),
+			problem:
+				"The subject writer-types is the subject of no entry. Remove it from SUBJECTS",
+		},
+		{
+			rule: "a HELD-NEW entry sharing a key with an allowing entry has a value class",
+			planted: () => {
+				const { valueClass: _class, ...classless } = CLASSED_HELD_NEW;
+				return withInventory({
+					...classless,
+					id: "expressions-and-data/planted-unclassed",
+				});
+			},
+			problem:
+				"expressions-and-data/planted-unclassed is HELD-NEW and shares instance-source:fixture with",
+		},
+		{
+			rule: "every REFUSED entry whose reasons mix the groups is listed",
+			planted: () =>
+				withInventory(
+					withReasons("planted-mixed", ["not-hq-editable", "retiring"]),
+				),
+			problem:
+				'/planted-mixed holds a reason a fix in CommCare HQ lifts and one it does not, so it reads as "never"',
+		},
+		{
+			rule: "the version floor stands alone among the reasons a fix lifts",
+			planted: () =>
+				withInventory(
+					withReasons("planted-floor", [
+						"below-commcare-version-floor",
+						"broken-at-runtime",
+					]),
+				),
+			problem:
+				"/planted-floor is refused for the CommCare version floor and for something else.",
+		},
 	];
 
 	it.each(cases)("$rule: $problem", ({ rule, planted, problem }) => {
@@ -510,6 +709,86 @@ describe("each rule refuses a planted entry the real manifest lacks", () => {
 			{ ...(entries[0] as Record<string, unknown>), noSurfaceKey: "" },
 		];
 		expect(inventoryEntriesFileSchema.safeParse(blank).success).toBe(false);
+	});
+
+	describe("asks a subject and an owner where they belong, and nowhere else", () => {
+		const raw = INVENTORY_AREAS.flatMap(
+			(area) => readJson(`entries/${area}.json`) as Record<string, unknown>[],
+		);
+		function rawOf(disposition: string): Record<string, unknown> {
+			const found = raw.find((each) => each.disposition === disposition);
+			if (found === undefined)
+				throw new Error(
+					`The entries hold no ${disposition} entry to plant a case on.`,
+				);
+			return found;
+		}
+		function without(
+			entry: Record<string, unknown>,
+			field: string,
+		): Record<string, unknown> {
+			const { [field]: _dropped, ...rest } = entry;
+			return rest;
+		}
+		const SUBJECT_MESSAGE =
+			"A HELD-NEW or REFUSED entry names its subject: the noun a person would call this by, from SUBJECTS in lib/publish/hqFindings.ts. Where none fits, add one there with its copy.";
+		const OWNER_MESSAGE =
+			"A HELD-NEW entry names its owner: the step 7 group that will hold it, from STEP_7_GROUPS in lib/publish/hqFindings.ts.";
+
+		it.each([
+			[
+				"a HELD-NEW entry without a subject",
+				"HELD-NEW",
+				"subject",
+				SUBJECT_MESSAGE,
+			],
+			[
+				"a REFUSED entry without a subject",
+				"REFUSED",
+				"subject",
+				SUBJECT_MESSAGE,
+			],
+			["a HELD-NEW entry without an owner", "HELD-NEW", "owner", OWNER_MESSAGE],
+		] as const)(
+			"refuses %s, naming the fix",
+			(_case, disposition, field, message) => {
+				const entry = rawOf(disposition);
+				expect(inventoryEntriesFileSchema.safeParse([entry]).success).toBe(
+					true,
+				);
+				const parsed = inventoryEntriesFileSchema.safeParse([
+					without(entry, field),
+				]);
+				expect(parsed.success).toBe(false);
+				expect(
+					parsed.error?.issues.map((issue) => [issue.path, issue.message]),
+				).toEqual([[[0, field], message]]);
+			},
+		);
+
+		it("refuses a subject on a HELD entry and an owner on a REFUSED one", () => {
+			const held = rawOf("HELD");
+			expect(inventoryEntriesFileSchema.safeParse([held]).success).toBe(true);
+			expect(
+				inventoryEntriesFileSchema.safeParse([
+					{ ...held, subject: "question-types" },
+				]).success,
+			).toBe(false);
+			expect(
+				inventoryEntriesFileSchema.safeParse([
+					{ ...rawOf("REFUSED"), owner: "xform" },
+				]).success,
+			).toBe(false);
+		});
+
+		it("refuses a subject outside SUBJECTS with the same message", () => {
+			const parsed = inventoryEntriesFileSchema.safeParse([
+				{ ...rawOf("REFUSED"), subject: "not-a-subject" },
+			]);
+			expect(parsed.error?.issues.map((issue) => issue.message)).toEqual([
+				SUBJECT_MESSAGE,
+			]);
+		});
 	});
 });
 

@@ -26,23 +26,9 @@ export function displayId(ref: Reference): string {
 }
 
 /**
- * The wire namespace of a reference — the token between `#` and the first `/`.
- * For form/user refs it's the coarse `type`; for case refs it's the concrete
- * `caseType` (e.g. "mother"). Accepts the minimal shape both a resolved
- * `Reference` and a `ParsedReference` satisfy, so every node-attr write site
- * derives the namespace through one rule instead of writing the literal
- * coarse "case".
- */
-export function namespaceOf(
-	ref: { type: "form" | "user" } | { type: "case"; caseType: string },
-): string {
-	return ref.type === "case" ? ref.caseType : ref.type;
-}
-
-/**
  * Classify a namespace token into its coarse reference family. `form` and
- * `user` are the only fixed namespaces; every other identifier is a case-type
- * name (the family `"case"`). Single source of the "form/user fixed, else case"
+ * `user` are their own families; every other namespace, `record` among them
+ * (`#record/<type>/<property>`), names a case type (the family `"case"`). Single source of the "form/user fixed, else case"
  * rule — `ReferenceProvider.parse`, the TipTap suggestion, and the chip fallback
  * all derive from it so they can't drift.
  */

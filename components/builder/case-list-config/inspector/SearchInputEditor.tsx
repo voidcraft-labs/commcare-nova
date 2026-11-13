@@ -107,6 +107,8 @@ import {
 	isSelectSearchInputType,
 	type LookupOptionsSource,
 	multiSelectSearchInputRefusal,
+	SEARCH_INPUT_NAME_PATTERN,
+	SEARCH_INPUT_NAME_REJECTION,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
@@ -417,6 +419,10 @@ function VisibleSearchInputEditor({
 	 * breaks that is held with the reason instead of bouncing off the gate. */
 	const [nameRefusal, setNameRefusal] = useState<string | null>(null);
 	const setName = (name: string) => {
+		if (name.length > 0 && !SEARCH_INPUT_NAME_PATTERN.test(name)) {
+			setNameRefusal(SEARCH_INPUT_NAME_REJECTION);
+			return;
+		}
 		if (value.kind === "simple" && value.type === "multi-select") {
 			const refusal = multiSelectSearchInputRefusal({ ...value, name });
 			if (refusal !== undefined) {

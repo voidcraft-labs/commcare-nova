@@ -13,6 +13,7 @@ import {
 	type RelationPath,
 	type Term,
 } from "@/lib/domain/expression/types";
+import { caseReferenceText } from "@/lib/domain/hashtagSegments";
 import type { Uuid } from "@/lib/domain/uuid";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
 
@@ -97,7 +98,7 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "literal":
 				return literal(value);
 			case "form-case":
-				return `#${value.caseType}/${value.property}`;
+				return caseReferenceText(value.caseType, value.property);
 			case "prop":
 				if (value.caseType === undefined)
 					throw new Error("This record property has no scoped record type.");

@@ -1,8 +1,8 @@
 // lib/domain/fields/singleSelect.ts
 //
 // Single-choice select field. Maps to CommCare <select1> control — the user
-// picks exactly one option from a fixed list. Options must have at least two
-// entries (a single-option select is semantically meaningless).
+// picks exactly one option from a fixed list of at least one option, as
+// HQ's form builder and Core allow.
 //
 // Like every user-entered control, a select can carry a `default_value`
 // (emitted as a `<setvalue>` — e.g. pre-select the value already on the case)

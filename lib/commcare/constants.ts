@@ -2,6 +2,7 @@
 
 import { captureFieldKinds } from "@/lib/domain";
 import { MAX_SUBMITTED_CAPTURE_COUNT } from "@/lib/domain/captureFormats";
+import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 
 /**
  * Case property names Nova refuses in update_case / case_preload blocks: the
@@ -110,12 +111,12 @@ export const STANDARD_CREATE_PROPS: ReadonlySet<string> = new Set([
 /** Valid case property name: starts with a letter, then letters/digits/underscores/hyphens. */
 export const CASE_PROPERTY_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
-/** Valid case type identifier: same rules as case property names. */
-export const CASE_TYPE_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+/** A case type: CommCare HQ's case type grammar, held in the domain. */
+export const CASE_TYPE_REGEX = CASE_TYPE_PATTERN;
 
-/** Nova-supported XForm element names: ASCII letters, digits, underscores.
- * XML itself also permits other characters; this is Nova's narrower vocabulary. */
-export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+/** Nova's XForm element names: an ASCII letter or underscore, then letters, digits,
+ * underscores or hyphens. XML itself permits more; this is Nova's vocabulary. */
+export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
 
 /** Maximum length for case type names (CommCare Core CaseXmlParser constraint). */
 export const MAX_CASE_TYPE_LENGTH = 255;

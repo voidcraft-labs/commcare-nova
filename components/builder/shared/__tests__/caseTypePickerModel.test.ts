@@ -50,6 +50,26 @@ describe("case type picker decisions", () => {
 			}).canCreate,
 		).toBe(false);
 	});
+	it("plans a name the earlier grammar refused, and every reference word", () => {
+		expect(planCaseTypeCreation({ draft: "1st visit", existingNames })).toEqual(
+			{ candidate: "1st_visit", canCreate: true, error: null },
+		);
+		expect(planCaseTypeCreation({ draft: "Case", existingNames })).toEqual({
+			candidate: "case",
+			canCreate: true,
+			error: null,
+		});
+		expect(planCaseTypeCreation({ draft: "User", existingNames })).toEqual({
+			candidate: "user",
+			canCreate: false,
+			error: "User already exists. Choose it above.",
+		});
+		expect(planCaseTypeCreation({ draft: "", existingNames })).toEqual({
+			candidate: "",
+			canCreate: false,
+			error: null,
+		});
+	});
 	it("runs contextual admission only for identifiers eligible for creation", () => {
 		const choices: string[] = [];
 		const choiceVerdict = (name: string) => {
@@ -60,7 +80,7 @@ describe("case type picker decisions", () => {
 			};
 		};
 		expect(
-			planCaseTypeCreation({ draft: "123", existingNames, choiceVerdict })
+			planCaseTypeCreation({ draft: "---", existingNames, choiceVerdict })
 				.canCreate,
 		).toBe(false);
 		expect(choices).toEqual([]);

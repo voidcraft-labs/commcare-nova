@@ -14,6 +14,8 @@
 		"valueClass": "plain-property-key",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a typed default filter: the property equals a device-computed value, matched on the server with the project space's fuzzy and ignore-pattern settings for that property (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter` → `_get_query`), and a value of `''` matches a blank or absent property. Nova's hidden input never filters (`searchPrompts.ts` excludes it), and an `_xpath_query` clause ignores those settings, so neither holds it",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -46,6 +48,8 @@
 		"valueClass": "ancestor-path-key",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a typed ancestor default filter: HQ compiles it as the CSQL comparison `parent/p = \"<value>\"` (`case_search/utils.py::_get_query`), so a value holding `\"` fails that search",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -78,6 +82,8 @@
 		"valueClass": "owner-case-project-or-index-key",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a typed default filter on the case owner, the case id, the project space or a reverse index, which HQ applies instead of a property match (`_apply_filter`; `indices.*` through `reverse_index_case_query`); a blank `owner_id` or `commcare_project` value applies no filter (`_apply_filter` skips an empty criterion), while a blank `case_id` filters on the empty id, and a blank `indices.<identifier>` value matches cases whose index of that identifier was removed (`reverse_index_case_query` on `referenced_id` `''`)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -168,6 +174,8 @@
 		"valueClass": "request-config-key-literal-value-alone",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW** where its value is a literal or a typed value: the typed search control the key sets (result sort, the related-case property, related-case inclusion), kept in the default-filter spelling it arrived in, because that spelling's editor gate differs from the dedicated one's (`custom_sort_properties` needs CASE_SEARCH_ADVANCED, a default filter does not) (the related-cases key includes related cases for any non-empty value, `case_search/utils.py::get_related_cases_result`), which is where HQ's editor shows it (`details/case_claim.js::defaultPropertyModel` accepts any name)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -199,6 +207,7 @@
 		"valueClass": "request-config-key-runtime-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: untypeable: its value names properties or case types chosen only at runtime (`case_search/models.py::_parse_commcare_sort_properties`, `utils.py::get_expanded_case_results`, `utils.py::CaseSearchQueryBuilder._get_initial_search_es`), as for CSQL whose property names are computed at runtime",
+		"subject": "search-default-filters",
 		"reasons": [
 			{
 				"kind": "untypeable",
@@ -231,6 +240,7 @@
 		"valueClass": "related-case-property-twice",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the key arrives twice and HQ raises \"custom_related_case_property must be a string\" (`case_search/models.py::CaseSearchRequestConfig`)",
+		"subject": "search-setup",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -263,6 +273,8 @@
 		"valueClass": "case-type-key-literal-value",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW** where its value is a literal or a typed value: `caseSearchConfig.requestCaseTypes`, the case types the search request asks HQ for, kept in its default-filter spelling: HQ searches the module's own types plus those, while the device list still shows only the module's type unless additional case types are set",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -294,6 +306,7 @@
 		"valueClass": "endpoint-id-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: untypeable: HQ does not treat it as the module's endpoint (`util.py::module_uses_case_search_endpoint` reads `case_search_endpoint_id`, with search offered and `CASE_SEARCH_ENDPOINTS` on), so the list keeps its case-type filter, which a ProjectDB endpoint's rows never match and an Elasticsearch endpoint's cases match only when the types agree; Nova cannot tell which kind an id names, so it cannot type the result",
+		"subject": "search-default-filters",
 		"reasons": [
 			{
 				"kind": "untypeable",
@@ -325,6 +338,7 @@
 		"valueClass": "data-registry-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
+		"subject": "data-registry",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -382,6 +396,8 @@
 		"valueClass": "blacklisted-owner-ids-key-alone",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a search-only owner exclusion, the concept `blacklisted_owner_ids_expression` also spells (below): HQ sends it as the same `<data key=\"commcare_blacklisted_owner_ids\">` query datum and applies it only to the server search (`_apply_filter` tests the key before `UNSEARCHABLE_KEYS`)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -415,6 +431,7 @@
 		"valueClass": "blacklisted-owner-ids-twice",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the key arrives twice and HQ raises \"Multiple values are only supported for simple text and range searches\" (`SearchCriteria._validate_multiple_terms`)",
+		"subject": "search-default-filters",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -445,6 +462,7 @@
 		"valueClass": "missing-default-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ emits `<data>` with no `ref`, and Core refuses the suite (\"`<data>` block must define a 'ref' attribute\", `QueryDataParser.parse`); HQ's editor keeps such rows (`case_claim.js::_getDefaultProperties` drops only a blank property name)",
+		"subject": "search-default-filters",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -474,6 +492,7 @@
 		"valueClass": "shared-by-filter-and-prompt",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: `screen.js::save` blocks both Case List and Case Detail saves (`case_claim.js::commonProperties`)",
+		"subject": "search-default-filters",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -505,6 +524,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.resultSort[]`",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server-side)",
@@ -606,6 +627,7 @@
 		"valueClass": "list-first-with-web-apps",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST)",
+		"subject": "search-setup",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -888,6 +910,8 @@
 		"valueClass": "outside-predicate",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -944,6 +968,8 @@
 		"valueClass": "without-list-clause-alone",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a search-only owner exclusion: HQ never applies it to the device list",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -971,6 +997,8 @@
 		"valueClass": "outside-value-expression-alone",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1031,6 +1059,8 @@
 		"valueClass": "empty",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: no search title, which HQ builds as a non-breaking space in the default app strings, shown empty (executed)",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -1113,6 +1143,7 @@
 		"valueClass": "other-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: only Bulk App Translations sets it and every Case List save resets it where the page shows case search settings, as it does wherever case search is on (`_gather_and_update_search_properties`, `screen_config.js`)",
+		"subject": "search-setup",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1139,6 +1170,8 @@
 		"valueClass": "unreserved-name-not-clashing-with-an-inline-search-parent",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.resultsInstanceName`: the inline search's results instance (`results:<name>`, `CaseSearch.get_instance_name`), read by the module's result list and by form XPath, which also names the search inputs `search-input:results:<name>`",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS for results (UNAVAILABLE for results not on the device, and for search-input reads, which throw)",
@@ -1166,6 +1199,7 @@
 		"valueClass": "reserved-substring",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core routes an instance source by those substrings before the remote and search-input prefixes (`CommCareInstanceInitializer.generateRoot`, which neither runtime overrides), so the search's results and inputs load as the wrong instance (executed)",
+		"subject": "search-setup",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1198,6 +1232,7 @@
 		"valueClass": "clashes-with-inline-search-parent",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `non-unique instance name with parent module` / `… parent select module` (`validate_search_config`, `validate_parent_select`, which compare `search_config.get_instance_name()` whether or not the child searches)",
+		"subject": "search-setup",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1243,6 +1278,8 @@
 		"surfaceKeys": ["schema:CaseSearch.additional_case_types"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.additionalCaseTypes`",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1272,6 +1309,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
+		"subject": "data-registry",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1299,6 +1337,8 @@
 		"valueClass": "dedicated-field-alone",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.relatedCaseProperty`",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (server)",
@@ -1356,6 +1396,8 @@
 		"valueClass": "false-despite-relation-reads",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.includeRelatedCases: false`, which leaves calculated-expression relation reads blank for search results, while HQ still fetches the related cases named by native field paths and child tabs (`case_search/utils.py::get_related_cases_result`); Nova emits calculated relation reads and derives `true` today",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1382,6 +1424,8 @@
 		"valueClass": "authored-without-relation-reads",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.includeRelatedCases`",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1411,6 +1455,8 @@
 		"valueClass": "search-on-clear-without-auto-select",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.searchOnClear`",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (≥992 px wide) / IGNORED",
@@ -1441,6 +1487,7 @@
 		"valueClass": "search-on-clear-with-auto-select",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `search on clear with auto select`",
+		"subject": "auto-select",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1473,6 +1520,8 @@
 		"valueClass": "endpoint-parameter",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.searchEndpoint`: a typed reference to a target-owned endpoint of either kind, held under a name with its declared parameters and result fields (each default filter on such a menu, whatever its key, `_xpath_query` included, is held as an entry of that key, emitted as HQ stores it, and read as a parameter of that name, not as a CSQL filter or as the key's meaning in the rows above, since HQ sends it to the endpoint removing only configuration and metrics-tag keys, `case_search/models.py::extract_search_request_config`, `utils.py::get_project_db_fixture`); its id per project space is target-owned, in the deployment ledger (an id names a different endpoint, or none, elsewhere; Nova never reads or edits the endpoint)",
+		"subject": "search-setup",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (online only) / RUNS (online only)",
@@ -1663,21 +1712,48 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`name` (prompt key = case property)",
+		"item": "`name` (prompt key) matching `^[A-Za-z_][A-Za-z0-9_-]*$`",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.name",
 			"parser:QueryPromptParser/prompt@key",
 			"parser:SessionDatumParser/prompt@key"
 		],
-		"valueClass": "case-property-key",
+		"valueClass": "key-in-nova-name-grammar",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchInputs[].property` (+ `name`); widen: `name` to HQ's key grammar (hyphens, `/` ancestor paths)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`name` to HQ's key grammar (hyphens, `/` ancestor paths)"
+		"dispositionCell": "**HELD**: `searchInputs[].name`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "`name`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/prompt-key-outside-nova-s-name-grammar",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`name` (prompt key) holding `/` (an ancestor path) or any other character outside `^[A-Za-z_][A-Za-z0-9_-]*$`",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.name",
+			"parser:QueryPromptParser/prompt@key",
+			"parser:SessionDatumParser/prompt@key"
 		],
+		"valueClass": "key-outside-nova-name-grammar",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Search field whose property and relation are read from its key",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1708,6 +1784,7 @@
 		"valueClass": "reserved-request-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ does not search it, taking it as request configuration, a metrics tag, an ignored key (`case_search/models.py` `UNSEARCHABLE_KEYS`), an owner, project space or reverse-index filter, or CSQL instead (defect 14)",
+		"subject": "search-fields",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1855,6 +1932,8 @@
 		"valueClass": "address-without-required-or-validations",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `geocoder` search input",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (prompt absent)",
@@ -1889,6 +1968,7 @@
 		"valueClass": "address-with-required-or-validations",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the serializer blanks them for address prompts (`case_claim.js::_getProperties` `ifSupportsValidation`)",
+		"subject": "search-fields",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1989,6 +2069,7 @@
 		"valueClass": "mobile-ucr-reports",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
+		"subject": "mobile-reports",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2021,6 +2102,8 @@
 		"valueClass": "checkbox",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `checkbox` choice widget",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2186,6 +2269,8 @@
 		"valueClass": "attributes-or-field-properties",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: lookup carrier over attributes / field properties (Lookup tables)",
+		"subject": "search-fields",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2245,6 +2330,8 @@
 		"valueClass": "filter-outside-predicate",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model in `options.filter`",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2271,6 +2358,7 @@
 		"valueClass": "other-scheme",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `case search nodeset invalid`",
+		"subject": "search-fields",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2292,20 +2380,47 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search prompts",
-		"item": "`default_value` lifting into ValueExpression",
+		"item": "`default_value` lifting into ValueExpression, on a prompt other than `daterange`",
 		"surfaceKeys": [
 			"schema:CaseSearchProperty.default_value",
 			"parser:QueryPromptParser/prompt@default"
 		],
 		"valueClass": "lifts-into-value-expression",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchInputs[].default`; widen: a default on `date-range` inputs, which HQ's editor offers and Core seeds (`RemoteQuerySessionManager.initUserAnswers`), while Nova's date-range arms carry none today",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "a default on `date-range` inputs, which HQ's editor offers and Core seeds (`RemoteQuerySessionManager.initUserAnswers`), while Nova's date-range arms carry none today"
+		"dispositionCell": "**HELD**: `searchInputs[].default`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (supported input types only)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "supported input types only"
 			}
+		},
+		"emission": {
+			"cell": "`default_value`; CASE_SEARCH_ADVANCED",
+			"markers": []
+		},
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
+		"id": "case-search/default-value-on-a-date-range-input",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`default_value` on a `daterange` prompt",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.default_value",
+			"parser:QueryPromptParser/prompt@default"
 		],
+		"valueClass": "default-on-date-range",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a default on a date-range Search field, which HQ's editor offers and Core seeds (`RemoteQuerySessionManager.initUserAnswers`)",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (supported input types only)",
@@ -2336,6 +2451,8 @@
 		"valueClass": "outside-value-expression",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2400,6 +2517,8 @@
 		"valueClass": "hidden-excluded-without-default-without-required-or-validations",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the hidden arm with an optional value (Nova's `hiddenSearchInputSchema` requires `value` today)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (shown, editable)",
@@ -2430,6 +2549,8 @@
 		"valueClass": "hidden-filter-without-required-or-validations",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a typed default filter (as for a plain-key default filter above), held as a hidden prompt, a property of the filter, since Android shows such a prompt and lets the worker edit it: Core seeds the prompt from its default and sends it as a filter (`RemoteQuerySessionManager.initUserAnswers`)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (not sent on the automatic default search of a skip-to-results workflow, `MenuSessionRunnerService.doQuery`) / DIFFERENT (shown, editable)",
@@ -2461,6 +2582,8 @@
 		"valueClass": "hidden-with-widget-without-required-or-validations",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a hidden input with a widget: Core drops a hidden select or checkbox value that is not among the itemset's choices (`RemoteQuerySessionManager.refreshItemSetChoices`) and seeds a default only for a prompt the platform supports (`initUserAnswers`, `isPromptSupported`: select1, daterange, checkbox and text on Android)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (a hidden prompt Android does not support sends nothing)",
@@ -2490,6 +2613,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `searchInputs[].allowBlank`",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED (a plain prompt; no search for blank)",
@@ -2620,6 +2745,7 @@
 		"valueClass": "later-validations-on-a-prompt-neither-hidden-nor-address",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor edits only `[0]`",
+		"subject": "search-fields",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2653,6 +2779,7 @@
 		"valueClass": "hidden-with-required-or-validations",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the serializer blanks them",
+		"subject": "search-default-filters",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2682,6 +2809,8 @@
 		"valueClass": "text-or-lookup-prompt",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `searchInputs[].receiveFrom` (geocoder field)",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2708,6 +2837,7 @@
 		"valueClass": "other-editor-appearance",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: `views/modules.py::_update_search_properties` keeps it only for appearance `fixture` or none",
+		"subject": "search-fields",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2743,6 +2873,8 @@
 		"valueClass": "grouped",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `searchInputGroups[]` with each input's group",
+		"subject": "search-fields",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -2769,6 +2901,7 @@
 		"valueClass": "missing-beside-groups",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `invalid grouping from ungrouped search property`",
+		"subject": "search-fields",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2961,6 +3094,7 @@
 		"valueClass": "untyped-right-side",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ parses the right side as a number, else a date or datetime, and raises `CaseFilterError` (\"… is not a correctly formatted date or datetime\" for `'abc'` and `''`, \"… is an invalid date\" for `'2024-13-01'`; executed; `xpath_functions/comparison.py::case_property_range_query`)",
+		"subject": "search-expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3018,6 +3152,7 @@
 		"valueClass": "non-date-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ parses the value as a date or datetime for these, the same way whatever the operator, and fails the search with `CaseFilterError`: \"… is not a correctly formatted date or datetime\" for text and `''`, and \"Malformed search query\" for a number, whose `TypeError` `filter_dsl.py::build_filter_from_xpath` converts (`comparison.py::_create_system_datetime_query` → `_parse_date_or_datetime`; executed)",
+		"subject": "search-expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3138,6 +3273,8 @@
 		"valueClass": "project-timezone-date",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: project-timezone date comparison",
+		"subject": "search-expressions",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3577,6 +3714,7 @@
 		"valueClass": "runtime-query-structure",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: untypeable: the query's structure exists only at runtime",
+		"subject": "search-expressions",
 		"reasons": [
 			{
 				"kind": "untypeable",
@@ -3714,6 +3852,7 @@
 		"noSurfaceKey": "HQ's CSQL parser cannot read such a string, so the check reads no CSQL item in it and reports the search as `csql:(unparsed)` (manifest_usage.read_csql), which no surface item holds.",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ fails to parse it (`CaseFilterError` \"We didn't understand what you were trying to do with …\")",
+		"subject": "search-expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3739,6 +3878,7 @@
 		"surfaceKeys": ["csql-fn:search-value-mixes-quote-marks"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: `CaseFilterError` / `XPathFunctionException` (`filter_dsl.py::build_filter_from_ast`)",
+		"subject": "search-expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3771,6 +3911,8 @@
 		"valueClass": "xpath-query-rows",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: each row a typed default filter kept as its own row (today Nova emits one row per top-level conjunct of its composed predicate, `xpathQuery.ts::composeXPathQueryEmission` and `caseList.ts::projectDefaultProperties`, so an imported row that is itself an `and` would be split)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

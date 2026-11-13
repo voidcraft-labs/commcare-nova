@@ -1,5 +1,6 @@
 /**
- * Documents with an advanced menu, for the XForm and suite oracle corpora.
+ * Documents with an advanced menu, for the XForm and suite oracle corpora
+ * and the proof lane's fuzz sample (`proof/corpus/fuzzSample.ts`).
  *
  * Over a document `suiteDocArbitrary` draws, a form of one menu creates a
  * case of another menu's type, outside any repeat, and its one after-submit
@@ -12,7 +13,7 @@
  *
  * The edit is applied after the draw with no random call of its own, so a
  * draw of `suiteDocArbitrary` is the same whether or not this arbitrary
- * reads it. The proof sample does not use it.
+ * reads it.
  */
 import type * as fc from "fast-check";
 import { testUuid } from "@/__tests__/helpers/uuid";

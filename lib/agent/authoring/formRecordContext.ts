@@ -7,6 +7,7 @@ import {
 	reachableCaseTypes,
 	type Uuid,
 } from "@/lib/domain";
+import { caseReferenceText } from "@/lib/domain/hashtagSegments";
 
 /** Read sources follow the same selected-record and ancestor rules as Preview
  * and export. They are distinct from the form's possible write destinations. */
@@ -27,8 +28,8 @@ export function formRecordContext(doc: BlueprintDoc, formUuid: Uuid) {
 		).map(({ name, depth }) => ({
 			caseType: name,
 			ancestorDepth: depth,
-			propertyReference: `#${name}/property`,
-			identityReference: `#${name}/case_id`,
+			propertyReference: caseReferenceText(name, "property"),
+			identityReference: caseReferenceText(name, "case_id"),
 		})),
 	};
 }

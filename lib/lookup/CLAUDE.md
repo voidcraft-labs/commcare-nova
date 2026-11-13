@@ -103,7 +103,12 @@ pushes, and Nova refuses a longer one itself, because HQ answers it with a
 server error and not a refusal. A tag containing `casedb` or `ledgerdb`,
 case-sensitively, is refused too (`reservedInstanceTagCause`), because Core
 picks an instance's storage by substring (commcare-core
-`CommCareInstanceInitializer.generateRoot`).
+`CommCareInstanceInitializer.generateRoot`). A tag and a column's wire name
+start with an unaccented letter or underscore and hold letters, digits,
+underscores and hyphens, never starting with lowercase `xml`
+(`LOOKUP_WIRE_IDENTIFIER_PATTERN`, and the two checks of
+`20261113000000_hq_round_trip_lookup_names`). A period is left out because
+CommCare HQ's build rewrites one in a case list filter and a display condition.
 
 ## Reference edges and schema governance
 

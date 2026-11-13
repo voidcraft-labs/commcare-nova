@@ -870,7 +870,7 @@ describe("FormEngine", () => {
 						caseDataFor("patient", [["age", "30"]]),
 					),
 			).toThrow(
-				"Name the record type with #<record-type>/<property> in this formula.",
+				"This formula has no selected record for #case to read. You can name the record type, as in #<record-type>/<property>. A record type called case is #record/case/<property>.",
 			);
 		});
 	});

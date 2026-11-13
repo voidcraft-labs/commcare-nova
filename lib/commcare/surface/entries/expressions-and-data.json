@@ -101,6 +101,7 @@
 		"valueClass": "supply-point-id-outside-a-computed-datum",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK): only CommTrack supplies that datum then (`entries.py::entry_for_module`)",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -127,6 +128,8 @@
 		"valueClass": "supply-point-id-computed-datum",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed session reference to the form's computed datum (`Form.computedDatums`); the source still contains HQ's CommTrack substring, so defect 20's confirmation applies (executed: HQ builds the form's datum, and adds its own after it only under CommTrack)",
+		"subject": "advanced-forms",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -183,6 +186,8 @@
 		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE / RUNS",
@@ -348,6 +353,7 @@
 		"valueClass": "in-form-logic",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Android never sets it, and Web Apps sets it only on the request that opens the form, while Formplayer runs every calculate again on each later request, so the read stops the form whenever Formplayer deserializes the form afresh from the session's stored definition rather than reusing its cached copy",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -423,6 +429,7 @@
 		"surfaceKeys": ["instance-scheme:ledgerdb"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK): ledger data exists only from COMMTRACK-authored ledger blocks or a `commtrack_enabled` restore",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -508,8 +515,11 @@
 			"xform:model/instance@id",
 			"xform:model/instance@src"
 		],
+		"valueClass": "user-groups-fixture",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed reference to the case-sharing groups fixture",
+		"dispositionCell": "**HELD-NEW**: typed reference to the case-sharing groups fixture. The class takes the instance whose source is `jr://fixture/user-groups`, its declaration and every read of it; the lookup, location and other instance rows hold the rest of these keys",
+		"subject": "case-sharing",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -573,6 +583,7 @@
 		"valueClass": "hierarchical-locations",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (HIERARCHICAL_LOCATION_FIXTURE)",
+		"subject": "hierarchical-locations",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -604,6 +615,7 @@
 		"valueClass": "mobile-ucr-reports",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
+		"subject": "mobile-reports",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -629,6 +641,7 @@
 		"surfaceKeys": ["instance-scheme:registry"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
+		"subject": "data-registry",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -721,6 +734,7 @@
 		"valueClass": "non-inline-search-form",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the search's `<rewind>` (`remote_requests.py::RemoteRequestFactory.build_stack`) drops the query step (`SessionFrame.rewindToMarkAndSet`), so the form finds no source for the instance (`CommCareInstanceInitializer.setupExternalDataInstance`) and every read throws \"Instance referenced by … has not been loaded\" (`XPathPathExpr`), on both runtimes",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -779,6 +793,8 @@
 		"valueClass": "results-detail",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a typed search-input reference (typed expression model); step 7: Nova projects one case list onto both the module's list and its search results detail (`compiler.ts`)",
+		"subject": "data-sources",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (Formplayer keeps the inputs, `QueryScreen.updateSession`; Android sets only the results on the query step, `QueryRequestActivity`, so a read throws)",
@@ -840,6 +856,7 @@
 		"valueClass": "legacy-after-query",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ never declares `jr://instance/search-input` (`suite_xml/post_process/instances.py::InstancesHelper.IGNORED_INSTANCES`), and Core provides the bare id only while it builds the query (`RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`), so every later read fails on both runtimes",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -899,6 +916,7 @@
 		"valueClass": "non-inline-search-form",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the `<rewind>` drops the step that carries the inputs, so every read throws \"has not been loaded\" (HQ's \"Make search input available after search\" checkbox is inline search itself, `remote_requests.py`)",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -954,6 +972,7 @@
 		"surfaceKeys": ["instance-scheme:schedule"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (VISIT_SCHEDULER)",
+		"subject": "visit-scheduler",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -979,6 +998,7 @@
 		"surfaceKeys": ["instance-scheme:indicators"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: untypeable: its rows come from the target's call-center configuration, which Nova cannot read",
+		"subject": "call-center-indicators",
 		"reasons": [
 			{
 				"kind": "untypeable",
@@ -1004,6 +1024,7 @@
 		"valueClass": "products-and-programs",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK)",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1029,6 +1050,7 @@
 		"surfaceKeys": ["instance-scheme:case-search-fixture"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (CSQL_FIXTURE)",
+		"subject": "search-expressions",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1055,6 +1077,7 @@
 		"valueClass": "secondary-instance-without-src",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -1079,6 +1102,7 @@
 		"valueClass": "referenced-unrecognized-source",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: resolves to `ConcreteInstanceRoot.NULL`; every read throws \"has not been loaded\" (`XPathPathExpr`)",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1110,6 +1134,7 @@
 		"valueClass": "factory-returns-none",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `UnknownInstanceError` / \"missing some instance declarations\"",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -1180,6 +1205,7 @@
 		"noSurfaceKey": "Whether a project space serves a fixture is target state that no export carries, so no reader of the export can place an instance in this class; the deployment's preflight is where it is known.",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: initializing it throws `FixtureInitializationException` when the form opens (`CommCareInstanceInitializer.loadFixtureRoot`; executed), so the form cannot open",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1205,6 +1231,7 @@
 		"valueClass": "second-instance-without-id",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum refuses to open (`parser.js::_getInstances`)",
+		"subject": "data-sources",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3272,6 +3299,7 @@
 		"valueClass": "lookup-itemset-select",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: \"error in evaluation of xpath function [choice-name]\" on both",
+		"subject": "question-choices",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3297,6 +3325,7 @@
 		"valueClass": "in-a-form",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: no form-context handler (\"cannot handle function 'here'\")",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3349,6 +3378,7 @@
 		"noSurfaceKey": "A function name Core's parser does not know is no item of the surface (the jr-fn and jr-handler families hold the names Core and the runtimes answer), so decision 7 refuses it as an item no entry names.",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: `XPathCustomRuntimeFunc` throws at evaluation",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3373,6 +3403,7 @@
 		"surfaceKeys": ["xpath-expr:XPathUnionExpr", "xpath-token:UNION"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: `XPathUnionExpr` throws \"nodeset union operation\"",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3397,6 +3428,7 @@
 		"surfaceKeys": ["xpath-expr:XPathFilterExpr"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: `XPathUnsupportedException(\"filter expression\")` (followed by a path step in a bind, not HQ-buildable: Core's parse refuses it)",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3442,6 +3474,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable in a bind, where Core's parse refuses it (\"step other than 'child::name', '.', '..'\", `XPathPathExpr.getReference`); broken at runtime in an output or setvalue",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3472,6 +3505,7 @@
 		"valueClass": "parent-after-a-named-step",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable in a bind, where Core's parse refuses it; broken at runtime in an output or setvalue: parents are not allowed after a named step",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3503,6 +3537,7 @@
 		"valueClass": "in-a-form",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: form contexts define no variables, so a bare `$var` reads blank and any function or operator over it throws (executed)",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3534,6 +3569,7 @@
 		"valueClass": "time-operand",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core compares both sides as numbers, and a string holding `:` is NaN (`FunctionUtils.toNumeric`; a time answer reaches XPath as its string, `XPathPathExpr.unpackValue`), so the comparison is always false (executed: `'14:30' < '15:00'` is false)",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -3767,6 +3803,7 @@
 		"surfaceKeys": ["hashtag:#case"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (NON_PARENT_MENU_SELECTION: only \"Other\" parent selection produces it)",
+		"subject": "parent-selection",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -3797,6 +3834,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
+		"subject": "data-registry",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -3880,6 +3918,7 @@
 		"valueClass": "invalid-xpath",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: JavaRosa fatal",
+		"subject": "expressions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4012,6 +4051,7 @@
 		"valueClass": "svg",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ types it as an image and cannot store it: `CommCareImage.attach_data` opens every image with Pillow, which reads no SVG, and the error escapes `process_bulk_upload_zip`'s loop, so the whole upload stops and no file of that publish is mapped",
+		"subject": "media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4044,6 +4084,7 @@
 		"valueClass": "tiff-heif",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: neither platform plays them on every device or browser it runs on (MDN documents TIFF for Safari alone and does not list HEIF; Android decodes neither at 6.0, HEIF only from 8.0)",
+		"subject": "media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4111,6 +4152,7 @@
 		"valueClass": "other-wav",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Android plays only 8- and 16-bit PCM WAV (Google's supported formats), and MDN documents support for other WAV codecs only as sparse",
+		"subject": "media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4210,6 +4252,7 @@
 		"valueClass": "audio-m4a-other-brand",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ classifies it as video, so an audio reference never receives the bytes (`CommCareMultimedia.get_class_by_data`)",
+		"subject": "media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4241,6 +4284,7 @@
 		"valueClass": "audio-3gp",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ classifies it as video",
+		"subject": "media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4346,6 +4390,7 @@
 		"valueClass": "av1-mov-avi-theora-h263",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: no platform in the bar plays them everywhere (AV1 needs Android 10 and hardware in Safari; Android plays no MOV or AVI, and Firefox no MOV; no current browser plays Theora or H.263, and Android makes H.263 optional from 7.0)",
+		"subject": "media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4372,6 +4417,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only",
+		"subject": "media-files",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4399,6 +4446,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a held path per media reference: an imported reference keeps HQ's path, and a Nova-born reference takes the path derived from its asset's bytes when it is made, a logo the uploader's slot path (Nova derives every path today and stores none, `assetWirePath.ts`)",
+		"subject": "media-files",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -4418,6 +4467,7 @@
 		"valueClass": "key-outside-jr-file",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `MediaResourceError` (`MediaSuiteGenerator.media_resources`, over `multimedia_map_for_build(remove_unused=True)`)",
+		"subject": "media-files",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -4443,6 +4493,8 @@
 		"valueClass": "referenced-path-without-entry",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a media reference holding its path with no file: Vellum writes a default `jr://file/commcare/…` path as soon as a media slot is added, before any upload (`javaRosa/itextWidget.js::getDefaultValue`), HQ builds it with no resource for it (`MediaSuiteGenerator.media_resources` reads only map entries), and Android shows its missing-media placeholder (`MediaLayout.showMissingMediaView`)",
+		"subject": "media-files",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (no image) / RUNS (placeholder)",
@@ -4470,6 +4522,7 @@
 		"valueClass": "android-verified-path-without-entry",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Android does not start the app until a file the verification reaches is present, while `cc-content-valid` is `no` (`CommCareApp.areMMResourcesValidated`, `DispatchActivity.handleUnvalidatedApp`); it checks every itext media form (`XFormAndroidInstaller.verifyInstallation`), then each suite entry's audio and then its icon, in the device's hash-table order, then each menu's the same way in suite order, recording a reference whose file is missing and ending at the first entry or menu with no audio or no icon reference, since a null reference throws into the method's catch-all (`SuiteAndroidInstaller.verifyInstallation`, `ReferenceManager.DeriveReference`); the order is the runtime's hash-table order over entry ids, which Nova does not model per Android version, so Nova refuses every entry slot the check reaches in some order, while an icon on an entry or menu with no audio is never checked, and neither is any menu once some entry lacks either reference, and those stay with the row above; from step 7, which holds both, the validator refuses the combination",
+		"subject": "missing-media-files",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4494,6 +4547,7 @@
 		"surfaceKeys": ["media-class:CommCareMultimedia"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (VELLUM_PRINTING; only a print callout reads it)",
+		"subject": "print-templates",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -4551,7 +4605,7 @@
 		"id": "expressions-and-data/table-tag-in-nova-s-grammar",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
-		"item": "table `tag` in Nova's grammar",
+		"item": "table `tag` matching `^[A-Za-z_][A-Za-z0-9_]*$`",
 		"surfaceKeys": [
 			"lookup-model:LookupTable.tag",
 			"lookup-model:LookupTable.unique(domain,tag)",
@@ -4582,7 +4636,7 @@
 		"id": "expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any",
 		"area": "expressions-and-data",
 		"section": "Lookup tables",
-		"item": "`tag` or field name with `-`, `.`, non-ASCII letters, or starting `xml` in any case other than all lowercase, or equal to a Nova-reserved instance name other than `casedb`/`ledgerdb`",
+		"item": "`tag` or field name with `-`, or starting `xml` in any case other than all lowercase, over unaccented letters and holding no `.`",
 		"surfaceKeys": [
 			"lookup-model:LookupTable.tag",
 			"lookup-model:TypeField.name",
@@ -4591,15 +4645,112 @@
 			"lookup-code:corehq/apps/fixtures/utils.py::is_identifier_invalid",
 			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
-		"valueClass": "hq-grammar",
+		"valueClass": "ascii-hyphen-or-uppercase-xml",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: widen: HQ's grammar, an XML name without a colon that does not start with lowercase `xml` (`fixtures/utils.py::is_identifier_invalid`, which asks lxml whether `Element(name)` is valid), any name HQ accepts, held verbatim; the row below refuses one Core's XPath cannot read where an expression reads it",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "HQ's grammar, an XML name without a colon that does not start with lowercase `xml` (`fixtures/utils.py::is_identifier_invalid`, which asks lxml whether `Element(name)` is valid), any name HQ accepts, held verbatim; the row below refuses one Core's XPath cannot read where an expression reads it"
+		"dispositionCell": "**HELD**: `LookupTable.tag`, a column's wire name, held verbatim",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "verbatim in the workbook, the fixture and every read",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-or-field-name-holding-a-period",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` or field name holding `.`, over unaccented letters",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name",
+			"lookup-workbook:table_id",
+			"lookup-workbook:field",
+			"lookup-code:corehq/apps/fixtures/utils.py::is_identifier_invalid",
+			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
 		],
+		"valueClass": "holding-a-period",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a name HQ's table page accepts and Core reads, which HQ's build rewrites or refuses where a filter, a display condition or a required condition reads it: an unquoted `.` there is the current case (`xpath.py::dot_interpolate`)",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "verbatim in the workbook; in the XForm the instance id is made unique (`commcaresession-1`) where it would equal an instance the form declares, as Vellum does (`form.js::addInstanceIfNotExists`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-equal-to-an-instance-name-commcare-owns",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` equal to `commcaresession`, `locations`, `results`, `input`, `search_selected_cases` or a `selected_cases` instance name",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name",
+			"lookup-workbook:table_id",
+			"lookup-workbook:field",
+			"lookup-code:corehq/apps/fixtures/utils.py::is_identifier_invalid",
+			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
+		],
+		"valueClass": "reserved-instance-name",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a table whose instance id in a form differs from its tag, as the form builder makes it (`form.js::addInstanceIfNotExists`)",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "verbatim in the workbook; in the XForm the instance id is made unique (`commcaresession-1`) where it would equal an instance the form declares, as Vellum does (`form.js::addInstanceIfNotExists`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-or-field-name-with-non-ascii-letters",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` or field name with non-ASCII letters, every character one Core reads as a name character, or read by no expression",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name",
+			"lookup-workbook:table_id",
+			"lookup-workbook:field",
+			"lookup-code:corehq/apps/fixtures/utils.py::is_identifier_invalid",
+			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
+		],
+		"valueClass": "non-ascii-name",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: HQ's grammar over every XML name (`fixtures/utils.py::is_identifier_invalid`), which needs a name token proven on each runtime's Unicode tables; the row below refuses a name Core's XPath cannot read where an expression reads it",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4628,6 +4779,7 @@
 		"valueClass": "core-unreadable-name",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core reads a name one UTF-16 unit at a time, only upper- or lowercase letters or `_` first, then those, decimal digits, `.` and `-` (`Lexer.matchNCName`), so an expression reading through that name does not parse, and a form holding one does not load (executed)",
+		"subject": "lookup-tables",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4653,6 +4805,8 @@
 		"valueClass": "types",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no push can carry it (Nova refuses it today, `lib/export/boundaryValidation.ts::lookupHqReservedTagFindings`), though HQ's table editor accepts the tag",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4678,6 +4832,7 @@
 		"valueClass": "contains-casedb-or-ledgerdb",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: `generateRoot` matches the substring first and serves the case or ledger database",
+		"subject": "lookup-tables",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4710,6 +4865,8 @@
 		"valueClass": "field-properties",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `LookupColumn.properties` + multi-valued cells",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4739,6 +4896,8 @@
 		"valueClass": "row-attributes",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `LookupTable.rowAttributes`",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4774,6 +4933,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `LookupTable.ownership`; the owners themselves are the project space's users, groups and locations",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4804,6 +4965,8 @@
 		"valueClass": "field-indexed",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `LookupColumn.indexed`",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4880,6 +5043,8 @@
 		"valueClass": "cell-absence",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`)",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4931,6 +5096,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: import-sized tables. HQ caps one workbook upload at 500,000 rows over all its sheets, the types sheet and header rows included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, `WorkbookJSONReader`); Nova splits a push into workbooks under that cap (today it refuses an over-cap workbook, `lib/export/boundaryValidation.ts`), which HQ allows because a workbook leaves tables it does not name alone (`run_upload.py` processes tables with `delete_missing=False`), and a table too large for one workbook can be referenced but not adopted",
+		"subject": "lookup-tables",
+		"owner": "project-data-at-hq-size",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

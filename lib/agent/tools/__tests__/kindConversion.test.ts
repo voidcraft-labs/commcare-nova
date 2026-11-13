@@ -211,7 +211,7 @@ describe("editField — convert to single_select", () => {
 		expect(h.currentDoc()).toEqual(doc);
 	});
 
-	it("rejects a one-option source at the tool input schema", () => {
+	it("admits a one-option source and refuses an empty one at the tool input schema", () => {
 		const doc = makeDoc({
 			id: "facility",
 			kind: "text",
@@ -224,19 +224,16 @@ describe("editField — convert to single_select", () => {
 				optionsSource: toolInlineOptions(["only", "Only"]),
 			},
 		};
-		expect(editFieldInputSchema.safeParse(base).success).toBe(false);
+		expect(editFieldInputSchema.safeParse(base).success).toBe(true);
 		expect(
 			editFieldInputSchema.safeParse({
 				...base,
 				updates: {
 					...base.updates,
-					optionsSource: toolInlineOptions(
-						["only", "Only"],
-						["other", "Other"],
-					),
+					optionsSource: toolInlineOptions(),
 				},
 			}).success,
-		).toBe(true);
+		).toBe(false);
 	});
 });
 

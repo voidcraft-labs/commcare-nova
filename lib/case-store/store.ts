@@ -681,8 +681,7 @@ export type CalculatedValue = JsonValue | Date;
  *      matching in the truncation prefix would collide on the
  *      same wire alias. `query` defends with a pre-projection
  *      byte-length check that throws a `compilerBugMessage`
- *      naming the over-cap alias — same shape as the `indexName`
- *      defense under `applySchemaChange`.
+ *      naming the over-cap alias.
  */
 export type CaseRowWithCalculated = CaseRow & {
 	readonly calculated: Readonly<Record<string, CalculatedValue>>;

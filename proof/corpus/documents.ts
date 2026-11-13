@@ -36,7 +36,10 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
-import { DEFAULT_EXPRESSION_SAMPLE_SIZE } from "./defaults";
+import {
+	DEFAULT_ADVANCED_SAMPLE_SIZE,
+	DEFAULT_EXPRESSION_SAMPLE_SIZE,
+} from "./defaults";
 import type { UploadedMedia } from "./publish";
 
 /** Where a corpus document comes from. */
@@ -77,7 +80,12 @@ export type CorpusSource =
 	  };
 
 /** Independent compiler fuzz streams the corpus samples. */
-export const FUZZ_GENERATORS = ["xform", "suite", "expression"] as const;
+export const FUZZ_GENERATORS = [
+	"xform",
+	"suite",
+	"expression",
+	"advanced",
+] as const;
 export type FuzzGenerator = (typeof FUZZ_GENERATORS)[number];
 
 /** One admitted document with what Nova's publish reads beside it. */
@@ -477,7 +485,8 @@ export function fuzzDocumentId(
 /**
  * How many of a sample of `size` each generator draws: the first half (the
  * larger, for an odd size) from the XForm generator, the rest from the suite
- * generator, plus the separate expression sample. Each generator's draws in a smaller sample are a prefix of its
+ * generator, plus the separate expression and advanced samples, each a stream
+ * of its own. Each generator's draws in a smaller sample are a prefix of its
  * draws in a larger one, so a smaller sample is a subset of every larger one
  * (not a prefix of it: the XForm draws come first).
  */
@@ -486,6 +495,7 @@ export function fuzzSplit(size: number): Record<FuzzGenerator, number> {
 		xform: Math.ceil(size / 2),
 		suite: Math.floor(size / 2),
 		expression: DEFAULT_EXPRESSION_SAMPLE_SIZE,
+		advanced: DEFAULT_ADVANCED_SAMPLE_SIZE,
 	};
 }
 

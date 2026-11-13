@@ -23,13 +23,18 @@ import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
 import { caseListMenuItem } from "./documents/caseListMenuItems";
 import { caseListSearchTextDocument } from "./documents/caseListSearchText";
+import { caseTypeNames } from "./documents/caseTypeNames";
+import { caseWriteNames } from "./documents/caseWriteNames";
 import { caseWritesOneConcept } from "./documents/caseWritesOneConcept";
+import { choiceValues } from "./documents/choiceValues";
 import {
 	closeConditions,
 	closeConditionUnparsable,
 } from "./documents/closeConditions";
 import {
+	connectDeliverHyphenIds,
 	connectDeliverRename,
+	connectLearnHyphenIds,
 	connectLearnRename,
 } from "./documents/connectApps";
 import { csqlComposition } from "./documents/csqlComposition";
@@ -62,10 +67,12 @@ import { hiddenCalculatedColumn, hiddenColumn } from "./documents/hiddenColumn";
 import { hiddenFromMenu } from "./documents/hiddenFromMenu";
 import { hqSideLookup } from "./documents/hqSideLookup";
 import { hqSideState } from "./documents/hqSideState";
+import { hyphenatedQuestionIds } from "./documents/hyphenatedQuestionIds";
 import { inlineSearchReads } from "./documents/inlineSearchReads";
 import { instanceReads } from "./documents/instanceReads";
 import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
+import { lookupNames } from "./documents/lookupNames";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
 import {
@@ -104,6 +111,7 @@ import {
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
+import { searchFieldNames } from "./documents/searchFieldNames";
 import {
 	searchWorkflow,
 	searchWorkflowAndroid,
@@ -216,6 +224,14 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	formLinkChain,
 	formLinkCarriedCase,
 	formLinkOtherwise,
+	hyphenatedQuestionIds,
+	caseTypeNames,
+	choiceValues,
+	lookupNames,
+	searchFieldNames,
+	caseWriteNames,
+	connectDeliverHyphenIds,
+	connectLearnHyphenIds,
 ];
 
 /** Every targeted document, in a fixed order. */

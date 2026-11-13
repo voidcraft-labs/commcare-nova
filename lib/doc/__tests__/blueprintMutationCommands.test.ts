@@ -1163,7 +1163,7 @@ describe("Builder mutation commands", () => {
 			expect(converted?.id).toBe("a");
 		});
 		it("seeds the starter option pair on text → single_select", () => {
-			// The select schemas require `.min(2)` options the text source
+			// The select schemas require `.min(1)` options the text source
 			// can't carry, and the convert menu has no option-authoring step —
 			// the hook attaches the same starter pair a picker-inserted select
 			// gets, fully minted (uuid + order) at dispatch so the reducer

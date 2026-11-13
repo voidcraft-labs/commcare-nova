@@ -1257,7 +1257,7 @@ function createMutationSchema({
 			toKind: z.enum(fieldKinds),
 			// Born options for a conversion INTO a select kind from a kind with
 			// no options slot (text → single_select) — the select schemas
-			// require `.min(2)` options the source can't carry, so the
+			// require `.min(1)` options the source can't carry, so the
 			// reducer's reconcile would otherwise always fail. UUIDs are minted
 			// at the batch-building layer so the reducer stays deterministic for
 			// replay and peers. Ignored when the target kind has no options slot.
@@ -1656,8 +1656,8 @@ function createMutationSchema({
 		// A select field's `options` array IS the sequence, keyed by per-option
 		// `uuid` for identity. The reducers rewrite `options` on the draft and
 		// never re-parse the field through `fieldSchema`, so a `removeOption`
-		// dropping below two options reaches the commit gate as a sub-2 candidate
-		// (`SELECT_TOO_FEW_OPTIONS`).
+		// that takes the last option reaches the commit gate as a select with
+		// no options (`SELECT_NO_OPTIONS`).
 		z.object({
 			kind: z.literal("addOption"),
 			fieldUuid: uuidSchema,

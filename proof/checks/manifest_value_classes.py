@@ -2055,6 +2055,25 @@ def reserved_word_on_a_basic_module(use, manifest):
     return basic and module.get("case_type") in RESERVED_CASE_TYPES
 
 
+# What the menu settings page admits as a case type (`app_manager.js::valueIncludeInvalidCharacters`, the
+# browser's ASCII `^[\w-]*$`, after the page turns each space into `_`).
+MENU_PAGE_CASE_TYPE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def case_type_outside_the_menu_page(use, manifest):
+    """``menus-and-case-lists/case-type-outside-the-menu-page-s-grammar``: a module whose case type is not empty and
+    holds a character the menu settings page marks an error, though the server's check admits any Unicode word
+    character (``util.py::is_valid_case_type``)."""
+    at = _json(use)
+    if at is None:
+        return None
+    module = at.nearest(*MODULES)
+    if module is None:
+        return None
+    case_type = module.get("case_type") or ""
+    return bool(case_type) and MENU_PAGE_CASE_TYPE.fullmatch(case_type) is None
+
+
 def _slugify(value):
     """Django's ``slugify`` (``django/utils/text.py``, ``allow_unicode=False``), which HQ checks an endpoint id
     against (``views/utils.py::get_cleaned_session_endpoint_id``)."""
@@ -6822,6 +6841,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/case-type-commcare-user-or-user-owner-mapping-case-on-a-basic": (
         reserved_word_on_a_basic_module
     ),
+    "menus-and-case-lists/case-type-outside-the-menu-page-s-grammar": case_type_outside_the_menu_page,
     "menus-and-case-lists/module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed": not_a_slugify_fixed_point,
     "menus-and-case-lists/two-endpoints-sharing-an-id-module-case-list-form-or-mirror-form": (
         shared_with_another_endpoint

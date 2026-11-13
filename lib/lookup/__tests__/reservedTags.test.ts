@@ -22,6 +22,9 @@ describe("lookup instance tag admission", () => {
 		"selected_cases_patient",
 		"parent_selected_cases",
 		"parent_parent_selected_cases_a",
+		"selected_cases_1",
+		"selected_cases__patient",
+		"selected_cases_1st-visit",
 		"search_selected_cases",
 		"Selected_Cases",
 		"PARENT_SELECTED_CASES_PATIENT",
@@ -41,8 +44,6 @@ describe("lookup instance tag admission", () => {
 	});
 	it.each([
 		"selected_cases_",
-		"selected_cases_1",
-		"selected_cases__patient",
 		"parent_search_selected_cases",
 		"my_selected_cases",
 		"selected_case",

@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import { externalUserPropertyNameSchema } from "./externalUserProperty";
+import { caseReferenceText } from "./hashtagSegments";
 import { type ReferenceNamesDoc, referenceNames } from "./referenceNames";
 import { uuidSchema } from "./uuid";
 
@@ -194,7 +195,7 @@ export function projectProseTemplate(
 				break;
 			}
 			case "case-ref":
-				out += `#${part.caseType}/${part.property}`;
+				out += caseReferenceText(part.caseType, part.property);
 				break;
 			case "user-property-ref": {
 				const slug = ctx.userPropertySlug(part.userPropertyUuid);
@@ -263,7 +264,7 @@ export function resolveProseTemplate(
 				}
 				break;
 			case "case-ref":
-				out += evaluate(`#${part.caseType}/${part.property}`);
+				out += evaluate(caseReferenceText(part.caseType, part.property));
 				break;
 			case "user-property-ref": {
 				const slug = ctx.userPropertySlug(part.userPropertyUuid);

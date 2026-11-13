@@ -299,8 +299,8 @@ describe("caseSaveReferences over hand-built trees", () => {
 	it("throws on a bind whose nodeset is no data path, rather than leave its leaf unlisted", () => {
 		const tree = handBuilt([el("update", {}, [el("bound", {})])], {
 			"/data/visit/case/update/bound": "/data/note",
-			"/data/visit/case/update/bad-name": "/data/note",
+			"/data/visit/case/update/1st-name": "/data/note",
 		});
-		expect(() => caseSaveReferences(tree)).toThrow(/bad-name/);
+		expect(() => caseSaveReferences(tree)).toThrow(/1st-name/);
 	});
 });

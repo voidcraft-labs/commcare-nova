@@ -26,6 +26,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { caseReferenceText } from "@/lib/domain/hashtagSegments";
 import { PLATFORMS, platformRefusalMessage } from "@/lib/domain/platforms";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { FIELD_REFERENCE_SLOTS } from "@/lib/domain/referenceSlots";
@@ -331,7 +332,7 @@ export function formLogicFinding(
 			) {
 				code = "CASE_HASHTAG_ON_CREATE_FORM";
 				details = {
-					hashtag: `#${term.caseType}/${term.property}`,
+					hashtag: caseReferenceText(term.caseType, term.property),
 					surface: ctx.slot.slot,
 				};
 				message = `The new ${term.caseType} record has no saved ${term.property} yet. Read the answer from its question instead.`;

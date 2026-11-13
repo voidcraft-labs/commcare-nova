@@ -16,6 +16,9 @@ import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
 	BUILT_IN_USER_PROPERTIES,
 	caseRefAcceptMap,
+	caseReferenceNamespaceType,
+	caseReferencePrefix,
+	caseReferenceText,
 	type FieldKind,
 	fieldKinds,
 	fieldRegistry,
@@ -25,6 +28,7 @@ import {
 	type ProseTemplate,
 	projectProseTemplate,
 	type ReferenceNamesDoc,
+	readCaseReference,
 	type Uuid,
 } from "@/lib/domain";
 import { classifyNamespace } from "./config";
@@ -33,7 +37,9 @@ import type { Reference, ReferenceType } from "./types";
 /**
  * The pure (no-lookup) parse of a `#namespace/path` string. The namespace is
  * the token between `#` and the first `/`: `form` / `user` are the fixed
- * families; any other identifier is a case type, captured on `caseType`.
+ * families; a record reference (`#<type>/<property>` or
+ * `#record/<type>/<property>`, `hashtagSegments.ts::readCaseReference`)
+ * carries its case type on `caseType`.
  */
 export type ParsedReference =
 	| { type: "form"; path: string }
@@ -152,8 +158,10 @@ export class ReferenceProvider {
 
 	/**
 	 * Search references in a namespace, filtered by a partial query. Powers
-	 * autocomplete in both CodeMirror and TipTap surfaces. `namespace` is
-	 * `"form"`, `"user"`, or a case-type name. `user` needs no form scope;
+	 * autocomplete in both CodeMirror and TipTap surfaces. `namespace` is a
+	 * token `namespaces` gives: `"form"`, `"user"`, or the text between `#` and
+	 * a record type's property (`mother`, or `record/user` for a type named
+	 * like a fixed namespace). `user` needs no form scope;
 	 * `form` and case namespaces resolve against `formUuid`'s context. Case
 	 * results are narrowed by the same `accept` map the validator uses, so the
 	 * autocomplete never offers a ref the validator would reject.
@@ -230,19 +238,21 @@ export class ReferenceProvider {
 		// Case namespace — only the properties the accept map admits for this
 		// form (registration narrows the own type to `case_id`). Labels come
 		// from the full reachable index.
-		const allowed = cache.accept.get(namespace);
+		const caseType = caseReferenceNamespaceType(namespace);
+		if (caseType === undefined) return [];
+		const allowed = cache.accept.get(caseType);
 		if (!allowed) return [];
-		const typeEntry = cache.ctx.reachableCaseTypes?.get(namespace);
+		const typeEntry = cache.ctx.reachableCaseTypes?.get(caseType);
 		const results: Reference[] = [];
 		for (const name of allowed) {
 			if (name.toLowerCase().includes(lowerQuery)) {
 				results.push({
 					type: "case",
-					caseType: namespace,
+					caseType,
 					path: name,
 					label: typeEntry?.properties.get(name)?.label ?? name,
-					raw: `#${namespace}/${name}`,
-					part: { kind: "case-ref", caseType: namespace, property: name },
+					raw: caseReferenceText(caseType, name),
+					part: { kind: "case-ref", caseType, property: name },
 				});
 			}
 		}
@@ -389,7 +399,7 @@ export class ReferenceProvider {
 				cache.ctx.reachableCaseTypes
 					?.get(part.caseType)
 					?.properties.get(part.property)?.label ?? part.property,
-			raw: `#${part.caseType}/${part.property}`,
+			raw: caseReferenceText(part.caseType, part.property),
 			part,
 		};
 	}
@@ -435,22 +445,30 @@ export class ReferenceProvider {
 	/**
 	 * The namespaces offered at the `#`-stage of autocomplete for a form:
 	 * always `form` + `user`, plus one per case type the `accept` map admits
-	 * (so a registration form offers only its own type, never ancestors).
-	 * Returns just `form`/`user` when no form scope is supplied.
+	 * (so a registration form offers only its own type, never ancestors),
+	 * each spelled as its reference text spells it before the property
+	 * (`hashtagSegments.ts::caseReferencePrefix`, without `#` and the last
+	 * `/`). Returns just `form`/`user` when no form scope is supplied.
 	 */
 	namespaces(formUuid?: string): string[] {
 		const base = ["form", "user"];
 		if (!formUuid) return base;
 		const cache = this.ensureCache(formUuid);
 		if (!cache) return base;
-		return [...base, ...cache.accept.keys()];
+		return [
+			...base,
+			...[...cache.accept.keys()].map((caseType) =>
+				caseReferencePrefix(caseType).slice(1, -1),
+			),
+		];
 	}
 
 	/**
 	 * Parse a raw `#namespace/path` string into its namespace + path. Pure
 	 * string parsing — no blueprint lookup. The namespace must be a legal
-	 * identifier; `classifyNamespace` decides the family (`form`/`user` fixed,
-	 * anything else a case type carried on `caseType`).
+	 * segment; `classifyNamespace` decides the family, and a case family's
+	 * type and property are `readCaseReference`'s, so `#case/…`, `#search/…`,
+	 * `#row/…` and a one-segment `#record/…` are no reference in prose.
 	 */
 	static parse(raw: string): ParsedReference | null {
 		if (!raw.startsWith("#")) return null;
@@ -458,15 +476,14 @@ export class ReferenceProvider {
 		if (slashIdx < 0) return null;
 		const ns = raw.slice(1, slashIdx);
 		if (!NAMESPACE_RE.test(ns)) return null;
-		// `case` is CommCare-private projection vocabulary, never an authored
-		// Nova namespace. Canonical case refs name their actual case type.
-		if (ns === "case") return null;
 		const path = raw.slice(slashIdx + 1);
 		if (!path) return null;
 		const family = classifyNamespace(ns);
-		return family === "case"
-			? { type: "case", caseType: ns, path }
-			: { type: family, path };
+		if (family !== "case") return { type: family, path };
+		const read = readCaseReference(ns, path.split("/"));
+		return read === undefined
+			? null
+			: { type: "case", caseType: read.caseType, path: read.property };
 	}
 
 	// ── Private helpers ──────────────────────────────────────────────────
@@ -527,7 +544,7 @@ export function unresolvedReferenceProjection(
 				kind: "unresolved-reference",
 				referenceKind: part.kind,
 				type: "case",
-				repairText: `#${part.caseType}/[reference needs repair]`,
+				repairText: `${caseReferencePrefix(part.caseType)}[reference needs repair]`,
 			};
 		case "user-property-ref":
 			return {

@@ -7,6 +7,7 @@
 
 import {
 	CASE_LOADING_FORM_TYPES,
+	caseReferenceText,
 	caseSelectionCardinality,
 	type Field,
 	type FieldCaseWriteView,
@@ -23,14 +24,14 @@ import {
  * The worker's own record is `#user/`, NOT `#commcare-user/`: `#user/` is the
  * namespace `lib/commcare/hashtags.ts` resolves, and `commcare-user` is a case
  * type nothing ever asks an author to name. Every other destination is its own
- * case type. One function because the chooser row and the chosen-state summary
+ * case type, spelled as reference text spells it (`caseReferenceText`). One function because the chooser row and the chosen-state summary
  * both print this, and printing the same destination two ways reads as two
  * different places to save.
  */
 export function destinationRef(caseType: string, property: string): string {
 	return caseType === USERCASE_CASE_TYPE
 		? `#user/${property}`
-		: `#${caseType}/${property}`;
+		: caseReferenceText(caseType, property);
 }
 
 export interface CaseWriteGuidance {

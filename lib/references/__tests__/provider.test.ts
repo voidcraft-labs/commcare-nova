@@ -187,9 +187,25 @@ describe("ReferenceProvider.parse — namespace classification", () => {
 	});
 
 	it("rejects a malformed namespace or empty path", () => {
-		expect(ReferenceProvider.parse("#1bad/x")).toBeNull();
+		expect(ReferenceProvider.parse("#b@d/x")).toBeNull();
 		expect(ReferenceProvider.parse("#mother/")).toBeNull();
 		expect(ReferenceProvider.parse("#case/name")).toBeNull();
+		expect(ReferenceProvider.parse("#search/name")).toBeNull();
+		expect(ReferenceProvider.parse("#row/name")).toBeNull();
+		expect(ReferenceProvider.parse("#record/name")).toBeNull();
+	});
+
+	it("reads a record type's short form and #record/<type>/<property>", () => {
+		expect(ReferenceProvider.parse("#1st-visit/age")).toEqual({
+			type: "case",
+			caseType: "1st-visit",
+			path: "age",
+		});
+		expect(ReferenceProvider.parse("#record/case/region")).toEqual({
+			type: "case",
+			caseType: "case",
+			path: "region",
+		});
 		expect(ReferenceProvider.parse("no-hash")).toBeNull();
 	});
 });
@@ -437,5 +453,48 @@ describe("ReferenceProvider.resolve — per-case-type scoping", () => {
 			"user",
 			"pregnancy",
 		]);
+	});
+});
+
+describe("ReferenceProvider — record types named for a fixed word", () => {
+	const caseTypes: CaseType[] = [
+		{
+			name: "user",
+			parent_type: "case",
+			properties: [{ name: "region", label: proseText("Region") }],
+		},
+		{
+			name: "case",
+			properties: [{ name: "region", label: proseText("Region") }],
+		},
+	];
+	const provider = new ReferenceProvider((formUuid) =>
+		formUuid === "visit" ? caseCtx("visit", "user", caseTypes) : undefined,
+	);
+
+	it("offers each type as its reference text spells it, apart from the fixed namespaces", () => {
+		expect(provider.namespaces("visit")).toEqual([
+			"form",
+			"user",
+			"record/user",
+			"record/case",
+		]);
+	});
+
+	it("searches, resolves and prints a type named case as #record/case/", () => {
+		const [region] = provider
+			.search("record/case", "reg", "visit")
+			.filter((reference) => reference.path === "region");
+		expect(region).toMatchObject({
+			type: "case",
+			caseType: "case",
+			raw: "#record/case/region",
+			part: { kind: "case-ref", caseType: "case", property: "region" },
+		});
+		expect(provider.resolve("#record/case/region", "visit")).toMatchObject({
+			caseType: "case",
+			raw: "#record/case/region",
+		});
+		expect(provider.resolve("#case/region", "visit")).toBeNull();
 	});
 });

@@ -22,6 +22,13 @@
  *   holding both.
  * - `targeted-connect-learn-rename`: one form holding a learn module and an
  *   assessment scored by an answer.
+ * - `targeted-connect-deliver-hyphen-ids` and
+ *   `targeted-connect-learn-hyphen-ids`: the same two apps, every id holding
+ *   a hyphen (`home-visit`, `follow-up`; `intro-module`, `intro-check`), with
+ *   an edit that renames each to another hyphenated id. A Connect block id
+ *   follows the question ID grammar, hyphen included, so these show what
+ *   HQ's build and the form builder's two saves make of such a block, and a
+ *   renamed hyphenated id left behind (proof 5).
  *
  * No id is one of the names Connect's receiver looks for at any depth of a
  * submission (`module`, `assessment`, `deliver`, `task`,
@@ -41,8 +48,13 @@ import { formField, term } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
-export function connectDeliverRename() {
-	const id = "targeted-connect-deliver-rename";
+/** A deliver app named `id`: the deliver unit and task ids D holds, then the ids D′ renames them to. */
+function deliverApp(
+	id: string,
+	ids: readonly [deliverUnit: string, task: string],
+	renamed: readonly [deliverUnit: string, task: string],
+	rows: readonly string[],
+) {
 	const uuid = (name: string) => targetedUuid(id, name);
 	const form = uuid("form");
 	const task = { name: "Follow up", description: "Return within a week." };
@@ -94,17 +106,41 @@ export function connectDeliverRename() {
 		});
 	return targetedDocument({
 		id,
-		rows: ["15, Connect ids (Connect's receiver)"],
-		doc: make("home_visit", "follow_up"),
-		edit: make("household_visit", "return_visit"),
+		rows,
+		doc: make(...ids),
+		edit: make(...renamed),
 		expected: {
 			intent: [answerHeld("household-held", form, "/data/household", "Okoye")],
 		},
 	});
 }
 
-export function connectLearnRename() {
-	const id = "targeted-connect-learn-rename";
+export function connectDeliverRename() {
+	return deliverApp(
+		"targeted-connect-deliver-rename",
+		["home_visit", "follow_up"],
+		["household_visit", "return_visit"],
+		["15, Connect ids (Connect's receiver)"],
+	);
+}
+
+/** The deliver app with ids that hold hyphens, and an edit that renames both. */
+export function connectDeliverHyphenIds() {
+	return deliverApp(
+		"targeted-connect-deliver-hyphen-ids",
+		["home-visit", "follow-up"],
+		["household-visit", "return-visit"],
+		["names, a Connect block ID holding a hyphen"],
+	);
+}
+
+/** A learn app named `id`: the learn module and assessment ids D holds, then the ids D′ renames them to. */
+function learnApp(
+	id: string,
+	ids: readonly [learnModule: string, assessment: string],
+	renamed: readonly [learnModule: string, assessment: string],
+	rows: readonly string[],
+) {
 	const uuid = (name: string) => targetedUuid(id, name);
 	const form = uuid("form");
 	const make = (learnModule: string, assessment: string) => {
@@ -153,11 +189,30 @@ export function connectLearnRename() {
 	};
 	return targetedDocument({
 		id,
-		rows: ["15, Connect ids (Connect's receiver)"],
-		doc: make("hand_washing", "hand_washing_quiz"),
-		edit: make("washing_hands", "washing_hands_quiz"),
+		rows,
+		doc: make(...ids),
+		edit: make(...renamed),
 		expected: {
 			intent: [answerHeld("score-held", form, "/data/score", "8")],
 		},
 	});
+}
+
+export function connectLearnRename() {
+	return learnApp(
+		"targeted-connect-learn-rename",
+		["hand_washing", "hand_washing_quiz"],
+		["washing_hands", "washing_hands_quiz"],
+		["15, Connect ids (Connect's receiver)"],
+	);
+}
+
+/** The learn app with ids that hold hyphens, and an edit that renames both. */
+export function connectLearnHyphenIds() {
+	return learnApp(
+		"targeted-connect-learn-hyphen-ids",
+		["intro-module", "intro-check"],
+		["intro-module-2", "intro-check-2"],
+		["names, a Connect block ID holding a hyphen"],
+	);
 }

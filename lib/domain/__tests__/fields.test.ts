@@ -94,20 +94,24 @@ describe("field schema admission", () => {
 	});
 
 	it.each(["single_select", "multi_select"])(
-		"requires at least two inline options for %s",
+		"requires at least one inline option for %s",
 		(kind) => {
 			const valid = { ...identity, kind, label, optionsSource };
 			expect(fieldSchema.parse(valid)).toEqual(valid);
-			for (const count of [0, 1])
-				expect(
-					fieldSchema.safeParse({
-						...valid,
-						optionsSource: {
-							...optionsSource,
-							options: optionsSource.options.slice(0, count),
-						},
-					}).success,
-				).toBe(false);
+			const oneOption = {
+				...valid,
+				optionsSource: {
+					...optionsSource,
+					options: optionsSource.options.slice(0, 1),
+				},
+			};
+			expect(fieldSchema.parse(oneOption)).toEqual(oneOption);
+			expect(
+				fieldSchema.safeParse({
+					...valid,
+					optionsSource: { ...optionsSource, options: [] },
+				}).success,
+			).toBe(false);
 		},
 	);
 

@@ -1,4 +1,5 @@
 import { isDateFormatPreset, resolveCommCareDatePattern } from "../dateFormats";
+import { caseReferenceText } from "../hashtagSegments";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
 import type { Uuid } from "../uuid";
 import { expressionChildPath } from "./children";
@@ -386,7 +387,7 @@ function printWith(
 					);
 				break;
 			case "form-case":
-				emit(`#${term.caseType}/${term.property}`);
+				emit(caseReferenceText(term.caseType, term.property));
 				break;
 			case "input": {
 				const name = named(ctx.searchInputName?.(term.searchInputUuid), path);

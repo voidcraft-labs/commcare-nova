@@ -228,14 +228,14 @@ export const projectedSelectOptionSchema = z.strictObject({
 
 /**
  * One canonical projected select-source contract shared by add_fields,
- * create_form, create_module, and edit_field. The lookup arm is the stored
+ * edit_field and set_field_options_source. The lookup arm is the stored
  * canonical identity shape; no table/column UUID aliases are admitted.
  */
 export const projectedOptionsSourceSchema = z
 	.discriminatedUnion("kind", [
 		z.strictObject({
 			kind: z.literal("inline"),
-			options: z.array(projectedSelectOptionSchema).min(2),
+			options: z.array(projectedSelectOptionSchema).min(1),
 		}),
 		lookupOptionsSourceSchema,
 		caseOptionsSourceSchema,
@@ -454,11 +454,10 @@ function gateHiddenValueSources(
 }
 
 /**
- * The `addFields` item shape (also embedded by `createForm` / `createModule`
- * for their `fields` arrays). Each item carries an optional stable `fieldUuid`
+ * The `addFields` item shape. Each item carries an optional stable `fieldUuid`
  * plus a `parentUuid`, so same-call construction uses the final identity
  * vocabulary. The kind policy enforces per-kind requiredness the
- * flat shape can't state: a non-empty `label` on every visible kind, ≥2
+ * flat shape can't state: a non-empty `label` on every visible kind, ≥1
  * `options` on the selects (case-bound fields exempt from both floors —
  * their catalog record seeds canonical label and choice catalog), a `repeat`
  * config on `repeat` —
@@ -526,7 +525,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			}
 			// Missing optionsSource is fine on a case-bound field (the record's
 			// list seeds an inline source). A stated inline arm is already
-			// structurally required to carry at least two complete options.
+			// structurally required to carry at least one complete option.
 			if (
 				fieldKindDeclaresKey(item.kind, "optionsSource") &&
 				item.optionsSource == null &&

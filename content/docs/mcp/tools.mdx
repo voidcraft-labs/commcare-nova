@@ -116,9 +116,10 @@ Machine-authored inline choices have exactly
 `{ "optionUuid"?: "...", "value": "...", "label": "Wording" }`.
 A choice's `value` is the answer the app stores, not its wording: a lowercase
 slug with words joined by underscores (`prefer_not_to_say`), unique within the
-field and kept stable once data exists. It can't hold spaces, quotes, or
-apostrophes, because the device refuses a choice value with a space in it and a
-multi-select answer is a space-separated list of these values. The wording
+field and kept stable once data exists. It can't hold spaces, because the
+device refuses a choice value with a space in it and a multi-select answer is a
+space-separated list of these values, and it can't hold both an apostrophe and
+a double quote. The wording
 people read goes in `label`. A value that breaks that shape is refused at the
 tool's input schema, and the refusal restates the shape; an app that already
 holds such a value fails validation with a finding that names the
@@ -1053,7 +1054,7 @@ design still depends on the resource; there is no force option.
 
 `set_field_options_source` replaces one single- or multiple-choice field's
 complete source. A lookup source names the table, saved-value column, and
-display column by UUID. An inline source carries at least two options, each with
+display column by UUID. An inline source carries at least one option, each with
 a value and label; `optionUuid` is optional for new choices. Keep the identities
 of retained choices when editing. Switching source kinds is a complete
 replacement; the previous source is not retained.
@@ -1088,8 +1089,8 @@ consume an earlier create by UUID when the producer declares `operationUuid`;
 the complete list is checked and saved atomically.
 
 Operation ids and link identifiers contain letters, numbers, and underscores
-and start with a letter or underscore. Write-property names use the same
-characters and start with a letter.
+and start with a letter or underscore. Write-property names start with a letter
+and can also hold hyphens.
 Three names are taken, because CommCare HQ's form builder can't open a form that
 holds them: `instance`, `bind` and `parsererror`. A link identifier can't be
 `close` or `create`, and a write can't save a property named `close`, because

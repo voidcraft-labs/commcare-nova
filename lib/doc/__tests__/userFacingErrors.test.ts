@@ -417,7 +417,9 @@ describe("userFacingError — voice", () => {
 		expect(render("", "empty")).not.toContain('""');
 		expect(render(" ", "whitespace")).toContain('" "');
 		expect(render("a\tb", "whitespace")).toContain('"a\\tb"');
-		expect(render("don't", "quote")).toContain("quote mark");
+		expect(render(`it's "x"`, "both-quotes")).toContain(
+			"holds both an apostrophe and a double quote",
+		);
 		expect(render("", "empty")).toContain('"not_applicable"');
 	});
 

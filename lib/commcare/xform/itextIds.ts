@@ -16,12 +16,16 @@ const roles = [
 	["validate_msg", "field-validation-message", "constraintMsg"],
 ] as const;
 
-/** Logical ancestry, without generated query-repeat item nodes. */
+/** Logical ancestry, without generated query-repeat item nodes. A hyphen an id
+ * holds is written twice, so the single hyphen between two ids and before a
+ * role stays a separator and two fields never share a key. */
 export function fieldItextKey(
 	form: FormStructure,
 	fieldUuid: Uuid,
 ): string | undefined {
-	return formFieldPath(form, fieldUuid)?.join("-");
+	return formFieldPath(form, fieldUuid)
+		?.map((segment) => segment.replaceAll("-", "--"))
+		.join("-");
 }
 
 const indexes = new WeakMap<FormStructure, ReadonlyMap<string, ItextUnit>>();

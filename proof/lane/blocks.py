@@ -25,7 +25,7 @@ control (``control:<id>``), one piece of either (``corpus:<id>@<configuration>``
 package (``proof``, ``proof/<package>``), of one test module a package's
 group splits off (``proof/<package>/<module>.py``) or one test of it
 (``proof/<package>/<module>.py::<test>``, ``proof.checks.sharding.SPLIT``),
-the surface block (``surface``), or the HQ self-checks (``hq-selfchecks``);
+or the surface block (``surface``);
 ``proof.checks.sharding.item_group`` names the group of a collected item. A block's id is the sha256 of its
 groups' names, sorted and joined by newlines (``block_id``), so the id names
 what the block holds. A cached group is one whose every judgment the store
@@ -123,7 +123,7 @@ CORPUS_PACKAGES = (
     "proof/views",
     "proof/webapps",
 )
-SINGLE_GROUPS = ("proof", "surface", "hq-selfchecks")
+SINGLE_GROUPS = ("proof", "surface")
 # The outcomes of one item's run (``proof.lane.plugin``) that fail the lane.
 FAILING = ("failed", "error")
 # A block's output compared where two runs of it differ: its evidence and the surface extraction.
@@ -166,8 +166,7 @@ def group_problem(name) -> str | None:
             return None
     return (
         f"{name!r} is none of corpus:<id>, control:<id>, a piece of one (corpus:<id>@<configuration>,"
-        " control:<id>@<configuration>), proof, proof/<package>, proof/<package>/<module>.py[::<test>], surface or"
-        " hq-selfchecks"
+        " control:<id>@<configuration>), proof, proof/<package>, proof/<package>/<module>.py[::<test>] or surface"
     )
 
 

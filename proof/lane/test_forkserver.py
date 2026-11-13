@@ -635,16 +635,17 @@ CLAIM = 'mkdir "$CLAIMS/{block}" 2>/dev/null || exit 1'
 
 def test_a_shard_claims_blocks_of_both_queues_skips_the_taken_and_runs_the_main_queue_once_it_arrives(tmp_path):
     # The main phase collects every test under proof/, each check once per document: two documents keep that
-    # collection small, and no block here reads a document. The main block that runs is the harness's own
-    # package (proof/test_processes.py), whose few tests cost what the claims around them do.
+    # collection small, and no block here reads a document. The early block that runs is the Core runner's
+    # package, which reads no corpus; the main block that runs is the harness's own package
+    # (proof/test_processes.py), whose few tests cost what the claims around them do.
     corpus, _ = _two_documents(tmp_path)
     claims = tmp_path / "claims"
     claims.mkdir()
     early_queue, main_source = tmp_path / "early.json", tmp_path / "main-source.json"
-    corpus_package, core = _queue_file(early_queue, ["proof/corpus"], ["proof/core"])
+    core, surface = _queue_file(early_queue, ["proof/core"], ["surface"])
     harness, editors = _queue_file(main_source, ["proof"], ["proof/editors"])
     # Another shard already holds one block of each queue.
-    (claims / core.id).mkdir()
+    (claims / surface.id).mkdir()
     (claims / editors.id).mkdir()
     out, arrives = tmp_path / "out", tmp_path / "arrives" / "main.json"
     arrives.parent.mkdir()
@@ -671,14 +672,14 @@ def test_a_shard_claims_blocks_of_both_queues_skips_the_taken_and_runs_the_main_
 
     record = json.loads((out / lane_blocks.SERVE).read_text())
     outcomes = {claim["block"]: claim["outcome"] for claim in record["claims"]}
-    assert outcomes == {corpus_package.id: "claimed", core.id: "taken", harness.id: "claimed", editors.id: "taken"}
+    assert outcomes == {core.id: "claimed", surface.id: "taken", harness.id: "claimed", editors.id: "taken"}
     ran = {manifest["block"]: manifest for _, manifest in lane_blocks.read_manifests(out)}
-    assert set(ran) == {corpus_package.id, harness.id}
-    assert ran[corpus_package.id]["phase"] == "early" and ran[harness.id]["phase"] == "main"
+    assert set(ran) == {core.id, harness.id}
+    assert ran[core.id]["phase"] == "early" and ran[harness.id]["phase"] == "main"
     assert all(group["failure"] is None for manifest in ran.values() for group in manifest["groups"])
     phases = {phase["phase"]: phase for phase in record["phases"]}
     # The main phase collects every test the early phase did not: what no queue accounts for is recorded.
-    assert "proof/corpus" not in phases["main"]["collected"]["groups"]
+    assert "proof/core" not in phases["main"]["collected"]["groups"]
     assert "proof" in phases["main"]["collected"]["groups"]
     assert "proof/hq" in phases["main"]["unaccounted"]
     # The wait is time spent on another job, kept apart from the shard's fixed costs.
@@ -689,8 +690,8 @@ def test_a_shard_claims_blocks_of_both_queues_skips_the_taken_and_runs_the_main_
         [("early", lane_blocks.load_queue(early_queue)), ("main", lane_blocks.load_queue(arrives))], [out]
     )
     missing = [problem for problem in verdict.problems if "no shard claimed it" in problem]
-    assert len(missing) == 2 and any(core.id in problem for problem in missing)
-    assert set(verdict.chosen) == {corpus_package.id, harness.id}
+    assert len(missing) == 2 and any(surface.id in problem for problem in missing)
+    assert set(verdict.chosen) == {core.id, harness.id}
 
 
 # One cheap item using the Core runner in each of two packages (pytest's -k, through PYTEST_ADDOPTS, which the
@@ -713,7 +714,7 @@ exit 2
 def test_an_early_queue_holding_a_group_that_reads_the_corpus_is_refused_before_hq_boots(tmp_path):
     # The same groups run in the main phase, once the corpus is in place: the test below runs proof/hq there.
     early_queue = tmp_path / "early.json"
-    _queue_file(early_queue, ["proof/corpus"], ["proof/native", "proof/core"], ["control:empty"])
+    _queue_file(early_queue, ["proof/native", "proof/core"], ["control:empty"])
     out = tmp_path / "out"
     finished = _serve(
         out,
@@ -776,7 +777,7 @@ def test_no_item_waits_on_a_claim_and_the_session_stays_up_for_the_block_the_cla
 
 def test_a_shard_whose_corpus_emission_failed_runs_its_early_blocks_and_fails_by_name(tmp_path):
     early_queue = tmp_path / "early.json"
-    (corpus_package,) = _queue_file(early_queue, ["proof/corpus"])
+    (core,) = _queue_file(early_queue, ["proof/core"])
     out = tmp_path / "out"
     finished = _serve(
         out,
@@ -794,7 +795,7 @@ def test_a_shard_whose_corpus_emission_failed_runs_its_early_blocks_and_fails_by
     )
     assert finished.returncode == 3, finished.tail()
     record = json.loads((out / lane_blocks.SERVE).read_text())
-    assert [manifest["block"] for _, manifest in lane_blocks.read_manifests(out)] == [corpus_package.id]
+    assert [manifest["block"] for _, manifest in lane_blocks.read_manifests(out)] == [core.id]
     assert any("corpus emission failed" in problem for problem in record["problems"])
 
 

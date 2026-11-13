@@ -12,6 +12,7 @@
 // Every JSON file under `entries/` parses with the file schemas below.
 
 import { z } from "zod";
+import { STEP_7_GROUPS, SUBJECTS } from "@/lib/publish/hqFindings";
 
 /** The inventory's area files, by file stem. */
 export const INVENTORY_AREAS = [
@@ -188,6 +189,21 @@ const heldPlatformsSchema = z.discriminatedUnion("kind", [
 	notApplicablePlatformsSchema,
 	asSectionPlatformsSchema,
 ]);
+/**
+ * What an entry Nova does not hold is about, as a person would name it: the
+ * subject a finding of the entry reads under.
+ */
+export const subjectSchema = z.enum(SUBJECTS, {
+	error:
+		"A HELD-NEW or REFUSED entry names its subject: the noun a person would call this by, from SUBJECTS in lib/publish/hqFindings.ts. Where none fits, add one there with its copy.",
+});
+
+/** The group of later work that will hold a HELD-NEW entry. */
+export const ownerSchema = z.enum(STEP_7_GROUPS, {
+	error:
+		"A HELD-NEW entry names its owner: the step 7 group that will hold it, from STEP_7_GROUPS in lib/publish/hqFindings.ts.",
+});
+
 export const platformsSchema = z.discriminatedUnion("kind", [
 	eachPlatformSchema,
 	notApplicablePlatformsSchema,
@@ -278,12 +294,23 @@ export const inventoryEntrySchema = z
 			...inventoryEntryHead,
 			disposition: dispositionSchema.extract(["HELD-NEW"]),
 			dispositionCell: dispositionCellSchema,
+			subject: subjectSchema,
+			owner: ownerSchema,
+			platforms: heldPlatformsSchema,
+			...inventoryEntryTail,
+		}),
+		// A kept entry keeps the Web Apps and Android reading its row states
+		// where a runtime reads the value CommCare HQ holds for it.
+		z.strictObject({
+			...inventoryEntryHead,
+			disposition: dispositionSchema.extract(["TARGET-OWNED"]),
+			dispositionCell: dispositionCellSchema,
 			platforms: heldPlatformsSchema,
 			...inventoryEntryTail,
 		}),
 		z.strictObject({
 			...inventoryEntryHead,
-			disposition: dispositionSchema.extract(["TARGET-OWNED", "INERT"]),
+			disposition: dispositionSchema.extract(["INERT"]),
 			dispositionCell: dispositionCellSchema,
 			platforms: notApplicablePlatformsSchema,
 			...inventoryEntryTail,
@@ -292,6 +319,7 @@ export const inventoryEntrySchema = z
 			...inventoryEntryHead,
 			disposition: dispositionSchema.extract(["REFUSED"]),
 			dispositionCell: dispositionCellSchema,
+			subject: subjectSchema,
 			reasons: z.array(refusalReasonSchema).min(1),
 			platforms: refusedPlatformsSchema,
 			...inventoryEntryTail,

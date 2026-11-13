@@ -102,7 +102,7 @@ describe("allocateAdvancedTags", () => {
 	});
 
 	it("refuses a case type CommCare does not accept", () => {
-		for (const caseType of ["9lives", "a/b"])
+		for (const caseType of ["visité", "a/b"])
 			expect(() =>
 				allocateAdvancedTags({
 					loads: [],

@@ -83,16 +83,18 @@ export function allocateAdvancedTags(input: {
 		spell: (type: string, n: number) => string,
 		rowNames?: ReadonlySet<string>,
 	): string => {
-		// A case type is a letter, then letters, digits, `-` and `_`, so every
-		// tag spelled from one passes HQ's check and holds no `/`.
+		// A case type holds letters, digits, `-` and `_`, and every tag
+		// spelled from one starts with its prefix's letter, so it passes HQ's
+		// check and holds no `/`.
 		if (!CASE_TYPE_REGEX.test(caseType))
 			throw new Error(
-				`Nova was asked for the case tag of an advanced action on the case type "${caseType}", which is not a case type CommCare accepts: a case type starts with a letter and holds only letters, digits, "-" and "_". The app's case types are checked before it is emitted, so this one should not have reached the tags.`,
+				`Nova was asked for the case tag of an advanced action on the case type "${caseType}", which is not a case type CommCare accepts: a case type holds only letters, digits, "-" and "_". The app's case types are checked before it is emitted, so this one should not have reached the tags.`,
 			);
-		// The tag names the data-root element `case_<tag>`, and an XForm
-		// element name holds no `-`, so the case type's `-` is spelled `_`
-		// (`commcare-user` gives `autoload_commcare_user0`). Two types that
-		// differ only there step `n` apart below, so tags stay distinct.
+		// The tag names the data-root element `case_<tag>`, and a tag is held
+		// to `advancedTagSchema`, which holds no `-`, so the case type's `-`
+		// is spelled `_` (`commcare-user` gives `autoload_commcare_user0`). Two
+		// types that differ only there step `n` apart below, so tags stay
+		// distinct.
 		const spelledType = caseType.replaceAll("-", "_");
 		let n = position;
 		while (!free(spell(spelledType, n), rowNames)) n++;

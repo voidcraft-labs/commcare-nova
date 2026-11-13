@@ -32,8 +32,7 @@ function rowHasContent(option: SelectOption): boolean {
 
 /**
  * The draft as it will be saved: rows with nothing on them dropped, and a
- * row whose value box was emptied (the sanitizer returns `""` for a lone
- * quote or a cleared box) given the value its label suggests, so a routine
+ * row whose value box was emptied given the value its label suggests, so a routine
  * clear-and-retype never lands a choice that saves nothing. The minted
  * fallback keeps the row's position, never a sibling's value.
  */
@@ -54,12 +53,14 @@ export function settleDraft<T extends SelectOption>(draft: T[]): T[] {
 }
 
 /**
- * Why a row's value can't be saved beside its siblings, or `undefined`.
- * The value box already keeps a value inside the wire's grammar as it is
- * typed (`sanitizeSelectOptionValue`); this refuses the one thing a value
- * can't know alone, a value an earlier choice of the list holds, compared
- * exactly as the gate's `SELECT_OPTION_VALUE_DUPLICATE` compares. A blank
- * value is settled at commit, so it is no refusal here.
+ * Why a row's value can't be saved, or `undefined`. The value box already
+ * turns a typed space into an underscore (`sanitizeSelectOptionValue`);
+ * this refuses the two things the box leaves as typed: a value holding both
+ * an apostrophe and a double quote, which no rule naming the choice could
+ * print (the gate's `SELECT_OPTION_VALUE_INVALID`), and a value an earlier
+ * choice of the list holds, compared exactly as the gate's
+ * `SELECT_OPTION_VALUE_DUPLICATE` compares. A blank value is settled at
+ * commit, so it is no refusal here.
  */
 export function optionValueRefusal(
 	draft: readonly SelectOption[],
@@ -68,9 +69,11 @@ export function optionValueRefusal(
 	const value = draft[index]?.value;
 	if (value === undefined || value.length === 0) return undefined;
 	const earlier = new Set(draft.slice(0, index).map((option) => option.value));
-	if (selectOptionValueProblemAmong(value, earlier) !== "duplicate") {
-		return undefined;
+	const problem = selectOptionValueProblemAmong(value, earlier);
+	if (problem === "both-quotes") {
+		return "This value holds both an apostrophe and a double quote. Keeping one kind works.";
 	}
+	if (problem !== "duplicate") return undefined;
 	const free = suffixUntilFree(
 		value,
 		new Set(draft.map((option) => option.value)),
@@ -132,7 +135,7 @@ export function removeOptionDraft<T extends SelectOption>(
 	draft: T[],
 	index: number,
 ): T[] {
-	return draft.length <= 2 || index < 0 || index >= draft.length
+	return draft.length <= 1 || index < 0 || index >= draft.length
 		? draft
 		: draft.filter((_, optionIndex) => optionIndex !== index);
 }

@@ -840,15 +840,16 @@ owned by the worker with a `host` extension index to each chosen case, as HQ's
 claim does, and a person releases them from the identity menu. Reserved write properties are
 `lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES` — HQ's authoring-side
 case-reserved-words list plus `name` and `owner_id` — extended with
-`location_id`, `hq_user_id`, `external_id`, `category`, and `state`.
+`location_id`, `hq_user_id`, and `external_id`.
 
-`category` and `state` are reserved because the two runtimes disagree about
-them. `case_type`, `case_name`, `owner_id`, `external_id`, `user_id`, and
-`date_opened` land in the same dedicated slot on both sides
-(`CaseXmlParser::updateCase` and `parser.py::CaseActionBase.V2_PROPERTY_MAPPING`),
-but `category` and `state` have dedicated client setters and no server mapping at
-all, so the same block sets a reserved slot on the device and an ordinary dynamic
-property on HQ. A property that means two different things cannot be authored.
+`location_id` and `hq_user_id` are reserved because CommCare HQ stores each
+somewhere other than the property: a written `location_id` becomes the case's
+own location and a written `hq_user_id` is copied to its external id
+(`update_strategy.py::_apply_update_action`). `category` and `state` are
+ordinary properties on both runtimes: Core keeps each in the case's property
+map (`Case.java::setCategory`, `setState`) and shows it as a child like any
+other (`CaseChildElement.setCaseProperties`), beside an attribute of the same
+name that no Nova expression reads.
 
 The emitter is total by structural construction, and four wire facts force its
 shape:
@@ -936,9 +937,10 @@ reducer no-op to report success. No tool-side slug/path/id projection or
 rewrite layer exists. The operation id, write property, and link identifier
 vocabularies share one domain-owned grammar
 (`lib/domain/caseOperationIdentifiers.ts`) with the builder, validator, and
-tool schemas — ASCII letters, digits, and underscores throughout; an operation
-id or link identifier starts with a letter or underscore, a write property
-with a letter only — so action-illegal facet combinations, platform-owned case
+tool schemas — an operation id or link identifier holds ASCII letters,
+digits, and underscores and starts with a letter or underscore; a write
+property takes the catalog's grammar, a letter first, then letters, digits,
+underscores, and hyphens — so action-illegal facet combinations, platform-owned case
 types, and reserved write properties are unconstructible at the shared tool
 boundary.
 
@@ -966,7 +968,7 @@ reject only null/empty, and `case_id` is deliberately absent from
 ### Lookup carriers, table expressions, and itemsets
 
 Selects own one required discriminated `optionsSource`: either `inline`, which
-owns at least two fully UUID-identified options, or `lookup`, which owns the
+owns at least one fully UUID-identified option, or `lookup`, which owns the
 table UUID, value-column UUID, label-column UUID, and optional row filter.
 Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).

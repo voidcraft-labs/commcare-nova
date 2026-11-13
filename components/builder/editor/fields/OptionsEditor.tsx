@@ -158,10 +158,12 @@ export function OptionsEditorWidget({
 	);
 
 	// The value box admits only what the wire can carry: a typed space
-	// becomes an underscore and a quote mark is dropped as it is typed, so
-	// the row never holds a value the commit gate would bounce
-	// (`SELECT_OPTION_VALUE_INVALID`). The same grammar the SA's schema
-	// teaches and the validator enforces, applied at the keystroke; the
+	// becomes an underscore as it is typed, so the row never holds a value
+	// the commit gate would bounce for whitespace
+	// (`SELECT_OPTION_VALUE_INVALID`); a value holding both quote marks is
+	// refused beneath its row (`optionValueRefusal`). The same grammar the
+	// SA's schema teaches and the validator enforces, applied at the
+	// keystroke; the
 	// sanitizer deliberately leaves edge underscores alone, since the one
 	// just typed is an edge until the next character lands. When the
 	// sanitizer changes what was typed, React reassigns the input's value
@@ -373,7 +375,7 @@ export function OptionsEditorWidget({
 								variant="ghost-destructive"
 								size="icon"
 								onClick={() => removeOption(i)}
-								disabled={draft.length <= 2 || removalBlockers[i] !== undefined}
+								disabled={draft.length <= 1 || removalBlockers[i] !== undefined}
 								aria-label={`Remove ${
 									projectProse(opt.label).trim() || `option ${i + 1}`
 								}`}

@@ -91,7 +91,7 @@ expr {
 //
 // Segments are the dedicated ASCII `hashtagName` token — NOT `localName`
 // — so a segment's full EXTENT agrees with the regex matchers'
-// `[A-Za-z_][A-Za-z0-9_-]*` charset. XPath element names (`NameTest`)
+// `[A-Za-z0-9_-]+` charset. XPath element names (`NameTest`)
 // keep the full Unicode range; hashtag segments never had a Unicode
 // vocabulary (field ids and case properties are ASCII by the identifier
 // rules), and a wider token here made this matcher claim a longer ref
@@ -135,15 +135,11 @@ name {
     identStart identChar*
   }
 
-  // One hashtag segment (namespace or path segment) — the ASCII charset
-  // shared with lib/domain/hashtagSegments.ts::HASHTAG_SEGMENT_SOURCE
-  // (`[A-Za-z_][A-Za-z0-9_-]*`). Deliberately narrower than `localName`:
+  // One hashtag segment (namespace or path segment): the ASCII charset
+  // shared with `HASHTAG_SEGMENT_SOURCE`, `[A-Za-z0-9_-]+`
+  // (lib/domain/hashtagSegments.ts). Deliberately narrower than `localName`:
   // the editor matcher and parser must agree on a segment's extent.
-  hashtagIdentStart { @asciiLetter | "_" }
-
-  hashtagName {
-    hashtagIdentStart (hashtagIdentStart | @digit | "-")*
-  }
+  hashtagName { (@asciiLetter | "_" | @digit | "-")+ }
 
   qualifiedName {
     localName ":" localName

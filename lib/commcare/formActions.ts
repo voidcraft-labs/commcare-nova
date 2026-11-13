@@ -78,7 +78,7 @@ export function buildFormActions(
  * builder emits its binds against those same ids, so the load-map keys here
  * line up with the bind nodesets.
  *
- * Every extracted ref is translated through `hqLoadReference` into the
+ * Every typed case read is projected through `hqLoadReference` into the
  * `#case/`-generation vocabulary HQ's metadata layer parses — `moduleCaseType`
  * feeds the same `caseTypeDepthMap` the XForm builder resolves per-type
  * namespaces with, so the load map and the binds name the same case.
@@ -110,10 +110,14 @@ export function buildCaseReferencesLoad(
 			walkExpressionTerms(expression, (term) => {
 				if (term.kind === "form-case") {
 					const reference = hqLoadReference(
-						`#${term.caseType}/${term.property}`,
+						term.caseType,
+						term.property,
 						caseTypeDepths,
 					);
-					if (!(isRegistration && reference === "#case/case_id"))
+					if (
+						reference !== undefined &&
+						!(isRegistration && reference === "#case/case_id")
+					)
 						refs.add(reference);
 				} else if (
 					term.kind === "session-user" &&

@@ -342,4 +342,4 @@ def test_the_packages_the_early_phase_refuses_are_those_whose_tests_read_the_cor
     assert sorted(reading) == sorted(lane_blocks.CORPUS_PACKAGES)
     assert all(lane_blocks.reads_corpus(group) for group in reading)
     assert lane_blocks.reads_corpus("corpus:a@minimum") and lane_blocks.reads_corpus("control:a")
-    assert not any(lane_blocks.reads_corpus(group) for group in ("proof", "proof/core", "surface", "hq-selfchecks"))
+    assert not any(lane_blocks.reads_corpus(group) for group in ("proof", "proof/core", "surface"))

@@ -511,22 +511,13 @@ describe("flatFieldToField — schema-admitted witnesses and failure reasons", (
 	});
 
 	it("returns the specific reason — not union noise — when a payload can't assemble", () => {
-		// A single_select with one option fails the domain schema's min(2).
+		// A single_select with no options fails the domain schema's min(1).
 		const result = flatFieldToField(
 			{
 				id: "s",
 				kind: "single_select",
 				label: proseText("S"),
-				optionsSource: {
-					kind: "inline",
-					options: [
-						{
-							uuid: testUuid("one-option"),
-							value: "a",
-							label: proseText("A"),
-						},
-					],
-				},
+				optionsSource: { kind: "inline", options: [] },
 			} as unknown as PreparedFlatField,
 			TEST_UUID,
 		);

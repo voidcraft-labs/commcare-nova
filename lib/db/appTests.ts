@@ -23,10 +23,10 @@ import { loadAppInTransaction } from "./apps";
 import { type AppDatabase, withAppTx } from "./pg";
 
 /** The App Test runtime a journey was started under. A journey pins its
- * document, so a runtime that reads that document differently (version 18:
- * query repeats, repeat counts and case operations) refuses to continue a
- * journey started under an earlier one (`lib/preview/app-tests/CLAUDE.md`). */
-export const RUNTIME_VERSION = 18;
+ * document, so a runtime that reads that document differently (version 19:
+ * a query repeat's wrapper name) refuses to continue a journey started under
+ * an earlier one (`lib/preview/app-tests/CLAUDE.md`). */
+export const RUNTIME_VERSION = 19;
 const MAX_STEPS = 200;
 const MAX_ACTIVE_TESTS = 8;
 type JsonRecord = Record<string, unknown>;

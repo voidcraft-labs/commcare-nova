@@ -282,7 +282,7 @@ export function OptionsSourceEditor<
 							</Button>
 							<Button
 								type="button"
-								disabled={!canEdit || draft.options.length < 2}
+								disabled={!canEdit || draft.options.length < 1}
 								onClick={() => commit(draft)}
 							>
 								Use these options

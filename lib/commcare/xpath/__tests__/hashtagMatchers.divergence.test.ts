@@ -125,6 +125,15 @@ const CORPUS: CorpusEntry[] = [
 	{ text: "#form/age\u0301", refs: ["#form/age"] },
 	// Non-ASCII segment START — no ref on any matcher.
 	{ text: "#form/ñx", refs: [] },
+	// A segment is the case type grammar, `[A-Za-z0-9_-]+`: a digit or a
+	// hyphen may start one, so a record type named so is one reference.
+	{ text: "#1st-visit/age", refs: ["#1st-visit/age"] },
+	{ text: "#record/-flagged/age", refs: ["#record/-flagged/age"] },
+	{ text: "#form/a/2", refs: ["#form/a/2"] },
+	{ text: "#2024/x + 1", refs: ["#2024/x"] },
+	{ text: "#1/2", refs: ["#1/2"] },
+	{ text: "#form/age - 1", refs: ["#form/age"] },
+	{ text: "the visit is #1st-visit/age.", refs: ["#1st-visit/age"] },
 	// Non-refs that must NOT match anywhere.
 	{ text: "#1tag", refs: [] },
 	{ text: "#", refs: [] },

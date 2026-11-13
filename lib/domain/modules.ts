@@ -1132,25 +1132,26 @@ export const searchInputModeSchema = z.union([
 export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 export type ScalarSearchInputMode = z.infer<typeof scalarSearchInputModeSchema>;
 
+/** A Search field's name: the key CommCare sends its answer under. */
+export const SEARCH_INPUT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+
+/** The sentence a Search field's name outside the pattern is refused with. */
+export const SEARCH_INPUT_NAME_REJECTION =
+	"A Search field's name starts with a letter or an underscore, then holds only letters, digits, underscores and hyphens. CommCare sends the field's answer under this name, and a rule reads it back by it.";
+
 // Common slots present on every SearchInputDef arm.
 //
-// `name` is constrained to XML element-name vocabulary because the
-// wire layer interpolates it as both an attribute value
-// (`<prompt key="X">`) and an XPath token
-// (`instance('search-input:results')/input/field[@name='X']`). The
-// `Expression.input` reference shape already gates on the same pattern;
-// matching the declaration's character class keeps both halves of
-// the binding interchangeable — an authored name can always be
-// referenced from a predicate without being silently rejected by
-// the predicate's stricter character rules.
+// `name` is written as an attribute value (`<prompt key="X">`), a string
+// literal (`instance('search-input:results')/input/field[@name='X']`),
+// the last segment of a locale id (`search_property.m<N>.X`) and a
+// hashtag segment (`#search/X`), each of which takes a hyphen, so a name
+// can equal any case property's name. CommCare HQ checks no grammar on a
+// search property's name (`views/modules.py::_update_search_properties`).
 const searchInputBase = z.strictObject({
 	uuid: uuidSchema,
 	name: z
 		.string()
-		.regex(
-			XML_ELEMENT_NAME_PATTERN,
-			"Search input `name` must start with a letter or underscore and contain only letters, digits, or underscores. The name is interpolated both as an XML attribute value on the wire `<prompt>` and as an XPath token in the CSQL `instance('search-input:results')/input/field[@name='…']` reference; characters outside that class break one or both bindings.",
-		),
+		.regex(SEARCH_INPUT_NAME_PATTERN, SEARCH_INPUT_NAME_REJECTION),
 	label: z.string(),
 });
 

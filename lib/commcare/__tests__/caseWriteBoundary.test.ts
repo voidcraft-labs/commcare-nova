@@ -307,8 +307,6 @@ it.each([
 	"xform_ids",
 	"location_id",
 	"hq_user_id",
-	"category",
-	"state",
 ])(
 	"routes or refuses metadata destination %s before committing",
 	async (property) => {
@@ -676,13 +674,13 @@ it("fails closed on a question id no XML element can carry", () => {
 	expect(verdict.ok).toBe(true);
 	valid(verdict.nextDoc);
 	const corrupted = structuredClone(verdict.nextDoc);
-	corrupted.fields[built.field.uuid].id = "bad-id";
+	corrupted.fields[built.field.uuid].id = "bad.id";
 	expect(
 		runValidation(corrupted, LOOKUP_CONTEXT_UNAVAILABLE).map(
 			(finding) => finding.code,
 		),
 	).toEqual(["INVALID_FIELD_ID"]);
 	expect(() => buildFormActions(corrupted, built.formUuid)).toThrow(
-		/invalid element name "bad-id"/,
+		/invalid element name "bad.id"/,
 	);
 });

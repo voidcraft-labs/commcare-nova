@@ -92,7 +92,8 @@ export type ValidityClass =
  *     backstops for schema-unrepresentable states, verified against the
  *     domain schemas: `required`/`calculate`/`validate` are absent from
  *     the kinds the rules flag, `postSubmit` is a Zod enum, select
- *     `options` carries `.min(2)`.
+ *     `options` carries `.min(1)`, and a granular `removeOption` that
+ *     empties it reaches `SELECT_NO_OPTIONS` at the gate.
  *   - MEDIA_EXPORT_TOO_LARGE is `environment`: it is a function of the
  *     referenced assets' external byte sizes/status, fires only from the
  *     media-validation boundary entry point, and can never gate a commit.
@@ -114,7 +115,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	EMPTY_APP_NAME: "soundness",
 	APP_TEXT_UNREPRESENTABLE: "soundness",
 	NO_MODULES: "completeness",
-	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
 	PLATFORM_FEATURE_UNAVAILABLE: "soundness",
 	BLUEPRINT_TOPOLOGY_INVALID: "soundness",
@@ -373,10 +373,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_NOT_AN_OPTION: "soundness",
 	SELECT_NO_OPTIONS: "shape",
-	// `options.length < 2` reached in place by a granular `removeOption` the
-	// reducer applies without re-parsing the field through `fieldSchema`'s
-	// `.min(2)`, so it needs a gating rule rather than the shape backstop.
-	SELECT_TOO_FEW_OPTIONS: "soundness",
 	// A choice value holding whitespace or a quote: CommCare Android throws
 	// on any select value with a space, and a multi-select answer is a
 	// space-joined token list, so the form cannot run with it.

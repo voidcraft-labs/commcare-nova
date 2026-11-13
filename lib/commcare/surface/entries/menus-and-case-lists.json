@@ -94,6 +94,7 @@
 		"valueClass": "true",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (TRAINING_MODULE)",
+		"subject": "training-menus",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -172,6 +173,8 @@
 		"valueClass": "version-2-naming-a-source",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf`: re-lists another module's forms under its own menu, case list, search and parent selection; a mirror of a menu with child menus has one child mirror per child menu of its source (below); when a mirror's source is chosen, HQ also gives the mirror its source's parent (`views/utils.py::handle_shadow_child_modules`), and the mirror's parent-menu selector is disabled (`module_view_settings.html`)",
+		"subject": "mirror-menus",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -197,6 +200,7 @@
 		"valueClass": "no-source-or-a-source-naming-no-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `no source module id` (`ShadowModuleValidator`; `ShadowModule.source_module` is then None)",
+		"subject": "mirror-menus",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -222,6 +226,7 @@
 		"valueClass": "version-1-or-absent",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (V1_SHADOW_MODULES)",
+		"subject": "mirror-menus",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -285,6 +290,7 @@
 		],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
+		"subject": "mobile-reports",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -311,6 +317,7 @@
 		"valueClass": "unknown-doc-type",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `ModuleBase.wrap` raises",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -340,13 +347,40 @@
 		],
 		"valueClass": "names-a-parentless-non-shadow-non-training-module",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Module.parentModuleUuid`; widen: a child of another case type under a parent with no forms, which HQ builds (`entries.py::add_parent_datums`) and Nova refuses today (`NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM`)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "a child of another case type under a parent with no forms, which HQ builds (`entries.py::add_parent_datums`) and Nova refuses today (`NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM`)"
+		"dispositionCell": "**HELD**: `Module.parentModuleUuid`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "`root_module_id`; add-on `submenus`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/child-menu-of-another-case-type-under-a-parent-with-no-forms",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "child menu of another case type whose parent menu has no forms",
+		"surfaceKeys": [
+			"parser:MenuParser/menu@root",
+			"schema:AdvancedModule.root_module_id",
+			"schema:Module.root_module_id",
+			"schema:ShadowModule.root_module_id"
 		],
+		"valueClass": "cross-type-child-of-a-formless-parent",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: HQ builds it (`entries.py::add_parent_datums`); Nova refuses it (`NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM`)",
+		"subject": "menu-structure",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -377,6 +411,7 @@
 		"valueClass": "names-a-non-shadow-module-that-has-a-parent",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: `views/modules.py::_get_valid_parents_for_child_module` offers a parent only to a menu with no children, and offers only parentless menus",
+		"subject": "menu-structure",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -405,6 +440,8 @@
 		"valueClass": "child-mirror-naming-its-shadow-parent",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf` child mirrors, kept in step with the source's child menus as HQ keeps them: HQ creates one per source child when a mirror's source or a child's parent changes, deletes it with its source or its mirror parent, and offers no way to re-source, re-parent or delete one alone (`views/utils.py::handle_shadow_child_modules`, `views/modules.py::delete_module`, `ModuleBase.user_deletable`); each holds its own menu fields like any mirror",
+		"subject": "mirror-menus",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -435,6 +472,7 @@
 		"valueClass": "names-a-shadow-module-other-than-as-its-child-mirror",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: `_get_valid_parents_for_child_module` never offers a shadow parent, and HQ puts a module under a shadow only as one of the child mirrors above",
+		"subject": "mirror-menus",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -465,6 +503,7 @@
 		"valueClass": "names-a-training-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (TRAINING_MODULE); for a basic module also not HQ-buildable: `training module parent` (`ModuleValidator` only)",
+		"subject": "training-menus",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -501,6 +540,7 @@
 		"valueClass": "names-no-module-or-forms-a-cycle",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `unknown root`, `root cycle`",
+		"subject": "menu-structure",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -526,6 +566,7 @@
 		"valueClass": "child-menu-separated-from-its-parent",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (LEGACY_CHILD_MODULES)",
+		"subject": "menu-structure",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -599,20 +640,15 @@
 		"id": "menus-and-case-lists/modulebase-case-type",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",
-		"item": "`ModuleBase.case_type`",
+		"item": "`ModuleBase.case_type` matching `^[A-Za-z0-9_-]+$`",
 		"surfaceKeys": [
 			"schema:AdvancedModule.case_type",
 			"schema:Module.case_type"
 		],
-		"valueClass": "non-empty-other-than-a-reserved-word",
+		"valueClass": "editor-grammar-other-than-a-reserved-word",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Module.caseType`; widen: the editor's ASCII `^[\\w-]+$` (a leading digit, `_` or `-` is authorable; today Nova requires a leading letter)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "the editor's ASCII `^[\\w-]+$` (a leading digit, `_` or `-` is authorable; today Nova requires a leading letter)"
-			}
-		],
+		"dispositionCell": "**HELD**: `Module.caseType`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -624,7 +660,36 @@
 			}
 		},
 		"emission": {
-			"cell": "`case_type` (Nova writes `''` today for a module whose forms are all surveys and which lists no cases, `formLinkProjection.ts::moduleCaseTypeForActions`, dropping a held case type on publish; defect 14's fix writes the held type)",
+			"cell": "`case_type`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-type-outside-the-menu-page-s-grammar",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`case_type` holding a character other than `A-Z`, `a-z`, `0-9`, `_` and `-`",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_type",
+			"schema:Module.case_type"
+		],
+		"valueClass": "outside-editor-grammar",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the menu settings page marks the value an error (`app_manager.js::valueIncludeInvalidCharacters`), though the server's check admits any Unicode word character (`util.py::is_valid_case_type`)",
+		"subject": "case-types",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "app_manager.js::valueIncludeInvalidCharacters"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -638,6 +703,7 @@
 		"valueClass": "reserved-word-on-a-basic-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the menu settings page marks the value an error (`modules/bootstrap3/module_view.js` and `modules/bootstrap5/module_view.js`, via `app_manager.js::valueIsReservedWord`), though its save does not block it",
+		"subject": "worker-record",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -663,6 +729,8 @@
 		"valueClass": "commcare-user-on-an-advanced-module",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: usercase list module (Usercase)",
+		"subject": "worker-record",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -724,6 +792,8 @@
 		"valueClass": "outside-predicate",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model in `Module.displayCondition` (session-profile `Expression`)",
+		"subject": "display-conditions",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -816,6 +886,7 @@
 		"valueClass": "references-the-case",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `invalid case xpath reference` (`xpath.py::_ensure_no_case_references`)",
+		"subject": "display-conditions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -846,6 +917,7 @@
 		"valueClass": "fails-hq-s-xpath-validation",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `module filter has xpath error` (`helpers/validators.py::ModuleBaseValidator.validate_with_raise`)",
+		"subject": "display-conditions",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -875,6 +947,8 @@
 		"valueClass": "true-without-an-endpoint-inline-search-or-form-return",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.showFormsInParent`",
+		"subject": "display-only-forms",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -904,6 +978,7 @@
 		"valueClass": "true-beside-an-endpoint-inline-search-or-form-return",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `endpoint to display only forms`, `inline search to display only forms`, `form link to display only forms` (a form link to such a menu is not HQ-editable: the editor's link targets leave it out, `views/forms.py`)",
+		"subject": "display-only-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -946,6 +1021,7 @@
 		"valueClass": "active",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (FIXTURE_CASE_SELECTION)",
+		"subject": "lookup-selection",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1006,6 +1082,7 @@
 		"valueClass": "true",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
+		"subject": "mobile-reports",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1035,6 +1112,8 @@
 		"valueClass": "true-on-an-advanced-module",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.autoSelectSingle` on the list module: HQ applies it to each advanced form's selected-case datum whose case list comes from this module (`suite_xml/sections/entries.py::get_target_module`, `get_manual_datum`); the module's own case list menu item never auto-selects (`AdvancedModule.is_auto_select` returns false)",
+		"subject": "auto-select",
+		"owner": "forms-and-case-management",
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE when exactly one row matches and the datum has `detail-confirm` (null payload, `title.trim()` throws) / RUNS",
@@ -1064,6 +1143,7 @@
 		"valueClass": "true-on-a-basic-module-an-advanced-load-lists-from",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the menu settings show the checkbox only for an advanced module (`module_view_settings.html`), though HQ reads it for that load (`entries.py::get_manual_datum`)",
+		"subject": "auto-select",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1256,6 +1336,7 @@
 		"valueClass": "not-a-slugify-fixed-point",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: under SESSION_ENDPOINTS, which every endpoint needs, a menu-settings save fails, or strips surrounding whitespace (`views/utils.py::get_cleaned_session_endpoint_id`, `set_session_endpoint`)",
+		"subject": "deep-links",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1285,6 +1366,7 @@
 		"valueClass": "shadow-id-with-surrounding-whitespace",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: unrepresentable identity: the shadow save validates the stripped id and stores it unstripped (`set_shadow_module_and_form_session_endpoint`), and Nova's endpoint ids are slugs, so holding it would change an id shared links already carry",
+		"subject": "deep-links",
 		"reasons": [
 			{
 				"kind": "unrepresentable-identity",
@@ -1322,6 +1404,7 @@
 		"valueClass": "shared-with-another-endpoint",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable where a save compares them (`views/utils.py::_duplicate_endpoint_ids` compares module, form and mirror-form ids only; no case-list id is compared with anything); otherwise broken at runtime: Core keys endpoints by id (`SuiteParser`), so one replaces the other",
+		"subject": "deep-links",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1365,6 +1448,7 @@
 		"valueClass": "module-non-empty",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform + retiring (CUSTOM_ASSERTIONS)",
+		"subject": "custom-assertions",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -1437,6 +1521,8 @@
 		"valueClass": "differs-by-language",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `localizedMedia` on the menu slots",
+		"subject": "media-by-language",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1505,6 +1591,8 @@
 		"valueClass": "module-first-badge",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.badge` (`{text{lang}} | {expression}`)",
+		"subject": "menu-badges",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (hides `0`; shows text longer than 3 characters as `999+` when it parses as an integer and otherwise as its first 3 characters and `..`, `MenuAdapter.updateBadgeView`)",
@@ -1855,6 +1943,7 @@
 		"valueClass": "task-list-shown",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the Task List setting renders only with the case list menu item add-on, outside shadow and survey menus, and then only when already on or, in a basic module, `Domain.survey_management_enabled`, which nothing sets (`module_view_settings.html`); it also injects a `cc_delegation_stub` block (`xform.py::_create_casexml`)",
+		"subject": "menu-settings",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -1907,6 +1996,8 @@
 		"valueClass": "per-module-when-some-menus-are-grids",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `menuStyle.moduleGrid`",
+		"subject": "menu-display",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1957,6 +2048,7 @@
 		"valueClass": "true",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (CASE_LIST_LAZY)",
+		"subject": "case-list-optimizations",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -1989,6 +2081,8 @@
 		"valueClass": "enabled",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.optimizations` (enables per-column cache/lazy, Detail columns)",
+		"subject": "case-list-optimizations",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (no cache; laziness whole-detail) / RUNS",
@@ -2053,6 +2147,7 @@
 		"valueClass": "differs-from-the-default",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK)",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2088,6 +2183,7 @@
 		"valueClass": "scheduled",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (VISIT_SCHEDULER)",
+		"subject": "visit-scheduler",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -2140,6 +2236,8 @@
 		"valueClass": "non-empty",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf.excludedForms` (form identities): the app source keeps these as real form ids while re-minting the forms' own ids, and the reader maps them through the real ids from `ApplicationResource`",
+		"subject": "mirror-menus",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2206,6 +2304,8 @@
 		"valueClass": "non-empty-with-unique-slug-ids",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.mirrorOf.formEntryPoints` (form identity + endpoint id), mapped through the real form ids from `ApplicationResource`",
+		"subject": "mirror-menus",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT / DIFFERENT (as for module and form entry points, Module fields)",
@@ -2254,6 +2354,7 @@
 		"valueClass": "shown-on-a-shadow-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the menu page hides the setting for shadows (`module_view_settings.html`), and HQ would build a case-list entry with no case datum (`suite_xml/sections/entries.py::entry_for_module` adds it only for `Module` and `AdvancedModule`)",
+		"subject": "mirror-menus",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2306,6 +2407,7 @@
 		"valueClass": "missing",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: unrepresentable identity: the module has no stable id until HQ saves one; HQ's build catches `ModuleIdMissingException` and gives the build copy a random id (`make_build` validates its copy), while the app keeps none, until HQ gives its menus ids and saves: App Preview downloads the current app (`views/cli.py::get_direct_ccz` validates the app itself), a menu's page opens (`views/modules.py::get_module_view_context`, reached from a menu with an id, from adding a menu, or through the legacy `/modules-<index>/` address), or an edit that looks a menu up by id saves (`Application.get_module_by_unique_id`); HQ's menu list links an id-less menu to `/module/None/`, \"Page not found\" (executed); so opening App Preview once in HQ fixes it, and making a new version does not",
+		"subject": "app-document",
 		"reasons": [
 			{
 				"kind": "unrepresentable-identity",
@@ -2463,6 +2565,7 @@
 		"valueClass": "empty-short-detail-on-a-module-that-needs-case-details",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `no case detail`",
+		"subject": "case-list-setup",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2509,6 +2612,7 @@
 		"valueClass": "empty-short-detail-another-module-selects-from",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ offers any non-multi-select module of another case type as the parent selection (`views/modules.py::get_modules_with_parent_case_type`), and any module of the case type as an advanced load's case list (`views/forms.py`, `case_config_advanced.html`), and writes that datum with no `detail-select`, since the empty detail is never active (`DetailsHelper.get_detail_id_safe`, `active_details`; executed for both), and Core refuses an entity selection with no short detail (`EntityScreen.setSession`)",
+		"subject": "case-list-setup",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -2589,6 +2693,8 @@
 		"valueClass": "outside-predicate",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model in `caseListConfig.filter` (row-context `Expression`)",
+		"subject": "case-list-filter",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2615,6 +2721,7 @@
 		"valueClass": "fails-hq-s-filter-xpath-check",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable in a basic or shadow module: `invalid filter xpath`; in an advanced one, where HQ does not check it, broken at runtime: Core cannot parse the nodeset (executed)",
+		"subject": "case-list-filter",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -2667,6 +2774,7 @@
 		"valueClass": "any-other-value",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: no editor sets it, and `Detail.get_instance_name` puts it in relation-column XPath and tab nodesets",
+		"subject": "case-list-setup",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2730,6 +2838,8 @@
 		"valueClass": "on-a-multi-select-basic-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.selection.autoSelect`",
+		"subject": "auto-select",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",
@@ -2759,6 +2869,7 @@
 		"valueClass": "true-on-a-single-select-basic-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor enables the auto-select box only with multi-select (`case_list_multi_select.html`) and clears auto-select when multi-select is turned off (`details/screen.js`)",
+		"subject": "auto-select",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -2811,13 +2922,39 @@
 		],
 		"valueClass": "positive-or-minus-one-on-a-multi-select-basic-list",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `selection.maximum`; widen: any positive integer (Nova caps at 100; a 0 or empty value saves as 100, `views/modules.py::_update_short_details`, and a value below -1 makes every selection exceed it; -1 is the same state as 100: Formplayer runs the installed suite from storage, where `MultiSelectEntityDatum.readExternal` reads -1 as its default, and Android reads no maximum)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "any positive integer (Nova caps at 100; a 0 or empty value saves as 100, `views/modules.py::_update_short_details`, and a value below -1 makes every selection exceed it; -1 is the same state as 100: Formplayer runs the installed suite from storage, where `MultiSelectEntityDatum.readExternal` reads -1 as its default, and Android reads no maximum)"
+		"dispositionCell": "**HELD**: `selection.maximum`, at most 100",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
 			}
+		},
+		"emission": {
+			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-max-select-value-above-100",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` above 100 on a multi-select basic list",
+		"surfaceKeys": [
+			"parser:SessionDatumParser/instance-datum@max-select-value",
+			"schema:Detail.max_select_value"
 		],
+		"valueClass": "above-100",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `selection.maximum` above 100",
+		"subject": "case-list-setup",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",
@@ -2867,6 +3004,7 @@
 		"valueClass": "zero-or-below-minus-one-on-a-multi-select-basic-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ builds it as stored (`_update_short_details` replaces 0 or empty only when the Case List page saves, and keeps a value below -1), and Web Apps rejects every selection as exceeding the maximum (`formplayer/menus/views.js::verifySelectedCaseIdsLessThanMaxSelectValue`)",
+		"subject": "case-list-setup",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -2936,6 +3074,8 @@
 		"valueClass": "icon-text-grid-on-the-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.tile.template: icon_text_grid` (+ per-column slot mapping, Detail columns)",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (each slot renders its column's format) / DIFFERENT (icon and clickable-icon slots print raw `jr://` paths)",
@@ -2968,6 +3108,7 @@
 		"valueClass": "person-simple-on-the-case-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Web Apps shows a literal `<b>Header </b>` per slot, and the template hard-codes a registration action to `m0-f0` / `case_id_new_rec_child_0` whatever the module (`case_tile_templates/person_simple.xml`)",
+		"subject": "case-tiles",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -2994,6 +3135,7 @@
 		"valueClass": "another-template-on-the-case-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `invalid case type template`, and in an advanced module by raising `CaseTileMisconfigurationError` (`case_tiles.py::case_tile_template_config`), which `validate_app` does not catch",
+		"subject": "case-tiles",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3024,6 +3166,8 @@
 		"valueClass": "custom-on-the-case-detail",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.detailTile`",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED (standard rows)",
@@ -3051,6 +3195,7 @@
 		"valueClass": "not-custom-on-the-case-detail",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: HQ's Case Detail editor offers only \"Don't Use Case Tiles\" and `custom` (`details/bootstrap5/screen.js` adds the named templates only for the case list), in any module; in a basic or shadow module HQ's build also refuses it (\"Case tiles on the case detail must be manually configured\"; an advanced module builds it, executed)",
+		"subject": "case-tiles",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3112,6 +3257,8 @@
 		"valueClass": "persists-another-module-s-tile",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `tile.persistFrom` (another module's tile)",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3141,6 +3288,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `tile.pullDown` (`detail-inline`)",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3230,6 +3379,8 @@
 		"valueClass": "where-no-persistent-tile-applies",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.persistentContext` (one-field persistent tile; value lifts into ValueExpression, else the typed expression model), where no persistent tile applies",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3279,6 +3430,7 @@
 		"valueClass": "non-empty",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform + retiring (CASE_LIST_CUSTOM_XML)",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -3312,6 +3464,7 @@
 		"valueClass": "non-empty",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform + retiring (CASE_LIST_CUSTOM_VARIABLES)",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform"
@@ -3365,6 +3518,8 @@
 		"valueClass": "other-than-hq-s-default",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.emptyText`",
+		"subject": "case-list-text",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -3440,6 +3595,8 @@
 		"valueClass": "other-than-hq-s-default",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.selectButtonText` (editor: Bulk App Translations edits the existing string; saves keep it)",
+		"subject": "case-list-text",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (labels only the multi-select Continue) / IGNORED",
@@ -3534,6 +3691,7 @@
 		"valueClass": "product",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK)",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -3588,6 +3746,7 @@
 		"valueClass": "fails-the-editor-s-property-name-check-on-a-non-calculated-column",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable (save blocked) and, in a basic or shadow module, not HQ-buildable (`invalid sort field` for sorts)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3652,6 +3811,8 @@
 		"valueClass": "calculated-outside-value-expression",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: typed expression model in the `calculated` column",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3711,6 +3872,7 @@
 		"valueClass": "calculated-reading-search-instances-in-a-casedb-detail-without-auto-launch",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `case search instance used in casedb case details`",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -3732,19 +3894,46 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`enum[]` `MappingItem.alt_text{lang}`",
+		"item": "`enum[]` `MappingItem.alt_text{lang}`, blank",
 		"surfaceKeys": [
 			"parser:DetailFieldParser/alt_text",
 			"schema:MappingItem.alt_text"
 		],
+		"valueClass": "blank",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: a blank alt text for each key of an image map, in every language, as HQ's build gives a mapping with none (`suite/case-list/columns.ts::imageMapAltText`); widen: `imageMap[].altText` and the `clickableIcon` mapping's alt text (`app_strings.py` writes both)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`imageMap[].altText` and the `clickableIcon` mapping's alt text (`app_strings.py` writes both)"
+		"dispositionCell": "**HELD**: derived: a blank alt text for each key of an image map, in every language, as HQ's build gives a mapping with none (`suite/case-list/columns.ts::imageMapAltText`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
 			}
+		},
+		"emission": {
+			"cell": "`alt_text`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/enum-mappingitem-alt-text-non-blank",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`MappingItem.alt_text{lang}` holding text",
+		"surfaceKeys": [
+			"parser:DetailFieldParser/alt_text",
+			"schema:MappingItem.alt_text"
 		],
+		"valueClass": "non-blank",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `imageMap[].altText` and the clickable icon mapping's alt text",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -3829,6 +4018,8 @@
 		"surfaceKeys": ["schema:DetailColumn.case_tile_field"],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `column.tileSlot`",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (as for the template)",
@@ -3896,6 +4087,7 @@
 		"valueClass": "null-on-an-unplaced-custom-tile-column",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor stores coordinates for every column; a save rewrites to (0,0,6,1), which Android draws over the top-left cell",
+		"subject": "case-tiles",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -3958,6 +4150,7 @@
 		"valueClass": "null-on-a-placed-custom-tile-column",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: every save writes `left` (`column.js` defaults and `serialize`), which Android aligns with `Gravity.LEFT` while a missing value takes the text's own start (`EntityViewTile.computeGravity`), so they differ in a right-to-left language",
+		"subject": "case-tiles",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4017,6 +4210,7 @@
 		"valueClass": "null-on-a-custom-tile-column",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable (the editor always stores a size)",
+		"subject": "case-tiles",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4078,6 +4272,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `column.optimization` (calculated columns in address/date/markdown/phone/plain/enum formats)",
+		"subject": "case-list-optimizations",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (no cache; laziness applies to the whole detail) / RUNS",
@@ -4190,6 +4386,8 @@
 		"valueClass": "plain-over-a-select-property",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a plain column that shows the raw value: Nova's `plain` column over a select property shows and sorts by option labels (`hqJson/caseList.ts::projectColumnToDetail` emits `translatable-enum`), while HQ's `plain` shows and sorts the raw value (`detail_screen.py::Plain`)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4251,6 +4449,7 @@
 		"valueClass": "date-with-another-pattern",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: Core raises on the escape (`DateUtils.format`: \"unsupported escape\" or \"unrecognized escape in date format string\"), and an empty pattern shows no date; not HQ-buildable: HQ writes the pattern unescaped, so a straight apostrophe builds a suite Core refuses to admit",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -4285,6 +4484,8 @@
 		"valueClass": "time-ago-with-a-menu-interval",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `interval` column widened: threshold optional (count only) and signed direction (since/until)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4315,6 +4516,7 @@
 		"valueClass": "time-ago-with-another-interval",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable (7-value menu)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4420,6 +4622,8 @@
 		"valueClass": "enum-with-an-empty-or-whitespace-key",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: ID-mapping keys under Core's `selected()`, which trims only the key and matches it as one token sequence (`XPathSelectedFunc.multiSelected`; executed): an empty key, and a whitespace-only one, which is the same state, labels a blank value (and a value holding two spaces in a row or a leading or trailing space), and a key with inner spaces labels a value holding that token sequence; HQ's editor accepts both (`ui-element-key-val-mapping.js::hasBadXML` checks only XML characters), and Nova refuses them today (`lib/domain/modules.ts`, defect 16)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4453,6 +4657,8 @@
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-an-own-property",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the same state as a calculated `translatable-enum` over that property (`translatedExpression`, row 21): HQ's build differs only in the ids it derives for the column's app strings, whose text every runtime reads identically (executed)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4486,6 +4692,7 @@
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-a-relation-in-a-searching-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor offers it only on calculated properties (`column.js::filterFormats`; it offered it from `44fdd0ba8f7` until `c1697fb5b6e`), and the calculated spelling is not the same state there, since the search fetches related cases for non-calculated relation paths (`case_search/utils.py::get_search_detail_relationship_paths`; executed)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4519,6 +4726,8 @@
 		"valueClass": "translatable-enum-on-a-non-calculated-column-over-a-relation-in-a-non-searching-module",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the same state as the calculated `translatable-enum` over that path (`translatedExpression`): HQ's build differs only in the column's app-string ids, and nothing reads the relation path, which HQ collects only for modules that offer search (executed)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4552,6 +4761,7 @@
 		"valueClass": "enum-with-an-xml-special-character-in-a-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the mapping editor marks it an error (`ui-element-key-val-mapping.js::hasBadXML`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -4617,6 +4827,8 @@
 		"valueClass": "late-flag-of-zero-or-less",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `interval` threshold widened to integers ≤ 0, with text and header as in 6",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4683,6 +4895,8 @@
 		"valueClass": "invisible-or-address-in-a-custom-tile",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the column's tile cell, held with it: HQ's editor saves grid coordinates for every column though it hides them for these formats (`details/bootstrap5/column.js`, `coordinatesVisible`, `serialize`), so a new one sits at `(0,0,6,1)`, and HQ builds the cell (`case_tiles.py::build_case_tile_detail`)",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (hidden: a field whose width hint is 0, `tile_item.html`) / DIFFERENT (drawn at its stored cell, `EntityViewTile.addFieldView`, unless a coordinate is negative)",
@@ -4746,6 +4960,8 @@
 		"valueClass": "invisible-in-a-nodeset-tab",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a hidden ascending sort of that tab's rows (`details.py::get_nodeset_sort_elements`; executed: width 0 and `<sort type=\"string\" order=\"1\" direction=\"ascending\">`)",
+		"subject": "case-detail-tabs",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4778,6 +4994,8 @@
 		"valueClass": "address-outside-a-custom-tile",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `address` column kind",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (hidden in the list, plain text on the detail; a map only under the CASE_LIST_MAP flag) / RUNS (Map menu, \"show address\")",
@@ -4806,6 +5024,8 @@
 		"valueClass": "distance",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `distance` column kind (from `here()`)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (never from the user: São Paulo placeholder or blank) / RUNS",
@@ -4836,13 +5056,41 @@
 		],
 		"valueClass": "markdown",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the `link` column kind, the fixed `[text](value)` case (`hqJson/caseList.ts::projectColumnToDetail`, `suite/case-list/columns.ts`); widen: a `markdown` column kind over any property or expression",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "a `markdown` column kind over any property or expression"
+		"dispositionCell": "**HELD**: the `link` column kind, the fixed `[text](value)` case (`hqJson/caseList.ts::projectColumnToDetail`, `suite/case-list/columns.ts`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / DIFFERENT (markdown only on the detail; raw in rows, HTML in tiles)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "different",
+				"note": "markdown only on the detail; raw in rows, HTML in tiles"
 			}
+		},
+		"emission": {
+			"cell": "`markdown`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/10-markdown-outside-the-link-shape",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "10 `markdown` over a property or an expression other than the fixed `[text](value)` link",
+		"surfaceKeys": [
+			"format:markdown",
+			"parser:DetailFieldParser/template@form",
+			"schema:DetailColumn.format"
 		],
+		"valueClass": "markdown-outside-link",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a `markdown` column kind",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (markdown only on the detail; raw in rows, HTML in tiles)",
@@ -4876,6 +5124,8 @@
 		"valueClass": "geo-boundary-on-the-case-list-beside-its-dependencies",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `mapLayer` column kind `boundary`",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -4908,6 +5158,8 @@
 		"valueClass": "geo-boundary-color-on-the-case-list-beside-its-dependencies",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `mapLayer` `boundaryColor`",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -4940,6 +5192,8 @@
 		"valueClass": "geo-points-on-the-case-list-beside-its-dependencies",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `mapLayer` `points`",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -4972,6 +5226,8 @@
 		"valueClass": "geo-points-colors-on-the-case-list-beside-its-dependencies",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `mapLayer` `pointColors`",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -5004,6 +5260,7 @@
 		"valueClass": "geo-format-without-a-column-it-depends-on",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor resets a geo column missing its dependency to `plain` when the page loads (`column.js::updateFormatOptions`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5069,6 +5326,7 @@
 		"valueClass": "address-popup",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (CASE_LIST_MAP)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -5110,6 +5368,8 @@
 		"valueClass": "clickable-icon-on-the-case-list-naming-a-form-endpoint",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `clickableIcon` column kind (icon mapping + the entry point of a case-requiring form that carries the `Pragma-Submit-Automatically` label, the only targets the editor offers, `views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (raw `jr://` path as text)",
@@ -5141,6 +5401,7 @@
 		"valueClass": "clickable-icon-on-the-case-list-with-an-empty-endpoint",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `invalid clickable icon configuration`; in an advanced module, which skips the first check, an empty id is broken at runtime: HQ emits no action, and Web Apps' click reads it (`menus/views.js::iconClick`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -5179,6 +5440,7 @@
 		"valueClass": "clickable-icon-on-the-case-detail",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: no runtime runs a case detail's endpoint action (Formplayer builds endpoint actions only for the case list, `EntityListResponse::processEndpointActions`; Web Apps binds icon clicks only in the case list, `menus/views.js::CaseView`; Android has no endpoint-action handling), while HQ's check that the entry point exists reads only the case list (`validate_case_list_field_actions`), so it builds (an empty id fails `invalid clickable icon configuration` on either detail, `_validate_clickable_icons`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -5230,6 +5492,7 @@
 		"valueClass": "naming-no-form-endpoint-on-the-case-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `case list field action endpoint missing` (`ModuleBaseValidator.validate_case_list_field_actions` checks every column with one, whatever its format, against form `session_endpoint_id`s only (`app.get_forms()`), so a menu's, case list's or mirror form's entry point fails too; `column.js` keeps the value when the format changes)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -5286,6 +5549,7 @@
 		"valueClass": "picture",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MM_CASE_PROPERTIES)",
+		"subject": "case-attachments",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -5318,6 +5582,7 @@
 		"valueClass": "audio",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MM_CASE_PROPERTIES)",
+		"subject": "case-attachments",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -5355,6 +5620,8 @@
 		"valueClass": "enum-image-with-plain-value-keys",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `image-map` equality keys: HQ matches by equality (`prop = 'key'`, `MappingItem.key_as_condition`), while Nova's image-map matches `selected()` tokens today (19′)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (in an `icon_text_grid` tile, the raw path)",
@@ -5430,6 +5697,8 @@
 		"valueClass": "enum-image-with-other-condition-keys",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `image-map` condition keys",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (in an `icon_text_grid` tile, the raw path)",
@@ -5464,6 +5733,8 @@
 		"valueClass": "conditional-enum",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `conditionalText` column kind (condition → localized text)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5497,13 +5768,44 @@
 		],
 		"valueClass": "translatable-enum-on-a-calculated-column",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: Nova's label projection of a select property (`plainSelectDisplayXpath` over the property's options) and an interval column's text, each a calculated `translatable-enum` (`hqJson/caseList.ts::projectColumnToDetail`), which reads back as the column it came from; widen: the `translatedExpression` column kind, a calculated expression whose key substrings are replaced by localized variables",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "the `translatedExpression` column kind, a calculated expression whose key substrings are replaced by localized variables"
+		"dispositionCell": "**HELD**: derived: Nova's label projection of a select property (`plainSelectDisplayXpath` over the property's options) and an interval column's text, each a calculated `translatable-enum` (`hqJson/caseList.ts::projectColumnToDetail`), which reads back as the column it came from",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "`translatable-enum` + `useXpathExpression`; add-on `calc_xpaths`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/21-translatable-enum-outside-nova-s-two-projections",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "21 `translatable-enum` other than a select property's label projection or an interval's text",
+		"surfaceKeys": [
+			"format:translatable-enum",
+			"schema:DetailColumn.enum",
+			"schema:DetailColumn.format",
+			"schema:DetailColumn.useXpathExpression",
+			"schema:MappingItem",
+			"schema:MappingItem.key",
+			"schema:MappingItem.value"
 		],
+		"valueClass": "authored-translated-expression",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the `translatedExpression` column kind",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5537,6 +5839,7 @@
 		"valueClass": "translatable-enum-with-a-key-outside-the-editor-s-grammar",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the mapping editor marks it an error and keeps its OK button disabled (`ui-element-key-val-mapping.js::hasBadXML`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5598,6 +5901,7 @@
 		"valueClass": "graph",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (GRAPH_CREATION)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -5635,6 +5939,7 @@
 		"valueClass": "mapping-with-two-entries-sharing-a-key",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the mapping editor marks it an error (\"Key is duplicated\", \"Calculation is duplicated\", \"This key is already defined\"; `hqwebapp/js/ui_elements/bootstrap5/ui-element-key-val-mapping.js::isItemDuplicated`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5665,6 +5970,7 @@
 		"valueClass": "image",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: its UI went in `1d0f049d84f`, and its flag (`case_micro_image`) is gone at the pinned commit",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5711,6 +6017,7 @@
 		"valueClass": "filter-where-it-changes-the-build",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: it suppresses HQ's default sort, which sorts on the first column (`details.py::get_default_sort_elements`), or takes a sort element that names its field, which it then drops (`util.py::get_sort_and_sort_only_columns` attaches a sort to the first column with that field, and `Filter.fields` is empty; executed), or shifts the calculated-column index a sort field names (`_cc_calculated_N`, `util.py`), or renders its field in a custom tile slot (`case_tiles.py::_get_xpath_function`), and every save drops it (`screen.js`), changing the build",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5773,6 +6080,7 @@
 		"valueClass": "several-of-one-format-in-a-basic-or-shadow-module-detail",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the Case List and Case Detail saves refuse a second column of the same `image` or geo-* format (`screen.js::save` counts each format separately); not HQ-buildable: a second `address` fails `invalid tile configuration` (`ModuleDetailValidatorMixin._validate_fields_with_format_duplicate`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5807,6 +6115,8 @@
 		"valueClass": "several-address-columns-in-an-advanced-module-detail",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: several address columns, which the map reads differently: Web Apps takes the first address column (`menus/views.js` `findIndex`), and Android, per case, the first address field that yields a location (`gis/EntityMapUtils.kt::getDisplayInfoForEntity`); the editor allows it (`screen.js::save` counts only image and geo-*) and HQ's build does not check it there (executed); holding it makes the module emitted as advanced (\"Case writes\")",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (a blank first address falls through to the next)",
@@ -5842,6 +6152,7 @@
 		"valueClass": "several-image-or-geo-columns-of-one-format-in-an-advanced-module-detail",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the Case List and Case Detail saves refuse a second column of the same `image` or geo-* format in any module (`screen.js::save`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -5949,6 +6260,8 @@
 		"valueClass": "relation-path",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `column.via` relation path on property columns (today only calculated columns read through relations)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -5975,6 +6288,8 @@
 		"valueClass": "usercase-property",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: column over the usercase property",
+		"subject": "worker-record",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6001,6 +6316,8 @@
 		"valueClass": "usercase-property-with-later-steps",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: the column over the usercase property, the same state as `user/prop`: HQ reads only the usercase and drops the later steps (`detail_screen.py::PropertyXpathGenerator.xpath`), so the build is identical",
+		"subject": "worker-record",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6027,6 +6344,7 @@
 		"valueClass": "explicit-property-prefix",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ emits the field text as the column's XPath (`PropertyXpathGenerator.xpath` reads the whole field as the property name; `BaseXpathGenerator.xpath` returns it verbatim), a prefixed name no case element carries, so the column is blank for every case",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -6053,6 +6371,8 @@
 		"valueClass": "owner-name",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `ownerName` column (the owning group's name, else the current worker's username for a case they own, else blank)",
+		"subject": "case-list-columns",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6079,6 +6399,7 @@
 		"valueClass": "with-a-format-other-than-picture-or-audio",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (MM_CASE_PROPERTIES): HQ keeps and syncs case attachments only under that flag (`form_processor/backends/sql/update_strategy.py::_apply_attachments_action`), so without it the column is blank",
+		"subject": "case-attachments",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -6105,6 +6426,7 @@
 		"surfaceKeys": ["detail-field-type:ledger"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (COMMTRACK)",
+		"subject": "supply-features",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -6131,6 +6453,7 @@
 		"surfaceKeys": ["detail-field-type:location"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (HIERARCHICAL_LOCATION_FIXTURE: `validate_detail_columns` refuses it without the hierarchical fixture)",
+		"subject": "hierarchical-locations",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -6157,6 +6480,7 @@
 		"surfaceKeys": ["detail-field-type:schedule"],
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (VISIT_SCHEDULER)",
+		"subject": "visit-scheduler",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -6184,6 +6508,7 @@
 		"valueClass": "call-center-set",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: untypeable: its rows come from the target's call-center configuration (`callcenter/fixturegenerators.py::IndicatorsFixturesProvider`), which Nova cannot read, as for `indicators:*` (Secondary instances)",
+		"subject": "call-center-indicators",
 		"reasons": [
 			{
 				"kind": "untypeable",
@@ -6210,6 +6535,7 @@
 		"valueClass": "any-other-set",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: HQ declares `jr://fixture/indicators:<set>` (`detail_screen.py::IndicatorXpathGenerator`), no HQ fixture serves it, and Core fails to initialize the instance (`CommCareInstanceInitializer.loadFixtureRoot`)",
+		"subject": "case-list-columns",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -6321,6 +6647,7 @@
 		"valueClass": "names-a-missing-or-non-calculated-column",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `util.py::get_sort_and_sort_only_columns` raises `AppManagerException`",
+		"subject": "case-list-sorting",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -6441,6 +6768,8 @@
 		"valueClass": "authored-numeric-comparator",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `sort.comparator` (authored)",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6470,6 +6799,8 @@
 		"valueClass": "distance",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `sort.comparator: distance` (on a column whose format has its own sort, HQ keeps that format's sort type with the distance function: `double` for `distance`, and `string` for date, time-ago and the ID-mapping formats, where distances compare as text: executed)",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE (sorted from São Paulo) / RUNS",
@@ -6501,6 +6832,7 @@
 		"valueClass": "index",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (CACHE_AND_INDEX)",
+		"subject": "case-list-optimizations",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -6561,6 +6893,8 @@
 		"valueClass": "first-or-last",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `sort.blanks`",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6617,6 +6951,8 @@
 		"valueClass": "label-on-a-sort-only-element",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `sort.label`: HQ makes it the header of the invisible sort column and an app string (`util.py::create_temp_sort_column`)",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (only the tile \"Sort By\" lists it) / RUNS",
@@ -6644,6 +6980,8 @@
 		"valueClass": "label-on-a-sort-joined-to-an-invisible-column",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `sort.label` presence, which alone decides whether the column is listed under Sort By (`detail_screen.py::Invisible.header`); Nova writes `display: {}` on every sort today (`hqJson/caseList.ts`)",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (only the tile \"Sort By\" lists it) / RUNS",
@@ -6742,6 +7080,8 @@
 		"valueClass": "authored-with-an-empty-field",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `sort.expression` (lifts into ValueExpression, else the typed expression model)",
+		"subject": "case-list-sorting",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6801,6 +7141,7 @@
 		"valueClass": "beside-a-field-on-a-column-of-another-format",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable (the editor writes `field ''` for calculation rows)",
+		"subject": "case-list-sorting",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -6895,6 +7236,8 @@
 		"valueClass": "plain-tab",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.detailTabs[] {header, startColumn}`",
+		"subject": "case-detail-tabs",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6950,6 +7293,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `detailTabs[].displayCondition` (Predicate, or the typed expression model)",
+		"subject": "case-detail-tabs",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6985,6 +7330,8 @@
 		"valueClass": "child-case-data-tab",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `detailTabs[].rows: childCases {caseType, filter}`",
+		"subject": "case-detail-tabs",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7019,6 +7366,8 @@
 		"valueClass": "custom-nodeset-data-tab",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `detailTabs[].rows: expression` (typed expression model)",
+		"subject": "case-detail-tabs",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7045,6 +7394,7 @@
 		"valueClass": "first-tab-starting-after-the-first-column",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: \"All properties must be below a tab\" (`screen.js::save`)",
+		"subject": "case-detail-tabs",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -7074,6 +7424,7 @@
 		"valueClass": "long-tile-row-mixing-two-tabs-in-a-basic-or-shadow-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `invalid tile configuration`",
+		"subject": "case-tiles",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -7103,6 +7454,8 @@
 		"valueClass": "long-tile-row-mixing-two-tabs-in-an-advanced-module",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: a detail tile whose row holds cells of two tabs: HQ builds each tab with its cells at their stored positions (`suite_xml/sections/details.py`, `case_tiles.py::build_case_tile_detail`), and does not check the row there; holding it makes the module emitted as advanced (\"Case writes\")",
+		"subject": "case-tiles",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7135,6 +7488,8 @@
 		"valueClass": "enabled-on-a-plain-or-custom-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListConfig.callout {action}`",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (no button) / RUNS",
@@ -7165,6 +7520,8 @@
 		"valueClass": "on-the-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `callout.name`",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7194,6 +7551,8 @@
 		"valueClass": "on-the-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `callout.icon` (media asset)",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7223,6 +7582,8 @@
 		"valueClass": "on-the-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `callout.autoLaunch`",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7254,6 +7615,8 @@
 		"valueClass": "at-least-one-on-the-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `callout.extras`",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7284,6 +7647,8 @@
 		"valueClass": "at-least-one-on-the-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `callout.responses`",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7313,6 +7678,7 @@
 		"valueClass": "none-on-the-case-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the callout editor requires at least one of each (`case_list_callout.js::validate`)",
+		"subject": "case-list-callout",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -7345,6 +7711,8 @@
 		"valueClass": "on-the-case-list",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `callout.resultsColumn {header, expression}`",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -7433,6 +7801,7 @@
 		"valueClass": "on-the-case-detail",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor writes callouts only on the case list (`views/modules.py::_save_case_list_lookup_params(detail.short, …)`); HQ would build it into the long detail, or, when tabbed, into each tab's sub-detail only (`suite_xml/sections/details.py::DetailContributor.build_detail`)",
+		"subject": "case-list-callout",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -7468,13 +7837,46 @@
 		],
 		"valueClass": "active-parent-naming-a-valid-module",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Module.parentCaseModuleUuid`; widen: a module of any other case type HQ offers, not only the declared parent type (`views/modules.py::get_modules_with_parent_case_type` offers every non-multi-select module whose case type differs, and `validate_parent_select` accepts it; executed), and a child type whose relationship to it is an extension, where the child list shows the cases whose non-extension index names the selected case (Nova's `lib/domain/caseParentSelection.ts::caseParentSelectionVerdict` accepts only the declared parent type today)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "a module of any other case type HQ offers, not only the declared parent type (`views/modules.py::get_modules_with_parent_case_type` offers every non-multi-select module whose case type differs, and `validate_parent_select` accepts it; executed), and a child type whose relationship to it is an extension, where the child list shows the cases whose non-extension index names the selected case (Nova's `lib/domain/caseParentSelection.ts::caseParentSelectionVerdict` accepts only the declared parent type today)"
+		"dispositionCell": "**HELD**: `Module.parentCaseModuleUuid`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
+		},
+		"emission": {
+			"cell": "that shape",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/parent-select-naming-a-module-outside-the-declared-parent-type",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`parent_select` naming a module of a case type other than the child's declared parent, or of an extension's host",
+		"surfaceKeys": [
+			"parser:SessionDatumParser/datum",
+			"parser:SessionDatumParser/datum@id",
+			"parser:SessionDatumParser/datum@nodeset",
+			"parser:SessionDatumParser/datum@value",
+			"schema:Module.parent_select",
+			"schema:ParentSelect",
+			"schema:ParentSelect.active",
+			"schema:ParentSelect.module_id",
+			"schema:ParentSelect.relationship",
+			"schema:ShadowModule.parent_select"
 		],
+		"valueClass": "parent-outside-declared-type",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a parent menu of any other case type HQ offers (`views/modules.py::get_modules_with_parent_case_type`)",
+		"subject": "parent-selection",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7500,6 +7902,7 @@
 		"valueClass": "names-a-module-searching-inline-under-the-child-s-results-instance",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `non-unique instance name with parent select module` (`validate_parent_select` runs whenever `search_config` is set, which it always is; executed)",
+		"subject": "parent-selection",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -7525,6 +7928,7 @@
 		"valueClass": "names-a-survey-module-an-entry-reads",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: the parent list selects cases of type `''`, which never exist, so the child's case list and its forms that load a case cannot be reached (executed; `entries.py::get_case_datums_basic_module` adds the parent step only where a form requires a case, and `suite_xml/utils.py::get_select_chain_with_sessions` follows each module's `parent_select` in turn, so a module whose chain passes through the child adds the survey step)",
+		"subject": "parent-selection",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -7569,6 +7973,7 @@
 		"valueClass": "null-other",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: retiring (NON_PARENT_MENU_SELECTION)",
+		"subject": "parent-selection",
 		"reasons": [
 			{
 				"kind": "retiring",
@@ -7619,6 +8024,7 @@
 		"valueClass": "names-a-multi-select-invalid-or-cyclic-module",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable/buildable: `get_modules_with_parent_case_type` excludes multi-select; `invalid parent select id`, `parent cycle`, `circular case hierarchy`",
+		"subject": "parent-selection",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -7688,6 +8094,8 @@
 		"valueClass": "registration-form-in-another-module",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `Module.caseListRegistrationForm` (today only the search-no-matches entry exists)",
+		"subject": "case-list-registration",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7768,6 +8176,8 @@
 		"valueClass": "follow-up-form-of-the-parent-case-type",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm` follow-up arm (offered only where the module selects its parent through `parent_select`, `views/modules.py::get_parent_select_followup_forms`)",
+		"subject": "case-list-registration",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7859,6 +8269,8 @@
 		"valueClass": "with-followup-forms-as-case-list-form",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm.displayCondition` (Predicate, else the typed expression model)",
+		"subject": "case-list-registration",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7906,6 +8318,8 @@
 		],
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm.icon`, `audioLabel`",
+		"subject": "case-list-registration",
+		"owner": "menus",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (label text only) / RUNS",
@@ -7965,6 +8379,7 @@
 		"valueClass": "on-a-display-only-child-whose-parent-registers-the-same-form",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: broken at runtime: a display-only child menu's id is its parent's (`id_strings.menu_id`), so HQ builds a second pair of return frames guarded by the parent's menu id into the form's stack (`suite_xml/post_process/workflow.py::CaseListFormWorkflow`), which fire whenever the form is opened from the parent's list, repeating the flow (executed); HQ's editor withdraws the setting on a display-only menu (`views/modules.py::_case_list_form_not_allowed_reasons`)",
+		"subject": "display-only-forms",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -7996,6 +8411,7 @@
 		"valueClass": "on-a-display-only-module-with-a-tile-case-list",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: the editor withdraws registration from the case list there (`views/modules.py::_case_list_form_not_allowed_reasons`, \"Registration from the case list is not available because…\"), though a form set before the menu mode changes stays stored, and HQ builds its action in the tile (`features/case_tiles.py::CaseTileHelper.build_case_tile_detail`; executed)",
+		"subject": "display-only-forms",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -8027,6 +8443,7 @@
 		"valueClass": "on-a-module-whose-forms-do-not-all-require-a-case",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-editable: `_case_list_form_not_allowed_reasons`, as for `put_in_root`",
+		"subject": "case-list-registration",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -8058,6 +8475,7 @@
 		"valueClass": "missing-not-a-registration-form-or-breaking-the-advanced-rules",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: not HQ-buildable: `case list form missing`, `case list form not registration`, `invalid case list followup form`, the six advanced rules",
+		"subject": "case-list-registration",
 		"reasons": [
 			{
 				"kind": "not-hq-buildable",
@@ -8123,6 +8541,7 @@
 		"origin": "export-use",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: freeform: kept by HQ as a jsonobject dynamic property its builder does not model (each class's `schema:<Class>.<undeclared>` surface item: declared false, kept true); the reader refuses a key it does not recognize (README, \"Refused\")",
+		"subject": "hand-written-content",
 		"reasons": [
 			{
 				"kind": "freeform",

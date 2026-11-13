@@ -201,7 +201,7 @@ describe("whole-document structural admission", () => {
 			assertAdmittedDoc(patient("registration", [plain], caseType));
 		},
 	);
-	it.each(["1patient", "patient record", "patient@home"])(
+	it.each(["patient record", "patient@home", "ñ"])(
 		"rejects invalid case type %s without breaking its catalog links",
 		(caseType) => {
 			const base = patient();
@@ -217,13 +217,10 @@ describe("whole-document structural admission", () => {
 			"CASE_TYPE_TOO_LONG",
 		]);
 	});
-	it.each(["user", "case", "form", "parent", "search", "Parent"])(
-		"reserves reference namespace %s",
+	it.each(["user", "case", "form", "parent", "search", "Parent", "1patient"])(
+		"admits the case type %s, a word reference text names as #record/<type>/",
 		(caseType) => {
-			const doc = patient("registration", [plain], caseType);
-			expect(findings(doc, ["RESERVED_CASE_TYPE_NAME"])).toMatchObject([
-				{ scope: "app", location: { moduleUuid: m }, details: { caseType } },
-			]);
+			assertAdmittedDoc(patient("registration", [plain], caseType));
 		},
 	);
 	it.each(["hidden", "empty"])(
@@ -299,12 +296,15 @@ describe("field and property identity policy", () => {
 		"cases",
 		"instances",
 		"itext",
+		"answer-value",
+		"copy-1-of-answer",
 	])("admits field id %s", (id) => {
 		assertAdmittedDoc(survey([{ ...plain, id }]));
 	});
 	it.each([
 		["1answer", "not-letter-first", "q1answer"],
-		["answer-value", "characters", "answer_value"],
+		["answer value", "characters", "answer_value"],
+		["-answer", "not-letter-first", "answer"],
 		["_answer", "leading-underscore", "answer"],
 		["__nova_x", "leading-underscore", "nova_x"],
 		["XMLcode", "xml-prefix", "qXMLcode"],

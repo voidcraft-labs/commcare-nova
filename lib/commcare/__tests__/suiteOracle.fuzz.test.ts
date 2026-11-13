@@ -4,6 +4,13 @@ import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { advancedDocArbitrary } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
+	hasCaseNamedCase,
+	hasDigitLeadingCaseType,
+	hasHyphenatedFieldId,
+	hasHyphenatedSearchField,
+	namesDocArbitrary,
+} from "./namesDocArbitrary";
+import {
 	hasCaseSearch,
 	hasChildCase,
 	hasMedia,
@@ -81,4 +88,36 @@ it("compiles workflow samples whose after-submit link carries a create, with an 
 	);
 	expect(census.total).toBe(60);
 	expect(census.advanced / census.total).toBeGreaterThan(0.5);
+});
+
+// The names family: case types that start with a digit or are one of
+// reference text's fixed words, and a Search field whose name holds a hyphen,
+// reach the HQ import, the local suite's entries and every binding. The
+// census fails by name if the generator stops drawing them.
+it("compiles workflows whose case types and Search fields fill Nova's name grammars", {
+	timeout: 60_000,
+}, () => {
+	const census = {
+		total: 0,
+		digitType: 0,
+		typeNamedCase: 0,
+		hyphenatedSearchField: 0,
+		hyphenatedId: 0,
+	};
+	assertGenerated(
+		fc.property(namesDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			census.total++;
+			if (hasDigitLeadingCaseType(doc)) census.digitType++;
+			if (hasCaseNamedCase(doc)) census.typeNamedCase++;
+			if (hasHyphenatedSearchField(doc)) census.hyphenatedSearchField++;
+			if (hasHyphenatedFieldId(doc)) census.hyphenatedId++;
+		}),
+		{ seed: 20261113, numRuns: 80 },
+	);
+	expect(census.total).toBe(80);
+	expect(census.digitType).toBeGreaterThan(0);
+	expect(census.typeNamedCase).toBeGreaterThan(0);
+	expect(census.hyphenatedSearchField).toBeGreaterThan(0);
+	expect(census.hyphenatedId).toBeGreaterThan(0);
 });

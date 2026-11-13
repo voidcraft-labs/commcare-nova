@@ -954,9 +954,7 @@ export class PostgresCaseStore implements CaseStore {
 		//      Net effect: a calculated value whose uuid pushes the
 		//      alias over the cap silently emits as `null` for every
 		//      row. Two uuids matching in the truncation prefix
-		//      collide on the same alias. Mirrors the `indexName`
-		//      defense at the bottom of this file — same Postgres
-		//      invariant, same throw-with-compiler-bug-shape response.
+		//      collide on the same alias.
 		//
 		// Reject early with the canonical compiler-bug shape so the
 		// caller surfaces the contract violation instead of a silent

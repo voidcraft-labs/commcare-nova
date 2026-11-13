@@ -2651,7 +2651,13 @@ Removed: `proof/corpus/hq/__main__.py`, `harvest.py`, `sources.py`, `test_harves
 `"hq-selfchecks"` from `proof/lane/blocks.py::SINGLE_GROUPS`, its sentence in that module's
 docstring and its name in `group_problem`'s message, its sentence in `proof/store/queue.py`'s
 docstring and in `proof/checks/sharding.py::collection_roots`'s, and its name in
-`proof/lane/test_blocks.py`; the README section "HQ's apps as self-checks".
+`proof/lane/test_blocks.py` and `proof/checks/test_sharding.py`; the index's `hq`
+list and `emitCorpus.ts::HqIndexEntry`, which only the flag filled; the README
+section "HQ's apps as self-checks". With the privilege tests moved, `proof/corpus`
+holds no Python test, so it is no package group: `proof/lane/test_forkserver.py`'s
+early-queue tests, which used it as a group that reads no corpus, use `proof/core`
+in its place, and the README's list of the groups a reader's run by hand takes
+loses it.
 
 Kept, moved: `proof/corpus/hq/test_privileges.py` is no part of the harvest. It holds each privilege
 rule of `proof/checks/configurations.py` to the content HQ gates, over `AppFactory` apps, and runs
