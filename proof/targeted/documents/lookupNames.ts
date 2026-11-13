@@ -11,7 +11,10 @@
  * `health-facility-v2`, with the columns `facility-name`, `XMLcode` and
  * `geo-lat`, is read by:
  *
- * - a select whose choices come from it, saved to the client's `facility`;
+ * - a select whose choices come from it, saved to the client's `facility`:
+ *   `facility-name` is both its value and its label, so each value is a
+ *   token with no whitespace, as every choice value is
+ *   (`lib/commcare/lookup/selectSourceRows.ts`);
  * - a calculation reading `geo-lat` by a filter on `XMLcode`;
  * - a calculated case list column reading `geo-lat` for the client's facility;
  * - the case list's filter, which compares the client's `facility` with the
@@ -71,12 +74,12 @@ export function lookupNames() {
 		throw new Error(`The ${TAG} table has no ${COLUMNS.join(", ")} columns.`);
 	const rows = [
 		wireRow(table, "north", {
-			"facility-name": "North clinic",
+			"facility-name": "north-clinic",
 			XMLcode: "N1",
 			"geo-lat": "-1.28",
 		}),
 		wireRow(table, "south", {
-			"facility-name": "South clinic",
+			"facility-name": "south-clinic",
 			XMLcode: "S1",
 			"geo-lat": "-4.04",
 		}),
@@ -225,8 +228,8 @@ export function lookupNames() {
 				tag: TAG,
 				fields: [...COLUMNS],
 				rows: [
-					["North clinic", "N1", "-1.28"],
-					["South clinic", "S1", "-4.04"],
+					["north-clinic", "N1", "-1.28"],
+					["south-clinic", "S1", "-4.04"],
 				],
 			},
 		],
