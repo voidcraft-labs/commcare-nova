@@ -20,7 +20,7 @@ test("a search condition that depends on an answer and reads its distance from o
 	const { searchChoice } = seedFor(scenario, "search-choice");
 	const { radius, area, sites, moduleName } = SEARCH_CHOICE_SEED;
 	test.setTimeout(120_000);
-	await page.clock.install();
+	await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
 	const main = page.locator("main");
 
 	await test.step("author the choice and the distance in the Radius condition", async () => {
@@ -92,7 +92,7 @@ test("a search condition that depends on an answer and reads its distance from o
 			if (!checkedFocusHandoff) {
 				// Hold the navigation's focus frame, then choose Area before it
 				// runs. A delayed first-field handoff must not redirect that input.
-				await page.clock.pauseAt(new Date(Date.now() + 1_000));
+				await page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
 				try {
 					// Actionability needs animation frames; dispatch the native click
 					// with the clock paused and observe React's resulting screen.
