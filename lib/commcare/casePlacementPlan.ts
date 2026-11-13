@@ -361,14 +361,24 @@ function buildPlan(
 		});
 	}
 
-	// HQ's Case Management save writes `always` on every form that opens or
-	// requires a case (`case_config_ui.js::HQFormActions.from_case_transaction`).
-	if (form.type !== "survey" && moduleCaseType)
-		actions.update_case.condition = alwaysCondition();
-
 	const own = operations.find((op) => op.action === "own");
 	const ownPlanned = own === undefined ? undefined : placements.get(own.uuid);
 	const ownBasic = ownPlanned?.placement.kind === "basic";
+
+	// HQ's Case Management save writes `always` on every form that opens or
+	// requires a case (`case_config_ui.js::HQFormActions.from_case_transaction`).
+	// A registration opens one there only where its own arm takes the basic
+	// slot. Where the own arm takes Save to Case the form requires no case and
+	// opens none, and HQ's build refuses an active update on it ("To update a
+	// case you must either open a case or require a case to begin with",
+	// `xform.py::XForm._create_casexml`), so its update stays `never`, as a
+	// survey's does.
+	if (
+		moduleCaseType &&
+		(CASE_LOADING_FORM_TYPES.has(form.type) ||
+			(isRegistration(form) && ownBasic))
+	)
+		actions.update_case.condition = alwaysCondition();
 	if (own !== undefined && ownBasic && moduleCaseType) {
 		if (isRegistration(form)) {
 			if (own.name === undefined)

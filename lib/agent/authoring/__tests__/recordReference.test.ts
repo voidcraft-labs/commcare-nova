@@ -3,8 +3,10 @@
  * sends that same text back. A form whose selected record is a `visit` and
  * whose ancestors are named `case`, `form`, `user` and `row` (each a word
  * reference text fixes) reads each ancestor as `#record/<type>/…`, and every
- * spelling a read hands out binds back to the record it named: never the
- * selected record, never an answer, never a table column.
+ * spelling a read hands out binds back to the record it named, whether sent
+ * in a new question (`addFields`), an edit of an existing one (`editField`)
+ * or a form's own condition (`updateForm`): never the selected record, never
+ * an answer, never a table column.
  */
 import { expect, it } from "vitest";
 import { z } from "zod";
@@ -44,7 +46,10 @@ async function visitForm() {
 			{
 				name: "Visits",
 				caseType: "visit",
-				forms: [{ name: "Record visit", type: "followup" }],
+				forms: [
+					{ name: "Record visit", type: "followup" },
+					{ name: "Close visit", type: "close" },
+				],
 			},
 		]),
 	);
@@ -97,6 +102,10 @@ it("hands out an ancestor reference that, sent back, reads that ancestor", async
 		]),
 	);
 	expect(references.get("visit")).toBe("#visit/property");
+	await call("addFields", {
+		formUuid: "Record visit",
+		fields: [{ kind: "hidden", id: "edited", calculate: "'none'" }],
+	});
 	for (const ancestor of ANCESTORS) {
 		expect(references.get(ancestor)).toBe(`#record/${ancestor}/property`);
 		await call("addFields", {
@@ -115,7 +124,45 @@ it("hands out an ancestor reference that, sent back, reads that ancestor", async
 				term: { kind: "form-case", caseType: ancestor, property: "region" },
 			},
 		});
+		await call("editField", {
+			formUuid: "Record visit",
+			fieldUuid: "edited",
+			updates: {
+				calculate: references.get(ancestor)?.replace("/property", "/region"),
+			},
+		});
+		expect(fieldNamed("edited")).toMatchObject({
+			calculate: {
+				kind: "term",
+				term: { kind: "form-case", caseType: ancestor, property: "region" },
+			},
+		});
 	}
+});
+
+it("stores a form's own condition on an ancestor named for a fixed word, and reads it back as sent", async () => {
+	const { h, call } = await visitForm();
+	await call("updateForm", {
+		formUuid: "Close visit",
+		close_condition: "#record/case/region = 'north'",
+	});
+	const form = Object.values(h.currentDoc().forms).find(
+		(each) => each.name === "Close visit",
+	);
+	if (form === undefined) throw new Error("no close form");
+	expect(formCaseTerms(form.closeCondition)).toEqual([
+		{ kind: "form-case", caseType: "case", property: "region" },
+	]);
+	const read = z
+		.object({ form: z.object({ closeCondition: z.string() }) })
+		.parse(await call("getForm", { formUuid: "Close visit" }));
+	expect(read.form.closeCondition).toBe("#record/case/region = 'north'");
+	const before = structuredClone(h.currentDoc());
+	await call("updateForm", {
+		formUuid: "Close visit",
+		close_condition: read.form.closeCondition,
+	});
+	expect(h.currentDoc()).toEqual(before);
 });
 
 it("reads a label's record named form as #record/form and stores the same part when sent back", async () => {

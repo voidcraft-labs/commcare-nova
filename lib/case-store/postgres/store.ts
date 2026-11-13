@@ -5346,7 +5346,7 @@ function decodeStoredCaseSchema(
 	}
 	const dataTypes = new Map<string, CasePropertyDataType>();
 	for (const [name, propertySchema] of Object.entries(record.properties)) {
-		assertSafeIdentifierFragment(name, "property");
+		assertSafeIdentifierFragment(name);
 		if (CASE_SCALAR_PROPERTY_NAMES.has(name)) {
 			throw new Error(
 				`Stored case schema for "${caseType}" in app "${appId}" declares reserved scalar "${name}" as a JSON property.`,
@@ -5379,17 +5379,17 @@ function strictStoredDataType(
 	);
 }
 
-function assertSafeIdentifierFragment(
-	fragment: string,
-	kind: "property" | "case type",
-): void {
+/** A stored schema's property name, which the SQL compiler reads as a JSONB
+ * key, holds the catalog's property grammar. Case types take a wider grammar
+ * (one may start with a digit, `_` or `-`) and are not checked here. */
+function assertSafeIdentifierFragment(fragment: string): void {
 	if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(fragment)) {
 		throw new Error(
 			compilerBugMessage({
 				where: "case-store.assertSafeIdentifierFragment",
-				invariant: `${kind} name \`${fragment}\` contains characters other than letters, digits, underscores, and hyphens, or does not start with a letter`,
+				invariant: `property name \`${fragment}\` contains characters other than letters, digits, underscores, and hyphens, or does not start with a letter`,
 				detail:
-					"The blueprint AST's `CASE_PROPERTY_PATTERN` (at `lib/domain/expression/types.ts`) restricts case-type and property names to a leading letter followed by letters / digits / underscores / hyphens; the case-store's identifier-shape contract aligns with that AST pattern. Reaching this throw means a name bypassed the AST gate (e.g., a runtime-constructed blueprint that skipped Zod parsing).\n\nHint: rename the offending case type or property at the blueprint layer; restoring AST-gated construction is the structural fix.",
+					"The blueprint AST's `CASE_PROPERTY_PATTERN` (at `lib/domain/expression/types.ts`) restricts property names to a leading letter followed by letters / digits / underscores / hyphens; the case-store's property-name contract aligns with that AST pattern. Reaching this throw means a name bypassed the AST gate (e.g., a runtime-constructed blueprint that skipped Zod parsing).\n\nHint: rename the offending property at the blueprint layer; restoring AST-gated construction is the structural fix.",
 			}),
 		);
 	}

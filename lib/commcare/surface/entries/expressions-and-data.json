@@ -4694,7 +4694,7 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook; in the XForm the instance id is made unique (`commcaresession-1`) where it would equal an instance the form declares, as Vellum does (`form.js::addInstanceIfNotExists`)",
+			"cell": "verbatim in the workbook, the fixture and every read",
 			"markers": []
 		},
 		"gates": []
@@ -4728,7 +4728,7 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook; in the XForm the instance id is made unique (`commcaresession-1`) where it would equal an instance the form declares, as Vellum does (`form.js::addInstanceIfNotExists`)",
+			"cell": "verbatim in the workbook, the fixture and every read",
 			"markers": []
 		},
 		"gates": []
@@ -4762,7 +4762,7 @@
 			}
 		},
 		"emission": {
-			"cell": "verbatim in the workbook; in the XForm the instance id is made unique (`commcaresession-1`) where it would equal an instance the form declares, as Vellum does (`form.js::addInstanceIfNotExists`)",
+			"cell": "verbatim in the workbook, the fixture and every read",
 			"markers": []
 		},
 		"gates": []

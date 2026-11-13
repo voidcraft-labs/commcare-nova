@@ -13,9 +13,10 @@
  * advanced menu, or names the blocker that kept the creating form's menu
  * basic, and that its draws hold at least one, so a generator change that
  * stops drawing advanced menus fails here by name; and that adding it moves
- * no draw of the original 24 or the expression eight, which are what each of
- * those generators draws on its own stream. The observation is the HQ JSON
- * Nova's expander writes for each draw and each generator's own stream.
+ * no draw of the original 24 or the expression eight. The observations are
+ * the HQ JSON Nova's expander writes for each advanced draw, and the digest
+ * of the bytes the writer writes for each of the 32, held to the digest those
+ * draws had before the family joined.
  *
  * Run as a Vitest writer (`proof/corpus/emit.ts` does, inside the proof
  * image) with `NOVA_CORPUS_SAMPLE_DIR`, `NOVA_CORPUS_SAMPLE_SIZE` and
@@ -25,6 +26,7 @@
  * `compilerEvidence.ts::manifestFor`, whose module imports Vitest.
  */
 
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -54,7 +56,7 @@ import {
 	DEFAULT_CORPUS_SEED,
 	DEFAULT_EXPRESSION_SAMPLE_SIZE,
 } from "../defaults";
-import { FUZZ_GENERATORS, fuzzSplit, writtenDocument } from "../documents";
+import { fuzzSplit, writtenDocument } from "../documents";
 import {
 	type SampledDocument,
 	sampleFuzzDocuments,
@@ -223,6 +225,89 @@ function labelledGroups(doc: BlueprintDoc): {
 				]
 			: [],
 	);
+}
+
+/**
+ * The SHA-256 of each original and expression document of the 24 at the
+ * corpus seed, over the bytes the writer writes for it, as they were drawn
+ * before the advanced family joined the sample.
+ */
+const ORIGINAL_DRAWS: Readonly<Record<string, string>> = {
+	"fuzz-xform-20260930-0":
+		"c4062d192592b9c65e1b2ca3606a5a2b7e0ab94f956fe33fda97fcd4f5e9e84b",
+	"fuzz-xform-20260930-1":
+		"08a1606671b94f046086e0c24c42c0fa78d327868c8fc864b355436e13951cd7",
+	"fuzz-xform-20260930-2":
+		"354ee367395a2b29d88771fda115a2ce2b60d510806a00f3882caa508ea0de84",
+	"fuzz-xform-20260930-3":
+		"ed62e43dec0303bdf847700adcaf3780cb3c0a45e3f7e993fb96b06cdb805f41",
+	"fuzz-xform-20260930-4":
+		"a3adc2c564df3cbcbe286565d33b9554d7ef88d74026ca38f2502815868f9e79",
+	"fuzz-xform-20260930-5":
+		"f8d94a4e26d8ba7b09de641f7c693864145962627c98cb8cfa85ed2688753767",
+	"fuzz-xform-20260930-6":
+		"cab6977a662baa611ceca0230c40a59fb4c985851d1380a819e27525080ffac8",
+	"fuzz-xform-20260930-7":
+		"060fd4f1bbacb43c0661c344d7bf0fc27a7c0a3e94b731ac6d8161ce1dfb0b27",
+	"fuzz-xform-20260930-8":
+		"3b2318a52e9ff191821269dbd0a62e3d57ed114f4ba946d6a78f4d85df07eb69",
+	"fuzz-xform-20260930-9":
+		"b72e3fca7be2f3341a9c9e34cd6224254ecbeca2cbefd1230519646e6f542495",
+	"fuzz-xform-20260930-10":
+		"042649e5650e1892bb8120876b959b7975697f46d7fccaf36a41d68930658911",
+	"fuzz-xform-20260930-11":
+		"c3db59e35973ed260663c9253dbd0ff1d43d6f0ba4be66bda886ec0e8f829154",
+	"fuzz-suite-20260930-0":
+		"9012db0aa580b5bb6d39048b1eea008fa5081a7b2547a4c2763024ae6c91fa6d",
+	"fuzz-suite-20260930-1":
+		"070fec06339e8bd634de6586fb59218855389269db5f0e4d42ce48db8cb0e46e",
+	"fuzz-suite-20260930-2":
+		"fa3771fe97dd84517561aae2687490e7813c3391f664e9d116979f22ad22da2f",
+	"fuzz-suite-20260930-3":
+		"792e8c51ae490f59556b5288b6dc82b32d2aef4d11d2a3bc241369514d37a12f",
+	"fuzz-suite-20260930-4":
+		"c94825a6f81e20076d492fc0517910682097f772cafa95cdf885435efe49914e",
+	"fuzz-suite-20260930-5":
+		"df6ee025444dd197a90b4d518f002fc1bccbe1cfc25decfbb8517e3c56c21145",
+	"fuzz-suite-20260930-6":
+		"221147d81c5b2f9281712ec21888a20a470a8c843d5721e526973892b117220b",
+	"fuzz-suite-20260930-7":
+		"6bd41eb872535850d51d82059db03edc714c8bd615080a72691eed013114b720",
+	"fuzz-suite-20260930-8":
+		"380245eefb6ffce6e68303a8d20b2393b47b142a3e229f5eabd6490098307d4b",
+	"fuzz-suite-20260930-9":
+		"da534503b5584854c2ca727c704bbe0b0e83215f6ed257b552432b1e436663d7",
+	"fuzz-suite-20260930-10":
+		"9f0f59c5abdd8fbba3782ae4bde289319dd95bd5dd34a4b2bf4216d66a6568d2",
+	"fuzz-suite-20260930-11":
+		"c192946e80a4a7974d0608907ec0aed774843f2aeac39191361413ec36400155",
+	"fuzz-expression-20260930-0":
+		"eac8c4d0a39cc97c0f2887e1dddef9d317c70a3e910b84ae334c46b9d6355b98",
+	"fuzz-expression-20260930-1":
+		"9a8bebdbc50739fbee63bc4f016f42330ac72d83478a4f10f967d3983b5ac066",
+	"fuzz-expression-20260930-2":
+		"2c22993e36de75f18c7e95297fa7d37210e7415209b87f992918d1b748fdb747",
+	"fuzz-expression-20260930-3":
+		"322213ecfdfbc1226187808b22d9e9bee324245dd935c8fdbe5e5dba0dd604c2",
+	"fuzz-expression-20260930-4":
+		"70e20115391e406b3cecef0a8a76ab76ebb836d4627fe380543d3dba9ea79634",
+	"fuzz-expression-20260930-5":
+		"788b829309a9f5b9139ea423c7f3a4cbbb26902d4e5b0967b30e9e1af3197983",
+	"fuzz-expression-20260930-6":
+		"69ffb84ac032f3fca9c54ccd1446d6c243d8e4ad07aa6f5519e83dabe8f2ca56",
+	"fuzz-expression-20260930-7":
+		"5a75ff03f31e5531951b228c1eb7e46f5c0a03fbaa78bdc0f73d6bc5eeeb1002",
+};
+
+/** The SHA-256 of the bytes the writer writes for a sampled document. */
+function writtenDigest(sampled: SampledDocument): string {
+	return createHash("sha256")
+		.update(
+			JSON.stringify(
+				writtenDocument(sampled.document.doc, sampled.document.media),
+			),
+		)
+		.digest("hex");
 }
 
 function draw(sampleSize: number, sampleSeed = seed): SampledDocument[] {
@@ -414,34 +499,28 @@ describe("the corpus's fuzz sample", () => {
 	});
 
 	it("moves no draw of the original generators or the expression family by drawing the advanced family", () => {
-		const whole = new Map(
-			sampleFuzzDocuments({
-				size: 24,
-				seed: DEFAULT_CORPUS_SEED,
-				manifestFor,
-			}).map((sampled) => [sampled.document.id, asWritten(sampled)]),
-		);
-		const split = fuzzSplit(24);
-		expect(split).toEqual({
+		const sample = sampleFuzzDocuments({
+			size: 24,
+			seed: DEFAULT_CORPUS_SEED,
+			manifestFor,
+		});
+		expect(fuzzSplit(24)).toEqual({
 			xform: 12,
 			suite: 12,
 			expression: DEFAULT_EXPRESSION_SAMPLE_SIZE,
 			advanced: DEFAULT_ADVANCED_SAMPLE_SIZE,
 		});
-		for (const generator of FUZZ_GENERATORS) {
-			if (generator === "advanced") continue;
-			const own = sampleFuzzGenerator({
-				generator,
-				count: split[generator],
-				seed: DEFAULT_CORPUS_SEED,
-				manifestFor,
-			});
-			expect(own).toHaveLength(split[generator]);
-			for (const sampled of own)
-				expect(whole.get(sampled.document.id), sampled.document.id).toEqual(
-					asWritten(sampled),
-				);
-		}
+		const drawn = new Map(
+			sample
+				.filter((sampled) => sampled.generator !== "advanced")
+				.map((sampled) => [sampled.document.id, writtenDigest(sampled)]),
+		);
+		expect([...drawn.keys()]).toEqual(Object.keys(ORIGINAL_DRAWS));
+		for (const [id, digest] of Object.entries(ORIGINAL_DRAWS))
+			expect(
+				drawn.get(id),
+				`${id} is no longer the document the corpus seed drew before the advanced family. A generator, the admission or the written form moved it. If that change is meant, take the new digest; if not, look at what draws or writes it now.`,
+			).toBe(digest);
 	});
 
 	afterAll(() => {

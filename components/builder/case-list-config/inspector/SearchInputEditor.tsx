@@ -414,9 +414,11 @@ function VisibleSearchInputEditor({
 
 	// ── Common-slot mutators ──
 
-	/* A multiple-choice field matches only when its reference name IS the
-	 * property it searches (`multiSelectSearchInputRefusal`), so a rename that
-	 * breaks that is held with the reason instead of bouncing off the gate. */
+	/* A rename the gate would refuse is held with its reason instead of
+	 * bouncing off the gate: a name outside the Search field name grammar
+	 * (`SEARCH_INPUT_NAME_PATTERN`, with the schema's own message), and on a
+	 * multiple-choice field a name that is not the property it searches,
+	 * since such a field matches only then (`multiSelectSearchInputRefusal`). */
 	const [nameRefusal, setNameRefusal] = useState<string | null>(null);
 	const setName = (name: string) => {
 		if (name.length > 0 && !SEARCH_INPUT_NAME_PATTERN.test(name)) {

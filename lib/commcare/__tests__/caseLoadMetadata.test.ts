@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { Expression } from "@/lib/domain/expression/types";
 import { asUuid } from "@/lib/domain/uuid";
+import { expandDoc } from "../expander";
 import { buildCaseReferencesLoad } from "../formActions";
 import { hqLoadReference } from "../hashtags";
 
@@ -33,8 +34,13 @@ describe("hqLoadReference", () => {
 });
 
 /** A follow-up form over `ownType`, whose parent type is `parentType`, reading
- * `code` from both, one worker property, and a type it does not reach. */
-function followupReading(ownType: string, parentType: string) {
+ * `code` from both and one worker property, and, unless `admitted`, a type it
+ * does not reach, which the gate refuses and the export cannot print. */
+function followupReading(
+	ownType: string,
+	parentType: string,
+	admitted = false,
+) {
 	const workerProperty = asUuid("22222222-2222-4222-8222-222222222222");
 	const read = (caseType: string): Expression => ({
 		kind: "term",
@@ -69,11 +75,15 @@ function followupReading(ownType: string, parentType: string) {
 								id: "parent",
 								calculate: read(parentType),
 							}),
-							f({
-								kind: "hidden",
-								id: "unreached",
-								calculate: read("elsewhere"),
-							}),
+							...(admitted
+								? []
+								: [
+										f({
+											kind: "hidden",
+											id: "unreached",
+											calculate: read("elsewhere"),
+										}),
+									]),
 							f({
 								kind: "hidden",
 								id: "worker",
@@ -112,13 +122,20 @@ describe("case types named for a reference word", () => {
 		const parentType = words[(index + 1) % words.length];
 		it(`records a ${ownType} follow-up's reads as case reads, its ${parentType} parent included`, () => {
 			const { doc, formUuid } = followupReading(ownType, parentType);
-			expect(
-				buildCaseReferencesLoad(doc, formUuid, undefined, ownType),
-			).toEqual({
+			const load = {
 				"/data/own": ["#case/code"],
 				"/data/parent": ["#case/parent/code"],
 				"/data/worker": ["#user/region"],
-			});
+			};
+			expect(
+				buildCaseReferencesLoad(doc, formUuid, undefined, ownType),
+			).toEqual(load);
+			/* The HQ JSON form carries the same map, built over the menu's own
+			 * case type. */
+			const admitted = followupReading(ownType, parentType, true).doc;
+			expect(
+				expandDoc(admitted).modules[0].forms[0].case_references_data?.load,
+			).toEqual(load);
 		});
 	}
 });

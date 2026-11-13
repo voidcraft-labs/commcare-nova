@@ -199,8 +199,12 @@ describe("the served grammars take the names Nova holds", () => {
 		expect(takes("add_case_operations", "property", "first name")).toBe(false);
 	});
 
-	it("takes a Search field named with a hyphen", () => {
-		for (const tool of ["add_search_inputs", "configure_case_list"]) {
+	it("takes a Search field named with a hyphen, on every tool that names one", () => {
+		for (const tool of [
+			"add_search_inputs",
+			"update_search_input",
+			"configure_case_list",
+		]) {
 			const names = patternedAt(tool, "name");
 			for (const schema of names)
 				expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string)).toBe(false);
@@ -209,16 +213,27 @@ describe("the served grammars take the names Nova holds", () => {
 		}
 	});
 
-	it("takes a lookup tag holding hyphens and refuses one holding a period", () => {
-		const tags = patternedAt("create_lookup_table", "tag");
-		for (const schema of tags)
-			expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string)).toBe(false);
-		expect(takes("create_lookup_table", "tag", "health-facility-v2")).toBe(
-			true,
-		);
-		expect(takes("create_lookup_table", "tag", "geo.lat")).toBe(false);
-		expect(takes("create_lookup_table", "tag", "health facility")).toBe(false);
-		expect(takes("create_lookup_table", "wireName", "geo-lat")).toBe(true);
-		expect(takes("create_lookup_table", "wireName", "geo lat")).toBe(false);
+	it("takes a lookup tag holding hyphens and refuses one holding a period, on every tool that names one", () => {
+		for (const tool of ["create_lookup_table", "update_lookup_table"]) {
+			for (const schema of patternedAt(tool, "tag"))
+				expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string), tool).toBe(
+					false,
+				);
+			expect(takes(tool, "tag", "health-facility-v2"), tool).toBe(true);
+			expect(takes(tool, "tag", "geo.lat"), tool).toBe(false);
+			expect(takes(tool, "tag", "health facility"), tool).toBe(false);
+		}
+	});
+
+	it("takes a lookup column name holding hyphens and refuses one holding a period, on every tool that names one", () => {
+		for (const tool of ["create_lookup_table", "edit_lookup_columns"]) {
+			for (const schema of patternedAt(tool, "wireName"))
+				expect(NO_HYPHEN_PATTERNS.has(schema.pattern as string), tool).toBe(
+					false,
+				);
+			expect(takes(tool, "wireName", "geo-lat"), tool).toBe(true);
+			expect(takes(tool, "wireName", "geo.lat"), tool).toBe(false);
+			expect(takes(tool, "wireName", "geo lat"), tool).toBe(false);
+		}
 	});
 });

@@ -390,6 +390,10 @@ export type ValidationErrorCode =
 	// id on `open_case.external_id`. HQ's Case Management tab writes one as an
 	// ordinary `update_case.update` row, and Nova writes it that way too.
 	| "HQJSON_OPEN_CASE_EXTERNAL_ID"
+	// A form that requires no case and opens none with an active
+	// `update_case`. HQ's build raises `CaseError` for it
+	// (`xform.py::XForm._create_casexml`).
+	| "HQJSON_UPDATE_WITHOUT_CASE"
 	// Media path regression guard. CCHQ's
 	// `suite_xml/generator.py::media_resources` RAISES `MediaResourceError`
 	// for a media path that doesn't start with `jr://file/`. Menu media

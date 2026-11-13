@@ -7,10 +7,9 @@ import type { Uuid } from "@/lib/domain";
 import { advancedDocArbitrary, CARRIED_CREATE } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
-	hasHyphenatedFieldId,
-	hasNamedWrite,
-	hasOneOptionSelect,
-	hasQuotedChoiceValue,
+	countNames,
+	emptyNamesCensus,
+	expectNamesCensus,
 	namesDocArbitrary,
 } from "./namesDocArbitrary";
 import {
@@ -104,27 +103,13 @@ it("compiles advanced forms whose carried create is an open action", {
 it("compiles forms whose question ids, choices and written properties fill Nova's name grammars", {
 	timeout: 60_000,
 }, () => {
-	const census = {
-		total: 0,
-		hyphenatedId: 0,
-		oneOption: 0,
-		quotedValue: 0,
-		namedWrite: 0,
-	};
+	const census = emptyNamesCensus();
 	assertGenerated(
 		fc.property(namesDocArbitrary, (doc) => {
 			checkCompilerEvidence(doc);
-			census.total++;
-			if (hasHyphenatedFieldId(doc)) census.hyphenatedId++;
-			if (hasOneOptionSelect(doc)) census.oneOption++;
-			if (hasQuotedChoiceValue(doc)) census.quotedValue++;
-			if (hasNamedWrite(doc)) census.namedWrite++;
+			countNames(census, doc);
 		}),
 		{ seed: 20261113, numRuns: 80 },
 	);
-	expect(census.total).toBe(80);
-	expect(census.hyphenatedId).toBeGreaterThan(0);
-	expect(census.oneOption).toBeGreaterThan(0);
-	expect(census.quotedValue).toBeGreaterThan(0);
-	expect(census.namedWrite).toBeGreaterThan(0);
+	expectNamesCensus(census, 80);
 });

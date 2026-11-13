@@ -193,6 +193,11 @@ function checkCondition(
 	}
 }
 
+/** `FormActionCondition.is_active`: an `if` or `always` condition. */
+function conditionActive(condition: FormActionCondition): boolean {
+	return condition.type === "if" || condition.type === "always";
+}
+
 // ── Form-actions checks ────────────────────────────────────────────────
 
 /**
@@ -672,6 +677,22 @@ function checkForm(
 				"HQJSON_BAD_FORM_REQUIRES",
 				"form",
 				`"${formName}" declares requires="${form.requires}", but CommCare only accepts "case", "referral", or "none" and rejects the whole app at import otherwise. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	} else if (
+		form.requires === "none" &&
+		conditionActive(form.actions.update_case.condition) &&
+		form.actions.open_case.condition.type === "never"
+	) {
+		// `xform.py::XForm._create_casexml` raises `CaseError` for a form that
+		// requires no case, opens none, and has an active update. An open
+		// condition of a type HQ does not know is `HQJSON_BAD_CONDITION_TYPE`.
+		errors.push(
+			validationError(
+				"HQJSON_UPDATE_WITHOUT_CASE",
+				"form",
+				`"${formName}" requires no case and opens none, yet its update_case action is active. CommCare HQ's build refuses that form ("To update a case you must either open a case or require a case to begin with"). Look at how planFormCaseWire in lib/commcare/casePlacementPlan.ts set update_case's condition for this form. This is a bug in the app generator.`,
 				loc,
 			),
 		);

@@ -829,15 +829,21 @@ export function circumstanceBlock(
 	return {
 		title: fill(copy.title),
 		body: fill(copy.body),
-		next: fill(circumstanceNext(finding, context)),
+		next: circumstanceNext(finding, context, fill),
 	};
 }
 
+/**
+ * A circumstance's next step. A template is filled before any value the
+ * finding carries is put in, so an app's or a person's name that holds a
+ * placeholder's spelling reads as written.
+ */
 function circumstanceNext(
 	finding: CircumstanceFinding,
 	context: CircumstanceContext,
+	fill: (template: string) => string,
 ): string {
-	if (finding.code === "already-in-nova")
+	if (finding.code === "already-in-nova" && finding.detail.claim !== undefined)
 		return alreadyInNovaNext(finding.detail.claim, context.formatDate);
 	if (
 		finding.code === "no-platform-runs-everything" &&
@@ -849,9 +855,9 @@ function circumstanceNext(
 			);
 		const segments = finding.place.path.split("/").filter((s) => s !== "");
 		const question = segments[segments.length - 1] ?? finding.place.path;
-		return SPLIT_REFUSED_NEXT.replace("{question}", () => question);
+		return fill(SPLIT_REFUSED_NEXT).replace("{question}", () => question);
 	}
-	return CIRCUMSTANCE_COPY[finding.code].next;
+	return fill(CIRCUMSTANCE_COPY[finding.code].next);
 }
 
 /**
