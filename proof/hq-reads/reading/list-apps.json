@@ -1,0 +1,7 @@
+{
+	"status": 200,
+	"headers": {
+		"Content-Type": "application/json"
+	},
+	"body": "{\"status\": \"success\", \"applications\": [{\"name\": \"Patients & visits <Caf\\u00e9>\", \"version\": 2, \"app_id\": \"71c1b97bfa0b4310a99fefe5432e7624\", \"download_url\": \"https://www.commcarehq.org/a/nova-proof/apps/api/download_ccz/?app_id=71c1b97bfa0b4310a99fefe5432e7624\"}, {\"name\": \"Patients & visits <Caf\\u00e9>\", \"version\": 2, \"app_id\": \"f7417093c78a4720b746b6427d33153d\", \"download_url\": \"https://www.commcarehq.org/a/nova-proof/apps/api/download_ccz/?app_id=f7417093c78a4720b746b6427d33153d\"}, {\"name\": \"Remote app\", \"version\": 1, \"app_id\": \"d91db100-c0a3-11f1-a6ec-bb35c987bce6\", \"download_url\": \"https://www.commcarehq.org/a/nova-proof/apps/api/download_ccz/?app_id=d91db100-c0a3-11f1-a6ec-bb35c987bce6\"}]}"
+}

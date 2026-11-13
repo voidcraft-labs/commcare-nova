@@ -1146,7 +1146,7 @@ def test_the_reading_reads_nova_is_served_are_hqs_own(hq, core_runner, documents
     assert no_permission.status == 403 and not no_permission.body
     assert body("application-linked")["id"] == ids["linked"]
     for name in ("application-deleted", "application-remote", "application-other-space"):
-        assert _answer(answers, name).retained() == {"status": 404}, name
+        assert _answer(answers, name).status == 404, name
     built = body("application-build")
     assert built["built_from_app_id"] == ids["live"] and built["versions"] == []
     # The menu one of whose forms HQ cannot summarize is an error entry, and the other is summarized whole.

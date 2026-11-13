@@ -5795,6 +5795,451 @@
 				"commcare-hq/corehq/apps/api/resources/v0_5.py::CommCareUserResource"
 			]
 		},
+		"hq-api:FixtureResource": {
+			"dehydrate": [
+				"dehydrate_fields"
+			],
+			"fields": {
+				"fields": {
+					"attribute": "fields",
+					"null": false,
+					"readonly": true,
+					"type": "DictField",
+					"unique": true
+				},
+				"fixture_type": {
+					"attribute": "fixture_type",
+					"null": true,
+					"readonly": true,
+					"type": "CharField",
+					"unique": false
+				},
+				"id": {
+					"attribute": "id",
+					"null": false,
+					"readonly": true,
+					"type": "UUIDField",
+					"unique": true
+				},
+				"resource_uri": {
+					"attribute": null,
+					"null": false,
+					"readonly": true,
+					"type": "CharField",
+					"unique": false
+				}
+			},
+			"hydrate": [],
+			"kind": "resource",
+			"meta": {
+				"allowed_methods": [
+					"get",
+					"post",
+					"put",
+					"delete",
+					"patch"
+				],
+				"always_return_data": false,
+				"authentication": "corehq.apps.api.resources.auth.RequirePermissionAuthentication",
+				"authorization": "tastypie.authorization.ReadOnlyAuthorization",
+				"collection_name": "objects",
+				"detail_allowed_methods": [
+					"get",
+					"post",
+					"put",
+					"delete",
+					"patch"
+				],
+				"detail_uri_name": "pk",
+				"excludes": [],
+				"fields": null,
+				"include_resource_uri": true,
+				"limit": 0,
+				"list_allowed_methods": [
+					"get",
+					"post",
+					"put",
+					"delete",
+					"patch"
+				],
+				"max_limit": 1000,
+				"object_class": "corehq.apps.fixtures.models.LookupTableRow",
+				"paginator_class": "tastypie.paginator.Paginator",
+				"queryset": null,
+				"resource_name": "fixture",
+				"serializer": "corehq.apps.api.serializers.CustomXMLSerializer",
+				"validation": "tastypie.validation.Validation"
+			},
+			"metaAssigned": {
+				"authentication": {
+					"expression": "RequirePermissionAuthentication(HqPermissions.edit_apps)",
+					"in": "FixtureResource"
+				},
+				"limit": {
+					"expression": "0",
+					"in": "FixtureResource"
+				},
+				"object_class": {
+					"expression": "LookupTableRow",
+					"in": "FixtureResource"
+				},
+				"resource_name": {
+					"expression": "'fixture'",
+					"in": "FixtureResource"
+				}
+			},
+			"methods": {
+				"__init__": {
+					"calls": [
+						"super().__init__(api_name)",
+						"super()"
+					],
+					"exits": [],
+					"in": "ApiVersioningMixin"
+				},
+				"_get_urls": {
+					"calls": [
+						"self.prepend_urls()",
+						"re_path('^$', self.wrap_view('dispatch_list'), name='api_dispatch_list')",
+						"self.wrap_view('dispatch_list')",
+						"re_path('^schema/$', self.wrap_view('get_schema'), name='api_get_schema')",
+						"self.wrap_view('get_schema')",
+						"re_path('^set/(?P<%s_list>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('get_multiple'), name='api_get_multiple')",
+						"self.wrap_view('get_multiple')",
+						"re_path('^(?P<%s>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('dispatch_detail'), name='api_dispatch_detail')",
+						"self.wrap_view('dispatch_detail')"
+					],
+					"exits": [
+						{
+							"exit": "return self.prepend_urls() + [re_path('^$', self.wrap_view('dispatch_list'), name='api_dispatch_list'), re_path('^schema/$', self.wrap_view('get_schema'), name='api_get_schema'), re_path('^set/(?P<%s_list>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('get_multiple'), name='api_get_multiple'), re_path('^(?P<%s>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('dispatch_detail'), name='api_dispatch_detail')]",
+							"when": []
+						}
+					],
+					"in": "ApiVersioningMixin"
+				},
+				"alter_deserialized_detail_data": {
+					"calls": [
+						"super().alter_deserialized_detail_data(request, data)",
+						"super()",
+						"hasattr(self, 'validate_deserialized_data')",
+						"self.validate_deserialized_data(data)",
+						"ImmediateHttpResponse(self.error_response(request, error.messages))",
+						"self.error_response(request, error.messages)"
+					],
+					"exits": [
+						{
+							"exit": "raise ImmediateHttpResponse(self.error_response(request, error.messages))",
+							"when": [
+								"hasattr(self, 'validate_deserialized_data')",
+								"except ValidationError"
+							]
+						},
+						{
+							"exit": "return data",
+							"when": []
+						}
+					],
+					"in": "HqBaseResource"
+				},
+				"create_response": {
+					"calls": [
+						"super(CorsResourceMixin, self).create_response(*args, **kwargs)",
+						"super(CorsResourceMixin, self)",
+						"add_cors_headers_to_response(response)"
+					],
+					"exits": [
+						{
+							"exit": "return add_cors_headers_to_response(response)",
+							"when": []
+						}
+					],
+					"in": "CorsResourceMixin"
+				},
+				"dehydrate_fields": {
+					"calls": [
+						"LookupTableItemResource.dehydrate_fields(None, bundle)"
+					],
+					"exits": [
+						{
+							"exit": "return bundle.obj.fields_without_attributes",
+							"when": []
+						},
+						{
+							"exit": "return LookupTableItemResource.dehydrate_fields(None, bundle)",
+							"when": [
+								"except FixtureVersionError"
+							]
+						}
+					],
+					"in": "FixtureResource"
+				},
+				"detail_uri_kwargs": {
+					"calls": [
+						"get_obj(bundle_or_obj)"
+					],
+					"exits": [
+						{
+							"exit": "return {'pk': get_obj(bundle_or_obj).id.hex}",
+							"when": []
+						}
+					],
+					"in": "FixtureResource"
+				},
+				"determine_format": {
+					"calls": [
+						"super(JsonResourceMixin, self).determine_format(request)",
+						"super(JsonResourceMixin, self)"
+					],
+					"exits": [
+						{
+							"exit": "return format",
+							"when": []
+						}
+					],
+					"in": "JsonResourceMixin"
+				},
+				"dispatch": {
+					"calls": [
+						"toggles.API_BLACKLIST.enabled_for_request(request)",
+						"ImmediateHttpResponse(HttpResponse(json.dumps({'error': msg}), content_type='application/json', status=401))",
+						"HttpResponse(json.dumps({'error': msg}), content_type='application/json', status=401)",
+						"json.dumps({'error': msg})",
+						"domain_has_privilege(request.domain, self.get_required_privilege())",
+						"self.get_required_privilege()",
+						"isinstance(self, DomainSpecificResourceMixin)",
+						"track_workflow_noop(request.user.username, 'API Request', properties={'domain': request.domain, 'is_dimagi': is_dimagi_email(request.user.username)})",
+						"is_dimagi_email(request.user.username)",
+						"super(HqBaseResource, self).dispatch(request_type, request, **kwargs)",
+						"super(HqBaseResource, self)",
+						"ImmediateHttpResponse(HttpResponse(json.dumps({'error': 'Your current subscription does not have access to this feature'}), content_type='application/json', status=401))",
+						"HttpResponse(json.dumps({'error': 'Your current subscription does not have access to this feature'}), content_type='application/json', status=401)",
+						"json.dumps({'error': 'Your current subscription does not have access to this feature'})"
+					],
+					"exits": [
+						{
+							"exit": "raise ImmediateHttpResponse(HttpResponse(json.dumps({'error': msg}), content_type='application/json', status=401))",
+							"when": [
+								"toggles.API_BLACKLIST.enabled_for_request(request)"
+							]
+						},
+						{
+							"exit": "return super(HqBaseResource, self).dispatch(request_type, request, **kwargs)",
+							"when": [
+								"request.user.is_superuser or domain_has_privilege(request.domain, self.get_required_privilege())"
+							]
+						},
+						{
+							"exit": "raise ImmediateHttpResponse(HttpResponse(json.dumps({'error': 'Your current subscription does not have access to this feature'}), content_type='application/json', status=401))",
+							"when": [
+								"not (request.user.is_superuser or domain_has_privilege(request.domain, self.get_required_privilege()))"
+							]
+						}
+					],
+					"in": "HqBaseResource"
+				},
+				"get_required_privilege": {
+					"calls": [],
+					"exits": [
+						{
+							"exit": "return privileges.API_ACCESS",
+							"when": []
+						}
+					],
+					"in": "HqBaseResource"
+				},
+				"get_urlpattern": {
+					"calls": [
+						"cls(api_name=version)",
+						"re_path('^(?P<resource_name>%s)/(?P<api_name>%s)/' % (resource._meta.resource_name, version), include(resource._get_urls()))",
+						"include(resource._get_urls())",
+						"resource._get_urls()"
+					],
+					"exits": [
+						{
+							"exit": "return re_path('^(?P<resource_name>%s)/(?P<api_name>%s)/' % (resource._meta.resource_name, version), include(resource._get_urls()))",
+							"when": []
+						}
+					],
+					"in": "ApiVersioningMixin"
+				},
+				"method_check": {
+					"calls": [
+						"request.method.lower()",
+						"', '.join([x.upper() for x in allowed if x])",
+						"x.upper()",
+						"HttpResponse(allows)",
+						"add_cors_headers_to_response(response, allows)",
+						"ImmediateHttpResponse(response=response)",
+						"http.HttpMethodNotAllowed(allows)"
+					],
+					"exits": [
+						{
+							"exit": "raise ImmediateHttpResponse(response=response)",
+							"when": [
+								"request_method == 'options'"
+							]
+						},
+						{
+							"exit": "raise ImmediateHttpResponse(response=response)",
+							"when": [
+								"request_method not in allowed"
+							]
+						},
+						{
+							"exit": "return request_method",
+							"when": []
+						}
+					],
+					"in": "CorsResourceMixin"
+				},
+				"obj_get": {
+					"calls": [
+						"convert_fdt(get_sql_object_or_not_exist(LookupTableRow, kwargs['pk'], kwargs['domain']))",
+						"get_sql_object_or_not_exist(LookupTableRow, kwargs['pk'], kwargs['domain'])"
+					],
+					"exits": [
+						{
+							"exit": "return convert_fdt(get_sql_object_or_not_exist(LookupTableRow, kwargs['pk'], kwargs['domain']))",
+							"when": []
+						}
+					],
+					"in": "FixtureResource"
+				},
+				"obj_get_list": {
+					"calls": [
+						"bundle.request.GET.get('parent_id', None)",
+						"bundle.request.GET.get('parent_ref_name', None)",
+						"bundle.request.GET.get('references', None)",
+						"bundle.request.GET.get('child_type', None)",
+						"bundle.request.GET.get('fixture_type_id', None)",
+						"bundle.request.GET.get('fixture_type', None)",
+						"LookupTableRow.objects.get(id=parent_id)",
+						"list(LookupTableRow.objects.with_value(domain, child_type, parent_ref_name, parent_fdi.fields_without_attributes[references]))",
+						"LookupTableRow.objects.with_value(domain, child_type, parent_ref_name, parent_fdi.fields_without_attributes[references])",
+						"LookupTable.objects.by_domain_tag(domain, type_tag)",
+						"list(LookupTableRow.objects.iter_rows(domain, table_id=type_id))",
+						"LookupTableRow.objects.iter_rows(domain, table_id=type_id)",
+						"list(LookupTableRow.objects.filter(domain=domain))",
+						"LookupTableRow.objects.filter(domain=domain)",
+						"convert_fdt(fdi, type_cache)"
+					],
+					"exits": [
+						{
+							"exit": "return [convert_fdt(fdi, type_cache) for fdi in fdis]",
+							"when": []
+						}
+					],
+					"in": "FixtureResource"
+				},
+				"patch_list_replica": {
+					"calls": [
+						"convert_post_to_patch(request)",
+						"self.deserialize(request, request.body, format=request.META.get('CONTENT_TYPE', 'application/json'))",
+						"request.META.get('CONTENT_TYPE', 'application/json')",
+						"BadRequest(\"Invalid data sent: missing '%s'\" % collection_name)",
+						"len(deserialized[collection_name])",
+						"ImmediateHttpResponse(response=http.HttpMethodNotAllowed())",
+						"http.HttpMethodNotAllowed()",
+						"BadRequest('Object count exceeds limit for PATCH method.')",
+						"self.alter_deserialized_detail_data(request, data)",
+						"self.build_bundle(data=data, request=request)",
+						"create_or_update_object(bundle=bundle, **self.remove_api_resource_names(kwargs))",
+						"self.remove_api_resource_names(kwargs)",
+						"str(e)",
+						"bundles_seen.append(bundle)",
+						"self.create_response(request, to_be_serialized, response_class=status)"
+					],
+					"exits": [
+						{
+							"exit": "raise BadRequest(\"Invalid data sent: missing '%s'\" % collection_name)",
+							"when": [
+								"collection_name not in deserialized"
+							]
+						},
+						{
+							"exit": "raise ImmediateHttpResponse(response=http.HttpMethodNotAllowed())",
+							"when": [
+								"len(deserialized[collection_name]) and 'put' not in self._meta.detail_allowed_methods"
+							]
+						},
+						{
+							"exit": "raise BadRequest('Object count exceeds limit for PATCH method.')",
+							"when": [
+								"obj_limit and obj_limit < len(deserialized[collection_name])"
+							]
+						},
+						{
+							"exit": "return self.create_response(request, to_be_serialized, response_class=status)",
+							"when": []
+						}
+					],
+					"in": "HqBaseResource"
+				}
+			},
+			"requestReads": [
+				"GET.child_type",
+				"GET.fixture_type",
+				"GET.fixture_type_id",
+				"GET.parent_id",
+				"GET.parent_ref_name",
+				"GET.references",
+				"META.CONTENT_TYPE",
+				"data._id"
+			],
+			"routes": [
+				{
+					"name": "api_dispatch_list",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.4)/(?P<resource_name>fixture)/$"
+				},
+				{
+					"name": "api_dispatch_detail",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.4)/(?P<resource_name>fixture)/(?P<pk>.*?)/$"
+				},
+				{
+					"name": "api_get_schema",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.4)/(?P<resource_name>fixture)/schema/$"
+				},
+				{
+					"name": "api_get_multiple",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.4)/(?P<resource_name>fixture)/set/(?P<pk_list>.*?)/$"
+				},
+				{
+					"name": "api_dispatch_list",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.5)/(?P<resource_name>fixture)/$"
+				},
+				{
+					"name": "api_dispatch_detail",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.5)/(?P<resource_name>fixture)/(?P<pk>.*?)/$"
+				},
+				{
+					"name": "api_get_schema",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.5)/(?P<resource_name>fixture)/schema/$"
+				},
+				{
+					"name": "api_get_multiple",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.5)/(?P<resource_name>fixture)/set/(?P<pk_list>.*?)/$"
+				},
+				{
+					"name": "api_dispatch_list",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>fixture)/(?P<api_name>v1)/$"
+				},
+				{
+					"name": "api_dispatch_detail",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>fixture)/(?P<api_name>v1)/(?P<pk>.*?)/$"
+				},
+				{
+					"name": "api_get_schema",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>fixture)/(?P<api_name>v1)/schema/$"
+				},
+				{
+					"name": "api_get_multiple",
+					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>fixture)/(?P<api_name>v1)/set/(?P<pk_list>.*?)/$"
+				}
+			],
+			"source": [
+				"commcare-hq/corehq/apps/fixtures/resources/v0_1.py::FixtureResource"
+			]
+		},
 		"hq-api:LocationResource": {
 			"dehydrate": [
 				"dehydrate",
@@ -6870,516 +7315,6 @@
 			],
 			"source": [
 				"commcare-hq/corehq/apps/locations/resources/v0_5.py::LocationTypeResource"
-			]
-		},
-		"hq-api:LookupTableItemResource": {
-			"dehydrate": [
-				"dehydrate_fields"
-			],
-			"fields": {
-				"data_type_id": {
-					"attribute": "table_id",
-					"null": false,
-					"readonly": false,
-					"type": "UUIDField",
-					"unique": false
-				},
-				"fields": {
-					"attribute": "fields",
-					"null": false,
-					"readonly": false,
-					"type": "FieldsDictField",
-					"unique": false
-				},
-				"id": {
-					"attribute": "id",
-					"null": false,
-					"readonly": true,
-					"type": "UUIDField",
-					"unique": true
-				},
-				"item_attributes": {
-					"attribute": "item_attributes",
-					"null": false,
-					"readonly": false,
-					"type": "DictField",
-					"unique": false
-				},
-				"resource_uri": {
-					"attribute": null,
-					"null": false,
-					"readonly": true,
-					"type": "CharField",
-					"unique": false
-				},
-				"sort_key": {
-					"attribute": "sort_key",
-					"null": false,
-					"readonly": false,
-					"type": "IntegerField",
-					"unique": false
-				}
-			},
-			"hydrate": [],
-			"kind": "resource",
-			"meta": {
-				"allowed_methods": [
-					"get",
-					"post",
-					"put",
-					"delete",
-					"patch"
-				],
-				"always_return_data": true,
-				"authentication": "corehq.apps.api.resources.auth.LoginAndDomainAuthentication",
-				"authorization": "tastypie.authorization.ReadOnlyAuthorization",
-				"collection_name": "objects",
-				"detail_allowed_methods": [
-					"get",
-					"put",
-					"delete"
-				],
-				"detail_uri_name": "pk",
-				"excludes": [],
-				"fields": null,
-				"include_resource_uri": true,
-				"limit": 20,
-				"list_allowed_methods": [
-					"get",
-					"post"
-				],
-				"max_limit": 1000,
-				"object_class": "corehq.apps.fixtures.models.LookupTableRow",
-				"paginator_class": "tastypie.paginator.Paginator",
-				"queryset": null,
-				"resource_name": "lookup_table_item",
-				"serializer": "corehq.apps.api.serializers.CustomXMLSerializer",
-				"validation": "tastypie.validation.Validation"
-			},
-			"metaAssigned": {
-				"always_return_data": {
-					"expression": "True",
-					"in": "LookupTableItemResource"
-				},
-				"detail_allowed_methods": {
-					"expression": "['get', 'put', 'delete']",
-					"in": "LookupTableItemResource"
-				},
-				"list_allowed_methods": {
-					"expression": "['get', 'post']",
-					"in": "LookupTableItemResource"
-				},
-				"object_class": {
-					"expression": "LookupTableRow",
-					"in": "LookupTableItemResource"
-				},
-				"resource_name": {
-					"expression": "'lookup_table_item'",
-					"in": "LookupTableItemResource"
-				}
-			},
-			"methods": {
-				"__init__": {
-					"calls": [
-						"super().__init__(api_name)",
-						"super()"
-					],
-					"exits": [],
-					"in": "ApiVersioningMixin"
-				},
-				"_get_urls": {
-					"calls": [
-						"self.prepend_urls()",
-						"re_path('^$', self.wrap_view('dispatch_list'), name='api_dispatch_list')",
-						"self.wrap_view('dispatch_list')",
-						"re_path('^schema/$', self.wrap_view('get_schema'), name='api_get_schema')",
-						"self.wrap_view('get_schema')",
-						"re_path('^set/(?P<%s_list>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('get_multiple'), name='api_get_multiple')",
-						"self.wrap_view('get_multiple')",
-						"re_path('^(?P<%s>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('dispatch_detail'), name='api_dispatch_detail')",
-						"self.wrap_view('dispatch_detail')"
-					],
-					"exits": [
-						{
-							"exit": "return self.prepend_urls() + [re_path('^$', self.wrap_view('dispatch_list'), name='api_dispatch_list'), re_path('^schema/$', self.wrap_view('get_schema'), name='api_get_schema'), re_path('^set/(?P<%s_list>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('get_multiple'), name='api_get_multiple'), re_path('^(?P<%s>.*?)/$' % self._meta.detail_uri_name, self.wrap_view('dispatch_detail'), name='api_dispatch_detail')]",
-							"when": []
-						}
-					],
-					"in": "ApiVersioningMixin"
-				},
-				"alter_deserialized_detail_data": {
-					"calls": [
-						"super().alter_deserialized_detail_data(request, data)",
-						"super()",
-						"hasattr(self, 'validate_deserialized_data')",
-						"self.validate_deserialized_data(data)",
-						"ImmediateHttpResponse(self.error_response(request, error.messages))",
-						"self.error_response(request, error.messages)"
-					],
-					"exits": [
-						{
-							"exit": "raise ImmediateHttpResponse(self.error_response(request, error.messages))",
-							"when": [
-								"hasattr(self, 'validate_deserialized_data')",
-								"except ValidationError"
-							]
-						},
-						{
-							"exit": "return data",
-							"when": []
-						}
-					],
-					"in": "HqBaseResource"
-				},
-				"create_response": {
-					"calls": [
-						"super(CorsResourceMixin, self).create_response(*args, **kwargs)",
-						"super(CorsResourceMixin, self)",
-						"add_cors_headers_to_response(response)"
-					],
-					"exits": [
-						{
-							"exit": "return add_cors_headers_to_response(response)",
-							"when": []
-						}
-					],
-					"in": "CorsResourceMixin"
-				},
-				"dehydrate_fields": {
-					"calls": [
-						"field_json(field_list)",
-						"bundle.obj.fields.items()"
-					],
-					"exits": [
-						{
-							"exit": "return {field_name: field_json(field_list) for field_name, field_list in bundle.obj.fields.items()}",
-							"when": []
-						}
-					],
-					"in": "LookupTableItemResource"
-				},
-				"detail_uri_kwargs": {
-					"calls": [
-						"get_obj(bundle_or_obj)"
-					],
-					"exits": [
-						{
-							"exit": "return {'pk': get_obj(bundle_or_obj).id.hex}",
-							"when": []
-						}
-					],
-					"in": "LookupTableItemResource"
-				},
-				"determine_format": {
-					"calls": [
-						"super(JsonResourceMixin, self).determine_format(request)",
-						"super(JsonResourceMixin, self)"
-					],
-					"exits": [
-						{
-							"exit": "return format",
-							"when": []
-						}
-					],
-					"in": "JsonResourceMixin"
-				},
-				"dispatch": {
-					"calls": [
-						"toggles.API_BLACKLIST.enabled_for_request(request)",
-						"ImmediateHttpResponse(HttpResponse(json.dumps({'error': msg}), content_type='application/json', status=401))",
-						"HttpResponse(json.dumps({'error': msg}), content_type='application/json', status=401)",
-						"json.dumps({'error': msg})",
-						"domain_has_privilege(request.domain, self.get_required_privilege())",
-						"self.get_required_privilege()",
-						"isinstance(self, DomainSpecificResourceMixin)",
-						"track_workflow_noop(request.user.username, 'API Request', properties={'domain': request.domain, 'is_dimagi': is_dimagi_email(request.user.username)})",
-						"is_dimagi_email(request.user.username)",
-						"super(HqBaseResource, self).dispatch(request_type, request, **kwargs)",
-						"super(HqBaseResource, self)",
-						"ImmediateHttpResponse(HttpResponse(json.dumps({'error': 'Your current subscription does not have access to this feature'}), content_type='application/json', status=401))",
-						"HttpResponse(json.dumps({'error': 'Your current subscription does not have access to this feature'}), content_type='application/json', status=401)",
-						"json.dumps({'error': 'Your current subscription does not have access to this feature'})"
-					],
-					"exits": [
-						{
-							"exit": "raise ImmediateHttpResponse(HttpResponse(json.dumps({'error': msg}), content_type='application/json', status=401))",
-							"when": [
-								"toggles.API_BLACKLIST.enabled_for_request(request)"
-							]
-						},
-						{
-							"exit": "return super(HqBaseResource, self).dispatch(request_type, request, **kwargs)",
-							"when": [
-								"request.user.is_superuser or domain_has_privilege(request.domain, self.get_required_privilege())"
-							]
-						},
-						{
-							"exit": "raise ImmediateHttpResponse(HttpResponse(json.dumps({'error': 'Your current subscription does not have access to this feature'}), content_type='application/json', status=401))",
-							"when": [
-								"not (request.user.is_superuser or domain_has_privilege(request.domain, self.get_required_privilege()))"
-							]
-						}
-					],
-					"in": "HqBaseResource"
-				},
-				"get_required_privilege": {
-					"calls": [],
-					"exits": [
-						{
-							"exit": "return privileges.API_ACCESS",
-							"when": []
-						}
-					],
-					"in": "HqBaseResource"
-				},
-				"get_urlpattern": {
-					"calls": [
-						"cls(api_name=version)",
-						"re_path('^(?P<resource_name>%s)/(?P<api_name>%s)/' % (resource._meta.resource_name, version), include(resource._get_urls()))",
-						"include(resource._get_urls())",
-						"resource._get_urls()"
-					],
-					"exits": [
-						{
-							"exit": "return re_path('^(?P<resource_name>%s)/(?P<api_name>%s)/' % (resource._meta.resource_name, version), include(resource._get_urls()))",
-							"when": []
-						}
-					],
-					"in": "ApiVersioningMixin"
-				},
-				"method_check": {
-					"calls": [
-						"request.method.lower()",
-						"', '.join([x.upper() for x in allowed if x])",
-						"x.upper()",
-						"HttpResponse(allows)",
-						"add_cors_headers_to_response(response, allows)",
-						"ImmediateHttpResponse(response=response)",
-						"http.HttpMethodNotAllowed(allows)"
-					],
-					"exits": [
-						{
-							"exit": "raise ImmediateHttpResponse(response=response)",
-							"when": [
-								"request_method == 'options'"
-							]
-						},
-						{
-							"exit": "raise ImmediateHttpResponse(response=response)",
-							"when": [
-								"request_method not in allowed"
-							]
-						},
-						{
-							"exit": "return request_method",
-							"when": []
-						}
-					],
-					"in": "CorsResourceMixin"
-				},
-				"obj_create": {
-					"calls": [
-						"bundle.data.get('data_type_id', None)",
-						"BadRequest('data_type_id must be specified')",
-						"LookupTable.objects.filter(id=data_type_id).exists()",
-						"LookupTable.objects.filter(id=data_type_id)",
-						"NotFound('Lookup table not found')",
-						"self.full_hydrate(bundle)",
-						"LookupTableRow.objects.filter(domain=kwargs['domain'], table_id=data_type_id).aggregate(value=Max('sort_key') + 1)",
-						"LookupTableRow.objects.filter(domain=kwargs['domain'], table_id=data_type_id)",
-						"Max('sort_key')",
-						"bundle.obj.save()",
-						"clear_fixture_cache(kwargs['domain'], [data_type_id])"
-					],
-					"exits": [
-						{
-							"exit": "raise BadRequest('data_type_id must be specified')",
-							"when": [
-								"not data_type_id"
-							]
-						},
-						{
-							"exit": "raise NotFound('Lookup table not found')",
-							"when": [
-								"not LookupTable.objects.filter(id=data_type_id).exists()"
-							]
-						},
-						{
-							"exit": "return bundle",
-							"when": []
-						}
-					],
-					"in": "LookupTableItemResource"
-				},
-				"obj_delete": {
-					"calls": [
-						"LookupTableRow.objects.get(id=kwargs['pk'], domain=kwargs['domain'])",
-						"NotFound('Lookup table item not found')",
-						"row.delete()",
-						"clear_fixture_cache(row.domain, [table_id])",
-						"ImmediateHttpResponse(response=HttpAccepted())",
-						"HttpAccepted()"
-					],
-					"exits": [
-						{
-							"exit": "raise NotFound('Lookup table item not found')",
-							"when": [
-								"except LookupTableRow.DoesNotExist"
-							]
-						},
-						{
-							"exit": "return ImmediateHttpResponse(response=HttpAccepted())",
-							"when": []
-						}
-					],
-					"in": "LookupTableItemResource"
-				},
-				"obj_get": {
-					"calls": [
-						"get_sql_object_or_not_exist(LookupTableRow, kwargs['pk'], kwargs['domain'])"
-					],
-					"exits": [
-						{
-							"exit": "return get_sql_object_or_not_exist(LookupTableRow, kwargs['pk'], kwargs['domain'])",
-							"when": []
-						}
-					],
-					"in": "LookupTableItemResource"
-				},
-				"obj_get_list": {
-					"calls": [
-						"list(LookupTableRow.objects.filter(domain=domain))",
-						"LookupTableRow.objects.filter(domain=domain)"
-					],
-					"exits": [
-						{
-							"exit": "return list(LookupTableRow.objects.filter(domain=domain))",
-							"when": []
-						}
-					],
-					"in": "LookupTableItemResource"
-				},
-				"obj_update": {
-					"calls": [
-						"BadRequest('data_type_id must be specified')",
-						"LookupTableRow.objects.get(id=kwargs['pk'])",
-						"not_found('Lookup table item not found')",
-						"self.full_hydrate(bundle)",
-						"bundle.obj.save()",
-						"clear_fixture_cache(bundle.obj.domain, [bundle.obj.table_id])"
-					],
-					"exits": [
-						{
-							"exit": "raise BadRequest('data_type_id must be specified')",
-							"when": [
-								"'data_type_id' not in bundle.data"
-							]
-						},
-						{
-							"exit": "raise not_found('Lookup table item not found')",
-							"when": [
-								"except LookupTableRow.DoesNotExist"
-							]
-						},
-						{
-							"exit": "raise not_found('Lookup table item not found')",
-							"when": [
-								"bundle.obj.domain != kwargs['domain']"
-							]
-						},
-						{
-							"exit": "return bundle",
-							"when": []
-						}
-					],
-					"in": "LookupTableItemResource"
-				},
-				"patch_list_replica": {
-					"calls": [
-						"convert_post_to_patch(request)",
-						"self.deserialize(request, request.body, format=request.META.get('CONTENT_TYPE', 'application/json'))",
-						"request.META.get('CONTENT_TYPE', 'application/json')",
-						"BadRequest(\"Invalid data sent: missing '%s'\" % collection_name)",
-						"len(deserialized[collection_name])",
-						"ImmediateHttpResponse(response=http.HttpMethodNotAllowed())",
-						"http.HttpMethodNotAllowed()",
-						"BadRequest('Object count exceeds limit for PATCH method.')",
-						"self.alter_deserialized_detail_data(request, data)",
-						"self.build_bundle(data=data, request=request)",
-						"create_or_update_object(bundle=bundle, **self.remove_api_resource_names(kwargs))",
-						"self.remove_api_resource_names(kwargs)",
-						"str(e)",
-						"bundles_seen.append(bundle)",
-						"self.create_response(request, to_be_serialized, response_class=status)"
-					],
-					"exits": [
-						{
-							"exit": "raise BadRequest(\"Invalid data sent: missing '%s'\" % collection_name)",
-							"when": [
-								"collection_name not in deserialized"
-							]
-						},
-						{
-							"exit": "raise ImmediateHttpResponse(response=http.HttpMethodNotAllowed())",
-							"when": [
-								"len(deserialized[collection_name]) and 'put' not in self._meta.detail_allowed_methods"
-							]
-						},
-						{
-							"exit": "raise BadRequest('Object count exceeds limit for PATCH method.')",
-							"when": [
-								"obj_limit and obj_limit < len(deserialized[collection_name])"
-							]
-						},
-						{
-							"exit": "return self.create_response(request, to_be_serialized, response_class=status)",
-							"when": []
-						}
-					],
-					"in": "HqBaseResource"
-				}
-			},
-			"requestReads": [
-				"META.CONTENT_TYPE",
-				"data._id",
-				"data.data_type_id"
-			],
-			"routes": [
-				{
-					"name": "api_dispatch_list",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.6)/(?P<resource_name>lookup_table_item)/$"
-				},
-				{
-					"name": "api_dispatch_detail",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.6)/(?P<resource_name>lookup_table_item)/(?P<pk>.*?)/$"
-				},
-				{
-					"name": "api_get_schema",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.6)/(?P<resource_name>lookup_table_item)/schema/$"
-				},
-				{
-					"name": "api_get_multiple",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<api_name>v0.6)/(?P<resource_name>lookup_table_item)/set/(?P<pk_list>.*?)/$"
-				},
-				{
-					"name": "api_dispatch_list",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>lookup_table_item)/(?P<api_name>v2)/$"
-				},
-				{
-					"name": "api_dispatch_detail",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>lookup_table_item)/(?P<api_name>v2)/(?P<pk>.*?)/$"
-				},
-				{
-					"name": "api_get_schema",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>lookup_table_item)/(?P<api_name>v2)/schema/$"
-				},
-				{
-					"name": "api_get_multiple",
-					"pattern": "^a/(?P<domain>[\\w\\.:-]+)/api/(?P<resource_name>lookup_table_item)/(?P<api_name>v2)/set/(?P<pk_list>.*?)/$"
-				}
-			],
-			"source": [
-				"commcare-hq/corehq/apps/fixtures/resources/v0_6.py::LookupTableItemResource"
 			]
 		},
 		"hq-api:LookupTableResource": {
