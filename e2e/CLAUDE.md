@@ -151,6 +151,15 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   class of race, slow the catalog read (route its Server Action the way
   `authed.spec.ts`'s case-changes journey holds it) and run the suite: a test
   that edits too early then fails every time instead of now and then.
+- **Controlled clocks use fixed start and pause times.** Install before navigation
+  so the page owns no native timers when the clock takes over. Let hydration run,
+  observe readiness, then pause at a fixed later instant before the interaction
+  under test. The clock tests use `2026-01-01T00:00:00Z` and `01:00:00Z`: the
+  one-hour gap exceeds their entire 90/120-second test budget. Never derive the
+  pause target from the runner's `Date.now()`, even with a one-second lead; command
+  latency or an already-advanced page clock can put that target in the past.
+  Resume in `finally` when the page will continue, and before a fresh navigation
+  whose hydration requires timers. `setFixedTime` alone freezes dates, not timers.
 - **A route a test removes goes through `e2e/lib/routes.ts`.** Playwright
   turns a page's interception off as soon as its route list is empty and
   forwards any request a handler is still holding; the handler's own

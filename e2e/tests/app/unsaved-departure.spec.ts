@@ -90,9 +90,9 @@ test("an edit waiting in the autosave cooldown is visibly unsaved and protects d
 	tag: "@seed:member-role",
 }, async ({ page, scenario }) => {
 	const seed = seedFor(scenario, "member-role");
+	await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
 	await openBuilder(page, `/build/${seed.appId}/${seed.moduleUuid}`);
-	await page.clock.install();
-	await page.clock.pauseAt(new Date());
+	await page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
 	const title = page.locator('[data-testid="editable-title"]').visible();
 	try {
 		await title.fill("First receipt");

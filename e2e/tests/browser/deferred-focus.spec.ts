@@ -6,12 +6,12 @@ test("deferred handoffs yield to newer interaction and expire with their owner",
 }) => {
 	const peer = await componentPeer("e2e/lib/deferred-focus-client.tsx");
 	try {
-		await page.clock.install();
+		await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
 		await page.goto(peer.origin);
 		const other = page.getByRole("textbox", { name: "Other", exact: true });
 		const schedule = page.getByRole("button", { name: "Schedule focus" });
 		await expect(schedule).toBeVisible();
-		await page.clock.pauseAt(new Date(Date.now() + 1_000));
+		await page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
 		const trigger = async (name: string) => {
 			await page
 				.getByRole("button", { name, exact: true })
