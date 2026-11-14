@@ -1298,11 +1298,18 @@ def _profile_key(surface_key):
 
 
 RUNTIME_READINGS = ("runs", "different")
+# The app holds a HELD or HELD-NEW setting; the project space keeps a TARGET-OWNED one, which a publish never
+# changes, so two HQ builds of one project space hold it alike, and which the local archive made for that project
+# space writes as HQ's build there does (``lib/commcare/keptProfile.ts::targetProfileProperties``). The archive
+# cannot write an Android logo (its download says so), so the two sides hold a logo alike only while HQ's side holds
+# none: no ``proof/observe/hqside.py::SAVES`` kind uploads one, and ``proof3.stated_values`` says where a kind that
+# does is stated.
+COMPARED_DISPOSITIONS = ("HELD", "HELD-NEW", "TARGET-OWNED")
 
 
-def test_the_compared_profile_properties_are_the_manifests_runtime_read_app_content(hq):
-    """Each compared property is a HELD or HELD-NEW setting a runtime reads, read by exactly the runtimes the
-    manifest says read it, where the built profile is what that runtime reads."""
+def test_the_compared_profile_properties_are_the_manifests_runtime_read_settings(hq):
+    """Each compared property is a setting the app holds or the project space keeps that a runtime reads, read by
+    exactly the runtimes the manifest says read it, where the built profile is what that runtime reads."""
     held = {}
     for path in sorted(ENTRIES.glob("*.json")):
         for entry in json.loads(path.read_text(encoding="utf-8")):
@@ -1311,7 +1318,7 @@ def test_the_compared_profile_properties_are_the_manifests_runtime_read_app_cont
                 runtime: (platforms.get(runtime) or {}).get("reading") in RUNTIME_READINGS
                 for runtime in ("android", "webApps")
             }
-            if entry.get("disposition") not in ("HELD", "HELD-NEW") or not any(reads.values()):
+            if entry.get("disposition") not in COMPARED_DISPOSITIONS or not any(reads.values()):
                 continue
             for key in entry.get("surfaceKeys", []):
                 profile_key = _profile_key(key)
