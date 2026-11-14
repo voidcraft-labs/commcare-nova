@@ -25,8 +25,13 @@
 //   browser lays them out: the grid area, alignment and font size it
 //   computed from the style element the client wrote under HQ's
 //   stylesheets.
-// - `query`: a search screen: its title, its description element (null when
-//   the client rendered none) and each prompt.
+// - `query`: a search screen: whether the client lays it out beside its
+//   results (`beside`: in the sidebar region, as it does for a search with
+//   prompts wherever it shows its navigation, which App Preview does not),
+//   its title (the heading the client draws for the search: the search
+//   form's own heading where the search stands alone, the results' header
+//   where it stands beside them; null where it drew none), its description
+//   element (null when the client rendered none) and each prompt.
 // - `detail`: the case detail dialog, where it is open: each tab's title
 //   (and which is active) and each row's header and value as shown.
 // - `form`: a form's title; each question's label, whether it is
@@ -160,11 +165,18 @@
 
 	const query = one(document, "#query-list-contents");
 	if (query) {
-		// The description sits in the search form, or, where the client lays
-		// the search out beside its results, in the results' header.
+		// The title and the description sit in the search form, or, where the
+		// client lays the search out beside its results, in the results'
+		// header, and never in the form there.
+		const beside = query.closest("#sidebar-region") !== null;
 		const description = one(document, "#cloudcare-main .query-description");
 		screen.query = {
-			title: text(one(query, "form > h2")),
+			beside,
+			title: text(
+				beside
+					? one(menu, "#case-list-menu-header .page-title")
+					: one(query, "form > h2"),
+			),
 			description: description
 				? {
 						html: description.innerHTML,

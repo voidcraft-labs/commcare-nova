@@ -518,6 +518,13 @@ own `adjust_datetimes`.
 slice the session starts for the step's tests that take the Web Apps reader (part 14, section
 12.4). It is a control on what section 6 read at the client's source, so it decides nothing new.
 - *It passes.* Nothing more lands.
+- *Ran once on GitHub's runners: the read found no heading for the search with one.* The read was
+  the harness's: it looked for the heading only on the search form, which Web Apps' own page lays
+  out beside its results in the sidebar with no heading, drawing the title over the results instead
+  (section 6, "What CommCare holds"). The screen read (`steps/webapps/screen.js`) now reads the
+  title where the client draws it in either layout and says which layout it read (`beside`), the
+  test reads both menus in Web Apps and in App Preview and requires the layout of each, and the
+  emission, Preview and section 6's table stand. The slice runs again.
 - *Web Apps draws a heading for the search with no title, or none for the search with one.*
   Section 6 misread the client. The session corrects the emission section 6 changes
   (`hqJson/caseList.ts::buildSearchConfigDocument` and the rows of section 6's table) and section
@@ -1753,9 +1760,15 @@ nothing was typed (`views/modules.py::_gather_and_update_search_properties`); th
 non-breaking space (`commcare_translations.py::dumps`); the suite's `<title>` names that locale
 (`remote_requests.py`, at CommCare 2.53 and later,
 `feature_support.py::enable_case_search_title_translation`).
-Core evaluates it (`QueryScreen.java::getTitleLocaleString`), and the Web Apps client trims it and
-draws the heading only where something is left (`formplayer/menus/views/query.js::templateContext`;
-the template `corehq/apps/cloudcare/templates/cloudcare/partials/query/list.html`). Android draws no
+Core evaluates it (`QueryScreen.java::getTitleLocaleString`), Formplayer hands it to the client as the
+search screen's title, and the client trims it and draws the heading only where something is left, in
+one of two places. Where it shows its navigation (Web Apps' own page) a search with prompts stands
+beside its results in the sidebar, whose form draws no heading, and the title is the heading of the
+results' header (`formplayer/menus/controller.js::showSplitScreenQuery`,
+`menus/utils.js::isSidebarEnabled`, the case list's `templateContext` in `menus/views.js`,
+`cloudcare/partials/case_list/menu_header.html`); App Preview shows no navigation, and there the
+search stands alone under its form's own heading (`formplayer/menus/views/query.js::templateContext`,
+`cloudcare/partials/query/list.html`). Android draws no
 search title at all (the platform row `search-screen-text`). Lifecycle: `CaseSearch.title_label` is
 alive, read under the frozen toggle `SYNC_SEARCH_CASE_CLAIM` that Nova's search capability already
 requires.
@@ -1818,8 +1831,9 @@ differently.
 **The lane document.** `targeted-search-no-title` (declares both platforms): one menu whose search
 has no title and one whose search has one. The claim is about what a client draws, so its assertion
 is a reader's own test, in the form of `proof/webapps/test_media_slots.py`:
-`proof/webapps/test_search_title.py` reads the search screen of each menu and requires no title
-element for the first and the title's text for the second. It runs with the Web Apps reader, in the
+`proof/webapps/test_search_title.py` reads the search screen of each menu, in Web Apps (the search
+beside its results) and in App Preview (the search alone), and requires in each layout no heading for
+the first and the title's text for the second, read from the same place for both. It runs with the Web Apps reader, in the
 one slice the session starts itself for the step's tests that take the Web Apps reader (part 14,
 section 12.4, holds the command; "Written and not yet run" gives its outcomes), and in every
 scheduled lane with the readers after the merge. A dispatch that names documents runs no test of a

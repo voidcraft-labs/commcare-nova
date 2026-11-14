@@ -10,11 +10,13 @@
  * (`views/modules.py::_gather_and_update_search_properties`); the app string
  * is that text (`models/case_search.py::CaseSearch.get_search_title_label`),
  * written as a non-breaking space (`commcare_translations.py::dumps`), and
- * Web Apps trims it and draws a heading only where something is left
- * (`formplayer/menus/views/query.js::templateContext`,
+ * Web Apps trims it and draws a heading only where something is left: over
+ * the results a search with prompts stands beside on Web Apps' own page
+ * (`partials/case_list/menu_header.html`), and on the search's own form in
+ * App Preview (`formplayer/menus/views/query.js::templateContext`,
  * `partials/query/list.html`). Android draws no search title for either.
- * `proof/webapps/test_search_title.py` reads both search screens in the
- * client. The document declares both platforms.
+ * `proof/webapps/test_search_title.py` reads both search screens in both
+ * layouts of the client. The document declares both platforms.
  *
  * Fixed values: each visit's note holds the text the worker enters
  * (`./echo.ts`).
