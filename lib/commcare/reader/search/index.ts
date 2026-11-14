@@ -6,20 +6,31 @@
  * search written back by the production projection (`settings.ts`).
  */
 import { produce } from "immer";
-import type { CaseListConfig, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CaseListConfig,
+	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
+	type Uuid,
+} from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type {
 	CaseSearchConfig,
 	OrdinaryCaseSearchConfig,
 } from "@/lib/domain/modules";
 import { readFormSyntax } from "../../xpath/formSyntax";
+import { withCandidate } from "../candidate";
 import { noteProperty } from "../caseManagement/catalog";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftApp, DraftModule, ReadContext } from "../context";
 import { searchRowProperties } from "../expressions/scanReads";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { type PromptReading, readSearchPrompts } from "./prompts";
-import { classifySearchRows, ROWS_HELD, type SearchRow } from "./rows";
+import {
+	classifySearchRows,
+	MARKERS_HELD,
+	ROWS_HELD,
+	type SearchRow,
+} from "./rows";
 import { readSearchSettings, settleSearchSettings } from "./settings";
 import { offersSearch, readSearchWorkflow, searchPlace } from "./workflow";
 
@@ -27,7 +38,7 @@ export { classifySearchRows } from "./rows";
 
 const S = "case-search/";
 const ROUND_TRIP = `${S}the-generated-search-round-trip-remote-request-query-results`;
-const MARKERS = `${S}default-properties-entries-keyed-include-closed-or-x-commcare`;
+const MARKERS = MARKERS_HELD;
 
 export const SEARCH_CLAIMS = defineClaims("search", {
 	configModule: take(ROUND_TRIP, "schema:Module.search_config"),
@@ -103,6 +114,8 @@ interface SearchReading {
 	readonly rows: readonly SearchRow[];
 	readonly formsReadSearch: boolean;
 	readonly zeroInput: boolean;
+	/** Whether the default filters are only HQ's two markers, on a menu with no prompt. */
+	readonly markersOnly: boolean;
 	readonly whole: boolean;
 }
 
@@ -142,7 +155,13 @@ function readDefaultFilters(
 	accounting: ReadContext["accounting"],
 	cursor: JsonCursor,
 	hasPrompts: boolean,
-): { ok: boolean; rows: SearchRow[]; names: Set<string>; zeroInput: boolean } {
+): {
+	ok: boolean;
+	rows: SearchRow[];
+	names: Set<string>;
+	zeroInput: boolean;
+	markersOnly: boolean;
+} {
 	const stored = cursor.peek("default_properties");
 	const entries = Array.isArray(stored) ? stored.filter(isJsonObject) : [];
 	const markersOnly =
@@ -218,7 +237,7 @@ function readDefaultFilters(
 			);
 		rows.push({ index, text: value, cursor: row });
 	});
-	return { ok, rows, names, zeroInput };
+	return { ok, rows, names, zeroInput, markersOnly };
 }
 
 /** Step 6, pass 1: every menu's search, read from its `search_config`. */
@@ -275,19 +294,25 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			Array.isArray(cursor.peek("properties")) &&
 			(cursor.peek("properties") as unknown[]).length > 0;
 		const filters = readDefaultFilters(ctx.accounting, cursor, hasPrompts);
-		// A property the search's rows read is a property of the catalog, as every expression's is.
 		const caseType = module.module.caseType;
-		const rowProperties = filters.rows.flatMap((row) =>
-			searchRowProperties(row.text),
-		);
-		if (rowProperties.length > 0 && app.caseTypes != null)
+		const prompts = readSearchPrompts(ctx, module, cursor, filters.names);
+		// A property the search's rows read, and a simple Search field's, is a property of the
+		// catalog, as every expression's is.
+		const properties = [
+			...filters.rows.flatMap((row) => searchRowProperties(row.text)),
+			...prompts.flatMap((prompt) =>
+				prompt.input.kind === "simple" && prompt.input.via === undefined
+					? [prompt.input.property]
+					: [],
+			),
+		];
+		if (properties.length > 0 && app.caseTypes != null)
 			ctx.writeDraft(() => {
 				app.caseTypes = produce(app.caseTypes ?? [], (draft) => {
-					for (const property of rowProperties)
+					for (const property of properties)
 						noteProperty(draft, caseType, property);
 				});
 			});
-		const prompts = readSearchPrompts(ctx, module, cursor, filters.names);
 		const workflow = readSearchWorkflow(ctx, module, cursor);
 		const settings = readSearchSettings(ctx, module, cursor, true, config);
 		const search: OrdinaryCaseSearchConfig = { ...config, ...(workflow ?? {}) };
@@ -309,6 +334,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			rows: filters.rows,
 			formsReadSearch: workflow?.formsReadSearch === true,
 			zeroInput: filters.zeroInput,
+			markersOnly: filters.markersOnly,
 			whole:
 				filters.ok &&
 				settings.ok &&
@@ -318,25 +344,56 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 	}
 }
 
-/** A date or date range field whose property the app's writers type as something else. */
+/** The types the catalog gives a menu's case type's properties: declared, else its writers'. */
+function propertyTypes(doc: BlueprintDoc, caseType: string | undefined) {
+	return (
+		effectiveCaseTypes(doc).find((type) => type.name === caseType)
+			?.properties ?? []
+	);
+}
+
+/** A date range field over a property no writer types declares it `date`: the gate asks a date
+ *  range field for a date property (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`). */
+function declareDateRangeProperties(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): BlueprintDoc {
+	const mod = doc.modules[moduleUuid];
+	if (mod === undefined) return doc;
+	const properties = propertyTypes(doc, mod.caseType);
+	const untyped = (mod.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+		input.kind === "simple" &&
+		input.type === "date-range" &&
+		input.via === undefined &&
+		properties.find((property) => property.name === input.property)
+			?.data_type === undefined
+			? [input.property]
+			: [],
+	);
+	if (untyped.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		const type = draft.caseTypes?.find((one) => one.name === mod.caseType);
+		for (const name of untyped) {
+			const property = type?.properties.find((one) => one.name === name);
+			if (property !== undefined) property.data_type = "date";
+		}
+	});
+}
+
+/** A simple field whose property the app's writers type as something its type does not admit
+ *  (`SEARCH_INPUT_TYPE_PROPERTY_TYPES`, the table the gate refuses by). */
 function fieldOverAnotherType(ctx: ReadContext, reading: SearchReading): void {
 	const doc = ctx.doc;
 	const mod = doc?.modules[reading.module.uuid];
 	if (doc === undefined || mod === undefined) return;
-	const properties =
-		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
-			?.properties ?? [];
+	const properties = propertyTypes(doc, mod.caseType);
 	for (const input of mod.caseListConfig?.searchInputs ?? []) {
-		if (
-			input.kind !== "simple" ||
-			(input.type !== "date" && input.type !== "date-range") ||
-			input.via !== undefined
-		)
-			continue;
+		if (input.kind !== "simple" || input.via !== undefined) continue;
+		const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[input.type];
 		const type = properties.find(
 			(property) => property.name === input.property,
 		)?.data_type;
-		if (type !== undefined && type !== "date" && type !== "datetime")
+		if (allowed !== undefined && type !== undefined && !allowed.includes(type))
 			ctx.accounting.finding(
 				C.fieldOfAnotherType,
 				searchPlace(reading.module),
@@ -366,7 +423,10 @@ export function settleSearches(ctx: ReadContext, app: DraftApp): void {
 			prompts: reading.prompts,
 			formsReadSearch: reading.formsReadSearch,
 			zeroInput: reading.zeroInput,
+			markersOnly: reading.markersOnly,
 		});
+		if (ctx.doc !== undefined)
+			ctx.doc = declareDateRangeProperties(ctx.doc, module.uuid);
 		fieldOverAnotherType(ctx, reading);
 		settleSearchSettings(ctx, module, reading.cursor, reading.prompts);
 	}

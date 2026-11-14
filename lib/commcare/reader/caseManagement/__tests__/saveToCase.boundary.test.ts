@@ -21,6 +21,8 @@ import { formField, term } from "@/lib/domain/expression";
 import { expandDoc } from "../../../expander";
 import { serializeXml } from "../../../serializeXml";
 import { parseXml } from "../../../xmlParse";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import { saveToCaseReading } from "../saveToCase";
 import {
 	blockTreesEqual,
@@ -206,4 +208,118 @@ describe("the re-emission test", () => {
 		};
 		expect(await judged(missing)).toBe(false);
 	});
+});
+
+/** The guard's `@case_id` bind of `photo`'s text guard, its calculate replaced. */
+function guardEdited(xml: string): string {
+	const document = parseXml(xml) as unknown as Node;
+	for (const one of elements(document))
+		if (
+			one.name === "bind" &&
+			(one.attribs?.nodeset ?? "").includes("/nova_guard_photo") &&
+			(one.attribs?.nodeset ?? "").endsWith("/case/update/case_type")
+		)
+			(one.attribs as Record<string, string>).calculate = "'patient'";
+	return serializeXml(document as never);
+}
+
+describe("a block the emitter would write otherwise, read through every stage", () => {
+	const extraBind = (xml: string) => {
+		const document = parseXml(xml) as unknown as Node;
+		const model = elements(document).find(
+			(one) => one.name === "model",
+		) as Node;
+		appendChild(
+			model as unknown as Element,
+			new Element("bind", {
+				nodeset: "/data/nova_operations/photo/case/create/case_name",
+				required: "true()",
+			}),
+		);
+		return serializeXml(document as never);
+	};
+	const missingGuard = (xml: string) => {
+		const document = parseXml(xml) as unknown as Node;
+		for (const one of elements(document))
+			if (
+				one.name?.startsWith("nova_guard_photo") === true ||
+				(one.name === "bind" &&
+					(one.attribs?.nodeset ?? "").includes("/nova_guard_photo"))
+			)
+				removeElement(one as unknown as Element);
+		return serializeXml(document as never);
+	};
+	for (const [what, edit] of [
+		["an extra bind on a leaf", extraBind],
+		["its guard missing", missingGuard],
+		["its guard's row edited", guardEdited],
+	] as const)
+		it(`is the one finding at the block's place, with ${what}, and the stored save map is covered by it`, async () => {
+			const outcome = readHqApp(
+				await inputFor(exportedBody(app(), { xml: edit })),
+			);
+			expect(outcome.kind).toBe("account");
+			const findings = outcome.kind === "account" ? outcome.findings : [];
+			const outside = findings.filter((one) => one.code === OUTSIDE);
+			expect(outside).toHaveLength(1);
+			expect(outside[0]?.place).toMatchObject({
+				kind: "question",
+				path: "nova_operations/photo",
+			});
+			expect(findings.map((one) => one.code)).not.toContain(
+				"forms-and-case-writes/case-references-data-save-differing-from-that-computation",
+			);
+		});
+
+	it("reads Nova's own block, its guard included, with no finding", async () => {
+		const outcome = readHqApp(await inputFor(exportedBody(app())));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+	});
+});
+
+/** The source with the root create's id setvalue given `value`. */
+function createIdSetTo(value: string) {
+	return (xml: string) => {
+		const document = parseXml(xml) as unknown as Node;
+		for (const one of elements(document))
+			if (
+				one.name === "setvalue" &&
+				(one.attribs?.ref ?? "").endsWith("/photo/case/@case_id")
+			)
+				(one.attribs as Record<string, string>).value = value;
+		return serializeXml(document as never);
+	};
+}
+
+describe("a root create's authored id", () => {
+	for (const [what, value, entry] of [
+		[
+			"blank on every opening",
+			"''",
+			"questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath",
+		],
+		[
+			"the bare answer of a question with no starting value",
+			"/data/note",
+			"questions/savetocase-create-at-the-form-root-whose-authored-case-id-xpath",
+		],
+		[
+			"any other expression",
+			"concat('visit-', uuid())",
+			"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+		],
+	] as const)
+		it(`is its entry once where it is ${what}, and no operation`, async () => {
+			const reading = await readCases(app(), {
+				editSource: createIdSetTo(value),
+			});
+			expect(reading.findings.filter((one) => one.code === entry)).toHaveLength(
+				1,
+			);
+			expect(
+				reading.forms
+					.flatMap((form) => form.form.caseOperations ?? [])
+					.filter((one) => one.action === "create"),
+			).toEqual([]);
+		});
 });

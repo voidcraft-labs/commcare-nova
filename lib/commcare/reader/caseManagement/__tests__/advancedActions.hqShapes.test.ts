@@ -11,8 +11,11 @@
  * instead of its entry; an index name Nova cannot spell held; a saved-if-
  * changed write read as saved every time in a project space that applies it.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import type { CaseOperation } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
 import { unowned } from "@/lib/domain/expression/builders";
 import {
 	advancedFixture,
@@ -24,15 +27,23 @@ import {
 	U,
 } from "../../../__tests__/advancedPlacementFixture";
 import { planFormCaseWire } from "../../../casePlacementPlan";
-import { readMenusOf } from "../../menus/__tests__/menuReading";
+import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { readMenusOf as readMenusOfDoc } from "../../menus/__tests__/menuReading";
 import {
 	judgeLoads,
 	type StoredLoad,
 	settleAdvancedMenu,
 } from "../advancedActions";
-import { type AppJson, findingCodes, readCases } from "./caseReading";
+import {
+	type AppJson,
+	findingCodes,
+	readCases as readCasesOf,
+} from "./caseReading";
 
 const F = "forms-and-case-writes";
+
+const readCases = namingFromHqPages(readCasesOf);
+const readMenusOf = namingFromHqPages(readMenusOfDoc);
 
 /** The stored actions of the form under test, the first advanced form. */
 function actionsOf(app: AppJson): Record<string, unknown> & {
@@ -184,6 +195,60 @@ describe("an advanced form's loads and open actions", () => {
 		expect(findingCodes(reading)).toContain(
 			`${F}/index-identifier-outside-an-xml-element-name`,
 		);
+	});
+
+	it("refuses an index whose relationship a question chooses under the entry its shape is, each once", async () => {
+		const { doc } = registration([kid]);
+		for (const [question, entry] of [
+			["", `${F}/relationship-question-without-relationship-question`],
+			[
+				"/data/kids/kid_age",
+				`${F}/caseindex-relationship-question-inside-a-repeat`,
+			],
+			[
+				"/data/age",
+				`${F}/caseindex-relationship-question-relationship-question-the-index-naming-an`,
+			],
+		] as const) {
+			const reading = await readCases(doc, {
+				edit: (app) => {
+					const opens = actionsOf(app).open_cases;
+					const index = (
+						opens[1] as { case_indices: Record<string, unknown>[] }
+					).case_indices[0] as Record<string, unknown>;
+					index.relationship = "question";
+					index.relationship_question = question;
+				},
+			});
+			expect(
+				findingCodes(reading).filter((code) => code === entry),
+				question,
+			).toHaveLength(1);
+		}
+	});
+
+	it("reads an open action with no name, which HQ's build refuses, as unrecognized and never drops it", async () => {
+		const { doc } = registration([kid]);
+		const reading = await readCases(doc, {
+			edit: (app) => {
+				const opens = actionsOf(app).open_cases;
+				(opens[1] as { name_update: Record<string, unknown> }).name_update = {
+					question_path: "",
+				};
+			},
+		});
+		expect(
+			reading.findings.filter(
+				(one) =>
+					one.code === "unrecognized" &&
+					one.detail?.name === "schema:AdvancedOpenCaseAction.name_update",
+			),
+		).toHaveLength(1);
+		expect(
+			reading.forms
+				.flatMap((form) => form.form.caseOperations ?? [])
+				.filter((one) => one.action === "create"),
+		).toEqual([]);
 	});
 
 	it("refuses a load's saved-if-changed write where the project space applies it, and reads it as saved every time where it does not", async () => {
@@ -452,6 +517,110 @@ describe("an advanced form's loads and open actions", () => {
 		expect(menuCodes(reading)).toContain(
 			`${F}/advanced-form-loads-other-than-its-menu-s-one-chain`,
 		);
+	});
+});
+
+describe("a chain through a basic menu", () => {
+	it("reads the chain of an advanced menu chosen under a basic menu with its own parent selection, where the selections are the only evidence of the parent types", async () => {
+		// No form links a member to a household or a visit to a member: the two parent types are
+		// the catalog's, and the menus' parent selections are all a reading has of them.
+		const followup = (name: string, caseType: string) => ({
+			name,
+			type: "followup" as const,
+			fields: [
+				f({
+					kind: "text",
+					id: "note",
+					caseWrite: { caseType, property: "note" },
+				}),
+			],
+		});
+		const doc = produce(
+			buildDoc({
+				caseTypes: [
+					{ name: "household", properties: [] },
+					{ name: "member", parent_type: "household", properties: [] },
+					{ name: "visit", parent_type: "member", properties: [] },
+				],
+				modules: [
+					{
+						uuid: "chain-households",
+						name: "Households",
+						caseType: "household",
+						forms: [
+							{
+								name: "Add household",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "name",
+										caseWrite: { caseType: "household", property: "case_name" },
+									}),
+								],
+							},
+						],
+					},
+					{
+						uuid: "chain-members",
+						name: "Members",
+						caseType: "member",
+						parentCaseModuleUuid: "chain-households",
+						forms: [followup("Check member", "member")],
+					},
+					{
+						uuid: "chain-visits",
+						name: "Visits",
+						caseType: "visit",
+						parentCaseModuleUuid: "chain-members",
+						forms: [followup("Review visit", "visit")],
+					},
+				],
+			}),
+			(draft) => {
+				const visits = draft.modules[testUuid("chain-visits")];
+				if (visits !== undefined) visits.heldKind = "advanced";
+			},
+		);
+		const reading = await readMenusOf(doc);
+		expect(menuCodes(reading)).toEqual([]);
+		const read = reading.doc as BlueprintDoc;
+		const named = (name: string) =>
+			Object.values(read.modules).find((one) => one.name === name);
+		expect(named("Visits")?.heldKind).toBe("advanced");
+		expect(named("Visits")?.parentCaseModuleUuid).toBe(named("Members")?.uuid);
+		expect(named("Members")?.parentCaseModuleUuid).toBe(
+			named("Households")?.uuid,
+		);
+		const parentOf = (name: string) =>
+			read.caseTypes?.find((type) => type.name === name)?.parent_type;
+		expect([parentOf("member"), parentOf("visit")]).toEqual([
+			"household",
+			"member",
+		]);
+		// The loads the reading's chain gives are the ones the source stores, tag by tag.
+		const visitsUuid = named("Visits")?.uuid as string;
+		const form = read.formOrder[visitsUuid]?.[0];
+		const planned = planFormCaseWire(read, form as never);
+		const visitsForm = reading.app.modules[2]?.forms[0];
+		if (visitsForm === undefined) throw new Error("The source holds the form.");
+		const stored = (
+			visitsForm.actions as {
+				load_update_cases: { case_tag: string; case_type: string }[];
+			}
+		).load_update_cases;
+		expect(
+			planned.kind === "advanced" &&
+				planned.actions.load_update_cases.map((load) => [
+					load.case_tag,
+					load.case_type,
+				]),
+		).toEqual(stored.map((load) => [load.case_tag, load.case_type]));
+		expect(stored.map((load) => load.case_type)).toEqual([
+			"household",
+			"member",
+			"visit",
+		]);
 	});
 });
 

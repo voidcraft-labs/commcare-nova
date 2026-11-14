@@ -40,33 +40,25 @@ import {
  *  laptop; the per-corpus budget leaves room for a shared CI runner. */
 const DOCS_PER_CORPUS = 30;
 
-/** The name of the menu a slot belongs to, as a finding's place names it. */
-function menuNameOf(
-	doc: BlueprintDoc,
-	ref: SlotContextRef,
-): string | undefined {
-	if (ref.entity === "module") return doc.modules[ref.uuid]?.name;
+/** The position of the menu a slot belongs to, as a finding's place names it. */
+function menuIndexOf(doc: BlueprintDoc, ref: SlotContextRef): number {
+	if (ref.entity === "module") return doc.moduleOrder.indexOf(ref.uuid);
 	let form: Uuid | undefined = ref.uuid;
 	while (form !== undefined && doc.forms[form] === undefined)
 		form = doc.fieldParent[form] ?? undefined;
-	if (form === undefined) return undefined;
+	if (form === undefined) return -1;
 	const owner = form;
-	const menu = doc.moduleOrder.find((uuid) =>
+	return doc.moduleOrder.findIndex((uuid) =>
 		(doc.formOrder[uuid] ?? []).includes(owner),
 	);
-	return menu === undefined ? undefined : doc.modules[menu]?.name;
 }
 
-/** Whether a finding of the reading stands at the menu named `name`. */
-function findingAtMenu(
-	reading: EmissionReading,
-	name: string | undefined,
-): boolean {
+/** Whether a finding of the reading stands at the menu at `index`, or at a
+ *  form or question of it. */
+function findingAtMenu(reading: EmissionReading, index: number): boolean {
 	return reading.closed.findings.some((finding) => {
-		const place = finding.place as { name?: string; menuName?: string };
-		return (
-			name !== undefined && (place.menuName === name || place.name === name)
-		);
+		const place = finding.place as { menu?: number };
+		return index >= 0 && place.menu === index;
 	});
 }
 
@@ -115,7 +107,7 @@ describe("expressions read back from Nova's own export", () => {
 					}
 					if (
 						verdict.text === undefined &&
-						findingAtMenu(reading, menuNameOf(read, stored.ref))
+						findingAtMenu(reading, menuIndexOf(read, stored.ref))
 					) {
 						census.structure++;
 						continue;

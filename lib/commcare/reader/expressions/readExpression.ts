@@ -68,6 +68,9 @@ import {
 import { fieldBindType } from "../../xform/bindType";
 import {
 	bindLookupFilterFieldPaths,
+	buildCaseOperations,
+	type CaseOperationPlaces,
+	caseOperationPlaceKey,
 	collectFieldLocations,
 } from "../../xform/caseOps";
 import { planConstraintCollections } from "../../xform/constraintCollections";
@@ -96,7 +99,8 @@ import type {
 import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
 import { JAVAROSA_NATIVE_FUNCTIONS } from "../../xpath/functionCapabilities";
-import type { WireTermBindings } from "../../xpath/wire/fromExpression";
+import { toWire, type WireTermBindings } from "../../xpath/wire/fromExpression";
+import { InstanceSink } from "../../xpath/wire/instances";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import {
@@ -555,6 +559,83 @@ function formEmission(
 	};
 }
 
+/** The slots of a form the case operation emitter prints: a Save to Case
+ *  block's expressions, and the form's own open and close conditions where
+ *  a block of its own holds them. */
+function caseOperationSlot(
+	ref: SlotContextRef,
+): ref is Extract<SlotContextRef, { entity: "form" }> {
+	return (
+		ref.entity === "form" &&
+		(ref.slot.startsWith("case_operation_") ||
+			ref.slot === "form_open_condition" ||
+			ref.slot === "form_close_condition")
+	);
+}
+
+/** Where the production emitter prints each case operation expression of a
+ *  form (`xform/caseOps.ts::buildCaseOperations`), per document, naming and
+ *  form: the bindings of the node the expression's text stands in. */
+const placeCache = new WeakMap<
+	BlueprintDoc,
+	WeakMap<LookupWireNaming, Map<Uuid, CaseOperationPlaces | Error>>
+>();
+function caseOperationPlaces(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	naming: LookupWireNaming,
+	emission: FormExpressionEmission,
+): CaseOperationPlaces {
+	let byNaming = placeCache.get(doc);
+	if (byNaming === undefined) {
+		byNaming = new WeakMap();
+		placeCache.set(doc, byNaming);
+	}
+	let byForm = byNaming.get(naming);
+	if (byForm === undefined) {
+		byForm = new Map();
+		byNaming.set(naming, byForm);
+	}
+	let places = byForm.get(formUuid);
+	if (places === undefined) {
+		try {
+			const found: CaseOperationPlaces = new Map();
+			const moduleUuid = moduleUuidOfForm(doc, formUuid);
+			const mod =
+				moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+			const own =
+				moduleUuid === undefined
+					? undefined
+					: selectedCaseSessionDatum(
+							doc,
+							linkContextOf(doc, naming),
+							moduleUuid,
+							formUuid,
+						);
+			const several = own?.maxSelectValue !== undefined;
+			buildCaseOperations(
+				doc,
+				formUuid,
+				planGeneratedNodes(doc, formUuid),
+				mod?.caseType || undefined,
+				new InstanceSink(),
+				emission,
+				naming,
+				own !== undefined && !several ? sessionDataRef(own.id) : undefined,
+				several ? own?.id : undefined,
+				null,
+				found,
+			);
+			places = found;
+		} catch (error) {
+			places = error instanceof Error ? error : new Error(String(error));
+		}
+		byForm.set(formUuid, places);
+	}
+	if (places instanceof Error) throw places;
+	return places;
+}
+
 /** The predicate a generated nodeset holds on its row step, as the
  *  emitter prints it inside the nodeset: the `index`-th predicate of the
  *  last step, or undefined where the emitter wrote none. */
@@ -739,6 +820,30 @@ export function printSlot(
 					ref,
 				),
 			);
+		if (caseOperationSlot(ref)) {
+			// A Save to Case block's expression prints with the bindings of the
+			// node it stands in: answers in its repeat and earlier creates'
+			// ids through `current()`, the case read from the block's case.
+			const place = caseOperationPlaces(
+				doc,
+				formUuid,
+				naming,
+				formEmission(doc, formUuid, naming, {}).emission,
+			).get(caseOperationPlaceKey(ref));
+			if (place !== undefined)
+				return text(
+					toWire(expression, {
+						target: "xform",
+						types: emission.context(ref),
+						form: emission.projection,
+						bindings: place,
+					}),
+				);
+			if (ref.slot.startsWith("case_operation_"))
+				throw new Error(
+					`No Save to Case block of form ${formUuid} holds its ${ref.slot}, so Nova writes that expression nowhere in the form's source.`,
+				);
+		}
 		return text(emission.lower(expression, ref));
 	}
 	if (isProseSlotRef(ref)) return text(emission.lower(expression, ref));

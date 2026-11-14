@@ -2,23 +2,38 @@
  * Registration from the case list, read back from Nova's emission and from
  * the shapes CommCare HQ's pages store: the hidden menu folded into its host
  * with its form last, every failing test of that shape left an ordinary
- * menu, part 02's rows in order, and the label as HQ's build writes it.
+ * menu, a stored registration block read by the first rule that matches it,
+ * and the label as HQ's build writes it.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, makeTranslationUnitId } from "@/lib/domain";
+import type { ReadContext } from "../../context";
 import { registrationFormLast } from "../registration";
 import {
 	type AppJson,
 	codesOf,
+	inSpanish,
 	type JsonObject,
 	moduleNamed,
 	readMenusOf,
+	stagesOver,
 } from "./menuReading";
 
 const M = "menus-and-case-lists";
+const F = "forms-and-case-writes";
+
+/** The stages through the menus reading: application, structure, forms, menus. */
+const THROUGH_MENUS = 4;
+
+/** The draft menu of `name` in a reading's context. */
+function draftMenu(ctx: ReadContext, name: string) {
+	const menu = ctx.draft.modules.find((one) => one.module.name === name);
+	if (menu === undefined) throw new Error(`The reading holds no menu ${name}.`);
+	return menu;
+}
 
 const visit = {
 	name: "Visit",
@@ -45,7 +60,10 @@ const register = {
 };
 
 /** A host whose forms read the search, offering its registration after an empty search. */
-function afterEmptySearch(label?: string): BlueprintDoc {
+function afterEmptySearch(
+	label?: string,
+	order: "visit-first" | "register-first" = "visit-first",
+): BlueprintDoc {
 	return buildDoc({
 		modules: [
 			{
@@ -61,7 +79,7 @@ function afterEmptySearch(label?: string): BlueprintDoc {
 					formUuid: "reg",
 					...(label === undefined ? {} : { label }),
 				},
-				forms: [visit, register],
+				forms: order === "visit-first" ? [visit, register] : [register, visit],
 			},
 		],
 	});
@@ -122,31 +140,72 @@ describe("the hidden registration menu", () => {
 		expect(identities).toHaveLength(2);
 	});
 
-	it("leaves an ordinary hidden menu where a test of the shape fails", async () => {
-		for (const edit of [
+	it("rejoins its host last, from wherever the form stood (registration-form-last)", async () => {
+		const reading = await readMenusOf(
+			afterEmptySearch(undefined, "register-first"),
+		);
+		expect(codesOf(reading)).toEqual([]);
+		const doc = reading.doc as BlueprintDoc;
+		const host = moduleNamed(doc, "Patients");
+		const forms = doc.formOrder[host.uuid] ?? [];
+		expect(forms.map((uuid) => doc.forms[uuid]?.name)).toEqual([
+			"Visit",
+			"Register",
+		]);
+	});
+
+	it.each([
+		[
+			"a filter other than false()",
 			(app: AppJson) => {
 				hiddenMenu(app).module_filter = "1 = 2";
 			},
+		],
+		[
+			"media on the block",
 			(app: AppJson) => {
 				block(app).media_image = {
 					en: "jr://file/commcare/image/register.png",
 				};
 			},
+		],
+		[
+			"a relevancy other than the search finding nothing",
 			(app: AppJson) => {
 				block(app).relevancy_expression = "true()";
 			},
-		]) {
-			const reading = await readMenusOf(afterEmptySearch(), edit);
-			const codes = codesOf(reading);
+		],
+		[
+			"a comment on the hidden menu",
+			(app: AppJson) => {
+				hiddenMenu(app).comment = "Opened from the list";
+			},
+		],
+		[
+			"details other than the default",
+			(app: AppJson) => {
+				const details = hiddenMenu(app).case_details as JsonObject;
+				(details.short as JsonObject).columns = [];
+			},
+		],
+	])(
+		"leaves an ordinary menu off the menu, the block read by row 5, where it has %s",
+		async (_, edit) => {
+			const ctx = await stagesOver(afterEmptySearch(), edit, THROUGH_MENUS);
+			expect(ctx.draft.foldedMenus).toEqual([]);
+			expect(
+				draftMenu(ctx, "Patients").module.caseListRegistrationForm?.kind,
+			).toBe("always");
+			const codes = ctx.close().findings.map((finding) => finding.code);
 			expect(codes).not.toContain(
 				`${M}/case-list-form-on-a-search-first-host-pointing-at-a-registration`,
 			);
-			if (reading.doc !== undefined)
-				expect(
-					moduleNamed(reading.doc, "Patients").caseListRegistrationForm?.kind,
-				).toBe("always");
-		}
-	});
+			// The always arm writes no relevancy, so the block's own is the HELD-NEW row.
+			expect(codes).toContain(
+				`${M}/case-list-form-relevancy-expression-with-followup-forms-as-case`,
+			);
+		},
+	);
 
 	it("is the HELD-NEW row with `post_form_workflow: default`", async () => {
 		const reading = await readMenusOf(afterEmptySearch(), (app) => {
@@ -158,7 +217,7 @@ describe("the hidden registration menu", () => {
 	});
 });
 
-describe("part 02's rows, first match", () => {
+describe("a stored registration block, read by the first rule that matches", () => {
 	it("reads a blank form id beside a label as nothing", async () => {
 		const reading = await readMenusOf(always(), (app) => {
 			const one = block(app, 1);
@@ -189,6 +248,145 @@ describe("part 02's rows, first match", () => {
 		);
 	});
 
+	it("drops the block on a top-level menu that shows its forms above", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			(app.modules[1] as JsonObject).put_in_root = true;
+		});
+		expect(codesOf(reading)).not.toContain(
+			`${M}/case-list-form-pointing-at-a-registration-form-in-another-module`,
+		);
+		expect(
+			reading.doc === undefined
+				? undefined
+				: moduleNamed(reading.doc, "Patients").caseListRegistrationForm,
+		).toBeUndefined();
+	});
+
+	it("refuses the block on a child menu that shows its forms above", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			const host = app.modules[1] as JsonObject;
+			host.put_in_root = true;
+			host.root_module_id = (app.modules[0] as JsonObject).unique_id;
+		});
+		expect(codesOf(reading)).toContain(
+			`${M}/case-list-form-on-a-child-put-in-root-module-whose-parent-s-case`,
+		);
+	});
+
+	it("refuses the block on a menu above whose list is a tile", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			const host = app.modules[1] as JsonObject;
+			host.put_in_root = true;
+			const details = host.case_details as JsonObject;
+			(details.short as JsonObject).case_tile_template = "icon_text_grid";
+		});
+		expect(codesOf(reading)).toContain(
+			`${M}/case-list-form-on-a-put-in-root-module-whose-case-list-is-a-tile`,
+		);
+	});
+
+	it("refuses a form whose one registration of the type is a child case", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			const menu = app.modules[0] as JsonObject;
+			menu.case_type = "household";
+			const form = app.modules[0]?.forms[0] as JsonObject;
+			const actions = form.actions as JsonObject;
+			actions.subcases = [
+				{
+					...(Array.isArray(actions.subcases)
+						? (actions.subcases[0] as JsonObject)
+						: {}),
+					doc_type: "OpenSubCaseAction",
+					case_type: "patient",
+					case_name: "/data/name",
+					condition: { doc_type: "FormActionCondition", type: "always" },
+					repeat_context: "",
+				},
+			];
+		});
+		expect(codesOf(reading)).toContain(
+			`${M}/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case`,
+		);
+	});
+
+	it("refuses a follow-up form of the case type the host chooses a parent of", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			const named = app.modules[0];
+			(named?.forms[0] as JsonObject).requires = "case";
+			(app.modules[1] as JsonObject).parent_select = {
+				active: true,
+				relationship: "parent",
+				module_id: named?.unique_id,
+			};
+		});
+		expect(codesOf(reading)).toContain(
+			`${M}/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case`,
+		);
+	});
+
+	it("refuses going on with the new case from a list that chooses several", async () => {
+		const reading = await readMenusOf(always(), (app) => {
+			const host = app.modules[1] as JsonObject;
+			const details = host.case_details as JsonObject;
+			(details.short as JsonObject).multi_select = true;
+			block(app, 1).post_form_workflow = "default";
+		});
+		expect(codesOf(reading)).toContain(
+			`${M}/case-list-form-post-form-workflow-default-on-a-multi-select-host`,
+		);
+	});
+
+	it.each([
+		[
+			"keeps HQ's six rules",
+			"own",
+			`${M}/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`,
+		],
+		[
+			"breaks HQ's six rules",
+			"other",
+			`${F}/advanced-forms-in-a-module-whose-case-list-offers-a-registration`,
+		],
+	] as const)(
+		"refuses a block on an advanced host that %s by that row",
+		async (_, details, code) => {
+			const ctx = await stagesOver(
+				always(),
+				(app) => {
+					const host = app.modules[1] as AppJson["modules"][number];
+					host.doc_type = "AdvancedModule";
+					const form = host.forms[0] as JsonObject;
+					form.doc_type = "AdvancedForm";
+					form.actions = {
+						doc_type: "AdvancedFormActions",
+						load_update_cases: [
+							{
+								doc_type: "LoadUpdateAction",
+								case_type: "patient",
+								case_tag: "load_patient_0",
+								details_module:
+									details === "own"
+										? host.unique_id
+										: app.modules[0]?.unique_id,
+								auto_select: null,
+								case_indices: [],
+							},
+						],
+						open_cases: [],
+					};
+				},
+				THROUGH_MENUS,
+			);
+			const codes = ctx.close().findings.map((finding) => finding.code);
+			expect(codes).toContain(code);
+			expect(codes).not.toContain(
+				code.startsWith(F)
+					? `${M}/case-list-form-on-an-advanced-module-or-naming-an-advanced-form`
+					: `${F}/advanced-forms-in-a-module-whose-case-list-offers-a-registration`,
+			);
+		},
+	);
+
 	it("reads the always arm with its return", async () => {
 		const reading = await readMenusOf(always());
 		expect(codesOf(reading)).toEqual([]);
@@ -214,6 +412,46 @@ describe("the Register label", () => {
 				.caseListRegistrationForm?.label,
 		).toBe("Create a new Case");
 		expect(rewrites(reading)).toContain("registration-label-fixed");
+	});
+
+	it("reads a language whose label is empty as HQ's words there, never another language's text, with its record", async () => {
+		const reading = await readMenusOf(inSpanish(always(), new Map()), (app) => {
+			block(app, 1).label = { en: "New patient", es: "" };
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const doc = reading.doc as BlueprintDoc;
+		const host = moduleNamed(doc, "Patients");
+		expect(host.caseListRegistrationForm?.label).toBe("New patient");
+		expect(
+			doc.localization?.translations.spa?.[
+				makeTranslationUnitId(
+					"module",
+					host.uuid,
+					"case-list-registration-label",
+				)
+			]?.value,
+		).toBe("Create a new Case");
+		expect(rewrites(reading)).toContain("registration-label-fixed");
+	});
+
+	it("reads a language the label holds no key for as no translation", async () => {
+		const reading = await readMenusOf(inSpanish(always(), new Map()), (app) => {
+			block(app, 1).label = { en: "New patient" };
+		});
+		expect(codesOf(reading)).toEqual([]);
+		const doc = reading.doc as BlueprintDoc;
+		const host = moduleNamed(doc, "Patients");
+		expect(host.caseListRegistrationForm?.label).toBe("New patient");
+		expect(
+			doc.localization?.translations.spa?.[
+				makeTranslationUnitId(
+					"module",
+					host.uuid,
+					"case-list-registration-label",
+				)
+			],
+		).toBeUndefined();
+		expect(rewrites(reading)).not.toContain("registration-label-fixed");
 	});
 
 	it("keeps a label of its own, and none where it is the form's name", async () => {

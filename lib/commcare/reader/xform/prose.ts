@@ -454,7 +454,8 @@ function xformsChildren(
 
 const CONTAINER_KINDS = new Set(["group", "repeat", "section"]);
 
-/** Every jr:itext id the form's logic, setvalues and outputs read. */
+/** Every jr:itext id the form's logic, setvalues, outputs, itemset nodesets and repeat counts
+ *  read: every text the expression stage is handed. */
 function idsReadByExpressions(input: ReadTextInput): Set<string> {
 	const read = new Set<string>();
 	for (const bind of input.allBinds)
@@ -470,15 +471,24 @@ function idsReadByExpressions(input: ReadTextInput): Set<string> {
 	for (const setvalue of input.setvalues)
 		if (setvalue.value !== undefined) itextIdsRead(setvalue.value, read);
 	const walk = (element: Element) => {
-		if (splitName(element.name).local === "output")
+		const local = splitName(element.name).local;
+		if (local === "output")
 			for (const name of ["value", "ref"])
 				if (element.attribs[name] !== undefined)
 					itextIdsRead(element.attribs[name] as string, read);
+		if (local === "itemset" && element.attribs.nodeset !== undefined)
+			itextIdsRead(element.attribs.nodeset, read);
+		if (local === "repeat")
+			for (const [name, value] of Object.entries(element.attribs))
+				if (splitName(name).local === "count" && splitName(name).prefix !== "")
+					itextIdsRead(value, read);
 		for (const child of element.children) if (isTag(child)) walk(child);
 	};
 	const itext = input.itext;
 	for (const id of itext.ids())
 		for (const text of itext.texts(id).values()) walk(text);
+	// The body's outputs, itemset nodesets and repeat counts.
+	walk(input.body);
 	return read;
 }
 
@@ -637,11 +647,8 @@ export function readText(input: ReadTextInput): FormText {
 					(child) => child.local === "label",
 				);
 				const select = control.tag === "select1" ? "select1" : "select";
-				// A choice with no label shows none: its label is the blank text.
-				if (label === undefined) {
-					setTemplate({ field, slot: "option_label", option }, { parts: [] });
-					return;
-				}
+				// The choices reader refused an item with no label; every item it read holds one.
+				if (label === undefined) return;
 				references.push(
 					reference(
 						input,
@@ -706,10 +713,10 @@ function reference(
 	claim: Reference["claim"],
 ): Reference {
 	const ref = element.attribs.ref;
-	if (ref === undefined) {
-		const inline = element.children.some(isTag) ? undefined : ownText(element);
-		return { owner, place, element, inline, claim };
-	}
+	// A label written inline holds its own text. An element inside it (an `<output>`) is a
+	// construct no manifest entry names there, left for the close to report.
+	if (ref === undefined)
+		return { owner, place, element, inline: ownText(element), claim };
 	const read = itextReference(ref, input.accounting);
 	if (read.kind === "other") return { owner, place, element, claim };
 	if (read.kind === "double-quoted")
@@ -878,6 +885,19 @@ function mediaHolding(owner: ItextOwner): SlotText["media"] {
 	return "unheld";
 }
 
+/** Whether a slot that holds media (a question's label or help text, a choice) carries an image,
+ *  an audio or a video form in some language. */
+function writesMedia(
+	owner: ItextOwner,
+	forms: ReadonlyMap<LanguageTag, ReadonlyMap<string, Element>>,
+): boolean {
+	const holding = mediaHolding(owner);
+	if (holding === "unheld" || holding === "refused") return false;
+	for (const held of forms.values())
+		for (const form of held.keys()) if (MEDIA_FORMS.has(form)) return true;
+	return false;
+}
+
 /** Writes a slot's source-language template on its draft. */
 function setTemplate(owner: ItextOwner, template: ProseTemplate): void {
 	const slots = owner.field.field;
@@ -949,14 +969,22 @@ function readSlotText(
 		// names no itext is left unclaimed.
 		if (ref.inline === undefined) return none;
 		ref.claim(cursor, true, true);
+		const blank = isConsumerWhitespace(ref.inline);
 		setTemplate(
 			owner,
-			canonicalProseTemplate(
-				isConsumerWhitespace(ref.inline)
-					? []
-					: [{ kind: "text", text: ref.inline }],
-			),
+			canonicalProseTemplate(blank ? [] : [{ kind: "text", text: ref.inline }]),
 		);
+		// An inline label holds no markdown copy in any language: shown as typed (12.2).
+		if (!blank && !input.plainText) setPlain(owner);
+		// A choice whose inline label is blank holds no media either: it shows nothing, the
+		// item CommCare HQ's form builder cannot keep.
+		if (blank && owner.slot === "option_label")
+			accounting.finding(
+				owner.field.control?.tag === "select"
+					? X.choiceMissingValue.selectItem
+					: X.choiceMissingValue.select1Item,
+				place,
+			);
 		return none;
 	}
 	const id = ref.id;
@@ -1034,7 +1062,14 @@ function readSlotText(
 			for (const value of values) claimOtherForm(input, owner, place, value);
 	}
 
-	if (plain && !blankEverywhere && !input.plainText) setPlain(owner);
+	// A text blank everywhere is an entry Nova writes only where its slot carries media, and
+	// there its markdown copy is the flag's to decide; anywhere else the flag prints nothing.
+	if (
+		plain &&
+		(!blankEverywhere || writesMedia(owner, forms)) &&
+		!input.plainText
+	)
+		setPlain(owner);
 	setTemplate(owner, placeholderTemplate(sourceValue.parts));
 	const registered: SourceOutput[] = [];
 	for (const part of sourceValue.parts)
@@ -1278,10 +1313,16 @@ export function finishText(ctx: ReadContext): void {
 				if (localization === undefined || source === undefined) continue;
 				const atoms = template.parts.filter((part) => part.kind !== "text");
 				const unitId = itextUnitTranslationId(unit);
+				const sourceValue = slot.values.get(source);
+				const sourceBlank =
+					sourceValue === undefined || valueIsBlank(sourceValue);
 				for (const [language, value] of slot.values) {
 					if (language === source) continue;
 					const targets = localization.translations[language];
 					if (targets === undefined) continue;
+					// A value left blank beside the source's text is no translation (12.2): it is
+					// paired with nothing, so it makes no entry and no finding.
+					if (valueIsBlank(value) && !sourceBlank) continue;
 					const used = new Set<number>();
 					const parts: ProsePart[] = [];
 					let differs = false;

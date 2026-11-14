@@ -1,18 +1,12 @@
 /**
  * A document's case lists and searches read back through the reader's own
  * stages: Nova's emission of the document on CommCare HQ's own app shell,
- * read by the application, structure, forms and case management stages, the
- * case list and search stages, the expression stage, then the two settles.
- * A test may change the emitted JSON first, as HQ's pages would store it.
- *
- * The menu stage writes each menu's case type before these stages read;
- * this helper writes it from the menu's stored `case_type`, which is what
- * that stage reads it from for a basic menu. The case catalog stage writes
- * each case type with the properties the forms write; this helper writes
- * the same from the operations the case management stage read, through the
- * catalog's one rule for declaring a property (`noteProperty`).
+ * read by every stage of `STAGES` up to the assembly (or, for a first pass,
+ * up to the expression stage). A test may change the emitted JSON first, as
+ * HQ's pages would store it.
  */
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
+import { manifestFor } from "@/lib/commcare/__tests__/compilerEvidence";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -28,20 +22,11 @@ import {
 	retainedSourceBody,
 	sourceFromBody,
 } from "../../__tests__/readerInput";
-import { readApplication } from "../../appShell";
-import {
-	readCaseManagement,
-	settleCaseManagement,
-	writeCaseOperations,
-} from "../../caseManagement";
-import { noteProperty } from "../../caseManagement/catalog";
+import { assembleDocument } from "../../assemble";
 import type { ReadContext } from "../../context";
+import { STAGES } from "../../index";
 import { bindExpressions } from "../../provisional";
-import { readSearches, settleSearches } from "../../search";
-import { readStructure } from "../../structure";
-import type { ReaderInput } from "../../types";
-import { mintFields, readForms } from "../../xform";
-import { readCaseLists, settleCaseLists } from "..";
+import type { ReaderInput, ReaderMediaResolution } from "../../types";
 
 export type AppJson = Record<string, unknown> & {
 	modules: Array<
@@ -61,6 +46,9 @@ export interface ListReadingOptions {
 	readonly input?: (input: ReaderInput) => ReaderInput;
 	/** Stop before the expression stage and the settles. */
 	readonly firstPassOnly?: boolean;
+	/** Emit with a manifest of every asset the document names, and read each file back as its
+	 *  asset, as a bring-in's media index answers. */
+	readonly media?: boolean;
 }
 
 export interface ListReading {
@@ -69,8 +57,22 @@ export interface ListReading {
 	readonly app: AppJson;
 }
 
-export async function emittedApp(doc: BlueprintDoc): Promise<AppJson> {
-	const emitted = expandDoc(doc);
+/** Each image asset's path in an emission with a manifest, as `jr://file/` spells it. */
+function imagePaths(doc: BlueprintDoc): Map<string, string> {
+	const out = new Map<string, string>();
+	for (const [assetId, asset] of manifestFor(doc))
+		out.set(`jr://file/${asset.wirePath}`, assetId);
+	return out;
+}
+
+export async function emittedApp(
+	doc: BlueprintDoc,
+	media = false,
+): Promise<AppJson> {
+	const emitted = expandDoc(
+		doc,
+		media ? { assets: manifestFor(doc) } : undefined,
+	);
 	return JSON.parse(
 		JSON.stringify({
 			...retainedSourceBody("shell/app-source"),
@@ -80,79 +82,54 @@ export async function emittedApp(doc: BlueprintDoc): Promise<AppJson> {
 	) as AppJson;
 }
 
-/** Each menu's case type, with every property a form's operations write on it. */
-function writeCatalog(ctx: ReadContext): void {
-	const caseTypes: NonNullable<BlueprintDoc["caseTypes"]> = [];
-	for (const module of ctx.draft.modules) {
-		const name = module.module.caseType;
-		if (name !== undefined && !caseTypes.some((type) => type.name === name))
-			caseTypes.push({ name, properties: [] });
-	}
-	for (const module of ctx.draft.modules)
-		for (const form of module.forms)
-			for (const operation of form.form.caseOperations ?? []) {
-				const type =
-					operation.action === "own"
-						? module.module.caseType
-						: operation.caseType;
-				if (type === undefined || !("writes" in operation)) continue;
-				for (const write of operation.writes ?? [])
-					noteProperty(caseTypes, type, write.property);
-			}
-	ctx.writeDraft(() => {
-		ctx.draft.caseTypes = caseTypes;
-	});
-}
-
 export async function readLists(
 	doc: BlueprintDoc,
 	options: ListReadingOptions = {},
 ): Promise<ListReading> {
-	const app = await emittedApp(doc);
+	const app = await emittedApp(doc, options.media === true);
 	options.edit?.(app);
+	const paths = options.media === true ? imagePaths(doc) : new Map();
 	const base = {
-		...readerInput(await sourceFromBody(app)),
+		...readerInput(await sourceFromBody(app), {
+			media: (path: string): ReaderMediaResolution => {
+				const assetId = paths.get(path);
+				return assetId === undefined
+					? { kind: "no-entry" }
+					: { kind: "asset", assetId, mediaKind: "image" };
+			},
+		}),
 		recordDialect: recordDialectRoundTrip,
 	};
 	const ctx = readContext(
 		options.input === undefined ? base : options.input(base),
 	);
-	readApplication(ctx);
-	readStructure(ctx);
-	readForms(ctx);
-	for (const module of ctx.draft.modules) {
-		const caseType = module.json.peek("case_type");
-		if (typeof caseType === "string" && caseType !== "")
-			ctx.writeDraft(() => {
-				module.module.caseType = caseType;
-			});
-	}
-	readCaseManagement(ctx, ctx.draft);
-	mintFields(ctx);
-	writeCaseOperations(ctx, ctx.draft);
-	writeCatalog(ctx);
-	readCaseLists(ctx, ctx.draft);
-	readSearches(ctx, ctx.draft);
-	if (options.firstPassOnly !== true) {
-		bindExpressions(ctx);
-		settleCaseManagement(ctx, ctx.draft);
-		settleCaseLists(ctx, ctx.draft);
-		settleSearches(ctx, ctx.draft);
-	}
+	const last = STAGES.indexOf(
+		options.firstPassOnly === true ? bindExpressions : assembleDocument,
+	);
+	for (const stage of STAGES.slice(0, last)) stage(ctx);
 	return { ctx, findings: ctx.accounting.findings(), app };
 }
 
-/** The codes of a reading's findings on case lists, details and searches, `unrecognized` named
- *  by its key. */
-export function codes(reading: ListReading): string[] {
+/** The codes of findings on case lists, details and searches, `unrecognized` named by its key. */
+function codesOf(findings: readonly Finding[]): string[] {
 	const places = new Set(["case-list", "case-detail", "search"]);
-	return reading.findings
+	return findings
 		.filter((finding) => places.has(finding.place.kind))
 		.map((finding) =>
 			finding.code === "unrecognized"
 				? `unrecognized:${(finding.detail as { name?: string }).name ?? ""}`
 				: finding.code,
 		);
+}
+
+/** The codes of a reading's findings on case lists, details and searches. */
+export function codes(reading: ListReading): string[] {
+	return codesOf(reading.findings);
+}
+
+/** The codes after the accounting's close, which names every key no stage claimed. */
+export function closedCodes(reading: ListReading): string[] {
+	return codesOf(reading.ctx.close().findings);
 }
 
 /** One menu's case list as the reading's document holds it (bound where the settle ran). */

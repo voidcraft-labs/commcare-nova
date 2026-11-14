@@ -56,6 +56,9 @@ export interface JsonCursor {
 	): ReadonlyMap<string, JsonCursor>;
 	/** Cover this object, every key at every depth, by one finding. */
 	refuseWhole(claim: Claim<"refuse" | "account">, detail?: FindingDetail): void;
+	/** Read the class this object was dispatched to, at its own pointer
+	 *  (`schema:<cls>`): its keys stay each one's own to claim. */
+	takeClass(claim: Claim<"take">): Admitted<string>;
 	/** Hand the key's value to project data: no claim here, a `HandOffRecord` in the log.
 	 *  `subject` is the media path or the table's tag. */
 	handOff(key: string, to: HandOffKind, subject: string): void;
@@ -109,6 +112,8 @@ export function sameJson(a: unknown, b: unknown): boolean {
 
 /** The marker of a whole-object claim among a cursor's key sites. */
 const WHOLE = "\u0000whole";
+/** The marker of the object's own class among a cursor's key sites. */
+const CLASS = "\u0000class";
 
 /** The cursor `Accounting.json` and the container claims make. */
 export class JsonCursorImpl implements JsonCursor {
@@ -320,6 +325,19 @@ export class JsonCursorImpl implements JsonCursor {
 			detail,
 		);
 		this.whole = true;
+	}
+
+	takeClass(claim: Claim<"take">): Admitted<string> {
+		const site: LedgerSite = {
+			owner: this,
+			sub: CLASS,
+			artifact: "app.json",
+			where: () => this.pointer,
+			name: `schema:${this.cls}`,
+		};
+		return this.ledger.claim(site, claim, this.place)
+			? this.ledger.admit(this.cls, site, claim, this.place)
+			: this.ledger.unrecorded(this.cls);
 	}
 
 	handOff(key: string, to: HandOffKind, subject: string): void {

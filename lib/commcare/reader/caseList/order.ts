@@ -11,7 +11,7 @@ import { defineClaims, derived, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import type { JsonCursor } from "../jsonCursor";
 import { sameXPathText } from "../syntaxCompare";
-import { languageMap } from "./columns";
+import { HQ_PROPERTY_RENAMES, languageMap } from "./columns";
 import { type JoinedDetails, sameState } from "./details";
 
 const A = "menus-and-case-lists/";
@@ -120,7 +120,7 @@ export const ORDER_CLAIMS = defineClaims("caseList.order", {
 const O = ORDER_CLAIMS;
 
 /** HQ's name for a calculated short column's join text (`util.py::get_sort_and_sort_only_columns`). */
-const CALCULATED_FIELD = /^_cc_calculated_(\d+)$/;
+export const CALCULATED_FIELD = /^_cc_calculated_(\d+)$/;
 
 /** What the comparison of the order takes from its reading. */
 export interface SortReading {
@@ -267,6 +267,9 @@ export function readSortElements(
 			} else {
 				sortOnly = true;
 				cursor.take("field", O.fieldHidden, String).value;
+				// HQ's build reads five words as other properties (`detail_screen.py::CASE_PROPERTY_MAP`),
+				// which Nova names by its own names.
+				const property = HQ_PROPERTY_RENAMES[text] ?? text;
 				sameState(
 					ctx,
 					O.fieldHidden.entry,
@@ -278,7 +281,7 @@ export function readSortElements(
 							(column) =>
 								column.notOnList === true &&
 								"field" in column.proposal.column &&
-								column.proposal.column.field === text,
+								column.proposal.column.field === property,
 						)
 					: -1;
 				if (detailOnly !== -1) {
@@ -289,7 +292,7 @@ export function readSortElements(
 					target = joined.columns.length;
 					joined.columns.push({
 						proposal: {
-							column: { kind: "plain", field: text, header: "" },
+							column: { kind: "plain", field: property, header: "" },
 							header: {},
 							texts: {},
 							invisible: false,

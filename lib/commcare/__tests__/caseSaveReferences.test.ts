@@ -5,9 +5,9 @@
  * `caseSaveReferencesOf`, the computation a source CommCare HQ serves is held
  * to, is read over the shapes such a source may hold and Nova never writes (a
  * bind's `ref`, a relative path, no path, a data root of another name), where
- * a throw would stop a reading, and over Nova's own trees, where it must give
- * the emitter's map. What HQ and its form builder do with the map is the
- * proof lane's. */
+ * a throw would stop a reading. Over Nova's own trees `caseSaveReferences`
+ * hands it the model and the data root, and the emitted cases below hold the
+ * map it gives to fixed values. What HQ and its form builder do with the map is the proof lane's. */
 import { Element, isTag } from "domhandler";
 import { describe, expect, it } from "vitest";
 import { el } from "@/lib/commcare/elementBuilders";
@@ -381,35 +381,5 @@ describe("caseSaveReferencesOf over a source CommCare HQ serves", () => {
 		expect(caseSaveReferencesOf(model, dataRoot)).toEqual({
 			"/form/visit": ref("visit", ["by_nodeset"]),
 		});
-	});
-
-	it("gives the map caseSaveReferences gives over every tree the emitter builds", () => {
-		for (const name of ["sequence", "repeat", "query", "key"] as const) {
-			const { hq } = scenario(name);
-			for (const form of allForms(hq)) {
-				const html = parseXml(
-					hq._attachments[`${form.unique_id}.xml`],
-				).children.find(isTag);
-				if (html === undefined) throw new Error("The form source has no root.");
-				const head = html.children
-					.filter(isTag)
-					.find((child) => child.name === "h:head");
-				const model = head?.children
-					.filter(isTag)
-					.find((child) => child.name === "model");
-				const instance = model?.children
-					.filter(isTag)
-					.find(
-						(child) =>
-							child.name === "instance" && child.attribs.src === undefined,
-					);
-				const data = instance?.children.find(isTag);
-				if (model === undefined || data === undefined)
-					throw new Error("The form source has no primary instance.");
-				expect(caseSaveReferencesOf(model, data), name).toEqual(
-					caseSaveReferences(html),
-				);
-			}
-		}
 	});
 });

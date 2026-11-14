@@ -498,6 +498,42 @@ describe("datumIdsFromFacts", () => {
 		]);
 	});
 
+	it("gives a submenu's registration the root's selection id where the root's first form chooses a case of its type", () => {
+		const hq = source();
+		// The follow-up first, as a person reorders forms on HQ's menu page.
+		const households = moduleOf(hq, HOUSEHOLDS);
+		households.forms = [...(households.forms as Json[])].reverse();
+		const register = (households.forms as Json[])[1];
+		// Members lists households with no parent selection, and its form
+		// registers a household, as HQ's case management page writes a
+		// registration.
+		const members = moduleOf(hq, MEMBERS);
+		members.case_type = "household";
+		(members.parent_select as Json).active = false;
+		const form = (members.forms as Json[])[0];
+		form.requires = "none";
+		form.actions = structuredClone(register.actions);
+		const facts = hqEntryFacts(hq);
+		expect(formFacts(facts, MEMBER_VISIT)).toMatchObject({
+			caseType: "household",
+			rootModule: derivedUniqueId(HOUSEHOLDS),
+			parentSelect: null,
+			requires: "none",
+			opensCase: true,
+		});
+		// `entries.py::EntriesHelper.add_parent_datums` matches by case type
+		// and datum kind alone (`_same_case`) and asks nothing of whether a
+		// worker selects the datum, so the new case's datum takes the root's
+		// `case_id`.
+		expect(datumIdsFromFacts(formFacts(facts, MEMBER_VISIT), facts)).toEqual([
+			"case_id",
+		]);
+		// The root's own registration aligns against nothing and keeps its id.
+		expect(datumIdsFromFacts(formFacts(facts, REGISTER), facts)).toEqual([
+			"case_id_new_household_0",
+		]);
+	});
+
 	it("puts a search's query before the selection it supplies, named by the search's instance", () => {
 		const hq = source();
 		const module = moduleOf(hq, HOUSEHOLDS);

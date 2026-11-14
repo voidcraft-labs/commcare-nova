@@ -18,7 +18,7 @@ import type { ReadContext } from "../context";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
-import { formText, type SlotText } from "./prose";
+import { formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
 
@@ -60,13 +60,18 @@ function setMedia(slot: SlotText, kind: MediaKind, assetId: string): void {
 	field[key] = { ...(field[key] as object | undefined), [kind]: assetId };
 }
 
-/** Reads the media forms of one text a slot claims. */
+/**
+ * Reads the media forms of one text for one slot. Each slot that references the text reads its
+ * media as its own; the first claims the values, makes the hand-offs and lists the references,
+ * and a later slot raises its own finding where the media is refused.
+ */
 function readSlotMedia(
 	ctx: ReadContext,
 	cursor: XmlCursor,
 	slot: SlotText,
 ): void {
 	const place = slot.place;
+	const first = slot.first;
 	for (const kind of MEDIA_KINDS) {
 		const values = new Map<LanguageTag, Element>();
 		for (const [language, forms] of slot.forms) {
@@ -76,11 +81,14 @@ function readSlotMedia(
 		if (values.size === 0) continue;
 		const key = `itext-form:core/${kind}`;
 		if (slot.media === "refused") {
-			for (const value of values.values())
-				cursor.refuseSubtree(value, X.helpMediaOnCapture[kind], place);
+			if (first)
+				for (const value of values.values())
+					cursor.refuseSubtree(value, X.helpMediaOnCapture[kind], place);
+			else ctx.accounting.finding(X.helpMediaOnCapture[kind], place);
 			continue;
 		}
 		if (slot.media === "unheld") {
+			if (!first) continue;
 			for (const value of values.values()) {
 				const path = ownText(value).trim();
 				const resolution = ctx.input.media.resolve(path);
@@ -103,15 +111,18 @@ function readSlotMedia(
 			[...values.values()].map((value) => ownText(value).trim()),
 		);
 		if (values.size !== slot.forms.size || paths.size !== 1) {
-			for (const value of values.values())
-				cursor.refuseSubtree(value, X.mediaDiffering[kind], place);
+			if (first)
+				for (const value of values.values())
+					cursor.refuseSubtree(value, X.mediaDiffering[kind], place);
+			else ctx.accounting.finding(X.mediaDiffering[kind], place);
 			continue;
 		}
 		const path = [...paths][0] as string;
 		const resolution = ctx.input.media.resolve(path);
 		if (resolution.kind === "asset") {
-			for (const value of values.values())
-				cursor.takeSubtree(value, heldClaim(slot.media, kind)).value;
+			if (first)
+				for (const value of values.values())
+					cursor.takeSubtree(value, heldClaim(slot.media, kind)).value;
 			setMedia(slot, kind, resolution.assetId);
 			ctx.facts.mediaReferences.push({
 				path,
@@ -122,8 +133,9 @@ function readSlotMedia(
 			});
 			continue;
 		}
-		for (const value of values.values())
-			cursor.handOffSubtree(value, "media-reference", path, key);
+		if (first)
+			for (const value of values.values())
+				cursor.handOffSubtree(value, "media-reference", path, key);
 		ctx.facts.pendingMedia.push({
 			path,
 			mediaKind: kind,
@@ -134,17 +146,37 @@ function readSlotMedia(
 	}
 }
 
+/** Whether a choice's slot shows nothing: its label blank in every language, and no media form
+ *  in any. A media form whose file is missing is project data's to settle, by its hand-off. */
+function emptyChoice(slot: SlotText): boolean {
+	if (slot.media !== "option_media" || slot.refused) return false;
+	if (![...slot.values.values()].every(valueIsBlank)) return false;
+	return [...slot.forms.values()].every((forms) =>
+		MEDIA_KINDS.every((kind) => forms.get(kind) === undefined),
+	);
+}
+
 /**
- * Reads the media forms of every text of a form, once per text: a question's label and help
- * media and a choice's into their slots, and the media of a hint, a validation message or a
- * container's label, which no slot holds, accounted where its file is there and handed off
- * where it is not.
+ * Reads the media forms of every text of a form, for every slot that references it: a
+ * question's label and help media and a choice's into their slots, and the media of a hint, a
+ * validation message or a container's label, which no slot holds, accounted where its file is
+ * there and handed off where it is not. A choice that then shows nothing, no label in any
+ * language and no media, is the item CommCare HQ's form builder cannot keep: refused at the
+ * question.
  */
 export function readMediaForms(ctx: ReadContext, form: ReadXForm): void {
 	const text = formText(form);
 	if (text === undefined) return;
-	for (const slot of text.slots)
-		if (slot.first) readSlotMedia(ctx, text.cursor, slot);
+	for (const slot of text.slots) {
+		readSlotMedia(ctx, text.cursor, slot);
+		if (emptyChoice(slot))
+			ctx.accounting.finding(
+				slot.owner.field.control?.tag === "select"
+					? X.choiceMissingValue.selectItem
+					: X.choiceMissingValue.select1Item,
+				slot.place,
+			);
+	}
 }
 
 /** One shared path of a `{ lang: path }` map, resolved; or why there is none. */
@@ -170,6 +202,9 @@ export function readMediaMap(
 			(codes === undefined || codes.includes(language)),
 	);
 	if (held.length === 0) return { kind: "none" };
+	// A path present in one app language and absent in another differs, as two paths do.
+	if (codes !== undefined && held.length < codes.length)
+		return { kind: "differs" };
 	const paths = new Set(held.map(([, path]) => path));
 	if (paths.size !== 1) return { kind: "differs" };
 	const path = held[0]?.[1] as string;

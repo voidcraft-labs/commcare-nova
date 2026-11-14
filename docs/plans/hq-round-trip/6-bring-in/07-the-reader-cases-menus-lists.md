@@ -425,7 +425,7 @@ entry of `proof/first-publish-changes.json` on the base that exhibits it (part 1
 every shape Nova emits: an id the port cannot produce from the facts depends on something the
 facts lack. Where: ordinary CI, `lib/commcare/hq/__tests__/entryFacts.corpus.test.ts`. For every
 form of every admitted corpus document `D` it asserts that
-`entryFacts.ts::datumIdsFromFacts(facts, menus)` over `hqEntryFacts(expandDoc(D))` (a port of HQ's
+`entryFacts.ts::datumIdsFromFacts(facts, app)` over `hqEntryFacts(expandDoc(D))` (a port of HQ's
 id rules alone, reading nothing but the facts) deep-equals
 `entrySessionDatums(D, ctx, moduleUuid, formUuid).map((datum) => datum.id)`, in order. It does not
 show that HQ's entry builder reads nothing else for a shape Nova never emits, and it need not: a
@@ -447,8 +447,11 @@ form chooses a case of its type: there `entries.py::EntriesHelper.add_parent_dat
 new case's datum to the parent's `case_id` (`_same_case` asks nothing of whether a worker selects
 the child's datum), while HQ's case block reads `case_id_new_<type>_0`
 (`xform.py::get_add_case_preloads_case_id_xpath`), and Nova's projection keeps
-`case_id_new_<type>_0`. That is no fact the list lacks: the test holds the two forms by name, both
-ways, and the shape is part 02's to refuse or to write as HQ builds it.
+`case_id_new_<type>_0`. That is no fact the list lacks, and HQ's build of the shape cannot open the
+form, so part 02 refuses it at the gate (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`) and the two
+documents now register a case of another type there. No admitted document holds the shape, so the
+test holds the law with no exception, and `entryFacts.test.ts` holds the port's rename over an
+edited emission that holds it.
 
 ---
 
@@ -836,6 +839,15 @@ export function readProjectionInputs(ctx: ReadContext): ReadProjectionInputs;
   publish (part 10, 10-identity-and-the-ledger.md, section 4). A media slot with a pending
   reference holds no asset, and its key is left out of the comparison: part 11 decides it.
 
+A keyed create's id is written under `nova-case-v1:<UUIDv5(app, form, operation, type)>:`
+(`lib/domain/caseOperationIdentity.ts::authoredCaseIdPrefix`), and the app, form and operation
+are the reading's own minted identities, never the source's. So test 4 of 5.1 expands with the four
+inputs and `ExpandOptions.keyedCaseIdPrefixes`: each keyed create read from a block, by its
+operation's UUID, under the prefix the source's `@case_id` calculate holds
+(`saveToCase.ts::keyedCaseIdPrefixes`). The document keeps no prefix, so the first publish writes
+the brought-in app's own, and a key a worker enters again after it makes a new case where it made
+the same one before.
+
 Part 09's check 4 expands the document with the same four (section 6), so the two comparisons cannot
 differ on an id, an address, a table name or a path.
 
@@ -873,13 +885,19 @@ any other action when its condition is `if` or `always`, each only for the actio
 ```ts
 /** A class this reader refuses: the id of a claim its module declared (`defineClaims`). */
 export type FindingEntry = { readonly kind: "finding"; readonly entry: string };
-/** `active` is `publishedCaseBlocks.ts::activeActions(actions, requires)`. */
+/** `active` is `publishedCaseBlocks.ts::activeActions(actions, requires)`;
+ *  `openConditionType` is `open_case.condition.type` as stored, which the
+ *  active set does not hold and the second row reads. */
 export function readFormType(
 	requires: unknown,
 	active: ReadonlySet<string>,
 	module: DraftModule,
+	openConditionType?: unknown,
 ): FormType | FindingEntry;
 ```
+
+`readBasicActions` reads the row itself (`formType.ts::formTypeRow`, over the same four inputs),
+since it claims the row's two keys.
 
 Area `forms-and-case-writes`:
 
@@ -939,7 +957,7 @@ Value (part 06, 13.3). "A folded node" below is a candidate settled as generated
 | a question of the form | `term(formField(uuid))` | the row's own |
 | a folded node of purpose `trimmed`, on a case name or `external_id` write | the same read of its owner question (the trim is derived, `lib/domain/caseScalarTextGuard.ts`) | the row's own |
 | a folded node of purpose `datetime` | the read of its owner, a date-and-time question | `update-from-a-date-and-time-question-through-a-hidden-sibling` |
-| a Hidden Value whose calculate is the join of a date and a time question (part 06 reads it as an ordinary Hidden Value): the calculate is, by `syntaxCompare.ts::sameXPathText`, the join step 4's split writes over two questions of the form (`lib/doc/datetimeSplit.ts::planDatetimeSplit`) | the read of that field; the property is typed `datetime` (section 7) | `update-through-the-date-and-time-join-of-a-date-and-a-time` (HELD, section 14) |
+| a folded node of purpose `datetime` whose owner is a Hidden Value whose calculate is the join of a date and a time question (part 06 reads it as an ordinary Hidden Value): its bound calculate, the tree part 08 printed and compared with the source's text, is `datePattern.ts::clockKeepingJoin`, the join step 4's split writes (`lib/doc/datetimeSplit.ts::planDatetimeSplit`), over a date and a time question of the form (`basicActions.ts::isDatetimeJoin`). The calculate binds only at step 5, so the path's claim waits for `settleCaseManagement` (`settleDatetimeJoins`), which claims a path through any other Hidden Value's sibling under its own row | the read of that field; the property is typed `datetime` (section 7) | `update-through-the-date-and-time-join-of-a-date-and-a-time` (HELD, section 14) |
 | a folded node of purpose `url` | `{ kind: "term", term: { kind: "capture-link", field } }` | `capture-link-write-a-hidden-value-whose-calculate-builds-hq-s` |
 | an `<upload>` question, bare | finding | `update-from-an-upload-question-attachment-mode` |
 | a label, a question in a repeat the transaction does not take | finding | `a-case-write-name-or-preload-on-a-question-the-picker-does-not` |
@@ -1251,7 +1269,7 @@ repeat runs when its row is added, after the load, in both orders, so it is neve
 | `laterLoadReaders` not empty | finding, `detail.name` the question's id | `case-preload-into-a-question-outside-any-repeat-where-the-held` (re-cut HELD-NEW, section 14) |
 | from `host/`, `user/` or a mixed path | finding | `case-preload-from-any-other-index-path-host-user-a-mixed-path` |
 | into a question inside a repeat | nothing (it fills no row) | `case-preload-into-a-question-inside-a-repeat` (INERT) |
-| in a multi-select menu, by its two rows | finding, or the first row's reading | `case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module`, `case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child` |
+| in a multi-select menu, by its two rows | finding at a top-level menu; in a child menu or one under a parent selection, no default: HQ loads it from `session/data/selected_cases`, which names no case, so the load empties it after every other setvalue, and its own default, dropped, is a candidate for `laterLoadReaders` | `case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module`, `case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child` |
 | on a `requires: none` form | nothing, or finding for a reserved or illegal property | `case-preload-active-on-a-requires-none-form-naming-valid`, `case-preload-on-a-requires-none-form-naming-a-reserved-or` |
 | `usercase_preload.preload[path] = prop`, outside any repeat, the form's active `usercase_update` writing a property, `laterLoadReaders` empty | `default_value`: the worker-record read part 08 builds for `#user/prop` | `usercase-preload-into-a-question-outside-any-repeat-on-a-form` |
 | any other `usercase_preload` | finding | `any-other-usercase-preload` |
@@ -1259,8 +1277,13 @@ repeat runs when its row is added, after the load, in both orders, so it is neve
 | `case_preload.condition`, `usercase_preload.condition`, `load_from_form.condition` | nothing | `preload-action-condition` (INERT) |
 | a preload on a question whose kind holds no default (`fieldKindDeclaresKey(kind, "default_value")` false), or on a Hidden Value with a calculation (Nova holds one value source on a Hidden Value, `HIDDEN_VALUE_BOTH_SOURCES`) | finding | `a-case-write-name-or-preload-on-a-question-the-picker-does-not` for a label; `case-preload-into-a-question-that-holds-no-default` (new, section 14) otherwise |
 
-`readPreloads` records the candidates; `settlePreloads` runs `laterLoadReaders` once part 08 has bound
-every expression, writes each default, and raises the finding. Preload order is not free: the
+`readPreloads` writes each case preload's default and records the candidates: it must withdraw the
+authored default's registration before part 06's `mintFields` registers the question's logic, so
+the `form-case` read stands in the draft from then on, and every projection a settle function calls
+sees it. `settlePreloads` runs `laterLoadReaders` once part 08 has bound every expression, writes
+each worker-record default (its property's identity is known only then), and raises the finding.
+A map whose questions read under several rows is claimed under the first of them in the table's
+order; a question it reads past (one in a repeat) claims nothing of its own. Preload order is not free: the
 reader works out the HQ app's effective load-time order (part 06, section 11.3), and a
 reordering of a setvalue that reads another node is refused or declared, never passed unseen (part
 09, section 11.4, the row "Preload order"). This part decides it as refused, at not-yet, for a
@@ -1436,6 +1459,15 @@ it does, and by 4.4's open actions otherwise.
 | `case_indices[k]` naming an earlier open action | the same with `target: { kind: "op", opUuid }` | the same; `an-advanced-open-action-indexed-to-an-open-action-that-has-a-equal` for the repeat case |
 | `relationship: "question"`, an index to its own or a later action, to a renamed datum, outside its parent's repeat | finding | `caseindex-relationship-question-relationship-question-the-index-naming-a`, `caseindex-relationship-question-inside-a-repeat`, `caseindex-relationship-question-relationship-question-the-index-naming-an`, `caseindex-relationship-question-on-an-index-to-a-load-that`, `relationship-question-without-relationship-question`, `advancedopencaseaction-case-indices-naming-its-own-or-a-later`, `an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames`, `an-advanced-open-action-indexed-to-an-open-action-that-has-a-neither` |
 | a case type no menu holds | finding | `open-case-type-not-any-module-s-case-type-and-not-commcare-user` |
+
+An open action's operation `id` is `ownCaseOperationId(case_type, takenIds)`, except where its
+`owner_id` names a node part 06 proposed as an owner node: the `id` is then what follows `nova_owner_` in
+that node's name, where that passes `isCaseOperationIdentifier` and is free among the form's ids (HQ
+stores an open action's operation id nowhere else, and an allocator's suffix read into the id names the
+node the same). The action settles the node with `ReadXForm.settle(node, "generated", id)` where its name
+is the allocator's for that `id` in the action's scope (the root, or a row of its repeat), and the node is
+then the operation's `owner` by its value; otherwise it settles it as a field, and `owner` is the read of
+that Hidden Value. A load's `owner_id` never folds an owner node: Nova writes one only for an open action.
 
 A link's `reference_id` must pass `XML_ELEMENT_NAME_PATTERN`, the grammar of a link's identifier in Nova
 (part 04, section 2.5, which hands the wider class to this part).
@@ -2088,6 +2120,7 @@ not read.
 | `root_module_id` naming a menu that has a parent, a missing menu or a cycle, a mirror or training menu | finding | `child-menu-deeper-than-one-tier-grandchild`, `root-module-id-naming-a-missing-module-or-a-cycle`, `any-other-module-under-a-shadow-menu`, `any-module-under-a-training-menu` |
 | an order that puts a child away from its parent | finding | `menu-order-that-separates-a-child-from-its-parent` |
 | a child menu of another case type under a parent with no forms | finding | part 04's N9, `child-menu-of-another-case-type-under-a-parent-with-no-forms` |
+| a form of a child menu that creates a case of the type its root menu's first form opens a chosen case of | finding at the form: `menus/index.ts::readRootSelectionsTaken`, the stage before the entry facts are compared (6.3), runs the gate's `validator/rules/parentSelection.ts::rootSelectionTakesNewCase` over the provisional document (HQ's `entries.py::EntriesHelper.add_parent_datums` matches the new case's datum to the root's selection by case type, so the form cannot open) | `child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses` (REFUSED, broken at runtime, no surface key) |
 | `name{lang}` | `Module.name` (the first language's text) and one translation per other language, role `module-name` | `modulebase-name`: claimed by part 06 (its 7.1 to 7.4); read here from `ctx.draft` |
 | `forms` | `doc.formOrder[menu]`, in HQ's order (the forms themselves are part 06's) | `module-forms`: claimed by part 06 (its 7.1 to 7.4); read here from `ctx.draft` |
 | `comment`, `ref_details`, `referral_list`, `display_separately` | nothing | `comment-module`, `module-ref-details`, `module-referral-list`, `module-display-separately`: claimed by part 06 (its 7.1 to 7.4); read here from `ctx.draft` |
@@ -2158,7 +2191,8 @@ workflow is `previous_screen` is
 section 14), decided by `forms.ts::PostSubmitMenuShape.formsOnFirstMenu` of the form's menu; and a
 `form_links` entry or a `session_endpoint_id` whose frame runs through a first menu that shares one case
 (`formLinkProjection.ts::firstMenuSharedCase(draft, ctx)`, part 02's reader, gives one, with `ctx` the
-`formLinkProjectionContext` of the same document under 2.4's inputs) is
+`formLinkProjectionContext` of the same document under 2.4's inputs), or a menu's or case list's
+deep link whose frame does (10.1), is
 `forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case` (HELD-NEW,
 section 14). Both are part 02's rows, with its subjects and owners.
 
@@ -2232,7 +2266,10 @@ reads as that text in every language. Nova writes the map with every language's 
 wherever the stored map held a blank, or no text for a language, the first publish rewrites it
 with the words the build already wrote, a rewrite recorded under `list-settings-respelled`
 (13.3). (R2), in `settleMenus`: `caseListLabelAsBuilt` over the `case_list.label` of 8.7's one
-expansion equals `caseListLabelAsBuilt` over the stored one.
+expansion equals `caseListLabelAsBuilt` over the stored one. The expansion runs before the text
+stage writes this reading's translations, so each language but the first takes the text the
+reading wrote for the label's unit (`menus/modules.ts::withReadTranslations`); 8.7's label
+comparison does the same.
 
 `menus/navMedia.ts::readNavMedia(ctx, node, slots, place)` is the one reader of the two maps on a menu,
 a case list menu item, a form and an always-offered registration (2.2 gives its signature, what it
@@ -2477,8 +2514,8 @@ the author's, it stays in the registered condition, and part 08 binds it or rais
 
 Steps 2 and 3 are the pure function `linkGuards(doc, formUuid, link, xpath)` of section 9's code
 block, which answers `guards` and `expected` (the count `g`). The mark is held nowhere:
-`registerLinkExpressions` calls it over `snapshot`, and `settleAfterSubmit` calls it again over
-`ctx.doc` with the same stored `xpath` (9.5), where the link's target and carried selections are the
+`registerLinkExpressions` calls it over `snapshot`, and `acceptAfterSubmit` (9.5) calls it again over
+`ctx.doc` with the same stored `xpath`, where the link's target and carried selections are the
 ones step 1 wrote, so the two calls agree.
 
 **A link whose guards are added.** HQ's own pages write no guard, so an HQ-authored link that carries
@@ -2537,7 +2574,8 @@ moduleUniqueId, "menu")`, `externalKey.entryPoint("module", moduleUniqueId, "cas
 `destination`). `id-format` and `duplicate-id` are the two rows above, raised from the stored ids
 before any slot is written, so the gate never meets them. `display-conditions` cannot arise: the
 reader writes `ignoreDisplayConditions` on a form's deep link alone. `destination` with part 02's
-shared first-menu case is 8.4's finding. Any other `destination` refusal is a deep link whose frame
+shared first-menu case is 8.4's finding, whether the deep link is a form's, a menu's or a case
+list's (the entry names the three slots). Any other `destination` refusal is a deep link whose frame
 Nova cannot build for a reason no row of this part names; it is `unrecognized` at the menu or form,
 with the slot's surface key in `detail.name` (13.2). The entry-point links of the ledger wait for the
 first publish (part 10, 10-identity-and-the-ledger.md, section 6.1).
@@ -3608,7 +3646,7 @@ canonical member:
 | `afterSubmit.hqShapes.test.ts`: `[L1: c, L2: not(c)]` reads destination and otherwise; a fallback beside unconditional links is inert; an authored conjunct of the guard's shape that the emitter would not add is kept and reaches part 08 in the registered condition; a link that carries a case by hand with no guard reads as its condition alone, is marked `guards: "added"`, passes 9.5 and records `link-held-case-guards-added`; a guard is never in a registered condition; `default` on a follow-up stores `app_home` and on a registration stores nothing | reader over edited JSON | one meaning stored two ways |
 | `entryPoints.test.ts`: each slot; an id that is no slug fixed point; an id two slots share; `respect_relevancy: false` beside an id | reader over `expandDoc` | a deep link id changed on publish |
 | `twoFindings.test.ts`: one app with a refused child case and a refused link raises both | `readCaseManagement` and `readMenus` together | a reader that stops at its first finding (part 06, "Decisions in brief", 1: every finding in one pass) |
-| `candidates.test.ts`: one draft, one slot, two candidates of which the first fails its projection and the second passes (an owner read absent and then `actingUser()`; a date Search field over `date` and then `datetime`): the second is accepted, the draft holds only it, and the document object each projection saw is distinct (`withCandidate`) | the settle functions over a counting wrapper of the production projection | a second candidate judged on the first one's memoized plan, which a shared document object gives (the `WeakMap` caches of 2.2) |
+| `candidates.test.ts`: one draft, one slot, two candidates of which the first fails its projection and the second passes (a date Search field over `date` and then `datetime`; the owner pair of a Save to Case create, absent and then `actingUser()`, is no such case: `xform/caseOps.ts` writes one `owner_id` bind for both, so the first never fails where the second passes): the second is accepted, the draft holds only it, and the document object each projection saw is distinct (`withCandidate`) | the settle functions over a counting wrapper of the production projection | a second candidate judged on the first one's memoized plan, which a shared document object gives (the `WeakMap` caches of 2.2) |
 | `projectionInputs.test.ts`: over a source whose menu ids, form ids and `xmlns` are none of Nova's derivations, whose form holds a capture link and whose search reads a table, `expandDoc(read(A), readProjectionInputs(ctx))` prints the source's ids, the source's project space in the link and the source's tag | reader over an `expandDoc` output re-keyed with foreign ids | every (R2) failing on an id, an address or a table name, so that every real app reads `unrecognized` |
 | `rewrites.test.ts`: every same-state rule in this part's code appends to `sameStateRewrites` with a register id of 13.3; a reading that applies each rule once lists each id once (the rules of 3.5, 4.4, 8.6, 9.5, 11.1, 11.4, 12.3 and 12.4) | reader over edited JSON | a source rewrite the first publish makes with no register row (the lane would then find a difference no entry holds) |
 | `hqPageLabels.test.ts`: a finding at a `previous_screen` workflow carries "Previous Screen"; one at a `late-flag` column carries "Late Flag"; no manifest finding of this part's readers carries a `detail.name` that starts with `schema:`, holds `_cc_calculated_` or is a key of `HQ_PAGE_LABELS` | every finding of the `hqShapes` and `hqFormats` cases | a stored key shown to a person as "In CommCare HQ: previous_screen" |

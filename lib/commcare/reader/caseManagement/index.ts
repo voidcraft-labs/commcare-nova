@@ -23,7 +23,12 @@ import {
 	hqEntryFacts,
 	menuFactsDifference,
 } from "../../hq/entryFacts";
-import { planPlacements } from "../../placement";
+import {
+	activeActions,
+	isMultiSelectMenu,
+	menuMayLoadRegistryCase,
+} from "../../hq/publishedCaseBlocks";
+import { type PlacementSubject, planPlacements } from "../../placement";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace } from "../place";
@@ -42,9 +47,10 @@ import {
 import {
 	basicCaseReading,
 	readBasicActions,
+	settleDatetimeJoins,
 	writeBasicOperations,
 } from "./basicActions";
-import { readCaseCatalog } from "./catalog";
+import { readCaseCatalog, settleWriterTypes } from "./catalog";
 import {
 	conditionFinding,
 	readActionCondition,
@@ -53,6 +59,7 @@ import {
 import { readPreloads, settlePreloads } from "./preloads";
 import {
 	readSaveToCaseBlocks,
+	saveToCaseReading,
 	settleSaveToCase,
 	writeSaveToCaseOperations,
 } from "./saveToCase";
@@ -83,7 +90,13 @@ export function readCaseManagement(ctx: ReadContext, app: DraftApp): void {
 export function writeCaseOperations(ctx: ReadContext, app: DraftApp): void {
 	for (const module of app.modules)
 		for (const form of module.forms) {
-			writeBasicOperations(ctx, form);
+			writeBasicOperations(
+				ctx,
+				form,
+				(saveToCaseReading(form)?.proposals ?? []).some(
+					(one) => one.action === "own",
+				),
+			);
 			writeAdvancedOperations(ctx, form);
 			writeSaveToCaseOperations(ctx, form);
 		}
@@ -97,11 +110,6 @@ type JsonObject = Readonly<Record<string, unknown>>;
 
 function object(value: unknown): JsonObject {
 	return isJsonObject(value) ? value : {};
-}
-
-function active(condition: unknown): boolean {
-	const type = object(condition).type;
-	return type === "if" || type === "always";
 }
 
 /** A question path of `form`, mapped through each generated node to the
@@ -146,29 +154,58 @@ function updates(
 		.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/** What decides which of a basic form's actions HQ's build reads: the form's
+ *  `requires`, and whether its menu selects several cases or may load a data
+ *  registry's case (`xform.py::XForm._create_casexml`). */
+interface BuildReads {
+	readonly requires: unknown;
+	readonly multi: boolean;
+	readonly registry: boolean;
+}
+
 /**
- * A basic form's actions as the comparison reads them: the INERT keys
- * left out, `update_case.condition` left out, `open_case.external_id` read
- * as the external id write Nova writes, each `name_update`'s mode and each
+ * A basic form's actions as the comparison reads them: only the actions HQ's
+ * build reads, so every key the first pass claimed INERT or read past is left
+ * out (an action `activeActions` leaves inactive for the form's `requires`,
+ * such as an open action on a form that requires a case; a survey's close,
+ * for which HQ builds no case block; the update, close and child cases of a
+ * form whose menu selects several cases or loads a data registry's case,
+ * where `default_case_management` is false, unless the form opens its case);
+ * `update_case.condition` left out, `open_case.external_id` read as the
+ * external id write Nova writes, each `name_update`'s mode and each
  * `reference_id` left out, an unapplied `edit` read as `always`, and every
  * question path mapped to its question.
  */
 function comparable(
 	form: DraftForm,
 	actions: unknown,
+	reads: BuildReads,
 	applied: boolean,
 ): Readonly<Record<string, unknown>> {
 	const stored = object(actions);
+	const live = activeActions(stored, reads.requires);
 	const open = object(stored.open_case);
 	const update = object(stored.update_case);
-	const opens = active(open.condition);
+	const opens = live.has("open_case");
+	const defaultCaseManagement = (!reads.multi && !reads.registry) || opens;
+	// HQ's build writes no case block on a form that requires no case and opens none.
+	const block = reads.requires !== "none" || opens;
 	const updateMap = {
-		...(active(update.condition) ? object(update.update) : {}),
+		...(live.has("update_case") && defaultCaseManagement && block
+			? object(update.update)
+			: {}),
 		...(opens && typeof open.external_id === "string" && open.external_id !== ""
 			? { external_id: { question_path: open.external_id } }
 			: {}),
 	};
 	const usercase = object(stored.usercase_update);
+	const closes = live.has("close_case") && defaultCaseManagement && block;
+	const subcases =
+		live.has("subcases") &&
+		defaultCaseManagement &&
+		Array.isArray(stored.subcases)
+			? stored.subcases
+			: [];
 	return {
 		open_case: opens
 			? {
@@ -177,21 +214,21 @@ function comparable(
 				}
 			: null,
 		update_case: updates(form, updateMap, applied),
-		close_case: condition(form, object(stored.close_case).condition),
-		subcases: (Array.isArray(stored.subcases) ? stored.subcases : []).map(
-			(one) => {
-				const subcase = object(one);
-				return {
-					case_type: subcase.case_type ?? null,
-					name: ownerPath(form, object(subcase.name_update).question_path),
-					case_properties: updates(form, subcase.case_properties, applied),
-					repeat_context: ownerPath(form, subcase.repeat_context),
-					condition: condition(form, subcase.condition),
-					close_condition: condition(form, subcase.close_condition),
-				};
-			},
-		),
-		usercase_update: active(usercase.condition)
+		close_case: closes
+			? condition(form, object(stored.close_case).condition)
+			: "never",
+		subcases: subcases.map((one) => {
+			const subcase = object(one);
+			return {
+				case_type: subcase.case_type ?? null,
+				name: ownerPath(form, object(subcase.name_update).question_path),
+				case_properties: updates(form, subcase.case_properties, applied),
+				repeat_context: ownerPath(form, subcase.repeat_context),
+				condition: condition(form, subcase.condition),
+				close_condition: condition(form, subcase.close_condition),
+			};
+		}),
+		usercase_update: live.has("usercase_update")
 			? updates(form, usercase.update, applied)
 			: [],
 	};
@@ -263,16 +300,46 @@ function settleConditions(
 	return ok;
 }
 
-/** Each placement the reader read, planned where it was read. */
-function placementsHeld(doc: BlueprintDoc, form: DraftForm): boolean {
+/** The surface key of the action a basic form's operation, or its own close,
+ *  was read from. */
+function operationKey(
+	doc: BlueprintDoc,
+	form: DraftForm,
+	subject: PlacementSubject,
+): string {
+	if (subject.kind === "own-close") return "schema:FormActions.close_case";
+	const operation = doc.forms[form.uuid]?.caseOperations?.find(
+		(one) => one.uuid === subject.operationUuid,
+	);
+	const placement = operation?.placement;
+	if (placement?.kind === "save-to-case") return "mug:SaveToCase";
+	if (placement?.kind !== "basic") return "schema:Form.actions";
+	if (placement.slot === "usercase")
+		return "schema:FormActions.usercase_update";
+	if (placement.slot === "own")
+		return doc.forms[form.uuid]?.type === "registration"
+			? "schema:FormActions.open_case"
+			: "schema:FormActions.update_case";
+	return "schema:FormActions.subcases";
+}
+
+/** Each placement the reader read, planned where it was read: undefined where
+ *  every one is, else the surface key the form's `unrecognized` names. A held
+ *  placement that no longer expresses its operation names the operation's key. */
+function placementsHeld(
+	doc: BlueprintDoc,
+	form: DraftForm,
+): string | undefined {
 	const plan = planPlacements(doc, form.uuid);
-	if (plan.inexpressible.length > 0) return false;
+	const stranded = plan.inexpressible[0];
+	if (stranded !== undefined) return operationKey(doc, form, stranded.subject);
+	const unheld = "schema:Form.actions";
 	const operations = doc.forms[form.uuid]?.caseOperations ?? [];
 	const own = operations.find((one) => one.action === "own");
 	for (const operation of operations) {
 		const planned = plan.placements.get(operation.uuid);
 		if (operation.placement !== undefined) {
-			if (planned?.held !== true) return false;
+			if (planned?.held !== true) return unheld;
 			continue;
 		}
 		if (operation.action !== "close" || operation.target.kind !== "op")
@@ -286,7 +353,7 @@ function placementsHeld(doc: BlueprintDoc, form: DraftForm): boolean {
 			create?.placement === undefined ||
 			!sameJson(planned?.placement, create.placement)
 		)
-			return false;
+			return unheld;
 	}
 	const form_ = doc.forms[form.uuid];
 	const closesOwn =
@@ -302,9 +369,9 @@ function placementsHeld(doc: BlueprintDoc, form: DraftForm): boolean {
 			planned?.sharesWith !== own.uuid ||
 			!sameJson(planned.placement, own.placement)
 		)
-			return false;
+			return unheld;
 	}
-	return true;
+	return undefined;
 }
 
 /** Every field of a form's reading in document order. */
@@ -365,16 +432,26 @@ function settleBasicForm(
 		return;
 	}
 	const applied = ctx.input.saveOnlyEditedApplied === true;
+	const menu = ctx.draft.modules.find((one) => one.forms.includes(form));
+	const menuJson = {
+		case_details: menu?.json.peek("case_details"),
+		search_config: menu?.json.peek("search_config"),
+	};
+	const reads: BuildReads = {
+		requires: form.json.peek("requires") ?? "none",
+		multi: isMultiSelectMenu(menuJson),
+		registry: menuMayLoadRegistryCase(menuJson),
+	};
 	const difference = firstDifference(
-		comparable(form, form.json.peek("actions"), applied),
-		comparable(form, planned.actions, true),
+		comparable(form, form.json.peek("actions"), reads, applied),
+		comparable(form, planned.actions, reads, true),
 	);
 	if (difference !== undefined) {
 		unrecognized(ctx, form, difference);
 		return;
 	}
-	if (!placementsHeld(doc, form))
-		unrecognized(ctx, form, "schema:Form.actions");
+	const unheld = placementsHeld(doc, form);
+	if (unheld !== undefined) unrecognized(ctx, form, unheld);
 }
 
 /**
@@ -382,12 +459,23 @@ function settleBasicForm(
  * document, its scalar checks held to the emitter's, and its preloads judged.
  */
 export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
+	for (const module of app.modules)
+		for (const form of module.forms) settleDatetimeJoins(ctx, form);
 	const doc = ctx.doc;
-	if (doc === undefined) return;
+	if (doc === undefined) {
+		// No document to emit: each form's blocks stand as pass 1 read them,
+		// and its `save` map is judged against them.
+		for (const module of app.modules)
+			for (const form of module.forms) settleSaveToCase(ctx, form);
+		return;
+	}
 	for (const module of app.modules) {
 		settleAdvancedMenu(ctx, doc, module);
 		for (const form of module.forms) {
-			if (doc.forms[form.uuid] === undefined) continue;
+			if (doc.forms[form.uuid] === undefined) {
+				settleSaveToCase(ctx, form);
+				continue;
+			}
 			if (form.docType === "Form" && basicCaseReading(form) !== undefined)
 				settleBasicForm(ctx, doc, form);
 			if (form.docType === "AdvancedForm")
@@ -397,6 +485,7 @@ export function settleCaseManagement(ctx: ReadContext, app: DraftApp): void {
 			settlePreloads(ctx, form);
 		}
 	}
+	settleWriterTypes(ctx, app, ctx.doc ?? doc);
 }
 
 // ── The entry facts ─────────────────────────────────────────────────────

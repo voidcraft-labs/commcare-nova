@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { advancedFixture } from "../../__tests__/advancedPlacementFixture";
 import {
 	dotInterpolate,
 	HQ_USERCASE_XPATH,
@@ -150,6 +151,27 @@ describe("hqInterpolationSlot", () => {
 		// patient's datum is the case HQ's build reads `#case` as.
 		expect(slot?.caseXPath).toBe(
 			hqCaseByIdXPath("instance('commcaresession')/session/data/case_id"),
+		);
+	});
+
+	it("gives an advanced form's display condition its own last load, not the menu's selection", () => {
+		// A follow-up in Members, chosen under a household, of a menu held
+		// advanced: the form loads the household and then the member, each
+		// under a datum named for its load (`case_id_<tag>`), which is no id
+		// the menu's own case list selects under.
+		const { doc: advanced, formUuid } = advancedFixture({
+			formType: "followup",
+			menu: "members",
+		});
+		const slot = hqInterpolationSlot(
+			advanced,
+			{ entity: "form", uuid: formUuid, slot: "form_display_condition" },
+			"case",
+		);
+		expect(slot?.caseXPath).toBe(
+			hqCaseByIdXPath(
+				"instance('commcaresession')/session/data/case_id_load_member1",
+			),
 		);
 	});
 

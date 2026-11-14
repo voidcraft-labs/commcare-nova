@@ -13,6 +13,7 @@ import type { FormStructureConnect } from "@/lib/domain/expression/formStructure
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { connectIdProblem } from "../../connectSlugs";
+import { CONNECT_BLOCK_SHAPES, CONNECT_XMLNS } from "../../xform/builder";
 import { elementNamespace } from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
 import { defineClaims, refuse, take } from "../claims";
@@ -27,9 +28,6 @@ import { X } from "./claims";
 import type { NodeRole, ReadConnectBlock } from "./index";
 import { type BindFacts, type DataNode, insideRepeat } from "./model";
 import type { ParsedXForm } from "./parse";
-
-/** The namespace each Connect block's own element is in. */
-export const CONNECT_NS = "http://commcareconnect.com/data/v1/learn";
 
 /** The longest deliver unit id Connect's column holds (`DeliverUnit.slug`). */
 const DELIVER_UNIT_COLUMN = 100;
@@ -118,18 +116,7 @@ const SHAPES: Readonly<
 		Block,
 		{ readonly element: string; readonly leaves: readonly string[] }
 	>
-> = {
-	learn_module: {
-		element: "module",
-		leaves: ["name", "description", "time_estimate"],
-	},
-	assessment: { element: "assessment", leaves: ["user_score"] },
-	deliver_unit: {
-		element: "deliver",
-		leaves: ["name", "entity_id", "entity_name", "work_area_id"],
-	},
-	task: { element: "task", leaves: ["name", "description"] },
-};
+> = CONNECT_BLOCK_SHAPES;
 
 /** The calculates a block holds, each the form's Connect slot it reads into. */
 const SLOTS: Readonly<
@@ -236,7 +223,8 @@ export function readConnectBlocks(input: ReadConnectInput): ReadConnect {
 		if (
 			own === undefined ||
 			own.name !== shape.element ||
-			elementNamespace(own.element, parsed.scope(own.element)) !== CONNECT_NS ||
+			elementNamespace(own.element, parsed.scope(own.element)) !==
+				CONNECT_XMLNS ||
 			plain(own.element, "id") !== wrapper.name ||
 			own.children.length !== shape.leaves.length ||
 			own.children.some(

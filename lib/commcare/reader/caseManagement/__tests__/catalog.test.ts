@@ -6,8 +6,10 @@
  * order, a child type's parent where every `parent` link out of it agrees,
  * one property per name the app writes, labelled by its name, and a
  * property's choices from the select questions that write it, first label
- * kept. `catalogAsRead(D)` states the same catalog of a Nova-born document,
- * whatever labels, unneeded types and unread properties D's own catalog
+ * kept; a property written through the date-and-time join is declared with
+ * no type and reads `datetime` through `effectiveCaseTypes`, as the join's
+ * Hidden Value types it. `catalogAsRead(D)` states the same catalog of a
+ * Nova-born document, whatever labels, unneeded types and unread properties D's own catalog
  * holds. The plausible failures: a declared type that a writer contradicts
  * (the gate would refuse the document), a parent named where two links
  * disagree, and a canonical choice that states another catalog than the
@@ -16,14 +18,26 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { datetimeSplitOriginal } from "@/lib/doc/__tests__/datetimeSplitFixture";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type Column,
 	plainColumn,
 } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/expression/builders";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import {
+	eq,
+	formField,
+	literal,
+	or,
+	term,
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
+import { readMenusOf } from "../../menus/__tests__/menuReading";
 import { catalogAsRead, noteProperty } from "../catalog";
 import { readCases } from "./caseReading";
 
@@ -269,6 +283,85 @@ describe("the case catalog of a reading", () => {
 			(one) => one.name === "rank",
 		);
 		expect(rank?.data_type).toBe("int");
+	});
+});
+
+describe("the choices a Save to Case write gives", () => {
+	it("gives a property a block saves a select's answer to that select's choices, as catalogAsRead states them", async () => {
+		const doc = patients({
+			caseTypes: [
+				{ name: "patient", properties: [] },
+				{ name: "visit", properties: [] },
+			],
+		});
+		const visitForm = Object.keys(doc.forms)[0] as keyof typeof doc.forms;
+		// A condition of two comparisons is no condition Case Management states,
+		// so the create takes a Save to Case block.
+		const create: CaseOperation = {
+			uuid: testUuid("catalog-visit"),
+			id: "visit",
+			action: "create",
+			caseType: "visit",
+			target: { kind: "new" },
+			name: term(formField(STATUS)),
+			writes: [{ property: "level", value: term(formField(STATUS)) }],
+			condition: or(
+				eq(term(formField(STATUS)), literal("well")),
+				eq(term(formField(STATUS)), literal("sick")),
+			),
+		};
+		const withBlock: BlueprintDoc = {
+			...doc,
+			forms: {
+				...doc.forms,
+				[visitForm]: {
+					...doc.forms[visitForm],
+					caseOperations: [
+						...(doc.forms[visitForm]?.caseOperations ?? []),
+						create,
+					],
+				} as never,
+			},
+		};
+		const reading = await readCases(withBlock);
+		const visit = (catalog: NonNullable<BlueprintDoc["caseTypes"]> | null) =>
+			plain(catalog).find((type) => type.name === "visit");
+		expect(visit(reading.ctx.draft.caseTypes)).toEqual(
+			visit(catalogAsRead(withBlock)),
+		);
+		expect(
+			reading.ctx.draft.caseTypes
+				?.find((type) => type.name === "visit")
+				?.properties.find((one) => one.name === "level")
+				?.options?.map((option) => option.value),
+		).toEqual(["well", "sick"]);
+	});
+});
+
+describe("the date-and-time join", () => {
+	it("types the property a write through the join saves as a date and time, with no declaration", async () => {
+		const original = datetimeSplitOriginal();
+		const plan = planDatetimeSplits(original);
+		if (!plan.ok) throw new Error(plan.message);
+		const verdict = mutationCommitVerdict(
+			original,
+			plan.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error("The split is admitted.");
+		const reading = await readMenusOf(verdict.nextDoc);
+		expect(reading.findings).toEqual([]);
+		const doc = reading.doc;
+		if (doc === undefined) throw new Error("The split reads into a document.");
+		const declared = doc.caseTypes
+			?.find((type) => type.name === "visit")
+			?.properties.find((one) => one.name === "seen_at");
+		expect(declared).toBeDefined();
+		expect(declared?.data_type).toBeUndefined();
+		const effective = effectiveCaseTypes(doc)
+			.find((type) => type.name === "visit")
+			?.properties.find((one) => one.name === "seen_at");
+		expect(effective?.data_type).toBe("datetime");
 	});
 });
 

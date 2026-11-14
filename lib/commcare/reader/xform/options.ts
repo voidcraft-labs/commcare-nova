@@ -30,6 +30,9 @@ export interface CaseChoicesProposal {
 	readonly select: "select1" | "select";
 	readonly caseType: string;
 	readonly labelProperty: string;
+	/** Whether the nodeset holds a filter, registered for the expression stage, which claims
+	 *  the nodeset with it. */
+	readonly filtered: boolean;
 }
 
 export interface ReadChoicesInput {
@@ -103,7 +106,10 @@ function readItems(
 	const seen = new Set<string>();
 	for (const item of items) {
 		const value = xformsChildren(item, parsed, "value")[0];
-		if (value === undefined) {
+		// Core will not parse an item with no `<label>` ("<item> without proper <label>",
+		// `XFormParser.parseItem`), as it will not one with no `<value>`.
+		const label = xformsChildren(item, parsed, "label")[0];
+		if (value === undefined || label === undefined) {
 			cursor.refuseSubtree(
 				item,
 				select === "select1"
@@ -359,7 +365,13 @@ function readItemset(
 				mode: { target: "xform", constraint: false },
 			});
 		field.field.optionsSource = { kind: "cases", caseType, labelProperty };
-		return { itemset, select, caseType, labelProperty };
+		return {
+			itemset,
+			select,
+			caseType,
+			labelProperty,
+			filtered: filter !== undefined,
+		};
 	}
 	return other();
 }
@@ -380,7 +392,8 @@ function caseTypeTest(predicate: FormSyntax): string | undefined {
 /**
  * Settles a case choices proposal once its filter is bound: the itemset Nova's own emitter
  * rebuilds from the proposal equals the source's (`same`) and is held, or it is an itemset of
- * another shape.
+ * another shape. `filtered` is whether the expression stage holds the nodeset with its filter;
+ * one with none is claimed here.
  */
 export function settleCaseChoices(
 	cursor: XmlCursor,
@@ -388,6 +401,7 @@ export function settleCaseChoices(
 	proposal: CaseChoicesProposal,
 	place: HqPlace,
 	same: boolean,
+	filtered: boolean,
 ): void {
 	const { itemset, select } = proposal;
 	if (!same) {
@@ -397,6 +411,11 @@ export function settleCaseChoices(
 	const one = select === "select1";
 	const element = one ? X.caseChoices.select1 : X.caseChoices.select;
 	cursor.take({ element: itemset }, element).value;
+	if (!filtered)
+		cursor.take(
+			{ element: itemset, attribute: "nodeset" },
+			one ? X.caseChoices.select1Nodeset : X.caseChoices.selectNodeset,
+		).value;
 	for (const part of [
 		...xformsChildren(itemset, parsed, "label"),
 		...xformsChildren(itemset, parsed, "value"),

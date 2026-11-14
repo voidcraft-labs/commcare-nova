@@ -40,7 +40,6 @@ import type { CorpusDocument } from "../../../../proof/corpus/documents";
 import { sampleFuzzDocuments } from "../../../../proof/corpus/fuzzSample";
 import { producerDocuments } from "../../../../proof/corpus/producers";
 import { workforceDocuments } from "../../../../proof/corpus/workforce";
-import { targetedUuid } from "../../../../proof/targeted/build";
 import { targetedDocuments } from "../../../../proof/targeted/index";
 import { datumIdsFromFacts, hqEntryFacts } from "../entryFacts";
 import { publishedCaseBlocks } from "../publishedCaseBlocks";
@@ -70,37 +69,6 @@ function corpus(): CorpusDocument[] {
 		}).map(({ document }) => document),
 	].filter((document) => !excluded.has(document.id));
 }
-
-/**
- * The forms whose ids Nova's entry projection and HQ's id rules give
- * differently, each a registration in a submenu whose parent menu's first
- * form chooses a case of the registration's type. HQ's
- * `entries.py::EntriesHelper.add_parent_datums` aligns the submenu's first
- * datum with the parent's selection whether or not a worker selects it
- * (`_same_case` compares case type and datum kind alone), so the new case's
- * `case_id_new_<type>_0` is renamed `case_id`; HQ's case block still reads
- * `case_id_new_<type>_0` (`xform.py::get_add_case_preloads_case_id_xpath`),
- * so HQ's build of the shape opens a case with no id. Nova's projection
- * aligns selections alone and keeps the new case's id. The list is held both
- * ways: a form that comes to agree fails here as surely as a new
- * disagreement does.
- */
-const ROOT_ALIGNED_REGISTRATIONS = [
-	{
-		document: "targeted-forms-in-menu-above-nested",
-		form: "register-member",
-		caseType: "member",
-	},
-	{
-		document: "targeted-register-from-case-list",
-		form: "intake-register",
-		caseType: "patient",
-	},
-].map(({ document, form, caseType }) => ({
-	form: `${document}: ${derivedFormXmlns(targetedUuid(document, form))}`,
-	ported: ["case_id"],
-	projected: [`case_id_new_${caseType}_0`],
-}));
 
 /** What the corpus shows of the shapes the facts must carry, counted. */
 interface Census {
@@ -182,7 +150,12 @@ describe("the entry facts over the corpus", () => {
 				}
 			}
 		}
-		expect(disagreements).toEqual(ROOT_ALIGNED_REGISTRATIONS);
+		// Where the two would part, a registration in a submenu whose root's
+		// first form chooses a case of its type, HQ's build renames the new
+		// case's datum and cannot open the form; the commit gate refuses the
+		// shape (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`), so no admitted
+		// document holds it, and `entryFacts.test.ts` holds the port's rename.
+		expect(disagreements).toEqual([]);
 		// Every shape whose ids the port derives is in the corpus, so none of
 		// its rules passes for want of a case.
 		for (const [shape, count] of Object.entries(census))

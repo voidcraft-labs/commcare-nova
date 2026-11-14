@@ -176,10 +176,33 @@ function instancePath(
 	return first?.kind === "string" ? { id: first.value, steps } : undefined;
 }
 
+/** What decides the class of a use beyond its syntax and its slot, from the
+ *  slot's reading and its owner. */
+export interface SurfaceUseFacts {
+	/** The session datum ids the expression reads that its entry does not
+	 *  supply, from the parse issue or the checker's refusal; `"all"` where
+	 *  the refusal says the entry does not supply a datum the expression reads
+	 *  and names none. */
+	readonly unsupplied: ReadonlySet<string> | "all";
+	/** The ids the slot's form's computed datums give (an advanced form's). */
+	readonly computedDatums: ReadonlySet<string>;
+	/** Where the slot's menu stands to a search whose answers its forms read:
+	 *  the menu itself (`inline`), a child menu whose parent selection
+	 *  chooses a case from that menu's list (`child-of-inline`), or neither. */
+	readonly menu: "inline" | "child-of-inline" | "other";
+}
+
+const NO_FACTS: SurfaceUseFacts = {
+	unsupplied: new Set(),
+	computedDatums: new Set(),
+	menu: "other",
+};
+
 /** The session path key and class a path through the session instance makes. */
 function sessionUse(
 	steps: readonly string[],
 	context: ExpressionContext,
+	facts: SurfaceUseFacts,
 ): { readonly key: string; readonly valueClass?: string } | undefined {
 	const [root, group, next, field] = steps;
 	if (root !== "session" || next === undefined) return undefined;
@@ -190,8 +213,12 @@ function sessionUse(
 			key: "session-path:session/data/*",
 			valueClass:
 				next === "supply_point_id"
-					? "supply-point-id-outside-a-computed-datum"
-					: "supplied",
+					? facts.computedDatums.has(next)
+						? "supply-point-id-computed-datum"
+						: "supply-point-id-outside-a-computed-datum"
+					: facts.unsupplied === "all" || facts.unsupplied.has(next)
+						? "not-supplied"
+						: "supplied",
 		};
 	}
 	if (group === "context")
@@ -205,14 +232,19 @@ function sessionUse(
 	return undefined;
 }
 
-/** The class an instance of `id` is read in from the slot it stands in. */
+/** The class an instance of `id` is read in from the slot it stands in and
+ *  where the slot's menu stands to a search. */
 function instanceClass(
 	id: string,
 	context: ExpressionContext,
-	held: boolean,
+	facts: SurfaceUseFacts,
 ): string | undefined {
 	const slot = context.slot.slot;
-	const formsRead =
+	const inModule = context.slot.entity === "module";
+	// A form opened after the inline query that keeps the Search answers: one
+	// of the menu's own, or its registration form after an empty search.
+	const inlineForm =
+		facts.menu === "inline" ||
 		context.form?.formsReadSearchModule === true ||
 		context.form?.caseListRegistrationForm === true;
 	switch (scheme(id)) {
@@ -231,17 +263,21 @@ function instanceClass(
 		case "commcare-reports-filters":
 			return "mobile-ucr-reports";
 		case "results":
-			if (context.slot.entity === "module") return "search-detail";
-			return held || formsRead
-				? "inline-search-form"
-				: "non-inline-search-form";
+			if (inModule) return "search-detail";
+			return inlineForm ? "inline-search-form" : "non-inline-search-form";
 		case "search-input":
-			if (context.slot.entity === "module")
-				return slot.startsWith("search_input_")
-					? "query-build"
-					: "inline-search-list";
-			return held || formsRead
-				? "inline-search-form"
+			// A Search field's own slots run while the query is built, where
+			// the legacy id reads too.
+			if (inModule && slot.startsWith("search_input_")) return "query-build";
+			// The legacy id is provided only while the query is built.
+			if (!id.includes(":")) return "legacy-after-query";
+			if (inModule)
+				return facts.menu === "inline"
+					? "inline-search-list"
+					: "results-detail";
+			if (inlineForm) return "inline-search-form";
+			return facts.menu === "child-of-inline"
+				? "child-menu-of-inline-search-form"
 				: "non-inline-search-form";
 		default:
 			return undefined;
@@ -262,6 +298,7 @@ function xpathUses(
 	source: FormSyntax,
 	candidate: Expression | undefined,
 	context: ExpressionContext,
+	facts: SurfaceUseFacts,
 	uses: Uses,
 ): void {
 	const held = candidate !== undefined;
@@ -321,7 +358,7 @@ function xpathUses(
 					if (node.name === "instance" && id?.kind === "string")
 						uses.add(
 							`instance-scheme:${scheme(id.value)}`,
-							instanceClass(id.value, context, held),
+							instanceClass(id.value, context, facts),
 						);
 				} else if (HANDLERS.has(node.name))
 					uses.add(
@@ -400,7 +437,7 @@ function xpathUses(
 				if (node.descendant) uses.add("xpath-axis:AXIS_DESCENDANT_OR_SELF");
 				const path = instancePath(node);
 				if (path !== undefined) {
-					const session = sessionUse(path.steps, context);
+					const session = sessionUse(path.steps, context, facts);
 					if (session !== undefined) uses.add(session.key, session.valueClass);
 				}
 				if (node.left !== undefined) visit(node.left, node);
@@ -429,12 +466,12 @@ function xpathUses(
 			}
 			case "hashtag": {
 				const [first] = node.segments;
-				if (node.namespace === "#session")
+				if (node.namespace === "session")
 					uses.add(
 						"hashtag:#session/",
 						first === "data" ? "data-datum" : "context-and-user-paths",
 					);
-				if (node.namespace === "#case")
+				if (node.namespace === "case")
 					uses.add(
 						first === "parent"
 							? "hashtag:#case/parent"
@@ -623,17 +660,20 @@ function withinDistanceClass(
 }
 
 /** The surface keys an expression's syntax uses, with the entry that takes
- *  each use. `source` is the text as the registration holds it, read by the
- *  one grammar; `candidate` the tree held, where the slot is held. */
+ *  each use. `source` is the text as the registration holds it, before HQ's
+ *  interpolation, read by the one grammar; `candidate` the tree held, where
+ *  the slot is held; `facts` what the slot's reading and its owner say of a
+ *  use's class. */
 export function expressionSurfaceUses(
 	source: FormSyntax,
 	candidate: Expression | undefined,
 	context: ExpressionContext,
 	mode: ReadMode,
+	facts: SurfaceUseFacts = NO_FACTS,
 ): readonly SurfaceUse[] {
 	const uses = new Uses();
 	if (mode.target === "search-row") csqlUses(source, candidate, uses);
-	else xpathUses(source, candidate, context, uses);
+	else xpathUses(source, candidate, context, facts, uses);
 	return uses.list();
 }
 

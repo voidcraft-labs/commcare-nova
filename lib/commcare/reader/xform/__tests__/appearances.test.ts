@@ -18,7 +18,13 @@ import {
 } from "../appearances";
 import type { ControlNode } from "../body";
 import type { BindFacts } from "../model";
-import { codesAt, readForm, xformSource } from "./formReading";
+import {
+	codesAt,
+	formFindings,
+	readFields,
+	readForm,
+	xformSource,
+} from "./formReading";
 
 const Q = (id: string) => `questions/${id}`;
 
@@ -197,6 +203,61 @@ describe("classifyAppearance", () => {
 	});
 });
 
+describe("a trigger's appearance, read through the form's stages", () => {
+	it("reads a label only where Android's widget draws no acknowledge", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<list/><foo/><copy/><banner/>",
+				body: '<trigger ref="/data/list" appearance="field-list"/><trigger ref="/data/foo" appearance="foo"/><trigger ref="/data/copy" appearance="selectable"/><trigger ref="/data/banner" appearance="floating-good"/>',
+			}),
+		);
+		const fields = readFields(reading.xform ?? ({} as never));
+		expect(
+			fields.map((field) => [field.id, field.kind, field.standIn]),
+		).toEqual([
+			["list", "hidden", true],
+			["foo", "hidden", true],
+			["copy", "label", false],
+			["banner", "label", false],
+		]);
+		const acknowledge = Q(
+			"acknowledge-label-a-trigger-whose-appearance-is-neither-exactly",
+		);
+		expect(codesAt(reading, "list")).toEqual([acknowledge]);
+		expect(codesAt(reading, "foo")).toEqual([acknowledge]);
+		expect(codesAt(reading, "copy")).toEqual([Q("trigger-selectable")]);
+		expect(codesAt(reading, "banner")).toEqual([
+			Q("floating-good-floating-caution-floating-bad"),
+		]);
+		expect(reading.xform?.inertAppearances).toEqual([]);
+	});
+});
+
+describe("the head's odkx:intent an input names", () => {
+	it("joins the finding of the question that names it, and leaves nothing unrecognized", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<scan/><other/>",
+				model:
+					'<bind nodeset="/data/scan" type="intent"/><bind nodeset="/data/other" type="xsd:string"/>',
+				head: '<odkx:intent id="scanner" class="org.example.SCAN"><extra key="mode" ref="/data/other"/></odkx:intent><odkx:intent id="loose" class="org.example.LOOSE"/><odkx:intent id="unused" class="org.example.UNUSED"/>',
+				body: '<input ref="/data/scan" appearance="intent:scanner"/><input ref="/data/other" appearance="intent:loose"/>',
+			}),
+		);
+		expect(codesAt(reading, "scan")).toEqual([
+			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+		]);
+		expect(codesAt(reading, "other")).toEqual([
+			Q("intent-id-naming-an-odkx-intent-that-no-callout-question-writes"),
+		]);
+		expect(
+			formFindings(reading).filter(
+				(finding) => finding.code === "unrecognized",
+			),
+		).toEqual([]);
+	});
+});
+
 describe("the inert appearances of a form", () => {
 	it("lists a control accounted under an inert entry and no control whose appearance made a finding", async () => {
 		const reading = await readForm(
@@ -204,7 +265,7 @@ describe("the inert appearances of a form", () => {
 				data: "<g><a/></g><b/><c/>",
 				model:
 					'<bind nodeset="/data/g/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/><bind nodeset="/data/c" type="xsd:int"/>',
-				body: '<group ref="/data/g" appearance="collapse-closed"><input ref="/data/g/a"/></group><select1 ref="/data/b" appearance="minimal"><item><value>x</value></item></select1><input ref="/data/c" appearance="whatever"/>',
+				body: '<group ref="/data/g" appearance="collapse-closed"><input ref="/data/g/a"/></group><select1 ref="/data/b" appearance="minimal"><item><label>X</label><value>x</value></item></select1><input ref="/data/c" appearance="whatever"/>',
 			}),
 		);
 		expect(reading.xform?.inertAppearances).toEqual(["g", "c"]);

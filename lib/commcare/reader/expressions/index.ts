@@ -16,7 +16,6 @@ import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { slotContext } from "@/lib/domain/expression/context";
-import { displayConditionStartsWithNever } from "@/lib/domain/expression/simplify";
 import {
 	type CheckError,
 	checkExpression,
@@ -27,8 +26,15 @@ import {
 	type ItextUnit,
 	isProseSlotRef,
 	type SlotContextRef,
+	type Term,
+	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/expression/types";
-import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import {
+	walkExpression,
+	walkExpressionTerms,
+} from "@/lib/domain/expression/walk";
+import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { canonicalProseAtom } from "@/lib/domain/proseExpression";
 import {
@@ -55,11 +61,16 @@ import type { ReadSourceNames } from "../xform";
 import { readSearchFilterRow } from "./csqlRead";
 import {
 	checkErrorEntry,
+	childOfInlineSearchMenu,
+	claimKeyOfUse,
 	EXPRESSION_CLAIMS,
+	type FormDeclarations,
 	formRefusalEntry,
+	nameGrammarEntry,
 	parseIssueEntry,
 	rawTextEntry,
 	SLOT_ENTRIES,
+	visitSyntax,
 } from "./findings";
 import {
 	type BoundSlot,
@@ -76,6 +87,7 @@ import { scanReads } from "./scanReads";
 import {
 	expressionSurfaceUses,
 	instanceIdsRead,
+	type SurfaceUseFacts,
 	unreadDeclarationUse,
 } from "./surfaceUses";
 
@@ -100,6 +112,12 @@ export interface ExpressionReadEnv {
 	/** The forms whose entry facts the case reader found differing: a datum
 	 *  read the projection does not give raises no claim of its own there. */
 	readonly entryFactsRefused: ReadonlySet<Uuid>;
+	/** Per form: the form's own place, where a claim of the form's own
+	 *  declarations stands. */
+	readonly formPlaces: ReadonlyMap<Uuid, HqPlace>;
+	/** Per advanced form: the ids its computed datums give
+	 *  (`arbitrary_datums`), which a session read may name. */
+	readonly computedDatums: ReadonlyMap<Uuid, ReadonlySet<string>>;
 }
 export interface GeneratedValue {
 	readonly purpose: "constraint-count";
@@ -340,11 +358,37 @@ function written(
 
 // ── Claims ───────────────────────────────────────────────────────────
 
-/** The attribute or key an expression sits in, the finding's name: the last
- *  segment of its surface key. */
+/** The finding's name for a key: the attribute or key the expression sits
+ *  in, the last segment of its surface key. */
 function claimName(key: string): string {
 	const segments = key.split(/[@.:/]/u);
 	return (segments.at(-1) ?? key).slice(0, 200);
+}
+
+/** The finding's name for a registration's own claim: a calculated
+ *  column's header, a Search field's name, and elsewhere the attribute or
+ *  key the expression sits in. */
+function registrationName(
+	doc: BlueprintDoc,
+	registration: PendingExpression,
+): string {
+	const ref = registration.ref;
+	if (ref.entity === "module") {
+		const config = doc.modules[ref.uuid]?.caseListConfig;
+		if (ref.slot === "case_list_column_expression") {
+			const column = config?.columns.find(
+				(candidate) => candidate.uuid === ref.member.columnUuid,
+			);
+			if (column !== undefined) return column.header.slice(0, 200);
+		} else if ("member" in ref && "searchInputUuid" in ref.member) {
+			const uuid = ref.member.searchInputUuid;
+			const input = config?.searchInputs.find(
+				(candidate) => candidate.uuid === uuid,
+			);
+			if (input !== undefined) return input.name.slice(0, 200);
+		}
+	}
+	return claimName(registration.key);
 }
 
 type Resolution =
@@ -352,12 +396,37 @@ type Resolution =
 			readonly kind: "entry";
 			readonly entryId: string;
 			readonly reason: string;
+			/** The surface key the entry is answered under, where the reader
+			 *  that answered it named one. */
+			readonly key?: string;
 	  }
 	| { readonly kind: "unrecognized"; readonly reason: string };
 
 const M1 =
 	EXPRESSION_CLAIMS["session-data-datum-the-entry-does-not-supply"].entry;
 const M3 = EXPRESSION_CLAIMS["a-form-expression-outside-what-nova-types"].entry;
+
+/** The index a case query reaches its rows through where the query names no
+ *  case type and the index is not `parent`: HQ's `#host` join. Nova prints a
+ *  relation step other than `parent` only with its type test
+ *  (`rowScope.ts::caseById`), so no print of Nova's spells this one. */
+function untypedRelationStep(tree: Expression): string | undefined {
+	let found: string | undefined;
+	const visit = (node: Expression | Term): void => {
+		if (found !== undefined || node.kind !== "cases") return;
+		let identifier: string | undefined;
+		let typed = false;
+		for (const clause of node.where)
+			walkExpressionTerms(clause, (term) => {
+				if (term.kind === "case-row-type") typed = true;
+				if (term.kind === "case-index" && term.identifier !== "parent")
+					identifier ??= term.identifier;
+			});
+		if (identifier !== undefined && !typed) found = identifier;
+	};
+	walkExpression(tree, { visitExpression: visit, visitTerm: visit });
+	return found;
+}
 
 function slotDefault(
 	doc: BlueprintDoc,
@@ -368,15 +437,41 @@ function slotDefault(
 	return refused === "form-default" ? form() : refused;
 }
 
+/** What the slot's form declares beside its expressions. */
+function declarationsOf(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	env: ExpressionReadEnv,
+): FormDeclarations {
+	const form = slotForm(doc, ref);
+	return {
+		instanceSources:
+			(form === undefined ? undefined : env.instanceSources.get(form)) ??
+			new Map(),
+		computedDatums:
+			(form === undefined ? undefined : env.computedDatums.get(form)) ??
+			new Set(),
+	};
+}
+
 function refusalOf(
 	cause: SlotRefusal,
 	doc: BlueprintDoc,
 	pending: PendingExpression,
+	env: ExpressionReadEnv,
 ): Resolution {
 	if (cause.kind === "no-case-datum")
 		return { kind: "unrecognized", reason: "no-case-datum" };
-	if (cause.kind === "search-row")
-		return { kind: "unrecognized", reason: "differs:search-row" };
+	// A search filter row is read by `readSearchFilterRow`, which answers its
+	// own reason; the wrapper's own node is where nothing bound.
+	if (cause.kind === "search-row") {
+		const wrapper = textSyntax(pending.text);
+		return {
+			kind: "unrecognized",
+			reason:
+				wrapper === undefined ? "parse:syntax" : `differs:${wrapper.kind}`,
+		};
+	}
 	const issue =
 		cause.kind === "interpolation"
 			? { code: cause.code }
@@ -393,7 +488,12 @@ function refusalOf(
 						to: pending.text.length,
 						message: "",
 					};
-	const answer = parseIssueEntry(issue, doc, pending);
+	const answer = parseIssueEntry(
+		issue,
+		doc,
+		pending,
+		declarationsOf(doc, pending.ref, env),
+	);
 	if (answer.entryId === "unrecognized")
 		return { kind: "unrecognized", reason: answer.reason };
 	return {
@@ -596,11 +696,30 @@ export function readExpressions(
 					});
 			continue;
 		}
+		const relation =
+			slotContext(current, registration.ref, types)?.ruleSet === "record"
+				? untypedRelationStep(judgment.candidate)
+				: undefined;
+		if (relation !== undefined) {
+			// HQ's `#host` join: the relation Nova holds it as is not built yet,
+			// so the slot is not yet held, under its own entry.
+			outcomes.set(index, {
+				kind: "refused",
+				resolution: {
+					kind: "entry",
+					entryId: slotDefault(current, registration.ref, () => M3),
+					reason: XML_ELEMENT_NAME_PATTERN.test(relation)
+						? `relation:${relation}`
+						: "name:index-identifier",
+				},
+			});
+			continue;
+		}
 		outcomes.set(index, {
 			kind: "refused",
 			resolution: {
 				kind: "unrecognized",
-				reason: `differs:${judgment.difference?.kind ?? "print"}`,
+				reason: `differs:${(judgment.difference ?? judgment.source).kind}`,
 			},
 		});
 	}
@@ -623,6 +742,21 @@ export function readExpressions(
 		if (candidate === undefined) continue;
 		const context = slotContext(checked, registration.ref, types);
 		if (context === undefined) continue;
+		const named = nameGrammarEntry(candidate);
+		if (named !== undefined) {
+			outcomes.set(index, {
+				kind: "refused",
+				resolution: {
+					kind: "entry",
+					entryId:
+						named.entryId === "slot-default"
+							? slotDefault(checked, registration.ref, () => M3)
+							: named.entryId,
+					reason: named.reason,
+				},
+			});
+			continue;
+		}
 		const errors = refusals(checkExpression(candidate, context).errors);
 		const first = errors[0];
 		if (first !== undefined) {
@@ -633,9 +767,23 @@ export function readExpressions(
 			continue;
 		}
 		if (judgment.kind === "unprintable") {
+			// The emitter refuses what the gate refuses: the checker above, or
+			// a display condition a device cannot evaluate.
+			const display = displayRefusal(checked, registration.ref);
 			outcomes.set(index, {
 				kind: "refused",
-				resolution: { kind: "unrecognized", reason: "differs:print" },
+				resolution:
+					display === undefined
+						? // With no print, the trees differ at the source's root.
+							{
+								kind: "unrecognized",
+								reason: `differs:${judgment.source.kind}`,
+							}
+						: {
+								kind: "entry",
+								entryId: slotDefault(checked, registration.ref, () => M3),
+								reason: `validator:${display}`,
+							},
 			});
 			continue;
 		}
@@ -659,7 +807,7 @@ export function readExpressions(
 			});
 			continue;
 		}
-		const display = displayRefusal(checked, registration.ref, candidate);
+		const display = displayRefusal(checked, registration.ref);
 		if (display !== undefined) {
 			outcomes.set(index, {
 				kind: "refused",
@@ -696,6 +844,7 @@ export function readExpressions(
 				cause,
 				checked,
 				pending[index] as PendingExpression,
+				env,
 			),
 		});
 	for (const [index, raw] of rawRefusals)
@@ -724,8 +873,9 @@ export function readExpressions(
 							kind: "entry",
 							entryId: row.claim.entryId,
 							reason: row.claim.detail.reason ?? "",
+							key: row.claim.key,
 						}
-					: { kind: "unrecognized", reason: "differs:search-row" },
+					: { kind: "unrecognized", reason: row.reason },
 		});
 	}
 
@@ -744,7 +894,28 @@ export function readExpressions(
 			ownerless.push(index);
 			return;
 		}
-		const name = claimName(registration.key);
+		const name = registrationName(checked, registration);
+		// The uses the text makes, before HQ's interpolation, held or not.
+		const source = textSyntax(registration.text);
+		const context = slotContext(checked, registration.ref, types);
+		const uses =
+			source === undefined || context === undefined
+				? []
+				: expressionSurfaceUses(
+						source,
+						outcome.kind === "held" ? outcome.tree : undefined,
+						context,
+						registration.mode,
+						surfaceUseFactsOf(
+							checked,
+							registration,
+							env,
+							refused.get(index),
+							outcome,
+						),
+					);
+		// The keys this registration's claims hold: one claim per key at a node.
+		const claimed = new Set<string>();
 		if (outcome.kind === "held") {
 			bound[index] = outcome.tree;
 			if (registration.mode.target !== "search-row")
@@ -757,7 +928,8 @@ export function readExpressions(
 							registration.ref,
 							outcome.tree,
 						);
-			if (entryId !== undefined)
+			if (entryId !== undefined) {
+				claimed.add(registration.key);
 				claims.push({
 					source: index,
 					entryId,
@@ -765,6 +937,7 @@ export function readExpressions(
 					key: registration.key,
 					detail: { name },
 				});
+			}
 		} else if (outcome.resolution.kind === "unrecognized")
 			circumstances.push({
 				source: index,
@@ -782,6 +955,18 @@ export function readExpressions(
 				ownerless.push(index);
 				return;
 			}
+			// The slot's own claim is under the registration's key, which the
+			// frame finds it by; where the entry is registered under the key of
+			// a use the text makes (an operator, a function, an instance
+			// scheme), the claim is recorded under that key too, and stands for
+			// that use.
+			const entryKey =
+				outcome.resolution.key ??
+				claimKeyOfUse(
+					outcome.resolution.entryId,
+					uses.map((use) => use.key),
+				);
+			claimed.add(registration.key);
 			claims.push({
 				source: index,
 				entryId: outcome.resolution.entryId,
@@ -789,38 +974,43 @@ export function readExpressions(
 				key: registration.key,
 				detail: { name, reason: outcome.resolution.reason },
 			});
+			if (entryKey !== undefined && entryKey !== registration.key) {
+				claimed.add(entryKey);
+				claims.push({
+					source: index,
+					entryId: outcome.resolution.entryId,
+					place: registration.place,
+					key: entryKey,
+					detail: { name },
+				});
+			}
 		}
-		const judgment = judgments.get(index);
-		const source =
-			registration.mode.target === "search-row"
-				? rowSyntax(registration.text)
-				: judgment?.kind === "bound" || judgment?.kind === "unprintable"
-					? judgment.source
-					: undefined;
-		const context = slotContext(checked, registration.ref, types);
-		if (source !== undefined && context !== undefined)
-			for (const use of expressionSurfaceUses(
-				source,
-				bound[index],
-				context,
-				registration.mode,
-			))
+		for (const use of uses)
+			if (!claimed.has(use.key))
 				claims.push({
 					source: index,
 					entryId: use.entryId,
 					place: registration.place,
 					key: use.key,
-					detail: { name: claimName(use.key) },
+					detail: { name },
 				});
 	});
 	claims.push(...declarationClaims(checked, pending, env, held));
+	// A search filter row's tree is written by the search reader, not here,
+	// but it reads the worker and the case's properties all the same.
+	const searchTrees = [...searchRows.values()].flatMap((row) =>
+		row.ok ? [row.predicate] : [],
+	);
 	const userFields = new Set<string>();
-	for (const binding of bindings.values())
-		walkExpressionTerms(binding.candidate, (term) => {
+	for (const tree of [
+		...[...bindings.values()].map((binding) => binding.candidate),
+		...searchTrees,
+	])
+		walkExpressionTerms(tree, (term) => {
 			if (term.kind === "session-user") userFields.add(term.field);
 		});
 	const reads = new Set<string>();
-	for (const tree of held.values())
+	for (const tree of [...held.values(), ...searchTrees])
 		walkExpressionTerms(tree, (term) => {
 			if (
 				(term.kind === "prop" || term.kind === "form-case") &&
@@ -862,8 +1052,10 @@ export function readExpressions(
 	};
 }
 
-/** A search filter row's wrapper, as the one grammar reads it. */
-function rowSyntax(text: string): FormSyntax | undefined {
+/** A registration's text as the one grammar reads it, before HQ's
+ *  interpolation: a search filter row's wrapper, an XForm attribute, an HQ
+ *  JSON value with its hashtags. */
+function textSyntax(text: string): FormSyntax | undefined {
 	try {
 		const read = readFormSyntax(text);
 		return read.ok ? read.node : undefined;
@@ -872,18 +1064,60 @@ function rowSyntax(text: string): FormSyntax | undefined {
 	}
 }
 
-/** The form a registration's place names, as the place of the form itself. */
-function formPlaceOf(place: HqPlace): HqPlace | undefined {
-	if (place.kind === "form") return place;
-	if (place.kind === "question")
-		return {
-			kind: "form",
-			menu: place.menu,
-			form: place.form,
-			menuName: place.menuName,
-			name: place.formName,
-		};
-	return undefined;
+const DATUM_ISSUES: ReadonlySet<string> = new Set([
+	"unknown-datum",
+	"placeholder-datum",
+	"multi-select-datum-value",
+]);
+
+/** What decides the class of a registration's surface uses beyond its
+ *  syntax: the datums its entry does not supply, by the parse issues that
+ *  name them or by its refusal under M1; the computed datums of its form; and
+ *  where its menu stands to a search whose answers its forms read. */
+function surfaceUseFactsOf(
+	doc: BlueprintDoc,
+	registration: PendingExpression,
+	env: ExpressionReadEnv,
+	cause: SlotRefusal | undefined,
+	outcome: Outcome,
+): SurfaceUseFacts {
+	const unsupplied = new Set<string>();
+	if (cause?.kind === "parse")
+		for (const issue of cause.issues) {
+			if (!DATUM_ISSUES.has(issue.code)) continue;
+			const node = textSyntax(registration.text.slice(issue.from, issue.to));
+			let last: string | undefined;
+			if (node !== undefined)
+				visitSyntax(node, (at) => {
+					if (at.kind === "name") last = at.name;
+				});
+			if (last !== undefined) unsupplied.add(last);
+		}
+	const m1 =
+		outcome.kind === "refused" &&
+		outcome.resolution.kind === "entry" &&
+		outcome.resolution.entryId === M1;
+	const ref = registration.ref;
+	const form = slotForm(doc, ref);
+	const moduleUuid =
+		ref.entity === "module"
+			? ref.uuid
+			: form === undefined
+				? undefined
+				: moduleUuidOfForm(doc, form);
+	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	return {
+		unsupplied: m1 && unsupplied.size === 0 ? "all" : unsupplied,
+		computedDatums:
+			(form === undefined ? undefined : env.computedDatums.get(form)) ??
+			new Set(),
+		menu:
+			mod !== undefined && moduleFormsReadSearch(mod)
+				? "inline"
+				: form !== undefined && childOfInlineSearchMenu(doc, form)
+					? "child-of-inline"
+					: "other",
+	};
 }
 
 /** The claims of each form's `<instance>` declarations that no held
@@ -897,15 +1131,13 @@ function declarationClaims(
 ): ExpressionClaim[] {
 	const claims: ExpressionClaim[] = [];
 	for (const [form, sources] of env.instanceSources) {
-		const read = new Set<string>();
-		let place: HqPlace | undefined;
-		pending.forEach((registration, index) => {
-			if (slotForm(doc, registration.ref) !== form) return;
-			place ??= formPlaceOf(registration.place);
-			if (held.has(index))
-				for (const id of instanceIdsRead(registration.text)) read.add(id);
-		});
+		const place = env.formPlaces.get(form);
 		if (place === undefined) continue;
+		const read = new Set<string>();
+		pending.forEach((registration, index) => {
+			if (slotForm(doc, registration.ref) !== form || !held.has(index)) return;
+			for (const id of instanceIdsRead(registration.text)) read.add(id);
+		});
 		for (const [id, src] of sources) {
 			if (read.has(id)) continue;
 			const use = unreadDeclarationUse(src);
@@ -914,7 +1146,7 @@ function declarationClaims(
 				entryId: use.entryId,
 				place,
 				key: use.key,
-				detail: { name: claimName(use.key) },
+				detail: { name: "instance" },
 			});
 		}
 	}
@@ -948,14 +1180,14 @@ function readBack(
 }
 
 /** The validator's display-condition rule a held display condition breaks:
- *  a condition a device cannot evaluate. The hidden spelling (`false()`
- *  first) is no refusal: the menu reader reads it as the item off the menu. */
+ *  a condition a device cannot evaluate, judged over the whole condition,
+ *  the clauses after a leading `false()` included. The hidden spelling
+ *  itself (`false()` first, the validator's other rule) is no refusal: the
+ *  menu reader reads it as the item off the menu. */
 function displayRefusal(
 	doc: BlueprintDoc,
 	ref: SlotContextRef,
-	candidate: Expression,
 ): string | undefined {
-	if (displayConditionStartsWithNever(candidate)) return undefined;
 	const code = "DISPLAY_CONDITION_NOT_ON_DEVICE";
 	if (ref.entity === "module" && ref.slot === "module_display_condition") {
 		const mod = doc.modules[ref.uuid];

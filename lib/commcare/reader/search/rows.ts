@@ -21,10 +21,12 @@ import type {
 	SimpleSearchInputDef,
 } from "@/lib/domain/modules";
 import { moduleExpressionContexts } from "../../expressionContext";
+import { hqXPath, hqXPathText } from "../../hqJson/xpath";
 import {
 	deriveSimpleArmPredicate,
 	simpleArmNeedsXPathQueryEmission,
 } from "../../suite/case-search/simpleArmDerivation";
+import { ZERO_INPUT_SEARCH_SENTINEL } from "../../suite/case-search/xpathQuery";
 import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
 import { defineClaims, refuse } from "../claims";
@@ -41,8 +43,14 @@ import { searchPlace } from "./workflow";
 
 const S = "case-search/";
 
+/** Nova's zero-input row as HQ JSON holds it. */
+const ZERO_INPUT_ROW = hqXPathText(hqXPath(ZERO_INPUT_SEARCH_SENTINEL));
+
 /** The entry the rows are held under, each top-level conjunct placed. */
 export const ROWS_HELD = `${S}several-xpath-query-rows`;
+
+/** The entry a menu with no prompt whose default filters are only HQ's two markers is held under. */
+export const MARKERS_HELD = `${S}default-properties-entries-keyed-include-closed-or-x-commcare`;
 
 export const ROW_CLAIMS = defineClaims("search.rows", {
 	readsMatchedField: refuse(
@@ -109,6 +117,9 @@ export interface RowsInput {
 	readonly formsReadSearch: boolean;
 	/** The rows kind A placed in the first pass. */
 	readonly zeroInput: boolean;
+	/** Whether the menu's default filters are only HQ's two markers and it has no prompt: Nova's
+	 *  search with no fields and no filter, which Nova writes as its zero-input row. */
+	readonly markersOnly?: boolean;
 }
 
 function topLevel(expression: Expression | undefined): Expression[] {
@@ -444,14 +455,20 @@ export function classifySearchRows(
 		)({ slot: "case_list_filter" });
 		const read = readSearchRowConjuncts(row.text, context, { ...env, doc });
 		if (!read.ok) {
+			// The row's own key, and the key the refusing entry is answered
+			// under where that is another of its own (an operator, a function).
 			if ("claim" in read)
-				ctx.accounting.claimEntry(
-					{ json: row.cursor, key: "defaultValue" },
-					read.claim.entryId,
+				for (const key of new Set([
 					"schema:DefaultCaseSearchProperty.defaultValue",
-					place,
-					read.claim.detail,
-				);
+					read.claim.key,
+				]))
+					ctx.accounting.claimEntry(
+						{ json: row.cursor, key: "defaultValue" },
+						read.claim.entryId,
+						key,
+						place,
+						read.claim.detail,
+					);
 			else
 				ctx.accounting.circumstance("unrecognized", place, {
 					name: "schema:DefaultCaseSearchProperty.defaultValue",
@@ -486,7 +503,7 @@ export function classifySearchRows(
 					return undefined;
 				const sources = match.matched.map((one) => one.source);
 				return sources.every(
-					(one, index) => index === 0 || (sources[index - 1] as number) < one,
+					(one, index) => index === 0 || (sources[index - 1] as number) <= one,
 				);
 			};
 			// B: a list filter clause restated.
@@ -616,7 +633,8 @@ export function classifySearchRows(
 					if (own === undefined) return [];
 					const sources = match.matched.map((one) => one.source);
 					const inOrder = sources.every(
-						(one, index) => index === 0 || (sources[index - 1] as number) < one,
+						(one, index) =>
+							index === 0 || (sources[index - 1] as number) <= one,
 					);
 					return [{ ...candidate, inOrder }];
 				});
@@ -672,14 +690,22 @@ export function classifySearchRows(
 			});
 	}
 
-	// (R2): Nova's emission of the settled menu writes every source row back.
-	const settled = matchSearchRows(doc, module.uuid, sourceRows, {
-		...env,
+	// (R2): Nova's emission of the settled menu writes every source row back. A search of HQ's two
+	// markers alone is Nova's search with no fields and no filter, whose zero-input row Nova writes
+	// in their place: that row is the one the emission must write.
+	const markersRow =
+		input.markersOnly === true &&
+		input.rows.length === 0 &&
+		listClauses.length === 0;
+	const settled = matchSearchRows(
 		doc,
-	});
+		module.uuid,
+		markersRow ? [ZERO_INPUT_ROW] : sourceRows,
+		{ ...env, doc },
+	);
 	const sources = settled.matched.map((one) => one.source);
 	const inOrder = sources.every(
-		(one, index) => index === 0 || (sources[index - 1] as number) < one,
+		(one, index) => index === 0 || (sources[index - 1] as number) <= one,
 	);
 	const extraAllowed = input.formsReadSearch ? unrestated.length : 0;
 	if (settled.unmatched.length > 0 || settled.extra.length > extraAllowed) {
@@ -687,10 +713,10 @@ export function classifySearchRows(
 			ctx.accounting.circumstance("unrecognized", place, {
 				name: "schema:DefaultCaseSearchProperty.defaultValue",
 			});
-	} else if (!inOrder || conjuncts.length !== input.rows.length)
+	} else if (!inOrder || conjuncts.length !== input.rows.length || markersRow)
 		sameState(
 			ctx,
-			ROWS_HELD,
+			markersRow ? MARKERS_HELD : ROWS_HELD,
 			`${module.json.pointer}/search_config/default_properties`,
 			"search-filter-rows-recut",
 		);

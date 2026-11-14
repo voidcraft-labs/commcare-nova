@@ -293,7 +293,69 @@ export function buildLabelNodes(
 	return nodes;
 }
 
-const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
+/** The namespace each Connect block's own element is in. */
+export const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
+
+/**
+ * Each Connect block as `buildConnectBlocks` writes it: the wrapper's
+ * `vellum:role`, the block's own element, and its leaves in order, the
+ * layout HQ's form builder gives each Connect question
+ * (`commcareConnect.js`, each mug's `childNodes`). The reader of CommCare
+ * HQ's forms reads a block against this same layout.
+ */
+export const CONNECT_BLOCK_SHAPES = {
+	learn_module: {
+		role: "ConnectLearnModule",
+		element: "module",
+		leaves: ["name", "description", "time_estimate"],
+	},
+	assessment: {
+		role: "ConnectAssessment",
+		element: "assessment",
+		leaves: ["user_score"],
+	},
+	deliver_unit: {
+		role: "ConnectDeliverUnit",
+		element: "deliver",
+		leaves: ["name", "entity_id", "entity_name", "work_area_id"],
+	},
+	task: {
+		role: "ConnectTask",
+		element: "task",
+		leaves: ["name", "description"],
+	},
+} as const satisfies Readonly<
+	Record<
+		string,
+		{
+			readonly role: string;
+			readonly element: string;
+			readonly leaves: readonly string[];
+		}
+	>
+>;
+
+/** A Connect block's wrapper named `id`, its own element and its leaves in the order its
+ *  shape gives, each leaf holding the text `texts` gives it, or nothing. */
+function connectBlockData(
+	shape: (typeof CONNECT_BLOCK_SHAPES)[keyof typeof CONNECT_BLOCK_SHAPES],
+	id: string,
+	texts: Readonly<Record<string, string>>,
+): Element {
+	return el(id, { "vellum:role": shape.role }, [
+		el(
+			shape.element,
+			{ xmlns: CONNECT_XMLNS, id },
+			shape.leaves.map((leaf) =>
+				el(
+					leaf,
+					{},
+					Object.hasOwn(texts, leaf) ? [text(texts[leaf] as string)] : [],
+				),
+			),
+		),
+	]);
+}
 
 /**
  * Build the Connect data blocks + matching binds for a form.
@@ -324,13 +386,11 @@ export function buildConnectBlocks(
 		const lmId = lm.id;
 		const lmPath = FormPath.root().child(lmId);
 		dataElements.push(
-			el(lmId, { "vellum:role": "ConnectLearnModule" }, [
-				el("module", { xmlns: CONNECT_XMLNS, id: lmId }, [
-					el("name", {}, [text(lm.name)]),
-					el("description", {}, [text(lm.description)]),
-					el("time_estimate", {}, [text(String(lm.time_estimate))]),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.learn_module, lmId, {
+				name: lm.name,
+				description: lm.description,
+				time_estimate: String(lm.time_estimate),
+			}),
 		);
 		binds.push(
 			xel(
@@ -356,11 +416,7 @@ export function buildConnectBlocks(
 		const userScore = effectiveAssessmentUserScore(connect.assessment);
 		const assessPath = FormPath.root().child(assessId);
 		dataElements.push(
-			el(assessId, { "vellum:role": "ConnectAssessment" }, [
-				el("assessment", { xmlns: CONNECT_XMLNS, id: assessId }, [
-					el("user_score", {}),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.assessment, assessId, {}),
 		);
 		binds.push(
 			xel(
@@ -403,20 +459,14 @@ export function buildConnectBlocks(
 		// XPaths actually run at form-fill time.
 		const { entityId, entityName } = effectiveDeliverEntities(du);
 		const duPath = FormPath.root().child(duId);
+		// HQ's form builder lists `work_area_id` after `entity_name` and writes
+		// it with a bare bind (`commcareConnect.js`,
+		// `ConnectDeliverUnit.childNodes`); Connect reads the empty value as no
+		// work area (`form_receiver/processor.py::process_deliver_unit`).
 		dataElements.push(
-			el(duId, { "vellum:role": "ConnectDeliverUnit" }, [
-				// HQ's form builder lists `work_area_id` after `entity_name` and
-				// writes it with a bare bind (`commcareConnect.js`,
-				// `ConnectDeliverUnit.childNodes`); Connect reads the empty value
-				// as no work area (`form_receiver/processor.py::
-				// process_deliver_unit`).
-				el("deliver", { xmlns: CONNECT_XMLNS, id: duId }, [
-					el("name", {}, [text(du.name)]),
-					el("entity_id", {}),
-					el("entity_name", {}),
-					el("work_area_id", {}),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.deliver_unit, duId, {
+				name: du.name,
+			}),
 		);
 		binds.push(
 			xel(
@@ -474,12 +524,10 @@ export function buildConnectBlocks(
 		const taskId = t.id;
 		const taskPath = FormPath.root().child(taskId);
 		dataElements.push(
-			el(taskId, { "vellum:role": "ConnectTask" }, [
-				el("task", { xmlns: CONNECT_XMLNS, id: taskId }, [
-					el("name", {}, [text(t.name)]),
-					el("description", {}, [text(t.description)]),
-				]),
-			]),
+			connectBlockData(CONNECT_BLOCK_SHAPES.task, taskId, {
+				name: t.name,
+				description: t.description,
+			}),
 		);
 		binds.push(
 			xel(
@@ -564,6 +612,12 @@ export interface BuildXFormOptions {
 	 * disagree about whether the property is written.
 	 */
 	attachmentTarget?: AttachmentUrlTarget;
+	/**
+	 * The id prefix a create keyed by an answer writes, by operation, where a
+	 * source already holds one that is not the document's derivation. Absent,
+	 * every keyed create writes `authoredCaseIdPrefix` of its own scope.
+	 */
+	keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>;
 }
 
 /**
@@ -1032,6 +1086,8 @@ export function buildXFormSource(
 		opts.selectedCaseIdRef,
 		opts.selectedCasesInstanceId,
 		opts.attachmentTarget ?? null,
+		undefined,
+		opts.keyedCaseIdPrefixes,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
@@ -2241,6 +2297,39 @@ export interface QueryRepeatEmission {
 
 export type QueryBoundRepeat = Extract<Field, { repeat_mode: "query_bound" }>;
 
+/** A query repeat's ids, `join(' ', query)`: the value of model iteration's
+ *  `@ids` setvalue and of the count placement's ids node. */
+export function queryIdsValue(query: WireExpr): WireExpr {
+	return w.call("join", [w.str(" "), query]);
+}
+
+/**
+ * The trees of a count-placement query repeat its node names alone decide:
+ * the count node's calculate `count-selected(../<ids>)`, the position node's
+ * `count(../item)`, and the row guard `position() < ../<count>`, each read
+ * from the node it is written on. The reader of CommCare HQ's forms rebuilds
+ * them to recognize the placement.
+ */
+export function countPlacementTrees(names: {
+	readonly ids: string;
+	readonly count: string;
+}): {
+	readonly count: WireExpr;
+	readonly position: WireExpr;
+	readonly guard: WireExpr;
+} {
+	return {
+		count: w.call("count-selected", [
+			w.context([w.parent(), w.step(names.ids)]),
+		]),
+		position: w.call("count", [w.context([w.parent(), w.step("item")])]),
+		guard: w.lt(
+			w.call("position"),
+			w.context([w.parent(), w.step(names.count)]),
+		),
+	};
+}
+
 /**
  * Build a query repeat's wrapper, binds and setvalues in its effective
  * placement (`lib/domain/queryRepeatPlacement.ts`). Both placements keep the
@@ -2298,14 +2387,13 @@ export function buildQueryRepeat(
 	const idsQuery = field.data_source.ids_query;
 	if (idsQuery === undefined)
 		throw new Error(`Repeat ${field.id} has no row query.`);
-	const idsValue = w.call("join", [
-		w.str(" "),
+	const idsValue = queryIdsValue(
 		expressions.lower(idsQuery, {
 			entity: "field",
 			uuid: field.uuid,
 			slot: "ids_query",
 		}),
-	]);
+	);
 	// The repeat's condition evaluates at its row in both placements
 	// (`slotContext`), so it prints relative to the row.
 	const condition =
@@ -2367,25 +2455,14 @@ export function buildQueryRepeat(
 		// (`XPathPositionFunc.java::evalBody`) and names no trigger; a new row's
 		// condition still runs when the row is made (`FormDef.java::
 		// createNewRepeat`, `initTriggerablesRootedBy`).
-		const guard = w.lt(
-			w.call("position"),
-			w.context([w.parent(), w.step(countName)]),
-		);
+		const trees = countPlacementTrees({ ids: idsName, count: countName });
+		const guard = trees.guard;
 		const binds: Element[] = [
 			generatedBind(nodePath.child(idsName), idsValue),
-			generatedBind(
-				nodePath.child(countName),
-				w.call("count-selected", [w.context([w.parent(), w.step(idsName)])]),
-				"xsd:int",
-			),
+			generatedBind(nodePath.child(countName), trees.count, "xsd:int"),
 		];
 		if (positionName !== undefined)
-			binds.push(
-				generatedBind(
-					nodePath.child(positionName),
-					w.call("count", [w.context([w.parent(), w.step("item")])]),
-				),
-			);
+			binds.push(generatedBind(nodePath.child(positionName), trees.position));
 		binds.push(
 			rowConditionBind(
 				condition === undefined ? guard : w.and(condition, guard),

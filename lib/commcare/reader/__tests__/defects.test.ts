@@ -13,12 +13,17 @@
  * template that drifted fails by its text. The defects a stage raises from
  * what it reads (a source Nova's parser refuses, an `xmlns` that differs, an
  * itemset column the catalog lacks) are provoked through the forms stage, each
- * with its one finding; the expression stage's two are provoked in
- * `provisional.test.ts`, the assembly's in `assemble.test.ts`.
+ * with its one finding, and the text stage's translation that Nova's own rule
+ * refuses after the pairing passed it through every stage; the expression
+ * stage's two are provoked in `provisional.test.ts`, the assembly's in
+ * `assemble.test.ts`. A relation finding the manifest no longer permits names
+ * its claim's surface key, or the object its place stands in, never an entry.
  */
 
+import { current, produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc } from "@/lib/domain";
 import { translationUnitRoles } from "@/lib/domain/translationUnits";
 import { type HqPlace, READ_STANDINGS } from "@/lib/publish/hqFindings";
 import { inventoryIndex } from "../../surface/inventory";
@@ -26,8 +31,16 @@ import { Accounting } from "../accounting";
 import { defineClaims, drop, take } from "../claims";
 import { READER_DEFECT_CODES, readerDefect } from "../defects";
 import { EXTERNAL_ENTITY_KINDS, type ExternalEntityKind } from "../identity";
-import { appPlace } from "../place";
+import { STAGES } from "../index";
+import { appPlace, formPlace, menuPlace, placeKey } from "../place";
 import { readForm, XMLNS, xformSource } from "../xform/__tests__/formReading";
+import { finishText } from "../xform/prose";
+import {
+	readContext,
+	readerInput,
+	retainedSourceBody,
+	sourceFromBody,
+} from "./readerInput";
 
 const MARKER = "MARKER";
 const COMMENTS = "questions/xml-comments-processing-instructions";
@@ -172,7 +185,7 @@ describe("each line is its template, from closed slots", () => {
 				expect(readerDefect.translation(place, role, 2, issue)).toBe(
 					`translation at app: ${role}, language 2: ${issue}`,
 				);
-		for (const reason of ["no-case-datum", "parse:syntax", "differs:XPath"])
+		for (const reason of ["no-case-datum", "parse:syntax", "differs:binary"])
 			expect(readerDefect.expressionNotWrittenBack(place, reason)).toContain(
 				`at app: ${reason}.`,
 			);
@@ -247,6 +260,43 @@ describe("a defect stands behind one finding named by a surface key", () => {
 				subject: null,
 				detail: { name: "schema:Application.doc_type" },
 			},
+		]);
+	});
+});
+
+describe("a relation finding the manifest no longer permits", () => {
+	it.each([
+		[appPlace(), "schema:Application"],
+		[menuPlace(2, MARKER), "schema:Module"],
+		[formPlace(2, 0, MARKER, MARKER), "schema:Form"],
+	])(
+		"names the object its place stands in, never the entry, where the claim has no key (%j)",
+		(place, name) => {
+			const books = new Accounting(inventoryIndex(), { log: "counts" });
+			books.finding(CLAIMS.comment, place);
+			const { findings, defects } = books.close();
+			expect(defects.map((defect) => defect.why)).toEqual([
+				`claim defectsTest.comment at ${placeKey(place)} is not permitted by ${COMMENTS}, which is now inert`,
+			]);
+			expect(defects.map((defect) => defect.name)).toEqual([name]);
+			expect(findings).toEqual([
+				{
+					code: "unrecognized",
+					standing: "not-yet",
+					place,
+					subject: null,
+					detail: { name },
+				},
+			]);
+		},
+	);
+
+	it("names the claim's own surface key where it has one", () => {
+		const books = new Accounting(inventoryIndex(), { log: "counts" });
+		books.finding(CLAIMS.heldDrop, appPlace());
+		const { findings } = books.close();
+		expect(findings.map((finding) => finding.detail.name)).toEqual([
+			"schema:Application.doc_type",
 		]);
 	});
 });
@@ -335,5 +385,78 @@ describe("a defect the forms stage raises", () => {
 				.filter((finding) => finding.code === "unrecognized")
 				.map((finding) => finding.detail.name),
 		).toContain("xform:itemset/label@ref");
+	});
+});
+
+describe("a defect the text stage raises", () => {
+	it("stands behind a translation Nova's own rule refuses after the pairing passed it", async () => {
+		const label = (lang: string, text: string) =>
+			`<translation lang="${lang}"${lang === "en" ? ' default=""' : ""}><text id="q-label"><value>${text} <output value="/data/who"/></value></text></translation>`;
+		const source = xformSource({
+			data: "<who/><q/>",
+			model: [
+				'<bind nodeset="/data/who" type="xsd:string"/>',
+				'<bind nodeset="/data/q" type="xsd:string"/>',
+				`<itext>${label("en", "Hello")}${label("fr", "Bonjour")}</itext>`,
+			].join(""),
+			body: [
+				'<input ref="/data/who"><label>Who</label></input>',
+				'<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>',
+			].join(""),
+		});
+		const body = {
+			...retainedSourceBody("shell/app-source"),
+			modules: [
+				{
+					doc_type: "Module",
+					unique_id: "m-reader",
+					name: { en: "Menu" },
+					case_type: "",
+					forms: [
+						{
+							doc_type: "Form",
+							unique_id: "r1",
+							xmlns: XMLNS,
+							name: { en: "Form" },
+						},
+					],
+				},
+			],
+			_attachments: { "r1.xml": source },
+			langs: ["en", "fr"],
+		};
+		const input = readerInput(await sourceFromBody(body));
+		const ctx = readContext({ ...input, recordDialect: () => undefined });
+		for (const stage of STAGES) {
+			if (stage === finishText) {
+				// The French text pairs its one output with the English one, so the
+				// pairing passes it; the English label then holds the reference twice,
+				// which a translation holding it once does not keep.
+				ctx.doc = produce(ctx.doc as BlueprintDoc, (doc) => {
+					for (const field of Object.values(doc.fields)) {
+						if (field.id !== "q" || !("label" in field)) continue;
+						const parts = field.label?.parts ?? [];
+						const reference = parts.find((part) => part.kind !== "text");
+						if (reference === undefined)
+							throw new Error("The label read no reference.");
+						parts.push(current(reference));
+					}
+				});
+			}
+			stage(ctx);
+		}
+		const { findings, defects } = ctx.close();
+		const question = findings.find(
+			(finding) => finding.place.kind === "question",
+		)?.place;
+		if (question === undefined) throw new Error("No finding at the question.");
+		expect(defects.map((defect) => defect.why)).toEqual([
+			readerDefect.translation(question, "field-label", 1, "protected-content"),
+		]);
+		expect(
+			findings
+				.filter((finding) => finding.code === "unrecognized")
+				.map((finding) => [finding.place, finding.detail.name]),
+		).toEqual([[question, "xform:model/itext/translation/text/value"]]);
 	});
 });

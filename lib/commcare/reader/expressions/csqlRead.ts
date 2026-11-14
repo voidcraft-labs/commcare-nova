@@ -61,11 +61,13 @@ import {
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
 import type { PendingExpression } from "../pendingExpressions";
-import { sameSyntax } from "../syntaxCompare";
+import { firstDifference, sameSyntax } from "../syntaxCompare";
 import {
 	checkErrorEntry,
+	claimKey,
 	EXPRESSION_CLAIMS,
 	parseIssueEntry,
+	visitSyntax,
 } from "./findings";
 import { shapedLiteral } from "./folds";
 import type { ExpressionReadEnv } from "./index";
@@ -82,10 +84,22 @@ export type SearchRowReading =
 			readonly ok: false;
 			readonly claim: {
 				readonly entryId: string;
+				/** The surface key the entry is answered under: the operator,
+				 *  function or metadata name of the row a member of the entry is
+				 *  registered under, else the entry's own key. */
+				readonly key: string;
 				readonly detail: FindingDetail;
 			};
 	  }
-	| { readonly ok: false; readonly unrecognized: true };
+	| {
+			readonly ok: false;
+			readonly unrecognized: true;
+			/** `differs:<kind>`, the kind of the source node at which the row's
+			 *  wrapper first differs from Nova's own wrapper of its reading (the
+			 *  wrapper's own node where nothing bound), or `parse:syntax` where
+			 *  the grammar reads no wrapper. */
+			readonly reason: string;
+	  };
 
 export interface SearchRowEnv {
 	readonly doc: BlueprintDoc;
@@ -174,7 +188,7 @@ function readsSearchAnswer(node: FormSyntax): boolean {
 	return stringOf(at.args[0])?.startsWith("search-input") === true;
 }
 
-/** The table of the plan's section 7.2, over the wrapper's syntax tree: the
+/** The parts of a search row's wrapper, over its syntax tree: the
  *  constant text the wrapper builds, the values the device splices in, and
  *  the choices it makes. */
 function skeleton(wrapper: FormSyntax, root = true): readonly SkeletonPart[] {
@@ -300,14 +314,20 @@ function assemble(parts: readonly SkeletonPart[], prefix: string): Assembled {
 type Refusal = {
 	readonly entryId: string;
 	readonly detail: FindingDetail;
+	/** The surface key the refusal is about, where the binder knows it. */
+	readonly key?: string;
 };
 type Bound = Expression | Refusal | { readonly unrecognized: true };
 
 class Stop {
 	constructor(readonly outcome: Refusal | { readonly unrecognized: true }) {}
 }
-function refuseWith(entryId: string, reason: string): never {
-	throw new Stop({ entryId, detail: { name: "_xpath_query", reason } });
+function refuseWith(entryId: string, reason: string, key?: string): never {
+	throw new Stop({
+		entryId,
+		detail: { name: "_xpath_query", reason },
+		...(key === undefined ? {} : { key }),
+	});
 }
 function unrecognizedRow(): never {
 	throw new Stop({ unrecognized: true });
@@ -519,6 +539,8 @@ function deviceEnv(env: SearchRowEnv): ExpressionReadEnv {
 			operationIdPaths: new Map(),
 			recordDialect: () => undefined,
 			entryFactsRefused: new Set(),
+			formPlaces: new Map(),
+			computedDatums: new Map(),
 		};
 		deviceEnvs.set(env, made);
 	}
@@ -690,7 +712,11 @@ class CsqlBinder {
 				this.splitMarkers(text).every((piece) => piece.kind === "text") &&
 				!orderable(text)
 			)
-				refuseWith(UNTYPED_RIGHT_SIDE, "csql:untyped-right-side");
+				refuseWith(
+					UNTYPED_RIGHT_SIDE,
+					"csql:untyped-right-side",
+					`csql-op:${op}`,
+				);
 		}
 		const anchor = this.anchor(leftAt, rowType);
 		if (
@@ -1371,6 +1397,19 @@ function exact(
 	return print !== undefined && sameNode(source, print);
 }
 
+/** The source node at which the row's wrapper first differs from Nova's own
+ *  wrapper of `candidate`, printed as the HQ JSON holds it. */
+function wrapperDifference(
+	source: FormSyntax,
+	candidate: Expression,
+	context: CsqlEmissionContext,
+): FormSyntax | undefined {
+	const print = printed(emitCsql(candidate, context).wrapper);
+	return print === undefined
+		? undefined
+		: firstDifference(source, print, { ruleSet: "record" });
+}
+
 /** The candidate's CSQL as text with markers, and the device value each stands for. */
 interface CandidateText {
 	readonly text: string;
@@ -1539,6 +1578,37 @@ function refusalOf(
 	return undefined;
 }
 
+/** The JSON key a search filter row sits in. */
+const ROW_KEY = "schema:DefaultCaseSearchProperty.defaultValue";
+
+/** A refusal as the row's claim, with the surface key its entry is answered
+ *  under: the one the binder named, else by `claimKey` over the operators,
+ *  functions and metadata names the row's CSQL uses, in document order. */
+function rowClaim(
+	refusal: Refusal,
+	wrapper: FormSyntax,
+): Extract<SearchRowReading, { readonly claim: unknown }>["claim"] {
+	const keys: string[] = [];
+	const csql = searchRowCsql(wrapper)?.csql;
+	if (csql !== undefined)
+		visitSyntax(csql, (node) => {
+			if (node.kind === "binary") keys.push(`csql-op:${node.op}`);
+			else if (node.kind === "call") keys.push(`csql-fn:${node.name}`);
+			else if (node.kind === "name") keys.push(`csql-metadata:${node.name}`);
+			else if (
+				node.kind === "axis" &&
+				node.axis === "attribute" &&
+				node.value.kind === "name"
+			)
+				keys.push(`csql-metadata:@${node.value.name}`);
+		});
+	return {
+		entryId: refusal.entryId,
+		key: refusal.key ?? claimKey(refusal.entryId, ROW_KEY, keys),
+		detail: refusal.detail,
+	};
+}
+
 /** One `_xpath_query` value read under the context of the slot the caller
  *  proposes: the case list filter's, or an advanced Search field's. */
 export function readSearchFilterRow(
@@ -1546,23 +1616,38 @@ export function readSearchFilterRow(
 	context: ExpressionContext,
 	env: SearchRowEnv,
 ): SearchRowReading {
+	const unparsed = {
+		ok: false,
+		unrecognized: true,
+		reason: "parse:syntax",
+	} as const;
 	let read: ReturnType<typeof readFormSyntax>;
 	try {
 		read = readFormSyntax(text);
 	} catch {
-		return { ok: false, unrecognized: true };
+		return unparsed;
 	}
-	if (!read.ok || read.node === undefined)
-		return { ok: false, unrecognized: true };
+	if (!read.ok || read.node === undefined) return unparsed;
 	const source = read.node;
 	const parts = skeleton(source);
 	const prefix = markerPrefix(constantTexts(parts));
 	const emission = emissionContext(context, env);
 	let firstRefusal: Refusal | undefined;
+	// Where the source's wrapper first differs from Nova's own wrapper of a
+	// reading, for the defect line of a row left unrecognized.
+	let differing: FormSyntax = source;
+	let differs = false;
+	const unrecognized = () =>
+		({
+			ok: false,
+			unrecognized: true,
+			reason: `differs:${differing.kind}`,
+		}) as const;
 	for (const proposals of [true, false]) {
 		const { bound, today } = bindCsql(parts, context, env, { text, proposals });
-		if ("unrecognized" in bound) return { ok: false, unrecognized: true };
-		if (!("kind" in bound)) return { ok: false, claim: bound };
+		if ("unrecognized" in bound) return unrecognized();
+		if (!("kind" in bound))
+			return { ok: false, claim: rowClaim(bound, source) };
 		const refusal = refusalOf(bound, context, env, text);
 		if (refusal !== undefined) {
 			firstRefusal ??= refusal;
@@ -1577,15 +1662,24 @@ export function readSearchFilterRow(
 			continue;
 		}
 		const level = guards(parts, tree, prefix);
-		if (level === undefined) continue;
+		if (level === undefined) {
+			if (!differs) {
+				differing = wrapperDifference(source, bound, emission) ?? source;
+				differs = true;
+			}
+			continue;
+		}
 		const rewrites: EmissionRewriteId[] = [];
 		if (level.guarded || !(today && level.today))
 			rewrites.push("search-value-guards");
 		if (today && level.today) rewrites.push("search-today-device-day");
 		return { ok: true, predicate: bound, level: "guards", rewrites };
 	}
-	if (firstRefusal !== undefined) return { ok: false, claim: firstRefusal };
-	return { ok: false, unrecognized: true };
+	// A binding that passed the checker and printed back unequal leaves the
+	// row Nova's to explain, whatever another binding was refused for.
+	if (firstRefusal !== undefined && !differs)
+		return { ok: false, claim: rowClaim(firstRefusal, source) };
+	return unrecognized();
 }
 
 /** The level at which Nova's emission of `predicate` in `context` writes the

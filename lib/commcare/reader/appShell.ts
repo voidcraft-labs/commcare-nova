@@ -10,12 +10,15 @@
 import { makeTranslationUnitId } from "@/lib/domain";
 import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { isRuntimeUiStringKey, translationKeyOwner } from "../appStringKeys";
+import type { NovaOwnedDerivedProfilePropertyKey } from "../derivedProfile";
+import { inventoryIndex } from "../surface/inventory";
 import surface from "../surface/surface.json";
 import { compareToVersionFloor } from "../versionFloor";
 import type { Admitted } from "./accounting";
 import {
 	account,
 	type Claim,
+	claimPermits,
 	defineClaims,
 	derived,
 	drop,
@@ -252,98 +255,82 @@ const TRANSLATION_CLAIMS = defineClaims("appShell.translations", {
 	unread: account(`${A}/translations-key-no-runtime-reads`, TRANSLATIONS),
 });
 
+interface SurfaceItem {
+	readonly declared?: boolean;
+	readonly values?: readonly unknown[];
+	readonly default?: unknown;
+}
+const ITEMS = (
+	surface as { readonly items: Readonly<Record<string, SurfaceItem>> }
+).items;
+
+function surfaceItem(id: string): SurfaceItem | undefined {
+	return Object.hasOwn(ITEMS, id) ? ITEMS[id] : undefined;
+}
+
 const PROFILE = key("profile");
+/** The custom property Nova derives from the document's Search. */
+const INDEX_CASE_SEARCH_RESULTS: NovaOwnedDerivedProfilePropertyKey =
+	"cc-index-case-search-results";
 
-/** Each `setting:` key of a profile setting, by the entry that holds it at a value in its choices. */
-const SETTING_ENTRIES: Readonly<Record<string, string>> = {
-	"setting:properties.cc-autoup-freq": "1-properties-cc-autoup-freq",
-	"setting:properties.purge-freq": "3-properties-purge-freq",
-	"setting:properties.cc-days-form-retain": "4-properties-cc-days-form-retain",
-	"setting:properties.logenabled": "5-properties-logenabled",
-	"setting:properties.log_prop_weekly":
-		"6-properties-log-prop-weekly-within-its-choices",
-	"setting:properties.log_prop_daily":
-		"7-properties-log-prop-daily-within-its-choices",
-	"setting:properties.user_reg_server": "12-properties-user-reg-server",
-	"setting:properties.cc-autosync-freq": "13-properties-cc-autosync-freq",
-	"setting:properties.restore-tolerance": "14-properties-restore-tolerance",
-	"setting:properties.loose_media": "16-properties-loose-media",
-	"setting:properties.cc-content-valid": "17-properties-cc-content-valid",
-	"setting:properties.unsent-number-limit": "18-properties-unsent-number-limit",
-	"setting:properties.unsent-time-limit": "19-properties-unsent-time-limit",
-	"setting:properties.cc-resize-images": "22-properties-cc-resize-images",
-	"setting:properties.cc-fuzzy-search-enabled":
-		"23-properties-cc-fuzzy-search-enabled",
-	"setting:properties.cc-log-entity-detail-enabled":
-		"24-properties-cc-log-entity-detail-enabled",
-	"setting:properties.cc-login-duration-seconds":
-		"25-properties-cc-login-duration-seconds",
-	"setting:properties.cc-inflation-target-density":
-		"26-properties-cc-inflation-target-density",
-	"setting:properties.cc-gps-auto-capture-accuracy":
-		"27-properties-cc-gps-auto-capture-accuracy",
-	"setting:properties.cc-maps-default-layer":
-		"28-properties-cc-maps-default-layer",
-	"setting:properties.cc-enable-tts": "29-properties-cc-enable-tts",
-	"setting:properties.cc-label-required-questions-with-asterisk":
-		"30-properties-cc-label-required-questions-with-asterisk",
-	"setting:properties.logo_android_home":
-		"logo-refs-hq-logo-android-home-login-demo",
-	"setting:properties.logo_android_login":
-		"logo-refs-hq-logo-android-home-login-demo",
-	"setting:properties.logo_android_demo":
-		"logo-refs-hq-logo-android-home-login-demo",
-	"setting:features.users": "15-features-users",
-	"setting:features.dependencies": "31-features-dependencies",
-	"setting:features.credentials": "32-features-credentials",
-};
+const OUTSIDE_CHOICES = `${A}/profile-properties-or-features-dependencies-value-outside-its`;
 
-/** The settings whose value outside their choices is refused under one entry. */
-const OUTSIDE_CHOICES_KEYS: readonly string[] = [
-	"setting:properties.cc-autoup-freq",
-	"setting:properties.unsent-number-limit",
-	"setting:properties.cc-content-valid",
-	"setting:properties.cc-autosync-freq",
-	"setting:properties.unsent-time-limit",
-	"setting:properties.cc-days-form-retain",
-	"setting:properties.cc-show-saved",
-	"setting:properties.cc-show-incomplete",
-	"setting:properties.cc-resize-images",
-	"setting:properties.cc-fuzzy-search-enabled",
-	"setting:properties.cc-gps-auto-capture-accuracy",
-	"setting:properties.lazy-load-video-files",
-	"setting:properties.cc-login-duration-seconds",
-	"setting:properties.cc-inflation-target-density",
-	"setting:properties.cc-maps-default-layer",
-	"setting:properties.cc-enable-tts",
-	"setting:properties.cc-label-required-questions-with-asterisk",
-	"setting:properties.logenabled",
-	"setting:properties.log_prop_weekly",
-	"setting:properties.log_prop_daily",
-	"setting:features.dependencies",
-];
+/** Each profile setting's `setting:` key: every `properties` and `features` key HQ's settings name. */
+const SETTING_KEYS: readonly string[] = Object.keys(ITEMS).filter(
+	(id) =>
+		id.startsWith("setting:properties.") || id.startsWith("setting:features."),
+);
 
-const SETTING_CLAIMS = defineClaims(
+/** A setting's entry that a key's value is accounted under, with the class of value it takes. */
+interface SettingAccount {
+	readonly claim: Claim<"account">;
+	readonly valueClass: string | null;
+}
+
+/**
+ * Each setting's claims, from the entries naming its key: a value outside its
+ * choices under the one entry that refuses those, and any other value under
+ * the entry that holds the key, or, where two do, the one whose class takes
+ * the value. An entry Nova reads into the document (`cc-show-saved`,
+ * `cc-show-incomplete`, the Web Apps logo) has a reader of its own.
+ */
+const SETTING_ACCOUNTS = new Map<string, readonly SettingAccount[]>();
+const OUTSIDE_CHOICES_CLAIMS: Record<string, Claim<"refuse">> = {};
+for (const setting of SETTING_KEYS) {
+	const accounts: SettingAccount[] = [];
+	for (const entry of inventoryIndex().naming(setting)) {
+		if (entry.id === OUTSIDE_CHOICES)
+			OUTSIDE_CHOICES_CLAIMS[setting] = refuse(entry.id, setting);
+		else if (claimPermits("account", entry.standing))
+			accounts.push({
+				claim: account(entry.id, setting),
+				valueClass: entry.valueClass,
+			});
+	}
+	if (accounts.length > 0) SETTING_ACCOUNTS.set(setting, accounts);
+}
+defineClaims(
 	"appShell.setting",
 	Object.fromEntries(
-		Object.entries(SETTING_ENTRIES).map(([setting, entry]) => [
-			setting,
-			account(`${A}/${entry}`, setting),
-		]),
-	),
-);
-const OUTSIDE_CHOICES_CLAIMS = defineClaims(
-	"appShell.outsideChoices",
-	Object.fromEntries(
-		OUTSIDE_CHOICES_KEYS.map((setting) => [
-			setting,
-			refuse(
-				`${A}/profile-properties-or-features-dependencies-value-outside-its`,
-				setting,
+		[...SETTING_ACCOUNTS].flatMap(([setting, accounts]) =>
+			accounts.map(
+				(one) => [`${setting}@${one.valueClass ?? "any"}`, one.claim] as const,
 			),
-		]),
+		),
 	),
 );
+defineClaims("appShell.outsideChoices", OUTSIDE_CHOICES_CLAIMS);
+
+/** The entry a setting's value is accounted under: the one entry that names the key, else the one
+ *  whose class is the value. */
+function settingAccount(
+	setting: string,
+	value: unknown,
+): Claim<"account"> | undefined {
+	const accounts = SETTING_ACCOUNTS.get(setting) ?? [];
+	if (accounts.length === 1) return accounts[0]?.claim;
+	return accounts.find((one) => one.valueClass === String(value))?.claim;
+}
 
 const PROFILE_CLAIMS = defineClaims("appShell.profile", {
 	/** `profile` and its `properties` and `features` bags, each walked key by key. */
@@ -359,6 +346,16 @@ const PROFILE_CLAIMS = defineClaims("appShell.profile", {
 		`${A}/any-other-profile-properties-features-key-not-in-the-yaml`,
 		PROFILE,
 	),
+	/** Nova writes this property from the document's Search on every publish
+	 *  (`derivedProfile.ts`), so the value reaches no slot. */
+	indexCaseSearchResults: derived(
+		`${A}/profile-custom-properties-cc-index-case-search-results-equal-to`,
+		"profile-property:cc-index-case-search-results",
+	),
+	otherCustomProperty: refuse(
+		`${A}/profile-custom-properties-any-other-entry-incl-formplayer-keys`,
+		PROFILE,
+	),
 	showSaved: take(
 		`${A}/20-properties-cc-show-saved`,
 		"setting:properties.cc-show-saved",
@@ -366,14 +363,6 @@ const PROFILE_CLAIMS = defineClaims("appShell.profile", {
 	showIncomplete: take(
 		`${A}/21-properties-cc-show-incomplete`,
 		"setting:properties.cc-show-incomplete",
-	),
-	lazyLoadVideoOn: account(
-		`${A}/2-properties-lazy-load-video-files-true`,
-		"setting:properties.lazy-load-video-files",
-	),
-	lazyLoadVideoOff: account(
-		`${A}/2p-properties-lazy-load-video-files-false`,
-		"setting:properties.lazy-load-video-files",
 	),
 });
 
@@ -388,19 +377,6 @@ const DYNAMIC_KEYS: ReadonlySet<string> = new Set([
 	"user_registration",
 	"split_screen_dynamic_search",
 ]);
-
-interface SurfaceItem {
-	readonly declared?: boolean;
-	readonly values?: readonly unknown[];
-	readonly default?: unknown;
-}
-const ITEMS = (
-	surface as { readonly items: Readonly<Record<string, SurfaceItem>> }
-).items;
-
-function surfaceItem(id: string): SurfaceItem | undefined {
-	return Object.hasOwn(ITEMS, id) ? ITEMS[id] : undefined;
-}
 
 /** A root key naming one of `Application`'s read-only properties or methods: the surface lists it
  *  under `schema:Application.<name>` and does not declare it a stored key. */
@@ -425,8 +401,6 @@ export interface ApplicationReading {
 	/** `_attachments`, admitted where a form of this read names an entry: the forms stage reads
 	 *  each form's source from it. */
 	readonly attachments: Admitted<Readonly<Record<string, unknown>>> | undefined;
-	/** The `profile` object, whose `custom_properties` the case search reader claims. */
-	readonly profile: JsonCursor;
 	/** Each key of HQ's generated patterns in an app language's strings, in source order. */
 	readonly generatedKeys: readonly HeldTranslationKey[];
 }
@@ -495,7 +469,13 @@ function fromUploader(slot: string, ref: unknown): ref is { path: string } {
 /**
  * `logo_refs`, one use claimed once. The Web Apps slot is the app's logo; the
  * three Android slots are kept at CommCare HQ; a slot the uploader did not
- * write, or any other slot, is a finding of its own, named by the slot.
+ * write is a finding of its own, named by the slot. The uploader takes any
+ * slot name (`hqmedia/urls.py`, `logo_name`), and a slot of another name it
+ * wrote is read by no runtime (`const.py::ANDROID_LOGO_PROPERTY_MAPPING`
+ * names the four HQ's build and Web Apps read), so it adds nothing here: a
+ * `logo_refs` holding only such slots is left for the close. The one node is
+ * claimed once: by the Web Apps logo, read or handed to project data, else
+ * by the Android slots, else by the first slot the uploader did not write.
  */
 function readLogos(ctx: ReadContext): void {
 	if (!ctx.app.used("logo_refs")) return;
@@ -505,19 +485,17 @@ function readLogos(ctx: ReadContext): void {
 	let webApps: { path: string } | undefined;
 	let android = false;
 	for (const [slot, ref] of Object.entries(refs)) {
-		const known = slot === WEB_APPS_LOGO || ANDROID_LOGOS.has(slot);
-		if (!known || !fromUploader(slot, ref)) {
+		if (!fromUploader(slot, ref)) {
 			refused.push(slot);
 			continue;
 		}
 		if (slot === WEB_APPS_LOGO) webApps = ref;
-		else android = true;
+		else if (ANDROID_LOGOS.has(slot)) android = true;
 	}
 	for (const slot of refused)
 		ctx.accounting.finding(CLAIMS.logoNotFromUploader, ctx.app.place, {
 			name: slot,
 		});
-	let claimed = false;
 	if (webApps !== undefined) {
 		const place = appSettingsPlace();
 		const path = webApps.path;
@@ -534,7 +512,6 @@ function readLogos(ctx: ReadContext): void {
 			ctx.writeDraft(() => {
 				ctx.draft.logo = resolution.assetId;
 			});
-			claimed = true;
 		} else {
 			ctx.app.handOff("logo_refs", "media-reference", path);
 			ctx.facts.pendingMedia.push({
@@ -545,12 +522,10 @@ function readLogos(ctx: ReadContext): void {
 				slot: "app_logo",
 			});
 		}
+		return;
 	}
-	if (!claimed && android) {
-		ctx.app.account("logo_refs", CLAIMS.logoAndroid);
-		claimed = true;
-	}
-	if (!claimed && webApps === undefined && refused.length > 0)
+	if (android) ctx.app.account("logo_refs", CLAIMS.logoAndroid);
+	else if (refused.length > 0)
 		ctx.app.refuse("logo_refs", CLAIMS.logoNotFromUploader, {
 			name: refused[0],
 		});
@@ -591,9 +566,10 @@ function yesNo(value: unknown): boolean | undefined {
  * `profile`: its `properties` and `features`, key by key. `cc-show-saved`
  * and `cc-show-incomplete` are the app's own settings; a key HQ's settings
  * list is claimed under the entry that holds its value; a key none lists is
- * inert. `custom_properties` is the case search reader's.
+ * inert. In `custom_properties`, the one property Nova derives is read past,
+ * and any other is a finding named by the property.
  */
-function readProfile(ctx: ReadContext): JsonCursor {
+function readProfile(ctx: ReadContext): void {
 	const profile = ctx.app.object(
 		"profile",
 		"Application.profile",
@@ -642,31 +618,32 @@ function readProfile(ctx: ReadContext): JsonCursor {
 				if (read !== undefined) showIncomplete = read;
 				continue;
 			}
-			if (setting === "setting:properties.lazy-load-video-files") {
-				bag.account(
-					name,
-					value === "true"
-						? PROFILE_CLAIMS.lazyLoadVideoOn
-						: PROFILE_CLAIMS.lazyLoadVideoOff,
-				);
-				continue;
-			}
-			const claim = SETTING_CLAIMS[setting];
+			const claim = settingAccount(setting, value);
 			if (claim !== undefined) {
 				bag.account(name, claim);
 				continue;
 			}
 			/* A key HQ's settings name only under an entry that holds it is
-			 * left for the close: the Web Apps logo is read from `logo_refs`. */
+			 * left for the close: the Web Apps logo is read from `logo_refs`.
+			 * So is a value of a setting whose entries' classes all leave it. */
 			if (item === undefined)
 				bag.account(name, PROFILE_CLAIMS.notInTheSettings);
 		}
+	}
+	const custom = profile.object(
+		"custom_properties",
+		"Application.profile.custom_properties",
+		PROFILE_CLAIMS.container,
+	);
+	for (const name of keysOf(custom)) {
+		if (name === INDEX_CASE_SEARCH_RESULTS)
+			custom.derived(name, PROFILE_CLAIMS.indexCaseSearchResults);
+		else custom.refuse(name, PROFILE_CLAIMS.otherCustomProperty, { name });
 	}
 	ctx.writeDraft(() => {
 		ctx.draft.appSettings.showSavedForms = showSaved;
 		ctx.draft.appSettings.showIncompleteForms = showIncomplete;
 	});
-	return profile;
 }
 
 /**
@@ -856,12 +833,12 @@ export function readApplication(ctx: ReadContext): void {
 		languages,
 		typeof rawName === "string" ? rawName : undefined,
 	);
-	const profile = readProfile(ctx);
+	readProfile(ctx);
 	readBuildSpec(ctx);
 	readLogos(ctx);
 	for (const [name, claim] of Object.entries(ACCOUNTED_CLAIMS))
 		app.account(name, claim);
 	readByValue(ctx);
 	readUndeclared(ctx);
-	READINGS.set(ctx, { languages, attachments, profile, generatedKeys });
+	READINGS.set(ctx, { languages, attachments, generatedKeys });
 }

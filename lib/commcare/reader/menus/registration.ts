@@ -10,10 +10,21 @@
 import type { HqApplication } from "@/lib/commcare";
 import {
 	type BlueprintDoc,
+	declaresWebApps,
 	makeTranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
-import { NO_MATCHES_RELEVANCY } from "../../suite/case-search/noMatches";
+import { caseListFormLabelUnit } from "../../emissionPlan";
+import { emptyShortListColumns } from "../../hqJson/caseList";
+import { hqXPath, serializeHqModule } from "../../hqJson/xpath";
+import { detailPair, moduleShell } from "../../hqShells";
+import { repeatForLanguages } from "../../localization";
+import { EMPTY_CASE_LIST_TEXT } from "../../suite/case-list/detailTexts";
+import {
+	NEVER_RELEVANT,
+	NO_MATCHES_RELEVANCY,
+} from "../../suite/case-search/noMatches";
+import { schemaPropertyDefault } from "../../surface/schemaDefaults";
 import type { ValidationError } from "../../validator/errors";
 import {
 	caseListRegistrationApp,
@@ -32,11 +43,11 @@ import {
 	formChoosesCase,
 	labelAsBuilt,
 	labelMap,
-	offersSearch,
 	rawForms,
 	rawModuleById,
 	rawModules,
 	selectsSeveral,
+	withReadTranslations,
 	writeBuiltLabel,
 } from "./modules";
 import { readNavMedia } from "./navMedia";
@@ -87,6 +98,10 @@ const REGISTRATION = {
 	advanced: blockClaims(
 		refuse,
 		"case-list-form-on-an-advanced-module-or-naming-an-advanced-form",
+	),
+	advancedRulesBroken: refuse(
+		"forms-and-case-writes/advanced-forms-in-a-module-whose-case-list-offers-a-registration",
+		"schema:AdvancedModule.case_list_form",
 	),
 	childCase: blockClaims(
 		refuse,
@@ -247,14 +262,115 @@ function holdsMedia(block: JsonObject): boolean {
 	return any(block.media_image) || any(block.media_audio);
 }
 
+/** Whether a value is blank as HQ stores an unset one: absent, null, empty text, or an empty
+ *  map or list. */
+function unset(value: unknown): boolean {
+	return (
+		blank(value) ||
+		(Array.isArray(value) && value.length === 0) ||
+		(isJsonObject(value) && Object.keys(value).length === 0)
+	);
+}
+
+/**
+ * Whether a stored value is the one Nova's shell writes, as HQ serves it:
+ * texts the same (XPath as trees), lists element by element, and an object key
+ * by key, where a key one side lacks holds HQ's default for the object's class
+ * (`surface/schemaDefaults.ts`: HQ serves every property its class declares),
+ * or, in a map with no class, nothing.
+ */
+function sameAsShell(stored: unknown, ours: unknown): boolean {
+	if (typeof stored === "string" && typeof ours === "string")
+		return (
+			stored === ours ||
+			(stored.trim() !== "" &&
+				ours.trim() !== "" &&
+				sameXPathText(stored, ours))
+		);
+	if (Array.isArray(stored) || Array.isArray(ours))
+		return (
+			(Array.isArray(stored) &&
+				Array.isArray(ours) &&
+				stored.length === ours.length &&
+				stored.every((one, index) => sameAsShell(one, ours[index]))) ||
+			(unset(stored) && unset(ours))
+		);
+	if (isJsonObject(stored) && isJsonObject(ours))
+		return differingKey(stored, ours, []) === undefined;
+	return stored === ours || (unset(stored) && unset(ours));
+}
+
+/** The first key at which a stored object is not Nova's shell, `skip` left out. */
+function differingKey(
+	stored: JsonObject,
+	ours: JsonObject,
+	skip: readonly string[],
+): string | undefined {
+	const cls = typeof stored.doc_type === "string" ? stored.doc_type : undefined;
+	for (const key of new Set([...Object.keys(stored), ...Object.keys(ours)])) {
+		if (skip.includes(key)) continue;
+		const inStored = Object.hasOwn(stored, key);
+		const inOurs = Object.hasOwn(ours, key);
+		if (inStored && inOurs) {
+			if (!sameAsShell(stored[key], ours[key])) return key;
+			continue;
+		}
+		// HQ names an object's class where Nova's shell may not.
+		if (key === "doc_type") continue;
+		const value = inStored ? stored[key] : ours[key];
+		const fallback =
+			cls === undefined ? undefined : schemaPropertyDefault(cls, key);
+		const atDefault =
+			fallback?.known === true
+				? sameAsShell(value, fallback.default)
+				: unset(value);
+		if (!atDefault) return key;
+	}
+	return undefined;
+}
+
+/**
+ * The menu Nova's emission writes for a registration offered after an empty
+ * search (`expander.ts`, the synthetic menu `emissionPlan.ts` adds): the basic
+ * shell for the host's case type with the one `name` column every new menu
+ * holds, its empty-list text in every language, no deep link, and hidden by
+ * `false()`.
+ */
+function hiddenMenuAsWritten(ctx: ReadContext, caseType: string): JsonObject {
+	const langs = appLanguageCodes(ctx);
+	const details = detailPair(emptyShortListColumns(langs));
+	details.short.no_items_text = repeatForLanguages(langs, EMPTY_CASE_LIST_TEXT);
+	const shell = moduleShell(
+		"",
+		{},
+		caseType,
+		[],
+		details,
+		langs,
+		declaresWebApps({
+			appSettings: ctx.draft.appSettings as BlueprintDoc["appSettings"],
+		}),
+	);
+	shell.session_endpoint_id = "";
+	shell.case_list_session_endpoint_id = "";
+	shell.module_filter = hqXPath(NEVER_RELEVANT, "no-case");
+	return serializeHqModule(shell) as unknown as JsonObject;
+}
+
+/** The keys of a hidden menu that are its own and no setting: compared on their own, or not. */
+const HIDDEN_MENU_OWN_KEYS = ["unique_id", "name", "forms"] as const;
+
 /**
  * The hidden-menu shape: the named form's menu holds exactly that one form,
- * filters itself out of every menu with `false()`, and is otherwise Nova's
- * shell for the form's case type; the host's forms read the search; the
- * block's relevancy is "the search found nothing", it returns to the case
- * list or goes on with the new case, and it holds no media.
+ * filters itself out of every menu with `false()`, is named as its form, and
+ * holds no other key at a value other than Nova's shell for the host's case
+ * type (no parent, no case list item, no search, no media, the default
+ * details); the host's forms read the search; the block's relevancy is "the
+ * search found nothing", it returns to the case list or goes on with the new
+ * case, and it holds no media.
  */
 function hiddenMenuShape(
+	ctx: ReadContext,
 	host: JsonObject,
 	block: JsonObject,
 	menu: JsonObject,
@@ -263,21 +379,19 @@ function hiddenMenuShape(
 	const filter = menu.module_filter;
 	if (typeof filter !== "string" || !sameXPathText(filter, "false()"))
 		return false;
-	const select = isJsonObject(menu.parent_select) ? menu.parent_select : {};
-	const caseList = isJsonObject(menu.case_list) ? menu.case_list : {};
-	const listForm = isJsonObject(menu.case_list_form) ? menu.case_list_form : {};
+	const langs = appLanguageCodes(ctx);
 	if (
 		menu.doc_type !== "Module" ||
-		!blank(menu.root_module_id) ||
-		menu.put_in_root === true ||
-		select.active === true ||
-		caseList.show === true ||
-		offersSearch(menu) ||
-		holdsMedia(menu) ||
-		!blank(listForm.form_id) ||
-		!blank(menu.session_endpoint_id) ||
-		!blank(menu.case_list_session_endpoint_id) ||
-		textOf(menu.case_type) !== textOf(host.case_type)
+		textOf(menu.case_type) !== textOf(host.case_type) ||
+		!sameJson(
+			effectiveNames(menu.name, langs),
+			effectiveNames(rawForms(menu)[0]?.name, langs),
+		) ||
+		differingKey(
+			menu,
+			hiddenMenuAsWritten(ctx, textOf(host.case_type)),
+			HIDDEN_MENU_OWN_KEYS,
+		) !== undefined
 	)
 		return false;
 	const relevancy = block.relevancy_expression;
@@ -289,6 +403,46 @@ function hiddenMenuShape(
 			block.post_form_workflow === "default") &&
 		!holdsMedia(block)
 	);
+}
+
+/**
+ * Whether an advanced host breaks the rules HQ's build holds a menu whose case
+ * list offers a registration to (`helpers/validators.py::AdvancedModuleValidator.validate_with_raise`):
+ * every form loads the same case types from a list, loads at least one, loads
+ * only parents of the next, ends on a load of the menu's case type under one
+ * tag, and lists that load from the menu's own details.
+ */
+function caseListModuleRulesBreak(host: JsonObject): boolean {
+	let types: string | undefined;
+	let tag: unknown;
+	for (const form of rawForms(host)) {
+		const actions = isJsonObject(form.actions) ? form.actions : {};
+		const loads = (
+			Array.isArray(actions.load_update_cases)
+				? actions.load_update_cases.filter(isJsonObject)
+				: []
+		).filter((load) => !isJsonObject(load.auto_select));
+		const loaded = JSON.stringify(
+			[...new Set(loads.map((load) => textOf(load.case_type)))].sort(),
+		);
+		if (types === undefined) types = loaded;
+		else if (types !== loaded) return true;
+		const last = loads[loads.length - 1];
+		if (last === undefined) return true;
+		for (let index = 1; index < loads.length; index++) {
+			const previous = (loads[index - 1] as JsonObject).case_tag;
+			const indices = (loads[index] as JsonObject).case_indices;
+			const tags = Array.isArray(indices)
+				? indices.filter(isJsonObject).map((one) => one.tag)
+				: [];
+			if (!blank(previous) && !tags.includes(previous)) return true;
+		}
+		if (textOf(last.case_type) !== textOf(host.case_type)) return true;
+		if (tag === undefined) tag = last.case_tag;
+		else if (last.case_tag !== tag) return true;
+		if (last.details_module !== host.unique_id) return true;
+	}
+	return false;
 }
 
 /** One host's block, as pass 1 left it for the acceptance. */
@@ -386,7 +540,8 @@ export function readCaseListRegistration(
 		candidates.push({ host, block, named });
 		if (named !== undefined) {
 			const menu = stored[named.module.index] ?? {};
-			if (hiddenMenuShape(json, block, menu)) hiddenNamed.set(named.form, host);
+			if (hiddenMenuShape(ctx, json, block, menu))
+				hiddenNamed.set(named.form, host);
 		}
 	}
 	for (const { host, block, named } of candidates) {
@@ -431,7 +586,9 @@ export function readCaseListRegistration(
 			continue;
 		}
 		if (cls === "AdvancedModule" || named.module.docType === "AdvancedModule") {
-			refuseBlock(REGISTRATION.advanced);
+			if (cls === "AdvancedModule" && caseListModuleRulesBreak(json))
+				host.json.refuse("case_list_form", REGISTRATION.advancedRulesBroken);
+			else refuseBlock(REGISTRATION.advanced);
 			continue;
 		}
 		if (registrations[0] === "child") {
@@ -591,22 +748,6 @@ function gateFindings(
 	return refused;
 }
 
-/** The keys of a hidden menu Nova's emission writes, compared with the stored menu. */
-const HIDDEN_MENU_KEYS = [
-	"name",
-	"case_type",
-	"put_in_root",
-	"root_module_id",
-	"case_list",
-	"parent_select",
-	"case_details",
-	"search_config",
-	"media_image",
-	"media_audio",
-	"session_endpoint_id",
-	"case_list_session_endpoint_id",
-] as const;
-
 /** Whether two stored values are one: XPath text as trees, every other value as JSON. */
 function sameValue(a: unknown, b: unknown): boolean {
 	if (typeof a === "string" && typeof b === "string")
@@ -654,7 +795,11 @@ export function settleRegistrations(
 			CREATE_A_NEW_CASE,
 		);
 		const builtOurs = labelAsBuilt(
-			labelMap(emitted.label),
+			withReadTranslations(
+				ctx,
+				caseListFormLabelUnit(doc, block.host.uuid, block.form.uuid),
+				labelMap(emitted.label),
+			),
 			langs,
 			CREATE_A_NEW_CASE,
 		);
@@ -695,11 +840,9 @@ export function settleRegistrations(
 				continue;
 			}
 			const names = (value: unknown) => effectiveNames(value, langs);
-			const key = HIDDEN_MENU_KEYS.find((one) =>
-				one === "name"
-					? !sameJson(names(menu.name), names(synthetic.name))
-					: !sameValue(menu[one], synthetic[one]),
-			);
+			const key = !sameJson(names(menu.name), names(synthetic.name))
+				? "name"
+				: differingKey(menu, synthetic, HIDDEN_MENU_OWN_KEYS);
 			if (key !== undefined)
 				ctx.accounting.circumstance("unrecognized", block.hidden.place, {
 					name: `schema:Module.${key}`,

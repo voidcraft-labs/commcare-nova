@@ -32,6 +32,7 @@ import {
 	formLinkProjectionContext,
 	owningModuleOf,
 } from "../../formLinkProjection";
+import { entryPlanContext, runFormRules } from "../../validator/rules/form";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import { caseById } from "../../xpath/wire/rowScope";
@@ -199,6 +200,11 @@ const AFTER_SUBMIT = {
 		`${F}/form-links-failing-hq-s-link-checks-no-form-links-and-bad-form`,
 		"schema:FormLink.form_id",
 	),
+	noLinks: perClass(
+		refuse,
+		"form-links-failing-hq-s-link-checks-no-form-links-and-bad-form",
+		"form_links",
+	),
 	xpath: derived(`${F}/form-links-xpath`, "schema:FormLink.xpath"),
 	datums: take(
 		`${F}/form-links-datums-on-a-form-target-names-among-the-target-s`,
@@ -216,9 +222,10 @@ const AFTER_SUBMIT = {
 		`${F}/form-links-datums-with-other-names-or-on-a-module-target`,
 		"schema:FormLink.datums",
 	),
-	datumsIncomplete: refuse(
-		`${F}/form-links-datums-that-leave-the-target-s-case-id-empty`,
-		"schema:FormLink.datums",
+	datumsIncomplete: perClass(
+		refuse,
+		"form-links-datums-that-leave-the-target-s-case-id-empty",
+		"form_links",
 	),
 } as const;
 
@@ -276,7 +283,6 @@ interface ReadLink {
 	}[];
 	/** The condition's registration, where a condition is left after the guards. */
 	readonly condition?: number;
-	readonly guards: "none" | "written" | "added";
 	readonly role: "destination" | "otherwise";
 }
 
@@ -321,8 +327,26 @@ export function readAfterSubmit(ctx: ReadContext, app: DraftApp): void {
 			const word = json.peek("post_form_workflow");
 			const menu = stored[form.menu] ?? {};
 			let read: Word | "form" | undefined;
-			if (word === "form") read = "form";
-			else if (!isWord(word)) {
+			const links = json.peek("form_links");
+			if (word === "form") {
+				// HQ's build refuses `form` with no link to follow (`no form links`).
+				if (!Array.isArray(links) || links.length === 0) {
+					json.take(
+						"post_form_workflow",
+						WORD_CLAIMS.form[cls],
+						(value) => value,
+					).value;
+					ctx.accounting.finding(AFTER_SUBMIT.noLinks[cls], form.place);
+					if (json.used("post_form_workflow_fallback"))
+						json.drop(
+							"post_form_workflow_fallback",
+							AFTER_SUBMIT.fallbackNone[cls],
+						);
+					readings.push({ module, form, word: undefined });
+					continue;
+				}
+				read = "form";
+			} else if (!isWord(word)) {
 				const label = (HQ_PAGE_LABELS.workflow as Record<string, string>)[
 					textOf(word)
 				];
@@ -958,7 +982,6 @@ function registerLink(
 		xpath,
 		datums,
 		...(condition === undefined ? {} : { condition }),
-		guards: guards.guards,
 		role,
 	};
 }
@@ -1012,6 +1035,41 @@ function writeBound(ctx: ReadContext, reading: ReadAfterSubmit): boolean {
 	return true;
 }
 
+/** The document's link a read link became: a destination, or the otherwise link. */
+function documentLink(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	link: ReadLink,
+): Pick<FormLink, "target" | "datums"> | undefined {
+	const form = doc.forms[formUuid];
+	return (
+		form?.formLinks?.find((one) => one.uuid === link.uuid) ??
+		(form?.otherwise?.kind === "link" && form.otherwise.uuid === link.uuid
+			? form.otherwise
+			: undefined)
+	);
+}
+
+/** The guards of a read link, decided again over the document with its stored `xpath` (9.4):
+ *  its target and carried selections are the ones step 4 wrote, so this agrees with the mark
+ *  `registerLinkExpressions` read over the provisional document. */
+function guardsOf(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	link: ReadLink,
+): ReturnType<typeof linkGuards> | undefined {
+	const domain = documentLink(doc, formUuid, link);
+	return domain === undefined
+		? undefined
+		: linkGuards(
+				doc,
+				formUuid,
+				domain,
+				link.xpath,
+				link.datums.map((one) => one.xpath),
+			);
+}
+
 /** The stored `xpath` of a link as Nova's emission writes it, the guards it adds included, as
  *  a list of conjuncts; undefined where a text does not parse. */
 function adjustedConjuncts(
@@ -1023,17 +1081,14 @@ function adjustedConjuncts(
 		link.xpath.trim() === "" ? undefined : syntaxOf(link.xpath, undefined);
 	if (parsed !== undefined && !parsed.ok) return undefined;
 	const parts = parsed === undefined ? [] : conjuncts(parsed.syntax);
-	if (link.guards !== "added") return parts;
-	const domainLink =
-		doc.forms[formUuid]?.formLinks?.find((one) => one.uuid === link.uuid) ??
-		(doc.forms[formUuid]?.otherwise?.kind === "link"
-			? doc.forms[formUuid]?.otherwise
-			: undefined);
-	if (domainLink === undefined || !("target" in domainLink)) return undefined;
+	const domain = documentLink(doc, formUuid, link);
+	if (domain === undefined) return undefined;
+	const marked = guardsOf(doc, formUuid, link);
+	if (marked?.guards !== "added") return parts;
 	const guards = expectedGuards(
 		doc,
 		formUuid,
-		domainLink,
+		domain,
 		link.datums.map((one) => one.xpath),
 	);
 	return guards === undefined ? undefined : [...parts, ...guards];
@@ -1069,6 +1124,41 @@ export function settleAfterSubmit(ctx: ReadContext, form: DraftForm): void {
 	}
 	if (reading.whole !== true || reading.links === undefined) return;
 	reading.bound = writeBound(ctx, reading);
+	if (reading.bound && leavesTargetCaseEmpty(ctx, form)) {
+		ctx.accounting.finding(
+			AFTER_SUBMIT.datumsIncomplete[form.docType],
+			form.place,
+		);
+		reading.bound = false;
+		// No later reader takes a link Nova refused.
+		const current = ctx.doc as BlueprintDoc;
+		ctx.doc = withCandidate(current, (draft) => {
+			const target = draft.forms[form.uuid];
+			if (target === undefined) return;
+			delete target.formLinks;
+			delete target.otherwise;
+		});
+	}
+}
+
+/** Whether the gate's `FORM_LINK_DATUMS_INCOMPLETE` holds of the form's links over the
+ *  document: a destination whose case the link's carried values, or automatic matching, leave
+ *  empty. */
+function leavesTargetCaseEmpty(ctx: ReadContext, form: DraftForm): boolean {
+	const doc = ctx.doc;
+	if (doc === undefined) return false;
+	const moduleUuid = doc.moduleOrder.find((uuid) =>
+		(doc.formOrder[uuid] ?? []).includes(form.uuid),
+	);
+	if (moduleUuid === undefined) return false;
+	try {
+		return runFormRules(doc, form.uuid, moduleUuid, entryPlanContext(doc)).some(
+			(error) => error.code === "FORM_LINK_DATUMS_INCOMPLETE",
+		);
+	} catch {
+		// A form the rules cannot project is the expansion's to report.
+		return false;
+	}
 }
 
 /** Pass 2, over `settleMenus`' one expansion: the form's `post_form_workflow`,
@@ -1081,8 +1171,22 @@ export function acceptAfterSubmit(
 ): void {
 	const reading = readingsOf(ctx).find((one) => one.form === form);
 	const doc = ctx.doc;
-	if (reading?.word !== "form" || reading.bound !== true || doc === undefined)
+	if (
+		reading?.word === undefined ||
+		doc === undefined ||
+		doc.forms[form.uuid] === undefined ||
+		ctx.accounting.hasFindingAt(form.place)
+	)
 		return;
+	if (reading.word !== "form") {
+		// (R1): the word Nova writes for the destination read is the stored word.
+		if (emitted?.post_form_workflow !== reading.word)
+			ctx.accounting.circumstance("unrecognized", form.place, {
+				name: `schema:${form.docType}.post_form_workflow`,
+			});
+		return;
+	}
+	if (reading.bound !== true) return;
 	const own = doc.forms[form.uuid];
 	const entries = [
 		...(own?.formLinks ?? []),
@@ -1200,8 +1304,7 @@ function compareLinks(
 		let expected = adjusted.get(link) as FormSyntax[];
 		if (link.role === "otherwise") {
 			// The otherwise link negates every destination's adjusted condition, then its own guards.
-			const count =
-				link.guards === "none" ? 0 : guardCount(doc, form.uuid, link);
+			const count = guardsOf(doc, form.uuid, link)?.expected ?? 0;
 			const ownGuards =
 				count === 0 ? [] : expected.slice(expected.length - count);
 			const negations = destinations
@@ -1261,19 +1364,6 @@ function compareLinks(
 			}
 		}
 	}
-}
-
-/** How many guards Nova writes for a link of the document. */
-function guardCount(doc: BlueprintDoc, formUuid: Uuid, link: ReadLink): number {
-	const form = doc.forms[formUuid];
-	const domain =
-		form?.formLinks?.find((one) => one.uuid === link.uuid) ??
-		(form?.otherwise?.kind === "link" && form.otherwise.uuid === link.uuid
-			? form.otherwise
-			: undefined);
-	return domain === undefined
-		? 0
-		: guardedLinkDatums(doc, formUuid, domain).length;
 }
 
 /**

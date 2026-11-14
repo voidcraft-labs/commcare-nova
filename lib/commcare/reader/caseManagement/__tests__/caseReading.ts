@@ -22,13 +22,18 @@ import {
 import { readApplication } from "../../appShell";
 import type { DraftForm, ReadContext } from "../../context";
 import { readStructure } from "../../structure";
+import type { ReaderInput } from "../../types";
 import {
 	type DraftField,
 	mintFields,
 	type ReadXForm,
 	readForms,
 } from "../../xform";
-import { readCaseManagement, writeCaseOperations } from "../index";
+import {
+	readCaseManagement,
+	settleCaseManagement,
+	writeCaseOperations,
+} from "../index";
 
 export type AppJson = Record<string, unknown> & {
 	modules: Array<
@@ -49,6 +54,10 @@ export interface CaseReadingOptions {
 	readonly expand?: Parameters<typeof expandDoc>[1];
 	/** Changes a form's emitted source before it is read, by the form's index in emission order. */
 	readonly editSource?: (xml: string, formIndex: number) => string;
+	/** Changes what the reading is given beside the source: the project space's tables. */
+	readonly input?: (input: ReaderInput) => ReaderInput;
+	/** Writes each basic menu's parent selection from its `parent_select`, as the menu stage does. */
+	readonly parentSelections?: boolean;
 }
 
 export interface CaseReading {
@@ -57,13 +66,27 @@ export interface CaseReading {
 	readonly findings: readonly Finding[];
 }
 
-/** The menu stage's case type for each basic menu, from its stored `case_type`. */
-function writeMenuCaseTypes(ctx: ReadContext): void {
+/** The menu stage's case type for each basic menu, from its stored `case_type`, and where
+ *  `parentSelections`, its parent selection, from its active `parent_select`. */
+function writeMenuCaseTypes(ctx: ReadContext, parentSelections: boolean): void {
 	for (const module of ctx.draft.modules) {
 		const caseType = module.json.peek("case_type");
 		if (typeof caseType === "string" && caseType !== "")
 			ctx.writeDraft(() => {
 				module.module.caseType = caseType;
+			});
+		if (!parentSelections) continue;
+		const select = module.json.peek("parent_select") as
+			| { active?: unknown; module_id?: unknown }
+			| null
+			| undefined;
+		const parent =
+			select?.active === true
+				? ctx.draft.modules.find((one) => one.uniqueId === select.module_id)
+				: undefined;
+		if (parent !== undefined)
+			ctx.writeDraft(() => {
+				module.module.parentCaseModuleUuid = parent.uuid;
 			});
 	}
 }
@@ -103,9 +126,13 @@ export async function readCases(
  *  them, read through the same stages. */
 export async function readCasesOfBody(
 	app: Readonly<Record<string, unknown>>,
-	options: Pick<CaseReadingOptions, "saveOnlyEditedApplied"> = {},
+	options: Pick<
+		CaseReadingOptions,
+		"saveOnlyEditedApplied" | "input" | "parentSelections"
+	> = {},
 ): Promise<CaseReading> {
-	const input = readerInput(await sourceFromBody(app));
+	const read = readerInput(await sourceFromBody(app));
+	const input = options.input === undefined ? read : options.input(read);
 	const ctx = readContext(
 		options.saveOnlyEditedApplied === undefined
 			? input
@@ -114,10 +141,14 @@ export async function readCasesOfBody(
 	readApplication(ctx);
 	readStructure(ctx);
 	readForms(ctx);
-	writeMenuCaseTypes(ctx);
+	writeMenuCaseTypes(ctx, options.parentSelections === true);
 	readCaseManagement(ctx, ctx.draft);
 	mintFields(ctx);
 	writeCaseOperations(ctx, ctx.draft);
+	// With nothing bound, the settle stage judges what pass 1 alone read: each
+	// form's `save` map against its blocks, and a question path left for the
+	// bound form under its own row.
+	settleCaseManagement(ctx, ctx.draft);
 	const forms = ctx.draft.modules.flatMap((module) => module.forms);
 	return { ctx, forms, findings: ctx.close().findings };
 }

@@ -5,8 +5,11 @@
  * It would catch a mirror menu read key by key into dozens of findings; two
  * forms of one `xmlns` both minted; a report menu's and a shadow form's
  * findings not both in one account; a menu with no id or a form whose
- * `xmlns` is blank minted; and a form named `instance('casedb') practice`
- * read to anything but the one finding `form-name-read-as-an-instance`.
+ * `xmlns` is blank minted; a form named `instance('casedb') practice`
+ * read to anything but the one finding `form-name-read-as-an-instance`; and
+ * an advanced menu's or form's class recorded nowhere the lane records it
+ * (the object's own pointer), or an advanced form's dynamic keys left for
+ * the close.
  */
 
 import { describe, expect, it } from "vitest";
@@ -15,6 +18,7 @@ import { externalKey, mintEntityUuid } from "../identity";
 import { readStructure } from "../structure";
 import {
 	closeAfterStructure,
+	entriesAt,
 	readContext,
 	readerInput,
 	retainedSourceBody,
@@ -97,6 +101,48 @@ describe("readStructure", () => {
 				xform: null,
 			},
 		]);
+	});
+
+	it("reads an advanced menu's and form's class at the object itself, and an advanced form's dynamic keys as a form's", async () => {
+		const xmlns = "http://openrosa.org/formdesigner/advanced";
+		const { ctx, closed } = await readMenus([
+			menu(
+				"m-advanced",
+				"Advanced",
+				[
+					form("r1", xmlns, "Visit", {
+						doc_type: "AdvancedForm",
+						no_vellum: true,
+						put_in_root: false,
+						planted: 1,
+					}),
+				],
+				{ doc_type: "AdvancedModule" },
+			),
+		]);
+		expect(entriesAt(closed, "/modules/0")).toEqual([`${M}/advancedmodule`]);
+		expect(entriesAt(closed, "/modules/0/forms/0")).toEqual([
+			`${F}/advancedform`,
+		]);
+		expect(entriesAt(closed, "/modules/0/forms/0/no_vellum")).toEqual([
+			`${F}/no-vellum-removed-field-dynamic-key`,
+		]);
+		expect(entriesAt(closed, "/modules/0/forms/0/put_in_root")).toEqual([
+			`${F}/put-in-root-on-a-form-dynamic-key`,
+		]);
+		expect(
+			closed.findings.filter((finding) => finding.place.kind === "form"),
+		).toMatchObject([
+			{
+				code: `${F}/any-other-undeclared-key`,
+				place: { kind: "form", menu: 0, form: 0 },
+				detail: { name: "planted" },
+			},
+		]);
+		expect(ctx.draft.modules[0]).toMatchObject({
+			docType: "AdvancedModule",
+			forms: [{ docType: "AdvancedForm" }],
+		});
 	});
 
 	it("gives a mirror menu one finding at the menu, whatever it holds", async () => {

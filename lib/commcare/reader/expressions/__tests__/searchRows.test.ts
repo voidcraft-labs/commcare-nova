@@ -4,7 +4,8 @@
  * row exact, in order, each named by the source that wrote it (the case list
  * filter, an advanced field's condition, a simple field's derived match); a
  * row Nova does not write is unmatched and a row Nova writes that the source
- * lacks is extra; a row whose root is `and` reads as its conjuncts. The
+ * lacks is extra; a row whose root is `and` reads as its conjuncts and
+ * matches the run of rows Nova writes for them, in Nova's order. The
  * failures this catches: Nova's own rows not matched exact, a filter's clause
  * that reads a Search field reported as a field's row, and a conjunction read
  * as one predicate.
@@ -89,6 +90,40 @@ describe("a menu's search rows against Nova's emission", () => {
 			"field",
 			"derived",
 		]);
+	});
+
+	it("matches a row whose root is a conjunction to the rows Nova writes for its conjuncts", () => {
+		const filter = and(
+			eq(village, term(literal("a"))),
+			gt(age, term(literal(3))),
+		);
+		const { doc, rows } = novaRows(filter);
+		expect(rows).toHaveLength(4);
+		const source = [csqlRow("village = 'a' and age > 3"), ...rows.slice(2)];
+		expect(
+			matchSearchRows(doc, patientsMenu(doc), source, rowEnv(doc)),
+		).toEqual({
+			matched: [
+				{ source: 0, level: "exact", from: "filter" },
+				{ source: 0, level: "exact", from: "filter" },
+				{ source: 1, level: "exact", from: "field" },
+				{ source: 2, level: "exact", from: "derived" },
+			],
+			unmatched: [],
+			extra: [],
+		});
+	});
+
+	it("leaves a conjunction unmatched where Nova writes its conjuncts in another order", () => {
+		const filter = and(
+			eq(village, term(literal("a"))),
+			gt(age, term(literal(3))),
+		);
+		const { doc, rows } = novaRows(filter);
+		const source = [csqlRow("age > 3 and village = 'a'"), ...rows.slice(2)];
+		const result = matchSearchRows(doc, patientsMenu(doc), source, rowEnv(doc));
+		expect(result.unmatched).toEqual([0]);
+		expect(result.extra).toEqual([0, 1]);
 	});
 });
 

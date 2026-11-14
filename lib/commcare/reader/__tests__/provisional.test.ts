@@ -2,12 +2,15 @@
  * The provisional document and the binding of a reading's expressions.
  *
  * Contract: the provisional document is a document the schema admits in a
- * reading that holds findings, with a stand-in where a question got one, so an
- * expression reading the refused question still binds; it is deeply frozen,
+ * reading that holds findings, with a stand-in where a question got one (a
+ * group for a node with children), and no mirror menu, so an expression
+ * reading the refused question still binds, and a reading holding a stand-in
+ * returns no document; it is deeply frozen,
  * the same object until a draft is written, a new one after. No stage of
  * `STAGES` writes a draft outside `ctx.writeDraft`. The expression stage's
  * answer is applied to the nodes it was read from: each registration's
- * outcome is its bound tree and its slot's own claim, an ownerless
+ * outcome is its bound tree and its slot's own claim, the second run's over
+ * the worker information the first found the app reads, an ownerless
  * registration stands under the finding at or above its place or is the
  * invariant C10, and a table the catalog lacks is listed once.
  *
@@ -20,12 +23,13 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain/blueprint";
+import { asUuid, type Uuid } from "@/lib/domain/uuid";
 import { expandDoc } from "../../expander";
 import { inventoryIndex } from "../../surface/inventory";
 import type { ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { EXPRESSION_CLAIMS } from "../expressions/findings";
-import { STAGES } from "../index";
+import { readHqApp, STAGES } from "../index";
 import { pendingPlaceholder } from "../pendingExpressions";
 import {
 	applyExpressionReading,
@@ -33,6 +37,7 @@ import {
 	provisionalDocument,
 } from "../provisional";
 import { X } from "../xform/claims";
+import { exportedBody, inputFor, mirrorMenu } from "./novaExport";
 import {
 	readContext,
 	readerInput,
@@ -96,6 +101,64 @@ function survey(): BlueprintDoc {
 /** Renames the question `q1` to an id the question id grammar refuses, everywhere it is named. */
 const refuseQ1 = (xml: string) => xml.replaceAll("q1", "script");
 
+/** A survey whose group `boxed` holds `q1`, which `q2`'s condition reads, beside a text `q3`. */
+function boxed(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "group",
+								id: "boxed",
+								label: "Box",
+								children: [f({ kind: "text", id: "q1", label: "First" })],
+							}),
+							f({
+								kind: "text",
+								id: "q2",
+								label: "Second",
+								relevant: "#form/boxed/q1 = 'x'",
+							}),
+							f({ kind: "text", id: "q3", label: "Third" }),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** Renames the group `boxed` to an id the grammar refuses, and binds `q3` as a Long, a kind
+ *  Nova refuses. */
+function refuseBoxedAndQ3(xml: string): string {
+	const renamed = xml.replaceAll("boxed", "script");
+	const at = renamed.indexOf('nodeset="/data/q3"');
+	const open = renamed.lastIndexOf("<bind", at);
+	const close = renamed.indexOf(">", at);
+	if (open < 0 || close < 0) throw new Error("The form binds q3.");
+	const bind = renamed.slice(open, close);
+	if (!bind.includes('type="xsd:string"'))
+		throw new Error("q3 is bound as text.");
+	return `${renamed.slice(0, open)}${bind.replace('type="xsd:string"', 'type="xsd:long"')}${renamed.slice(close)}`;
+}
+
+/** A reading of `body`, run through every stage before the expression stage. */
+async function readBodyUpToBinding(
+	body: Record<string, unknown>,
+): Promise<ReadContext> {
+	const ctx = readContext(await inputFor(body));
+	for (const stage of STAGES) {
+		if (stage === bindExpressions) break;
+		stage(ctx);
+	}
+	return ctx;
+}
+
 describe("the provisional document", () => {
 	it("is a document the schema admits, with a stand-in for a refused question", async () => {
 		const ctx = await readUpToBinding(survey(), refuseQ1);
@@ -112,6 +175,52 @@ describe("the provisional document", () => {
 		const relevant = pending.findIndex((one) => one.ref.slot === "relevant");
 		expect(relevant).toBeGreaterThanOrEqual(0);
 		expect(ctx.pending.outcome(relevant).expression).toBeDefined();
+	});
+
+	it("holds no mirror menu, a stand-in group for a refused node with children and a stand-in for a refused control, and is never returned", async () => {
+		const doc = boxed();
+		const body = exportedBody(doc, {
+			xml: refuseBoxedAndQ3,
+			modules: (modules) => [
+				...modules,
+				mirrorMenu(String(modules[0]?.unique_id)),
+			],
+		});
+		const ctx = await readBodyUpToBinding(body);
+		const provisional = provisionalDocument(ctx);
+		expect(
+			blueprintDocSchema.safeParse(toPersistableDoc(provisional)).success,
+		).toBe(true);
+		expect(provisional.moduleOrder).toHaveLength(1);
+		const byId = (id: string) =>
+			Object.values(provisional.fields).find((field) => field.id === id);
+		const group = byId("script");
+		expect(group?.kind).toBe("group");
+		expect(
+			provisional.fieldOrder[group?.uuid as Uuid]?.map(
+				(uuid) => provisional.fields[uuid]?.id,
+			),
+		).toEqual(["q1"]);
+		expect(byId("q3")?.kind).toBe("hidden");
+		bindExpressions(ctx);
+		const pending = ctx.pending.list();
+		const relevant = pending.findIndex((one) => one.ref.slot === "relevant");
+		expect(relevant).toBeGreaterThanOrEqual(0);
+		expect(ctx.pending.outcome(relevant).expression).toBeDefined();
+
+		const outcome = readHqApp(await inputFor(body));
+		expect(outcome.kind).toBe("account");
+		if (outcome.kind !== "account") return;
+		const places = outcome.findings.map((finding) => finding.place);
+		expect(places).toContainEqual(
+			expect.objectContaining({ kind: "question", path: "script" }),
+		);
+		expect(places).toContainEqual(
+			expect.objectContaining({ kind: "question", path: "q3" }),
+		);
+		expect(places).toContainEqual(
+			expect.objectContaining({ kind: "menu", menu: 1 }),
+		);
 	});
 
 	it("is frozen, and the same object until a draft is written", async () => {
@@ -274,6 +383,60 @@ describe("applying the expression stage's answer", () => {
 					: [readerDefect.expressionNotWrittenBack(place, reason)],
 			);
 		}
+	});
+
+	it("applies the second run, over the worker information the first run found the app reads", async () => {
+		const workerProperty = asUuid("22222222-2222-4222-8222-222222222222");
+		const built = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "region",
+									calculate: {
+										kind: "term",
+										term: {
+											kind: "session-user-property",
+											userPropertyUuid: workerProperty,
+										},
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const doc = {
+			...built,
+			userProperties: {
+				[workerProperty]: {
+					uuid: workerProperty,
+					slug: "region",
+					label: "Region",
+				},
+			},
+			userPropertyOrder: [workerProperty],
+		} as BlueprintDoc;
+		const ctx = await readUpToBinding(doc);
+		expect(provisionalDocument(ctx).userProperties ?? {}).toEqual({});
+		bindExpressions(ctx);
+		const minted = ctx.draft.userProperties[0]?.uuid;
+		expect(ctx.draft.userProperties.map((one) => one.slug)).toEqual(["region"]);
+		const at = ctx.pending
+			.list()
+			.findIndex((one) => one.ref.slot === "calculate");
+		expect(ctx.pending.outcome(at).expression).toEqual({
+			kind: "term",
+			term: { kind: "session-user-property", userPropertyUuid: minted },
+		});
+		expect(ctx.close().findings).toEqual([]);
 	});
 
 	it("puts an ownerless registration under the finding at its form, and throws where none stands", async () => {

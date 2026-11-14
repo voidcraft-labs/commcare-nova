@@ -231,4 +231,20 @@ describe("secondary-instance reads in form logic", () => {
 			).toEqual(["unknown-search-input"]);
 		}
 	});
+
+	it("finds no Search answer in a menu's own slot outside a reading of CommCare HQ's app", () => {
+		const searchDoc = instanceReadsDoc();
+		const filter: ExpressionSlotRef = {
+			entity: "module",
+			uuid: reads.find,
+			slot: "case_list_filter",
+		};
+		const parsed = parseFormExpression(
+			"instance('search-input:results')/input/field[@name = 'district'] = 'north'",
+			{ doc: searchDoc, slot: filter, lookup },
+		);
+		expect(parsed.ok ? [] : parsed.issues.map((issue) => issue.code)).toEqual([
+			"unknown-search-input",
+		]);
+	});
 });

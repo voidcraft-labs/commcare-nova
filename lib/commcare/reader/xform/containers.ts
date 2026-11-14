@@ -8,12 +8,12 @@
  * a section is always a field-list).
  */
 
-import { isTag } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
 import type { Claim } from "../claims";
-import type { XmlCursor } from "../xmlCursor";
+import { ownText, type XmlCursor } from "../xmlCursor";
 import {
 	type AppearanceForm,
 	claimAppearance,
@@ -22,6 +22,7 @@ import {
 import { type ControlNode, isFieldListAppearance } from "./body";
 import { X } from "./claims";
 import type { DraftField } from "./index";
+import { itextReference } from "./itext";
 import type { BindFacts } from "./model";
 import type { ParsedXForm } from "./parse";
 
@@ -51,6 +52,52 @@ function holdsUserRepeat(
 			(child.kind === "repeat" &&
 				child.field.repeat_mode === "user_controlled") ||
 			holdsUserRepeat(child, childrenOf),
+	);
+}
+
+/** The media forms of an itext value: what a field's label media is. */
+const MEDIA_FORMS: ReadonlySet<string> = new Set(["image", "audio", "video"]);
+
+/** An element's children in the XForms namespace named `local`. */
+function xformsChildren(
+	element: Element,
+	scope: ParsedXFormScope,
+	local: string,
+): Element[] {
+	return element.children
+		.filter(isTag)
+		.filter(
+			(child) =>
+				elementNamespace(child, scope(child)) === XFORMS_NS &&
+				splitName(child.name).local === local,
+		);
+}
+
+/**
+ * Whether a control's label carries media, read from the source: its `jr:itext` text holds a
+ * value of a media form, in any language. A container's label media is written nowhere on its
+ * draft, so a section's rule reads it here.
+ */
+export function labelCarriesMedia(
+	control: ControlNode,
+	parsed: ParsedXForm,
+): boolean {
+	const label = xformsChildren(control.element, parsed.scope, "label")[0];
+	const ref = label?.attribs.ref;
+	if (ref === undefined || parsed.itext === undefined) return false;
+	const reference = itextReference(ref);
+	if (reference.kind !== "id") return false;
+	return xformsChildren(parsed.itext, parsed.scope, "translation").some(
+		(translation) =>
+			xformsChildren(translation, parsed.scope, "text")
+				.filter((text) => text.attribs.id === reference.id)
+				.some((text) =>
+					xformsChildren(text, parsed.scope, "value").some(
+						(value) =>
+							MEDIA_FORMS.has(value.attribs.form ?? "") &&
+							ownText(value).trim() !== "",
+					),
+				),
 	);
 }
 
@@ -113,10 +160,10 @@ export function readContainers(input: ReadContainersInput): void {
 			readonly ref: Claim<"take">;
 			readonly appearance?: Claim<"take">;
 		} = fieldList
-			? input.sectioned && field.parent === null
-				? X.sectionQuestionList
-				: labelled
-					? X.questionList
+			? labelled
+				? X.questionList
+				: input.sectioned && field.parent === null
+					? X.sectionQuestionList
 					: X.unlabelledQuestionList
 			: labelled
 				? X.group
@@ -133,6 +180,15 @@ export function readContainers(input: ReadContainersInput): void {
 				sites.ref,
 			).value;
 		const place = input.placeOf(field);
+		// A group inside a Question List, at any depth, is one HQ's form builder holds by its
+		// own feature as well as by its row.
+		if (insideQuestionList(field))
+			accounting.claimEntry(
+				{ element: control.element },
+				X.groupInQuestionList.entry,
+				X.groupInQuestionList.key as string,
+				place,
+			);
 		if (control.appearance !== undefined) {
 			if (fieldList && sites.appearance !== undefined)
 				cursor.take(
@@ -156,6 +212,13 @@ export function readContainers(input: ReadContainersInput): void {
 		}
 		if (fieldList) refuseUserRepeats(field, input, accounting);
 	}
+}
+
+/** Whether a container above the field is a Question List, or a section, which is one. */
+function insideQuestionList(field: DraftField): boolean {
+	for (let at = field.parent; at !== null; at = at.parent)
+		if (at.kind === "section" || at.field.fieldList === true) return true;
+	return false;
 }
 
 function refuseUserRepeats(

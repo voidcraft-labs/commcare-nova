@@ -20,15 +20,16 @@ import {
 import type { RuleSet } from "@/lib/domain/expression/profiles";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
-import type {
-	ComparisonKind,
-	DateAddInterval,
-	Expression,
-	FormNodeRef,
-	Literal,
-	RelationStep,
-	SwitchCase,
-	Term,
+import {
+	type ComparisonKind,
+	type DateAddInterval,
+	type Expression,
+	type FormNodeRef,
+	isRelationPath,
+	type Literal,
+	type RelationStep,
+	type SwitchCase,
+	type Term,
 } from "@/lib/domain/expression/types";
 import { organizationLevelsOf } from "@/lib/domain/organization";
 import type { Uuid } from "@/lib/domain/uuid";
@@ -376,7 +377,7 @@ function isOwnerSlot(context: ExpressionContext): boolean {
 	return slotName(context) === "case_operation_owner";
 }
 
-// ── 5.1 The literal folds ────────────────────────────────────────────
+// ── The literal folds ────────────────────────────────────────────────
 
 /** `substr('\\', 0, 1)`, the printer's spelling of an odd trailing backslash. */
 function backslashPiece(node: FormSyntax): boolean {
@@ -476,7 +477,7 @@ const typedLiteral: Fold = {
 	},
 };
 
-// ── 5.2 Identity leaves ──────────────────────────────────────────────
+// ── Identity leaves ──────────────────────────────────────────────────
 
 const formRead: Fold = {
 	id: "form-read",
@@ -710,7 +711,7 @@ const ownerAtLevel: Fold = {
 	},
 };
 
-// ── 5.3 Lowerings read back ──────────────────────────────────────────
+// ── Lowerings read back ──────────────────────────────────────────────
 
 /** `count(P) > 0`: P. */
 function presentCount(node: FormSyntax | undefined): FormSyntax | undefined {
@@ -852,48 +853,102 @@ const condFold: Fold = {
 	},
 };
 
+/** Whether every test of a guard's condition counts a set as absent: the
+ *  joint guard `guardChecklistPair` writes around two paths. */
+function countedAbsent(condition: FormSyntax): boolean {
+	return clauses(condition, "and").every((test) =>
+		clauses(test, "or").every((part) => absentCount(part) !== undefined),
+	);
+}
+
+/** The branch positions of a lazy call: `if`'s two, and each value and the
+ *  default of `cond`. */
+function lazyBranches(node: Call): readonly number[] | undefined {
+	if (node.name === "if" && node.args.length === 3) return [1, 2];
+	if (
+		node.name === "cond" &&
+		node.args.length >= 3 &&
+		node.args.length % 2 === 1
+	)
+		return node.args.flatMap((_, index) =>
+			index % 2 === 1 || index === node.args.length - 1 ? [index] : [],
+		);
+	return undefined;
+}
+
 const checklistGuard: Fold = {
 	id: "checklist-guard",
 	ruleSets: ["form"],
 	propose(node, context, api) {
 		const guard = call(node, "if", 3);
-		if (guard === undefined) return undefined;
-		const consumed = call(guard.args[2], "weighted-checklist");
-		if (consumed !== undefined) {
-			const tests = clauses(guard.args[0] as FormSyntax, "and");
-			const counted = tests.every((test) =>
-				clauses(test, "or").every((part) => absentCount(part) !== undefined),
-			);
-			if (counted) return api.bind(consumed, context);
-		}
-		const whenTrue = call(guard.args[1], "weighted-checklist");
-		const whenFalse = call(guard.args[2], "weighted-checklist");
+		const consumed = call(guard?.args[2], "weighted-checklist");
 		if (
-			whenTrue === undefined ||
-			whenFalse === undefined ||
-			whenTrue.args.length !== whenFalse.args.length
+			guard !== undefined &&
+			consumed !== undefined &&
+			countedAbsent(guard.args[0] as FormSyntax)
+		)
+			return api.bind(consumed, context);
+		// The call moved into the branches of an `if` or `cond` in its pair,
+		// each branch guarded on its own: every branch binds to the call, and
+		// the branches differ in one argument, which the lazy call chose.
+		const lazy = call(node, "if", 3) ?? call(node, "cond");
+		const branches = lazy === undefined ? undefined : lazyBranches(lazy);
+		if (lazy === undefined || branches === undefined) return undefined;
+		const bound = lazy.args.map((arg) => api.bind(arg, context));
+		const calls = branches.map((index) => bound[index]);
+		const first = calls[0];
+		if (
+			first?.kind !== "call" ||
+			first.fn !== "weighted-checklist" ||
+			calls.some(
+				(one) =>
+					one?.kind !== "call" ||
+					one.fn !== "weighted-checklist" ||
+					one.args.length !== first.args.length,
+			)
 		)
 			return undefined;
-		const differing = whenTrue.args.flatMap((arg, index) =>
-			same(arg, whenFalse.args[index]) ? [] : [index],
+		const args = calls.map(
+			(one) => (one as Extract<Expression, { kind: "call" }>).args,
+		);
+		const differing = first.args.flatMap((arg, index) =>
+			args.every(
+				(others) => JSON.stringify(others[index]) === JSON.stringify(arg),
+			)
+				? []
+				: [index],
 		);
 		if (differing.length !== 1) return undefined;
 		const at = differing[0] as number;
-		const args = whenTrue.args.map((arg, index) =>
-			index === at
-				? api.remember(
-						{
-							kind: "if",
-							cond: api.bind(guard.args[0] as FormSyntax, context),
-							// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
-							then: api.bind(arg, context),
-							else: api.bind(whenFalse.args[index] as FormSyntax, context),
-						},
-						node,
-					)
-				: api.bind(arg, context),
+		const branchArg = new Map(
+			branches.map((index, position) => [
+				index,
+				args[position]?.[at] as Expression,
+			]),
 		);
-		return api.remember({ kind: "call", fn: "weighted-checklist", args }, node);
+		const chosen: Expression[] = bound.map(
+			(arg, index) => branchArg.get(index) ?? arg,
+		);
+		const choice: Expression =
+			lazy.name === "if"
+				? {
+						kind: "if",
+						cond: chosen[0] as Expression,
+						// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+						then: chosen[1] as Expression,
+						else: chosen[2] as Expression,
+					}
+				: { kind: "call", fn: "cond", args: chosen };
+		return api.remember(
+			{
+				kind: "call",
+				fn: "weighted-checklist",
+				args: first.args.map((arg, index) =>
+					index === at ? api.remember(choice, node) : arg,
+				),
+			},
+			node,
+		);
 	},
 };
 
@@ -1261,6 +1316,27 @@ const whenInputPresent: Fold = {
 	},
 };
 
+/** A literal the source writes as one side of an equality: a string or a
+ *  number, as the binder binds either. */
+function literalValue(
+	node: FormSyntax | undefined,
+): string | number | undefined {
+	return stringValue(node) ?? numberValue(node);
+}
+
+/** A value of an `in` or a case of a `switch`: a string typed by its own
+ *  shape where it stands against a date or a date and time, a number as it
+ *  is. */
+function caseLiteral(
+	value: string | number,
+	on: Expression,
+	context: ExpressionContext,
+): Literal {
+	return typeof value === "string"
+		? shapedLiteral(value, on, context, false)
+		: { kind: "literal", value };
+}
+
 const inFold: Fold = {
 	id: "in",
 	ruleSets: ["record"],
@@ -1270,9 +1346,9 @@ const inFold: Fold = {
 		const tests = parts.map((part) => binary(part, "="));
 		const first = tests[0];
 		if (first === undefined) return undefined;
-		const values: string[] = [];
+		const values: (string | number)[] = [];
 		for (const test of tests) {
-			const value = stringValue(test?.right);
+			const value = literalValue(test?.right);
 			if (
 				test === undefined ||
 				value === undefined ||
@@ -1282,9 +1358,7 @@ const inFold: Fold = {
 			values.push(value);
 		}
 		const left = api.bind(first.left, context);
-		const literals = values.map((value) =>
-			shapedLiteral(value, left, context, false),
-		);
+		const literals = values.map((value) => caseLiteral(value, left, context));
 		const [head, ...rest] = literals;
 		if (head === undefined) return undefined;
 		return api.remember({ kind: "in", left, values: [head, ...rest] }, node);
@@ -1330,13 +1404,16 @@ const switchFold: Fold = {
 	id: "switch",
 	ruleSets: ["record"],
 	propose(node, context, api) {
-		const tests: { readonly value: string; readonly then: FormSyntax }[] = [];
+		const tests: {
+			readonly value: string | number;
+			readonly then: FormSyntax;
+		}[] = [];
 		let subject: FormSyntax | undefined;
 		let at: FormSyntax = node;
 		for (;;) {
 			const branch = call(at, "if", 3);
 			const test = binary(branch?.args[0], "=");
-			const value = stringValue(test?.right);
+			const value = literalValue(test?.right);
 			if (branch === undefined || test === undefined || value === undefined)
 				break;
 			if (subject === undefined) subject = test.left;
@@ -1349,7 +1426,7 @@ const switchFold: Fold = {
 		const on = api.bind(subject, context);
 		const cases = tests.map(
 			(test): SwitchCase => ({
-				when: shapedLiteral(test.value, on, context, false),
+				when: caseLiteral(test.value, on, context),
 				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
 				then: api.bind(test.then, context),
 			}),
@@ -1542,10 +1619,73 @@ const relationPresence: Fold = {
 	},
 };
 
+/** `if(<presence>, 1, 0)`: the count over an ancestor relation
+ *  (`fromExpression.ts::count`), the presence bound through the
+ *  `relation-presence` fold. */
+function ancestorCount(
+	node: FormSyntax | undefined,
+	context: ExpressionContext,
+	api: FoldApi,
+): Extract<Expression, { kind: "count" }> | undefined {
+	const branch = call(node, "if", 3);
+	if (
+		branch === undefined ||
+		numberValue(branch.args[1]) !== 1 ||
+		numberValue(branch.args[2]) !== 0
+	)
+		return undefined;
+	const presence = api.bind(branch.args[0] as FormSyntax, context);
+	if (presence.kind !== "exists" || presence.via.kind !== "ancestor")
+		return undefined;
+	return {
+		kind: "count",
+		via: presence.via,
+		...(presence.where === undefined ? {} : { where: presence.where }),
+	};
+}
+
 const relationCount: Fold = {
 	id: "relation-count",
 	ruleSets: ["record"],
 	propose(node, context, api) {
+		const ancestor = ancestorCount(node, context, api);
+		if (ancestor !== undefined) return api.remember(ancestor, node);
+		// A count over every relation of one identifier: the ancestor's
+		// presence as a number, plus the count of the subcases.
+		const sum = binary(node, "+");
+		if (sum !== undefined) {
+			const up = ancestorCount(sum.left, context, api);
+			const down =
+				up === undefined || call(sum.right, "count", 1) === undefined
+					? undefined
+					: api.bind(sum.right, context);
+			const [step, ...more] = up?.via.kind === "ancestor" ? up.via.via : [];
+			if (
+				up === undefined ||
+				step === undefined ||
+				more.length > 0 ||
+				down?.kind !== "count" ||
+				!isRelationPath(down.via) ||
+				down.via.kind !== "subcase" ||
+				down.via.identifier !== step.identifier ||
+				down.via.ofCaseType !== step.throughCaseType
+			)
+				return undefined;
+			return api.remember(
+				{
+					kind: "count",
+					via: {
+						kind: "any-relation",
+						identifier: step.identifier,
+						...(step.throughCaseType === undefined
+							? {}
+							: { ofCaseType: step.throughCaseType }),
+					},
+					...(down.where === undefined ? {} : { where: down.where }),
+				},
+				node,
+			);
+		}
 		const counted = call(node, "count", 1);
 		const rows =
 			counted === undefined
@@ -1596,7 +1736,8 @@ const relationCount: Fold = {
 	},
 };
 
-/** Every fold, in the order of the tables: 5.1, 5.2, 5.3. */
+/** Every fold, in the order a slot is offered them: the literal folds, the
+ *  identity leaves, then the lowerings read back. */
 export const EXPRESSION_FOLDS: readonly Fold[] = [
 	protectedLiteral,
 	typedLiteral,

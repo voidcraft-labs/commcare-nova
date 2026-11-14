@@ -18,14 +18,24 @@
 
 import { type Element, isTag } from "domhandler";
 import { findOne } from "domutils";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
 	caseListConfig,
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
-import { type BlueprintDoc, proseText } from "@/lib/domain";
+import { applyMutations } from "@/lib/doc/mutations";
+import { type BlueprintDoc, type LanguageTag, proseText } from "@/lib/domain";
+import {
+	actingUser,
+	and,
+	eq,
+	formField,
+	literal,
+} from "@/lib/domain/expression/builders";
 import { caseCaptureFixture } from "../../../__tests__/caseCaptureFixture";
 import {
 	caseOperationFixture,
@@ -41,8 +51,14 @@ import { parseXml } from "../../../xmlParse";
 import { typedInstantValue } from "../../../xpath/wire/instant";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import {
+	type AppJson,
+	readCases,
+	readFields,
+} from "../../caseManagement/__tests__/caseReading";
 import { readHqApp } from "../../index";
 import {
+	DATETIME_SIBLING_ENTRY,
 	datetimeSpelling,
 	GENERATED_RULES,
 	isAllocatedName,
@@ -293,6 +309,58 @@ describe("a protected validation message, read whole", () => {
 		);
 		expect(edited).toContain("unrecognized xform:bind@jr:constraintMsg");
 	});
+
+	it("leaves the message unclaimed where a language the app holds lacks its text", async () => {
+		const { doc } = constraintMessageFixture("references");
+		const spanish = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addLanguage",
+					language: { language: "spa" as LanguageTag },
+					wireCode: "es",
+				},
+			]);
+		});
+		/** The source with every Spanish text that holds one of the composition's forms removed. */
+		const withoutSpanishForms = (xml: string): string => {
+			const document = parseXml(xml);
+			const translation = findOne(
+				(element: Element) =>
+					element.name === "translation" && element.attribs.lang === "es",
+				document.children.filter(isTag),
+				true,
+			);
+			if (translation === null) return xml;
+			translation.children = translation.children.filter(
+				(text) =>
+					!isTag(text) ||
+					!text.children.some(
+						(value) =>
+							isTag(value) && (value.attribs.form ?? "").startsWith("__nova_"),
+					),
+			);
+			return serializeXml(document);
+		};
+		const read = async (edit: (xml: string) => string) => {
+			const outcome = readHqApp(
+				await inputFor(
+					exportedBody(spanish, { xml: edit, root: { langs: ["en", "es"] } }),
+				),
+			);
+			return (outcome.kind === "account" ? outcome.findings : [])
+				.filter((finding) => finding.place.kind === "question")
+				.map((finding) => `${finding.code} ${finding.detail.name ?? ""}`);
+		};
+		expect(await read((xml) => xml)).toEqual([]);
+		let edits = 0;
+		const findings = await read((xml) => {
+			const out = withoutSpanishForms(xml);
+			if (out !== xml) edits += 1;
+			return out;
+		});
+		expect(edits).toBe(1);
+		expect(findings).toContain("unrecognized xform:bind@jr:constraintMsg");
+	});
 });
 
 describe("a count repeat's count node", () => {
@@ -427,6 +495,94 @@ describe("a query repeat in the count placement", () => {
 				?.field.placement,
 		).not.toBe("count");
 	});
+
+	/** The source with the value of the setvalue of `ref` set to `value`. */
+	function setvalueEdited(ref: string, value: string): string {
+		const document = parseXml(source);
+		const setvalue = findOne(
+			(element: Element) =>
+				element.name === "setvalue" && element.attribs.ref === ref,
+			document.children.filter(isTag),
+			true,
+		);
+		if (setvalue === null) throw new Error(`No setvalue of ${ref}.`);
+		setvalue.attribs.value = value;
+		return serializeXml(document);
+	}
+
+	/** The role of `path`'s node, read from `edited`, where the node is still there. */
+	async function kindAt(edited: string, path: string): Promise<string> {
+		const reading = await readForm(edited);
+		const node = reading.xform?.nodes.get(path);
+		const role =
+			node === undefined ? undefined : reading.xform?.roles.get(node);
+		return role?.kind === "generated" ? role.purpose : String(role?.kind);
+	}
+
+	it.each([
+		[
+			"query-ids",
+			"r/nova_query_ids_r",
+			() =>
+				bindEdited(
+					source,
+					"/data/r/nova_query_ids_r",
+					"calculate",
+					"join(',', /data/pick)",
+				),
+		],
+		[
+			"query-position",
+			"r/nova_query_position_r",
+			() =>
+				bindEdited(
+					source,
+					"/data/r/nova_query_position_r",
+					"calculate",
+					"count(../nova_query_ids_r)",
+				),
+		],
+		[
+			"query-id",
+			"r/item/nova_query_id_r",
+			() =>
+				bindEdited(
+					source,
+					"/data/r/item/nova_query_id_r",
+					"calculate",
+					"selected-at(../../nova_query_ids_r, 0)",
+				),
+		],
+		[
+			"query-index",
+			"r/item/nova_query_index_r",
+			() =>
+				setvalueEdited("/data/r/item/nova_query_index_r", "position(..) + 1"),
+		],
+	] as const)(
+		"reads the %s node as no generated node once one token of it is changed",
+		async (purpose, path, edit) => {
+			expect(await kindAt(source, path)).toBe(purpose);
+			const edited = edit();
+			expect(edited).not.toBe(source);
+			expect(await kindAt(edited, path)).not.toBe(purpose);
+		},
+	);
+
+	it.each([
+		["query-ids", "nova_query_ids_r", "r/nova_query_ids_q"],
+		["query-position", "nova_query_position_r", "r/nova_query_position_q"],
+		["query-id", "nova_query_id_r", "r/item/nova_query_id_q"],
+		["query-index", "nova_query_index_r", "r/item/nova_query_index_q"],
+	] as const)(
+		"reads the %s node as no generated node once renamed",
+		async (purpose, name, renamedPath) => {
+			const renamedName = renamedPath.slice(renamedPath.lastIndexOf("/") + 1);
+			const renamed = source.replaceAll(name, renamedName);
+			expect(await kindAt(renamed, renamedPath)).not.toBe(purpose);
+			expect(await kindAt(renamed, renamedPath)).not.toBe("generated");
+		},
+	);
 });
 
 describe("a case write's siblings, proposed for the case management stage", () => {
@@ -509,6 +665,128 @@ describe("a case write's siblings, proposed for the case management stage", () =
 		});
 	});
 
+	it("settles a date and time's case text in the earlier spelling, and says the first publish saves it as CommCare HQ stores it", async () => {
+		const doc = registration([
+			f({
+				kind: "text",
+				id: "name",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			}),
+			f({
+				kind: "datetime",
+				id: "seen",
+				caseWrite: { caseType: "patient", property: "seen_at" },
+			}),
+		]);
+		const earlier = serializeWire(
+			typedInstantValue(FormPath.root().child("seen").toWire()),
+			{ target: "xform", constraint: false },
+		).text;
+		const source = bindEdited(
+			sourceHolding(doc, "nova_datetime_seen"),
+			"/data/nova_datetime_seen",
+			"calculate",
+			earlier,
+		);
+		const reading = await readForm(source);
+		const xform = reading.xform;
+		const node = [...(xform?.nodes.values() ?? [])].find(
+			(one) => one.name === "nova_datetime_seen",
+		);
+		if (xform === null || xform === undefined || node === undefined)
+			throw new Error("The form did not read.");
+		expect(xform.roles.get(node)).toMatchObject({
+			kind: "generated-candidate",
+			purpose: "datetime",
+		});
+		xform.settle(node, "generated");
+		expect(
+			xform.generated.map((one) => [one.purpose, one.owner]),
+		).toContainEqual(["datetime", "/data/seen"]);
+		expect(reading.ctx.facts.sameStateRewrites).toEqual([
+			{
+				entry: DATETIME_SIBLING_ENTRY,
+				path: "/data/nova_datetime_seen",
+				register: "date-and-time-saved-as-hq-stores-it",
+			},
+		]);
+		// One token of the earlier spelling changed is no spelling Nova wrote.
+		const edited = bindEdited(
+			source,
+			"/data/nova_datetime_seen",
+			"calculate",
+			earlier.replace("%Y", "%y"),
+		);
+		expect(edited).not.toBe(source);
+		expect(await roleAt(edited, "nova_datetime_seen")).toMatchObject({
+			kind: "field",
+		});
+	});
+
+	it("proposes a Hidden Value's copy of a case's stored date and time as the emitter writes it today, and the case management stage folds it", async () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{
+							name: "seen_at",
+							label: proseText("Seen"),
+							data_type: "datetime",
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "hidden",
+									id: "seen",
+									calculate: "#patient/seen_at",
+									caseWrite: { caseType: "patient", property: "seen_at" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const source = sourceHolding(doc, "nova_datetime_seen");
+		const bind = findOne(
+			(element: Element) =>
+				element.name === "bind" &&
+				element.attribs.nodeset === "/data/nova_datetime_seen",
+			parseXml(source).children.filter(isTag),
+			true,
+		);
+		// A Hidden Value Core holds as text is written as itself.
+		expect(bind?.attribs.calculate).toBe("/data/seen");
+		expect(await roleAt(source, "nova_datetime_seen")).toMatchObject({
+			kind: "generated-candidate",
+			purpose: "datetime",
+		});
+		const reading = await readCases(doc);
+		const xform = reading.forms[0]?.xform;
+		if (xform === null || xform === undefined)
+			throw new Error("The form did not read.");
+		expect(
+			xform.generated.map((one) => [one.purpose, one.owner, one.name]),
+		).toContainEqual(["datetime", "/data/seen", "nova_datetime_seen"]);
+		expect(readFields(xform).map((field) => field.id)).toEqual(["seen"]);
+		expect(reading.ctx.facts.sameStateRewrites).toEqual([]);
+	});
+
 	it("proposes a capture's link node, and reads one for another project space as the person's", async () => {
 		const doc = caseCaptureFixture("registration");
 		const source = sourceHolding(doc, "nova_url_thepicture");
@@ -557,6 +835,97 @@ describe("a case write's siblings, proposed for the case management stage", () =
 			node === undefined ? undefined : settled.xform?.roles.get(node)?.kind,
 		).toBe("field");
 	});
+
+	/** The owner nodes the case management stage folded in the form that holds them, and the
+	 *  form's fields. */
+	async function ownerReading(rename?: {
+		readonly from: string;
+		readonly to: string;
+	}): Promise<{
+		owners: string[][];
+		fields: string[];
+		owner: (id: string) => unknown;
+	}> {
+		const doc = extensionCaseFixture("registration");
+		const reading = await readCases(
+			doc,
+			rename === undefined
+				? {}
+				: {
+						editSource: (xml) => xml.replaceAll(rename.from, rename.to),
+						edit: (app: AppJson) => {
+							for (const module of app.modules)
+								for (const form of module.forms) {
+									const opens = form.actions?.open_cases;
+									if (!Array.isArray(opens)) continue;
+									for (const open of opens as {
+										case_properties?: Record<
+											string,
+											{ question_path?: string }
+										>;
+									}[]) {
+										const owner = open.case_properties?.owner_id;
+										if (owner?.question_path !== undefined)
+											owner.question_path = owner.question_path.replaceAll(
+												rename.from,
+												rename.to,
+											);
+									}
+								}
+						},
+					},
+		);
+		const form = reading.forms.find(
+			(one) =>
+				one.xform !== null &&
+				[...one.xform.nodes.values()].some((node) =>
+					node.name.includes("owner_"),
+				),
+		);
+		const xform = form?.xform;
+		if (form === undefined || xform === null || xform === undefined)
+			throw new Error("No form holds an owner node.");
+		return {
+			owners: xform.generated
+				.filter((one) => one.purpose === "owner")
+				.map((one) => [one.owner, one.name]),
+			fields: readFields(xform).map((field) => field.id),
+			owner: (id) =>
+				(form.form.caseOperations ?? []).find(
+					(operation) => operation.id === id,
+				)?.owner,
+		};
+	}
+
+	it("settles each owner node an open action names as Nova's, keyed by the operation its name gives", async () => {
+		const { owners, fields, owner } = await ownerReading();
+		expect(owners.sort()).toEqual([
+			["/data#consent", "nova_owner_consent"],
+			["/data#episode", "nova_owner_episode"],
+		]);
+		expect(fields.filter((id) => id.startsWith("nova_owner_"))).toEqual([]);
+		expect(owner("episode")).toEqual(actingUser());
+		expect(owner("consent")).toEqual(actingUser());
+	});
+
+	it.each([
+		["a name with no owner prefix", "owner_episode"],
+		["a name the allocator gives no operation", "nova_owner_ep-isode"],
+	])(
+		"reads an owner node renamed to %s as the person's Hidden Value",
+		async (_, to) => {
+			const { owners, fields, owner } = await ownerReading({
+				from: "nova_owner_episode",
+				to,
+			});
+			expect(owners).toEqual([["/data#consent", "nova_owner_consent"]]);
+			expect(fields).toContain(to);
+			expect(owner("episode")).toMatchObject({
+				kind: "term",
+				term: { kind: "field" },
+			});
+		},
+	);
 });
 
 describe("the case region's purposes", () => {
@@ -603,6 +972,95 @@ describe("the case region's purposes", () => {
 			expect(
 				await roleAt(source.replaceAll(name, other), other),
 			).not.toMatchObject({ container });
+		},
+	);
+
+	/** `xml` with one attribute of the bind whose nodeset ends `/${nodesetEnd}` set by `edit`;
+	 *  `xml` itself where it holds no such bind. */
+	function bindAttributeEdited(
+		xml: string,
+		nodesetEnd: string,
+		attribute: string,
+		edit: (value: string | undefined) => string,
+	): string {
+		const document = parseXml(xml);
+		const bind = findOne(
+			(element: Element) =>
+				element.name === "bind" &&
+				(element.attribs.nodeset ?? "").endsWith(`/${nodesetEnd}`),
+			document.children.filter(isTag),
+			true,
+		);
+		if (bind === null) return xml;
+		bind.attribs[attribute] = edit(bind.attribs[attribute]);
+		return serializeXml(document);
+	}
+
+	/** The case operation fixture's rename of the chosen case, under a condition of two
+	 *  answers, which Case Management cannot state, so it stands in a condition group. */
+	function conditionalRename(): BlueprintDoc {
+		return produce(caseOperationFixture("scalar"), (draft) => {
+			for (const form of Object.values(draft.forms))
+				for (const operation of form.caseOperations ?? [])
+					if (
+						operation.id === "rename_patient" &&
+						operation.action === "update"
+					)
+						operation.condition = and(
+							eq(formField(testUuid("operation-enabled")), literal("yes")),
+							eq(
+								formField(testUuid("11111111-1111-4111-8111-111111111111")),
+								literal("x"),
+							),
+						);
+		});
+	}
+
+	it.each([
+		[
+			"a keyed create",
+			"its id",
+			() => caseOperationFixture("key"),
+			"nova_keyed_create_visit/create_visit/case/@case_id",
+			"calculate",
+			(value: string | undefined) => (value ?? "").replace("<= 205", "<= 204"),
+		],
+		[
+			"a keyed create",
+			"its guard's id",
+			() => caseOperationFixture("key"),
+			"nova_guard_create_visit_text/case/@case_id",
+			"calculate",
+			(value: string | undefined) => (value ?? "").replace("<= 255", "<= 254"),
+		],
+		[
+			"a conditional update",
+			"its condition group's bind",
+			conditionalRename,
+			"nova_condition_rename_patient",
+			"readonly",
+			() => "true()",
+		],
+	] as const)(
+		"reads %s whole, and with %s edited as no block of Nova's",
+		async (_, __, build, nodesetEnd, attribute, edit) => {
+			const doc = build();
+			const clean = readHqApp(await inputFor(exportedBody(doc)));
+			expect(clean.kind === "account" ? clean.findings : []).toEqual([]);
+			let edits = 0;
+			const edited = readHqApp(
+				await inputFor(
+					exportedBody(doc, {
+						xml: (xml) => {
+							const out = bindAttributeEdited(xml, nodesetEnd, attribute, edit);
+							if (out !== xml) edits += 1;
+							return out;
+						},
+					}),
+				),
+			);
+			expect(edits).toBe(1);
+			expect(edited.kind).toBe("account");
 		},
 	);
 

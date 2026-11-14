@@ -17,8 +17,14 @@ import {
 	settleCaseManagement,
 	writeCaseOperations,
 } from "./caseManagement";
+import { noteCatalogOptionTranslations } from "./caseManagement/catalog";
 import { createReadContext, type ReadContext } from "./context";
-import { readMenus, registerLinkExpressions, settleMenus } from "./menus";
+import {
+	readMenus,
+	readRootSelectionsTaken,
+	registerLinkExpressions,
+	settleMenus,
+} from "./menus";
 import { bindExpressions } from "./provisional";
 import { readSearches, settleSearches } from "./search";
 import { readStructure } from "./structure";
@@ -48,6 +54,7 @@ export const STAGES: readonly ReaderStage[] = [
 	(ctx) => writeCaseOperations(ctx, ctx.draft),
 	(ctx) => readCaseLists(ctx, ctx.draft),
 	(ctx) => readSearches(ctx, ctx.draft),
+	(ctx) => readRootSelectionsTaken(ctx, ctx.draft),
 	(ctx) => compareEntryFacts(ctx, ctx.draft),
 	(ctx) => registerLinkExpressions(ctx, ctx.draft),
 	bindExpressions,
@@ -56,6 +63,7 @@ export const STAGES: readonly ReaderStage[] = [
 	(ctx) => settleSearches(ctx, ctx.draft),
 	(ctx) => settleMenus(ctx, ctx.draft),
 	finishText,
+	noteCatalogOptionTranslations,
 	finishForms,
 	assembleDocument,
 ];

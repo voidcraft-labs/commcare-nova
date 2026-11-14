@@ -24,6 +24,7 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 | any other module under a shadow menu | **REFUSED**: not HQ-editable: `_get_valid_parents_for_child_module` never offers a shadow parent, and HQ puts a module under a shadow only as one of the child mirrors above | — | — |
 | any module under a training menu | **REFUSED**: retiring (TRAINING_MODULE); for a basic module also not HQ-buildable: `training module parent` (`ModuleValidator` only) | — | — |
 | `root_module_id` naming a missing module, or a cycle | **REFUSED**: not HQ-buildable: `unknown root`, `root cycle` | — | — |
+| a form of a child menu that creates a case of the type its root menu's first form opens a chosen case of | **REFUSED**: broken at runtime: HQ's build gives the new case the root's selection id (`entries.py::EntriesHelper.add_parent_datums`, `_same_case` matches by case type), so CommCare asks for a case, never makes the new one, and the form's case block reads a session value it never holds | — | — |
 | menu order that separates a child from its parent | **REFUSED**: retiring (LEGACY_CHILD_MODULES) | — | — |
 
 ## Module fields
@@ -192,7 +193,7 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | `endpoint_action_id` | → Column formats, `clickable-icon` | — | — |
 | `filter_xpath` | **INERT**: legacy; no emitter reads it | n/a | `''` |
 | `advanced` | **INERT**: no reference anywhere | n/a | `''` |
-| UI bookkeeping keys `hasAutocomplete`, `calc_xpath`, `isTab`, `hasNodeset`, `nodeset`, `relevant`, `nodesetCaseType`, `nodesetFilter` | **INERT**: dynamic properties no emitter reads | n/a | HQ's own values (`hasAutocomplete: true` on property columns, `false` on calculated, and `false` on a property column after a save when a new module's Name column lacked it) |
+| UI bookkeeping keys `hasAutocomplete`, `calc_xpath`, `isTab`, `hasNodeset`, `nodeset`, `relevant`, `nodesetCaseType`, `nodesetFilter`, and the format extras the column editor saves on every column: `date_format` on a column that is no date, `late_flag` and `time_ago_interval` on a column of another format | **INERT**: dynamic properties no emitter reads | n/a | HQ's own values (`hasAutocomplete: true` on property columns, `false` on calculated, and `false` on a property column after a save when a new module's Name column lacked it) |
 
 ### Column formats (the 24 registered in `detail_screen.py`)
 
@@ -328,7 +329,7 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | callout with no extras or no responses | **REFUSED**: not HQ-editable: the callout editor requires at least one of each (`case_list_callout.js::validate`) | — | — |
 | `lookup_display_results` + `lookup_field_header` + `lookup_field_template` | **HELD-NEW**: `callout.resultsColumn {header, expression}` | IGNORED / RUNS | the three keys |
 | `lookup_enabled: false` with stale keys | **INERT**: nothing a runtime reads (HQ still emits an unread `callout_header` app string when a stale `lookup_display_results` is true) | n/a | omit |
-| `lookup_enabled` on an `icon_text_grid` case list | **INERT**: HQ builds no `<lookup>` there (`case_tiles.py::build_case_tile_detail`; executed), so no runtime shows a callout | n/a | omit |
+| `lookup_enabled` and its keys on an `icon_text_grid` case list | **INERT**: HQ builds no `<lookup>` there (`case_tiles.py::build_case_tile_detail`; executed), so no runtime shows a callout | n/a | omit |
 | `lookup_*` on the long detail (tabbed or not) | **REFUSED**: not HQ-editable: the editor writes callouts only on the case list (`views/modules.py::_save_case_list_lookup_params(detail.short, …)`); HQ would build it into the long detail, or, when tabbed, into each tab's sub-detail only (`suite_xml/sections/details.py::DetailContributor.build_detail`) | — | — |
 
 ## Case selection extras

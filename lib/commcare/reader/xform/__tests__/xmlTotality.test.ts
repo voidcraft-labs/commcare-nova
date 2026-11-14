@@ -1,6 +1,7 @@
 /**
  * No unknown construct in a form is admitted. Over the forms CommCare HQ
- * served for the retained apps, one unknown attribute is planted on one
+ * served for the retained apps, the Nova export after each of HQ's own pages
+ * saved it among them, one unknown attribute is planted on one
  * element of each qualified name, and one unknown element under each element
  * of the form's frame and body (never in the data tree, where an element is a
  * question): each planted node is reported `unrecognized` by its name, or lies
@@ -18,6 +19,7 @@ import {
 	closeAfterStructure,
 	readContext,
 	readerInput,
+	retainedSaveReads,
 	retainedSourceBody,
 	sourceFromBody,
 } from "../../__tests__/readerInput";
@@ -31,6 +33,7 @@ const APPS = [
 	"hq-built/app-source",
 	"navigation-base/app-source",
 	"case-list-inline/app-source",
+	...retainedSaveReads(),
 ];
 
 interface Planted {

@@ -43,6 +43,7 @@ import { protectConstraintMessage } from "../../xform/constraintMessage";
 import { formNodeProjection } from "../../xpath/formNodeProjection";
 import { readFormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
+import { claimRegistry } from "../claims";
 import type { ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
 import { sameSyntax } from "../syntaxCompare";
@@ -198,7 +199,46 @@ function checkLoadOrder(
 		ctx.accounting.finding(X.loadOrder, reader.pending?.place ?? formPlace);
 }
 
-/** The Hidden Value bind type check of one form (11.4). */
+/** The entries the case management stage raises a finding under. */
+function caseStageEntryIds(): ReadonlySet<string> {
+	const entries = new Set<string>();
+	for (const [name, claim] of claimRegistry())
+		if (
+			name.startsWith("caseManagement.") &&
+			(claim.use === "refuse" || claim.use === "account")
+		)
+			entries.add(claim.entry);
+	return entries;
+}
+
+/**
+ * Whether a case write of the form was itself a finding, so the document may lack a write the
+ * source makes: a finding the case management stage raised at the form or at one of its
+ * questions, or any finding at a node of the form's case region (a Save to Case block, its
+ * rows and their values).
+ */
+function caseWritesUnread(
+	ctx: ReadContext,
+	formPlace: DraftField["place"],
+	xform: ReadXForm,
+): boolean {
+	if (formPlace.kind !== "form") return false;
+	const entries = caseStageEntryIds();
+	return ctx.accounting.findings().some((finding) => {
+		const place = finding.place;
+		if (place.kind !== "form" && place.kind !== "question") return false;
+		if (place.menu !== formPlace.menu || place.form !== formPlace.form)
+			return false;
+		if (entries.has(finding.code)) return true;
+		if (place.kind !== "question") return false;
+		const node = xform.nodes.get(place.path);
+		return node !== undefined && xform.roles.get(node)?.kind === "case-region";
+	});
+}
+
+/** The Hidden Value bind type check of one form (11.4): skipped for a Hidden Value whose
+ *  calculate the expression stage did not hold, and for every one of a form a case write of
+ *  which was itself a finding, since the inputs of either are not known. */
 function checkHiddenTypes(
 	ctx: ReadContext,
 	doc: BlueprintDoc,
@@ -206,6 +246,7 @@ function checkHiddenTypes(
 	xform: ReadXForm,
 ): void {
 	const caseTypes = effectiveCaseTypes(doc);
+	const unread = caseWritesUnread(ctx, formPlace, xform);
 	for (const field of fieldsOf(xform)) {
 		if (field.standIn || field.kind !== "hidden" || field.uuid === undefined)
 			continue;
@@ -214,11 +255,7 @@ function checkHiddenTypes(
 		const bind = xform.binds.get(field.node);
 		const source = bindTypeClass(bind?.type);
 		if (source === undefined) continue;
-		if (
-			ctx.accounting.hasFindingAt(field.place) ||
-			ctx.accounting.hasFindingAt(formPlace)
-		)
-			continue;
+		if (unread) continue;
 		if (
 			bind !== undefined &&
 			bind.logic.calculate !== undefined &&
@@ -304,7 +341,14 @@ function settleChoices(
 					formNodeProjection(doc, form, { surface: "wire" }),
 				),
 			);
-		settleCaseChoices(xform.cursor, xform.parsed, proposal, field.place, same);
+		settleCaseChoices(
+			xform.cursor,
+			xform.parsed,
+			proposal,
+			field.place,
+			same,
+			filtered,
+		);
 	}
 }
 
@@ -476,16 +520,23 @@ function settleProtectedMessage(
 			),
 		}),
 	);
-	const sameForms = owned.every(({ code, values }) => {
-		const want = code === undefined ? undefined : built.forms.get(code);
-		if (want === undefined || want.length !== values.length) return false;
-		const held = new Map(
-			values.map((value) => [value.attribs.form, ownText(value)] as const),
-		);
-		return want.every(
-			(value) => held.get(value.attribs.form) === ownText(value),
-		);
-	});
+	// Every language the composition writes forms for holds the text, so a language
+	// whose translation lacks it is a difference, not a pass.
+	const ownedCodes = new Set(owned.map(({ code }) => code));
+	const sameForms =
+		[...built.forms].every(
+			([code, want]) => want.length === 0 || ownedCodes.has(code),
+		) &&
+		owned.every(({ code, values }) => {
+			const want = code === undefined ? undefined : built.forms.get(code);
+			if (want === undefined || want.length !== values.length) return false;
+			const held = new Map(
+				values.map((value) => [value.attribs.form, ownText(value)] as const),
+			);
+			return want.every(
+				(value) => held.get(value.attribs.form) === ownText(value),
+			);
+		});
 	if (!sameExpression || !sameForms) return;
 	xform.cursor.derived(
 		{ element: message.bind, attribute: message.attribute },

@@ -1,15 +1,29 @@
 /**
  * Menus read back from Nova's own emission: order, one-tier nesting, kinds,
  * names in two languages, the case list menu item with and without its own
- * label, forms in the menu above, and a parent selection; and the case list
- * menu item's label as CommCare HQ's build writes it.
+ * label, forms in the menu above, and a parent selection (in the drafts
+ * before case management reads, and taken out where the gate refuses it);
+ * the shapes CommCare HQ stores that Nova refuses (a nesting cycle, a child
+ * menu's registration of its root's case type); and the case list menu
+ * item's label as CommCare HQ's build writes it.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, makeTranslationUnitId } from "@/lib/domain";
+import { advancedFixture } from "../../../__tests__/advancedPlacementFixture";
 import { caseListLabelAsBuilt } from "../modules";
-import { codesOf, formNamed, moduleNamed, readMenusOf } from "./menuReading";
+import {
+	codesOf,
+	formNamed,
+	inSpanish,
+	type JsonObject,
+	moduleNamed,
+	readMenusOf,
+	stagesOver,
+} from "./menuReading";
+
+const M = "menus-and-case-lists";
 
 const register = {
 	name: "Register",
@@ -53,6 +67,21 @@ function app(): BlueprintDoc {
 						fields: [f({ kind: "text", id: "q" })],
 					},
 				],
+			},
+		],
+	});
+}
+
+/** The two menus of `app` that hold a case type. */
+function caseMenus(): BlueprintDoc {
+	return buildDoc({
+		modules: [
+			{ name: "Patients", caseType: "patient", forms: [register, visit] },
+			{
+				name: "Follow up",
+				caseType: "patient",
+				caseListMenuItem: {},
+				forms: [{ ...visit, name: "Check in" }],
 			},
 		],
 	});
@@ -206,6 +235,206 @@ describe("a menu read back from Nova's emission", () => {
 			moduleNamed(read, "Households").uuid,
 		);
 		expect(formNamed(read, "Visit").type).toBe("followup");
+	});
+});
+
+describe("a menu's kind", () => {
+	it("reads an advanced menu back advanced, its kind held", async () => {
+		const { doc, moduleUuid } = advancedFixture({ formType: "followup" });
+		const reading = await readMenusOf(doc);
+		expect(codesOf(reading)).toEqual([]);
+		expect(
+			moduleNamed(
+				reading.doc as BlueprintDoc,
+				doc.modules[moduleUuid]?.name ?? "",
+			).heldKind,
+		).toBe("advanced");
+	});
+});
+
+describe("names in two languages", () => {
+	it("reads a menu's name in the first language, and its translation in the second", async () => {
+		const doc = caseMenus();
+		const patients = moduleNamed(doc, "Patients").uuid;
+		const reading = await readMenusOf(
+			inSpanish(
+				doc,
+				new Map([
+					[makeTranslationUnitId("module", patients, "name"), "Pacientes"],
+				]),
+			),
+		);
+		expect(codesOf(reading)).toEqual([]);
+		const read = reading.doc as BlueprintDoc;
+		const module = moduleNamed(read, "Patients");
+		expect(
+			read.localization?.translations.spa?.[
+				makeTranslationUnitId("module", module.uuid, "name")
+			]?.value,
+		).toBe("Pacientes");
+	});
+
+	it("reads a case list label blank in one language as HQ's words there and the other's own text", async () => {
+		const reading = await readMenusOf(
+			inSpanish(caseMenus(), new Map()),
+			(json) => {
+				const list = json.modules[1]?.case_list as JsonObject;
+				list.label = { en: "", es: "Lista" };
+			},
+		);
+		expect(codesOf(reading)).toEqual([]);
+		const read = reading.doc as BlueprintDoc;
+		const module = moduleNamed(read, "Follow up");
+		expect(module.caseListMenuItem).toEqual({ label: "Case List" });
+		expect(
+			read.localization?.translations.spa?.[
+				makeTranslationUnitId(
+					"module",
+					module.uuid,
+					"case-list-menu-item-label",
+				)
+			]?.value,
+		).toBe("Lista");
+	});
+});
+
+describe("a parent selection, written early and judged late", () => {
+	const households = () =>
+		buildDoc({
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{ name: "member", parent_type: "household", properties: [] },
+				{ name: "visit", properties: [] },
+			],
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					forms: [
+						{
+							...register,
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "household", property: "case_name" },
+								}),
+								f({
+									kind: "text",
+									id: "member_name",
+									caseWrite: { caseType: "member", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Members",
+					caseType: "member",
+					forms: [
+						{
+							...visit,
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									caseWrite: { caseType: "member", property: "notes" },
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Visits",
+					caseType: "visit",
+					forms: [
+						{
+							...visit,
+							name: "Log visit",
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									caseWrite: { caseType: "visit", property: "notes" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	const selecting = (doc: BlueprintDoc) =>
+		produce(doc, (draft) => {
+			const [householdMenu, members] = draft.moduleOrder;
+			const module = draft.modules[members as string];
+			if (module !== undefined) module.parentCaseModuleUuid = householdMenu;
+		});
+
+	it("is in the drafts before case management reads", async () => {
+		// readApplication, readStructure, readForms, readMenus.
+		const ctx = await stagesOver(selecting(households()), () => {}, 4);
+		const members = ctx.draft.modules.find(
+			(one) => one.module.name === "Members",
+		);
+		const named = ctx.draft.modules.find(
+			(one) => one.module.name === "Households",
+		);
+		expect(members?.module.parentCaseModuleUuid).toBe(named?.uuid);
+	});
+
+	it("is taken out of the document where it names a menu outside the declared parent type", async () => {
+		const ctx = await stagesOver(selecting(households()), (json) => {
+			const visits = json.modules[2] as JsonObject;
+			(json.modules[1]?.parent_select as JsonObject).module_id =
+				visits.unique_id;
+		});
+		const members = ctx.draft.modules.find(
+			(one) => one.module.name === "Members",
+		);
+		expect(ctx.close().findings.map((finding) => finding.code)).toContain(
+			`${M}/parent-select-naming-a-module-outside-the-declared-parent-type`,
+		);
+		expect(
+			ctx.doc?.modules[members?.uuid as string]?.parentCaseModuleUuid,
+		).toBeUndefined();
+	});
+});
+
+describe("shapes CommCare HQ stores that Nova refuses", () => {
+	it("refuses a two-menu nesting cycle as a cycle, never as a grandchild", async () => {
+		const reading = await readMenusOf(nested(app()), (json) => {
+			const [parent, child] = json.modules;
+			(parent as JsonObject).root_module_id = (child as JsonObject).unique_id;
+		});
+		const codes = codesOf(reading);
+		expect(codes).toContain(
+			`${M}/root-module-id-naming-a-missing-module-or-a-cycle`,
+		);
+		expect(codes).not.toContain(
+			`${M}/child-menu-deeper-than-one-tier-grandchild`,
+		);
+	});
+
+	it("refuses a child menu's registration of the case type its root's first form chooses", async () => {
+		const doc = buildDoc({
+			modules: [
+				{ name: "Patients", caseType: "patient", forms: [visit, register] },
+				{
+					name: "More",
+					caseType: "patient",
+					forms: [{ ...register, name: "Register again" }],
+				},
+			],
+		});
+		const reading = await readMenusOf(nested(doc));
+		expect(codesOf(reading)).toContain(
+			`${M}/child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses`,
+		);
+		expect(
+			reading.findings.find((finding) =>
+				finding.code.endsWith("its-root-s-first-form-chooses"),
+			)?.place,
+		).toMatchObject({ kind: "form" });
 	});
 });
 

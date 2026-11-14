@@ -3,11 +3,20 @@
  * bound. The failures this holds: a case property declared twice or out of
  * code-unit order; one whose case type the syntax does not fix declared on
  * a guess; a `location_data` slug missing from the reads; a tag the catalog
- * lacks missing; a step of a path taken for a property of its own.
+ * lacks missing; a step of a path taken for a property of its own. And of
+ * the reading built on the scan: a declared property no held slot reads left
+ * in the document; one a search filter row reads dropped from it; a worker
+ * field only a search filter row reads missing from what the reading
+ * learned; a tag the catalog lacks missing from `unreadTables`.
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { eq, prop, sessionUser, term } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
+import { composeModuleXPathQueryEmission } from "../../../suite/case-search/moduleXPathQuery";
+import { xpathQueryRequestValues } from "../../../suite/case-search/xpathQuery";
+import { serializeWire } from "../../../xpath/wire/serialize";
+import { readExpressions } from "../index";
 import { scanReads } from "../scanReads";
 import {
 	fieldNamed,
@@ -121,5 +130,94 @@ describe("the scan of an app's expressions", () => {
 		);
 		expect(scanned.locationDataSlugs).toEqual(["area", "zone"]);
 		expect(scanned.lookupTags).toEqual(["crops"]);
+	});
+});
+
+/** The `_xpath_query` rows Nova writes for a patient list filtered by
+ *  `zone` against the worker's `region`, as the HQ JSON holds them. */
+function zoneRows(): readonly string[] {
+	const filtered = doc();
+	const moduleUuid = filtered
+		.moduleOrder[0] as (typeof filtered.moduleOrder)[number];
+	const config = filtered.modules[moduleUuid]?.caseListConfig;
+	if (config === undefined) throw new Error("The menu has no case list.");
+	config.filter = eq(prop("patient", "zone"), term(sessionUser("region")));
+	return xpathQueryRequestValues(
+		config,
+		composeModuleXPathQueryEmission(filtered, moduleUuid, {
+			searchInputInstanceId: "search-input:results",
+		}),
+	).map(
+		(value) =>
+			serializeWire(value, { target: "hq-json", interpolation: "none" }).text,
+	);
+}
+
+describe("the reading built on the scan", () => {
+	it("keeps a declared property a held slot or a search row reads and drops the rest", () => {
+		const app = doc();
+		const moduleUuid = app.moduleOrder[0] as (typeof app.moduleOrder)[number];
+		const relevant: SlotContextRef = {
+			entity: "field",
+			uuid: fieldNamed(app, "q1"),
+			slot: "relevant",
+		};
+		const filter: SlotContextRef = {
+			entity: "module",
+			uuid: moduleUuid,
+			slot: "case_list_filter",
+		};
+		const [row, ...more] = zoneRows();
+		if (row === undefined || more.length > 0)
+			throw new Error("Nova writes one row for the filter.");
+		const reading = readExpressions(
+			app,
+			[
+				registration(app, relevant, `${OWN}/alpha = 'b'`),
+				// Core answers no `normalize-space`, so this slot is not held,
+				// and nothing else reads `omega`.
+				registration(
+					app,
+					relevant,
+					`${OWN}/omega = 'a' and normalize-space(/data/q1) = ''`,
+				),
+				registration(app, filter, row, { target: "search-row" }),
+			],
+			readEnv(),
+		);
+		expect(reading.bound[0]).toBeDefined();
+		expect(reading.bound[1]).toBeUndefined();
+		expect(reading.bound[2]).toBeDefined();
+		expect(reading.declaredProperties).toEqual([
+			{ caseType: "patient", property: "alpha" },
+			{ caseType: "patient", property: "zone" },
+		]);
+		const patient = reading.doc.caseTypes?.find(
+			(type) => type.name === "patient",
+		);
+		const names = patient?.properties.map((property) => property.name) ?? [];
+		expect(names).toContain("alpha");
+		expect(names).toContain("zone");
+		expect(names).not.toContain("omega");
+		expect(reading.worldReads.userFields).toEqual(["region"]);
+	});
+
+	it("lists a table the form declares and the catalog lacks as unread", () => {
+		const app = doc();
+		const relevant: SlotContextRef = {
+			entity: "field",
+			uuid: fieldNamed(app, "q1"),
+			slot: "relevant",
+		};
+		const reading = readExpressions(
+			app,
+			[registration(app, relevant, "/data/q1 = 'x'")],
+			readEnv({
+				instanceSources: new Map([
+					[onlyForm(app), new Map([["crops", "jr://fixture/item-list:crops"]])],
+				]),
+			}),
+		);
+		expect(reading.unreadTables).toEqual(["crops"]);
 	});
 });

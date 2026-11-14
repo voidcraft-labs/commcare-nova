@@ -7,6 +7,7 @@
  * between two trees that print the same bytes, which a test prints in a real
  * slot. Nothing here parses or prints.
  */
+import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { formNodeGraph } from "@/lib/domain/expression/formNodes";
 import {
@@ -32,6 +33,7 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain/forms";
+import { userPropertySlugVerdict } from "../../validator/userPropertySlug";
 import type { FormNodeProjection } from "../../xpath/formNodeProjection";
 import { crossesSourceRepeatInRowPredicate } from "../../xpath/wire/formReads";
 import { literalArguments } from "../../xpath/wire/serialize";
@@ -39,11 +41,14 @@ import type { WireMode } from "../../xpath/wire/tree";
 import { shapedLiteral as shapedLiteralText } from "./folds";
 
 /** One row: a tree shape and the canonical tree that prints the same bytes
- *  in this slot. A row scoped to `root` applies to a slot's whole tree. */
+ *  in this slot. `at.root` says the node is the slot's whole tree. */
 export interface PrintCollision {
 	readonly id: string;
-	readonly scope?: "root";
-	rewrite(node: Expression, context: ExpressionContext): Expression | undefined;
+	rewrite(
+		node: Expression,
+		context: ExpressionContext,
+		at: { readonly root: boolean },
+	): Expression | undefined;
 }
 
 const COMPARISON_KINDS = new Set(["eq", "neq", "gt", "gte", "lt", "lte"]);
@@ -259,6 +264,171 @@ function literalTexts(value: string, mode: WireMode): string[] {
 	return literalArguments(value, mode, true).map((arg) => arg.text);
 }
 
+/** The property a query of the worker's own case reads: the `casedb` row
+ *  of type `commcare-user` whose `hq_user_id` is the session's user. */
+function usercaseProjection(node: Expression): string | undefined {
+	if (node.kind !== "project" || node.value.kind !== "prop") return undefined;
+	const { of, value } = node;
+	if (
+		of.kind !== "cases" ||
+		of.source !== "casedb" ||
+		of.where.length !== 2 ||
+		value.via !== undefined
+	)
+		return undefined;
+	const [typed, keyed] = of.where;
+	if (typed?.kind !== "eq" || keyed?.kind !== "eq") return undefined;
+	const rowType = termOf(typed.left);
+	const caseType = termOf(typed.right);
+	const key = termOf(keyed.left);
+	const user = termOf(keyed.right);
+	return rowType?.kind === "case-row-type" &&
+		caseType?.kind === "case-type" &&
+		caseType.caseType === USERCASE_TYPE &&
+		key?.kind === "prop" &&
+		key.property === "hq_user_id" &&
+		key.via === undefined &&
+		user?.kind === "session-context" &&
+		user.field === "userid"
+		? value.property
+		: undefined;
+}
+
+/** The worker-record leaf of a slug: the app's worker property of that slug
+ *  by identity where the app holds exactly one, else the name-backed read,
+ *  as the parser binds `#user/<slug>`. */
+function workerRecordLeaf(slug: string, context: ExpressionContext): Term {
+	const matches = [...context.facts.userPropertySlugs].filter(
+		([, held]) => held.toLowerCase() === slug.toLowerCase(),
+	);
+	const [only] = matches;
+	return matches.length === 1 &&
+		only !== undefined &&
+		only[1] === slug &&
+		userPropertySlugVerdict(slug, NO_SLUGS).ok
+		? {
+				kind: "session-user-property",
+				userPropertyUuid: only[0],
+				source: "worker-record",
+			}
+		: { kind: "session-user", field: slug, source: "worker-record" };
+}
+const NO_SLUGS: ReadonlySet<string> = new Set();
+const USERCASE_TYPE = "commcare-user";
+
+const INSTANT_TEXT_PATTERN = "%Y-%m-%dT%H:%M:%S.%3%Z";
+
+/** The operand text an instant parse reads: the first argument of the
+ *  `substr` inside its fraction term (`instant.ts::instantMicros`), where
+ *  `side` is that parse. */
+function instantParseOperand(side: Expression): Expression | undefined {
+	if (side.kind !== "arith" || side.op !== "+") return undefined;
+	const fraction = side.right;
+	if (fraction.kind !== "if" || fraction.cond.kind !== "match")
+		return undefined;
+	const test = fraction.cond;
+	if (test.mode !== "starts-with") return undefined;
+	const tail = test.property as Expression;
+	return isCall(tail, "substr") ? tail.args[0] : undefined;
+}
+
+/** One side of a lowered comparison as the comparison's own operand: the
+ *  parse's text unwrapped by the spellings `instant.ts::leafText` and
+ *  `::operandText` write, a folded literal as its canonical text, or a day
+ *  number's microseconds as its moment. */
+function instantSide(
+	whole: Expression,
+	text: Expression | undefined,
+	record: boolean,
+): Expression | undefined {
+	if (text !== undefined) return instantOperand(text, record);
+	const micros = numberLiteral(whole);
+	if (micros !== undefined && Number.isInteger(micros)) {
+		const literal = instantTextOfMicros(micros);
+		if (literal === undefined || literalInstantMicros(literal) !== micros)
+			return undefined;
+		return {
+			kind: "term",
+			term: record
+				? { kind: "literal", value: literal, data_type: "datetime" }
+				: { kind: "literal", value: literal },
+		};
+	}
+	if (
+		record &&
+		whole.kind === "arith" &&
+		whole.op === "*" &&
+		numberLiteral(whole.right) === 86_400_000_000
+	)
+		return { kind: "datetime-coerce", value: whole.left };
+	return undefined;
+}
+
+function instantOperand(text: Expression, record: boolean): Expression {
+	const coerce = (value: Expression): Expression =>
+		record ? { kind: "datetime-coerce", value } : text;
+	const literal = stringLiteral(text);
+	if (literal !== undefined)
+		return {
+			kind: "term",
+			term: record
+				? { kind: "literal", value: literal, data_type: "datetime" }
+				: { kind: "literal", value: literal },
+		};
+	if (
+		text.kind === "format-date" &&
+		text.pattern === INSTANT_TEXT_PATTERN &&
+		text.date.kind === "coalesce" &&
+		text.date.values.length === 2 &&
+		stringLiteral(text.date.values[1]) === ""
+	)
+		return text.date.values[0];
+	if (
+		text.kind === "concat" &&
+		text.parts.length === 2 &&
+		stringLiteral(text.parts[1])?.startsWith("T00:00:00") === true
+	) {
+		const day = text.parts[0];
+		if (day.kind === "format-date") {
+			if (day.date.kind === "coalesce" && day.date.values.length === 2)
+				return coerce(day.date.values[0]);
+			if (day.date.kind === "date-coerce") return coerce(day.date.value);
+		}
+		return coerce(day);
+	}
+	if (text.kind === "if") {
+		const { cond } = text;
+		if (
+			cond.kind === "eq" &&
+			isCall(cond.left, "string-length", 1) &&
+			numberLiteral(cond.right) === 10 &&
+			sameTree(cond.left.args[0], text.else)
+		)
+			return coerce(text.else);
+		if (
+			cond.kind === "eq" &&
+			stringLiteral(cond.right) === "" &&
+			stringLiteral(text.then) === ""
+		)
+			return instantOperand(text.else, record);
+		return {
+			kind: "if",
+			cond,
+			// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+			then: instantOperand(text.then, record),
+			else: instantOperand(text.else, record),
+		};
+	}
+	if (text.kind === "coalesce") {
+		const [first, ...rest] = text.values.map((value) =>
+			instantOperand(value, record),
+		);
+		if (first !== undefined)
+			return { kind: "coalesce", values: [first, ...rest] };
+	}
+	return text;
+}
+
 /** Every row, in the order of the table. */
 export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	{
@@ -429,24 +599,21 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// A table lookup's `where` is simplified wherever it prints; a slot
+		// whose emission simplifies its whole tree is simplified at its root.
 		id: "filter-identities",
-		scope: "root",
-		rewrite(node, context) {
-			if (!simplifiedSlot(context)) return undefined;
+		rewrite(node, context, at) {
+			if (node.kind === "table-lookup") {
+				const where = simplifyForEmission(node.where);
+				if (!sameTree(where, node.where)) return { ...node, where };
+			}
+			if (!at.root || !simplifiedSlot(context)) return undefined;
 			const slot = context.slot;
 			const simplified =
 				slot.entity === "module" && slot.slot === "case_list_filter"
 					? (effectiveFilterForEmission(node) ?? { kind: "match-all" })
 					: simplifyForEmission(node);
 			return sameTree(simplified, node) ? undefined : simplified;
-		},
-	},
-	{
-		id: "table-lookup-identities",
-		rewrite(node) {
-			if (node.kind !== "table-lookup") return undefined;
-			const where = simplifyForEmission(node.where);
-			return sameTree(where, node.where) ? undefined : { ...node, where };
 		},
 	},
 	{
@@ -561,6 +728,8 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// `if(R = 0, L div R, (L - L mod R) div R)`: every `L` one operand and
+		// every `R` another, or the `if` computes some other value.
 		id: "quotient",
 		rewrite(node, context) {
 			if (context.ruleSet !== "record" || node.kind !== "if") return undefined;
@@ -575,14 +744,21 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 			)
 				return undefined;
 			const whole = node.else;
-			const remainder =
-				whole.kind === "arith" && whole.op === "div" ? whole.left : undefined;
 			if (
-				remainder?.kind !== "arith" ||
+				whole.kind !== "arith" ||
+				whole.op !== "div" ||
+				!sameTree(whole.right, division.right)
+			)
+				return undefined;
+			const remainder = whole.left;
+			if (
+				remainder.kind !== "arith" ||
 				remainder.op !== "-" ||
 				!sameTree(remainder.left, division.left) ||
 				remainder.right.kind !== "arith" ||
-				remainder.right.op !== "mod"
+				remainder.right.op !== "mod" ||
+				!sameTree(remainder.right.left, division.left) ||
+				!sameTree(remainder.right.right, division.right)
 			)
 				return undefined;
 			return {
@@ -591,31 +767,6 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				left: division.left,
 				right: division.right,
 			};
-		},
-	},
-	{
-		id: "rows-guard",
-		rewrite(node) {
-			if (node.kind !== "if") return undefined;
-			const counted = node.cond;
-			const empty = node.else;
-			if (
-				counted.kind !== "gt" ||
-				numberLiteral(counted.right) !== 0 ||
-				counted.left.kind !== "count" ||
-				(stringLiteral(empty) !== "" && numberLiteral(empty) !== 0)
-			)
-				return undefined;
-			const rows = counted.left.via;
-			if (
-				typeof rows !== "object" ||
-				!("kind" in rows) ||
-				(rows.kind !== "table-rows" &&
-					rows.kind !== "locations" &&
-					rows.kind !== "selected-cases")
-			)
-				return undefined;
-			return node.then;
 		},
 	},
 	{
@@ -678,6 +829,63 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// In form logic the own case's property, read as a query of the case
+		// the form's menu chose, prints as the form's own read of its case.
+		id: "own-case",
+		rewrite(node, context) {
+			if (context.ruleSet !== "form" || context.form === undefined)
+				return undefined;
+			const read = readChosenCaseProperty(node);
+			const form = context.form;
+			if (
+				read === undefined ||
+				!CASE_LOADING_FORM_TYPES.has(form.type) ||
+				read.module !== form.moduleUuid ||
+				context.facts.moduleCaseTypes.get(form.moduleUuid) !== read.caseType
+			)
+				return undefined;
+			return {
+				kind: "term",
+				term: {
+					kind: "form-case",
+					caseType: read.caseType,
+					property: read.property,
+				},
+			};
+		},
+	},
+	{
+		// The worker's own case, queried by its type and the session's user,
+		// prints as the worker-record leaf.
+		id: "worker-record",
+		rewrite(node, context) {
+			const slug = usercaseProjection(node);
+			if (slug === undefined) return undefined;
+			return { kind: "term", term: workerRecordLeaf(slug, context) };
+		},
+	},
+	{
+		// A comparison of two dates and times prints as the arithmetic its
+		// lowering builds, so the arithmetic read as calls is that comparison.
+		id: "instant",
+		rewrite(node, context) {
+			if (!isComparison(node)) return undefined;
+			const record = context.ruleSet === "record";
+			const leftText = instantParseOperand(node.left);
+			const rightText = instantParseOperand(node.right);
+			if (leftText === undefined && rightText === undefined) return undefined;
+			const left = instantSide(node.left, leftText, record);
+			const right = instantSide(node.right, rightText, record);
+			if (left === undefined || right === undefined) return undefined;
+			const bare = { kind: node.kind, left, right } as Comparison;
+			const operands = comparisonOperands(bare, context);
+			return comparisonPlan(bare.kind, operands.left, operands.right) ===
+				"lowered"
+				? bare
+				: undefined;
+		},
+	},
+	{
 		id: "input-presence",
 		rewrite(node, context) {
 			if (context.ruleSet !== "record" || node.kind !== "if") return undefined;
@@ -713,8 +921,7 @@ export function canonicalExpression(
 		for (let turn = 0; turn < PRINT_COLLISIONS.length * 4; turn++) {
 			let next: Expression | undefined;
 			for (const row of PRINT_COLLISIONS) {
-				if (row.scope === "root" && !root) continue;
-				next = row.rewrite(current, at);
+				next = row.rewrite(current, at, { root });
 				if (next !== undefined && next !== current) break;
 				next = undefined;
 			}

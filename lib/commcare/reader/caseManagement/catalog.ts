@@ -8,13 +8,24 @@
  * and a type only where a reader needs it to write the same wire.
  */
 import { type Draft, produce } from "immer";
-import type { CasePropertyDataType } from "@/lib/domain";
+import {
+	type CasePropertyDataType,
+	casePropertyOptionTranslationUnitId,
+	makeTranslationUnitId,
+	type Uuid,
+} from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import {
+	concreteCasePropertyWriterTypes,
+	effectiveCaseTypes,
+} from "@/lib/domain/effectiveCaseTypes";
+import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { type ProseTemplate, proseText } from "@/lib/domain/prose";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
+import { defineClaims, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
+import { appPlace } from "../place";
 import type { DraftField } from "../xform";
 import { advancedCaseReading } from "./advancedActions";
 import { basicCaseReading } from "./basicActions";
@@ -102,26 +113,83 @@ function noteParents(
 	}
 }
 
-/** The inline choices a select question offers, by value, first label kept. */
-function noteChoices(
+/** The inline choices a select question offers, by value, first label kept.
+ *  Answers the choices it added, each the first of its value. */
+function noteChoices<
+	O extends { readonly value: string; readonly label: ProseTemplate },
+>(
 	property: Draft<CatalogType["properties"][number]>,
-	options: readonly { readonly value: string; readonly label: ProseTemplate }[],
-): void {
+	options: readonly O[],
+): O[] {
 	const known = property.options ?? [];
+	const added: O[] = [];
 	for (const option of options)
-		if (!known.some((one) => one.value === option.value))
+		if (!known.some((one) => one.value === option.value)) {
 			known.push({
 				value: option.value,
 				label: structuredClone(option.label) as never,
 			});
+			added.push(option);
+		}
 	if (known.length > 0) property.options = known;
+	return added;
 }
 
 function inlineOptions(field: Readonly<Record<string, unknown>> | undefined) {
 	const source = field?.optionsSource as
-		| { kind: string; options?: { value: string; label: ProseTemplate }[] }
+		| {
+				kind: string;
+				options?: { uuid?: Uuid; value: string; label: ProseTemplate }[];
+		  }
 		| undefined;
 	return source?.kind === "inline" ? (source.options ?? []) : [];
+}
+
+/** Which question's choice each catalog option was read from, per reading,
+ *  so its translations follow it once the text stage has read them. */
+const OPTION_SOURCES = new WeakMap<
+	ReadContext,
+	{
+		readonly caseType: string;
+		readonly property: string;
+		readonly value: string;
+		readonly fieldUuid: Uuid;
+		readonly optionUuid: Uuid;
+	}[]
+>();
+
+/**
+ * Each catalog option's translations, from the same choice's: the text
+ * stage gives the sink each select choice's label in every other language,
+ * and the option a choice gave the catalog takes those values under the role
+ * `case-property-option-label`. Runs once the text stage has run.
+ */
+export function noteCatalogOptionTranslations(ctx: ReadContext): void {
+	const sources = OPTION_SOURCES.get(ctx) ?? [];
+	if (sources.length === 0) return;
+	const byUnit = new Map(
+		ctx.translations.units().map((one) => [one.unit, one] as const),
+	);
+	for (const source of sources) {
+		const choice = byUnit.get(
+			makeTranslationUnitId(
+				"field",
+				source.fieldUuid,
+				"option",
+				source.optionUuid,
+			),
+		);
+		if (choice === undefined || choice.byLanguage.size === 0) continue;
+		ctx.translations.set(
+			casePropertyOptionTranslationUnitId(
+				source.caseType,
+				source.property,
+				source.value,
+			),
+			choice.kind,
+			choice.byLanguage,
+		);
+	}
 }
 
 function isSelect(kind: unknown): boolean {
@@ -132,10 +200,11 @@ function isSelect(kind: unknown): boolean {
  * Step 3: the catalog of the reading, written into the draft from what the
  * structure and case readers read: every menu's case type, every child
  * case's, open action's and Save to Case block's, in menu order; each child
- * type's parent; one property per property written or preloaded and per
- * column and simple Search field the drafts hold; and each select-written
- * property's choices. A property an expression reads is noted by the
- * expression stage through `noteProperty`.
+ * type's parent; one property per property written or preloaded; and each
+ * select-written property's choices. A property a case list column, a sort
+ * element or a simple Search field reads is noted by the list and search
+ * readers, and one an expression reads by the expression stage, each through
+ * `noteProperty`.
  */
 export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 	const caseTypes: Catalog = [];
@@ -197,12 +266,18 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				noteType(caseTypes, caseType);
 				const destination = block.retype ?? caseType;
 				noteType(caseTypes, destination);
-				for (const write of block.writes)
+				for (const write of block.writes) {
+					// A value that is one question's answer is that question's write.
+					const field =
+						write.value.kind === "capture"
+							? write.value.field
+							: write.value.readsField;
 					writes.push({
 						caseType: destination,
 						property: write.property,
-						...(write.value.kind === "capture" && { field: write.value.field }),
+						...(field !== undefined && { field }),
 					});
+				}
 				for (const link of block.links)
 					links.push({
 						child: caseType,
@@ -245,27 +320,79 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 			selections.push({ child, parent: parentType });
 	}
 	noteParents(caseTypes, links, selections);
+	const sources: NonNullable<ReturnType<typeof OPTION_SOURCES.get>> = [];
 	const next = produce(caseTypes, (draft) => {
 		for (const write of writes) {
 			noteProperty(draft, write.caseType, write.property);
-			const kind = write.field?.kind;
-			if (write.field === undefined || !isSelect(kind)) continue;
+			const field = write.field;
+			if (field === undefined || !isSelect(field.kind)) continue;
 			const property = draft
 				.find((type) => type.name === write.caseType)
 				?.properties.find((one) => one.name === write.property);
-			if (property !== undefined)
-				noteChoices(property, inlineOptions(write.field.field));
-		}
-		for (const module of app.modules) {
-			const caseType = module.module.caseType;
-			if (caseType === undefined) continue;
-			for (const property of listProperties(module.module))
-				noteProperty(draft, caseType, property);
+			if (property === undefined) continue;
+			for (const option of noteChoices(property, inlineOptions(field.field)))
+				if (field.uuid !== undefined && option.uuid !== undefined)
+					sources.push({
+						caseType: write.caseType,
+						property: write.property,
+						value: option.value,
+						fieldUuid: field.uuid,
+						optionUuid: option.uuid,
+					});
 		}
 	});
+	OPTION_SOURCES.set(ctx, sources);
 	ctx.writeDraft(() => {
 		app.caseTypes = next as Catalog;
 	});
+}
+
+const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
+	intDecimal: refuse(`forms-and-case-writes/writers-int-decimal`, null),
+	singleMulti: refuse(
+		`forms-and-case-writes/writers-single-select-multi-select`,
+		null,
+	),
+	otherPair: refuse(`forms-and-case-writes/any-other-mixed-writer-pair`, null),
+});
+
+/**
+ * The writers of each property judged over the bound document
+ * (`concreteCasePropertyWriterTypes`): writers that agree on one stored type
+ * (`agreedStorageType`, `int` with `decimal` on `decimal` among them) are one
+ * type Nova holds; writers that do not are the manifest's row for their pair,
+ * one finding per property, at the first menu of its case type.
+ */
+export function settleWriterTypes(
+	ctx: ReadContext,
+	app: DraftApp,
+	doc: BlueprintDoc,
+): void {
+	let opinions: ReturnType<typeof concreteCasePropertyWriterTypes>;
+	try {
+		opinions = concreteCasePropertyWriterTypes(doc);
+	} catch {
+		return;
+	}
+	for (const [caseType, byProperty] of opinions) {
+		if (NOT_CATALOGUED.has(caseType)) continue;
+		for (const [property, types] of byProperty) {
+			if (types.size < 2 || agreedStorageType(types) !== undefined) continue;
+			const pair = (a: CasePropertyDataType, b: CasePropertyDataType) =>
+				types.size === 2 && types.has(a) && types.has(b);
+			const claim = pair("int", "decimal")
+				? WRITER_CLAIMS.intDecimal
+				: pair("single_select", "multi_select")
+					? WRITER_CLAIMS.singleMulti
+					: WRITER_CLAIMS.otherPair;
+			const menu = app.modules.find(
+				(module) => module.module.caseType === caseType,
+			);
+			ctx.accounting.finding(claim, menu?.place ?? appPlace(), {
+				name: property,
+			});
+		}
+	}
 }
 
 function fieldsOf(

@@ -1475,7 +1475,7 @@
 		"id": "forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
-		"item": "a `form_links` entry or a `session_endpoint_id` whose frame HQ builds through the first menu while every form of every `put_in_root` module opens one chosen case",
+		"item": "a `form_links` entry, or a form's, menu's or case list's deep link (`session_endpoint_id`, `case_list_session_endpoint_id`), whose frame HQ builds through the first menu while every form of every `put_in_root` module opens one chosen case",
 		"surfaceKeys": [
 			"schema:Form.form_links",
 			"schema:AdvancedForm.form_links",
@@ -1483,7 +1483,11 @@
 			"schema:FormLink.form_id",
 			"schema:Form.session_endpoint_id",
 			"schema:AdvancedForm.session_endpoint_id",
-			"schema:ShadowForm.session_endpoint_id"
+			"schema:ShadowForm.session_endpoint_id",
+			"schema:Module.session_endpoint_id",
+			"schema:AdvancedModule.session_endpoint_id",
+			"schema:Module.case_list_session_endpoint_id",
+			"schema:AdvancedModule.case_list_session_endpoint_id"
 		],
 		"valueClass": "through-a-first-menu-that-shares-one-case",
 		"disposition": "HELD-NEW",
@@ -2329,7 +2333,10 @@
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
 		"item": "`put_in_root` on a form (dynamic key)",
-		"surfaceKeys": ["schema:Form.<undeclared>"],
+		"surfaceKeys": [
+			"schema:Form.<undeclared>",
+			"schema:AdvancedForm.<undeclared>"
+		],
 		"valueClass": "put-in-root",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: not a model field; ignored",
@@ -2348,7 +2355,10 @@
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
 		"item": "`no_vellum` (removed field, dynamic key)",
-		"surfaceKeys": ["schema:Form.<undeclared>"],
+		"surfaceKeys": [
+			"schema:Form.<undeclared>",
+			"schema:AdvancedForm.<undeclared>"
+		],
 		"valueClass": "no-vellum",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: no reader",
@@ -2817,7 +2827,8 @@
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
-			"schema:UpdateCaseAction.update"
+			"schema:UpdateCaseAction.update",
+			"schema:ConditionalCaseUpdate.question_path"
 		],
 		"valueClass": "name-key",
 		"disposition": "HELD",
@@ -3060,7 +3071,8 @@
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
-			"schema:UpdateCaseAction.update"
+			"schema:UpdateCaseAction.update",
+			"schema:ConditionalCaseUpdate.question_path"
 		],
 		"valueClass": "owner-id-key",
 		"disposition": "HELD",
@@ -3090,7 +3102,8 @@
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",
-			"schema:UpdateCaseAction.update"
+			"schema:UpdateCaseAction.update",
+			"schema:ConditionalCaseUpdate.question_path"
 		],
 		"valueClass": "category-state-keys",
 		"disposition": "HELD",
@@ -6641,7 +6654,8 @@
 		"item": "advanced forms, in a module whose case list offers a registration form (`case_list_form`), breaking the case-list-module rules (same loads, require a case, parent chains only, matching tags, own details, the module's case type)",
 		"surfaceKeys": [
 			"schema:AdvancedForm.actions",
-			"schema:AdvancedFormActions.load_update_cases"
+			"schema:AdvancedFormActions.load_update_cases",
+			"schema:AdvancedModule.case_list_form"
 		],
 		"valueClass": "breaks-case-list-form-rules",
 		"disposition": "REFUSED",
@@ -7093,9 +7107,11 @@
 		"id": "forms-and-case-writes/any-other-undeclared-key",
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
-		"item": "any other key a `Form`, `UpdateCaseAction` or `OpenCaseAction` does not declare, other than the dynamic keys the rows above name",
+		"item": "any other key a `Form`, `AdvancedForm`, `FormActions`, `UpdateCaseAction` or `OpenCaseAction` does not declare, other than the dynamic keys the rows above name",
 		"surfaceKeys": [
 			"schema:Form.<undeclared>",
+			"schema:AdvancedForm.<undeclared>",
+			"schema:FormActions.<undeclared>",
 			"schema:UpdateCaseAction.<undeclared>",
 			"schema:OpenCaseAction.<undeclared>"
 		],

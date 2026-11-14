@@ -57,6 +57,26 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 		`${F}/case-preload-question-property-into-a-question-outside-any`,
 		"xform:setvalue",
 	),
+	parentPreload: take(
+		`${F}/case-preload-from-parent-paths-into-a-question-outside-any`,
+		"schema:FormActions.case_preload",
+	),
+	parentPreloadMap: take(
+		`${F}/case-preload-from-parent-paths-into-a-question-outside-any`,
+		"schema:PreloadAction.preload",
+	),
+	insideRepeat: drop(
+		`${F}/case-preload-into-a-question-inside-a-repeat`,
+		"schema:FormActions.case_preload",
+	),
+	multiSelectChild: take(
+		`${F}/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child`,
+		"schema:FormActions.case_preload",
+	),
+	multiSelectChildMap: take(
+		`${F}/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child`,
+		"schema:PreloadAction.preload",
+	),
 	condition: drop(
 		`${F}/preload-action-condition`,
 		"schema:PreloadAction.condition",
@@ -114,6 +134,34 @@ export const PRELOAD_CLAIMS = defineClaims("caseManagement.preloads", {
 		"schema:FormActions.load_from_form",
 	),
 });
+
+/** The rows a case preload's question reads under, in the table's order. */
+const PRELOAD_ROWS = [
+	"plain",
+	"parent",
+	"repeat",
+	"multi-select-child",
+] as const;
+type PreloadRow = (typeof PRELOAD_ROWS)[number];
+
+/** The claims on `case_preload` and on its map, by the row the map is read under. */
+const PRELOAD_ROW_CLAIMS: Record<
+	Exclude<PreloadRow, "repeat">,
+	{ readonly container: Claim<"take">; readonly map: Claim<"take"> }
+> = {
+	plain: {
+		container: PRELOAD_CLAIMS.casePreload,
+		map: PRELOAD_CLAIMS.casePreloadMap,
+	},
+	parent: {
+		container: PRELOAD_CLAIMS.parentPreload,
+		map: PRELOAD_CLAIMS.parentPreloadMap,
+	},
+	"multi-select-child": {
+		container: PRELOAD_CLAIMS.multiSelectChild,
+		map: PRELOAD_CLAIMS.multiSelectChildMap,
+	},
+};
 
 /** Reads an admitted value the reading keeps in no slot of its own. */
 function readPast<T>(admitted: Admitted<T>): T {
@@ -221,25 +269,16 @@ export function readPreloads(
 			if (reserved) A.refuse("case_preload", PRELOAD_CLAIMS.onSurveyReserved);
 			else A.drop("case_preload", PRELOAD_CLAIMS.onSurvey);
 		} else {
-			const P = A.object(
-				"case_preload",
-				"PreloadAction",
-				PRELOAD_CLAIMS.casePreload,
-			);
-			P.drop("condition", PRELOAD_CLAIMS.condition);
-			const preload = readPast(
-				P.take("preload", PRELOAD_CLAIMS.casePreloadMap, (value) => value),
-			);
-			rewrite(`${P.pointer}/preload`);
 			const multi = isMultiSelectMenu({
 				case_details: module.json.peek("case_details"),
 			});
 			const topLevel =
 				module.module.parentModuleUuid === undefined &&
 				module.module.parentCaseModuleUuid === undefined;
-			for (const [path, property] of Object.entries(
-				isJsonObject(preload) ? preload : {},
-			)) {
+			// The rows the map's questions read under, in the table's order; the
+			// map is claimed under the first of them.
+			const rows = new Set<PreloadRow>();
+			for (const [path, property] of Object.entries(caseMap)) {
 				const field = fieldAt(form, path);
 				if (field === undefined || typeof property !== "string") {
 					ctx.accounting.finding(PRELOAD_CLAIMS.label, form.place, {
@@ -247,7 +286,11 @@ export function readPreloads(
 					});
 					continue;
 				}
-				if (repeatOfField(field) !== undefined) continue;
+				// An `xforms-ready` load runs before any row exists, and fills none.
+				if (repeatOfField(field) !== undefined) {
+					rows.add("repeat");
+					continue;
+				}
 				if (multi && topLevel) {
 					ctx.accounting.finding(PRELOAD_CLAIMS.multiSelect, field.place);
 					continue;
@@ -277,13 +320,37 @@ export function readPreloads(
 					});
 					continue;
 				}
+				if (multi) {
+					// HQ loads it from the selection's storage id, which names no
+					// case, so the load sets it empty after every other setvalue:
+					// the question holds no default. Its own default, where it had
+					// one, is held only where no later load-time value read it.
+					const authored =
+						field.field.default_value !== undefined ||
+						field.expressions.some((one) => one.slot === "default_value");
+					rows.add("multi-select-child");
+					writeDefault(ctx, form, field, undefined);
+					if (authored) candidates.push({ field, place: field.place });
+					continue;
+				}
 				const read: Term = {
 					kind: "form-case",
 					caseType: readType,
 					property: name === "name" ? "case_name" : name,
 				};
+				rows.add(indices.length > 0 ? "parent" : "plain");
 				writeDefault(ctx, form, field, term(read));
 				candidates.push({ field, place: field.place });
+			}
+			const row =
+				PRELOAD_ROWS.find((one) => rows.has(one)) ?? ("plain" as const);
+			rewrite(`${A.pointer}/case_preload/preload`);
+			if (row === "repeat") A.drop("case_preload", PRELOAD_CLAIMS.insideRepeat);
+			else {
+				const claims = PRELOAD_ROW_CLAIMS[row];
+				const P = A.object("case_preload", "PreloadAction", claims.container);
+				P.drop("condition", PRELOAD_CLAIMS.condition);
+				readPast(P.take("preload", claims.map, (value) => value));
 			}
 		}
 	}
@@ -315,11 +382,31 @@ export function readPreloads(
 					field !== undefined &&
 					typeof property === "string" &&
 					!property.includes("/") &&
-					repeatOfField(field) === undefined &&
-					holdsDefault(form, field),
+					repeatOfField(field) === undefined,
 			);
+		// A question that takes no default: a label is the picker's row, any
+		// other the row of a question that holds none.
+		const noDefault = held
+			? fields
+					.map(({ field }) =>
+						field === undefined || holdsDefault(form, field)
+							? undefined
+							: field.kind === "label"
+								? PRELOAD_CLAIMS.label
+								: PRELOAD_CLAIMS.noDefault,
+					)
+					.find((claim) => claim !== undefined)
+			: undefined;
 		if (!held) A.refuse("usercase_preload", PRELOAD_CLAIMS.usercaseOther);
-		else {
+		else if (noDefault !== undefined) {
+			const U = A.object(
+				"usercase_preload",
+				"PreloadAction",
+				PRELOAD_CLAIMS.usercasePreload,
+			);
+			U.drop("condition", PRELOAD_CLAIMS.condition);
+			U.refuse("preload", noDefault);
+		} else {
 			const U = A.object(
 				"usercase_preload",
 				"PreloadAction",

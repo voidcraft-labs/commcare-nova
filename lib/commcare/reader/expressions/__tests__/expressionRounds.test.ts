@@ -1,16 +1,39 @@
 /**
  * The rounds of the expression stage end, and end soon: each withdraws a
  * fold site and a slot holds finitely many. The failures this holds: an
- * app's own expressions, read back, taking more than four rounds; a loop
- * that reaches the round limit; a slot equal in one round left unchecked
- * after a later round.
+ * app's own expressions, read back, taking more than four rounds, in a
+ * hand-built app and in the largest document of each of the emitter's
+ * corpora; a loop that reaches the round limit; a slot equal in one round
+ * left unchecked after a later round, as when a Hidden Value's fold is
+ * withdrawn and its type changes under a comparison that read equal before:
+ * every slot held with no rewrite prints, in the document the reading
+ * returns, the text it was read from.
  */
+import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
+import { slotContext } from "@/lib/domain/expression/context";
+import type {
+	Expression,
+	SlotContextRef,
+	Term,
+} from "@/lib/domain/expression/types";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
-import { EXPRESSION_ROUND_LIMIT, readExpressions } from "../index";
-import { printSlot } from "../readExpression";
-import { readEnv, registration } from "./expressionReadFixture";
+import type { PendingExpression } from "../../pendingExpressions";
+import { sameXPathText } from "../../syntaxCompare";
+import {
+	EXPRESSION_ROUND_LIMIT,
+	type ExpressionReadEnv,
+	readExpressions,
+} from "../index";
+import { compareOptionsFor, lookupTypes, printSlot } from "../readExpression";
+import { fieldNamed, readEnv, registration } from "./expressionReadFixture";
+import { corpusDocs, READ_BACK_CORPORA, storedSlots } from "./readBackCorpus";
 
 describe("the expression stage's rounds", () => {
 	it("reads Nova's own expressions back in a few rounds", () => {
@@ -89,5 +112,193 @@ describe("the expression stage's rounds", () => {
 		expect(reading.rounds).toBeLessThan(EXPRESSION_ROUND_LIMIT);
 		expect(reading.circumstances).toEqual([]);
 		expect(reading.bound.every((tree) => tree !== undefined)).toBe(true);
+		expectHeldPrintsItsText(reading, pending, env);
 	});
+});
+
+describe("a later round that changes a Hidden Value's type", () => {
+	const TABLE = "01890000-0000-7000-8000-000000000401" as LookupTableId;
+	const NAME = "01890000-0000-7000-8000-000000000402" as LookupColumnId;
+	const WHEN = "01890000-0000-7000-8000-000000000403" as LookupColumnId;
+	const ROWS = "instance('visits')/visits_list/visits";
+	const env = readEnv({
+		lookup: new Map([
+			[
+				TABLE,
+				{
+					id: TABLE,
+					name: "Visits",
+					tag: "visits",
+					columns: [
+						{ id: NAME, wireName: "name", label: "Name", dataType: "text" },
+						{
+							id: WHEN,
+							wireName: "when",
+							label: "When",
+							dataType: "datetime",
+						},
+					],
+				},
+			],
+		]) as ExpressionReadEnv["lookup"],
+	});
+	const term = (one: Term): Expression => ({ kind: "term", term: one });
+
+	it("judges again a slot that read equal before the type changed", () => {
+		const provisional = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "q1", label: "Q1" }),
+								f({ kind: "datetime", id: "start", label: "Start" }),
+								f({ kind: "hidden", id: "h" }),
+								f({ kind: "text", id: "q2", label: "Q2" }),
+								f({
+									kind: "single_select",
+									id: "pick",
+									label: "Pick",
+									optionsSource: {
+										kind: "lookup",
+										tableId: TABLE,
+										valueColumnId: NAME,
+										labelColumnId: NAME,
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const q1 = fieldNamed(provisional, "q1");
+		const start = fieldNamed(provisional, "start");
+		const hidden = fieldNamed(provisional, "h");
+		const q2 = fieldNamed(provisional, "q2");
+		const calculate: SlotContextRef = {
+			entity: "field",
+			uuid: hidden,
+			slot: "calculate",
+		};
+		const relevant: SlotContextRef = {
+			entity: "field",
+			uuid: q2,
+			slot: "relevant",
+		};
+		// The read the empty-rows guard proposes for the Hidden Value: a date
+		// and time from the table.
+		const visitTime: Expression = {
+			kind: "table-lookup",
+			tableId: TABLE,
+			resultColumnId: WHEN,
+			where: {
+				kind: "eq",
+				left: term({ kind: "table-column", tableId: TABLE, columnId: NAME }),
+				right: term({ kind: "field", uuid: q1 }),
+			},
+		};
+		const asProposed = hydratePersistedBlueprint(toPersistableDoc(provisional));
+		(asProposed.fields[hidden] as { calculate?: Expression }).calculate =
+			visitTime;
+		const before: Expression = {
+			kind: "lt",
+			left: term({ kind: "field", uuid: hidden }),
+			right: term({ kind: "field", uuid: start }),
+		};
+		// HQ's guard falls back to 0 where Nova's falls back to '', so the
+		// proposal prints otherwise and is withdrawn in the second round, and
+		// the Hidden Value is no date and time from then on. The comparison is
+		// Nova's own print where the Hidden Value is one: equal in the first
+		// round, and printed otherwise once the type changed.
+		const pending = [
+			registration(
+				asProposed,
+				calculate,
+				`if(count(${ROWS}) > 0, ${ROWS}[name = /data/q1][1]/when, 0)`,
+			),
+			registration(
+				asProposed,
+				relevant,
+				printSlot(asProposed, relevant, before, env),
+			),
+		];
+		const reading = readExpressions(provisional, pending, env);
+		expect(reading.rounds).toBeGreaterThan(1);
+		expect(reading.rounds).toBeLessThanOrEqual(4);
+		// The comparison no longer reads as one once the Hidden Value is no
+		// date and time, so it is held as the arithmetic its text spells.
+		expect(reading.bound[1]).toBeDefined();
+		expect(reading.bound[1]).not.toEqual(before);
+		expectHeldPrintsItsText(reading, pending, env);
+	});
+});
+
+/** Every slot the reading holds with no rewrite reported prints, in the
+ *  document the reading returns, the text it was read from: a slot judged
+ *  equal in an early round was judged again after every change of a later
+ *  one. */
+function expectHeldPrintsItsText(
+	reading: ReturnType<typeof readExpressions>,
+	pending: readonly PendingExpression[],
+	env: ExpressionReadEnv,
+): void {
+	pending.forEach((registration, index) => {
+		const tree = reading.bound[index];
+		if (tree === undefined || registration.mode.target === "search-row") return;
+		const leveled = reading.rewrites.some(
+			(one) =>
+				one.key === registration.key &&
+				isDeepStrictEqual(one.place, registration.place),
+		);
+		if (leveled) return;
+		const context = slotContext(
+			reading.doc,
+			registration.ref,
+			lookupTypes(env),
+		);
+		if (context === undefined)
+			throw new Error(`The reading has no slot ${registration.key}.`);
+		const printed = printSlot(reading.doc, registration.ref, tree, env);
+		expect(
+			sameXPathText(
+				printed,
+				registration.text,
+				compareOptionsFor(reading.doc, registration, env, context.ruleSet),
+			),
+			`${registration.ref.slot}: ${printed}`,
+		).toBe(true);
+	});
+}
+
+describe("the rounds over the emitter's corpora", () => {
+	for (const corpus of READ_BACK_CORPORA)
+		it(`reads the largest document of the ${corpus.name} corpus in a few rounds`, {
+			timeout: 60_000,
+		}, () => {
+			const [largest] = corpusDocs(corpus, 30)
+				.map((doc) => ({ doc, slots: storedSlots(doc) }))
+				.sort((a, b) => b.slots.length - a.slots.length);
+			if (largest === undefined) throw new Error("The corpus is empty.");
+			const { doc, slots } = largest;
+			const env = readEnv();
+			const pending = slots.flatMap(({ ref, expression }) => {
+				// A search filter row is read through CSQL by the search reader.
+				if (ref.entity === "module" && ref.slot === "search_input_predicate")
+					return [];
+				try {
+					return [registration(doc, ref, printSlot(doc, ref, expression, env))];
+				} catch {
+					// A slot the emitter writes nowhere (a dormant case list).
+					return [];
+				}
+			});
+			const reading = readExpressions(doc, pending, env);
+			expect(reading.rounds).toBeLessThanOrEqual(4);
+			expect(reading.rounds).toBeLessThan(EXPRESSION_ROUND_LIMIT);
+			expectHeldPrintsItsText(reading, pending, env);
+		});
 });

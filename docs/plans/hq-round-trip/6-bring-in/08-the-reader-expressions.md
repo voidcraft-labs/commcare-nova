@@ -82,9 +82,9 @@ evaluate a list of values as they do today (8.3).
 6. **The equivalence table is closed at seven rows** (3; S2 left it under E1's outcome D, read from
    Core's source: `CaseChildElement.getChildrenWithName` answers a `name` step with a blank node):
    whitespace, parentheses, quote marks, number
-   spelling, the three axis abbreviations, `./.` for `.` in a predicate, `cond` as nested `if` in a
-   record slot, and `name` for `case_name` on a case row (the last decided by run E1). Each has a native
-   vector.
+   spelling, the three axis abbreviations, `./.` for `.` in a predicate, and `cond` as nested `if` in a
+   record slot. `name` and `case_name` on a case row are two reads and compare as two trees. Each row has
+   a native vector, and so does that pair, as a negative control.
 7. **Three local names are mapped, not compared** (3.3): a form's instance ids by the source each
    declares, its itext ids by the text unit each names, and a form node by the name its own source
    gave it, under which Nova's side is printed too.
@@ -399,9 +399,12 @@ runs both helpers over the reader's vectors, which the producer
 `proof/native/producers/emit-expression-evidence.ts` writes from
 `lib/commcare/reader/__tests__/interpolationVectors.ts` together with the port's own answer for
 each. The second takes, for each interpolating slot of the table in 6.1, Nova's `hq-json` print of
-one corpus expression that reads the case (a property of it, and a property of its parent) with the
-`caseXPath` the emitter's entry gives, runs HQ's helper over it, and requires the tree of the answer
-to equal the tree of Nova's `suite` print of the same expression. The test's `limits` line is
+one expression of an admitted document that reads what the slot may read (in the case list filter a
+property of the case and one of its parent; in a form's display condition on a case a property of
+the chosen case, since Nova refuses a related case there, `FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`;
+in a form's display condition on no case and a menu's display condition the worker's session, and in a
+search field's tests the search's answers) with the `caseXPath` the emitter's entry gives, runs HQ's helper over it, and
+requires the tree of the answer to equal the tree of Nova's `suite` print of the same expression. The test's `limits` line is
 rewritten to say what it then holds.
 - A, the port answers every vector as HQ does, and every interpolated print equals its suite print:
   nothing more lands.
@@ -465,6 +468,22 @@ paragraph).
   starter bases): the rule behind the finding is added to section 9.1 with the claim it makes, by 9.1's
   rule for a refusal outside the checker (the slot is not held and claims its default of 9.2 with
   `detail.reason` `validator:<code>`).
+
+The fuzz test judges each stored slot in the read document's own context and counts three verdicts
+without failing them, because none is the expression reader's, and requires the slots read as their
+canonical tree to outnumber the three together in every corpus. Each has its owner:
+- **Document fact**: the read document cannot hold the slot's canonical tree as the source writes it
+  (the checker refuses it there, or it prints other syntax), because what it needs is a fact no
+  export carries: a property type no writer gives, which part 07's derived catalog does not hold
+  (part 09's row `case-catalog-is-as-read`). A whole document, catalog included, is compared by part
+  09's `canonReadBack.fuzz.test.ts` over `canonDocument`, which owns it.
+- **Dormant**: a case list or search slot of a menu that loads no case, which the export does not
+  carry at all (HQ's menu holds its empty case list and default search settings) and no stage
+  registers. The pair is a document's, so it is part 09's, under the same test's outcome B.
+- **Another stage's finding**: a slot no structure reader registered while a finding of the reading
+  stands at the slot's menu, matched by the menu's position, or at one of its forms or questions.
+  The finding is the misread, and the reader that raised it owns it: a reading of Nova's own export
+  with any finding fails `canonReadBack.fuzz.test.ts`.
 
 **E6: the starter apps' expressions.** Where: ordinary CI,
 `lib/commcare/reader/__tests__/bases.retained.test.ts` (part 14, section 10) over the retained bases
@@ -1011,8 +1030,8 @@ starter bases finish in at most four rounds.
 ```ts
 // lib/commcare/reader/syntaxCompare.ts
 export interface CompareOptions {
-	/** `record` applies S1, and S2 at the slot's own row; both rule sets apply S2 inside a
-	 *  `casedb` or results row predicate (the row S2 of 3.2), and `form` never applies S1. */
+	/** `record` applies S1; `form` never does. No rule set erases a `name` step against
+	 *  `case_name` (the struck row S2 of 3.2, E1's outcome D). */
 	readonly ruleSet: RuleSet;
 	/** Section 3.3: maps over the source tree's local names. */
 	readonly instanceId?: (id: string) => string;
@@ -1179,11 +1198,20 @@ Edits, each inert without `scope.reading`:
   registered on its own.
 - `formPathBinding.ts::rowValue`: the `name` to `case_name` alias applies unless
   `reading.caseNameAlias === false`.
+- `formPathBinding.ts::instancePath`, a Search answer read: with a hook, a slot with no form (a
+  menu's case list filter, a Search field's condition) finds the field among its profile's
+  `searchInputs`, so HQ's `instance('search-input:results')/input/field[@name = '…']` in a menu's
+  own slot binds to that field. Without a hook such a slot finds no field and keeps today's
+  `unknown-search-input` refusal.
 - `formPathBinding.ts::bindFormPath`: in a slot whose context has no form and whose top row is a case
   row (the case list filter, a calculated column), a path rooted at `current()` binds its steps as that
-  row's, as a path with no root does. HQ writes `current()` for the listed case there
-  (`suite_xml/sections/entries.py::EntriesHelper.get_filter_xpath`). Without a hook such a path keeps
-  today's `relative-no-context` refusal.
+  row's at any depth of its predicates, as a path with no root does at the top. HQ writes `current()`
+  for the listed case there (`suite_xml/sections/entries.py::EntriesHelper.get_filter_xpath`), and Core
+  keeps the first row a predicate rescopes to as `current()` inside every nested predicate
+  (`core/model/condition/EvaluationContext.java::rescope`). Inside a table's rows the read is the
+  captured case's; inside a nested query of cases Nova has no tree for the listed case's value, so the
+  bound read prints otherwise and the slot is `unrecognized`. Without a hook such a path keeps today's
+  `relative-no-context` refusal.
 
 ### 4.3 The scope the reader builds
 
@@ -1514,10 +1542,16 @@ the reader, or the proof would hold nothing:
 
 ```ts
 // lib/commcare/reader/expressions/canonical.ts
-/** One row: a tree shape and the canonical tree that prints the same bytes in this slot. */
+/** One row: a tree shape and the canonical tree that prints the same bytes in this slot.
+ *  `at.root` says the node is the slot's whole tree (the slot simplification of
+ *  `filter-identities` applies there alone; a table lookup's `where` anywhere). */
 export interface PrintCollision {
 	readonly id: string;
-	rewrite(node: Expression, context: ExpressionContext): Expression | undefined;
+	rewrite(
+		node: Expression,
+		context: ExpressionContext,
+		at: { readonly root: boolean },
+	): Expression | undefined;
 }
 export const PRINT_COLLISIONS: readonly PrintCollision[];
 /** Every collision applied bottom-up until none applies. It never parses and never prints. */
@@ -1552,7 +1586,7 @@ trees do, so the slot is `unrecognized`, which is the truth: Nova would write th
 | `literal-type` | in a record slot, a date-shaped or date-and-time-shaped string literal typed by its own shape, under 5.1's rule for `typed-literal` | the same literal untyped |
 | `instant-literal` | a literal that is a direct operand of a comparison `comparisonPlan` lowers, spelled `instantTextOfMicros(literalInstantMicros(text))`; a literal branch of such an operand, spelled `literalInstantText(text)` | any other literal of the same moment (a direct operand); the same date, clock and offset written with fewer digits (a branch) |
 | `consumer-in-branches` | `if(c, sum(A), sum(B))`, and the same for `cond` | `sum(if(c, A, B))`, `sum(cond(…))`: `emptyRows.ts::guardNodeSetConsumer` moves the call into each branch |
-| `filter-identities` | in any slot whose emission calls `simplifyForEmission` or `effectiveFilterForEmission` (the case list filter, a lookup-backed select's row filter, a table lookup's `where`, the search button's condition, a Search field's condition), the expression as that call gives it; for the case list filter, absent where that is all-true | the same expression holding `match-all` in an `and`, `match-none` in an `or`, or any other identity `simplifyForEmission` drops |
+| `filter-identities` | in any slot whose emission calls `simplifyForEmission` or `effectiveFilterForEmission` (the case list filter, a lookup-backed select's row filter, a table lookup's `where`, the search button's condition, a Search field's condition), the expression as that call gives it; for the case list filter, `match-all` where that is all-true, which prints no filter as an absent one does, and part 09's `canonDocument` stores as the absent filter the reader gives (a rewrite answers a tree, never an absent slot) | the same expression holding `match-all` in an `and`, `match-none` in an `or`, or any other identity `simplifyForEmission` drops |
 | `membership` | `in` | an `or` of equalities on one operand, in a record slot |
 | `range` | `between` | an `and` of two orderings on one operand, in a record slot |
 | `switch` | `switch` | a nested `if` of equalities on one operand, two or more deep, in a record slot |
@@ -1562,13 +1596,15 @@ trees do, so the slot is `unrecognized`, which is the truth: Nova would write th
 | `own-case` | `form-case` | a `project` over a `cases` query keyed on the own-case datum, in form logic |
 | `worker-record` | the worker-record leaf | a `project` over the usercase `cases` query |
 | `junction-first-clause` | `and(a, b, c)`, and the same for `or` | `and(and(a, b), c)`: the printer groups only a later operand of the same precedence, so a first clause of the same junction prints as that many clauses of the outer one (run E5, outcome B) |
-| `rows-guard` | a value read or a consumer of a data-built instance | its own guard built as an `if`, in either the plain or the handed-on shape |
 | `literal-pieces` | a literal outside a `concat`: itself. Inside a `concat`: each literal argument replaced by the texts of the arguments `serialize.ts::literalArguments(value, mode, true)` prints it as, then each maximal run of adjacent literal arguments joined into one literal exactly where `literalArguments` of the joined text holds that run's texts, and left as the separate pieces otherwise; a `concat` left with one part is that part. `serialize.ts` exports `literalArguments` (each argument's token and the text it holds) for this row alone; the tokens alone are quoted text, which a literal does not hold | a `concat` of the pieces the printer would split a literal into; in a `concat`, two adjacent literals, or a literal beside a literal the printer splits |
 | `input-presence` | `when-input-present` | `if(count(input), clause, match-all)`, in a record slot |
 | `instant` | a comparison of two dates and times | the lowered arithmetic built from calls |
 
 Run E5 holds `read(print(D)) = canonicalExpression(D)` slot by slot. A pair this table lacks is that
-run's outcome B, which says what lands.
+run's outcome B, which says what lands. A data-built instance's guard built as an `if` around the
+value read or the consumer it guards is no row: the emitter guards that read again inside the `if`,
+so the two trees print apart, and the `if` reads back as itself (the `empty-rows-guard` fold is
+withdrawn at the outer guard).
 
 ---
 
@@ -1662,7 +1698,7 @@ Which slot gets which call, read from every caller of the two functions:
 | HQ slot | Call | `caseXPath` | Dots | Nova's mode |
 |---|---|---|---|---|
 | `module_filter` | `suite_xml/sections/menus.py`, the relevancy block | none | checked | `no-case` |
-| `form_filter`, a form that requires a case | `menus.py::MenuContributor._get_commands` | `hqCaseByIdXPath("instance('commcaresession')/session/data/<id>")`, `<id>` the datum of the case chosen last (`suite_xml/sections/entries.py::EntriesHelper.get_case_session_var_for_form`: the last of `get_case_datums_meta_for_form`, the datums that hold a case type and need a selection, so no generated one). The reader takes the last entry of `formLinkProjection.ts::entrySessionDatums` for the form that selects a case, and its id from `entryDatumIds`. On a form whose last chosen case is not its menu's (an advanced form's later load), that is the later case, as in HQ | replaced | `case` |
+| `form_filter`, a form that requires a case | `menus.py::MenuContributor._get_commands` | `hqCaseByIdXPath("instance('commcaresession')/session/data/<id>")`, `<id>` the datum of the case chosen last (`suite_xml/sections/entries.py::EntriesHelper.get_case_session_var_for_form`: the last of `get_case_datums_meta_for_form`, the datums that hold a case type and need a selection, so no generated one). The reader takes the last entry of `formLinkProjection.ts::entrySessionDatums` for the form that selects a case, and its id from `entryDatumIds`. On an advanced form, whose datums are its loads, that is its last load's datum (`case_id_<tag>`, the menu's own case, since `advancedEntryDatums.ts::advancedLoadChain` ends at the menu), never an id the menu's case list selects under, as in HQ | replaced | `case` |
 | `form_filter`, any other form | the same | none | checked | `no-case` |
 | `case_details.short.filter` | `suite_xml/sections/entries.py::EntriesHelper.get_filter_xpath` | `current()` | replaced | `case` |
 | a search field's `required.test` | `suite_xml/post_process/remote_requests.py` | none | checked | `no-case` |
@@ -1729,9 +1765,12 @@ that names no type (`relationDestination.ts`, `relation-destination`: "`parent` 
 identifier the `CaseType.parent_type` graph can infer", `lib/domain/expression/CLAUDE.md`), and a step
 that names one prints the test `and @case_type = '<T>'` (`rowScope.ts::caseById`), which narrows the
 read to hosts of that type and is not what the app does today. So the fold makes no proposal for an
-untyped step that is not `parent`, the read stays the binder's `project` over `cases`, the record
-checker refuses that arm, and the slot claims its HELD-NEW entry with `detail.reason` `relation:host`
-(9.2), owner as the slot's. The form's display condition names exactly this class in its id
+untyped step that is not `parent`, and the read stays the binder's `project` over `cases`. Nova's
+print of that `project` is not HQ's join either, so the slot is unequal at both levels; at step 4 of
+2.5 a record slot unequal at both levels whose tree holds a case query keyed on an index other than
+`parent` with no case type test is not `unrecognized`: it claims its HELD-NEW entry with
+`detail.reason` `relation:host` (9.2), owner as the slot's. Where such a tree prints equal, the record
+checker refuses the arm and the same claim follows from 9.2's row. The form's display condition names exactly this class in its id
 (`forms-and-case-writes/form-filter-outside-predicate-parent-host-user-usercase-reads`). Nova's own
 emission of a typed custom step carries the type test and reads back through the same fold with its
 `throughCaseType`. Holding `#host` needs an index whose case type the catalog knows, which is model
@@ -2180,9 +2219,12 @@ Two rules judge an expression outside the checker, both in
 condition by calling the rule's own exports (`moduleDisplayCondition`, `formDisplayCondition`) for the
 slot's owner:
 
-- `DISPLAY_CONDITION_NOT_ON_DEVICE` (`firstPortabilityIssue`): a condition a device cannot evaluate.
-  The slot is not held and claims its default of 9.2 (HELD-NEW for both display conditions) with
-  `detail.reason` `validator:DISPLAY_CONDITION_NOT_ON_DEVICE`.
+- `DISPLAY_CONDITION_NOT_ON_DEVICE` (`firstPortabilityIssue`): a condition a device cannot evaluate,
+  judged over the whole condition, the clauses after a leading `false()` included. The slot is not
+  held and claims its default of 9.2 (HELD-NEW for both display conditions) with `detail.reason`
+  `validator:DISPLAY_CONDITION_NOT_ON_DEVICE`. The emitter refuses to print the trees this rule
+  refuses (a `date-add` over a date and time throws in `fromExpression.ts`), so the reader also runs
+  it over an unprintable display condition the checker admits, ahead of `differs:print` (4.3).
 - `displayConditionStartsWithNever`: a condition that is `match-none`, or an `and` led by it, prints
   the hidden spelling. That is how Nova's `hiddenFromMenu` arrives in HQ's text (`false()`, or
   `false() and (<rest>)`), and `false()` binds to `match-none`. The reader holds the tree as bound
@@ -2738,20 +2780,20 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 |---|---|---|
 | `reader/__tests__/syntaxCompare.test.ts` | pure, over `readFormSyntax` | an equivalence wider than its row: `a and (b and c)` equal to `a and b and c`, `a != b` equal to `not(a = b)`, `1` equal to `'1'`, `child::*` equal to a name, `self::a` equal to `.`, S1 applied in a form slot |
 | `__tests__/spellingVectors.ts` with `proof/native/core/ReaderSpellingRuntimeTest.java` | Core's parser and evaluator, in the lane (run E1) | a row Core reads as two meanings |
-| `reader/__tests__/hqInterpolation.test.ts` | pure, over HQ's retained answers; `hqInterpolationSlot` over a real document | drift from `interpolate_xpath`: a literal holding `#case`, `#session/` inside a string, `1.5`, `.5`, `5.`, a dot beside a non-ASCII digit, an astral code point before a dot, a backslash before a quote, each refusal; `syntaxOf` giving spans that do not index the interpolated text; `hqInterpolationSlot` giving the menu's case path for a `case` slot of a form whose last chosen case is not its menu's, or answering a slot where the form has no case-selecting datum |
+| `reader/__tests__/hqInterpolation.test.ts` | pure, over HQ's retained answers; `hqInterpolationSlot` over a real document | drift from `interpolate_xpath`: a literal holding `#case`, `#session/` inside a string, `1.5`, `.5`, `5.`, a dot beside a non-ASCII digit, an astral code point before a dot, a backslash before a quote, each refusal; `syntaxOf` giving spans that do not index the interpolated text; `hqInterpolationSlot` giving the menu's case path for a `case` slot of an advanced form, whose last load's datum is no id the menu's case list selects under, or answering a slot where the form has no case-selecting datum |
 | the two new cases of `proof/native/test_hq_interpolation.py` | HQ's own helpers, in the lane (run E2) | a vector the port answers differently; a `case` or `no-case` print of a case read that HQ's helper does not turn into the suite print |
 | `__tests__/readExpression.form.test.ts` | the parser, the emitter and the checker over a real document | an own-case walk at depth 0, 1 and 2 not read as `form-case`; in a child menu whose own datum is `case_id_<type>`, a walk keyed on `case_id` read as the form's own case; the usercase selector; a default read as no preload; an instance declared under another id; an itext id of HQ's; a count placement's generated names, and a generated node the source names with another suffix; a question named `nova_trimmed_x` taken for a generated node; `normalize-space(` in HQ's text accepted; `#form/x` in a real attribute held or left `unrecognized`, where it claims the invalid-XPath entry; an instance declared from `jr://fixture/user-groups` claiming the REFUSED unrecognized-source entry, where it claims `groups-jr-fixture-user-groups`; `self::node()` in a form path refused; a datum read the projection does not give, in a form listed in `env.entryFactsRefused`, claiming M1, where its index is in `ownerless` and it makes no claim; the same read in a form that is not listed making no claim, where it claims M1; `required="true()"` claimed under `bind-required-expr`, where it claims `bind-required-true`; an `<output>` that reads one answer left a `value` part or claimed under `output-value-any-other-expression`, where it is the reference part and claims `output-value-of-a-question-case-or-user-reference`; a read of a Search field in a form of a child menu whose parent's forms read the search claiming the REFUSED `search-input-read-in-form-expressions-reached-through-a-search`, where it claims M8; the same read in a form reached through a search that is not inline claiming M8 |
 | `__tests__/readExpression.record.test.ts` | the same, over HQ JSON slots | a case list filter with `#parent/p`, with a bare dot, with `current()`; a form's display condition with `#case/p` and `#user/p`; a menu's display condition that names the case; the health starter's filter text; `cond` in a column refused as `call:cond`, where it is held as `if`; `in`, `between` and `switch` not folded, or folded where the print differs; `dob > '2000-01-01'` on a date property refused, where it is held with the literal typed `date`; `name = '2000-01-01'` on a text property typed and refused; `#host/p` held, or refused as anything but the slot's HELD-NEW entry with `relation:host`; a case list filter `true() and p = 1` left `unrecognized`, where it is held as `p = 1`; a filter Nova wrote with a `when-input-present` clause read from the detail text with that clause, or refused |
 | `__tests__/folds.withdrawal.test.ts` | the fold loop | a guard inside `count`, and a nested `if` the slot's types refuse as a `switch`, held as anything but the tree the author wrote; a loop that does not end |
 | `__tests__/rewrites.test.ts` | `toWire`, `serializeWire` and the filter projection | a rewrite that has a switch withheld and still printed; a site reached and not reported; a relocation site that reports only when the tree stores `absolute`; an HQ-authored default inside a repeat that reads a table filtered by another question of the repeat reporting `default-reads-current`, where it reports `row-predicate-current`; any byte of today's print changed while `rewrites` is absent (held over the fuzz corpora) |
 | `lib/commcare/xform/__tests__/withheldCount.test.ts` | `planConstraintCollections`, over a validation holding `count(/data/r/item[. = 'x']) > 0` | a validation made in CommCare HQ that the reader can never see equal: with `validation-counts-moved` withheld the plan holding a calculation, changing the expression or not reporting the id; unwithheld, the plan returning no calculation |
-| `__tests__/expressionReadBack.fuzz.test.ts` | the emitter and the reader, over `expressionDocArbitrary`, `blueprintDocArbitrary` (`xformDocArbitrary.ts`), `suiteDocArbitrary`, `advancedDocArbitrary` and part 04's `namesDocArbitrary` (run E5) | a slot Nova writes and the reader does not read back; a read that is not `canonicalExpression` of what was written; a second read that differs from the first; a slot Nova wrote that the checker or the dialect judge refuses once read |
+| `__tests__/expressionReadBack.fuzz.test.ts` | the emitter and the reader, over `expressionDocArbitrary`, `blueprintDocArbitrary` (`xformDocArbitrary.ts`), `suiteDocArbitrary`, `advancedDocArbitrary` and part 04's `namesDocArbitrary` (run E5) | a slot Nova writes and the reader does not read back; a read that is not `canonicalExpression` of what was written; a second read that differs from the first; a slot Nova wrote that the checker or the dialect judge refuses once read; the three verdicts E5 counts and leaves to their owners together outnumbering the slots read back in a corpus |
 | `__tests__/expressionReadBack.fixedPoint.test.ts` | the reader, the emitter and the reader again, over hand-written HQ texts | `read(emit(read(A)))` differing from `read(A)`: an absolute read in a default, an absolute read in a row predicate inside a repeat, a bare date-and-time comparison, an unguarded table read, a bare read of the screen width, a filter with `true() and`, a validation holding an inline count, a hand-written search row with fixed quotes, a search row calling `today()`, one text for each of the nine ids; `canonicalExpression(read(A))` differing from `read(A)` |
 | `__tests__/documentFacts.test.ts` | `readExpressions` over one document | a Hidden Value whose calculation binds to a date and time leaving another slot's comparison printed bare, which is what a document changed in place after its facts were read gives; the input document changed by the call |
 | `__tests__/expressionRounds.test.ts` | `readExpressions` over the largest corpus document and the three starter bases | a slot judged equal in one round and left unchecked after a later round changed a Hidden Value's type; more than four rounds; a loop that reaches `EXPRESSION_ROUND_LIMIT` |
 | `__tests__/scanReads.test.ts` | the scan and the binder over a real document | a case property declared twice, or in another order than `noteProperty` gives; a declared property no held slot reads left in the document; a `location_data` slug missing from `worldReads`; a tag the catalog lacks missing from `unreadTables` |
 | `__tests__/worldReads.test.ts` | `readExpressions` run twice, with the entities `worldEntitiesFromReads` gives for the first run's `worldReads` added between | `#user/role` and `session/user/data/role` still bound to the name-backed `session-user` leaf on the second run; a built-in slug missing from `userFields` (it stays name-backed by part 11's rule, and must be listed for that rule to see it); a third run that differs from the second |
-| `__tests__/slotMode.test.ts` | `expandDoc` over the corpora | a slot whose `HqXPath` carries another interpolation than `slotReadMode` gives; the case path of a form whose last chosen case is not its menu's taken from the menu |
+| `__tests__/slotMode.test.ts` | `expandDoc` over the corpora | a slot whose `HqXPath` carries another interpolation than `slotReadMode` gives; the case path of an advanced form taken from the menu's selection rather than its last load's datum |
 | `__tests__/gateCoverage.test.ts` | the validator over the documents `readExpressions` returns, for the corpora and the starter bases | a validator finding located at an expression slot the reader filled that no claim reported |
 | `__tests__/proseValueRules.test.ts` (only where part 03's G1 gave outcome B or its G3 gave outcome C's second case; one group of cases for each rule that landed) | `readExpressions` over a real document whose label and validation message hold outputs | a `value` part the gate's rule refuses held under `questions/output-value-any-other-expression`, which acceptance's gate would then stop with no finding; a value outside the class, or a reference part, refused; the validation message rule applied to a label; the claim made by a test of the reader's own in place of the rule's exported predicate |
 | `lib/domain/expression/__tests__/instantTextOfMicros.test.ts` | pure | `instantTextOfMicros` breaking either law of 5.3; year 9999's last second in UTC, the first moment past it, and a moment 100 hours past it |
@@ -2782,7 +2824,7 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | the same file, "The tests' `instantParse.ts` recognises the parse structurally, so they read the tree rather than its text." | (stays) | adds: "The reader recognizes the lowering another way, by printing its proposal and comparing syntax trees (`lib/commcare/reader/expressions/`)." |
 | `lib/commcare/xpath/wire/CLAUDE.md`, after the first paragraph | (none) | "A caller may pass `rewrites`: the rewrites of `lib/commcare/emissionRewrites.ts` to leave out of the print, and a callback for each site the print reaches. Only the reader of CommCare HQ's apps passes it, to compare with text that never had them and to say what a first publish changes. Absent, every print is as described here." |
 | `lib/commcare/CLAUDE.md`, opening | "The only package in `lib/` that imports CommCare's vocabulary" (true); no mention of reading expressions | a new subsection "Reading expressions", three sentences: the method of section 2.1, the two levels, and the pointer to `lib/commcare/reader/expressions/` |
-| `lib/commcare/CLAUDE.md`, new subsection after "The surface manifest" | (none) | "**Rewrites.** A rewrite the reader of CommCare HQ's apps must print without, or must report, is an id of `emissionRewrites.ts::EMISSION_REWRITES`. A site with a switch takes a `RewriteControl`, from the wire build context or as its own argument. Every other place the emitter writes something a source would spell another way is decided in `lib/deployment/reading/firstPublishChanges.ts`: by an entry, or by the manifest entry that refuses the shape. A new rewrite lands with its id here only where the reader needs the switch or the report." |
+| `lib/commcare/CLAUDE.md`, new subsection after "The surface manifest" | (none) | "**Rewrites.** A rewrite the reader of CommCare HQ's apps must print without, or must report, is an id of `emissionRewrites.ts::EMISSION_REWRITES`. A site with a switch takes a `RewriteControl`, from the wire build context or as its own argument. Every other place the emitter writes something a source would spell another way is held by the manifest entry that refuses the shape, or is a spelling the reader reads back to the same tree. A new rewrite lands with its id here only where the reader needs the switch or the report." Part 09, which builds `lib/deployment/reading/firstPublishChanges.ts`, adds the third of its decision 15's outcomes to the middle sentence in the same pull request: "or is declared by an entry of `lib/deployment/reading/firstPublishChanges.ts`". |
 | `lib/agent/authoring/CLAUDE.md`, the record dialect's value spellings | no `list` | "`list(<value>, …)` is `value-list`: several values a case value is compared with by `=` or `!=`. The parser adds no rule about where one stands: the checker admits the arm only in a slot CommCare's server search alone reads, and CSQL representability refuses it anywhere but opposite `=` or `!=`. `recordRoundTrip.ts::recordDialectRoundTrip` is the dialect's own law as a function, which the reader of CommCare HQ's apps is handed so it holds no record tree this dialect cannot print and read back." |
 | `content/docs/mcp/tools.mdx`, the paragraph "Record queries use expressions such as…" | no `list` | adds C15 (Copy) |
 | `content/docs/case-workspace.mdx`, after the paragraph that ends "finds cases whose value is any of the chosen answers" | no list of values | adds C16 (Copy) |

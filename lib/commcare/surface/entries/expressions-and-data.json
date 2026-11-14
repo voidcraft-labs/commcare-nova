@@ -911,11 +911,11 @@
 		],
 		"valueClass": "inline-search-form",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `input` reads of the module's Search fields from `search-input:results:inline`; narrow: to the forms of a search-first module and its no-matches form; a form link's slots stay refused (`INVALID_SEARCH_REF`), and a child menu of such a parent whose parent selection chooses a case from its list is the next row's",
+		"dispositionCell": "**HELD**: `input` reads of the module's Search fields from `search-input:results:inline`; narrow: to the forms of a search-first module and its no-matches form; a form link's slots stay refused (`INVALID_SEARCH_REF`), and a child menu of such a parent whose parent selection chooses a case from its list is `expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu`'s",
 		"slotChanges": [
 			{
 				"direction": "narrow",
-				"text": "to the forms of a search-first module and its no-matches form; a form link's slots stay refused (`INVALID_SEARCH_REF`), and a child menu of such a parent whose parent selection chooses a case from its list is the next row's"
+				"text": "to the forms of a search-first module and its no-matches form; a form link's slots stay refused (`INVALID_SEARCH_REF`), and a child menu of such a parent whose parent selection chooses a case from its list is `expressions-and-data/search-input-read-in-the-forms-of-a-child-menu-of-an-inline-search-menu`'s"
 			}
 		],
 		"platforms": {

@@ -80,10 +80,15 @@ const CONNECT = 'xmlns="http://commcareconnect.com/data/v1/learn"';
 
 const learnModule = (
 	id: string,
-	options: { name?: string; description?: string; estimate?: string } = {},
+	options: {
+		name?: string;
+		description?: string;
+		estimate?: string;
+		path?: string;
+	} = {},
 ) => ({
 	data: `<${id} vellum:role="ConnectLearnModule"><module ${CONNECT} id="${id}"><name>${options.name ?? "Module"}</name><description>${options.description ?? "About"}</description><time_estimate>${options.estimate ?? "2"}</time_estimate></module></${id}>`,
-	binds: `<bind nodeset="/data/${id}" vellum:nodeset="#form/${id}"/>`,
+	binds: `<bind nodeset="${options.path ?? `/data/${id}`}" vellum:nodeset="#form/${(options.path ?? `/data/${id}`).slice("/data/".length)}"/>`,
 });
 
 const assessment = (id: string, path = `/data/${id}`) => ({
@@ -97,21 +102,43 @@ const deliverUnit = (
 		entityCalculate?: boolean;
 		workArea?: string;
 		relevant?: string;
+		name?: string;
+		path?: string;
 	} = {},
+) => {
+	const path = options.path ?? `/data/${id}`;
+	return {
+		data: `<${id} vellum:role="ConnectDeliverUnit"><deliver ${CONNECT} id="${id}"><name>${options.name ?? "Visit"}</name><entity_id/><entity_name/><work_area_id/></deliver></${id}>`,
+		binds: [
+			`<bind nodeset="${path}"${options.relevant === undefined ? "" : ` relevant="${options.relevant}"`}/>`,
+			`<bind nodeset="${path}/deliver/entity_id"${options.entityCalculate === false ? "" : ' calculate="/data/q"'}/>`,
+			`<bind nodeset="${path}/deliver/entity_name" calculate="/data/q"/>`,
+			`<bind nodeset="${path}/deliver/work_area_id"${options.workArea === undefined ? "" : ` calculate="${options.workArea}"`}/>`,
+		].join(""),
+	};
+};
+
+const task = (
+	id: string,
+	options: { name?: string; description?: string; path?: string } = {},
 ) => ({
-	data: `<${id} vellum:role="ConnectDeliverUnit"><deliver ${CONNECT} id="${id}"><name>Visit</name><entity_id/><entity_name/><work_area_id/></deliver></${id}>`,
-	binds: [
-		`<bind nodeset="/data/${id}"${options.relevant === undefined ? "" : ` relevant="${options.relevant}"`}/>`,
-		`<bind nodeset="/data/${id}/deliver/entity_id"${options.entityCalculate === false ? "" : ' calculate="/data/q"'}/>`,
-		`<bind nodeset="/data/${id}/deliver/entity_name" calculate="/data/q"/>`,
-		`<bind nodeset="/data/${id}/deliver/work_area_id"${options.workArea === undefined ? "" : ` calculate="${options.workArea}"`}/>`,
-	].join(""),
+	data: `<${id} vellum:role="ConnectTask"><task ${CONNECT} id="${id}"><name>${options.name ?? "Task"}</name><description>${options.description ?? "Do it"}</description></task></${id}>`,
+	binds: `<bind nodeset="${options.path ?? `/data/${id}`}"/>`,
 });
 
-const task = (id: string) => ({
-	data: `<${id} vellum:role="ConnectTask"><task ${CONNECT} id="${id}"><name>Task</name><description>Do it</description></task></${id}>`,
-	binds: `<bind nodeset="/data/${id}"/>`,
-});
+/** A form whose one block stands inside a group or a repeat of the root. */
+const nested = (
+	container: "group" | "repeat",
+	block: { data: string; binds: string },
+) =>
+	xformSource({
+		data: `<q/><rows${container === "repeat" ? ' jr:template=""' : ""}><answer/>${block.data}</rows>`,
+		model: `<bind nodeset="/data/q" type="xsd:string"/><bind nodeset="/data/rows/answer" type="xsd:string"/>${block.binds}`,
+		body:
+			container === "repeat"
+				? '<input ref="/data/q"/><group><repeat nodeset="/data/rows"><input ref="/data/rows/answer"/></repeat></group>'
+				: '<input ref="/data/q"/><group ref="/data/rows"><input ref="/data/rows/answer"/></group>',
+	});
 
 const withBlocks = (...blocks: { data: string; binds: string }[]) =>
 	xformSource({
@@ -256,8 +283,58 @@ describe("each refusal row", () => {
 			Q("connect-blocks-beyond-one-of-each-kind"),
 		],
 		[
+			"a task id over 50 characters",
+			withBlocks(task(`t${"x".repeat(50)}`)),
+			Q("a-connect-learn-module-or-task-id-longer-than-50-characters-or"),
+		],
+		[
+			"an assessment id of 51 to 100 characters",
+			withBlocks(assessment(`a${"x".repeat(60)}`)),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
 			"a time estimate of 0",
 			withBlocks(learnModule("lesson", { estimate: "0" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"a time estimate that is no whole number",
+			withBlocks(learnModule("lesson", { estimate: "2.5" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"a learn module inside a group",
+			nested("group", learnModule("lesson", { path: "/data/rows/lesson" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"a learn module inside a repeat",
+			nested("repeat", learnModule("lesson", { path: "/data/rows/lesson" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"a deliver unit inside a group",
+			nested("group", deliverUnit("visit", { path: "/data/rows/visit" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"a deliver unit inside a repeat",
+			nested("repeat", deliverUnit("visit", { path: "/data/rows/visit" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"a task inside a group",
+			nested("group", task("follow", { path: "/data/rows/follow" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"a task inside a repeat",
+			nested("repeat", task("follow", { path: "/data/rows/follow" })),
+			Q("connect-blocks-beyond-one-of-each-kind"),
+		],
+		[
+			"an assessment inside a group",
+			nested("group", assessment("quiz", "/data/rows/quiz")),
 			Q("connect-blocks-beyond-one-of-each-kind"),
 		],
 		[
@@ -330,6 +407,44 @@ describe("each refusal row", () => {
 			"lesson",
 		]);
 	});
+
+	it.each([
+		[
+			"a learn module's name",
+			learnModule("lesson", { name: "See instance('casedb') first" }),
+		],
+		["a task's name", task("follow", { name: "See instance('casedb') first" })],
+		[
+			"a task's description",
+			task("follow", { description: "See instance('casedb') first" }),
+		],
+		[
+			"a deliver unit's name",
+			deliverUnit("visit", { name: "See instance('casedb') first" }),
+		],
+	])(
+		"reads %s holding instance('casedb') to the one finding",
+		async (_, block) => {
+			const { forms, findings } = await readApp([withBlocks(block)]);
+			expect(connectCodes(findings)).toEqual([
+				Q("connect-block-text-read-as-an-instance"),
+			]);
+			expect(
+				findings.find((finding) => finding.code.endsWith("as-an-instance"))
+					?.detail.name,
+			).toBe("instance('casedb')");
+			// A deliver unit's calculates are the expression stage's, which this reading stops before.
+			expect(
+				findings.filter(
+					(finding) =>
+						finding.code === "unrecognized" &&
+						finding.place.kind === "form" &&
+						finding.detail.name !== "xform:bind@calculate",
+				),
+			).toEqual([]);
+			expect(forms[0]?.xform?.connectBlocks).toHaveLength(1);
+		},
+	);
 
 	it("leaves a block whose wrapper is not named for its id unclaimed", async () => {
 		const block = learnModule("lesson");

@@ -8,6 +8,7 @@
  * trees, and reads a row it must place on its own as its conjuncts.
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { and } from "@/lib/domain/expression/builders";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
 import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
@@ -96,7 +97,8 @@ export function emittedSearchConjuncts(
 
 /** The proposed case list's own rows against the source's, as trees: each emitted row takes the
  *  first unmatched source row after the last one matched, then any earlier one, so `matched` says
- *  in what order the source holds them. */
+ *  in what order the source holds them. A source row whose own root is an `and` matches the run of
+ *  emitted rows Nova writes for its conjuncts, each listed in `matched` under that one row. */
 export function matchSearchRows(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
@@ -124,11 +126,13 @@ export function matchSearchRows(
 		};
 	const { clauses, values } = rows;
 	const sources = sourceRows.map(parsed);
-	const matched: {
+	type Match = {
 		source: number;
 		level: "exact" | "guards";
 		from: "filter" | "field" | "derived";
-	}[] = [];
+	};
+	/** Each emitted row's match, by its place in the emission. */
+	const byEmitted: (Match | undefined)[] = values.map(() => undefined);
 	const extra: number[] = [];
 	const taken = new Set<number>();
 	let next = 0;
@@ -157,24 +161,78 @@ export function matchSearchRows(
 			if (taken.has(index)) continue;
 			const level = levelAt(index);
 			if (level === undefined) continue;
-			matched.push({
+			byEmitted[emitted] = {
 				source: index,
 				level,
 				from: clause?.source ?? "derived",
-			});
+			};
 			taken.add(index);
 			next = index + 1;
 			return;
 		}
 		extra.push(emitted);
 	});
+	// A source row whose own root is an `and` is written back as one row per
+	// conjunct: it matches a run of emitted rows no other source row took, in
+	// emission order and of one typing context, whose conjunction Nova prints
+	// as that row.
+	sourceRows.forEach((_, index) => {
+		const source = sources[index];
+		if (taken.has(index) || source === undefined) return;
+		const run = splitRun(source, extra, clauses, env);
+		if (run === undefined) return;
+		for (const emitted of run.emitted)
+			byEmitted[emitted] = {
+				source: index,
+				level: run.level,
+				from: clauses[emitted]?.source ?? "derived",
+			};
+		taken.add(index);
+		extra.splice(extra.indexOf(run.emitted[0] as number), run.emitted.length);
+	});
 	return {
-		matched,
+		matched: byEmitted.flatMap((one) => (one === undefined ? [] : [one])),
 		unmatched: sourceRows.flatMap((_, index) =>
 			taken.has(index) ? [] : [index],
 		),
 		extra,
 	};
+}
+
+/** The longest run of consecutive unmatched emitted rows, two or more, whose clauses share one
+ *  context and whose conjunction prints as `source`, with the level it matches at. */
+function splitRun(
+	source: FormSyntax,
+	extra: readonly number[],
+	clauses: readonly XPathQueryClause[],
+	env: SearchRowEnv,
+):
+	| { readonly emitted: readonly number[]; readonly level: "exact" | "guards" }
+	| undefined {
+	for (let start = 0; start + 2 <= extra.length; start++)
+		for (let end = extra.length; end >= start + 2; end--) {
+			const emitted = extra.slice(start, end);
+			const run = emitted.map((one) => clauses[one]);
+			const [first, second, ...rest] = run;
+			if (
+				first === undefined ||
+				second === undefined ||
+				run.some((one) => one === undefined || one.context !== first.context)
+			)
+				continue;
+			const level = searchRowLevel(
+				source,
+				and(
+					first.expression,
+					second.expression,
+					...rest.map((one) => (one as XPathQueryClause).expression),
+				),
+				first.context,
+				env,
+			);
+			if (level !== undefined) return { emitted, level };
+		}
+	return undefined;
 }
 
 /** A row read on its own, for the search reader to place: its top-level conjuncts, each a predicate. */

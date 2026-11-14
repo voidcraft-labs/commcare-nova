@@ -16,7 +16,12 @@
 
 import { type Element, isTag } from "domhandler";
 import type { WireElementContext } from "../../elementBuilders";
-import { buildOwnerNodes, constraintCountRelevant } from "../../xform/builder";
+import {
+	buildOwnerNodes,
+	constraintCountRelevant,
+	countPlacementTrees,
+	queryIdsValue,
+} from "../../xform/builder";
 import { captureUrlCalculate } from "../../xform/captureUrlNode";
 import { caseScalarTextValueCalculation } from "../../xform/caseOps";
 import { countPlacementRowPieces } from "../../xform/countPlacementRow";
@@ -650,6 +655,22 @@ export function datetimeSpelling(
 	return undefined;
 }
 
+/**
+ * The spelling a datetime candidate's calculate holds for `owner`, where the emitter writes it
+ * for that question (`datetimeCaseValue.ts::questionDatetimeCaseValue`): a date-and-time
+ * question is a typed leaf, never a copy, and a Hidden Value is a typed leaf or, where it holds
+ * text, a copy of itself.
+ */
+export function datetimeSpellingOf(
+	calculate: string,
+	owner: DraftField,
+	ownerPath: FormPath,
+): DatetimeSpelling | undefined {
+	if (owner.kind !== "datetime" && owner.kind !== "hidden") return undefined;
+	const spelling = datetimeSpelling(calculate, ownerPath);
+	return spelling === "copy" && owner.kind !== "hidden" ? undefined : spelling;
+}
+
 /** The owner value an owner node's calculate holds. */
 function ownerValueOf(
 	calculate: string,
@@ -747,7 +768,7 @@ export function recognizeGenerated(
 			calculate !== undefined &&
 			bindHoldsOnly(bind, ["type", "calculate", "relevant"]) &&
 			presentWhileOwner(bind, ownerPath) &&
-			datetimeSpelling(calculate, ownerPath) !== undefined
+			datetimeSpellingOf(calculate, owner, ownerPath) !== undefined
 		)
 			return {
 				kind: "generated-candidate",
@@ -1027,6 +1048,7 @@ export function readQueryPlacement(
 		return undefined;
 	const idsBind = binds.get(ids);
 	const countBind = binds.get(count);
+	const trees = countPlacementTrees({ ids: ids.name, count: count.name });
 	if (
 		idsBind?.logic.calculate === undefined ||
 		idsBind.type !== undefined ||
@@ -1034,10 +1056,7 @@ export function readQueryPlacement(
 		countBind?.logic.calculate === undefined ||
 		countBind.type !== "xsd:int" ||
 		!bindHoldsOnly(countBind, ["type", "calculate"]) ||
-		!sameTree(
-			countBind.logic.calculate,
-			w.call("count-selected", [w.context([w.parent(), w.step(ids.name)])]),
-		)
+		!sameTree(countBind.logic.calculate, trees.count)
 	)
 		return undefined;
 	const query = joinedQuery(idsBind.logic.calculate);
@@ -1048,10 +1067,7 @@ export function readQueryPlacement(
 			positionBind?.logic.calculate === undefined ||
 			positionBind.type !== undefined ||
 			!bindHoldsOnly(positionBind, ["calculate"]) ||
-			!sameTree(
-				positionBind.logic.calculate,
-				w.call("count", [w.context([w.parent(), w.step("item")])]),
-			)
+			!sameTree(positionBind.logic.calculate, trees.position)
 		)
 			return undefined;
 	}
@@ -1107,10 +1123,7 @@ export function readQueryPlacement(
 	if (idSet === undefined || indexSet === undefined) return undefined;
 	const rowRelevant = binds.get(row)?.logic.relevant;
 	if (rowRelevant === undefined) return undefined;
-	const guard = w.lt(
-		w.call("position"),
-		w.context([w.parent(), w.step(count.name)]),
-	);
+	const guard = trees.guard;
 	let condition: string | undefined;
 	if (!sameTree(rowRelevant, guard)) {
 		const read = readFormSyntax(rowRelevant);
@@ -1133,19 +1146,15 @@ export function readQueryPlacement(
 	};
 }
 
-/** `join(' ', P)`: the source text of `P`, or undefined where the value is no such call. */
+/** The ids node's `join(' ', P)` (`builder.ts::queryIdsValue`): the source text of `P`, or
+ *  undefined where the value is no such call. */
 function joinedQuery(text: string): string | undefined {
-	const read = readFormSyntax(text);
-	let node = read.ok ? read.node : undefined;
-	while (node?.kind === "group") node = node.value;
-	if (node?.kind !== "call" || node.name !== "join" || node.args.length !== 2)
-		return undefined;
-	const [separator, query] = node.args;
-	return separator?.kind === "string" &&
-		separator.value === " " &&
-		query !== undefined
-		? text.slice(query.from, query.to)
-		: undefined;
+	const query = matchesTemplate(
+		text,
+		queryIdsValue(w.context([w.step(HOLE)])),
+		HOLE,
+	);
+	return query === undefined ? undefined : text.slice(query.from, query.to);
 }
 
 // ── Claiming a recognized node ──────────────────────────────────────────

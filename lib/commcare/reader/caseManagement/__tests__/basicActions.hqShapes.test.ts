@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FormSpec, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc } from "@/lib/domain";
-import { type AppJson, readCases, readFields } from "./caseReading";
+import type { BlueprintDoc, CaseOperation, Expression } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression";
+import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
+import {
+	type AppJson,
+	readCases as readCasesOf,
+	readFields,
+} from "./caseReading";
 
 const F = "forms-and-case-writes";
+
+const readCases = namingFromHqPages(readCasesOf);
 
 function app(
 	forms: FormSpec[],
@@ -94,6 +105,11 @@ function codes(reading: { findings: readonly { code: string }[] }): string[] {
 		.filter(
 			(code) => code.startsWith(`${F}/`) || code.startsWith("questions/"),
 		);
+}
+
+/** Every entry a reading claimed something under. */
+function entries(reading: Awaited<ReturnType<typeof readCases>>): string[] {
+	return [...reading.ctx.close().claims.records()].map((one) => one.entry);
 }
 
 function ownWrites(reading: Awaited<ReturnType<typeof readCases>>) {
@@ -211,6 +227,9 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			},
 		});
 		expect(codes(onRegistration)).toEqual([]);
+		expect(entries(onRegistration)).toContain(
+			`${F}/update-mode-edit-in-a-project-space-that-saves-every-time`,
+		);
 	});
 
 	it("reads back a created case's question with no required of its own, and claims HQ's", async () => {
@@ -258,7 +277,22 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 		expect(records).not.toContain(
 			"questions/bind-required-on-the-question-that-names-a-created-case",
 		);
-		expect(reading.findings.length).toBeGreaterThan(0);
+		const form = reading.forms[0];
+		const name =
+			form?.xform == null
+				? undefined
+				: readFields(form.xform).find((one) => one.id === "name");
+		expect(name?.kind).toBe("hidden");
+		// The bind's `required` is left where it stands, for the rules of the
+		// question's own logic: here, with nothing else reading it, unclaimed.
+		expect(
+			reading.findings.filter(
+				(one) =>
+					one.code === "unrecognized" &&
+					(one.place as { path?: string }).path === "name" &&
+					(one.detail as { name?: string }).name === "xform:bind@required",
+			),
+		).toHaveLength(1);
 	});
 
 	it("with the flag on, refuses `edit` on the worker's record", async () => {
@@ -478,6 +512,37 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 			expect(close?.placement).toBeUndefined();
 		});
 
+		it("reads a follow-up's child case in a menu that loads a data registry's case as inert, with its update and close", async () => {
+			const reading = await readCases(app([visit]), {
+				edit: (json) => {
+					child({ close_condition: { type: "never" } })(json);
+					actionsOf(json).close_case = {
+						doc_type: "FormAction",
+						condition: { type: "always", doc_type: "FormActionCondition" },
+					};
+					const module = json.modules[0] as Record<string, unknown>;
+					module.search_config = {
+						...(module.search_config as Record<string, unknown>),
+						properties: [{ name: "q", label: { en: "Q" } }],
+						data_registry: "registry",
+						data_registry_workflow: "load_case",
+					};
+				},
+			});
+			const claimed = entries(reading);
+			expect(claimed).toContain(
+				`${F}/update-case-close-case-on-a-requires-case-form-that-does-not`,
+			);
+			expect(claimed).toContain(
+				`${F}/subcases-on-such-a-form-in-an-app-that-does-not-share-cases-or`,
+			);
+			expect(
+				reading.forms[0]?.form.caseOperations?.some(
+					(one) => one.action === "create" || one.action === "close",
+				) ?? false,
+			).toBe(false);
+		});
+
 		it("refuses an extension, a property key holding `/`, and `edit` with the flag on", async () => {
 			const extension = await readCases(app([visit]), {
 				edit: child({ relationship: "extension" }),
@@ -505,5 +570,247 @@ describe("CommCare HQ's spellings of a basic form's case actions", () => {
 				`${F}/update-mode-edit-off-a-follow-up-form-s-own-update`,
 			);
 		});
+	});
+});
+
+describe("each use of a basic action claimed under its own row", () => {
+	it("refuses a key `FormActions` does not declare", async () => {
+		const reading = await readCases(app([visit]), {
+			edit: (json) => {
+				(actionsOf(json) as Record<string, unknown>).hand_written = {
+					x: 1,
+				};
+			},
+		});
+		expect(codes(reading)).toContain(`${F}/any-other-undeclared-key`);
+	});
+
+	it("claims the `name`, `owner_id`, `category` and `state` keys under their own rows", async () => {
+		const reading = await readCases(app([visit]), {
+			edit: (json) => {
+				const update = actionsOf(json).update_case.update as Record<
+					string,
+					unknown
+				>;
+				update.name = { question_path: "/data/other" };
+				update.owner_id = { question_path: "/data/other" };
+				update.category = { question_path: "/data/other" };
+			},
+		});
+		const claimed = entries(reading);
+		expect(claimed).toContain(`${F}/update-key-name`);
+		expect(claimed).toContain(`${F}/update-key-owner-id`);
+		expect(claimed).toContain(
+			`${F}/update-keys-location-id-hq-user-id-category-state`,
+		);
+		expect(claimed).toContain(`${F}/update-case-update-property-question`);
+	});
+
+	it("claims a write through a date-and-time question's sibling under that row", async () => {
+		const reading = await readCases(
+			app([
+				{
+					name: "Visit",
+					type: "followup",
+					fields: [
+						f({
+							kind: "datetime",
+							id: "seen_at",
+							caseWrite: { caseType: "patient", property: "seen_at" },
+						}),
+					],
+				},
+			]),
+		);
+		expect(codes(reading)).toEqual([]);
+		expect(entries(reading)).toContain(
+			`${F}/update-from-a-date-and-time-question-through-a-hidden-sibling`,
+		);
+	});
+
+	it("claims a capture's link under that row", async () => {
+		const VISIT = testUuid("hq-shapes-visit");
+		const PICTURE = testUuid("hq-shapes-picture");
+		const doc = buildDoc(
+			{
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								uuid: "hq-shapes-visit",
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "image", id: "picture", uuid: PICTURE })],
+							},
+						],
+					},
+				],
+			},
+			(built) => {
+				built.forms[VISIT] = {
+					...built.forms[VISIT],
+					caseOperations: [
+						{
+							uuid: testUuid("hq-shapes-own"),
+							id: "patient",
+							action: "own",
+							writes: [
+								{
+									property: "picture_link",
+									value: term({ kind: "capture-link", field: PICTURE }),
+								},
+							],
+						} as CaseOperation,
+					],
+				} as never;
+			},
+		);
+		const reading = await readCases(doc, {
+			expand: {
+				attachmentTarget: {
+					origin: "https://india.commcarehq.org",
+					domain: "clinic",
+				},
+			},
+		});
+		expect(codes(reading)).toEqual([]);
+		expect(entries(reading)).toContain(
+			`${F}/capture-link-write-a-hidden-value-whose-calculate-builds-hq-s`,
+		);
+	});
+
+	it("records the respelling of `update_case.condition: never` on a registration", async () => {
+		const reading = await readCases(app([registration]), {
+			edit: (json) => {
+				nameQuestionDirectly(json);
+				actionsOf(json).update_case = {
+					doc_type: "UpdateCaseAction",
+					update: {},
+					condition: { type: "never", doc_type: "FormActionCondition" },
+				};
+			},
+		});
+		expect(codes(reading)).toEqual([]);
+		expect(reading.ctx.facts.sameStateRewrites).toContainEqual(
+			expect.objectContaining({
+				entry: `${F}/update-case-condition-never-on-a-registration-form`,
+				register: "case-settings-respelled",
+			}),
+		);
+	});
+});
+
+describe("a basic form's actions accepted by re-emission, leaving out what the build never reads", () => {
+	/** The `unrecognized` findings a whole reading raises at a form's case actions. */
+	function actionDifferences(reading: Awaited<ReturnType<typeof readMenusOf>>) {
+		return codesOf(reading).filter(
+			(code) =>
+				code.startsWith("unrecognized:schema:FormActions.") ||
+				code === "unrecognized:schema:Form.actions",
+		);
+	}
+
+	it("holds a survey whose close is active in a menu with a case type: HQ builds no case block", async () => {
+		const survey: FormSpec = {
+			name: "Survey",
+			type: "survey",
+			fields: [f({ kind: "text", id: "q" })],
+		};
+		const reading = await readMenusOf(app([visit, survey]), (json) => {
+			const actions = json.modules[0]?.forms[1]?.actions as Record<
+				string,
+				unknown
+			>;
+			actions.close_case = {
+				doc_type: "FormAction",
+				condition: { type: "always", doc_type: "FormActionCondition" },
+			};
+		});
+		expect(actionDifferences(reading)).toEqual([]);
+		expect(
+			reading.outcome.claims.counts[
+				`${F}/form-requires-none-with-close-case-active-and-no-open-in-a-module-with-a`
+			],
+		).toBeGreaterThan(0);
+	});
+
+	it("holds an open action active on a form that requires a case: HQ's build never reads it", async () => {
+		const reading = await readMenusOf(app([visit]), (json) => {
+			const actions = json.modules[0]?.forms[0]?.actions as Record<
+				string,
+				unknown
+			>;
+			actions.open_case = {
+				doc_type: "OpenCaseAction",
+				name_update: { question_path: "/data/other" },
+				external_id: null,
+				condition: { type: "always", doc_type: "FormActionCondition" },
+			};
+		});
+		expect(actionDifferences(reading)).toEqual([]);
+		expect(
+			reading.outcome.claims.counts[
+				`${F}/open-case-active-on-a-requires-case-form`
+			],
+		).toBeGreaterThan(0);
+	});
+
+	it("claims a write through the date-and-time join under its row, once the join is bound", async () => {
+		const DATE = testUuid("join-date");
+		const TIME = testUuid("join-time");
+		const read = (uuid: string): Expression => term(formField(uuid as never));
+		const joined: FormSpec = {
+			name: "Visit",
+			type: "followup",
+			fields: [
+				f({ kind: "date", id: "seen_on", uuid: DATE }),
+				f({ kind: "time", id: "seen_time", uuid: TIME }),
+				f({
+					kind: "hidden",
+					id: "seen_at",
+					calculate: clockKeepingJoin(read(DATE), read(TIME)),
+					caseWrite: { caseType: "patient", property: "seen_at" },
+				}),
+			],
+		};
+		const reading = await readMenusOf(app([joined]));
+		expect(actionDifferences(reading)).toEqual([]);
+		expect(
+			reading.outcome.claims.counts[
+				`${F}/update-through-the-date-and-time-join-of-a-date-and-a-time`
+			],
+		).toBeGreaterThan(0);
+		// A Hidden Value that calculates anything else writes under the question path's own row.
+		const other = await readMenusOf(
+			app([
+				{
+					name: "Visit",
+					type: "followup",
+					fields: [
+						f({ kind: "date", id: "seen_on", uuid: DATE }),
+						f({
+							kind: "hidden",
+							id: "seen_at",
+							calculate: {
+								kind: "date-coerce",
+								value: {
+									kind: "format-date",
+									pattern: "%Y-%m-%dT%H:%M:%S.%3%Z",
+									date: read(DATE),
+								},
+							},
+							caseWrite: { caseType: "patient", property: "seen_at" },
+						}),
+					],
+				},
+			]),
+		);
+		expect(
+			other.outcome.claims.counts[
+				`${F}/update-through-the-date-and-time-join-of-a-date-and-a-time`
+			],
+		).toBeUndefined();
 	});
 });

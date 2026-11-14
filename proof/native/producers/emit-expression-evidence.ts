@@ -775,15 +775,36 @@ writeFileSync(
 // own interpolate_xpath and dot_interpolate over the port's vectors and
 // requires the port's answer for each. For every slot HQ interpolates, it runs
 // HQ's helper over Nova's HQ JSON print of an expression that reads what the
-// slot may read, with the case path the reader gives that slot, and requires
-// the tree of the answer to be the tree of Nova's suite print of it.
+// slot may read (the case's property in a form's display condition, and its
+// parent's too in the case list filter, the worker's session in a display
+// condition with no case, the search's answers in a search field's tests), with the case path the reader gives that slot, and requires
+// the tree of the answer to be the tree of Nova's suite print of it. The
+// document is one Nova admits, so a refused shape fails here by name.
 {
 	const ids = {
 		patients: testUuid("reader-interpolation-patients"),
 		visit: testUuid("reader-interpolation-visit"),
+		notes: testUuid("reader-interpolation-notes"),
+		note: testUuid("reader-interpolation-note"),
 		name: testUuid("reader-interpolation-name"),
 		check: testUuid("reader-interpolation-check"),
 	};
+	// A read of the listed case's parent's village, which HQ's `#parent/village`
+	// stands for.
+	const parentVillage = eq(
+		term(
+			prop(
+				"patient",
+				"village",
+				ancestorPath(relationStep("parent", "household")),
+			),
+		),
+		term(literal("north")),
+	);
+	const activeStatus = eq(
+		term(prop("patient", "status_code")),
+		term(literal("active")),
+	);
 	const doc = admitted(
 		"reader interpolation slots",
 		buildDoc({
@@ -809,19 +830,7 @@ writeFileSync(
 					),
 					caseListConfig: {
 						...caseListConfig([{ field: "case_name", header: "Name" }]),
-						filter: and(
-							eq(term(prop("patient", "status_code")), term(literal("active"))),
-							eq(
-								term(
-									prop(
-										"household",
-										"village",
-										ancestorPath(relationStep("parent")),
-									),
-								),
-								term(literal("north")),
-							),
-						),
+						filter: and(activeStatus, parentVillage),
 						searchInputs: [
 							simpleSearchInputDef(
 								ids.name,
@@ -856,11 +865,31 @@ writeFileSync(
 							uuid: "reader-interpolation-visit",
 							name: "Visit",
 							type: "followup",
+							// A form's display condition reads the chosen case's own
+							// properties alone: Nova refuses a related case there
+							// (FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE).
+							displayCondition: activeStatus,
+							fields: [
+								f({ kind: "text", id: "remark", label: proseText("Remark") }),
+							],
+						},
+					],
+				},
+				{
+					uuid: "reader-interpolation-notes",
+					name: "Notes",
+					forms: [
+						{
+							uuid: "reader-interpolation-note",
+							name: "Note",
+							type: "survey",
 							displayCondition: eq(
-								term(prop("patient", "status_code")),
-								term(literal("active")),
+								term(sessionContext("username")),
+								term(literal("lead")),
 							),
-							fields: [],
+							fields: [
+								f({ kind: "text", id: "remark", label: proseText("Remark") }),
+							],
 						},
 					],
 				},
@@ -869,8 +898,14 @@ writeFileSync(
 	);
 	const menu = doc.modules[ids.patients];
 	const form = doc.forms[ids.visit];
+	const note = doc.forms[ids.note];
 	const filter = menu?.caseListConfig?.filter;
-	if (menu === undefined || form === undefined || filter === undefined)
+	if (
+		menu === undefined ||
+		form === undefined ||
+		note === undefined ||
+		filter === undefined
+	)
 		throw new Error("The reader interpolation document lost its menu.");
 	const expressions = moduleExpressionContexts(doc, ids.patients);
 	const suite = (expression: WireExpr | undefined): string => {
@@ -921,11 +956,17 @@ writeFileSync(
 		undefined,
 		"case_id",
 	);
+	const noteTypes = requireExpressionContext(doc, {
+		entity: "form",
+		uuid: ids.note,
+		slot: "form_display_condition",
+	});
+	const noteHq = emitFormDisplayConditionForHq(note, noteTypes);
 	const moduleTree = emitModuleDisplayCondition(
 		menu,
 		expressions({ slot: "module_display_condition" }),
 	);
-	if (formHq === undefined || moduleTree === undefined)
+	if (formHq === undefined || noteHq === undefined || moduleTree === undefined)
 		throw new Error(
 			"A reader interpolation display condition printed nothing.",
 		);
@@ -953,6 +994,17 @@ writeFileSync(
 			suite(
 				emitFormDisplayConditionForSuite(form, formTypes, undefined, "case_id"),
 			),
+		),
+		row(
+			"form_filter",
+			"no-case",
+			slotOf(
+				{ entity: "form", uuid: ids.note, slot: "form_display_condition" },
+				"no-case",
+			),
+			serializeWire(noteHq, { target: "hq-json", interpolation: "no-case" })
+				.text,
+			suite(emitFormDisplayConditionForSuite(note, noteTypes)),
 		),
 		row(
 			"module_filter",

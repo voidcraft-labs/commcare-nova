@@ -17,7 +17,10 @@ import type {
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import type { GeneratedNodePurpose } from "../../xform/generatedNodes";
+import {
+	type GeneratedNodePurpose,
+	generatedBaseName,
+} from "../../xform/generatedNodes";
 import { splitName } from "../../xmlNamespaces";
 import { tryParseXml } from "../../xmlParse";
 import type { ClaimSite } from "../accounting";
@@ -35,12 +38,13 @@ import type { AppearanceForm } from "./appearances";
 import { type ControlNode, readControls } from "./body";
 import { X } from "./claims";
 import { CONNECT_READS, readConnectBlocks, readConnectType } from "./connect";
-import { readContainers, rootSections } from "./containers";
+import { labelCarriesMedia, readContainers, rootSections } from "./containers";
 import {
 	absolutePath,
 	claimGeneratedNode,
 	DATETIME_SIBLING_ENTRY,
 	datetimeSpelling,
+	isAllocatedName,
 } from "./generated";
 import { EMPTY_ITEXT_TABLE, type ItextTable, readItext } from "./itext";
 import { joinForm } from "./join";
@@ -59,6 +63,7 @@ import {
 import type { CaseChoicesProposal } from "./options";
 import {
 	claimModelChildren,
+	intentIdsOf,
 	type ParsedXForm,
 	parseXFormSource,
 } from "./parse";
@@ -210,7 +215,8 @@ export interface ReadXForm {
 	readonly candidates: readonly DataNode[];
 	/** Settles a candidate: Nova's node, its parts claimed as the generated node of its purpose,
 	 *  or the person's own Hidden Value. `operation` is the id of the case operation an `owner`
-	 *  node serves, which its record keys it by. */
+	 *  node serves, which its record keys it by; an `owner` node whose name is not the
+	 *  allocator's for that id, or settled with none, is settled as the person's. */
 	settle(
 		node: DataNode,
 		verdict: "generated" | "field",
@@ -246,22 +252,6 @@ export interface ReadXForm {
 }
 
 type FormPlace = Extract<HqPlace, { kind: "form" }>;
-
-/** The ids an input's `intent:<id>` appearance names anywhere in the source. */
-function intentIdsOf(root: Element): Set<string> {
-	const ids = new Set<string>();
-	const walk = (element: Element) => {
-		const appearance = element.attribs.appearance;
-		if (
-			splitName(element.name).local === "input" &&
-			appearance?.startsWith("intent:")
-		)
-			ids.add(appearance.slice("intent:".length));
-		for (const child of element.children) if (isTag(child)) walk(child);
-	};
-	walk(root);
-	return ids;
-}
 
 /** The Save to Case blocks of a form, by the role the join gave their nodes. */
 function saveToCaseBlocks(
@@ -414,7 +404,8 @@ function readForm(
 		root: joined.childrenOf(null),
 		binds: binds.byNode,
 		childrenOf: joined.childrenOf,
-		labelMedia: (field) => field.field.label_media !== undefined,
+		labelMedia: (field) =>
+			field.control !== undefined && labelCarriesMedia(field.control, parsed),
 	});
 	const inertAppearances = [...joined.inertAppearances];
 	readContainers({
@@ -558,7 +549,13 @@ function readForm(
 				`The form reader was asked to settle a node of ${placeKey(formPlace)} as generated or as a field, and it proposed no such candidate. Settle only a node of ReadXForm.candidates.`,
 			);
 		candidates.splice(at, 1);
-		if (verdict === "field") {
+		// An owner node is Nova's only under the name the allocator gives the operation it
+		// serves; under any other it is the person's own Hidden Value.
+		const ownersName =
+			role.purpose !== "owner" ||
+			(operation !== undefined &&
+				isAllocatedName(node.name, generatedBaseName("owner", operation)));
+		if (verdict === "field" || !ownersName) {
 			const field = joined.settleField(node);
 			pendingLogic({
 				cursor,
@@ -567,6 +564,7 @@ function readForm(
 				setvalues: [],
 				nodes: tree.nodes,
 				roles: joined.roles,
+				refused: tree.refused,
 				formPlace,
 			});
 			return;
@@ -581,7 +579,7 @@ function readForm(
 			node,
 			role.purpose,
 			role.owner === null
-				? `${scope}#${operation ?? node.name.slice("nova_owner_".length)}`
+				? `${scope}#${operation}`
 				: absolutePath(role.owner, rootName),
 		);
 		// A date and time an app Nova published before kept the device's clock is saved as
@@ -609,6 +607,7 @@ function readForm(
 		setvalues,
 		nodes: tree.nodes,
 		roles: joined.roles,
+		refused: tree.refused,
 		formPlace,
 	});
 	const carriers = new Map<DataNode, ControlNode>();
@@ -932,8 +931,9 @@ function sourceNames(
  * What the expression stage reads beside the document, built from each form's reading and keyed
  * by the form's UUID: the source's own names, the unit each referenced text id was read as (its
  * first owning slot in document order), the declared instances, the validation counts set
- * aside, and the case id path of each Save to Case create; with the reading's table catalog, the
- * record dialect's judge, and the forms whose entry facts differ.
+ * aside, the case id path of each Save to Case create, the form's place, and the ids an advanced
+ * form's computed datums give; with the reading's table catalog, the record dialect's judge, and
+ * the forms whose entry facts differ.
  */
 export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 	const sourceNames = new Map<Uuid, ReadSourceNames>();
@@ -941,9 +941,14 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 	const instanceSources = new Map<Uuid, ReadonlyMap<string, string>>();
 	const generatedValues = new Map<Uuid, ReadonlyMap<string, GeneratedValue>>();
 	const operationIdPaths = new Map<Uuid, ReadonlyMap<string, Uuid>>();
+	const formPlaces = new Map<Uuid, HqPlace>();
+	const computedDatums = new Map<Uuid, ReadonlySet<string>>();
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {
 			operationIdPaths.set(form.uuid, form.operationIdPaths);
+			formPlaces.set(form.uuid, form.place);
+			if (form.docType === "AdvancedForm")
+				computedDatums.set(form.uuid, computedDatumIds(form.json));
 			const xform = form.xform;
 			if (xform === null) continue;
 			if (xform.sourceNames !== undefined)
@@ -967,5 +972,24 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		operationIdPaths,
 		recordDialect: ctx.input.recordDialect,
 		entryFactsRefused: new Set(ctx.facts.entryFactsRefused),
+		formPlaces,
+		computedDatums,
 	};
+}
+
+/** The ids an advanced form's `arbitrary_datums` compute
+ *  (`ArbitraryDatum.datum_id`), which its entry adds to the session. The case
+ *  management reader claims the key; this reads it without claiming. */
+function computedDatumIds(json: DraftForm["json"]): ReadonlySet<string> {
+	const datums = json.peek("arbitrary_datums");
+	const ids = new Set<string>();
+	if (!Array.isArray(datums)) return ids;
+	for (const datum of datums)
+		if (
+			typeof datum === "object" &&
+			datum !== null &&
+			typeof (datum as { datum_id?: unknown }).datum_id === "string"
+		)
+			ids.add((datum as { datum_id: string }).datum_id);
+	return ids;
 }

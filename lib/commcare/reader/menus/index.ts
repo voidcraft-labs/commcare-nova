@@ -9,13 +9,16 @@
  */
 import type { HqApplication } from "@/lib/commcare";
 import type { BlueprintDoc } from "@/lib/domain";
+import { caseListMenuItemLabelUnit } from "../../emissionPlan";
 import { expandDoc } from "../../expander";
 import { firstMenuSharedCaseFrames } from "../../validator/rules/formsInMenuAbove";
+import { rootSelectionTakesNewCase } from "../../validator/rules/parentSelection";
 import { type Claim, defineClaims, refuse } from "../claims";
 import type { DraftApp, ReadContext } from "../context";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { appPlace } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
+import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import {
 	acceptAfterSubmit,
@@ -31,6 +34,7 @@ import {
 	rawModules,
 	readModules,
 	settleModules,
+	withReadTranslations,
 } from "./modules";
 import { readCaseListRegistration, settleRegistrations } from "./registration";
 
@@ -41,6 +45,10 @@ const CLAIMS = defineClaims("menus", {
 		"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
 		"schema:Form.form_links",
 	),
+	newCaseTakesRootCase: refuse(
+		"menus-and-case-lists/child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses",
+		null,
+	),
 }) satisfies Record<string, Claim>;
 
 /** Step 2: every menu's registration block, its own navigation, each form's
@@ -50,6 +58,36 @@ export function readMenus(ctx: ReadContext, app: DraftApp): void {
 	readModules(ctx, app);
 	readAfterSubmit(ctx, app);
 	readEntryPoints(ctx, app);
+}
+
+/**
+ * Step 4, once every menu's structure and every form's case operations are in
+ * the drafts and before the entry facts are compared: each form of a child
+ * menu that creates a case of the type its root menu's first form opens a
+ * chosen case of, the shape the gate refuses
+ * (`validator/rules/parentSelection.ts::rootSelectionTakesNewCase`). HQ's
+ * build matches the new case's datum to the root's selection by case type
+ * alone (`entries.py::EntriesHelper.add_parent_datums`), so the form cannot
+ * open there; the finding stands at the form, where the entry facts would
+ * otherwise part.
+ */
+export function readRootSelectionsTaken(ctx: ReadContext, app: DraftApp): void {
+	let taken: readonly { readonly formUuid?: string }[];
+	try {
+		taken = rootSelectionTakesNewCase(provisionalDocument(ctx), {
+			kind: "unavailable",
+		}).map((error) => ({ formUuid: error.location.formUuid }));
+	} catch {
+		// A document the projection cannot walk is the entry facts' to report.
+		return;
+	}
+	for (const { formUuid } of taken) {
+		const form = app.modules
+			.flatMap((module) => module.forms)
+			.find((one) => one.uuid === formUuid);
+		if (form !== undefined)
+			ctx.accounting.finding(CLAIMS.newCaseTakesRootCase, form.place);
+	}
 }
 
 type JsonObject = Readonly<Record<string, unknown>>;
@@ -170,7 +208,14 @@ function acceptMenus(
 			if (
 				!sameJson(
 					caseListLabelAsBuilt(labelMap(sourceList.label), langs),
-					caseListLabelAsBuilt(labelMap(ourList.label), langs),
+					caseListLabelAsBuilt(
+						withReadTranslations(
+							ctx,
+							caseListMenuItemLabelUnit({ ...own, uuid: module.uuid }),
+							labelMap(ourList.label),
+						),
+						langs,
+					),
 				)
 			)
 				unrecognized("schema:CaseList.label");

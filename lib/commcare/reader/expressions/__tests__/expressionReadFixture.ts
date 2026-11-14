@@ -24,6 +24,8 @@ export function readEnv(
 		// Every record tree these tests hold has a record spelling.
 		recordDialect: () => undefined,
 		entryFactsRefused: new Set(),
+		formPlaces: new Map(),
+		computedDatums: new Map(),
 		...overrides,
 	};
 }

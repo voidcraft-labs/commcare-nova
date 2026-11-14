@@ -121,6 +121,12 @@ class Form:
         self.readings = None  # proof.checks.manifest_usage.Readings, once the check reads the observation's
         self.app_form = None  # (App, its form object) where an app JSON carries the form
         self.case_types = None  # the document's declared types, or the optional metadata a control retained
+        self.entry_suite = None  # the suite (``Runtime``) whose entries open the form, where the check reads one
+
+    @cached_property
+    def xmlns(self):
+        """The form's namespace: its data root's, which a suite entry's ``<form>`` names."""
+        return etree.QName(self.data_root).namespace if self.data_root is not None else None
 
     @cached_property
     def head(self):
@@ -5257,6 +5263,146 @@ def supply_point_datum(use, manifest):
     )
 
 
+# The session data paths with an item of their own, or a class of their own under ``session/data/*``.
+_OWN_SESSION_DATA = frozenset({"stringquery", "fingerprintquery", "supply_point_id"})
+
+
+def _session_ids(holder):
+    """The ids a ``<session>``'s children write into the session's data, in order: a datum's or an instance
+    datum's ``id``, a query's ``storage-instance`` (``SessionDatumParser``), each with its element."""
+    session = next((child for child in _children(holder) if _local(child) == "session"), None)
+    found = []
+    for child in _children(session) if session is not None else ():
+        datum_id = child.get("storage-instance") if _local(child) == "query" else child.get("id")
+        if datum_id:
+            found.append((datum_id, child))
+    return found
+
+
+def _entries_under(root, menu_id):
+    """Each ``<entry>`` or ``<remote-request>`` a command of a menu with ``menu_id`` names: the entries Core
+    asks the common datums of once that menu is chosen (``CommCareSession.getEntriesForCommand``)."""
+    commands = {
+        command.get("id")
+        for menu in _children(root)
+        if _local(menu) == "menu" and menu.get("id") == menu_id
+        for command in _children(menu)
+        if _local(command) == "command"
+    }
+    return [
+        holder
+        for holder in _children(root)
+        if _local(holder) in ("entry", "remote-request")
+        and any(_local(child) == "command" and child.get("id") in commands for child in _children(holder))
+    ]
+
+
+def _common_prefix(lists):
+    """The longest run of ids every list starts with: the datums Core collects before a menu's items show
+    (``CommCareSession.getDataNeededByAllEntries``, one datum at a time while every entry needs the same)."""
+    if not lists:
+        return []
+    prefix = []
+    for ids in zip(*lists, strict=False):
+        if any(datum_id != ids[0] for datum_id in ids):
+            break
+        prefix.append(ids[0])
+    return prefix
+
+
+def _suite_supplied(root, element):
+    """The session data ids set where a suite element's expressions run, or None where the suite does not say:
+    inside an entry or a remote request, the ids its session writes (in a datum, only those before it); inside a
+    menu, the ids every entry of the menu it shows in shares first (a menu's own condition shows it in its
+    ``root``'s list, a command's in its own menu's); inside a detail, the ids written before each datum that shows
+    it (through the datum, for a detail that stays on screen while the form runs), every such datum agreeing."""
+    chain = [element, *element.iterancestors()]
+    holder = next((at for at in chain if _local(at) in ("entry", "remote-request")), None)
+    if holder is not None:
+        ids = _session_ids(holder)
+        datum = next((at for at in chain if at.getparent() is not None and _local(at.getparent()) == "session"), None)
+        if datum is None:
+            return [datum_id for datum_id, _ in ids]
+        return [datum_id for datum_id, _ in ids[: next(i for i, (_, at) in enumerate(ids) if at is datum)]]
+    menu = next((at for at in chain if _local(at) == "menu"), None)
+    if menu is not None:
+        shown_in = menu.get("id") if element is not menu else (menu.get("root") or "root")
+        if shown_in == "root":
+            return []
+        lists = [[datum_id for datum_id, _ in _session_ids(holder)] for holder in _entries_under(root, shown_in)]
+        return _common_prefix(lists) if lists else None
+    details = [at for at in chain if _local(at) == "detail"]
+    if not details:
+        return None
+    detail_id = details[-1].get("id")
+    supplied = None
+    for holder in _children(root):
+        if _local(holder) not in ("entry", "remote-request"):
+            continue
+        ids = _session_ids(holder)
+        for position, (_, datum) in enumerate(ids):
+            shows = (datum.get("detail-select"), datum.get("detail-confirm"), datum.get("detail-persistent"))
+            if detail_id not in shows:
+                continue
+            through = position + 1 if datum.get("detail-persistent") == detail_id else position
+            here = {datum_id for datum_id, _ in ids[:through]}
+            supplied = here if supplied is None else supplied & here
+    return None if supplied is None else list(supplied)
+
+
+def _form_supplied(form):
+    """The session data ids every entry that opens a form writes: the entries of the suite the check reads beside
+    it (``Form.entry_suite``) whose ``<form>`` names the form's namespace, or None where it reads none."""
+    if form.entry_suite is None or form.xmlns is None:
+        return None
+    lists = [
+        {datum_id for datum_id, _ in _session_ids(entry)}
+        for entry in _children(form.entry_suite.root)
+        if _local(entry) == "entry"
+        and any(_local(child) == "form" and (child.text or "").strip() == form.xmlns for child in _children(entry))
+    ]
+    if not lists:
+        return None
+    return set.intersection(*lists)
+
+
+def datum_not_supplied(use, manifest):
+    """``expressions-and-data/session-data-datum-the-entry-does-not-supply``: an expression reading the session's
+    ``data/<id>`` where nothing writes that id when it runs, so a scalar read of the missing leaf can stop the form
+    (``lib/commcare/CLAUDE.md``, the binding-resolution oracle). Read from Core's parse of the expression (its
+    instance paths through the session's instance, ``instance-source:session``), less the ids with an item or a
+    class of their own (``stringquery``, ``fingerprintquery``, ``supply_point_id``). What is written there is the
+    suite's: in a suite, the session where the element runs (``_suite_supplied``); in a form, the ids every entry
+    that opens it writes, from the suite the check reads beside the form (a local archive's own, and for an app
+    JSON's form the local archive Nova built of the same export), and None where it reads none."""
+    at = _xml(use)
+    if at is None or at.attribute is None:
+        return None
+    document = at.document
+    parsed = document.parsed(at.element.get(at.attribute))
+    if parsed is None or "error" in parsed:
+        return None
+    sessions = {
+        instance_id
+        for instance_id, src in document.declared_instances
+        if instance_source(manifest, src) == "instance-source:session"
+    }
+    read = {
+        path["steps"][2]
+        for path in parsed["instancePaths"]
+        if path["instance"] in sessions
+        and len(path["steps"]) > 2
+        and path["steps"][:2] == ["session", "data"]
+        and path["steps"][2] not in _OWN_SESSION_DATA
+    }
+    if not read:
+        return False
+    supplied = _form_supplied(document) if document.kind == "xform" else _suite_supplied(document.root, at.element)
+    if supplied is None:
+        return None
+    return not read <= set(supplied)
+
+
 def var_in_form(use, manifest):
     """``expressions-and-data/var-in-a-form-expression``: a variable reference (``$name``) in an XForm's
     expression, where no variable is defined (form contexts define none, so it reads blank). A suite's are the
@@ -6867,6 +7013,7 @@ ROW_UNDECLARED_KEYS = {
         }
     ),
     "Form": frozenset({"no_vellum", "put_in_root"}),
+    "AdvancedForm": frozenset({"no_vellum", "put_in_root"}),
     "UpdateCaseAction": frozenset({"update_multi", "name_update_multi"}),
     "OpenCaseAction": frozenset({"update_multi", "name_update_multi"}),
 }
@@ -7166,6 +7313,7 @@ VALUE_CLASSES = {
     "expressions-and-data/inline-instance-content-inside-instance-no-src": inline_instance,
     "expressions-and-data/more-than-one-instance-without-an-id": unnamed_instances,
     "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": supply_point_datum,
+    "expressions-and-data/session-data-datum-the-entry-does-not-supply": datum_not_supplied,
     "expressions-and-data/var-in-a-form-expression": var_in_form,
     "expressions-and-data/here-in-a-form": here_in_form,
     "expressions-and-data/session-context-window-width-in-form-logic": window_width_in_form_logic,

@@ -1355,12 +1355,12 @@ table is which claim reads it. Entry ids are under `application-and-settings/`.
 | `name` | `take(name)` | `appName` |
 | `langs` | `take(langs-order-langs-0-default)` for the whole list; each code's finding by 6.3 | `localization` |
 | `modules` | `list(…, take(modules))`, each child's class from its `doc_type` (7.1) | the drafts |
-| `_attachments` | `map`, each `<read id>.xml` key `take(attachments-form-unique-id-xml)` when a form of this read names it, else `drop(attachments-entry-for-a-form-no-longer-in-the-app)` | each form's source text |
+| `_attachments` | one use, claimed once at `/_attachments`: `take(attachments-form-unique-id-xml)` when a form of this read names any `<read id>.xml` key, else `drop(attachments-entry-for-a-form-no-longer-in-the-app)`. The lane records the map as one use at its pointer (`manifest_usage.py::_walk_object` walks no further into a map of strings), so a claim per key would be records the lane has no use for; an entry no form names beside named ones reaches nothing, and a publish replaces the whole key | each form's source text |
 | `cloudcare_enabled` | `take(40-hq-cloudcare-enabled)` | `facts.webAppsOnInHq`; the proposal (16.3) |
 | `translations` | `map` by language, each key by 6.5 | language names, the app's display name |
 | `profile` | `object`, by 6.6 | `showSavedForms`, `showIncompleteForms` |
 | `build_spec` | by 6.2 | nothing |
-| `logo_refs` | `take(logo-refs-hq-logo-web-apps)` for the slot `hq_logo_web_apps` with the uploader's path and an `m_id`; `account(logo-refs-hq-logo-android-home-login-demo)` for the three Android slots, each with an `m_id`; `refuse(logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare)` for a slot whose path is any other, or whose entry holds no `m_id` | the Web Apps logo, by 12.4's rule for a path: an asset is a `ReadMediaReference` of slot `app_logo`, and a path with no file is handed off |
+| `logo_refs` | `take(logo-refs-hq-logo-web-apps)` for the slot `hq_logo_web_apps` with the uploader's path and an `m_id`; `account(logo-refs-hq-logo-android-home-login-demo)` for the three Android slots, each with an `m_id`; `refuse(logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare)` for a slot whose path is any other, or whose entry holds no `m_id`. HQ's uploader takes any slot name (`hqmedia/urls.py`, `logo_name`), and a slot of another name it wrote is read by no runtime (`const.py::ANDROID_LOGO_PROPERTY_MAPPING` names the four slots), so it is neither read nor refused, as the lane's `path_not_from_uploader` does not refuse it; a `logo_refs` holding only such slots is left for the close. The node is one use claimed once: by the Web Apps slot, read or handed off, else by the Android account, else by the refusal | the Web Apps logo, by 12.4's rule for a path: an asset is a `ReadMediaReference` of slot `app_logo`, and a path with no file is handed off |
 | `auto_gps_capture` | `account(45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app)` where no form holds a Connect block, else `derived(45-hq-auto-gps-capture)` (decided at stage 11, when 15 has run) | nothing: Nova writes `true` on a Connect app, from `connectType` |
 | `location_fixture_restore` | `derived(50-hq-location-fixture-restore-project-default)`, `derived(50p-hq-location-fixture-restore-both-fixtures-only-flat-fixture)`, `refuse(50pp-hq-location-fixture-restore-only-hierarchical-fixture)` by value | nothing: Nova writes `project_default` and reads the flat fixture, so the two held values are `derived`, as `doc_type` is (6.4) |
 | `application_version` | `account(33-hq-application-version-2-0)`, `account(33p-hq-application-version-1-0)` by value | |
@@ -1495,7 +1495,7 @@ once, by part 01's 4.4 classes in this order:
 | The key | Claim |
 |---|---|
 | equal to an app language's code | the language's display name: `derived(translations-lang-code-language-display-names-equal-to-the-label)` where the value equals Nova's label for that identity (`resolvedLanguageDisplayLabel`), else `account(translations-lang-code-any-other-value-or-absent-where-hq-s)`, which part 01 keeps at CommCare HQ's value (its 7.2). The first claim is `derived` because the value is read into nothing: Nova derives its label from the language's identity |
-| `app.display.name` | `take(translations-app-display-name)`: where it differs from `name`, the app name's translation in that language, through `ctx.translations` |
+| `app.display.name` | `take(translations-app-display-name)`: in a language after the first, the app name's translation in that language, through `ctx.translations`; in the first language, where it equals `name`. In the first language one that differs from `name` is left unclaimed and closes as `unrecognized`: the source language holds no translation of the name, Nova writes no `app.display.name` there (`expander.ts::appLevelValues`), reading it into `appName` would change HQ's own name at the first publish and reading past it would change the name a device shows, and no entry names that override |
 | `homescreen.title` | `account(translations-homescreen-title)` |
 | a runtime's own UI text (`appStringKeys.ts::isRuntimeUiStringKey`) | `account(translations-key-in-a-runtime-s-ui-string-catalog-core-android)`; HQ's catalog fill for such a key, `account(translations-catalog-key-hq-fills-with-its-own-text-in-a)` |
 | one of HQ's generated patterns (`translationKeyOwner` gives `generated`) | held back to stage 11, and classified or covered there (16.5) |
@@ -1519,8 +1519,14 @@ key; each key's entries are `index.naming("setting:properties.<key>")` or
 | a key two entries name (`lazy-load-video-files`) | `account` under the one whose class takes the value |
 | a key no `setting:` item names | `account(any-other-profile-properties-features-key-not-in-the-yaml)` |
 
-`custom_properties` is part 07's, which derives whether `cc-index-case-search-results` is what Nova
-would write. This walker claims nothing under it.
+`custom_properties` is walked key by key too, by the key's name as the lane classifies it
+(`manifest_value_classes.py::custom_property_other`, `HELD_CUSTOM_PROPERTIES`), each at
+`/profile/custom_properties/<name>`: `cc-index-case-search-results` under
+`derived(profile-custom-properties-cc-index-case-search-results-equal-to)`, key
+`profile-property:cc-index-case-search-results`, since Nova writes that property from the document's
+Search on every publish (`derivedProfile.ts`) and the value reaches no slot; any other under
+`refuse(profile-custom-properties-any-other-entry-incl-formplayer-keys)` with the name. The
+container is claimed as `properties` and `features` are.
 
 ---
 
@@ -1713,7 +1719,7 @@ The frame of the document, claimed here:
 | any other attribute of the data root | `refuse(data-root-attributes-other-than-uiversion-version-and-name-and)` |
 | a data root whose element is not named `data` | `refuse(data-root-element-named-other-than-data)`, the new entry of 8.8 |
 | `vellum:hashtags`, `vellum:hashtagTransforms` in the head | read by 14, then `dropSubtree(vellum-hashtags-vellum-hashtagtransforms)` |
-| `odkx:intent` in the head | where an input's appearance names its `id`: left to 9.2's intent rows; otherwise `dropSubtree(odkx-intent-that-no-question-references)` |
+| `odkx:intent` in the head | where an input's appearance names its `id`: claimed with the question that names it, `refuseSubtree(android-app-callout-input-appearance-intent-id-bind-type-intent)` at a callout question that writes it (9.1), else `refuseSubtree(intent-id-naming-an-odkx-intent-that-no-callout-question-writes)` at the first input naming it, `detail.name` that input's appearance (9.2), so each joins its question's one finding; otherwise `dropSubtree(odkx-intent-that-no-question-references)` |
 | any other head child | where its local name or a descendant's is one of `surface.json`'s `jr-control:` or `jr-action:` names, `refuseSubtree(other-h-head-children-whose-local-name-or-a-descendant-s-core-or)`; otherwise `dropSubtree(h-head-children-other-than-hq-s-own-h-title-model-odkx-intent)` |
 | a `submission` in the model | named by a `send`: `refuseSubtree(send-submission)` on both. Otherwise by Core's rule as the entry's `item` states it (an `id`, a `resource` and a `targetref`; `method` absent or `get`; `replace` absent or `text`; `mode` absent or `synchronous`; `targetref` and `ref` paths to nodes of the data tree): passing, `dropSubtree(a-submission-core-accepts-with-no-send-naming-it)`; failing, `refuseSubtree(a-submission-core-s-parser-refuses-missing-any-of-id-resource)` |
 | `orx:pollsensor` in the model | `refuseSubtree(authored-orx-pollsensor)`: HQ's build writes its own, and a stored source holds none |
@@ -2120,7 +2126,11 @@ export function fieldKindOf(facts: FieldKindFacts): FieldKindRow | undefined;
 ```
 
 The trigger row for an appearance other than `minimal` carries its cell's `refuse` as its claim;
-`readForms` asks 9.2 first for such a trigger and takes the row's claim only where 9.2 names no row.
+`readForms` asks 9.2 first for such a trigger, reads a label where 9.2's verdict is
+`trigger-selectable`, a floating row, or a per-row refusal of a string starting `floating-`
+(`appearances.ts::triggerStaysLabel`), and takes the row's claim for every other verdict: Android's
+`TriggerWidget` draws an acknowledge for every appearance but exactly `minimal` or `selectable`, and
+hides one starting `floating-`.
 The three Hidden Value cells of one line are three rows.
 
 `kinds.ts::fieldKindOf` reads one row for each control and its bind. A bind's type is compared after
@@ -2172,11 +2182,14 @@ under the same entry, with two exceptions the rows state: a select's present bin
 
 The media types are compared as `xform/captureUpload.ts::UPLOAD_MEDIATYPES` holds them, byte for byte,
 as Core does (`XFormParser::parseUpload`); Vellum lower-cases first, and a case variant is the refusal
-row. `jr:imageDimensionScaledMax` on an image upload is
+row. `jr:imageDimensionScaledMax` is read as Core reads it, `Integer.parseInt` after one trailing
+`px` is removed, which takes one leading `+` or `-`. On an image upload it is
 `refuse(jr-imagedimensionscaledmax-250-500-1000px-or-another-positive)` where it is a positive whole
-number with or without `px`, `refuse(jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater)`
-otherwise, and on any other upload
-`account(jr-imagedimensionscaledmax-an-integer-with-or-without-px-on-any)`.
+number, `account(jr-imagedimensionscaledmax-an-integer-with-or-without-px-on-any)` where it is `-1`
+(`ImageWidget`'s own no-limit value, the state with none, which that entry's `item` names), and
+`refuse(jr-imagedimensionscaledmax-that-is-not-an-integer-or-is-greater)` otherwise; on any other
+upload it is `account(jr-imagedimensionscaledmax-an-integer-with-or-without-px-on-any)` where Core
+reads an integer, and that refusal where it does not.
 
 **Slots a kind does not hold.** Each kind's schema declares its slots (`lib/domain/fields/*.ts`). A
 source that gives a kind something its schema has no slot for is a finding under part 04's entries:
@@ -2259,7 +2272,15 @@ export function classifyAppearance(
    (`an-appearance-holding-such-whitespace-that-some-runtime-reads`), `appearance_token_no_runtime_reads`
    (`any-other-multi-token-string-holding-a-token-no-runtime-reads-on`) and `android_inside_match_other`
    (`any-other-single-string-no-row-names-that-holds-a-value-android`). Part 14's parity holds these
-   three.
+   three. The lane's `appearance_token_no_runtime_reads` answers for every multi-token string with a
+   word no read takes, and the table's last row names some of those strings: where dropping the
+   unread words leaves every runtime's reading the same (the rest is the kind's own token or a string
+   a row accounts, no whole-string read takes the rest, no dropped word holds a value Android matches
+   inside the string, and the second word stays where Web Apps reads it), the string is that row's,
+   `a-multi-token-string-holding-tokens-no-runtime-reads-on-that`, and the refused class is the
+   remainder, as its entry's `item` ("any other …") says. The lane cannot tell the two apart, since
+   it holds no table of rows, so part 14's parity for this class is held on every use the last row
+   does not take, and that row is held by `appearances.test.ts`.
    The other five have no lane reader: `proof/checks/test_manifest_value_classes.py` lists each among
    its known gaps. They are the two per-row refusals
    (`a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does`,
@@ -2787,8 +2808,10 @@ Rules that complete the table:
 - **Equal** means the `markdown` value's child nodes equal the default value's in the same language:
   the same text nodes and the same `output` elements with the same `value` or `ref`.
 - **The plain flags follow part 03's canonical choice.** A flag is set only where the text is not blank
-  in every language and the form does not hold `plainText`. A text blank everywhere and any text in a
-  `plainText` form get none.
+  in every language, or its slot (a question's label or help text, a choice) carries media, and the
+  form does not hold `plainText`. A text blank everywhere with no media and any text in a `plainText`
+  form get none: Nova writes no itext entry for the first (`builder.ts::addItext`), while a blank text
+  with media is an entry whose markdown copy the flag decides.
 - **A form whose text formatting is off** (`plainText`) and that holds a `markdown` value on a label, a
   choice or a help text is `refuse(a-markdown-form-in-a-form-whose-text-formatting-is-off)` at that
   question: the form builder's next save drops the copy. A hint's or validation message's copy there is
@@ -3453,7 +3476,7 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[];
 |---|---|---|---|
 | `root-question-lists-are-sections` | `one-wire` | a root of sections, and a root of `fieldList` groups with no condition and no worker-added repeat | sections (10.2) |
 | `translation-equal-to-source-is-absent` | `one-wire` | a translation equal to its source text, and none | none (12.5) |
-| `plain-flag-on-blank-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` on a text blank in every language, and no flag | no flag (12.2; part 03's first) |
+| `plain-flag-on-blank-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` on a text blank in every language whose slot carries no media (a question's label or help text, an inline choice's label), and no flag | no flag (12.2; part 03's first) |
 | `plain-flag-under-plain-text-is-absent` | `one-wire` | `plainLabel` or `plainHelp` in a form holding `plainText`, and no flag | no flag (12.2; part 03's second) |
 | `blank-container-label-is-absent` | `one-wire` | a group, repeat or section whose `label` is a template with no parts, and one with no `label` | no `label` |
 | `translation-provenance-is-read-as-reviewed` | `not-carried` | a current translation entry with any `origin`, `review` and `translatedFrom`, and the same `value` as a human-reviewed translation of the current source | `origin: "human"`, `review: "reviewed"`, `translatedFrom` the source language, the current source's fingerprint (12.5) |
@@ -3955,6 +3978,7 @@ every account (part 13, 7.1). Departure 11 is why it exists.
 | # | Where | String |
 |---|---|---|
 | C3 | `readHqApp`, a broken input | "The reader was given <n> aligned menus for a source that holds <m>. Pass the menus of the same reading the source came from." |
+| C3a | `readStructure`, a source whose menus are not its raw app's | "The reader was given a source of <m> menus whose app holds <n> menu objects. Pass the source and its raw app from the same read." |
 | C4 | `claimsBindManifest.test.ts`, an entry that is gone | "The claim <module.name> names the entry <entry>, which no area file of lib/commcare/surface/entries holds. Check the id's spelling, or point the claim at the entry that took its place." |
 | C5 | the same, a use the standing forbids | "The claim <module.name> would <use> a value under <entry>, and that entry is now <standing>. Change the claim to a use its standing permits (take or derived: held; drop: inert or kept; refuse: not-yet, never or fix-in-hq; account: any but held), or put the entry back." |
 | C6 | the same, a key the entry lacks | "The claim <module.name> reads the surface key <key>, which <entry> does not list. Name one of the entry's surfaceKeys, or add the key to the entry." |
@@ -4028,10 +4052,10 @@ touches a database, and none renders a component. Each names the failure it woul
 | `reader/__tests__/readerPurity.test.ts` | `readHqApp` twice over one input with fresh resolvers | hidden state; an order that depends on a `Map`'s insertion history |
 | `lib/doc/__tests__/declarationChoices.test.ts` | `planDeclarationChoices` over production documents: plain; date-and-time questions alone; a date-and-time question beside a feature Android cannot run; uses neither platform runs; a refused split; each with HQ's setting on and off. And over the fuzz documents: every choice's mutations leave no unavailable use, and `planContentDeclaration`'s declaration is among the choices | a choice the gate would refuse; the split offered where it adds nothing; the proposal ignoring HQ's setting; "Android only" proposed, with Web Apps on in HQ, for an app the split would keep in Web Apps |
 | `lib/commcare/hq/__tests__/publishedCaseBlocks.test.ts` | unchanged | the helpers' move changing what it reads |
-| `reader/xform/__tests__/formFixedPoint.fuzz.test.ts` | for each form of the fuzz documents (`lib/commcare/__tests__/xformDocArbitrary.ts::blueprintDocArbitrary`), `buildXFormSource` then stages 3 and 5b; the reading's fields compared with the document's: path, kind, order, repeat mode and placement, `fieldList`, section, `keypad`, plain flags, choices and their values, media, and each text in each language | a slot the emitter writes and the reader does not read; a generated node read as a field; a kind row that is wrong; a canonical choice applied where the pair differs |
+| `reader/xform/__tests__/formFixedPoint.fuzz.test.ts` | for each of the fuzz documents (`lib/commcare/__tests__/xformDocArbitrary.ts::blueprintDocArbitrary`), its export (`expandDoc`) read whole by `readHqApp`, since a field's text, plain flags and media are written only by stage 9 (`finishText`) and the stages after it; each form's fields compared with the document's: path, kind, order, repeat mode and placement, `fieldList`, section, `keypad`, plain flags, choices and their values, media, and each text in each language | a slot the emitter writes and the reader does not read; a generated node read as a field; a kind row that is wrong; a canonical choice applied where the pair differs |
 | `reader/xform/__tests__/kinds.test.ts` | each row of `FIELD_KIND_ROWS` as a minimal hand-written source; and every `FieldKind` emitted alone and read back | a row unreachable or shadowed by an earlier one; a kind Nova gains with no row; a question named `registration` refused under the grammar entry, or held |
 | `reader/xform/__tests__/appearances.test.ts`, `appearanceRows.test.ts` | `classifyAppearance` over the examples each entry's `item` gives (`minimal` with a trailing space, `combobox2`, `x2-per-row`, `minimal foo`, `Numeric`, `compact-3`) and the four held tokens; the table against the manifest's section | an inert claim for a string a runtime reads; an entry no rule reaches (C7); a row whose entry is HELD; one of the five refused classes with no lane reader misread, which nothing in Python would catch; a control missing from `inertAppearances`, or one listed whose appearance made a finding |
-| `reader/xform/__tests__/itext.test.ts` | hand-built itext: renamed ids, one id shared by two questions, each form of 12.2, each pragma row, a value blank in a second language beside first-language text, a value blank in the first language beside another's text, a text blank in every language, a missing language, media equal and differing | a text found by its id's spelling; a `markdown` copy on a hint refused; a flag set on a blank text; a held blank refused, written as a translation or left out of `blankTranslations`; a first-language blank held |
+| `reader/xform/__tests__/itext.test.ts` | hand-built itext: renamed ids, one id shared by two questions, each form of 12.2, each pragma row, a value blank in a second language beside first-language text, a value blank in the first language beside another's text, a text blank in every language, a missing language (the media of a text, equal and differing by language, is `media.test.ts`'s) | a text found by its id's spelling; a `markdown` copy on a hint refused; a flag set on a blank text; a held blank refused, written as a translation or left out of `blankTranslations`; a first-language blank held |
 | `reader/xform/__tests__/prose.test.ts` | text of every character class (whitespace runs, NBSP, `instance(`, `<`, `&`, quotes) emitted through a one-label document and read back, property-based | the literal-output inverse losing or adding a character |
 | `reader/xform/__tests__/generated.test.ts` | for each purpose of `GENERATED_RULES`, a document that makes the emitter write the node, read back; then the same source with one token of the node's calculate changed, and with the node renamed | a purpose with no rule; an edited node folded; a renamed node folded |
 | `reader/xform/__tests__/authoredNovaName.test.ts` | a document whose author named a question `nova_trimmed_x` beside a question `x` that names a case | the author's question folded into Nova's node |
@@ -4043,7 +4067,7 @@ touches a database, and none renders a component. Each names the failure it woul
 | `reader/xform/__tests__/xmlTotality.test.ts` | each retained form with one unknown attribute planted on one element of each qualified name, and one unknown element under each | an unknown construct admitted in a form |
 | `reader/xform/__tests__/vellumSavedSource.test.ts` | R1's two cases ("Written and not yet run") | a save's respelling read as a difference; a generated node a save left in place read as a Hidden Value |
 | `reader/__tests__/readerWork.test.ts` | `ReadWork` of one emitted form of 200 questions and one of 400, in three languages, with generated nodes of every purpose | a stage whose work more than doubles when the form does; deterministic, with no clock. Where `rebuilds` is the counter that fails, 13.1 names the fix |
-| `reader/xform/__tests__/media.test.ts` | `readMediaForms` and `readMediaMap` over an index that answers `asset`, `no-entry` and `unreadable`: held slots, a hint's and a group label's media, a path differing by language | a path with no file read as `unrecognized`, or claimed held; an unheld slot's missing file left out of `pendingMedia`; a hand-off with no `HandOffRecord` |
+| `reader/xform/__tests__/media.test.ts` | `readMediaForms` and `readMediaMap` over an index that answers `asset`, `no-entry` and `unreadable`: held slots, a hint's and a group label's media, a path equal in every language, a path differing by language | a path with no file read as `unrecognized`, or claimed held; an unheld slot's missing file left out of `pendingMedia`; a hand-off with no `HandOffRecord` |
 | `lib/commcare/__tests__/xmlParseKind.test.ts` | `tryParseXml` over a document type declaration, an XML 1.1 declaration and unclosed markup | a kind told from a message; `xmlParseIssue`'s text changing |
 
 What these do not hold, stated so no one reads more into them: that an expression means what the

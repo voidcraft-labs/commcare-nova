@@ -5,7 +5,7 @@
  */
 
 import type { BlueprintDoc } from "@/lib/domain";
-import { expandDoc } from "../../expander";
+import { type ExpandOptions, expandDoc } from "../../expander";
 import type { ReaderInput } from "../types";
 import { readerInput, retainedSourceBody, sourceFromBody } from "./readerInput";
 
@@ -18,6 +18,8 @@ export interface ExportEdits {
 	) => Record<string, unknown>[];
 	/** Root keys written over the shell's. */
 	readonly root?: Readonly<Record<string, unknown>>;
+	/** What the export is expanded with: the tables' names, for an app that reads one. */
+	readonly expand?: ExpandOptions;
 }
 
 /** HQ's source body for `doc`'s export, with `edits` applied. */
@@ -25,7 +27,7 @@ export function exportedBody(
 	doc: BlueprintDoc,
 	edits: ExportEdits = {},
 ): Record<string, unknown> {
-	const emitted = expandDoc(doc);
+	const emitted = expandDoc(doc, edits.expand);
 	const attachments = Object.fromEntries(
 		Object.entries(emitted._attachments as Record<string, string>).map(
 			([name, xml]) => [name, edits.xml === undefined ? xml : edits.xml(xml)],
