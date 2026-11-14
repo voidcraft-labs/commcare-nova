@@ -23,13 +23,30 @@ from proof.native.hq_support import hq_commit, sha256, write_evidence
 
 FAMILIES = ("expression",)
 CASES = {
-    "case", "parent", "host", "worker", "session", "unused-fixture-token",
-    "trailing-backslash", "trailing-three-backslashes", "trailing-even-backslashes",
-    "backslash-before-quote", "backslash-before-token", "both-quotes",
-    "instance-single", "instance-double", "instance-whitespace", "entity-quotes",
-    "entity-letters", "entity-parentheses", "entity-whitespace",
-    "entity-numeric-whitespace", "entity-no-semicolon",
-    "entity-dropped-control", "entity-dropped-delete", "entity-dropped-vertical-tab",
+    "case",
+    "parent",
+    "host",
+    "worker",
+    "session",
+    "unused-fixture-token",
+    "trailing-backslash",
+    "trailing-three-backslashes",
+    "trailing-even-backslashes",
+    "backslash-before-quote",
+    "backslash-before-token",
+    "both-quotes",
+    "instance-single",
+    "instance-double",
+    "instance-whitespace",
+    "entity-quotes",
+    "entity-letters",
+    "entity-parentheses",
+    "entity-whitespace",
+    "entity-numeric-whitespace",
+    "entity-no-semicolon",
+    "entity-dropped-control",
+    "entity-dropped-delete",
+    "entity-dropped-vertical-tab",
 }
 
 
