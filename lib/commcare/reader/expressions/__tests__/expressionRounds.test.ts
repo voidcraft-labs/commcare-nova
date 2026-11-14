@@ -326,7 +326,7 @@ function expectHeldPrintsItsText(
 ): void {
 	pending.forEach((registration, index) => {
 		const tree = reading.bound[index];
-		if (tree === undefined || registration.mode.target === "search-row") return;
+		if (tree === undefined) return;
 		const leveled = reading.rewrites.some(
 			(one) =>
 				one.key === registration.key &&

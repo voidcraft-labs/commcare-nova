@@ -74,15 +74,16 @@ describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", 
 		expect(outside).toHaveLength(blocks.length);
 	});
 
-	it("raises the new entry at no block of targeted-migration-case-writes, every one of a shape Nova still writes", async () => {
+	it("raises the new entry at the one block of targeted-migration-case-writes of an earlier shape, and at no other", async () => {
 		const { blocks, outside, outcome } = await blocksAndFindings(
 			"targeted-migration-case-writes",
 		);
 		// The follow-up's update, the conditional update, the create in a repeat (its answers and
-		// the earlier create's id read through `current()`), the closes and the several-case
-		// form's shared update of every selected case are written today as they were then, and
-		// each guard is its operation's. The keyed create is read too: its id is compared under
-		// the prefix the source's calculate holds, which names the app Nova exported then.
+		// the earlier create's id read through `current()`), the own close in a block of its own
+		// and the several-case form's shared update of every selected case are written today as
+		// they were then, and each guard is its operation's. The keyed create is read too: its id
+		// is compared under the prefix the source's calculate holds, which names the app Nova
+		// exported then.
 		const keyed = "nova_operations/nova_keyed_add_referral/add_referral";
 		const shared =
 			"nova_selected_cases/item/nova_operations/nova_condition_update_selected_cases/nova_update_selected_cases";
@@ -95,6 +96,16 @@ describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", 
 					(finding) => (finding.place as { path?: string }).path === path,
 				),
 			).toEqual([]);
-		expect(outside).toEqual([]);
+		// The Discharge form closes its own case in a block of its operation's name that also
+		// writes the case's type: a close of the form's own case, which Nova no longer writes as an
+		// operation, and not its own close, whose close-only block writes no type. Read as the own
+		// close it does not print back.
+		expect(outside).toEqual([
+			{
+				menu: 1,
+				form: 1,
+				path: "nova_operations/nova_condition_discharge_household/discharge_household",
+			},
+		]);
 	});
 });

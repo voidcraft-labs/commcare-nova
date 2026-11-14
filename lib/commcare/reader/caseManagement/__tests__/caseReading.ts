@@ -34,6 +34,7 @@ import {
 	settleCaseManagement,
 	writeCaseOperations,
 } from "../index";
+import { knownCaseTypesOf } from "../knownCaseTypes";
 
 export type AppJson = Record<string, unknown> & {
 	modules: Array<
@@ -119,7 +120,15 @@ export async function readCases(
 		}),
 	) as AppJson;
 	options.edit?.(app);
-	return readCasesOfBody(app, options);
+	// A read-back of a document Nova holds is told its case types' parents.
+	const known = knownCaseTypesOf(doc);
+	return readCasesOfBody(app, {
+		...options,
+		input: (read) => {
+			const told = { ...read, knownCaseTypes: known };
+			return options.input === undefined ? told : options.input(told);
+		},
+	});
 }
 
 /** The case management of a stored app as HQ's source view serves it, a retained answer among

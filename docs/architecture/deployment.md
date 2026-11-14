@@ -224,6 +224,28 @@ probe checks every saved app with the incoming validator. After execution,
 verify the affected app histories and require a clean full census or runtime
 database probe before deploying the new revision.
 
+Several-case own close repairs use `scripts/scan-several-case-close-places.ts`
+for the read-only census and `scripts/migrate-several-case-close-places.ts` for
+the reviewed plan. The maintenance image bundles them as
+`several-case-close-scan.cjs` and `several-case-close-repair.cjs`. A form whose
+menu selects several cases and closes each selected case under a condition
+keeps that close in a condition group of the selected case's row; a document
+published before that shape holds the close one segment short of it, which the
+incoming validator refuses (`HELD_PLACEMENT_INEXPRESSIBLE`), so the runtime
+database probe refuses deployment while any saved app holds one. Run the
+operator scan with `--prod --plan-out <path>` to write the private plan: per
+app, the sequence and document digest it read, the repaired document's digest
+and the forms the repair moves, with apps a run holds or the gate refuses
+reported and left out. The writer takes the plan as `--plan <path>` or
+`--plan-base64 <encoded-json>` and requires `--execute` to write; each app is
+fenced by sequence and source/target digests, active holders refuse, the commit
+gate judges every write, and reruns verify the durable receipt. The fenced Job
+runner accepts the scanner (optionally scoped by `--app`) and the writer with
+`--plan-base64`, with `--execute` only for a reviewed write. Running it against
+production needs the owner's explicit approval. Apply it before deployment
+admission, then require a clean scan from the Job and the runtime database
+probe before deploying the new revision.
+
 ## Incremental transcript storage cutover
 
 `20261112000000_incremental_transcripts` replaces the transcript JSON column

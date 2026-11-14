@@ -91,9 +91,13 @@ import {
 import { isKeyedRootCreate } from "@/lib/domain/basicCaseSlots";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { formStructure } from "@/lib/domain/expression/formStructure";
+import type { Expression } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { planConstraintCollections } from "./constraintCollections";
-import { constraintMessageNeedsProtection } from "./constraintMessage";
+import {
+	bindCarriesConstraint,
+	constraintMessageNeedsProtection,
+} from "./constraintMessage";
 import { descendFormPathIntoField, FormPath } from "./formPath";
 import { Namespace } from "./namespace";
 import { planQueryRepeatNames, queryRepeatBaseNames } from "./queryRepeatNames";
@@ -483,9 +487,25 @@ function allocateGeneratedNodes(
 		record(purpose, owner, name);
 	};
 
+	const trimmedFields = caseScalarTextGuards(doc, formUuid);
+
 	let localization: ReturnType<typeof commCareLocalization> | undefined;
-	const protectsMessage = (field: Field): boolean => {
-		if (!fieldKindCarriesValidation(field.kind)) return false;
+	/** Whether a question's protected validation message has a carrier: the builder writes a
+	 *  message only where its bind carries a constraint, so a message with none reserves no
+	 *  name. The guards are every candidate's, not only those a placement gives an action,
+	 *  because the placement plan reads this one. */
+	const protectsMessage = (
+		field: Field,
+		validate: Expression | undefined,
+	): boolean => {
+		if (
+			!bindCarriesConstraint(
+				field.kind,
+				validate,
+				trimmedFields.get(field.uuid),
+			)
+		)
+			return false;
 		if ((field as { validate_msg?: unknown }).validate_msg === undefined)
 			return false;
 		localization ??= commCareLocalization(doc);
@@ -496,7 +516,6 @@ function allocateGeneratedNodes(
 		);
 	};
 
-	const trimmedFields = caseScalarTextGuards(doc, formUuid);
 	// Each question an operation writes from gets its sibling (`nova_url_`
 	// for a capture's link, `nova_datetime_` for a date and time) whichever
 	// place the write takes, so no generated name depends on the placement
@@ -543,7 +562,7 @@ function allocateGeneratedNodes(
 					return name;
 				});
 			}
-			if (protectsMessage(field))
+			if (protectsMessage(field, expression))
 				record(
 					"constraint-message",
 					field.uuid,

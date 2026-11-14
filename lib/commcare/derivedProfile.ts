@@ -9,6 +9,7 @@
  */
 
 import { type BlueprintDoc, effectiveCaseSearchConfig } from "@/lib/domain";
+import { moduleCaseTypeForActions } from "./formLinkProjection";
 
 export const NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS = [
 	"cc-index-case-search-results",
@@ -21,13 +22,22 @@ export type NovaDerivedProfileProperties = Partial<
 	Record<NovaOwnedDerivedProfilePropertyKey, "yes">
 >;
 
-/** Whether the app emits at least one real remote Search workflow. */
-export function hasEffectiveSearch(
-	doc: Pick<BlueprintDoc, "modules">,
-): boolean {
-	return Object.values(doc.modules).some(
-		(module) => effectiveCaseSearchConfig(module) !== undefined,
-	);
+/**
+ * Whether the app emits at least one real remote Search workflow: a menu that
+ * lists cases and holds a search. A menu that lists no cases
+ * (`moduleCaseTypeForActions` gives no type, the gate both exports read) writes
+ * no remote request whatever search it holds: the HQ JSON keeps CommCare HQ's
+ * default `search_config` there and the local suite builds no search for it.
+ */
+export function hasEffectiveSearch(doc: BlueprintDoc): boolean {
+	return doc.moduleOrder.some((moduleUuid) => {
+		const module = doc.modules[moduleUuid];
+		return (
+			module !== undefined &&
+			effectiveCaseSearchConfig(module) !== undefined &&
+			moduleCaseTypeForActions(doc, moduleUuid) !== ""
+		);
+	});
 }
 
 /**
@@ -35,9 +45,11 @@ export function hasEffectiveSearch(
  *
  * CommCare uses this property to index cases returned by remote Search in its
  * temporary case storage. It does not request, schedule, or imitate a sync.
+ * Formplayer is its one reader, and reads it only while it fetches a remote
+ * request's results, so an app that writes no remote request has no use for it.
  */
 export function derivedProfileProperties(
-	doc: Pick<BlueprintDoc, "modules">,
+	doc: BlueprintDoc,
 ): Readonly<Record<string, string>> {
 	return hasEffectiveSearch(doc)
 		? ({

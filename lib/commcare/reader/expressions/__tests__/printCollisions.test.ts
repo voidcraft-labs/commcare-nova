@@ -31,6 +31,7 @@ import type {
 	SlotContextRef,
 	Term,
 } from "@/lib/domain/expression/types";
+import type { CaseOperation } from "@/lib/domain/forms";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	advancedSearchInputDef,
@@ -45,6 +46,8 @@ import { composeModuleXPathQueryEmission } from "../../../suite/case-search/modu
 import { xpathQueryRequestValues } from "../../../suite/case-search/xpathQuery";
 import { parseFormExpression } from "../../../xpath/expressionAst";
 import { serializeWire } from "../../../xpath/wire/serialize";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import { canonicalExpression } from "../canonical";
 import type { ExpressionReadEnv } from "../index";
 import {
@@ -310,19 +313,22 @@ describe("every print collision prints one text and canonicalizes to its row's t
 		readonly other: () => Expression;
 		readonly canonical: Expression;
 	}[] = [
+		// A device alone reads the field's required condition; the case list
+		// filter here is restated by the search, whose CSQL prints an `in`
+		// in parentheses.
 		{
 			id: "membership",
-			slot: filter,
+			slot: required,
 			other: () => ({
 				kind: "or",
 				clauses: [
-					{ kind: "eq", left: prop("p"), right: lit("a") },
-					{ kind: "eq", left: prop("p"), right: lit("b") },
+					{ kind: "eq", left: villageAnswer, right: lit("a") },
+					{ kind: "eq", left: villageAnswer, right: lit("b") },
 				],
 			}),
 			canonical: {
 				kind: "in",
-				left: prop("p"),
+				left: villageAnswer,
 				values: [
 					{ kind: "literal", value: "a" },
 					{ kind: "literal", value: "b" },
@@ -331,17 +337,17 @@ describe("every print collision prints one text and canonicalizes to its row's t
 		},
 		{
 			id: "membership",
-			slot: filter,
+			slot: required,
 			other: () => ({
 				kind: "or",
 				clauses: [
-					{ kind: "eq", left: prop("age"), right: lit(1) },
-					{ kind: "eq", left: prop("age"), right: lit(2) },
+					{ kind: "eq", left: villageAnswer, right: lit(1) },
+					{ kind: "eq", left: villageAnswer, right: lit(2) },
 				],
 			}),
 			canonical: {
 				kind: "in",
-				left: prop("age"),
+				left: villageAnswer,
 				values: [
 					{ kind: "literal", value: 1 },
 					{ kind: "literal", value: 2 },
@@ -790,6 +796,17 @@ describe("every print collision prints one text and canonicalizes to its row's t
 			);
 		});
 
+	it("membership leaves an `or` of equalities in a list filter the search restates, whose CSQL prints it without the parentheses of an `in`", () => {
+		const either: Expression = {
+			kind: "or",
+			clauses: [
+				{ kind: "eq", left: prop("p"), right: lit("a") },
+				{ kind: "eq", left: prop("p"), right: lit("b") },
+			],
+		};
+		expect(canonicalExpression(either, contextOf(app, filter))).toEqual(either);
+	});
+
 	it("quotient leaves an `if` whose remainder or divisor is another operand", () => {
 		const age = prop("age");
 		const quotientOf = (
@@ -1218,7 +1235,7 @@ describe("own-case-id: the session value a registration's case comes in", () => 
 	});
 });
 
-describe("choice-literal, case-type-literal and field-spelling: choices and case types named as text, and a read the case operations bind", () => {
+describe("choice-literal, case-type-literal, field-spelling, selection-per-value and membership-in-disjunction: choices and case types named as text, a read the case operations bind, and a device's selection and membership tests", () => {
 	const built = buildDoc({
 		caseTypes: [{ name: "patient", properties: [{ name: "p", label: "P" }] }],
 		modules: [
@@ -1331,6 +1348,33 @@ describe("choice-literal, case-type-literal and field-spelling: choices and case
 		uuid: formUuid,
 		slot: "form_close_condition",
 	};
+	/** `selected(#form/tags, '<value>')`, the choice named. */
+	const selects = (
+		value: string,
+	): Extract<Expression, { kind: "multi-select-contains" }> => ({
+		kind: "multi-select-contains",
+		property: read("tags"),
+		values: [
+			{
+				kind: "choice",
+				field: uuidOf("tags"),
+				options: [optionOf("tags", value)],
+			},
+		],
+		quantifier: "any",
+	});
+	const text = (value: string) => ({ kind: "literal", value }) as const;
+	/** The menu's case list filter, which no search restates. */
+	const filter: SlotContextRef = {
+		entity: "module",
+		uuid: app.moduleOrder[0] as Uuid,
+		slot: "case_list_filter",
+	};
+	const ownType: Expression = {
+		kind: "eq",
+		left: term({ kind: "case-row-type" }),
+		right: term({ kind: "case-type", caseType: "patient" }),
+	};
 	const departedYes = (spelling?: "relative"): Expression => ({
 		kind: "gt",
 		left: {
@@ -1400,6 +1444,81 @@ describe("choice-literal, case-type-literal and field-spelling: choices and case
 					},
 				],
 				quantifier: "any",
+			},
+		},
+		{
+			name: "several choices tested by selected, any of them",
+			slot: relevant,
+			other: {
+				kind: "multi-select-contains",
+				property: read("tags"),
+				values: [
+					{ kind: "literal", value: "a" },
+					{ kind: "literal", value: "b" },
+				],
+				quantifier: "any",
+			},
+			canonical: {
+				kind: "or",
+				clauses: [selects("a"), selects("b")],
+			},
+		},
+		{
+			name: "several choices tested by selected, all of them",
+			slot: relevant,
+			other: {
+				kind: "multi-select-contains",
+				property: read("tags"),
+				values: [
+					{ kind: "literal", value: "a" },
+					{ kind: "literal", value: "b" },
+				],
+				quantifier: "all",
+			},
+			canonical: {
+				kind: "and",
+				clauses: [selects("a"), selects("b")],
+			},
+		},
+		{
+			name: "one choice tested by selected, all of it",
+			slot: relevant,
+			other: { ...selects("b"), quantifier: "all" },
+			canonical: selects("b"),
+		},
+		{
+			name: "a membership in an `or`, whose equalities join it",
+			slot: filter,
+			other: {
+				kind: "or",
+				clauses: [
+					{ kind: "eq", left: prop("p"), right: lit("x") },
+					{ kind: "in", left: prop("p"), values: [text("y"), text("z")] },
+				],
+			},
+			canonical: {
+				kind: "in",
+				left: prop("p"),
+				values: [text("x"), text("y"), text("z")],
+			},
+		},
+		{
+			name: "a membership in an `or` beside another test",
+			slot: filter,
+			other: {
+				kind: "or",
+				clauses: [
+					{ kind: "in", left: prop("p"), values: [text("x"), text("y")] },
+					ownType,
+				],
+			},
+			canonical: {
+				kind: "or",
+				clauses: [
+					{ kind: "eq", left: prop("p"), right: lit("x") },
+					{ kind: "eq", left: prop("p"), right: lit("y") },
+					ownType,
+				],
 			},
 		},
 		{
@@ -1553,5 +1672,322 @@ describe("choice-literal, case-type-literal and field-spelling: choices and case
 			{ kind: "eq", left: read("tags"), right: lit("a  b") },
 		] as const satisfies readonly Expression[])
 			expect(canonicalExpression(other, context)).toEqual(other);
+	});
+});
+
+describe("stored-instant-literal: a case write of a date and time", () => {
+	const SEEN = testUuid("collision-stamp-seen");
+	const WHEN = testUuid("collision-stamp-when");
+	const FORM = testUuid("collision-stamps");
+	const nameOf: Expression = term({ kind: "field", uuid: SEEN });
+	const create = (id: string, value: Expression): CaseOperation =>
+		({
+			uuid: testUuid(`collision-stamp-${id}`),
+			id,
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: nameOf,
+			writes: [{ property: "visited_at", value }],
+		}) as CaseOperation;
+	const moment = (value: string): Expression =>
+		term({ kind: "literal", value, data_type: "datetime" });
+	/** A follow-up whose blocks create patients, the property a date and
+	 *  time, with `operations` after its own arm. */
+	function stamps(operations: CaseOperation[]): BlueprintDoc {
+		return buildDoc(
+			{
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "visited_at",
+								label: "Visited at",
+								data_type: "datetime",
+							},
+						],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								uuid: "collision-stamps",
+								name: "Stamps",
+								type: "followup",
+								fields: [
+									f({ kind: "text", id: "seen", uuid: SEEN }),
+									f({ kind: "datetime", id: "when", uuid: WHEN }),
+								],
+							},
+						],
+					},
+				],
+			},
+			(built) => {
+				const form = built.forms[FORM];
+				built.forms[FORM] = {
+					...form,
+					caseOperations: [...(form?.caseOperations ?? []), ...operations],
+				} as never;
+			},
+		);
+	}
+	const authored = moment("2026-03-04T10:06:07+05:00");
+	const canonical = moment("2026-03-04T05:06:07.000Z");
+
+	it("prints one moment's spellings as the text CommCare HQ stores, and canonicalizes to its UTC text", () => {
+		const app = stamps([create("lit", authored)]);
+		const slot: SlotContextRef = {
+			entity: "form",
+			uuid: FORM,
+			slot: "case_operation_write_value",
+			member: {
+				operationUuid: testUuid("collision-stamp-lit"),
+				property: "visited_at",
+			},
+		};
+		const readEnvironment = env();
+		const printed = printSlot(app, slot, authored, readEnvironment);
+		expect(printed).toBe(printSlot(app, slot, canonical, readEnvironment));
+		expect(
+			printSlot(
+				app,
+				slot,
+				moment("2026-03-04T05:06:07.000000Z"),
+				readEnvironment,
+			),
+		).toBe(printed);
+		const context = contextOf(app, slot);
+		expect(canonicalExpression(authored, context)).toEqual(canonical);
+		expect(canonicalExpression(canonical, context)).toEqual(canonical);
+	});
+
+	for (const beside of [false, true])
+		it(`reads Nova's export of the literal back to its canonical moment${beside ? ", beside a question's answer saved to the same property" : ""}`, async () => {
+			const operations = [create("lit", authored)];
+			if (beside)
+				operations.push(create("answer", term({ kind: "field", uuid: WHEN })));
+			const outcome = readHqApp(
+				await inputFor(exportedBody(stamps(operations))),
+			);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			if (outcome.kind !== "read") throw new Error("The export did not read.");
+			const written = Object.values(outcome.draft.doc.forms)
+				.flatMap((form) => form.caseOperations ?? [])
+				.find((operation) => operation.id === "lit");
+			expect(written?.writes?.[0]?.value).toEqual(canonical);
+		});
+});
+
+describe("csql-parenthesized-join and selection-per-value: a Search field's condition", () => {
+	const PICKED = testUuid("collision-csql-picked");
+	const tags = (caseType: string) =>
+		({ kind: "prop", caseType, property: "tags" }) as const;
+	const village = prop("village");
+	const value = (text: string) => ({ kind: "literal", value: text }) as const;
+	const selects = (
+		values: readonly string[],
+		quantifier: "any" | "all" = "any",
+		caseType = "patient",
+	): Expression => ({
+		kind: "multi-select-contains",
+		property: tags(caseType),
+		values: values.map(value) as [
+			ReturnType<typeof value>,
+			...ReturnType<typeof value>[],
+		],
+		quantifier,
+	});
+	const villageIs = (text: string): Expression => ({
+		kind: "eq",
+		left: village,
+		right: lit(text),
+	});
+	const whenPicked = (clause: Expression): Expression => ({
+		kind: "when-input-present",
+		input: { kind: "input", searchInputUuid: PICKED },
+		clause,
+	});
+	const visits = (where: Expression): Expression => ({
+		kind: "exists",
+		via: { kind: "subcase", identifier: "parent", ofCaseType: "visit" },
+		where,
+	});
+	/** Patients, each with visits, searched by an advanced field `picked`
+	 *  whose condition is `predicate`. */
+	function searched(predicate: Expression): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "tags", label: "Tags", data_type: "multi_select" },
+						{ name: "village", label: "Village", data_type: "text" },
+					],
+				},
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [
+						{ name: "tags", label: "Tags", data_type: "multi_select" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [],
+						searchInputs: [
+							advancedSearchInputDef(
+								PICKED,
+								"picked",
+								"Picked",
+								"text",
+								predicate,
+							),
+						],
+					},
+					caseSearchConfig: {},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						},
+					],
+				},
+			],
+		});
+	}
+	function rows(predicate: Expression): string[] {
+		const app = searched(predicate);
+		const menu = app.moduleOrder[0] as Uuid;
+		const config = app.modules[menu]?.caseListConfig;
+		if (config === undefined) throw new Error("The menu has no case list.");
+		return xpathQueryRequestValues(
+			config,
+			composeModuleXPathQueryEmission(app, menu, {
+				searchInputInstanceId: "search-input:results",
+			}),
+		).map(
+			(wire) =>
+				serializeWire(wire, { target: "hq-json", interpolation: "none" }).text,
+		);
+	}
+	function conditionContext(predicate: Expression) {
+		const app = searched(predicate);
+		return contextOf(app, {
+			entity: "module",
+			uuid: app.moduleOrder[0] as Uuid,
+			slot: "search_input_predicate",
+			member: { searchInputUuid: PICKED },
+		});
+	}
+	const pairs: readonly {
+		readonly name: string;
+		readonly other: Expression;
+		readonly canonical: Expression;
+	}[] = [
+		{
+			name: "an `or` of one-value tests in an `and`, as the selection",
+			other: whenPicked({
+				kind: "and",
+				clauses: [
+					villageIs("north"),
+					{ kind: "or", clauses: [selects(["a"]), selects(["b"])] },
+				],
+			}),
+			canonical: whenPicked({
+				kind: "and",
+				clauses: [villageIs("north"), selects(["a", "b"])],
+			}),
+		},
+		{
+			name: "an `or` of equalities in an `and`, as the membership",
+			other: whenPicked({
+				kind: "and",
+				clauses: [
+					selects(["a"]),
+					{ kind: "or", clauses: [villageIs("north"), villageIs("south")] },
+				],
+			}),
+			canonical: whenPicked({
+				kind: "and",
+				clauses: [
+					selects(["a"]),
+					{
+						kind: "in",
+						left: village,
+						values: [value("north"), value("south")],
+					},
+				],
+			}),
+		},
+		{
+			name: "one fixed value tested for all, as tested for any",
+			other: whenPicked(selects(["a"], "all")),
+			canonical: whenPicked(selects(["a"])),
+		},
+	];
+	for (const pair of pairs)
+		it(pair.name, () => {
+			expect(rows(pair.other)).toEqual(rows(pair.canonical));
+			const context = conditionContext(pair.canonical);
+			expect(canonicalExpression(pair.other, context)).toEqual(pair.canonical);
+			expect(canonicalExpression(pair.canonical, context)).toEqual(
+				pair.canonical,
+			);
+		});
+
+	it("leaves a join CSQL prints apart from the selection and the membership: a row of its own, a presence's whole clause, a related case's condition", () => {
+		const apart: readonly (readonly [Expression, Expression])[] = [
+			[
+				whenPicked({ kind: "or", clauses: [selects(["a"]), selects(["b"])] }),
+				whenPicked(selects(["a", "b"])),
+			],
+			[
+				{
+					kind: "and",
+					clauses: [
+						villageIs("east"),
+						{ kind: "or", clauses: [selects(["a"]), selects(["b"])] },
+					],
+				},
+				{ kind: "and", clauses: [villageIs("east"), selects(["a", "b"])] },
+			],
+			[
+				visits({
+					kind: "or",
+					clauses: [
+						selects(["a"], "any", "visit"),
+						selects(["b"], "any", "visit"),
+					],
+				}),
+				visits(selects(["a", "b"], "any", "visit")),
+			],
+			[
+				whenPicked({
+					kind: "or",
+					clauses: [villageIs("north"), villageIs("south")],
+				}),
+				whenPicked({
+					kind: "in",
+					left: village,
+					values: [value("north"), value("south")],
+				}),
+			],
+		];
+		for (const [bare, joined] of apart) {
+			expect(rows(bare)).not.toEqual(rows(joined));
+			const context = conditionContext(bare);
+			expect(canonicalExpression(bare, context)).toEqual(bare);
+			expect(canonicalExpression(joined, context)).toEqual(joined);
+		}
 	});
 });

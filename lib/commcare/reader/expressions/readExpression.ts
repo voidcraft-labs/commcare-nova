@@ -24,7 +24,7 @@ import {
 } from "@/lib/domain/expression/types";
 import { formOfField } from "@/lib/domain/fieldForm";
 import type { SelectOptionsSource } from "@/lib/domain/fields/selectOptionsSource";
-import { CASE_LOADING_FORM_TYPES } from "@/lib/domain/forms";
+import { CASE_LOADING_FORM_TYPES, operationCaseType } from "@/lib/domain/forms";
 import { afterEmptySearchRegistrationFormOf } from "@/lib/domain/menuForms";
 import { moduleFormsReadSearch } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -75,6 +75,7 @@ import {
 	collectFieldLocations,
 } from "../../xform/caseOps";
 import { planConstraintCollections } from "../../xform/constraintCollections";
+import { datetimeCaseValue } from "../../xform/datetimeCaseValue";
 import { formCasePropertyRead } from "../../xform/formCaseRead";
 import {
 	type FormExpressionEmission,
@@ -126,11 +127,21 @@ import type { ExpressionReadEnv } from "./index";
 
 // ── The mode a slot prints in ────────────────────────────────────────
 
+/** The mode a slot's expression prints in: the XForm attribute it is, or the
+ *  HQ JSON interpolation it carries. A search filter row is no slot's: it
+ *  prints as CSQL, which `csqlRead.ts` compares. */
+export type SlotPrintMode = Extract<
+	ReadMode,
+	{ readonly target: "xform" | "hq-json" }
+>;
+
 /** The mode the production emitter prints a slot in: the HQ JSON
  *  interpolation it carries, or the XForm attribute it is (a validation
- *  condition prints a predicate's own node as `.`). A search's filter row
- *  is compared as CSQL. */
-export function slotReadMode(doc: BlueprintDoc, ref: SlotContextRef): ReadMode {
+ *  condition prints a predicate's own node as `.`). */
+export function slotReadMode(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+): SlotPrintMode {
 	if (ref.entity === "field")
 		return { target: "xform", constraint: ref.slot === "validate" };
 	if (ref.entity === "form") {
@@ -169,13 +180,6 @@ function moduleSlotMode(
 		default:
 			return { interpolation: "none" };
 	}
-}
-
-/** Whether a mode is a search filter row, read through CSQL. */
-function isSearchRow(
-	mode: ReadMode,
-): mode is Extract<ReadMode, { target: "search-row" }> {
-	return mode.target === "search-row";
 }
 
 // ── The scope ────────────────────────────────────────────────────────
@@ -597,6 +601,43 @@ function caseOperationSlot(
 	);
 }
 
+/** Whether `expression`, a case write's whole value, is a literal the
+ *  emitter writes as the text CommCare HQ stores for a moment: a write to a
+ *  date-and-time property takes its value through `datetimeCaseValue`
+ *  (`xform/caseOps.ts`), which folds a literal to that text and wraps every
+ *  other value, a wrapper the case reader takes off before it registers the
+ *  value, so only a literal is printed through it here. */
+function writesStoredInstantLiteral(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	ref: Extract<SlotContextRef, { entity: "form" }>,
+	expression: Expression,
+): boolean {
+	if (
+		ref.slot !== "case_operation_write_value" ||
+		expression.kind !== "term" ||
+		expression.term.kind !== "literal"
+	)
+		return false;
+	const member = ref.member as {
+		readonly operationUuid?: Uuid;
+		readonly property?: string;
+	};
+	const operation = doc.forms[formUuid]?.caseOperations?.find(
+		(candidate) => candidate.uuid === member.operationUuid,
+	);
+	if (operation === undefined) return false;
+	const caseType =
+		(operation as { readonly retype?: string }).retype ??
+		operationCaseType(doc, formUuid, operation);
+	return (
+		effectiveCaseTypes(doc)
+			.find((type) => type.name === caseType)
+			?.properties.find((property) => property.name === member.property)
+			?.data_type === "datetime"
+	);
+}
+
 /** Where the production emitter prints each case operation expression of a
  *  form (`xform/caseOps.ts::buildCaseOperations`), per document, naming and
  *  form: the bindings of the node the expression's text stands in. */
@@ -813,9 +854,7 @@ export function printSlot(
 	const mode = slotReadMode(doc, ref);
 	const text = (wire: WireExpr | undefined): string => {
 		if (wire === undefined) return "";
-		if (mode.target === "xform") return serializeWire(wire, mode).text;
-		if (mode.target === "hq-json") return serializeWire(wire, mode).text;
-		throw new Error("A search filter row prints as CSQL, never here.");
+		return serializeWire(wire, mode).text;
 	};
 	const hq = (value: HqXPath | null): string =>
 		value === null ? "" : hqXPathText(value);
@@ -970,15 +1009,19 @@ export function printSlot(
 				naming,
 				formEmission(doc, formUuid, naming, {}).emission,
 			).get(caseOperationPlaceKey(ref));
-			if (place !== undefined)
+			if (place !== undefined) {
+				const build = {
+					target: "xform",
+					types: emission.context(ref),
+					form: emission.projection,
+					bindings: place,
+				} as const;
 				return text(
-					toWire(expression, {
-						target: "xform",
-						types: emission.context(ref),
-						form: emission.projection,
-						bindings: place,
-					}),
+					writesStoredInstantLiteral(doc, formUuid, ref, expression)
+						? datetimeCaseValue(expression, build)
+						: toWire(expression, build),
 				);
+			}
 			if (ref.slot.startsWith("case_operation_"))
 				throw new Error(
 					`No Save to Case block of form ${formUuid} holds its ${ref.slot}, so Nova writes that expression nowhere in the form's source.`,
@@ -1119,9 +1162,8 @@ function withSearchSlot<
 // ── One slot judged ──────────────────────────────────────────────────
 
 /** Why a registration did not bind: HQ's interpolation refused the text, its
- *  syntax did not parse, the binder refused it, the slot is a `case` slot of
- *  a form whose entry Nova's projection gives no case-selecting datum, or
- *  the registration is a search filter row, which `csqlRead.ts` reads. */
+ *  syntax did not parse, the binder refused it, or the slot is a `case` slot
+ *  of a form whose entry Nova's projection gives no case-selecting datum. */
 export type SlotRefusal =
 	| {
 			readonly kind: "interpolation";
@@ -1129,8 +1171,7 @@ export type SlotRefusal =
 	  }
 	| { readonly kind: "syntax" }
 	| { readonly kind: "parse"; readonly issues: readonly FormParseIssue[] }
-	| { readonly kind: "no-case-datum" }
-	| { readonly kind: "search-row" };
+	| { readonly kind: "no-case-datum" };
 
 export type SlotJudgment =
 	| { readonly kind: "refused"; readonly cause: SlotRefusal }
@@ -1167,7 +1208,6 @@ export function preparedSource(
 	| { readonly ok: true; readonly syntax: FormSyntax; readonly text: string }
 	| { readonly ok: false; readonly cause: SlotRefusal } {
 	const mode = pending.mode;
-	if (isSearchRow(mode)) return { ok: false, cause: { kind: "search-row" } };
 	let slot: HqInterpolationSlot | undefined;
 	if (
 		mode.target === "hq-json" &&

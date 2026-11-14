@@ -384,23 +384,23 @@ export function caseReferencesOf(form: DraftForm): JsonCursor | undefined {
 	return CASE_REFERENCES.get(form);
 }
 
-/** A localized name: the first language's into the slot, each other language's into the sink. */
+/** A localized name: the source language's into the slot, each other language's into the sink. */
 function readName(
 	ctx: ReadContext,
 	unit: TranslationUnitId,
 	names: Readonly<Record<string, unknown>>,
 ): string {
 	const reading = applicationReading(ctx);
-	const first = reading?.languages.first;
+	const source = reading?.languages.source;
 	const translated = new Map<LanguageTag, LocalizedValue>();
 	for (const [code, text] of Object.entries(names)) {
-		if (code === first || typeof text !== "string") continue;
+		if (code === source || typeof text !== "string") continue;
 		const tag = reading?.languages.tagOf.get(code);
 		if (tag !== undefined && !reading?.languages.refused.has(code))
 			translated.set(tag, text);
 	}
 	if (translated.size > 0) ctx.translations.set(unit, "text", translated);
-	return textIn(names, first);
+	return textIn(names, source);
 }
 
 /** A menu's own keys: its name, id, forms list, comment and the dynamic keys HQ leaves on it. */

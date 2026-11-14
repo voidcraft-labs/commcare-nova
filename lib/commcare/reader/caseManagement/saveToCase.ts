@@ -24,6 +24,7 @@ import {
 	caseSelectionCardinality,
 	type Expression,
 	isCaseOperationIdentifier,
+	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	ownCaseOperationId,
 	type Uuid,
@@ -35,6 +36,7 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { planFormCaseWire } from "../../casePlacementPlan";
 import { expandDoc } from "../../expander";
@@ -42,6 +44,7 @@ import { sessionDataRef } from "../../formLinkProjection";
 import { isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import { planPlacements } from "../../placement";
 import { USERCASE_ID_FUNCTION } from "../../usercaseWire";
+import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { captureUrlCalculate } from "../../xform/captureUrlNode";
 import {
 	caseScalarTextValueCalculation,
@@ -69,7 +72,8 @@ import type { ClaimSite } from "../accounting";
 import { withCandidate } from "../candidate";
 import { type Claim, defineClaims, derived, refuse, take } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
-import { externalKey } from "../identity";
+import { externalKey, mintEntityUuid } from "../identity";
+import { externalIdentityMap } from "../identityMap";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { questionPlace, whereText } from "../place";
@@ -81,8 +85,15 @@ import type { ReadMenuAndFormIdentities } from "../types";
 import type { DraftField, ReadSaveToCaseBlock, ReadXForm } from "../xform";
 import { HOLE, isAllocatedName, matchesTemplate } from "../xform/generated";
 import { type DataNode, pathSteps } from "../xform/model";
-import { advancedCaseReading } from "./advancedActions";
-import { basicCaseReading } from "./basicActions";
+import {
+	advancedCaseReading,
+	nameAdvancedOperationsPast,
+} from "./advancedActions";
+import {
+	basicCaseReading,
+	dropCreateNameRequired,
+	nameBasicOperationsPast,
+} from "./basicActions";
 import {
 	blockTreesEqual,
 	emittedFormSource,
@@ -162,7 +173,7 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-property-rows-calculation-condition-lifting-into`,
 		MUG,
 	),
-	hyphenated: derived(
+	hyphenated: take(
 		`${Q}/savetocase-property-names-with-hyphens-a-z-w-case-insensitive`,
 		MUG,
 	),
@@ -171,7 +182,7 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-link-index-name-child-extension-and-unlink-empty`,
 		MUG,
 	),
-	inRepeat: derived(`${Q}/savetocase-inside-a-repeat`, MUG),
+	inRepeat: take(`${Q}/savetocase-inside-a-repeat`, MUG),
 	conditionGroup: derived(
 		`${Q}/savetocase-inside-a-group-whose-display-condition-gates-it`,
 		MUG,
@@ -385,6 +396,8 @@ export interface ProposedBlock {
 		 *  question's trimmed value the way a child's block written from HQ's
 		 *  child case action does: its term, which no expression reading binds. */
 		readonly answer?: DraftField;
+		/** The question whose answer the name is, read as a path alone. */
+		readonly readsField?: DraftField;
 	};
 	readonly owner?: ProposedOwner;
 	readonly rename?: {
@@ -432,12 +445,29 @@ interface FormBlocks {
 	}[];
 	/** Each registration index by the operation and member it fills. */
 	readonly registrations: Map<string, Registered>;
-	/** The own close read from a block of its own. */
+	/** The own close read from a block of its own, which test 4 holds to the
+	 *  emitter's print of it. */
 	ownClose?: {
 		readonly path: readonly [string, ...string[]];
 		readonly condition?: { readonly text: string; readonly site: ClaimSite };
+		readonly block: ReadSaveToCaseBlock;
+		readonly segments: readonly SaveToCaseBlockSegment[];
+		readonly place: HqPlace;
 	};
 }
+
+/** The shapes of a form's own close block of its own
+ *  (`caseOps.ts::saveToCaseBlockShape`): in a condition group of the root
+ *  operations container, or, in a form whose menu selects several cases, in
+ *  each selected case's row, in a condition group where the form closes
+ *  under a condition. */
+const OWN_CLOSE_SHAPES = {
+	oneCase: new Set(["operations/condition/block"]),
+	severalCases: new Set([
+		"selected-cases/selected-case/operations/block",
+		"selected-cases/selected-case/operations/condition/block",
+	]),
+} as const;
 
 const READINGS = new WeakMap<DraftForm, FormBlocks>();
 
@@ -1015,10 +1045,18 @@ function readBlock(
 					"create",
 					"case_name",
 				]);
+		const nameNode = parse(unwrapped.text);
+		const namePath =
+			nameNode === undefined
+				? undefined
+				: resolvePath(nameNode, [...casePath, "create", "case_name"], root);
+		const nameField =
+			namePath === undefined ? undefined : fieldAt(xform, namePath);
 		name = {
 			text: unwrapped.text,
 			site: site("case/create/case_name", "calculate"),
 			...(trimmed !== undefined && { answer: trimmed }),
+			...(nameField !== undefined && { readsField: nameField }),
 		};
 		const ownerBind = bindAt("case/create/owner_id");
 		if (ownerBind?.attribs.relevant !== undefined)
@@ -1564,6 +1602,39 @@ function sharedOwn(
 	};
 }
 
+/**
+ * Whether the form holds what the emitter writes for a registration's own arm
+ * beside its block: each question whose answer the arm saves as it is as the
+ * case's name or external id carries its trimmed sibling
+ * (`nova_trimmed_<question>`), because the own arm guards those questions
+ * wherever it is kept (`placement.ts::placedBasic`,
+ * `caseScalarTextGuard.ts::caseScalarTextGuards`), while a create in a block
+ * guards none.
+ */
+function ownGuardsPrinted(
+	xform: ReadXForm,
+	read: NonNullable<BlockRead["proposal"]>,
+): boolean {
+	const guarded = [
+		read.name?.readsField,
+		...read.writes.map((row) =>
+			isCaseScalarTextProperty(row.property) && row.value.kind === "text"
+				? row.value.readsField
+				: undefined,
+		),
+	].filter((field): field is DraftField => field !== undefined);
+	if (guarded.length === 0) return true;
+	const trimmed = new Set<DataNode>();
+	for (const role of xform.roles.values())
+		if (
+			(role.kind === "generated" || role.kind === "generated-candidate") &&
+			role.purpose === "trimmed" &&
+			role.owner !== null
+		)
+			trimmed.add(role.owner);
+	return guarded.every((field) => trimmed.has(field.node));
+}
+
 /** A block of the session's case as the form's own arm, as far as the
  *  guards the emitter gives an operation read it (`operationGuardKinds`):
  *  its name, owner, rows and links, and no rename, which the own arm states
@@ -1707,6 +1778,12 @@ export function readSaveToCaseBlocks(
 	);
 	const menuType = module.module.caseType;
 	const type = form.form.type;
+	const severalCases =
+		(type === "followup" || type === "close") &&
+		isMultiSelectMenu({
+			case_details: module.json.peek("case_details"),
+			search_config: module.json.peek("search_config"),
+		});
 	// The own arm where its block prints back as the own arm's: each row of an
 	// answer as it is led by its presence, and the guards the own arm takes.
 	// Where the form's own case also has a basic block that writes nothing,
@@ -1751,11 +1828,7 @@ export function readSaveToCaseBlocks(
 		ownCandidate === undefined &&
 		!ownTaken &&
 		menuType !== undefined &&
-		(type === "followup" || type === "close") &&
-		isMultiSelectMenu({
-			case_details: module.json.peek("case_details"),
-			search_config: module.json.peek("search_config"),
-		})
+		severalCases
 			? proposed.find(
 					({ read }) =>
 						read.shared !== undefined &&
@@ -1764,6 +1837,38 @@ export function readSaveToCaseBlocks(
 						read.block.repeat === null &&
 						read.retype === undefined,
 				)
+			: undefined;
+	// The own arm of a registration whose own case takes no slot of Case
+	// Management: CommCare HQ's app holds no open action there, so the form
+	// reads as a survey, and its own case is the first block of the form, a
+	// create of the menu's case type in the root operations group. The
+	// emitter writes that block as it writes a create's, but for the guards:
+	// a create always takes its text guard, and the own arm takes the guards
+	// `operationGuardKinds` gives it, so the arm is read only where the
+	// guards beside the block are the arm's. Where those are a create's too
+	// (the arm writes a fixed text column), the arm is read first (R3), and
+	// test 4 holds its guard's content to the emitter's.
+	const firstBlock = proposed[0]?.read;
+	const registrationCandidate =
+		!ownTaken &&
+		menuType !== undefined &&
+		type === "survey" &&
+		advancedCaseReading(form) === undefined &&
+		firstBlock !== undefined &&
+		firstBlock.kind === "create" &&
+		firstBlock.caseType === menuType &&
+		firstBlock.target.kind === "new" &&
+		firstBlock.target.idFrom === undefined &&
+		firstBlock.block.repeat === null &&
+		firstBlock.segments.join("/") === "operations/block" &&
+		firstBlock.name?.answer === undefined &&
+		!keptInSubcases(xform, firstBlock.block) &&
+		sameKinds(
+			guardKindsBeside(firstBlock.block, guards),
+			operationGuardKinds(ownShape(firstBlock)),
+		) &&
+		ownGuardsPrinted(xform, firstBlock)
+			? firstBlock
 			: undefined;
 	// Any other block whose owner row carries a condition is that entry.
 	for (const one of [...proposed]) {
@@ -1783,11 +1888,26 @@ export function readSaveToCaseBlocks(
 		}
 	}
 
+	// The ids the blocks carry win over the ids Case Management's operations
+	// take, which no source names: those are named past them.
+	const questionIds = new Set(xform.childrenOf(null).map((field) => field.id));
+	const carried = new Set<string>();
+	for (const { read } of proposed) {
+		const name = carriedName(
+			xform,
+			read,
+			guards,
+			read === sharedCandidate?.read,
+		);
+		if (name !== undefined && !questionIds.has(name)) carried.add(name);
+	}
+	nameBasicOperationsPast(form, carried);
+	nameAdvancedOperationsPast(form, carried);
+
 	// Mint, register and record each proposal.
 	// Free among the form's ids: its root questions' and the operations its
 	// actions already gave.
-	const takenIds = new Set<string>();
-	for (const field of xform.childrenOf(null)) takenIds.add(field.id);
+	const takenIds = new Set<string>(questionIds);
 	for (const one of basicCaseReading(form)?.operations ?? [])
 		takenIds.add(one.id);
 	for (const one of advancedCaseReading(form)?.operations ?? [])
@@ -1795,24 +1915,14 @@ export function readSaveToCaseBlocks(
 	const counts = new Map<string, number>();
 	for (const { read } of proposed) {
 		const shared = read === sharedCandidate?.read;
-		const own = read === ownCandidate?.read || shared;
+		const own =
+			read === ownCandidate?.read || shared || read === registrationCandidate;
 		const action: ProposedBlock["action"] = own ? "own" : read.kind;
-		const blockName = read.block.path[read.block.path.length - 1] as string;
-		// A block named by a published placement or by the child's place
-		// names no operation: its id is the one its guard is named after, else
-		// its case type's, as HQ's child case action reads. So is the shared
-		// update's, whose block the emitter names by its purpose.
-		const named = keptName(xform, read.block, guards);
+		const name = carriedName(xform, read, guards, shared);
 		const id =
-			named !== undefined && !takenIds.has(named)
-				? named
-				: read.name?.answer === undefined &&
-						!shared &&
-						!keptInSubcases(xform, read.block) &&
-						isCaseOperationIdentifier(blockName) &&
-						!takenIds.has(blockName)
-					? blockName
-					: ownCaseOperationId(read.caseType, takenIds);
+			name !== undefined && !takenIds.has(name)
+				? name
+				: ownCaseOperationId(read.caseType, takenIds);
 		takenIds.add(id);
 		const repeatPath =
 			read.block.repeat === null ? [] : fieldIdsOf(read.block.repeat);
@@ -1835,6 +1945,9 @@ export function readSaveToCaseBlocks(
 			MUG,
 		);
 		if (uuid === undefined) continue;
+		// Only the own arm's block carries a condition on its `case/close`;
+		// every other close condition Nova writes is a group's relevance, the
+		// own close's in a block of its own included.
 		if (!own && read.closeCondition !== undefined) {
 			const closeOnly =
 				read.writes.length === 0 &&
@@ -1875,8 +1988,14 @@ export function readSaveToCaseBlocks(
 		reading.proposals.push({ ...read, writes, uuid, id, action });
 	}
 	// The own close in a block of its own: a close-only block of the own case
-	// in a condition group under the root operations container.
+	// in a condition group, its condition the group's, under the root
+	// operations container, or, in a form whose menu selects several cases,
+	// in each selected case's row (`OWN_CLOSE_SHAPES`). A close-only block
+	// whose `case/close` carries the condition was refused above.
 	if (type === "followup" || type === "close" || type === "registration") {
+		const shapes = severalCases
+			? OWN_CLOSE_SHAPES.severalCases
+			: OWN_CLOSE_SHAPES.oneCase;
 		const ownClose = reading.proposals.find(
 			(one) =>
 				one.action === "close" &&
@@ -1884,7 +2003,7 @@ export function readSaveToCaseBlocks(
 				one.target.kind === "session" &&
 				one.block.repeat === null &&
 				one.writes.length === 0 &&
-				one.segments.join("/") === "operations/condition/block" &&
+				shapes.has(one.segments.join("/")) &&
 				!reading.proposals.some(
 					(other) => other.action === "own" && other.closes,
 				),
@@ -1900,13 +2019,60 @@ export function readSaveToCaseBlocks(
 				...(ownClose.condition !== undefined && {
 					condition: ownClose.condition,
 				}),
+				block: ownClose.block,
+				segments: ownClose.segments,
+				place: ownClose.place,
 			};
 		}
 	}
+	// A create whose name reads a question's trimmed sibling is one an action
+	// carries wherever it is kept (`placement.ts::placedBasic`: a registration's
+	// own case, an inert child of a several-case form), whose name question
+	// takes HQ's `required` as a basic action's does.
+	dropCreateNameRequired(
+		ctx,
+		form,
+		reading.proposals.flatMap((one) => {
+			if (one.action === "create")
+				return one.name?.answer === undefined ? [] : [one.name.answer];
+			// A registration's own arm in a block reads its name question as it
+			// is beside the question's trimmed sibling (`ownGuardsPrinted`).
+			if (one.action === "own" && one.name !== undefined) {
+				const named = one.name.answer ?? one.name.readsField;
+				return named === undefined ? [] : [named];
+			}
+			return [];
+		}),
+	);
 	for (const failed of reading.failed) refuseBlock(xform, failed);
 	claimAccepted(ctx, xform, reading);
 	registerTexts(ctx, form, reading);
 	READINGS.set(form, reading);
+}
+
+/**
+ * The id a block carries for its operation: the one its guard is named after
+ * where a published placement or the child's place names the block, else the
+ * block's own name where it passes the identifier grammar; none for a block
+ * the emitter names by its purpose (a child's block read from HQ's child case
+ * action, which names its case's name from a trimmed question, and the shared
+ * update of a several-case form), whose id is its case type's.
+ */
+function carriedName(
+	xform: ReadXForm,
+	read: NonNullable<BlockRead["proposal"]>,
+	guards: readonly ReadSaveToCaseBlock[],
+	shared: boolean,
+): string | undefined {
+	const named = keptName(xform, read.block, guards);
+	if (named !== undefined) return named;
+	const blockName = read.block.path[read.block.path.length - 1] as string;
+	return read.name?.answer === undefined &&
+		!shared &&
+		!keptInSubcases(xform, read.block) &&
+		isCaseOperationIdentifier(blockName)
+		? blockName
+		: undefined;
 }
 
 /** A field's ids from the form's root. */
@@ -2011,10 +2177,17 @@ function claimAccepted(
 	}[] = [
 		...reading.proposals.map((one) => ({
 			block: one.block,
+			// A block is claimed under the entry its own class names: one in a
+			// repeat under the repeat's, one writing a property whose name holds a
+			// hyphen under that one's, any other under its action's.
 			claim:
-				one.action === "create" || one.action === "own"
-					? SAVE_TO_CASE_CLAIMS.create
-					: SAVE_TO_CASE_CLAIMS.update,
+				one.block.repeat !== null
+					? SAVE_TO_CASE_CLAIMS.inRepeat
+					: one.writes.some((row) => row.property.includes("-"))
+						? SAVE_TO_CASE_CLAIMS.hyphenated
+						: one.action === "create" || one.action === "own"
+							? SAVE_TO_CASE_CLAIMS.create
+							: SAVE_TO_CASE_CLAIMS.update,
 			binds:
 				one.action === "create"
 					? SAVE_TO_CASE_CLAIMS.createBind
@@ -2230,10 +2403,17 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
+		// A registration's own case opens under the form's open condition.
 		if (one.condition !== undefined)
 			register(
 				`${op} condition`,
-				caseSlot(form.uuid, "case_operation_condition", op),
+				one.action === "own"
+					? ({
+							entity: "form",
+							uuid: form.uuid,
+							slot: "form_open_condition",
+						} as SlotContextRef)
+					: caseSlot(form.uuid, "case_operation_condition", op),
 				one.condition.text,
 				one.condition.site,
 				one.place,
@@ -2425,7 +2605,7 @@ function operationOf(
 			: one.owner.kind === "unowned"
 				? unowned()
 				: one.owner.kind === "meta-user"
-					? one.action === "create" && ownerChoice === "absent"
+					? one.target.kind === "new" && ownerChoice === "absent"
 						? undefined
 						: actingUser()
 					: placeholder("value");
@@ -2462,19 +2642,22 @@ function operationOf(
 		...(writes.length > 0 && { writes }),
 		...(one.name?.answer === undefined && { placement }),
 	};
-	if (one.action === "own")
+	if (one.action === "own") {
+		// A registration's own arm names the case it creates; any other renames it.
+		const name = one.rename ?? one.name;
 		return {
 			...common,
 			action: "own",
-			...(one.rename !== undefined && {
+			...(name !== undefined && {
 				name:
-					one.rename.answer === undefined
+					name.answer === undefined
 						? placeholder("value")
-						: answerOf(one.rename.answer),
+						: answerOf(name.answer),
 			}),
 			...(owner !== undefined && { owner }),
 			...(links.length > 0 && { links }),
 		} as CaseOperation;
+	}
 	if (one.action === "create") {
 		const idFrom =
 			one.target.kind === "new" ? one.target.idFrom?.uuid : undefined;
@@ -2531,7 +2714,7 @@ function createPaths(form: DraftForm, reading: FormBlocks): Map<string, Uuid> {
 	const root = form.xform?.parsed.dataRoot.name ?? "data";
 	const byPath = new Map<string, Uuid>();
 	for (const one of reading.proposals)
-		if (one.action === "create")
+		if (one.target.kind === "new")
 			byPath.set(
 				`/${root}/${[...one.block.path, "case", "@case_id"].join("/")}`,
 				one.uuid,
@@ -2570,6 +2753,13 @@ export function writeSaveToCaseOperations(
 		const rest = operations.filter((one) => one.action !== "own");
 		const all = [...own, ...existing, ...rest];
 		if (all.length > 0) form.form.caseOperations = all;
+		// A registration whose own case is a block reads as a survey from
+		// CommCare HQ's form actions; its block is what makes it one.
+		if (ownInBlock?.target.kind === "new") {
+			form.form.type = "registration";
+			if (ownInBlock.condition !== undefined)
+				form.form.openCondition = placeholder("condition");
+		}
 		if (ownInBlock?.closes === true && form.form.type === "followup")
 			form.form.type = "close";
 		if (ownInBlock?.closeCondition !== undefined)
@@ -2663,6 +2853,52 @@ function emittedForm(ctx: ReadContext, doc: BlueprintDoc, form: DraftForm) {
 	return forms.get(form.uuid);
 }
 
+/** Each block a comparison of its own judges, with its wrappers: every
+ *  proposal's, and the own close's, never judged as another's guard. */
+function judgedApart(reading: FormBlocks): Set<string> {
+	const blocks = [
+		...reading.proposals.map((one) => one.block),
+		...(reading.ownClose === undefined ? [] : [reading.ownClose.block]),
+	];
+	return new Set(
+		blocks.flatMap((block) => [
+			block.path.join("/"),
+			...block.wrappers.map((wrapper) => wrapper.path.join("/")),
+		]),
+	);
+}
+
+/** Whether the own close read from a block of its own holds tests 2 and 4
+ *  over `doc`: the place the plan gives it is the block's shape, and the
+ *  emitter's block, with the close condition `doc` binds, is the stored one. */
+function ownCloseHolds(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	form: DraftForm,
+	reading: FormBlocks,
+): boolean {
+	const ownClose = reading.ownClose;
+	const xform = form.xform;
+	if (ownClose === undefined || xform === null) return true;
+	let shape: readonly SaveToCaseBlockSegment[] | undefined;
+	try {
+		shape = saveToCaseBlockShape(doc, form.uuid, { kind: "own-close" });
+	} catch {
+		shape = undefined;
+	}
+	const emitted = emittedForm(ctx, doc, form);
+	return (
+		shape !== undefined &&
+		shape.join("/") === ownClose.segments.join("/") &&
+		emitted !== undefined &&
+		blockTreesEqual(
+			{ block: ownClose.block, form: storedFormSource(xform.parsed) },
+			emitted,
+			judgedApart(reading),
+		)
+	);
+}
+
 /** Whether every accepted block of `form` holds tests 2 and 4 over `doc`. */
 function blocksHold(
 	ctx: ReadContext,
@@ -2674,13 +2910,7 @@ function blocksHold(
 	if (xform === null) return [...reading.proposals];
 	const emitted = emittedForm(ctx, doc, form);
 	const stored = storedFormSource(xform.parsed);
-	// Each proposal's block and wrappers are judged with it, never as another's guard.
-	const apart = new Set(
-		reading.proposals.flatMap((one) => [
-			one.block.path.join("/"),
-			...one.block.wrappers.map((wrapper) => wrapper.path.join("/")),
-		]),
-	);
+	const apart = judgedApart(reading);
 	const failing: ProposedBlock[] = [];
 	for (const one of reading.proposals) {
 		let shape: readonly SaveToCaseBlockSegment[] | undefined;
@@ -2845,12 +3075,7 @@ function withSeveralCaseOwn(
 		}),
 	]);
 	const id = ownCaseOperationId(caseType, takenIds);
-	const own = (uuid: Uuid): CaseOperation => ({
-		uuid,
-		id,
-		action: "own",
-		writes: [],
-	});
+	const own = (uuid: Uuid): CaseOperation => ({ uuid, id, action: "own" });
 	// The plan places the arm by what it holds, never by its identity, so a
 	// stand-in identity finds the place the minted one is keyed by.
 	const planned = (() => {
@@ -2954,7 +3179,7 @@ function withBasicCreateTargets(
 	});
 }
 
-/** The owner a create holds where the stored one is the acting user's id. */
+/** The owner a new case holds (a create's, or a registration's own) where the stored one is the acting user's id. */
 function withOwner(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -2964,7 +3189,8 @@ function withOwner(
 	return withCandidate(doc, (draft) => {
 		const operations = draft.forms[formUuid]?.caseOperations ?? [];
 		for (const one of ops) {
-			if (one.action !== "create" || one.owner?.kind !== "meta-user") continue;
+			if (one.target.kind !== "new" || one.owner?.kind !== "meta-user")
+				continue;
 			const operation = operations.find(
 				(candidate) => candidate.uuid === one.uuid,
 			);
@@ -2979,7 +3205,9 @@ function withOwner(
  * Pass 2 for one form: each accepted block's shape over the bound document
  * (test 2) and the emitter's block equal to the stored one (test 4), with
  * the reader's second candidate for an owner the stored block gives as the
- * acting user's id. A block that fails is the one finding of 5.1.
+ * acting user's id; then the own close read from a block of its own, over the
+ * document those settled on. A block that fails is the one finding of 5.1,
+ * and an own close that fails the finding its reading names.
  */
 export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 	const reading = READINGS.get(form);
@@ -2992,14 +3220,59 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 		judgeSaveReferences(ctx, form, []);
 		return;
 	}
-	if (
-		doc === undefined ||
-		doc.forms[form.uuid] === undefined ||
-		reading.proposals.length === 0
-	) {
+	if (doc === undefined || doc.forms[form.uuid] === undefined) {
 		judgeSaveReferences(ctx, form, reading.failed);
 		return;
 	}
+	const failing =
+		reading.proposals.length === 0
+			? []
+			: settleProposals(ctx, doc, form, reading);
+	for (const one of failing)
+		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, one.place);
+	const failed = [
+		...reading.failed,
+		...failing.map((one) => ({
+			block: one.block,
+			place: one.place,
+			claim: SAVE_TO_CASE_CLAIMS.outsideShape,
+		})),
+	];
+	// The own close, over the document the blocks settled on. One whose
+	// condition the expression stage could not hold has that slot's finding,
+	// and the emitter would print it without the condition.
+	const ownClose = reading.ownClose;
+	const condition = reading.registrations.get("own-close");
+	if (
+		ownClose !== undefined &&
+		(condition === undefined ||
+			ctx.pending.outcome(condition.index).expression !== undefined) &&
+		!ownCloseHolds(ctx, ctx.doc ?? doc, form, reading)
+	) {
+		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, ownClose.place);
+		failed.push({
+			block: ownClose.block,
+			place: ownClose.place,
+			claim: SAVE_TO_CASE_CLAIMS.outsideShape,
+		});
+	}
+	// The stored `save` map is judged once every block is: a form whose block
+	// is outside Nova's shape has that finding alone.
+	judgeSaveReferences(ctx, form, failed);
+}
+
+/**
+ * Tests 2 and 4 for `form`'s proposals over `doc`, with the reader's second
+ * candidate for an owner the stored block gives as the acting user's id and
+ * its second order; the proposals that fail on the candidate kept, which
+ * `ctx.doc` becomes.
+ */
+function settleProposals(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	form: DraftForm,
+	reading: FormBlocks,
+): ProposedBlock[] {
 	// Each id the session holds for a create of the form's Case Management
 	// read as that create, then each condition apart from those it inherits.
 	const own = withoutInheritedConditions(
@@ -3010,7 +3283,7 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 	if (own !== doc) ctx.doc = own;
 	let failing = blocksHold(ctx, own, form, reading);
 	const owners = failing.filter(
-		(one) => one.action === "create" && one.owner?.kind === "meta-user",
+		(one) => one.target.kind === "new" && one.owner?.kind === "meta-user",
 	);
 	if (owners.length > 0) {
 		const candidate = withOwner(own, form.uuid, owners, "acting-user");
@@ -3032,16 +3305,141 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 			}
 		}
 	}
-	for (const one of failing)
-		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, one.place);
-	// The stored `save` map is judged once every block is: a form whose block
-	// is outside Nova's shape has that finding alone.
-	judgeSaveReferences(ctx, form, [
-		...reading.failed,
-		...failing.map((one) => ({
-			block: one.block,
-			place: one.place,
-			claim: SAVE_TO_CASE_CLAIMS.outsideShape,
-		})),
-	]);
+	return failing;
+}
+
+/** Whether a write's value is a question's answer as it is, which the own
+ *  arm's row leads with the question's presence and an update's does not. */
+function writesAnswerAsIs(write: CaseOperationWrite): boolean {
+	const value = write.value;
+	return (
+		value.kind === "term" &&
+		((value.term.kind === "field" &&
+			value.term.filters === undefined &&
+			value.term.role === undefined) ||
+			value.term.kind === "capture-link")
+	);
+}
+
+/**
+ * The reader's canonical choice between an update of the session's case
+ * beside a form's own arm that changes nothing, and that form's own arm in a
+ * block. In a follow-up or close form of a menu that chooses one case, the
+ * update prints the block `nova_operations/<id>` beside the basic block of
+ * the own arm, which writes nothing; where the update's id is the one a
+ * reading gives that bare own arm (its menu's case type's), it writes no
+ * answer as it is, and it takes the guards the own arm would, the own arm
+ * in a block of that name prints the same bytes, and the reader reads it
+ * (`readSaveToCaseBlocks`, `ownCandidate`). `doc` with each such update made
+ * the form's own arm, in its place and under the UUID a reading of that place
+ * mints for it (an operation's external key spells its action, so the key the
+ * update held is no key of the reading); `doc` itself where no form holds one.
+ */
+export function updateBesideBareOwnAsOwnArm(doc: BlueprintDoc): BlueprintDoc {
+	const changes: {
+		formUuid: Uuid;
+		own: Uuid;
+		update: CaseOperation & { action: "update" };
+	}[] = [];
+	for (const [formUuid, form] of Object.entries(doc.forms) as [
+		Uuid,
+		BlueprintDoc["forms"][Uuid],
+	][]) {
+		if (form.type !== "followup" && form.type !== "close") continue;
+		const moduleUuid = moduleUuidOfForm(doc, formUuid);
+		const held = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+		const caseType = held?.caseType;
+		if (
+			held === undefined ||
+			caseType === undefined ||
+			caseSelectionCardinality(held) === "multiple"
+		)
+			continue;
+		const operations = form.caseOperations ?? [];
+		const own = operations.find((one) => one.action === "own");
+		if (
+			own === undefined ||
+			(own.writes ?? []).length > 0 ||
+			own.name !== undefined ||
+			own.owner !== undefined ||
+			(own.links ?? []).length > 0
+		)
+			continue;
+		const { placements } = planPlacements(doc, formUuid);
+		if (placements.get(own.uuid)?.placement.kind !== "basic") continue;
+		const bareOwnId = ownCaseOperationId(caseType, new Set());
+		const update = operations.find(
+			(one): one is CaseOperation & { action: "update" } => {
+				if (
+					one.action !== "update" ||
+					one.id !== bareOwnId ||
+					one.target.kind !== "session" ||
+					one.caseType !== caseType ||
+					one.condition !== undefined ||
+					one.forEach !== undefined ||
+					one.retype !== undefined ||
+					(one.writes ?? []).some(writesAnswerAsIs)
+				)
+					return false;
+				const placement = placements.get(one.uuid)?.placement;
+				if (
+					placement?.kind !== "save-to-case" ||
+					placement.repeat !== undefined ||
+					placement.path.join("/") !== `nova_operations/${one.id}`
+				)
+					return false;
+				const asOwn = {
+					uuid: one.uuid,
+					id: one.id,
+					action: "own",
+					...(one.rename !== undefined && { name: one.rename }),
+					...(one.owner !== undefined && { owner: one.owner }),
+					...(one.writes !== undefined && { writes: one.writes }),
+					...(one.links !== undefined && { links: one.links }),
+				} as CaseOperation;
+				return sameKinds(operationGuardKinds(one), operationGuardKinds(asOwn));
+			},
+		);
+		if (update !== undefined) changes.push({ formUuid, own: own.uuid, update });
+	}
+	if (changes.length === 0) return doc;
+	const converted = withCandidate(doc, (draft) => {
+		for (const { formUuid, own, update } of changes) {
+			const form = draft.forms[formUuid];
+			if (form?.caseOperations === undefined) continue;
+			const arm = {
+				uuid: update.uuid,
+				id: update.id,
+				action: "own",
+				...(update.rename !== undefined && { name: update.rename }),
+				...(update.owner !== undefined && { owner: update.owner }),
+				...(update.writes !== undefined && { writes: update.writes }),
+				...(update.links !== undefined && { links: update.links }),
+				...(update.placement !== undefined && { placement: update.placement }),
+			} as CaseOperation;
+			form.caseOperations = [
+				arm,
+				...form.caseOperations.filter(
+					(one) => one.uuid !== own && one.uuid !== update.uuid,
+				),
+			] as typeof form.caseOperations;
+		}
+	});
+	// The own arm takes the UUID its block's key mints, as a reading gives it.
+	const keyOf = new Map(
+		externalIdentityMap(converted, DERIVED_WIRE_IDENTITY).map((entry) => [
+			entry.uuid,
+			entry,
+		]),
+	);
+	return withCandidate(converted, (draft) => {
+		for (const { formUuid, update } of changes) {
+			const arm = draft.forms[formUuid]?.caseOperations?.find(
+				(one) => one.uuid === update.uuid,
+			);
+			const entry = keyOf.get(update.uuid);
+			if (arm === undefined || entry === undefined) continue;
+			arm.uuid = mintEntityUuid(doc.appId, entry);
+		}
+	});
 }

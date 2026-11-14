@@ -47,6 +47,7 @@ import { generatedBaseName } from "../../xform/generatedNodes";
 import type { Admitted } from "../accounting";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
+import { readerDefect } from "../defects";
 import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { whereText } from "../place";
@@ -55,6 +56,7 @@ import type { DraftField } from "../xform";
 import { isAllocatedName } from "../xform/generated";
 import type { DataNode } from "../xform/model";
 import {
+	dropCreateNameRequired,
 	type ProposedValue,
 	questionValue,
 	repeatOfField,
@@ -481,6 +483,16 @@ interface AdvancedReading {
 	readonly worker?: StoredLoad;
 	/** The form's own chain of list menus, root first; undefined where a load was a finding. */
 	readonly chain?: readonly Uuid[];
+	/** Each id the reading gave, in the order it gave them. */
+	readonly mints: readonly AdvancedMint[];
+}
+
+/** One id the reading gave an operation: its case type's, or the name its owner node carries. */
+interface AdvancedMint {
+	readonly id: string;
+	readonly caseType: string;
+	/** The id the operation's owner node names, where it names one. */
+	readonly named?: string;
 }
 
 const READINGS = new WeakMap<DraftForm, AdvancedReading>();
@@ -899,18 +911,24 @@ export function readAdvancedActions(
 			: [];
 
 	const operations: AdvancedProposal[] = [];
+	/** The questions that name a case an open action opens. */
+	const createNames: DraftField[] = [];
 	const takenIds = new Set<string>();
-	const operationId = (type: string) => {
+	const mints: AdvancedMint[] = [];
+	const operationId = (type: string, named?: string) => {
 		const id = ownCaseOperationId(type, takenIds);
 		takenIds.add(id);
+		mints.push({ id, caseType: type, ...(named !== undefined && { named }) });
 		return id;
 	};
 	// An open action whose owner node names its operation keeps that id, so Nova names the node
 	// as the source does.
 	const openOperationId = (type: string, owner: OwnerNode | undefined) => {
 		const named = ownerNodeOperationId(owner);
-		if (named === undefined || takenIds.has(named)) return operationId(type);
+		if (named === undefined || takenIds.has(named))
+			return operationId(type, named);
 		takenIds.add(named);
+		mints.push({ id: named, caseType: type, named });
 		return named;
 	};
 	const counts = new Map<string, number>();
@@ -1504,6 +1522,7 @@ export function readAdvancedActions(
 		}
 		// A name question the reader refused is that finding already.
 		if (name === undefined) return;
+		createNames.push(name.field);
 		/** The operation's owner: an owner node it names settled once the operation has its id. */
 		const ownerOfOpen = (id: string) =>
 			properties.ownerNode === undefined
@@ -1593,6 +1612,8 @@ export function readAdvancedActions(
 		(one) => one.target?.kind === "worker-record",
 	);
 	if (workerIndex !== -1) operations.push(...operations.splice(workerIndex, 1));
+	// HQ's build writes `required` on each open action's name question.
+	dropCreateNameRequired(ctx, form, createNames);
 
 	ctx.writeDraft(() => {
 		form.form.type = type;
@@ -1606,6 +1627,43 @@ export function readAdvancedActions(
 		chosen,
 		...(worker !== undefined && { worker }),
 		...(chainOk && chain.length === chosen.length && { chain: [...chain] }),
+		mints,
+	});
+}
+
+/**
+ * Names `form`'s advanced operations past `carried`, the ids the form's Save
+ * to Case blocks carry, which win: each operation is named again in the order
+ * the reading named them, its owner node's name where that is free, else its
+ * case type's id free among the carried ones and those named before it. That
+ * is the id `operationOrder.ts::caseManagementOperationsAsRead` gives it.
+ */
+export function nameAdvancedOperationsPast(
+	form: DraftForm,
+	carried: ReadonlySet<string>,
+): void {
+	const reading = READINGS.get(form);
+	if (reading === undefined || carried.size === 0) return;
+	const taken = new Set(carried);
+	const renamed = new Map<string, string>();
+	for (const mint of reading.mints) {
+		const id =
+			mint.named !== undefined && !taken.has(mint.named)
+				? mint.named
+				: ownCaseOperationId(mint.caseType, taken);
+		taken.add(id);
+		renamed.set(mint.id, id);
+	}
+	READINGS.set(form, {
+		...reading,
+		operations: reading.operations.map((one) => ({
+			...one,
+			id: renamed.get(one.id) ?? one.id,
+		})),
+		mints: reading.mints.map((mint) => ({
+			...mint,
+			id: renamed.get(mint.id) ?? mint.id,
+		})),
 	});
 }
 
@@ -2260,9 +2318,13 @@ export function settleAdvancedForm(
 			attachmentTarget: inputs.attachmentTarget,
 		});
 	} catch {
-		ctx.accounting.circumstance("unrecognized", form.place, {
-			name: "planFormCaseWire",
-		});
+		// The planner throws only over a draft the reader built wrong: the reader's own defect,
+		// behind the finding at the form's actions.
+		ctx.accounting.defect(
+			form.place,
+			`schema:${form.docType}.actions`,
+			readerDefect.emissionThrew(form.place, "planFormCaseWire"),
+		);
 		return;
 	}
 	if (planned.kind !== "advanced") {

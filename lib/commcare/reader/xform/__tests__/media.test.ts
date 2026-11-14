@@ -207,6 +207,27 @@ describe("media on a text", () => {
 		expect(field(oneOnly, "q").label_media).toBeUndefined();
 	});
 
+	it("reads a help text blank in every language beside its media as no help text, its media held", async () => {
+		const help = (value: string) =>
+			`<text id="q-help"><value>${value}</value><value form="image">jr://file/commcare/help.png</value></text>`;
+		const reading = await readForm(
+			xformSource({
+				data: "<q/>",
+				model: `<bind nodeset="/data/q" type="xsd:string"/>${itext({
+					en: `<text id="q-label"><value>Q</value></text>${help("")}`,
+					fr: `<text id="q-label"><value>Q</value></text>${help(" ")}`,
+				})}`,
+				body: `<input ref="/data/q"><label ref="jr:itext('q-label')"/><help ref="jr:itext('q-help')"/></input>`,
+			}),
+			{ langs: ["en", "fr"], media: index },
+		);
+		const read = field(reading, "q");
+		expect(read.help).toBeUndefined();
+		expect(read.help_media).toEqual({ image: "asset-help.png" });
+		expect(codes(reading)).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+	});
+
 	it("reads a hint's and a group label's media as inert where the file is there", async () => {
 		const reading = await readForm(
 			source({

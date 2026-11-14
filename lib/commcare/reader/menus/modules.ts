@@ -463,9 +463,9 @@ export function labelSpelledAsBuilt(
 }
 
 /**
- * Writes a label read as built: the first language's text into the slot and
+ * Writes a label read as built: the source language's text into the slot and
  * each other language whose text differs into the translation sink. Answers
- * the first language's text.
+ * the source language's text.
  */
 export function writeBuiltLabel(
 	ctx: ReadContext,
@@ -473,11 +473,11 @@ export function writeBuiltLabel(
 	built: Readonly<Record<string, string>>,
 ): string {
 	const languages = applicationReading(ctx)?.languages;
-	const first = languages?.first;
-	const source = first === undefined ? "" : (built[first] ?? "");
+	const sourceCode = languages?.source;
+	const source = sourceCode === undefined ? "" : (built[sourceCode] ?? "");
 	const translated = new Map<LanguageTag, LocalizedValue>();
 	for (const [code, text] of Object.entries(built)) {
-		if (code === first || text === source) continue;
+		if (code === sourceCode || text === source) continue;
 		const tag = languages?.tagOf.get(code);
 		if (tag !== undefined && !languages?.refused.has(code))
 			translated.set(tag, text);
@@ -489,9 +489,9 @@ export function writeBuiltLabel(
 /**
  * A label map of the expansion as the document will print it once the text
  * stage has written this reading's translations: each language other than the
- * first takes the text read for `unit` in that language, where one was read.
+ * source takes the text read for `unit` in that language, where one was read.
  * `settleMenus` expands the app before the text stage runs, so the expansion
- * holds the first language's text in every language until then.
+ * holds the source language's text in every language until then.
  */
 export function withReadTranslations(
 	ctx: ReadContext,
@@ -503,7 +503,7 @@ export function withReadTranslations(
 	if (languages === undefined || read === undefined) return map;
 	const out: Record<string, string | null> = { ...map };
 	for (const code of languages.codes) {
-		if (code === languages.first) continue;
+		if (code === languages.source) continue;
 		const tag = languages.tagOf.get(code);
 		const text = tag === undefined ? undefined : read.byLanguage.get(tag);
 		if (typeof text === "string") out[code] = text;
@@ -1119,13 +1119,15 @@ export function readModules(ctx: ReadContext, app: DraftApp): void {
 	checkMenuOrder(ctx, app, folded);
 }
 
-/** `Module.id`: a slug of the first language's name among the menus read. */
+/** `Module.id`: a slug of the source language's name among the menus read, else the first
+ *  language's that holds one. */
 function writeMenuIds(
 	ctx: ReadContext,
 	app: DraftApp,
 	folded: ReadonlySet<DraftModule>,
 ): void {
 	const langs = appLanguageCodes(ctx);
+	const sourceCode = applicationReading(ctx)?.languages.source ?? langs[0];
 	const stored = rawModules(ctx);
 	const taken = new Set<string>();
 	for (const module of app.modules) {
@@ -1133,10 +1135,10 @@ function writeMenuIds(
 		const names = isJsonObject(stored[module.index]?.name)
 			? (stored[module.index]?.name as JsonObject)
 			: {};
-		const first = textOf(names[langs[0] ?? ""]);
+		const source = textOf(names[sourceCode ?? ""]);
 		const name =
-			first !== ""
-				? first
+			source !== ""
+				? source
 				: (langs
 						.map((lang) => textOf(names[lang]))
 						.find((text) => text !== "") ?? "");

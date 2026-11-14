@@ -1,13 +1,16 @@
 /**
  * Deep links read back from Nova's emission: each of the three slots keeps
  * its id, a form's link that ignores display conditions keeps that, and an id
- * HQ's `slugify` would change, or one two links share, is refused.
+ * HQ's `slugify` would change, or one two links share, is refused. A menu's
+ * and a case list's deep link whose frame opens with the case the app's first
+ * menu shares is that row's finding at the menu.
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { codesOf, formNamed, moduleNamed, readMenusOf } from "./menuReading";
 
 function app(): BlueprintDoc {
@@ -51,6 +54,73 @@ function app(): BlueprintDoc {
 			ignoreDisplayConditions: true,
 		};
 	});
+}
+
+/** Clients shows its one follow-up form on the app's first menu, so every frame through it
+ *  opens with the patient that form chooses; Extra keeps its screen under it and lists visits,
+ *  and its deep link in `slot` would open with that patient ahead of any command. */
+async function sharedFirstMenuReading(
+	slot: "entryPoint" | "caseListEntryPoint",
+) {
+	const doc = buildDoc(
+		{
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					uuid: testUuid("shared-clients"),
+					name: "Clients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+				{
+					uuid: testUuid("shared-extra"),
+					name: "Extra",
+					caseType: "visit",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Check",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		},
+		(draft) => {
+			const extra = draft.modules[testUuid("shared-extra")];
+			if (extra === undefined) throw new Error("The fixture holds no Extra.");
+			extra.parentModuleUuid = testUuid("shared-clients");
+			extra[slot] = { uuid: testUuid(`ep-${slot}`), id: "extra" };
+		},
+	);
+	const reading = await readMenusOf(doc, (json) => {
+		// HQ's "Show forms in the menu above" on Clients, which Nova's gate refuses beside the
+		// deep link.
+		json.modules[0] = { ...json.modules[0], put_in_root: true } as never;
+	});
+	return reading;
 }
 
 describe("deep links", () => {
@@ -117,4 +187,21 @@ describe("deep links", () => {
 			formNamed(reading.doc as BlueprintDoc, "Visit").entryPoint,
 		).toBeUndefined();
 	});
+
+	for (const slot of ["entryPoint", "caseListEntryPoint"] as const)
+		it(`refuses a ${slot} through a first menu that shares one case, at the menu`, async () => {
+			const reading = await sharedFirstMenuReading(slot);
+			expect(
+				reading.findings
+					.filter(
+						(finding) =>
+							finding.code ===
+							"forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
+					)
+					.map((finding) => finding.place),
+			).toEqual([expect.objectContaining({ kind: "menu", menu: 1 })]);
+			expect(
+				codesOf(reading).filter((code) => code.startsWith("unrecognized")),
+			).toEqual([]);
+		});
 });

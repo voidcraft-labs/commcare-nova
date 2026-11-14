@@ -133,13 +133,23 @@ reads every pinned document as it did. No migration, no DDL and no `/api` route 
     readers, one part 03 named) and fifteen rows or groups of rows re-cut**, each a class that
     splits a row the reader could not otherwise claim truthfully. A class this part can name has an
     entry; `unrecognized` is kept for what no rule here classified. (Sections 13.2 and 14.)
-22. **Nine of the reader's choices between two documents that print one source are rows of part
-    06's `assemble.ts::READER_CANONICAL_CHOICES`**, each `{ id, kind: "one-wire", apply }`:
-    `create-name-required-is-absent`, `registration-form-last`, `default-post-submit-is-absent`,
+22. **Twenty-five of the reader's choices between two documents that print one source are rows of
+    part 06's `assemble.ts::READER_CANONICAL_CHOICES`**, each `{ id, kind, apply }`:
+    `create-name-required-is-absent`, `write-via-steps-are-typed`,
+    `basic-slot-operation-ids-are-derived`, `case-management-operations-in-reading-order`,
+    `opened-case-owner-acting-user-is-absent`, `update-beside-a-bare-own-arm-is-the-own-arm`,
+    `registration-form-last`, `default-post-submit-is-absent`,
     `search-link-guards-are-carried-values`, `dormant-tile-cells`, `case-catalog-is-as-read`,
-    `unheld-placements-are-held`, `unsorted-hidden-tile-columns-are-off-the-list` and
-    `match-all-list-filter-is-absent`. Part 09's `canonDocument` wraps them and proof 6 calls that.
-    (Sections 1, 3.2, 7, 8.7, 9.1, 9.4, 11.1, 11.5, 11.6.)
+    `unheld-placements-are-held`, `unsorted-hidden-tile-columns-are-off-the-list`,
+    `match-all-list-filter-is-absent`, `order-rules-on-the-columns-they-land-on`,
+    `columns-off-a-screen-last-in-its-order`, `derived-search-conditions-are-simple-fields`,
+    `joined-search-guards-split-as-read`, `default-search-title-is-absent`,
+    `required-messages-as-read`, `empty-search-settings-beside-fields-are-absent`,
+    `exact-search-mode-is-absent`, `implicit-order-rule-is-absent`,
+    `tile-columns-shown-nowhere-are-as-read` and
+    `columns-of-a-menu-that-lists-no-cases-are-off-the-detail`, each `one-wire` but the last two,
+    which are `not-carried`. Part 09's `canonDocument` wraps them and proof 6 calls that. (Sections
+    1, 3.2, 3.4, 4.4, 5.2, 7, 8.7, 9.1, 9.4, 11.1, 11.3, 11.4, 11.5, 11.6, 12.2, 12.3, 12.4.)
 23. **A column the case detail shows and the list does not carry is read exactly.** A column gains
     a third list state, not on the list (`Column.notOnList`), which is no field of the short detail,
     is matched by no list filter and takes no order rule, with its gate rule, its builder switch
@@ -652,7 +662,10 @@ line here says what the shorthand is in the frame's own names:
   `mode` is `{ target: "hq-json", interpolation }` with the `HqInterpolation` of
   `lib/commcare/hqJson/xpath.ts` that key prints under (`none`, `case`, `no-case`, `no-dots`,
   `enum-key`: the word a table below gives as the slot's mode), `{ target: "xform", constraint: false }`
-  for a Save to Case bind, or `{ target: "search-row" }` for an `_xpath_query` value. Where the
+  for a Save to Case bind. An `_xpath_query` value is never registered: it is a search filter row,
+  and `settleSearches` reads it through part 08's `readSearchRowConjuncts` and `matchSearchRows`
+  (section 12.3), the one path that reads a row; no registration names the slot
+  `search_input_predicate`, which `settleSearches` fills. Where the
   slot's schema requires a tree (a calculated column, an advanced Search field's condition, a
   carried value, a case write's value) the module writes part 08's `pendingPlaceholder` into it, and
   it leaves an optional slot absent. After step 5 `ctx.pending.outcome(i).expression` holds the
@@ -792,11 +805,13 @@ three forms, each named in the tables as **(R1)**, **(R2)**, **(R3)**:
   its output key by key with the stored JSON, XPath values as syntax trees (part 08's `sameSyntax`),
   after dropping every key this part claimed INERT and applying the same-state rows it claimed.
 - **(R3) Candidates in order.** Where one HQ value could be several Nova values (a date prompt over a
-  date or a date-and-time property; an absent owner or the acting user; a value with or without the
-  emitter's wrapper), the reader tries each candidate in a fixed order under (R2), each over its own
+  date or a date-and-time property; an absent owner or the acting user), the reader tries each
+  candidate in a fixed order under (R2), each over its own
   `withCandidate(ctx.doc, patch)`, and keeps the first that passes. A test that lets the first
   candidate fail and the second pass over one draft holds this to separate objects (Tests,
-  `candidates.test.ts`).
+  `candidates.test.ts`). Candidates are only values some Nova document can hold: the wrapper the
+  emitter writes around a Save to Case value has one candidate, the value inside it, because no slot
+  admits the wrapper as authored content (5.2 names the check that refuses each).
 
 In the sections below, a projection or a gate rule said to run "over the draft" (`draft` in a call)
 runs over the document of 2.2 (`provisionalDocument(ctx)` in steps 2 to 4, `ctx.doc` in a settle
@@ -950,7 +965,14 @@ an `update_case.conflicts` entry holding a list, is
 The own arm is the first operation of every registration, follow-up and close form of a menu with a case
 type: `{ uuid, id, action: "own", name?, owner?, writes?, placement: { kind: "basic", slot: "own" } }`.
 `id` is `caseOperationIdentifiers.ts::ownCaseOperationId(moduleCaseType, takenIds)`; `uuid` is minted
-from `externalKey.caseOperation(xmlns, ["basic", "own"], "own", 0)`.
+from `externalKey.caseOperation(xmlns, ["basic", "own"], "own", 0)`. No wire carries the id of an
+operation a basic slot keeps (this one, a child case of 3.4 and its close, the worker's record
+below), so the form's `takenIds` starts with the ids its Save to Case blocks carry (5.2), which the
+reader keeps, and the basic slots are named in the order own, `subcases`, `usercase_update`. A Nova
+document holding another id for such an operation reads back to this one: the canonical row
+`basic-slot-operation-ids-are-derived` of part 06's `assemble.ts::READER_CANONICAL_CHOICES`, which
+loses nothing a person named (part 09, section 9, "An operation's name and order lose nothing a
+person named").
 
 **A question path.** Every value of a basic action is the path of a question
 (`ConditionalCaseUpdate.question_path`). `basicActions.ts::questionValue(form, path, property)` maps it
@@ -1024,10 +1046,18 @@ Value.
 | `update[key].update_mode: "always"` or absent | no key | the write's row |
 
 `via` needs each ancestor's case type. Where the catalog gives the case type no parent type for a
-segment (section 7: no child link and no parent selection of the app says what the index reaches, or
-two say different types), the reader cannot name the case the write saves to, and the write is the
+segment (section 7: no child link and no parent selection of the app says what the index reaches,
+and the reading was told no type Nova holds for that index of the type, `ReaderInput.knownCaseTypes`; or two
+links say different types), the reader cannot name the case the write saves to, and the write is the
 finding `forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix` (new, section 14),
-with the key in `detail.name`. Nova admits a `parent` step with and without `throughCaseType`, and
+with the key in `detail.name`. A first reading of an app from CommCare HQ is told none, so the
+finding stands there; a re-read of an app Nova holds is told the type each index of its document
+reaches (section 7: the catalog's parent for `parent`, the typed steps' agreed type for `host` or a
+custom index), since HQ's app holds `parent/<property>` and `host/<property>` with the ancestor's
+type nowhere (`app_schemas/case_properties.py::ParentCasePropertyBuilder.get_case_relationships`
+derives a parent type only from `models/forms.py::Form.get_contributed_case_relationships`, a basic
+child case, and `AdvancedForm.get_contributed_case_relationships`, an open action's indices). Nova
+admits a `parent` step with and without `throughCaseType`, and
 both print one key: a row of part 06's `assemble.ts::READER_CANONICAL_CHOICES` under the id
 `write-via-steps-are-typed`, `one-wire`, whose `apply` types every untyped `parent` step of an own
 arm's write with the catalog's `parent_type` of the type before it, returns the typed one. A chain
@@ -1279,7 +1309,7 @@ repeat runs when its row is added, after the load, in both orders, so it is neve
 | Value | Reads into | Entry (`forms-and-case-writes/`) |
 |---|---|---|
 | `case_preload.preload[path] = prop`, question outside any repeat, menu selects one case, `laterLoadReaders` empty | `default_value: term({ kind: "form-case", caseType: <the menu's>, property })`; `name` reads `case_name`, `owner_id` reads `owner_id`; an authored default of the same question is dropped (HQ's setvalue ran after it and nothing read it between) | `case-preload-question-property-into-a-question-outside-any` |
-| the same from `parent/prop`, `parent/parent/prop` | the same term with `caseType` the ancestor's type: the catalog's `parent_type` of the menu's type, once per `parent` step (section 7); a `form-case` term names its case by type (`expression/types.ts::formCasePropertyRefSchema`), and the emitter walks the indices (`xform/formCaseRead.ts::formCasePropertyRead`). Where the catalog gives no parent type at that depth, or two cases of the chain share one type (the term could not say which), the preload is the finding `index-path-through-a-case-type-the-app-does-not-fix` (new, section 14) | `case-preload-from-parent-paths-into-a-question-outside-any` |
+| the same from `parent/prop`, `parent/parent/prop` | the same term with `caseType` the ancestor's type: the catalog's `parent_type` of the menu's type, once per `parent` step (section 7); a `form-case` term names its case by type (`expression/types.ts::formCasePropertyRefSchema`), and the emitter walks the indices (`xform/formCaseRead.ts::formCasePropertyRead`). Where the catalog gives no parent type at that depth (no link, no parent selection and no parent the reading was told Nova holds, section 7), or two cases of the chain share one type (the term could not say which), the preload is the finding `index-path-through-a-case-type-the-app-does-not-fix` (new, section 14) | `case-preload-from-parent-paths-into-a-question-outside-any` |
 | `laterLoadReaders` not empty | finding, `detail.name` the question's id | `case-preload-into-a-question-outside-any-repeat-where-the-held` (re-cut HELD-NEW, section 14) |
 | from `host/`, `user/` or a mixed path | finding | `case-preload-from-any-other-index-path-host-user-a-mixed-path` |
 | into a question inside a repeat | nothing (it fills no row) | `case-preload-into-a-question-inside-a-repeat` (INERT) |
@@ -1467,7 +1497,7 @@ it does, and by 4.4's open actions otherwise.
 | `case_properties[key]`, no `/` | a write; `owner_id` by the next row | `advancedopencaseaction-case-properties-keys-without` |
 | `case_properties[key]` with `/` | finding | `advancedopencaseaction-case-properties-key-with-parent-p` |
 | `case_properties[key].update_mode: "edit"` | finding: the build applies it (`xform.py::_create_casexml_advanced`) to a case that has no earlier value | `update-mode-edit-off-a-follow-up-form-s-own-update` (new) |
-| `case_properties.owner_id` naming part 06's folded node of purpose `owner` | `owner: actingUser()` or `unowned()`, by the node's value (`generatedNodes.ts::advancedOwnerNodeValue`'s two) | the writes row |
+| `case_properties.owner_id` naming part 06's folded node of purpose `owner` | by the node's value (`generatedNodes.ts::advancedOwnerNodeValue`'s two): the acting user's node reads as no `owner`, `unowned()`'s as `unowned()`. A case an action opens with no owner is the worker's, and `advancedOwnerNodeValue` prints the acting user's node for an absent owner and for `actingUser()` alike, so of the two the reader returns the first (R3), and a Nova-born `actingUser()` on an opened case is the canonical row `opened-case-owner-acting-user-is-absent` (`assemble.ts::READER_CANONICAL_CHOICES`) | the writes row |
 | `case_properties.owner_id` naming a question | `owner: term(formField(q))` | the writes row |
 | `repeat_context`, the name question's innermost repeat | `forEach` | `advancedopencaseaction-repeat-context-equal-to-the-name-question` |
 | any other `repeat_context`; two or more open actions of one repeat, fewer than two of them with `case_indices`, which share the row's one `case` block (HQ's build nests a repeat's blocks under `case_<tag>` only where two or more of its open actions are indexed: `xform.py::_create_casexml_advanced`, `get_action_path`, over `AdvancedFormActions.count_subcases_per_repeat_context`) | finding | `advancedopencaseaction-repeat-context-other-than-the-name`, `two-or-more-open-actions-whose-repeat-context-is-one-repeat` |
@@ -1486,6 +1516,13 @@ node the same). The action settles the node with `ReadXForm.settle(node, "genera
 is the allocator's for that `id` in the action's scope (the root, or a row of its repeat), and the node is
 then the operation's `owner` by its value; otherwise it settles it as a field, and `owner` is the read of
 that Hidden Value. A load's `owner_id` never folds an owner node: Nova writes one only for an open action.
+The form's `takenIds` holds the ids its Save to Case blocks carry, which win (5.2), and the ids are
+given in the order the reading meets the actions: each load in `load_update_cases` order (its update,
+then its close), then each open action in `open_cases` order (its operation, then its close). The
+reading writes the own arm first, then each load's changes, the open actions' and the worker's record
+last; a Nova document holding another order or another id for an advanced operation reads back to
+this one, the canonical row `case-management-operations-in-reading-order`, which, as the basic
+slots' row does, loses nothing a person named (part 09, section 9).
 
 A link's `reference_id` must pass `XML_ELEMENT_NAME_PATTERN`, the grammar of a link's identifier in Nova
 (part 04, section 2.5, which hands the wider class to this part).
@@ -1595,11 +1632,25 @@ saved to a loaded case, or a capture's link. Registering the stored text whole w
 as part of the value, and the emitter would then wrap it a second time, so (R2) could never pass for
 a block Nova itself wrote. The reader takes each wrapper off syntactically in pass 1 (`syntaxOf(text,
 undefined)`, since no form expression is interpolated, and `sameSyntax`, never the text; 2.2) and
-registers what is inside, once. Test 4 of 5.1 then
-decides by (R3), and no text is bound a second time: the first candidate holds the bound inside as
-the value, and the second holds the same bound tree with the wrapper built around it again as
-authored content (`lib/domain/expression/builders.ts`), for the rare author who wrote the emitter's
-own shape by hand in a slot where the emitter adds none:
+registers what is inside, once, and test 4 of 5.1 holds the block to the emitter's print of that
+reading. There is one candidate, not two, and no (R3) here: a second candidate that rebuilt the
+emitter's wrapper as authored content would be a document no slot admits, so no Nova document can
+reach it, and it is not built. A case operation's slots are checked under the record rule set
+(`expression/typeChecker.ts`, `CASE_OPERATION_EXPRESSION_TYPE` at the commit gate), and for each
+wrapper a check refuses the authored spelling:
+
+- the trim (`replace`) is a function call, which the record rule set refuses wherever it is written
+  (`arm-unavailable`, reason `call`);
+- the stored-instant spelling of a date-and-time leaf is function calls (`substr`, `number`, `floor`,
+  `string-length`, `starts-with`), refused the same way, around a text value no date-and-time
+  property stores ("cannot be stored as 'datetime'", `expected-value`);
+- the presence conjunct (`count(A) > 0` over a question's answer) is a `count` that is not of a
+  relation, which the record rule set refuses (`arm-unavailable`, reason `count`);
+- a capture's link reads `/data/meta/instanceID`, which the parser refuses wherever it is written
+  (`unknown-field`, `xpath/formPathBinding.ts`: `meta` is no question of the form), and its whole
+  authored spelling is the `capture-link` leaf, which prints the wrapper.
+
+A wrapper an author wrote in CommCare HQ reads by the same rule, as the table says:
 
 | Stored on | The emitter's wrapper (`xform/caseOps.ts::buildCaseOperations`) | Read as |
 |---|---|---|
@@ -1611,8 +1662,10 @@ own shape by hand in a slot where the emitter adds none:
 | `@case_id` of an update or a close, and `index/<name>`, whose target is a runtime expression | `instance('casedb')/casedb/case[@case_id = X and @case_type = 'T']/@case_id` (`caseOps.ts::typedRuntimeCaseId`, `rowScope.ts::caseById`) | `X`, registered under `case_operation_target_expression` or `case_operation_link_target_expression`; a raw read (no selector) is `{ kind: "session" }`, an earlier create's `@case_id` path `{ kind: "op" }`, `USERCASE_ID_FUNCTION` `{ kind: "worker-record" }` |
 | a date-and-time leaf that reads the clock | `if(N = '', '', storedInstantOfText(N))` over the read of its `nova_instant_` node (`instant.ts::storedClockValue`) | the leaf the node's calculate holds inside `typedInstantValue` |
 
-A wrapper present twice (an authored `replace` of the same pattern inside the emitter's) reads its
-outer one off and keeps the inner as authored, and test 4 confirms it.
+A wrapper present twice, which only an author in CommCare HQ writes (an authored `replace` of the
+same pattern inside the emitter's), reads its outer one off and keeps the inner as the authored
+value, which the record rule set refuses in a case operation's slot (above): the reading holds that
+slot's finding, never a document.
 
 **A date and time, in both spellings.** Part 03 writes a date-and-time value as the text CommCare
 HQ stores, leaf by leaf, and no longer as one wrapper around the whole value (its section 7.1, "The
@@ -1664,14 +1717,42 @@ basic slot holds it in a block of shape `operations`, `block` (or the several-ca
 cannot tell that block from a create's by its content, so it is (R3): where the form's type by 3.1 has
 an own arm and no basic own block (`publishedCaseBlocks` gives no `basic-own`), the first block in the
 root `operations` container whose case type is the menu's is proposed as the own arm
-(`placement: { kind: "save-to-case", path }`), and as a create second. A follow-up or close form of a
+(`placement: { kind: "save-to-case", path }`), and as a create second.
+
+A registration whose own
+arm takes a block holds no active open action, so CommCare HQ's app reads it as a survey (3.1); the
+reader reads it as a registration where the form's first block is a create of the menu's case type
+in the root `operations` group, with no repeat and no key, and the guards beside it are the own
+arm's: the emitter gives a create its text guard always and the own arm the guards
+`xform/generatedNodes.ts::operationGuardKinds` gives it, so the two are told apart by what only one
+prints. Its block's `case` relevance is the form's open condition (slot `form_open_condition`, as
+`caseOps.ts` prints it), its name the arm's name, and an owner of the acting user's id reads absent
+first, as a create's does. Where the arm writes a fixed text column both take the text guard; the
+arm is then told apart by what it prints beside the block: the own arm guards each question whose
+answer it saves as it is as the case's name or external id wherever it is kept
+(`placement.ts::placedBasic`, `caseScalarTextGuard.ts::caseScalarTextGuards`), so that question
+carries its `nova_trimmed_` sibling, while a create in a block guards none
+(`saveToCase.ts::ownGuardsPrinted`). The block is the arm only where both hold: the guards beside it
+are the arm's, and each such question carries its sibling; test 4 holds the guard's content to the
+emitter's. `operationReadBack.test.ts` reads a survey's create of its menu's type back as that
+create, named from a question, writing the external id, conditional, and named by a computed value.
+
+A follow-up or close form of a
 menu that selects one case always has a basic own block, which writes nothing where its own arm is
 in a block (`casePlacementPlan.ts` sets `update_case` to `always` on every form that loads its case),
 so there an update of the session's case beside that basic block and the own arm in a block are told
 apart by what only one of them prints: the own arm leads each row that saves an answer as it is with
 `count(A) > 0`, takes the guards `xform/generatedNodes.ts::operationGuardKinds` gives the own arm,
 and names its block with the id the basic block's operation takes; an update does none of these. A
-block both readings print is the update (R3).
+block both readings print (an update of the session's case named with that id, writing no answer as
+it is, with the own arm's guards) is the own arm: the canonical row
+`update-beside-a-bare-own-arm-is-the-own-arm` (`saveToCase.ts::updateBesideBareOwnAsOwnArm`)
+makes such an update the form's own arm, dropping the bare one, under the UUID the reading mints
+for the own arm's key. It cannot keep the update's UUID: an operation's external key spells its
+action, so the update's key is no key of the reading, and a re-read through `matchingResolver`
+mints the own arm's. No candidate claims a key: the choice is made on what the source prints
+before the chosen block's key is claimed, once, so `IdentityResolver` needs no look that records
+nothing.
 
 **The shared update of a several-case form.** A follow-up or close form of a menu that selects
 several cases holds its own arm, where it writes anything, as one block of every selected case in the
@@ -1710,7 +1791,40 @@ earlier shape of Nova's own: the finding `savetocase-block-outside-nova-s-own-bl
 
 `Form.ownClosePlacement` is read
 from a close-only block in a folded `condition` group under the root `operations` container whose
-target is the own case, where the form's type has an own close and the own arm sits elsewhere.
+target is the own case and whose close carries no `relevant`, where the form's type has an own close
+and the own arm sits elsewhere; the group's relevance is the close condition. In a follow-up or close
+form of a menu that selects several cases it is read from the close-only block of each selected case,
+as `caseOps.ts::saveToCaseBlockShape` places it and `buildCaseOperations` writes it: where the form
+closes under a condition, `selected-cases/selected-case/operations/condition/block`, the block in the
+row's `condition` group, whose relevance is the close condition, and no `relevant` on
+`<block>/case/close`; where it closes every selected case, `selected-cases/selected-case/operations/block`,
+with no condition group. A row whose group is not relevant submits no block (Core's
+`XFormSerializingVisitor::serializeNode` leaves out a node that is not relevant, and
+`TreeElement::setRelevant` makes its children so), so CommCare HQ meets no case block for a case the
+condition leaves open (`corehq/ex-submodules/casexml/apps/case/xform.py::_extract_case_blocks`).
+
+A close-only block whose close carries a `relevant` is
+`a-close-only-savetocase-block-with-a-close-condition`'s finding in pass 1 wherever it stands: Nova
+writes no such block, and it would submit the block for every case the condition leaves open,
+holding no close and only the update of the case's type every non-create block carries
+(`caseOps.ts`, the idempotent `case_type` row), where CommCare HQ records a case transaction and moves the case's
+`modified_on` (`form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy.update_from_case_update`,
+over `_apply_case_update` and `add_transaction_for_form`). An app on
+CommCare HQ that Nova published with its several-case own close in that spelling reads the same way:
+`operationReadBack.test.ts` rebuilds that source from today's export and reads it to that finding at
+the block, and no document.
+
+A Nova document that recorded a several-case own close under a
+condition at the four-segment place, before the condition group, holds a place its shape no longer
+has (`HELD_PLACEMENT_INEXPRESSIBLE`, reason `block-shape`), and is repaired once by
+`scripts/migrate-several-case-close-places.ts`, which inserts the group's name.
+
+Every own close read from a block of its own is held to the emitter's print (`settleSaveToCase`,
+`ownCloseHolds`), with `savetocase-block-outside-nova-s-own-block-shape` where it differs; one whose
+condition the expression stage cannot hold has that slot's finding alone. So a close of the form's
+own case that an earlier Nova wrote as an operation, in a block of the operation's name that also
+writes the case's type (`targeted-migration-case-writes`, the Discharge form), is that finding:
+Nova's own close writes no type.
 
 **Operation order.** A form's operations are the own arm, then the basic child cases or advanced
 actions in HQ's list order, then the worker's record, then the Save to Case operations in document
@@ -2054,7 +2168,28 @@ write or preload that needs the type of that ancestor is the finding
 contradicts it: `readModules` records that candidate in step 2 (8.5: the named menu's `case_type`, read
 from JSON), and `readCaseCatalog` takes the recorded candidates in step 3, so a `via` write or a
 `parent/` preload of an app whose child cases are opened in another app still finds its ancestor's
-type. Part 04's N14 takes a parent menu of any other type. A search's `_xpath_query` rows bind at
+type. Part 04's N14 takes a parent menu of any other type.
+
+A document's catalog can name a type's
+parent while nothing in its app does (no form opens the type under it, no menu chooses its case
+after its parent's), and its export then holds `parent/<property>` with the ancestor's type nowhere;
+the gate admits it, so the reading is told what Nova holds. Where no link and no parent selection
+gives a type a parent, the parent `ReaderInput.knownCaseTypes` names for it is the type's
+`parent_type`, with the relationship it holds, and that parent is noted as a case type of the
+catalog; every reader of an ancestor's type (a `via` write, a `parent/` preload, a form's ancestor
+read, a column, sort or filter over `parent/<property>`, a search row's relation) then binds as it
+does for a link (`caseManagement/basicActions.ts::indexTargets`, `catalog.ts::noteParents`). Any
+other index is typed in the step that walks it (a write through `host`, a read through a custom
+index, each with its `throughCaseType`), and HQ's key `host/<property>` carries that type nowhere
+either: `ReaderInput.knownCaseTypes` answers by (case type, identifier), the catalog's parent for
+`parent` and, for any other identifier, the type every typed step of the document through that
+identifier from that case type agrees on, none where they disagree (`knownCaseTypesOf`), and an
+index the app fixes no type for takes it (`indexTargets`). What
+the app says always wins: a link or a parent selection is never overridden, and links that disagree
+stay the finding. A first reading of an app from CommCare HQ is told none, so the finding stands
+there as stated above.
+
+A search's `_xpath_query` rows bind at
 the settle, outside part 08's scan, so `readSearches` declares what their relation functions name
 (`expressions/scanReads.ts::searchRowRelations`, the function the scan applies to a search row): a
 `subcase-exists`, `subcase-count` or `ancestor-exists` over `parent` whose filter opens with a type
@@ -2062,7 +2197,9 @@ test gives the child that parent where the catalog gives it none, declaring eith
 lacks, and each property the relation's filter reads is a property of the related type.
 
 **Properties.** One per `(case type, name)` among: every write's property; every preload's; every case
-list column's `field`; every simple Search field's property; every property an expression
+list column's `field`; every simple Search field's property, on the menu's type, or, for a field
+with a `via`, on the type its relation reaches (`resolveRelationDestination`), whose read the search's
+own filter prints; every property an expression
 reads, a search row's own and its relations' among them. `label` is the name, as plain prose. Standard properties
 (`lib/domain/standardCaseProperties.ts`) are not declared. One function writes a property, so its
 order and the standard-property rule are stated once:
@@ -2089,14 +2226,16 @@ with the draft's catalog for every property of the list above.
 | Reader | Declares | Why |
 |---|---|---|
 | a sort element with `type: "int"` or `"double"` over a property no writer types | `int` or `decimal` | Nova derives the comparator from the property's type (`caseListOrder.ts`, rule 8); section 11.4 |
-| a simple Search field of type `date` whose derived clause is the date-boundary form | `date` | `exactDateSearchPredicate` writes date or date-and-time boundaries by the property's type; section 12.3, (R3): `date` first, then `datetime` |
+| a sort element with `type: "date"` whose rule orders by the raw value of a property nothing else types (no writer, no Search field, no row) and no pending expression reads (`expressions/scanReads.ts::scanReads`) | `date`, the first of the date class, before any expression binds, after the searches' own declarations (`search/index.ts::declareDateSorts`, over `caseList/order.ts::dateSortDeclarations`); a property an expression reads takes none, since that expression binds under the member its source was written for (a date and time compared with `now()` is refused over a date, a date literal compared with a date property reads untyped over a date and time), and binding is where that member shows | `hqJson/caseList.ts::sortElementType` writes `date` exactly over a `date`, `datetime` or `time` property, so the element is one print of the three, and `catalogAsRead` returns the same member for a property only a sort types |
+| a simple Search field of type `date` whose derived clause is the date-boundary form | `date`, on the menu's type, or, for a field with a `via`, on the type its relation reaches | `exactDateSearchPredicate` writes date or date-and-time boundaries by the type of the property the field reads, a related case's where it has a `via`; section 12.3, (R3): `date` first, then `datetime`. `catalogAsRead` keeps the document's own type by the same rule (`catalog.ts::typedReaders`): a canonical member without it is no document Nova can print |
 | the same whose clause is the date-and-time-boundary form | `datetime` | the same |
 | a date range Search field over a property no writer types | `date` | `SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH` asks for a date type |
-| an `_xpath_query` row that compares a property no writer types with a value of a known type (a whole number, a decimal, a date, a date and time, a distance from a location) | that type, before any expression binds (`search/rows.ts::rowComparedTypes`, from the types `expressions/csqlRead.ts::readSearchFilterRow` reads the row under) | Nova prints a comparison by the property's type (a date and time's equality as the moment's two bounds), so the row reads back as the field's condition or the list's clause only over a catalog that holds it; section 12.3 |
+| an `_xpath_query` row that compares a property no writer types with a value of a known type (a whole number, a decimal, a date, a date and time, a distance from a location) | that type, before any expression binds (`search/rows.ts::rowEarlyReads`, from the types `expressions/csqlRead.ts::readSearchFilterRow` reads the row under) | Nova prints a comparison by the property's type (a date and time's equality as the moment's two bounds), so the row reads back as the field's condition or the list's clause only over a catalog that holds it; section 12.3 |
 | a case list column of format `date` over a property no writer types | nothing | a date column runs over any property; the validator treats absent as no opinion |
 | a `plain` column over a property with no writer, or an `enum` column | nothing | |
 | a `translatable-enum` column read as Nova's label projection of a select property whose catalog holds no choices (no select question writes it) | the projection's kind (`single_select` or `multi_select`) and its choices (11.2) | the projection writes a plain column over a property with choices as its labels (`casePropertyShowsOptionLabels`), so the column's own choices are what the catalog must hold for it to be written back; `caseList/details.ts::declareShownChoices` writes them. `catalogAsRead` keeps them by the same rule |
 | a property every writer of which is a select question of one kind (`single_select` or `multi_select`) | that kind | the translation inventory keys a choice's label units by the declared type (`translationUnits.ts::addCasePropertyOptionUnits`), while a case list's projection reads the effective one (`hqJson/caseList.ts::projectCaseListForHq`): a catalog with `options` and no declared select type is one Nova cannot emit, so neither the reading nor `catalogAsRead` may state it; the writers' agreed type is this one, so the declaration contradicts none |
+| a Hidden Value bound `xsd:dateTime` that saves its answer straight to a property every other writer of which is a Hidden Value or an expression | `datetime`, before any expression binds; the settle takes it back where a writer of the bound document types the property without it (`catalog.ts::takeBackWriterTypedDateTimes`) | Nova binds a Hidden Value that saves to a case `xsd:dateTime` only where the property is a date and time (`xform/bindType.ts::fieldBindType`), so the bind is the export's evidence of a type the catalog declared and no writer gives (a Hidden Value copying the case's own value); without it the Hidden Value reads as `xsd:string` (`questions/hidden-value-bound-a-type-nova-would-not-write`) and its basic action prints otherwise. `catalogAsRead` keeps the document's own `datetime` by the same rule (`catalog.ts::hiddenDateTimeWrites`) |
 
 A declared type that a writer contradicts would be the gate's `FIELD_KIND_PROPERTY_TYPE_MISMATCH`, so a
 rule above (the select row aside, which declares the writers' own agreed type) applies only where `effectiveCaseTypes(draft)` gives the property no type without it; where
@@ -2125,8 +2264,13 @@ by value, in first-appearance order, the first label winning
 (`forms-and-case-writes/select-writers-with-differing-option-catalogs`, HELD with no surface key, so
 claimed under nothing, as the rows above). Where every writer is a select question of one kind, the
 property declares that kind (the Types table). Each label is the question's
-choice label as prose; its translations are written under the role `case-property-option-label` from
-the same choice's itext.
+choice label as prose. A choice's itext gives the catalog no translation: the export carries a case
+property's choices only where a plain column shows them by their labels, and that column's `enum`
+then states them (11.2): the choices, their order, each label in the source language and its
+translations under the role `case-property-option-label`, whatever the select questions hold. A
+property a plain column shows by its values, where no column of the app shows its labels, keeps no
+choices (`caseList/details.ts::withholdRawShownChoices`): Nova writes a plain column over a property
+with no choices as its values. `catalogAsRead` states the same of a document's own columns.
 
 **The date-and-time join.** Step 4's split leaves a date question, a time question and a Hidden Value
 whose calculate joins them (`lib/doc/datetimeSplit.ts`). Part 06 reads the three as ordinary questions
@@ -2148,10 +2292,24 @@ applies it:
 // lib/commcare/reader/caseManagement/catalog.ts
 /** The catalog this section's rules give over the document's own menus, operations, preloads,
  *  columns, search fields and expression reads: types in menu order; `parent_type` and
- *  `relationship` where the document's links agree; properties by `noteProperty`; `data_type`
+ *  `relationship` where the document's links agree, and the document's own where no link and no
+ *  parent selection gives a type one (a re-read of its export is told them,
+ *  `ReaderInput.knownCaseTypes`); properties by `noteProperty`; `data_type`
  *  only under the rules of the table above. */
 export function catalogAsRead(doc: BlueprintDoc): NonNullable<BlueprintDoc["caseTypes"]>;
 ```
+
+It applies the reading's own rules to the document's own export, each where the reading makes
+it: a property read through a relation is noted on the type the relation reaches
+(`resolveRelationDestination` from the type the read starts from), as the expression stage notes
+it; a count, a presence or an absence of the cases indexed `parent` under the slot's case names
+the type it reaches and that type's parent where the catalog says neither, as the expression
+stage's parent links do; and a property the record slots compare, still untyped, takes the type
+`expressions/comparedTypes.ts::comparedTypes` gives it (a value of a known type, a distance, a test
+of the choices it holds), or `datetime` where two such properties are compared and the document
+holds both as dates and times, whose print is then the moments' comparison.
+`caseManagement/__tests__/caseReadBack.test.ts` holds the catalog a reading of every targeted and
+producer document gives to this one, whole.
 
 It is a row of part 06's `assemble.ts::READER_CANONICAL_CHOICES` under the id
 `case-catalog-is-as-read`, with its `kind` `one-wire` and its `apply`: `apply` sets
@@ -2789,15 +2947,15 @@ By `format`:
 
 | `format` | Nova column | Entry |
 |---|---|---|
-| `plain`, property no select question writes | `{ kind: "plain", field, header }` | `1-plain-over-a-property-that-is-not-a-select-with-options` |
-| `plain` over a property select questions write | finding: Nova's plain column there shows the choice's label | `1p-plain-over-a-property-select-questions-write` |
+| `plain`, property no select question writes, or one no column of the app shows by its choices' labels (`columns.ts::labelShownProperty`, read over every menu's stored details before any column is claimed), whose choices the catalog then drops (section 7) | `{ kind: "plain", field, header }` | `1-plain-over-a-property-that-is-not-a-select-with-options` |
+| `plain` over a property select questions write and another column of the app shows by its choices' labels | finding: Nova's plain column there shows the choice's label | `1p-plain-over-a-property-select-questions-write` |
 | `date` with a `date_format` `COMMCARE_DATE_PATTERN_REGEX` admits | `{ kind: "date", field, header, pattern }` | `2-date-date-format-d-m-y-d-m-y-m-d-y-m-d-y-b-d-y`; else `2p-date-any-other-date-format` |
 | `phone` | `{ kind: "phone", ... }` | `4-phone` |
 | `enum`, every key one word with none of `& < > " '` | `{ kind: "id-mapping", mapping: [{ value: key, label }] }`, each label's text by language under the role `case-list-mapping-label` | `5-enum-id-mapping`; `5pp-enum-key-that-is-empty-or-holds-whitespace`, `5p-enum-key-containing`, `an-enum-enum-image-conditional-enum-or-translatable-enum-column` for a duplicate key |
 | `enum-image`, every key the tree of `selected(., '<value>')` (the value a string literal, or the `concat` of string literals a value holding both quote marks is printed as; each key is first passed through part 08's `dotInterpolate(key, <the column's property path>)`, as HQ's `MappingItem.key_as_condition` does, and Nova's emitted key through the same call, before the two trees are compared) | `{ kind: "image-map", mapping: [{ value, assetId }] }`, each asset through part 06's `readMediaMap` as `readNavMedia` calls it (2.2), slot `image_map_mapping` | `19p-enum-image-whose-keys-are-conditions-contain-any-of-each-a`; `19-enum-image-whose-keys-are-plain-values`, `19pp-enum-image-whose-keys-are-conditions-of-any-other-form-dot` |
 | `markdown` with `useXpathExpression`, the expression the tree of `columns.ts::linkColumnDisplayXpath(field, text)` for some property and text (R3 over the one shape: the reader reads `text` and the property from the tree, then re-emits) | `{ kind: "link", field, header, linkText }` | `10-markdown-any-property-or-expression` |
 | any other `markdown` | finding | part 04's N12, `10-markdown-outside-the-link-shape` |
-| `translatable-enum` with `useXpathExpression`, the expression Nova's label projection of a select property (`hqExpressionField` of a plain column over it) and the `enum` its choices | `{ kind: "plain", field, header }`. The property, its kind and its choice values are proposed from the expression (the `=` literals of a single choice, the `selected` values of a multiple one) and confirmed by printing `plainSelectDisplayXpath` back, each `enum` key the variable `hqEnumPlaceholder` names for its choice. Where the catalog holds no choices for the property (no select question of the app writes it), the column's choices declare its kind and its choices, each label the `enum` entry's text, role `case-property-option-label` (section 7); otherwise the property's choices are checked against the catalog's by the (R2) comparison | `21-translatable-enum-authored` |
+| `translatable-enum` with `useXpathExpression`, the expression Nova's label projection of a select property (`hqExpressionField` of a plain column over it) and the `enum` its choices | `{ kind: "plain", field, header }`. The property, its kind and its choice values are proposed from the expression (the `=` literals of a single choice, the `selected` values of a multiple one) and confirmed by printing `plainSelectDisplayXpath` back, each `enum` key the variable `hqEnumPlaceholder` names for its choice. The first such column over a property declares its kind and its choices, in the `enum`'s order, over any the select questions gave it, each label the `enum` entry's source-language text and its other languages its translations, role `case-property-option-label` (section 7); a property of another type keeps its own, and every other column is checked against what was declared by the (R2) comparison | `21-translatable-enum-authored` |
 | the same, the expression `columns.ts::intervalColumnDisplayXpath` for some field, threshold, unit and display, one `enum` entry | `{ kind: "interval", field, header, threshold, unit, display, text }`, `text` by language under the role `case-list-interval-text` | `21-translatable-enum-authored` |
 | any other `translatable-enum` | finding | part 04's N13, `21-translatable-enum-outside-nova-s-two-projections`; `translatable-enum-on-a-column-that-is-not-a-calculated-property-over-a-property`, `translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers`, `translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`; `21p-translatable-enum-key-outside-a-za-z0-9` |
 | `plain` with `useXpathExpression`, the field reading one case attribute | `{ kind: "plain", field: "case_id" \| "owner_id" \| "status", header }` | `usexpathexpression-field-reading-one-case-attribute` |
@@ -2853,7 +3011,10 @@ header. `details.ts::joinDetailColumns(short, long)`:
 4. A long column with no partner is not on the list: `visibleInList: false` and `notOnList: true`
    (11.6).
 5. `listColumnOrder` is the short detail's order, then the columns of rule 4 in the long detail's
-   order. `detailColumnOrder` is the long detail's order, then the columns of rule 3.
+   order. `detailColumnOrder` is the long detail's order, then the columns of rule 3 in the short
+   detail's order. Neither detail holds a place for a column off it, so a Nova document that holds
+   one elsewhere in that screen's order is the canonical choice `columns-off-a-screen-last-in-its-order`
+   (`details.ts::columnsOffAScreenLast`; part 09, section 9).
 6. Each column's `uuid` is minted from `externalKey.caseListColumn(moduleUniqueId, kind, field, n)`:
    `field` is the column's case property and `""` for a calculated column, and `n` is the 0-based
    ordinal among the menu's columns of equal `(kind, field)`, in `listColumnOrder` (part 10 section
@@ -2893,7 +3054,7 @@ rule by rule:
 | in a tile list, `field` a property name no short column joins and that a column 11.3's rule 4 made from the long detail reads | that column is on the list, hidden: `visibleInList: false` with the `sort`, and no `notOnList`. It is how Nova writes a tile list's hidden sorted column, as a sort row with no stored column (`caseListOrder.ts`, rule 4, exception iii), so Nova's own tile lists read back as they were | `field-naming-a-property-not-displayed-hq-appends-a-hidden-column` |
 | any other `field` that is a property name no short column joins | a new column `{ kind: "plain", field, header: "" , visibleInList: false, visibleInDetail: false, sort }`, last in `listColumnOrder` (rule 5's carrier, stored). A column 11.3's rule 4 made over the same property stays off the list beside it: a column that is not on the list takes no rule (11.6) | `field-naming-a-property-not-displayed-hq-appends-a-hidden-column` |
 | two elements whose `field` is one text | the later is read by its own rows, at its place among the elements HQ keeps; the earlier is claimed and dropped. `util.py::get_sort_and_sort_only_columns` keys the elements by `field`, a later one replacing an earlier with the later's order, and it is the one function HQ's build (`suite_xml/sections/details.py`) and its app strings (`app_strings.py`) take a detail's sort elements through. Nova writes the list without the earlier element (13.3, `list-settings-respelled`) | `sort-elements-sharing-a-join-text` (INERT, new, section 14) for the earlier |
-| `field` `_cc_calculated_N` where column `N` of the short detail is an expression column (`useXpathExpression`, whatever its format: a calculated, interval, link, select-label or attribute column, as `util.py::get_sort_and_sort_only_columns` asks no more) | `sort` on the first field whose text is that column's (rule 4) | `field-cc-calculated-n`; else `field-cc-calculated-n-naming-a-missing-or-non-calculated-column`, the element's other keys claimed by their rows all the same |
+| `field` `_cc_calculated_N` where column `N` of the short detail is an expression column (`useXpathExpression`, whatever its format: a calculated, interval, link, select-label or attribute column, as `util.py::get_sort_and_sort_only_columns` asks no more) | `sort` on column `N` itself, which Nova's emitter prints back as `N` (rule 4), where a rule there orders by the key of the first field whose text is that column's (rule 5, `sortPropertyOwnership.ts`); otherwise on that first field, whose position the first publish writes (`list-settings-respelled`) | `field-cc-calculated-n`; else `field-cc-calculated-n-naming-a-missing-or-non-calculated-column`, the element's other keys claimed by their rows all the same |
 | position `i` | `priority: i` | `sort-order-across-elements` |
 | `direction` `ascending` or `descending` | `direction` | `direction` |
 | `blanks` `first` or `last` | `columnSort(direction, priority, blanks)` (part 03: stored only where it is not the direction's own) | `blanks-first-last` (HELD, part 03 section 7) |
@@ -2913,21 +3074,32 @@ call) equal the stored list in `field`, `direction` and `blanks` (a stored `""` 
 direction's own), element by element, after the earlier of two elements with one `field` is dropped
 and, for the second row of the table, with the one element Nova writes where the source held none.
 Two positional `field`s are equal where the short columns they name hold one expression tree, since
-both land on the first column holding it; where the positions differ, the first publish writes
-Nova's, a source rewrite the register holds (13.3, `list-settings-respelled`).
+both land on the first column holding it; where the positions differ (a rule read on the first
+field because a rule on the column the element names orders by another key, which the validator
+refuses in a Nova document, so only an app made in CommCare HQ holds it), the first publish writes
+Nova's, a source rewrite the register holds (13.3, `list-settings-respelled`). The two keys are
+compared as `caseListSortKeysMatch` compares them: two shown ID mappings or image maps over one
+property with the same values in the same order are one key, so a rule on the later of two such
+columns over `status` is read where it is.
 A sort element over a date-and-time property reads by these rows like any other and records
 nothing: part 03 fixes that order in the text a phone writes for the value, and changes no sort
 element, no column and no rule of the plan (03-questions-and-text.md, section 7.1).
 
-A rule the validator admits on a column other than the one its element lands on (a later column
-over the same text, or a column hidden from Results over the property a shown field orders by its
-raw value) orders by the same key (`sortPropertyOwnership.ts`) and prints the element the landing
-column's own rule prints, so the reader reads it on the landing column, and the document returned
-is the one holding each rule there: a row of part 06's `assemble.ts::READER_CANONICAL_CHOICES`
-under the id `order-rules-on-the-columns-they-land-on`, `one-wire`, whose `apply` is
-`caseList/order.ts::rulesOnTheColumnsTheyLandOn`. It runs before
-`unsorted-hidden-tile-columns-are-off-the-list`, so a tile list's hidden column it leaves with no
-rule is then read off the list. `caseList/__tests__/order.landing.test.ts` holds the equal exports.
+A rule whose element is a property element, which the validator admits on a column other than
+the one its element lands on (a later column over the same property, or a column hidden from
+Results over the property a shown field orders by its raw value), orders by the same key
+(`sortPropertyOwnership.ts`) and prints the element the landing column's own rule prints, so the
+reader reads it on the landing column, and the document returned is the one holding each such
+rule there: a row of part 06's `assemble.ts::READER_CANONICAL_CHOICES` under the id
+`order-rules-on-the-columns-they-land-on`, `one-wire`, whose `apply` is
+`caseList/order.ts::rulesOnTheColumnsTheyLandOn`. A positional element, `_cc_calculated_<n>`,
+names the position of the column its rule is authored on (rule 4), so its two placements print
+two exports: the row leaves such a rule where it is, and the reader reads it on column `n`. It
+runs before `unsorted-hidden-tile-columns-are-off-the-list`, so a tile list's hidden column it
+leaves with no rule is then read off the list. `caseList/__tests__/order.landing.test.ts` holds
+the equal exports of the property pair and the two exports of the positional one, and
+`__tests__/canonicalRowsKeepExport.test.ts` holds every row to its export over the proof lane's
+documents.
 
 Rule 7 is why that second row exists. With no authored rule the plan puts its implicit rule on the
 first shown field and writes it as an element wherever a hidden field comes before it. A reading's
@@ -2935,6 +3107,16 @@ hidden columns are not all last: the carriers of this section are, but an `invis
 source keeps its place in the short detail (11.3, rule 5), and it can be column 0. Left with no
 rule, such a list would be written with an element on its first shown column, and would sort by
 another column than HQ's build sorts it by.
+
+The other way round, the element rule 7 writes is the element a list whose one rule is ascending,
+with blanks first, on its first shown field writes, its `type` aside, which HQ's build reads one
+way for a text and a date comparison. The settle reads such an element, stored with no whole-number,
+decimal or date `type`, as the list with no rule (`caseList/index.ts::withoutImplicitRule`, over
+`order.ts::implicitRuleColumn`), and the row `implicit-order-rule-is-absent` returns the other
+member so where the rule's element names a text comparison. A whole-number or decimal comparison
+is the author's rule, since the implicit rule compares as text, and so is a rule over the raw value
+of a property of the date class: its element's `type` is `date` where the implicit rule's is
+`plain`, so the two lists are not one export.
 
 One shape the plan cannot write back is left to the gate: a sort that would land on a tile list's
 hidden calculated column or hidden `case_id` column (`CASE_TILE_HIDDEN_CALCULATED_SORT`). It cannot
@@ -3173,12 +3355,12 @@ on an advanced menu is 4.1's blocker.
 | `appearance: "barcode_scan"` | `type: "barcode"` | `appearance-barcode-scan` |
 | `input_: "date"` | `type: "date"` | `input-date` (re-cut, section 14: the class Nova writes) |
 | `input_: "daterange"` | `type: "date-range"`, `mode: { kind: "range" }` | `input-daterange` |
-| `input_: "select1"` or `"select"` with an `itemset` over `item-list:<tag>` | `type: "select"` or `"multi-select"`, `options`: the table by tag from the bound lookup catalog, `valueColumnId`, `labelColumnId` and `sortColumnId` by field name, the nodeset's filter pending (slot `search_input_options`) | `input-select1-lookup-itemset`, `input-select-multi-lookup-itemset`, `itemset-instance-id-item-list-tag-nodeset-label-value-over`, `itemset-sort-over-a-lookup-field`; part 08 claims the filter's pair |
+| `input_: "select1"` or `"select"` with an `itemset` over `item-list:<tag>` | `type: "select"` or `"multi-select"`, `options`: the table by tag from the bound lookup catalog, `valueColumnId`, `labelColumnId` and `sortColumnId` by field name (no `sortColumnId` where the sort is the label column, the order a field with none prints), the nodeset's filter pending (slot `search_input_options`) | `input-select1-lookup-itemset`, `input-select-multi-lookup-itemset`, `itemset-instance-id-item-list-tag-nodeset-label-value-over`, `itemset-sort-over-a-lookup-field`; part 08 claims the filter's pair |
 | an itemset over reports, another scheme, attributes or field properties; `checkbox`; `appearance: "address"` | finding | `input-select1-select-commcare-reports-itemset-mobile-ucr`, `itemset-scheme-other-than-item-list-commcare-reports`, `itemset-refs-to-item-attributes-attr-or-property-qualified`, `input-checkbox-itemset`, `appearance-address-geocoder-broadcast-emitted-input-address`, `appearance-address-with-required-or-validations` |
 | any other `appearance` | nothing | `appearance-any-other-value` (INERT) |
 | `default_value` | `default`, pending (slot `search_input_default`) | part 08 claims `default-value-lifting-into-valueexpression` or its pair; on a date range, part 04's N8 |
-| `required { test, text }` | `required: { when?, message? }` (slot `search_input_required_when`, mode `no-case`; a `test` of `true()` is an absent `when`; a text equal to `SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE` in the first language and untranslated is an absent `message`), role `search-input-required-message` | `required-test-text` |
-| `validations[0] { test, text }` | `validation: { rule, message }` (slot `search_input_validation_rule`, mode `no-dots`), role `search-input-validation-message`, after removing the runtime guard Nova conjoins (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`): the texts are read in the app's language order, since the guard's message is Nova's own sentence only in the source language and any text in a translation, and the first that tells decides: a text that is one of `SEARCH_RUNTIME_VALIDATION_MESSAGES` is the guard alone (the test claimed `derived`, no validation read); one that ends with a space and one of them is the authored rule, the left operand of the test's top-level `and`, with the authored message before it. The guard's message is one unit of the app (`system/search-validation/<key>`), so its text in each language is read over every Search field of the app (`prompts.ts::guardTexts`) and written as that unit's translation. In the first language, the reading's source (part 06, section 6.3), the unit's text is its source, the catalog sentence, whatever the stored texts say, because a system unit's source text is Nova's own and a document holds no other text there; a field whose first-language text does not end with it keeps its whole text there, and the settle's (R2) then finds the projection differs (`unrecognized`, `schema:Assertion.text`), which is the reading of an app whose first language holds a translated guard (a Nova document whose source language is not its first). In every other language: a field whose text is the guard alone gives its language's text as it stands; else, where every joined text of the language ends with the catalog sentence, it is untranslated; else it is the longest text after a space that every joined text of the language ends with and that leaves each field a message of its own, the reading's choice where one field's message ends (the bytes are the join alone). Each field's message in a language is its text less a space and that guard text. The settle's (R2) holds either reading, and (R3) tries the rule with its guard, then without | `validations-0-test-text` |
+| `required { test, text }` | `required: { when?, message? }` (slot `search_input_required_when`, mode `no-case`; a `test` of `true()` is an absent `when`; a text that is Nova's own required message in every language is an absent `message`), role `search-input-required-message`. Nova's message for a required field with none of its own is one unit of the app (`system/search-required/default`), printed whole by each such field, so its text in each language is read over every Search field of the app (`prompts.ts::requiredDefaultTexts`): in the reading's source language (part 06, section 6.3, item 4) it is `SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE`, and in every other language the text there of the first required field, in menu and prompt order, whose source-language text is that sentence; it is written as the unit's translation. A field whose text is that one in every language holds no message; any other keeps its source-language text as its message and each other language's as that message's translation, which prints the same bytes. A document whose field's own message is Nova's sentence in the source language prints the bytes of the document whose fields hold their messages where this reading puts them, and the canonical choice `required-messages-as-read` (`search/systemSentences.ts::requiredMessagesAsRead`; part 09, section 9) makes that document of it | `required-test-text` |
+| `validations[0] { test, text }` | `validation: { rule, message }` (slot `search_input_validation_rule`, mode `no-dots`), role `search-input-validation-message`, after removing the runtime guard Nova conjoins (`xpathQuery.ts::buildRuntimeCsqlPromptValidations`): the texts are read in the source language first, then the others in the app's order, since the guard's message is Nova's own sentence in the source language and any text in a translation, and the first that tells decides: a text that is one of `SEARCH_RUNTIME_VALIDATION_MESSAGES` is the guard alone (the test claimed `derived`, no validation read); one that ends with a space and one of them is the authored rule, the left operand of the test's top-level `and`, with the authored message before it. The guard's message is one unit of the app (`system/search-validation/<key>`), so its text in each language is read over every Search field of the app (`prompts.ts::guardTexts`) and written as that unit's translation. In the reading's source language the unit's text is its source, the catalog sentence, whatever the stored texts say, because a system unit's source text is Nova's own and a document holds no other text there; a field whose source-language text does not end with it keeps its whole text there, and the settle's (R2) then finds the projection differs (`unrecognized`, `schema:Assertion.text`). The source is the first language, in `langs` order, that a reading with it as the source prints back at each place Nova writes a source text apart from a translation, the app's name and Nova's own sentences (part 06, section 6.3, item 4: `languages.ts::readingSourceCode`; here, a language whose text is Nova's sentence for every system unit the app's searches print, `systemSentences.ts::systemSentenceHolders`), so an app whose first language holds a translated guard, a Nova document whose source language is not its first, reads with its own source language, and the first language's text is the guard's translation. In every other language (`guardSplit.ts::readGuardText`): a field whose text is the guard alone gives its language's text as it stands; else, where every joined text of the language ends with the catalog sentence, it is untranslated; else it is the longest text after a space that every joined text of the language ends with and that leaves each field a message of its own, the reading's choice where one field's message ends (the bytes are the join alone), which the canonical choice `joined-search-guards-split-as-read` (`guardSplit.ts::joinedGuardsSplitAsRead`; part 09, section 9) makes of a Nova-born document. Each field's message in a language is its text less a space and that guard text. The settle's (R2) holds either reading, and (R3) tries the rule with its guard, then without | `validations-0-test-text` |
 | `validations[1:]`; `hidden` with `required` or `validations` | finding | `validations-1`, `hidden-together-with-required-or-validations` |
 | `hidden: true`, `exclude: true`, a `default_value`, no itemset, input type or appearance | `{ kind: "hidden", name, value }` (slot `search_input_hidden_value`) | `hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset` |
 | the three other hidden shapes | finding | `hidden-exclude-without-a-default-value-on-a-prompt-with-no`, `hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or`, `hidden-on-a-prompt-that-carries-an-itemset-input-type-or` |
@@ -3392,11 +3574,11 @@ workflow row with nothing read.
 
 | Key | Reads into | Entry |
 |---|---|---|
-| `title_label{lang}` with text in every language the app has | `searchScreenTitle`, role `search-screen-title`; absent where it is "Search" in the first language and untranslated (`DEFAULT_CASE_SEARCH_TITLE`) | `title-label-lang-non-empty` (its `item` narrowed, section 14) |
+| `title_label{lang}` with text in every language the app has | `searchScreenTitle`, role `search-screen-title`; absent where it is "Search" in the source language (`DEFAULT_CASE_SEARCH_TITLE`), the text of an absent title, whose other languages are the title unit's translations either way | `title-label-lang-non-empty` (its `item` narrowed, section 14) |
 | `title_label` `{}` or blank in every language the app has | `searchScreenTitle: NO_SEARCH_SCREEN_TITLE` (part 03 section 6) | `title-label-or-blank-hq-s-default` (HELD, part 03 section 6) |
 | `title_label` blank in some languages and not others | finding | `title-label-blank-in-some-languages` (part 03 names it; section 14 adds it) |
 | `description{lang}` with text | `searchScreenSubtitle`, role `search-screen-subtitle` | `description-lang-markdown` |
-| `search_button_label` equal to `{ en: "Search All Cases" }` | nothing | `search-button-label-hq-default-en-search-all-cases` |
+| `search_button_label` equal to `{ en: "Search All Cases" }` | nothing; it is HQ's model default, at which a claim records nothing (`jsonCursor.ts`) | `search-button-label-hq-default-en-search-all-cases` |
 | any other `search_button_label` | finding | `search-button-label-any-other-value` |
 | `search_button_display_condition` | `searchButtonDisplayCondition`, pending (slot `search_button_display_condition`) | part 08 claims `search-button-display-condition-lifting-into-predicate` or its pair |
 | `blacklisted_owner_ids_expression`, with the list filter holding the owner clause `nodesetFilter.ts::emitExcludedOwnerFilterExpression` writes for it | `excludedOwnerIds`, pending (slot `excluded_owner_ids`, after removing `suite/wire.ts::normalizeSpace`'s wrapper by re-emission); the clause leaves the list filter, by (R2) over the filter of `projectCaseListForHq`'s short detail; on a menu that offers no search the config is `{ searchActionEnabled: false, excludedOwnerIds }` | `blacklisted-owner-ids-expression-lifting-into-valueexpression` |
@@ -3407,6 +3589,11 @@ workflow row with nothing read.
 | `instance_name` | finding, by its rows | `instance-name-without-casedb-ledgerdb-fixture-or-session-in-it`, `instance-name-containing-casedb-ledgerdb-fixture-or-session`, `a-module-whose-effective-results-instance-results-instance-name`; `an-effective-results-instance-equal-to-a-module-s-that-does-not` (INERT) |
 | `additional_case_types`, `custom_related_case_property`, `custom_sort_properties`, `search_on_clear`, `case_search_endpoint_id`, the three registry keys | finding | their rows (`additional-case-types`, `custom-related-case-property`, `custom-sort-properties-property-name-sort-type-exact-date`, `search-on-clear`, `search-on-clear-with-the-case-list-s-auto-select-checked-whether`, `case-search-endpoint-id`, `data-registry-data-registry-workflow-additional-registry-cases`) |
 | removed and unknown keys | nothing | `removed-keys-dynamic-search-additional-relevant-search-filter`, `any-other-unknown-casesearch-key` (INERT) |
+
+A menu with Search fields whose settings read as none of the rows above holds no `caseSearchConfig`:
+its fields turn the search on with Nova's own settings, as a settings object that sets nothing does
+(`effectiveCaseSearchConfig`), and the row `empty-search-settings-beside-fields-are-absent` returns
+the other member so. A search with no field keeps its `{}`, which is what turns it on.
 
 The claim settings are HQ's own build (`<post>`, `<rewind>`, `redo_last`): nothing in the source holds
 them, and `redo-last-on-the-search-action` and the round-trip row are claimed with nothing read. Cases
@@ -3541,7 +3728,7 @@ run") moves a row out of this table where a build file differs.
 |---|---|---|---|
 | `case-settings-respelled` | some form holds a non-empty `case_preload` or `usercase_preload` or advanced `preload`, an `open_case.external_id`, an `update_case.condition` Nova writes as another word (an `if`, or a `never` on one of the three shapes 3.2 holds), a `subcases[].reference_id` of `parent`, a `name_update.update_mode` of `edit` on a block that creates, or an `update_mode` of `edit` on a follow-up or close form's own update in a project space that does not apply it (3.2) | `modules[*].forms[*].actions`; the forms' setvalues | no |
 | `search-filter-rows-recut` (part 01's name) | some menu's `_xpath_query` rows are not in the order, or the number, Nova writes | `modules[*].search_config.default_properties` | no |
-| `sort-rule-kept-as-hidden-column` | some short detail holds a sort element no column joins, or a `type` of `string` or `date` | `modules[*].case_details.short.columns`, `.sort_elements[*].type`, `.sort_elements[*].display` | no |
+| `sort-rule-kept-as-hidden-column` | some short detail holds a sort element no column joins, a `type` of `string`, or a `type` of `date` the first publish writes `plain` (over a property whose type is not of the date class) | `modules[*].case_details.short.columns`, `.sort_elements[*].type`, `.sort_elements[*].display` | no |
 | `list-settings-respelled` | some short detail holds a `max_select_value` of `-1`, a sort element whose `blanks` is `""`, a `sort_calculation` equal to the column its element joins, two sort elements with one `field`, or no sort elements under a first column that is `invisible`; or some search holds a `title_label` or a `description` that lacks a language where every language is blank (12.4); or some menu holds a `case_list.label` blank, or with no text, in a language beside `show: true` (8.6) | `modules[*].case_details.short.max_select_value`, `.sort_elements`; `modules[*].search_config.title_label`, `.description`; `modules[*].case_list.label` | no |
 | `search-filter-joined-to-list` | some menu whose forms read the search holds an `_xpath_query` conjunct that reads no Search field and restates no clause of its list filter (12.3, kind F) | `modules[*].case_details.short.filter` | no |
 | `search-restates-list-filter` | some menu whose forms read the search holds a clause of its list filter that no `_xpath_query` conjunct restates (12.3, the first closing check) | `modules[*].search_config.default_properties` (added rows) | yes |
@@ -3772,8 +3959,9 @@ and names the HQ page or model that writes it. A case that needs a bound express
 reader's own stages through part 06's `STAGES`, part 08's binding included; no test fills a
 registration's outcome itself.
 
-**The canonical choices.** This part adds nine rows to part 06's
-`assemble.ts::READER_CANONICAL_CHOICES`, each `one-wire`. Each has its equal-bytes case in part
+**The canonical choices.** This part adds the twenty-five rows of item 22 to part 06's
+`assemble.ts::READER_CANONICAL_CHOICES`, each `one-wire` but `tile-columns-shown-nowhere-are-as-read`
+and `columns-of-a-menu-that-lists-no-cases-are-off-the-detail`, which are `not-carried`. Each has its equal-bytes case in part
 09's `canon.test.ts`, but for `unheld-placements-are-held`, which
 `lib/commcare/__tests__/heldPlacementEmission.test.ts` already holds: it prints every fuzz,
 advanced and fixture document with and without `placementHolds.ts::placementsToHold` applied and
@@ -3784,13 +3972,27 @@ canonical member:
 |---|---|
 | `create-name-required-is-absent` (3.2) | `basicActions.hqShapes.test.ts` |
 | `write-via-steps-are-typed` (3.2) | `basicActions.hqShapes.test.ts`, and the save to the case above of `basicActions.roundTrip.test.ts` |
+| `basic-slot-operation-ids-are-derived` (3.2, 3.4) | `basicActions.roundTrip.test.ts`, and `assemble.test.ts` |
+| `case-management-operations-in-reading-order` (4.4, 5.2) | `caseReadBack.test.ts`, which compares each form's operations, their ids and their order over every targeted and producer document, and `assemble.test.ts` |
+| `opened-case-owner-acting-user-is-absent` (4.4) | `generated.test.ts`, and `assemble.test.ts` |
+| `update-beside-a-bare-own-arm-is-the-own-arm` (5.2) | `operationReadBack.test.ts`, which also prints both members of each pair and reads each back whole, identities included |
 | `registration-form-last` (8.7) | `registration.test.ts` |
 | `default-post-submit-is-absent` (9.1) | `afterSubmit.hqShapes.test.ts` |
 | `search-link-guards-are-carried-values` (9.4) | `afterSubmit.searchLink.test.ts`, which also prints both members |
 | `dormant-tile-cells` (11.5) | `tile.test.ts` |
+| `match-all-list-filter-is-absent` (11.1) | `assemble.test.ts` |
+| `order-rules-on-the-columns-they-land-on` (11.4) | `order.landing.test.ts` (the property pair, the positional pairs the row leaves apart over `case_id` and over two ID mappings of `status` with one table, and an element naming a mapping with another table, read on its landing), `order.roundTrip.test.ts`, and `canonicalRowsKeepExport.test.ts` over every targeted and producer document |
+| `columns-off-a-screen-last-in-its-order` (11.3) | `columnsOffAScreen.test.ts` |
 | `case-catalog-is-as-read` (section 7) | `catalog.test.ts` |
 | `unheld-placements-are-held` (section 1) | `basicActions.roundTrip.test.ts`, `advancedActions.roundTrip.test.ts` and `saveToCase.roundTrip.test.ts`: every placement of the read document is held |
 | `unsorted-hidden-tile-columns-are-off-the-list` (11.6) | `joinDetailColumns.test.ts` |
+| `implicit-order-rule-is-absent` (11.4), `tile-columns-shown-nowhere-are-as-read` (11.6), `columns-of-a-menu-that-lists-no-cases-are-off-the-detail` (11.3) | `listCanon.test.ts`, and every menu of every targeted and producer document in `listsReadBack.test.ts` |
+| `empty-search-settings-beside-fields-are-absent` (12.4) | `emptySettings.test.ts` |
+| `default-search-title-is-absent` (12.4) | `defaultTitle.test.ts` |
+| `joined-search-guards-split-as-read` (12.2) | `guardSplit.test.ts` |
+| `required-messages-as-read` (12.2) | `requiredMessages.roundTrip.test.ts` |
+| `exact-search-mode-is-absent` (12.2) | `prompts.roundTrip.test.ts`, which also prints both members for each widget |
+| `derived-search-conditions-are-simple-fields` (12.3) | `rows.test.ts` |
 
 **Case management, menus and the frame** (`lib/commcare/reader/caseManagement/__tests__/`,
 `lib/commcare/reader/menus/__tests__/`, `lib/commcare/hq/__tests__/`, and
@@ -3818,7 +4020,7 @@ canonical member:
 | `registration.test.ts`: the hidden-menu shape folds and the form rejoins its host, last among its forms; each failing test of the shape leaves an ordinary hidden menu, media on the block among them; part 02's arm order row by row; a blank `form_id` beside a label is inert; a label with no text in any language reads as "Create a new Case" and never as an absent `label`; a language whose value is an empty string reads as those words in that language and is never filled from another language's text; a language with no key is no translation; each of the two readings appends its record under `registration-label-fixed` | reader over `expandDoc` and edited JSON | a hidden menu read as a real menu, which would mint a menu id the ledger then holds; a Register button that shows the form's name, or another language's text, where CommCare HQ's build wrote "Create a new Case"; a label rewritten on the first publish with no register record |
 | `afterSubmit.roundTrip.test.ts`: property test over the link generator, moved out of `formLinkProjection.property.test.ts` (where `destination`, `otherwise`, `shape` and `buildShape` are file-local today) into `lib/commcare/__tests__/formLinkDocArbitrary.ts`, exported and imported by both files unchanged: read back equal links in order, the otherwise in both shapes, guards stripped | reader over `expandDoc` | links read in HQ's order (reversed); a guard kept as authored content and doubled on publish |
 | `afterSubmit.hqShapes.test.ts`: `[L1: c, L2: not(c)]` reads destination and otherwise; a fallback beside unconditional links is inert; an authored conjunct of the guard's shape that the emitter would not add is kept and reaches part 08 in the registered condition; a link that carries a case by hand with no guard reads as its condition alone, is marked `guards: "added"`, passes 9.5 and records `link-held-case-guards-added`; a guard is never in a registered condition; `default` on a follow-up stores `app_home` and on a registration stores nothing | reader over edited JSON | one meaning stored two ways |
-| `entryPoints.test.ts`: each slot; an id that is no slug fixed point; an id two slots share; `respect_relevancy: false` beside an id | reader over `expandDoc` | a deep link id changed on publish |
+| `entryPoints.test.ts`: each slot; an id that is no slug fixed point; an id two slots share; `respect_relevancy: false` beside an id; a menu's and a case list's deep link through a first menu that shares one case (HQ's `put_in_root` on the menu above), each that row's one finding at the menu and nothing unrecognized | reader over `expandDoc` | a deep link id changed on publish; a menu's or a case list's deep link the gate refuses read as a deep link, or left unclaimed |
 | `twoFindings.test.ts`: one app with a refused child case and a refused link raises both | `readCaseManagement` and `readMenus` together | a reader that stops at its first finding (part 06, "Decisions in brief", 1: every finding in one pass) |
 | `candidates.test.ts`: one draft, one slot, two candidates of which the first fails its projection and the second passes (a date Search field over `date` and then `datetime`; the owner pair of a Save to Case create, absent and then `actingUser()`, is no such case: `xform/caseOps.ts` writes one `owner_id` bind for both, so the first never fails where the second passes): the second is accepted, the draft holds only it, and the document object each projection saw is distinct (`withCandidate`) | the settle functions over a counting wrapper of the production projection | a second candidate judged on the first one's memoized plan, which a shared document object gives (the `WeakMap` caches of 2.2) |
 | `projectionInputs.test.ts`: over a source whose menu ids, form ids and `xmlns` are none of Nova's derivations, whose form holds a capture link and whose search reads a table, `expandDoc(read(A), readProjectionInputs(ctx))` prints the source's ids, the source's project space in the link and the source's tag | reader over an `expandDoc` output re-keyed with foreign ids | every (R2) failing on an id, an address or a table name, so that every real app reads `unrecognized` |
@@ -4060,7 +4262,9 @@ decision this part took with the alternative it weighed and did not take.
   `questionValue`, `ownerQuestionPath`), `preloads.ts` (`laterLoadReaders`, `readPreloads`,
   `settlePreloads`), `advancedActions.ts` (`readAdvancedActions`, `readLoadChain`),
   `saveToCase.ts` (`readSaveToCaseBlocks`), `saveToCaseCompare.ts` (`blockTreesEqual`),
-  `catalog.ts` (`readCaseCatalog`, `noteProperty`, `catalogAsRead`). There is no
+  `catalog.ts` (`readCaseCatalog`, `noteProperty`, `catalogAsRead`,
+  `takeBackWriterTypedDateTimes`), `knownCaseTypes.ts` (`knownCaseTypesOf`, the value of
+  `ReaderInput.knownCaseTypes`, section 7). There is no
   `caseManagement/connect.ts`: Connect blocks are read by part 06 (10.2).
 - `lib/commcare/reader/menus/index.ts` (`readMenus`, `settleMenus`), `modules.ts`
   (`readModules`, `caseListLabelAsBuilt`), `navMedia.ts` (`readNavMedia`), `registration.ts`
@@ -4092,7 +4296,7 @@ decision this part took with the alternative it weighed and did not take.
 - `lib/commcare/reader/types.ts` (`ReadFacts` gains `sameStateRewrites` and `entryFactsRefused`);
   `lib/commcare/reader/context.ts` (`DraftForm.operationIdPaths`, 5.2);
   `lib/commcare/reader/index.ts` (`STAGES` runs this part's ten functions in the order of 2.1);
-  `lib/commcare/reader/assemble.ts` (the eight rows of `READER_CANONICAL_CHOICES` "Tests" lists).
+  `lib/commcare/reader/assemble.ts` (the twenty-five rows of `READER_CANONICAL_CHOICES` item 22 names).
 - `lib/domain/modules.ts` (`notOnList` on `columnCommonSlots` and `ColumnCommonSlots`,
   `columnOnList`, `caseListColumnRuns`), `lib/domain/caseListOrder.ts` (rule 1 and rule 4 skip a
   column that is not on the list).

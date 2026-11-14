@@ -18,9 +18,13 @@ import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { normalizeSpace } from "../../suite/wire";
 import { type FormSyntax, formSyntaxKey } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
-import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
-import { appCodes, firstText, languageMap } from "../caseList/columns";
+import {
+	appCodes,
+	languageMap,
+	sourceText,
+	translatedTexts,
+} from "../caseList/columns";
 import { caseListReadings, sameState } from "../caseList/details";
 import { withReadTexts } from "../caseList/readTexts";
 import { defineClaims, derived, drop, refuse, take } from "../claims";
@@ -385,17 +389,6 @@ export interface SettingsReading {
 	readonly button?: number;
 }
 
-function byLanguage(ctx: ReadContext, map: Readonly<Record<string, string>>) {
-	const tags = applicationReading(ctx)?.languages.tagOf;
-	const first = appCodes(ctx)[0];
-	return new Map(
-		Object.entries(map).flatMap(([code, text]) => {
-			const tag = tags?.get(code);
-			return tag === undefined || code === first ? [] : [[tag, text] as const];
-		}),
-	);
-}
-
 /**
  * Reads the search's settings into `config`, the menu's search config being built. On a menu
  * that offers no search only the owner exclusion is read.
@@ -506,25 +499,24 @@ export function readSearchSettings(
 		ok = false;
 	} else {
 		cursor.take("title_label", T.title, languageMap).value;
-		const text = firstText(ctx, title);
-		const translated = codes.slice(1).some((code) => title[code] !== text);
-		if (text !== DEFAULT_CASE_SEARCH_TITLE || translated) {
-			config.searchScreenTitle = text;
-			ctx.translations.set(
-				makeTranslationUnitId("module", module.uuid, "search-title"),
-				"text",
-				byLanguage(ctx, title),
-			);
-		}
+		// "Search" in the source language is the absent title, whose text is that word: a document
+		// holds its other languages as the title unit's translations either way.
+		const text = sourceText(ctx, title);
+		if (text !== DEFAULT_CASE_SEARCH_TITLE) config.searchScreenTitle = text;
+		ctx.translations.set(
+			makeTranslationUnitId("module", module.uuid, "search-title"),
+			"text",
+			translatedTexts(ctx, title),
+		);
 	}
 	const description = languageMap(cursor.peek("description"));
 	if (codes.some((code) => (description[code] ?? "") !== "")) {
 		cursor.take("description", T.description, languageMap).value;
-		config.searchScreenSubtitle = firstText(ctx, description);
+		config.searchScreenSubtitle = sourceText(ctx, description);
 		ctx.translations.set(
 			makeTranslationUnitId("module", module.uuid, "search-subtitle"),
 			"text",
-			byLanguage(ctx, description),
+			translatedTexts(ctx, description),
 		);
 	} else if (cursor.used("description")) {
 		// Blank in every language is no subtitle, as an absent map is.
@@ -852,4 +844,56 @@ export function settleSearchSettings(
 		);
 	else if (first !== undefined && !ctx.accounting.hasFindingAt(place))
 		ctx.accounting.circumstance("unrecognized", place, { name: first });
+}
+
+/**
+ * The reader's canonical choice `empty-search-settings-beside-fields-are-absent`: a menu with
+ * Search fields searches with Nova's own settings whether it holds a settings object that sets
+ * nothing or none at all (`effectiveCaseSearchConfig` gives `{}` for both), so both print one
+ * `search_config`, and the reader returns no settings object. It reads what
+ * `default-search-title-is-absent` leaves, which may empty a settings object.
+ */
+export function emptySearchSettingsBesideFieldsAreAbsent(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const empty = doc.moduleOrder.filter((uuid) => {
+		const mod = doc.modules[uuid];
+		const config = mod?.caseSearchConfig;
+		return (
+			config !== undefined &&
+			(mod?.caseListConfig?.searchInputs.length ?? 0) > 0 &&
+			Object.values(config).every((value) => value === undefined)
+		);
+	});
+	if (empty.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const uuid of empty) {
+			const mod = draft.modules[uuid];
+			if (mod !== undefined) delete mod.caseSearchConfig;
+		}
+	});
+}
+
+/**
+ * The reader's canonical choice `default-search-title-is-absent`: a search whose title is "Search"
+ * (`DEFAULT_CASE_SEARCH_TITLE`) prints what a search with no title of its own prints, its title
+ * unit's source and every translation of it alike, and the reader returns no title.
+ */
+export function defaultSearchTitleIsAbsent(doc: BlueprintDoc): BlueprintDoc {
+	const titled = doc.moduleOrder.filter((uuid) => {
+		const config = doc.modules[uuid]?.caseSearchConfig;
+		return (
+			config !== undefined &&
+			"searchScreenTitle" in config &&
+			config.searchScreenTitle === DEFAULT_CASE_SEARCH_TITLE
+		);
+	});
+	if (titled.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const uuid of titled) {
+			const config = draft.modules[uuid]?.caseSearchConfig;
+			if (config !== undefined && "searchScreenTitle" in config)
+				delete config.searchScreenTitle;
+		}
+	});
 }

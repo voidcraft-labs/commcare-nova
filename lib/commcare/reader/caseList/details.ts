@@ -8,17 +8,26 @@
  */
 import { produce } from "immer";
 import {
+	type BlueprintDoc,
 	type CaseListConfig,
 	type Column,
 	type ColumnSort,
 	casePropertyOptionTranslationUnitId,
+	orderedColumns,
+	plainColumn,
+	type TranslationUnitId,
+	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
+import { moduleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { caseListColumnTextShows } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import type { HqPlace } from "@/lib/publish/hqFindings";
+import { emptyShortListColumns } from "../../hqJson/caseList";
+import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { applicationReading } from "../appShell";
+import { withCandidate } from "../candidate";
 import { noteProperty } from "../caseManagement/catalog";
 import {
 	type Claim,
@@ -29,21 +38,21 @@ import {
 	take,
 } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
-import { externalKey } from "../identity";
+import { externalKey, mintEntityUuid } from "../identity";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sameXPathText } from "../syntaxCompare";
 import type { SameStateRegister } from "../types";
 import {
-	appCodes,
 	type ColumnOptions,
 	type ColumnProposal,
 	type ColumnReading,
-	firstText,
 	languageMap,
 	readDetailColumn,
 	type SelectProperty,
+	sourceText,
+	translatedTexts,
 } from "./columns";
 import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
 import { readTile, type TileReading } from "./tile";
@@ -865,11 +874,58 @@ function readSelection(
 }
 
 /**
- * The kind and choices of each property a plain column shows by its choices' labels, where the
- * catalog holds no choices for it: no select question of the app writes it, so the column's label
- * projection is all that states them. Each choice's label is its text in the first language, and
- * its other languages go to the translation sink. A property whose catalog holds choices, or
- * another type, keeps them, and the comparison of the whole menu holds the column against them.
+ * The choices the catalog drops from each property a raw plain column shows, where no column of
+ * the app shows that property by its choices' labels: Nova writes a plain column over a property
+ * with no choices as its values, so the property the select questions writing it would give
+ * choices keeps none, and the column reads as written. Its select type stays.
+ */
+function withholdRawShownChoices(
+	ctx: ReadContext,
+	caseType: string,
+	joined: JoinedDetails,
+	labelShown: (property: string) => boolean,
+): void {
+	const raw = new Set(
+		joined.columns.flatMap((column) => {
+			const body = column.proposal.column;
+			return body.kind === "plain" &&
+				column.proposal.choices === undefined &&
+				column.proposal.json.peek("useXpathExpression") !== true &&
+				!labelShown(body.field)
+				? [body.field]
+				: [];
+		}),
+	);
+	const catalog = ctx.draft.caseTypes;
+	if (raw.size === 0 || catalog == null) return;
+	const withChoices = catalog
+		.find((one) => one.name === caseType)
+		?.properties.some(
+			(one) => raw.has(one.name) && (one.options ?? []).length > 0,
+		);
+	if (withChoices !== true) return;
+	const next = produce(catalog, (draft) => {
+		for (const property of draft.find((one) => one.name === caseType)
+			?.properties ?? [])
+			if (raw.has(property.name)) delete property.options;
+	});
+	ctx.writeDraft(() => {
+		ctx.draft.caseTypes = next;
+	});
+}
+
+/** The properties each reading's label-showing columns have stated choices for, by case type and
+ *  property. */
+const SHOWN_STATED = new WeakMap<ReadContext, Set<string>>();
+
+/**
+ * The kind and choices of each property a plain column shows by its choices' labels, from the
+ * column's label projection, which is the export's only evidence of them: Nova prints the
+ * catalog's choices there, in its order, whatever choices the select questions writing the
+ * property hold. Each choice's label is its text in the source language, and its other languages
+ * go to the translation sink under the role `case-property-option-label`. The first column over a
+ * property states them; a property of another type keeps its own, and the comparison of each
+ * whole menu holds every other column against what was stated.
  */
 function declareShownChoices(
 	ctx: ReadContext,
@@ -885,21 +941,25 @@ function declareShownChoices(
 	});
 	const catalog = ctx.draft.caseTypes;
 	if (shown.length === 0 || catalog == null) return;
+	const stated = SHOWN_STATED.get(ctx) ?? new Set<string>();
+	SHOWN_STATED.set(ctx, stated);
 	const declared: typeof shown = [];
 	const next = produce(catalog, (draft) => {
 		const type = draft.find((one) => one.name === caseType);
 		for (const { property, choices } of shown) {
+			const key = `${caseType}\u0000${property}`;
 			const entry = type?.properties.find((one) => one.name === property);
 			if (
+				stated.has(key) ||
 				entry === undefined ||
-				(entry.options ?? []).length > 0 ||
 				(entry.data_type !== undefined && entry.data_type !== choices.dataType)
 			)
 				continue;
+			stated.add(key);
 			entry.data_type = choices.dataType;
 			entry.options = choices.options.map((option) => ({
 				value: option.value,
-				label: proseText(firstText(ctx, option.labels)),
+				label: proseText(sourceText(ctx, option.labels)),
 			}));
 			declared.push({ property, choices });
 		}
@@ -908,23 +968,28 @@ function declareShownChoices(
 	ctx.writeDraft(() => {
 		ctx.draft.caseTypes = next;
 	});
-	const tags = applicationReading(ctx)?.languages.tagOf;
-	const first = appCodes(ctx)[0];
-	if (tags === undefined) return;
 	for (const { property, choices } of declared)
 		for (const option of choices.options)
 			ctx.translations.set(
 				casePropertyOptionTranslationUnitId(caseType, property, option.value),
 				"prose",
-				new Map(
-					Object.entries(option.labels).flatMap(([code, text]) => {
-						const tag = tags.get(code);
-						return tag === undefined || code === first
-							? []
-							: [[tag, proseText(text)] as const];
-					}),
+				translatedTexts(
+					ctx,
+					Object.fromEntries(
+						Object.entries(option.labels).map(([code, text]) => [
+							code,
+							proseText(text),
+						]),
+					),
 				),
 			);
+}
+
+/** What a menu's columns read of the properties of its case type: whose choices the catalog keeps,
+ *  and which a column of the app shows by its choices' labels. */
+export interface ShownChoices {
+	readonly selectProperty: SelectProperty;
+	readonly labelShown: (property: string) => boolean;
 }
 
 /**
@@ -935,8 +1000,9 @@ function declareShownChoices(
 export function readCaseDetails(
 	ctx: ReadContext,
 	module: DraftModule,
-	selectProperty: SelectProperty,
+	choices: ShownChoices,
 ): void {
+	const { selectProperty } = choices;
 	const pair = module.json.object(
 		"case_details",
 		"DetailPair",
@@ -1052,7 +1118,10 @@ export function readCaseDetails(
 					noteProperty(draft, caseType, property);
 			});
 		});
-	if (caseType !== undefined) declareShownChoices(ctx, caseType, joined);
+	if (caseType !== undefined) {
+		withholdRawShownChoices(ctx, caseType, joined, choices.labelShown);
+		declareShownChoices(ctx, caseType, joined);
+	}
 
 	// Each column's identity: by (kind, field, n), n its ordinal among equal pairs in list order.
 	const seen = new Map<string, number>();
@@ -1090,8 +1159,7 @@ export function readCaseDetails(
 		}),
 		...(tile.config !== undefined && { tile: tile.config }),
 	};
-	const tags = applicationReading(ctx)?.languages.tagOf;
-	const first = appCodes(ctx)[0];
+	const named = applicationReading(ctx)?.languages.tagOf !== undefined;
 	const twins: ColumnFieldTwin[] = [];
 	joined.columns.forEach((column, index) => {
 		const uuid = uuids[index] as Uuid;
@@ -1139,16 +1207,9 @@ export function readCaseDetails(
 				pendingPlaceholder("value");
 		}
 		config.columns.push(built);
-		if (tags === undefined || !caseListColumnTextShows(built)) return;
+		if (!named || !caseListColumnTextShows(built)) return;
 		const byLanguage = (map: Readonly<Record<string, string>>) =>
-			new Map(
-				Object.entries(map).flatMap(([code, text]) => {
-					const tag = tags.get(code);
-					return tag === undefined || code === first
-						? []
-						: [[tag, text] as const];
-				}),
-			);
+			translatedTexts(ctx, map);
 		ctx.translations.set(
 			makeTranslationUnitId("column", uuid, "header"),
 			"text",
@@ -1210,3 +1271,150 @@ export function readCaseDetails(
 		dropped,
 	});
 }
+
+/**
+ * The reader's canonical choice `columns-off-a-screen-last-in-its-order`: a column the detail does
+ * not show (`visibleInDetail: false`) has no place in the long detail, and a column that is not on
+ * the list (`notOnList`) none in the short one, so a document that holds either anywhere in that
+ * screen's order prints what one that holds it last prints. The reader returns the screen's own
+ * columns in their order, then the others: those off the detail in the list's order, those off the
+ * list in the detail's (`joinDetailColumns`, rules 3 to 5).
+ */
+export function columnsOffAScreenLast(doc: BlueprintDoc): BlueprintDoc {
+	const next = new Map<Uuid, { list: Uuid[]; detail: Uuid[] }>();
+	for (const moduleUuid of doc.moduleOrder) {
+		const config = doc.modules[moduleUuid]?.caseListConfig;
+		if (config === undefined) continue;
+		const columns = new Map(config.columns.map((one) => [one.uuid, one]));
+		const last = (
+			order: readonly Uuid[],
+			other: readonly Uuid[],
+			off: (column: Column) => boolean,
+		): Uuid[] => {
+			const isOff = (uuid: Uuid) => {
+				const column = columns.get(uuid);
+				return column !== undefined && off(column);
+			};
+			return [
+				...order.filter((uuid) => !isOff(uuid)),
+				...other.filter((uuid) => isOff(uuid) && order.includes(uuid)),
+			];
+		};
+		const detail = last(
+			config.detailColumnOrder,
+			config.listColumnOrder,
+			(column) => column.visibleInDetail === false,
+		);
+		const list = last(
+			config.listColumnOrder,
+			config.detailColumnOrder,
+			(column) => column.notOnList === true,
+		);
+		if (
+			detail.join() !== config.detailColumnOrder.join() ||
+			list.join() !== config.listColumnOrder.join()
+		)
+			next.set(moduleUuid, { list, detail });
+	}
+	if (next.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const [moduleUuid, { list, detail }] of next) {
+			const config = draft.modules[moduleUuid]?.caseListConfig;
+			if (config === undefined) continue;
+			config.listColumnOrder = list;
+			config.detailColumnOrder = detail;
+		}
+	});
+}
+
+/**
+ * The reader's canonical choice `columns-of-a-menu-that-lists-no-cases-are-off-the-detail`: a menu
+ * whose forms are all surveys, with no case list entry, lists no cases, and Nova writes it the
+ * pair every new menu holds in CommCare HQ, whatever its list and its search hold
+ * (`expander.ts`, `hasCases`): one `name` column headed with the same word in every language,
+ * on the list and off the detail, and the search's shell defaults. So no export carries the
+ * menu's columns, their headers' translations, their order rules, its tile, its filter, its
+ * selection, its Search fields or its search settings, and the reader returns the list that pair
+ * reads as: that one plain `case_name` column off the detail and nothing else. The column keeps
+ * the identity of the menu's own first plain `case_name` column where it has one, the identity a
+ * re-read gives it, and is otherwise minted under the app's id, as a re-read mints it. It runs
+ * before `columns-off-a-screen-last-in-its-order`.
+ */
+export function columnsOfAMenuThatListsNoCasesOffTheDetail(
+	doc: BlueprintDoc,
+): BlueprintDoc {
+	const lists = new Map<Uuid, CaseListConfig>();
+	for (const uuid of doc.moduleOrder) {
+		const module = doc.modules[uuid];
+		if (
+			module?.caseType === undefined ||
+			moduleCaseTypeForActions(doc, uuid) !== ""
+		)
+			continue;
+		const config = module.caseListConfig;
+		const own =
+			config === undefined
+				? undefined
+				: orderedColumns(config, "list").find(
+						(column) => column.kind === "plain" && column.field === "case_name",
+					);
+		const column = {
+			...plainColumn(
+				own?.uuid ??
+					mintEntityUuid(
+						doc.appId,
+						externalKey.caseListColumn(
+							DERIVED_WIRE_IDENTITY.moduleUniqueId(uuid),
+							"plain",
+							"case_name",
+							0,
+						),
+					),
+				"case_name",
+				SHELL_COLUMN_HEADER,
+			),
+			visibleInDetail: false,
+		};
+		const list: CaseListConfig = {
+			columns: [column],
+			listColumnOrder: [column.uuid],
+			detailColumnOrder: [column.uuid],
+			searchInputs: [],
+		};
+		if (!sameJson(config, list) || module.caseSearchConfig !== undefined)
+			lists.set(uuid, list);
+	}
+	if (lists.size === 0) return doc;
+	const before = translationUnitsById(doc);
+	const shellHeaders = new Set(
+		[...lists.values()].map((list) =>
+			makeTranslationUnitId("column", list.listColumnOrder[0] ?? "", "header"),
+		),
+	);
+	return withCandidate(doc, (draft) => {
+		for (const [uuid, list] of lists) {
+			const module = draft.modules[uuid];
+			if (module === undefined) continue;
+			module.caseListConfig = structuredClone(list);
+			delete module.caseSearchConfig;
+		}
+		// The units the pair carries no text for: those of what the menus no longer hold, and the
+		// shell column's header, the same word in every language.
+		const after = translationUnitsById(draft as BlueprintDoc);
+		for (const targets of Object.values(draft.localization?.translations ?? {}))
+			for (const unit of Object.keys(targets ?? {}) as TranslationUnitId[])
+				if (shellHeaders.has(unit) || (before.has(unit) && !after.has(unit)))
+					delete targets?.[unit];
+	});
+}
+
+/** The header of the one column a menu that lists no cases is written, which is the same word in
+ *  every language. */
+const SHELL_COLUMN_HEADER = (() => {
+	const header = emptyShortListColumns(["en"])[0]?.header.en;
+	if (header === undefined)
+		throw new Error(
+			"Nova's empty list holds no column with a header, but every new menu in CommCare HQ holds one; look at hqJson/caseList.ts::emptyShortListColumns.",
+		);
+	return header;
+})();

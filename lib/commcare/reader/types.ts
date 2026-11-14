@@ -8,6 +8,7 @@ import type { DeclarationChoices } from "@/lib/doc/platformDeclaration";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
+	CaseType,
 	LookupColumnId,
 	LookupTableId,
 	MediaKind,
@@ -48,6 +49,26 @@ export interface ReaderInput {
 	/** Whether the source project space applies "save only if changed", as the probe of it
 	 *  answered; absent where the source holds no `update_mode: "edit"` and no probe was made. */
 	readonly saveOnlyEditedApplied?: boolean;
+	/** What Nova already holds about this app's case types that no export carries: the case type
+	 *  each index of a type reaches. Consulted only where the app itself fixes none (no child
+	 *  link, no parent selection, no open action's index). Absent for an app Nova has never held. */
+	readonly knownCaseTypes?: ReaderKnownCaseTypes;
+}
+
+/** The case types the indices of the app's document reach, as Nova holds them
+ *  (`caseManagement/knownCaseTypes.ts::knownCaseTypesOf`). */
+export interface ReaderKnownCaseTypes {
+	/** The type a case of `caseType` reaches through its index `identifier`: for `parent`, the
+	 *  catalog's parent and the relationship it holds; for any other identifier, the type every
+	 *  typed step of the document through that identifier from `caseType` agrees on. Undefined
+	 *  where Nova holds none, or where those steps disagree. */
+	targetOf(caseType: string, identifier: string): KnownIndexTarget | undefined;
+}
+
+export interface KnownIndexTarget {
+	readonly caseType: string;
+	/** The catalog's relationship, for its parent alone. */
+	readonly relationship?: CaseType["relationship"];
 }
 
 export interface ReaderOptions {

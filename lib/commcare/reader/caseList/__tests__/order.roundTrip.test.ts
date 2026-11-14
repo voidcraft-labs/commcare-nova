@@ -1,7 +1,8 @@
 /**
  * Contract: the plan of the read columns writes the stored `sort_elements`, so every order rule
- * Nova emits reads back on its column, after the reader's canonical choices (a rule HQ joins to
- * another column prints that column's own rule, `order-rules-on-the-columns-they-land-on`), with
+ * Nova emits reads back on its column, after the reader's canonical choices (a rule whose
+ * property element HQ joins to another column prints that column's own rule,
+ * `order-rules-on-the-columns-they-land-on`), with
  * blanks stored only where they are not the direction's own, and a list Nova writes as the source
  * holds it records no first-publish rewrite. The failure it catches: a rule joined to the second
  * column of one text; blanks stored where they are the direction's own; a rewrite declared for a

@@ -43,7 +43,7 @@ import { expandDoc } from "../../../expander";
 import { inputFor } from "../../__tests__/novaExport";
 import { retainedSourceBody } from "../../__tests__/readerInput";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
-import { readHqApp } from "../../index";
+import { knownCaseTypesOf, readHqApp } from "../../index";
 import type { ReaderMediaResolution } from "../../types";
 
 const JR_FILE = "jr://file/";
@@ -214,6 +214,7 @@ it("reads back every form of the fuzz documents to its fields", {
 				) as Record<string, unknown>),
 			};
 			const input = await inputFor(body, {
+				knownCaseTypes: knownCaseTypesOf(doc),
 				media: {
 					resolve: (path): ReaderMediaResolution => {
 						const assetId = assetOfPath.get(path);

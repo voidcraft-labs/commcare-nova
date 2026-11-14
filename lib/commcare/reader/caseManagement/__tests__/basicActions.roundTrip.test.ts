@@ -2,10 +2,16 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FormSpec, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/expression/builders";
+import {
+	type BlueprintDoc,
+	type CaseOperation,
+	plainColumn,
+	type Uuid,
+} from "@/lib/domain";
+import { formField, term, unowned } from "@/lib/domain/expression/builders";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import { proseText } from "@/lib/domain/prose";
+import { caseListOf } from "../../../../../proof/targeted/build";
 import { expressionDocArbitrary } from "../../../__tests__/expressionDocArbitrary";
 import {
 	buildShape,
@@ -18,7 +24,12 @@ import { suiteDocArbitrary } from "../../../__tests__/suiteDocArbitrary";
 import { blueprintDocArbitrary } from "../../../__tests__/xformDocArbitrary";
 import { emittedModuleKind } from "../../../moduleKind";
 import { planPlacements } from "../../../placement";
+import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { READER_CANONICAL_CHOICES } from "../../assemble";
+import { matchingResolver } from "../../identity";
+import { externalIdentityMap } from "../../identityMap";
+import { knownCaseTypesOf, readHqApp } from "../../index";
 import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
 import {
 	comparableOperations,
@@ -296,21 +307,15 @@ describe("a basic form read back from Nova's own emission", () => {
 				code.startsWith("unrecognized:schema:ConditionalCaseUpdate.") ||
 				code.startsWith("unrecognized:schema:FormActionCondition.") ||
 				code.startsWith("unrecognized:entry-fact:") ||
-				code === "unrecognized:schema:Form.actions" ||
-				code === "unrecognized:planFormCaseWire",
-		);
-	}
-
-	function withoutIds(
-		operations: readonly CaseOperation[],
-	): readonly CaseOperation[] {
-		return operations.map(
-			({ id: _id, ...rest }) => ({ ...rest, id: "" }) as CaseOperation,
+				code === "unrecognized:schema:Form.actions",
 		);
 	}
 
 	const typedVia = READER_CANONICAL_CHOICES.find(
 		(one) => one.id === "write-via-steps-are-typed",
+	);
+	const derivedIds = READER_CANONICAL_CHOICES.find(
+		(one) => one.id === "basic-slot-operation-ids-are-derived",
 	);
 
 	const generators: [string, fc.Arbitrary<BlueprintDoc>][] = [
@@ -358,12 +363,13 @@ describe("a basic form read back from Nova's own emission", () => {
 						const read = (form.form.caseOperations ??
 							[]) as readonly CaseOperation[];
 						operationsRead += read.length;
-						// A basic slot prints no operation's id: the reader derives it from the case type.
+						// A basic slot prints no operation's id: the reader derives it from the case
+						// type, as the canonical row does.
 						expect(
-							comparableOperations(withoutIds(read), readPaths(form), modules),
+							comparableOperations(read, readPaths(form), modules),
 						).toEqual(
 							comparableOperations(
-								withoutIds(plannedOperations(doc, formUuid)),
+								plannedOperations(derivedIds?.apply(doc) ?? doc, formUuid),
 								docPaths(doc, formUuid),
 								modules,
 							),
@@ -471,4 +477,117 @@ describe("a basic form read back from Nova's own emission", () => {
 			}
 		}
 	});
+});
+
+/**
+ * The own arm's owner, as Nova prints it. Contract: a registration's and a
+ * follow-up's own arm whose owner is a question's answer takes Case
+ * Management's own slot, which HQ's form actions hold as the update key
+ * `owner_id` naming the question; one that leaves its case unowned holds a
+ * value no question gives, so the plan keeps that arm in a Save to Case block.
+ * Each reads back from Nova's export, with no finding, to the owner the
+ * canonical document holds, and the slot's owner is claimed under its own
+ * row. The plausible failure: the owner key read as an ordinary write, or
+ * dropped, gives a document whose case is owned by whoever submits it.
+ */
+describe("an own arm's owner read back from Nova's own emission", () => {
+	const ownerId = (key: string) => testUuid(`owner-${key}`);
+
+	function owned(
+		type: "registration" | "followup",
+		owner: "question" | "unowned",
+	): BlueprintDoc {
+		return buildDoc(
+			{
+				appId: "app-1",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: proseText("Name") }],
+					},
+				],
+				modules: [
+					{
+						uuid: ownerId("menu"),
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListOf([
+							plainColumn(ownerId("name-column"), "case_name", "Name"),
+						]),
+						forms: [
+							{
+								uuid: ownerId("form"),
+								name: "Visit",
+								type,
+								fields: [
+									f({ kind: "text", uuid: ownerId("name"), id: "name" }),
+									f({ kind: "text", uuid: ownerId("worker"), id: "worker" }),
+								],
+							},
+						],
+					},
+				],
+			},
+			(built) => {
+				const form = built.forms[ownerId("form")];
+				if (form !== undefined)
+					form.caseOperations = [
+						{
+							uuid: ownerId("own"),
+							id: "patient",
+							action: "own",
+							...(type === "registration" && {
+								name: term(formField(ownerId("name"))),
+							}),
+							owner:
+								owner === "question"
+									? term(formField(ownerId("worker")))
+									: unowned(),
+						} as CaseOperation,
+					];
+			},
+		);
+	}
+
+	it.each([
+		["registration", "question", "basic"],
+		["followup", "question", "basic"],
+		["registration", "unowned", "save-to-case"],
+		["followup", "unowned", "save-to-case"],
+	] as const)(
+		"reads a %s's own arm owned by a %s, kept in %s, back to the canonical owner",
+		async (type, owner, kept) => {
+			const doc = owned(type, owner);
+			expect(
+				planPlacements(doc, ownerId("form")).placements.get(ownerId("own"))
+					?.placement.kind,
+			).toBe(kept);
+			const outcome = readHqApp(
+				await inputFor(exportedBody(doc), {
+					resolver: matchingResolver(
+						"app-1",
+						externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
+					),
+					knownCaseTypes: knownCaseTypesOf(doc),
+				}),
+			);
+			expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+			expect(outcome.defects).toEqual([]);
+			if (outcome.kind !== "read") throw new Error("The export did not read.");
+			const canonical = READER_CANONICAL_CHOICES.reduce(
+				(current, choice) => choice.apply(current),
+				doc,
+			);
+			const ownOf = (one: BlueprintDoc) =>
+				one.forms[ownerId("form")]?.caseOperations?.find(
+					(operation) => operation.action === "own",
+				);
+			expect(ownOf(outcome.draft.doc)?.owner).toEqual(ownOf(canonical)?.owner);
+			expect(ownOf(canonical)?.owner).toEqual(ownOf(doc)?.owner);
+			const claimed =
+				outcome.claims.counts["forms-and-case-writes/update-key-owner-id"] ?? 0;
+			if (kept === "basic") expect(claimed).toBeGreaterThan(0);
+			else expect(claimed).toBe(0);
+		},
+	);
 });

@@ -17,7 +17,6 @@ import {
 	settleCaseManagement,
 	writeCaseOperations,
 } from "./caseManagement";
-import { noteCatalogOptionTranslations } from "./caseManagement/catalog";
 import { createReadContext, type ReadContext } from "./context";
 import {
 	readMenus,
@@ -34,6 +33,7 @@ import { mintFields, readForms } from "./xform";
 import { finishForms } from "./xform/afterBinding";
 import { finishText } from "./xform/prose";
 
+export { knownCaseTypesOf } from "./caseManagement/knownCaseTypes";
 export type * from "./types";
 
 /** One stage of a reading: reads what it claims, writes the drafts, the facts or the document. */
@@ -64,7 +64,6 @@ export const STAGES: readonly ReaderStage[] = [
 	(ctx) => settleSearches(ctx, ctx.draft),
 	(ctx) => settleMenus(ctx, ctx.draft),
 	finishText,
-	noteCatalogOptionTranslations,
 	finishForms,
 	assembleDocument,
 ];

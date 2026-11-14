@@ -8,6 +8,7 @@
  * with it.
  */
 import type {
+	BlueprintDoc,
 	LookupColumnId,
 	LookupTableId,
 	SearchInputDef,
@@ -15,18 +16,22 @@ import type {
 } from "@/lib/domain";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	DEFAULT_SEARCH_MODE_KIND,
 	SEARCH_INPUT_NAME_PATTERN,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchInputLookupOptions,
 } from "@/lib/domain/modules";
-import {
-	SEARCH_RUNTIME_VALIDATION_MESSAGES,
-	type SearchRuntimeValidationMessage,
-} from "@/lib/domain/searchRuntimeValidationMessages";
+import type { SearchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import type { FormSyntax } from "../../xpath/formSyntax";
-import { applicationReading } from "../appShell";
-import { appCodes, firstText, languageMap } from "../caseList/columns";
+import { withCandidate } from "../candidate";
+import {
+	appCodes,
+	languageMap,
+	sourceCode,
+	sourceText,
+	translatedTexts,
+} from "../caseList/columns";
 import {
 	type Claim,
 	defineClaims,
@@ -40,6 +45,8 @@ import { externalKey } from "../identity";
 import { isJsonObject, type JsonCursor } from "../jsonCursor";
 import { pendingPlaceholder } from "../pendingExpressions";
 import { readFormSyntax } from "../syntaxRead";
+import { readGuardText } from "./guardSplit";
+import { storedPrompts, withoutRuntimeGuard } from "./systemSentences";
 import { searchPlace } from "./workflow";
 
 const S = "case-search/";
@@ -305,17 +312,6 @@ function itemsetSource(
 	return filter === undefined ? { tag: item } : { tag: item, filter };
 }
 
-function byLanguage(ctx: ReadContext, map: Readonly<Record<string, string>>) {
-	const tags = applicationReading(ctx)?.languages.tagOf;
-	const first = appCodes(ctx)[0];
-	return new Map(
-		Object.entries(map).flatMap(([code, text]) => {
-			const tag = tags?.get(code);
-			return tag === undefined || code === first ? [] : [[tag, text] as const];
-		}),
-	);
-}
-
 /** Whether a prompt carries a widget: an itemset, an input type or an appearance. */
 function carriesWidget(prompt: JsonCursor): boolean {
 	return (
@@ -501,9 +497,13 @@ function readPrompt(
 				tableId: table.tableId as LookupTableId,
 				valueColumnId: valueColumn as LookupColumnId,
 				labelColumnId: labelColumn as LookupColumnId,
-				...(sortColumn !== undefined && {
-					sortColumnId: sortColumn as LookupColumnId,
-				}),
+				// The label column is the order a field with no sort column of its own prints
+				// (`searchInputLookupSortColumnId`), and a document holds that order as no sort column
+				// (`withCanonicalSearchInputOptions`).
+				...(sortColumn !== undefined &&
+					sortColumn !== labelColumn && {
+						sortColumnId: sortColumn as LookupColumnId,
+					}),
 			};
 			optionsFilterText = source.filter;
 			if (optionsFilterText !== undefined && options !== undefined)
@@ -608,17 +608,17 @@ function readPrompt(
 				"no-case",
 				"schema:Assertion.test",
 			);
-		const message = firstText(ctx, text);
-		const translated = Object.entries(text).some(
-			([code, one]) =>
-				code !== appCodes(ctx)[0] && one !== "" && one !== message,
-		);
-		if (message !== SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE || translated) {
+		const message = sourceText(ctx, text);
+		const nova = requiredDefaultTexts(ctx);
+		const novaSentence =
+			nova !== undefined &&
+			appCodes(ctx).every((code) => (text[code] ?? "") === nova.get(code));
+		if (!novaSentence) {
 			required.message = message;
 			ctx.translations.set(
 				makeTranslationUnitId("search-input", uuid, "required-message"),
 				"text",
-				byLanguage(ctx, text),
+				translatedTexts(ctx, text),
 			);
 		}
 	}
@@ -631,7 +631,7 @@ function readPrompt(
 		const text = first.take("text", P.validationText, languageMap).value;
 		const authored = withoutRuntimeGuard(
 			test,
-			appCodes(ctx).map((code) => text[code] ?? ""),
+			sourceFirst(ctx).map((code) => text[code] ?? ""),
 		);
 		const guarded =
 			authored.kind === "whole"
@@ -660,11 +660,11 @@ function readPrompt(
 							]),
 						)
 					: text;
-			validationMessage = firstText(ctx, messages);
+			validationMessage = sourceText(ctx, messages);
 			ctx.translations.set(
 				makeTranslationUnitId("search-input", uuid, "validation-message"),
 				"text",
-				byLanguage(ctx, messages),
+				translatedTexts(ctx, messages),
 			);
 		}
 	}
@@ -682,20 +682,20 @@ function readPrompt(
 	ctx.translations.set(
 		makeTranslationUnitId("search-input", uuid, "label"),
 		"text",
-		byLanguage(ctx, label),
+		translatedTexts(ctx, label),
 	);
-	const hint = firstText(ctx, hintMap);
+	const hint = sourceText(ctx, hintMap);
 	if (hint !== "")
 		ctx.translations.set(
 			makeTranslationUnitId("search-input", uuid, "hint"),
 			"text",
-			byLanguage(ctx, hintMap),
+			translatedTexts(ctx, hintMap),
 		);
 
 	const common = {
 		uuid,
 		name,
-		label: firstText(ctx, label),
+		label: sourceText(ctx, label),
 		...(hint !== "" && { hint }),
 		...(required !== undefined && {
 			required: {
@@ -759,16 +759,15 @@ function readPrompt(
 	};
 }
 
-/** A prompt's stored validation, apart from the runtime guard Nova's emitter conjoins: the
- *  guard is the catalog's entry whose source sentence told it. */
-type ValidationReading =
-	| { readonly kind: "whole" }
-	| { readonly kind: "guard"; readonly guard: SearchRuntimeValidationMessage }
-	| {
-			readonly kind: "split";
-			readonly rule: string;
-			readonly guard: SearchRuntimeValidationMessage;
-	  };
+/** The app's language codes, the reading's source first and the rest in the app's order: the
+ *  order a stored text is read in, since the source language holds Nova's own sentences. */
+function sourceFirst(ctx: ReadContext): readonly string[] {
+	const source = sourceCode(ctx);
+	const codes = appCodes(ctx);
+	return source === undefined
+		? codes
+		: [source, ...codes.filter((code) => code !== source)];
+}
 
 /** Each runtime guard's text in each of the app's languages, by the guard's key, per reading. */
 const GUARD_TEXTS = new WeakMap<
@@ -779,17 +778,19 @@ const GUARD_TEXTS = new WeakMap<
 /**
  * Each runtime guard's text in each language, read over every Search field of the app: the
  * guard's message is one translation unit of the app (`system/search-validation/<key>`), joined
- * after each field's own message (`searchPrompts.ts::buildValidation`). In the first language,
- * the reading's source, the unit's text is its source, the catalog sentence, whatever the stored
- * texts say: a document holds no other text there, and a field whose stored text does not end
- * with it keeps its whole text, which the menu's projection then does not print back. In any
- * other language a text that is the guard alone gives its language's text as it stands; else,
- * where every text that joins it ends with
- * the source sentence, it is untranslated; else it is the longest text after a space that every
- * joined text of that language ends with and that leaves each field a message of its own. The
- * stored bytes are the join alone, so the last is the reading's choice of where one field's
- * message ends; the whole menu's projection holds every choice. Each text read is written as the
- * unit's translation.
+ * after each field's own message (`searchPrompts.ts::buildValidation`). In the reading's source
+ * language the unit's text is its source, the catalog sentence, whatever the stored texts say: a
+ * document holds no other text there, and a field whose stored text does not end with it keeps
+ * its whole text, which the menu's projection then does not print back. The source is a
+ * language that holds Nova's sentence wherever another does (`languages.ts::readingSourceCode`),
+ * which may be other than the first. In any other language the text is `guardSplit.ts::readGuardText`'s: a
+ * text that is the guard alone as it stands; else, where every text that joins it ends with the
+ * source sentence, untranslated; else the longest text after a space that every joined text of
+ * that language ends with and that leaves each field a message of its own. The stored bytes are
+ * the join alone, so the last is the reading's choice of where one field's message ends, which
+ * the canonical choice `joined-search-guards-split-as-read` makes of a Nova-born document; the
+ * whole menu's projection holds every choice. Each text read is written as the unit's
+ * translation.
  */
 function guardTexts(
 	ctx: ReadContext,
@@ -797,45 +798,38 @@ function guardTexts(
 	const cached = GUARD_TEXTS.get(ctx);
 	if (cached !== undefined) return cached;
 	const codes = appCodes(ctx);
+	const ordered = sourceFirst(ctx);
 	const entries = new Map<string, SearchRuntimeValidationMessage>();
 	const alone = new Map<string, Map<string, string>>();
 	const joined = new Map<string, Map<string, string[]>>();
-	for (const module of ctx.draft.modules) {
-		const config = module.json.peek("search_config");
-		const properties =
-			isJsonObject(config) && Array.isArray(config.properties)
-				? config.properties
-				: [];
-		for (const property of properties) {
-			const first =
-				isJsonObject(property) && Array.isArray(property.validations)
-					? property.validations[0]
-					: undefined;
-			if (!isJsonObject(first)) continue;
-			const text = languageMap(first.text);
-			const reading = withoutRuntimeGuard(
-				first.test,
-				codes.map((code) => text[code] ?? ""),
-			);
-			if (reading.kind === "whole") continue;
-			const key = reading.guard.key;
-			entries.set(key, reading.guard);
-			for (const code of codes) {
-				const one = text[code] ?? "";
-				if (reading.kind === "guard") {
-					const byCode = alone.get(key) ?? new Map<string, string>();
-					alone.set(key, byCode);
-					if (!byCode.has(code)) byCode.set(code, one);
-				} else {
-					const byCode = joined.get(key) ?? new Map<string, string[]>();
-					joined.set(key, byCode);
-					byCode.set(code, [...(byCode.get(code) ?? []), one]);
-				}
+	for (const prompt of storedPrompts(ctx.app.peek("modules"))) {
+		const first = Array.isArray(prompt.validations)
+			? prompt.validations[0]
+			: undefined;
+		if (!isJsonObject(first)) continue;
+		const text = languageMap(first.text);
+		const reading = withoutRuntimeGuard(
+			first.test,
+			ordered.map((code) => text[code] ?? ""),
+		);
+		if (reading.kind === "whole") continue;
+		const key = reading.guard.key;
+		entries.set(key, reading.guard);
+		for (const code of codes) {
+			const one = text[code] ?? "";
+			if (reading.kind === "guard") {
+				const byCode = alone.get(key) ?? new Map<string, string>();
+				alone.set(key, byCode);
+				if (!byCode.has(code)) byCode.set(code, one);
+			} else {
+				const byCode = joined.get(key) ?? new Map<string, string[]>();
+				joined.set(key, byCode);
+				byCode.set(code, [...(byCode.get(code) ?? []), one]);
 			}
 		}
 	}
 	const out = new Map<string, ReadonlyMap<string, string>>();
-	const [source] = codes;
+	const source = sourceCode(ctx);
 	for (const [key, entry] of entries) {
 		const byCode = new Map<string, string>();
 		for (const code of codes) {
@@ -844,91 +838,104 @@ function guardTexts(
 			const read =
 				code === source
 					? entry.message
-					: (given ??
-						(texts.every((one) => one.endsWith(` ${entry.message}`))
-							? entry.message
-							: sharedGuardText(texts)));
+					: readGuardText(entry.message, given, texts);
 			if (read !== undefined) byCode.set(code, read);
 		}
 		out.set(key, byCode);
 		ctx.translations.set(
 			makeTranslationUnitId("system", "search-validation", key),
 			"text",
-			byLanguage(ctx, Object.fromEntries(byCode)),
+			translatedTexts(ctx, Object.fromEntries(byCode)),
 		);
 	}
 	GUARD_TEXTS.set(ctx, out);
 	return out;
 }
 
-/** The longest text after a space that every text ends with, leaving each a text before it. */
-function sharedGuardText(texts: readonly string[]): string | undefined {
-	const [first, ...rest] = texts;
-	if (first === undefined) return undefined;
-	for (
-		let at = first.indexOf(" ", 1);
-		at !== -1;
-		at = first.indexOf(" ", at + 1)
-	) {
-		const suffix = first.slice(at + 1);
-		if (suffix === "") continue;
-		if (
-			rest.every(
-				(one) => one.length > suffix.length + 1 && one.endsWith(` ${suffix}`),
-			)
-		)
-			return suffix;
-	}
-	return undefined;
-}
+/** The required message's text in each language, per reading (`requiredDefaultTexts`). */
+const REQUIRED_TEXTS = new WeakMap<
+	ReadContext,
+	ReadonlyMap<string, string> | null
+>();
 
 /**
- * Nova's emitter writes a prompt's one validation as the authored rule and
- * message, then the runtime guard of the search's own values and its message
- * (`searchPrompts.ts::buildValidation`), each language joining its own two
- * texts. The guard's message is Nova's own sentence in its source language and
- * any text in a translation, so the messages are read in the app's language
- * order and the first that tells decides: one that is one of the guard's
- * messages is the guard alone; one that ends with a guard message after a
- * space is an authored rule followed by the guard, the guard being the last
- * conjunct of the stored test's top-level `and`. The message is only the
- * precondition: the whole menu's projection, compared with the stored search
- * when the menu settles, holds the reading.
+ * The text of Nova's message for a required field with none of its own, in each language, read
+ * over every Search field of the app: the message is one translation unit of the app
+ * (`system/search-required/default`), printed whole by each such field. In the reading's source
+ * language it is the catalog sentence; in every other language it is the text there of the first
+ * required field, in menu and prompt order, whose source text is that sentence. A field whose
+ * text is this one in every language holds no message of its own; any other keeps its text as
+ * its message, which prints the same bytes. Each text read is written as the unit's translation.
+ * Undefined where no required field's source text is the sentence.
  */
-function withoutRuntimeGuard(
-	test: unknown,
-	messages: readonly string[],
-): ValidationReading {
-	if (typeof test !== "string") return { kind: "whole" };
-	for (const message of messages) {
-		const reading = guardReading(test, message);
-		if (reading.kind !== "whole") return reading;
+function requiredDefaultTexts(
+	ctx: ReadContext,
+): ReadonlyMap<string, string> | undefined {
+	const cached = REQUIRED_TEXTS.get(ctx);
+	if (cached !== undefined) return cached ?? undefined;
+	const source = sourceCode(ctx);
+	const carrier =
+		source === undefined
+			? undefined
+			: storedPrompts(ctx.app.peek("modules"))
+					.map((prompt) =>
+						isJsonObject(prompt.required)
+							? languageMap(prompt.required.text)
+							: undefined,
+					)
+					.find(
+						(text) => text?.[source] === SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+					);
+	if (carrier === undefined) {
+		REQUIRED_TEXTS.set(ctx, null);
+		return undefined;
 	}
-	return { kind: "whole" };
-}
-
-/** What one language's message says of the stored test. */
-function guardReading(test: string, message: string): ValidationReading {
-	const whole = SEARCH_RUNTIME_VALIDATION_MESSAGES.find(
-		(one) => one.message === message,
+	const out = new Map(
+		appCodes(ctx).map((code) => [code, carrier[code] ?? ""] as const),
 	);
-	if (whole !== undefined) return { kind: "guard", guard: whole };
-	const guard = SEARCH_RUNTIME_VALIDATION_MESSAGES.filter((one) =>
-		message.endsWith(` ${one.message}`),
-	).sort((a, b) => b.message.length - a.message.length)[0];
-	if (guard === undefined) return { kind: "whole" };
-	const read = readFormSyntax(test);
-	const node = read.ok ? read.node : undefined;
-	if (node?.kind !== "binary" || node.op !== "and") return { kind: "whole" };
-	return {
-		kind: "split",
-		rule: test.slice(node.left.from, node.left.to),
-		guard,
-	};
+	REQUIRED_TEXTS.set(ctx, out);
+	ctx.translations.set(
+		makeTranslationUnitId("system", "search-required", "default"),
+		"text",
+		translatedTexts(ctx, Object.fromEntries(out)),
+	);
+	return out;
 }
 
 function withoutSuffix(text: string, suffix: string): string {
 	return text.endsWith(suffix)
 		? text.slice(0, text.length - suffix.length)
 		: text;
+}
+
+/** Whether `input` is a simple Search field that names, as its mode, the mode its widget takes
+ *  when it names none. */
+function namesItsDefaultMode(input: SearchInputDef): boolean {
+	return (
+		input.kind === "simple" &&
+		input.type !== "date-range" &&
+		input.mode !== undefined &&
+		input.mode.kind === DEFAULT_SEARCH_MODE_KIND[input.type]
+	);
+}
+
+/**
+ * The reader's canonical choice `exact-search-mode-is-absent`: a simple Search field whose mode
+ * is the one its widget takes when it names none (exact matching, for a text, date, barcode or
+ * choice widget), and the same field naming no mode. Every print reads the mode through the
+ * widget's default (`modules.ts::effectiveSimpleSearchModeKind`), so both print one source, and
+ * the reader proposes no mode first (`rows.ts`), so it returns the field with none. A date range
+ * field's mode is required and is not changed.
+ */
+export function exactSearchModeIsAbsent(doc: BlueprintDoc): BlueprintDoc {
+	const named = doc.moduleOrder.some((uuid) =>
+		doc.modules[uuid]?.caseListConfig?.searchInputs.some(namesItsDefaultMode),
+	);
+	if (!named) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const module of Object.values(draft.modules))
+			for (const input of module.caseListConfig?.searchInputs ?? [])
+				if (namesItsDefaultMode(input))
+					delete (input as { mode?: unknown }).mode;
+	});
 }

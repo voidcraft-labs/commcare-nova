@@ -1,7 +1,9 @@
 /**
- * The expression stage of a reading: every expression an app holds, read at
- * once over the finished structure into Nova's typed `Expression`, or into
- * the claim that says why not. Typing is a fact of the whole document (one
+ * The expression stage of a reading: every expression a reader registered,
+ * read at once over the finished structure into Nova's typed `Expression`,
+ * or into the claim that says why not. A search filter row is no
+ * registration: the search reader reads it where the search is settled
+ * (`csqlRead.ts`, `searchRows.ts`). Typing is a fact of the whole document (one
  * Hidden Value's inferred type decides how another slot's comparison
  * prints), so every slot is bound, printed and compared against one
  * document, and every round of the work builds a new document object: every
@@ -72,7 +74,6 @@ import {
 	type ComparedType,
 	comparedTypes,
 } from "./comparedTypes";
-import { readSearchFilterRow } from "./csqlRead";
 import {
 	checkErrorEntry,
 	childOfInlineSearchMenu,
@@ -83,7 +84,7 @@ import {
 	nameGrammarEntry,
 	parseIssueEntry,
 	rawTextEntry,
-	SLOT_ENTRIES,
+	slotEntries,
 	visitSyntax,
 } from "./findings";
 import {
@@ -329,7 +330,6 @@ function sitesOf(
 ): readonly (Site | undefined)[] {
 	const seen = new Map<string, number>();
 	return pending.map((registration) => {
-		if (registration.mode.target === "search-row") return undefined;
 		const ref = registration.ref;
 		if (!isProseSlotRef(ref))
 			return slotHolder(doc, ref) === undefined ? undefined : { kind: "slot" };
@@ -447,7 +447,7 @@ function slotDefault(
 	ref: SlotContextRef,
 	form: () => string,
 ): string {
-	const refused = SLOT_ENTRIES[ref.slot].refused(doc, ref);
+	const refused = slotEntries(ref.slot).refused(doc, ref);
 	return refused === "form-default" ? form() : refused;
 }
 
@@ -476,16 +476,6 @@ function refusalOf(
 ): Resolution {
 	if (cause.kind === "no-case-datum")
 		return { kind: "unrecognized", reason: "no-case-datum" };
-	// A search filter row is read by `readSearchFilterRow`, which answers its
-	// own reason; the wrapper's own node is where nothing bound.
-	if (cause.kind === "search-row") {
-		const wrapper = textSyntax(pending.text);
-		return {
-			kind: "unrecognized",
-			reason:
-				wrapper === undefined ? "parse:syntax" : `differs:${wrapper.kind}`,
-		};
-	}
 	const issue =
 		cause.kind === "interpolation"
 			? { code: cause.code }
@@ -620,7 +610,6 @@ export function readExpressions(
 	const withdrawn = pending.map(() => new Set<string>());
 	const bindings = new Map<number, BoundSlot>();
 	const refused = new Map<number, SlotRefusal>();
-	const searchRows = new Map<number, ReturnType<typeof readSearchFilterRow>>();
 	// A form's display condition that reads a case attribute through a bare
 	// `#case`, which HQ's build would write as a standard property's read.
 	const rawRefusals = new Map<
@@ -646,18 +635,6 @@ export function readExpressions(
 	const bindable: number[] = [];
 	pending.forEach((registration, index) => {
 		if (!live[index]) return;
-		if (registration.mode.target === "search-row") {
-			const context = slotContext(base, registration.ref, types);
-			if (context !== undefined)
-				searchRows.set(
-					index,
-					readSearchFilterRow(registration.text, context, {
-						doc: base,
-						lookup: env.lookup,
-					}),
-				);
-			return;
-		}
 		if (sites[index] === undefined) {
 			live[index] = false;
 			return;
@@ -919,32 +896,6 @@ export function readExpressions(
 			kind: "refused",
 			resolution: { kind: "entry", ...raw },
 		});
-	for (const [index, row] of searchRows) {
-		const registration = pending[index] as PendingExpression;
-		if (row.ok) {
-			outcomes.set(index, { kind: "held", tree: row.predicate });
-			for (const id of row.rewrites)
-				if (EMISSION_REWRITES[id].behavior === "changes")
-					rewrites.push({
-						id,
-						place: registration.place,
-						key: registration.key,
-					});
-			continue;
-		}
-		outcomes.set(index, {
-			kind: "refused",
-			resolution:
-				"claim" in row
-					? {
-							kind: "entry",
-							entryId: row.claim.entryId,
-							reason: row.claim.detail.reason ?? "",
-							key: row.claim.key,
-						}
-					: { kind: "unrecognized", reason: row.reason },
-		});
-	}
 
 	// 7. Report.
 	const bound: (Expression | undefined)[] = pending.map(() => undefined);
@@ -972,7 +923,7 @@ export function readExpressions(
 						source,
 						outcome.kind === "held" ? outcome.tree : undefined,
 						context,
-						registration.mode,
+						"xpath",
 						surfaceUseFactsOf(
 							checked,
 							registration,
@@ -985,16 +936,12 @@ export function readExpressions(
 		const claimed = new Set<string>();
 		if (outcome.kind === "held") {
 			bound[index] = outcome.tree;
-			if (registration.mode.target !== "search-row")
-				held.set(index, outcome.tree);
-			const entryId =
-				registration.mode.target === "search-row"
-					? undefined
-					: SLOT_ENTRIES[registration.ref.slot].held(
-							checked,
-							registration.ref,
-							outcome.tree,
-						);
+			held.set(index, outcome.tree);
+			const entryId = slotEntries(registration.ref.slot).held(
+				checked,
+				registration.ref,
+				outcome.tree,
+			);
 			if (entryId !== undefined) {
 				claimed.add(registration.key);
 				claims.push({
@@ -1063,17 +1010,9 @@ export function readExpressions(
 				});
 	});
 	claims.push(...declarationClaims(checked, pending, env, held));
-	// A search filter row's tree is written by the search reader, not here,
-	// but it reads the worker and the case's properties all the same.
-	const searchTrees = [...searchRows.values()].flatMap((row) =>
-		row.ok ? [row.predicate] : [],
-	);
 	const userFields = new Set<string>();
-	for (const tree of [
-		...[...bindings.values()].map((binding) => binding.candidate),
-		...searchTrees,
-	])
-		walkExpressionTerms(tree, (term) => {
+	for (const binding of bindings.values())
+		walkExpressionTerms(binding.candidate, (term) => {
 			// A field CommCare HQ writes on every worker's own case
 			// (`callcenter/sync_usercase.py::_get_user_case_fields`) is no
 			// worker property: the read stays the name-backed leaf.
@@ -1089,7 +1028,7 @@ export function readExpressions(
 	// A relation read names the type it walks from; the property it reads is
 	// the type's the relation reaches.
 	const reads = new Set<string>();
-	for (const tree of [...held.values(), ...searchTrees])
+	for (const tree of held.values())
 		walkExpressionTerms(tree, (term) => {
 			if (term.kind !== "prop" && term.kind !== "form-case") return;
 			const caseType =
@@ -1135,8 +1074,8 @@ export function readExpressions(
 
 /** `doc` with each property its catalog holds untyped typed as the record
  *  slots compare it (`comparedTypes`): every registration bound with every
- *  fold on, and every Search field's condition the search reader wrote,
- *  which no registration holds. */
+ *  fold on. A search filter row is no registration: the search reader types
+ *  what its rows compare (`search/rows.ts`). */
 function withComparedTypes(
 	doc: BlueprintDoc,
 	pending: readonly PendingExpression[],
@@ -1156,27 +1095,14 @@ function withComparedTypes(
 		return declared === true && typed === undefined;
 	};
 	const found: ComparedType[] = [];
-	const compare = (tree: Expression, ref: SlotContextRef) => {
-		const context = slotContext(doc, ref, types);
-		if (context?.ruleSet === "record")
-			found.push(...comparedTypes(tree, context, untyped));
-	};
 	pending.forEach((registration, index) => {
 		if (!live[index]) return;
 		const context = slotContext(doc, registration.ref, types);
 		if (context?.ruleSet !== "record") return;
-		if (registration.mode.target === "search-row") {
-			const row = readSearchFilterRow(registration.text, context, {
-				doc,
-				lookup: env.lookup,
-			});
-			if (row.ok) found.push(...(row.types ?? []));
-			return;
-		}
 		if (sites[index] === undefined) return;
 		const bound = bindSlot(doc, registration, env, new Set());
 		if (bound.kind !== "bound") return;
-		compare(bound.bound.candidate, registration.ref);
+		found.push(...comparedTypes(bound.bound.candidate, context, untyped));
 		// Two properties the catalog holds untyped, compared, print as
 		// written; as dates and times a device compares them as moments. Where
 		// only that print is the source's, they are dates and times.
@@ -1193,16 +1119,6 @@ function withComparedTypes(
 		if (!equal(doc) && equal(withTypes(doc, asMoments)))
 			found.push(...asMoments);
 	});
-	for (const moduleUuid of doc.moduleOrder)
-		for (const input of doc.modules[moduleUuid]?.caseListConfig?.searchInputs ??
-			[])
-			if (input.kind === "advanced")
-				compare(input.predicate, {
-					entity: "module",
-					uuid: moduleUuid,
-					slot: "search_input_predicate",
-					member: { searchInputUuid: input.uuid },
-				} as SlotContextRef);
 	return withTypes(doc, agreedComparedTypes(found));
 }
 
@@ -1274,8 +1190,7 @@ function relationDestination(
 }
 
 /** A registration's text as the one grammar reads it, before HQ's
- *  interpolation: a search filter row's wrapper, an XForm attribute, an HQ
- *  JSON value with its hashtags. */
+ *  interpolation: an XForm attribute, an HQ JSON value with its hashtags. */
 function textSyntax(text: string): FormSyntax | undefined {
 	try {
 		const read = readFormSyntax(text);

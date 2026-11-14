@@ -103,6 +103,35 @@ export function authoringValueScope(
 			}),
 	});
 }
+
+/** The options a read tool prints a form's or a menu's content under: the
+ *  menu (the form's own when only a form is named), that menu's case type as
+ *  the current one, and a form's case operations by name. The read
+ *  projection and the record dialect's round-trip judge both take them from
+ *  here, so the judge holds a slot under the scope the read prints it in. */
+export function readScopeOptions(
+	doc: BlueprintDoc,
+	tables: readonly LookupTableDefinition[] | undefined,
+	formUuid?: Uuid,
+	moduleUuid?: Uuid,
+): AuthoringScopeOptions {
+	const module =
+		moduleUuid ?? (formUuid ? moduleUuidOfForm(doc, formUuid) : undefined);
+	return {
+		doc,
+		tables,
+		formUuid,
+		moduleUuid: module,
+		currentCaseType: module ? doc.modules[module]?.caseType : undefined,
+		operations: formUuid
+			? (doc.forms[formUuid]?.caseOperations ?? []).map((operation) => ({
+					uuid: operation.uuid,
+					name: operation.id,
+				}))
+			: undefined,
+	};
+}
+
 export interface AuthoringScopeOptions {
 	doc: BlueprintDoc;
 	formUuid?: Uuid;

@@ -377,9 +377,11 @@ export type { SaveToCaseBlockSegment } from "@/lib/domain/basicCaseSlots";
  * carries its condition on a group, because the builder writes no bind for
  * a block's own node, and a create carries it on its `case`. The own case of
  * a several-case form is one shared update, in a group present only while
- * some answer is. The own close of a several-case form closes every
- * selected case; any other own close that takes a block of its own is a
- * close-only block in a condition group.
+ * some answer is. An own close that takes a block of its own is a
+ * close-only block in a condition group, whose relevance is the close
+ * condition. In a several-case form that block stands in each selected
+ * case's row, so it closes every selected case, and it stands outside a
+ * condition group only where the form closes them with no condition.
  */
 export function saveToCaseBlockShape(
 	doc: BlueprintDoc,
@@ -390,7 +392,15 @@ export function saveToCaseBlockShape(
 	const severalCases = formSelectsSeveralCases(doc, formUuid);
 	if (subject.kind === "own-close")
 		return severalCases
-			? ["selected-cases", "selected-case", "operations", "block"]
+			? closesUnderCondition(form)
+				? [
+						"selected-cases",
+						"selected-case",
+						"operations",
+						"condition",
+						"block",
+					]
+				: ["selected-cases", "selected-case", "operations", "block"]
 			: ["operations", "condition", "block"];
 	const operations = orderedCaseOperations(form);
 	const operation = operations.find(
@@ -422,6 +432,18 @@ export function saveToCaseBlockShape(
 		...(conditional ? (["condition"] as const) : []),
 		"block",
 	];
+}
+
+/** The condition `form` closes its own case under, or `undefined` where it
+ *  closes it every time it closes it: no condition, or one that matches
+ *  every submission. */
+function closesUnderCondition(
+	form: { readonly closeCondition?: Expression } | undefined,
+): Expression | undefined {
+	const condition = form?.closeCondition;
+	return condition === undefined || condition.kind === "match-all"
+		? undefined
+		: condition;
 }
 
 /** Whether `formUuid` is a follow-up or close form whose menu selects
@@ -964,12 +986,8 @@ export function buildCaseOperations(
 			formCaseProperty: ownCaseRead,
 		});
 	/** The own close's condition, or `undefined` where it closes every time. */
-	const ownCloseCondition = (): Expression | undefined => {
-		const condition = form.closeCondition;
-		return condition === undefined || condition.kind === "match-all"
-			? undefined
-			: condition;
-	};
+	const ownCloseCondition = (): Expression | undefined =>
+		closesUnderCondition(form);
 
 	// The children a field writes in a several-case form that keep the bytes
 	// beside HQ's subcase (`nova_operations/nova_subcase_<n>` in the
@@ -2166,9 +2184,12 @@ export function buildCaseOperations(
 		);
 	}
 
-	// The own close in a block of its own: a close-only block of each
-	// selected case in a several-case form, or of the form's own case inside
-	// a group whose relevance is the close condition. A close-only block
+	// The own close in a block of its own: a close-only block of the form's
+	// own case, or in a several-case form of each selected case in its row,
+	// inside a group whose relevance is the close condition, so a case the
+	// condition leaves open is sent no block at all. A several-case form that
+	// closes every selected case unconditionally writes its block in the
+	// row's operations group, with no group around it. A close-only block
 	// writes no case type, which would undo a retype that ran before it
 	// (`XFormCaseBlock.add_close_block` writes none either).
 	const ownCloseBlock = blockOf.get("own-close");
@@ -2178,18 +2199,29 @@ export function buildCaseOperations(
 		const condition = ownCloseCondition();
 		if (site.selected !== undefined) {
 			const selected = site.selected;
-			const casePath = group.path.child(site.name).child("case");
-			group.children.push(
-				saveToCaseBlock(site.name, moduleCaseType, [el("close", {})]),
-			);
-			if (condition !== undefined) {
-				const closePath = casePath.child("close");
+			const block = saveToCaseBlock(site.name, moduleCaseType, [
+				el("close", {}),
+			]);
+			let blockParentPath = group.path;
+			if (site.condition === undefined) {
+				if (condition !== undefined)
+					throw new Error(
+						`The own close of form ${formUuid} closes the selected cases under a condition, and its Save to Case path holds no condition group to carry it.`,
+					);
+				group.children.push(block);
+			} else {
+				if (condition === undefined)
+					throw new Error(
+						`The own close of form ${formUuid} closes every selected case, and its Save to Case path holds a condition group with no condition to carry.`,
+					);
+				const conditionPath = group.path.child(site.condition);
+				appendGroup(group, site.condition, [block]);
 				binds.push(
 					xel(
 						"bind",
 						{
 							xpath: {
-								nodeset: closePath.toWire(),
+								nodeset: conditionPath.toWire(),
 								// A form over several cases reads none of them as its
 								// own (`MULTI_SELECT_SHARED_CASE_EXPRESSION`), so the
 								// condition holds no form read to bind.
@@ -2197,9 +2229,9 @@ export function buildCaseOperations(
 									condition,
 									closeConditionSlot,
 									bindingsAt(
-										closePath,
+										conditionPath,
 										undefined,
-										originalContextWirePath(closePath, selected.idPath),
+										originalContextWirePath(conditionPath, selected.idPath),
 									),
 								),
 							},
@@ -2207,7 +2239,9 @@ export function buildCaseOperations(
 						context,
 					),
 				);
+				blockParentPath = conditionPath;
 			}
+			const casePath = blockParentPath.child(site.name).child("case");
 			binds.push(
 				...caseMetaBinds(casePath, context),
 				xel(

@@ -685,7 +685,10 @@ function appliedDisplayName(value: unknown): value is string {
  *
  * HQ's build writes `app.display.name` from `name` in every language and puts
  * a non-empty stored value over it (`app_strings.py::_create_custom_app_strings`,
- * `SelectKnownAppStrings.app_strings_parts`), so in the first language a
+ * `SelectKnownAppStrings.app_strings_parts`), so in the source language (Nova
+ * writes `name` in it, and a reading takes a language whose value differs from
+ * `name` as the source only where no language passes
+ * `languages.ts::readingSourceCode`, which falls back to the first) a
  * value that is not `name` is the name every runtime shows there. It is read
  * as the app's name, and each other language that stores none takes `name`
  * as its translation, which is what it shows: workers read the same words, and
@@ -744,10 +747,10 @@ function readTranslations(
 						(v) => v as string,
 					);
 					const text = read.value;
-					/* Blank, or in the first language equal to `name`, it is the string HQ's
+					/* Blank, or in the source language equal to `name`, it is the string HQ's
 					 * build writes from `name`. */
 					if (!appliedDisplayName(text)) continue;
-					if (language !== languages.first) appNames.set(language, text);
+					if (language !== languages.source) appNames.set(language, text);
 					else if (text !== appName) firstLanguageName = read;
 					continue;
 				}
@@ -770,7 +773,7 @@ function readTranslations(
 		});
 		if (appName !== undefined)
 			for (const code of languages.codes)
-				if (code !== languages.first && !appNames.has(code))
+				if (code !== languages.source && !appNames.has(code))
 					appNames.set(code, appName);
 		ctx.facts.foldedTranslationKeys += 1;
 	}

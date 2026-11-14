@@ -509,6 +509,8 @@ export interface BasicCaseReading {
 	readonly bareOwn?: () => ProposedOperation | undefined;
 	/** The id `bareOwn`'s operation takes. */
 	readonly bareOwnId?: string;
+	/** The menu's case type, the own arm's. */
+	readonly caseType: string;
 }
 
 const READINGS = new WeakMap<DraftForm, BasicCaseReading>();
@@ -830,8 +832,10 @@ function propertyNameFinding(
 /**
  * The case type each `(case type, index name)` reaches, as the app's links
  * say: a basic child case under its menu's case type, an advanced open
- * action's indices, and each menu's parent selection. Undefined where
- * nothing says, or two say different types.
+ * action's indices, and each menu's parent selection. Where nothing in the
+ * app says what an index of a type reaches, the type the reading was told
+ * Nova holds for it (`ReaderInput.knownCaseTypes`). Undefined where nothing
+ * says, or two say different types.
  */
 function indexTargets(
 	ctx: ReadContext,
@@ -897,8 +901,12 @@ function indexTargets(
 			}
 		}
 	}
+	const known = ctx.input.knownCaseTypes;
 	return (caseType, identifier) => {
 		const types = seen.get(`${caseType}\u0000${identifier}`);
+		// Where the app fixes no type for the index, the one Nova holds for it.
+		if (types === undefined)
+			return known?.targetOf(caseType, identifier)?.caseType;
 		return types?.size === 1 ? [...types][0] : undefined;
 	};
 }
@@ -1565,7 +1573,7 @@ export function readBasicActions(
 				? undefined
 				: {
 						uuid,
-						id,
+						id: READINGS.get(form)?.bareOwnId ?? id,
 						action: "own",
 						writes: [],
 						placement: { kind: "basic", slot: "own" },
@@ -1681,6 +1689,41 @@ export function readBasicActions(
 		...(closeCondition !== undefined && { closeCondition }),
 		conditions,
 		...(bareOwn !== undefined && { bareOwn, bareOwnId }),
+		caseType,
+	});
+}
+
+/**
+ * Names `form`'s Case Management operations past `carried`, the ids the
+ * form's Save to Case blocks carry. A block carries its operation's id as its
+ * element name, and HQ's form actions name no operation, so each operation a
+ * slot keeps takes its case type's id free among the carried ones and those
+ * named before it, in the order the slots are read: the own arm, each child
+ * case and the close that shares its place, the worker's record. That is the
+ * id `assemble.ts`'s `basic-slot-operation-ids-are-derived` gives it.
+ */
+export function nameBasicOperationsPast(
+	form: DraftForm,
+	carried: ReadonlySet<string>,
+): void {
+	const reading = READINGS.get(form);
+	if (reading === undefined || carried.size === 0) return;
+	const taken = new Set(carried);
+	const next = (caseType: string) => {
+		const id = ownCaseOperationId(caseType, taken);
+		taken.add(id);
+		return id;
+	};
+	const bareOwnId =
+		reading.bareOwnId === undefined ? undefined : next(reading.caseType);
+	const operations = reading.operations.map((one) => ({
+		...one,
+		id: next(one.caseType ?? reading.caseType),
+	}));
+	READINGS.set(form, {
+		...reading,
+		operations,
+		...(bareOwnId !== undefined && { bareOwnId }),
 	});
 }
 
@@ -1948,9 +1991,27 @@ function readSubcases(
 /** Drops the `required` of each visible question that names a created case,
  *  and the record stage 3 made of it: HQ's build writes its own there. */
 function claimCreateNameRequired(r: FormReading): void {
-	const xform = r.form.xform;
+	dropCreateNameRequired(r.ctx, r.form, r.createNames);
+}
+
+/**
+ * Drops the `required` of each visible question in `names`, the questions that
+ * name a case the form creates, wherever the create is kept (a basic slot, an
+ * advanced open action, a Save to Case block): HQ's build, and Nova's emitter
+ * with it, writes `required="true()"` on that bind whatever the source holds,
+ * so the draft field holds no required of its own there.
+ */
+export function dropCreateNameRequired(
+	ctx: ReadContext,
+	form: DraftForm,
+	names: readonly DraftField[],
+): void {
+	const xform = form.xform;
 	if (xform === null) return;
-	for (const field of r.createNames) {
+	const seen = new Set<DraftField>();
+	for (const field of names) {
+		if (seen.has(field)) continue;
+		seen.add(field);
 		if (field.kind === "hidden") continue;
 		const bind = xform.binds.get(field.node);
 		if (bind?.element.attribs.required === undefined) continue;
@@ -1958,7 +2019,7 @@ function claimCreateNameRequired(r: FormReading): void {
 			{ element: bind.element, attribute: "required" },
 			BASIC_CLAIMS.createNameRequired,
 		);
-		r.ctx.writeDraft(() => {
+		ctx.writeDraft(() => {
 			delete field.field.required;
 			const at = field.expressions.findIndex((one) => one.slot === "required");
 			if (at !== -1) field.expressions.splice(at, 1);

@@ -158,6 +158,11 @@ function bare(node: FormSyntax): FormSyntax {
 	return node.kind === "group" ? bare(node.value) : node;
 }
 
+/** A node without one pair of parentheses around it. */
+function unparenthesized(node: FormSyntax): FormSyntax {
+	return node.kind === "group" ? node.value : node;
+}
+
 function callOf(
 	node: FormSyntax,
 	name: string,
@@ -400,7 +405,9 @@ interface BindState {
 	readonly prefix: string;
 	/** Proposals the binder may make before the plain reading: `p = ''` as
 	 *  `is-blank`, a not of a relation function as `missing`, a closed range on
-	 *  a date and time as `eq`, a literal's tokens as several choices. */
+	 *  a date and time as `eq`, a literal's tokens as several choices, a
+	 *  parenthesized join of selection tests or of equalities as the one
+	 *  selection or membership Nova prints so. */
 	readonly proposals: boolean;
 	/** Whether the row's text called `today()`, HQ's server-side day. */
 	today: boolean;
@@ -613,6 +620,8 @@ class CsqlBinder {
 	) {}
 
 	query(node: FormSyntax, rowType: string | undefined): Expression {
+		const joined = this.parenthesizedJoin(node, rowType);
+		if (joined !== undefined) return joined;
 		const at = bare(node);
 		const choice = markerAt(at, this.markers);
 		if (choice !== undefined) {
@@ -652,6 +661,93 @@ class CsqlBinder {
 			default:
 				refuseWith(HQ_REFUSES, `csql:${at.kind}`);
 		}
+	}
+
+	/** A parenthesized join Nova prints for one Nova node, proposed as that
+	 *  node: an `or` of `selected` and `selected-any` tests of one property,
+	 *  or an `and` of `selected` and `selected-all` tests, is the one
+	 *  selection of those values (`csql/emitter.ts::selection`), and an `or`
+	 *  of equalities of one property with fixed values is its membership
+	 *  (`::membership`). */
+	parenthesizedJoin(
+		node: FormSyntax,
+		rowType: string | undefined,
+	): Expression | undefined {
+		if (!this.state.proposals || node.kind !== "group") return undefined;
+		const at = bare(node);
+		if (at.kind !== "binary" || (at.op !== "or" && at.op !== "and"))
+			return undefined;
+		const clauses = this.flatten(at, at.op);
+		return (
+			this.selectionJoin(clauses, at.op, rowType) ??
+			(at.op === "or" ? this.membershipJoin(clauses, rowType) : undefined)
+		);
+	}
+
+	selectionJoin(
+		clauses: readonly FormSyntax[],
+		op: "or" | "and",
+		rowType: string | undefined,
+	): Expression | undefined {
+		const own = op === "or" ? "selected-any" : "selected-all";
+		const tests: Extract<Expression, { kind: "multi-select-contains" }>[] = [];
+		for (const clause of clauses) {
+			const call = bare(clause);
+			if (
+				call.kind !== "call" ||
+				(call.name !== "selected" && call.name !== own)
+			)
+				return undefined;
+			const test = this.selection(call.name, call.args, rowType);
+			const first = tests[0];
+			if (
+				test.kind !== "multi-select-contains" ||
+				test.values.length !== 1 ||
+				(first !== undefined &&
+					JSON.stringify(first.property) !== JSON.stringify(test.property))
+			)
+				return undefined;
+			tests.push(test);
+		}
+		const [first, ...rest] = tests;
+		if (first === undefined) return undefined;
+		return {
+			kind: "multi-select-contains",
+			property: first.property,
+			values: [
+				...first.values,
+				...rest.flatMap((test) => test.values),
+			] as typeof first.values,
+			quantifier: op === "or" ? "any" : "all",
+		};
+	}
+
+	membershipJoin(
+		clauses: readonly FormSyntax[],
+		rowType: string | undefined,
+	): Expression | undefined {
+		const values: Literal[] = [];
+		let left: Expression | undefined;
+		for (const clause of clauses) {
+			const at = bare(clause);
+			if (at.kind !== "binary" || at.op !== "=") return undefined;
+			const equality = this.query(clause, rowType);
+			if (equality.kind !== "eq") return undefined;
+			const value =
+				equality.right.kind === "term" ? equality.right.term : undefined;
+			if (
+				value?.kind !== "literal" ||
+				(left !== undefined &&
+					JSON.stringify(left) !== JSON.stringify(equality.left))
+			)
+				return undefined;
+			left = equality.left;
+			values.push(value);
+		}
+		const [first, ...rest] = values;
+		return left === undefined || first === undefined
+			? undefined
+			: { kind: "in", left, values: [first, ...rest] };
 	}
 
 	/** `a and b and c` as the three clauses Nova's printer joins it from. */
@@ -745,10 +841,31 @@ class CsqlBinder {
 		// `a/@case_id = v`: the ancestor's id, HQ's flag-free spelling.
 		const ancestorId = this.ancestorCaseId(leftAt);
 		if (ancestorId !== undefined && kind === "eq") {
-			const destination = relationDestination(this.state.env.doc, rowType, {
-				kind: "ancestor",
-				steps: ancestorId.map((step) => step.identifier),
-			});
+			// The id is text whatever case it names, so the value reads the
+			// same opposite the untyped id as opposite the typed one.
+			const right = this.value(
+				rightNode,
+				term({ kind: "prop", property: "case_id" } as PropertyRef),
+				false,
+				rowType,
+			);
+			// The emitter writes this spelling only where every step that names
+			// a case type names the type of `v`'s case
+			// (`csql/emitter.ts::flagFreeAncestorCaseId`), and the checker
+			// admits a step other than `parent` only where it names one, so
+			// each such step names `v`'s type.
+			const valueType = typeOf(right, this.state.context)?.caseIdOf;
+			const steps = ancestorId.map((step) =>
+				step.identifier === "parent" || valueType === undefined
+					? step
+					: { ...step, throughCaseType: valueType },
+			);
+			const destination =
+				steps.at(-1)?.throughCaseType ??
+				relationDestination(this.state.env.doc, rowType, {
+					kind: "ancestor",
+					steps: ancestorId.map((step) => step.identifier),
+				});
 			const left = term({
 				kind: "prop",
 				...(destination === undefined ? {} : { caseType: destination }),
@@ -758,13 +875,9 @@ class CsqlBinder {
 				kind: "exists",
 				via: {
 					kind: "ancestor",
-					via: ancestorId as [RelationStep, ...RelationStep[]],
+					via: steps as [RelationStep, ...RelationStep[]],
 				},
-				where: {
-					kind: "eq",
-					left,
-					right: this.value(rightNode, left, false, rowType),
-				},
+				where: { kind: "eq", left, right },
 			};
 		}
 		if (ORDERINGS.has(op)) {
@@ -1291,14 +1404,17 @@ class CsqlBinder {
 		};
 	}
 
-	/** `@case_type = 'T' and (q)`, the type test the emitter writes into a
-	 *  relation's filter: T and q. */
+	/** `(@case_type = 'T' and (q))`, the type test the emitter writes into a
+	 *  relation's filter, or `(q)`: T and q, each without the one pair of
+	 *  parentheses the emitter writes around it, so a pair q itself holds (a
+	 *  selection's, a membership's) stays q's. */
 	typedFilter(node: FormSyntax | undefined): {
 		readonly caseType?: string;
 		readonly filter?: FormSyntax;
 	} {
 		if (node === undefined) return {};
-		const at = bare(node);
+		const inner = unparenthesized(node);
+		const at = bare(inner);
 		if (at.kind === "binary" && at.op === "and") {
 			const test = bare(at.left);
 			if (
@@ -1309,9 +1425,12 @@ class CsqlBinder {
 				this.path(test.left)?.[0]?.name === "case_type" &&
 				stringOf(test.right) !== undefined
 			)
-				return { caseType: stringOf(test.right) as string, filter: at.right };
+				return {
+					caseType: stringOf(test.right) as string,
+					filter: unparenthesized(at.right),
+				};
 		}
-		return { filter: at };
+		return { filter: inner };
 	}
 
 	/** A relation's filter, bound under the related case's type; `match-all()` is no filter. */
@@ -1675,7 +1794,6 @@ function refusalOf(
 	candidate: Expression,
 	context: ExpressionContext,
 	env: SearchRowEnv,
-	text: string,
 ): Refusal | undefined {
 	const errors = checkExpression(candidate, context).errors.filter(
 		(error: CheckError) =>
@@ -1686,14 +1804,12 @@ function refusalOf(
 	);
 	const first = errors[0];
 	if (first !== undefined) {
-		const pending: PendingExpression = {
-			ref: context.slot,
-			text,
-			mode: { target: "search-row" },
-			place: { kind: "app" },
-			key: "csql-key:_xpath_query",
-		};
-		const answer = checkErrorEntry(first, env.doc, pending, candidate);
+		const answer = checkErrorEntry(
+			first,
+			env.doc,
+			{ ref: context.slot, searchRow: true },
+			candidate,
+		);
 		return {
 			entryId: answer.entryId === "slot-default" ? M7 : answer.entryId,
 			detail: { name: "_xpath_query", reason: answer.reason },
@@ -1785,7 +1901,7 @@ export function readSearchFilterRow(
 		// A relation typed as the catalog resolves it, the canonical member of
 		// the paths that print one row.
 		const bound = typedRelations(raw, rowContext);
-		const refusal = refusalOf(bound, rowContext, env, text);
+		const refusal = refusalOf(bound, rowContext, env);
 		if (refusal !== undefined) {
 			firstRefusal ??= refusal;
 			continue;

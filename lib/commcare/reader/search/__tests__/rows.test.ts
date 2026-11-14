@@ -33,6 +33,7 @@ import {
 	gt,
 	input,
 	literal,
+	multiSelectAll,
 	neq,
 	now,
 	prop,
@@ -677,6 +678,81 @@ describe("the kinds of the conjuncts of `_xpath_query`", () => {
 		expect(listOf(reading).filter).toEqual(notesIs("open"));
 		expect(registers(reading)).toContain("search-filter-rows-recut");
 	});
+});
+
+// A choice list tested for every value prints on a device as one `selected` per value, joined by
+// `and`, which the device's filter splits into as many top-level clauses, while the search's row
+// holds the one test. The failure it catches: the clauses read as restated by no row (the finding
+// `case-list-filter-clause-the-search-does-not-restate` on Nova's own export), or one clause read
+// as restating the row because the unchanged filter writes it.
+describe("a list filter clause the device prints as several", () => {
+	const tagsAll = (...values: [string, ...string[]]) =>
+		multiSelectAll(
+			prop("patient", "tags"),
+			literal(values[0]),
+			...values.slice(1).map((value) => literal(value)),
+		);
+	const tagged = (filter: Expression) =>
+		buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "multi_select",
+									id: "tags",
+									optionsSource: {
+										kind: "inline",
+										options: ["a", "b", "c"].map((value, index) => ({
+											value,
+											label: proseText(value.toUpperCase()),
+											uuid: uuid(40 + index),
+										})),
+									},
+									caseWrite: { caseType: "patient", property: "tags" },
+								}),
+							],
+						},
+					],
+					caseListConfig: {
+						columns: [plainColumn(uuid(1), "case_name", "Name")],
+						searchInputs: [],
+						filter,
+					},
+					caseSearchConfig: {},
+				},
+			],
+		});
+
+	for (const [name, filter, runs] of [
+		["two values", tagsAll("a", "b"), [{ kind: "B", clause: 0 }]],
+		["three values", tagsAll("a", "b", "c"), [{ kind: "B", clause: 0 }]],
+		[
+			"two values after another clause",
+			and(eq(prop("patient", "case_name"), literal("x")), tagsAll("a", "b")),
+			[
+				{ kind: "B", clause: 0 },
+				{ kind: "B", clause: 1 },
+			],
+		],
+	] as const)
+		it(`restates the run of clauses one row holds: ${name}`, async () => {
+			const reading = await readLists(tagged(filter));
+			expect(codes(reading)).toEqual([]);
+			expect(placements()).toEqual(runs);
+			expect(classified().unrestated).toEqual([]);
+			expect(listOf(reading).filter).toEqual(filter);
+		});
 });
 
 describe("a menu whose forms do not read the search", () => {

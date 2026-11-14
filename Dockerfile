@@ -117,6 +117,15 @@ RUN npx esbuild scripts/migrate-select-starting-values.ts \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=select-starting-value-repair.cjs
 
+RUN npx esbuild scripts/scan-several-case-close-places.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=several-case-close-scan.cjs
+RUN npx esbuild scripts/migrate-several-case-close-places.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=several-case-close-repair.cjs
+
 RUN npx esbuild scripts/scan-thread-storage.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \

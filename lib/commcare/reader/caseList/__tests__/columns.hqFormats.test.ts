@@ -198,7 +198,7 @@ describe("CommCare HQ's column formats", () => {
 			expect(codes(reading)).toContain(entry);
 		});
 
-	it("raises a plain column over a property a select question saves", async () => {
+	it("reads a plain column over a property a select question saves as its values, the property keeping no choices", async () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -239,8 +239,9 @@ describe("CommCare HQ's column formats", () => {
 				},
 			],
 		});
-		// HQ's plain column shows the stored value; Nova's plain column over the property would show
-		// the choice's label.
+		// HQ's plain column shows the stored value. No column of the app shows the property's
+		// labels, so the property keeps no choices and Nova's plain column over it shows the value
+		// too.
 		const reading = await readLists(doc, {
 			edit: (app) => {
 				const pair = app.modules[0]?.case_details;
@@ -250,11 +251,18 @@ describe("CommCare HQ's column formats", () => {
 						detail?.columns.push({ ...column, field: "risk" });
 				}
 			},
-			firstPassOnly: true,
 		});
-		expect(codes(reading)).toContain(
-			`${M}1p-plain-over-a-property-select-questions-write`,
-		);
+		expect(closedCodes(reading)).toEqual([]);
+		expect(
+			listOf(reading).columns.map((column) =>
+				column.kind === "plain" ? column.field : column.kind,
+			),
+		).toEqual(["case_name", "risk"]);
+		const risk = reading.ctx.doc?.caseTypes
+			?.find((type) => type.name === "patient")
+			?.properties.find((property) => property.name === "risk");
+		expect(risk?.data_type).toBe("single_select");
+		expect(risk?.options).toBeUndefined();
 	});
 
 	it("names a late flag by the label HQ's page shows", async () => {

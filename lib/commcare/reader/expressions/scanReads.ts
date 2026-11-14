@@ -438,22 +438,6 @@ export function scanReads(
 			)
 				tags.add(source.slice(TABLE_SOURCE.length));
 	for (const registration of pending) {
-		if (registration.mode.target === "search-row") {
-			const context = slotContext(doc, registration.ref, lookupTypes(env));
-			const row = context === undefined ? undefined : activeRowScope(context);
-			if (row?.kind === "case") {
-				for (const property of searchRowProperties(registration.text))
-					note(row.caseType, property);
-				if (row.caseType !== undefined) {
-					const related = searchRowRelations(registration.text, row.caseType);
-					for (const link of related.links)
-						links.set(JSON.stringify([link.child, link.parent]), link);
-					for (const read of related.properties)
-						note(read.caseType, read.property);
-				}
-			}
-			continue;
-		}
 		const prepared = preparedSource(doc, registration);
 		if (!prepared.ok) continue;
 		const context = slotContext(doc, registration.ref, lookupTypes(env));

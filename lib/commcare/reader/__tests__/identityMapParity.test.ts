@@ -59,7 +59,7 @@ import {
 	type IdentityMapEntry,
 } from "../identity";
 import { externalIdentityMap } from "../identityMap";
-import { readHqApp } from "../index";
+import { knownCaseTypesOf, readHqApp } from "../index";
 import type { ReadDraft, ReaderInput, ReadOutcome } from "../types";
 import { type ExportEdits, exportedBody, inputFor } from "./novaExport";
 import { readerInput, sourceFromBody } from "./readerInput";
@@ -422,7 +422,12 @@ const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
 
 async function readNovaApp(app: NovaApp): Promise<ReadDraft> {
 	return readDraft(
-		readHqApp(await inputFor(exportedBody(app.doc(), app.edits), app.input)),
+		readHqApp(
+			await inputFor(exportedBody(app.doc(), app.edits), {
+				knownCaseTypes: knownCaseTypesOf(app.doc()),
+				...app.input,
+			}),
+		),
 	);
 }
 

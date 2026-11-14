@@ -7,6 +7,7 @@
  * read can print.
  */
 import type { RecordDialectJudge } from "@/lib/commcare/reader/expressions";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { expressionChildren } from "@/lib/domain/expression/children";
 import {
@@ -15,72 +16,196 @@ import {
 } from "@/lib/domain/expression/context";
 import {
 	type Expression,
+	type ExpressionSlotRef,
 	isExpression,
 	type SlotContextRef,
 	type Term,
 } from "@/lib/domain/expression/types";
-import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { caseWriteKeyOf, sameCaseWriteKey } from "@/lib/domain/forms";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
-import { AuthoringScope, type AuthoringScopeOptions } from "./bindings";
+import {
+	type AuthoringScope,
+	type AuthoringScopeOptions,
+	authoringValueScope,
+	readScopeOptions,
+} from "./bindings";
 import { queryPrinter } from "./printQueryExpression";
 import { parseQueryPredicate, parseQueryValue } from "./queryExpressions";
 
-/** The slot's own authoring scope: the one a read tool prints it under and
- *  an edit tool parses it under. */
-function slotScope(
+/** Where a read tool hands a record slot to the printer: the stored value it
+ *  projects, the path of the slot inside it, and whether the read is a
+ *  menu's (`getModule`, which prints a Search field's conditions with
+ *  pattern matching). `authoringValueScope` reads the candidate case type
+ *  and the table from the objects along the path. */
+interface ReadSite {
+	readonly options: AuthoringScopeOptions;
+	readonly source: unknown;
+	readonly path: readonly (string | number)[];
+	readonly searchValidation: boolean;
+}
+
+/** A form's slot as `getForm` reads it: the form, the slot's path in it. */
+function formReadSite(
+	doc: BlueprintDoc,
+	tables: readonly LookupTableDefinition[],
+	ref: Extract<ExpressionSlotRef, { entity: "form" }>,
+): ReadSite | undefined {
+	const form = doc.forms[ref.uuid];
+	if (form === undefined) return undefined;
+	const site = (path: readonly (string | number)[]): ReadSite => ({
+		options: readScopeOptions(doc, tables, ref.uuid),
+		source: form,
+		path,
+		searchValidation: false,
+	});
+	if (ref.slot === "form_display_condition") return site(["displayCondition"]);
+	if (!("member" in ref) || !("operationUuid" in ref.member)) return undefined;
+	const member = ref.member;
+	const operations = form.caseOperations ?? [];
+	const index = operations.findIndex(
+		(operation) => operation.uuid === member.operationUuid,
+	);
+	const operation = operations[index];
+	if (operation === undefined) return undefined;
+	const at = ["caseOperations", index] as const;
+	switch (ref.slot) {
+		case "case_operation_target_expression":
+			return site([...at, "target", "expr"]);
+		case "case_operation_condition":
+			return site([...at, "condition"]);
+		case "case_operation_name":
+			return site([...at, "name"]);
+		case "case_operation_owner":
+			return site([...at, "owner"]);
+		case "case_operation_rename":
+			return site([...at, "rename"]);
+		case "case_operation_write_value":
+		case "case_operation_write_condition": {
+			if (!("property" in member)) return undefined;
+			const write = (operation.writes ?? []).findIndex((candidate) =>
+				sameCaseWriteKey(caseWriteKeyOf(candidate), {
+					property: member.property,
+					...(member.via === undefined ? {} : { via: [...member.via] }),
+				}),
+			);
+			if (write < 0) return undefined;
+			return site([
+				...at,
+				"writes",
+				write,
+				ref.slot === "case_operation_write_value" ? "value" : "condition",
+			]);
+		}
+		case "case_operation_link_target_expression": {
+			if (!("identifier" in member)) return undefined;
+			const link = (operation.links ?? []).findIndex(
+				(candidate) => candidate.identifier === member.identifier,
+			);
+			if (link < 0) return undefined;
+			return site([...at, "links", link, "target", "expr"]);
+		}
+	}
+	return undefined;
+}
+
+/** A menu's slot as `getModule` reads it: the display condition alone, the
+ *  case list's configuration or the search's, each with the slot's path in
+ *  it. */
+function moduleReadSite(
+	doc: BlueprintDoc,
+	tables: readonly LookupTableDefinition[],
+	ref: Extract<ExpressionSlotRef, { entity: "module" }>,
+): ReadSite | undefined {
+	const module = doc.modules[ref.uuid];
+	if (module === undefined) return undefined;
+	const options = readScopeOptions(doc, tables, undefined, ref.uuid);
+	const site = (
+		source: unknown,
+		path: readonly (string | number)[],
+	): ReadSite => ({ options, source, path, searchValidation: true });
+	const list = module.caseListConfig;
+	const search = module.caseSearchConfig;
+	switch (ref.slot) {
+		case "module_display_condition":
+			return site(module.displayCondition, []);
+		case "case_list_filter":
+			return site(list, ["filter"]);
+		case "search_button_display_condition":
+			return site(search, ["searchButtonDisplayCondition"]);
+		case "excluded_owner_ids":
+			return site(search, ["excludedOwnerIds"]);
+		case "case_list_column_expression": {
+			const column = (list?.columns ?? []).findIndex(
+				(candidate) => candidate.uuid === ref.member.columnUuid,
+			);
+			return column < 0
+				? undefined
+				: site(list, ["columns", column, "expression"]);
+		}
+	}
+	const input = (list?.searchInputs ?? []).findIndex(
+		(candidate) => candidate.uuid === ref.member.searchInputUuid,
+	);
+	if (input < 0) return undefined;
+	const at = ["searchInputs", input] as const;
+	switch (ref.slot) {
+		case "search_input_default":
+			return site(list, [...at, "default"]);
+		case "search_input_predicate":
+			return site(list, [...at, "predicate"]);
+		case "search_input_options":
+			return site(list, [...at, "options", "filter"]);
+		case "search_input_required_when":
+			return site(list, [...at, "required", "when"]);
+		case "search_input_validation_rule":
+			return site(list, [...at, "validation", "rule"]);
+		case "search_input_hidden_value":
+			return site(list, [...at, "value"]);
+	}
+	return undefined;
+}
+
+/** Where a read tool prints a record slot, or undefined for a slot no read
+ *  prints in the record dialect. A field's record slot is its choices'
+ *  filter, which `getField` and `getForm` print over the field under its
+ *  form's scope. */
+function readSite(
+	doc: BlueprintDoc,
+	ref: SlotContextRef,
+	tables: readonly LookupTableDefinition[],
+): ReadSite | undefined {
+	if (ref.entity === "form") return formReadSite(doc, tables, ref);
+	if (ref.entity === "module") return moduleReadSite(doc, tables, ref);
+	if (ref.slot !== "lookup_options_source") return undefined;
+	const field = doc.fields[ref.uuid];
+	if (field === undefined) return undefined;
+	return {
+		options: readScopeOptions(doc, tables, findContainingForm(doc, ref.uuid)),
+		source: field,
+		path: ["optionsSource", "filter"],
+		searchValidation: false,
+	};
+}
+
+/** The slot's own authoring scope: the one a read tool prints it under
+ *  (`output.ts::authoringEncoders`, through `authoringValueScope` at the
+ *  slot's place in what the read projects), which an edit tool parses it
+ *  under too. Undefined for a slot no read prints in the record dialect. */
+export function recordSlotScope(
 	doc: BlueprintDoc,
 	ref: SlotContextRef,
 	lookup: LookupDefinitionIndex,
-): AuthoringScope {
+): AuthoringScope | undefined {
 	const tables = [...lookup.values()] as unknown as LookupTableDefinition[];
-	const formUuid = ref.entity === "form" ? ref.uuid : undefined;
-	const moduleUuid =
-		ref.entity === "module"
-			? ref.uuid
-			: formUuid === undefined
-				? undefined
-				: moduleUuidOfForm(doc, formUuid);
-	const options: AuthoringScopeOptions = {
-		doc,
-		tables,
-		...(formUuid === undefined ? {} : { formUuid }),
-		...(moduleUuid === undefined ? {} : { moduleUuid }),
-		currentCaseType:
-			moduleUuid === undefined ? undefined : doc.modules[moduleUuid]?.caseType,
-		...(formUuid === undefined
-			? {}
-			: {
-					operations: (doc.forms[formUuid]?.caseOperations ?? []).map(
-						(operation) => ({ uuid: operation.uuid, name: operation.id }),
-					),
-				}),
-		...(ref.slot === "search_input_required_when" ||
-		ref.slot === "search_input_validation_rule"
-			? { patternMatching: true as const }
-			: {}),
-		...(ref.entity === "module" && ref.slot === "search_input_options"
-			? { tableId: searchInputTable(doc, ref) }
-			: {}),
-	};
-	return new AuthoringScope(options);
-}
-
-/** The table a Search field's choices come from, whose rows its filter reads. */
-function searchInputTable(
-	doc: BlueprintDoc,
-	ref: Extract<SlotContextRef, { entity: "module" }>,
-): string | undefined {
-	if (!("member" in ref) || !("searchInputUuid" in ref.member))
-		return undefined;
-	const memberUuid = ref.member.searchInputUuid;
-	const input = doc.modules[ref.uuid]?.caseListConfig?.searchInputs.find(
-		(candidate) => candidate.uuid === memberUuid,
-	);
-	const options =
-		input !== undefined && "options" in input
-			? (input.options as { tableId?: string } | undefined)
-			: undefined;
-	return options?.tableId;
+	const site = readSite(doc, ref, tables);
+	return site === undefined
+		? undefined
+		: authoringValueScope(
+				site.options,
+				site.source,
+				site.path,
+				site.searchValidation,
+			);
 }
 
 /** Deep equality of two stored trees, key order aside; an absent key and an
@@ -158,7 +283,8 @@ export const recordDialectRoundTrip: RecordDialectJudge = (
 	expression,
 	lookup,
 ) => {
-	const scope = slotScope(doc, ref, lookup);
+	const scope = recordSlotScope(doc, ref, lookup);
+	if (scope === undefined) return "round-trip";
 	const printer = queryPrinter(scope);
 	const types = new Map(
 		[...lookup.values()].map((table) => [

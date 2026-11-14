@@ -772,8 +772,7 @@ export type ReadMode =
 	| {
 			readonly target: "hq-json";
 			readonly interpolation: HqInterpolation; // lib/commcare/hqJson/xpath.ts
-	  }
-	| { readonly target: "search-row" };
+	  };
 
 export interface PendingExpression {
 	/** The slot the expression belongs to, which exists in the document. */
@@ -794,8 +793,11 @@ The record holds no `vellum:` shadow: part 06 judges a shadow itself (10.1), and
 same file (`PendingRegistry`, its section 11.1) keeps the node an expression was read from and a
 default's event. Every reader registers through `ctx.pending.register(expression, at)`, which returns
 the registration's index `i`. Part 07 builds the record the same way: a mode it names by a string is
-the `interpolation` of `{ target: "hq-json", interpolation }`, an `_xpath_query` value is
-`{ target: "search-row" }`, and `key` is the surface key it claims the value under. A settle function
+the `interpolation` of `{ target: "hq-json", interpolation }`, and `key` is the surface key it claims
+the value under. An `_xpath_query` value is never registered: a search filter row has one reader,
+part 07's `settleSearches` through `readSearchRowConjuncts` and `matchSearchRows` (7.1 to 7.6), so
+`readExpressions` reads no row, no registration names the slot `search_input_predicate` (the
+settle fills it), and `SLOT_ENTRIES` has no row for it (9.2). A settle function
 reads a registration's result through the registry's `ctx.pending.outcome(i)` (part 06, section 11.1):
 `.expression` is `ExpressionReading.bound[i]` and `.claim` the slot's own claim, the one whose
 `source` is `i` and whose `key` is the registration's `key` (the surface uses of 9.3 share the
@@ -805,7 +807,8 @@ for a registration nothing bound.
 `pendingPlaceholder` gives `{ kind: "match-all" }` for a condition and the empty string literal for a
 value. A structure reader writes it into a slot whose schema requires an expression (a calculated
 column, an advanced Search field's condition, a link's carried value, a case write's value) and leaves
-an optional slot absent; either way it registers the text.
+an optional slot absent; either way it registers the text, except an advanced Search field's
+condition, which is a search filter row that `settleSearches` reads and writes.
 
 **What the document must hold before the stage runs.** Binding and printing read a real document
 (`slotContext`, `expressionFacts`, `entryDatumIds`, the emitters' build contexts): the frame's
@@ -847,7 +850,16 @@ section 11.5), writes them onto the draft (`DraftApp.userProperties`,
 (its section 2.3), so the provisional document built next holds them, and the second run is the
 reading. The stage writes a draft nowhere else: `readExpressions` takes a document and returns one.
 `readExpressions` is pure, so the two runs and a re-read of Nova's emission of the result learn the
-same slugs.
+same slugs. A search filter row is no registration, so neither run sees a worker read only a row
+makes (an advanced Search field's condition reading `#user/<slug>`): the search reader, which holds
+the rows in pass 1, reads each row as the classification does, in the case list filter's slot,
+else the first excluded advanced field's that admits it (`search/rows.ts::rowEarlyReads`, the same
+reading that gives the rows' compared types), and lists the `field` of each name-backed
+`session-user` leaf of the bound conjuncts, from session data or the worker's record alike, less a
+field CommCare HQ writes on every worker's own case, as step 7 lists a slot's
+(`search/index.ts::searchRowUserFields(ctx)`). The frame adds them to the first run's `userFields`
+before it mints (`provisional.ts::bindExpressions`), so the row binds to the minted property at the
+settle.
 
 ```ts
 // lib/commcare/reader/expressions/index.ts
@@ -975,8 +987,9 @@ miss. Its steps:
      `@case_id`, in a menu's own slot a case keyed on the session value of a case a menu above it
      chose (the menu's case list entry datums, by the id or the pre-alignment id
      `formLinkProjection.ts::caseListStepDatumId` prints), a row-relative step in a slot whose
-     context holds a case row, and in a search filter row the property a relation function's
-     filter reads of the related case its type test names. A property a `casedb` query with no
+     context holds a case row. A search filter row is no registration, so the scan reads none: the
+     search reader declares what its rows read (`search/index.ts::readSearches`, over
+     `scanReads.ts::searchRowProperties` and `searchRowRelations`). A property a `casedb` query with no
      type test reads (Nova writes none where one case type alone declares the property), which
      no case type declares and no read above types, is declared on the slot's own case type (its
      row's, else its form's menu's): the binder types it by the one type that declares it, and
@@ -992,16 +1005,16 @@ miss. Its steps:
      whose hop up `index/parent` tests the type it reaches (a `casedb` row's or a detail's
      `current()/../case`), a presence test over `parent` (the candidates' type test, from the row's
      type or, nested, the type of the candidates whose predicate holds it), and a count of subcases
-     over `parent` with a type test, and in a search filter row a `subcase-exists`, `subcase-count`
-     or `ancestor-exists` over `parent` whose filter opens with a type test
-     (`scanReads.ts::searchRowRelations`, which the search reader's own declarations call too).
+     over `parent` with a type test (a search filter row's `subcase-exists`, `subcase-count` or
+     `ancestor-exists` over `parent` is the search reader's to declare, through
+     `scanReads.ts::searchRowRelations`).
      Where the catalog gives the child no parent, the clone names
      the parent, declaring either type the catalog lacks: a relation's type step needs the
      catalog's `parent_type` (`relationDestination.ts`), and nothing else an app holds says it.
    - **Types a comparison gives** (step 1b, after the scan): every record slot bound once with every
-     fold on, each Search field's condition the search reader wrote, and each search filter row
-     (`csqlRead.ts`, which reads and checks the row under the same types): a property the catalog
-     holds untyped, compared with a value of type `int`, `decimal`, `date` or `datetime`, or ordered
+     fold on (a search filter row's comparisons type its properties in the search reader's first
+     pass, `search/rows.ts::rowEarlyReads`, under the types `csqlRead.ts` reads the row by): a
+     property the catalog holds untyped, compared with a value of type `int`, `decimal`, `date` or `datetime`, or ordered
      against a literal spelled as a date or a date and time, takes that type (`decimal` where
      whole numbers and decimals meet; none where its comparisons disagree), a property a
      `within-distance` measures from takes `geopoint` and one a `selected`, `selected-any` or
@@ -1422,6 +1435,22 @@ number literal already types as `int` or `decimal`. A time-shaped literal is lef
 `time-ordering` refuses every ordering of a time in both rule sets. The fold is used by the CSQL
 binder too (7.3). The row `literal-type` of 5.5 is the same rule over a stored tree.
 
+The same fold reads a slot's whole value as one literal: in a value slot of a date or a date and time,
+typed by its own shape; in a case write (`case_operation_write_value`), a text spelled exactly as
+CommCare HQ stores a moment (`instantOperand.ts::literalStoredInstantText` of the text is the text,
+UTC with six fraction digits and `Z`) as a date-and-time literal of that moment's canonical text,
+`instantTextOfMicros(literalInstantMicros(text))`. `caseOps.ts` writes a date-and-time literal to a
+date-and-time property through `datetimeCaseValue`, which folds it to that stored text, and to any
+other property as written, so `printSlot` prints a whole literal of a write to a date-and-time
+property through `datetimeCaseValue` as well, and the print decides: to any other property the
+canonical text prints apart from the source and the fold is withdrawn. The write is typed by its own
+spelling, never by the property's other writers, because every writer of the property is bound
+against one provisional document whose writes hold placeholders. The row `stored-instant-literal`
+of 5.5 gives every authored spelling of the moment that canonical text. An untyped text literal in
+exactly that spelling, written to a property nothing else types, reads as the moment; no Nova author
+writes CommCare HQ's stored spelling as text, and no row can hold that pair, since the two type the
+property apart and every other slot reading it prints by its type.
+
 ### 5.2 Identity leaves
 
 | Id | Rule sets | Shape | Proposal |
@@ -1653,10 +1682,14 @@ trees do, so the slot is `unrecognized`, which is the truth: Nova would write th
 | `default-current` | in a `default_value` slot, a question read spelled `current` | the same read with no spelling or spelled `absolute` (a `relative` read prints relative and is no part of this row) |
 | `row-predicate-current` | a question read spelled `current`, where `formReads.ts::crossesSourceRepeatInRowPredicate` holds | the same read with no spelling or spelled `absolute` |
 | `literal-type` | in a record slot, a date-shaped or date-and-time-shaped string literal typed by its own shape, under 5.1's rule for `typed-literal` | the same literal untyped |
+| `stored-instant-literal` | a case write's whole value that is a date-and-time literal, to a date-and-time property, spelled `instantTextOfMicros(literalInstantMicros(text))` | any other literal of the same moment: `caseOps.ts` writes each through `datetimeCaseValue` as the text CommCare HQ stores for the moment (`literalStoredInstantText`) |
 | `instant-literal` | a literal that is a direct operand of a comparison `comparisonPlan` lowers, spelled `instantTextOfMicros(literalInstantMicros(text))`; a literal branch of such an operand, spelled `literalInstantText(text)`; never in a Search field's condition, nor in a list filter a search restates, whose CSQL prints the literal as written | any other literal of the same moment (a direct operand); the same date, clock and offset written with fewer digits (a branch) |
 | `consumer-in-branches` | `if(c, sum(A), sum(B))`, and the same for `cond` | `sum(if(c, A, B))`, `sum(cond(…))`: `emptyRows.ts::guardNodeSetConsumer` moves the call into each branch |
 | `filter-identities` | in any slot whose emission calls `simplifyForEmission` or `effectiveFilterForEmission` (the case list filter, a lookup-backed select's row filter, a table lookup's `where`, the search button's condition, a Search field's condition), the expression as that call gives it; for the case list filter, `match-all` where that is all-true, which prints no filter as an absent one does, and part 09's `canonDocument` stores as the absent filter the reader gives (a rewrite answers a tree, never an absent slot) | the same expression holding `match-all` in an `and`, `match-none` in an `or`, or any other identity `simplifyForEmission` drops |
-| `membership` | `in` | an `or` of equalities on one operand, in a record slot |
+| `membership-in-disjunction` | outside CSQL (a Search field's condition, a list filter a search restates), an `in` inside an `or` as its equalities, clauses of that `or` | the `in` whole: a device prints it as the `or` of its equalities, which `w.or` joins into the `or` around it |
+| `membership` | `in` | an `or` of equalities on one operand, in a record slot outside CSQL; CSQL prints `in` in parentheses and a bare `or` without, which a search row reads back apart |
+| `selection-per-value` | on a device, a `multi-select-contains` as one `selected` test of each value, quantifier `any`, joined by `or` (`any`) or `and` (`all`), each fixed value named as its question's choice by `choice-literal`; in CSQL, one fixed value tested for `any` | the selection of several values, or one value tested for `all`: a device prints `selected(p, v)` per value whatever the quantifier (`fromExpression.ts`), and CSQL prints a fixed value `selected(p, 'v')` whatever the quantifier |
+| `csql-parenthesized-join` | in CSQL, inside an `and` that is not the slot's own (whose clauses are rows of their own, `xpathQuery.ts::composeXPathQueryClauses`), through a presence's clause and an `if`'s branches, the `multi-select-contains` of an `or` of one-value tests of one property, and the `in` of an `or` of equalities of one operand with literals | the `or`, which the CSQL printer parenthesizes there as the selection and the membership print their own parentheses |
 | `range` | `between` | an `and` of two orderings on one operand, in a record slot |
 | `null-literal` | the empty text literal `''` | a `null` literal, which every target prints as `''` (`fromExpression.ts::wireLiteral`, `csql/emitter.ts::termValue`) |
 | `one-case-switch` | `if(eq(v, w), t, f)` | a `switch` on `v` of one case `w → t` with fallback `f`, which every target prints as that `if` |
@@ -1951,6 +1984,7 @@ CSQL is XPath syntax: HQ parses it with `eulxml` and reads the tree in
 | `match-all()`, `match-none()` | `match-all`, `match-none` |
 | `<anchor> OP <value>` | the comparison; `(p >= v and p <= v)` on a date-and-time property proposes `eq` first, and `p = ''` proposes `is-blank` first |
 | an anchor: a name; `@case_id`, `@owner_id`, `@status`; `@case_type`; `a/b/p`; `a/@case_id` | `prop` of the row; the standard properties; `case-row-type`; `prop` with an `ancestor` path of the leading steps; the ancestor's id |
+| `a/@case_id = v` | `exists` over the `ancestor` path of the leading steps whose `where` compares the ancestor's id with `v`. The emitter writes this spelling, which names no case type, only where every step that names one names the type of `v`'s case (`csql/emitter.ts::flagFreeAncestorCaseId`), and the checker admits a step other than `parent` only where it names a type, so each such step takes the type of `v`'s case (`typeOf(v).caseIdOf`) and a `parent` step stays for the `relation-type` row to type |
 | a text compared with `@case_type` | `case-type`, as the form parser binds it (5.5, `case-type-literal`) |
 | a value: a string or a number, `-n` | a literal; a date-shaped or date-and-time-shaped string against a `date` or `datetime` anchor, or in an ordering against an anchor of no known type, is typed by the `typed-literal` rule of 5.1 |
 | a value: a string that is one hole | the hole's wrapper node, bound as device XPath under the same context (the bind `readExpression` makes, over the node's own source text, with the reading hook of 4.2, no form's maps, and the suite mode for its print), which is a runtime value |
@@ -1960,6 +1994,8 @@ CSQL is XPath syntax: HQ parses it with `eulxml` and reads the tree in
 | `date-add(d, '<interval>', n)`, `datetime-add(…)` | `date-add` with that interval, over a date or a date and time |
 | `unwrap-list('<json>')` | `value-list`: the JSON array's strings as literals, a hole inside the array as a runtime item |
 | `selected(p, v)`, `selected-any(p, v)`, `selected-all(p, v)` | `multi-select-contains`, `any` or `all`; a literal `v` proposes its whitespace-separated tokens as the values first, then the one value |
+| a parenthesized `or` of `selected` and `selected-any` tests of one property, or `and` of `selected` and `selected-all` tests | proposed first as the one `multi-select-contains` of their values, `any` or `all`, the selection `csql/emitter.ts::selection` prints in parentheses; a relation's condition is read without the one pair the emitter writes around it, so the pair a selection writes inside it decides |
+| a parenthesized `or` of equalities of one property with fixed values | proposed first as the `in` of those values, the membership `csql/emitter.ts::membership` prints in parentheses |
 | `starts-with`, `fuzzy-match`, `phonetic-match`, `fuzzy-date` | `match` with that mode |
 | `within-distance(p, center, distance, '<unit>')` | `within-distance` |
 | `subcase-exists('<id>'[, q])`, `ancestor-exists(<path>, q)` | `exists` over a `subcase` or `ancestor` path |
@@ -2074,8 +2110,9 @@ export function readSearchRowConjuncts(text: string, context: ExpressionContext,
 	) & { readonly uses: readonly SurfaceUse[] }; // SurfaceUse: surfaceUses.ts
 ```
 
-`uses` is `expressionSurfaceUses(source, predicate, context, { target: "search-row" })` over the row's
-parsed text (none for a row the grammar cannot read). `settleSearches` claims each at the row's
+`uses` is `expressionSurfaceUses(source, predicate, context, "csql")` over the row's
+parsed text, none for a row the grammar cannot read (the fourth argument says the text is a row's
+CSQL, not form XPath, which a registration's uses pass as `"xpath"`). `settleSearches` claims each at the row's
 `defaultValue` under its own key, after the row's own claims and skipping a key they hold, so every
 operator, function, metadata name, unit and presence gate of a row reaches the claim log the lane's
 parity reads.
@@ -2428,15 +2465,20 @@ type SlotName = SlotContextRef["slot"]; // lib/domain/expression/types.ts
  *  document because a row can choose by the slot's owner (a repeat's placement, a question in a
  *  repeat, an operation's action) or by the bound tree. `held` answers undefined for the row that
  *  has no slot entry; `refused` answers `"form-default"` where the column reads "M2 or M3". */
+/** Every slot a reader registers: all but `search_input_predicate`, a search filter row. */
+export type RegisteredSlotName = Exclude<SlotName, "search_input_predicate">;
 export const SLOT_ENTRIES: Readonly<
 	Record<
-		SlotName,
+		RegisteredSlotName,
 		{
 			held(doc: BlueprintDoc, ref: SlotContextRef, bound: Expression): string | undefined;
 			refused(doc: BlueprintDoc, ref: SlotContextRef): string | "form-default";
 		}
 	>
 >;
+/** `SLOT_ENTRIES`' row for a registration's slot; a registration of `search_input_predicate` is a
+ *  reader's own error (no reader registers a row), and throws saying where rows are read. */
+export function slotEntries(slot: SlotName): (typeof SLOT_ENTRIES)[RegisteredSlotName];
 /** "By parse issue", from its second row down: the entry, `"unrecognized"`, or `"slot-default"`,
  *  with the `detail.reason` of 9.1. The two refusals of HQ's interpolation (6.1) are judged here
  *  too. An exhaustive `switch` over `FormParseIssueCode`. */
@@ -2449,7 +2491,8 @@ export function parseIssueEntry(
 export function checkErrorEntry(
 	error: CheckError, // lib/domain/expression/typeChecker.ts
 	doc: BlueprintDoc,
-	pending: PendingExpression,
+	// The slot; `searchRow` where `csqlRead.ts` checks a search filter row's bound predicate.
+	checked: { readonly ref: SlotContextRef; readonly searchRow?: true },
 	candidate?: Expression, // the tree the error is about; else the slot's stored tree
 ): { readonly entryId: string | "slot-default"; readonly reason: string };
 /** A form slot's default: M2 or M3, by the code (below). */
@@ -2460,7 +2503,9 @@ export function formRefusalEntry(code: CheckErrorCode): string;
 `formRefusalEntry` for a checker code and to M3 for a parse issue the table sends to the slot's
 default. The slot `search_input_predicate` and the case list filter's own rows take the row "a
 search filter row": both are read from `_xpath_query` rows by `readSearchFilterRow`, which answers
-its claim itself (7.1). The first row of "By parse issue" is no parse issue: `readExpressions` tests
+its claim itself (7.1), at part 07's settle and never as a registration, so `SLOT_ENTRIES` holds no
+row for `search_input_predicate`; where it sends a checker refusal to the slot's default it takes M7
+itself. The first row of "By parse issue" is no parse issue: `readExpressions` tests
 it on the raw text (`findings.ts::rawTextEntry`) before it interpolates or binds.
 
 **Every entry id is a declared claim.** The frame applies an `ExpressionClaim` through
@@ -2591,12 +2636,13 @@ takes it:
 
 ```ts
 // lib/commcare/reader/expressions/surfaceUses.ts
-/** The surface keys an expression's syntax uses, with the entry that takes each use. */
+/** The surface keys an expression's syntax uses, with the entry that takes each use: a
+ *  registration's form XPath (`"xpath"`) or a search filter row's CSQL (`"csql"`). */
 export function expressionSurfaceUses(
 	source: FormSyntax,
 	candidate: Expression | undefined,
 	context: ExpressionContext,
-	mode: ReadMode,
+	language: "xpath" | "csql",
 ): readonly { readonly key: string; readonly entryId: string }[];
 ```
 
@@ -2895,7 +2941,7 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | `__tests__/proseValueRules.test.ts` (only where part 03's G1 gave outcome B or its G3 gave outcome C's second case; one group of cases for each rule that landed) | `readExpressions` over a real document whose label and validation message hold outputs | a `value` part the gate's rule refuses held under `questions/output-value-any-other-expression`, which acceptance's gate would then stop with no finding; a value outside the class, or a reference part, refused; the validation message rule applied to a label; the claim made by a test of the reader's own in place of the rule's exported predicate |
 | `lib/domain/expression/__tests__/instantTextOfMicros.test.ts` | pure | `instantTextOfMicros` breaking either law of 5.3; year 9999's last second in UTC, the first moment past it, and a moment 100 hours past it |
 | `__tests__/printCollisions.test.ts` | the emitter | a row of `PRINT_COLLISIONS` whose two trees print different bytes; for `filter-identities`, one case a site: a lookup-backed select's row filter, a table lookup's `where`, the search button's condition in each of its two emitters, or a Search field's condition printing other bytes with a boolean identity than without |
-| `__tests__/csqlRead.test.ts` | the CSQL emitter and the reader | HQ's documented `concat('p = "', <answer>, '"')` in double and in single quotes not held at the guards level; a constant `p > today()` left `unrecognized`, where it is held with `search-today-device-day` and no `search-value-guards`; `unwrap-list` with a fixed and with a calculated item; a presence cascade; `dob > '2000-01-01'` refused; `date_opened > '2023-01-01'` and `date_opened = '2023-01-01'` held, or claimed as `unrecognized`, where each claims the system-date HELD-NEW entry; a text property ordered against a date (`village > '2020-01-01'`, which HQ builds) claimed as `unrecognized`, where it claims M7, and ordered against other text (`village > 'm'`, which HQ refuses) claimed as anything but the REFUSED untyped-right-side entry; a property name built at run time held; an unparenthesized second argument held |
+| `__tests__/csqlRead.test.ts` | the CSQL emitter and the reader | HQ's documented `concat('p = "', <answer>, '"')` in double and in single quotes not held at the guards level; a constant `p > today()` left `unrecognized`, where it is held with `search-today-device-day` and no `search-value-guards`; `unwrap-list` with a fixed and with a calculated item; a presence cascade; `dob > '2000-01-01'` refused; `date_opened > '2023-01-01'` and `date_opened = '2023-01-01'` held, or claimed as `unrecognized`, where each claims the system-date HELD-NEW entry; a text property ordered against a date (`village > '2020-01-01'`, which HQ builds) claimed as `unrecognized`, where it claims M7, and ordered against other text (`village > 'm'`, which HQ refuses) claimed as anything but the REFUSED untyped-right-side entry; a property name built at run time held; an unparenthesized second argument held; a selection of several fixed values (any, all), of a Search field's answer (`selected-any`, `selected-all`), and a membership, in Nova's own export, read back as other than the canonical tree of the condition or with a finding |
 | `proof/native/test_csql_reader_parity.py` | HQ's `eulxml` parser and filter builder, in the lane (run E3) | a text HQ refuses and the reader holds |
 | `__tests__/searchRows.test.ts` | `composeXPathQueryEmission` over a real module | Nova's own rows not matched exact; a row whose root is `and` not read as its conjuncts; a row a filter clause emitted reported as a field's |
 | `__tests__/findings.test.ts` | the manifest | a `FormParseIssueCode` or `CheckErrorCode` with no entry; an entry id that is not in `lib/commcare/surface/entries`; a claim whose entry is HELD for a refusal; a key of `SURFACE_USE_ENTRIES` no entry names; an entry a table answers that is no member of `EXPRESSION_CLAIMS` |

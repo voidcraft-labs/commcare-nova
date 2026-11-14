@@ -29,8 +29,9 @@ import {
 	formRefusalEntry,
 	nameGrammarEntry,
 	parseIssueEntry,
+	type RegisteredSlotName,
 	SLOT_ENTRIES,
-	type SlotName,
+	slotEntries,
 } from "../findings";
 import { SURFACE_USE_ENTRIES } from "../surfaceUses";
 
@@ -165,7 +166,7 @@ const FIELD = Object.keys(doc.fields)[0] as string;
 function refs(): readonly SlotContextRef[] {
 	const member = testUuid("00000000-0000-4000-8000-0000000f1001");
 	const all: SlotContextRef[] = [];
-	for (const slot of Object.keys(SLOT_ENTRIES) as SlotName[]) {
+	for (const slot of Object.keys(SLOT_ENTRIES) as RegisteredSlotName[]) {
 		switch (slot) {
 			case "relevant":
 			case "validate":
@@ -260,7 +261,6 @@ function refs(): readonly SlotContextRef[] {
 				});
 				break;
 			case "search_input_default":
-			case "search_input_predicate":
 			case "search_input_options":
 			case "search_input_required_when":
 			case "search_input_validation_rule":
@@ -277,11 +277,14 @@ function refs(): readonly SlotContextRef[] {
 	return all;
 }
 
-function pending(
-	ref: SlotContextRef,
-	mode: PendingExpression["mode"] = { target: "xform", constraint: false },
-): PendingExpression {
-	return { ref, text: "x", mode, place: { kind: "app" }, key: "test:x" };
+function pending(ref: SlotContextRef): PendingExpression {
+	return {
+		ref,
+		text: "x",
+		mode: { target: "xform", constraint: false },
+		place: { kind: "app" },
+		key: "test:x",
+	};
 }
 
 /** Each answer a table gives, which must be an entry or one of the table's own words. */
@@ -316,14 +319,10 @@ describe("the expression stage's claims", () => {
 		for (const ref of refs())
 			for (const code of Object.keys(ISSUES) as FormParseIssueCode[]) {
 				const issue = { code, message: "", from: 0, to: 1 };
-				for (const answer of [
-					parseIssueEntry(issue, doc, pending(ref)),
-					parseIssueEntry(issue, doc, pending(ref, { target: "search-row" })),
-				]) {
-					expect(answer.reason).toBe(`parse:${code}`);
-					const entry = entryOf(answer.entryId);
-					if (entry !== undefined) expectRefusing(entry, `${ref.slot} ${code}`);
-				}
+				const answer = parseIssueEntry(issue, doc, pending(ref));
+				expect(answer.reason).toBe(`parse:${code}`);
+				const entry = entryOf(answer.entryId);
+				if (entry !== undefined) expectRefusing(entry, `${ref.slot} ${code}`);
 			}
 		for (const code of ["case-reference", "fixture-value"] as const)
 			for (const ref of refs()) {
@@ -338,11 +337,8 @@ describe("the expression stage's claims", () => {
 		for (const ref of refs())
 			for (const code of Object.keys(CODES) as CheckErrorCode[]) {
 				const error: CheckError = { path: [], code, message: "" };
-				for (const mode of [
-					{ target: "xform", constraint: false } as const,
-					{ target: "search-row" } as const,
-				]) {
-					const answer = checkErrorEntry(error, doc, pending(ref, mode));
+				for (const checked of [{ ref }, { ref, searchRow: true } as const]) {
+					const answer = checkErrorEntry(error, doc, checked);
 					const entry = entryOf(answer.entryId);
 					if (entry !== undefined) expectRefusing(entry, `${ref.slot} ${code}`);
 				}
@@ -353,14 +349,14 @@ describe("the expression stage's claims", () => {
 	it("claims a held slot under an allowing entry and a refused one under a refusing entry", () => {
 		for (const ref of refs())
 			for (const bound of [matchAll(), term(literal("x"))]) {
-				const held = SLOT_ENTRIES[ref.slot].held(doc, ref, bound);
+				const held = slotEntries(ref.slot).held(doc, ref, bound);
 				if (held !== undefined) {
 					expect(CLAIMED.has(held), held).toBe(true);
 					expect(ALLOWING.has(INDEX.entry(held)?.standing ?? ""), held).toBe(
 						true,
 					);
 				}
-				const refused = entryOf(SLOT_ENTRIES[ref.slot].refused(doc, ref));
+				const refused = entryOf(slotEntries(ref.slot).refused(doc, ref));
 				if (refused !== undefined) expectRefusing(refused, ref.slot);
 			}
 	});

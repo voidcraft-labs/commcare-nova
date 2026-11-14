@@ -6,7 +6,9 @@
  * other than the first beside first-language text reads as no translation and
  * is counted, while a blank first-language value beside another language's
  * text is refused; a text blank everywhere gets no flag. A label written
- * inline is shown as typed, and a choice that shows nothing is refused. Read
+ * inline is shown as typed, a help text written inline is left for the close
+ * (the form builder keeps a help only through its text id), and a choice that
+ * shows nothing is refused. Read
  * whole, through every stage: a translation's output takes its source twin's
  * bound part, a blank beside a source output makes no entry and no finding,
  * an output with no twin is a finding at the question, and a Hidden Value's
@@ -400,6 +402,20 @@ describe("labels written inline and choices that show nothing", () => {
 		);
 		expect(unrecognizedAt(reading, "q")).toEqual(["xform:output"]);
 		expect(field(reading, "q").plainLabel).toBe(true);
+	});
+
+	it("leaves a help text written inline for the close, and reads no help from it", async () => {
+		const reading = await readForm(
+			oneLabel(
+				"q",
+				{ en: `<text id="q"><value>Q</value></text>` },
+				"<help>Ask twice</help>",
+			),
+		);
+		expect(field(reading, "q").help).toBeUndefined();
+		expect(
+			unrecognizedAt(reading, "q").filter((name) => name.includes("help")),
+		).toEqual(["xform:help"]);
 	});
 
 	it("refuses an item with no label, and a choice that shows nothing", async () => {

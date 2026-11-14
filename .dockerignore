@@ -31,6 +31,8 @@ scripts/*
 !scripts/migrate-conversation-sources.ts
 !scripts/scan-select-starting-values.ts
 !scripts/migrate-select-starting-values.ts
+!scripts/scan-several-case-close-places.ts
+!scripts/migrate-several-case-close-places.ts
 !scripts/java-pattern-runtime/
 !scripts/java-pattern-runtime/**
 scripts/java-pattern-runtime/.gradle/
@@ -52,6 +54,7 @@ scripts/lib/*
 !scripts/lib/caseParentRelationshipRepair.ts
 !scripts/lib/languageIdentityRepair.ts
 !scripts/lib/selectStartingValueRepair.ts
+!scripts/lib/severalCaseClosePlaces.ts
 !scripts/lib/threadStorageCutover.ts
 !scripts/lib/conversationSourceBaseline.ts
 !scripts/lib/conversationSourceCutover.ts

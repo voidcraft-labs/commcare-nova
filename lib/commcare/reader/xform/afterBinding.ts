@@ -6,7 +6,8 @@
  * values whose order a save in HQ's form builder changes, where one reads the
  * node the other sets (11.3); and a Hidden Value whose bind type is one Nova
  * would not write for it (11.4); and a protected validation message's composed
- * expression and its text's own forms (13.2). Each is compared with the production rule
+ * expression and its text's own forms (13.2); and a Connect slot that holds the default the
+ * emitter writes for an unset one, read as unset. Each is compared with the production rule
  * over the document as the expression stage bound it. A check whose inputs a
  * finding withheld is skipped: that finding already sends the person to the
  * question or the form.
@@ -35,6 +36,11 @@ import {
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { caseOptionsNodeset } from "../../caseOptions";
+import {
+	DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
+	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+} from "../../connectDefaults";
 import { planLanguageWire } from "../../languageWire";
 import { commCareLocalization } from "../../localization";
 import { inertLookupWireNaming } from "../../lookup/naming";
@@ -43,6 +49,7 @@ import { protectConstraintMessage } from "../../xform/constraintMessage";
 import { questionDatetimeCaseValue } from "../../xform/datetimeCaseValue";
 import { formNodeProjection } from "../../xpath/formNodeProjection";
 import { w } from "../../xpath/wire/builders";
+import { withCandidate } from "../candidate";
 import { claimRegistry } from "../claims";
 import type { ReadContext } from "../context";
 import { lookupTypes } from "../expressions/readExpression";
@@ -660,8 +667,89 @@ function settleProtectedMessage(
 			else xform.cursor.derivedSubtree(value, G.messageForms);
 }
 
+/** Two stored values alike key by key, whatever order their keys were written in. */
+function sameStored(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (
+		typeof a !== "object" ||
+		typeof b !== "object" ||
+		a === null ||
+		b === null
+	)
+		return false;
+	if (Array.isArray(a) !== Array.isArray(b)) return false;
+	const aKeys = Object.keys(a);
+	const bKeys = Object.keys(b);
+	return (
+		aKeys.length === bKeys.length &&
+		aKeys.every(
+			(key) =>
+				Object.hasOwn(b, key) &&
+				sameStored(
+					(a as Record<string, unknown>)[key],
+					(b as Record<string, unknown>)[key],
+				),
+		)
+	);
+}
+
+/** Each Connect slot the emitter fills from its default where the slot is unset
+ *  (`connectDefaults.ts::effectiveAssessmentUserScore`, `effectiveDeliverEntities`). */
+const CONNECT_DEFAULTS = [
+	{
+		block: "assessment",
+		slot: "user_score",
+		value: DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
+	},
+	{
+		block: "deliver_unit",
+		slot: "entity_id",
+		value: DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+	},
+	{
+		block: "deliver_unit",
+		slot: "entity_name",
+		value: DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+	},
+] as const;
+
+/**
+ * The document with each Connect slot that holds its default unset: the emitter writes the
+ * default's calculate for an unset slot, so an unset slot and one holding the default print one
+ * block, and the reading returns the unset one (`finishForms`).
+ */
+export function connectDefaultsUnset(doc: BlueprintDoc): BlueprintDoc {
+	const unset: { form: Uuid; block: string; slot: string }[] = [];
+	for (const [formUuid, form] of Object.entries(doc.forms) as [
+		Uuid,
+		BlueprintDoc["forms"][Uuid],
+	][]) {
+		const connect = form.connect as
+			| Record<string, Record<string, unknown> | undefined>
+			| undefined;
+		if (connect === undefined) continue;
+		for (const { block, slot, value } of CONNECT_DEFAULTS) {
+			const held = connect[block]?.[slot];
+			if (held !== undefined && sameStored(held, value))
+				unset.push({ form: formUuid, block, slot });
+		}
+	}
+	if (unset.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const { form, block, slot } of unset) {
+			const config = (
+				draft.forms[form]?.connect as
+					| Record<string, Record<string, unknown> | undefined>
+					| undefined
+			)?.[block];
+			if (config !== undefined) delete config[slot];
+		}
+	});
+}
+
 /** Stage 10: the checks of each form that need the bound document. */
 export function finishForms(ctx: ReadContext): void {
+	if (ctx.doc !== undefined) ctx.doc = connectDefaultsUnset(ctx.doc);
 	const types = lookupTypes(expressionEnvOf(ctx));
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms) {

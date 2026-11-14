@@ -8,7 +8,7 @@
  * `projectCaseListForHq` writes the stored details back
  * (`caseList/index.ts::settleCaseLists`).
  */
-import type { CaseProperty, Column } from "@/lib/domain";
+import type { CaseProperty, Column, LanguageTag } from "@/lib/domain";
 import {
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
@@ -503,13 +503,44 @@ export function appCodes(ctx: ReadContext): readonly string[] {
 	return applicationReading(ctx)?.languages.codes ?? [];
 }
 
-/** The text of `map` in the app's first language. */
-export function firstText(
+/**
+ * The code of the reading's source language: the language whose text the document's own slots
+ * hold, as the languages stage wrote it into the draft's localization. That is the app's first
+ * language unless the first language translates one of Nova's own sentences
+ * (`search/systemSentences.ts`); a draft with no localization holds English alone, its first.
+ */
+export function sourceCode(ctx: ReadContext): string | undefined {
+	const codes = appCodes(ctx);
+	const source = ctx.draft.localization?.sourceLanguage;
+	const tags = applicationReading(ctx)?.languages.tagOf;
+	if (source !== undefined && tags !== undefined)
+		for (const code of codes) if (tags.get(code) === source) return code;
+	return codes[0];
+}
+
+/** The text of `map` in the reading's source language. */
+export function sourceText(
 	ctx: ReadContext,
 	map: Readonly<Record<string, string>>,
 ): string {
-	const first = appCodes(ctx)[0];
-	return first === undefined ? "" : (map[first] ?? "");
+	const source = sourceCode(ctx);
+	return source === undefined ? "" : (map[source] ?? "");
+}
+
+/** `map`'s text in each language of the app other than the source, by the language's tag: what a
+ *  stage hands the translation sink. A code the reading named no language for holds none. */
+export function translatedTexts<T>(
+	ctx: ReadContext,
+	map: Readonly<Record<string, T>>,
+): Map<LanguageTag, T> {
+	const tags = applicationReading(ctx)?.languages.tagOf;
+	const source = sourceCode(ctx);
+	return new Map(
+		Object.entries(map).flatMap(([code, text]) => {
+			const tag = tags?.get(code);
+			return tag === undefined || code === source ? [] : [[tag, text] as const];
+		}),
+	);
 }
 
 function parse(text: string): FormSyntax | undefined {
@@ -582,8 +613,9 @@ function classifyField(field: string): FieldClass {
 	return { kind: "property", name: renamed };
 }
 
-/** Whether a property is written by a select question of the app's forms: Nova's plain column
- *  there shows the choice's label. */
+/** Whether a property is one whose choices the reading's catalog keeps, so Nova's plain column
+ *  over it shows the choice's label: a select question of the app's forms writes it, and a column
+ *  of the app shows it by its choices' labels (`labelShownProperty`). */
 export type SelectProperty = (property: string) => boolean;
 
 /** The format words HQ registers a column class for (`detail_screen.py::register_format_type`). */
@@ -640,7 +672,13 @@ function formatName(format: string): { name: string } | undefined {
 function enumEntries(
 	column: JsonCursor,
 ): readonly { key: unknown; value: Record<string, string> }[] {
-	const stored = column.peek("enum");
+	return enumEntriesOf(column.peek("enum"));
+}
+
+/** The entries of a stored `enum`: each key and its value map. */
+function enumEntriesOf(
+	stored: unknown,
+): readonly { key: unknown; value: Record<string, string> }[] {
 	if (!Array.isArray(stored)) return [];
 	return stored.map((entry) => ({
 		key: isJsonObject(entry) ? entry.key : undefined,
@@ -743,7 +781,7 @@ export type ColumnReading = ColumnProposal | "dropped" | undefined;
 
 /** What a column's reading needs of its detail and its menu. */
 export interface ColumnOptions {
-	/** Whether a property is one the app's select questions write. */
+	/** Whether a property is one whose choices the reading's catalog keeps. */
 	readonly selectProperty: SelectProperty;
 	/** Whether the short detail is a custom tile. */
 	readonly inTile: boolean;
@@ -836,7 +874,7 @@ export function readDetailColumn(
 			: "plain";
 	const others = claimOtherKeys(column, format, screen);
 	const field = fieldOf(column);
-	const base = { header: firstText(ctx, header) };
+	const base = { header: sourceText(ctx, header) };
 	const proposal = (
 		kind: ColumnProposal["column"],
 		extra: Partial<
@@ -951,6 +989,9 @@ export function readDetailColumn(
 
 	switch (format) {
 		case "plain": {
+			// A property select questions write keeps no choices where no column shows their
+			// labels (`details.ts::withholdRawShownChoices`), so a plain column over it shows its
+			// values, as Nova writes one; where another column shows them, Nova's would too.
 			if (options.selectProperty(name)) {
 				column.refuse("format", C.plainSelect, fieldName);
 				return undefined;
@@ -1157,7 +1198,7 @@ function readIdMapping(
 			...base,
 			mapping: entries.map((entry) => ({
 				value: entry.key as string,
-				label: firstText(ctx, entry.value),
+				label: sourceText(ctx, entry.value),
 			})),
 		} as ColumnProposal["column"],
 		{ texts },
@@ -1430,7 +1471,7 @@ function readProjection(
 		}
 		const first = entries[0];
 		if (entries.length === 1 && first !== undefined) {
-			candidate = intervalCandidate(text, firstText(ctx, first.value));
+			candidate = intervalCandidate(text, sourceText(ctx, first.value));
 			if (candidate !== undefined) texts[""] = first.value;
 		}
 		if (candidate === undefined) {
@@ -1480,6 +1521,23 @@ function readProjection(
 		json: column,
 		...(choices !== undefined && { choices }),
 	};
+}
+
+/**
+ * The property a stored column shows by its choices' labels: a calculated `translatable-enum`
+ * column whose expression and `enum` are Nova's label projection of a select property
+ * (`selectLabelCandidate`). Read over the stored JSON before any column is claimed, so a menu's
+ * columns know which properties the reading's catalog keeps choices for.
+ */
+export function labelShownProperty(column: unknown): string | undefined {
+	if (
+		!isJsonObject(column) ||
+		column.format !== "translatable-enum" ||
+		column.useXpathExpression !== true ||
+		typeof column.field !== "string"
+	)
+		return undefined;
+	return selectLabelCandidate(column.field, enumEntriesOf(column.enum))?.field;
 }
 
 /** The document a label projection is printed against: its labels are enum variables, so it

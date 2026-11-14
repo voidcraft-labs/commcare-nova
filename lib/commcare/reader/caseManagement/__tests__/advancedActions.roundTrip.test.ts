@@ -11,8 +11,10 @@
  * read), an open action read as the registration's own case or the reverse.
  */
 import fc from "fast-check";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import { matchAll } from "@/lib/domain/expression/builders";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import { advancedDocArbitrary } from "../../../__tests__/advancedDocArbitrary";
 import {
@@ -27,6 +29,7 @@ import {
 } from "../../../__tests__/advancedPlacementFixture";
 import { planPlacements } from "../../../placement";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { READER_CANONICAL_CHOICES } from "../../assemble";
 import { readHqApp } from "../../index";
 import {
 	comparableOperations,
@@ -224,6 +227,42 @@ describe("an advanced form read back from Nova's own emission", () => {
 				),
 			).toEqual([]);
 		});
+
+	it("reads the question that names an opened case with no required of its own, as the canonical document holds it", async () => {
+		// HQ's build writes `required="true()"` on the question an open action
+		// names its case from, over whatever the question held; the reading
+		// holds no required there, and neither does the canonical document.
+		const registration = CASES.find(
+			(one) =>
+				one.name ===
+				"a registration whose own case is its one open action, with a child in each row",
+		);
+		if (registration === undefined) throw new Error("No registration case.");
+		const { doc } = advancedFixture(registration.options);
+		const names = new Set(["name", "kid_name"]);
+		const authored = produce(doc, (draft) => {
+			for (const field of Object.values(draft.fields))
+				if (names.has(field.id))
+					(field as { required?: unknown }).required = matchAll();
+		});
+		expect(
+			Object.values(authored.fields).filter((field) => "required" in field),
+		).toHaveLength(2);
+		const outcome = readHqApp(await inputFor(exportedBody(authored)));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const want = READER_CANONICAL_CHOICES.reduce(
+			(current, choice) => choice.apply(current),
+			authored,
+		);
+		const requiredOf = (held: BlueprintDoc) =>
+			Object.values(held.fields)
+				.filter((field) => "required" in field && field.required !== undefined)
+				.map((field) => field.id)
+				.sort();
+		expect(requiredOf(want)).toEqual([]);
+		expect(requiredOf(outcome.draft.doc)).toEqual(requiredOf(want));
+	});
 
 	it("reads every form of every advanced fuzz document back into its operations, each tag held", async () => {
 		let advancedForms = 0;
