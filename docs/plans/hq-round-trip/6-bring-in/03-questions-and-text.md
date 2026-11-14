@@ -948,6 +948,17 @@ Formplayer's walk gives a question the client draws `PhoneEntry` for (`walk.py::
 Core's and Android's walks give a text question whose whole appearance is `numeric` or `numbers`
 (`Answers.java::numberKeypad`).
 
+The keypad is a use of `appearance:android/numeric`, a key the HELD Phone Number entry shares with the
+REFUSED `questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole`, which until this
+document no export used and so sat in `test_manifest_value_classes.py::KNOWN_GAPS`. Beside an
+allowing entry a REFUSED class with no reader leaves every use undecided, so the lane's first run of
+the document failed its manifest check on the keypad. The class's reader,
+`proof/checks/manifest_value_classes.py::case_variant_read_differently`, takes a whole appearance an
+Android read compares ignoring case (`WidgetFactory.java::buildBasicWidget` for `numeric` and
+`ethiopian`, `StringWidget.java::shouldSupportIMEAction` for `short`) and spelled otherwise than the
+lowercase value, so `Numeric` is refused and the `numeric` Nova writes is held; its shapes are in
+`test_manifest_value_classes.py`, and the entry leaves `KNOWN_GAPS`.
+
 ---
 
 ## 4. A calculated value in prose
@@ -2847,6 +2858,7 @@ and the served readers in the lane dispatch over the step's new targeted documen
 | `lib/domain/__tests__/referenceSlots.test.ts` | the totality audit | `keypad`, `plainHelp` or `plainText` unclassified |
 | `lib/commcare/xform/__tests__/appearance.test.ts` (new) | `fieldAppearance` over one field of every kind, and the emitted XForm of the existing emission fixtures parsed by `parseXml` | a control whose `appearance` changed for an existing document; a registry row with no token |
 | `lib/commcare/xform/__tests__/numberKeypad.test.ts` (new) | the emitted form through `validator/xformOracle` and `parseXml` | `numeric` on the wrong element, or a bind that is not `xsd:string` |
+| `proof/checks/test_manifest_value_classes.py`, `questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole` | the lane's reader of an Android appearance use, over a form holding each of `numeric`, `short` and `ethiopian` as written and as a case variant | the `numeric` Nova writes taken as refused, or `Numeric` taken as held |
 | `lib/domain/__tests__/platformUses.test.ts`, `lib/commcare/surface/__tests__/platformFeatures.test.ts` | the detector and the manifest binding | a keypad with no use; a row bound to no entry |
 | `lib/preview/engine/__tests__/numberKeypad.test.ts` (new) | the form engine's state under each platform's rules; the Android vectors are G5's four reads | Web Apps storing `12 34`; Android keeping a letter, or keeping what G5 shows a phone drops; the earlier answer lost on a refusal |
 | `lib/preview/__tests__/platformCells.test.ts` | the cell table | the differing cell with no evidence; its scenario missing or another platform's |
