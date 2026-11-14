@@ -96,12 +96,7 @@ KEYPAD_ENTRIES = {"+1 555-1234": "+1 5551234", "1.2.3": "1.23", "12+": "12", "a1
 # (``proof/targeted/documents/textReads.ts::PLAIN_LABEL_TEXTS``), each beside what Markwon draws of its markdown
 # form: the emphasis without its asterisks, the heading without its mark, the list item without its number (which
 # the list's span draws beside the text, not in it), and the raw tag gone with its text kept.
-PLAIN_TEXTS = {
-    "*not bold*": "not bold",
-    "# 5": "5",
-    "1. first": "first",
-    "<b>tag</b>": "tag",
-}
+PLAIN_TEXTS = {"*not bold*": "not bold", "# 5": "5", "1. first": "first", "<b>tag</b>": "tag"}
 BILINGUAL = "localization-bilingual"
 COUNTED = "container-query-conditional"
 CASE = "{http://commcarehq.org/case/transaction/v2}case"
@@ -118,10 +113,7 @@ def _served(document):
     from proof.formplayer import hq as formplayer_hq
     from proof.rules.conftest import published
 
-    with (
-        published(document, None) as app,
-        formplayer_hq.serve(app.unit, document, app.app_id) as served,
-    ):
+    with published(document, None) as app, formplayer_hq.serve(app.unit, document, app.app_id) as served:
         yield served, observe.release_archive(served)
 
 
@@ -137,20 +129,12 @@ def _app(served, archive, label, **steer):
 
 def _forms(walk):
     """Each form a walk entered, as its step records it."""
-    return [
-        step["form"]
-        for step in walk.get("steps", [])
-        if step.get("screen") == FORM_ENTRY and "form" in step
-    ]
+    return [step["form"] for step in walk.get("steps", []) if step.get("screen") == FORM_ENTRY and "form" in step]
 
 
 def _child(element, name):
     """The child element of ``element`` whose local name is ``name``."""
-    (found,) = [
-        child
-        for child in element
-        if isinstance(child.tag, str) and etree.QName(child).localname == name
-    ]
+    (found,) = [child for child in element if isinstance(child.tag, str) and etree.QName(child).localname == name]
     return found
 
 
@@ -164,25 +148,15 @@ def _entries(form, reference):
     ]
 
 
-def test_a_registration_forms_read_of_its_own_id_is_its_create_blocks_id(
-    android_documents, hq
-):
+def test_a_registration_forms_read_of_its_own_id_is_its_create_blocks_id(android_documents, hq):
     """The form "Register" calculates ``tracking_code`` as ``P-`` and its own new case's id. The instance the
     device sends holds that value with the create block's ``case_id`` after it, on a form completed in one go and
     on one saved incomplete at its first screen, reopened from home and completed."""
     questions = {"/data/case_name": ["Proof name"]}
     with _served(android_documents[REGISTRATION]) as (served, archive):
-        whole, sent_whole = _app(
-            served, archive, "whole", commands=[FORM], questions=questions
-        )
+        whole, sent_whole = _app(served, archive, "whole", commands=[FORM], questions=questions)
         again, sent_again = _app(
-            served,
-            archive,
-            "reopened",
-            commands=[],
-            questions=questions,
-            save_incomplete=FORM,
-            reopen=True,
+            served, archive, "reopened", commands=[], questions=questions, save_incomplete=FORM, reopen=True
         )
 
     (form,) = _forms(whole["walks"][FORM])
@@ -192,17 +166,13 @@ def test_a_registration_forms_read_of_its_own_id_is_its_create_blocks_id(
     assert reopened["form"]["saved"]["finishing"] is True, reopened
     for sent in (sent_whole, sent_again):
         (instance,) = sent
-        root = etree.fromstring(
-            instance, etree.XMLParser(resolve_entities=False, no_network=True)
-        )
+        root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
         case_id = root.find(CASE).get("case_id")
         assert case_id, instance
         assert _child(root, "tracking_code").text == f"P-{case_id}", instance
 
 
-def test_the_form_name_is_the_default_language_name_under_an_unchanged_header(
-    android_documents, hq
-):
+def test_the_form_name_is_the_default_language_name_under_an_unchanged_header(android_documents, hq):
     """The app's default language is Spanish and its source English. In the walk the app starts in, the form
     "Registrar" opens under the header ``Aplicación de salud > Pacientes > Registrar``, as before the title moved;
     its title, the title form entry gives a completed save, and the name of the record the save leaves are all
@@ -210,74 +180,41 @@ def test_the_form_name_is_the_default_language_name_under_an_unchanged_header(
     with _served(android_documents[BILINGUAL]) as (served, archive):
         answer, _ = _app(served, archive, "walked")
 
-    starting = {
-        name: walk for name, walk in answer["walks"].items() if "@language:" not in name
-    }
+    starting = {name: walk for name, walk in answer["walks"].items() if "@language:" not in name}
     forms = [form for walk in starting.values() for form in _forms(walk)]
     assert forms, sorted(answer["walks"])
     for form in forms:
-        assert (
-            form["FormEntryActivity.getHeaderString"]
-            == "Aplicación de salud > Pacientes > Registrar"
-        ), form
+        assert form["FormEntryActivity.getHeaderString"] == "Aplicación de salud > Pacientes > Registrar", form
         assert form["formTitle"] == "Registrar", form
         assert form["FormEntryInstanceState.getDefaultFormTitle"] == "Registrar", form
-        names = [
-            record["FormRecord.getDisplayName"] for record in form["saved"]["records"]
-        ]
+        names = [record["FormRecord.getDisplayName"] for record in form["saved"]["records"]]
         assert "Registrar" in names, form["saved"]
 
 
-def test_a_count_that_reads_its_own_node_decides_the_dependent_answer(
-    android_documents, hq
-):
+def test_a_count_that_reads_its_own_node_decides_the_dependent_answer(android_documents, hq):
     """``confirm`` is valid when it is ``yes`` and exactly one of the two rows' ``choice`` is ``yes``, a count
     whose predicate reads its own node as ``./.``. With one row ``yes`` the device takes ``confirm`` and saves the
     form; with both, it refuses ``confirm`` with its own message, saves nothing and sends nothing."""
-    given = {
-        "/data/show": ["yes"],
-        "/data/confirm": ["yes"],
-        "/data/self_check": ["yes"],
-    }
-    one = {
-        **given,
-        "/data/items[1]/item[1]/choice[1]": ["yes"],
-        "/data/items[1]/item[2]/choice[1]": ["no"],
-    }
+    given = {"/data/show": ["yes"], "/data/confirm": ["yes"], "/data/self_check": ["yes"]}
+    one = {**given, "/data/items[1]/item[1]/choice[1]": ["yes"], "/data/items[1]/item[2]/choice[1]": ["no"]}
     both = {**given, "/data/items/item/choice": ["yes"]}
     with _served(android_documents[COUNTED]) as (served, archive):
-        matched, sent_matched = _app(
-            served, archive, "one", commands=[FORM], questions=one
-        )
+        matched, sent_matched = _app(served, archive, "one", commands=[FORM], questions=one)
         unmatched, sent_unmatched = _app(
-            served,
-            archive,
-            "both",
-            commands=[FORM],
-            questions=both,
-            views=True,
-            type_refused=True,
+            served, archive, "both", commands=[FORM], questions=both, views=True, type_refused=True
         )
 
     (form,) = _forms(matched["walks"][FORM])
     confirmed = _entries(form, "/data/confirm[1]")
-    assert confirmed and all(
-        entry["given"] == "yes" and "refused" not in entry for entry in confirmed
-    ), form
+    assert confirmed and all(entry["given"] == "yes" and "refused" not in entry for entry in confirmed), form
     assert form["saved"]["finishing"] is True, form
     assert len(sent_matched) == 1
 
     (form,) = _forms(unmatched["walks"][FORM])
-    refused = [
-        entry for entry in _entries(form, "/data/confirm[1]") if "refused" in entry
-    ]
-    assert refused and all(
-        "yes: constraint" in entry["refused"] for entry in refused
-    ), form
+    refused = [entry for entry in _entries(form, "/data/confirm[1]") if "refused" in entry]
+    assert refused and all("yes: constraint" in entry["refused"] for entry in refused), form
     assert form["saved"]["finishing"] is False, form
-    assert INVALID in json.dumps(form["screens"][-1], ensure_ascii=False), form[
-        "screens"
-    ][-1]
+    assert INVALID in json.dumps(form["screens"][-1], ensure_ascii=False), form["screens"][-1]
     assert sent_unmatched == []
 
 
@@ -312,10 +249,7 @@ def _shown(form, reference):
     screens = [
         [" ".join(text.split()) for text in _texts(screen.get("view") or {})]
         for screen in form["screens"]
-        if any(
-            question["reference"] == reference
-            for question in screen.get("questions", ())
-        )
+        if any(question["reference"] == reference for question in screen.get("questions", ()))
     ]
     assert len(screens) == 1, (reference, screens)
     return screens[0]
@@ -338,15 +272,10 @@ def test_a_label_without_markdown_renders_its_text_as_written(android_documents,
         marked = _shown(form, f"/data/marked_label_{index}[1]")
         assert drawn in marked and written not in marked, (written, marked)
         assert written in plain_choices, (written, plain_choices)
-        assert drawn in marked_choices and written not in marked_choices, (
-            written,
-            marked_choices,
-        )
+        assert drawn in marked_choices and written not in marked_choices, (written, marked_choices)
 
 
-def test_a_help_text_without_markdown_renders_its_text_as_written(
-    android_documents, hq
-):
+def test_a_help_text_without_markdown_renders_its_text_as_written(android_documents, hq):
     """The survey "Help" asks two questions with the help text ``**bold** and a [link](https://example.org)``, the
     first written with ``plainHelp`` and so with no markdown form, the second with one. Android builds each help's
     view with the question, so each question's screen holds it: the first shows the help as typed, the second shows
@@ -354,9 +283,7 @@ def test_a_help_text_without_markdown_renders_its_text_as_written(
     its choice and its help text show as typed."""
     with _served(android_documents[PLAIN_HELP]) as (served, archive):
         answer, _ = _app(served, archive, "help", commands=[FORM], views=True)
-        typed, _ = _app(
-            served, archive, "as-typed", commands=[AS_TYPED_FORM], views=True
-        )
+        typed, _ = _app(served, archive, "as-typed", commands=[AS_TYPED_FORM], views=True)
 
     (help_form,) = _forms(answer["walks"][FORM])
     plain = _shown(help_form, "/data/plain_help[1]")
@@ -390,13 +317,9 @@ def test_a_number_keypad_keeps_what_its_keys_enter(android_documents, hq):
     typed_entries = {}
     for entered in KEYPAD_ENTRIES:
         (form,) = _forms(walked[entered][0]["walks"][FORM])
-        (typed_entries[entered],) = [
-            entry for entry in _entries(form, "/data/phone[1]") if "typed" in entry
-        ]
+        (typed_entries[entered],) = [entry for entry in _entries(form, "/data/phone[1]") if "typed" in entry]
     # Every read at once, so a box that keeps something else shows all four of its answers.
-    assert {
-        entered: entry["kept"] for entered, entry in typed_entries.items()
-    } == KEYPAD_ENTRIES
+    assert {entered: entry["kept"] for entered, entry in typed_entries.items()} == KEYPAD_ENTRIES
 
     for entered, kept in KEYPAD_ENTRIES.items():
         answer, sent = walked[entered]
@@ -406,7 +329,5 @@ def test_a_number_keypad_keeps_what_its_keys_enter(android_documents, hq):
         assert entry["given"] == kept, entry
         assert form["saved"]["finishing"] is True, form
         (instance,) = sent
-        root = etree.fromstring(
-            instance, etree.XMLParser(resolve_entities=False, no_network=True)
-        )
+        root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
         assert _child(root, "phone").text == kept, instance
