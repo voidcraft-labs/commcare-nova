@@ -19,6 +19,7 @@ import {
 	retainedBodyText,
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
+import { log } from "@/lib/logger";
 import {
 	type HqApplication,
 	hqApplicationModules,
@@ -91,6 +92,7 @@ describe("readHqApplication", () => {
 	it("reads the live app's envelope, its builds and its real form ids with HQ's question summary", async () => {
 		const { application, body } = await readRetained("application");
 		expect(application).toMatchObject({
+			domain: "clinic",
 			appId: APP,
 			name: body.name,
 			version: body.version,
@@ -286,6 +288,11 @@ describe("readHqApplication", () => {
 		expect(await modulesOf(applicationWith(change))).toEqual({
 			malformedAt: path,
 		});
+		expect(log.error).toHaveBeenCalledWith(
+			"[commcare] application modules are malformed",
+			undefined,
+			{ domain: "clinic", request: "application", appId: APP, path },
+		);
 	});
 
 	it("reads inline choices with their labels", async () => {

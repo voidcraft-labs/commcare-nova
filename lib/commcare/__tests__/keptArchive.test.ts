@@ -13,14 +13,18 @@
  * publish and an archive that state two profiles for one project space.
  */
 
+import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { BlueprintDoc } from "@/lib/domain";
+import { appProfileProperties } from "../appProfileSettings";
 import { compileCcz } from "../compiler";
+import { derivedProfileProperties } from "../derivedProfile";
 import { expandDoc } from "../expander";
 import { targetProfileProperties } from "../keptProfile";
+import { commCareLocalization } from "../localization";
 import {
 	KEPT_PROFILE_PROPERTY_KEYS,
 	type TargetFacts,
@@ -28,7 +32,10 @@ import {
 } from "../targetFacts";
 import { projectProfileForTarget } from "../targetOverlay";
 import type { HqApplicationProfile } from "../types";
-import { USERCASE_MISSING_LOCALE_ID } from "../usercaseWire";
+import {
+	USERCASE_MISSING_LOCALE_ID,
+	USERCASE_MISSING_MESSAGE,
+} from "../usercaseWire";
 import { parseXml } from "../xmlParse";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { usercaseWriteFixture } from "./usercaseWriteFixture";
@@ -153,6 +160,10 @@ const KEPT_SOURCE = {
 		fra: {
 			fra: "Français",
 			"home.start": "Commencer\nune visite",
+			/* Held in French alone: no catalog of CommCare HQ holds it. */
+			"custom.greeting": "Bonjour",
+			/* Held in French alone, and English's catalog holds it. */
+			"home.logout": "Se déconnecter",
 		},
 	},
 };
@@ -255,7 +266,7 @@ describe("a CCZ made for a project space that keeps values", () => {
 		]);
 	});
 
-	it("writes each language's UI text and held names, and default as the default language", () => {
+	it("writes each language's UI text and held names, and default as HQ's build merges it", () => {
 		const tables = Object.fromEntries(
 			["default", "en", "fra"].map((dir) => [
 				dir,
@@ -273,6 +284,15 @@ describe("a CCZ made for a project space that keeps values", () => {
 			expect(tables[dir]?.get("en")).toBe("English, as typed");
 			expect(tables[dir]?.get("lang.current")).toBe("en");
 		}
+		/* HQ's default table takes a later language's text where the first
+		 * language holds none and its catalog none either; where English's
+		 * catalog holds the key, HQ writes English's catalog text, which an
+		 * archive cannot carry, so the phone's own wording stands. */
+		expect(tables.default?.get("custom.greeting")).toBe("Bonjour");
+		expect(tables.en?.has("custom.greeting")).toBe(false);
+		expect(tables.default?.has("home.logout")).toBe(false);
+		expect(tables.en?.has("home.logout")).toBe(false);
+		expect(tables.fra?.get("home.logout")).toBe("Se déconnecter");
 		expect(tables.fra?.get("home.start")).toBe("Commencer\nune visite");
 		expect(tables.fra?.get("fra")).toBe("Français");
 		expect(tables.fra?.get("lang.current")).toBe("fra");
@@ -307,10 +327,131 @@ describe("a CCZ made for a project space that keeps values", () => {
 	});
 });
 
+/**
+ * `bilingualDoc`'s profile and string tables, as the compiler wrote them
+ * before it read any project space: retained bytes, not output of the code
+ * under test. (Its form's namespace comes from an id the fixture helper
+ * counts up for each document it builds, so the form's own test reads its
+ * structure.)
+ */
+const RETAINED_ARCHIVE = "./fixtures/ccz-without-project-space/";
+const RETAINED_ARCHIVE_FILES = [
+	"profile.ccpr",
+	"default/app_strings.txt",
+	"en/app_strings.txt",
+	"fra/app_strings.txt",
+] as const;
+
 describe("a CCZ with no project space read", () => {
-	it("is the archive the compiler writes with no facts at all", () => {
+	it("is byte for byte the archive Nova wrote before it read a project space", () => {
 		const doc = bilingualDoc();
-		expect(compiled(doc, null)).toEqual(compiled(doc));
+		for (const facts of [null, undefined]) {
+			const files = compiled(doc, facts);
+			for (const path of RETAINED_ARCHIVE_FILES) {
+				expect(files.get(path), path).toEqual(
+					readFileSync(new URL(`${RETAINED_ARCHIVE}${path}`, import.meta.url)),
+				);
+			}
+		}
+	});
+
+	it("writes Nova's own profile, receiver, features, form and text", () => {
+		const doc = bilingualDoc();
+		const files = compiled(doc, null);
+		const root = only(
+			elements(parseXml(text(files, "profile.ccpr"))),
+			"profile",
+		);
+		expect(
+			elements(root)
+				.filter((element) => element.name === "property")
+				.map((element) => element.attribs),
+		).toEqual([
+			{ key: "CommCare App Name", value: doc.appName },
+			{ key: "cc-content-version", value: "1" },
+			{ key: "cc-app-version", value: "1" },
+			{
+				key: "ota-restore-url",
+				value:
+					"https://www.commcarehq.org/a/nova-test/phone/restore/nova-test-app/",
+				force: "true",
+			},
+			{
+				key: "PostURL",
+				value: "https://www.commcarehq.org/a/nova-test/receiver/nova-test-app/",
+				force: "true",
+			},
+			{
+				key: "key_server",
+				value: "https://www.commcarehq.org/a/nova-test/phone/keys/",
+				force: "true",
+			},
+			{
+				key: "cc_user_domain",
+				value: "nova-test.commcarehq.org",
+				force: "true",
+			},
+			{ key: "cur_locale", value: "en", force: "false" },
+			...appProfileProperties(doc).map(({ key, value, force }) => ({
+				key,
+				value,
+				...(force && { force: "true" }),
+			})),
+			...Object.entries(derivedProfileProperties(doc)).map(([key, value]) => ({
+				key,
+				value,
+				force: "true",
+			})),
+		]);
+		expect(
+			elements(only(elements(root), "features")).map((element) => [
+				element.name,
+				element.attribs,
+			]),
+		).toEqual([
+			["checkoff", { active: "true" }],
+			["users", { active: "true" }],
+		]);
+
+		const html = only(
+			elements(parseXml(text(files, "modules-0/forms-0.xml"))),
+			"h:html",
+		);
+		const model = only(elements(only(elements(html), "h:head")), "model");
+		const data = only(
+			elements(
+				only(
+					elements(model).filter(
+						(element) =>
+							element.name === "instance" && element.attribs.src === undefined,
+					),
+					"instance",
+				),
+			),
+			"data",
+		);
+		expect(
+			elements(only(elements(data), "orx:meta")).map((element) => element.name),
+		).not.toContain("cc:location");
+		expect(elements(model).map((element) => element.name)).not.toContain(
+			"orx:pollsensor",
+		);
+
+		const localization = commCareLocalization(doc);
+		for (const [dir, language] of [
+			["default", "en"],
+			["en", "en"],
+			["fra", "fra"],
+		] as const) {
+			const table = readLocaleFile(text(files, `${dir}/app_strings.txt`));
+			expect(table.get(USERCASE_MISSING_LOCALE_ID)).toBe(
+				USERCASE_MISSING_MESSAGE,
+			);
+			expect(table.has("home.start")).toBe(false);
+			expect(table.get("en")).toBe(localization.languageName("en"));
+			expect(table.get("fra")).toBe(localization.languageName("fra"));
+			expect(table.get("lang.current")).toBe(language);
+		}
 	});
 
 	it("is unchanged by a project space that holds exactly what Nova's publish wrote", () => {

@@ -144,6 +144,26 @@ describe("a publish that landed", () => {
 		});
 	});
 
+	it("carries the kept list the publish left on the landed record, and none where the response holds none", () => {
+		const kept = {
+			labels: ["fuzzy-search", "required-question-asterisk"] as const,
+			observedAt: "2026-11-01T09:00:00.000Z",
+		};
+		const body = {
+			success: true,
+			url: "https://hq/app",
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
+		};
+		const landed = publishOutcome(true, { ...body, kept });
+		if (landed.kind !== "landed") throw new Error("Expected a landed publish");
+		expect(landed.deployment?.kept).toStrictEqual(kept);
+		/* Absent reads as no kept list, which draws nothing. */
+		const absent = publishOutcome(true, body);
+		if (absent.kind !== "landed") throw new Error("Expected a landed publish");
+		expect(absent.deployment?.kept).toBeNull();
+	});
+
 	it("carries the logo step the publish offers, and none for an app with no logo", () => {
 		const logoStep = {
 			assetId: "asset-1",

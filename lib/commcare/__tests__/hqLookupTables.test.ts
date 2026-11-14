@@ -672,19 +672,25 @@ it("stops a row read past the caller's limit at the first page's total, and read
 		).toEqual({ kind: "past-limit", totalCount: 1005 });
 		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
 	});
-	await withHttpPeer(async (peer) => {
-		serve(peer, rowsPath(long.id), first);
-		serve(
-			peer,
-			next.pathname + next.search,
-			retained("fixture-rows-long-2.json"),
-		);
-		const whole = await readHqLookupTableRows(CREDS, DOMAIN, long.id, {
-			stopPast: 1005,
+	/* With no `stopPast`, as a publish reads, and with a limit the total
+	 * reaches but does not pass, both pages are read. */
+	for (const read of [
+		() => readHqLookupTableRows(CREDS, DOMAIN, long.id),
+		() => readHqLookupTableRows(CREDS, DOMAIN, long.id, { stopPast: 1005 }),
+	]) {
+		await withHttpPeer(async (peer) => {
+			serve(peer, rowsPath(long.id), first);
+			serve(
+				peer,
+				next.pathname + next.search,
+				retained("fixture-rows-long-2.json"),
+			);
+			const whole = await read();
+			expect(whole).toMatchObject({ totalCount: 1005 });
+			expect("rows" in whole && whole.rows).toHaveLength(1005);
+			expect(peer.getCallHistory()?.calls()).toHaveLength(2);
 		});
-		expect(whole).toMatchObject({ totalCount: 1005 });
-		expect("rows" in whole && whole.rows).toHaveLength(1005);
-	});
+	}
 });
 
 /*

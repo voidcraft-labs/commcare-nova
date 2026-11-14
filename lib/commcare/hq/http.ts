@@ -212,8 +212,9 @@ export function isEdgeRefusal(body: string): boolean {
  *
  * HQ's limiter sends a decimal count of seconds, the time left in its
  * current window (`corehq/apps/api/resources/meta.py::HQThrottle.retry_after`).
- * The header's other form, an HTTP date, HQ does not send; it is read as no
- * wait, as an absent header is.
+ * The header's other form, an HTTP date, HQ does not send; it names no wait
+ * Nova reads, so a read or an import that meets one takes its 429 as the
+ * answer rather than waiting the second an absent header gets.
  */
 export function retryAfterMs(header: string | null): number | null {
 	if (header === null) return null;
@@ -223,8 +224,11 @@ export function retryAfterMs(header: string | null): number | null {
 	return Number.isFinite(ms) ? ms : null;
 }
 
-/** A failed response's error: its status, whether the edge refused it, and its `Retry-After`. */
-function failedResponseError(res: Response, body: string): CommCareApiError {
+/** The error a refused answer is, from its status, its `Retry-After` and its body, logging nothing. */
+export function failedResponseError(
+	res: Response,
+	body: string,
+): CommCareApiError {
 	const wait = retryAfterMs(res.headers.get("retry-after"));
 	return {
 		success: false,

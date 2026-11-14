@@ -6,7 +6,10 @@
  * What a mocked test cannot show: the reader's first statement really
  * selects no bytes, and a second read of the same row is answered by that
  * statement alone (the query count is taken through a Kysely plugin on the
- * injected handle), while a rewritten baseline is read afresh.
+ * injected handle), with the row's own date; a rewritten baseline, or a
+ * changed ownership of GPS capture over the same bytes, is read afresh; and
+ * a baseline rewritten between the two statements is answered from the
+ * bytes the second one read.
  */
 
 import { gzipSync } from "node:zlib";
@@ -38,6 +41,7 @@ const h = setupAppStateTestDb("target_facts_", {
 
 const AT = "2026-11-10T09:00:00.000Z";
 const LATER = "2026-11-11T09:00:00.000Z";
+const LATEST = "2026-11-12T09:00:00.000Z";
 const TARGET = { server: "production" as const, domain: "acme" };
 
 const OWNERSHIP: AppOwnership = {
@@ -68,13 +72,19 @@ async function viewerOf(scope: DeploymentScope): Promise<DeploymentScope> {
 	return { ...scope, role: "viewer", actorUserId: "u2" };
 }
 
-/** A read of an app whose fuzzy search setting is `fuzzy`, stored as a publish stores it. */
+/**
+ * A read of an app whose fuzzy search setting is `fuzzy`, stored as a
+ * publish stores it; `autoGpsCapture` sets the app's own GPS capture, and
+ * `novaOwnsAutoGpsCapture` says whether Nova's body set it.
+ */
 function readBaseline(
 	remoteAppId: string,
 	fuzzy: string,
 	options: {
 		readonly origin?: "create" | "push";
 		readonly observedAt?: string;
+		readonly autoGpsCapture?: boolean;
+		readonly novaOwnsAutoGpsCapture?: boolean;
 	} = {},
 ): AppBaselineWrite {
 	const read = normalizeHqAppSource({
@@ -83,6 +93,7 @@ function readBaseline(
 		langs: ["en"],
 		translations: { en: { en: "English" } },
 		profile: { properties: { "cc-fuzzy-search-enabled": fuzzy } },
+		...(options.autoGpsCapture === true ? { auto_gps_capture: true } : {}),
 		modules: [],
 		_attachments: {},
 	});
@@ -93,7 +104,10 @@ function readBaseline(
 		sourceGzip: gzipSync(Buffer.from(read.text, "utf8")),
 		sourceBytes: read.bytes,
 		sourceDigest: read.digest,
-		ownership: OWNERSHIP,
+		ownership: {
+			...OWNERSHIP,
+			autoGpsCapture: options.novaOwnsAutoGpsCapture ?? false,
+		},
 		observedAt: options.observedAt ?? AT,
 		discard: null,
 	};
@@ -137,9 +151,16 @@ async function publish(
 	});
 }
 
-/** Count the statements the reader sends, through the handle it reads from. */
-function countStatements(): { readonly count: () => number } {
+/**
+ * Count the statements the reader sends, through the handle it reads from.
+ * `afterFirst` runs once the first statement has answered and before the
+ * reader sees that answer, on a handle the count does not watch.
+ */
+function countStatements(afterFirst?: () => Promise<void>): {
+	readonly count: () => number;
+} {
 	let statements = 0;
+	let ranAfterFirst = false;
 	const plugin: KyselyPlugin = {
 		transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
 			statements += 1;
@@ -148,6 +169,10 @@ function countStatements(): { readonly count: () => number } {
 		async transformResult(
 			args: PluginTransformResultArgs,
 		): Promise<QueryResult<UnknownRow>> {
+			if (afterFirst !== undefined && !ranAfterFirst) {
+				ranAfterFirst = true;
+				await afterFirst();
+			}
 			return args.result;
 		},
 	};
@@ -240,13 +265,83 @@ describe("readTargetFacts", () => {
 		).toBe("yes");
 		expect(second.count()).toBe(1);
 
+		/* A refresh that rewrites the date over the same bytes is still a
+		 * hit, and the date is the row's. */
 		__setAppDbForTests(h.db());
-		await publish(scope, readBaseline("hq-app", "no", { observedAt: LATER }));
+		await publish(scope, readBaseline("hq-app", "yes", { observedAt: LATER }));
+		const redated = countStatements();
+		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
+			observedAt: LATER,
+			profileProperties: { "cc-fuzzy-search-enabled": "yes" },
+		});
+		expect(redated.count()).toBe(1);
+
+		__setAppDbForTests(h.db());
+		await publish(scope, readBaseline("hq-app", "no", { observedAt: LATEST }));
 		const third = countStatements();
+		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
+			observedAt: LATEST,
+			profileProperties: { "cc-fuzzy-search-enabled": "no" },
+		});
+		expect(third.count()).toBe(2);
+	});
+
+	it("projects the same bytes afresh when the baseline's ownership of GPS capture changes", async () => {
+		const scope = await seed();
+		await publish(
+			scope,
+			readBaseline("hq-app", "yes", {
+				autoGpsCapture: true,
+				novaOwnsAutoGpsCapture: false,
+			}),
+		);
+		expect((await readTargetFacts(scope, TARGET))?.autoGpsCapture).toBe(true);
+
+		await publish(
+			scope,
+			readBaseline("hq-app", "yes", {
+				autoGpsCapture: true,
+				novaOwnsAutoGpsCapture: true,
+				observedAt: LATER,
+			}),
+		);
+		const after = countStatements();
+		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
+			observedAt: LATER,
+			autoGpsCapture: false,
+		});
+		expect(after.count()).toBe(2);
+	});
+
+	it("answers a baseline rewritten between its two statements with the bytes it read and their own date", async () => {
+		const scope = await seed();
+		await publish(scope, readBaseline("hq-app", "yes"));
+		const newer = readBaseline("hq-app", "no", { observedAt: LATER });
+		const unwatched = h.db();
+
+		const racing = countStatements(async () => {
+			await unwatched
+				.updateTable("app_deployment_baselines")
+				.set({
+					source_gzip: newer.sourceGzip,
+					source_bytes: newer.sourceBytes,
+					source_digest: newer.sourceDigest,
+					observed_at: LATER,
+				})
+				.execute();
+		});
 		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
 			observedAt: LATER,
 			profileProperties: { "cc-fuzzy-search-enabled": "no" },
 		});
-		expect(third.count()).toBe(2);
+		expect(racing.count()).toBe(2);
+
+		/* The projection was kept under the bytes it read. */
+		const next = countStatements();
+		expect(await readTargetFacts(scope, TARGET)).toMatchObject({
+			observedAt: LATER,
+			profileProperties: { "cc-fuzzy-search-enabled": "no" },
+		});
+		expect(next.count()).toBe(1);
 	});
 });

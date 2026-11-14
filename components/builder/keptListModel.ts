@@ -12,7 +12,10 @@ import type {
 	RefreshedDeploymentView,
 } from "@/lib/deployment/actions";
 import type { DeploymentKept } from "@/lib/deployment/types";
-import { keptRefreshSentence } from "@/lib/publish/keptValues";
+import {
+	KEPT_REFRESH_NOT_REACHED,
+	keptRefreshSentence,
+} from "@/lib/publish/keptValues";
 
 /** The button's label, at rest and while CommCare HQ is being read. */
 export const KEPT_REFRESH_BUTTON = "Refresh from CommCare HQ";
@@ -60,6 +63,42 @@ export interface KeptRefreshNotice {
 	readonly failed: boolean;
 	/** The record the card now holds, where the outcome carries one. */
 	readonly view: RefreshedDeploymentView | null;
+	/**
+	 * The kept list the sentence speaks of: the record's the outcome handed
+	 * back, or the one shown when the button was pressed. The card shows the
+	 * sentence only while it holds this list (`keptNoticeApplies`).
+	 */
+	readonly kept: DeploymentKept | null;
+}
+
+/**
+ * Whether a refresh's sentence still speaks of the kept list the card holds:
+ * the same date and the same settings in the same order, or no list on
+ * either side. A publish or a reload that moves the list retires it.
+ */
+export function keptNoticeApplies(
+	notice: KeptRefreshNotice,
+	current: DeploymentKept | null,
+): boolean {
+	if (notice.kept === null || current === null) {
+		return notice.kept === current;
+	}
+	return (
+		notice.kept.observedAt === current.observedAt &&
+		!keptLabelsChanged(notice.kept, current)
+	);
+}
+
+/** What the card shows when the refresh's request never came back with an answer. */
+export function keptRefreshNotReached(
+	shown: DeploymentKept,
+): KeptRefreshNotice {
+	return {
+		sentence: KEPT_REFRESH_NOT_REACHED,
+		failed: true,
+		view: null,
+		kept: shown,
+	};
 }
 
 /** The kinds that are a read that did not happen or could not be used. */
@@ -90,7 +129,7 @@ export function keptRefreshNotice(
 	},
 ): KeptRefreshNotice {
 	if (!result.success) {
-		return { sentence: result.message, failed: true, view: null };
+		return { sentence: result.message, failed: true, view: null, kept: shown };
 	}
 	const outcome = result.data;
 	const date = keptDateText(shown.observedAt, context.now, context.locale);
@@ -110,5 +149,6 @@ export function keptRefreshNotice(
 		),
 		failed: FAILED_KINDS.has(outcome.kind),
 		view,
+		kept: view === null ? shown : view.kept,
 	};
 }
