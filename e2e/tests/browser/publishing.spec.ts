@@ -1506,7 +1506,7 @@ test("native publish over an application profile naming a removed language shows
 	page,
 }) => {
 	const message =
-		"Application profiles of the app on “alpha” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.";
+		"Application profiles of the app on “alpha” include languages this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. That tab shows only where the project space's plan includes application profiles. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.";
 	const lines = [
 		"“Field team”: French (fra), Hausa (hau)",
 		"A profile with no name: French (fra), the only language it has",

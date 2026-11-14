@@ -32,6 +32,7 @@ import type {
 	DeploymentFailureCode,
 	DeploymentRemoteChange,
 	DeploymentResourceConflict,
+	PreviewDeploymentAnswer,
 	PublishPlacements,
 } from "@/lib/deployment/types";
 import {
@@ -94,12 +95,13 @@ export interface PublishResponseBody {
 	 * Resolved by the server, which is the only side that can see whether
 	 * this app is live on more than one project space, and therefore the
 	 * only side that can apply the ambiguity rule. `null` means Preview
-	 * names nothing.
+	 * names nothing. Absent, with `preview_target_facts`, where the server
+	 * could not read the answer after the publish.
 	 */
 	readonly preview_project_space?: string | null;
 	/**
 	 * What that one project space keeps of the settings Preview plays, under
-	 * the same rule. `null` (or absent) means Preview holds no facts.
+	 * the same rule. `null` means Preview holds no facts.
 	 */
 	readonly preview_target_facts?: PreviewTargetFacts | null;
 	readonly preflight?: readonly {
@@ -129,10 +131,8 @@ export type PublishOutcome =
 			readonly hqAppAction: "created" | "updated" | null;
 			readonly appUrl: string;
 			readonly warnings: string[];
-			/** What Preview may name, per the server's ambiguity rule. */
-			readonly previewProjectSpace: string | null;
-			/** What that project space keeps of the settings Preview plays. */
-			readonly previewTargetFacts: PreviewTargetFacts | null;
+			/** What Preview may name and play, per the server's ambiguity rule; `null` where the response carried no answer. */
+			readonly preview: PreviewDeploymentAnswer | null;
 			/**
 			 * A line the landed outcome shows after a publish that wrote over
 			 * the app without knowing it unchanged: after the person chose to
@@ -205,8 +205,7 @@ export type PublishOutcome =
 			 */
 			readonly placements: PublishPlacements;
 			readonly warnings: string[];
-			readonly previewProjectSpace: string | null;
-			readonly previewTargetFacts: PreviewTargetFacts | null;
+			readonly preview: PreviewDeploymentAnswer | null;
 	  }
 	| {
 			readonly kind: "failure";
@@ -231,6 +230,26 @@ export function refusalOpensHqApp(code: DeploymentFailureCode): boolean {
 		code === "hq_app_version_below_floor" ||
 		code === "hq_build_profile_language_missing"
 	);
+}
+
+/**
+ * What a response says Preview may name and play, or `null` where it carries
+ * neither half: the server could not read the answer after the publish, so
+ * the tab keeps what it holds. One half alone reads the other as `null`.
+ */
+function previewAnswerOf(
+	body: PublishResponseBody,
+): PreviewDeploymentAnswer | null {
+	if (
+		body.preview_project_space === undefined &&
+		body.preview_target_facts === undefined
+	) {
+		return null;
+	}
+	return {
+		projectSpace: body.preview_project_space ?? null,
+		targetFacts: body.preview_target_facts ?? null,
+	};
 }
 
 /** What a response that names no placements recorded: nothing. */
@@ -264,8 +283,7 @@ export function publishOutcome(
 			hqAppAction: body.hq_app_action ?? null,
 			appUrl: body.url ?? "",
 			warnings: body.warnings ?? [],
-			previewProjectSpace: body.preview_project_space ?? null,
-			previewTargetFacts: body.preview_target_facts ?? null,
+			preview: previewAnswerOf(body),
 			appPreviewNote: body.app_preview_note ?? null,
 			logoStep: body.logo_step ?? null,
 			placements: body.placements ?? NO_PLACEMENTS,
@@ -291,8 +309,7 @@ export function publishOutcome(
 			placementMoves: body.refusal.placementMoves ?? null,
 			placements: body.placements ?? NO_PLACEMENTS,
 			warnings: body.warnings ?? [],
-			previewProjectSpace: body.preview_project_space ?? null,
-			previewTargetFacts: body.preview_target_facts ?? null,
+			preview: previewAnswerOf(body),
 		};
 	}
 	return {

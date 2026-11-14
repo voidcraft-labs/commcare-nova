@@ -1230,16 +1230,32 @@ direction (`lib/case-store/postgres/store.ts`).
 The quick filter (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`)
 matches what a device's search matches, all from the plan: each shown column's
 text, each hidden field's text (the raw property, or a hidden calculated
-column's value), and each carrier's raw value, in a tile list too. The rule is
+column's value), and each carrier's raw value, in a tile list too. A field's
+text is what the device's entity holds, the string its template evaluates to
+(`lib/preview/engine/caseListFilterFields.ts`, Core's
+`NodeEntityFactory.getEntity` over `Text`'s `string(...)`), not what the cell
+draws: a link column holds `[text](address)` on both platforms though Web Apps
+draws its wording; an image map holds the `jr://file/commcare/<hash><ext>` path
+of the first entry its value holds, read from the image's media row
+(`components/preview/shared/useImageReference.ts`, over the session's asset
+registry; a row not yet read holds no text); a calculated column holds XPath's
+string of its value (`true`, `false`, a date's ISO day) though the cell reads
+Yes, No or a formatted date; a multi select's raw value is its tokens joined by
+one space. The rule is
 Core's entity filter, ported in `lib/preview/listFilterMatch.ts`
 (`StringUtils.normalize` and `fuzzyMatch`, `EntitySortUtil.sortEntities`):
 accents folded, every term required, and with fuzzy search on a near miss
 matched against a word of each field's sort text, the value its plan key
 orders by (a field with no key has none; a carrier's raw value is its own).
 The platform rule `listFilter` holds what each runtime does around it: Web
-Apps splits the typed text on single spaces, keeps the list's own order and
-skips an empty text; Android splits on runs of whitespace, puts the closest
-matches first and, once the worker has typed, runs an emptied box as one empty
+Apps splits the typed text on single spaces, skips an empty text and, with
+fuzzy search on, orders the matches closest first only among the rows the
+list's order ties on every rule (`closest-among-ties`: Core sorts the filter's
+matches by score, then Formplayer sorts them again by the list's order with a
+stable sort), judging a tie by each rule's key text as the case store compares
+it (`caseListFilterFields.ts::orderTermsTie`); Android splits on runs of
+whitespace, puts the closest matches first across the whole list and, once
+the worker has typed, runs an emptied box as one empty
 term. The required question's asterisk follows the platform rule
 `requiredMark` (`platform.ts::requiredMarkShown`): every one in Web Apps, and
 on Android only where the project space's
@@ -1256,9 +1272,11 @@ multi select orders by known labels in catalog order and then the raw value,
 where a device also appends tokens outside the catalog; text compares by
 code point, where Core compares by UTF-16 code unit (they differ only above the
 Basic Multilingual Plane); rows that tie on every rule come in case id order,
-where a device keeps the order its storage holds them in; and a number written
+where a device keeps the order its storage holds them in, under the filter's
+closeness too; and a number written
 in a form the plain decimal pattern does not match (an exponent, a leading `+`,
-a bare `.5`) is no number in Preview.
+a bare `.5`) is no number in Preview. The filter reads a calculated decimal as
+the case store's number text, where a device prints its own `Double`.
 
 ## Case tiles in the running app
 
@@ -1796,9 +1814,12 @@ one table.
 **The client copy follows every path that can change it, own-tab and
 cross-tab alike.** The builder page resolves it server-side on load, the
 publish response carries the server's fresh answer whether the publish
-landed or was refused, and every Check status returns `previewProjectSpace`
-beside the refreshed record (`RefreshedDeploymentView`); the publish dialog
-applies all three to `DeploymentTargetProvider`. Every OTHER tab — a
+landed or was refused, and every Check status returns `preview` beside the
+refreshed record (`RefreshedDeploymentView`); the publish dialog and the
+Publishing section apply each through
+`DeploymentTargetProvider::useApplyPreviewDeploymentAnswer`. A response that
+carries no answer (the server's read faulted) changes nothing, and the stream
+brings the answer. Every OTHER tab — a
 co-member's open builder, a second tab of your own — converges through the
 shared realtime stream: each deployment write pokes the app channel's
 deployment lane in its own transaction, the relay re-resolves the rule and
@@ -1808,13 +1829,17 @@ Every value on every path is the SERVER's resolution; a client-asserted one
 would bypass the ambiguity rule only the server can apply.
 
 The project space's kept facts ride beside it on every path:
-`previewSpace.ts::previewTargetFactsFor` resolves the one `(server, domain)`
-the deployments display as uploaded at (`previewTarget.ts::resolvePreviewFactsTarget`,
-which de-dupes on both, since the facts are one deployment's), reads
-`readTargetFacts` and projects the two settings Preview plays, degrading to
-`null` with one `log.warn`. The page load seeds it (`initialTargetFacts`), a
-publish answers `preview_target_facts` and a Check status
-`previewTargetFacts`, and the stream's deployment lane sends a
+`previewSpace.ts::readPreviewDeploymentAnswer` resolves both from one read of
+the records: the one `(server, domain)` the deployments display as uploaded at
+(`previewTarget.ts::resolvePreviewFactsTarget`, which de-dupes on both, since
+the facts are one deployment's), whose `readTargetFacts` it projects to the
+two settings Preview plays. A fault throws: the stream's deployment lane then
+retries the run and sends neither frame, since a failed read is no answer and
+`null` is one. `previewDeploymentAnswerFor` gives `null` for a fault with one
+`log.warn`, for the page's seed (Nova's own values until the stream's
+connect-time read) and the answers to a landed write. The page load seeds it
+(`initialTargetFacts`), a publish answers `preview_target_facts` and a Check
+status `preview.targetFacts`, and the stream's deployment lane sends a
 `preview-target-facts` frame (`lib/collab/previewTargetFactsFrame.ts`) when
 the canonical JSON of the facts changes, the connect-time emit included. It
 is its own frame name, not a key on `preview-project-space`, whose strict

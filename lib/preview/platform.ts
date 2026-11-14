@@ -244,8 +244,11 @@ export interface PreviewPlatformRules {
 	 * Both runtimes run Core's `util/EntitySortUtil.java::sortEntities`
 	 * (`lib/preview/listFilterMatch.ts`) and differ around it. Formplayer splits
 	 * on single spaces (`util/screen/EntityScreenHelper.java::filterEntities`,
-	 * `searchText.split(" ")`), puts the matches back in the list's own order
-	 * with a stable sort (`sortEntities`) and skips an empty text. Android
+	 * `searchText.split(" ")`), takes the filter's matches, which fuzzy search
+	 * puts closest first (`util/EntitySortUtil.java::sortEntities`), and sorts
+	 * them again by the list's own order with a stable sort (`sortEntities`,
+	 * `cases/entity/EntitySorter.compare` answering 0 on a tie), so closeness
+	 * orders only the rows the list's order ties; and it skips an empty text. Android
 	 * splits on runs of whitespace (`adapters/EntityListAdapter.java::filterByString`,
 	 * `split("\\s+")`), shows the matches as the filter returns them, stably
 	 * re-sorted by ascending score under fuzzy search
@@ -255,7 +258,7 @@ export interface PreviewPlatformRules {
 	 */
 	readonly listFilter: {
 		readonly terms: "single-spaces" | "whitespace-runs";
-		readonly fuzzyOrder: "list-order" | "closest-first";
+		readonly fuzzyOrder: "closest-among-ties" | "closest-first";
 		readonly emptyText: "skipped" | "runs-once-edited";
 	};
 	/**
@@ -319,7 +322,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseListActionMedia: "text-only",
 		listFilter: Object.freeze({
 			terms: "single-spaces",
-			fuzzyOrder: "list-order",
+			fuzzyOrder: "closest-among-ties",
 			emptyText: "skipped",
 		}),
 		requiredMark: "always",

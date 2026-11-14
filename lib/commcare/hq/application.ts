@@ -23,7 +23,9 @@ import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
 	INVALID_DOMAIN_SLUG,
+	isHqCount,
 	isValidDomainSlug,
 } from "./http";
 import { isHqObject } from "./readCollection";
@@ -68,16 +70,6 @@ export interface ReadHqApplicationOptions {
 	readonly cancel?: AbortSignal;
 }
 
-const MALFORMED: CommCareApiError = {
-	success: false,
-	status: 502,
-	cause: "malformed",
-};
-
-function nonNegativeSafeInteger(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
 /**
  * Read the application resource for `appId`.
  *
@@ -114,12 +106,12 @@ export async function readHqApplication(
 			request: "application",
 			key,
 		});
-		return MALFORMED;
+		return HQ_MALFORMED_ANSWER;
 	};
 	if (!isHqObject(body)) return malformed("body");
 	if (body.id !== appId) return malformed("id");
 	if (typeof body.name !== "string") return malformed("name");
-	if (!nonNegativeSafeInteger(body.version)) return malformed("version");
+	if (!isHqCount(body.version)) return malformed("version");
 	if (
 		body.built_from_app_id !== null &&
 		typeof body.built_from_app_id !== "string"
@@ -135,7 +127,7 @@ export async function readHqApplication(
 			typeof row.id !== "string" ||
 			!/^[\w-]+$/.test(row.id) ||
 			ids.has(row.id) ||
-			!nonNegativeSafeInteger(row.version) ||
+			!isHqCount(row.version) ||
 			typeof row.is_released !== "boolean"
 		)
 			return malformed("versions[]");
@@ -207,8 +199,35 @@ export type HqApplicationModule =
 			readonly caseType: string | null;
 			readonly forms: readonly HqApplicationForm[];
 	  }
-	/** HQ could not summarize this menu; `message` is its own text. */
-	| { readonly kind: "error"; readonly message: string };
+	/** HQ could not summarize this menu; `shape` says what its text was like, never what it said. */
+	| { readonly kind: "error"; readonly shape: HqSummaryErrorShape };
+
+/**
+ * What CommCare HQ's text for a menu it could not summarize is like, in
+ * words that hold none of the app's. The text is `str()` of the exception
+ * HQ met, which quotes the app: a form's name, a choice's label, a case
+ * property. It is read for this and kept nowhere.
+ */
+export interface HqSummaryErrorShape {
+	/**
+	 * `error-in-form` where the text opens with HQ's own `Error in form "`,
+	 * which `models/forms.py::FormBase.get_questions` writes before the form's
+	 * name for a form whose XML it could not read; `other` for anything else.
+	 */
+	readonly opens: "error-in-form" | "other";
+	/** The text's length in characters. */
+	readonly length: number;
+}
+
+/** The opening `models/forms.py::FormBase.get_questions` gives a form it could not read. */
+const HQ_FORM_ERROR_OPENING = 'Error in form "';
+
+function summaryErrorShape(text: string): HqSummaryErrorShape {
+	return {
+		opens: text.startsWith(HQ_FORM_ERROR_OPENING) ? "error-in-form" : "other",
+		length: text.length,
+	};
+}
 
 /** A string, or null where the key is null or absent; `undefined` for anything else. */
 function optionalText(value: unknown): string | null | undefined {
@@ -303,8 +322,8 @@ function questionSummary(value: unknown): HqQuestionSummary | null {
  *
  * `ApplicationResource.dehydrate_module` wraps its whole body in
  * `try/except Exception` and returns `{'error': str(e)}`, so an entry is
- * either exactly that, read as `{ kind: "error" }`, or HQ's summary of the
- * menu. It writes `module.unique_id` as stored, so a menu that stores none
+ * either exactly that, read as `{ kind: "error" }` with its text's shape
+ * and never its text, or HQ's summary of the menu. It writes `module.unique_id` as stored, so a menu that stores none
  * is summarized with a null one. A mirror menu is summarized with its source
  * menu's case type and no forms, and a shadow form with its parent's `xmlns`
  * and its parent's questions.
@@ -328,7 +347,7 @@ export function hqApplicationModules(
 		if (Object.hasOwn(entry, "error")) {
 			if (Object.keys(entry).length !== 1 || typeof entry.error !== "string")
 				return malformedAt(at);
-			modules.push({ kind: "error", message: entry.error });
+			modules.push({ kind: "error", shape: summaryErrorShape(entry.error) });
 			continue;
 		}
 		const uniqueId = entry.unique_id;

@@ -781,6 +781,7 @@ function filterKeepsRow(
 			fuzzy: false,
 			rules: previewPlatformRules("web-apps").listFilter,
 			edited: true,
+			imageReference: () => undefined,
 		}).length === 1
 	);
 }

@@ -6,6 +6,7 @@ import {
 	listDomains,
 	testDomainAccess,
 } from "../client";
+import { HQ_APP_LIST_MAX_BYTES } from "../hq/apps";
 
 const CREDS = { username: "account", apiKey: "key", server: "eu" } as const;
 const HOST = "https://eu.commcarehq.org";
@@ -333,6 +334,55 @@ it("does not call a redirected or HTML login page successful app access", async 
 				?.calls()
 				.map((call) => call.fullUrl),
 		).toEqual(Array(2).fill(HOST + accessPath("alpha")));
+	});
+});
+
+it("keeps a project space whose app list passes the list's bound, and the others beside it", async () => {
+	/* A list of many apps is still CommCare HQ's envelope, and one long
+	 * list must not stop the save of a key for every other project space. */
+	const long = JSON.stringify({
+		status: "success",
+		applications: Array.from({ length: 40_000 }, (_, i) => ({
+			name: `App ${i}`,
+			version: i,
+			app_id: `app${i}`,
+			download_url: `${HOST}/a/alpha/apps/api/download_ccz/?app_id=app${i}`,
+		})),
+	});
+	expect(new TextEncoder().encode(long).length).toBeGreaterThan(
+		HQ_APP_LIST_MAX_BYTES,
+	);
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(200, memberships(["alpha", "beta"]));
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("alpha"), method: "GET" })
+			.reply(200, long);
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("beta"), method: "GET" })
+			.reply(200, { status: "success", applications: [] });
+		expect(await discoverAccessibleDomains(CREDS)).toEqual([
+			{ name: "alpha", displayName: "alpha display" },
+			{ name: "beta", displayName: "beta display" },
+		]);
+	});
+});
+
+it("does not call a page past the list's bound app access", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("alpha"), method: "GET" })
+			.reply(200, `<html>${"x".repeat(HQ_APP_LIST_MAX_BYTES)}</html>`);
+		expect(await testDomainAccess(CREDS, "alpha")).toEqual({
+			success: false,
+			status: 502,
+			cause: "browser-page",
+		});
 	});
 });
 

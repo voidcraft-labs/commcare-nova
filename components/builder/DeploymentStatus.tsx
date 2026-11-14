@@ -41,6 +41,8 @@ import {
 	keptNoticeApplies,
 	keptRefreshNotice,
 	keptRefreshNotReached,
+	refreshedViewToShow,
+	type ShownRefreshedView,
 } from "@/components/builder/keptListModel";
 import { Button } from "@/components/shadcn/button";
 import type { SetupArtifactSection } from "@/lib/deployment";
@@ -54,7 +56,6 @@ import {
 } from "@/lib/deployment";
 import {
 	type DeploymentView,
-	type RefreshedDeploymentView,
 	refreshDeploymentAction,
 	refreshKeptValuesAction,
 	withdrawDeploymentConfirmationAction,
@@ -111,7 +112,7 @@ export function DeploymentStatus({
 	 */
 	canRefresh?: boolean;
 	/** Lets the surrounding surface keep the record it is holding current. */
-	onUpdated: (next: RefreshedDeploymentView) => void;
+	onUpdated: (next: ShownRefreshedView) => void;
 	/**
 	 * Takes the record a withdrawn confirmation answers with. Withdrawing
 	 * changes what the next publish asks, never which project space Preview
@@ -168,7 +169,9 @@ export function DeploymentStatus({
 					domain: record.domain,
 				});
 				if (result.success) {
-					onUpdated(result.data);
+					/* A kept list Check status could not read after its write
+					 * landed keeps the list the card shows. */
+					onUpdated(refreshedViewToShow(result.data, view.kept));
 					return;
 				}
 				setRefreshError(result.message);
@@ -178,7 +181,7 @@ export function DeploymentStatus({
 				);
 			}
 		});
-	}, [appId, record.server, record.domain, onUpdated, sessionApi]);
+	}, [appId, record.server, record.domain, view.kept, onUpdated, sessionApi]);
 
 	const shownKept = view.kept;
 	const handleKeptRefresh = useCallback(() => {

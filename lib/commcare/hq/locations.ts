@@ -41,6 +41,8 @@ import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
+	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 } from "./http";
@@ -259,7 +261,7 @@ function malformedInventory(part: string): CommCareApiError {
 	log.error("[commcare] organization inventory is malformed", undefined, {
 		part,
 	});
-	return { success: false, status: 502, cause: "malformed" };
+	return HQ_MALFORMED_ANSWER;
 }
 
 /** ForeignKey serializes a URI. Missing/unresolvable is not a root. Both HQ
@@ -553,11 +555,15 @@ async function refusedPush(
 			message = (parsed as { error: string }).error;
 		}
 	} catch {}
+	/* HQ's sentence names a place and its site code, so the line holds the
+	 * body's shape and length, never its words. */
+	const facts = hqTextFacts(body);
 	const refusal = {
 		domain,
 		status: res.status,
 		count,
-		body: body.slice(0, 200),
+		body: facts.shape,
+		bodyBytes: facts.bytes,
 	};
 	if (res.status === 401 || res.status === 403) {
 		log.warn("[commcare] location push refused", refusal);

@@ -92,8 +92,9 @@ direct publishing supplies its selected server and domain. Every `.ccz` is
 made for one published project space, and its profile names that space's
 four server properties (`ota-restore-url`, `PostURL`, `key_server` and
 `cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`), on the
-origin of the project space's custom base URL and on its secure receiver where
-its app holds them; an app that is published nowhere is offered no `.ccz`. The
+scheme and netloc of the project space's custom base URL as HQ's `urljoin`
+keeps them (`targetFacts.ts::hqUrlBase`: the netloc exactly as stored) and on
+its secure receiver where its app holds them; an app that is published nowhere is offered no `.ccz`. The
 archive writes what that project space keeps of the values Nova leaves to
 CommCare HQ (`CompileOptions.targetFacts`, `targetFacts.ts::TargetFacts`, read
 from the deployment's baseline), as HQ's build there does: the kept profile
@@ -101,8 +102,8 @@ settings and the worker activity credential described below, location capture
 on every form, each language's text under keys the project space owns (its
 runtime UI text) over Nova's own, spelled as HQ spells it
 (`localeFile.ts::hqLocaleFileValue`), with the `default` table taking, under
-each such key, the first language's text that holds one, as HQ's build merges
-its default table, unless a language before it has a catalog that may hold the
+each such key, the first language's text that is not blank, as HQ's build
+merges its default table (a blank only where no language holds more), unless a language before it has a catalog that may hold the
 key (`appStringKeys.ts::defaultAppStringsHeldText`, `hqCatalogMayHold`: Nova
 writes no catalog text, so the phone's own wording stands), and on an app Nova brought in, CommCare
 HQ's language names. With no facts, Nova's own values stand, byte for byte. An
@@ -247,7 +248,17 @@ is sent again by one rule (`hq/throttle.ts`): three sends at most, a
 `Retry-After` of at most two seconds waited, one second where HQ names none,
 inside the read's deadline; a `Retry-After` that is no count of seconds is the
 answer. A read the deadline or the network cuts off, before its headers or
-while its body streams, logs `[commcare] <label> unavailable`. Every status a read synthesizes for an answer it
+while its body streams, a refused answer's body included, logs
+`[commcare] <label> unavailable` (`hq/http.ts::unansweredRead`, which the
+media reader shares). A refused body is read at most 64 KiB far whatever the
+read's bound, its first bytes tell the edge apart, and its log line names its
+shape and length and never its text, since HQ's refusals can quote an app.
+Every other line that meets text HQ answered (a write's refused body through
+`logAndReturnError` or `warnAndReturnError`, an import's `error`, a lookup
+upload's message, a place push's refusal) logs the same closed facts,
+`hq/http.ts::hqTextFacts`, and never the text.
+A 2xx body past the bound that opens as a page is `browser-page`, not
+`too-large`. Every status a read synthesizes for an answer it
 could not use names its cause; a request Nova will not send (a slug or an id it
 cannot put in a URL) is a bare 400. Every failed answer is classified once, by
 `hq/failure.ts::classifyHqFailure`; no caller writes its own status ladder.
@@ -260,7 +271,8 @@ Discovery awaits every started probe in its eight-request window before
 returning a failure. App-access success requires the HQ `status: success` /
 `applications` envelope (`hq/apps.ts::readHqAppListEnvelope`); the rows are
 read only by `listHqApps`, for the picker, so one app Nova cannot type never
-costs a key its project spaces. Build rows and
+costs a key its project spaces, and neither does a list past the envelope
+read's bound, which `list_apps` answers 2xx only as its envelope. Build rows and
 version fields are complete evidence: malformed release flags or missing
 version values are unavailable, never an absent release.
 
@@ -466,7 +478,11 @@ stores one and by each form's `xmlns`, a shadow form by its parent's; any disagr
 `xmlns` and `shadow_parent_form_id`, and a menu may store no `unique_id`. Only a bring-in admits
 the three (`admit: "any"`); a publish's read refuses them as before. A menu HQ returns as an
 error is `not-summarized`; `notSummarizedMenus` says whether that is a finding at each menu or
-one at the app, and HQ's message goes to the log and to no person.
+one at the app. HQ's text there quotes the app (a form's name, a choice's label), so the reader
+keeps its shape alone (`HqSummaryErrorShape`), and the log line names the menu's position, its
+`docType` and that shape. A 401 holding the plan sentence asks the list first, as a 403 does: a
+project space that is gone answers it too, and only a member's is the plan. A deleted document
+that holds a `built_on` may be a build, which is `gone`, never a deleted app to restore.
 
 A deadline is a timeout on one call, through its last byte. None is shared between a bring-in's
 calls and none is added to another: the application resource and the source have

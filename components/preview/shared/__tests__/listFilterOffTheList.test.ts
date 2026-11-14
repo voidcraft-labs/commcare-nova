@@ -94,6 +94,7 @@ function filterFindsVillage(slots: ColumnCommonSlots): boolean {
 				fuzzy: false,
 				rules: previewPlatformRules("web-apps").listFilter,
 				edited: true,
+				imageReference: () => undefined,
 			},
 		).length === 1
 	);

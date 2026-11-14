@@ -1444,7 +1444,7 @@ it("refuses an app whose build profile names a language the app lacks, with each
 				url: `${HOST}/a/clinic/apps/view/working-app/`,
 			});
 			expect(refused.message).toBe(
-				"An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.\n“Field team”: French (fra)",
+				"An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. That tab shows only where the project space's plan includes application profiles. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.\n“Field team”: French (fra)",
 			);
 			expect(requests(peer).slice(before)).not.toContain(
 				`POST ${HOST}${IMPORT}`,

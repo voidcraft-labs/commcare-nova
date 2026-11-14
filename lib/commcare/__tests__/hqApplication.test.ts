@@ -152,14 +152,21 @@ describe("readHqApplication", () => {
 		});
 	});
 
-	it("reads a menu HQ could not summarize as its error, and the menu after it whole", async () => {
+	it("reads a menu HQ could not summarize as its error's shape, and the menu after it whole", async () => {
 		const { application, body } = await readRetained(
 			"application-error-module",
 		);
 		const modules = hqApplicationModules(application);
 		if ("malformedAt" in modules) throw new Error(modules.malformedAt);
 		const sent = body.modules as Record<string, unknown>[];
-		expect(modules[0]).toEqual({ kind: "error", message: sent[0].error });
+		/* HQ's text names the form and a choice's label, so only its shape is kept. */
+		expect(modules[0]).toEqual({
+			kind: "error",
+			shape: {
+				opens: "error-in-form",
+				length: (sent[0].error as string).length,
+			},
+		});
 		expect(modules[1]).toMatchObject({
 			kind: "summarized",
 			uniqueId: sent[1].unique_id,
@@ -198,7 +205,10 @@ describe("readHqApplication", () => {
 		/* The mirror menu with its source menu's case type and no forms. */
 		expect(mirror).toMatchObject({ caseType: "patient", forms: [] });
 		/* The mirror menu whose source is gone: its case type is None, which HQ's map does not hold. */
-		expect(sourceless).toEqual({ kind: "error", message: "None" });
+		expect(sourceless).toEqual({
+			kind: "error",
+			shape: { opens: "other", length: "None".length },
+		});
 	});
 
 	it("exposes the working app a build was made from", async () => {

@@ -699,8 +699,9 @@ show.
 4. **Menus CommCare HQ could not summarize.** `notSummarizedMenus(modules)` (part 05, section 8.3):
    `app` is an account of one `app-unreadable-in-hq`; `menus` adds one `menu-unreadable-in-hq`
    finding at each index (place `{ kind: "menu", menu, name }`, the name from the source) to the
-   findings of step 6 and makes the result an account whatever the reader says. HQ's message goes
-   to the log with the menu's position and to no person (part 01, section 8.3).
+   findings of step 6 and makes the result an account whatever the reader says. HQ's text quotes
+   the app, so it goes to no log and to no person: the log line holds the menu's position, its
+   `docType` and the text's shape (part 05, section 8.3; decision 23).
 5. **Project data** (`reading-project-data`). One call of part 11's (its 14.1):
 
    ```ts

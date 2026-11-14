@@ -46,10 +46,8 @@ import {
 	withLandedConfirmations,
 } from "@/components/builder/app-setup/publishingSectionModel";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
-import {
-	useSetDeploymentProjectSpace,
-	useSetDeploymentTargetFacts,
-} from "@/components/builder/DeploymentTargetProvider";
+import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
+import type { ShownRefreshedView } from "@/components/builder/keptListModel";
 import {
 	acceptsOffer,
 	confirmationsStillAsked,
@@ -96,7 +94,6 @@ import {
 import {
 	type DeploymentView,
 	type DownloadTargetsView,
-	type RefreshedDeploymentView,
 	readDeploymentsAction,
 	readDownloadTargetsAction,
 } from "@/lib/deployment/actions";
@@ -355,8 +352,7 @@ export function PublishDialogBody({
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();
 	const session = useBuilderSessionApi();
-	const setProjectSpace = useSetDeploymentProjectSpace();
-	const setTargetFacts = useSetDeploymentTargetFacts();
+	const applyPreviewAnswer = useApplyPreviewDeploymentAnswer();
 	const reconciler = useReconcilerContext();
 	const uploadControllerRef = useRef<AbortController | null>(null);
 	const compatibilityControllerRef = useRef<AbortController | null>(null);
@@ -658,12 +654,11 @@ export function PublishDialogBody({
 	 * with what that project space keeps of the settings Preview plays,
 	 * because an observation can change all three. */
 	const handleRefreshed = useCallback(
-		(next: RefreshedDeploymentView) => {
+		(next: ShownRefreshedView) => {
 			upsertView(next);
-			setProjectSpace(next.previewProjectSpace);
-			setTargetFacts(next.previewTargetFacts);
+			applyPreviewAnswer(next.preview);
 		},
-		[upsertView, setProjectSpace, setTargetFacts],
+		[upsertView, applyPreviewAnswer],
 	);
 
 	/* What publishing to the selected project space will do. The SAME
@@ -981,8 +976,7 @@ export function PublishDialogBody({
 			 * just used would make a condition pass here and fail for half
 			 * the workers until the next reload withdrew it. A refusal's
 			 * answer applies too: this call is the freshest word either way. */
-			setProjectSpace(outcome.previewProjectSpace);
-			setTargetFacts(outcome.previewTargetFacts);
+			applyPreviewAnswer(outcome.preview);
 			if (outcome.kind === "landed") {
 				if (outcome.deployment !== null) upsertView(outcome.deployment);
 				/* The check's rows were read before this publish stored what
@@ -1110,8 +1104,7 @@ export function PublishDialogBody({
 		appName,
 		getAppId,
 		session,
-		setProjectSpace,
-		setTargetFacts,
+		applyPreviewAnswer,
 		upsertView,
 		reconciler,
 	]);

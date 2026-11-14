@@ -783,9 +783,12 @@ reload the page. A one-case row opens that case. In a
 several-case workflow, its checkbox adds or removes the case and **Details**
 opens it without changing the selection. Other actions inside the row, such as
 calling a phone number or checking why a value is shown, work independently.
-The Results filter matches the same text people see, including formatted dates,
-calculated answers, and choice labels, and ignores accents, so "jose" finds
-"José" as it does on a device. If an older case contains a choice value
+The Results filter matches the text a device's search reads, which is mostly
+the text people see, including formatted dates and choice labels, and ignores
+accents, so "jose" finds "José" as it does on a device. Where a cell draws
+something else, the filter reads what the device holds: a link column's
+`[text](address)`, the address of the image file a column shows, and a calculated
+answer as `true`, `false`, or a date written year first. If an older case contains a choice value
 that is no longer in the app, Nova leaves that saved value visible instead of
 hiding the data.
 Large result sets appear 50 cases at a time with **Previous** and **Next**.

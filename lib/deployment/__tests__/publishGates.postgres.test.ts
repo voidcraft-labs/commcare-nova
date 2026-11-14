@@ -78,7 +78,7 @@ import {
 	publishAppToHq,
 } from "../service";
 import { readDeployment, withdrawDeploymentConfirmation } from "../store";
-import type { DeploymentConfirmationKey } from "../types";
+import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
@@ -163,7 +163,8 @@ const WEB_APPS: DeploymentConfirmationKey = {
  * A publish of `doc`, confirming `confirm` and, for an app that declares Web
  * Apps, the `web-apps` plan feature every such app needs, unless the case
  * shows that confirmation being asked (`webApps: false`). `confirmWebApps` is
- * the answer to the Web Apps question.
+ * the answer to the Web Apps question, and `discardRemoteChanges` the changes
+ * made in CommCare HQ a person said to publish over.
  */
 function publish(
 	doc: BlueprintDoc,
@@ -171,6 +172,7 @@ function publish(
 	options: {
 		readonly webApps?: boolean;
 		readonly confirmWebApps?: boolean;
+		readonly discardRemoteChanges?: readonly RemoteChangeDiscard[];
 	} = {},
 ): Promise<PublishOutcome> {
 	const withWebApps =
@@ -185,6 +187,9 @@ function publish(
 		confirm: [...withWebApps, ...confirm],
 		...(options.confirmWebApps !== undefined && {
 			confirmWebApps: options.confirmWebApps,
+		}),
+		...(options.discardRemoteChanges !== undefined && {
+			discardRemoteChanges: options.discardRemoteChanges,
 		}),
 	});
 }
@@ -1916,6 +1921,12 @@ function withMutations(
 	});
 }
 
+/** A source whose app lists `langs`, as HQ's Languages tab saves them. */
+const listing =
+	(langs: readonly string[]) => (source: Record<string, unknown>) => {
+		source.langs = [...langs];
+	};
+
 /** A source holding one build profile, as HQ's Application Profiles tab saves it. */
 const withProfile =
 	(name: string, langs: readonly string[]) =>
@@ -1931,8 +1942,16 @@ const withProfile =
 	};
 
 describe("a build profile that names a language the app no longer has", () => {
-	const ONE_AT_PREFLIGHT =
-		"An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.";
+	const TAB =
+		"That tab shows only where the project space's plan includes application profiles.";
+	const LEFT =
+		"Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.";
+	const ON_PROFILES_TAB =
+		"Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again.";
+	/** The stop where the app on HQ no longer lists the language either. */
+	const ONE_AT_PREFLIGHT = `An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. ${ON_PROFILES_TAB} ${TAB} ${LEFT}`;
+	/** The stop where the app on HQ still lists it, so its Languages tab can take it out. */
+	const ONE_ON_LANGUAGES_TAB = `An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. ${ON_PROFILES_TAB} ${TAB} On any plan, you can instead remove the language on the Languages tab of the app's settings there, which takes it out of every profile. Nova may then show you that change before it publishes. ${LEFT}`;
 
 	it("lets an update over a profile naming a language the app has land, and sends no build_profiles", async () => {
 		const doc = await seed(bilingualDocument());
@@ -1953,19 +1972,30 @@ describe("a build profile that names a language the app no longer has", () => {
 		const removed = withMutations(doc, [
 			{ kind: "removeLanguage", code: "fra" },
 		]);
+		const bilingual = listing(["en", "fra"]);
 		await withHttpPeer(async (peer) => {
-			await firstPublish(peer, doc);
+			await firstPublish(peer, doc, bilingual);
 			const record = await readDeployment(SCOPE, TARGET);
 			const before = requests(peer).length;
-			serve(peer, "source-live", withProfile("Field team", ["en", "fra"]));
+			serve(peer, "source-live", (source) => {
+				bilingual(source);
+				withProfile("Field team", ["en", "fra"])(source);
+			});
 			const outcome = await publish(removed);
 			expect(refusal(outcome)).toMatchObject({
 				phase: "preflight",
 				failure: {
 					code: "hq_build_profile_language_missing",
-					message: ONE_AT_PREFLIGHT,
+					message: ONE_ON_LANGUAGES_TAB,
 					details: ["“Field team”: French (fra)"],
 				},
+			});
+			expect(
+				outcome.checks.find((check) => check.id === "build-profiles"),
+			).toMatchObject({
+				status: "blocked",
+				detail: ONE_ON_LANGUAGES_TAB,
+				items: ["“Field team”: French (fra)"],
 			});
 			expect(outcome.hqAppUrl).toBe(HQ_APP_URL);
 			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
@@ -1973,10 +2003,17 @@ describe("a build profile that names a language the app no longer has", () => {
 
 			/* The profile changed on HQ's tab: the next publish lands, and the
 			 * change to the profile is no change to anything Nova writes. */
-			serve(peer, "source-live", withProfile("Field team", ["en"]));
+			serve(peer, "source-live", (source) => {
+				bilingual(source);
+				withProfile("Field team", ["en"])(source);
+			});
 			accepted(peer, 200);
 			serve(peer, "source-live");
-			expect(landed(await publish(removed)).hqAppAction).toBe("updated");
+			const passed = landed(await publish(removed));
+			expect(passed.hqAppAction).toBe("updated");
+			expect(
+				passed.checks.find((check) => check.id === "build-profiles"),
+			).toMatchObject({ status: "passed" });
 		});
 	});
 
@@ -1998,7 +2035,7 @@ describe("a build profile that names a language the app no longer has", () => {
 				phase: "preflight",
 				failure: {
 					code: "hq_build_profile_language_missing",
-					message: ONE_AT_PREFLIGHT,
+					message: ONE_ON_LANGUAGES_TAB,
 					details: ["“English phones”: English (en), the only language it has"],
 				},
 			});
@@ -2023,14 +2060,70 @@ describe("a build profile that names a language the app no longer has", () => {
 				phase: "upload",
 				failure: {
 					code: "hq_build_profile_language_missing",
-					message:
-						"An application profile of the app on “clinic” includes a language this app no longer has, which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.",
+					message: `An application profile of the app on “clinic” includes a language this app no longer has, which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content. ${ON_PROFILES_TAB} ${TAB} ${LEFT}`,
 					details: ["A profile with no name: French (fra)"],
 				},
 			});
 			const sent = requests(peer).slice(before);
 			expect(sent).toContain(`POST ${WORKBOOK}`);
 			expect(sent).not.toContain(`POST ${IMPORT}`);
+		});
+	});
+
+	it("asks about a language added in CommCare HQ as a change made there before it holds a profile naming it", async () => {
+		const doc = await seed();
+		/* Since Nova's last push, someone added French on HQ's Languages tab
+		 * and saved a profile of it alone. */
+		const addedInHq = (source: Record<string, unknown>) => {
+			listing([...(source.langs as string[]), "fra"])(source);
+			withProfile("Francophone", ["fra"])(source);
+		};
+		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			const before = requests(peer).length;
+			serve(peer, "source-live", addedInHq);
+			const changed = await publish(doc);
+			const asked = refusal(changed);
+			expect(asked).toMatchObject({
+				phase: "preflight",
+				failure: { code: "hq_changed" },
+				remoteChanges: [
+					{ kind: "app", novaResourceId: APP, baselineKnown: true },
+				],
+			});
+			expect(
+				changed.checks.find((check) => check.id === "build-profiles"),
+			).toBeUndefined();
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+			const [shown] = asked.remoteChanges;
+			if (shown === undefined) throw new Error("Expected the app's change");
+
+			/* Publishing over that change takes French out of the app's
+			 * languages, so the profile is then held to them, and the app there
+			 * still lists French for its Languages tab to remove. */
+			const resumed = requests(peer).length;
+			serve(peer, "source-live", addedInHq);
+			expect(
+				refusal(
+					await publish(doc, [], {
+						discardRemoteChanges: [
+							{
+								kind: "app",
+								novaResourceId: APP,
+								observedDigest: shown.observedDigest,
+							},
+						],
+					}),
+				),
+			).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_build_profile_language_missing",
+					message: ONE_ON_LANGUAGES_TAB,
+					details: ["“Francophone”: French (fra), the only language it has"],
+				},
+			});
+			expect(requests(peer).slice(resumed)).toEqual([`GET ${SOURCE}`]);
 		});
 	});
 

@@ -14,6 +14,7 @@ import {
 	KEPT_LABELS,
 	KEPT_REFRESH_NOT_REACHED,
 	type KeptRefreshKind,
+	keptChanged,
 	keptLead,
 	keptRefreshSentence,
 } from "../keptValues";
@@ -25,6 +26,8 @@ const KINDS: readonly KeptRefreshKind[] = [
 	"no-baseline",
 	"app-gone",
 	"unreadable",
+	"too-large",
+	"browser-only",
 	"key-not-accepted",
 	"no-permission",
 	"unavailable",
@@ -33,8 +36,8 @@ const KINDS: readonly KeptRefreshKind[] = [
 const CONTEXT = { date: "10 November", space: "acme-health" };
 
 const refreshSentences = KINDS.flatMap((kind) =>
-	[true, false].map((listChanged) =>
-		keptRefreshSentence({ kind, listChanged }, CONTEXT),
+	[true, false].map((changed) =>
+		keptRefreshSentence({ kind, changed }, CONTEXT),
 	),
 );
 const leads = [keptLead(CONTEXT.date, true), keptLead(CONTEXT.date, false)];
@@ -68,28 +71,84 @@ describe("the sentences", () => {
 
 	it("names the date and the project space where an answer speaks of them", () => {
 		const sentence = (kind: KeptRefreshKind) =>
-			keptRefreshSentence({ kind, listChanged: false }, CONTEXT);
+			keptRefreshSentence({ kind, changed: false }, CONTEXT);
 		for (const kind of [
 			"changed-in-hq",
 			"unreadable",
+			"too-large",
+			"browser-only",
 			"key-not-accepted",
 			"no-permission",
 		] as const) {
 			expect(sentence(kind)).toContain(CONTEXT.date);
 		}
-		for (const kind of ["app-gone", "no-permission"] as const) {
+		for (const kind of ["app-gone", "browser-only", "no-permission"] as const) {
 			expect(sentence(kind)).toContain(CONTEXT.space);
 		}
 		for (const lead of leads) expect(lead).toContain(CONTEXT.date);
 	});
 
-	it("says whether a refresh changed the list", () => {
+	it("says whether a refresh changed anything kept", () => {
 		expect(
-			keptRefreshSentence({ kind: "refreshed", listChanged: true }, CONTEXT),
+			keptRefreshSentence({ kind: "refreshed", changed: true }, CONTEXT),
 		).toBe("Updated. This is what CommCare HQ holds now.");
 		expect(
-			keptRefreshSentence({ kind: "refreshed", listChanged: false }, CONTEXT),
+			keptRefreshSentence({ kind: "refreshed", changed: false }, CONTEXT),
 		).toBe("Nothing has changed. This is still what CommCare HQ holds.");
+	});
+
+	it("names no publish where a newer read landed during the refresh, since another refresh is one", () => {
+		const sentence = keptRefreshSentence(
+			{ kind: "superseded", changed: false },
+			CONTEXT,
+		);
+		expect(sentence).toBe(
+			"A publish or another read of CommCare HQ landed here while Nova was reading, so this is the latest Nova has.",
+		);
+	});
+
+	it("words an app too large and a page meant for a browser as answers that stay, never as a passing fault", () => {
+		const unavailable = keptRefreshSentence(
+			{ kind: "unavailable", changed: false },
+			CONTEXT,
+		);
+		for (const kind of ["too-large", "browser-only"] as const) {
+			const sentence = keptRefreshSentence({ kind, changed: false }, CONTEXT);
+			expect(sentence).not.toBe(unavailable);
+			expect(sentence).not.toMatch(/in a moment/);
+		}
+	});
+});
+
+describe("keptChanged", () => {
+	const kept = {
+		labels: ["fuzzy-search", "sign-in-duration"] as const,
+		valuesDigest: "a".repeat(64),
+	};
+
+	it("finds nothing changed for the same labels over the same values", () => {
+		expect(keptChanged(kept, { ...kept, labels: [...kept.labels] })).toBe(
+			false,
+		);
+		expect(keptChanged(null, null)).toBe(false);
+	});
+
+	it("finds a value that moved under a label listed on both sides", () => {
+		expect(keptChanged(kept, { ...kept, valuesDigest: "b".repeat(64) })).toBe(
+			true,
+		);
+	});
+
+	it("finds a label added, taken away or moved, and a list on one side only", () => {
+		expect(keptChanged(kept, { ...kept, labels: ["fuzzy-search"] })).toBe(true);
+		expect(
+			keptChanged(kept, {
+				...kept,
+				labels: ["sign-in-duration", "fuzzy-search"],
+			}),
+		).toBe(true);
+		expect(keptChanged(kept, null)).toBe(true);
+		expect(keptChanged(null, kept)).toBe(true);
 	});
 });
 

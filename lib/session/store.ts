@@ -72,11 +72,14 @@ import type {
 } from "./types";
 
 /**
- * One asset row the session has observed: what the budget check reads, and
- * the variant its bytes are, which the attach guard, the pickers and
- * Preview's stand-in read.
+ * One asset row the session has observed: what the budget check reads, the
+ * variant its bytes are, which the attach guard, the pickers and Preview's
+ * stand-in read, and the content hash and extension every export names the
+ * file by, which Preview's list filter reads an image map's path from.
  */
 export type AssetMetaRow = ExportBudgetRowView & {
+	contentHash: string;
+	extension: string;
 	mediaFormat?: MediaFormatValue;
 };
 
@@ -1782,6 +1785,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							known.status !== asset.status ||
 							known.kind !== asset.kind ||
 							known.sizeBytes !== asset.sizeBytes ||
+							known.contentHash !== asset.contentHash ||
+							known.extension !== asset.extension ||
 							known.mediaFormat !== asset.mediaFormat
 						);
 					});
@@ -1792,6 +1797,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							status: asset.status,
 							kind: asset.kind,
 							sizeBytes: asset.sizeBytes,
+							contentHash: asset.contentHash,
+							extension: asset.extension,
 							...(asset.mediaFormat !== undefined && {
 								mediaFormat: asset.mediaFormat,
 							}),

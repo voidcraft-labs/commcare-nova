@@ -13,6 +13,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	type CaseListConfig,
 	type Column,
+	dateColumn,
 	plainColumn,
 	proseText,
 	tileCell,
@@ -35,6 +36,7 @@ const DISPLAY: ColumnDisplayContext = {
 			.text,
 };
 
+const NO_IMAGES = () => undefined;
 const WEB_APPS = previewPlatformRules("web-apps").listFilter;
 const ANDROID = previewPlatformRules("android").listFilter;
 
@@ -77,6 +79,11 @@ function listOf(columns: Column[], tile: boolean) {
 				properties: [
 					{ name: "case_name", label: proseText("Name") },
 					{ name: "village", label: proseText("Village"), data_type: "text" },
+					{
+						name: "visit_date",
+						label: proseText("Visit date"),
+						data_type: "date",
+					},
 				],
 			},
 		],
@@ -135,6 +142,7 @@ describe("the fields fuzzy search reads", () => {
 				fuzzy: true,
 				rules: WEB_APPS,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual([]);
 		// Its shown text still matches the exact term.
@@ -143,6 +151,7 @@ describe("the fields fuzzy search reads", () => {
 				fuzzy: true,
 				rules: WEB_APPS,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["amina"]);
 	});
@@ -168,6 +177,7 @@ describe("the fields fuzzy search reads", () => {
 				fuzzy: true,
 				rules: WEB_APPS,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["amina"]);
 		expect(
@@ -175,6 +185,7 @@ describe("the fields fuzzy search reads", () => {
 				fuzzy: false,
 				rules: WEB_APPS,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual([]);
 	});
@@ -185,6 +196,7 @@ describe("the fields fuzzy search reads", () => {
 				fuzzy: true,
 				rules: WEB_APPS,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["a"]);
 	});
@@ -200,6 +212,7 @@ describe("the order of the matches", () => {
 				fuzzy: false,
 				rules: ANDROID,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["smyth", "smith"]);
 	});
@@ -210,6 +223,7 @@ describe("the order of the matches", () => {
 				fuzzy: true,
 				rules: ANDROID,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["smith", "smyth"]);
 	});
@@ -220,8 +234,89 @@ describe("the order of the matches", () => {
 				fuzzy: true,
 				rules: WEB_APPS,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["smyth", "smith"]);
+	});
+});
+
+describe("closeness among the rows the list's order ties", () => {
+	const VISIT = testUuid("list-filter-visit");
+	/* Ordered by village alone; the visit date is shown and keeps a sort key
+	 * with no rule, which fuzzy search reads. */
+	const byVillage = () =>
+		listOf(
+			[
+				plainColumn(VILLAGE, "village", "Village", {
+					sort: { direction: "asc", priority: 0 },
+				}),
+				dateColumn(VISIT, "visit_date", "Visit", "%Y-%m-%d"),
+			],
+			false,
+		);
+	const visit = (id: string, village: string, date: string) =>
+		({
+			...client(id, id),
+			properties: { village, visit_date: date },
+		}) as CaseRowWithCalculated;
+	/* "2024-05-03" holds the typed text; "2024-05-01" is a near miss of it. */
+	const tied = [
+		visit("a", "Kano", "2024-05-01"),
+		visit("b", "Kano", "2024-05-03"),
+	];
+
+	it("keeps the visit date's sort key without a rule", () => {
+		const plan = byVillage().plan;
+		expect(plan.fields.map((field) => field.rule !== undefined)).toEqual([
+			true,
+			false,
+		]);
+		expect(plan.fields[1]?.key).toBeDefined();
+	});
+
+	it("puts the closer of two tied rows first in Web Apps, as Formplayer's stable sort leaves them", () => {
+		expect(
+			filtered(byVillage(), tied, "2024-05-03", {
+				fuzzy: true,
+				rules: WEB_APPS,
+				edited: true,
+				imageReference: NO_IMAGES,
+			}),
+		).toEqual(["b", "a"]);
+	});
+
+	it("keeps the list's order between rows its order tells apart in Web Apps", () => {
+		const apart = [
+			visit("a", "Abuja", "2024-05-01"),
+			visit("b", "Kano", "2024-05-03"),
+		];
+		expect(
+			filtered(byVillage(), apart, "2024-05-03", {
+				fuzzy: true,
+				rules: WEB_APPS,
+				edited: true,
+				imageReference: NO_IMAGES,
+			}),
+		).toEqual(["a", "b"]);
+		expect(
+			filtered(byVillage(), apart, "2024-05-03", {
+				fuzzy: true,
+				rules: ANDROID,
+				edited: true,
+				imageReference: NO_IMAGES,
+			}),
+		).toEqual(["b", "a"]);
+	});
+
+	it("leaves tied rows in the list's order with fuzzy search off", () => {
+		expect(
+			filtered(byVillage(), tied, "2024-05", {
+				fuzzy: false,
+				rules: WEB_APPS,
+				edited: true,
+				imageReference: NO_IMAGES,
+			}),
+		).toEqual(["a", "b"]);
 	});
 });
 
@@ -235,6 +330,7 @@ describe("an empty or all-space box", () => {
 					fuzzy: false,
 					rules,
 					edited: true,
+					imageReference: NO_IMAGES,
 				}),
 			).toEqual(["amina", "blank"]);
 	});
@@ -245,6 +341,7 @@ describe("an empty or all-space box", () => {
 				fuzzy: false,
 				rules: WEB_APPS,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["amina", "blank"]);
 	});
@@ -255,6 +352,7 @@ describe("an empty or all-space box", () => {
 				fuzzy: false,
 				rules: ANDROID,
 				edited: false,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["amina", "blank"]);
 	});
@@ -265,6 +363,7 @@ describe("an empty or all-space box", () => {
 				fuzzy: false,
 				rules: ANDROID,
 				edited: true,
+				imageReference: NO_IMAGES,
 			}),
 		).toEqual(["amina"]);
 	});

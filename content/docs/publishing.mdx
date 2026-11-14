@@ -55,9 +55,9 @@ your API key can reach the project space you picked, that the app itself has
 nothing outstanding, that you have confirmed what the project space's plan and
 settings give the app, that the project space supports the app features that
 need destination support, that the app already there is set to CommCare 2.57 or
-later, that no application profile there includes a language the app no longer
-has, that nothing Nova publishes there has changed in CommCare HQ since its
-last publish, and that the app's Web App setting there matches where the app
+later, that nothing Nova publishes there has changed in CommCare HQ since its
+last publish, that no application profile there includes a language the app no
+longer has, and that the app's Web App setting there matches where the app
 runs ([A note on Web Apps](#a-note-on-web-apps)). If any required support is
 missing, or Nova cannot confirm it, nothing is sent. The result names the
 capability and the next step. A change made in CommCare HQ is yours to decide
@@ -129,8 +129,15 @@ group of phones. Nova keeps them as they are and can't change them. If you remov
 Nova that a profile there still includes, the next publish to that project space stops before
 it sends anything and names the profile and the language. You can take the language out of the
 profile, or remove the profile, on the Application Profiles tab of the app's Releases page in
-CommCare HQ, then publish again. A language you add in Nova joins no profile until you add it
+CommCare HQ, then publish again. That tab shows only where the project space's plan includes
+application profiles. On any plan, removing the language on the Languages tab of the app's
+settings in CommCare HQ takes it out of every profile too, and the next publish may show you that
+change before it sends anything. A language you add in Nova joins no profile until you add it
 there.
+
+If someone added the language in CommCare HQ since Nova's last publish, the publish first shows
+you that as a [change made in CommCare HQ](#changes-made-in-commcare-hq). Publishing over it takes
+the language out of the app there, so the profile is then held to the app's languages too.
 
 ### Data in place
 

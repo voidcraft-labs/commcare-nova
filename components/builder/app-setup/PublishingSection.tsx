@@ -27,18 +27,13 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { useCommCareConnection } from "@/components/builder/CommCareConnectionContext";
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
-import {
-	useSetDeploymentProjectSpace,
-	useSetDeploymentTargetFacts,
-} from "@/components/builder/DeploymentTargetProvider";
+import { useApplyPreviewDeploymentAnswer } from "@/components/builder/DeploymentTargetProvider";
 import { DeploymentWorkers } from "@/components/builder/DeploymentWorkers";
+import type { ShownRefreshedView } from "@/components/builder/keptListModel";
 import { useAppNotices } from "@/components/builder/notices/AppNoticesContext";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
-import type {
-	DeploymentView,
-	RefreshedDeploymentView,
-} from "@/lib/deployment/actions";
+import type { DeploymentView } from "@/lib/deployment/actions";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { documentNoticeNames } from "@/lib/notices/documentNames";
 import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
@@ -66,8 +61,7 @@ export function PublishingSection() {
 	const connection = useCommCareConnection();
 	const canEdit = useCanEdit();
 	const requestPublishDialog = useRequestPublishDialog();
-	const setProjectSpace = useSetDeploymentProjectSpace();
-	const setTargetFacts = useSetDeploymentTargetFacts();
+	const applyPreviewAnswer = useApplyPreviewDeploymentAnswer();
 	const { deploymentEntries: noticeEntries } = useAppNotices();
 
 	/* The dialog bumps the records' revision on every record it writes (a
@@ -79,12 +73,11 @@ export function PublishingSection() {
 	 * with what that project space keeps of the settings Preview plays,
 	 * because an observation can change all three. */
 	const handleRefreshed = useCallback(
-		(next: RefreshedDeploymentView) => {
+		(next: ShownRefreshedView) => {
 			upsert(next);
-			setProjectSpace(next.previewProjectSpace);
-			setTargetFacts(next.previewTargetFacts);
+			applyPreviewAnswer(next.preview);
 		},
-		[upsert, setProjectSpace, setTargetFacts],
+		[upsert, applyPreviewAnswer],
 	);
 	/* Provisioning and withdrawing a confirmation answer with the record
 	 * alone: neither can change which project space Preview names. */

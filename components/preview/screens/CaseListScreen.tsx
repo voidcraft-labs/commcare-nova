@@ -72,6 +72,7 @@ import {
 } from "@/components/preview/shared/RestoreScopeNote";
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
+import { useImageReference } from "@/components/preview/shared/useImageReference";
 import { Button } from "@/components/shadcn/button";
 import { Checkbox } from "@/components/shadcn/checkbox";
 import {
@@ -1420,8 +1421,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		(col) => col.visibleInList ?? true,
 	);
 	/* The quick filter matches what a device's search matches: every field's
-	 * text, the hidden fields and the order plan's carriers included. */
+	 * text, the hidden fields and the order plan's carriers included, an
+	 * image map's field by the path a device holds for its image. */
 	const orderPlan = useCaseListOrderPlan(moduleUuid, config);
+	const imageReference = useImageReference(visibleColumns);
 	/* A tile carries the columns the short detail emits: the visible ones
 	 * PLUS any hidden column that still orders the list. The hidden one holds
 	 * NO square (the wire gives it no `<style>`, so the device draws an empty
@@ -1592,10 +1595,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					fuzzy: fuzzyListSearch,
 					rules: platformRules.listFilter,
 					edited: filterBox.edited,
+					imageReference,
 				},
 			),
 		[
 			fuzzyListSearch,
+			imageReference,
 			groupedRows,
 			loadedRows,
 			visibleColumns,

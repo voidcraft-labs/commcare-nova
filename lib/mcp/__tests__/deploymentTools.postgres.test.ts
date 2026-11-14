@@ -24,7 +24,8 @@ import {
 } from "@/lib/deployment/store";
 import { keptListFor } from "@/lib/deployment/targetFacts";
 import type { AppOwnership } from "@/lib/deployment/types";
-import { KEPT_LABELS } from "@/lib/publish/keptValues";
+import { log } from "@/lib/logger";
+import { KEPT_LABELS, keptListUnreadSentence } from "@/lib/publish/keptValues";
 import {
 	registerGetDeployment,
 	registerRefreshDeployment,
@@ -34,6 +35,10 @@ import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
+vi.mock("@/lib/deployment/store", async (original) => {
+	const store = await original<typeof import("@/lib/deployment/store")>();
+	return { ...store, readTargetFacts: vi.fn(store.readTargetFacts) };
+});
 beforeEach(() => {
 	vi.mocked(decrypt).mockReset();
 	vi.mocked(decrypt).mockResolvedValue("fixture-key");
@@ -1029,6 +1034,33 @@ it("reads the kept settings again with kept_values, answers with the card's sent
 	});
 });
 
+it("says the kept settings were updated when a value moved under a label listed before and after", async () => {
+	/* A sign-in held at 12 hours, then set to one hour in CommCare HQ: the
+	 * label "How long a sign-in lasts" is listed on both sides, and the
+	 * value under it is what changed. */
+	const signInFor = (seconds: string) => {
+		const source = liveSource();
+		const profile = source.profile as { properties: Record<string, string> };
+		profile.properties["cc-login-duration-seconds"] = seconds;
+		return source;
+	};
+	await seed(false);
+	await publishedWithRead(signInFor("43200"));
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			serveSource(peer, signInFor("3600"));
+			const moved = await refresh(client, KEPT_ARGS);
+			expect(moved).toMatchObject({
+				kept_refresh: "refreshed",
+				message: "Updated. This is what CommCare HQ holds now.",
+			});
+			expect(moved.kept.labels).toContain("How long a sign-in lasts");
+		});
+	});
+	const facts = await readTargetFacts(SCOPE, TARGET);
+	expect(facts?.profileProperties["cc-login-duration-seconds"]).toBe("3600");
+});
+
 it("answers a read that could not be used with its sentence dated by the ISO date of the read the list stands on, and writes nothing", async () => {
 	await seed(false);
 	await publishedWithRead(liveSource());
@@ -1068,7 +1100,7 @@ it("answers superseded with the deployment as the publish that landed during the
 			expect(await refresh(client, KEPT_ARGS)).toMatchObject({
 				kept_refresh: "superseded",
 				message:
-					"Someone published here while Nova was reading, so this is as that publish left it.",
+					"A publish or another read of CommCare HQ landed here while Nova was reading, so this is the latest Nova has.",
 				hq_app_id: "working-app",
 				kept: {
 					labels: expect.arrayContaining(["Fuzzy search in case lists"]),
@@ -1100,4 +1132,49 @@ it("gives the tool's error with its sentence when the caller's connection cannot
 		expect(urls(peer)).toEqual([]);
 	});
 	expect(await baselines()).toEqual(before);
+});
+
+it("answers a kept refresh whose write landed as landed when its list cannot be read after it, leaving `kept` out and saying so", async () => {
+	await seed(false);
+	await publishedWithRead(liveSource());
+	const store = await vi.importActual<typeof import("@/lib/deployment/store")>(
+		"@/lib/deployment/store",
+	);
+	const words = "Mother's Visit Checklist";
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			serveSource(peer, fuzzyOnSource());
+			/* The list before the refresh reads; the one after it faults. */
+			vi.mocked(readTargetFacts)
+				.mockImplementationOnce(store.readTargetFacts)
+				.mockRejectedValueOnce(
+					Object.assign(new Error(`could not read “${words}”`), {
+						code: "57P01",
+					}),
+				);
+			const answer = await refresh(client, KEPT_ARGS);
+			expect(answer).toMatchObject({
+				app_id: APP,
+				kept_refresh: "refreshed",
+				message: keptListUnreadSentence("2026-11-01"),
+				domain: "clinic",
+				state: "uploaded",
+			});
+			expect(answer).not.toHaveProperty("kept");
+		});
+	});
+	const stored = await readTargetFacts(SCOPE, TARGET);
+	expect(stored?.profileProperties["cc-fuzzy-search-enabled"]).toBe("yes");
+	expect(log.error).toHaveBeenCalledWith(
+		"[deployment] kept list unavailable after a write landed",
+		undefined,
+		{
+			appId: APP,
+			domain: "clinic",
+			after: "kept-refresh",
+			errorName: "Error",
+			errorCode: "57P01",
+		},
+	);
+	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(words);
 });

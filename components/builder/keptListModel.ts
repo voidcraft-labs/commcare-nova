@@ -8,12 +8,15 @@
 
 import type {
 	DeploymentActionResult,
+	DeploymentView,
 	KeptRefreshView,
 	RefreshedDeploymentView,
 } from "@/lib/deployment/actions";
 import type { DeploymentKept } from "@/lib/deployment/types";
 import {
 	KEPT_REFRESH_NOT_REACHED,
+	keptChanged,
+	keptListUnreadSentence,
 	keptRefreshSentence,
 } from "@/lib/publish/keptValues";
 
@@ -42,17 +45,27 @@ export function keptDateText(
 	});
 }
 
-/** Whether two kept lists name different settings, or the same ones in another order. */
-export function keptLabelsChanged(
-	before: DeploymentKept | null,
-	after: DeploymentKept | null,
-): boolean {
-	const left = before?.labels ?? [];
-	const right = after?.labels ?? [];
-	return (
-		left.length !== right.length ||
-		left.some((label, index) => label !== right[index])
-	);
+/** A refresh's record as the card holds it, with what Preview may now name. */
+export type ShownRefreshedView = DeploymentView &
+	Pick<RefreshedDeploymentView, "preview">;
+
+/**
+ * The record a refresh handed back, as the card holds it. A refresh that
+ * landed and could not read its kept list just now answers `unread`, and
+ * the card keeps `shown`, the list it drew: the refresh's write is not
+ * undone by a read after it, and an empty list would read as one.
+ */
+export function refreshedViewToShow(
+	next: RefreshedDeploymentView,
+	shown: DeploymentKept | null,
+): ShownRefreshedView {
+	return keptWasRead(next) ? next : { ...next, kept: shown };
+}
+
+function keptWasRead(
+	view: RefreshedDeploymentView,
+): view is RefreshedDeploymentView & ShownRefreshedView {
+	return view.kept !== "unread";
 }
 
 /** What one refresh leaves on the card. */
@@ -62,7 +75,7 @@ export interface KeptRefreshNotice {
 	/** True where the read did not happen or did not land, which the card shows as an alert. */
 	readonly failed: boolean;
 	/** The record the card now holds, where the outcome carries one. */
-	readonly view: RefreshedDeploymentView | null;
+	readonly view: ShownRefreshedView | null;
 	/**
 	 * The kept list the sentence speaks of: the record's the outcome handed
 	 * back, or the one shown when the button was pressed. The card shows the
@@ -73,7 +86,7 @@ export interface KeptRefreshNotice {
 
 /**
  * Whether a refresh's sentence still speaks of the kept list the card holds:
- * the same date and the same settings in the same order, or no list on
+ * the same date and the same kept values (`keptChanged`), or no list on
  * either side. A publish or a reload that moves the list retires it.
  */
 export function keptNoticeApplies(
@@ -85,7 +98,7 @@ export function keptNoticeApplies(
 	}
 	return (
 		notice.kept.observedAt === current.observedAt &&
-		!keptLabelsChanged(notice.kept, current)
+		!keptChanged(notice.kept, current)
 	);
 }
 
@@ -105,6 +118,8 @@ export function keptRefreshNotReached(
 const FAILED_KINDS: ReadonlySet<KeptRefreshView["kind"]> = new Set([
 	"app-gone",
 	"unreadable",
+	"too-large",
+	"browser-only",
 	"key-not-accepted",
 	"no-permission",
 	"unavailable",
@@ -115,7 +130,7 @@ const FAILED_KINDS: ReadonlySet<KeptRefreshView["kind"]> = new Set([
  *
  * `shown` is the kept list the card drew when the button was pressed: its
  * date words every outcome that leaves the list as it was, and its labels
- * decide whether a refreshed list changed. A `success: false` answer is a
+ * and values decide whether a refresh changed anything (`keptChanged`). A `success: false` answer is a
  * raised sentence (no key, a key that cannot reach the project space, a key
  * on another server, or the request itself refused), shown as it came.
  */
@@ -133,20 +148,24 @@ export function keptRefreshNotice(
 	}
 	const outcome = result.data;
 	const date = keptDateText(shown.observedAt, context.now, context.locale);
-	const view =
+	const answered =
 		outcome.kind === "refreshed" || outcome.kind === "superseded"
 			? outcome.deployment
 			: null;
+	const view = answered === null ? null : refreshedViewToShow(answered, shown);
 	return {
-		sentence: keptRefreshSentence(
-			{
-				kind: outcome.kind,
-				listChanged:
-					outcome.kind === "refreshed" &&
-					keptLabelsChanged(shown, outcome.deployment.kept),
-			},
-			{ date, space: context.space },
-		),
+		sentence:
+			answered?.kept === "unread"
+				? keptListUnreadSentence(date)
+				: keptRefreshSentence(
+						{
+							kind: outcome.kind,
+							changed:
+								outcome.kind === "refreshed" &&
+								keptChanged(shown, view?.kept ?? null),
+						},
+						{ date, space: context.space },
+					),
 		failed: FAILED_KINDS.has(outcome.kind),
 		view,
 		kept: view === null ? shown : view.kept,

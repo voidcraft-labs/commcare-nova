@@ -39,7 +39,10 @@ import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
+	hqTextFacts,
 	INVALID_DOMAIN_SLUG,
+	isHqCount,
 	isValidDomainSlug,
 	logAndReturnError,
 	WAF_PADDING,
@@ -201,7 +204,7 @@ export async function listHqLookupTables(
 			log.error("[commcare] lookup table identity is malformed", undefined, {
 				domain,
 			});
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		}
 		tables.push(table);
 	}
@@ -308,12 +311,7 @@ export async function readHqLookupTableRows(
 		deadline: "page" as const,
 		cancel: options.cancel,
 		onMeta: (meta: Readonly<Record<string, unknown>>) => {
-			if (
-				reported.totalCount === null &&
-				typeof meta.total_count === "number" &&
-				Number.isSafeInteger(meta.total_count) &&
-				meta.total_count >= 0
-			)
+			if (reported.totalCount === null && isHqCount(meta.total_count))
 				reported.totalCount = meta.total_count;
 		},
 	};
@@ -353,14 +351,14 @@ export async function readHqLookupTableRows(
 			log.error("[commcare] lookup table row is malformed", undefined, {
 				domain,
 			});
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		}
 		const fields = toFixtureRowFields(value.fields);
 		if (fields === null) {
 			log.error("[commcare] lookup table row fields are malformed", undefined, {
 				domain,
 			});
-			return { success: false, status: 502, cause: "malformed" };
+			return HQ_MALFORMED_ANSWER;
 		}
 		rows.push({ id: value.id, fields });
 	}
@@ -385,7 +383,7 @@ function rowsDisagreeWithTotal(
 			rows,
 		},
 	);
-	return { success: false, status: 502, cause: "malformed" };
+	return HQ_MALFORMED_ANSWER;
 }
 
 /**
@@ -644,10 +642,14 @@ export async function uploadLookupTableWorkbook(
 		}
 		const message = typeof body.message === "string" ? body.message : "";
 		if (body.code !== FIXTURE_UPLOAD_SUCCESS_CODE) {
+			/* HQ's message names the table and the rows it refused, so the
+			 * line holds its shape and length, never its words. */
+			const text = hqTextFacts(message);
 			log.error("[commcare] lookup table upload refused", undefined, {
 				domain,
 				code: typeof body.code === "number" ? body.code : null,
-				message: message.substring(0, 200),
+				message: text.shape,
+				messageBytes: text.bytes,
 			});
 			/* A warning is a refusal here. CommCare HQ warns when some rows
 			 * landed and others did not, and Nova pushes whole tables: a

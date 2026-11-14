@@ -155,9 +155,10 @@ describe("readHqAppForReading", () => {
 		});
 	});
 
-	it("reads an app one of whose menus HQ could not summarize, naming that menu and logging HQ's message", async () => {
+	it("reads an app one of whose menus HQ could not summarize, naming that menu and logging none of HQ's text", async () => {
 		const resource = retainedReadingRead("application-error-module");
-		const [errored, whole] = retainedBodyJson(resource).modules as {
+		const resourceBody = retainedBodyJson(resource);
+		const [errored, whole] = resourceBody.modules as {
 			error?: string;
 			unique_id?: string;
 			forms?: { xmlns: string }[];
@@ -200,6 +201,7 @@ describe("readHqAppForReading", () => {
 				kind: "menus",
 				indexes: [0],
 			});
+			const message = errored.error ?? "";
 			expect(log.error).toHaveBeenCalledWith(
 				"[commcare] application module not summarized",
 				undefined,
@@ -208,9 +210,29 @@ describe("readHqAppForReading", () => {
 					request: "application",
 					appId: APP,
 					position: 0,
-					message: errored.error,
+					docType: "Module",
+					opens: "error-in-form",
+					length: message.length,
 				},
 			);
+			/* HQ's text quotes the app: the form's name and the choice's label
+			 * it names. No log line holds them, nor the app's or a menu's name. */
+			const quoted = [
+				/Error in form "([^"]*)"/.exec(message)?.[1]?.trim(),
+				/\(([^)]*)\)/.exec(message)?.[1],
+				resourceBody.name as string,
+				(whole as { name?: { en?: string } }).name?.en,
+			];
+			expect(
+				quoted.every((text) => typeof text === "string" && text !== ""),
+			).toBe(true);
+			const logged = JSON.stringify([
+				vi.mocked(log.error).mock.calls,
+				vi.mocked(log.warn).mock.calls,
+			]);
+			expect(logged).not.toContain(message);
+			for (const text of quoted) expect(logged).not.toContain(text);
+			expect(JSON.stringify(reading.modules)).not.toContain(message);
 		});
 	});
 
@@ -275,6 +297,17 @@ describe("readHqAppForReading", () => {
 			retainedReadingRead("source-other-space"),
 		],
 		["gone", "application-remote", retainedReadingRead("source-remote")],
+		/* A deleted document that holds a build date may be a build, which is
+		 * no app to restore; HQ's source holds no `copy_of` to tell. */
+		[
+			"gone",
+			"application-deleted",
+			withKey(
+				retainedGroupRead("publish/source-deleted"),
+				"built_on",
+				"2026-10-05T10:02:19.000000Z",
+			),
+		],
 	] as const)(
 		"answers %s where the resource answers 404, the list does not hold the id, and the source read gives %s's answer",
 		async (kind, resource, source) => {
@@ -350,13 +383,13 @@ describe("readHqAppForReading", () => {
 		});
 	});
 
-	it("reads the plan refusal and an app body past the bring-in's bound as their own kinds", async () => {
+	it("reads the plan sentence as the plan where the list answers, and as lost membership where it refuses", async () => {
+		/* A project space that is gone answers the plan sentence too: its
+		 * default plan has no API access, and the plan is checked first. */
 		await withHttpPeer(async (peer) => {
-			serve(
-				peer,
-				PATHS.application(APP),
-				retainedReadingRead("application-no-api-access"),
-			);
+			const plan = retainedReadingRead("application-no-api-access");
+			serve(peer, PATHS.application(APP), plan);
+			serve(peer, PATHS.list, retainedReadingRead("list-apps"));
 			expect(await readHqAppForReading(CREDS, DOMAIN, APP)).toEqual({
 				kind: "failed",
 				failure: {
@@ -365,6 +398,23 @@ describe("readHqAppForReading", () => {
 					status: 401,
 				},
 			});
+			serve(peer, PATHS.application(APP), plan);
+			serve(peer, PATHS.list, retainedReadingRead("application-no-permission"));
+			expect(await readHqAppForReading(CREDS, DOMAIN, APP)).toEqual({
+				kind: "failed",
+				failure: { kind: "not-a-member", request: "application", status: 401 },
+			});
+			expect(paths(peer)).toEqual([
+				PATHS.application(APP),
+				PATHS.list,
+				PATHS.application(APP),
+				PATHS.list,
+			]);
+		});
+	});
+
+	it("reads an app body past the bring-in's bound as its own kind", async () => {
+		await withHttpPeer(async (peer) => {
 			const live = retainedReadingRead("application");
 			serve(
 				peer,
@@ -614,9 +664,10 @@ describe("alignHqForms", () => {
 
 	it("gives an error entry as not summarized, with the source's menu id and doc type", async () => {
 		const { source, modules } = await livePair();
+		const shape = { opens: "other", length: 9 } as const;
 		const alignment = alignHqForms(
 			source,
-			replaced(modules, 0, { kind: "error", message: "'patient'" }),
+			replaced(modules, 0, { kind: "error", shape }),
 		);
 		expect(alignment).toEqual({
 			kind: "aligned",
@@ -625,7 +676,7 @@ describe("alignHqForms", () => {
 					kind: "not-summarized",
 					uniqueId: source.modules[0].uniqueId,
 					docType: "Module",
-					message: "'patient'",
+					shape,
 				},
 			],
 		});
@@ -653,7 +704,9 @@ describe("notSummarizedMenus", () => {
 		const { source, modules } = await shadowPair();
 		const changed = modules.map(
 			(module, i): HqApplicationModule =>
-				errors.includes(i) ? { kind: "error", message: "boom" } : module,
+				errors.includes(i)
+					? { kind: "error", shape: { opens: "other", length: 4 } }
+					: module,
 		);
 		const alignment = alignHqForms(source, changed);
 		if (alignment.kind !== "aligned") throw new Error(alignment.at);

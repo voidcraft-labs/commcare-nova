@@ -36,6 +36,7 @@ import {
 import { translationKeyOwner } from "./appStringKeys";
 import { NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS } from "./derivedProfile";
 import type { HqAppSource } from "./hq/appSource";
+import { hqProfileValueText } from "./targetFacts";
 import type { HqApplication, HqApplicationProfile } from "./types";
 
 /** How this app's derived Search profile intent meets one HQ target. */
@@ -66,9 +67,15 @@ function sameJson(left: unknown, right: unknown): boolean {
 	return canonicalJsonText(left) === canonicalJsonText(right);
 }
 
-/** A value HQ's build writes nothing for: absent, `null` or `""`. */
+/**
+ * A setting HQ's build writes nothing for: absent, or a stored value
+ * `targetFacts.ts::hqProfileValueText` reads as none (`null`, `""`, `false`,
+ * `0`, or no value a setting holds). The `.ccz` reads the project space's
+ * settings by the same function, so after a publish seeds every such key the
+ * archive and HQ's build of that project space state one profile.
+ */
 function holdsNoValue(bag: Record<string, unknown>, key: string): boolean {
-	return !Object.hasOwn(bag, key) || bag[key] === null || bag[key] === "";
+	return !Object.hasOwn(bag, key) || hqProfileValueText(bag[key]) === null;
 }
 
 /**

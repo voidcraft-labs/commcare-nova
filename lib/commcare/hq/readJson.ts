@@ -1,20 +1,18 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
-import {
-	type HqReadDeadline,
-	hqDeadlineReached,
-	withHqRequestDeadline,
-} from "./deadline";
+import { type HqReadDeadline, withHqRequestDeadline } from "./deadline";
 import {
 	authHeader,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
+	failedResponseError,
 	HQ_REFUSED_BODY_MAX_CHARS,
 	HQ_REFUSED_BODY_READ_MAX_BYTES,
+	hqTextShape,
 	retryAfterMs,
-	warnAndReturnError,
+	unansweredRead,
 } from "./http";
 import { readBoundedBody } from "./readBody";
 import { HQ_READ_SENDS, readRetryWaitMs } from "./throttle";
@@ -50,9 +48,15 @@ export type ReadHqJsonOptions = {
  * edge gave. A 429 is sent again by `throttle.ts::readRetryWaitMs`, at most
  * `HQ_READ_SENDS` times, and no wait is begun that would outlast the
  * deadline. A read the deadline or the network cut off, before its headers
- * or while its body streamed, logs `[commcare] <label> unavailable`. A read
- * its caller's `cancel` ended answers `{ status: 503, cause: "network" }` and
- * logs nothing.
+ * or while its body streamed, a refused answer's body included, logs
+ * `[commcare] <label> unavailable`. A read its caller's `cancel` ended
+ * answers `{ status: 503, cause: "network" }` and logs nothing.
+ *
+ * Every refused body is read at most `HQ_REFUSED_BODY_READ_MAX_BYTES` far,
+ * whatever `maxBytes` says, and its first bytes alone tell the edge's
+ * refusal from HQ's. The line `[commcare] <label> refused` names the status
+ * and the body's shape and length, never its text: CommCare HQ's refusals
+ * quote an app's words (`util/view_utils.py::json_error` answers `str(e)`).
  */
 export async function readHqJson(
 	creds: CommCareCredentials,
@@ -91,7 +95,7 @@ async function readWithin(
 				signal,
 			});
 		} catch (error) {
-			return unanswered(label, signal, error);
+			return unansweredRead(label, signal, error);
 		}
 		if (response.ok) return readAnswer(response, label, options, signal);
 		const wait =
@@ -100,7 +104,13 @@ async function readWithin(
 				: null;
 		/* A resend the deadline would cut off is no resend: the 429 is the answer. */
 		if (wait === null || Date.now() + wait >= deadline)
-			return refused(response, label, options.keepRefusedBody === true);
+			return refused(
+				response,
+				label,
+				url,
+				options.keepRefusedBody === true,
+				signal,
+			);
 		await response.body?.cancel().catch(() => undefined);
 		log.warn(`[commcare] ${label} rate limited, sending again`, {
 			domain: domainOf(url),
@@ -109,7 +119,7 @@ async function readWithin(
 			sent,
 		});
 		await delay(wait, signal);
-		if (signal.aborted) return unanswered(label, signal);
+		if (signal.aborted) return unansweredRead(label, signal);
 	}
 }
 
@@ -125,35 +135,37 @@ function resendWaitMs(retryAfter: string | null): number | null {
 	return named === null ? null : readRetryWaitMs(named);
 }
 
-/** No answer reached Nova, or its body stopped: the deadline, the caller's `cancel`, or the network. */
-function unanswered(
-	label: string,
-	signal: AbortSignal,
-	error?: unknown,
-): CommCareApiError {
-	if (signal.aborted && !hqDeadlineReached(signal))
-		return { success: false, status: 503, cause: "network" };
-	log.warn(`[commcare] ${label} unavailable`, { error });
-	return {
-		success: false,
-		status: 503,
-		cause: signal.aborted ? "timeout" : "network",
-	};
-}
-
+/**
+ * A refused answer's error, from its status, its `Retry-After` and at most
+ * the first `HQ_REFUSED_BODY_READ_MAX_BYTES` of its body. A body past that
+ * bound tells the edge apart by those bytes and keeps no `refusedBody`;
+ * one the deadline, the network or `cancel` cut off is no answer.
+ */
 async function refused(
 	response: Response,
 	label: string,
+	url: string,
 	keepRefusedBody: boolean,
+	signal: AbortSignal,
 ): Promise<CommCareApiError> {
-	if (!keepRefusedBody) return warnAndReturnError(`${label} refused`, response);
 	const body = await readBoundedBody(response, HQ_REFUSED_BODY_READ_MAX_BYTES);
-	const text =
-		body.kind === "read" ? new TextDecoder().decode(body.bytes) : undefined;
-	const error = warnAndReturnError(`${label} refused`, response, text ?? "");
-	return text === undefined
-		? error
-		: { ...error, refusedBody: text.slice(0, HQ_REFUSED_BODY_MAX_CHARS) };
+	if (body.kind === "unavailable")
+		return unansweredRead(label, signal, body.error);
+	const whole = body.kind === "read";
+	const bytes = whole ? body.bytes : body.head;
+	const text = new TextDecoder().decode(bytes);
+	const error = failedResponseError(response, text);
+	log.warn(`[commcare] ${label} refused`, {
+		domain: domainOf(url),
+		status: response.status,
+		edgeRefusal: error.edgeRefusal === true,
+		body: hqTextShape(text),
+		bodyBytes: whole ? body.bytes.byteLength : body.bytes,
+		bodyCutOff: !whole,
+	});
+	return keepRefusedBody && whole
+		? { ...error, refusedBody: text.slice(0, HQ_REFUSED_BODY_MAX_CHARS) }
+		: error;
 }
 
 async function readAnswer(
@@ -165,8 +177,12 @@ async function readAnswer(
 	const { maxBytes } = options;
 	const body = await readBoundedBody(response, maxBytes);
 	/* The headers came and the body did not: as unanswered as no headers. */
-	if (body.kind === "unavailable") return unanswered(label, signal, body.error);
+	if (body.kind === "unavailable")
+		return unansweredRead(label, signal, body.error);
 	if (body.kind === "too-long") {
+		/* A page is a page at any length; only data is too long. */
+		if (hqTextShape(new TextDecoder().decode(body.head)) === "page")
+			return { success: false, status: 502, cause: "browser-page" };
 		log.error(`[commcare] ${label} is longer than Nova reads`, undefined, {
 			bytes: body.bytes,
 			maxBytes: maxBytes ?? null,
@@ -182,7 +198,7 @@ async function readAnswer(
 		return {
 			success: false,
 			status: 502,
-			cause: text.trimStart().startsWith("<") ? "browser-page" : "malformed",
+			cause: hqTextShape(text) === "page" ? "browser-page" : "malformed",
 		};
 	}
 }

@@ -186,6 +186,45 @@ it("sends nothing for an id that is not one HQ gives", async () => {
 	});
 });
 
+it.each([
+	[200, "a file's body"],
+	[403, "a refusal's body"],
+] as const)(
+	"logs what the stream threw where the connection drops in %s's answer (%s), and asks once more",
+	async (status, _which) => {
+		let requests = 0;
+		await withSocketHttpPeer(
+			"india.commcarehq.org",
+			(_request, response) => {
+				requests += 1;
+				if (requests === 1) {
+					response.writeHead(status, { "content-type": "image/png" });
+					response.write(Buffer.from(PNG), () => response.destroy());
+					return;
+				}
+				response.writeHead(200, { "content-type": "image/png" });
+				response.end(Buffer.from(PNG));
+			},
+			async () => {
+				expect(await read()).toEqual({
+					kind: "read",
+					bytes: PNG,
+					declaredContentType: "image/png",
+				});
+			},
+		);
+		expect(requests).toBe(2);
+		expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+			"[commcare] media file unavailable",
+			{ request: "media-file", error: expect.anything() },
+		);
+		expect(vi.mocked(log.warn)).not.toHaveBeenCalledWith(
+			"[commcare] media file refused",
+			expect.anything(),
+		);
+	},
+);
+
 it("ends the read with nothing kept when cancel aborts mid-body", async () => {
 	const reached = Promise.withResolvers<void>();
 	const closed = Promise.withResolvers<void>();

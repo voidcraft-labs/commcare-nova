@@ -186,19 +186,38 @@ describe("targetFactsFromSource over the retained read", () => {
 		).toBe(false);
 	});
 
-	it("takes the origin of an absolute custom base URL and nothing else", () => {
-		const origin = (value: unknown) =>
+	/* Each expectation is what Python's `urljoin(base, "/a/…")` keeps of the
+	 * base before `/a/…`, the join `absolute_url_property` makes. */
+	it("keeps the scheme and the netloc of a custom base URL as HQ's urljoin does", () => {
+		const base = (value: unknown) =>
 			factsOf((source) => {
 				source.custom_base_url = value;
 			}).customBaseUrl;
-		expect(origin("https://example.org/hq/path")).toBe("https://example.org");
-		expect(origin("https://example.org/")).toBe("https://example.org");
-		expect(origin("https://example.org:8443/x")).toBe(
-			"https://example.org:8443",
+		expect(base("https://example.org/hq/path")).toBe("https://example.org");
+		expect(base("https://example.org/")).toBe("https://example.org");
+		expect(base("https://example.org")).toBe("https://example.org");
+		expect(base("https://example.org?x=1#f")).toBe("https://example.org");
+		expect(base("https://example.org:8443/x")).toBe("https://example.org:8443");
+		expect(base("https://relay:s3cret@proxy.example.org/hq/")).toBe(
+			"https://relay:s3cret@proxy.example.org",
 		);
-		expect(origin("example.org")).toBeNull();
-		expect(origin("ftp://example.org/")).toBeNull();
-		expect(origin("")).toBeNull();
+		expect(base("https://Proxy.Example.org:443/")).toBe(
+			"https://Proxy.Example.org:443",
+		);
+		expect(base("HTTPS://example.org")).toBe("https://example.org");
+		expect(base("  https://ex\tample.org/x")).toBe("https://example.org");
+		expect(base("https://[::1]:8443/x")).toBe("https://[::1]:8443");
+		expect(base("https://[fe80::1%eth0]/")).toBe("https://[fe80::1%eth0]");
+		expect(base("https://[v1.x]/")).toBe("https://[v1.x]");
+		expect(base("https://ex℀mple/")).toBeNull();
+		expect(base("example.org")).toBeNull();
+		expect(base("https:example.org")).toBeNull();
+		expect(base("https://")).toBeNull();
+		expect(base("https://[::1/")).toBeNull();
+		expect(base("https://[1.2.3.4]/")).toBeNull();
+		expect(base("ftp://example.org/")).toBeNull();
+		expect(base("")).toBeNull();
+		expect(base(7)).toBeNull();
 	});
 
 	it("reads the submission, practice worker, Web Apps and report settings", () => {

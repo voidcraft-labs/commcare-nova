@@ -6,7 +6,8 @@
 // somewhere in the row, with accents folded and case ignored; with the project
 // space's fuzzy search on, a near miss also matches a word of a field's sort
 // text. A device matches every field of the list, so the box also matches each
-// field hidden from Results and each carrier of the list's order plan. How the
+// field hidden from Results and each carrier of the list's order plan, each
+// read as the device holds it. How the
 // typed text splits into terms, what closeness does to the order and what an
 // emptied box does are the platform's (`PreviewPlatformRules.listFilter`). It
 // runs entirely client-side over the rows already on screen: the authored
@@ -19,49 +20,45 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useId, useRef } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
-import type {
-	CaseListOrderPlan,
-	CaseListShortField,
-	Column,
-	Uuid,
-} from "@/lib/domain";
-import {
-	type ColumnDisplayContext,
-	mappingPositionText,
-	projectColumnDisplay,
-} from "@/lib/preview/columnDisplay";
-import { caseRowDisplayValue } from "@/lib/preview/engine/caseDataBindingClient";
+import type { CaseListOrderPlan, Column } from "@/lib/domain";
+import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import {
+	caseListFilterFields,
+	caseListOrderTerms,
+	type ImageReference,
+	orderTermsTie,
+} from "@/lib/preview/engine/caseListFilterFields";
 import { filterTerms, rowFilterScore } from "@/lib/preview/listFilterMatch";
 import type { PreviewPlatformRules } from "@/lib/preview/platform";
 import { useDeferredFocus } from "@/lib/ui/hooks/useDeferredFocus";
 import { useWorkerMessage } from "./WorkerText";
 
 /** What the filter needs besides the text: the project space's fuzzy search,
- *  the platform's rule, and whether the worker has changed the box since the
- *  list opened. */
+ *  the platform's rule, whether the worker has changed the box since the list
+ *  opened, and the path a device holds for each image a mapping shows. */
 export interface ListFilterOptions {
 	readonly fuzzy: boolean;
 	readonly rules: PreviewPlatformRules["listFilter"];
 	readonly edited: boolean;
+	readonly imageReference: ImageReference;
 }
 
 /**
  * The rows that survive the filter text, as the platform shows them.
  *
- * A row's fields are what a device's filter reads (commcare-core
- * `util/EntitySortUtil.sortEntities`), in the short detail's order: each
- * shown column's text, and with the list's order plan each hidden field's
- * text (the raw property value, or a hidden calculated column's value) and
- * each carrier's raw value, a hidden field's template and HQ's appended
- * carrier both holding the raw value. A field's sort text, which fuzzy search
- * reads, is the value its plan key orders by; a field that keeps no key has
- * none, and a carrier's raw value is its own.
+ * A row's fields are what a device's filter reads
+ * (`lib/preview/engine/caseListFilterFields.ts::caseListFilterFields`): the
+ * text each field's template evaluates to, which is not always what its cell
+ * draws.
  *
- * The matches keep the given order with `fuzzy` off or under `list-order`,
- * and are stably re-sorted by ascending score with `fuzzy` on under
- * `closest-first`. An empty text returns every row under `skipped` and
- * before the worker has edited the box; once edited, `runs-once-edited`
+ * The matches keep the given order with `fuzzy` off. With `fuzzy` on they
+ * are stably re-sorted by ascending score: over the whole list under
+ * `closest-first`, and under `closest-among-ties` within each run of matches
+ * the list's order ties on every rule (`caseListOrderTerms`, `orderTermsTie`),
+ * as Formplayer sorts the filter's closest-first matches again by the list's
+ * order with a stable sort. An empty text returns every row under `skipped`
+ * and before the worker has edited the box; once edited, `runs-once-edited`
  * runs it as the one empty term it splits into. Text of separators alone
  * gives no terms, which every row passes.
  */
@@ -83,88 +80,30 @@ export function rowsMatchingFilterText<Row extends CaseRowWithCalculated>(
 	const matches = rows.flatMap((row) => {
 		const verdict = rowFilterScore(
 			terms,
-			filterFields(columns, row, context, plan),
+			caseListFilterFields(columns, row, context, plan, options.imageReference),
 			options.fuzzy,
 		);
 		return verdict.matches ? [{ row, score: verdict.score }] : [];
 	});
-	if (options.fuzzy && options.rules.fuzzyOrder === "closest-first")
-		matches.sort((a, b) => a.score - b.score);
-	return matches.map((match) => match.row);
-}
-
-/** A row's fields as the device's filter reads them, in the short detail's order. */
-function filterFields(
-	columns: readonly Column[],
-	row: CaseRowWithCalculated,
-	context: ColumnDisplayContext,
-	plan: CaseListOrderPlan | undefined,
-): { readonly text: string; readonly sortText: string | null }[] {
-	const shownText = (column: Column) =>
-		projectColumnDisplay(column, row, context).text;
-	if (plan === undefined)
-		return columns.map((column) => ({
-			text: shownText(column),
-			sortText: null,
-		}));
-	const shown = new Set<Uuid>(columns.map((column) => column.uuid));
-	const named = new Set<Uuid>();
-	const fields: { text: string; sortText: string | null }[] = [];
-	for (const field of plan.fields) {
-		const { column } = field;
-		named.add(column.uuid);
-		if (!field.hidden && !shown.has(column.uuid)) continue;
-		const text =
-			!field.hidden || column.kind === "calculated"
-				? shownText(column)
-				: caseRowDisplayValue(row, column.field);
-		fields.push({ text, sortText: sortTextOf(field, text, row, context) });
-	}
-	for (const column of columns)
-		if (!named.has(column.uuid))
-			fields.push({ text: shownText(column), sortText: null });
-	for (const carrier of plan.carriers) {
-		const raw = caseRowDisplayValue(row, carrier.property);
-		fields.push({ text: raw, sortText: raw });
-	}
-	return fields;
-}
-
-/**
- * The text a field's plan key orders by, which fuzzy search reads: the raw
- * value for `property`; the column's shown text for `option-label`,
- * `interval-text` and `calculated`; the markdown a link writes for
- * `link-text` (`[text](value)`, blank for a blank value, as the case store's
- * key and the device's sort expression read it); the position text for
- * `mapping-position`; `null` for a field that keeps no key.
- */
-function sortTextOf(
-	field: CaseListShortField,
-	text: string,
-	row: CaseRowWithCalculated,
-	context: ColumnDisplayContext,
-): string | null {
-	const { key, column } = field;
-	if (key === undefined) return null;
-	switch (key.kind) {
-		case "property":
-			return caseRowDisplayValue(row, key.property);
-		case "option-label":
-		case "interval-text":
-		case "calculated":
-			return field.hidden
-				? projectColumnDisplay(column, row, context).text
-				: text;
-		case "link-text": {
-			if (column.kind !== "link") return null;
-			const value = caseRowDisplayValue(row, column.field);
-			return value === "" ? "" : `[${column.linkText}](${value})`;
+	if (!options.fuzzy) return matches.map((match) => match.row);
+	const byScore = (a: { score: number }, b: { score: number }) =>
+		a.score - b.score;
+	if (options.rules.fuzzyOrder === "closest-first")
+		return matches.sort(byScore).map((match) => match.row);
+	const ordered: Row[] = [];
+	let run: { row: Row; score: number }[] = [];
+	let runTerms: ReturnType<typeof caseListOrderTerms> = [];
+	for (const match of matches) {
+		const matchTerms = caseListOrderTerms(match.row, context, plan);
+		if (run.length > 0 && !orderTermsTie(runTerms, matchTerms)) {
+			for (const tied of run.sort(byScore)) ordered.push(tied.row);
+			run = [];
 		}
-		case "mapping-position":
-			return column.kind === "id-mapping" || column.kind === "image-map"
-				? mappingPositionText(column, row, context.reading)
-				: null;
+		if (run.length === 0) runTerms = matchTerms;
+		run.push(match);
 	}
+	for (const tied of run.sort(byScore)) ordered.push(tied.row);
+	return ordered;
 }
 
 /**

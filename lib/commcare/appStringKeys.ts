@@ -22,6 +22,7 @@
  * (digits). The weekly pin pull request regenerates them from HQ's source.
  */
 
+import { isPythonSpace } from "./localeFile";
 import surface from "./surface/surface.json";
 
 export type TranslationKeyOwner = "generated" | "language-name" | "target";
@@ -186,11 +187,16 @@ export function hqCatalogMayHold(key: string, code: string): boolean {
  * `languages` (wire codes, the default language first) and whose project
  * space holds `uiText` (per language code, each key it holds text under).
  *
- * `AppStringsBase.create_default_app_strings` merges every language's
- * strings, the last language first, so a key takes the first language's
- * text that holds one, its catalog's included. Nova writes no catalog text:
- * where a language's catalog may hold the key before any language that holds
- * text for it, the key takes nothing here, and a phone shows its own wording.
+ * `AppStringsBase.create_default_app_strings` reads back each language's
+ * strings as written (`commcare_translations.py::dumps`, then `loads`, which
+ * keeps of each text what `defaultTableText` keeps) and merges them, the last
+ * language first, never putting a blank text over one already merged. So a
+ * key takes the first language's text that is not blank, its catalog's
+ * included, and a blank only where no language holds more. Nova writes no
+ * catalog text: where a language's catalog may hold the key before any
+ * language that holds text for it, the key takes nothing here, and a phone
+ * shows its own wording. A language that holds a blank text gives none, its
+ * catalog's included, because its own stored text replaces its catalog's.
  */
 export function defaultAppStringsHeldText(
 	uiText: Readonly<Record<string, Readonly<Record<string, string>>>>,
@@ -202,13 +208,43 @@ export function defaultAppStringsHeldText(
 	const keys = new Set(tables.flatMap(([, table]) => Object.keys(table)));
 	const held: [string, string][] = [];
 	for (const key of keys) {
+		let blank = false;
+		let text: string | undefined;
 		for (const [code, table] of tables) {
 			if (Object.hasOwn(table, key)) {
-				held.push([key, table[key]]);
+				const read = defaultTableText(table[key]);
+				if (read !== "") {
+					text = read;
+					break;
+				}
+				blank = true;
+				continue;
+			}
+			if (hqCatalogMayHold(key, code)) {
+				blank = false;
 				break;
 			}
-			if (hqCatalogMayHold(key, code)) break;
 		}
+		if (text !== undefined) held.push([key, text]);
+		else if (blank) held.push([key, ""]);
 	}
 	return Object.fromEntries(held);
+}
+
+/**
+ * What HQ's default merge reads back of one language's stored text: the line
+ * `dumps` writes for it, stripped by `load` (`line.strip()`). A text Python
+ * reads as blank is written as one non-breaking space and read back as `""`;
+ * any other loses the run of spaces at its end, a line break excepted,
+ * because `dumps` writes a line break as the two characters `\n`.
+ */
+function defaultTableText(text: string): string {
+	if ([...text].every((char) => isPythonSpace(char.charCodeAt(0)))) return "";
+	let end = text.length;
+	while (end > 0) {
+		const code = text.charCodeAt(end - 1);
+		if (code === 0x0a || !isPythonSpace(code)) break;
+		end -= 1;
+	}
+	return text.slice(0, end);
 }

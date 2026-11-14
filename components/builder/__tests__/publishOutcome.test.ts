@@ -105,15 +105,33 @@ describe("a publish that landed", () => {
 		};
 		expect(
 			publishOutcome(true, { ...body, preview_target_facts: facts }),
-		).toMatchObject({ kind: "landed", previewTargetFacts: facts });
+		).toMatchObject({
+			kind: "landed",
+			preview: { projectSpace: "acme", targetFacts: facts },
+		});
 		expect(
 			publishOutcome(true, { ...body, preview_target_facts: null }),
-		).toMatchObject({ kind: "landed", previewTargetFacts: null });
-		/* Absent reads as no facts: Preview plays a new project space. */
+		).toMatchObject({
+			kind: "landed",
+			preview: { projectSpace: "acme", targetFacts: null },
+		});
+		/* One half alone reads the other as null: Preview plays a new project space. */
 		expect(publishOutcome(true, body)).toMatchObject({
 			kind: "landed",
-			previewTargetFacts: null,
+			preview: { projectSpace: "acme", targetFacts: null },
 		});
+	});
+
+	it("carries no Preview answer where the response holds neither half, so the tab keeps what it holds", () => {
+		const landed = publishOutcome(true, {
+			success: true,
+			url: "https://hq/app",
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
+		});
+		expect(landed).toMatchObject({ kind: "landed", preview: null });
+		const refused = publishOutcome(true, { success: false, refusal: REFUSAL });
+		expect(refused).toMatchObject({ kind: "refused", preview: null });
 	});
 
 	it("carries the record, the url, and what Preview may name", () => {
@@ -136,8 +154,7 @@ describe("a publish that landed", () => {
 			hqAppAction: null,
 			appUrl: "https://hq/app",
 			warnings: ["media still processing"],
-			previewProjectSpace: "acme",
-			previewTargetFacts: null,
+			preview: { projectSpace: "acme", targetFacts: null },
 			appPreviewNote: null,
 			logoStep: null,
 			placements: { recorded: 0, moved: 0 },
@@ -147,6 +164,7 @@ describe("a publish that landed", () => {
 	it("carries the kept list the publish left on the landed record, and none where the response holds none", () => {
 		const kept = {
 			labels: ["fuzzy-search", "required-question-asterisk"] as const,
+			valuesDigest: "a".repeat(64),
 			observedAt: "2026-11-01T09:00:00.000Z",
 		};
 		const body = {
@@ -252,8 +270,7 @@ describe("a publish that was refused", () => {
 			placementMoves: null,
 			placements: { recorded: 0, moved: 0 },
 			warnings: ["Review target"],
-			previewProjectSpace: null,
-			previewTargetFacts: null,
+			preview: null,
 		});
 	});
 
@@ -348,10 +365,12 @@ describe("a publish that was refused", () => {
 				message: "CommCare HQ isn't connected yet.",
 				items: [],
 			},
-			previewProjectSpace: "acme",
-			previewTargetFacts: {
-				fuzzyListSearch: false,
-				markRequiredQuestions: true,
+			preview: {
+				projectSpace: "acme",
+				targetFacts: {
+					fuzzyListSearch: false,
+					markRequiredQuestions: true,
+				},
 			},
 		});
 		expect(outcome.kind).toBe("refused");

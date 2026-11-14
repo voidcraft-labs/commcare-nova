@@ -1,8 +1,9 @@
 /**
  * The kept list's state model: how its date reads, and what one press of
  * Refresh from CommCare HQ leaves on the card. The card draws only what
- * these return, so a wrong date, a refreshed list reported unchanged, or a
- * failure shown as news is caught here.
+ * these return, so a wrong date, a refreshed list reported unchanged (a
+ * moved value under a label it listed before included), or a failure shown
+ * as news is caught here.
  */
 
 import { describe, expect, it } from "vitest";
@@ -13,25 +14,29 @@ import type {
 import type { DeploymentKept } from "@/lib/deployment/types";
 import {
 	KEPT_REFRESH_NOT_REACHED,
+	keptListUnreadSentence,
 	keptRefreshSentence,
 } from "@/lib/publish/keptValues";
 import {
 	keptDateText,
-	keptLabelsChanged,
 	keptNoticeApplies,
 	keptRefreshNotice,
 	keptRefreshNotReached,
+	refreshedViewToShow,
 } from "../keptListModel";
 
 const SHOWN: DeploymentKept = {
 	labels: ["fuzzy-search"],
+	valuesDigest: "a".repeat(64),
 	observedAt: "2026-11-10T12:00:00.000Z",
 };
 const NOW = new Date("2026-11-13T12:00:00.000Z");
 const CONTEXT = { now: NOW, space: "clinic", locale: "en-GB" } as const;
 
 /** A refreshed record carrying `kept`; the card reads nothing else of it here. */
-function refreshedView(kept: DeploymentKept | null): RefreshedDeploymentView {
+function refreshedView(
+	kept: RefreshedDeploymentView["kept"],
+): RefreshedDeploymentView {
 	return { kept } as unknown as RefreshedDeploymentView;
 }
 
@@ -47,39 +52,11 @@ describe("keptDateText", () => {
 	});
 });
 
-describe("keptLabelsChanged", () => {
-	it("is false for the same labels in the same order", () => {
-		expect(
-			keptLabelsChanged(SHOWN, { ...SHOWN, observedAt: NOW.toISOString() }),
-		).toBe(false);
-	});
-
-	it("is true for a label added, one removed, and the same labels reordered", () => {
-		expect(
-			keptLabelsChanged(SHOWN, {
-				...SHOWN,
-				labels: ["fuzzy-search", "required-question-asterisk"],
-			}),
-		).toBe(true);
-		expect(keptLabelsChanged(SHOWN, { ...SHOWN, labels: [] })).toBe(true);
-		expect(
-			keptLabelsChanged(
-				{ ...SHOWN, labels: ["fuzzy-search", "text-to-speech"] },
-				{ ...SHOWN, labels: ["text-to-speech", "fuzzy-search"] },
-			),
-		).toBe(true);
-	});
-
-	it("reads a list that is gone as empty", () => {
-		expect(keptLabelsChanged({ ...SHOWN, labels: [] }, null)).toBe(false);
-		expect(keptLabelsChanged(SHOWN, null)).toBe(true);
-	});
-});
-
 describe("keptRefreshNotice", () => {
 	it("says the list was updated and hands back the record where the read changed it", () => {
 		const kept: DeploymentKept = {
 			labels: ["fuzzy-search", "required-question-asterisk"],
+			valuesDigest: "b".repeat(64),
 			observedAt: NOW.toISOString(),
 		};
 		const view = refreshedView(kept);
@@ -96,7 +73,23 @@ describe("keptRefreshNotice", () => {
 		});
 	});
 
-	it("says nothing changed where the refreshed list names the same settings", () => {
+	it("says the list was updated where a value moved under the same labels", () => {
+		const kept = {
+			...SHOWN,
+			valuesDigest: "b".repeat(64),
+			observedAt: NOW.toISOString(),
+		};
+		const view = refreshedView(kept);
+		expect(
+			keptRefreshNotice(
+				{ success: true, data: { kind: "refreshed", deployment: view } },
+				SHOWN,
+				CONTEXT,
+			).sentence,
+		).toBe("Updated. This is what CommCare HQ holds now.");
+	});
+
+	it("says nothing changed where the refreshed list names the same settings over the same values", () => {
 		const kept = { ...SHOWN, observedAt: NOW.toISOString() };
 		const view = refreshedView(kept);
 		expect(
@@ -141,6 +134,8 @@ describe("keptRefreshNotice", () => {
 		["no-baseline", false],
 		["app-gone", true],
 		["unreadable", true],
+		["too-large", true],
+		["browser-only", true],
 		["key-not-accepted", true],
 		["no-permission", true],
 		["unavailable", true],
@@ -152,13 +147,35 @@ describe("keptRefreshNotice", () => {
 				keptRefreshNotice({ success: true, data }, SHOWN, CONTEXT),
 			).toEqual({
 				sentence: keptRefreshSentence(
-					{ kind, listChanged: false },
+					{ kind, changed: false },
 					{ date: "10 November", space: "clinic" },
 				),
 				failed,
 				view: null,
 				kept: SHOWN,
 			});
+		},
+	);
+
+	it.each(["refreshed", "superseded"] as const)(
+		"keeps the list it shows, dated as it was, where a %s read landed and its list could not be read",
+		(kind) => {
+			const notice = keptRefreshNotice(
+				{
+					success: true,
+					data: { kind, deployment: refreshedView("unread") },
+				},
+				SHOWN,
+				CONTEXT,
+			);
+			expect(notice).toEqual({
+				sentence: keptListUnreadSentence("10 November"),
+				failed: false,
+				view: { kept: SHOWN },
+				kept: SHOWN,
+			});
+			/* The card holds the list the sentence speaks of, so it shows. */
+			expect(keptNoticeApplies(notice, notice.view?.kept ?? null)).toBe(true);
 		},
 	);
 
@@ -198,13 +215,31 @@ describe("keptNoticeApplies", () => {
 		).toBe(true);
 	});
 
-	it("retires the sentence once a publish or a reload moves the list: its date, its settings, or the list itself", () => {
+	it("retires the sentence once a publish or a reload moves the list: its date, its settings, its values, or the list itself", () => {
 		expect(
 			keptNoticeApplies(notice, { ...SHOWN, observedAt: NOW.toISOString() }),
 		).toBe(false);
 		expect(keptNoticeApplies(notice, { ...SHOWN, labels: [] })).toBe(false);
+		expect(
+			keptNoticeApplies(notice, { ...SHOWN, valuesDigest: "b".repeat(64) }),
+		).toBe(false);
 		expect(keptNoticeApplies(notice, null)).toBe(false);
 		const forNoList = { ...notice, kept: null };
 		expect(keptNoticeApplies(forNoList, SHOWN)).toBe(false);
+	});
+});
+
+describe("refreshedViewToShow", () => {
+	it("keeps the list the card shows where the refresh landed and its list could not be read", () => {
+		expect(refreshedViewToShow(refreshedView("unread"), SHOWN).kept).toBe(
+			SHOWN,
+		);
+		expect(refreshedViewToShow(refreshedView("unread"), null).kept).toBeNull();
+	});
+
+	it("takes the refresh's own answer otherwise, an answer of no list included", () => {
+		const kept = { ...SHOWN, valuesDigest: "b".repeat(64) };
+		expect(refreshedViewToShow(refreshedView(kept), SHOWN).kept).toBe(kept);
+		expect(refreshedViewToShow(refreshedView(null), SHOWN).kept).toBeNull();
 	});
 });

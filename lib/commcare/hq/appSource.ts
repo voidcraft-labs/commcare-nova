@@ -28,6 +28,7 @@ import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 } from "./http";
@@ -147,7 +148,20 @@ export interface HqAppSource {
 export type HqAppSourceRead =
 	| { readonly kind: "source"; readonly source: HqAppSource }
 	/** HQ reports the app gone: a 404 (`deleted: false`) or HQ's own soft delete (`deleted: true`). */
-	| { readonly kind: "gone"; readonly deleted: boolean }
+	| { readonly kind: "gone"; readonly deleted: false }
+	| {
+			readonly kind: "gone";
+			readonly deleted: true;
+			/**
+			 * Whether the deleted document holds a `built_on`. Every build holds one
+			 * (`models/applications.py::ApplicationBase.convert_app_to_build`), and
+			 * so does a working app a person reverted to a build
+			 * (`make_reversion_to_copy` copies it), so it may be either. The
+			 * source holds no `copy_of`, which alone would say. A document without
+			 * one is a working app.
+			 */
+			readonly mayBeBuild: boolean;
+	  }
 	/**
 	 * An app Nova did not make and does not update: the one HQ's source view
 	 * serves for a working app is `LinkedApplication`; a build's id is served
@@ -189,12 +203,6 @@ function isStringBagByLanguage(
 	);
 }
 
-const MALFORMED: CommCareApiError = {
-	success: false,
-	status: 502,
-	cause: "malformed",
-};
-
 const MEDIA_TYPES: ReadonlySet<string> = new Set(HQ_MEDIA_TYPES);
 
 /**
@@ -203,7 +211,8 @@ const MEDIA_TYPES: ReadonlySet<string> = new Set(HQ_MEDIA_TYPES);
  * `gone` covers both forms of "HQ reports the app gone": the document does
  * not exist (404, `deleted: false`), and HQ's ordinary delete, which is soft
  * and leaves the read answering 200 with a `doc_type` ending `-Deleted`
- * (`models/applications.py::ApplicationBase.delete_app`, `deleted: true`).
+ * (`models/applications.py::ApplicationBase.delete_app`, `deleted: true`),
+ * a working app's and a build's alike.
  * Any other `doc_type` than `Application` is `unsupported`.
  *
  * Anything short of the expected shape is a refusal, never an empty
@@ -238,7 +247,11 @@ export async function readHqAppSource(
 		return malformed(domain, appId, "doc_type");
 	}
 	if (body.doc_type.endsWith("-Deleted"))
-		return { kind: "gone", deleted: true };
+		return {
+			kind: "gone",
+			deleted: true,
+			mayBeBuild: body.built_on !== undefined && body.built_on !== null,
+		};
 	if (body.doc_type !== "Application") {
 		return { kind: "unsupported", docType: body.doc_type };
 	}
@@ -284,7 +297,7 @@ export async function readHqAppSource(
 			request: "app-source",
 			appId,
 		});
-		return MALFORMED;
+		return HQ_MALFORMED_ANSWER;
 	}
 
 	const parsedModules: HqAppSourceModule[] = [];
@@ -479,5 +492,5 @@ function malformed(
 		appId,
 		key,
 	});
-	return MALFORMED;
+	return HQ_MALFORMED_ANSWER;
 }

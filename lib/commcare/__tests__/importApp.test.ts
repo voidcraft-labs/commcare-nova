@@ -7,6 +7,7 @@ import {
 	readMultipartRequest,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
+import { log } from "@/lib/logger";
 import { importApp } from "../client";
 
 const CREDS = {
@@ -261,4 +262,73 @@ it("sends nothing more when the deadline ends the wait, and answers HQ's 429", a
 		}
 		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
 	});
+});
+
+/** Words of an app that CommCare HQ's answers quote, and no log line may hold. */
+const APP_WORDS = "Mother's Visit Checklist";
+const bytesOf = (text: string) => new TextEncoder().encode(text).byteLength;
+
+it("logs HQ's rejection of an import by its shape and length, never its words", async () => {
+	const error = `Form “${APP_WORDS}” has an unknown question`;
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.reply(200, { success: false, error });
+		expect(await importApp(CREDS, "clinic", "Visits", APP)).toEqual({
+			success: false,
+			status: 422,
+		});
+	});
+	expect(log.error).toHaveBeenCalledExactlyOnceWith(
+		"[commcare] import rejected by HQ",
+		undefined,
+		{ domain: "clinic", error: "text", errorBytes: bytesOf(error) },
+	);
+	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
+		APP_WORDS,
+	);
+});
+
+it("logs a refused import by its status and its body's shape and length, never the body", async () => {
+	const refused = JSON.stringify({
+		success: false,
+		error: `Module “${APP_WORDS}” cannot be saved`,
+	});
+	await withHttpPeer(async (peer) => {
+		for (const status of [400, 404])
+			peer
+				.get(HOST)
+				.intercept({ path: PATH, method: "POST" })
+				.reply(status, refused);
+		expect(await importApp(CREDS, "clinic", "Visits", APP)).toEqual({
+			success: false,
+			status: 400,
+			edgeRefusal: false,
+		});
+		expect(
+			await importApp(CREDS, "clinic", "Visits", APP, "working-app"),
+		).toEqual({ success: false, status: 404, edgeRefusal: false });
+	});
+	const context = (status: number) => ({
+		status,
+		edgeRefusal: false,
+		body: "json",
+		bodyBytes: bytesOf(refused),
+	});
+	expect(log.error).toHaveBeenCalledExactlyOnceWith(
+		"[commcare] import failed",
+		undefined,
+		context(400),
+	);
+	expect(log.warn).toHaveBeenCalledExactlyOnceWith(
+		"[commcare] import target missing",
+		context(404),
+	);
+	expect(
+		JSON.stringify([
+			vi.mocked(log.error).mock.calls,
+			vi.mocked(log.warn).mock.calls,
+		]),
+	).not.toContain(APP_WORDS);
 });

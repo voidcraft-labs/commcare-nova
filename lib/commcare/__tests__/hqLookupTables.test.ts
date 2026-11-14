@@ -13,6 +13,7 @@ import {
 	replyRetained,
 	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
+import { log } from "@/lib/logger";
 import { classifyHqFailure } from "../hq/failure";
 import {
 	listHqLookupTables,
@@ -768,4 +769,59 @@ it("reads an OK answer that is not JSON as HQ's plan page, which wrote nothing",
 		mayHaveLanded: false,
 		upgradeRequired: true,
 	});
+});
+
+it("logs a refused workbook by HQ's code and its message's shape and length, and a failed one by its body's, never their words", async () => {
+	const words = "Table “maternal_visit_sites” has a row with no site name";
+	const message = `Upload failed: ${words}`;
+	const failed = `<p>Server error while reading ${words}</p>`;
+	const bytesOf = (text: string) => new TextEncoder().encode(text).byteLength;
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: UPLOAD, method: "POST" })
+			.reply(200, JSON.stringify({ code: 405, message }), {
+				headers: { "content-type": "application/json" },
+			});
+		peer
+			.get(HOST)
+			.intercept({ path: UPLOAD, method: "POST" })
+			.reply(500, failed);
+		/* What a person is shown keeps HQ's sentence; only the log loses it. */
+		expect(
+			await uploadLookupTableWorkbook(CREDS, DOMAIN, workbook(), {
+				replace: true,
+			}),
+		).toMatchObject({ success: false, status: 405, message });
+		expect(
+			await uploadLookupTableWorkbook(CREDS, DOMAIN, workbook(), {
+				replace: true,
+			}),
+		).toMatchObject({ success: false, status: 500, mayHaveLanded: true });
+	});
+	expect(vi.mocked(log.error).mock.calls).toEqual([
+		[
+			"[commcare] lookup table upload refused",
+			undefined,
+			{
+				domain: DOMAIN,
+				code: 405,
+				message: "text",
+				messageBytes: bytesOf(message),
+			},
+		],
+		[
+			"[commcare] lookup table upload failed",
+			undefined,
+			{
+				status: 500,
+				edgeRefusal: false,
+				body: "page",
+				bodyBytes: bytesOf(failed),
+			},
+		],
+	]);
+	expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
+		"maternal_visit_sites",
+	);
 });

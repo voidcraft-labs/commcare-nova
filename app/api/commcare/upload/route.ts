@@ -62,14 +62,11 @@ import { requireSession } from "@/lib/auth-utils";
 import { isValidDomainSlug } from "@/lib/commcare/client";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import {
-	previewProjectSpaceFor,
-	previewTargetFactsFor,
-} from "@/lib/deployment/previewSpace";
+import { previewDeploymentAnswerFor } from "@/lib/deployment/previewSpace";
 import { leftBehindResources } from "@/lib/deployment/resources";
 import {
 	currentResourceIdentities,
-	deploymentKept,
+	landedDeploymentKept,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import {
@@ -318,11 +315,22 @@ export async function POST(req: NextRequest) {
 		 * still is — reading success off the state would report a publish
 		 * that never happened as a success. */
 		const succeeded = outcome.landed;
-		/* What Preview may honestly name now. Resolved here rather than in
-		 * the browser because only the server can see whether this app is
-		 * live on more than one project space, which is exactly when
+		/* What Preview may honestly name and play now. Resolved here rather
+		 * than in the browser because only the server can see whether this
+		 * app is live on more than one project space, which is exactly when
 		 * `commcare_project` has two real answers and Nova must name
-		 * neither. */
+		 * neither. Null where the read faulted: the answer then carries
+		 * neither key, the tab keeps what it holds, and the stream's
+		 * deployment lane brings the new answer. */
+		const preview = await previewDeploymentAnswerFor(scope);
+		/* The settings the project space keeps in CommCare HQ, with the date
+		 * of the read this publish left, or null. A read that faulted leaves
+		 * the key out rather than failing an answer whose publish may have
+		 * landed. */
+		const kept =
+			outcome.deployment === null
+				? null
+				: await landedDeploymentKept(scope, outcome.deployment, "publish");
 		/* What an earlier publish left on this project space and the app no
 		 * longer points at. Derived here rather than in the dialog: telling a
 		 * rename (something really is sitting there) from a recreate
@@ -344,10 +352,12 @@ export async function POST(req: NextRequest) {
 				/* The logo a publish never sends, offered to add in CommCare
 				 * HQ. Null on a refusal and for an app with no logo. */
 				logo_step: outcome.landed ? outcome.logoStep : null,
-				preview_project_space: await previewProjectSpaceFor(scope),
-				/* What that one project space keeps of the settings Preview
-				 * plays, under the same rule, or null. */
-				preview_target_facts: await previewTargetFactsFor(scope),
+				...(preview !== null && {
+					preview_project_space: preview.projectSpace,
+					/* What that one project space keeps of the settings Preview
+					 * plays, under the same rule, or null. */
+					preview_target_facts: preview.targetFacts,
+				}),
 				/* Null when the app has never reached this target: a refused
 				 * first publish leaves nothing durable behind, and the refusal
 				 * below is the whole answer. */
@@ -363,12 +373,7 @@ export async function POST(req: NextRequest) {
 									(resource) => resource.kind === "app",
 								)
 							: leftBehindResources(outcome.deployment, identities),
-				/* The settings the project space keeps in CommCare HQ, with the
-				 * date of the read this publish left, or null. */
-				kept:
-					outcome.deployment === null
-						? null
-						: await deploymentKept(scope, outcome.deployment),
+				...(kept !== "unread" && { kept }),
 				/* Why THIS attempt stopped, when it did. The record cannot
 				 * carry it: a refusal against an already-live deployment
 				 * deliberately writes nothing durable. */
