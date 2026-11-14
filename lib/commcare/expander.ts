@@ -119,7 +119,7 @@ import { buildXFormSource } from "./xform/builder";
  * invariant violation and aborts projection — silently dropping authored
  * navigation would turn a bad Blueprint into a different app.
  */
-function toHqFormLink(
+export function toHqFormLink(
 	link: ProjectedFormLink,
 	moduleUniqueIdOf: ReadonlyMap<Uuid, string>,
 	formUniqueIdOf: ReadonlyMap<Uuid, string>,

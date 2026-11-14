@@ -58,6 +58,7 @@ export type FixCause = (typeof FIX_CAUSES)[number];
  */
 export const SUBJECTS = [
 	"advanced-forms",
+	"advanced-menus",
 	"after-submit",
 	"android-app-dependencies",
 	"app-document",
@@ -100,6 +101,7 @@ export const SUBJECTS = [
 	"hierarchical-locations",
 	"instance-text",
 	"language-codes",
+	"list-and-search-filters",
 	"lookup-selection",
 	"lookup-tables",
 	"media-by-language",
@@ -129,6 +131,7 @@ export const SUBJECTS = [
 	"shadow-forms",
 	"supply-features",
 	"training-menus",
+	"translation-overrides",
 	"visit-scheduler",
 	"worker-record",
 	"writer-types",

@@ -677,7 +677,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`auto_launch: false` in an app with `cloudcare_enabled: false`",
+		"item": "`auto_launch: false` and `default_search: false` in an app with `cloudcare_enabled: false`",
 		"surfaceKeys": [
 			"schema:CaseSearch.auto_launch",
 			"schema:CaseSearch.default_search",
@@ -702,6 +702,33 @@
 		"emission": {
 			"cell": "`auto_launch: false`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/list-first-with-a-search-that-skips-to-results",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`auto_launch: false` with `default_search: true` in an app with `cloudcare_enabled: false`",
+		"surfaceKeys": [
+			"schema:CaseSearch.auto_launch",
+			"schema:CaseSearch.default_search",
+			"parser:ActionParser/action@auto_launch",
+			"parser:SessionDatumParser/query@default_search"
+		],
+		"valueClass": "list-first-default-search",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a case list first whose Search action goes straight to its results: HQ writes `default_search` into the query whatever `auto_launch` says (`remote_requests.py::RemoteRequestsHelper.build_remote_request_queries`), and Nova's `listFirst` writes it false",
+		"subject": "search-setup",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -1047,7 +1074,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`title_label{lang}` non-empty",
+		"item": "`title_label{lang}` non-empty in every app language",
 		"surfaceKeys": [
 			"schema:CaseSearch.title_label",
 			"parser:SessionDatumParser/title"
@@ -1102,6 +1129,31 @@
 		"emission": {
 			"cell": "`title_label` blank for every language",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/title-label-blank-in-some-languages",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search configuration",
+		"item": "`title_label` blank in some app languages and not in others",
+		"surfaceKeys": [
+			"schema:CaseSearch.title_label",
+			"parser:SessionDatumParser/title"
+		],
+		"valueClass": "blank-in-some-languages",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a search title blank in one language where another holds text: HQ shows a blank title there, where Nova's translation fill would show the default language's",
+		"subject": "search-setup",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -1767,6 +1819,33 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/prompt-named-for-a-case-attribute-hq-matches-itself",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a prompt named `case_id`, `owner_id` or `status` without `exclude`",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.name",
+			"parser:QueryPromptParser/prompt@key",
+			"parser:SessionDatumParser/prompt@key",
+			"csql-key:owner_id"
+		],
+		"valueClass": "attribute-name-not-excluded",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Search field over a case attribute that HQ's search reads by its own rule (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`); Nova writes such a field excluded, with its own `@<name>` clause (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/prompt-key-outside-nova-s-name-grammar",
 		"area": "case-search",
 		"section": "Case search",
@@ -2159,9 +2238,9 @@
 			"parser:QueryPromptParser/prompt@input",
 			"prompt-input:date"
 		],
-		"valueClass": "date",
+		"valueClass": "date-excluded-with-a-whole-day-clause",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: scalar `date`",
+		"dispositionCell": "**HELD**: scalar `date`, excluded from HQ's matcher, beside its whole-day `_xpath_query` clause",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -2178,6 +2257,32 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+	},
+	{
+		"id": "case-search/date-prompt-matched-by-hq-s-own-rule",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "`input_: date` on a prompt without `exclude`",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.input_",
+			"parser:QueryPromptParser/prompt@input",
+			"prompt-input:date"
+		],
+		"valueClass": "date-not-excluded",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a date Search field HQ compares by its own exact rule, with the project space's fuzzy and ignore-pattern settings; Nova's date field is always excluded and carries a whole-day clause (`simpleArmDerivation.ts::simpleArmNeedsXPathQueryEmission`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "case-search/input-daterange",
@@ -2207,6 +2312,35 @@
 		"emission": {
 			"cell": "`input_: daterange`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/search-field-over-a-property-of-another-type",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a date or date range prompt named for a property the app's forms save as something other than a date",
+		"surfaceKeys": [
+			"schema:CaseSearchProperty.input_",
+			"parser:QueryPromptParser/prompt@input",
+			"prompt-input:daterange",
+			"schema:CaseSearchProperty.name",
+			"parser:QueryPromptParser/prompt@key",
+			"parser:SessionDatumParser/prompt@key"
+		],
+		"valueClass": "field-type-the-property-s-writers-do-not-fit",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Search field whose type its property's writers do not fit; Nova's gate asks a date type of a date field (`SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH`)",
+		"subject": "search-fields",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -2759,6 +2893,61 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/required-or-validation-test-reading-the-case",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a Search field's required or validation test holding `#case`, `#parent`, `#host`, or (required) a bare dot",
+		"surfaceKeys": ["schema:Assertion.test"],
+		"valueClass": "references-the-case",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `xpath.py::_ensure_no_case_references` raises `CaseXPathValidationError`",
+		"subject": "search-expressions",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`xpath.py::_ensure_no_case_references` raises `CaseXPathValidationError`"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/required-or-validation-test-outside-what-nova-types",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "Search prompts",
+		"item": "a Search field's required or validation test CommCare HQ builds and Nova's checker refuses in that slot",
+		"surfaceKeys": ["schema:Assertion.test"],
+		"valueClass": "outside-the-screen-rule-set",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a test over more than the field, its siblings, the session and the worker",
+		"subject": "search-expressions",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/validations-1",
 		"area": "case-search",
 		"section": "Case search",
@@ -3300,7 +3489,7 @@
 		],
 		"valueClass": "project-timezone-date",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: project-timezone date comparison",
+		"dispositionCell": "**HELD-NEW**: HQ reads the date as the project space's day (`comparison.py::_create_system_datetime_query`); no read gives Nova that time zone, so neither Preview nor Postgres can evaluate it. Held once a project space's time zone is a fact Nova has",
 		"subject": "search-expressions",
 		"owner": "case-search",
 		"platforms": {
@@ -3381,7 +3570,7 @@
 		"item": "`double(v)`, `today()`, `now()`",
 		"surfaceKeys": ["csql-fn:double", "csql-fn:today", "csql-fn:now"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `double`, `today`, `now`",
+		"dispositionCell": "**HELD**: `double`, `today`, `now`. HQ's `today()` is the project space's day and Nova's is the worker's: a first publish sends the worker's day and says so (`search-today-device-day`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3433,7 +3622,7 @@
 		"item": "`unwrap-list('[…]')`",
 		"surfaceKeys": ["csql-fn:unwrap-list"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: list-literal value (runtime-assembled lists included)",
+		"dispositionCell": "**HELD**: `value-list`, with literal and runtime items; written as `list(…)` in the record dialect and edited as a list of values in the builder",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3764,11 +3953,11 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
-		"item": "runtime values read from casedb or session datums",
+		"item": "runtime values read from session datums, the session, the worker, a Search answer, or a property of the case chosen in a menu",
 		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
 		"valueClass": "case-or-datum-terms",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: case and datum terms in CSQL values",
+		"dispositionCell": "**HELD**: session, worker, answer and chosen-case terms in CSQL values",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3783,6 +3972,34 @@
 		"emission": {
 			"cell": "printed",
 			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/a-search-value-that-queries-cases-a-table-or-places",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "a runtime value read from a `casedb`, lookup table or place query, other than a property of the case chosen in a menu",
+		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
+		"valueClass": "device-data-query",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the union and the checker hold the read; no editor has a spelling or a card for a query inside a search value",
+		"subject": "search-expressions",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3937,10 +4154,9 @@
 			"csql-key:_xpath_query"
 		],
 		"valueClass": "xpath-query-rows",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: each row a typed default filter kept as its own row; Nova emits one row per top-level conjunct of its composed condition (`xpathQuery.ts::composeXPathQueryEmission`), and HQ joins every row with `and` (`case_search/utils.py::_apply_filter`); no reader reads rows back yet",
-		"subject": "search-default-filters",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: several `_xpath_query` rows, read as one condition: their conjunction. HQ joins every row with `and` (`case_search/utils.py::_apply_filter`), so one row or several find the same cases, and Nova writes one row per top-level conjunct of what it holds (`xpathQuery.ts::composeXPathQueryEmission`): each top-level conjunct a restated clause of the case list filter, a Search field's derivation, a condition on an excluded Search field, a list filter clause that waits for a Search field, or, where the module's forms read the search, a clause the list filter gains",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3953,6 +4169,112 @@
 		},
 		"emission": {
 			"cell": "one row per filter",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/xpath-query-row-reading-a-field-hq-also-matches",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "an `_xpath_query` conjunct that reads a prompt with no `exclude` outside that prompt's presence guard",
+		"surfaceKeys": [
+			"schema:CaseSearch.default_properties",
+			"schema:DefaultCaseSearchProperty",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"csql-key:_xpath_query"
+		],
+		"valueClass": "conjunct-over-a-matched-field-unguarded",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a condition on a Search field HQ's matcher also compares, applied whether or not the field is answered; Nova holds such a condition only as a list filter clause that waits for the field, or on an excluded field (`searchPrompts.ts::searchInputSuppressesAutoMatch`)",
+		"subject": "search-default-filters",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/xpath-query-row-that-is-neither-a-list-filter-clause-nor-a-search-field-s",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "an `_xpath_query` conjunct that reads no prompt and restates no clause of `Detail.filter`, on a module whose forms do not read the search, or one an advanced form's load names as `details_module`",
+		"surfaceKeys": [
+			"schema:CaseSearch.default_properties",
+			"schema:DefaultCaseSearchProperty",
+			"schema:DefaultCaseSearchProperty.property",
+			"schema:DefaultCaseSearchProperty.defaultValue",
+			"csql-key:_xpath_query"
+		],
+		"valueClass": "conjunct-with-no-slot",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a filter the search applies and the case list does not: there HQ's results list reads the case type alone (`remote_requests.py::_build_datum_nodeset`), and Nova's one filter narrows both",
+		"subject": "search-default-filters",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/case-list-filter-clause-the-search-does-not-restate",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "a top-level clause of `Detail.filter` no `_xpath_query` conjunct restates, on a module that offers search and whose forms do not read it",
+		"surfaceKeys": ["schema:Detail.filter"],
+		"valueClass": "unrestated-on-a-module-whose-forms-do-not-read-the-search",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a filter the case list applies and the search does not: there HQ's results list reads the case type alone (`remote_requests.py::_build_datum_nodeset`), and Nova's one filter narrows both",
+		"subject": "list-and-search-filters",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/xpath-query-condition-outside-what-nova-types",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "a search filter CommCare HQ builds and Nova's checker or its CSQL representability rule refuses, by its reason: text ordered, a time ordered, a date-and-time property against text",
+		"surfaceKeys": ["csql-key:_xpath_query"],
+		"valueClass": "outside-the-record-rule-set",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the record rule set's wider vocabulary in a search filter",
+		"subject": "search-expressions",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []

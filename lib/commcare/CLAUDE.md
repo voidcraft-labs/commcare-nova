@@ -1,6 +1,6 @@
 # lib/commcare
 
-One-way emission boundary: `BlueprintDoc` → CommCare wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive). The only package in `lib/` that imports CommCare's vocabulary (HQ shell shapes, `doc_type` strings, XPath functions, session datums, identifier rules). A Biome `noRestrictedImports` rule enforces the one-way direction.
+The CommCare boundary. It emits a `BlueprintDoc` as CommCare's wire formats (XForm XML, `HqApplication` JSON, `.ccz` archive), and, in `reader/`, reads an HQ app back into one. Nothing outside this package speaks the wire vocabulary in either direction. The only package in `lib/` that imports CommCare's vocabulary (HQ shell shapes, `doc_type` strings, XPath functions, session datums, identifier rules). A Biome `noRestrictedImports` rule holds who may import it.
 
 ## Client-safe barrel
 
@@ -202,8 +202,11 @@ be held by the entry whose value class takes it, where holding is a HELD,
 TARGET-OWNED or INERT entry's, so a use whose key only HELD-NEW entries name
 is a difference (`/<key>/held-new`); and every flag HQ reads while building it
 must have a gate entry (`proof/README.md`, "Manifest checks"). Server code
-reads gate entries through `surface/gates.ts`, never `surface.json`, so a
-server bundle carries the gate entries alone.
+reads the manifest through `surface/gates.ts` (a gate's identity),
+`surface/schemaDefaults.ts` (a declared property's default, from
+`surface.json`), `appStringKeys.ts` (HQ's generated app string patterns, from
+`surface.json`) and `surface/inventory.ts` (every inventory entry with its
+standing, for the reader). `inventory.ts` is `server-only`.
 
 A TARGET-OWNED entry is content Nova leaves at CommCare HQ's value under the
 kept test: a publish never changes it, nothing the document holds does
@@ -221,6 +224,61 @@ over `surface/platformFeatureEntries.ts`, which only tests import; a HELD entry
 that differs by platform is a feature's or ambient, so an entry that gains such
 a reading lands with its row. The validator refuses a structural use a declared
 platform cannot run (`validator/rules/platforms.ts`, `PLATFORM_FEATURE_UNAVAILABLE`).
+
+### Rewrites
+
+A rewrite the reader of CommCare HQ's apps must print without, or must
+report, is an id of `emissionRewrites.ts::EMISSION_REWRITES`. A site with a
+switch takes a `RewriteControl`, from the wire build context or as its own
+argument. Every other place the emitter writes something a source would spell
+another way is held by the manifest entry that refuses the shape, or is a
+spelling the reader reads back to the same tree. A new rewrite lands with its
+id here only where the reader needs the switch or the report.
+
+### The reader
+
+`reader/index.ts::readHqApp` is the one function that turns an HQ app into a
+document. It is pure and reads only its arguments. Admission is an accounting:
+every JSON key at a value other than HQ's default and every XML element and
+attribute must be claimed against a manifest entry
+(`reader/claims.ts::defineClaims`), the entry's standing decides whether the
+value is read, dropped or a finding, and whatever is left unclaimed is the
+circumstance `unrecognized`. A claim is data, held to the manifest by
+`reader/__tests__/claimsBindManifest.test.ts`, so a manifest edit and the
+reader cannot drift. A reader stage reads nothing it does not claim. Two uses
+are handed off instead of claimed, a media path with no file and an itemset
+over a table the catalog lacks, because project data's rules name their entry;
+the caller settles each and acceptance holds none is left. The stages run in
+the order of `reader/index.ts::STAGES`: structure and forms, menus, case
+management, lists and search, then every expression bound against a
+provisional document that is built whether or not a finding stands, then the
+settle passes and assembly. An `unrecognized` finding names a surface key, or
+the app's own value where what was unclaimed is a value (an appearance); what
+the reader itself got wrong is a `ReaderDefect`, logged and never shown.
+
+A form is read as HQ's form builder reads it (`reader/xform/`): data tree,
+binds, setvalues, then the control tree, joined by path. A field's kind comes
+from one table (`xform/kinds.ts`). Text is found by what references it, never
+by an itext id. A node Nova generates is recognized by rebuilding it with the
+emitter's own function and comparing parsed trees (`xform/generated.ts`), with
+the allocator's name as a precondition; an edited or renamed one is the
+author's Hidden Value. A real attribute and its `vellum:` shadow must expand to
+one tree. Logic is never read as text here: each attribute is registered as a
+pending expression the expression reader binds. Two XPath texts are compared in
+one place, `reader/syntaxCompare.ts::sameXPathText`.
+
+### Reading expressions
+
+The reader holds an HQ expression only where Nova's own print of its reading
+reads back to the same syntax: it binds HQ's text with the production parser
+under a reading hook, prints the candidate with the production emitter in the
+slot's own mode and build context, and compares the two parsed trees, so no
+recognition is a text pattern. A slot is held at one of two levels: exact,
+where the print equals the source, or up to the named rewrites of
+`emissionRewrites.ts`, where it differs only where one of them applies, which
+the reading reports. Every slot of an app is read at once over one document,
+in `reader/expressions/` (`readExpressions`, the folds, the canonical tree of a
+print collision, CSQL search rows and the findings each slot claims).
 
 ### CommCare HQ project-space compatibility
 
@@ -316,7 +374,7 @@ from that toggle's gate entry in the manifest (`surface/entries/gates.json`),
 read through `surface/gates.ts::domainFeatureFlag`, which refuses a
 FrozenPrivilegeToggle (HQ's feature-flag filter never lists its slug) and a
 toggle not keyed by project space alone. Server code reads gate entries through
-`surface/gates.ts`, never the generated `surface.json`. Add a probed flag only
+`surface/gates.ts`. Add a probed flag only
 with an actual Nova emitter and its gate entry; remove or update it when the
 upstream setting graduates or changes; never retain retired settings as history.
 
@@ -522,7 +580,9 @@ lifts independent `count(otherQuestion[predicate])` expressions into sibling
 Hidden Values named `nova_constraint_<question>_<n>` by the allocator
 (`xform/generatedNodes.ts::planGeneratedNodes`), then keeps the candidate
 comparison in the constraint. The name is not reserved: an authored sibling of
-the same name makes the allocator take the next suffix.
+the same name makes the allocator take the next suffix. Each base name comes
+from `generatedNodes.ts::generatedBaseName`, which the reader's recognizer
+reads too.
 Only typed scalar references and context-independent predicates qualify. The AST walk retains counts that read the validated answer, use outer relative/current paths or functions, or occur inside another predicate. The original expression identities remain unchanged; lowering substitutes the selected count nodes with their generated sibling paths. The lifted calculation carries no
 `vellum:calculate`, because its expression filters a form reference, and its
 predicate's own node is printed `./.`; the constraint's executable and shadow
@@ -661,7 +721,7 @@ replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
 that protected spelling too. Other prose retains its authored text nodes. Entity-looking spellings stay
 literal through admission, editing, Preview and emission; only the XML
 serializer escapes them. Platform Markdown rendering happens after XML is read.
-The character classifier mirrors these consumers, not JavaScript `trim()`. Literal text that CommCare HQ's build would read as an instance (`hqInstanceScan.ts`) is written with its bracket as a literal output, so no label can add an instance or fail a build. Plain text in a form's source has no such spelling and is refused ("CommCare Connect"); a choice's value, the text of an `<item>`'s `<value>`, is refused by its own grammar (`lib/domain/selectOptionValue.ts`, problem `instance-read`, over `lib/domain/hqInstanceRead.ts`).
+The character classifier (`xform/consumerWhitespace.ts::isConsumerWhitespace`) mirrors these consumers, not JavaScript `trim()`; the reader of HQ's forms reads such a text node as nothing and each literal output as the text it spells, confirmed by printing it back with `buildLabelNodes` (`reader/xform/prose.ts::literalOutputText`). Literal text that CommCare HQ's build would read as an instance (`hqInstanceScan.ts`) is written with its bracket as a literal output, so no label can add an instance or fail a build. Plain text in a form's source has no such spelling and is refused ("CommCare Connect"); a choice's value, the text of an `<item>`'s `<value>`, is refused by its own grammar (`lib/domain/selectOptionValue.ts`, problem `instance-read`, over `lib/domain/hqInstanceRead.ts`).
 
 Plain literal validation messages emit the compatible bind `jr:constraintMsg`
 reference and a body `<alert>` pointing at the same itext entry. Empty messages
@@ -915,7 +975,13 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   `formLinkProjection.property.test.ts` proves the stack pushes exactly the
   destinations that hold, last first, and the otherwise when none that may
   not run holds; `formLinkParity.test.ts` pins local `<create if>` against HQ
-  `xpath` byte for byte.
+  `xpath` byte for byte. The reader takes the list in reverse, reads the
+  otherwise from a fallback word beside a conditional link or from a last link
+  whose condition is the negations of the others, and strips the held-case
+  guards the projection would add before the condition is bound
+  (`reader/menus/afterSubmit.ts`); a link that carries a case by hand and holds
+  no guard gains one at the first publish, which the first-publish register
+  declares.
 - **HQ shape.** `form_links[]` is HQ's real `FormLink`:
   `{xpath, form_id, form_module_id, datums}` or `{xpath, module_unique_id,
   datums}` (`xpath: ""` = unconditional). `post_form_workflow` is `"form"` iff
@@ -1070,7 +1136,7 @@ and tab/LF/CR in attributes. It refuses characters outside XML 1.0's repertoire.
 namespace scope and XML character decoding. Never use an HTML parser or
 serializer on these resources: their XML modes can still substitute C1
 characters or normalize authored attribute whitespace incorrectly. DTDs and
-XML 1.1 declarations are outside Nova's generated resource vocabulary.
+XML 1.1 declarations are outside Nova's generated resource vocabulary. `tryParseXml` names which of the three a failure is (`doctype`, `xml-version`, `malformed`), and no caller reads a message to tell.
 
 `APP_TEXT_UNREPRESENTABLE` gates app names, module/form/field definitions,
 case catalogs and translation values before every commit, including dormant
@@ -1125,7 +1191,7 @@ prints it. Never repair this by parsing or rewriting emitted text.
 - **case-preload**: Nova writes no `case_preload`; a preload is the question's default, `default_value` holding the read of the case's property, and it runs at the question's place (`lib/domain/casePreload.ts::fieldPreload`).
 - **subcases**: per-subcase session datum `case_id_new_<subcasetype>_<idx>` (index mirrors CCHQ's `Form.session_var_for_action` — starts at 1 when the form also opens a primary case). Repeat-context subcases use literal `uuid()` calculate instead (no session datum is emitted for them, matching CCHQ's `delay_case_id` branch). An advanced form's datums are `case_id_<tag>` per load and `case_id_new_<type>_<i>` per open action outside a repeat (`session.ts`). Owner-id binds to `/data/meta/userID` on every active subcase. The basic module Nova uploads runs `autoset_owner_id_for_subcase` (`'owner_id' not in case_properties`, which is always true for Nova's subcases), so CCHQ's regenerated child form carries the same userID owner bind. (An advanced open action's owner follows `autoset_owner_id_for_advanced_action` instead, under "Advanced modules" below.) Each subcase's name action names the question's `nova_trimmed_` node, and its name question carries `required` and the guard as the primary case's does. A subcase's **close-on-submit** renders `<close>` + a `relevant` bind from its `close_condition`, which a close operation of that create takes when the close shares the subcase's place (`placement.ts::PlannedPlacement.sharesWith`); otherwise it is `never`.
 
-- **capture URL node**: a write whose value is `capture-link(#form/<question>)` and that takes a basic slot emits a SIBLING node (`xform/captureUrlNode.ts`) holding `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/', <capture>))`. The action's update names THAT node, never the capture; a Save to Case row has no sibling and calculates the same address over the capture where the row reads it. This indirection is not stylistic: `xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>` block whenever its question path is an `<upload ref>` in the body (`::is_attachment`), consulting no toggle, and a stock domain then drops the block silently (`update_strategy.py::_apply_attachments_action` returns immediately without `MM_CASE_PROPERTIES`). The origin + project space arrive as an already-resolved `AttachmentUrlTarget` from the caller (`lib/deployment/attachmentTarget.ts`), because the emission boundary is one-way; with none, the node, the bind, and the case update are all withheld rather than written against a guess, and the caller says so through `lib/publish/exportAdvisories.ts`.
+- **capture URL node**: a write whose value is `capture-link(#form/<question>)` and that takes a basic slot emits a SIBLING node (`xform/captureUrlNode.ts`) holding `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/', <capture>))`. The action's update names THAT node, never the capture; a Save to Case row has no sibling and calculates the same address over the capture where the row reads it. This indirection is not stylistic: `xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>` block whenever its question path is an `<upload ref>` in the body (`::is_attachment`), consulting no toggle, and a stock domain then drops the block silently (`update_strategy.py::_apply_attachments_action` returns immediately without `MM_CASE_PROPERTIES`). The origin + project space arrive as an already-resolved `AttachmentUrlTarget` from the caller (`lib/deployment/attachmentTarget.ts`), because `lib/commcare` imports nothing of the deployment layer; with none, the node, the bind, and the case update are all withheld rather than written against a guess, and the caller says so through `lib/publish/exportAdvisories.ts`.
 
 - **capture relevance**: the URL sibling has `relevant="count(<capture>) > 0"`. Hiding a capture therefore removes its URL update from the submitted case transaction; an active blank capture still submits a blank property. A child-only followup retains the empty primary case block and its selected case ID so child indices can resolve their parent.
 
@@ -1308,6 +1374,10 @@ Nova never offers a menu's kind as a choice. A menu reaches CommCare HQ as an `A
 - **Case list menu item.** An advanced menu's item, beside its forms or alone, is HQ's one datum `case_id_case_<type>` over every open case of the type, with the menu's details and no filter, parent or alignment (`session.ts::deriveAdvancedCaseListDatum`, `EntriesHelper.entry_for_module`), and `case_list.show` with the item's label and media as on a basic menu. It is the datum of a load tagged `case_<type>`: beside forms whose first load holds another tag such a menu lists forms first in Core (`getDataNeededByAllEntries` finds no one first datum), and beside forms kept under that tag it asks for the case first, which `lib/domain/menuScreens.ts::screenCaseFirstBlocker` reads from each entry's first datum (`case-list-entry-apart`, and `form-chooses-apart` for two forms whose first loads hold different tags). The `case-list-menu-item-narrowed` blocker admits the item on an advanced menu only where the basic list holds the same cases, so the item means one thing on both kinds. `moduleKind.ts::advancedModulesWithCaseListMenuItem` lists each advanced menu holding one, which `planPrivileges.ts::commtrackReasons` names, because HQ's build adds a `product_id` datum to its entry under CommCare Supply.
 - **Add-ons and plan privileges.** `addOns.ts` adds `subcases` and `conditional_form_actions` for every `AdvancedForm` (HQ's `used_in_form` predicates hold for every form that is not a `module_form`, `add_ons.py`), and reads an advanced menu's product list for `conditional_enum` and `enum_image`. An advanced menu asks no plan privilege of its own (`helpers/validators.py::ApplicationValidator._check_subscription` checks only the worker's record); `child_cases` counts basic subcases only.
 
+### Reading case management back
+
+`lib/commcare/reader/caseManagement` reads a form's `actions` and Save to Case blocks into case operations with each placement held at CommCare HQ's real position. A basic condition is the inverse of `stateCondition`; an advanced menu's parent selection is read from its forms' loads, since HQ stores none on the menu; a Save to Case block is read only in the shape `saveToCaseBlockShape` writes, each value inside the wrapper the emitter writes around it (the text trim, the date-and-time format, the presence guard, the capture address). `update_mode: edit` is read as `onlyIfChanged` only where the source project space applies it. Every reading is accepted by writing it back with `planFormCaseWire`, under the source's own ids and project space, over a frozen copy of the draft, and comparing.
+
 ### Typed FormPath
 
 `xform/formPath.ts::FormPath` is the typed value every wire emitter constructs form paths through. Element + attribute steps only; attribute steps are terminal; element-step names pass `XML_ELEMENT_NAME_REGEX` (a letter or underscore, then letters, digits, underscores and hyphens) at construction. `toXPath()` prints a PATH REFERENCE (bind `nodeset`, control `ref`, `<setvalue ref>`, splice walk steps). An EXPRESSION body (`calculate` / `relevant` / `constraint`) is a wire tree whose `form` root `serializeWire` prints, and no emitter parses XPath text. The legacy answer-path admission (`validateXFormPath`) delegates to this same parser and additionally requires a non-root element; there is no separate permissive path regex. The element-name vocabulary is Nova's ASCII subset, not the full XML Name grammar.
@@ -1347,7 +1417,7 @@ reads either, so publish asks the person to confirm both (`lib/deployment`). A C
 
 Both detail surfaces (`<detail id="m{n}_case_short">` / `m{n}_case_long`) share one per-kind column emitter via a `DetailKind` discriminator — five precise branch sites cover the long-detail-only `template_form="phone"`, the short-detail-only sort wrap, the long-detail no-sort short-circuit, and the locale-id substring choice. Don't fork the emitters per surface.
 
-**A list's fields and order are one derived plan.** `lib/domain/caseListOrder.ts::caseListOrderPlan` states what HQ's build writes for the app Nova sends: the short detail's fields in stored order, each field's wire class (property or expression) and join text (its HQ `field`), the sort key each field keeps with no rule, each rule's element, and the carriers HQ appends for a rule no field's text equals. Its three readers are `hqJson/caseList.ts` (the stored columns and `sort_elements`), `suite/case-list/` (`shortDetail.ts` walks the plan's fields; `sortKeys.ts::planSortNodes` writes each field's `<sort>`, and a carrier as an appended width 0 field), and Preview through the case store. Every reader builds it through `suite/case-list/orderPlanOptions.ts::caseListOrderOptions`, so none can pass different options; the validator and Preview pass `mediaOn: true` and no lookup naming (join texts print under `lookup/naming.ts::identityLookupWireNaming`). A difference proof 3 reports between HQ's build and the local suite is a wrong rule in the plan or a wrong spelling in an emitter, never a register entry. A column that is not on the list (`Column.notOnList`) is no field of the short detail in either layout, takes no order rule and has no carrier; the case detail alone holds it, so no device matches it when a worker filters the list (`validator/rules/case-list/columnNotOnList.ts`, `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`, refuses it shown on Results or with an order rule).
+**A list's fields and order are one derived plan.** `lib/domain/caseListOrder.ts::caseListOrderPlan` states what HQ's build writes for the app Nova sends: the short detail's fields in stored order, each field's wire class (property or expression) and join text (its HQ `field`), the sort key each field keeps with no rule, each rule's element, and the carriers HQ appends for a rule no field's text equals. Its three readers are `hqJson/caseList.ts` (the stored columns and `sort_elements`), `suite/case-list/` (`shortDetail.ts` walks the plan's fields; `sortKeys.ts::planSortNodes` writes each field's `<sort>`, and a carrier as an appended width 0 field), and Preview through the case store. Every reader builds it through `suite/case-list/orderPlanOptions.ts::caseListOrderOptions`, so none can pass different options; the validator and Preview pass `mediaOn: true` and no lookup naming (join texts print under `lookup/naming.ts::identityLookupWireNaming`). A difference proof 3 reports between HQ's build and the local suite is a wrong rule in the plan or a wrong spelling in an emitter, never a register entry. A column that is not on the list (`Column.notOnList`) is no field of the short detail in either layout, takes no order rule and has no carrier; the case detail alone holds it, so no device matches it when a worker filters the list (`validator/rules/case-list/columnNotOnList.ts`, `CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`, refuses it shown on Results or with an order rule). `reader/caseList` inverts the order plan and joins the two details into one set of columns, reading a column the detail alone shows as not on the list.
 
 A column over an attribute-backed property (`lib/domain/standardCaseProperties.ts::ATTRIBUTE_BACKED_COLUMN_PROPERTIES`: `case_id`, `owner_id`, `status`) is an expression column on HQ's paths, shown or hidden: `field: "@<name>"` with `useXpathExpression: true`, because HQ reads a property column's `field` as a property name, which takes no `@`, and has no property element for `case_id`. Only a sort row with no stored column (a carrier) names `owner_id` or `status` bare; HQ's appended field reads the attribute. An image-map field written as images (`lib/domain/modules.ts::imageMapShowsImages`) writes `width="13%"` on its header and template on both details, as HQ's `EnumImage` does. HQ writes a date column's pattern unescaped between straight apostrophes, so a pattern holding `'` builds a suite Core refuses; the gate refuses it (`CASE_LIST_DATE_PATTERN_APOSTROPHE`).
 
@@ -1497,7 +1567,7 @@ produce the same operation order and transaction meaning.
 
 Integer division is its own operator, `quotient`; `div` is XPath's real division in every slot. `xpath/wire/fromExpression.ts::toWire` lowers `quotient` by removing the signed remainder before dividing (`if(r = 0, l div r, (l - l mod r) div r)`), avoiding Core's 32-bit `int()` conversion; a zero divisor keeps raw division's native Infinity/NaN. `ArithmeticRuntimeTest.java` executes the admitted `arithmeticFixture` form through Core's case transaction processor, with the same fixture submitted to real Postgres in the Preview program acceptance suite.
 
-The `<remote-request>` block's `<session>` carries ONE `<data key="_xpath_query">` element PER composed clause — the unified filter's top-level conjuncts, each advanced-arm search input's predicate, and each simple-arm input whose `(mode, via)` shape needs explicit-predicate emission. The server AND-composes every `_xpath_query` value it receives (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter` loops the multi-term criteria into one ES filter each; `commcare-core .../session/RemoteQuerySessionManager.java::getRawQueryParams` accumulates a `Multimap`, formplayer forwards repeated params, and Django folds them into a list at `corehq/apps/ota/views.py::app_aware_search`), so N small readable expressions filter identically to one fused mega-expression. On HQ JSON the same clauses land as N `default_properties[]` rows (`DefaultCaseSearchProperty` is a `SchemaListProperty`; CCHQ's `remote_requests.py::_remote_request_query_datums` loops every row into its own `<data>`).
+The `<remote-request>` block's `<session>` carries ONE `<data key="_xpath_query">` element PER composed clause — the unified filter's top-level conjuncts, each advanced-arm search input's predicate, and each simple-arm input whose `(mode, via)` shape needs explicit-predicate emission. The server AND-composes every `_xpath_query` value it receives (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter` loops the multi-term criteria into one ES filter each; `commcare-core .../session/RemoteQuerySessionManager.java::getRawQueryParams` accumulates a `Multimap`, formplayer forwards repeated params, and Django folds them into a list at `corehq/apps/ota/views.py::app_aware_search`), so N small readable expressions filter identically to one fused mega-expression. On HQ JSON the same clauses land as N `default_properties[]` rows (`DefaultCaseSearchProperty` is a `SchemaListProperty`; CCHQ's `remote_requests.py::_remote_request_query_datums` loops every row into its own `<data>`). `reader/search` reads each top-level conjunct of each `_xpath_query` row as a restated list filter clause, a Search field's derivation, a condition on an excluded field or a list filter clause that waits for a field. Where a menu's forms read its search, HQ applies the list filter to the results too, so there a conjunct with no field joins the list filter and an unrestated list clause is held; on any other searching menu each is not-yet.
 
 CSQL text is a `CsqlNode` tree (`csql/tree.ts`) printed by `csql/print.ts::printCsql`, the only place CSQL text is assembled; each node's position (query, anchor, server value, raw argument, runtime; `csql/positions.ts`, whose core `lib/domain/expression/csqlPositions.ts` the checker reads too) decides its emission, and the wrapper is a wire tree printed by `serializeWire`. A runtime segment is on-device XPath and takes the on-device lowering; no lowering enters CSQL text, because HQ compares instants itself. Each runtime segment carries its raw read and a segment key, the checker path of its subtree in `csql/emitter.ts::prepareCsqlClause`'s clause. Each `_xpath_query` source is typed in its own slot (`xpathQuery.ts::composeXPathQueryClauses`), and a case chosen in an earlier menu prints under the id the module's case list step holds (`formLinkProjection.ts::caseListStepDatumId`; HQ JSON's `case_details.short.filter` takes the id before root alignment).
 
@@ -2056,6 +2126,7 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 - Sort field format regex, multimedia
 - Itemset `<copy>` mode (lookup-backed selects emit value/label itemsets)
 - Repeat homogeneity
+- A Save to Case question at an authored position, a late flag column, a search filter the case list does not share on a menu whose forms do not read the search, a preload held at the end of the load, saving only a changed answer anywhere but a follow-up form's own update, an advanced tag or an index name with a hyphen (each a manifest HELD-NEW row the reader raises).
 
 ### Named entry points
 

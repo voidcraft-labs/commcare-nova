@@ -77,7 +77,8 @@ import {
 	simplifyForEmission,
 	substituteUnansweredSearchInputs,
 } from "@/lib/domain/expression";
-import type { DatumRef } from "@/lib/domain/expression/types";
+import type { DatumRef, Expression } from "@/lib/domain/expression/types";
+import { type RewriteControl, rewriteWithheld } from "../emissionRewrites";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -486,13 +487,17 @@ function sortElementType(
  * suite-XML nodeset filters at `lib/commcare/suite/case-list/nodesetFilter.ts`;
  * the HQ JSON stores it bare (CCHQ's `EntriesHelper.get_filter_xpath`
  * wraps it in `[...]` at suite-emission time on the CCHQ side too).
+ *
+ * Where `rewrites` withholds `filter-identities-dropped`, the filter prints as
+ * stored, boolean identities included.
  */
-function projectCaseListFilter(
+export function projectCaseListFilter(
 	filter: CaseListConfig["filter"],
 	excludedOwnerIds: DomainCaseSearchConfig["excludedOwnerIds"],
 	expressions: ModuleExpressionContexts,
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
+	rewrites?: RewriteControl,
 ): HqXPath | null {
 	// This slot lands in CCHQ's ordinary case-loading datum nodeset
 	// (`EntriesHelper.get_filter_xpath`), which evaluates before any
@@ -509,9 +514,13 @@ function projectCaseListFilter(
 	// string. Mirrors the suite-XML `nodesetFilter.ts` surface so both
 	// case-list-filter wire forms stay identity-clean. See
 	// `lib/domain/expression/simplify.ts`.
-	const effective = effectiveFilterForEmission(
-		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter),
-	);
+	const substituted =
+		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter);
+	const effective =
+		substituted !== undefined &&
+		rewriteWithheld(rewrites, "filter-identities-dropped")
+			? substituted
+			: effectiveFilterForEmission(substituted);
 	const authoredFilter =
 		effective === undefined
 			? undefined
@@ -524,6 +533,7 @@ function projectCaseListFilter(
 							lookup: { naming: lookupNaming, instanceScope: "suite" },
 						}),
 					},
+					...(rewrites === undefined ? {} : { rewrites }),
 				});
 	const ownerFilter =
 		excludedOwnerIds === undefined
@@ -538,6 +548,40 @@ function projectCaseListFilter(
 		return ownerFilter === undefined ? null : hqXPath(ownerFilter, "case");
 	if (ownerFilter === undefined) return hqXPath(authoredFilter, "case");
 	return hqXPath(w.and(authoredFilter, ownerFilter), "case");
+}
+
+/**
+ * The search button's condition as CommCare HQ stores it
+ * (`search_config.search_button_display_condition`): a bare on-device XPath
+ * the runtime evaluates before it draws the button. `simplifyForEmission`
+ * strips any redundant boolean identity (a `match-all` left inside an
+ * authored `and`) so the condition carries no `true() and …` conjunct, the
+ * same normalization the filter surfaces apply; where `rewrites` withholds
+ * `filter-identities-dropped`, it prints as stored.
+ */
+export function projectSearchButtonCondition(
+	condition: Expression,
+	expressions: ModuleExpressionContexts,
+	lookupNaming: LookupWireNaming | undefined,
+	rewrites?: RewriteControl,
+): HqXPath {
+	return hqXPath(
+		toWire(
+			rewriteWithheld(rewrites, "filter-identities-dropped")
+				? condition
+				: simplifyForEmission(condition),
+			{
+				target: "hq-json",
+				types: expressions({ slot: "search_button_display_condition" }),
+				...(lookupNaming && {
+					bindings: {
+						lookup: { naming: lookupNaming, instanceScope: "suite" },
+					},
+				}),
+				...(rewrites === undefined ? {} : { rewrites }),
+			},
+		),
+	);
 }
 
 // ============================================================
@@ -783,19 +827,10 @@ function buildSearchConfigDocument(
 			// boolean identity (e.g. a `match-all` left inside an authored
 			// `and`) so the condition doesn't emit a `true() and …`
 			// conjunct — same normalize the filter surfaces apply.
-			config.search_button_display_condition = hqXPath(
-				toWire(
-					simplifyForEmission(caseSearchConfig.searchButtonDisplayCondition),
-					{
-						target: "hq-json",
-						types: expressions({ slot: "search_button_display_condition" }),
-						...(lookupNaming && {
-							bindings: {
-								lookup: { naming: lookupNaming, instanceScope: "suite" },
-							},
-						}),
-					},
-				),
+			config.search_button_display_condition = projectSearchButtonCondition(
+				caseSearchConfig.searchButtonDisplayCondition,
+				expressions,
+				lookupNaming,
 			);
 		}
 		if (caseSearchConfig.excludedOwnerIds !== undefined) {

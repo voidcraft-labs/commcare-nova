@@ -1,0 +1,881 @@
+/**
+ * The join of a form's model and body (8.5), as HQ's form builder makes it
+ * (Vellum `parser.js`): every data node takes one `NodeRole`, in this order,
+ * so a node another reader owns never becomes a field:
+ *
+ * 1. role nodes (`SaveToCase`, Connect, a model-iteration row) and everything under them;
+ * 2. the case scaffolding of the case region;
+ * 3. generated question siblings, proposed against the fields: the fields
+ *    with a control are found first, then each node with no control is
+ *    proposed against them and the Hidden Values found before it;
+ * 4. every node a control names: a field of the kind the kind table gives;
+ * 5. every remaining node with no element child: a Hidden Value;
+ * 6. a remaining node with element children and no control: refused.
+ *
+ * Steps 2 and 3 are `generated.ts`'s readers; a node either assigns no field.
+ * A node proposed as generated whose purpose the case management stage
+ * settles is a candidate until it does (`settleField`).
+ */
+
+import { isTag } from "domhandler";
+import {
+	questionIdProblem,
+	RESERVED_QUESTION_IDS,
+} from "@/lib/domain/questionId";
+import type { HqPlace } from "@/lib/publish/hqFindings";
+import { elementNamespace, JAVAROSA_NS, splitName } from "../../xmlNamespaces";
+import type { Accounting } from "../accounting";
+import type { GeneratedValue } from "../expressions";
+import { questionPlace } from "../place";
+import type { ReaderInput, ReaderLookupCatalog, UnreadTable } from "../types";
+import type { XmlCursor } from "../xmlCursor";
+import {
+	type AppearanceForm,
+	claimAppearance,
+	classifyAppearance,
+} from "./appearances";
+import {
+	type ControlNode,
+	isFieldListAppearance,
+	type ReadControls,
+} from "./body";
+import { X } from "./claims";
+import {
+	absolutePath,
+	type CaseRegionContainer,
+	claimGeneratedNode,
+	claimGeneratedSetvalue,
+	G,
+	type QueryPlacementParts,
+	readCaseRegion,
+	readQueryPlacement,
+	recognizeConstraintMessage,
+	recognizeGenerated,
+} from "./generated";
+import type { DraftField, NodeRole } from "./index";
+import {
+	type FieldKindFacts,
+	type FieldKindRow,
+	fieldKindOf,
+	stripXsd,
+} from "./kinds";
+import {
+	type AttributeBind,
+	attributeNameIn,
+	type BindFacts,
+	type DataNode,
+	type DataTree,
+	type SetvalueFacts,
+} from "./model";
+import { type CaseChoicesProposal, readChoices } from "./options";
+import type { ParsedXForm } from "./parse";
+import { type RepeatRead, readRepeat, settleRepeatCount } from "./repeats";
+
+type FormPlace = Extract<HqPlace, { kind: "form" }>;
+
+type QueryPurpose =
+	| "query-ids"
+	| "query-count"
+	| "query-position"
+	| "query-id"
+	| "query-index";
+
+const XFORM = { target: "xform", constraint: false } as const;
+
+/** The Connect roles HQ's form builder writes on a block (`commcareConnect.js`), by the block. */
+const CONNECT_ROLES: Readonly<
+	Record<string, Extract<NodeRole, { kind: "connect" }>["block"]>
+> = {
+	ConnectLearnModule: "learn_module",
+	ConnectAssessment: "assessment",
+	ConnectDeliverUnit: "deliver_unit",
+	ConnectTask: "task",
+};
+
+export interface JoinInput {
+	readonly parsed: ParsedXForm;
+	readonly tree: DataTree;
+	readonly binds: ReadonlyMap<DataNode, BindFacts>;
+	readonly attributeBinds: readonly AttributeBind[];
+	readonly setvalues: readonly SetvalueFacts[];
+	readonly controls: ReadControls;
+	readonly cursor: XmlCursor;
+	readonly accounting: Accounting;
+	readonly formPlace: FormPlace;
+	readonly lookup: ReaderLookupCatalog;
+	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly intents: AppearanceForm;
+	readonly unreadTable: (table: UnreadTable) => void;
+	/** `ReaderInput.target`, which a capture's link node names. */
+	readonly target: ReaderInput["target"];
+}
+
+/** A generated node the join recognized, with its owner's node. */
+export interface JoinedGenerated {
+	readonly node: DataNode;
+	readonly role: Extract<
+		NodeRole,
+		{ kind: "generated" | "generated-candidate" }
+	>;
+}
+
+export interface JoinedForm {
+	readonly roles: ReadonlyMap<DataNode, NodeRole>;
+	/** Every field in data-tree order. */
+	readonly fields: readonly DraftField[];
+	/** A container's fields in order; `null` is the form's root. */
+	childrenOf(parent: DraftField | null): readonly DraftField[];
+	/** Every group field with its control, in data-tree order, for the containers' claims. */
+	readonly groups: readonly {
+		readonly field: DraftField;
+		readonly control: ControlNode;
+	}[];
+	/** The data path of every control whose appearance was accounted under an inert entry, in
+	 *  body order. */
+	readonly inertAppearances: readonly string[];
+	/** Each select's case choices, decided once its filter is bound. */
+	readonly caseChoices: ReadonlyMap<DraftField, CaseChoicesProposal>;
+	/** The model-iteration repeats, by field. */
+	readonly modelIterations: ReadonlyMap<
+		DraftField,
+		Extract<RepeatRead, { kind: "model-iteration" }>
+	>;
+	/** Every node recognized as generated or proposed as a candidate, in data-tree order. */
+	readonly generated: readonly JoinedGenerated[];
+	/** Each validation count's calculate, by its absolute path, for the expression stage. */
+	readonly generatedValues: ReadonlyMap<string, GeneratedValue>;
+	/** Reads a candidate the case management stage did not settle as generated: the node becomes
+	 *  the Hidden Value it is, with the claims any Hidden Value takes. */
+	settleField(node: DataNode): DraftField;
+}
+
+/** A control's tag as the kind table names it. */
+function controlFact(tag: ControlNode["tag"]): FieldKindFacts["control"] {
+	return tag === "group" || tag === "repeat" ? "none" : tag;
+}
+
+/** The node's namespace differs from its parent's by a default declaration of its own. */
+function ownNamespace(node: DataNode, parsed: ParsedXForm): boolean {
+	if (!Object.hasOwn(node.element.attribs, "xmlns")) return false;
+	if (splitName(node.element.name).prefix !== "") return false;
+	const parent = node.element.parent;
+	const parentNamespace =
+		parent !== null && isTag(parent)
+			? elementNamespace(parent, parsed.scope(parent))
+			: null;
+	return (
+		elementNamespace(node.element, parsed.scope(node.element)) !==
+		parentNamespace
+	);
+}
+
+export function joinForm(input: JoinInput): JoinedForm {
+	const { tree, cursor, accounting, formPlace, parsed } = input;
+	const roles = new Map<DataNode, NodeRole>();
+	const fields: DraftField[] = [];
+	const fieldOf = new Map<DataNode, DraftField>();
+	const controlField = new Map<ControlNode, DraftField>();
+	const groups: { field: DraftField; control: ControlNode }[] = [];
+	const inertAppearances: string[] = [];
+	const caseChoices = new Map<DraftField, CaseChoicesProposal>();
+	const modelIterations = new Map<
+		DraftField,
+		Extract<RepeatRead, { kind: "model-iteration" }>
+	>();
+	const counted: {
+		field: DraftField;
+		control: ControlNode;
+		read: Extract<RepeatRead, { kind: "count" }>;
+	}[] = [];
+	const placeOf = (node: DataNode) => questionPlace(formPlace, node.path);
+	/** Nodes a refusal of their role covers, which take no role and no field. */
+	const covered = new Set<DataNode>();
+
+	// 1. Role nodes, and a root node named `case` as written.
+	const under = (node: DataNode, role: NodeRole) => {
+		roles.set(node, role);
+		for (const child of node.children) under(child, role);
+	};
+	for (const node of tree.order) {
+		if (roles.has(node) || tree.refused.has(node) || covered.has(node))
+			continue;
+		if (node.parent === null && node.name === "case") {
+			under(node, { kind: "root-case" });
+			continue;
+		}
+		if (node.role === undefined) continue;
+		const block = CONNECT_ROLES[node.role];
+		if (node.role === "SaveToCase") under(node, { kind: "case-region" });
+		else if (block !== undefined) under(node, { kind: "connect", block });
+		else if (node.role === "ConnectWorkAreaUpdate") {
+			cursor.refuseSubtree(
+				node.element,
+				X.connectWorkAreaUpdate,
+				placeOf(node),
+			);
+			const cover = (at: DataNode) => {
+				covered.add(at);
+				for (const child of at.children) cover(child);
+			};
+			cover(node);
+		}
+	}
+
+	// 2. The case region, which the case management stage reads.
+	const region = readCaseRegion({
+		order: tree.order,
+		binds: input.binds,
+		setvalues: input.setvalues,
+		controlOf: input.controls.byNode,
+		taken: (node) =>
+			(roles.has(node) && roles.get(node)?.kind !== "case-region") ||
+			tree.refused.has(node) ||
+			covered.has(node),
+	});
+	for (const [node, container] of region)
+		roles.set(
+			node,
+			container === undefined
+				? { kind: "case-region" }
+				: { kind: "case-region", container: container as CaseRegionContainer },
+		);
+
+	const generated: JoinedGenerated[] = [];
+	const generatedValues = new Map<string, GeneratedValue>();
+	const root = parsed.dataRoot.name;
+	const setGenerated = (node: DataNode, role: JoinedGenerated["role"]) => {
+		roles.set(node, role);
+		generated.push({ node, role });
+	};
+
+	/** The field a node's data parent makes: the nearest ancestor that is a field, a model-iteration
+	 *  row standing for its repeat. */
+	const dataParent = (node: DataNode): DraftField | null => {
+		for (let at = node.parent; at !== null; at = at.parent) {
+			const role = roles.get(at);
+			if (role?.kind === "query-row") return role.repeat;
+			const field = fieldOf.get(at);
+			if (field !== undefined) return field;
+		}
+		return null;
+	};
+
+	const make = (
+		node: DataNode,
+		parent: DraftField | null,
+		control: ControlNode | undefined,
+		kind: DraftField["kind"],
+		standIn: boolean,
+		slots: Readonly<Record<string, unknown>> = {},
+	): DraftField => {
+		const field: DraftField = {
+			node,
+			kind,
+			id: node.name,
+			parent,
+			standIn,
+			uuid: undefined,
+			field: { kind, id: node.name, ...slots },
+			control,
+			place: placeOf(node),
+			expressions: [],
+		};
+		fields.push(field);
+		fieldOf.set(node, field);
+		roles.set(node, { kind: "field", field });
+		if (control !== undefined) controlField.set(control, field);
+		return field;
+	};
+
+	/** The question id rule (8.3), raised at the question: the field stands in. */
+	const idFinding = (node: DataNode): boolean => {
+		const problem = questionIdProblem(node.name);
+		if (problem === undefined) return false;
+		const lowered = node.name.toLowerCase();
+		const reservedAnyCase =
+			problem === "reserved-name" &&
+			RESERVED_QUESTION_IDS.anyCase.has(lowered) &&
+			lowered !== "meta";
+		accounting.finding(
+			reservedAnyCase ? X.questionIdReserved : X.questionIdGrammar,
+			placeOf(node),
+			{ name: node.name },
+		);
+		return true;
+	};
+
+	/** Claims what stands on a field's data node whatever its kind (8.3). */
+	const claimNode = (node: DataNode) => {
+		if (ownNamespace(node, parsed))
+			cursor.refuse(
+				{ element: node.element, attribute: "xmlns" },
+				X.dataNodeXmlns,
+				placeOf(node),
+			);
+		if (node.children.length === 0 && node.text.trim() !== "")
+			accounting.finding(X.defaultDataValue, placeOf(node), {
+				name: node.name,
+			});
+	};
+
+	const hasDefault = (node: DataNode) =>
+		input.setvalues.some(
+			(one) =>
+				(one.event === "xforms-ready" || one.event === "jr-insert") &&
+				one.target !== undefined &&
+				one.target.length === node.path.length &&
+				one.target.every((step, i) => step === node.path[i]),
+		);
+
+	/** A question's kind row and its claims (9.1, 9.2). */
+	const readQuestion = (
+		node: DataNode,
+		control: ControlNode | undefined,
+		parent: DraftField | null,
+	): DraftField => {
+		const bind = input.binds.get(node);
+		const place = placeOf(node);
+		const facts: FieldKindFacts = {
+			control: control === undefined ? "none" : controlFact(control.tag),
+			bindType: bind?.type === undefined ? undefined : stripXsd(bind.type),
+			mediaType: control?.mediaType,
+			appearance: control?.appearance,
+			hasCalculate: bind?.logic.calculate !== undefined,
+			hasDefault: hasDefault(node),
+		};
+		let row: FieldKindRow | undefined = fieldKindOf(facts);
+		let labelAppearance = false;
+		if (control?.tag === "trigger" && row?.kind === undefined) {
+			const verdict =
+				control.appearance === undefined
+					? undefined
+					: classifyAppearance(
+							control,
+							bind,
+							control.appearance,
+							input.intents,
+						);
+			if (verdict?.kind === "claim") {
+				row = fieldKindOf({ ...facts, appearance: "minimal" });
+				if (claimAppearance(cursor, control, verdict, place).inert)
+					inertAppearances.push(node.path.join("/"));
+				labelAppearance = true;
+			}
+		}
+		const stood = idFinding(node);
+		claimNode(node);
+		if (row === undefined) return make(node, parent, control, "hidden", true);
+		if (row.kind === undefined || row.sites === undefined) {
+			const claim = row.claim as typeof X.refusedKind.long;
+			cursor.refuse({ element: node.element }, claim, place);
+			if (control !== undefined)
+				cursor.refuseSubtree(control.element, claim, place);
+			if (bind?.type !== undefined)
+				cursor.refuse(
+					{ element: bind.element, attribute: "type" },
+					claim,
+					place,
+				);
+			const standIn = make(node, parent, control, "hidden", true);
+			standIn.standInClaim = claim;
+			return standIn;
+		}
+		const sites = row.sites;
+		cursor.take({ element: node.element }, sites.node).value;
+		if (control !== undefined) {
+			if (sites.control !== undefined)
+				cursor.take({ element: control.element }, sites.control).value;
+			if (
+				(control.path === "ref" || control.path === "nodeset") &&
+				sites.ref !== undefined
+			)
+				cursor.take(
+					{ element: control.element, attribute: control.path },
+					sites.ref,
+				).value;
+			if (control.mediaType !== undefined && sites.mediatype !== undefined)
+				cursor.take(
+					{ element: control.element, attribute: "mediatype" },
+					sites.mediatype,
+				).value;
+		}
+		const typeClaim = row.typeClaim ?? sites.type;
+		if (bind?.type !== undefined && typeClaim !== undefined)
+			cursor.take({ element: bind.element, attribute: "type" }, typeClaim)
+				.value;
+		const field = make(node, parent, control, row.kind, stood, row.slots ?? {});
+		if (control === undefined) return field;
+		if (control.appearance !== undefined && !labelAppearance) {
+			const verdict = classifyAppearance(
+				control,
+				bind,
+				control.appearance,
+				input.intents,
+			);
+			if (verdict.kind === "held") {
+				if (sites.appearance !== undefined)
+					cursor.take(
+						{ element: control.element, attribute: "appearance" },
+						sites.appearance,
+					).value;
+			} else if (claimAppearance(cursor, control, verdict, place).inert)
+				inertAppearances.push(node.path.join("/"));
+		}
+		if (control.tag === "upload") readImageDimension(control, row, place);
+		if (control.tag === "select" || control.tag === "select1") {
+			const proposal = readChoices({
+				control,
+				field,
+				parsed,
+				cursor,
+				accounting,
+				place,
+				lookup: input.lookup,
+				instanceSources: input.instanceSources,
+				unreadTable: input.unreadTable,
+			});
+			if (proposal !== undefined) caseChoices.set(field, proposal);
+		}
+		return field;
+	};
+
+	/** `jr:imageDimensionScaledMax` on an upload (9.1). */
+	const readImageDimension = (
+		control: ControlNode,
+		row: FieldKindRow,
+		place: HqPlace,
+	) => {
+		const name = attributeNameIn(
+			control.element,
+			parsed,
+			JAVAROSA_NS,
+			"imageDimensionScaledMax",
+		);
+		if (name === undefined) return;
+		const node = { element: control.element, attribute: name };
+		const written = control.element.attribs[name] ?? "";
+		const digits = written.endsWith("px") ? written.slice(0, -2) : written;
+		const number = /^-?\d+$/.test(digits) ? Number(digits) : undefined;
+		const image = row.kind === "image";
+		if (
+			number === undefined ||
+			number > 2147483647 ||
+			(image && (number === 0 || number < -1))
+		)
+			cursor.refuse(node, X.imageMaxDimensionInvalid, place, { name: written });
+		else if (image && number > 0)
+			cursor.refuse(node, X.imageMaxDimension, place, { name: written });
+		else if (!image) cursor.account(node, X.imageMaxDimensionElsewhere, place);
+	};
+
+	/** A control's field, by the nearest ancestor control that made a container field. */
+	const controlParent = (control: ControlNode): DraftField | null => {
+		for (let at = control.parent; at !== null; at = at.parent) {
+			const field = controlField.get(at);
+			if (field !== undefined) return field;
+		}
+		return null;
+	};
+
+	/** The nearest repeat at or above a field. */
+	const repeatOf = (field: DraftField | null): DraftField | null => {
+		for (let at = field; at !== null; at = at.parent)
+			if (at.kind === "repeat") return at;
+		return null;
+	};
+
+	/** The control just before one among its parent's controls. */
+	const previousControl = (control: ControlNode): ControlNode | undefined => {
+		const siblings = control.parent?.children ?? input.controls.roots;
+		const index = siblings.indexOf(control);
+		return index > 0 ? siblings[index - 1] : undefined;
+	};
+
+	/** A query repeat's count placement, by its wrapper: read where a repeat names the wrapper's
+	 *  row and its `jr:count` the wrapper's count node. */
+	const queryPlacements = new Map<DataNode, QueryPlacementParts>();
+	const countPlacementOf = (
+		wrapper: DataNode,
+	): QueryPlacementParts | undefined => {
+		if (queryPlacements.has(wrapper)) return queryPlacements.get(wrapper);
+		const row = wrapper.children.find((child) => child.name === "item");
+		const parts =
+			row === undefined || wrapper.role !== undefined
+				? undefined
+				: readQueryPlacement(wrapper, row, input.binds, input.setvalues);
+		if (parts !== undefined) {
+			accounting.noteRebuild();
+			queryPlacements.set(wrapper, parts);
+		}
+		return parts;
+	};
+	/** The `<group ref="…/r">` around a count-placement repeat's group, which no runtime draws:
+	 *  claimed here, and no field. */
+	const queryWrapperGroup = (control: ControlNode): boolean => {
+		const node = control.node;
+		if (
+			node === undefined ||
+			control.tag !== "group" ||
+			control.appearance !== undefined ||
+			control.children.length !== 1
+		)
+			return false;
+		const inner = control.children[0] as ControlNode;
+		const repeat = inner.children.length === 1 ? inner.children[0] : undefined;
+		if (
+			inner.tag !== "group" ||
+			repeat?.tag !== "repeat" ||
+			repeat.node?.parent !== node ||
+			countPlacementOf(node) === undefined
+		)
+			return false;
+		if (
+			(control.element.children.filter(isTag) as { name: string }[]).some(
+				(child) => splitName(child.name).local === "label",
+			)
+		)
+			return false;
+		cursor.derived({ element: control.element }, G.queryWrapperGroup);
+		if (control.path === "ref" || control.path === "nodeset")
+			cursor.derived(
+				{ element: control.element, attribute: control.path },
+				G.queryWrapperGroupRef,
+			);
+		return true;
+	};
+
+	/** A count-placement query repeat's wrapper, row and generated nodes (13.2). */
+	const readCountPlacement = (
+		field: DraftField,
+		wrapper: DataNode,
+		row: DataNode,
+		parts: QueryPlacementParts,
+	) => {
+		cursor.take({ element: wrapper.element }, G.queryWrapper).value;
+		roles.set(row, { kind: "query-row", repeat: field });
+		const nodes: readonly [DataNode | undefined, QueryPurpose][] = [
+			[parts.ids, "query-ids"],
+			[parts.count, "query-count"],
+			[parts.position, "query-position"],
+			[parts.id, "query-id"],
+			[parts.index, "query-index"],
+		];
+		for (const [node, purpose] of nodes) {
+			if (node === undefined) continue;
+			setGenerated(node, { kind: "generated", purpose, owner: wrapper });
+			claimGeneratedNode(cursor, node, input.binds.get(node), {
+				calculate: purpose !== "query-ids",
+			});
+		}
+		for (const setvalue of parts.setvalues)
+			claimGeneratedSetvalue(cursor, setvalue);
+		field.expressions.push({
+			slot: "ids_query",
+			text: parts.query.text,
+			at: { element: parts.query.at, attribute: "calculate" },
+			key: "xform:model/bind@calculate",
+			mode: XFORM,
+		});
+		const rowBind = input.binds.get(row);
+		if (rowBind === undefined) return;
+		if (parts.condition === undefined)
+			cursor.derived(
+				{ element: rowBind.element, attribute: "relevant" },
+				G.relevant,
+			);
+		else
+			field.expressions.push({
+				slot: "relevant",
+				text: parts.condition,
+				at: { element: rowBind.element, attribute: "relevant" },
+				key: "xform:model/bind@relevant",
+				mode: XFORM,
+			});
+	};
+
+	// 4. Every node a control names, in body order.
+	for (const control of input.controls.all) {
+		const node = control.node;
+		if (node === undefined || roles.has(node) || fieldOf.has(node)) continue;
+		if (tree.refused.has(node) || covered.has(node)) continue;
+		const carrier = recognizeConstraintMessage(
+			control,
+			input.binds,
+			previousControl(control),
+		);
+		if (carrier !== undefined) {
+			accounting.noteRebuild();
+			setGenerated(node, carrier);
+			claimGeneratedNode(cursor, node, input.binds.get(node));
+			cursor.derived({ element: control.element }, G.carrierControl);
+			if (control.path === "ref")
+				cursor.derived(
+					{ element: control.element, attribute: "ref" },
+					G.carrierRef,
+				);
+			continue;
+		}
+		const parent = controlParent(control);
+		let made: DraftField | undefined;
+		if (control.tag === "group") {
+			if (queryWrapperGroup(control)) continue;
+			if (
+				!isFieldListAppearance(control.appearance) &&
+				control.children.filter((child) => child.tag === "repeat").length === 1
+			) {
+				// A repeat's wrapping group with a `ref`: the repeat makes the field.
+				continue;
+			}
+			const stood = idFinding(node);
+			claimNode(node);
+			made = make(
+				node,
+				parent,
+				control,
+				"group",
+				stood,
+				isFieldListAppearance(control.appearance) ? { fieldList: true } : {},
+			);
+			groups.push({ field: made, control });
+		} else if (control.tag === "repeat") {
+			const wrapper = control.parent as ControlNode;
+			const stub: DraftField = {
+				node,
+				kind: "repeat",
+				id: node.name,
+				parent,
+				standIn: false,
+				uuid: undefined,
+				field: {},
+				control,
+				place: placeOf(node),
+				expressions: [],
+			};
+			const read = readRepeat(
+				{
+					wrapper,
+					repeat: control,
+					parsed,
+					tree,
+					setvalues: input.setvalues,
+					attributeBinds: input.attributeBinds,
+					cursor,
+					accounting,
+					place: placeOf(node),
+				},
+				stub,
+			);
+			const placement =
+				read.kind === "count" &&
+				read.node.parent !== null &&
+				read.target.parent === read.node.parent
+					? countPlacementOf(read.node.parent)
+					: undefined;
+			const queryCounted =
+				placement !== undefined &&
+				read.kind === "count" &&
+				placement.count === read.target;
+			const at = queryCounted ? (read.node.parent as DataNode) : read.node;
+			if (fieldOf.has(at)) continue;
+			const stood = idFinding(at) || read.kind === "stand-in";
+			claimNode(at);
+			const field = make(
+				at,
+				parent,
+				control,
+				read.kind === "stand-in" ? "group" : "repeat",
+				stood,
+				read.kind === "stand-in" ? {} : stub.field,
+			);
+			field.expressions.push(...stub.expressions);
+			if (
+				wrapper.appearance !== undefined &&
+				claimAppearance(
+					cursor,
+					wrapper,
+					classifyAppearance(
+						wrapper,
+						undefined,
+						wrapper.appearance,
+						input.intents,
+					),
+					field.place,
+				).inert
+			)
+				inertAppearances.push(at.path.join("/"));
+			if (
+				control.appearance !== undefined &&
+				claimAppearance(
+					cursor,
+					control,
+					classifyAppearance(
+						control,
+						undefined,
+						control.appearance,
+						input.intents,
+					),
+					field.place,
+				).inert
+			)
+				inertAppearances.push(at.path.join("/"));
+			if (read.kind === "model-iteration") {
+				modelIterations.set(field, read);
+				roles.set(read.row, { kind: "query-row", repeat: field });
+			}
+			if (read.kind === "count") counted.push({ field, control, read });
+			if (queryCounted && placement !== undefined)
+				readCountPlacement(field, at, read.node, placement);
+			made = field;
+		} else made = readQuestion(node, control, parent);
+		if (made === undefined) continue;
+		// A control's place and its node's place must agree (8.5).
+		const expected = dataParent(made.node);
+		if (expected !== made.parent) {
+			const crossing = repeatOf(expected) !== repeatOf(made.parent);
+			accounting.finding(
+				crossing ? X.dataParentCrossingRepeat : X.dataParentOtherGroup,
+				made.place,
+			);
+		}
+	}
+
+	// 3, 5 and 6. The nodes no control names. Every generated name starts `nova_`, which
+	// orders the proposals and proves none: the other leaves are Hidden Values first, so a
+	// generated node is proposed against every field it could serve, and a `nova_` leaf no
+	// rule rebuilds is a Hidden Value in its turn, which a later one may serve.
+	const open = (node: DataNode) =>
+		!roles.has(node) &&
+		!fieldOf.has(node) &&
+		!tree.refused.has(node) &&
+		!covered.has(node);
+	for (const node of tree.order)
+		if (
+			open(node) &&
+			node.children.length === 0 &&
+			!node.name.startsWith("nova_")
+		)
+			readQuestion(node, undefined, dataParent(node));
+	for (const node of tree.order) {
+		if (!open(node)) continue;
+		const parent = dataParent(node);
+		if (node.children.length === 0) {
+			accounting.noteRebuild();
+			const role = recognizeGenerated(node, input.binds, fields, input.target);
+			if (role === undefined) {
+				readQuestion(node, undefined, parent);
+				continue;
+			}
+			setGenerated(node, role);
+			if (role.kind === "generated") {
+				const bind = input.binds.get(node);
+				claimGeneratedNode(cursor, node, bind, {
+					calculate: role.purpose !== "count",
+				});
+				const calculate = bind?.logic.calculate;
+				if (role.purpose === "constraint-count" && calculate !== undefined)
+					generatedValues.set(absolutePath(node, root), {
+						purpose: "constraint-count",
+						calculate,
+					});
+			}
+			continue;
+		}
+		cursor.refuse(
+			{ element: node.element },
+			X.hiddenWithChildren,
+			placeOf(node),
+		);
+		make(node, parent, undefined, "group", true);
+	}
+
+	// A refused data node stands in, so a path another expression writes to it still binds.
+	for (const [node] of tree.refused) {
+		if (fieldOf.has(node) || roles.has(node)) continue;
+		if (node.name.toLowerCase() === "meta" && node.parent === null) continue;
+		const path = node.path.join("/");
+		if (tree.nodes.get(path) !== node) continue;
+		const parent = dataParent(node);
+		make(
+			node,
+			parent,
+			undefined,
+			node.children.length === 0 ? "hidden" : "group",
+			true,
+		);
+	}
+
+	// Counted repeats, now that what each count names is known.
+	for (const { field, control, read } of counted) {
+		const targetRole = roles.get(read.target);
+		settleRepeatCount({
+			repeat: control,
+			read,
+			field,
+			target: fieldOf.get(read.target),
+			queryCount:
+				targetRole?.kind === "generated" &&
+				targetRole.purpose === "query-count",
+			generatedCount:
+				targetRole?.kind === "generated" && targetRole.purpose === "count"
+					? input.binds.get(read.target)
+					: undefined,
+			parsed,
+			cursor,
+			place: field.place,
+		});
+	}
+
+	const dataOrder = new Map(tree.order.map((node, index) => [node, index]));
+	const bodyOrder = new Map(
+		input.controls.all.map((control, index) => [control, index]),
+	);
+	/** Each container's fields in order, made again once a candidate settles as a field. */
+	let ordered: Map<DraftField | null, readonly DraftField[]> | undefined;
+	const order = (): Map<DraftField | null, readonly DraftField[]> => {
+		if (ordered !== undefined) return ordered;
+		fields.sort(
+			(a, b) => (dataOrder.get(a.node) ?? 0) - (dataOrder.get(b.node) ?? 0),
+		);
+		const byParent = new Map<DraftField | null, DraftField[]>();
+		for (const field of fields) {
+			const list = byParent.get(field.parent) ?? [];
+			list.push(field);
+			byParent.set(field.parent, list);
+		}
+		const made = new Map<DraftField | null, readonly DraftField[]>();
+		for (const [parent, list] of byParent) {
+			const controlled = list.filter((field) => field.control !== undefined);
+			const byBody = [...controlled].sort(
+				(a, b) =>
+					(bodyOrder.get(a.control as ControlNode) ?? 0) -
+					(bodyOrder.get(b.control as ControlNode) ?? 0),
+			);
+			const agree = controlled.every((field, index) => byBody[index] === field);
+			made.set(
+				parent,
+				agree
+					? list
+					: [...byBody, ...list.filter((field) => field.control === undefined)],
+			);
+		}
+		ordered = made;
+		return made;
+	};
+	order();
+	return {
+		roles,
+		fields,
+		childrenOf: (parent) => order().get(parent) ?? [],
+		groups,
+		inertAppearances,
+		caseChoices,
+		modelIterations,
+		generated,
+		generatedValues,
+		settleField(node) {
+			const field = readQuestion(node, undefined, dataParent(node));
+			ordered = undefined;
+			return field;
+		},
+	};
+}

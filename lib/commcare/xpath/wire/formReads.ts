@@ -14,6 +14,7 @@ import {
 	isRelationPath,
 	type Term,
 } from "@/lib/domain/expression/types";
+import { type RewriteControl, rewriteWithheld } from "../../emissionRewrites";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
 import type { WireExpr, WirePath, WireStep } from "./tree";
@@ -106,7 +107,7 @@ export function formReadNode(term: FormReadTerm): FormNodeRef {
  * answers per entry wherever Core evaluates it. A read crossing no such
  * repeat names one node either way and keeps its bytes. A case operation's
  * own case row is its slot's, not a predicate's. */
-function crossesSourceRepeatInRowPredicate(
+export function crossesSourceRepeatInRowPredicate(
 	coordinates: readonly FormNodeRef[],
 	types: ExpressionContext,
 	projection: FormNodeProjection,
@@ -129,12 +130,20 @@ function crossesSourceRepeatInRowPredicate(
 }
 
 /** Lower one form read from the shared identity graph. The source slot remains
- * current()'s origin while predicates replace only the lexical context node. */
+ * current()'s origin while predicates replace only the lexical context node.
+ *
+ * At its two relocation sites (a `default_value` slot, and a read
+ * `crossesSourceRepeatInRowPredicate` holds for) a read that stores no
+ * spelling, `absolute` or `current` prints `current()/…`, which `rewrites`
+ * reports there as `row-predicate-current` where the read crosses the repeat
+ * and as `default-reads-current` elsewhere; withheld, it prints its absolute
+ * path. A `relative` read is never relocated. */
 export function formReadToWire(
 	term: FormReadTerm,
 	types: ExpressionContext,
 	projection: FormNodeProjection,
 	emit: (expression: Expression, context: ExpressionContext) => WireExpr,
+	rewrites?: RewriteControl,
 ): WirePath {
 	const target = formReadNode(term);
 	const coordinates = projection.graph.path(target);
@@ -168,12 +177,21 @@ export function formReadToWire(
 	};
 	const defaultValue =
 		types.slot.entity === "field" && types.slot.slot === "default_value";
-	const spelling =
-		(defaultValue ||
-			crossesSourceRepeatInRowPredicate(coordinates, types, projection)) &&
-		(term.spelling === undefined || term.spelling === "absolute")
-			? "current"
-			: term.spelling;
+	const crosses = crossesSourceRepeatInRowPredicate(
+		coordinates,
+		types,
+		projection,
+	);
+	const relocated =
+		(defaultValue || crosses) && term.spelling !== "relative"
+			? rewriteWithheld(
+					rewrites,
+					crosses ? "row-predicate-current" : "default-reads-current",
+				)
+				? "absolute"
+				: "current"
+			: undefined;
+	const spelling = relocated ?? term.spelling;
 	// An authored `/data/...` read and its `#form/...` twin are one read to
 	// Vellum: both take the hashtag root, so the shadow exists, and is
 	// withheld, exactly where it is for `#form/`. Outside Vellum mode the root

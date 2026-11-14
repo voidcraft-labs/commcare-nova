@@ -31,9 +31,9 @@ import type { GeneratedNodePlan } from "./generatedNodes";
 /**
  * The two halves of an attachment URL that the deployment target supplies.
  *
- * Declared here rather than in `lib/deployment` because `lib/commcare` is a
- * one-way emission boundary: the deployment layer may read the wire
- * package, never the other way round. What travels across is an origin and
+ * Declared here rather than in `lib/deployment` because `lib/commcare`
+ * imports nothing of the deployment layer: the deployment layer may read the
+ * wire package, never the other way round. What travels across is an origin and
  * a project space, already resolved — the emitter never learns what a
  * deployment is.
  */

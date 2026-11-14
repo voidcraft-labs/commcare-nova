@@ -26,11 +26,12 @@
  *    `find` over the block's children reads them, so an update leaf named
  *    `close` makes a block that closes.
  * 4. Only bound leaves count, read in bind order: `case/create/<name>` and
- *    `case/update/<name>`. Every element name `FormPath` reads matches
- *    `[a-zA-Z_][a-zA-Z0-9_-]*`, which the editor's `[\w-]+` admits whole, so
- *    every such leaf counts. The create binds of `case_type`, `case_name` and
- *    `owner_id` are read apart; `index` leaves and attachments are never
- *    listed.
+ *    `case/update/<name>`, `<name>` matching the editor's `[\w-]+`, which
+ *    admits every element name `FormPath` reads. A bind's path is its
+ *    `nodeset`, or its `ref`, and a relative one is taken from the data root
+ *    (`Vellum/src/parser.js::parseBindList`). The create binds of
+ *    `case_type`, `case_name` and `owner_id` are read apart; `index` leaves
+ *    and attachments are never listed.
  * 5. A block that creates lists its create names, then its update names, each
  *    once, then `case_type` where its type is set or an expression, then
  *    `case_name` and `owner_id` where their binds hold a `calculate`. Any
@@ -42,6 +43,11 @@
  * The proof lane's `proof/checks/manifest_value_classes.py::vellum_case_references`
  * computes the same rules over a parsed form, and its two editor saves hold
  * this derivation to the editor's.
+ *
+ * `caseSaveReferencesOf` is the computation, total over any model and data
+ * root, so a source read from CommCare HQ can be held to it;
+ * `caseSaveReferences` is the emitter's entry, which refuses a tree the
+ * emitter could not have built.
  */
 
 import { type Element, isTag } from "domhandler";
@@ -77,18 +83,31 @@ function holdsBelowChildren(block: Element, name: string): boolean {
 }
 
 /**
- * The bind's nodeset as a typed path. The emitter writes every nodeset from
- * a `FormPath`, so one that does not parse back is a fault in the emitter,
- * and the derivation throws rather than leave that bind's leaf unlisted.
+ * The bind's path as text: its `nodeset`, or its `ref` where it has none,
+ * and a path that does not start with `/` taken from the data root, as the
+ * form builder reads a bind (`Vellum/src/parser.js::parseBindList`,
+ * `processPath`). A bind with neither attribute has no path.
  */
-function bindPath(bind: Element): FormPath {
-	const nodeset = bind.attribs.nodeset;
-	if (nodeset === undefined) {
-		throw new Error(
-			"caseSaveReferences found a <bind> with no nodeset. Every bind the XForm emitter constructs addresses its node through a FormPath; look at the emission site that built this bind.",
-		);
+function bindPath(bind: Element, rootName: string): string | undefined {
+	const path = bind.attribs.nodeset ?? bind.attribs.ref;
+	if (path === undefined) return undefined;
+	return path.startsWith("/") ? path : `/${rootName}/${path}`;
+}
+
+/** Whether `name` is one the form builder reads as a block's leaf, its `[\w-]+`. */
+function isLeafName(name: string): boolean {
+	if (name === "") return false;
+	for (const character of name) {
+		const code = character.charCodeAt(0);
+		const word =
+			(code >= 48 && code <= 57) ||
+			(code >= 65 && code <= 90) ||
+			(code >= 97 && code <= 122) ||
+			character === "_" ||
+			character === "-";
+		if (!word) return false;
 	}
-	return FormPath.parse(nodeset);
+	return true;
 }
 
 /** The line terminators a JavaScript `.` does not match. */
@@ -117,29 +136,33 @@ interface BlockLeaf {
 }
 
 /**
- * Each Save to Case block's bound create and update leaves, by the block's
- * data path, in bind order.
+ * Each bound create and update leaf, by the data path of the block it would
+ * belong to, in bind order: a bind whose path, split into steps at `/`, ends
+ * in `case`, then `create` or `update`, then one leaf. Whether that path is
+ * a block's is the caller's to ask.
  */
-function leavesByBlock(binds: readonly Element[]): Map<string, BlockLeaf[]> {
+function leavesByBlock(
+	binds: readonly Element[],
+	rootName: string,
+): Map<string, BlockLeaf[]> {
 	const leaves = new Map<string, BlockLeaf[]>();
 	for (const bind of binds) {
-		const path = bindPath(bind);
-		const segments = path.segments();
-		if (segments.length < 5) continue;
-		const [caseStep, actionStep, leafStep] = segments.slice(-3);
+		const path = bindPath(bind, rootName);
+		if (path === undefined) continue;
+		const steps = path.split("/");
+		if (steps.length < 5) continue;
+		const [caseStep, actionStep, leafStep] = steps.slice(-3);
 		if (
-			caseStep.kind !== "element" ||
-			caseStep.name !== "case" ||
-			actionStep.kind !== "element" ||
-			(actionStep.name !== "create" && actionStep.name !== "update") ||
-			leafStep.kind !== "element"
+			caseStep !== "case" ||
+			(actionStep !== "create" && actionStep !== "update") ||
+			!isLeafName(leafStep)
 		)
 			continue;
-		const block = path.parent().parent().parent().toXPath();
+		const block = steps.slice(0, -3).join("/");
 		const list = leaves.get(block) ?? [];
 		list.push({
-			action: actionStep.name,
-			name: leafStep.name,
+			action: actionStep,
+			name: leafStep,
 			calculate: bind.attribs.calculate,
 		});
 		leaves.set(block, list);
@@ -198,9 +221,48 @@ function blockReference(
 }
 
 /**
- * The form's `case_references_data.save` map, from its constructed
- * `<h:html>` tree: one reference per Save to Case block, keyed by the
- * block's data path.
+ * One form's `save` map, from its model and its data root. Total: no input
+ * makes it throw.
+ *
+ * A node's data path is `/`, the data root's own name, and each element name
+ * down to the node, joined as text, so a name outside Nova's grammar is
+ * keyed as it stands. The model's binds give each block its leaves
+ * (`leavesByBlock`), and a bind whose path is no block's lists none.
+ */
+export function caseSaveReferencesOf(
+	model: Element,
+	dataRoot: Element,
+): Record<string, HqCaseSaveReference> {
+	const leaves = leavesByBlock(childrenNamed(model, "bind"), dataRoot.name);
+	const references: Record<string, HqCaseSaveReference> = {};
+	const visit = (element: Element, path: string): void => {
+		for (const child of element.children) {
+			if (!isTag(child)) continue;
+			const childPath = `${path}/${child.name}`;
+			if (child.attribs["vellum:role"] === SAVE_TO_CASE_ROLE) {
+				references[childPath] = blockReference(
+					child,
+					leaves.get(childPath) ?? [],
+				);
+			} else {
+				visit(child, childPath);
+			}
+		}
+	};
+	visit(dataRoot, `/${dataRoot.name}`);
+	return references;
+}
+
+/**
+ * The form's `case_references_data.save` map, from the `<h:html>` tree the
+ * XForm emitter constructs: one reference per Save to Case block, keyed by
+ * the block's data path.
+ *
+ * The emitter writes every bind's `nodeset` from a `FormPath`, under its
+ * one primary instance, so a tree with no model, no primary instance, a bind
+ * with no `nodeset` or a `nodeset` that does not parse back is a fault of
+ * the emitter, and this throws rather than leave a leaf unlisted. Over such
+ * a tree the map is `caseSaveReferencesOf`'s.
  */
 export function caseSaveReferences(
 	root: Element,
@@ -221,20 +283,14 @@ export function caseSaveReferences(
 			"caseSaveReferences was given a form tree whose model holds no primary instance. Pass the <h:html> root the XForm emitter constructs.",
 		);
 	}
-	const leaves = leavesByBlock(childrenNamed(model, "bind"));
-	const references: Record<string, HqCaseSaveReference> = {};
-	const visit = (element: Element, path: FormPath): void => {
-		for (const child of element.children) {
-			if (!isTag(child)) continue;
-			const childPath = path.child(child.name);
-			if (child.attribs["vellum:role"] === SAVE_TO_CASE_ROLE) {
-				const key = childPath.toXPath();
-				references[key] = blockReference(child, leaves.get(key) ?? []);
-			} else {
-				visit(child, childPath);
-			}
+	for (const bind of childrenNamed(model, "bind")) {
+		const nodeset = bind.attribs.nodeset;
+		if (nodeset === undefined) {
+			throw new Error(
+				"caseSaveReferences found a <bind> with no nodeset. Every bind the XForm emitter constructs addresses its node through a FormPath; look at the emission site that built this bind.",
+			);
 		}
-	};
-	visit(data, FormPath.root());
-	return references;
+		FormPath.parse(nodeset);
+	}
+	return caseSaveReferencesOf(model, data);
 }

@@ -43,8 +43,9 @@ would duplicate a language's content and make three-language apps ambiguous.
 The existing worker-facing values in `BlueprintDoc` remain the canonical source
 content. Multilingual support is an app-level overlay, not CommCare-style
 language maps threaded through every field, form, and mutation. CommCare's
-localized maps and resources exist only at the one-way `lib/commcare` emission
-boundary.
+localized maps and resources exist only at the `lib/commcare` boundary, which
+writes them on emission and reads them when an app is brought in from CommCare
+HQ.
 
 ## Language identity
 

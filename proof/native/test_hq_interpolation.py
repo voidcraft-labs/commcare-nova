@@ -7,6 +7,12 @@ must replace only their intentional dot operands. Its HTML-decoding instance
 scanner must find no instance inside a literal, including character references.
 Independent XPath evaluation retains the literal's exact value.
 No app is built and no Core or served reader runs for this check.
+
+The reader of CommCare HQ's apps ports the same two helpers. HQ's own helpers
+answer every vector the port is held to, as the port answers it, and for every
+slot HQ interpolates, HQ's helper turns Nova's HQ JSON print, under the case
+path the reader gives the slot, into the tree of Nova's suite print, read by
+HQ's own XPath parser.
 """
 
 import json
@@ -112,5 +118,92 @@ def test_hq_preserves_literals_through_interpolation_and_instance_discovery(nati
             "limits": "Native HQ interpolate_xpath, dot_interpolate, MappingItem.key_as_condition and "
             "get_instance_names; libxml XPath values with only JavaRosa's one-backslash substr escape adapted. "
             "Generated record literals and XForm attributes only; no app build, Core, or served reader.",
+        },
+    )
+
+
+def _hq_tree(text):
+    """The tree HQ's own XPath parser reads ``text`` as, printed canonically by the same parser."""
+    from eulxml.xpath import ast
+    from eulxml.xpath import parse as parse_xpath
+
+    return ast.serialize(parse_xpath(text))
+
+
+def _reader_payload(native):
+    exports = native.family("expression")
+    source = exports / "reader-interpolation.json"
+    payload = json.loads(source.read_bytes())
+    assert payload["schemaVersion"] == 1
+    assert payload["vectors"] and payload["dots"] and payload["slots"]
+    return exports, source, payload
+
+
+def test_hq_answers_the_reader_ports_vectors_as_the_port_does(native):
+    from corehq.apps.app_manager.exceptions import CaseXPathValidationError
+    from corehq.apps.app_manager.xpath import dot_interpolate, interpolate_xpath
+
+    exports, source, payload = _reader_payload(native)
+    vector_results = []
+    for vector in payload["vectors"]:
+        text, case_xpath, dots = vector["text"], vector["caseXPath"], vector["interpolateDots"]
+        try:
+            answer = interpolate_xpath(text, case_xpath=case_xpath, interpolate_dots=dots)
+        except CaseXPathValidationError:
+            actual = {"ok": False, "reason": "case-reference"}
+        else:
+            # HQ replaces $fixture_value only for a menu that selects from a fixture, given its path; with none
+            # it stays in the text, which no runtime reads, and the port refuses it.
+            if "$fixture_value" in answer:
+                actual = {"ok": False, "reason": "fixture-value"}
+            else:
+                actual = {"ok": True, "text": answer}
+        assert actual == vector["port"], (vector["name"], text, actual, vector["port"])
+        vector_results.append({"name": vector["name"], "answer": actual})
+
+    dot_results = []
+    for vector in payload["dots"]:
+        actual = dot_interpolate(vector["text"], vector["replacement"])
+        assert actual == vector["port"], (vector["name"], vector["text"], actual, vector["port"])
+        dot_results.append({"name": vector["name"], "sha256": sha256(actual.encode("utf-8"))})
+
+    write_evidence(
+        exports,
+        "hq-interpolation-reader-vectors",
+        {
+            "hqCommit": hq_commit(),
+            "payloadSha256": sha256(source.read_bytes()),
+            "vectors": vector_results,
+            "dots": dot_results,
+            "limits": "Native HQ interpolate_xpath and dot_interpolate over the reader port's vectors, each answer "
+            "required to equal the port's. No app build, Core, or served reader.",
+        },
+    )
+
+
+def test_hq_interpolates_novas_hq_print_into_its_suite_print(native):
+    from corehq.apps.app_manager.xpath import interpolate_xpath
+
+    exports, source, payload = _reader_payload(native)
+    slots = payload["slots"]
+    assert {row["mode"] for row in slots} == {"case", "no-case", "no-dots"}
+    slot_results = []
+    for row in slots:
+        interpolated = interpolate_xpath(
+            row["hq"], case_xpath=row["caseXPath"], interpolate_dots=row["interpolateDots"]
+        )
+        assert _hq_tree(interpolated) == _hq_tree(row["suite"]), (row["slot"], interpolated, row["suite"])
+        slot_results.append({"slot": row["slot"], "mode": row["mode"], "interpolated": interpolated})
+
+    write_evidence(
+        exports,
+        "hq-interpolation-reader-slots",
+        {
+            "hqCommit": hq_commit(),
+            "payloadSha256": sha256(source.read_bytes()),
+            "slots": slot_results,
+            "limits": "Native HQ interpolate_xpath over Nova's HQ JSON print of each slot HQ interpolates, with the "
+            "case path the reader gives the slot, compared with Nova's suite print of the same expression as "
+            "eulxml's XPath parser reads both. One admitted document; no app build, Core, or served reader.",
         },
     )

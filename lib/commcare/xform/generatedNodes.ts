@@ -96,8 +96,8 @@ import { planConstraintCollections } from "./constraintCollections";
 import { constraintMessageNeedsProtection } from "./constraintMessage";
 import { descendFormPathIntoField, FormPath } from "./formPath";
 import { Namespace } from "./namespace";
-import { planQueryRepeatNames } from "./queryRepeatNames";
-import { planRepeatCountNames } from "./repeatCountNames";
+import { planQueryRepeatNames, queryRepeatBaseNames } from "./queryRepeatNames";
+import { planRepeatCountNames, repeatCountBaseName } from "./repeatCountNames";
 
 export { queryRepeatBaseNames } from "./queryRepeatNames";
 export { repeatCountBaseName } from "./repeatCountNames";
@@ -125,6 +125,59 @@ export type GeneratedNodePurpose =
 	| "guard"
 	| "owner"
 	| "instant";
+
+/**
+ * A purpose's base name for an owner id, the name the allocator takes before
+ * any suffix. `part` is the count `n` of a constraint count, the kind of a
+ * guard (`type`, `retype`, `text`) and the ordinal `n` of a clock node; other
+ * purposes take none. A keyed create's count node is named for its repeat,
+ * so its `ownerId` is the keyed repeat's own name, which may carry a suffix.
+ * The allocator (`planGeneratedNodes`) and the reader of CommCare HQ's forms
+ * both take every base name from here.
+ */
+export function generatedBaseName(
+	purpose: GeneratedNodePurpose,
+	ownerId: string,
+	part?: string,
+): string {
+	const withPart = (base: string): string => {
+		if (part === undefined)
+			throw new Error(
+				`The ${purpose} base name of ${ownerId} needs its part (a constraint count's n, a guard's kind or a clock node's n), and none was given.`,
+			);
+		return `${base}_${part}`;
+	};
+	switch (purpose) {
+		case "constraint-count":
+			return withPart(`nova_constraint_${ownerId}`);
+		case "constraint-message":
+			return `nova_constraint_message_${ownerId}`;
+		case "url":
+		case "datetime":
+		case "trimmed":
+		case "keyed":
+		case "condition":
+		case "owner":
+			return `nova_${purpose}_${ownerId}`;
+		case "count":
+		case "keyed-count":
+			return repeatCountBaseName(ownerId);
+		case "query-ids":
+			return queryRepeatBaseNames(ownerId).ids;
+		case "query-count":
+			return queryRepeatBaseNames(ownerId).count;
+		case "query-position":
+			return queryRepeatBaseNames(ownerId).position;
+		case "query-id":
+			return queryRepeatBaseNames(ownerId).id;
+		case "query-index":
+			return queryRepeatBaseNames(ownerId).index;
+		case "guard":
+			return withPart(`nova_guard_${ownerId}`);
+		case "instant":
+			return withPart(`nova_instant_${ownerId}`);
+	}
+}
 
 export interface GeneratedNode {
 	readonly purpose: GeneratedNodePurpose;
@@ -483,7 +536,9 @@ function allocateGeneratedNodes(
 			});
 			if (fieldKindCarriesValidation(field.kind) && expression !== undefined) {
 				planConstraintCollections(expression, field.uuid, doc, path, (n) => {
-					const name = scope.allocate(`nova_constraint_${field.id}_${n}`);
+					const name = scope.allocate(
+						generatedBaseName("constraint-count", field.id, String(n)),
+					);
 					record("constraint-count", field.uuid, name, String(n));
 					return name;
 				});
@@ -492,11 +547,15 @@ function allocateGeneratedNodes(
 				record(
 					"constraint-message",
 					field.uuid,
-					scope.allocate(`nova_constraint_message_${field.id}`),
+					scope.allocate(generatedBaseName("constraint-message", field.id)),
 				);
 			const views = writeViews.get(field.uuid) ?? [];
 			if (isCaptureField(field) && views.some((view) => view.link))
-				record("url", field.uuid, scope.allocate(`nova_url_${field.id}`));
+				record(
+					"url",
+					field.uuid,
+					scope.allocate(generatedBaseName("url", field.id)),
+				);
 			if (
 				views.some((view) => !view.link) &&
 				fieldValueType(field, effectiveCaseTypes(doc), views) === "datetime"
@@ -504,13 +563,13 @@ function allocateGeneratedNodes(
 				record(
 					"datetime",
 					field.uuid,
-					scope.allocate(`nova_datetime_${field.id}`),
+					scope.allocate(generatedBaseName("datetime", field.id)),
 				);
 			if (trimmedFields.has(field.uuid))
 				record(
 					"trimmed",
 					field.uuid,
-					scope.allocate(`nova_trimmed_${field.id}`),
+					scope.allocate(generatedBaseName("trimmed", field.id)),
 				);
 			if (field.kind === "repeat" && field.repeat_mode === "count_bound") {
 				const name = countNames.get(field.uuid);
@@ -637,14 +696,18 @@ function allocateGeneratedNodes(
 		const allocate = (base: string) =>
 			allocateFor(scopePath, operation.uuid, base);
 		if (isKeyedRootCreate(operation)) {
-			const keyedBase = `nova_keyed_${operation.id}`;
+			const keyedBase = generatedBaseName("keyed", operation.id);
 			// The count node is named for the repeat, whose own name is taken
 			// next; both join the namespace before anything else of the operation.
 			const keyed =
 				heldRest.get(scopePath)?.get(keyedBase)?.has(operation.uuid) === true
 					? keyedBase
 					: scope.peek(keyedBase);
-			record("keyed-count", operation.uuid, allocate(`nova_count_${keyed}`));
+			record(
+				"keyed-count",
+				operation.uuid,
+				allocate(generatedBaseName("keyed-count", keyed)),
+			);
 			record("keyed", operation.uuid, allocate(keyedBase));
 		}
 		const conditional =
@@ -656,20 +719,20 @@ function allocateGeneratedNodes(
 			record(
 				"condition",
 				operation.uuid,
-				allocate(`nova_condition_${operation.id}`),
+				allocate(generatedBaseName("condition", operation.id)),
 			);
 		for (const kind of operationGuardKinds(operation))
 			record(
 				"guard",
 				operation.uuid,
-				allocate(`nova_guard_${operation.id}_${kind}`),
+				allocate(generatedBaseName("guard", operation.id, kind)),
 				kind,
 			);
 	}
 	const root = FormPath.root().toXPath();
 	const rootOperations = operationNamespace(root);
 	const conditionUpdateSelectedCases = rootOperations.allocate(
-		`nova_condition_${UPDATE_SELECTED_CASES.slice("nova_".length)}`,
+		generatedBaseName("condition", UPDATE_SELECTED_CASES.slice("nova_".length)),
 	);
 	const updateSelectedCases = rootOperations.allocate(UPDATE_SELECTED_CASES);
 	const closeSelectedCases =
@@ -679,7 +742,7 @@ function allocateGeneratedNodes(
 	const conditionClose = allocateFor(
 		root,
 		OWN_CLOSE,
-		`nova_condition_${CLOSE.slice("nova_".length)}`,
+		generatedBaseName("condition", CLOSE.slice("nova_".length)),
 	);
 	const close = allocateFor(root, OWN_CLOSE, CLOSE);
 
@@ -697,7 +760,7 @@ function allocateGeneratedNodes(
 		record(
 			"owner",
 			operation.uuid,
-			scope.allocate(`nova_owner_${operation.id}`),
+			scope.allocate(generatedBaseName("owner", operation.id)),
 		);
 	}
 
@@ -753,7 +816,7 @@ function allocateGeneratedNodes(
 			const name = allocateFor(
 				scopeOf(operation),
 				operation.uuid,
-				`nova_instant_${operation.id}_${n}`,
+				generatedBaseName("instant", operation.id, part),
 			);
 			record("instant", operationUuid, name, part);
 			return name;

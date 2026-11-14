@@ -1371,26 +1371,6 @@ def _settings_and_forms():
         return app
 
     form_name = "/modules/0/forms/0/name"
-    preloaded = _form(
-        data="<q/><r/>",
-        model='<setvalue event="xforms-ready" ref="/data/r" value="/data/q"/>',
-        body='<input ref="/data/q"/><input ref="/data/r"/>',
-    )
-    # The same read of the question, relative to the node the setvalue sets, as Nova prints a default.
-    preloaded_relatively = _form(
-        data="<q/><r/>",
-        model='<setvalue event="xforms-ready" ref="/data/r" value="concat(\'was \', current()/../q)"/>',
-        body='<input ref="/data/q"/><input ref="/data/r"/>',
-    )
-    unread = _form(
-        data="<q/><r/>",
-        model='<setvalue event="xforms-ready" ref="/data/r" value="today()"/>',
-        body='<input ref="/data/q"/><input ref="/data/r"/>',
-    )
-
-    def preload_app(xml):
-        form = _form_json("case", case_preload={"condition": ALWAYS, "preload": {"/data/q": "dob"}})
-        return _with_forms(_app([_module([form])]), f=xml)
 
     def links(**link):
         return {"doc_type": "FormLink", "form_id": "f2", **link}
@@ -1439,11 +1419,24 @@ def _settings_and_forms():
                 "schema:Application.logo_refs",
                 "/logo_refs",
             ),
-            accepted(
+            refused(
                 "app",
                 app(
                     logo_refs={
                         "hq_logo_android_home": {"path": "jr://file/commcare/logo/data/hq_logo_android_home.png"}
+                    }
+                ),
+                "schema:Application.logo_refs",
+                "/logo_refs",
+            ),
+            accepted(
+                "app",
+                app(
+                    logo_refs={
+                        "hq_logo_android_home": {
+                            "path": "jr://file/commcare/logo/data/hq_logo_android_home.png",
+                            "m_id": "6c4f0e1b2d3a",
+                        }
                     }
                 ),
                 "schema:Application.logo_refs",
@@ -1717,25 +1710,6 @@ def _settings_and_forms():
                 _question_app(_form_json(case_preload={"condition": ALWAYS, "preload": {"/data/q": "dob"}})),
                 "schema:FormActions.case_preload",
                 f"{actions}/case_preload",
-            ),
-        ),
-        "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held": (
-            refused(
-                "app",
-                preload_app(preloaded),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
-                readings=True,
-            ),
-            refused(
-                "app",
-                preload_app(preloaded_relatively),
-                "schema:FormActions.case_preload",
-                f"{actions}/case_preload",
-                readings=True,
-            ),
-            accepted(
-                "app", preload_app(unread), "schema:FormActions.case_preload", f"{actions}/case_preload", readings=True
             ),
         ),
         "forms-and-case-writes/case-references-data-save-differing-from-that-computation": (
@@ -3615,6 +3589,62 @@ def _search_and_menus():
                 "/modules/0/put_in_root",
             ),
         ),
+        "menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module": (
+            refused(
+                "app",
+                _app([plain(put_in_root=True, case_list_session_endpoint_id="clients")]),
+                "schema:Module.case_list_session_endpoint_id",
+                "/modules/0/case_list_session_endpoint_id",
+            ),
+            accepted(
+                "app",
+                _app([plain(put_in_root=False, case_list_session_endpoint_id="clients")]),
+                "schema:Module.case_list_session_endpoint_id",
+                "/modules/0/case_list_session_endpoint_id",
+            ),
+            # The endpoint HQ builds through the first menu, one through its own menu, a form's, and one through a
+            # menu id a put_in_root module shares with its parent.
+            refused("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[1]/@id"),
+            accepted("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[2]/@id"),
+            accepted("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[3]/@id"),
+            unsettled("suite", CASE_LIST_ENDPOINTS, "parser:EndpointParser/endpoint@id", "endpoint[4]/@id"),
+            accepted("suite", CASE_LIST_ENDPOINTS, "parser:EntryParser/command@id", "entry[1]/command[1]/@id"),
+        ),
+        "menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first": (
+            # A put_in_root module's follow-up form lists on its parent's screen, beside a registration form there.
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(forms=[_form_json("none")]),
+                        plain(
+                            unique_id="c",
+                            root_module_id="p",
+                            put_in_root=True,
+                            forms=[{**_form_json("case"), "form_filter": "#case/status = 'open'"}],
+                        ),
+                    ]
+                ),
+                "schema:Form.form_filter",
+                "/modules/1/forms/0/form_filter",
+            ),
+            accepted(
+                "app",
+                _app(
+                    [
+                        plain(forms=[_form_json("case")]),
+                        plain(
+                            unique_id="c",
+                            root_module_id="p",
+                            put_in_root=True,
+                            forms=[{**_form_json("case"), "form_filter": "#case/status = 'open'"}],
+                        ),
+                    ]
+                ),
+                "schema:Form.form_filter",
+                "/modules/1/forms/0/form_filter",
+            ),
+        ),
         "menus-and-case-lists/any-module-under-a-training-menu": (
             refused(
                 "app",
@@ -3906,6 +3936,20 @@ CSQL_SUITE = (
 ENDPOINTS = b"""<suite version="1"><endpoint id="visit"><command value="'m0'"/></endpoint>
  <endpoint id="visit"><command value="'m1'"/></endpoint>
  <endpoint id="close"><command value="'m2'"/></endpoint></suite>"""
+# Case list endpoints as HQ builds them (``EndpointsHelper._make_session_endpoint``): one through the first menu, the
+# frame of a put_in_root module's case list; one through its own menu; a form's; and one through a menu id a
+# put_in_root module shares with its parent, which the suite alone does not tell from the parent's own.
+CASE_LIST_ENDPOINTS = b"""<suite version="1">
+ <menu id="m0"><text><locale id="m0"/></text></menu>
+ <menu id="m1"><text><locale id="m1"/></text></menu>
+ <menu id="m1"><text><locale id="m2"/></text></menu>
+ <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="f"/></text></command></entry>
+ <endpoint id="first"><argument id="case_id"/>
+  <stack><push><datum id="case_id" value="$case_id"/></push></stack></endpoint>
+ <endpoint id="own"><stack><push><command value="'m0'"/></push></stack></endpoint>
+ <endpoint id="form"><stack><push><command value="'m0'"/><command value="'m0-f0'"/></push></stack></endpoint>
+ <endpoint id="shared"><stack><push><command value="'m1'"/></push></stack></endpoint>
+</suite>"""
 # Menus, one under another, and a multi-select datum whose limit is 0.
 MENUS = b"""<suite version="1"><menu id="m0"><text><locale id="m0"/></text></menu>
  <menu id="m1" root="m0"><text><locale id="m1"/></text></menu>
@@ -4181,6 +4225,21 @@ def _data_binds_and_itext():
             <text id="q-label"><value>A</value><value form="markdown">B</value></text></translation></itext>""",
         body="""<input ref="/data/q"><label ref="jr:itext('q-label')"/><hint ref="jr:itext('q-hint')"/></input>""",
     )
+    # A form whose text formatting is off: the label's copy is dropped by the next save, the hint's is no runtime's.
+    formatting_off = form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q-label"><value>A</value><value form="markdown">A</value></text>
+            <text id="q-hint"><value>A</value><value form="markdown">A</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q-label')"/><hint ref="jr:itext('q-hint')"/></input>""",
+    ).replace(b"<h:html ", b'<h:html vellum:ignore="markdown" ', 1)
+    # b's default reads a, whose default stands after it, though a stands before b in the data tree; c's reads nothing.
+    reordered = form(
+        data="<a/><b/><c/>",
+        model="""<setvalue event="xforms-ready" ref="/data/b" value="/data/a"/>
+          <setvalue event="xforms-ready" ref="/data/a" value="'x'"/>
+          <setvalue event="xforms-ready" ref="/data/c" value="'y'"/>""",
+    )
     # Vellum's default language is the app's first (fr here, though the form marks en), and it fills a blank value
     # from the default, else from any app language with content (t4: es).
     translated = _with_forms(_app([_module([_form_json("none")])], langs=["fr", "en", "es"]), f=translations)
@@ -4385,6 +4444,11 @@ def _data_binds_and_itext():
             refused("form", defaults, "xform:setvalue", "model[1]/setvalue[2]"),
             accepted("form", defaults, "xform:setvalue", "model[1]/setvalue[1]"),
         ),
+        "questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes": (
+            refused("form", reordered, "xform:setvalue", "model[1]/setvalue[1]", readings=True),
+            refused("form", reordered, "xform:setvalue", "model[1]/setvalue[2]", readings=True),
+            accepted("form", reordered, "xform:setvalue", "model[1]/setvalue[3]", readings=True),
+        ),
         "questions/data-root-uiversion-other-than-1-or-absent": (
             refused("form", nodes, "xform:model/instance/*", f"instance[1]/{data}data[1]"),
             accepted("form", versioned, "xform:model/instance/*", f"instance[1]/{data}data[1]"),
@@ -4462,19 +4526,37 @@ def _data_binds_and_itext():
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("form", translations, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
         ),
-        "questions/an-explicitly-blank-value-in-a-non-default-language-where-the": (
-            refused(
-                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"
+        "questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text": (
+            # fr is the app's first language: its blank t3 beside en's text is refused; en's blank t4 is no first's
+            refused("app", translated, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"),
+            accepted("app", translated, "xform:model/itext/translation/text/value", "translation[1]/text[4]/value[1]"),
+            # en is first: its blank t4 has no other app language's text (es is no app language here)
+            accepted(
+                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[1]/text[4]/value[1]"
             ),
             accepted(
-                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[2]/text[1]/value[1]"
+                "app", in_two_languages, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"
             ),
-            # fr is the app's default: its blank t3 is no other language's; en's blank t4 takes es's text
-            accepted("app", translated, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"),
-            refused("app", translated, "xform:model/itext/translation/text/value", "translation[1]/text[4]/value[1]"),
             unsettled(
                 "form", translations, "xform:model/itext/translation/text/value", "translation[2]/text[3]/value[1]"
             ),
+        ),
+        "questions/a-markdown-form-in-a-form-whose-text-formatting-is-off": (
+            refused(
+                "form",
+                formatting_off,
+                "itext-form:core/markdown",
+                "translation[1]/text[1]/value[2]/@form",
+                readings=True,
+            ),
+            accepted(
+                "form",
+                formatting_off,
+                "itext-form:core/markdown",
+                "translation[1]/text[2]/value[2]/@form",
+                readings=True,
+            ),
+            accepted("form", hinted, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
         ),
         "questions/itext-entry-referenced-only-from-jr-itext-in-an-expression": (
             refused("form", messages, "xform:model/itext/translation/text@id", "text[6]/@id", readings=True),  # extra
@@ -4793,6 +4875,7 @@ KNOWN_GAPS = frozenset(
         # Connect block is data with none, whose leaves ``get_questions`` lists as ``DataBindOnly``; no family reads
         # a ``vellum-plugin:`` key.
         "questions/connect-block-text-read-as-an-instance",
+        "questions/connect-deliver-unit-and-task-in-one-form",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
         "questions/bare-repeat-with-no-group-wrapper",

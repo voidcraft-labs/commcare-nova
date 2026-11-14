@@ -52,6 +52,7 @@ export const ACCOUNT_CHECK_AGAIN_LINE =
 
 export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"advanced-forms": "Advanced forms",
+	"advanced-menus": "Advanced menus",
 	"after-submit": "After a form is sent",
 	"android-app-dependencies": "Android app dependencies",
 	"app-document": "The app as stored",
@@ -94,6 +95,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"hierarchical-locations": "The older organization list",
 	"instance-text": "Text read as a data source",
 	"language-codes": "Language codes",
+	"list-and-search-filters": "Case list and search filters",
 	"lookup-selection": "Choosing from a lookup table first",
 	"lookup-tables": "Lookup tables",
 	"media-by-language": "Media by language",
@@ -123,6 +125,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"shadow-forms": "Shadow forms",
 	"supply-features": "CommCare Supply",
 	"training-menus": "Training menus",
+	"translation-overrides": "Changed wording in translations",
 	"visit-scheduler": "Visit schedules",
 	"worker-record": "The worker's own record",
 	"writer-types": "Answers of different kinds",
@@ -145,6 +148,10 @@ export const FINDING_COPY: Readonly<
 	"advanced-forms": {
 		"not-yet":
 			"This uses a way of loading or opening cases in an advanced form, which Nova can't hold yet.",
+	},
+	"advanced-menus": {
+		"not-yet":
+			"This advanced menu is set up in a way Nova would change when it publishes, so Nova can't hold it yet.",
 	},
 	"after-submit": {
 		never:
@@ -264,7 +271,9 @@ export const FINDING_COPY: Readonly<
 		"not-yet":
 			"A form here goes back to, or opens through, the menu above in a way Nova can't hold yet.",
 	},
-	expressions: {},
+	expressions: {
+		"not-yet": "An expression here is more than Nova can read yet.",
+	},
 	"form-case-management": {
 		"not-yet":
 			"This form's case management is set up in a way Nova can't hold yet.",
@@ -272,7 +281,9 @@ export const FINDING_COPY: Readonly<
 	"form-settings": {
 		"not-yet": "This uses a form setting, which Nova can't hold yet.",
 	},
-	"form-source": {},
+	"form-source": {
+		"not-yet": "A form's source here is built in a way Nova can't hold yet.",
+	},
 	"hand-written-content": {
 		never:
 			"This uses hand-written XML or settings that no CommCare HQ page edits, which Nova doesn't bring in.",
@@ -282,7 +293,13 @@ export const FINDING_COPY: Readonly<
 			"This uses the older, nested list of places, which Nova doesn't bring in.",
 	},
 	"instance-text": {},
-	"language-codes": {},
+	"language-codes": {
+		"not-yet": "A language code here is one Nova can't hold yet.",
+	},
+	"list-and-search-filters": {
+		"not-yet":
+			"The case list here filters cases its search doesn't, which Nova can't hold yet.",
+	},
 	"lookup-selection": {
 		never:
 			"This uses choosing from a lookup table before the case list, which Nova doesn't bring in.",
@@ -340,6 +357,7 @@ export const FINDING_COPY: Readonly<
 	"question-ids": {
 		never:
 			"Two questions here share one place in the form's data, so Nova can't tell them apart.",
+		"not-yet": "A question ID here is one Nova can't hold yet.",
 	},
 	"question-logic": {
 		"not-yet": "A question's logic here is something Nova can't hold yet.",
@@ -386,6 +404,10 @@ export const FINDING_COPY: Readonly<
 	"training-menus": {
 		never:
 			"This uses a training menu or release notes form, which Nova doesn't bring in.",
+	},
+	"translation-overrides": {
+		"not-yet":
+			"This uses its own wording for a menu, form or list, kept in the app's translations, which Nova can't hold yet.",
 	},
 	"visit-scheduler": {
 		never: "This uses a visit schedule, which Nova doesn't bring in.",

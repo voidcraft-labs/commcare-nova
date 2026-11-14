@@ -1,0 +1,309 @@
+/**
+ * A short detail's tile: its template, its persistence, its grouping, and
+ * each placed column's cell. Only a custom tile on the case list reads; the
+ * cells of a list that is no tile, and of a column hidden from Results in a
+ * tile list, are no part of any wire Nova writes, so they are claimed and
+ * dropped (`modules.ts::tileCellFor`).
+ */
+import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
+import {
+	type CaseListConfig,
+	TILE_FONT_SIZES,
+	TILE_HORIZONTAL_ALIGNS,
+	type TileCell,
+	type TileVerticalAlign,
+} from "@/lib/domain/modules";
+import { TILE_VERTICAL_ALIGN_WIRE } from "../../suite/case-list/tileStyle";
+import { defineClaims, drop, refuse, take } from "../claims";
+import type { DraftModule, ReadContext } from "../context";
+import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import type { JoinedDetails } from "./details";
+
+const A = "menus-and-case-lists/";
+
+const CELL_KEYS = [
+	"grid_x",
+	"grid_y",
+	"width",
+	"height",
+	"horizontal_align",
+	"vertical_align",
+	"font_size",
+	"show_border",
+	"show_shading",
+] as const;
+
+export const TILE_CLAIMS = defineClaims("caseList.tile", {
+	custom: take(
+		`${A}detail-case-tile-template-custom`,
+		"schema:Detail.case_tile_template",
+	),
+	iconTextGrid: refuse(
+		`${A}detail-case-tile-template-icon-text-grid`,
+		"schema:Detail.case_tile_template",
+	),
+	personSimple: refuse(
+		`${A}detail-case-tile-template-person-simple`,
+		"schema:Detail.case_tile_template",
+	),
+	otherTemplate: refuse(
+		`${A}detail-case-tile-template-other-than-custom-person-simple-or`,
+		"schema:Detail.case_tile_template",
+	),
+	longCustom: refuse(
+		`${A}long-detail-custom-tile-case-detail-laid-out-as-a-tile`,
+		"schema:Detail.case_tile_template",
+	),
+	longOther: refuse(
+		`${A}long-detail-non-custom-tile`,
+		"schema:Detail.case_tile_template",
+	),
+	persist: take(
+		`${A}detail-persist-tile-on-forms`,
+		"schema:Detail.persist_tile_on_forms",
+	),
+	group: take(
+		`${A}detail-case-tile-group-index-identifier-header-rows`,
+		"schema:Detail.case_tile_group",
+	),
+	groupIdentifier: take(
+		`${A}detail-case-tile-group-index-identifier-header-rows`,
+		"schema:CaseTileGroupConfig.index_identifier",
+	),
+	groupRows: take(
+		`${A}detail-case-tile-group-index-identifier-header-rows`,
+		"schema:CaseTileGroupConfig.header_rows",
+	),
+	groupIdentifierOutside: refuse(
+		`${A}case-tile-group-identifier-outside-an-xml-element-name`,
+		"schema:CaseTileGroupConfig.index_identifier",
+	),
+	gridX: take(
+		`${A}grid-x-grid-y-width-height-custom-tile`,
+		"schema:DetailColumn.grid_x",
+	),
+	gridY: take(
+		`${A}grid-x-grid-y-width-height-custom-tile`,
+		"schema:DetailColumn.grid_y",
+	),
+	width: take(
+		`${A}grid-x-grid-y-width-height-custom-tile`,
+		"schema:DetailColumn.width",
+	),
+	height: take(
+		`${A}grid-x-grid-y-width-height-custom-tile`,
+		"schema:DetailColumn.height",
+	),
+	horizontal: take(
+		`${A}horizontal-align-vertical-align`,
+		"schema:DetailColumn.horizontal_align",
+	),
+	vertical: take(
+		`${A}horizontal-align-vertical-align`,
+		"schema:DetailColumn.vertical_align",
+	),
+	fontSize: take(`${A}font-size`, "schema:DetailColumn.font_size"),
+	border: take(
+		`${A}show-border-show-shading`,
+		"schema:DetailColumn.show_border",
+	),
+	shading: take(
+		`${A}show-border-show-shading`,
+		"schema:DetailColumn.show_shading",
+	),
+	unplaced: refuse(
+		`${A}custom-tile-column-with-grid-null-unplaced`,
+		"schema:DetailColumn.grid_x",
+	),
+	alignNull: refuse(
+		`${A}horizontal-align-null-on-a-placed-custom-tile-column`,
+		"schema:DetailColumn.horizontal_align",
+	),
+	fontNull: refuse(
+		`${A}custom-tile-font-size-null`,
+		"schema:DetailColumn.font_size",
+	),
+});
+
+const T = TILE_CLAIMS;
+
+const OFF_TILE = defineClaims(
+	"caseList.tile.off",
+	Object.fromEntries(
+		CELL_KEYS.map((key) => [
+			key,
+			drop(
+				`${A}tile-cell-keys-on-a-list-that-is-not-a-tile`,
+				`schema:DetailColumn.${key}`,
+			),
+		]),
+	) as Record<(typeof CELL_KEYS)[number], ReturnType<typeof drop>>,
+);
+
+/** What the tile reading gives the case list and its comparison. */
+export interface TileReading {
+	readonly ok: boolean;
+	readonly config?: NonNullable<CaseListConfig["tile"]>;
+	/** Each placed column's cell, by its index in the join. */
+	readonly cells: ReadonlyMap<number, TileCell>;
+}
+
+/** HQ's vertical words read back to Nova's, by the table the projection writes them with. */
+const VERTICAL_FROM_WIRE = new Map(
+	Object.entries(TILE_VERTICAL_ALIGN_WIRE).map(([nova, wire]) => [
+		wire,
+		nova as TileVerticalAlign,
+	]),
+);
+
+function dropCells(column: JsonCursor): void {
+	for (const key of CELL_KEYS) column.drop(key, OFF_TILE[key]);
+}
+
+/** One placed column's cell, or a finding. A word outside the page's three is `unrecognized`. */
+function readCell(ctx: ReadContext, column: JsonCursor): TileCell | "finding" {
+	const x = column.peek("grid_x");
+	const y = column.peek("grid_y");
+	if (typeof x !== "number" || typeof y !== "number") {
+		ctx.accounting.finding(T.unplaced, column.place);
+		return "finding";
+	}
+	const horizontal = column.peek("horizontal_align");
+	const vertical = column.peek("vertical_align");
+	const font = column.peek("font_size");
+	if (
+		horizontal === null ||
+		horizontal === undefined ||
+		vertical === null ||
+		vertical === undefined
+	) {
+		ctx.accounting.finding(T.alignNull, column.place);
+		return "finding";
+	}
+	if (font === null || font === undefined) {
+		ctx.accounting.finding(T.fontNull, column.place);
+		return "finding";
+	}
+	const verticalWord =
+		typeof vertical === "string" ? VERTICAL_FROM_WIRE.get(vertical) : undefined;
+	if (
+		!(TILE_HORIZONTAL_ALIGNS as readonly unknown[]).includes(horizontal) ||
+		verticalWord === undefined ||
+		!(TILE_FONT_SIZES as readonly unknown[]).includes(font)
+	) {
+		ctx.accounting.circumstance("unrecognized", column.place, {
+			name: !(TILE_HORIZONTAL_ALIGNS as readonly unknown[]).includes(horizontal)
+				? "schema:DetailColumn.horizontal_align"
+				: verticalWord === undefined
+					? "schema:DetailColumn.vertical_align"
+					: "schema:DetailColumn.font_size",
+		});
+		return "finding";
+	}
+	column.take("vertical_align", T.vertical, String).value;
+	const cell: TileCell = {
+		x: column.take("grid_x", T.gridX, Number).value,
+		y: column.take("grid_y", T.gridY, Number).value,
+		width: column.take("width", T.width, Number).value,
+		height: column.take("height", T.height, Number).value,
+		horizontalAlign: column.take("horizontal_align", T.horizontal, String)
+			.value as TileCell["horizontalAlign"],
+		verticalAlign: verticalWord,
+		fontSize: column.take("font_size", T.fontSize, String)
+			.value as TileCell["fontSize"],
+	};
+	const border = column.peek("show_border");
+	const shading = column.peek("show_shading");
+	if (typeof border === "boolean")
+		cell.showBorder = column.take("show_border", T.border, Boolean).value;
+	if (typeof shading === "boolean")
+		cell.showShading = column.take("show_shading", T.shading, Boolean).value;
+	return cell;
+}
+
+/**
+ * Reads the short detail's tile into the case list's `tile` and each placed column's cell, and
+ * claims the cell keys no wire writes. A tile on the long detail is a finding.
+ */
+export function readTile(
+	ctx: ReadContext,
+	_module: DraftModule,
+	short: JsonCursor,
+	long: JsonCursor,
+	joined: JoinedDetails,
+	shortColumns: readonly JsonCursor[],
+	longColumns: readonly JsonCursor[],
+): TileReading {
+	let ok = true;
+	const cells = new Map<number, TileCell>();
+	const longTemplate = long.peek("case_tile_template");
+	if (typeof longTemplate === "string" && longTemplate !== "") {
+		long.refuse(
+			"case_tile_template",
+			longTemplate === "custom" ? T.longCustom : T.longOther,
+		);
+		ok = false;
+	}
+	for (const column of longColumns) dropCells(column);
+	const template = short.peek("case_tile_template");
+	if (template === null || template === undefined || template === "") {
+		for (const column of shortColumns) dropCells(column);
+		return { ok, cells };
+	}
+	if (template !== "custom") {
+		short.refuse(
+			"case_tile_template",
+			template === "icon_text_grid"
+				? T.iconTextGrid
+				: template === "person_simple"
+					? T.personSimple
+					: T.otherTemplate,
+		);
+		for (const column of shortColumns) dropCells(column);
+		return { ok: false, cells };
+	}
+	short.take("case_tile_template", T.custom, String).value;
+	const config: NonNullable<CaseListConfig["tile"]> = {};
+	if (short.peek("persist_tile_on_forms") === true) {
+		short.take("persist_tile_on_forms", T.persist, Boolean).value;
+		config.persistOnForms = true;
+	}
+	const group = short.peek("case_tile_group");
+	if (
+		isJsonObject(group) &&
+		typeof group.index_identifier === "string" &&
+		group.index_identifier !== ""
+	) {
+		const cursor = short.object(
+			"case_tile_group",
+			"CaseTileGroupConfig",
+			T.group,
+		);
+		const identifier = group.index_identifier;
+		if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
+			cursor.refuse("index_identifier", T.groupIdentifierOutside, {
+				name: identifier.slice(0, 200),
+			});
+			ok = false;
+		} else {
+			config.grouping = {
+				identifier: cursor.take("index_identifier", T.groupIdentifier, String)
+					.value,
+				headerRows: cursor.take("header_rows", T.groupRows, Number).value,
+			};
+		}
+	}
+	joined.columns.forEach((column, index) => {
+		if (column.short === undefined) return;
+		const cursor = shortColumns[column.short];
+		if (cursor === undefined) return;
+		if (column.visibleInList === false) {
+			dropCells(cursor);
+			return;
+		}
+		const cell = readCell(ctx, cursor);
+		if (cell === "finding") ok = false;
+		else cells.set(index, cell);
+	});
+	return { ok, config, cells };
+}

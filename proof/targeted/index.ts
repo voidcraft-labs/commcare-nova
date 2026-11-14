@@ -118,6 +118,7 @@ import {
 } from "./documents/repeats";
 import { sameTypeChild } from "./documents/sameTypeChild";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
+import { saveToCaseShapes } from "./documents/saveToCaseShapes";
 import {
 	listFirstPlaces,
 	listFirstWebApps,
@@ -182,6 +183,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	connectDeliverRename,
 	connectLearnRename,
 	saveToCaseRead,
+	saveToCaseShapes,
 	mediaSlots,
 	captureWidgets,
 	noMatchesReturnIdentity,

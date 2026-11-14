@@ -64,7 +64,16 @@ export interface LookupWireNaming {
 	) => LookupTableWireNaming | undefined;
 }
 
-function tableNaming(definition: LookupTableDefinition): LookupTableWireNaming {
+/** What a table's wire vocabulary is made of: its id, its tag and its columns. */
+export type LookupNamingDefinition = Pick<
+	LookupTableDefinition,
+	"id" | "tag" | "columns"
+> &
+	Partial<LookupTableDefinition>;
+
+function tableNaming(
+	definition: LookupNamingDefinition,
+): LookupTableWireNaming {
 	const byColumnId = new Map(
 		definition.columns.map((column) => [column.id, column.wireName]),
 	);
@@ -150,7 +159,7 @@ export function identityLookupWireNaming(): LookupWireNaming {
  * `definitions` — they are the same array object on the compile path.
  */
 export function lookupWireNaming(
-	definitions: readonly LookupTableDefinition[],
+	definitions: readonly LookupNamingDefinition[],
 ): LookupWireNaming {
 	const tables = definitions.map(tableNaming);
 	const byTableId = new Map(tables.map((table) => [table.tableId, table]));

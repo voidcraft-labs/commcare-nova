@@ -50,6 +50,7 @@ import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { Uuid } from "@/lib/domain/uuid";
 import { matchModeRunsOnDevice } from "../../csql/matchModes";
+import { type RewriteControl, rewriteWithheld } from "../../emissionRewrites";
 import type { LookupWireNaming } from "../../lookup/naming";
 import {
 	ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS,
@@ -59,6 +60,7 @@ import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
 import {
+	emptiableRows,
 	guardAbsentNode,
 	guardChecklistPair,
 	guardNodeSetConsumer,
@@ -144,6 +146,9 @@ export interface WireBuildContext {
 	readonly anchor?: OnDeviceCaseAnchor;
 	readonly bindings?: WireTermBindings;
 	readonly overrides?: ReadonlyMap<Expression, WireExpr>;
+	/** Rewrites the print leaves out or reports (`emissionRewrites.ts`).
+	 *  Absent, every rewrite stands and nothing is reported. */
+	readonly rewrites?: RewriteControl;
 }
 type Context = WireBuildContext & {
 	readonly root: InstanceRoot;
@@ -467,8 +472,12 @@ function term(input: Term, ctx: Context): WireExpr {
 				throw new Error(
 					"A form read reached wire emission without the owning form-node projection.",
 				);
-			return formReadToWire(input, ctx.types, ctx.form, (expression, types) =>
-				emitExpression(expression, { ...ctx, types }),
+			return formReadToWire(
+				input,
+				ctx.types,
+				ctx.form,
+				(expression, types) => emitExpression(expression, { ...ctx, types }),
+				ctx.rewrites,
 			);
 		}
 		case "choice":
@@ -605,7 +614,8 @@ function term(input: Term, ctx: Context): WireExpr {
 			]);
 			return (
 				ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS as readonly string[]
-			).includes(input.field)
+			).includes(input.field) &&
+				!rewriteWithheld(ctx.rewrites, "absent-session-value-guard")
 				? guardAbsentNode(read)
 				: read;
 		}
@@ -677,7 +687,16 @@ function term(input: Term, ctx: Context): WireExpr {
 function operand(input: Expression | Term, ctx: Context): WireExpr {
 	return isExpression(input)
 		? emitExpression(input, ctx)
-		: guardValue(term(input, ctx));
+		: guardRows(term(input, ctx), ctx);
+}
+
+/** A value read of rows that may be empty, guarded (`emptyRows.ts::guardValue`)
+ *  unless the print withholds `empty-rows-guard`. */
+function guardRows(read: WireExpr, ctx: Context): WireExpr {
+	if (emptiableRows(read) === undefined) return read;
+	return rewriteWithheld(ctx.rewrites, "empty-rows-guard")
+		? read
+		: guardValue(read);
 }
 
 function queryContext(expression: Expression, ctx: Context): Context {
@@ -737,7 +756,11 @@ function compareSides(
 	right: ComparisonSide,
 	ctx: Context,
 ): WireExpr {
-	const plan = comparisonPlan(kind, left.operand, right.operand);
+	const lowered = comparisonPlan(kind, left.operand, right.operand);
+	const plan =
+		lowered === "lowered" && rewriteWithheld(ctx.rewrites, "instant-comparison")
+			? "bare"
+			: lowered;
 	const wire = (side: ComparisonSide): WireExpr => {
 		switch (plan) {
 			case "lowered":
@@ -841,15 +864,26 @@ function emitCall(
 					return position < 0 ? arg : (sets[position] ?? arg);
 				}),
 			);
-		return guardChecklistPair(
+		let guards = false;
+		const checked = guardChecklistPair(
 			at.flatMap((index) => args[index] ?? []),
 			withSets,
 			withSets(at.map(() => w.str(""))),
+			() => {
+				guards = true;
+			},
 		);
+		return guards && rewriteWithheld(ctx.rewrites, "empty-rows-guard")
+			? w.call(fn, args)
+			: checked;
 	}
 	if (typeof argument === "string") return w.call(fn, args);
 	// Each guarded argument wraps the call built from the ones inside it, so
 	// every argument's rows are counted and each branch counts only its own.
+	let guards = false;
+	const onGuard = () => {
+		guards = true;
+	};
 	const guardFrom = (at: number, built: readonly WireExpr[]): WireExpr => {
 		const index = guarded[at];
 		const nodes = index === undefined ? undefined : built[index];
@@ -862,9 +896,14 @@ function emitCall(
 					built.map((arg, position) => (position === index ? inner : arg)),
 				),
 			argument.empty,
+			undefined,
+			onGuard,
 		);
 	};
-	return guardFrom(0, args);
+	const consumed = guardFrom(0, args);
+	return guards && rewriteWithheld(ctx.rewrites, "empty-rows-guard")
+		? w.call(fn, args)
+		: consumed;
 }
 
 function emitExpression(
@@ -873,7 +912,7 @@ function emitExpression(
 	use: Use = "value",
 ): WireExpr {
 	const lowered = lowerExpression(expr, ctx, use);
-	return use === "value" ? guardValue(lowered) : lowered;
+	return use === "value" ? guardRows(lowered, ctx) : lowered;
 }
 
 function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
@@ -918,7 +957,9 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 					w.step("data"),
 					w.step(CASE_LIST_SEARCH_TEXT_DATA_NAME, predicates),
 				]);
-			return guardAbsentNode(nodes([w.num(1)]), nodes());
+			return rewriteWithheld(ctx.rewrites, "absent-session-value-guard")
+				? nodes()
+				: guardAbsentNode(nodes([w.num(1)]), nodes());
 		}
 		case "itext": {
 			const id = ctx.bindings.itextId?.(expr.unit);
@@ -1147,7 +1188,13 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 					"A lookup-table expression reached wire emission without its Project lookup naming catalog.",
 				);
 			const table = lookup.naming.tableFor(expr.tableId);
-			const where = simplifyForEmission(expr.where);
+			// Withheld, the row filter prints as stored: a `true()` filter
+			// included, which the simplified print drops.
+			const asStored = rewriteWithheld(
+				ctx.rewrites,
+				"filter-identities-dropped",
+			);
+			const where = asStored ? expr.where : simplifyForEmission(expr.where);
 			const whereContext = {
 				...ctx,
 				types: pushRowScope(ctx.types, {
@@ -1166,14 +1213,15 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 					},
 				},
 			};
-			const filters = isMatchAll(where)
-				? []
-				: [
-						emitExpression(
-							normalizeRelationEvaluationScopes(where, relationScope(ctx)),
-							whereContext,
-						),
-					];
+			const filters =
+				!asStored && isMatchAll(where)
+					? []
+					: [
+							emitExpression(
+								normalizeRelationEvaluationScopes(where, relationScope(ctx)),
+								whereContext,
+							),
+						];
 			return w.instance(
 				lookupInstance(expr.tableId, lookup.naming, lookup.instanceScope),
 				[

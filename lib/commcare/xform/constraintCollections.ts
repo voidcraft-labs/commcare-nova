@@ -8,6 +8,7 @@ import {
 	type ExpressionNode,
 	expressionChildren,
 } from "@/lib/domain/expression/walk";
+import { type RewriteControl, rewriteWithheld } from "../emissionRewrites";
 import type { WireExpr } from "../xpath/wire/tree";
 import type { FormPath } from "./formPath";
 
@@ -22,6 +23,10 @@ interface Calculation {
  * Only explicit scalar-field collections with context-independent predicates
  * qualify. The proposed answer and relative/current reads stay in validation.
  * The identities remain unchanged; only wire emission substitutes count nodes.
+ *
+ * `rewrites` reports `validation-counts-moved` wherever the plan holds a
+ * calculation; where it withholds the id, the plan returns the expression
+ * unchanged with no calculation, so every count prints inline.
  */
 export function planConstraintCollections(
 	expression: Expression,
@@ -29,6 +34,7 @@ export function planConstraintCollections(
 	doc: BlueprintDoc,
 	path: FormPath,
 	nameFor: (ordinal: number) => string,
+	rewrites?: RewriteControl,
 ): {
 	expression: Expression;
 	calculations: readonly Calculation[];
@@ -37,6 +43,8 @@ export function planConstraintCollections(
 	const calculations: Calculation[] = [];
 	const overrides = new Map<Expression, WireExpr>();
 	const byStructure = new Map<string, Calculation>();
+	const withheld = rewrites?.withhold.has("validation-counts-moved") === true;
+	let moves = false;
 	const visit = (node: ExpressionNode, insideFilter: boolean): void => {
 		if (
 			!insideFilter &&
@@ -46,6 +54,8 @@ export function planConstraintCollections(
 			node.via.term.kind === "field" &&
 			independentCollection(node.via.term, fieldUuid, doc)
 		) {
+			moves = true;
+			if (withheld) return;
 			const key = JSON.stringify(node);
 			let calculation = byStructure.get(key);
 			if (calculation === undefined) {
@@ -71,6 +81,8 @@ export function planConstraintCollections(
 		}
 	};
 	visit(expression, false);
+	if (moves && rewriteWithheld(rewrites, "validation-counts-moved"))
+		return { expression, calculations: [], overrides: new Map() };
 	return { expression, calculations, overrides };
 }
 

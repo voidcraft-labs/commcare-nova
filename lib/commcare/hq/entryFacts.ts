@@ -1,0 +1,674 @@
+/**
+ * What CommCare HQ's entry builder reads of an app's JSON when it builds each
+ * form's session values, per form and per menu, read from an app source: the
+ * source HQ serves, or Nova's emission of a document.
+ *
+ * HQ writes a form's `<entry>` datums from facts of the app's JSON
+ * (`suite_xml/sections/entries.py::EntriesHelper`), and the reads of an app
+ * hold no suite. So two app sources whose facts are equal, form by form and
+ * menu by menu, with their menus in one order under the same ids, get the
+ * same datums from HQ's build. `hqEntryFacts` lists those facts;
+ * `entryFactsDifference` and `menuFactsDifference` name the first that
+ * differs; `datumIdsFromFacts` is a port of HQ's id rules over the facts
+ * alone, which holds the list complete for every shape Nova emits.
+ *
+ * A form `publishedCaseBlocks` leaves unread has no record: its account is
+ * that reader's. A menu is a `Module` or an `AdvancedModule` with a
+ * `unique_id`; HQ's other menu kinds hold no form an entry reads.
+ */
+
+import { activeActions, publishedCaseBlocks } from "./publishedCaseBlocks";
+
+export interface HqEntryFacts {
+	readonly moduleKind: "Module" | "AdvancedModule";
+	readonly caseType: string;
+	/** `root_module_id`, as a menu id. */
+	readonly rootModule: string | null;
+	readonly putInRoot: boolean;
+	/** `parent_select.module_id` where it is active and its relationship is `parent`. */
+	readonly parentSelect: string | null;
+	readonly multiSelect: boolean;
+	/** A multi-select list's `max_select_value`; `null` on any other list. */
+	readonly maxSelect: number | null;
+	/** `Detail.auto_select`, which `ModuleBase.is_auto_select` reads on every basic list. */
+	readonly autoSelect: boolean;
+	/** `ModuleBase.auto_select_case`, which a load's list reads on an advanced menu. */
+	readonly autoSelectCase: boolean;
+	readonly caseListShown: boolean;
+	/** `util.py::module_offers_search`. */
+	readonly offersSearch: boolean;
+	/** `util.py::module_uses_inline_search`. */
+	readonly inlineSearch: boolean;
+	/** `search_config.instance_name` where the menu searches inline. */
+	readonly searchInstance: string | null;
+	readonly additionalCaseTypes: readonly string[];
+	/** `ModuleBase.has_grouped_tiles`: a tile grouped by an index. */
+	readonly groupedTiles: boolean;
+	readonly requires: "none" | "case" | "advanced";
+	readonly opensCase: boolean;
+	/**
+	 * Child cases outside any repeat, in list order, each by its case type and
+	 * its place in the form's `subcases`, which its datum's id holds.
+	 */
+	readonly newChildCases: readonly {
+		readonly caseType: string;
+		readonly index: number;
+	}[];
+	/** An active usercase update or preload. */
+	readonly usesWorkerRecord: boolean;
+	/** An advanced form's loads, in order. */
+	readonly loads: readonly {
+		readonly tag: string;
+		readonly caseType: string;
+		readonly detailsModule: string | null;
+		readonly indexTag: string | null;
+		readonly indexName: string | null;
+		readonly autoSelect: string | null;
+	}[];
+	/**
+	 * An advanced form's open actions outside any repeat, in order, each with
+	 * its place in the form's `open_cases`, which its datum's id holds.
+	 */
+	readonly opens: readonly {
+		readonly tag: string;
+		readonly caseType: string;
+		readonly index: number;
+	}[];
+}
+
+export const ENTRY_FACT_KEYS: readonly (keyof HqEntryFacts)[] = [
+	"moduleKind",
+	"caseType",
+	"rootModule",
+	"putInRoot",
+	"parentSelect",
+	"multiSelect",
+	"maxSelect",
+	"autoSelect",
+	"autoSelectCase",
+	"caseListShown",
+	"offersSearch",
+	"inlineSearch",
+	"searchInstance",
+	"additionalCaseTypes",
+	"groupedTiles",
+	"requires",
+	"opensCase",
+	"newChildCases",
+	"usesWorkerRecord",
+	"loads",
+	"opens",
+];
+
+/** What HQ's entry builder reads of a menu when it builds the datums of another menu's forms: a
+ *  parent menu, a parent selection's target, a load's `details_module`. A menu with no form has
+ *  one too, which is why these are not left to the per-form record. */
+export interface HqMenuFacts {
+	readonly moduleKind: "Module" | "AdvancedModule";
+	readonly caseType: string;
+	readonly rootModule: string | null;
+	readonly putInRoot: boolean;
+	readonly parentSelect: string | null;
+	readonly multiSelect: boolean;
+	readonly maxSelect: number | null;
+	readonly autoSelect: boolean;
+	readonly autoSelectCase: boolean;
+	readonly inlineSearch: boolean;
+	readonly searchInstance: string | null;
+	readonly additionalCaseTypes: readonly string[];
+	/** The `xmlns` of the menu's first form, whose datums a child menu aligns against. */
+	readonly firstForm: string | null;
+}
+
+export const MENU_FACT_KEYS: readonly (keyof HqMenuFacts)[] = [
+	"moduleKind",
+	"caseType",
+	"rootModule",
+	"putInRoot",
+	"parentSelect",
+	"multiSelect",
+	"maxSelect",
+	"autoSelect",
+	"autoSelectCase",
+	"inlineSearch",
+	"searchInstance",
+	"additionalCaseTypes",
+	"firstForm",
+];
+
+export interface HqAppEntryFacts {
+	/** One record per form, by `xmlns`. A form `publishedCaseBlocks` leaves unread has none. */
+	readonly forms: ReadonlyMap<string, HqEntryFacts>;
+	/** One record per menu, by the menu's id, in HQ's menu order. */
+	readonly menus: ReadonlyMap<string, HqMenuFacts>;
+}
+
+type JsonObject = Record<string, unknown>;
+
+function isObject(value: unknown): value is JsonObject {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A non-empty string, or `null`. */
+function idOf(value: unknown): string | null {
+	return typeof value === "string" && value !== "" ? value : null;
+}
+
+function objects(value: unknown): JsonObject[] {
+	return Array.isArray(value) ? value.filter(isObject) : [];
+}
+
+/** The menu's short case list detail, `{}` where it has none. */
+function shortDetail(module: JsonObject): JsonObject {
+	const details = module.case_details;
+	return isObject(details) && isObject(details.short) ? details.short : {};
+}
+
+/** `max_select_value`'s default, which HQ's model holds where a list stores none. */
+const DEFAULT_MAX_SELECT = 100;
+
+/** The facts a form's record and a menu's record share: the menu's own. */
+type OwnMenuFacts = Omit<HqMenuFacts, "firstForm"> &
+	Pick<HqEntryFacts, "caseListShown" | "offersSearch" | "groupedTiles">;
+
+function ownMenuFacts(
+	module: JsonObject,
+	moduleKind: "Module" | "AdvancedModule",
+): OwnMenuFacts {
+	const basic = moduleKind === "Module";
+	const short = shortDetail(module);
+	// `AdvancedModule.is_multi_select` and `is_auto_select` are false, and it
+	// holds no parent selection.
+	const multiSelect = basic && short.multi_select === true;
+	const stored = short.max_select_value;
+	// `-1` is the same state as the default by the manifest's
+	// `menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list`.
+	const maxSelect = !multiSelect
+		? null
+		: typeof stored === "number" && stored !== -1
+			? stored
+			: DEFAULT_MAX_SELECT;
+	const parentSelect = module.parent_select;
+	const search = isObject(module.search_config) ? module.search_config : {};
+	const offersSearch =
+		(Array.isArray(search.properties) && search.properties.length > 0) ||
+		(Array.isArray(search.default_properties) &&
+			search.default_properties.length > 0);
+	const inlineSearch =
+		offersSearch &&
+		search.inline_search === true &&
+		search.auto_launch === true;
+	const group = short.case_tile_group;
+	return {
+		moduleKind,
+		caseType: typeof module.case_type === "string" ? module.case_type : "",
+		rootModule: idOf(module.root_module_id),
+		putInRoot: module.put_in_root === true,
+		parentSelect:
+			basic &&
+			isObject(parentSelect) &&
+			parentSelect.active === true &&
+			parentSelect.relationship === "parent"
+				? idOf(parentSelect.module_id)
+				: null,
+		multiSelect,
+		maxSelect,
+		autoSelect: basic && short.auto_select === true,
+		autoSelectCase: module.auto_select_case === true,
+		inlineSearch,
+		searchInstance: inlineSearch ? idOf(search.instance_name) : null,
+		additionalCaseTypes: Array.isArray(search.additional_case_types)
+			? search.additional_case_types.filter(
+					(type): type is string => typeof type === "string",
+				)
+			: [],
+		caseListShown: isObject(module.case_list) && module.case_list.show === true,
+		offersSearch,
+		groupedTiles:
+			typeof short.case_tile_template === "string" &&
+			short.case_tile_template !== "" &&
+			isObject(group) &&
+			idOf(group.index_identifier) !== null,
+	};
+}
+
+/** The facts of one form read by `publishedCaseBlocks`, whose actions are sound. */
+function formFacts(form: JsonObject, menu: OwnMenuFacts): HqEntryFacts {
+	const actions = isObject(form.actions) ? form.actions : {};
+	const caseFacts =
+		form.doc_type === "AdvancedForm"
+			? advancedFormFacts(actions)
+			: basicFormFacts(form, actions);
+	return {
+		moduleKind: menu.moduleKind,
+		caseType: menu.caseType,
+		rootModule: menu.rootModule,
+		putInRoot: menu.putInRoot,
+		parentSelect: menu.parentSelect,
+		multiSelect: menu.multiSelect,
+		maxSelect: menu.maxSelect,
+		autoSelect: menu.autoSelect,
+		autoSelectCase: menu.autoSelectCase,
+		caseListShown: menu.caseListShown,
+		offersSearch: menu.offersSearch,
+		inlineSearch: menu.inlineSearch,
+		searchInstance: menu.searchInstance,
+		additionalCaseTypes: menu.additionalCaseTypes,
+		groupedTiles: menu.groupedTiles,
+		...caseFacts,
+	};
+}
+
+type CaseFacts = Pick<
+	HqEntryFacts,
+	| "requires"
+	| "opensCase"
+	| "newChildCases"
+	| "usesWorkerRecord"
+	| "loads"
+	| "opens"
+>;
+
+/** A basic form's: `Form.requires_case` (`case`, or the legacy `referral`),
+ *  its active open, its root subcases and `util.py::actions_use_usercase`. */
+function basicFormFacts(form: JsonObject, actions: JsonObject): CaseFacts {
+	const requires = form.requires ?? "none";
+	const active = activeActions(actions, requires);
+	const mapsAny = (type: string, key: string) => {
+		const action = actions[type];
+		return (
+			active.has(type) &&
+			isObject(action) &&
+			isObject(action[key]) &&
+			Object.keys(action[key] as JsonObject).length > 0
+		);
+	};
+	return {
+		requires: requires === "case" || requires === "referral" ? "case" : "none",
+		opensCase: active.has("open_case"),
+		newChildCases: active.has("subcases")
+			? objects(actions.subcases).flatMap((subcase, index) =>
+					idOf(subcase.repeat_context) === null
+						? [
+								{
+									caseType:
+										typeof subcase.case_type === "string"
+											? subcase.case_type
+											: "",
+									index,
+								},
+							]
+						: [],
+				)
+			: [],
+		usesWorkerRecord:
+			mapsAny("usercase_update", "update") ||
+			mapsAny("usercase_preload", "preload"),
+		loads: [],
+		opens: [],
+	};
+}
+
+/** An advanced form's loads and its open actions outside any repeat. */
+function advancedFormFacts(actions: JsonObject): CaseFacts {
+	return {
+		requires: "advanced",
+		opensCase: false,
+		newChildCases: [],
+		usesWorkerRecord: false,
+		loads: objects(actions.load_update_cases).map((load) => {
+			const index = isObject(load.case_index) ? load.case_index : {};
+			const indexTag = idOf(index.tag);
+			const autoSelect = isObject(load.auto_select) ? load.auto_select : {};
+			return {
+				tag: typeof load.case_tag === "string" ? load.case_tag : "",
+				caseType: typeof load.case_type === "string" ? load.case_type : "",
+				detailsModule: idOf(load.details_module),
+				indexTag,
+				indexName:
+					indexTag === null
+						? null
+						: typeof index.reference_id === "string"
+							? index.reference_id
+							: "parent",
+				autoSelect: idOf(autoSelect.mode),
+			};
+		}),
+		opens: objects(actions.open_cases).flatMap((open, index) =>
+			idOf(open.repeat_context) === null
+				? [
+						{
+							tag: typeof open.case_tag === "string" ? open.case_tag : "",
+							caseType:
+								typeof open.case_type === "string" ? open.case_type : "",
+							index,
+						},
+					]
+				: [],
+		),
+	};
+}
+
+/** Every fact HQ's entry builder reads, per form and per menu, of `source`. */
+export function hqEntryFacts(source: unknown): HqAppEntryFacts {
+	const forms = new Map<string, HqEntryFacts>();
+	const menus = new Map<string, HqMenuFacts>();
+	if (!isObject(source) || !Array.isArray(source.modules))
+		return { forms, menus };
+	const read = publishedCaseBlocks(source).forms;
+	for (const module of source.modules) {
+		if (!isObject(module)) continue;
+		const kind = module.doc_type;
+		if (kind !== "Module" && kind !== "AdvancedModule") continue;
+		const own = ownMenuFacts(module, kind);
+		const moduleForms = objects(module.forms);
+		const id = idOf(module.unique_id);
+		if (id !== null) {
+			const {
+				caseListShown: _caseListShown,
+				offersSearch: _offersSearch,
+				groupedTiles: _groupedTiles,
+				...menu
+			} = own;
+			menus.set(id, {
+				...menu,
+				firstForm: idOf(moduleForms[0]?.xmlns),
+			});
+		}
+		for (const form of moduleForms) {
+			const xmlns = idOf(form.xmlns);
+			if (xmlns === null || !read.has(xmlns)) continue;
+			forms.set(xmlns, formFacts(form, own));
+		}
+	}
+	return { forms, menus };
+}
+
+/** Two facts equal as JSON values. */
+function factEqual(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (Array.isArray(a) || Array.isArray(b)) {
+		return (
+			Array.isArray(a) &&
+			Array.isArray(b) &&
+			a.length === b.length &&
+			a.every((item, index) => factEqual(item, b[index]))
+		);
+	}
+	if (isObject(a) && isObject(b)) {
+		const keys = Object.keys(a);
+		return (
+			keys.length === Object.keys(b).length &&
+			keys.every((key) => key in b && factEqual(a[key], b[key]))
+		);
+	}
+	return false;
+}
+
+/** The first key on which two forms' facts differ, in `ENTRY_FACT_KEYS` order. */
+export function entryFactsDifference(
+	a: HqEntryFacts,
+	b: HqEntryFacts,
+): keyof HqEntryFacts | undefined {
+	return ENTRY_FACT_KEYS.find((key) => !factEqual(a[key], b[key]));
+}
+
+/** The first key on which two menus' facts differ, in `MENU_FACT_KEYS` order. */
+export function menuFactsDifference(
+	a: HqMenuFacts,
+	b: HqMenuFacts,
+): keyof HqMenuFacts | undefined {
+	return MENU_FACT_KEYS.find((key) => !factEqual(a[key], b[key]));
+}
+
+// ── HQ's id rules, ported ─────────────────────────────────────────────
+
+/**
+ * One datum as `entries.py::FormDatumMeta` holds what an id rule reads: its
+ * id, its case type, whether a worker selects it, whether it is an
+ * `instance-datum` (the datum `_same_case` tells apart by its root name),
+ * whether an action made it, and, for a selection a menu's list supplies,
+ * that menu's search, which places a query before it.
+ */
+interface DatumMeta {
+	id: string;
+	readonly caseType: string | null;
+	readonly requiresSelection: boolean;
+	readonly instance: boolean;
+	readonly fromAction: boolean;
+	readonly search?: {
+		readonly inlineSearch: boolean;
+		readonly searchInstance: string | null;
+	};
+}
+
+/** A menu's facts by id, or why the facts cannot say. */
+function menuOf(app: HqAppEntryFacts, id: string): HqMenuFacts {
+	const menu = app.menus.get(id);
+	if (menu === undefined)
+		throw new Error(
+			`The entry facts name the menu ${id}, which they hold no record of. Every menu a form's facts name is read with them; look at how the facts were made.`,
+		);
+	return menu;
+}
+
+/**
+ * `suite_xml/utils.py::get_select_chain_meta` with its datums
+ * (`entries.py::EntriesHelper.get_datum_meta_module`): the form's own menu,
+ * then each parent selection's menu, read root first, each under its session
+ * variable. Only a basic menu has a chain.
+ */
+function selectionChain(
+	own: Pick<
+		HqMenuFacts,
+		| "moduleKind"
+		| "caseType"
+		| "parentSelect"
+		| "multiSelect"
+		| "inlineSearch"
+		| "searchInstance"
+	>,
+	app: HqAppEntryFacts,
+): DatumMeta[] {
+	if (own.moduleKind !== "Module") return [];
+	const chain: DatumMeta[] = [];
+	const seen = new Set<string>();
+	const datum = (menu: typeof own, id: string): DatumMeta => ({
+		id,
+		caseType: menu.caseType,
+		requiresSelection: true,
+		instance: menu.multiSelect,
+		fromAction: true,
+		search: {
+			inlineSearch: menu.inlineSearch,
+			searchInstance: menu.searchInstance,
+		},
+	});
+	chain.push(datum(own, own.multiSelect ? "selected_cases" : "case_id"));
+	let previous: typeof own = own;
+	while (previous.moduleKind === "Module" && previous.parentSelect !== null) {
+		if (seen.has(previous.parentSelect))
+			throw new Error(
+				`The entry facts' parent selections run in a circle through the menu ${previous.parentSelect}, which CommCare HQ's build refuses.`,
+			);
+		seen.add(previous.parentSelect);
+		const current = menuOf(app, previous.parentSelect);
+		const parents = "parent_".repeat(chain.length);
+		chain.push(
+			datum(
+				current,
+				current.multiSelect ? `${parents}selected_cases` : `${parents}id`,
+			),
+		);
+		previous = current;
+	}
+	return chain.reverse();
+}
+
+/**
+ * `entries.py::EntriesHelper.add_parent_datums`: a child menu's datums
+ * aligned against its root's first form's. A datum whose id a root datum
+ * holds is renamed `<id>_<case type>`; each root datum no worker selects is
+ * carried; a root selection takes the child's next datum where it is the same
+ * case on the same kind of datum, under the root's id.
+ */
+function alignWithRoot(
+	datums: DatumMeta[],
+	rootModule: string | null,
+	app: HqAppEntryFacts,
+	depth: number,
+): DatumMeta[] {
+	if (rootModule === null) return datums;
+	const root = menuOf(app, rootModule);
+	const parentDatums = firstFormDatums(root, app, depth + 1);
+	if (parentDatums.length === 0) return datums;
+	const byId = new Map(datums.map((datum) => [datum.id, datum]));
+	const aligned: DatumMeta[] = [];
+	const remaining = [...datums];
+	for (const parent of parentDatums) {
+		const clash = byId.get(parent.id);
+		if (clash !== undefined)
+			clash.id = `${clash.id}_${clash.caseType ?? "None"}`;
+		if (!parent.requiresSelection) {
+			aligned.push(parent);
+			continue;
+		}
+		const next = remaining[0];
+		if (
+			next !== undefined &&
+			next.caseType === parent.caseType &&
+			next.instance === parent.instance &&
+			next.fromAction
+		) {
+			next.id = parent.id;
+			aligned.push(next);
+			remaining.shift();
+		}
+	}
+	return [...aligned, ...remaining];
+}
+
+/** `EntriesHelper._get_first_forms_datums`: the datums of the menu's first form. */
+function firstFormDatums(
+	menu: HqMenuFacts,
+	app: HqAppEntryFacts,
+	depth: number,
+): DatumMeta[] {
+	if (menu.firstForm === null) return [];
+	const facts = app.forms.get(menu.firstForm);
+	if (facts === undefined)
+		throw new Error(
+			`The entry facts hold no record of the form ${menu.firstForm}, the first form of a menu another menu aligns against. A child menu's session values follow its root's first form; look at why that form has no facts.`,
+		);
+	return formDatums(facts, app, depth);
+}
+
+/**
+ * `EntriesHelper.get_datums_meta_for_form_generic`: a basic form's
+ * (`get_case_datums_basic_module`) or an advanced form's
+ * (`get_datum_meta_assertions_advanced`, then `get_new_case_id_datums_meta`),
+ * with no query datum.
+ */
+function formDatums(
+	facts: HqEntryFacts,
+	app: HqAppEntryFacts,
+	depth: number,
+): DatumMeta[] {
+	if (depth > app.menus.size + 1)
+		throw new Error(
+			"The entry facts' parent menus run in a circle, which CommCare HQ's build refuses.",
+		);
+	const newCase = (id: string, caseType: string): DatumMeta => ({
+		id,
+		caseType,
+		requiresSelection: false,
+		instance: false,
+		fromAction: true,
+	});
+	if (facts.requires === "advanced") {
+		const loads = facts.loads.map(
+			(load): DatumMeta =>
+				load.autoSelect !== null
+					? {
+							id: `case_id_${load.tag}`,
+							caseType: null,
+							requiresSelection: false,
+							instance: false,
+							fromAction: true,
+						}
+					: {
+							id: `case_id_${load.tag}`,
+							caseType: load.caseType,
+							requiresSelection: true,
+							instance: false,
+							fromAction: true,
+						},
+		);
+		return [
+			...alignWithRoot(loads, facts.rootModule, app, depth),
+			...facts.opens.map((open) =>
+				newCase(`case_id_new_${open.caseType}_${open.index}`, open.caseType),
+			),
+		];
+	}
+	const datums: DatumMeta[] =
+		facts.requires === "case" ? selectionChain(facts, app) : [];
+	const caseDatum = datums.at(-1);
+	if (facts.opensCase)
+		datums.push(newCase(`case_id_new_${facts.caseType}_0`, facts.caseType));
+	const offset = facts.opensCase ? 1 : 0;
+	for (const child of facts.newChildCases)
+		datums.push(
+			newCase(
+				`case_id_new_${child.caseType}_${child.index + offset}`,
+				child.caseType,
+			),
+		);
+	if (facts.usesWorkerRecord)
+		datums.push({
+			id: "usercase_id",
+			caseType: "commcare-user",
+			requiresSelection: false,
+			instance: false,
+			fromAction: false,
+		});
+	if (caseDatum !== undefined && facts.groupedTiles)
+		datums.push({
+			id: `${caseDatum.id}_parent_ids`,
+			caseType: null,
+			requiresSelection: false,
+			instance: false,
+			fromAction: false,
+		});
+	return alignWithRoot(datums, facts.rootModule, app, depth);
+}
+
+/**
+ * The session value ids HQ's entry builder gives a form, in order, from the
+ * facts alone: a port of its id rules (`case_id`, a parent selection's
+ * `parent_id`, a child menu's renamed id, a load's `case_id_<tag>`, a new
+ * case's `case_id_new_<type>_<n>`, `usercase_id`, a grouped tile's
+ * `<id>_parent_ids`, a search's query before the selection it supplies), and
+ * of nothing else it builds. It reads `facts` and the app's other records
+ * (the menus a parent menu or a parent selection names, and a root menu's
+ * first form) and no document; a record it needs and the facts lack is an
+ * error, never a guess.
+ */
+export function datumIdsFromFacts(
+	facts: HqEntryFacts,
+	app: HqAppEntryFacts,
+): readonly string[] {
+	const datums = formDatums(facts, app, 0);
+	if (facts.requires === "advanced") return datums.map((datum) => datum.id);
+	// `EntriesHelper.add_remote_query_datums`, after the alignment.
+	return datums.flatMap((datum) =>
+		datum.search?.inlineSearch === true && datum.caseType !== null
+			? [
+					datum.search.searchInstance === null
+						? "results:inline"
+						: `results:${datum.search.searchInstance}`,
+					datum.id,
+				]
+			: [datum.id],
+	);
+}

@@ -2212,6 +2212,8 @@
 			"questions/connect-assessment",
 			"questions/connect-deliver-unit",
 			"questions/connect-task",
+			"questions/connect-deliver-unit-and-task-in-one-form",
+			"questions/connect-learn-and-deliver-blocks-in-one-app",
 			"questions/connect-work-area-update"
 		],
 		"platforms": "n/a",
@@ -2825,6 +2827,7 @@
 			"questions/itemset-filter-lifting-into-predicate",
 			"questions/itemset-filter-outside-predicate",
 			"questions/itemset-over-casedb-or-another-instance-advanced-data-source",
+			"questions/itemset-over-casedb-in-nova-s-case-choices-shape",
 			"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
 			"expressions-and-data/item-list-tag-read-in-any-other-expression",
 			"expressions-and-data/table-tag-in-nova-s-grammar",

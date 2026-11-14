@@ -57,6 +57,13 @@ export const GENERATED_APP_STRING_PATTERNS: readonly string[] = Object.keys(
 
 const GENERATED_MATCHERS = GENERATED_APP_STRING_PATTERNS.map(patternMatcher);
 
+/** The first generated pattern `key` matches at its start, as HQ's `re.match` reads it; undefined
+ *  where it matches none. */
+export function generatedAppStringPattern(key: string): string | undefined {
+	const index = GENERATED_MATCHERS.findIndex((matcher) => matcher.test(key));
+	return index < 0 ? undefined : GENERATED_APP_STRING_PATTERNS[index];
+}
+
 /**
  * The owner of `key` in an app whose languages, Nova's and the target's
  * current ones together, are `codes`.

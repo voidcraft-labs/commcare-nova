@@ -16,6 +16,7 @@ import {
 	type FIELD_DISPLAY_SETTINGS,
 	type Field,
 	type FieldDisplaySettingKey,
+	type FieldKind,
 	fieldDisplayValues,
 	isCaptureFieldKind,
 } from "@/lib/domain";
@@ -39,14 +40,28 @@ export const FIELD_DISPLAY_SETTING_TOKENS: {
 	keypad: { numbers: "numeric" },
 };
 
+/** The token a kind or a container's shape carries, before any setting: what
+ *  `fieldAppearance` writes first, and what the reader of an HQ form reads
+ *  back as the kind's own token. */
+export function kindAppearanceToken(
+	kind: FieldKind,
+	shape: { readonly fieldList?: true } = {},
+): string | undefined {
+	if (kind === "label") return "minimal";
+	if (kind === "section") return "field-list";
+	if (kind === "group" && shape.fieldList === true) return "field-list";
+	if (isCaptureFieldKind(kind)) return UPLOAD_APPEARANCE_BY_CAPTURE_KIND[kind];
+	return undefined;
+}
+
 /** The token a field's own kind or shape carries, before any setting. */
 function kindToken(field: Field): string | undefined {
-	if (field.kind === "label") return "minimal";
-	if (field.kind === "section") return "field-list";
-	if (field.kind === "group" && field.fieldList === true) return "field-list";
-	if (isCaptureFieldKind(field.kind))
-		return UPLOAD_APPEARANCE_BY_CAPTURE_KIND[field.kind];
-	return undefined;
+	return kindAppearanceToken(
+		field.kind,
+		field.kind === "group" && field.fieldList === true
+			? { fieldList: true }
+			: {},
+	);
 }
 
 /** The `appearance` a field's control carries, or undefined for none. The kind's own token first,
