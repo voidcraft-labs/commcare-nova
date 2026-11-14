@@ -622,7 +622,8 @@ export function readRetryWaitMs(retryAfter: number | undefined): number | null;
 
 `readRetryWaitMs(undefined)` is 1,000; a wait of at most 2,000 is itself; a longer one is `null`
 (HQ's minute, hour and day windows are the project space's whole budget, and a wait cannot widen it).
-`readHqJson` sends at most `HQ_READ_SENDS` times, waits with `hq/http.ts::delay(wait, signal)`,
+A `Retry-After` that is no count of seconds (an HTTP date, which HQ never sends) names a wait the
+read cannot take, so its 429 is the answer, as an import's is. `readHqJson` sends at most `HQ_READ_SENDS` times, waits with `hq/http.ts::delay(wait, signal)`,
 and logs each resend at warn with the label. It begins no wait that would outlast its deadline: where
 `Date.now() + wait >= deadline` the 429 is the answer, the comparison `client.ts::importApp` makes
 today with the instant it owns. `deadline` is the instant of `ReadHqJsonOptions` (section 2.3), or
@@ -984,6 +985,8 @@ export interface HqAppBuild {
 }
 
 export interface HqApplication {
+	/** The project space the answer was read from, which `hqApplicationModules` logs. */
+	readonly domain: string;
 	readonly appId: string;
 	readonly name: string;
 	/** The save counter of the document the answer describes. */
@@ -2143,7 +2146,9 @@ the answer does not say which. No block shows HQ's own error text: `menu-unreada
 `app-unreadable-in-hq` name the place and never the message (section 8.3).
 
 Log lines (a developer reads them), each with `domain` and the request kind and never a body:
-`[commcare] <label> rate limited, sending again` (warn), `[commcare] <label> is longer than Nova
+`[commcare] <label> rate limited, sending again` (warn, its `request` the read's label, because
+`readHqJson` holds no `HqRequestKind` and serves reads that have none, such as the worker search;
+its `domain` null where the URL names no project space), `[commcare] <label> is longer than Nova
 reads` (error, unchanged), `[commcare] app list is malformed` (error, for the envelope),
 `[commcare] app list row is malformed` (error, with the row's index),
 `[commcare] API access answer is malformed` (error, a 2xx that is no tastypie list),

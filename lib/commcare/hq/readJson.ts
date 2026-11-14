@@ -49,8 +49,10 @@ export type ReadHqJsonOptions = {
  * `too-large`, `browser-page`, `malformed`) or the status CommCare HQ or its
  * edge gave. A 429 is sent again by `throttle.ts::readRetryWaitMs`, at most
  * `HQ_READ_SENDS` times, and no wait is begun that would outlast the
- * deadline. A read its caller's `cancel` ended answers
- * `{ status: 503, cause: "network" }` and logs nothing.
+ * deadline. A read the deadline or the network cut off, before its headers
+ * or while its body streamed, logs `[commcare] <label> unavailable`. A read
+ * its caller's `cancel` ended answers `{ status: 503, cause: "network" }` and
+ * logs nothing.
  */
 export async function readHqJson(
 	creds: CommCareCredentials,
@@ -94,9 +96,7 @@ async function readWithin(
 		if (response.ok) return readAnswer(response, label, options, signal);
 		const wait =
 			response.status === 429 && sent < HQ_READ_SENDS
-				? readRetryWaitMs(
-						retryAfterMs(response.headers.get("retry-after")) ?? undefined,
-					)
+				? resendWaitMs(response.headers.get("retry-after"))
 				: null;
 		/* A resend the deadline would cut off is no resend: the 429 is the answer. */
 		if (wait === null || Date.now() + wait >= deadline)
@@ -104,6 +104,7 @@ async function readWithin(
 		await response.body?.cancel().catch(() => undefined);
 		log.warn(`[commcare] ${label} rate limited, sending again`, {
 			domain: domainOf(url),
+			request: label,
 			waitMs: wait,
 			sent,
 		});
@@ -112,7 +113,19 @@ async function readWithin(
 	}
 }
 
-/** No answer reached Nova: the deadline, the caller's `cancel`, or the network. */
+/**
+ * The wait before a throttled read is sent again, or null when its 429 is the
+ * answer. A 429 with no `Retry-After` waits `readRetryWaitMs`'s second; one
+ * whose `Retry-After` Nova cannot read as seconds, such as an HTTP date,
+ * names a wait Nova cannot take and is the answer.
+ */
+function resendWaitMs(retryAfter: string | null): number | null {
+	if (retryAfter === null) return readRetryWaitMs(undefined);
+	const named = retryAfterMs(retryAfter);
+	return named === null ? null : readRetryWaitMs(named);
+}
+
+/** No answer reached Nova, or its body stopped: the deadline, the caller's `cancel`, or the network. */
 function unanswered(
 	label: string,
 	signal: AbortSignal,
@@ -151,15 +164,8 @@ async function readAnswer(
 ): Promise<{ readonly data: unknown } | CommCareApiError> {
 	const { maxBytes } = options;
 	const body = await readBoundedBody(response, maxBytes);
-	if (body.kind === "unavailable") {
-		if (signal.aborted && !hqDeadlineReached(signal))
-			return { success: false, status: 503, cause: "network" };
-		return {
-			success: false,
-			status: 503,
-			cause: signal.aborted ? "timeout" : "network",
-		};
-	}
+	/* The headers came and the body did not: as unanswered as no headers. */
+	if (body.kind === "unavailable") return unanswered(label, signal, body.error);
 	if (body.kind === "too-long") {
 		log.error(`[commcare] ${label} is longer than Nova reads`, undefined, {
 			bytes: body.bytes,

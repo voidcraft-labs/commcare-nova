@@ -12,6 +12,7 @@ import {
 	KEPT_FOLLOWS_LINE,
 	KEPT_LABEL_IDS,
 	KEPT_LABELS,
+	KEPT_REFRESH_NOT_REACHED,
 	type KeptRefreshKind,
 	keptLead,
 	keptRefreshSentence,
@@ -99,6 +100,7 @@ describe("the voice of every string", () => {
 		...refreshSentences,
 		keptLead(CONTEXT.date, false),
 		KEPT_FOLLOWS_LINE,
+		KEPT_REFRESH_NOT_REACHED,
 		...keptAdvisories.map((advisory) => advisory.message),
 	];
 	/** Labels and advisory titles: no closing punctuation. */

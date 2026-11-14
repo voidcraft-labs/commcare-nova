@@ -956,9 +956,11 @@ agent designing an app should reason about.
 App setup's Publishing section (`components/builder/app-setup/
 PublishingSection.tsx`) is the durable home of the records — one full
 `DeploymentStatus` card per project space the app has reached, with Check
-status, the Workers panel, and a "Publish again" that reopens the ONE
-publish dialog preseeded to that target through a one-shot session-store
-request, so a retry never grows a second publish flow. The section's read
+status, the Workers panel, and a "Publish again", and the list of what stays
+as it is in CommCare HQ with its date and Refresh from CommCare HQ
+(`components/builder/keptListModel.ts`). "Publish again" reopens
+the ONE publish dialog preseeded to that target through a one-shot
+session-store request, so a retry never grows a second publish flow. The section's read
 authorizes as a `view`, which is what gives a viewer the answer to "where
 is this app" without any control that would be refused.
 
@@ -1025,10 +1027,6 @@ the app.
 - `previewTarget.ts` names the project space Preview resolves
   `commcare_project` to. A slug is the whole answer, so it de-dupes on the
   domain alone.
-- `previewTarget.ts::resolvePreviewFactsTarget` names the one deployment
-  whose kept facts Preview plays (`previewSpace.ts::previewTargetFactsFor`,
-  over `readTargetFacts`). The facts are one deployment's, so it de-dupes on
-  `(server, domain)`: one domain on two servers gives none.
 - `attachmentTarget.ts` names where a capture's case-bound link resolves.
   An origin is part of that answer, so it de-dupes on `(server, domain)` —
   US, India, and EU can hold unrelated project spaces of the same name, and
@@ -1045,6 +1043,11 @@ the app.
   change. Its read deliberately does NOT swallow a fault the way
   `previewSpace.ts` does: degrading to "no target" would silently drop a case
   write from the exported app.
+- `previewSpace.ts::previewTargetFactsFor` names what Preview may read of the
+  kept values, for the one reached `(server, domain)` or not at all. The
+  facts are one deployment's, so `previewTarget.ts::resolvePreviewFactsTarget`
+  de-dupes on `(server, domain)`: one domain on two servers gives none, and
+  the facts come from `readTargetFacts`.
 
 Both are resolution, never authority. A PUBLISH consults neither: an upload
 IS the act of putting the app on a project space, so `preflight.ts` passes

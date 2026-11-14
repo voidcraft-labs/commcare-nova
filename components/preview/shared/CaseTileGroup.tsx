@@ -1,10 +1,11 @@
 // components/preview/shared/CaseTileGroup.tsx
 //
-// One GROUP drawn as a card: the tile's header rows once, from the
-// card's first case, then the tile's body rows once for every case the
-// card holds. The geometry is `CaseTile`'s — this file owns only the
-// stacking, so a grouped list and a flat list can never disagree about
-// what a tile looks like.
+// One GROUP drawn as a card: the tile's header rows once, from the first
+// case the card holds, which under the list filter is the group's first
+// match, then the tile's body rows once for every case the card holds.
+// The geometry is `CaseTile`'s — this file owns only the stacking, so a
+// grouped list and a flat list can never disagree about what a tile
+// looks like.
 //
 // The shape is `commcare-hq/corehq/apps/cloudcare/templates/cloudcare/partials/case_list/tile_grouped_item.html`:
 // a header grid, then a run of body grids, all sharing one grid style.

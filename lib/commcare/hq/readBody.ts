@@ -4,8 +4,8 @@ export type BoundedBody =
 	| { readonly kind: "read"; readonly bytes: Uint8Array }
 	/** The body passed `maxBytes`; `bytes` is how many had arrived when the read was cancelled. */
 	| { readonly kind: "too-long"; readonly bytes: number }
-	/** The stream failed or the deadline's signal aborted it. */
-	| { readonly kind: "unavailable" };
+	/** The stream failed or the deadline's signal aborted it; `error` is what the stream threw. */
+	| { readonly kind: "unavailable"; readonly error: unknown };
 
 /** The whole body, read as a stream so a bound stops the read rather than
  * following it. */
@@ -29,8 +29,8 @@ export async function readBoundedBody(
 			}
 			chunks.push(value);
 		}
-	} catch {
-		return { kind: "unavailable" };
+	} catch (error) {
+		return { kind: "unavailable", error };
 	}
 	const bytes = new Uint8Array(total);
 	let offset = 0;

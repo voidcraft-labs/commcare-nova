@@ -29,7 +29,8 @@ export interface ReadHqCollectionOptions {
 	/**
 	 * How many rows the caller can use. Where a page's `meta.total_count` is a
 	 * number over it, or the rows read so far pass it, the read ends there and
-	 * answers `past-limit`.
+	 * answers `past-limit`. Rows that pass it under a named total that does not
+	 * are malformed.
 	 */
 	readonly stopPast?: number;
 }
@@ -88,7 +89,7 @@ export async function readHqCollection(
 
 	const rows: unknown[] = [];
 	let url = firstUrl;
-	/* The first count a page named, for a `past-limit` the rows reached. */
+	/* The first count a page named, which the rows read may not pass. */
 	let total: number | null = null;
 	/* With no list deadline, `readHqJson` owns a deadline of its own for the page. */
 	const readPages = async (
@@ -123,8 +124,20 @@ export async function readHqCollection(
 				total ??= named;
 				if (named !== null && named > stopPast)
 					return { kind: "past-limit", totalCount: named };
-				if (rows.length > stopPast)
-					return { kind: "past-limit", totalCount: total };
+				if (rows.length > stopPast) {
+					/* Rows past a limit a named total is not over are rows the
+					 * total does not count: the list changed between pages, or
+					 * HQ counted it wrong, and neither is a count to report. */
+					if (total !== null) {
+						log.error(
+							`[commcare] ${label} holds more rows than its total`,
+							undefined,
+							{ total, rows: rows.length },
+						);
+						return { success: false, status: 502, cause: "malformed" };
+					}
+					return { kind: "past-limit", totalCount: null };
+				}
 			}
 			if (body.meta.next === null) return rows;
 			let next: URL;
