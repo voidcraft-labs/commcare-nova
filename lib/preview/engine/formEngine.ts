@@ -1055,7 +1055,9 @@ export class FormEngine {
 		value: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		this.setValue(path, value);
+		/* An answer the platform refused opens no request: Web Apps sends
+		 * Formplayer nothing it refuses. */
+		if (!this.setValue(path, value)) return;
 		await this.settleValueChangesAsync([path], evaluateAsync);
 		await this.reenterActiveScreenAsync(evaluateAsync);
 	}
@@ -1198,8 +1200,11 @@ export class FormEngine {
 
 	/** Set a value and trigger recalculation cascade. Only changed paths
 	 *  are written to the store — Zustand's shallow merge keeps unchanged
-	 *  paths' references stable, so their subscribers skip re-rendering. */
-	setValue(path: string, typed: string): void {
+	 *  paths' references stable, so their subscribers skip re-rendering.
+	 *  Returns whether the instance takes the answer: false for one the
+	 *  platform's number keypad refused, which changes nothing the form reads
+	 *  and so opens no request. */
+	setValue(path: string, typed: string): boolean {
 		/* A Text question with a number keypad plays the platform's keypad:
 		 * Android's box holds only the keys it offers, and Web Apps keeps the
 		 * earlier answer in the instance when its pattern refuses the typed one,
@@ -1228,9 +1233,19 @@ export class FormEngine {
 			this.evaluateWorkInto(affected, updates);
 		}
 
-		/* Re-validate the changed field itself */
+		/* Re-validate the changed field itself. A refused answer's verdict is
+		 * the keypad's own message, which needs no evaluation, so it lands
+		 * here on the worker runtime too, where no request follows. */
 		const latestState = updates[path] ?? current;
-		if (latestState) {
+		if (latestState && !stores) {
+			const refusal = this.answerShapeError(path, value);
+			if (latestState.valid || latestState.errorMessage !== refusal)
+				updates[path] = {
+					...latestState,
+					valid: false,
+					errorMessage: refusal,
+				};
+		} else if (latestState) {
 			if (latestState.touched) {
 				this.validateAndCollect(path, latestState, updates);
 			} else {
@@ -1241,9 +1256,10 @@ export class FormEngine {
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
-		if (!stores) return;
+		if (!stores) return false;
 		this.settleLiveRepeats();
 		if (!this.asyncRuntime) this.reenterActiveScreen();
+		return true;
 	}
 
 	/** What a typed answer leaves for a Text question with a number keypad:
@@ -3595,10 +3611,12 @@ export class FormEngine {
 		values: Map<string, string>;
 		touched: Set<string>;
 		edited: Set<string>;
+		held: Map<string, string>;
 	} {
 		const values = new Map<string, string>();
 		const touched = new Set<string>();
 		const edited = new Set<string>();
+		const held = new Map<string, string>();
 		for (const [path, state] of Object.entries(this.store.getState())) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
 			if (
@@ -3608,11 +3626,15 @@ export class FormEngine {
 				state.edited
 			) {
 				values.set(path, state.value);
+				/* A number keypad's refused answer is shown and not stored: the
+				 * instance keeps the earlier answer, which the rebuild keeps too. */
+				if (!this.keypadAnswer(path, state.value).stores)
+					held.set(path, this.instance.get(path) ?? "");
 			}
 			if (state.touched) touched.add(path);
 			if (state.edited) edited.add(path);
 		}
-		return { values, touched, edited };
+		return { values, touched, edited, held };
 	}
 
 	/** Restore values from a snapshot and re-evaluate expressions. */
@@ -3621,6 +3643,9 @@ export class FormEngine {
 			values: Map<string, string>;
 			touched: Set<string>;
 			edited?: ReadonlySet<string>;
+			/** The instance's answer where the shown value is one the
+			 *  platform's number keypad refused. */
+			held?: ReadonlyMap<string, string>;
 		},
 		options?: { restoreAllValues?: boolean },
 	): void {
@@ -3640,6 +3665,10 @@ export class FormEngine {
 			if (value !== undefined && current) {
 				if (this.keypadAnswer(path, value).stores)
 					this.instance.set(path, value);
+				else {
+					const held = snapshot.held?.get(path);
+					if (held !== undefined) this.instance.set(path, held);
+				}
 				updates[path] = {
 					...current,
 					value,

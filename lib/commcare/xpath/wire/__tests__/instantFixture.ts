@@ -96,10 +96,11 @@ export interface InstantFixture {
 	): WireExpr;
 	lowerRecord(expression: Expression, target?: WireTarget): WireExpr;
 	/** A date-and-time case write of `expression` in the form, as the text
-	 *  CommCare HQ stores (`storedDatetimeWire`). */
+	 *  CommCare HQ stores (`storedDatetimeWire`); `types` as `lowerForm`'s. */
 	storeForm(
 		expression: Expression,
 		clock?: (leaf: Expression) => WireExpr | undefined,
+		types?: ExpressionContext,
 	): WireExpr;
 	/** With `search`: an advanced Search field's condition, which only the
 	 * server search and the case store read but whose values outside the
@@ -222,12 +223,12 @@ export function instantFixture(
 			}),
 		lowerRecord: (expression, target = "suite") =>
 			toWire(expression, { target, types: record }),
-		storeForm: (expression, clock) =>
+		storeForm: (expression, clock, types = form) =>
 			storedDatetimeWire(
 				expression,
 				{
 					target: "xform",
-					types: form,
+					types,
 					form: projection,
 					bindings: { formCaseProperty },
 				},

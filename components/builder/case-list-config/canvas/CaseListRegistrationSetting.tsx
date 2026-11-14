@@ -10,6 +10,7 @@ import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
+import { useAfterEmptySearchOfferBlocked } from "@/lib/doc/hooks/useRegisterFromList";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	afterEmptySearchRegistrationFormOf,
@@ -43,8 +44,10 @@ export interface CaseListRegistrationSettingProps {
  *
  * The offer is disabled with a reason, never withheld: where a platform the
  * app runs on can't have forms read the search, with that platform's line;
- * where the gate refuses every way of offering a form, with the gate's
- * sentence for the new form's batch. A stored offer shows as it is.
+ * while the list always offers another menu's form, with the sentence that
+ * names that offer; where the gate refuses every way of offering a form,
+ * with the gate's sentence for the new form's batch. A stored offer shows as
+ * it is.
  */
 export function CaseListRegistrationSetting({
 	moduleUuid,
@@ -69,6 +72,9 @@ export function CaseListRegistrationSetting({
 	const offering = current !== undefined || choosing;
 	const platforms = useDeclaredPlatforms();
 	const platformLine = platformRefusal("forms-read-search", platforms);
+	/* The list's one registration offer: while it always offers another
+	 * menu's form, this offer would replace that one. */
+	const armBlocked = useAfterEmptySearchOfferBlocked(moduleUuid);
 	/* Each way of offering a form: a new one, or an existing registration
 	 * form leaving the menu. The offer is withheld only when the gate
 	 * refuses all of them. */
@@ -105,7 +111,9 @@ export function CaseListRegistrationSetting({
 		? (gate.create ?? gate[arms[1] ?? "create"])
 		: undefined;
 	const offerRefusal =
-		platformLine !== undefined ? platformPickerLine(platformLine) : gateRefusal;
+		platformLine !== undefined
+			? platformPickerLine(platformLine)
+			: (armBlocked ?? gateRefusal);
 	const offerWithheld = !offering && offerRefusal !== undefined;
 	const actionLabel = slot?.label ?? current?.name;
 	const help =

@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { expandDoc } from "@/lib/commcare/expander";
 import type { BlueprintDoc, SearchInputDef } from "@/lib/domain";
 import { AuthoringInputError } from "../authoring/errors";
 import { AUTHORING_REFERENCE } from "../authoring/reference";
@@ -186,6 +187,53 @@ describe("a list of values in a Search field's condition", () => {
 				"A list of values can be compared only as equal or not equal to a case value.",
 			),
 		});
+	});
+
+	it("refuses a case property among the list's values, which CommCare's search reads as text", async () => {
+		const { h, addRegion } = await fixture();
+		expect(
+			await outcomeOf(
+				addRegion(
+					WHEN_ANSWERED("#case/region = list(#case/case_name, #search/region)"),
+				),
+			),
+		).toEqual({
+			refused: "gate",
+			message: expect.stringContaining(
+				"This search compares two case properties.",
+			),
+		});
+		expect(clients(h.currentDoc()).caseListConfig?.searchInputs ?? []).toEqual(
+			[],
+		);
+	});
+
+	it("prints a stored list as the unwrap-list(...) CommCare's search reads, its search answer filled in on the device", async () => {
+		const { h, addRegion } = await fixture();
+		expect(
+			await outcomeOf(
+				addRegion(
+					WHEN_ANSWERED("#case/region = list('north', #search/region)"),
+				),
+			),
+		).toEqual({ saved: true });
+		const module = expandDoc(h.currentDoc()).modules.find(
+			(candidate) => candidate.search_config.properties.length > 0,
+		);
+		const queries = (module?.search_config.default_properties ?? [])
+			.filter((property) => property.property === "_xpath_query")
+			.map((property) => property.defaultValue);
+		const answer =
+			"instance('search-input:results')/input/field[@name = 'region']";
+		expect(queries).toHaveLength(1);
+		// The answer sits inside the JSON list; one that would break it sends
+		// `match-none()`, and an unanswered field leaves the condition out.
+		expect(queries[0]).toContain(
+			`concat('region = unwrap-list(', "'", '["north","', ${answer}, '"]', "'", ')')`,
+		);
+		expect(queries[0]).toMatch(
+			/^if\(count\(.*'match-none\(\)'.*'match-all\(\)'\)$/,
+		);
 	});
 
 	it("refuses list() with no value", async () => {

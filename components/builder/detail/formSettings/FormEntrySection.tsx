@@ -30,7 +30,10 @@ import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
-import { useCaseListsOffering } from "@/lib/doc/hooks/useRegisterFromList";
+import {
+	useAfterEmptySearchOfferBlocked,
+	useCaseListsOffering,
+} from "@/lib/doc/hooks/useRegisterFromList";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import {
 	caseSelectionCardinality,
@@ -87,8 +90,13 @@ export function FormEntrySection({
 			slot === undefined &&
 			platformLine === undefined,
 	);
+	/* The list's one registration offer: while it always offers another
+	 * menu's form, offering this one would replace that one. */
+	const armBlocked = useAfterEmptySearchOfferBlocked(moduleUuid);
 	const offerRefusal =
-		platformLine !== undefined ? platformPickerLine(platformLine) : gate.offer;
+		platformLine !== undefined
+			? platformPickerLine(platformLine)
+			: (armBlocked ?? gate.offer);
 	const [carried, setCarried] = useState("");
 	const [carryRefusal, setCarryRefusal] = useState<string | undefined>(
 		undefined,
@@ -172,7 +180,7 @@ export function FormEntrySection({
 					className="text-[13px] leading-relaxed text-nova-text-secondary"
 					data-form-offered-on
 				>
-					{alsoOfferedOnLine(offeredBy.map((host) => host.hostName))}.{" "}
+					{alsoOfferedOnLine(offeredBy.map((host) => host.hostName))}{" "}
 					{offeredBy.map((host, index) => (
 						<Fragment key={host.hostModuleUuid}>
 							{index > 0 && " "}

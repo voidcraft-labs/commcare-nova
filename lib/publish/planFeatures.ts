@@ -193,22 +193,23 @@ export const FORM_ENTRY_SYNC_OFF: ProjectSpaceSettingConfirmation = {
 
 /**
  * Whether the project space has CommCare Supply turned off. Where it is on,
- * HQ's build adds steps Nova did not write: a product to choose on an
- * advanced menu's case list menu item, and a datum from the worker's supply
- * point, with assertions, on a form whose source names the session's supply
- * point (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`).
- * No API key reads the setting, and HQ's CommTrack feature flag can differ
- * from it either way, so a person confirms it.
+ * HQ's build adds a product to choose on an advanced menu's case list menu
+ * item (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`).
+ * Its other step, a datum from the worker's supply point on a form whose
+ * source names the session's supply point, no admitted app's source can ask
+ * for (`lib/commcare/planPrivileges.ts::commtrackReasons`), so the copy speaks
+ * of the menu alone. No API key reads the setting, and HQ's CommTrack feature
+ * flag can differ from it either way, so a person confirms it.
  */
 export const COMMTRACK_OFF: ProjectSpaceSettingConfirmation = {
 	label: "CommCare Supply turned off",
 	consequence:
-		"With it on, CommCare HQ adds steps this app doesn't have: an advanced menu's case list asks workers to choose a product first, and a form that names the session's supply point opens only for workers assigned one.",
+		"With it on, CommCare HQ adds a step this app doesn't have: an advanced menu's case list asks workers to choose a product first.",
 	question: (space) =>
 		`Does “${space}” have CommCare Supply turned off? It's off unless Dimagi turned it on for the project space.`,
 	confirmLabel: "It's off",
 	whereMissing:
-		"Only Dimagi Support can turn CommCare Supply off, and that changes every app in the project space. Where it stays on, you can turn off the case list menu item of each advanced menu named here and take the supply point text out of each form named here, and then the setting no longer matters to this app.",
+		"Only Dimagi Support can turn CommCare Supply off, and that changes every app in the project space. Where it stays on, you can turn off the case list menu item of each advanced menu named here, and then the setting no longer matters to this app.",
 };
 
 /** The project-space settings a publish asks about, in every surface's order. */

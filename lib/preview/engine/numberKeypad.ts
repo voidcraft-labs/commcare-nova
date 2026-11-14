@@ -4,8 +4,8 @@
 // a number keypad (`keypad: "numbers"`). The answer is text on both; Web Apps
 // refuses an answer its pattern does not match and keeps the earlier one,
 // and Android limits the keys, so its box holds only the characters its
-// keypad offers. `formEngine.ts` reads both through the platform's
-// `numberKeypad` rule.
+// keypad offers, a + or - only as its first character and one period.
+// `formEngine.ts` reads both through the platform's `numberKeypad` rule.
 
 import type { PreviewPlatformRules } from "../platform";
 
@@ -15,15 +15,25 @@ export const WEB_APPS_NUMBER_KEYPAD_ANSWER = /^[+-]?\d*(\.\d+)?$/;
 /** The keys Android's widget accepts, `StringNumberWidget.java`. */
 export const ANDROID_NUMBER_KEYPAD_KEYS = "0123456789.-+ ";
 
-/** What typing leaves in the box: on Android, the text without the keys the keypad lacks. */
+/** What typing leaves in the box: on Android, the text without the keys the
+ *  keypad lacks, a + or - kept only as the box's first character, and only
+ *  the first period kept, as a phone's key listener keeps them. */
 export function numberKeypadTyped(
 	rule: PreviewPlatformRules["numberKeypad"],
 	raw: string,
 ): string {
 	if (rule === "pattern") return raw;
 	let typed = "";
-	for (const character of raw)
-		if (ANDROID_NUMBER_KEYPAD_KEYS.includes(character)) typed += character;
+	let holdsPeriod = false;
+	for (const character of raw) {
+		if (!ANDROID_NUMBER_KEYPAD_KEYS.includes(character)) continue;
+		if ((character === "+" || character === "-") && typed !== "") continue;
+		if (character === ".") {
+			if (holdsPeriod) continue;
+			holdsPeriod = true;
+		}
+		typed += character;
+	}
 	return typed;
 }
 

@@ -271,8 +271,8 @@ a Connect forwarder for an app whose forms hold a Connect block, and sync on
 form entry turned off for an Android app with a form that works on a case
 chosen in a menu with Search (`planPrivileges.ts::formEntrySyncReasons`), and
 CommCare Supply turned off for an app with an advanced menu whose case list is
-its own menu item, or a form whose source text names the session's supply
-point (`planPrivileges.ts::commtrackReasons`)
+its own menu item (`planPrivileges.ts::commtrackReasons`, whose form half is a
+guard no admitted source meets)
 (`confirmations.ts::requiredConfirmations`). The edge and the pre-publish
 check (`service.ts::projectSpaceConfirmations`, which lists nothing until a
 project space is chosen) read the needs through one helper,

@@ -254,8 +254,9 @@ export type InstantComparisonKind = "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
  * - `coerced-text`: a `datetime-coerce` of text, a date or a date and time;
  * - `epoch-days`: a `datetime-coerce` of a number of days since 1970-01-01;
  * - `day-only`: `date_opened` or `last_modified` read from `casedb`, which
- *   Core holds as the device's day (`CaseChildElement.java`, `DateData`), or
- *   a search result's `date_opened`, text HQ writes as the UTC day;
+ *   Core holds as the device's day (`CaseChildElement.java`, `DateData`),
+ *   `held` `date`; or a search result's `date_opened`, text HQ writes as the
+ *   UTC day, `held` `string`;
  * - `clock-lost`: a date and time some value of which kept only its day;
  * - `not-instant`: a value that names no moment (blank, text, a number, a
  *   date), `data` its type;
@@ -285,6 +286,7 @@ export type InstantLeaf =
 			readonly class: "day-only";
 			readonly value: Expression;
 			readonly property: "date_opened" | "last_modified";
+			readonly held: "date" | "string";
 	  }
 	| {
 			readonly kind: "leaf";
@@ -441,9 +443,18 @@ function byType(
 	if (data === "datetime") {
 		// A casedb system date is held as Core's day; a search result's
 		// `date_opened` is text that names a day.
-		const property = held === "date" ? systemDateRead(value) : type?.dayText;
-		if (property !== undefined)
-			return { kind: "leaf", class: "day-only", value, property };
+		if (held === "date") {
+			const property = systemDateRead(value);
+			if (property !== undefined)
+				return { kind: "leaf", class: "day-only", value, property, held };
+		} else if (type?.dayText !== undefined)
+			return {
+				kind: "leaf",
+				class: "day-only",
+				value,
+				property: type.dayText,
+				held: "string",
+			};
 		if (held === "date") return { kind: "leaf", class: "typed", value };
 		if (held === "string") return { kind: "leaf", class: "text", value };
 		return {

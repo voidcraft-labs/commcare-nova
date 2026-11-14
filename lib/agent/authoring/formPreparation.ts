@@ -534,6 +534,47 @@ export function prepareFormAuthoring(args: {
 					? object.parse(input.updates)
 					: { optionsSource: input.source };
 			fields.set(id, fieldDeclaration(raw, id, previous.parent, previous));
+		} else if (uuid === formUuid && toolName === "setFormSections") {
+			/* The form as the partition leaves it: each page at the form's
+			 * root in the order given, a new page declared under the identity
+			 * the call's identity pass gave it, and each named question under
+			 * its page. A question the form does not hold is the planner's to
+			 * refuse. */
+			const sections = objects.parse(input.sections);
+			if (sections.length > 0) {
+				const pages: Uuid[] = [];
+				for (const [index, section] of sections.entries()) {
+					const page = uuidSchema.parse(section.sectionUuid);
+					const previous = fields.get(page);
+					fields.set(
+						page,
+						fieldDeclaration(
+							previous === undefined
+								? {
+										kind: "section",
+										id: `section_${index + 1}`,
+										label: section.label,
+									}
+								: { label: section.label },
+							page,
+							uuid,
+							previous,
+						),
+					);
+					const members = z
+						.array(uuidSchema)
+						.parse(section.fields)
+						.filter((member) => fields.has(member));
+					for (const member of members) {
+						const field = fields.get(member);
+						if (field !== undefined)
+							fields.set(member, { ...field, parent: page });
+					}
+					order.set(page, members);
+					pages.push(page);
+				}
+				order.set(uuid, pages);
+			}
 		}
 		const links = new Map(saved.links);
 		const otherwiseLink =

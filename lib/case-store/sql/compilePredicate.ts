@@ -457,7 +457,9 @@ function compileEquality(
  * A `''` item matches a blank value. HQ indexes every property a case holds,
  * blank ones included, and a device's blank answer writes `''`; Nova stores
  * that blank as the key's absence (`submissionEnvelope.ts::storageValueFromEvaluation`),
- * so the item matches a property absent or empty. A row matching no item is
+ * so the item matches a property absent or empty. HQ's terms query misses a
+ * case that never held the property, which Nova's storage does not tell
+ * apart from one written blank (`lib/case-store/sql/CLAUDE.md`). A row matching no item is
  * false, never unknown, and `!=` is the two-valued negation of this atom
  * (`not coalesce(... , false)`), HQ's `NOT(terms)`. Each item is decided
  * before the query runs: a CSQL slot's fold has already made a runtime item,

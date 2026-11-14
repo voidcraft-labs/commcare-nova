@@ -202,6 +202,53 @@ describe("planGeneratedNodes", () => {
 		]);
 	});
 
+	it("names a clock node after every other name of its scope, past an operation's block of that name, and the same on a second ask", () => {
+		const { doc, formUuid } = collisionDoc();
+		doc.forms[formUuid].caseOperations = [
+			...(doc.forms[formUuid].caseOperations ?? []),
+			{
+				uuid: "clocked" as Uuid,
+				id: "nova_instant_make_1",
+				action: "close",
+				caseType: "patient",
+				target: { kind: "session" },
+			},
+		];
+		const asked = planGeneratedNodes(doc, formUuid);
+		const first = asked.instant("make" as Uuid, 1);
+		const second = asked.instant("make" as Uuid, 2);
+		// An operation's block holds the first base, so the node takes `_1`.
+		expect([first, second]).toEqual([
+			"nova_instant_make_1_1",
+			"nova_instant_make_2",
+		]);
+		// Asked again, the same names, and no new node.
+		const count = asked.nodes.length;
+		expect(asked.instant("make" as Uuid, 1)).toBe(first);
+		expect(asked.instant("make" as Uuid, 2)).toBe(second);
+		expect(asked.nodes.length).toBe(count);
+		expect(
+			asked.nodes
+				.filter((node) => node.purpose === "instant")
+				.map((node) => [node.owner, node.name]),
+		).toEqual([
+			["make", first],
+			["make", second],
+		]);
+		// Asked before every other name, a clock node still takes its name
+		// after them: no other name moves.
+		const { nodes: _askedNodes, ...withClock } = names(doc, formUuid, asked);
+		const { nodes: _plainNodes, ...without } = names(
+			doc,
+			formUuid,
+			planGeneratedNodes(doc, formUuid),
+		);
+		expect(withClock).toEqual(without);
+		expect(() => asked.instant("missing" as Uuid, 1)).toThrow(
+			/clock node of case operation missing/,
+		);
+	});
+
 	it("gives a copy of a document the plan the document has", () => {
 		const { doc, formUuid } = collisionDoc();
 		const copy = structuredClone(doc);

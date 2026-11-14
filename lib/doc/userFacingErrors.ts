@@ -128,6 +128,31 @@ const det = (e: ValidationError, key: string, fallback: string): string =>
 const lowerFirst = (subject: string): string =>
 	subject.charAt(0).toLowerCase() + subject.slice(1);
 
+/**
+ * Why a Search condition's list of values stands where CommCare's search
+ * can't compare one, by the `placement` CSQL representability gives: opposite
+ * a date and time, opposite a value that is no property of the app's own or
+ * the case type, or (absent) beside a verb that is neither "is" nor "isn't".
+ */
+function valueListPlacementCopy(
+	subject: string,
+	details: Readonly<Record<string, string>> | undefined,
+): string {
+	const property = details?.property;
+	const label =
+		property === undefined
+			? undefined
+			: q(standardCasePropertyDisplayLabel(property));
+	switch (details?.placement) {
+		case "moment":
+			return `${subject} compares ${label ?? "a date and time"} with a list of values. CommCare's search matches each listed value by its exact text, not by the moment it names. You can compare ${label ?? "it"} with each value in its own condition instead.`;
+		case "anchor":
+			return `${subject} compares ${label ?? "this value"} with a list of values. CommCare's search can compare a list of values only with case information your app saves, or with the case type. You can compare ${label ?? "it"} with each value in its own condition instead.`;
+		default:
+			return `${subject} compares a list of values in a way CommCare's search can't. A list of values can be compared only as equal or not equal to a case value.`;
+	}
+}
+
 /** The case operation's authored id, or "this case change". */
 const opName = (e: ValidationError): string =>
 	det(e, "operationId", "this case change");
@@ -1194,7 +1219,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			case "raw-argument-not-evaluated":
 				return `${subject} gives the search a value to work out. CommCare's search uses this value as written and won't calculate it. Choose a fixed value or one the device can work out.`;
 			case "value-list-placement":
-				return `${subject} compares a list of values in a way CommCare's search can't. A list of values can be compared only as equal or not equal to a case value.`;
+				return valueListPlacementCopy(subject, e.details);
 			case "system-datetime-value": {
 				const label = standardCasePropertyDisplayLabel(
 					det(e, "property", "date_opened"),

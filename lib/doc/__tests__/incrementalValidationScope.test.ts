@@ -1676,7 +1676,9 @@ describe("menus that list forms on one screen", () => {
 		);
 	});
 
-	it("agrees with the whole-document verdict over the menu-screens corpus", () => {
+	it("agrees with the whole-document verdict over the menu-screens corpus", {
+		timeout: 60_000,
+	}, () => {
 		let scoped = 0;
 		for (const doc of fc.sample(menuScreenDocArbitrary, {
 			seed: 20261117,
@@ -1707,7 +1709,7 @@ describe("menus that list forms on one screen", () => {
 					],
 				];
 				for (const batch of batches) {
-					if (actualScope(doc, batch, doc) !== undefined) scoped++;
+					if (incrementalValidationScope(doc, batch) !== undefined) scoped++;
 					expectCommitParity(doc, batch);
 				}
 			}

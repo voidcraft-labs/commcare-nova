@@ -5,18 +5,23 @@
  *
  * Over a document `suiteDocArbitrary` draws, the second module is nested
  * under the first where the draw says so (the shape the workflow corpus
- * nests), each module is drawn to show its forms in the menu above, and one
- * form may hold an after-submit link to another form and one form an entry
- * point. So the corpus meets every shape `lib/domain/menuScreens.ts` names:
- * a top-level menu above, a submenu above in a parent that keeps its screen,
- * a submenu above under a parent above, a submenu that keeps its screen
- * under a parent above, and links and entry points into each.
+ * nests), each module is drawn to show its forms in the menu above, one
+ * form may hold an after-submit link to another form, one form an entry
+ * point, and one registration form may be offered by a case list that
+ * always offers it (`caseListRegistrationForm`'s `always` arm): a bare case
+ * list of the form's case type, added at the top level or under the first
+ * module, returning to its list or on with the new case. So the corpus meets
+ * every shape `lib/domain/menuScreens.ts` names: a top-level menu above, a
+ * submenu above in a parent that keeps its screen, a submenu above under a
+ * parent above, a submenu that keeps its screen under a parent above, and
+ * links, entry points and Register returns into each.
  *
  * Every document the corpus holds is one the commit gate admits. A menu
  * drawn above loses its search, which the gate refuses there, and a form
  * whose display condition reads a case its screen no longer chooses first
  * loses that condition. Where the drawn edits are still refused, the link
- * goes first, then the entry point, then the slot from the last module
+ * goes first, then the entry point, then the Register host's place under the
+ * first module, then the Register host, then the slot from the last module
  * drawn to the first, until the gate admits what is left. The edits are applied after the draw with no
  * random call of their own, so a draw of `suiteDocArbitrary` is the same
  * whether or not this arbitrary reads it.
@@ -27,8 +32,12 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
+	CASE_LIST_REGISTRATION_RETURNS,
+	type CaseListRegistrationReturn,
 	moduleShowsFormsInMenuAbove,
+	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
@@ -36,12 +45,25 @@ import { suiteDocArbitrary } from "./suiteDocArbitrary";
 /** The link and the entry point the draw may add. */
 export const MENU_SCREENS_LINK = testUuid("menu-screens-link");
 export const MENU_SCREENS_ENTRY_POINT = testUuid("menu-screens-entry-point");
+/** The bare case list the draw may add, which always offers a registration
+ *  form of another menu, and its one column. */
+export const MENU_SCREENS_REGISTER_HOST = testUuid(
+	"menu-screens-register-host",
+);
+const MENU_SCREENS_REGISTER_COLUMN = testUuid("menu-screens-register-column");
 
 interface MenuScreenDraw {
 	readonly nest: boolean;
 	readonly above: readonly boolean[];
 	readonly link: { readonly from: number; readonly to: number } | undefined;
 	readonly entryPoint: number | undefined;
+	readonly register:
+		| {
+				readonly form: number;
+				readonly nested: boolean;
+				readonly afterSubmit: CaseListRegistrationReturn;
+		  }
+		| undefined;
 }
 
 const drawArbitrary: fc.Arbitrary<MenuScreenDraw> = fc.record({
@@ -51,6 +73,14 @@ const drawArbitrary: fc.Arbitrary<MenuScreenDraw> = fc.record({
 		nil: undefined,
 	}),
 	entryPoint: fc.option(fc.nat(15), { nil: undefined }),
+	register: fc.option(
+		fc.record({
+			form: fc.nat(15),
+			nested: fc.boolean(),
+			afterSubmit: fc.constantFrom(...CASE_LIST_REGISTRATION_RETURNS),
+		}),
+		{ nil: undefined },
+	),
 });
 
 /** Every form with the module holding it, in module then form order. */
@@ -93,6 +123,57 @@ interface Edits {
 	readonly above: readonly Uuid[];
 	readonly link: { readonly source: Uuid; readonly target: Uuid } | undefined;
 	readonly entryPoint: Uuid | undefined;
+	readonly register:
+		| {
+				readonly formUuid: Uuid;
+				readonly nested: boolean;
+				readonly afterSubmit: CaseListRegistrationReturn;
+		  }
+		| undefined;
+}
+
+/** Adds the bare case list of the registration form's case type that always
+ *  offers it, under the first module where `nested` says so, else after
+ *  every module. */
+function addRegisterHost(
+	doc: BlueprintDoc,
+	register: NonNullable<Edits["register"]>,
+): void {
+	const { formUuid, nested, afterSubmit } = register;
+	const formModule = formsInOrder(doc).find(
+		(f) => f.formUuid === formUuid,
+	)?.moduleUuid;
+	const caseType =
+		formModule === undefined ? undefined : doc.modules[formModule]?.caseType;
+	if (caseType === undefined) return;
+	const [root] = doc.moduleOrder;
+	const parent = nested ? root : undefined;
+	const column = plainColumn(MENU_SCREENS_REGISTER_COLUMN, "case_name", "Name");
+	doc.modules[MENU_SCREENS_REGISTER_HOST] = {
+		uuid: MENU_SCREENS_REGISTER_HOST,
+		id: "register_host",
+		name: "Register host",
+		caseType,
+		...(parent !== undefined && { parentModuleUuid: parent }),
+		caseListConfig: {
+			columns: [column],
+			listColumnOrder: [column.uuid],
+			detailColumnOrder: [column.uuid],
+			searchInputs: [],
+		},
+		caseListMenuItem: {},
+		caseListRegistrationForm: { kind: "always", formUuid, afterSubmit },
+	};
+	doc.formOrder[MENU_SCREENS_REGISTER_HOST] = [];
+	// A child follows its parent's block, which `moduleOrder` keeps whole.
+	const at =
+		parent === undefined
+			? doc.moduleOrder.length
+			: doc.moduleOrder.findLastIndex(
+					(uuid) =>
+						uuid === parent || doc.modules[uuid]?.parentModuleUuid === parent,
+				) + 1;
+	doc.moduleOrder.splice(at, 0, MENU_SCREENS_REGISTER_HOST);
 }
 
 /** The nested draw with the edits applied. */
@@ -126,6 +207,7 @@ function applied(base: BlueprintDoc, edits: Edits): BlueprintDoc {
 			...doc.forms[edits.entryPoint],
 			entryPoint: { uuid: MENU_SCREENS_ENTRY_POINT, id: "menu-screens-entry" },
 		};
+	if (edits.register !== undefined) addRegisterHost(doc, edits.register);
 	rebuildFieldParent(doc);
 	return doc;
 }
@@ -153,13 +235,32 @@ export function withMenuScreens(
 			? { source, target }
 			: undefined;
 	let entryPoint = pick(draw.entryPoint);
+	const registrations = forms.filter(
+		(f) => base.forms[f.formUuid]?.type === "registration",
+	);
+	const registerForm =
+		draw.register === undefined || registrations.length === 0
+			? undefined
+			: registrations[draw.register.form % registrations.length]?.formUuid;
+	let register =
+		draw.register === undefined || registerForm === undefined
+			? undefined
+			: {
+					formUuid: registerForm,
+					nested: draw.register.nested,
+					afterSubmit: draw.register.afterSubmit,
+				};
 	for (;;) {
-		const doc = admittedWithRepairs(applied(base, { above, link, entryPoint }));
+		const edits = { above, link, entryPoint, register };
+		const doc = admittedWithRepairs(applied(base, edits));
 		if (doc !== undefined) return doc;
 		if (link !== undefined) link = undefined;
 		else if (entryPoint !== undefined) entryPoint = undefined;
+		else if (register?.nested === true)
+			register = { ...register, nested: false };
+		else if (register !== undefined) register = undefined;
 		else if (above.length > 0) above = above.slice(0, -1);
-		else return applied(base, { above, link, entryPoint });
+		else return applied(base, edits);
 	}
 }
 
@@ -176,6 +277,9 @@ export interface MenuScreensCensus {
 	submenuUnderParentAbove: number;
 	link: number;
 	entryPoint: number;
+	register: number;
+	registerUnderParent: number;
+	registerNewCase: number;
 }
 
 export function emptyMenuScreensCensus(): MenuScreensCensus {
@@ -187,6 +291,9 @@ export function emptyMenuScreensCensus(): MenuScreensCensus {
 		submenuUnderParentAbove: 0,
 		link: 0,
 		entryPoint: 0,
+		register: 0,
+		registerUnderParent: 0,
+		registerNewCase: 0,
 	};
 }
 
@@ -220,4 +327,11 @@ export function countMenuScreens(
 	const forms = Object.values(doc.forms);
 	if (forms.some((form) => form.formLinks !== undefined)) census.link++;
 	if (forms.some((form) => form.entryPoint !== undefined)) census.entryPoint++;
+	const register = alwaysOfferedRegistrationOf(doc, MENU_SCREENS_REGISTER_HOST);
+	if (register !== undefined) {
+		census.register++;
+		if (doc.modules[MENU_SCREENS_REGISTER_HOST]?.parentModuleUuid !== undefined)
+			census.registerUnderParent++;
+		if (register.afterSubmit === "new-case") census.registerNewCase++;
+	}
 }

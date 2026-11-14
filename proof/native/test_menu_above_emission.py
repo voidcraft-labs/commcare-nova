@@ -23,6 +23,8 @@ DOCUMENTS = (
     "forms-in-menu-above-registration-only",
     "register-from-case-list",
     "register-from-case-list-web-apps",
+    "register-from-case-list-other-returns",
+    "register-from-case-list-web-apps-other-returns",
 )
 CONTROLS = ("step-back-control", "two-registrations-control")
 SELECTORS = ("menu", "entry/stack", "endpoint")

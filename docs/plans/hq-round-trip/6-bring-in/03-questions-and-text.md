@@ -442,7 +442,9 @@ the Android framework's and in no pinned checkout, so what the widget's text can
 run. `proof/android/test_form_reads.py` enters `+1 555-1234`, `1.2.3`, `12+` and `a1` into the
 question's widget, through the widget's own filters at the reader's Android runtime, and reads the
 answer each leaves. `a1` is the control: a read that stores it whole did not pass the widget's
-filter and is no evidence, and the test is corrected until it stores `1`.
+filter and is no evidence, and the test is corrected until it stores `1`. The lane read outcome B
+with both rules: `+1 555-1234` is kept as `+1 5551234`, `1.2.3` as `1.23`, `12+` as `12` and `a1`
+as `1`, and outcome B is what is built.
 - *A: the first three are stored as typed and `a1` as `1`.* `numberKeypadTyped` filters characters
   only, as 3.6 writes it, and the Android note of 3.4 stands.
 - *B: a sign after the first character, or a second period, is dropped, and a space is kept.* After
@@ -744,7 +746,7 @@ Lifecycle: alive in Vellum's palette, HQ's type table and both runtimes.
 | Core | keeps the string on the question (`XFormParser.java`, the control's `setAppearanceAttr`) and reads nothing from it; the value is `StringData` |
 | Formplayer | sends it as `style.raw` and the datatype `str` (`PromptToJson.java::parseStyle`, `parseQuestion`) |
 | Web Apps | where `numeric` is one of the space-separated tokens (`form_ui.js::getMatchingStyles`) draws `PhoneEntry` (`entries.js::getEntry`): a text box with `inputmode="tel"` that stores an answer only where it matches `^[+-]?\d*(\.\d+)?$`, and otherwise shows "This does not appear to be a valid phone/numeric number" and keeps the earlier answer |
-| Android | where the whole appearance equals `numeric` or `numbers`, in any case, builds `StringNumberWidget` (`WidgetFactory.java::buildBasicWidget`): a keypad whose key listener's accepted characters are the digits and `.`, `-`, `+` and space (`getAcceptedChars`), and whose answer is the widget's text. The listener is `DigitsKeyListener(true, true)`, and what its own filter does with a sign after the first character or a second period is not in a pinned checkout (read, not run: G5) |
+| Android | where the whole appearance equals `numeric` or `numbers`, in any case, builds `StringNumberWidget` (`WidgetFactory.java::buildBasicWidget`): a keypad whose key listener's accepted characters are the digits and `.`, `-`, `+` and space (`getAcceptedChars`), and whose answer is the widget's text. The listener is `DigitsKeyListener(true, true)`, and what its own filter does with a sign after the first character or a second period is not in a pinned checkout; the lane's Android reader shows it keeps a `+` or `-` only as the answer's first character and only the first period (read, not run: G5) |
 
 The answer is text on every reader, so a leading zero and a plus sign are kept, which is the point of
 the question.
@@ -807,7 +809,9 @@ not refusable (both platforms run it), with the row:
 	},
 	android: {
 		reading: "runs",
-		note: "the keypad offers digits, a period, a dash, a plus and a space",
+		note:
+			"the keypad offers digits, a period, a dash, a plus and a space; a + or - only " +
+			"starts the answer, and it takes one period",
 	},
 },
 ```
@@ -816,7 +820,7 @@ not refusable (both platforms run it), with the row:
 `lib/domain/__tests__/platformFeatureFixtures.ts` gains its fixture (a Text question with and without
 `keypad`, use `slotUse("number-keypad", FIELD_OWNER, "keypad")`). The use is found by 2.2's generic
 detector. Because the row is not refusable it has no refusal copy, no picker line and no cause word.
-The Android note is G5's outcome A; outcome B or C gives the note written there.
+The Android note is G5's outcome B with both of its clauses, as the lane read it.
 
 ### 3.5 The builder
 
@@ -871,7 +875,8 @@ with `"pattern"` for `web-apps` and `"keys"` for `android`. New file
 export const WEB_APPS_NUMBER_KEYPAD_ANSWER = /^[+-]?\d*(\.\d+)?$/;
 /** The keys Android's widget accepts, `StringNumberWidget.java`. */
 export const ANDROID_NUMBER_KEYPAD_KEYS = "0123456789.-+ ";
-/** What typing leaves in the box: on Android, the text without the keys the keypad lacks. */
+/** What typing leaves in the box: on Android, the text without the keys the keypad lacks, a + or -
+ *  kept only as the box's first character, and only the first period kept. */
 export function numberKeypadTyped(rule: PreviewPlatformRules["numberKeypad"], raw: string): string;
 /** Whether the engine stores the answer: on Web Apps, only one the pattern matches. */
 export function numberKeypadStores(rule: PreviewPlatformRules["numberKeypad"], raw: string): boolean;
@@ -885,8 +890,9 @@ blocks Submit and shows on blur), and the earlier answer stays in the instance. 
 `readNumericAnswer` does for a whole number, which writes the typed text to the instance and marks the
 state invalid; `PhoneEntry` sends Formplayer nothing it refuses, so the keypad's refusal changes nothing
 the form reads. `TextField.tsx` sets `inputMode="tel"`
-for such a question on both platforms. `numberKeypadTyped` under `"keys"` is G5's outcome A (a
-character filter); outcome B or C gives the rule written there.
+for such a question on both platforms. `numberKeypadTyped` under `"keys"` is G5's outcome B: after
+its character filter a `+` or `-` is kept only as the answer's first character, and only the first
+period is kept.
 
 `lib/preview/__tests__/platformCells.ts` gains
 `"questions/phone-number-xsd-string-appearance-numeric@web-apps": browser("number-keypad-web-apps")`,
@@ -2108,8 +2114,11 @@ classified `config` in `NON_REFERENCE_FIELD_PATHS`.
 hold the same help text, `**bold** and a [link](https://example.org)`, one with `plainHelp` and one
 without, beside a hint and a validation message typed with the same symbols, and a second form
 holding `plainText` with a label, a choice and a help text. Its assertion is the Android read of G4.
-Proof 4 holds that a save in the form builder adds no formatted copy to the hint and reopens the
-second form with the property set.
+Proof 4 compares each save after the spelling rules, and `hint-validation-markdown-form` and
+`vellum-attributes` erase exactly those two changes, so `proof/editors/test_text_formatting_saves.py`
+reads them before any rule, from what HQ stores after two form builder saves of each form: a save adds
+no formatted copy to the hint, the validation message or the `plainHelp` help, keeps the other
+help's copy, and reopens the second form with the property set and no copy on any text.
 
 ### 8.2 Hints and validation messages write no formatted copy
 
@@ -2560,7 +2569,7 @@ Every string this part adds or changes. Voice: `design/readme.md`, "Content fund
 | New question's label | `New Phone Number` |
 | `KeypadEditor` label | `Number keypad` |
 | `KeypadEditor` line | `Workers type on a number keypad. The answer is kept as text, so a leading zero or a + stays.` |
-| `PLATFORM_FEATURES["number-keypad"]` | label `Number keypad`; the two notes of 3.4. The Android note there is G5's outcome A; under outcome B or C it is the note that outcome writes in "Written and not yet run", and the Web Apps note stands under every outcome |
+| `PLATFORM_FEATURES["number-keypad"]` | label `Number keypad`; the two notes of 3.4. The Android note there is G5's outcome B with both clauses, `the keypad offers digits, a period, a dash, a plus and a space; a + or - only starts the answer, and it takes one period`, and the Web Apps note stands as written |
 | `runtimeMessages.ts`, `numberKeypadAnswer` (English) | `This answer takes digits, with an optional + or - in front and an optional decimal part.` |
 | the same (Spanish) | `Esta respuesta admite dígitos, con un + o un - opcional al principio y una parte decimal opcional.` |
 | Scenario `number-keypad-web-apps`, `describe` | as 3.6 writes it |
@@ -2578,6 +2587,8 @@ Every string this part adds or changes. Voice: `design/readme.md`, "Content fund
 | Popover title | `Calculated value` |
 | Popover buttons | `Insert`, `Save`, `Remove` |
 | Popover, empty formula (the editor's placeholder) | `A formula's result shows here` |
+| `useParseProseValue`, an empty formula saved by the editor's keymap while **Insert** or **Save** is disabled | `A calculated value needs a formula. You can write one here.` |
+| `useParseProseValue`, a text whose prose slot no longer exists (as `useParseFormExpression` words it for an expression) | `This text's place in the app changed. Reopen it to use the latest version.` |
 | Unresolved value chip | `Calculated value needs repair` |
 | `projectProseTemplate` with no printer | `[calculated value]` |
 | `proseTemplateSchema`, a value that is a bare reference | `This calculated value only reads one answer or saved value, and Nova keeps that as a reference. It can be stored as the reference part instead.` |
@@ -2707,7 +2718,8 @@ and the served readers in the lane dispatch over the step's new targeted documen
 | `e2e/tests/browser/preview-platforms.spec.ts`, scenario `help-plain-web-apps` | Playwright over the component peer | Preview in Web Apps showing a `plainHelp` help text's symbols |
 | `proof/rules/test_hint_validation_markdown_form.py` (new) | Core reading both spellings of one form | the rule erasing a copy some runtime reads |
 | `e2e/tests/app/text-and-lists.spec.ts` (new; the help toggle and the form switch under `@seed:sections`, the title switch and the blanks control under `@seed:workspace`) | Playwright | the title switch (under the source language and under another), the blanks control and its two turns of direction, the help toggle and the form switch, each with what Preview then draws |
-| lane: `targeted-search-no-title` (`proof/webapps/test_search_title.py`), `targeted-sort-blanks` (its two `caseList` expectations), `targeted-plain-help` (the Android read) | proofs 2 to 4; the Web Apps slice of section 6 for `test_search_title.py`; the Android slice of G4 for `targeted-plain-help` | a heading drawn in Web Apps for a search with no title, or none for a search with one; Core ordering blanks by direction; the form builder adding a copy to a hint on save; a form with the switch reopening without it |
+| lane: `targeted-search-no-title` (`proof/webapps/test_search_title.py`), `targeted-sort-blanks` (its two `caseList` expectations), `targeted-plain-help` (the Android read) | proofs 2 to 4; the Web Apps slice of section 6 for `test_search_title.py`; the Android slice of G4 for `targeted-plain-help` | a heading drawn in Web Apps for a search with no title, or none for a search with one; Core ordering blanks by direction |
+| lane: `proof/editors/test_text_formatting_saves.py` (new), over `targeted-plain-help` | what HQ stores after two form builder saves of each form, read before the spelling rules (proof 4's comparison erases both changes) | the form builder adding a copy to a hint or a validation message on save; a form with the switch reopening without it |
 
 **Text read as an instance (5.1)**
 
@@ -2727,7 +2739,7 @@ behavior, which this rule does not change, and the sentence is held at the table
 | Test | Boundary | Catches |
 |---|---|---|
 | `lib/domain/__tests__/temporalValues.test.ts`, over the new `hqInstantText.vectors.ts` | `hqInstantText` and `caseDatetimeValue` as functions of their input; a property test that the order of two texts is the order of their instants, for every four-digit year | a spelling CommCare HQ does not store (three fraction digits, an offset); two moments whose text orders them the other way; a six-digit `Z` value the grammar refuses to read back; unreadable text changed rather than returned |
-| `lib/commcare/__tests__/datetimeCaseValue.test.ts`, `xpath/wire/__tests__/instant.test.ts` | the wire tree by structure, and `storedInstantSource` over it | a typed leaf printed in the device's offset; stored text wrapped in `format-date`; a branch of an `if`, `coalesce` or `switch` printed by another branch's class; a literal not folded; `storedInstantSource` not the inverse of `storedInstantValue`; a tree with more than 23 prints of `T` |
+| `lib/commcare/__tests__/datetimeCaseValue.test.ts`, `xpath/wire/__tests__/instant.test.ts` | the wire tree by structure, and `storedInstantSource` over it | a typed leaf printed in the device's offset; stored text wrapped in `format-date`; a branch of an `if`, `coalesce` or `switch` printed by another branch's class; a literal not folded; `storedInstantSource` not the inverse of `storedInstantValue`; a tree with more than 56 prints of `T` |
 | `lib/commcare/__tests__/caseOperationEmission.test.ts`, `generatedNodes.test.ts` | the emitted form through `xformOracle` and `parseXml` | a row whose value holds `now()` printed inline; a `nova_instant_` node with a control or a `type`, or outside its operation's `nova_operations` group; a second node for a value with no clock read; the sibling `nova_datetime_` in the earlier spelling |
 | `lib/case-store/postgres/__tests__/submissionEnvelope.postgres.test.ts`, `lib/preview/engine/__tests__/caseListOrder.postgres.test.ts` | real Postgres, through the submission executor and Preview's store read | a submitted date and time stored with the viewer's offset; rows of one property in both spellings and three offsets ordered by their text and not their moment; the order moving with the session's time zone |
 | `components/builder/data-review/__tests__/dataReviewModel.test.ts` | the state model | a value saved in Data review stored with an offset |
@@ -2758,7 +2770,7 @@ Old sentence → replacement. Each lands with the code that makes it true, the p
 | `lib/preview/CLAUDE.md`, the labels paragraph | `hints by rules.hint, validation messages as plain text.` | the same, followed by `A help text holding plainHelp, or in a form holding plainText, follows rules.plainHelp. A Text question with a number keypad follows rules.numberKeypad.` |
 | `components/builder/CLAUDE.md`, Field editor | `Format text on a label or a choice writes plainLabel.` | `Format text on a label or a choice writes plainLabel and on a help text plainHelp; a form's Format text in this form writes plainText. A Text question's Number keypad switch writes keypad, and the reference picker inserts a calculated value.` |
 | `docs/architecture/complex-apps.md` | (none) | the seven paragraphs below |
-| `content/docs/where-workers-use-your-app.mdx`, "Other features run on both…" | `…records the device's location on Android.` | the same, followed by `A phone number question takes digits, with an optional + or - in front and an optional decimal part, in Web Apps, and on Android offers a keypad that also has a space and a dash. A help text set to show as typed still shows its formatting in Web Apps.` The first sentence is G5's outcome A. Under outcome B it ends `…a space and a dash, where a + or - only starts the answer.` (the clause only where that rule lands). Under outcome C it reads `A phone number question takes digits, with an optional + or - in front and an optional decimal part, in Web Apps, and on Android offers a keypad of digits, a period, a plus and a minus.` |
+| `content/docs/where-workers-use-your-app.mdx`, "Other features run on both…" | `…records the device's location on Android.` | the same, followed by `A phone number question takes digits, with an optional + or - in front and an optional decimal part, in Web Apps, and on Android offers a keypad that also has a space and a dash, where a + or - only starts the answer. A help text set to show as typed still shows its formatting in Web Apps.` The first sentence is G5's outcome B, as the lane read it. |
 | `content/docs/building-with-nova.mdx`, "Text in your app" | (none) | `A label, a hint, a help text, a validation message or a choice can show a calculated value: choose Insert reference, then Calculated value, and write a formula such as a formatted date. Format text can be turned off for one label, one choice or one help text, or for a whole form in its settings.` |
 | the same section, a new paragraph after its first | (none) | `CommCare HQ reads instance('name') as a data source wherever it appears in a form. Question text can say it: Nova writes it so that CommCare HQ reads it as text. A form's name and a CommCare Connect name or description have no way to do that, so there Nova asks for a space before the bracket, as in instance ('name').` |
 | `content/docs/commcare-connect.mdx`, a new section after "Deliver units and tasks" | (none) | `## Names and descriptions` / `CommCare Connect reads each learn module's, deliver unit's and task's name and description from the form exactly as you wrote them. One phrase can't go in them: instance( followed by a quoted name and a closing bracket, such as instance('casedb'). CommCare HQ reads that as a data source wherever it appears in a form, and would add the source to the form or stop the app's build. A space before the bracket keeps it as text.` |
@@ -2771,7 +2783,7 @@ Old sentence → replacement. Each lands with the code that makes it true, the p
 | `lib/commcare/xpath/wire/instant.ts`, the comment of `datetimeCoerceValue` | "a typed date and time in `datetimeCaseValueExpression`'s shape" | "a typed date and time as `typedInstantValue`" |
 | `lib/domain/CLAUDE.md`, "Temporal values have wire shapes…" | `A datetime answer carries the offset of the zone it was entered in, so it takes the VIEWER's offset (Preview's browser standing in for the device), never Z` and the sentence that follows it | the same, followed by `That is the answer in the form. On a case a date and time is the text CommCare HQ stores, UTC with six fraction digits and Z (hqInstantText, caseDatetimeValue), which the three writers of a case's value call; a row saved earlier keeps the offset it was saved with, and every reader that orders or compares reads the instant.` |
 | the same paragraph | `The tag is NOT removed on the way back in: the form instance holds a temporal value exactly as the case store holds it` | the same, followed by `, a time by its tag and a date and time by the cast a loading question applies to the stored text (lib/preview/engine/answerCast.ts)` |
-| `lib/case-store/CLAUDE.md`, where it says how a list's order reads a value | (none) | `A list's order reads a custom date-and-time property as the text a device holds, CommCare HQ's text of its instant (compileDeviceTextExpression), so rows saved in either spelling order by the moment.` |
+| `lib/case-store/sql/CLAUDE.md`, "Case-list sort keys", where it says how a list's order reads a value (`lib/case-store/CLAUDE.md` says nothing of it) | (none) | `A custom date-and-time property reads as the text a device holds, CommCare HQ's text of its instant (HQ_DATETIME_PATTERN at UTC over compileStoredInstant), and its stored text where it names no instant, so rows saved in either spelling order by the moment, whatever the session's zone.` |
 | `content/docs/building-with-nova.mdx`, where it says what a form saves to a case | (none) | `A date and time saved to a case is kept the way CommCare HQ keeps it, in UTC, so a case list sorted by one shows cases in the order they happened. In a list or a case detail the saved value reads in UTC, such as 2026-01-02T09:30:00.000000Z.` |
 
 A search with no title changes no public sentence. No page of `content/docs` describes a search's
@@ -2791,8 +2803,10 @@ and text"**, four paragraphs, from sections 3.1, 4.4, 5 with 5.1, and 8.1:
 > plus sign are kept. Core keeps the appearance and reads nothing from it. Web Apps draws its phone
 > entry where `numeric` is one of the appearance's tokens and stores an answer only where it matches
 > `^[+-]?\d*(\.\d+)?$` (`form_ui.js::getMatchingStyles`, `entries.js::getEntry`). Android builds its
-> string-number widget where the whole appearance equals `numeric` or `numbers`, with a keypad of
-> the digits, a period, a dash, a plus and a space (`WidgetFactory.java::buildBasicWidget`). The
+> string-number widget where the whole appearance equals `numeric` or `numbers`
+> (`WidgetFactory.java::buildBasicWidget`): the keypad offers digits, a period, a dash, a plus and a
+> space; a + or - only starts the answer, and it takes one period, as the lane's Android reader
+> shows (`proof/android/test_form_reads.py`). The
 > platform row `number-keypad` states the difference, and `lib/commcare/xform/appearance.ts` is the
 > one writer of a control's appearance.
 >
@@ -2841,8 +2855,10 @@ and text"**, four paragraphs, from sections 3.1, 4.4, 5 with 5.1, and 8.1:
 > (`javaRosa/plugin.js::contributeToModelXML`, `loadXML`), so a text Nova writes without one stays
 > without one through a save there.
 
-**Under "Case lists, search, and the case workspace", after "The search workflow"**, three paragraphs,
-from sections 6, 7 and 7.1:
+**Under "Case lists, search, and the case workspace", after "The search workflow"**, three
+subsections, from sections 6, 7 and 7.1. That section's parts are `####` headings, so each
+bold lead-in below is its subsection's `####` heading and the text after it the subsection's
+paragraph:
 
 > **A search with no title.** `searchScreenTitle: { kind: "none" }` is a search with no title;
 > absent means "Search". CommCare HQ's Case List page writes `title_label` for every language on
@@ -2871,12 +2887,16 @@ from sections 6, 7 and 7.1:
 > such a property as text (`EntitySorter.java::getCmp`), so Nova writes CommCare HQ's own text on
 > the phone (`lib/commcare/xform/datetimeCaseValue.ts::datetimeCaseValue`): Core prints a typed
 > date and time in the device's zone with its offset (`DateUtils.java::getOffsetInStandardFormat`),
-> and `instant.ts::storedInstantOfText` moves that text to UTC. Stored text is written as it is,
+> and `instant.ts::storedInstantOfText` moves that text to UTC, taking the day before or after from
+> the written date's own fields, since a day number counts from a JVM-zone epoch that is UTC's on
+> Web Apps. Stored text is written as it is,
 > because Core's parse of text with an offset keeps the written date and moves only the clock
 > (`DateUtils.java::parseTimeAndStore`). Core reads a sort text through `string()`
 > (`Text.java::ensureCacheIsParsed`), which prints a number past `int` range in a form its number
 > comparator refuses (`FunctionUtils.java::toString`, `toNumeric`), so a moment cannot be a number
-> key.
+> key. Preview and Nova's case store write the same text
+> (`lib/domain/temporalValues.ts::caseDatetimeValue`), and a list ordered by the property orders by
+> the moment whichever spelling a row holds.
 
 Four of these paragraphs are written for a check's planned outcome, and each check's other
 outcomes say what the paragraph takes then: the sentence on Android's widget (G5), a refusal

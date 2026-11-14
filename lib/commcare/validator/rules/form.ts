@@ -484,9 +484,16 @@ function namedByCaseListRegistration(
  *  `postSubmit`, or a built-in otherwise beside destinations. */
 type NotOfferedSlot = "post-submit" | "otherwise";
 
+/** The reason whose finding is the app rule
+ *  `formsInMenuAbove.ts::firstMenuSharedCaseFrames`'s, not these form rules':
+ *  whether the module opens with the first menu's chosen case reads every
+ *  menu that shows its forms above, so a form's own rule could miss an edit
+ *  to another menu. */
+const SHARED_CASE_REASON = "menu-opens-with-first-menu-case";
+
 /** The sentence each reason gives, before the offered list. */
 function notOfferedSentence(
-	reason: PostSubmitNotOfferedReason,
+	reason: Exclude<PostSubmitNotOfferedReason, typeof SHARED_CASE_REASON>,
 	formName: string,
 	moduleName: string,
 	parentName: string,
@@ -525,7 +532,8 @@ function notOfferedSentence(
  * stored destination outside the enum is a shape finding; a stored
  * destination the form's module does not offer
  * (`postSubmitDestinationsOffered`) is `POST_SUBMIT_NOT_OFFERED`, naming the
- * first reason that withholds it. An absent slot is never refused, since its
+ * first reason that withholds it, but for `menu-opens-with-first-menu-case`,
+ * whose finding is `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE` from the app rule. An absent slot is never refused, since its
  * default is always offered. A `postSubmit` beside destinations is
  * `POST_SUBMIT_BESIDE_FORM_LINKS`, which `formLinkValidation` reports. A case
  * list registration form's one explicit destination is
@@ -558,7 +566,7 @@ function postSubmitValidation(
 		return [];
 
 	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, dest);
-	if (reason === undefined) return [];
+	if (reason === undefined || reason === SHARED_CASE_REASON) return [];
 	const parentName = parentNameOf(doc, mod);
 	const offered = postSubmitDestinationsOffered(doc, ctx.formUuid);
 	return [
@@ -682,7 +690,10 @@ function formLinkLabel(
  *   - `FORM_LINK_MENU_DATUMS` — carried values on a menu target, which HQ's
  *     page edits only under its retiring advanced linking mode.
  *   - `FORM_OTHERWISE_NOT_OFFERED` — a built-in otherwise the form's menu
- *     does not offer (`postSubmit.ts::otherwiseDestinationsOffered`).
+ *     does not offer (`postSubmit.ts::otherwiseDestinationsOffered`), but for
+ *     `module` withheld first because the module opens with the first menu's
+ *     chosen case, which the app rule
+ *     `formsInMenuAbove.ts::firstMenuSharedCaseFrames` reports.
  *   - `FORM_OTHERWISE_UNREACHABLE` — an otherwise where no destination may
  *     not run (`afterSubmit.ts::formOtherwiseReachable`), or beside no
  *     destinations: HQ builds its fallback frame only over a non-blank link
@@ -1050,7 +1061,7 @@ function otherwiseValidation(
 	const offered = otherwiseDestinationsOffered(doc, ctx.formUuid);
 	if (offered.includes(destination)) return errors;
 	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, destination);
-	if (reason === undefined) return errors;
+	if (reason === undefined || reason === SHARED_CASE_REASON) return errors;
 	const parentName = parentNameOf(doc, mod);
 	errors.push(
 		validationError(

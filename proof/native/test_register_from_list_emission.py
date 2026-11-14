@@ -1,6 +1,7 @@
 """HQ's Register action and its return frames equal Nova's, and HQ refuses a form with two registrations.
 
-Contract: for each document of registration from the case list, the ``<detail>/<action>`` of every short
+Contract: for each document of registration from the case list, and for each again with every list's other
+``afterSubmit`` wherever Nova's gate admits it, the ``<detail>/<action>`` of every short
 detail and every ``<entry>/<stack>`` HQ's suite contributors build equal the ones Nova's local suite writes,
 compared whole as ``test_no_matches_emission.py`` compares them (the health shape's action carries its media
 locales). ``RegisterFromListRuntimeTest`` then runs the action and the frames on both suites in Core. The
@@ -19,7 +20,12 @@ from proof.native.hq_support import hq_commit, parse_xml_xpaths, sha256, shape, 
 
 FAMILIES = ("menu-screens",)
 
-DOCUMENTS = ("register-from-case-list", "register-from-case-list-web-apps")
+DOCUMENTS = (
+    "register-from-case-list",
+    "register-from-case-list-web-apps",
+    "register-from-case-list-other-returns",
+    "register-from-case-list-web-apps-other-returns",
+)
 SELECTORS = ("detail/action", "entry/stack")
 
 

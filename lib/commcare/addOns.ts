@@ -12,7 +12,8 @@
  * lookup table or from the worker's cases.
  *
  * `case_detail_overwrite` and `empty_case_lists` are never needed: Nova
- * writes nothing that uses them.
+ * writes nothing that uses them. `menu_mode` is needed where a module shows
+ * its forms in the menu above (`put_in_root`).
  *
  * An advanced form needs `subcases` and `conditional_form_actions` whatever
  * it holds, because HQ's two predicates hold for every form that is not a

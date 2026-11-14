@@ -19,8 +19,9 @@
   (``proof.store.queue.PACKAGE_DATA``): the equivalence test's sample
   (``test_view_equivalence.py::CORPUS_SAMPLE``), ``navigation-base``, whose
   page saves ``test_retained_reads.py`` retains, and ``targeted-label-sort``,
-  whose ID mapping ``test_mapping_keys.py`` opens. ``corpus_document`` is the
-  package's one corpus read, refusing a document ``DOCUMENTS`` does not name.
+  whose ID mapping ``test_mapping_keys.py`` opens, among others named there.
+  ``corpus_document`` is the package's one corpus read, refusing a document
+  ``DOCUMENTS`` does not name.
 - ``first_draw`` is the first value a page seeded with a seed draws
   (``driver/steps/page/seed.js``), computed apart from the page.
 - The editors' fixture apps, shared by the equivalence and seeding tests:
@@ -57,8 +58,9 @@ TWO_LANGUAGE_APP = "yesno.json"
 # Every corpus document a test of this package reads, by id, and no other: test_view_equivalence.py's
 # CORPUS_SAMPLE, the document test_retained_reads.py saves each page of, the list whose mapping
 # test_mapping_keys.py opens, and the documents the publish gates' page and Vellum tests open
-# (test_version_raise.py, test_plan_features.py and test_gated_pages.py), and the document whose form builder save
-# test_commtrack_supply_point_text.py builds with CommCare Supply on and off.
+# (test_version_raise.py, test_plan_features.py and test_gated_pages.py), the document whose form builder save
+# test_commtrack_supply_point_text.py builds with CommCare Supply on and off, and the document whose form builder saves
+# test_text_formatting_saves.py reads for markdown forms.
 DOCUMENTS = (
     "case-operation-scalar",
     "case-worker-followup",
@@ -77,6 +79,7 @@ DOCUMENTS = (
     "search-multiple",
     "targeted-custom-tile",
     "targeted-supply-point-text",
+    "targeted-plain-help",
 )
 
 _TIMINGS: dict[str, list[float]] = {}

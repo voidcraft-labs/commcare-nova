@@ -11,6 +11,7 @@
 import { useCallback, useMemo } from "react";
 import {
 	type AlwaysOfferedRegistrationChoice,
+	afterEmptySearchOfferBlocked,
 	alwaysOfferedRegistrationChoices,
 	alwaysOfferedRegistrationMutations,
 } from "@/lib/doc/alwaysOfferedRegistration";
@@ -114,6 +115,17 @@ export function useCaseListsOffering(
 				}),
 			),
 		[modules, moduleOrder, formUuid],
+	);
+}
+
+/** The builder's sentence where offering a form after an empty search would
+ *  replace the host list's offer of another menu's form; undefined where the
+ *  list offers none. */
+export function useAfterEmptySearchOfferBlocked(
+	hostUuid: Uuid,
+): string | undefined {
+	return useBlueprintDoc(
+		(doc) => afterEmptySearchOfferBlocked(doc, hostUuid)?.userMessage,
 	);
 }
 

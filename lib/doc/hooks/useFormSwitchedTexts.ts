@@ -1,6 +1,6 @@
 /**
  * Named hook: a stable getter for every text a form's text formatting switch
- * reaches (`lib/domain/plainText.ts::formSwitchedTexts`), read from the live
+ * changes (`lib/domain/plainText.ts::formSwitchedTexts`), read from the live
  * document when it is called. The form's switch asks it only when someone
  * turns formatting off, so the form's editor does not re-render on every
  * edit of a text it does not show.

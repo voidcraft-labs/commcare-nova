@@ -67,24 +67,20 @@ function destinationFromRequirements(
 		target.kind === "form"
 			? `${module?.name ?? "Module"} · ${form?.name ?? "Form"}`
 			: `${module?.name ?? "Module"} · ${target.kind === "case-list" ? "Case list" : "Module"}`;
-	let issue: string | undefined;
 	const requiredSelections = projected.available
 		? projected.requiredSelections
 		: [];
-	if (!projected.available) issue = projected.message;
-	issue = menuAboveIssue(doc, target) ?? issue;
-	try {
-		if (
-			form &&
-			afterEmptySearchRegistrationFormOf(doc, target.moduleUuid) === form.uuid
-		)
-			throw new Error("This form opens only when a search has no matches.");
-	} catch (error) {
-		issue =
-			error instanceof Error
-				? error.message
-				: "This destination is unavailable.";
-	}
+	// The gate names a frame that opens with the first menu's chosen case
+	// ahead of the destination's own unavailability
+	// (`rules/app.ts::validEntryPoints`), so its sentence leads here too.
+	const issue =
+		menuAboveIssue(doc, target) ??
+		(form &&
+		afterEmptySearchRegistrationFormOf(doc, target.moduleUuid) === form.uuid
+			? "This form opens only when a search has no matches."
+			: projected.available
+				? undefined
+				: projected.message);
 	return {
 		target,
 		label,

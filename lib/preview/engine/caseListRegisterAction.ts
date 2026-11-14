@@ -186,7 +186,7 @@ export function selectionsAfterRegistrationReturn(
 					cases: [
 						{
 							caseId: created.caseId,
-							caseName: created.caseName === "" ? "Case" : created.caseName,
+							...(created.caseName !== "" && { caseName: created.caseName }),
 						},
 					],
 				};

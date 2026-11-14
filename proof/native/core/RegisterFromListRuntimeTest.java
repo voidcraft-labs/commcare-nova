@@ -13,16 +13,18 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /** Run G3: Core's own Register action and return frames, by host shape, on Nova's local suite and on HQ's build
- * alike. For each case list that always offers another menu's registration form (the producer's
- * `<document>.offers.json`), the action on the host's short detail opens the form in its own menu with `return_to`
- * naming the host, and on finishing the form the worker lands where Nova says
- * (`menuForms.ts::caseListRegistrationReturnOf`): back on the host with no case chosen for `case-list`; on the host
- * with the new case chosen for `new-case` where the form created it and the host has forms to go on to, and back on
- * the host with no case chosen otherwise, a bare case list among them; where the form's own after-submit is in
- * force, where that says, since HQ writes no return frame then. The new case is written to Core's in-memory case
- * storage to stand for the submitted form's; no form is entered and no submission is processed. */
+ * alike, each host under both values of `afterSubmit` the rules admit for it (the producer writes each document
+ * again with each list's other value wherever Nova's gate admits it, `<document>-other-returns`). For each case list
+ * that always offers another menu's registration form (`<document>.offers.json`), the action on the host's short
+ * detail opens the form in its own menu with `return_to` naming the host, and on finishing the form, with the case
+ * created and without, the worker lands where Preview lands them
+ * (`caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`, the return frame whose guard holds read by
+ * `frameLanding.ts::screenOfFrame`): on that frame's screen, with the new case chosen exactly where that frame
+ * selects in the host; where the form's own after-submit is in force, where that frame lands, since HQ writes no
+ * return frame then. The new case is written to Core's in-memory case storage to stand for the submitted form's; no
+ * form is entered and no submission is processed. */
 public class RegisterFromListRuntimeTest {
- private static final String[] DOCUMENTS={"register-from-case-list","register-from-case-list-web-apps"};
+ private static final String[] DOCUMENTS={"register-from-case-list","register-from-case-list-web-apps","register-from-case-list-other-returns","register-from-case-list-web-apps-other-returns"};
  /** The id of the case the form's entry creates: its computed `case_id_new_<type>_0` datum. */
  private static String newCaseDatum(Suite suite,String command){
   for(SessionDatum datum:suite.getEntry(command).getSessionDataReqs())
@@ -54,16 +56,12 @@ public class RegisterFromListRuntimeTest {
      Case c=new Case("new",type);c.setCaseId(newCase);sandbox.getCaseStorage().write(c);
     }
     session.finishExecuteAndPop(session.getEvaluationContext());
-    if(returnTo.equals("own")){
-     String lands=offer.isNull("formLandsOn")?null:offer.getString("formLandsOn");
-     assertEquals(label,lands,session.getCommand());
-     continue;
-    }
-    String landed=session.getCommand();
-    if(offer.getBoolean("hostHasForms"))assertEquals(label,host,landed);
-    else assertTrue(label+" landed on "+landed,host.equals(landed)||(host+"-case-list").equals(landed));
-    boolean goesOn=returnTo.equals("new-case")&&created&&offer.getBoolean("hostHasForms");
-    assertEquals(label,goesOn,session.getData().containsValue(newCase));
+    JSONObject landing=offer.getJSONObject(created?"created":"notCreated");
+    String expected=landing.isNull("command")?null:landing.getString("command"),landed=session.getCommand();
+    // A bare case list's menu is its list, which its case list entry's command also opens.
+    if(offer.getBoolean("hostIsBareCaseList")&&host.equals(expected))assertTrue(label+" landed on "+landed,host.equals(landed)||(host+"-case-list").equals(landed));
+    else assertEquals(label,expected,landed);
+    if(landing.has("selectsHost"))assertEquals(label,landing.getBoolean("selectsHost"),session.getData().containsValue(newCase));
    }
   }
  }

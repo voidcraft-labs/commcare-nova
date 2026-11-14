@@ -40,6 +40,7 @@ export * from "./identifierValidation";
 export {
 	type PreviousTaskProjection,
 	type PreviousTaskSelection,
+	previousTaskFrame,
 	projectModuleTaskSelectionUuids,
 	projectPreviousTask,
 	projectTaskFormSelections,

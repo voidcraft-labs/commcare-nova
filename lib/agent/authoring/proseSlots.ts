@@ -83,7 +83,8 @@ function fieldProseSlot(
 
 /**
  * The prose slot of the text at `path` in a tool call's input, read after the
- * call's identity pass (so a new field or option already holds its uuid), or
+ * call's identity pass (so a new field, option or page already holds its
+ * uuid), or
  * undefined for a text no form evaluates.
  */
 export function proseSlotAt(

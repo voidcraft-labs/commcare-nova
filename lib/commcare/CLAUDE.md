@@ -329,11 +329,15 @@ entry asks for a sync, so publish asks a person to confirm the setting is off
 (`form-entry-sync-off`).
 
 `planPrivileges.ts::commtrackReasons` names each advanced menu whose case list
-is its own menu item and each form whose source, decoded, holds the text
-`instance('commcaresession')/session/data/supply_point_id`: CommCare HQ adds a
-product step after a case is chosen from such a list and gates such a form to
-workers assigned a supply point while CommCare Supply is on, so publish asks a
-person to confirm it is off (`commtrack-off`).
+is its own menu item: CommCare HQ adds a product step after a case is chosen
+from such a list while CommCare Supply is on, so publish asks a person to
+confirm it is off (`commtrack-off`). It also names each form whose emitted
+source, decoded, holds the text
+`instance('commcaresession')/session/data/supply_point_id`, which HQ's build
+gates to workers assigned a supply point. That half is a guard over the
+emission: an itext text's `instance(` is written with its bracket as an
+output, a literal is split there, and a form's name and Connect texts holding
+it are refused, so no admitted document's source holds the text.
 
 A download checks no project space, so its compatibility is `not_checked`: the HQ import file has no target, and a `.ccz` is made for a project space the app is already published to, whose publish made the check.
 Upstream drift reaches the probe through the weekly pin pull request
@@ -626,8 +630,8 @@ as HQ's `workflow.py::_get_static_stack_frame` builds them). Form-type defaults
 when absent: registration/survey → `app_home`; followup/close → the first the
 menu offers of `previous`, `module`, `firstMenu`
 (`lib/domain/forms.ts::defaultPostSubmit` takes the menu facts `formsReadSearch`,
-`multiSelect`, `parentMultiSelect`, `offTheMenu`, `formsInMenuAbove` and
-`formsOnFirstMenu`;
+`multiSelect`, `parentMultiSelect`, `offTheMenu`, `formsInMenuAbove`,
+`formsOnFirstMenu` and `opensWithFirstMenuCase`;
 `lib/domain/postSubmit.ts::effectivePostSubmit` is the doc-level reader every
 consumer uses for a form without destinations; a form with destinations holds
 no `postSubmit`, `POST_SUBMIT_BESIDE_FORM_LINKS`). `postSubmitDestinationsOffered` is what HQ's form settings page
@@ -640,7 +644,11 @@ refuses is unoffered (`previous` where exactly one of the menu and its parent
 selects several cases, `previous` in a menu whose forms read the search, `parentMenu`
 with no parent, `module` in a menu that shows its forms above, `parentMenu`
 under one, and `previous` for a form listed on the first menu, which is Nova's
-own narrowing), so the one rule covers the editor and the build. The SA only
+own narrowing, as is `module` in a submenu that keeps its screen under a
+top-level menu above while every form of every menu above opens one chosen
+case, `menu-opens-with-first-menu-case`, whose finding is the app rule
+`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`), so the one rule covers the editor
+and the build. The SA only
 sets `post_submit` when overriding the default.
 
 ### Ordinary nested menus
@@ -790,9 +798,9 @@ engine can reach it too); `session.ts::deriveFormLinkStack` and
   every child whose id, a command's or a datum's, the parent part holds. No
   frame of an admitted document holds a selection ahead of its first command
   (`frameLeadsWithSelection`): `previous` is not offered to a form listed on
-  the first menu, and a link, an entry point or a Register return whose frame
-  would open with the first menu's shared case is refused
-  (`firstMenuSharedCase`). A single-form module's whole datum list is that prefix, so its
+  the first menu, `module` is not offered in a submenu whose screen opens with
+  the first menu's shared case, and a link, an entry point or a Register return
+  whose frame would open with that case is refused (`firstMenuSharedCase`). A single-form module's whole datum list is that prefix, so its
   selection datum is hoisted AHEAD of the form command. For a child target HQ
   prepends the root module frame and its common user selections; a module target
   carries that root path plus the child command, while a form target carries the
@@ -1618,8 +1626,9 @@ that scalar `uuid()` as a selected-entities instance. Admission reports
 or locally scalarize a query that HQ regenerates as a collection.
 
 
-`Module.caseListRegistrationForm` (`lib/domain/menuForms.ts::afterEmptySearchRegistrationFormOf`)
-is Nova's whole authoring of CommCare's `case_list_form`; the wire vocabulary
+`Module.caseListRegistrationForm` (`lib/domain/menuForms.ts::afterEmptySearchRegistrationFormOf`
+for the arm on no menu, `alwaysOfferedRegistrationOf` for the arm that stays
+on its menu) is Nova's whole authoring of CommCare's `case_list_form`; the wire vocabulary
 never enters a document (`validationRules.test.ts` keeps `case_list_form`
 rejected by the strict module schema). `emissionPlan.ts::emissionPlan(doc)` is
 the ONE derived module sequence both emitters walk: the authored preorder with

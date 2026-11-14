@@ -143,6 +143,7 @@ import {
 	type FieldPatchFor,
 	type FormLink,
 	fieldKindDeclaresKey,
+	formLinkEntries,
 	getConvertibleTypes,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
@@ -1212,8 +1213,8 @@ const updateModule: KindGenerator = (ctx) => {
 /**
  * Where a menu shows its forms in the menu above, the edits of that slot
  * (`setModuleFormsInMenuAboveMutation`): its own screen back, and the forms of
- * another top-level menu with no search and no registration on its list
- * shown above. Where a case list offers another menu's registration form,
+ * another top-level menu that nothing opens (no link to it and no entry point
+ * on it) with no search and no registration on its list shown above. Where a case list offers another menu's registration form,
  * the edits of that arm (`alwaysOfferedRegistrationMutations`): where a worker
  * goes after registering changed, the offer cleared, and the first form
  * another list may offer, set there. A document holding neither shape
@@ -1226,6 +1227,13 @@ function menuScreenEdits(doc: BlueprintDoc): Candidate[] {
 	const above = modules.find((m) => moduleShowsFormsInMenuAbove(m));
 	if (above !== undefined) {
 		arms.push(batch([setModuleFormsInMenuAboveMutation(above.uuid, false)]));
+		const linked = new Set(
+			Object.values(doc.forms).flatMap((form) =>
+				formLinkEntries(form).flatMap(({ link }) =>
+					link.target.type === "module" ? [link.target.moduleUuid] : [],
+				),
+			),
+		);
 		const candidate = modules.find(
 			(m) =>
 				!moduleShowsFormsInMenuAbove(m) &&
@@ -1233,7 +1241,8 @@ function menuScreenEdits(doc: BlueprintDoc): Candidate[] {
 				effectiveCaseSearchConfig(m) === undefined &&
 				m.caseListRegistrationForm === undefined &&
 				m.entryPoint === undefined &&
-				m.caseListEntryPoint === undefined,
+				m.caseListEntryPoint === undefined &&
+				!linked.has(m.uuid),
 		);
 		if (candidate !== undefined)
 			arms.push(

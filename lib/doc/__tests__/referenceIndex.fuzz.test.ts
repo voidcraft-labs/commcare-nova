@@ -21,8 +21,10 @@ import {
 	type CaseOperationWrite,
 	canonicalProseTemplate,
 	caseWriteKeyOf,
+	type ProsePart,
 	plainColumn,
 	sameCaseWriteKey,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	eq,
@@ -47,6 +49,19 @@ const TEMPORARY = testUuid("index-fuzz-temporary");
 const OPERATION = testUuid("index-fuzz-operation");
 const OWN = testUuid("index-fuzz-own");
 const COLUMN = testUuid("index-fuzz-column");
+
+/** A calculated value that reads one answer and one property of the form's
+ * case, so its edges are its own and no reference part's. */
+function readingValue(fieldUuid: Uuid, property: string): ProsePart {
+	return {
+		kind: "value",
+		expression: neq(formField(fieldUuid), {
+			kind: "form-case",
+			caseType: "patient",
+			property,
+		}),
+	};
+}
 
 function seedDoc(): BlueprintDoc {
 	const doc = buildDoc({
@@ -153,6 +168,8 @@ const opArb = fc.record({
 function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 	const fieldUuid = pick === 0 ? A : B;
 	const property = pick === 0 ? "metric_a" : "metric_b";
+	const otherField = pick === 0 ? B : A;
+	const otherProperty = pick === 0 ? "metric_b" : "metric_a";
 	switch (kind) {
 		case "relevant":
 			return [
@@ -180,6 +197,8 @@ function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 										{ kind: "field-ref", uuid: fieldUuid },
 										{ kind: "text", text: " reads " },
 										{ kind: "case-ref", caseType: "patient", property },
+										{ kind: "text", text: " beside " },
+										readingValue(otherField, otherProperty),
 									]),
 					},
 				},
@@ -261,6 +280,8 @@ function lower(doc: BlueprintDoc, { kind, pick }: Op): Mutation[] {
 					: [];
 			const label = canonicalProseTemplate([
 				{ kind: "case-ref", caseType: "patient", property },
+				{ kind: "text", text: " or " },
+				readingValue(otherField, otherProperty),
 			]);
 			return [
 				...(!exists

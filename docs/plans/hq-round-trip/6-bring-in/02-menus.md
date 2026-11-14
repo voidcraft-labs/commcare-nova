@@ -692,8 +692,11 @@ datum on the wire, never the first entry's alone. A contributor whose only entry
 therefore keeps a case-first screen case first where its list's selection is the host's, and turns
 it forms first where it is another.
 
-`screenChoosesCaseFirst(doc, screen, prepared)` is "no blocker", with `prepared` standing for the one
-prepared form where rule 3 reads its type. On a screen with one contributor it equals
+`screenChoosesCaseFirst(doc, screen, prepared)` is "no blocker" on a screen that lists a form or a
+case list entry, with `prepared` standing for the one prepared form where rule 3 reads its type. A
+screen that lists only menus finds no blocker and asks for a command, since Core finds no entry to
+ask a case of (`CommCareSession.getNeededData` returns `STATE_COMMAND_ID` for a command with no
+entries); a screen of case list entries alone that choose one case asks for the case first. On a screen with one contributor it equals
 `moduleIsCaseFirst` of that module, which is today's answer for every existing document; run G4 holds
 both to the wire.
 
@@ -773,29 +776,39 @@ refuses.
 its other tests, and its comment's last sentence is replaced (section "Contracts"). `nearestOfferedMenu`
 returns the parent only where the parent has its own screen and is on the menu; otherwise undefined.
 
-`lib/domain/postSubmit.ts` gains three reasons, appended to `POST_SUBMIT_NOT_OFFERED_REASONS` in this
-order. `lib/domain/forms.ts::PostSubmitMenuShape` gains two facts, `formsInMenuAbove?: boolean` (the
-module holds the slot) and `formsOnFirstMenu?: boolean` (`menuScreenOf` of the module is the first
-menu: it is above and top-level, or above under a parent that is above), and `PostSubmitModuleFacts`
-gains `parentFormsInMenuAbove: boolean`; `postSubmitModuleFacts` sets all three.
+`lib/domain/postSubmit.ts` gains four reasons, appended to `POST_SUBMIT_NOT_OFFERED_REASONS` in this
+order. `lib/domain/forms.ts::PostSubmitMenuShape` gains three facts, `formsInMenuAbove?: boolean` (the
+module holds the slot), `formsOnFirstMenu?: boolean` (`menuScreenOf` of the module is the first
+menu: it is above and top-level, or above under a parent that is above) and
+`opensWithFirstMenuCase?: boolean` (the module keeps its screen, its parent is above, and
+`menuScreens.ts::firstMenuOpensOneCase` holds: every form of every menu above has a first selection,
+and every first selection has one key under `entrySelections`), and `PostSubmitModuleFacts` gains
+`parentFormsInMenuAbove: boolean`; `postSubmitModuleFacts` sets all four.
 
 | Reason | Holds where | Withholds | `rules/form.ts::notOfferedSentence` |
 |---|---|---|---|
 | `menu-forms-in-menu-above` | `formsInMenuAbove` | `module` | `"<form>" goes to its module <when>, but "<menu>" shows its forms in the menu above, so it has no screen of its own to land on.` |
 | `parent-forms-in-menu-above` | `parentFormsInMenuAbove` | `parentMenu` | `"<form>" goes to the parent module <when>, but "<parent>" shows its forms in the menu above, so it has no screen of its own to land on.` |
 | `menu-forms-on-first-menu` | `formsOnFirstMenu` | `previous` | `"<form>" goes to the previous screen <when>, but "<menu>" shows its forms on the app's first menu, where Nova doesn't offer the previous screen.` |
+| `menu-opens-with-first-menu-case` | `opensWithFirstMenuCase` | `module` | none: its finding is the app rule's (section 5.5) |
 
 The rule appends its own "Choose one of: …" to each, as it does today.
 
 `previous` stays offered in a submenu that shows its forms in a parent that keeps its screen, where
 HQ's frame returns to the parent's screen or to the form's own case list (section 6.3). The existing
-codes `POST_SUBMIT_NOT_OFFERED` and `FORM_OTHERWISE_NOT_OFFERED` carry the new reasons;
+codes `POST_SUBMIT_NOT_OFFERED` and `FORM_OTHERWISE_NOT_OFFERED` carry the first three new reasons,
+and skip `menu-opens-with-first-menu-case`, whose finding is `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`
+from the app rule of section 5.5, since whether the first menu shares a case reads every menu above
+and a form rule runs only in the scope of the edit;
 `lib/agent/tools/form-links/shared.ts`'s reason phrases gain `<own> shows its forms in the menu above,
 so it has no screen of its own`, `<parent> shows its forms in the menu above, so it has no screen of
-its own` and `<own> shows its forms on the app's first menu, where the previous screen isn't
-offered`.
+its own`, `<own> shows its forms on the app's first menu, where the previous screen isn't
+offered` and `<own> opens through the app's first menu, where every form listed from a menu that
+shows its forms above opens one chosen case, which CommCare HQ would put ahead of <own>`. The
+builder's after-submit picker lists `module` disabled for the fourth with the sentence of section
+5.5's offering sites (Copy, "After submit and links").
 
-`defaultPostSubmit` reads the two new facts, because it derives the default from the shape and never
+`defaultPostSubmit` reads the three new facts, because it derives the default from the shape and never
 from the offered set, and `lib/domain/CLAUDE.md` holds the default to the offered set. Its body
 becomes:
 
@@ -811,7 +824,9 @@ if (
 ) {
 	return "previous";
 }
-return parentOrSelfWithholds || shape.formsInMenuAbove === true
+return parentOrSelfWithholds ||
+	shape.formsInMenuAbove === true ||
+	shape.opensWithFirstMenuCase === true
 	? "firstMenu"
 	: "module";
 ```
@@ -820,7 +835,13 @@ So a case-loading form listed on the first menu defaults to `firstMenu`, and one
 shows above and selects several cases (where `previous` and `module` are both withheld) defaults to
 `firstMenu` too. Without the second fact that form's default would be `module`, which HQ's build
 refuses in a menu above (`validators.py::FormBaseValidator.validate_for_module`, `form link to display
-only forms`). Every other form's default is unchanged, since both facts are absent without the slot.
+only forms`). Without the third, a follow-up form in a submenu that keeps its screen under a top-level
+menu above, where `previous` is withheld (its forms read the search, it selects several cases) and
+every form above opens one case, would default to the `module` section 5.5 refuses, and adding that
+form would be refused. Every other form's default is unchanged, since the facts are absent without
+the slot. Turning a menu's slot on or off reconciles the after-submit of every form of the app
+(`mutations/modules.ts::reconcilePostSubmitWithMenuShape`), because the fourth reason of a submenu
+reads every menu above.
 
 ### 5.2 No search, no registration from its case list
 
@@ -888,10 +909,18 @@ frame at its source. The same holds for a form's built-in `module` destination (
 the otherwise) in a submenu that keeps its screen under a top-level menu above: HQ builds it as
 `_frame_children_for_module(M, include_user_selections=False)`, the parent's
 `get_frame_children(P)` (the root lists' prefix and no command) then M's command, so it too opens
-with the shared case. Each of the findings below comes from an app rule, because the shared case
-reads every menu above, and each rule returns at once where `firstMenuSharedCase` is undefined and
-otherwise judges its projected frames by `frameLeadsWithSelection`: the link's and the built-in
-`module` destination's from a new rule,
+with the shared case. That destination is not judged on the frame: the offered set withholds it
+(`menu-opens-with-first-menu-case`, section 5.1) wherever `firstMenuOpensOneCase` holds, which holds
+wherever `firstMenuSharedCase` is defined (a common prefix holding a selection gives every root list
+one first selection, and two first selections share an `entrySelections` key exactly where they
+share a datum id) and also where the root lists differ in a value ahead of that case (a value a
+submenu carries from its parent's first form, an advanced menu's own case names). So the pickers,
+the default and the gate read one answer, and no default is a destination the gate refuses. Each of
+the findings below comes from an app rule, because the shared case reads every menu above: the
+link's and the entry point's rules return at once where `firstMenuSharedCase` is undefined and
+otherwise judge their projected frames by `frameLeadsWithSelection`, and the built-in `module`
+destination's finding holds where that reason is the first that withholds it. The link's and the
+built-in `module` destination's come from a new rule,
 `firstMenuSharedCaseFrames(doc)` in `rules/formsInMenuAbove.ts`, added to `rules/app.ts`'s list, whose
 code joins `runner.ts::SCOPE_EXEMPT_CODES`; the entry point's from the existing `validEntryPoints`;
 the Register return's from `caseListRegistrationApp` (section 11.3). `<above menu>` is the target's
@@ -900,7 +929,7 @@ own menu where that shows its forms above, else its parent.
 | Source | Finding | Message |
 |---|---|---|
 | an after-submit link, a destination or the otherwise link | `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE` (new, `soundness`), at the source form; `details.linkUuid`, `role`, `aboveModuleUuid`, `aboveModuleName` | `The link from "<form>" to "<target>" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "<target>" in the link, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "<above menu>" its own screen again (forms_in_menu_above null), or remove the link.` |
-| a form's built-in `module` destination, its after-submit (stored or default) or its otherwise, in a submenu that keeps its screen under a top-level menu above | `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE` at the form; `details.slot` (`post-submit` or `otherwise`), `destination: "module"`, `aboveModuleUuid`, `aboveModuleName` | `"<form>" goes to its module <when>, and "<menu>" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "<menu>", and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "<above menu>" its own screen again (forms_in_menu_above null), or send "<form>" somewhere else <when>.` |
+| a form's built-in `module` destination, its after-submit (stored or default) or its otherwise, in a submenu that keeps its screen under a top-level menu above, where `menu-opens-with-first-menu-case` is the first reason that withholds it | `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE` at the form; `details.slot` (`post-submit` or `otherwise`), `destination: "module"`, `aboveModuleUuid`, `aboveModuleName` | `"<form>" goes to its module <when>, and "<menu>" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "<menu>", and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "<above menu>" its own screen again (forms_in_menu_above null), or send "<form>" somewhere else <when>.` |
 | an entry point: on a form, or on a submenu or its case list under a top-level menu above | `ENTRY_POINT_INVALID`, new reason `first-menu-shared-case` in `rules/app.ts::validEntryPoints`, chosen where no earlier reason holds and before `destination`; `details.aboveModuleUuid` | `The entry point on "<target>" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "<target>" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "<above menu>" its own screen again (forms_in_menu_above null), or remove the entry point.` |
 | the Register return of an `always` arm | `CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE`, reason `parent-shares-first-menu-case` (section 11.3) | section 11.3 |
 
@@ -1670,6 +1699,13 @@ Both platforms run it alike (read, not run; run G2 is the check), apart from the
   host holds the `after-empty-search` arm, with `message` `"<host>" already offers "<form>" after a
   search finds nothing. You can stop offering that (case_list_registration null on update_form), and
   then offer a form on the list.` and `userMessage` the same sentence without the parenthesis.
+  The reverse switch is refused as well: `afterEmptySearchOfferBlocked(doc, hostUuid)` returns, where
+  the host holds an `always` arm, `message` `"<host>" already offers "<form>" from its case list. You
+  can stop offering that (register_from_case_list null on update_module), and then offer a form after
+  a search finds nothing.` and `userMessage` the same sentence without the parenthesis, and every
+  writer of the `after-empty-search` arm asks it first (`update_form` and `create_form`
+  `case_list_registration`, the builder's When no cases match and a form's How this form opens row,
+  which show the offer disabled with it), so neither arm replaces the other in passing.
   `alwaysOfferedRegistrationChoices` returns every registration form of the host's case type outside
   the host, in module then form order, each with its menu's name and the planner's batch for it
   under the host's stored label, media and `afterSubmit` (`case-list` on a first offer); it returns
@@ -2206,7 +2242,9 @@ shapes out of every Nova document, so the lane meets no use of either.
   display condition; under that parent, a second same-type submenu above whose only entry is its case
   list (the screen still stays case first, section 4.3); a second parent whose submenu above holds a
   registration form (the screen turns forms first); a submenu above that chooses a child case under
-  the parent's case; conditions on a parent and its submenu above (the conjunction); a top-level menu
+  the parent's case; conditions on a parent and its submenu above (the conjunction), the submenu's
+  admitting a role the parent's refuses and holding a form with no condition of its own, so with no
+  case chosen that role does not see it and a role both admit does; a top-level menu
   above with one submenu that keeps its screen and one that is above; `previous` in a submenu above,
   for a follow-up form and for a registration form, `parentMenu` from a submenu that keeps its
   screen, and a link into each.
@@ -2234,7 +2272,14 @@ naming `menu-screens`:
 - `proof/native/producers/emit-menu-screens-evidence.ts` writes both exports of the five documents,
   and of the two documents the gate refuses that the family builds past it, as the nested-menu
   proofs build their counterexamples: the step-back control's and the two-registration form's, both
-  below.
+  below. It also writes the two documents of registration from the case list again with every
+  list's other `afterSubmit` wherever the gate admits it (`alwaysOfferedRegistrationMutations`), so
+  run G3 holds each host shape under both values the rules admit. Every landing it writes is
+  Preview's own: `screenOfFrame` over each form's after-submit frame, and
+  `alwaysOfferedRegistrationReturn` for a Register return; and each screen's entries are written as
+  Preview shows them (`previewScreenEntryVisibility`) for a worker holding no role and each role a
+  display condition compares, so every condition is read holding and not, with the rows each role
+  loses to a parent's condition alone (`parentHides`), which the runtime test holds Core to leave off.
 - `proof/native/test_menu_above_emission.py`: for each scenario, every `<menu>`, every
   `<entry>/<stack>` and every `<endpoint>` HQ's contributors build equal Nova's, whole, with XPath
   carriers compared as HQ's parser's trees. It would catch a menu id, a `root` attribute, a locale id,
@@ -2260,9 +2305,13 @@ naming `menu-screens`:
 - `proof/native/core/RegisterFromListRuntimeTest.java`: run G3.
 
 **The lane.** Proof 1 to 5 run over the five documents as over any targeted document (run G1, run
-G2). `proof/corpus/editKinds.ts` gains two edit kinds for proof 5, `setFormsInMenuAbove` (on and off,
-on a menu nothing opens) and `setAlwaysOfferedRegistration` (set, change `afterSubmit`, clear), each
-built through this part's planners. The fuzz sample keeps its draws; the new shapes come from the
+G2). `proof/corpus/editKinds.ts` draws both slots' edits for proof 5 as arms of its `updateModule`
+generator (`menuScreenEdits`), since `EDIT_KIND_GENERATORS` holds one generator per mutation kind and
+both slots ride `updateModule`: forms in the menu above off, and on for a top-level menu nothing opens
+(no link to it, no entry point on it), through `setModuleFormsInMenuAboveMutation`; and the `always`
+arm's `afterSubmit` changed, the arm cleared, and an arm set on another list, through
+`alwaysOfferedRegistrationMutations` and `alwaysOfferedRegistrationChoices`. Each is proposed only on
+a document already holding its shape, so the fuzz sample keeps its draws; the new shapes come from the
 targeted documents and from the Vitest corpus below.
 
 **Starter apps.** The three starter apps as bases made in CommCare HQ are part 14's (`14-proof.md`,
@@ -2310,7 +2359,8 @@ journey as it did.
 
 Every string a person reads. `<above>` is "the app's first menu" or the parent's name; `<Above>` its
 sentence-start form ("The app's first menu"). Builder sentences for the validator's findings are the
-same sentences with the tool hints in parentheses removed, in `lib/doc/userFacingErrors.ts`.
+same sentences with the tool hints in parentheses removed, and with a leading `Module` removed as the
+builder's other `after-empty-search` sentences have it, in `lib/doc/userFacingErrors.ts`.
 
 **Module settings, `MenuScreenSection`.**
 
@@ -2318,8 +2368,8 @@ same sentences with the tool hints in parentheses removed, in `lib/doc/userFacin
 |---|---|
 | heading | Where its forms show |
 | switch | Show its forms in the menu above |
-| line, off, top-level | Workers open <menu> from the app's first menu, then choose a form. |
-| line, off, submenu | Workers open <menu> from <parent>, then choose a form. |
+| line, off, top-level, or a submenu whose parent shows its forms above (`menuTileScreenOf` is the first menu) | Workers open <menu> from the app's first menu, then choose a form. |
+| line, off, submenu under a parent that keeps its screen | Workers open <menu> from <parent>, then choose a form. |
 | line, on | <menu>'s forms show in <above>, and <menu> has no entry of its own. |
 | added, on, with a case list entry | Its case list entry shows there too. |
 | added, on, top-level with submenus | Its submenus show on the app's first menu too. |
@@ -2336,7 +2386,9 @@ screen under a top-level menu above, the `locus` names the app's first menu.
 **After submit and links.** Disabled choices read, in the picker: "Module: <menu> shows its forms
 in the menu above, so it has no screen of its own.", "Parent menu: <parent> shows its forms in the
 menu above, so it has no screen of its own." and "Previous screen: <menu> shows its forms on the app's
-first menu, where Nova doesn't offer the previous screen." A menu that is above reads, in the link
+first menu, where Nova doesn't offer the previous screen.", and for `module` in a submenu that opens
+through the first menu with its shared case (section 5.1), "Module: " followed by the sentence of a
+target section 5.5 refuses, naming the parent. A menu that is above reads, in the link
 target picker: "Shows its forms in the menu above. You can choose one of its forms." A target or an
 entry point section 5.5 refuses reads: "Every form listed on the app's first menu from a menu like
 <above menu> opens one chosen case, and CommCare would keep that case on the first menu. You can give
@@ -2367,14 +2419,20 @@ entry point section 5.5 refuses reads: "Every form listed on the app's first men
 | while the `after-empty-search` arm is set | This list already offers <form> when a search finds nothing. You can change that under When no cases match. |
 
 **The form's side.** `FormEntrySection` row: "Also offered on <host>'s case list" (two: "Also
-offered on the case lists of <a> and <b>"; more: the same with a comma list).
+offered on the case lists of <a> and <b>"; more: the same with a comma list), followed by one link
+button per list, "Open <host>'s case list", that opens that list's setting.
+
+**The other arm.** Offering a form after an empty search while the list always offers one is
+refused, in the person's words: `"<host>" already offers "<form>" from its case list. You can stop
+offering that, and then offer a form after a search finds nothing.` The agent's adds `(register_from_case_list
+null on update_module)` after "stop offering that". The builder shows the offer disabled with it.
 
 **Removal.** The person's sentence: "<form> is offered on <host>'s case list. You can stop
 offering it there, and then remove it." (several hosts: "on the case lists of <a> and <b>"), with a
 button on the refusal, "Stop offering it", that clears the arm on each named list in one gated batch.
 The agent's: `Form "<form>" is the registration "<host>" offers from its case list
 (register_from_case_list on update_module). You can set that to null on each menu that offers it, and
-then remove the form.`
+then remove the form.` (several hosts: `"<a>" and "<b>" offer from their case lists`).
 
 **The platform note.** From the table: "Icon and spoken label on Register: in Web Apps the button
 shows its text only."
@@ -2398,7 +2456,7 @@ Vitest. A file marked "(extended)" or "(existing)" is on `main`; every other fil
 | `lib/commcare/__tests__/menuAboveEmission.test.ts` | both exports read back by `validateSuite`, `validateHqJson` and the XML parser; stacks compared with the entries of HQ's own fixture `suite-workflow-module-in-root.xml` for the same basic shape | a wrong menu id, `root`, locale, conjunction or add-on; a `previous` frame in a submenu above that differs from HQ's; over the `menu-screens` corpus, a frame of an admitted document with a selection ahead of its first command; a menu condition's instance declared anywhere but on its own `<menu>` |
 | `lib/commcare/__tests__/suiteOracle.fuzz.test.ts` (extended), a second seeded corpus `menu-screens` (200 samples) from `lib/commcare/__tests__/menuScreenDocArbitrary.ts` (new), which draws the slot and the `always` arm on gate-valid documents | every oracle of `compilerEvidence.ts` | an emitter that throws or writes an unresolvable command, locale or instance for an admitted document |
 | `lib/commcare/validator/rules/__tests__/formsInMenuAbove.test.ts` | the commit gate (`mutationCommitVerdict`) over batches that turn the slot on | each refusal of section 5 missing, or firing on its admitted neighbour (a link to a form of the menu, the owner-only arm); for section 5.5, a link or an entry point admitted while every form above opens one case, or refused in the starter shape and the registration-only shape; taking the last registration form off the first menu admitted while a link into a form there stands |
-| `lib/domain/__tests__/postSubmit.test.ts` (extended) | the offered set and `defaultPostSubmit` over every shape of the three new facts | `module` or `parentMenu` offered where HQ's build refuses it; `previous` offered to a form listed on the first menu; a default outside the offered set, the follow-up form of a submenu above that selects several cases among them (its default is `firstMenu`) |
+| `lib/domain/__tests__/postSubmit.test.ts` (extended) | the offered set and `defaultPostSubmit` over every shape of the new facts | `module` or `parentMenu` offered where HQ's build refuses it; `previous` offered to a form listed on the first menu; `module` offered, or the default, in a submenu that keeps its screen under a top-level menu above while every form above opens one case; a default outside the offered set, the follow-up form of a submenu above that selects several cases among them (its default is `firstMenu`) |
 | `lib/doc/__tests__/formsInMenuAboveMutations.test.ts` | the mutation applied through the gate, serialized and replayed | a clear that does not survive JSON; an explicit `module` or `previous` destination left stranded; an absent after-submit left unpinned where its destination is still offered and the default moved; a diff that drops the slot |
 | `lib/doc/__tests__/incrementalValidationScope.test.ts` (extended) | scoped verdict against the whole-document verdict over the `menu-screens` corpus | a batch in one menu whose finding lands in another menu on the same screen and goes unseen |
 | `lib/preview/__tests__/menuProjection.test.ts` (extended), `lib/preview/__tests__/afterSubmitScreens.test.ts` (new) | Preview's production models | a submenu tile hidden by an above parent's condition; a contributor's forms shown while the parent is off the menu; a frame landing on a menu with no screen; on Web Apps, a link to a form in a submenu that keeps its screen under a top-level menu above that is off the menu landing anywhere but on that form; an entry point into that submenu refused as off the menu |
@@ -2471,7 +2529,7 @@ list.
 | `content/docs/form-links.mdx`, "Which destinations a form is offered" | lists the reasons a destination is withheld | adds: "**Module** isn't offered in a menu that shows its forms in the menu above, and **Parent menu** isn't offered under one, because neither has a screen of its own. **Previous screen** isn't offered to a form shown on the app's first menu." |
 | `content/docs/deep-links.mdx`, "Choose a destination" | menus, case lists and forms | adds: "A menu that shows its forms in the menu above takes no deep link of its own; link to one of its forms." |
 | `content/docs/case-workspace.mdx`, after "Register when nothing matches" | no such section | a section "Register from the list": "A case list can offer a registration form at any time, so people look for a case before adding a new one. In Results, under **Register from this list**, choose a registration form from another menu. It stays on its own menu too. You can choose where people go after registering from the list: **Back to this list**, or **Continue with the new case**, which goes on to this menu's forms for it. Back to this list returns to the list, where the new case now shows, or to the menu's forms where people choose a form first there. A form that has its own After submit goes there instead. Nova offers this on a list whose menu's forms all open an existing case. In Nova's tools this is `register_from_case_list` on the menu." Under run G3's outcome C alone, one sentence follows "which goes on to this menu's forms for it.": "On a menu whose forms read the search, only **Back to this list** is offered." |
-| `content/docs/where-workers-use-your-app.mdx` | no row | the row "Icon and spoken label on Register: in Web Apps the button shows its text only." |
+| `content/docs/where-workers-use-your-app.mdx` | no sentence | in the paragraph of features that behave a little differently on each platform (the page holds no table), the sentence "An icon or a spoken label on a case list's Register button shows on Android, and in Web Apps the button shows its text only." |
 | `content/docs/mcp/tools.mdx`, `update_module`, `get_module`, `set_menu_media` rows | as they stand | `update_module` gains "`forms_in_menu_above` (`true` shows its forms in the menu above with no entry for the module, `null` gives it its own screen again) and `register_from_case_list` (`{ formUuid, label?, after_submit? }` offers another menu's registration form on this module's case list, `null` stops)"; `get_module` gains "`formsInMenuAbove`, `listsOn`, for `caseListMenuItem` its icon and audio label, and for `caseListRegistrationForm` its `kind`, `afterSubmit`, `followsFormAfterSubmit`, icon and audio label"; `set_menu_media` becomes "… on module home-screen tiles, form menu tiles, a case list's menu item (`target: case-list-menu-item`) and a case list's Register button (`target: case-list-registration`) …" |
 | `lib/agent/tools/shared/caseListMenuItem.ts`, header comment | "No tool sets the item's icon or spoken label." | "`set_menu_media` sets the item's icon and spoken label (target `case-list-menu-item`)." |
 | `lib/agent/tools/media/setMenuMedia.ts`, header comment, and the comment above `commitMediaBatch` | "set or clear menu media on one or more menu tiles (module home-screen tiles and per-form menu tiles)"; "the module arm offers the topic-icon slugs, the form arm the action-icon slugs"; "Each item emits its carrier's dedicated mutation kind (`setModuleMedia` / `setFormMedia`)" | names the four carriers (a module's tile, a form's tile, a case list's menu item, a case list's Register button); the case list item's arm offers the topic-icon slugs and the Register button's the action-icon slugs; the case list item's arm emits `setCaseListMenuItem` with the entry whole, and the Register button's the `updateModule` of `alwaysOfferedRegistrationMutations` with the slot whole, so a cleared slot is an absent key and survives the wire |

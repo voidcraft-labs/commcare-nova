@@ -113,9 +113,10 @@ it("compiles workflows whose case types and Search fields fill Nova's name gramm
 });
 
 // The menu-screens corpus: menus that show their forms in the menu above,
-// top-level and nested, with links and entry points into them. Every oracle
-// checks the HQ import, the local suite's shared menu ids and conjoined
-// conditions, and every binding; the census fails by name if the generator
+// top-level and nested, with links, entry points and a case list that always
+// offers a registration form into them. Every oracle checks the HQ import,
+// the local suite's shared menu ids, conjoined conditions, Register actions
+// and return frames, and every binding; the census fails by name if the generator
 // stops drawing a shape.
 it("compiles menu-screens samples whose menus show their forms in the menu above", {
 	timeout: 60_000,
@@ -137,4 +138,7 @@ it("compiles menu-screens samples whose menus show their forms in the menu above
 	expect(census.submenuUnderParentAbove / census.total).toBeGreaterThan(0.05);
 	expect(census.link / census.total).toBeGreaterThan(0.1);
 	expect(census.entryPoint / census.total).toBeGreaterThan(0.1);
+	expect(census.register / census.total).toBeGreaterThan(0.2);
+	expect(census.registerUnderParent / census.total).toBeGreaterThan(0.05);
+	expect(census.registerNewCase / census.total).toBeGreaterThan(0.1);
 });

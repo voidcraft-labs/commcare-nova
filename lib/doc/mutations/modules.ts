@@ -261,9 +261,15 @@ export function applyModuleMutation(
 		case "updateModule": {
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
+			// Whether a menu shows its forms above is read by every submenu
+			// that keeps its screen under a top-level menu above: whether every
+			// form listed from such a menu opens one chosen case decides
+			// whether those submenus' forms are offered their own module.
 			const before = postSubmitBefore(
 				draft,
-				formsOfModuleAndChildren(draft, mut.uuid),
+				Object.hasOwn(mut.patch, "formsInMenuAbove")
+					? Object.values(draft.formOrder).flat()
+					: formsOfModuleAndChildren(draft, mut.uuid),
 			);
 			// Apply the patch key-by-key: a `null` (the wire representation of a
 			// clear — JSON drops `undefined`, so a cleared optional slot crosses

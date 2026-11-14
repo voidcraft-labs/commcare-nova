@@ -487,7 +487,9 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 		android: {
 			reading: "runs",
-			note: "the keypad offers digits, a period, a dash, a plus and a space",
+			note:
+				"the keypad offers digits, a period, a dash, a plus and a space; a + or - only " +
+				"starts the answer, and it takes one period",
 		},
 	},
 	"plain-text": {

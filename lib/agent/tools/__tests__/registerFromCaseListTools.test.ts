@@ -3,7 +3,9 @@
  * `getModule` and `getForm` tools, over admitted documents, the production
  * planner, reducer and commit gate. Catches a first offer that stores no
  * `afterSubmit`, an update that drops the button's stored media, media
- * written onto a list that offers no form, and a read that loses the arm. */
+ * written onto a list that offers no form, a read that loses the arm, and a
+ * form offered after an empty search (`create_form`, `update_form`) that
+ * silently replaces the list's offer. */
 
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -13,9 +15,11 @@ import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain";
+import { createFormTool } from "../createForm";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
 import { setMenuMediaTool } from "../media/setMenuMedia";
+import { updateFormTool } from "../updateForm";
 import { updateModuleTool } from "../updateModule";
 
 vi.mock("@/lib/db/apps", () => ({
@@ -234,6 +238,40 @@ describe("register_from_case_list on update_module", () => {
 		expect(
 			h.currentDoc().modules[HOST]?.caseListRegistrationForm,
 		).toBeUndefined();
+	});
+});
+
+describe("case_list_registration on a list that always offers a form", () => {
+	it("refuses replacing the list's offer from create_form and update_form, naming it", async () => {
+		const h = harness();
+		await h.runTool(updateModuleTool, {
+			moduleUuid: HOST,
+			register_from_case_list: { formUuid: REGISTER, after_submit: "new-case" },
+		});
+		const offer = h.currentDoc().modules[HOST]?.caseListRegistrationForm;
+		const sentence = `"Patients" already offers "Register patient" from its case list. You can stop offering that (register_from_case_list null on update_module), and then offer a form after a search finds nothing.`;
+
+		const created = await h.runTool(createFormTool, {
+			moduleUuid: HOST,
+			name: "Register here",
+			type: "registration",
+			case_list_registration: {},
+		});
+		expect(created.mutations).toEqual([]);
+		expect(created.result).toEqual({ error: sentence });
+
+		const visit = h.currentDoc().formOrder[HOST]?.[0];
+		if (visit === undefined) throw new Error("the host has its form");
+		const updated = await h.runTool(updateFormTool, {
+			moduleUuid: HOST,
+			formUuid: visit,
+			case_list_registration: {},
+		});
+		expect(updated.mutations).toEqual([]);
+		expect(updated.result).toEqual({ error: sentence });
+		expect(h.currentDoc().modules[HOST]?.caseListRegistrationForm).toEqual(
+			offer,
+		);
 	});
 });
 

@@ -46,16 +46,21 @@ export function submenuNotOfferedReason(
 
 /** Why a built-in destination a menu that shows its forms in the menu above
  *  withholds is listed disabled: `module` in such a menu, `parentMenu` under
- *  one, and `previous` for a form listed on the app's first menu. */
+ *  one, `previous` for a form listed on the app's first menu, and `module` in
+ *  a submenu that opens through the first menu with the case every form
+ *  listed there opens. */
 export function menuAboveWithheldReason(
 	reason:
 		| "menu-forms-in-menu-above"
 		| "parent-forms-in-menu-above"
-		| "menu-forms-on-first-menu",
+		| "menu-forms-on-first-menu"
+		| "menu-opens-with-first-menu-case",
 	menuName: string,
 	parentName: string,
 ): string {
 	switch (reason) {
+		case "menu-opens-with-first-menu-case":
+			return firstMenuSharedCaseSentence(parentName);
 		case "menu-forms-in-menu-above":
 			return `${menuName} shows its forms in the menu above, so it has no screen of its own.`;
 		case "parent-forms-in-menu-above":

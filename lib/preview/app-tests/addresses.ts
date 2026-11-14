@@ -2,7 +2,12 @@ import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
-import { type BlueprintDoc, moduleUuidOfForm, type Uuid } from "@/lib/domain";
+import {
+	alwaysOfferedRegistrationOf,
+	type BlueprintDoc,
+	moduleUuidOfForm,
+	type Uuid,
+} from "@/lib/domain";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import {
 	projectLocalizedForm,
@@ -51,7 +56,8 @@ function menu(doc: BlueprintDoc, value: string, language?: string) {
 /** The menus whose forms a form name may address on the current screen: a
  *  home or menu screen's own forms and those of every menu that shows its
  *  forms there (`previewScreenEntries`); a record list's or a form's own
- *  menu; any menu on Android's home screen. */
+ *  menu, and on a record list the menu of the form its Register action
+ *  always offers; any menu on Android's home screen. */
 function formAddressModules(
 	doc: BlueprintDoc,
 	state: AppTestSessionState,
@@ -67,6 +73,15 @@ function formAddressModules(
 					: { kind: "menu", moduleUuid: screen.moduleUuid },
 			).flatMap((entry) => (entry.kind === "form" ? [entry.moduleUuid] : [])),
 		);
+	if (screen.kind === "records") {
+		const offered = alwaysOfferedRegistrationOf(doc, screen.moduleUuid);
+		const offeredModule =
+			offered === undefined
+				? undefined
+				: moduleUuidOfForm(doc, offered.formUuid);
+		if (offeredModule !== undefined)
+			return new Set([screen.moduleUuid, offeredModule]);
+	}
 	return new Set([screen.moduleUuid]);
 }
 

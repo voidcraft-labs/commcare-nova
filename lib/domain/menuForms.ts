@@ -95,7 +95,7 @@ export type CaseListRegistrationReturnOf =
  * not in the app.
  */
 export function caseListRegistrationReturnOf(
-	doc: Pick<BlueprintDoc, "forms" | "formOrder" | "modules">,
+	doc: Pick<BlueprintDoc, "forms" | "formOrder" | "modules" | "moduleOrder">,
 	hostUuid: Uuid,
 ): CaseListRegistrationReturnOf | undefined {
 	const slot = alwaysOfferedRegistrationOf(doc, hostUuid);
@@ -123,7 +123,6 @@ export function moduleIsBareCaseList(
 	);
 }
 
-/** The module whose `formOrder` lists the form, when any does. */
 /**
  * The parse-side `#search/<name>` resolver for one form. It resolves
  * inside an `after-empty-search` registration form and inside any form of

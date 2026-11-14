@@ -1,12 +1,15 @@
 /**
  * Both exports of menus that show their forms in the menu above, read back
  * by the suite and HQ JSON oracles and the XML parser, with the stacks held
- * to HQ's own fixture for the same basic shape
- * (`corehq/apps/app_manager/tests/data/form_workflow/suite-workflow-module-in-root.xml`,
+ * to the entries of HQ's own fixture for the same basic shape, read from its
+ * copy at the pin (`fixtures/form-workflow/suite-workflow-module-in-root.xml`,
+ * from `corehq/apps/app_manager/tests/data/form_workflow/`,
  * `test_form_workflow.py::test_form_workflow_module_in_root`), and the
  * frame invariant over the `menu-screens` corpus: no frame Nova writes for
- * an admitted document holds a chosen case ahead of its first command.
+ * an admitted document, a Register return among them, holds a chosen case
+ * ahead of its first command.
  */
+import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
 import type { Element } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
@@ -18,6 +21,9 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
+	caseListFormReturnFrames,
+	entryNewCaseDatumId,
+	entrySessionDatums,
 	type FrameChild,
 	formFrameChildren,
 	formLinkProjectionContext,
@@ -36,9 +42,12 @@ import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
+	caseListRegistrationReturnOf,
+	caseListsOffering,
 	effectivePostSubmit,
 	formLinkEntries,
 	moduleHasOwnScreen,
+	moduleShowsFormsInMenuAbove,
 	resolveFormLinkTarget,
 } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
@@ -406,6 +415,80 @@ describe("the local suite's menus", () => {
 	});
 });
 
+/** HQ's own entries for `_build_workflow_app` with `m1` and `m2` above. */
+const HQ_MODULE_IN_ROOT = parseXml(
+	readFileSync(
+		new URL(
+			"./fixtures/form-workflow/suite-workflow-module-in-root.xml",
+			import.meta.url,
+		),
+		"utf8",
+	),
+);
+
+/** HQ's menu of the fixture → Nova's menu of `hqShapeDoc` for the same shape. */
+const NOVA_MENU_OF_HQ: Readonly<Record<string, string>> = {
+	m0: "m0",
+	m1: "m1",
+	m2: "m3",
+	m5: "m2",
+};
+
+function novaCommandId(hqCommandId: string): string {
+	const [hqMenu = "", ...rest] = hqCommandId.split("-");
+	const novaMenu = NOVA_MENU_OF_HQ[hqMenu];
+	if (novaMenu === undefined)
+		throw new Error(`HQ's ${hqMenu} has no menu of the same shape here.`);
+	return [novaMenu, ...rest].join("-");
+}
+
+/** The command id a stack's `<command value="'…'">` names. */
+function quotedCommandId(value: string | undefined): string {
+	const id = value?.slice(1, -1);
+	if (id === undefined || value !== `'${id}'` || id.includes("'"))
+		throw new Error(`A stack command's value is not one quoted id: ${value}.`);
+	return id;
+}
+
+function hqEntry(hqCommandId: string): Element {
+	const entries = findAll(
+		(element) =>
+			element.name === "entry" &&
+			childElements(element, "command").some(
+				(command) => getAttributeValue(command, "id") === hqCommandId,
+			),
+		HQ_MODULE_IN_ROOT.children,
+	);
+	expect(entries).toHaveLength(1);
+	return entries[0] as Element;
+}
+
+/** HQ's stack frames for its entry, each command renamed to Nova's menu. */
+function hqStackFrames(hqCommandId: string) {
+	return stackFrames(hqEntry(hqCommandId)).map((frame) =>
+		frame.map((child) =>
+			child.name === "command"
+				? {
+						...child,
+						value: `'${novaCommandId(quotedCommandId(child.value))}'`,
+					}
+				: child,
+		),
+	);
+}
+
+/** HQ's popped `previous` frame for its entry, in the shape the projection
+ *  reads: none where HQ writes no stack. */
+function hqPreviousChildren(hqCommandId: string) {
+	const [frame = [], ...rest] = hqStackFrames(hqCommandId);
+	expect(rest).toEqual([]);
+	return frame.map((child) =>
+		child.name === "command"
+			? { command: quotedCommandId(child.value) }
+			: { datum: child.id },
+	);
+}
+
 describe("stacks of HQ's module-in-root shape", () => {
 	const doc = hqShapeDoc();
 	const suite = compiled(doc);
@@ -423,33 +506,27 @@ describe("stacks of HQ's module-in-root shape", () => {
 		);
 
 	it("writes the frames HQ writes for the menus Nova offers previous in", () => {
-		// HQ's m0-f0 and m0-f1.
-		for (const command of ["m0-f0", "m0-f1"])
-			expect(stackFrames(entryOf(suite, command))).toEqual([
-				[{ name: "command", value: "'m0'" }],
-			]);
-		// HQ's m5-f0: a submenu that keeps its screen under a parent above,
-		// with the parent's registration datum carried.
-		expect(stackFrames(entryOf(suite, "m2-f0"))).toEqual([
-			[
-				{ name: "command", value: "'m2'" },
-				{ name: "datum", id: "case_id_new_patient_0", value: "uuid()" },
-				{
-					name: "datum",
-					id: "case_id",
-					value: "instance('commcaresession')/session/data/case_id",
-				},
-			],
-		]);
+		// HQ's m0-f0 and m0-f1, and m5-f0: a submenu that keeps its screen
+		// under a parent above, with the parent's registration datum carried.
+		for (const hqCommand of ["m0-f0", "m0-f1", "m5-f0"])
+			expect(
+				stackFrames(entryOf(suite, novaCommandId(hqCommand))),
+				`HQ's ${hqCommand}`,
+			).toEqual(hqStackFrames(hqCommand));
 	});
 
 	it("projects HQ's frames for forms listed on the first menu, which Nova does not offer previous", () => {
 		// HQ's m1-f0 pops to nothing; m1-f1, m2-f0 and m2-f1 keep their own
 		// command, since the root datums share no prefix.
-		expect(previous("m1", "m1f0")).toEqual([]);
-		expect(previous("m1", "m1f1")).toEqual([{ command: "m1-f1" }]);
-		expect(previous("m3", "m3f0")).toEqual([{ command: "m3-f0" }]);
-		expect(previous("m3", "m3f1")).toEqual([{ command: "m3-f1" }]);
+		for (const [hqCommand, moduleLabel, formLabel] of [
+			["m1-f0", "m1", "m1f0"],
+			["m1-f1", "m1", "m1f1"],
+			["m2-f0", "m3", "m3f0"],
+			["m2-f1", "m3", "m3f1"],
+		] as const)
+			expect(previous(moduleLabel, formLabel), `HQ's ${hqCommand}`).toEqual(
+				hqPreviousChildren(hqCommand),
+			);
 		// Their default is the first menu, one empty frame.
 		expect(stackFrames(entryOf(suite, "m1-f1"))).toEqual([[]]);
 	});
@@ -477,17 +554,20 @@ describe("stacks of HQ's module-in-root shape", () => {
 
 /** Every frame Nova writes for the document, each with what it stands for:
  *  each link's target, each form's built-in destination and built-in
- *  otherwise, and each entry point. A `parentMenu` frame opens on the
+ *  otherwise, each entry point, and each Register return of a case list that
+ *  always offers a form (`registerReturns` counts them). A `parentMenu` frame opens on the
  *  parent's own command where the parent keeps its screen, so it is held by
  *  that fact. */
 function writtenFrames(doc: BlueprintDoc): {
 	readonly frames: readonly { what: string; children: FrameChild[] }[];
 	readonly parentMenuWithoutScreen: readonly string[];
+	readonly registerReturns: number;
 } {
 	const emitted = emissionPlan(doc).doc;
 	const ctx = formLinkProjectionContext(emitted);
 	const frames: { what: string; children: FrameChild[] }[] = [];
 	const parentMenuWithoutScreen: string[] = [];
+	let registerReturns = 0;
 	for (const moduleUuid of ctx.moduleOrder) {
 		const mod = emitted.modules[moduleUuid];
 		if (mod?.entryPoint !== undefined || mod?.caseListEntryPoint !== undefined)
@@ -514,6 +594,38 @@ function writtenFrames(doc: BlueprintDoc): {
 						what: `link of ${form.name}`,
 						children: targetFrameChildren(emitted, ctx, target),
 					});
+			}
+			// The Register return frames of each case list that always offers
+			// the form, as the compiler writes them on the form's entry.
+			for (const hostUuid of caseListsOffering(emitted, formUuid)) {
+				const host = emitted.modules[hostUuid];
+				const returnTo = caseListRegistrationReturnOf(emitted, hostUuid);
+				if (
+					!host?.caseType ||
+					moduleShowsFormsInMenuAbove(host) ||
+					returnTo === undefined ||
+					returnTo.kind === "own"
+				)
+					continue;
+				const newCaseId = entryNewCaseDatumId(
+					entrySessionDatums(emitted, ctx, moduleUuid, formUuid),
+					host.caseType,
+				);
+				if (newCaseId === undefined) continue;
+				for (const frame of caseListFormReturnFrames(
+					emitted,
+					ctx,
+					hostUuid,
+					newCaseId,
+					host.caseType,
+					returnTo.kind,
+				)) {
+					registerReturns++;
+					frames.push({
+						what: `Register return of ${form.name} to ${host.name}`,
+						children: [...frame.target],
+					});
+				}
 			}
 			const destinations = [
 				form.formLinks === undefined
@@ -548,17 +660,19 @@ function writtenFrames(doc: BlueprintDoc): {
 			}
 		}
 	}
-	return { frames, parentMenuWithoutScreen };
+	return { frames, parentMenuWithoutScreen, registerReturns };
 }
 
 it("writes no frame that holds a chosen case ahead of its first command, over the menu-screens corpus", {
 	timeout: 60_000,
 }, () => {
 	let frames = 0;
+	let registerReturns = 0;
 	assertGenerated(
 		fc.property(menuScreenDocArbitrary, (doc) => {
 			const written = writtenFrames(doc);
 			expect(written.parentMenuWithoutScreen).toEqual([]);
+			registerReturns += written.registerReturns;
 			for (const frame of written.frames) {
 				frames++;
 				expect(
@@ -570,4 +684,5 @@ it("writes no frame that holds a chosen case ahead of its first command, over th
 		{ seed: 20261114, numRuns: 60 },
 	);
 	expect(frames).toBeGreaterThan(60);
+	expect(registerReturns).toBeGreaterThan(5);
 });

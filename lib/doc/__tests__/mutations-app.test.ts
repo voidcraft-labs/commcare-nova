@@ -13,6 +13,7 @@ import {
 	mutationSchema,
 } from "@/lib/doc/types";
 import { collectTranslationUnits, proseText } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 function fixture(): BlueprintDoc {
@@ -104,6 +105,47 @@ describe("app metadata commits", () => {
 			commit(changed, [{ kind: "retireCaseType", caseType: "patient" }])
 				.caseTypes,
 		).toBeNull();
+	});
+	it("refuses a calculated value in a case property's text at the gate", () => {
+		const declared = commit(fixture(), [
+			{ kind: "declareCaseType", caseType: "patient" },
+			{
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "note", label: proseText("Note"), data_type: "text" },
+			},
+		]);
+		const value = {
+			parts: [{ kind: "value" as const, expression: term(literal("today")) }],
+		};
+		// Each refusal is the catalog's, at the value part itself.
+		for (const [property, pointer] of [
+			[{ name: "note", label: value }, "/0/property/label/parts/0"],
+			[
+				{ name: "note", label: proseText("Note"), hint: value },
+				"/0/property/hint/parts/0",
+			],
+			[
+				{
+					name: "note",
+					label: proseText("Note"),
+					options: [{ value: "a", label: value }],
+				},
+				"/0/property/options/0/label/parts/0",
+			],
+		] as const) {
+			const verdict = mutationCommitVerdict(
+				declared,
+				[{ kind: "setCaseProperty", caseType: "patient", property }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok ? [] : verdict.findings).toEqual([
+				expect.objectContaining({
+					code: "MUTATION_WIRE_CANONICALITY_INVALID",
+					details: expect.objectContaining({ pointer, reason: "schema-parse" }),
+				}),
+			]);
+		}
 	});
 });
 describe("app settings commits", () => {

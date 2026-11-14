@@ -12,6 +12,7 @@ import {
 	type Module,
 	menuAbove,
 	menuScreenOf,
+	menuTileScreenOf,
 	moduleHasCaseListMenuItem,
 	moduleShowsFormsInMenuAbove,
 	screenCaseFirstBlocker,
@@ -45,14 +46,19 @@ export function menuScreenLines(
 	const name = module?.name ?? "";
 	const parentUuid = module?.parentModuleUuid;
 	const parent = parentUuid === undefined ? undefined : doc.modules[parentUuid];
-	if (!moduleShowsFormsInMenuAbove(module))
+	if (!moduleShowsFormsInMenuAbove(module)) {
+		/* The menu's tile lists where `menuTileScreenOf` puts it: the first
+		 * menu for a top-level menu and for a submenu whose parent shows its
+		 * forms above, else its parent's screen. */
+		const tile = menuTileScreenOf(doc, moduleUuid);
 		return {
 			line:
-				parent === undefined
-					? `Workers open ${name} from the app's first menu, then choose a form.`
-					: `Workers open ${name} from ${parent.name}, then choose a form.`,
+				tile?.kind === "menu"
+					? `Workers open ${name} from ${doc.modules[tile.moduleUuid]?.name ?? ""}, then choose a form.`
+					: `Workers open ${name} from the app's first menu, then choose a form.`,
 			added: [],
 		};
+	}
 	const above = menuAboveName(doc, moduleUuid);
 	const added: string[] = [];
 	if (module !== undefined && moduleHasCaseListMenuItem(module))

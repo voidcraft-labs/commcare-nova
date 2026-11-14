@@ -1,5 +1,6 @@
 /** Create an empty form in the private candidate. Questions are authored through addFields. */
 import { z } from "zod";
+import { afterEmptySearchOfferBlocked } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
 import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import {
@@ -125,6 +126,19 @@ export const createFormTool = {
 					},
 				};
 			}
+
+			/* The menu's case list holds one registration offer: one that
+			 * always offers another menu's form is not replaced in passing. */
+			const armBlocked =
+				case_list_registration === undefined
+					? undefined
+					: afterEmptySearchOfferBlocked(doc, moduleUuid);
+			if (armBlocked !== undefined)
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: armBlocked.message },
+				};
 
 			if (
 				case_list_registration !== undefined &&

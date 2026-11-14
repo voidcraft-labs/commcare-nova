@@ -243,7 +243,11 @@ entry screen with disposable records. `start_app_test` and `continue_app_test`
 take exactly one of `app_id` or `work_id`, plus a stable `request_id` for each
 action. A work target needs a saved checkpoint with no pending app changes. `continue_app_test` chooses a saved
 Preview identity, navigates visible menus, selects records, answers questions,
-submits into test storage, and observes the next task. A selected record opens
+submits into test storage, and observes the next task. A home or menu screen
+also lists the forms and case lists of each menu that shows its forms there, as
+`forms` and `caseLists` in its observation, each naming its menu; choose one
+with the `form` action, or with the `records` action naming that menu's
+`moduleUuid` where the screen lists several case lists. A selected record opens
 Details when configured; `routeContinue` follows its Continue action and `routeBack`
 returns to the previous screen. Details include the displayed values, not just
 stored properties. It can also sync the

@@ -86,7 +86,8 @@ export interface SearchCanvasProps {
 	/** Disabled-add hint: `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
 	/** Why this menu takes no Search at all (it shows its forms in the menu
-	 *  above), stated under the heading in place of the workflow line. */
+	 *  above), stated under the heading in place of the workflow line, with
+	 *  the panel's button disabled by it. */
 	readonly searchUnavailableReason?: string;
 	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
 	/** Whether the worker actually sees a search screen (requires an input). */
@@ -133,6 +134,7 @@ export function SearchCanvas({
 	const canEdit = useCanEdit();
 	const projectProse = useProseProjection();
 	const containerKey = useId();
+	const unavailableReasonId = useId();
 	const [moveAnnouncement, setMoveAnnouncement] = useState("");
 	const panelSelected = selection?.type === "search-panel";
 	const selectedInputUuid = selection?.type === "input" ? selection.uuid : null;
@@ -234,7 +236,10 @@ export function SearchCanvas({
 					<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
 						Search
 					</h1>
-					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
+					<p
+						id={unavailableReasonId}
+						className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted"
+					>
 						{searchUnavailableReason !== undefined
 							? searchUnavailableReason
 							: workflowLine !== undefined
@@ -333,29 +338,32 @@ export function SearchCanvas({
 											)}
 								</div>
 							</div>
-							{canEdit && searchEnabled ? (
-								<Button
-									type="button"
-									variant="ghost-action"
-									onClick={() => onSelect({ type: "search-panel" })}
-									aria-expanded={panelSelected}
-									data-case-search-panel
-									className="w-full shrink-0 @min-[34rem]:w-auto"
-								>
-									Edit Search screen
-								</Button>
-							) : canEdit ? (
-								<Button
-									type="button"
-									variant="ghost-action"
-									onClick={openSearchSettings}
-									aria-expanded={panelSelected}
-									data-case-search-panel
-									className="w-full shrink-0 @min-[34rem]:w-auto"
-								>
-									Change when people continue
-								</Button>
-							) : null}
+							{canEdit && (
+								<SimpleTooltip content={searchUnavailableReason}>
+									<Button
+										type="button"
+										variant="ghost-action"
+										onClick={
+											searchEnabled
+												? () => onSelect({ type: "search-panel" })
+												: openSearchSettings
+										}
+										disabled={searchUnavailableReason !== undefined}
+										aria-describedby={
+											searchUnavailableReason === undefined
+												? undefined
+												: unavailableReasonId
+										}
+										aria-expanded={panelSelected}
+										data-case-search-panel
+										className="w-full shrink-0 @min-[34rem]:w-auto"
+									>
+										{searchEnabled
+											? "Edit Search screen"
+											: "Change when people continue"}
+									</Button>
+								</SimpleTooltip>
+							)}
 						</div>
 
 						{canvasLines.length > 0 && (

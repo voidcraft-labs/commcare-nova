@@ -10,6 +10,13 @@
  * the platform detector never see), and a value the schema's enum holds with
  * no registry row, or a row the enum refuses. A `feature` naming no platform
  * row already fails `tsc`, through `PlatformFeatureId`.
+ *
+ * The registry's keys are also held to a second source: every field key the
+ * reference audit classifies as configuration (`NON_REFERENCE_FIELD_PATHS`,
+ * which must classify every schema key), less the named flags that are not a
+ * question display setting. So a whole new display key added to a kind schema
+ * with no registry row fails here, where the per-setting checks above, which
+ * walk only the registry's own rows, cannot see it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -25,6 +32,17 @@ import {
 	fieldPatchSchemaByKind,
 	proseText,
 } from "@/lib/domain";
+import { NON_REFERENCE_FIELD_PATHS } from "@/lib/domain/referenceSlots";
+
+/** The field configuration keys that are not a question display setting, each
+ *  with why: what the registry holds is a closed choice about how a
+ *  question's control is drawn, written as its `appearance`. */
+const NOT_DISPLAY_SETTINGS: Readonly<Record<string, string>> = {
+	placement: "a query repeat's held placement, an identity no author chooses",
+	fieldList: "a group's screen layout, written on the group and not a control",
+	plainLabel: "a label's text formatting, read by plainText.ts",
+	plainHelp: "a help text's formatting, read by plainText.ts",
+};
 
 /** Every string an enum or constant inside a JSON Schema admits. */
 function admittedStrings(schema: unknown): string[] {
@@ -66,6 +84,24 @@ describe("FIELD_DISPLAY_SETTINGS", () => {
 			}
 		});
 	}
+
+	it("holds a row for every field configuration key that is a display setting", () => {
+		const configKeys = Object.entries(NON_REFERENCE_FIELD_PATHS)
+			.filter(([path, reason]) => reason === "config" && !path.includes("."))
+			.map(([path]) => path);
+		for (const key of configKeys)
+			expect([
+				key,
+				fieldKinds.some((kind) => fieldKindDeclaresKey(kind, key)),
+			]).toEqual([key, true]);
+		for (const key of Object.keys(NOT_DISPLAY_SETTINGS))
+			expect(configKeys).toContain(key);
+		expect(
+			configKeys
+				.filter((key) => !Object.hasOwn(NOT_DISPLAY_SETTINGS, key))
+				.sort(),
+		).toEqual(FIELD_DISPLAY_SETTINGS.map((setting) => setting.key).sort());
+	});
 
 	it("gives each kind its settings in registry order, and a kind with none an empty list", () => {
 		expect(fieldDisplaySettingsFor("text").map((s) => s.key)).toEqual([

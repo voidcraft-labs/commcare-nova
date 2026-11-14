@@ -1,6 +1,6 @@
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, proseText } from "@/lib/domain";
-import { eq, literal, prop, sessionUser } from "@/lib/domain/expression";
+import { eq, literal, or, prop, sessionUser } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -8,9 +8,12 @@ import { answerHeld } from "./echo";
  * Forms in the menu above under parents that keep their screens
  * (`targeted-forms-in-menu-above-nested`).
  *
- * - "Households" is case first. Its submenu "Household checks" shows its
- *   follow-up form there (the screen stays case first), whose display
- *   condition reads the household and joins the parent's own condition; its
+ * - "Households" is case first, for a visitor. Its submenu "Household
+ *   checks", for a checker or a visitor, shows its two follow-up forms there
+ *   (the screen stays case first): "Check household", whose display condition
+ *   reads the household, and "Review household", which has none, so with no
+ *   household chosen the two menus' conditions alone decide whether it shows,
+ *   and a checker, whom the parent's condition refuses, does not see it. Its
  *   submenu "Household list" shows only its case list entry there (the screen
  *   still stays case first); "Household extras" keeps its screen and returns
  *   to its parent after submit.
@@ -110,7 +113,10 @@ export function formsInMenuAboveNested() {
 				uuid: key("household-checks"),
 				name: "Household checks",
 				caseType: "household",
-				displayCondition: eq(sessionUser("role"), literal("checker")),
+				displayCondition: or(
+					eq(sessionUser("role"), literal("checker")),
+					eq(sessionUser("role"), literal("visitor")),
+				),
 				caseListConfig: list("household-checks"),
 				forms: [
 					{
@@ -123,6 +129,12 @@ export function formsInMenuAboveNested() {
 							literal("north"),
 						),
 						fields: [note("check-household")],
+					},
+					{
+						uuid: key("review-household"),
+						name: "Review household",
+						type: "followup",
+						fields: [note("review-household")],
 					},
 				],
 			},

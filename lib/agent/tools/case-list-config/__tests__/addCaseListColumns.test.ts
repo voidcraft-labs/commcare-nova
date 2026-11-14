@@ -63,6 +63,40 @@ describe("addCaseListColumns", () => {
 		);
 	});
 
+	it("stores blanks only where it differs from the direction's own", async () => {
+		const h = makeCaseListFixture();
+		const result = await h.runTool(addCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			columns: [
+				{
+					kind: "plain",
+					field: "phone",
+					header: "Phone",
+					// The direction's own side: stored as its absence, not refused.
+					sort: { direction: "asc", priority: 0, blanks: "first" },
+				},
+				{
+					kind: "plain",
+					field: "case_name",
+					header: "Name again",
+					sort: { direction: "asc", priority: 1, blanks: "last" },
+				},
+			],
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		const [own, other] = result.result.uuids;
+		const columns = h.currentDoc().modules[MOD_A]?.caseListConfig?.columns;
+		expect(columns?.find((column) => column.uuid === own)?.sort).toEqual({
+			direction: "asc",
+			priority: 0,
+		});
+		expect(columns?.find((column) => column.uuid === other)?.sort).toEqual({
+			direction: "asc",
+			priority: 1,
+			blanks: "last",
+		});
+	});
+
 	it("surfaces each new uuid in the structured result", async () => {
 		const h = makeCaseListFixture();
 		const result = await h.runTool(addCaseListColumnsTool, {

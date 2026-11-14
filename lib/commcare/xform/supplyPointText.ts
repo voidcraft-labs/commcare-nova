@@ -11,11 +11,16 @@
  * `instance('commcaresession')/session/data/supply_point_id`). The test is a
  * substring test over the source text, so this reads text too, never XPath.
  *
- * Nova's serializer writes every `'` as `&apos;` (`serializeXml.ts`), so the
- * bytes Nova sends never hold the substring; a save in HQ's form builder
- * writes the apostrophes plainly, after which the stored source can. So this
- * reads every attribute value, text node and comment as the parser decodes
- * it, which holds whatever text a save can leave.
+ * Nova's serializer writes every `'` as `&apos;` (`serializeXml.ts`), and a
+ * save in HQ's form builder writes the apostrophes plainly, so this reads
+ * every attribute value, text node and comment as the parser decodes it,
+ * which holds whatever text a save can leave. No admitted document's source
+ * holds the text even decoded: an itext text's `instance(` is written with
+ * its bracket as an output (`builder.ts::literalLabelNodes`), a literal is
+ * split there (`xpath/wire/serialize.ts::literalPieces`), and a form's name
+ * and Connect texts holding it are refused at the gate
+ * (`FORM_TEXT_READ_AS_INSTANCE`). `planPrivileges.ts::commtrackReasons` reads
+ * the emission through this as a guard.
  */
 
 import { type AnyNode, isComment, isTag, isText } from "domhandler";

@@ -9,6 +9,7 @@
 // builder read these two.
 
 import type { BlueprintDoc } from "./blueprint";
+import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import type { Form } from "./forms";
 import { effectiveAppLocalization } from "./localization";
 import type { ProseTemplate } from "./prose";
@@ -43,11 +44,39 @@ const SWITCHED_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"field-help",
 ]);
 
+/** The form's switch as it reads while formatting is on. */
+const SWITCH_ON: Pick<Form, "plainText"> = {};
+
+/** Whether a unit's own setting already shows it as typed with the form's
+ *  switch on: a label's or a container's `plainLabel`, a choice's
+ *  `plainLabel`, a help text's `plainHelp`. */
+function ownSettingShowsAsTyped(
+	doc: BlueprintDoc,
+	owner: { fieldUuid: Uuid; optionUuid?: Uuid },
+	role: TranslationUnitRole,
+): boolean {
+	const field = doc.fields[owner.fieldUuid];
+	if (field === undefined) return false;
+	if (owner.optionUuid !== undefined) {
+		if (!("optionsSource" in field) || field.optionsSource === undefined)
+			return false;
+		const option = inlineOptionsOf(field.optionsSource)?.find(
+			(candidate) => candidate.uuid === owner.optionUuid,
+		);
+		return option !== undefined && labelShowsAsTyped(SWITCH_ON, option);
+	}
+	if (role === "field-help")
+		return helpShowsAsTyped(SWITCH_ON, "plainHelp" in field ? field : {});
+	return labelShowsAsTyped(SWITCH_ON, "plainLabel" in field ? field : {});
+}
+
 /**
- * Every text a form's text formatting switch reaches, as each of the app's
+ * Every text a form's text formatting switch changes, as each of the app's
  * languages holds it: each question's, container's and section's label, each
- * inline choice's label and each help text. The builder reads it to ask
- * before turning formatting off for a form where some text uses it.
+ * inline choice's label and each help text, less those whose own setting
+ * already shows them as typed (workers see their symbols either way). The
+ * builder reads it to ask before turning formatting off for a form where some
+ * text uses it.
  */
 export function formSwitchedTexts(
 	doc: BlueprintDoc,
@@ -59,6 +88,7 @@ export function formSwitchedTexts(
 		const owner = unit.owner;
 		if (owner.kind !== "field" && owner.kind !== "select-option") continue;
 		if (owner.formUuid !== formUuid || !SWITCHED_ROLES.has(unit.role)) continue;
+		if (ownSettingShowsAsTyped(doc, owner, unit.role)) continue;
 		for (const language of languages) {
 			const value = storedTranslationValue(doc, language, unit);
 			if (typeof value === "object" && value !== null) out.push(value);

@@ -125,7 +125,9 @@ export function useParseProseValue(
 			if (!parsed.ok)
 				throw new Error(parsed.issues.map((issue) => issue.message).join(" "));
 			if (parsed.expression === undefined)
-				throw new Error("Enter a formula before saving.");
+				throw new Error(
+					"A calculated value needs a formula. You can write one here.",
+				);
 			return canonicalProseAtom(parsed.expression);
 		},
 		[api, slot, current, lookupContext],
