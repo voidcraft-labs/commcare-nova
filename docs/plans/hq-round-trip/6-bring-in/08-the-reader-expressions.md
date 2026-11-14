@@ -79,7 +79,9 @@ evaluate a list of values as they do today (8.3).
    finished structure, because one Hidden Value's type decides how another slot's comparison prints.
    Every round of the work builds a new document object, since every typing fact is cached per
    document.
-6. **The equivalence table is closed at eight rows** (3): whitespace, parentheses, quote marks, number
+6. **The equivalence table is closed at seven rows** (3; S2 left it under E1's outcome D, read from
+   Core's source: `CaseChildElement.getChildrenWithName` answers a `name` step with a blank node):
+   whitespace, parentheses, quote marks, number
    spelling, the three axis abbreviations, `./.` for `.` in a predicate, `cond` as nested `if` in a
    record slot, and `name` for `case_name` on a case row (the last decided by run E1). Each has a native
    vector.
@@ -430,9 +432,13 @@ a row predicate. Where: the pull request lane, native family `expression`, new c
 `proof/native/core/RowPredicateCurrentRuntimeTest.java`, with two expectations and no outcome table.
 A default's direct read of another question answers the same spelled absolute and spelled
 `current()`, in a setvalue at `xforms-ready` and in one at `jr-insert` inside a repeat, over one, two
-and three repeat entries. A default inside a repeat that reads a lookup table filtered by another
-question of the repeat answers per entry spelled `current()`, and does not spelled absolute (Core
-refuses it, or reads one entry's answer for every entry). If the first expectation fails, the reading
+and three repeat entries. A default inside a repeat that reads an in-memory fixture's rows filtered
+by another question of the repeat answers per entry spelled `current()`, and does not spelled absolute
+(Core refuses it, or reads one entry's answer for every entry). The fixture is the place list the class
+already serves, filtered by a child element (`name`), which Core evaluates row by row as it does a
+lookup table's column (`EvaluationContext.expandReferenceAccumulator`); the filtering question is the
+entry's own number, a starting value made with the entry, since a question a worker answers is blank
+when the entry's starting values run. If the first expectation fails, the reading
 of Core in section 2.3 is wrong: the session sets `default-reads-current` to `changes`, adds the
 register entry of that id as part 09's section 11.3 says an entry is added, and corrects section 2.3's
 sentence and the row of part 09's section 11.4 that reads it.
@@ -715,6 +721,9 @@ Nova writes none, an `if` chain that is not a `switch` the slot's types admit. S
 2. On a mismatch, `firstDifference(S, P)` gives the source node where the trees first differ, in
    document order. The innermost fold site whose source span holds that node is withdrawn: that node
    binds plainly from then on. Bind again and compare.
+   Where no site holds the node and the node is a call holding a `protected-literal` site (a
+   `concat` whose literal run was every argument, so the fold changed the call itself), that site
+   is withdrawn.
 3. Repeat until the trees are equal or the difference lies in no fold site. Then try the withheld
    print, once, with the folds as they stand; a mismatch there is `unrecognized`.
 
@@ -1002,7 +1011,8 @@ starter bases finish in at most four rounds.
 ```ts
 // lib/commcare/reader/syntaxCompare.ts
 export interface CompareOptions {
-	/** `record` applies S1 and S2; `form` applies neither. */
+	/** `record` applies S1, and S2 at the slot's own row; both rule sets apply S2 inside a
+	 *  `casedb` or results row predicate (the row S2 of 3.2), and `form` never applies S1. */
 	readonly ruleSet: RuleSet;
 	/** Section 3.3: maps over the source tree's local names. */
 	readonly instanceId?: (id: string) => string;
@@ -1044,7 +1054,7 @@ Every row is a rule of `comparable`. Run E1 holds each against Core with the vec
 | L5 | `child::a` and `a`; `self::node()` and `.`; `parent::node()` and `..` | an `axis` node named `child` is replaced by its value; `self` and `parent` over the call `node()` become `self` and `parent`. `attribute::a` and `@a` need no rule: `formSyntax.ts` reads both as one `axis` node (`AttrSpecified`, `AxisSpecified`) | `expr/XPathStep.java` holds one axis and test for either spelling | each of the three pairs, and `attribute::a` with `@a` as a control, in a path over a small instance |
 | L6 | `./.` and `.` as the whole of a path inside a predicate | a `child` node whose left and step are both `self` becomes `self` | Core contextualizes `./.` to the same node | `x[. = 'a']` and `x[./. = 'a']` over three nodes |
 | S1 | in a record slot, `cond(c1, v1, …, cn, vn, d)` and `if(c1, v1, if(…, if(cn, vn, d)))` | with `ruleSet: "record"`, a `call` named `cond` with an odd count of three or more arguments is rewritten to nested `if` calls before the comparison, on the source tree | `expr/XPathCondFunc.java::evalBody` evaluates the pairs in order and stops at the first true one | three and five arguments, a true first, a true second, none true, a branch that would throw when evaluated |
-| S2 | on a case row, the step `name` and the step `case_name` | with `ruleSet: "record"` or inside a casedb or results row predicate, a `name` node spelled `name` that is a row's own step compares as `case_name` | decided by E1, outcome D | a case named `Asha` read as `name` and as `case_name` from `casedb` and from `results:inline` |
+| ~~S2~~ | no row: E1's outcome D, read from Core's source. Core's `casedb` holds a case's name as `case_name` and answers any other step with a blank node it creates (`org/commcare/cases/instance/CaseChildElement.java::getChildrenWithName`), so `name` and `case_name` are two reads. `syntaxCompare.ts` compares them as two trees, the reading hook passes `caseNameAlias: false` (a `name` step binds the property called `name`), and `spellingVectors.ts` keeps the pair as a negative control (`name` reads blank, `case_name` reads `Asha`) | | `CaseChildElement.getChildrenWithName` | a case named `Asha` read as `name` and as `case_name` from `casedb`, apart |
 
 S1 is applied in a record slot only. In form logic `cond` is a `call` the union holds, prints as written
 and needs no row. S1 is a rule of the comparison alone: what makes the candidate an `if` is the `cond`
@@ -1217,7 +1227,14 @@ export function readExpression(
 export type SlotJudgment =
 	/** The interpolation, the parse or the binder refused: the entry of 9.2, or `unrecognized`
 	 *  where `entryId` is undefined. */
-	| { readonly kind: "refused"; readonly entryId: string | undefined; readonly detail: FindingDetail }
+	/** The cause alone (`readExpression.ts::SlotRefusal`: the interpolation's refusal, a syntax
+	 *  error, the binder's issues, `no-case-datum`, or a search row, which `csqlRead.ts` reads);
+	 *  `readExpressions` turns it into the entry of 9.2 through `findings.ts`, so this file reads
+	 *  nothing of the manifest. */
+	| { readonly kind: "refused"; readonly cause: SlotRefusal }
+	/** The emitter refused to print the candidate, which it does only for a tree the checker
+	 *  refuses: the checker's refusal is the claim, else `unrecognized` (`differs:print`). */
+	| { readonly kind: "unprintable"; readonly candidate: Expression; readonly source: FormSyntax; readonly foldSites: readonly string[] }
 	| {
 			readonly kind: "bound";
 			readonly candidate: Expression;
@@ -1262,6 +1279,12 @@ export interface FoldEnv {
 	readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
+	/** The form-node projection the slot binds through (the relocation test of `form-read`). */
+	readonly projection?: FormNodeProjection;
+	/** Claims a site of its own over a span (a `concat` run), false where it is withdrawn. */
+	use(span: { readonly from: number; readonly to: number }): boolean;
+	/** Binds a node with no fold offered at it: the plain binding a proposal starts from. */
+	bindPlain(node: FormSyntax, context: ExpressionContext): Expression;
 }
 export const EXPRESSION_FOLDS: readonly Fold[]; // in the order of the tables below
 /** One member per fold of 5.1, 5.2 and 5.3, in table order. */
@@ -1270,7 +1293,7 @@ export type FoldId =
 	| "form-read" | "own-case-read" | "worker-record-read" | "operation-id" | "acting-user"
 	| "unowned" | "owner-at-level"
 	| "absent-node-guard" | "search-text" | "empty-rows-guard" | "handed-on-rows-guard" | "cond"
-	| "checklist-guard" | "instant-comparison" | "is-blank" | "normalize-space" | "quotient"
+	| "checklist-guard" | "instant-comparison" | "device-instant-text" | "is-blank" | "normalize-space" | "quotient"
 	| "date-add" | "datetime-value" | "when-input-present" | "in" | "between" | "switch"
 	| "relation-property" | "relation-presence" | "relation-count";
 ```
@@ -1383,6 +1406,7 @@ own-case walk: the proposal prints the own datum, differs, and is withdrawn. It 
 | `cond` | record | a call `cond(c1, v1, …, cn, vn, d)` with an odd count of three or more arguments | `if(c1, v1, if(…, if(cn, vn, d)))`, each `c` bound as a condition and each `v` and `d` as a value. It prints `if`, which S1 compares with the source's `cond` |
 | `checklist-guard` | form | each shape `emptyRows.ts::guardChecklistPair` writes around a `weighted-checklist` (the call moved into the branches of an `if` or `cond`, and the joint guard over two paths) | the bound call |
 | `instant-comparison` | both | a comparison whose two sides are each a sum ending in the fraction term `instantMicros` writes, or one such side against an integer literal | the same comparison over the unwrapped operands (below) |
+| `device-instant-text` | both | `if(substr(T, 10, 11) = 'T' and …, <the device's text>, T)`, the wrapper `instant.ts::deviceInstantText` writes around a starting value cast into a date and time and a `date()` or `format-date` operand that may hold such text | the bound `T`, which the print wraps again where the emitter does |
 | `is-blank` | both | `string-length(string(X)) = 0` | `is-blank { left: X }` |
 | `normalize-space` | both | `replace(replace(X, '[ \t\r\n]+', ' '), '^ \| $', '')` | `call normalize-space [X]` |
 | `quotient` | record | `if(R = 0, L div R, (L - L mod R) div R)` | `arith quotient L R` |
@@ -1434,7 +1458,8 @@ beside it:
  *  digits where the microseconds are whole milliseconds and six otherwise. Where the UTC year is past
  *  9999, the same moment in the smallest whole-hour offset behind UTC that keeps a four-digit year
  *  (`-01:00` to `-99:00`, the two digits `literalInstantMicros` reads). Undefined where neither
- *  spelling has a four-digit year, or for a count that is not a safe integer. */
+ *  spelling has a four-digit year, or for a count that is not an integer. A moment past 2^53
+ *  microseconds (after the year 2255) is a double the fold computed, decomposed exactly. */
 export function instantTextOfMicros(micros: number): string | undefined;
 ```
 
@@ -1534,12 +1559,11 @@ trees do, so the slot is `unrecognized`, which is the truth: Nova would write th
 | `blank` | `is-blank(x)` | `eq(call string-length [call string [x]], 0)` |
 | `normalize-space` | `call normalize-space [x]` | the two nested `replace` calls |
 | `quotient` | `arith quotient` | the `if` over `div` and `mod`, in a record slot |
-| `date-add` | `date-add` | `date-coerce` of `call floor` of a sum, in a record slot |
 | `own-case` | `form-case` | a `project` over a `cases` query keyed on the own-case datum, in form logic |
 | `worker-record` | the worker-record leaf | a `project` over the usercase `cases` query |
-| `session-guard` | a session context read, the search text arm | its own count guard built as an `if` |
+| `junction-first-clause` | `and(a, b, c)`, and the same for `or` | `and(and(a, b), c)`: the printer groups only a later operand of the same precedence, so a first clause of the same junction prints as that many clauses of the outer one (run E5, outcome B) |
 | `rows-guard` | a value read or a consumer of a data-built instance | its own guard built as an `if`, in either the plain or the handed-on shape |
-| `literal-pieces` | a literal outside a `concat`: itself. Inside a `concat`: each literal argument replaced by the pieces `serialize.ts::literalTokens(value, mode, true)` splits it into, then each maximal run of adjacent literal arguments joined into one literal exactly where `literalTokens` of the joined text is that run, and left as the separate pieces otherwise; a `concat` left with one part is that part. `serialize.ts` exports `literalTokens` for this row alone | a `concat` of the pieces the printer would split a literal into; in a `concat`, two adjacent literals, or a literal beside a literal the printer splits |
+| `literal-pieces` | a literal outside a `concat`: itself. Inside a `concat`: each literal argument replaced by the texts of the arguments `serialize.ts::literalArguments(value, mode, true)` prints it as, then each maximal run of adjacent literal arguments joined into one literal exactly where `literalArguments` of the joined text holds that run's texts, and left as the separate pieces otherwise; a `concat` left with one part is that part. `serialize.ts` exports `literalArguments` (each argument's token and the text it holds) for this row alone; the tokens alone are quoted text, which a literal does not hold | a `concat` of the pieces the printer would split a literal into; in a `concat`, two adjacent literals, or a literal beside a literal the printer splits |
 | `input-presence` | `when-input-present` | `if(count(input), clause, match-all)`, in a record slot |
 | `instant` | a comparison of two dates and times | the lowered arithmetic built from calls |
 
@@ -1692,7 +1716,11 @@ After interpolation, `#parent/p` in the case list filter is
 `instance('casedb')/casedb/case[@case_id=current()/index/parent]/p`, and in a form's display condition
 the same with the own-case path in place of `current()`. That is the tree
 `wire/rowScope.ts::buildAncestorJoinNodeset` builds for `prop { property: p, via: { kind: "ancestor",
-via: [{ identifier: "parent" }] } }`, so the `relation-property` fold is accepted by print.
+via: [{ identifier: "parent" }] } }`, so the `relation-property` fold is accepted by print where
+the read is a value. In a condition (the filter's `#parent/p = 'x'`) Nova's emitter tests the related
+case's presence instead (`normalizeRelationEvaluationScopes`, then `rowScope.ts::immediateRelationPresence`),
+so HQ's join there prints otherwise and is no exact reading; Nova's own presence spelling reads back
+through `relation-presence`.
 
 `#host/p` is not held in step 6. It interpolates to the same text with `index/host`
 (`xpath.py::interpolate_xpath`: `CaseIDXPath(case_xpath + '/index/host').case()`), with no case type
@@ -1830,6 +1858,7 @@ What does not bind, and the entry it claims:
 | a function call as the second or a later argument with no parentheses around it | `case-search/a-function-call-written-unparenthesized-as-the-2nd-or-later` |
 | a function on the left, a property on the right, arithmetic, a union, a variable, an absolute path, a function outside HQ's two tables, a step with no operator | `case-search/a-function-on-the-left-side-a-property-on-the-right-side` |
 | a hole whose device node is a casedb, table or place query other than the chosen case's property | `case-search/a-search-value-that-queries-cases-a-table-or-places` (new, section 11) |
+| an ordering (`>`, `>=`, `<`, `<=`) whose right side is a fixed text that is no number, date or date and time (`village > 'm'`, a time of day) | `case-search/p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of`: HQ reads the right side as a number, else a date or a date and time, and raises `CaseFilterError` for any other (`xpath_functions/comparison.py::case_property_range_query`), so the text is broken in HQ before any checker reads it |
 
 ### 7.4 Acceptance
 
@@ -1924,7 +1953,9 @@ export function readSearchRowConjuncts(text: string, context: ExpressionContext,
 ```
 
 `matchSearchRows` is the recognition method one level up: it runs `composeXPathQueryEmission` over the
-proposed module and compares row trees. A row whose own root is an `and` reads as its conjuncts and is
+proposed module and compares row trees. Each emitted row takes the first unmatched source row after
+the last one matched, then any earlier one, so rows stored in another order still match and
+`matched` gives the order the source holds them in, which part 07 compares. A row whose own root is an `and` reads as its conjuncts and is
 written back as that many rows, which finds the same cases; part 07 reports that with the register
 entry `search-filter-rows-recut` (part 01, section 3.5; part 07, section 13.3). Which Nova slot a
 conjunct lives in, and the finding for a conjunct no slot holds, are part 07's (its section 12.3), as
@@ -2120,7 +2151,9 @@ export const recordDialectRoundTrip: RecordDialectJudge;
 ```
 
 It catches the printer's own errors and reads the kind from the tree, never from an error's text. The
-reader takes it as `ReaderInput.recordDialect`, a member of part 06's type (its section 2.2) beside
+judge also takes the reading's table catalog (`RecordDialectJudge` is `(doc, ref, expression, lookup)`),
+since a table read prints the table's and its columns' names and the slot's authoring scope holds the
+catalog it prints from. The reader takes it as `ReaderInput.recordDialect`, a member of part 06's type (its section 2.2) beside
 `appStrings`, which is handed in for the same reason: `lib/commcare` imports nothing of `lib/agent`.
 It is used in step 6 of 2.5. Both requests' one read (part 12's `gatherReading`, its section 3.3),
 acceptance's fixed-point re-read (part 09, section 5) and the proof lane's reader bundle (part 14,
@@ -2280,6 +2313,7 @@ export function checkErrorEntry(
 	error: CheckError, // lib/domain/expression/typeChecker.ts
 	doc: BlueprintDoc,
 	pending: PendingExpression,
+	candidate?: Expression, // the tree the error is about; else the slot's stored tree
 ): { readonly entryId: string | "slot-default"; readonly reason: string };
 /** A form slot's default: M2 or M3, by the code (below). */
 export function formRefusalEntry(code: CheckErrorCode): string;
@@ -2450,7 +2484,9 @@ export const SURFACE_USE_ENTRIES: Readonly<
 ```
 
 A key one entry holds has one row with `valueClass` undefined, and each `entryId` is a member of
-`EXPRESSION_CLAIMS` (9.2). `expressionSurfaceUses` picks the row of a shared key by the rule of the
+`EXPRESSION_CLAIMS` (9.2). The table is built from those members, each member whose key is of a use
+family taken under the value class its own entry names in the manifest, so the record states every
+claim once and no second list of classes can drift from the manifest's. `expressionSurfaceUses` picks the row of a shared key by the rule of the
 table above, which is the manifest's own class for the use: the lane's Python reads the same classes
 (`proof/checks/manifest_value_classes.py`), and part 14's parity (its section 8) holds the two to
 each other. `findings.test.ts` holds every key and every entry id the record names to
@@ -2720,7 +2756,7 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | `__tests__/proseValueRules.test.ts` (only where part 03's G1 gave outcome B or its G3 gave outcome C's second case; one group of cases for each rule that landed) | `readExpressions` over a real document whose label and validation message hold outputs | a `value` part the gate's rule refuses held under `questions/output-value-any-other-expression`, which acceptance's gate would then stop with no finding; a value outside the class, or a reference part, refused; the validation message rule applied to a label; the claim made by a test of the reader's own in place of the rule's exported predicate |
 | `lib/domain/expression/__tests__/instantTextOfMicros.test.ts` | pure | `instantTextOfMicros` breaking either law of 5.3; year 9999's last second in UTC, the first moment past it, and a moment 100 hours past it |
 | `__tests__/printCollisions.test.ts` | the emitter | a row of `PRINT_COLLISIONS` whose two trees print different bytes; for `filter-identities`, one case a site: a lookup-backed select's row filter, a table lookup's `where`, the search button's condition in each of its two emitters, or a Search field's condition printing other bytes with a boolean identity than without |
-| `__tests__/csqlRead.test.ts` | the CSQL emitter and the reader | HQ's documented `concat('p = "', <answer>, '"')` in double and in single quotes not held at the guards level; a constant `p > today()` left `unrecognized`, where it is held with `search-today-device-day` and no `search-value-guards`; `unwrap-list` with a fixed and with a calculated item; a presence cascade; `dob > '2000-01-01'` refused; `date_opened > '2023-01-01'` and `date_opened = '2023-01-01'` held, or claimed as `unrecognized`, where each claims the system-date HELD-NEW entry; a text property ordered claimed as `unrecognized`, where it claims M7; a property name built at run time held; an unparenthesized second argument held |
+| `__tests__/csqlRead.test.ts` | the CSQL emitter and the reader | HQ's documented `concat('p = "', <answer>, '"')` in double and in single quotes not held at the guards level; a constant `p > today()` left `unrecognized`, where it is held with `search-today-device-day` and no `search-value-guards`; `unwrap-list` with a fixed and with a calculated item; a presence cascade; `dob > '2000-01-01'` refused; `date_opened > '2023-01-01'` and `date_opened = '2023-01-01'` held, or claimed as `unrecognized`, where each claims the system-date HELD-NEW entry; a text property ordered against a date (`village > '2020-01-01'`, which HQ builds) claimed as `unrecognized`, where it claims M7, and ordered against other text (`village > 'm'`, which HQ refuses) claimed as anything but the REFUSED untyped-right-side entry; a property name built at run time held; an unparenthesized second argument held |
 | `proof/native/test_csql_reader_parity.py` | HQ's `eulxml` parser and filter builder, in the lane (run E3) | a text HQ refuses and the reader holds |
 | `__tests__/searchRows.test.ts` | `composeXPathQueryEmission` over a real module | Nova's own rows not matched exact; a row whose root is `and` not read as its conjuncts; a row a filter clause emitted reported as a field's |
 | `__tests__/findings.test.ts` | the manifest | a `FormParseIssueCode` or `CheckErrorCode` with no entry; an entry id that is not in `lib/commcare/surface/entries`; a claim whose entry is HELD for a refusal; a key of `SURFACE_USE_ENTRIES` no entry names; an entry a table answers that is no member of `EXPRESSION_CLAIMS` |
@@ -2753,7 +2789,7 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | `components/builder/CLAUDE.md`, "Cards dispatch on syntax" | "`ValueListCard` is display-only and offered by no verb menu, so an imported `value-list` still renders." | "`ValueListCard` (“A list of values”) edits its values as `ConcatCard` edits its parts. It is offered only in a slot CommCare's server search alone reads (`isAuthorableExpressionKind`, over `serverOnlySearchSlot`), and a choice the gate refuses there is disabled with its reason." |
 | `components/builder/shared/expressionEditorSchemas.ts`, the comment over `isAuthorableExpressionKind` and the one inside it; `cards/expression/GeneralValueCards.tsx`, the comment over `ValueListCard` | "the display-only value list"; "A list held from an imported search renders, and no menu offers one."; "No step authors one, so the card is display only" | each says what is true: the list is offered where the slot's profile is the server search's alone, and the card edits its items |
 | `lib/domain/expression/CLAUDE.md`, "The semantic authority", where it names `literalInstantText` | no inverse | adds: "`instantTextOfMicros` is its inverse for a count of microseconds: the canonical UTC text, or an offset behind UTC where the UTC year is past 9999. The reader of CommCare HQ's apps writes a folded literal back with it." |
-| `lib/commcare/xpath/wire/CLAUDE.md`, "Printing" | `literalTokens` private | adds: "`serialize.ts` exports `literalTokens` for one reader, the canonical form of a `concat` of literals (`lib/commcare/reader/expressions/canonical.ts`); no emitter calls it." |
+| `lib/commcare/xpath/wire/CLAUDE.md`, "Printing" | `literalTokens` private | adds: "`serialize.ts` exports `literalArguments`, each argument a literal prints as with the text it holds, for one reader, the canonical form of a `concat` of literals (`lib/commcare/reader/expressions/canonical.ts`); no emitter calls it." |
 | `lib/agent/authoring/printQueryExpression.ts`, the default arm's comment | "`value-list` and the other held reads (`cases`, `table-rows`, `locations`, `selected-cases`) have no record spelling, and no authoring surface stores one. An app made in CommCare HQ can hold them, and reading those back belongs to bringing such an app in." It names no plan file | C8 (Copy), with the `value-list` case that makes the old comment false (8.3) |
 | `proof/README.md`, "Native proofs" | the families' tests | adds `ReaderSpellingRuntimeTest` (family `expression`), the two new cases of `test_hq_interpolation.py` with its rewritten `limits` line, and `test_csql_reader_parity.py` (family `csql`), each with one sentence of what it holds; and the two new expectations of `RowPredicateCurrentRuntimeTest` (run E4), in the sentence that describes that test |
 | `docs/research/2026-09-26-hq-round-trip/inventory/expressions-and-data.md`, `case-search.md` | the rows of the eight edited entries | the cells of section 11, and the eight new rows beside the rows they split from |
@@ -2900,7 +2936,7 @@ Files of parts 06, 07 and 11 that call this part's exports are listed in those p
 | `lib/commcare/xpath/formPathBinding.ts` | `instancePath`: the declared source; `bindFormPath`: the hashtag refusal, generated values and `current()` on a case row; `rowValue`: the alias switch (4.2) |
 | `lib/commcare/xpath/wire/fromExpression.ts` | `WireBuildContext.rewrites`; the three guard sites, `compareSides`, the search text and a table lookup's `where` read it (2.3) |
 | `lib/commcare/xpath/wire/formReads.ts` | `formReadToWire` reads `rewrites` at its two relocation sites and calls `reached` there (2.3) |
-| `lib/commcare/xpath/wire/serialize.ts` | exports `literalTokens` (for `canonical.ts`, 5.5) |
+| `lib/commcare/xpath/wire/serialize.ts` | exports `literalArguments` (for `canonical.ts`, 5.5) |
 | `lib/commcare/hqJson/caseList.ts`, `lib/commcare/suite/case-list/nodesetFilter.ts`, `lib/commcare/lookupOptions.ts`, `lib/commcare/suite/case-list/shortDetail.ts` | the sites of `filter-identities-dropped` skip `simplifyForEmission` where the control withholds it; `projectCaseListFilter` is exported (2.1, 2.3) |
 | `lib/commcare/xform/constraintCollections.ts` | `planConstraintCollections` takes `rewrites?: RewriteControl`, returns the expression unchanged with no calculation where `validation-counts-moved` is withheld, and calls `reached` (2.3) |
 | `lib/commcare/csql/emitter.ts` | no change to `CsqlEmissionContext`, which is `Omit<WireBuildContext, "target">` and so holds `rewrites`; the emitter hands it to the `toWire` call of each runtime value (2.3) |

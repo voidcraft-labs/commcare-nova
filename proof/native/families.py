@@ -174,6 +174,8 @@ CORE_CLASSES = {
     "ProseValueRuntimeTest": "expression",
     # Registration from the case list: the Register action and its return frames, by host shape (run G3).
     "RegisterFromListRuntimeTest": "menu-screens",
+    # The reader's equivalence table (run E1): each row's two spellings, read by Core alike.
+    "ReaderSpellingRuntimeTest": "expression",
     "RelationInstanceRuntimeTest": "relation-instance",
     # The whole-number counts Nova admits, and the fractional carrier they replaced, on one local form.
     "RepeatCountRuntimeTest": "expression",

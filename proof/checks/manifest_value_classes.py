@@ -35,6 +35,7 @@ from lxml import etree
 
 from proof.checks.compare.names import nova_name
 from proof.observe.manifest import CSQL_HOLES
+from proof.rules._xpath import tokens as xpath_tokens
 
 XFORMS = "http://www.w3.org/2002/xforms"
 XHTML = "http://www.w3.org/1999/xhtml"
@@ -1972,14 +1973,21 @@ def invalid_or_repeated_code(use, manifest):
 
 
 def path_not_from_uploader(use, manifest):
-    """``application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-…``: a logo slot whose path
-    is not the one HQ's uploader writes (``ProcessLogoFileUploadView.form_path``:
+    """``application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-…``: a logo slot HQ's uploader
+    did not write: an entry that is no object or holds no ``m_id``, which the uploader always stores
+    (``ProcessLogoFileUploadView.process_upload`` stores ``CommCareMultimedia.get_media_info``), or whose path
+    is not the one the uploader writes (``ProcessLogoFileUploadView.form_path``:
     ``jr://file/commcare/logo/data/<slot><ext>``)."""
     at = _json(use)
     if at is None:
         return None
     for slot, ref in (at.app.doc.get("logo_refs") or {}).items():
-        path = ref.get("path") if isinstance(ref, dict) else None
+        if not isinstance(ref, dict):
+            return True
+        media_id = ref.get("m_id")
+        if not isinstance(media_id, str) or not media_id:
+            return True
+        path = ref.get("path")
         prefix = f"jr://file/commcare/logo/data/{slot}"
         if not isinstance(path, str) or not path.startswith(prefix):
             return True
@@ -2899,114 +2907,6 @@ def multi_select_top_level(use, manifest):
     if xform is None:
         return None
     return any(not xform.in_repeat(path) for path in preload)
-
-
-def load_changes_values(use, manifest):
-    """``forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held``: a basic
-    ``case_preload`` into a question outside any repeat whose held spelling (a default value at the
-    question's place in data-tree order, which replaces the question's own default) would change a node's
-    value or relevance once the form has loaded, on some opening (README, "Load-time values"). HQ runs the
-    load after every other load-time setvalue (``XForm.add_case_preloads``); the held spelling runs it at the
-    question's place, as Vellum writes each default (``writer.js::createSetValues``). So only a load-time
-    setvalue after that place can see the difference: one that reads the question (or a node holding it) sees
-    the case's value there instead of blank, on every opening whose case holds one; one that reads only other
-    nodes sees what it saw unless such a node is calculated or conditioned, which this does not follow
-    (None); one before the place, or one reading no node of the form, sees the same in both."""
-    at, form = _form(use)
-    if form is None:
-        return None
-    if not _in_actions(at, form, "case_preload"):
-        return False
-    preload = (_actions(form).get("case_preload") or {}).get("preload") or {}
-    if not preload or _requires(form) == "none":
-        return False
-    xform = at.app.xform(form)
-    if xform is None or xform.model is None:
-        return None
-    order = {path: position for position, path in enumerate(xform.nodes)}
-    questions = [path for path in preload if not xform.in_repeat(path) and path in order]
-    if not questions:
-        return None if any(path not in order for path in preload) else False
-    unsure = False
-    for setvalue in xform.model.iterfind(f"{{{XFORMS}}}setvalue"):
-        if "xforms-ready" not in (setvalue.get("event") or "").split():
-            continue
-        target = (setvalue.get("ref") or "").strip()
-        tree = xform.readings.trees.get(setvalue.get("value")) if xform.readings is not None else None
-        if tree is None or target not in order:
-            return None
-        later = [question for question in questions if order[target] > order[question] and target != question]
-        if not later or not _reads_form(tree, "form"):
-            continue
-        reads = _form_reads(tree, target)
-        if reads is None:
-            unsure = True
-            continue
-        for question in later:
-            if any(question == read or question.startswith(f"{read}/") for read in reads):
-                return True
-        if any(_computed(xform, read) for read in reads):
-            unsure = True
-    return None if unsure else False
-
-
-def _form_reads(tree, target):
-    """Every path from the form's root an expression reads, or None where it reads the form's nodes another
-    way (from the context node, or from ``current()`` by a step this does not follow).
-
-    ``target`` is the node the setvalue sets, the absolute path its ``ref`` names: Core evaluates a setvalue's
-    value in its target's context, so ``current()`` there is the target (commcare-core
-    ``SetValueAction.processAction``), and a path from it is resolved from that node, each ``..`` up and each
-    named child down, as Nova prints a default (``current()/../zone``)."""
-    found = []
-
-    def walk(node, context):
-        kind = node[0]
-        if kind == "path":
-            root = node[1]
-            if root == "absolute":
-                found.append(node[2])
-            elif root == "call:current":
-                resolved = _from_current(target, node[4])
-                if resolved is None:
-                    return False
-                found.append(resolved)
-            elif root == "relative" and context == "form":
-                return False
-            inner = "instance" if root.startswith("instance:") else context
-            return all(walk(predicate, inner) for predicate in node[3])
-        if kind == "binary":
-            return walk(node[2], context) and walk(node[3], context)
-        if kind == "negative":
-            return walk(node[1], context)
-        if kind == "call":
-            if node[1] == "current":
-                found.append(target)
-                return True
-            return all(walk(argument, context) for argument in node[2])
-        return True
-
-    return found if walk(tree, "form") else None
-
-
-def _from_current(target, steps):
-    """The absolute path ``current()`` followed by ``steps`` names, ``current()`` being ``target``; None where a
-    step is not a plain ``..``, ``.`` or a named child without a predicate, or climbs above the form's root."""
-    path = target.split("/")[1:]
-    for axis, test, predicates in steps:
-        if predicates:
-            return None
-        if axis == "parent" and test == "node()":
-            if len(path) < 2:
-                return None
-            path = path[:-1]
-        elif axis == "self" and test == "node()":
-            continue
-        elif axis == "child" and test not in ("*", "node()", "text()") and ":" not in test:
-            path = [*path, test]
-        else:
-            return None
-    return "/" + "/".join(path)
 
 
 def _computed(xform, path):
@@ -4493,6 +4393,156 @@ def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
                 if isinstance(link, dict) and link.get("module_unique_id") == me and not link.get("form_id"):
                     return True
     return False
+
+
+def case_list_endpoint_on_a_put_in_root_module(use, manifest):
+    """``menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module``: a module's
+    ``case_list_session_endpoint_id`` beside its ``put_in_root``, whose endpoint HQ builds through the menu above
+    and never the list. In the app JSON, a module whose ``case_list_session_endpoint_id`` is not blank and whose
+    ``put_in_root`` is true. In a suite, the endpoint itself: HQ's navigation frame for a module's endpoint
+    (``post_process/endpoints.py::EndpointsHelper._make_session_endpoint``, the stack's last ``<push>``) starts with
+    the command ``id_strings.py::menu_id`` names (``workflow.py::WorkflowHelper.get_frame_children``), which for a
+    ``put_in_root`` module is no command at all (the first menu) or its parent's menu, and a form's endpoint names
+    the form's entry command after it. So a use outside an ``<endpoint>`` is no use of the class; a frame with no
+    command is in it, since only a ``put_in_root`` module's endpoint goes through the first menu; a frame whose
+    last command is an entry's is a form's endpoint, and one whose last command names a menu no other ``<menu>``
+    shares the id of is that menu's own; a menu id several ``<menu>`` elements share holds a ``put_in_root``
+    module beside its parent (``suite_xml/sections/menus.py::MenuContributor``), whose endpoints the suite alone
+    does not tell apart (None)."""
+    at = use.at
+    if isinstance(at, XmlAt):
+        endpoint = next(
+            (node for node in at.element.iterancestors() if isinstance(node.tag, str) and _local(node) == "endpoint"),
+            at.element if _local(at.element) == "endpoint" else None,
+        )
+        if endpoint is None:
+            return False
+        stacks = [child for child in _children(endpoint) if _local(child) == "stack"]
+        pushes = [push for stack in stacks for push in _children(stack) if _local(push) == "push"]
+        if not pushes:
+            return False
+        commands = [child for child in _children(pushes[-1]) if _local(child) == "command"]
+        if not commands:
+            return True
+        named = _literal_text(commands[-1].get("value"))
+        if named is None:
+            return None
+        root = at.document.root
+        entries = {
+            command.get("id")
+            for entry in root.iter()
+            if isinstance(entry.tag, str) and _local(entry) == "entry"
+            for command in _children(entry)
+            if _local(command) == "command"
+        }
+        if named in entries:
+            return False
+        menus = [menu for menu in root.iter() if isinstance(menu.tag, str) and _local(menu) == "menu"]
+        return None if sum(menu.get("id") == named for menu in menus) > 1 else False
+    at = _json(use)
+    if at is None:
+        return None
+    module = at.nearest(*MODULES)
+    if module is None:
+        return None
+    return bool(module.get("case_list_session_endpoint_id")) and bool(module.get("put_in_root"))
+
+
+def _literal_text(text):
+    """The text of an expression that is one string literal, read with Core's lexer (``proof/rules/_xpath.py``);
+    None for any other expression."""
+    found = xpath_tokens(text or "")
+    if not found or len(found) != 1 or found[0].kind != "STR":
+        return None
+    return found[0].text[1:-1]
+
+
+def _screen_of(app, module):
+    """The module whose screen lists a module's forms, or None for the app's first menu
+    (``lib/domain/menuScreens.ts::menuScreenOf``, over HQ's ``put_in_root``): a module that does not show its forms
+    above lists them on its own screen; one that does, on its parent's where the parent keeps its screen, and on
+    the first menu otherwise."""
+    if not module.get("put_in_root"):
+        return module
+    parent = app.root(module)
+    if parent is not None and not parent.get("put_in_root"):
+        return parent
+    return None
+
+
+def _form_needs_no_case(app, form, module):
+    """Whether a form's entry asks for no case (``models/forms.py``: a basic form's ``requires_case``, an advanced
+    form's load that is not auto-selected, a shadow form's source's); a module with no case type loads none."""
+    if not module.get("case_type"):
+        return True
+    if (form.get("doc_type") or "Form") == "ShadowForm":
+        source = app.forms_by_id.get(form.get("shadow_parent_form_id"))
+        return True if source is None else _form_needs_no_case(app, source, app.module_of(source) or module)
+    if form.get("doc_type") == "AdvancedForm":
+        loads = (form.get("actions") or {}).get("load_update_cases") or []
+        return not any(isinstance(load, dict) and not load.get("auto_select") for load in loads)
+    return _requires(form) not in ("case", "referral")
+
+
+def _first_chosen_type(app, module):
+    """The case type a module's entries choose first: its parent selection's, where one is active, else its own."""
+    parent = module.get("parent_select") or {}
+    if parent.get("active"):
+        selected = app.modules_by_id.get(parent.get("module_id"))
+        if selected is not None:
+            return selected.get("case_type")
+    return module.get("case_type")
+
+
+def _screen_chooses_no_case_first(app, module):
+    """Whether the screen that lists a module's forms lets a worker choose a form before any case, by the rule
+    Nova's gate holds (``lib/domain/menuScreens.ts::screenCaseFirstBlocker``): the first menu; a screen with a form
+    that needs no case; a screen whose menus choose different cases first. Core asks one question of every entry a
+    screen lists (``CommCareSession.getDataNeededByAllEntries``), so any of the three lists the forms first."""
+    screen = _screen_of(app, module)
+    if screen is None:
+        return True
+    contributors = [other for other in app.modules if _screen_of(app, other) is screen]
+    for contributor in contributors:
+        if any(_form_needs_no_case(app, form, contributor) for form in _forms(contributor)):
+            return True
+    return len({_first_chosen_type(app, contributor) for contributor in contributors}) > 1
+
+
+def _reads_chosen_case(app, text):
+    """Whether a display condition reads the case a menu chooses: a hashtag of it, by HQ's own test of the text
+    (``xpath.py::_ensure_no_case_references``: ``#case``, ``#parent``, ``#host``), or a read of a session datum
+    (Core's parse: a path from ``instance('commcaresession')`` through ``session/data``), which no screen supplies
+    before a case is chosen; None where neither is found and Core's parse of the text is not at hand."""
+    if any(hashtag in text for hashtag in ("#case", "#parent", "#host")):
+        return True
+    parsed = app.parsed(text)
+    if parsed is None or "error" in parsed:
+        return None
+    return any(
+        path["instance"] == "commcaresession" and path["steps"][:2] == ["session", "data"]
+        for path in parsed["instancePaths"]
+    )
+
+
+def form_filter_reads_case_off_a_case_first_screen(use, manifest):
+    """``menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first``: a
+    ``form_filter`` that reads the form's case (``_reads_chosen_case``) where the screen that lists the form lets a
+    worker choose the form before any case (``_screen_chooses_no_case_first``), so the condition reads a case that
+    is not chosen yet. Wider than HQ's own build error, which reads the form's module alone
+    (``helpers/validators.py``, ``CaseXPathValidationError``)."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    text = form.get("form_filter")
+    if not isinstance(text, str) or not text.strip():
+        return False
+    module = at.app.module_of(form)
+    if module is None:
+        return None
+    if not _screen_chooses_no_case_first(at.app, module):
+        return False
+    return _reads_chosen_case(at.app, text)
 
 
 def _root_reader(test):
@@ -6270,6 +6320,50 @@ def second_default(use, manifest):
     return False
 
 
+def order_a_save_changes(use, manifest):
+    """``questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes``: a setvalue Vellum reads as a
+    question's Default Value that stands, among the defaults of its event, in another order than its question stands
+    in the data tree, beside a default it reads or that reads it: a save writes each question's default in data-tree
+    order (``writer.js::createSetValues``), which changes what the reading default finds when the form loads
+    (``ActionController.java::triggerActionsFromEvent`` runs one event's actions in the model's order). None where a
+    value of such a pair reads the form's nodes in a way ``_tree_reads`` does not place."""
+    form, setvalue = _setvalue(use)
+    if form is None:
+        return None
+    if setvalue is None:
+        return False  # an event on another element of the form, no setvalue
+    target = _target(form, setvalue)
+    if target is None:
+        return None if _model_level(form, setvalue) else False
+    if not _default_value(form, setvalue, target):
+        return False
+    tree_order = {element: index for index, element in enumerate(form.data_root.iter())}
+    model = list(form.model.iterfind(f"{{{XFORMS}}}setvalue"))
+    mine = _target_element(target)
+    my_path = form.paths.get(mine)
+    my_reads = _tree_reads(form, setvalue.get("value") or "", my_path)
+    unsure = False
+    for other in model:
+        if other is setvalue or other.get("event") != setvalue.get("event"):
+            continue
+        held = _target(form, other)
+        if held is None or not _default_value(form, other, held):
+            continue
+        theirs = _target_element(held)
+        if (model.index(other) < model.index(setvalue)) == (
+            tree_order.get(theirs, 0) < tree_order.get(mine, 0)
+        ):
+            continue
+        their_path = form.paths.get(theirs)
+        their_reads = _tree_reads(form, other.get("value") or "", their_path)
+        if my_reads is None or their_reads is None:
+            unsure = True
+            continue
+        if their_path in my_reads or my_path in their_reads:
+            return True
+    return None if unsure else False
+
+
 def data_root_ui_version(use, manifest):
     """``questions/data-root-uiversion-other-than-1-or-absent``: the main instance's data root without a
     ``uiVersion`` of ``1`` (none, or another), which a Vellum save writes as ``1`` (``parser.js``, ``writer.js``)."""
@@ -6492,15 +6586,13 @@ def markdown_in_some_languages(use, manifest):
     return False
 
 
-def blank_beside_default_text(use, manifest):
-    """``questions/an-explicitly-blank-value-in-a-non-default-language-where-the``: an empty ``<value>`` in a
-    language other than the default one where another language's value of the same text and form holds content, so
-    a Vellum save fills it: Vellum's default language is the first of the app's languages HQ hands it
-    (``views/formdesigner.py``: ``'langs': app.langs``; ``javaRosa/plugin.js``: ``Itext.setDefaultLanguage(langs[0])``),
-    it reads the translations of those languages alone, and a value it writes is the language's own only where that
-    is not empty, else the default language's, else the first other language's with content
-    (``javaRosa/itext.js::getValueOrDefault``). Read on a form the app JSON carries, whose ``langs`` say it; a form
-    outside an app JSON does not say: None."""
+def blank_in_the_first_language(use, manifest):
+    """``questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text``: an empty ``<value>``
+    in the app's first language, Vellum's default (``views/formdesigner.py``: ``'langs': app.langs``;
+    ``javaRosa/plugin.js``: ``Itext.setDefaultLanguage(langs[0])``), where another app language's value of the same
+    text and form holds content, so a Vellum save fills it from that language (``javaRosa/itext.js::getValueOrDefault``).
+    A blank value in any other language is the HELD entry's, read as no translation. Read on a form the app JSON
+    carries, whose ``langs`` say it; a form outside an app JSON does not say: None."""
     form, value = _itext_value(use)
     if form is None:
         return None
@@ -6514,7 +6606,7 @@ def blank_beside_default_text(use, manifest):
         return None
     text = value.getparent()
     translation = text.getparent()
-    if translation.get("lang") not in langs or translation.get("lang") == langs[0]:
+    if translation.get("lang") != langs[0]:
         return False
     for other in form.translations:
         if other is translation or other.get("lang") not in langs:
@@ -6529,6 +6621,28 @@ def blank_beside_default_text(use, manifest):
                     ):
                         return True
     return False
+
+
+def markdown_with_formatting_off(use, manifest):
+    """``questions/a-markdown-form-in-a-form-whose-text-formatting-is-off``: a ``markdown`` value of a label, a
+    choice or a help text in a form whose ``vellum:ignore`` holds ``markdown`` (``parser.js``, split on spaces),
+    which the form builder's next save drops: it writes the copy only where the form's ``noMarkdown`` is off
+    (``javaRosa/plugin.js::contributeToModelXML``). A text every question reference names as a hint or a validation
+    message is the INERT entries' (``UNREAD_MARKDOWN_KINDS``)."""
+    form, value = _itext_value(use)
+    if form is None:
+        return None
+    if value is None or value.get("form") != "markdown":
+        return False
+    if "markdown" not in (form.root.get(f"{{{VELLUM}}}ignore") or "").split(" "):
+        return False
+    kinds, unplaced = form.itext_references
+    held = kinds.get(value.getparent().get("id"))
+    if held is not None and held <= UNREAD_MARKDOWN_KINDS:
+        return False
+    if held is None and unplaced:
+        return None
+    return True
 
 
 def _itext_text(use):
@@ -6832,6 +6946,7 @@ VALUE_CLASSES = {
     "questions/bind-calculate-on-a-visible-question": calculate_on_shown_question,
     "questions/bind-on-an-attribute-path-not-owned-by-a-plugin-savetocase-model": attribute_bind_no_plugin_owns,
     "questions/a-second-default-setvalue-on-one-question": second_default,
+    "questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes": order_a_save_changes,
     "questions/data-root-uiversion-other-than-1-or-absent": data_root_ui_version,
     "questions/requiredcondition-differing-from-a-present-non-false-required": required_condition_differing,
     "questions/validation-message-without-a-validation-condition": message_without_condition,
@@ -6840,7 +6955,8 @@ VALUE_CLASSES = {
     "questions/itemset-label-jr-itext-field": itemset_label_itext,
     "questions/markdown-form-differing-from-the-default-text": markdown_differing,
     "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": markdown_in_some_languages,
-    "questions/an-explicitly-blank-value-in-a-non-default-language-where-the": blank_beside_default_text,
+    "questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text": blank_in_the_first_language,
+    "questions/a-markdown-form-in-a-form-whose-text-formatting-is-off": markdown_with_formatting_off,
     "questions/itext-entry-referenced-only-from-jr-itext-in-an-expression": itext_read_only_in_expressions,
     "questions/itext-pragma-entries-pragma-form-descriptor-pragma-skip-full": unreferenced_pragma,
     "questions/an-appearance-holding-such-whitespace-that-some-runtime-reads": appearance_whitespace_read_otherwise,
@@ -6921,7 +7037,6 @@ VALUE_CLASSES = {
     "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-module": (
         multi_select_top_level
     ),
-    "forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-where-the-held": load_changes_values,
     "forms-and-case-writes/case-references-data-save-differing-from-that-computation": save_differing_from_vellum,
     "forms-and-case-writes/a-basic-form-s-own-case-s-close-or-open-condition-on-another": (
         own_case_condition_not_offered_or_quoted
@@ -7030,6 +7145,12 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of": (
         put_in_root_beside_an_endpoint_inline_search_or_form_return
+    ),
+    "menus-and-case-lists/case-list-session-endpoint-id-on-a-put-in-root-module": (
+        case_list_endpoint_on_a_put_in_root_module
+    ),
+    "menus-and-case-lists/form-filter-reading-the-case-on-a-screen-that-chooses-no-case-first": (
+        form_filter_reads_case_off_a_case_first_screen
     ),
     "menus-and-case-lists/any-module-under-a-training-menu": names_a_training_module,
     "menus-and-case-lists/any-other-module-under-a-shadow-menu": names_a_shadow_module,

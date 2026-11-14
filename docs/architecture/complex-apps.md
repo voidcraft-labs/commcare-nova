@@ -776,6 +776,27 @@ key or `undefined`. Each carrier is authored on its own URL
 owns the surface and Preview-entry behavior.
 `content/docs/display-conditions.mdx` is the user-facing guide.
 
+#### How CommCare HQ rewrites a display condition and a filter
+
+CommCare HQ's build does not parse these slots. `corehq/apps/app_manager/xpath.py::interpolate_xpath`
+replaces `#user`, `#session/`, `#case`, `#parent` and `#host` as text, and `::dot_interpolate` then
+replaces a bare dot outside a quoted string with the case path. Which slot gets which call:
+
+| HQ slot | Call | Case path | Dots |
+|---|---|---|---|
+| a menu's `module_filter` | `suite_xml/sections/menus.py`, the relevancy block | none | refused |
+| a form's `form_filter`, where the form chooses a case | `menus.py::MenuContributor._get_commands` | the case chosen last, `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/<id>]` (`entries.py::EntriesHelper.get_case_session_var_for_form`) | replaced |
+| a form's `form_filter`, any other form | the same | none | refused |
+| the case list filter, `case_details.short.filter` | `suite_xml/sections/entries.py::EntriesHelper.get_filter_xpath` | `current()` | replaced |
+| a Search field's `required.test` | `suite_xml/post_process/remote_requests.py` | none | refused |
+| a Search field's `validations[].test` | the same | none | not read |
+| an image map's key | `models/case_list.py::MappingItem.key_as_condition`: `dot_interpolate` alone | none | the column's property |
+
+HQ replaces these as text, inside string literals too, so Nova splits a literal that holds one and
+reads HQ's text through the same replacement before parsing it
+(`lib/commcare/reader/hqInterpolation.ts`, held to HQ's own helpers by
+`proof/native/test_hq_interpolation.py`).
+
 ### Case operations
 
 Forms carry ordered case operations, the form's own case (`own`) first, then
@@ -1486,6 +1507,9 @@ when checking whether a fixed result can be quoted in the server query.
 
 A search reads `today()` as the worker's day: Nova sends Core's `today()` in a
 runtime segment, so the device's list, HQ's search and Preview read one day.
+CommCare HQ's own `today()` in a search is the project space's day. An app
+brought in that uses it reads as Nova's `today`, and the reading reports that
+the day becomes the worker's (the rewrite `search-today-device-day`).
 Equality on a date-and-time property is sent as a closed instant range, which
 HQ answers by instant for every spelling its parser reads
 (`lib/commcare/csql/emitter.ts::readsInstantByRange`).
@@ -1758,7 +1782,11 @@ or a named form in an advanced menu (`CASE_LIST_REGISTRATION_ADVANCED_MENU`).
 in a language, HQ's build writes "Create a new Case" there
 (`app_strings.py::_create_case_list_form_app_strings`): in every language where no language
 holds text, and in each language whose value is an empty string. A label Nova writes always
-holds text: the slot's `label`, else the form's name.
+holds text: the slot's `label`, else the form's name. The reader of CommCare HQ's apps reads
+such a label as the text HQ's build writes, "Create a new Case" in each of those languages
+(`lib/commcare/reader/menus/registration.ts`, through `modules.ts::labelAsBuilt`), and records
+the spelling the first publish writes in its place under the register row
+`registration-label-fixed`.
 
 **The button by platform.** Web Apps draws the action's text alone
 (`cloudcare/partials/case_list/list.html`); commcare-android draws its image and a button

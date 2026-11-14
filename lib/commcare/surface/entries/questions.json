@@ -30,9 +30,10 @@
 		"item": "Question ID `case`, `registration`, `script`",
 		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
 		"valueClass": "case-registration-script",
-		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.id` (Vellum warning only), except as below",
-		"slotChanges": [],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a name HQ's form builder only warns about, which Nova's question id rule refuses (`questionId.ts::RESERVED_QUESTION_IDS`)",
+		"subject": "question-ids",
+		"owner": "xform",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"
@@ -99,7 +100,7 @@
 		"id": "questions/question-id-failing-the-grammar-or-meta-in-any-case",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Question ID failing the grammar, or `meta` in any case",
+		"item": "Question ID failing the grammar, or `meta` in any case, or `instance`, `bind` or `parsererror`, which HQ's form builder cannot open",
 		"surfaceKeys": ["xform:model/instance/*/*", "xform:model/instance//*"],
 		"valueClass": "invalid-question-id",
 		"disposition": "REFUSED",
@@ -1266,6 +1267,33 @@
 		"gates": []
 	},
 	{
+		"id": "questions/hidden-value-bound-a-type-nova-would-not-write",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Hidden Value whose bind type is one Nova would not write for it: any type but `xsd:string` and `xsd:dateTime`; `xsd:dateTime` where it neither writes a date-and-time case property nor is calculated by the clock-keeping date; or text where it does",
+		"surfaceKeys": ["xform:model/bind@type"],
+		"valueClass": "hidden-value-other-bind-type",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Hidden Value's own bind type, which decides what Core stores for its value (`Recalculate.java::wrapData`)",
+		"subject": "question-types",
+		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the type as written on the bind of a data node no control draws",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/group-group-ref-label-no-appearance",
 		"area": "questions",
 		"section": "Question types",
@@ -1845,7 +1873,7 @@
 		"id": "questions/repeat-model-iteration-vellum-role-repeat-ids-count-current",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Repeat model iteration (`vellum:role=\"Repeat\"`, `ids`/`count`/`current_index`, `item/@id`/`@index` setvalues)",
+		"item": "Repeat model iteration (`vellum:role=\"Repeat\"`, `ids`/`count`/`current_index`, `item/@id`/`@index` setvalues), un-nested, with no display condition, whose query reads no answer of the form",
 		"surfaceKeys": [
 			"mug:Repeat",
 			"jr-control:repeat",
@@ -1873,6 +1901,55 @@
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `repeat` `query_bound` (`data_source.ids_query`)",
 		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "Vellum's canonical shape: `@ids` and `@count` setvalues at `xforms-ready`, `@index` and `@id` at `jr-insert`, absolute `@current_index`, the condition on `…/item`, only where model iteration runs: a query repeat in no other repeat, whose query reads no form answer, under no group whose condition can change during entry",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/model-iteration-repeat-outside-nova-s-model-iteration-rule",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a model-iteration repeat with a display condition, or whose query reads a form answer set when the form loads, or under a group whose display condition reads an answer or the clock, outside the three refused rows",
+		"surfaceKeys": [
+			"mug:Repeat",
+			"jr-control:repeat",
+			"vellum-plugin:modeliteration",
+			"jr-control:group",
+			"jr-action:setvalue",
+			"jr-event:xforms-ready",
+			"jr-event:jr-insert",
+			"xform:repeat",
+			"xform:repeat@nodeset",
+			"xform:repeat/*@xmlns",
+			"xform:repeat@jr:count",
+			"xform:repeat@jr:noAddRemove",
+			"xform:model/instance/*/*@jr:template",
+			"xform:model/instance//*@jr:template",
+			"xform:group",
+			"xform:group@ref",
+			"xform:setvalue",
+			"xform:setvalue@event",
+			"xform:setvalue@ref",
+			"xform:setvalue@value",
+			"vellum-markup:model/instance//*@vellum:role"
+		],
+		"valueClass": "model-iteration-outside-nova-s-rule",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: model iteration by the load-time rule (README, \"Load-time values\"); Nova runs model iteration only where nothing the query reads can change (`queryRepeatPlacement.ts::queryRepeatPlacementNeeds`)",
+		"subject": "repeats",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2763,7 +2840,7 @@
 		"id": "questions/itemset-over-casedb-or-another-instance-advanced-data-source",
 		"area": "questions",
 		"section": "Question types",
-		"item": "itemset over casedb or another instance (advanced data-source editor)",
+		"item": "itemset over casedb in any other shape, or over another instance (advanced data-source editor)",
 		"surfaceKeys": [
 			"mug:SelectDynamic",
 			"mug:MSelectDynamic",
@@ -2783,6 +2860,45 @@
 		"dispositionCell": "**HELD-NEW**: arbitrary nodeset sources. Typed `optionsSource: cases` now supports worker-available casedb choices; arbitrary report and fixture nodesets remain out of scope.",
 		"subject": "question-choices",
 		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`<itemset nodeset=…>`; add-on `advanced_itemsets`; privilege `lookup_tables` (Vellum marks any itemset an error without it, `itemset.js`)",
+			"markers": []
+		},
+		"gates": ["privilege/lookup_tables"]
+	},
+	{
+		"id": "questions/itemset-over-casedb-in-nova-s-case-choices-shape",
+		"area": "questions",
+		"section": "Question types",
+		"item": "itemset over `casedb` whose value is `@case_id`, whose label is one property or attribute, and whose nodeset is the case query Nova writes for a question's case choices (`caseOptions.ts::caseOptionsNodeset`)",
+		"surfaceKeys": [
+			"mug:SelectDynamic",
+			"mug:MSelectDynamic",
+			"mug:Itemset",
+			"vellum-plugin:itemset",
+			"jr-control:select1",
+			"jr-control:select",
+			"vellum-feature:advanced_itemsets",
+			"vellum-feature:lookup_tables",
+			"xform:select/itemset",
+			"xform:select/itemset@nodeset",
+			"xform:select1/itemset",
+			"xform:select1/itemset@nodeset"
+		],
+		"valueClass": "case-choices",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `optionsSource: cases`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2865,7 +2981,7 @@
 		"id": "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase create (`case_type` literal, `case_name`, `owner_id`, `uuid()` case id)",
+		"item": "SaveToCase create (`case_type` literal, `case_name`, `owner_id`, `uuid()` case id) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": [
 			"mug:SaveToCase",
 			"vellum-plugin:saveToCase",
@@ -2899,6 +3015,40 @@
 			"markers": []
 		},
 		"gates": ["privilege/save_to_case"]
+	},
+	{
+		"id": "questions/savetocase-block-outside-nova-s-own-block-shape",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase block at a position, or with content, Nova's emitter does not write: a child of the form root or of an authored group, or one whose elements, binds and setvalues differ from `saveToCaseBlockShape`'s",
+		"surfaceKeys": [
+			"mug:SaveToCase",
+			"vellum-plugin:saveToCase",
+			"jr-action:setvalue",
+			"jr-event:xforms-ready",
+			"jr-type:dateTime",
+			"vellum-markup:model/instance//*@vellum:role",
+			"vellum-markup:model/instance//*@vellum:case_type",
+			"xform:model/bind@calculate",
+			"xform:setvalue",
+			"xform:setvalue@event",
+			"xform:setvalue@ref",
+			"xform:setvalue@value"
+		],
+		"valueClass": "outside-nova-block-shape",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Save to Case question at an authored position",
+		"subject": "save-to-case",
+		"owner": "xform",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
 	},
 	{
 		"id": "questions/savetocase-case-type-given-as-an-xpath",
@@ -2991,7 +3141,7 @@
 		"id": "questions/savetocase-update-case-id-xpath",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase update (Case ID XPath)",
+		"item": "SaveToCase update (Case ID XPath) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": [
 			"mug:SaveToCase",
 			"vellum-plugin:saveToCase",
@@ -3024,7 +3174,7 @@
 		"id": "questions/savetocase-property-rows-calculation-condition-lifting-into",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase property rows (calculation + condition) lifting into ValueExpression/Predicate",
+		"item": "SaveToCase property rows (calculation + condition) lifting into ValueExpression/Predicate in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "property-rows",
 		"disposition": "HELD",
@@ -3077,7 +3227,7 @@
 		"id": "questions/savetocase-property-names-with-hyphens-a-z-w-case-insensitive",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase property names with hyphens (`^[a-z][\\w-]*$`, case-insensitive)",
+		"item": "SaveToCase property names with hyphens (`^[a-z][\\w-]*$`, case-insensitive) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "hyphenated-property-names",
 		"disposition": "HELD",
@@ -3103,7 +3253,7 @@
 		"id": "questions/savetocase-open-case-condition",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase Open Case Condition",
+		"item": "SaveToCase Open Case Condition in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "open-case-condition",
 		"disposition": "HELD",
@@ -3188,7 +3338,7 @@
 		"id": "questions/savetocase-owner",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase owner",
+		"item": "SaveToCase owner in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "owner",
 		"disposition": "HELD",
@@ -3241,7 +3391,7 @@
 		"id": "questions/savetocase-link-index-name-child-extension-and-unlink-empty",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase Link (`index/<name>` `child`/`extension`) and Unlink (empty index)",
+		"item": "SaveToCase Link (`index/<name>` `child`/`extension`) and Unlink (empty index) in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "link-and-unlink",
 		"disposition": "HELD",
@@ -3264,10 +3414,31 @@
 		"gates": []
 	},
 	{
+		"id": "questions/savetocase-link-name-outside-nova-s-identifier-grammar",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a SaveToCase `index/<name>` whose name is outside `[A-Za-z_][A-Za-z0-9_]*`",
+		"surfaceKeys": ["mug:SaveToCase"],
+		"valueClass": "link-name-outside-identifier-grammar",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an index name Nova's link identifier cannot spell (`caseOperationIdentifiers.ts::CASE_OPERATION_IDENTIFIER_REGEX`); the name is a key of case data, so no rename keeps it",
+		"subject": "save-to-case",
+		"owner": "xform",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/savetocase-inside-a-repeat",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase inside a repeat",
+		"item": "SaveToCase inside a repeat in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "inside-a-repeat",
 		"disposition": "HELD",
@@ -3293,7 +3464,7 @@
 		"id": "questions/savetocase-inside-a-group-whose-display-condition-gates-it",
 		"area": "questions",
 		"section": "Question types",
-		"item": "SaveToCase inside a Group whose display condition gates it",
+		"item": "a SaveToCase block in Nova's condition group in the block shape Nova writes (`xform/caseOps.ts::saveToCaseBlockShape`)",
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "inside-a-gated-group",
 		"disposition": "HELD",
@@ -3698,6 +3869,59 @@
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `connect.task`",
 		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": ["toggle/COMMCARE_CONNECT"]
+	},
+	{
+		"id": "questions/connect-deliver-unit-and-task-in-one-form",
+		"area": "questions",
+		"section": "Question types",
+		"item": "a Connect Deliver Unit and a Connect Task in one form",
+		"surfaceKeys": ["mug:ConnectDeliverUnit", "mug:ConnectTask"],
+		"valueClass": "deliver-unit-beside-task",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Connect processes the form's deliver units before its tasks (`commcare-connect` `form_receiver/processor.py::process_deliver_form`), and Nova's gate refuses the pair (`CONNECT_DELIVER_FORM_HOLDS_TASK`)",
+		"subject": "connect-blocks",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Connect checks a form's deliver units before its tasks (`form_receiver/processor.py::process_deliver_form`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": ["toggle/COMMCARE_CONNECT"]
+	},
+	{
+		"id": "questions/connect-learn-and-deliver-blocks-in-one-app",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Connect learn blocks and Connect deliver blocks in one app",
+		"surfaceKeys": ["mug:ConnectLearnModule", "mug:ConnectDeliverUnit"],
+		"valueClass": "learn-beside-deliver",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an app that is both a learn app and a deliver app; Nova holds one `connectType`",
+		"subject": "connect-blocks",
+		"owner": "xform",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4195,7 +4419,7 @@
 		"id": "questions/bind-required-true",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "bind `required=\"true()\"` on a question other than a label",
+		"item": "bind `required=\"true()\"` on a question other than a label, other than on the question that names a created case",
 		"surfaceKeys": ["xform:model/bind@required"],
 		"valueClass": "true",
 		"disposition": "HELD",
@@ -4221,7 +4445,7 @@
 		"id": "questions/bind-required-expr",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "bind `required=\"<expr>\"` on a question other than a label",
+		"item": "bind `required=\"<expr>\"` on a question other than a label, other than on the question that names a created case",
 		"surfaceKeys": ["xform:model/bind@required"],
 		"valueClass": "expression",
 		"disposition": "HELD",
@@ -4905,6 +5129,32 @@
 		"gates": []
 	},
 	{
+		"id": "questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "two default setvalues of one event standing in another order than their questions, where one reads the node the other sets",
+		"surfaceKeys": ["xform:setvalue"],
+		"valueClass": "order-a-save-changes",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum writes each question's default in data-tree order on every save (`writer.js::createSetValues`), which changes what the reading default finds",
+		"subject": "question-logic",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum writes defaults in data-tree order (`writer.js::createSetValues`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/setvalue-event-xforms-value-changed-authored-xforms-revalidate",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
@@ -5413,6 +5663,33 @@
 		},
 		"emission": {
 			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/data-root-element-named-other-than-data",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "a data root whose element is named other than `data` (Vellum keeps the name it finds, `parser.js::parseDataTree`), so every answer's path starts with that name",
+		"surfaceKeys": ["xform:model/instance/*"],
+		"valueClass": "root-named-other-than-data",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a form's own root name; Nova writes `data`, and every path of the form's case management names the root",
+		"subject": "form-source",
+		"owner": "xform",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "Nova writes `data`",
 			"markers": []
 		},
 		"gates": []
@@ -7955,10 +8232,40 @@
 		"gates": []
 	},
 	{
+		"id": "questions/a-markdown-form-in-a-form-whose-text-formatting-is-off",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "a markdown form on a label, a choice or a help text in a form whose text formatting is off (`vellum:ignore=\"markdown\"`)",
+		"surfaceKeys": [
+			"itext-form:android/markdown",
+			"itext-form:core/markdown",
+			"itext-form:hq/markdown"
+		],
+		"valueClass": "in-a-form-with-formatting-off",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the form builder writes no markdown form in a form whose text formatting is off, so its next save drops the copy (`javaRosa/plugin.js::contributeToModelXML`)",
+		"subject": "question-text",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the form builder writes no markdown form in a form whose text formatting is off (`javaRosa/plugin.js::contributeToModelXML`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "questions/label-image-audio-video-same-asset-every-language",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "label `image` / `audio` / `video` (same asset every language)",
+		"item": "label `image` / `audio` / `video` (same asset every language); the same path in every language the app has reads as the one shared slot",
 		"surfaceKeys": [
 			"itext-form:android/image",
 			"itext-form:core/image",
@@ -7996,7 +8303,7 @@
 		"id": "questions/label-or-option-media-differing-by-language",
 		"area": "questions",
 		"section": "Itext, markdown and label text",
-		"item": "label or option media differing by language",
+		"item": "label or option media differing by language; a path present in one language and absent in another counts as differing",
 		"surfaceKeys": [
 			"itext-form:android/image",
 			"itext-form:core/image",
@@ -8847,9 +9154,37 @@
 			"xform:model/itext/translation/text/value/output@value",
 			"xform:model/itext/translation/text/value/*@xmlns"
 		],
+		"valueClass": "outputs-equal-in-every-language",
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: prose `field-ref`/`case-ref`/`user-ref`/`user-property-ref` parts",
 		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`<output value>`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/a-text-whose-languages-show-different-values",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "a text whose `<output>`s differ between languages: a value one language's text shows and another's does not",
+		"surfaceKeys": ["xform:model/itext/translation/text/value/output"],
+		"valueClass": "outputs-differing-by-language",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a translation that shows other values than its source text",
+		"subject": "question-text",
+		"owner": "question-display",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -9020,13 +9355,39 @@
 		"item": "an explicitly blank value in a non-default language where the default has text",
 		"surfaceKeys": ["xform:model/itext/translation/text/value"],
 		"valueClass": "blank-beside-default-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: read as no translation; Nova writes the first language's text there, as the form builder does on every save (`javaRosa/itext.js::ItextForm.getValueOrDefault`), which the first publish declares (`blank-translations-filled`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "itext default form",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "an explicitly blank value in the first language where another language holds text",
+		"surfaceKeys": ["xform:model/itext/translation/text/value"],
+		"valueClass": "blank-in-the-first-language",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum fills a blank translation from the default language on every save (executed; a Bulk App Translations upload of one language can write one)",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum fills a blank value from any language that holds text on every save (`javaRosa/itext.js::ItextForm.getValueOrDefault`)",
 		"subject": "question-text",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
-				"named": "Vellum fills a blank translation from the default language on every save (executed; a Bulk App Translations upload of one language can write one)"
+				"named": "Vellum fills a blank value from any language that holds text on every save (javaRosa/itext.js::ItextForm.getValueOrDefault)"
 			}
 		],
 		"platforms": {
@@ -9034,8 +9395,8 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova emits a blank `<value>` today where a label, hint, help text, validation message or option label has an explicitly empty translation: save-breaking; in-envelope: the default language's text)",
-			"markers": ["save-breaking"]
+			"cell": "—",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -9367,6 +9728,25 @@
 		},
 		"emission": {
 			"cell": "owned protected-message identity metadata",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/bind-required-on-the-question-that-names-a-created-case",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "a `required` attribute of any value on the bind of a visible question whose answer names a case the form creates",
+		"surfaceKeys": ["xform:model/bind@required"],
+		"valueClass": "on-the-create-name-question",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's build writes `required=\"true()\"` on that bind whatever the source holds (`xform.py::XFormCaseBlock.add_create_block`), and so does Nova's emitter (`builder.ts::buildFieldParts`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`required=\"true()\"`, which Nova's emitter writes on that bind whatever the document holds",
 			"markers": []
 		},
 		"gates": []

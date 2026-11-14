@@ -303,13 +303,18 @@ export function composeXPathQueryEmission(
  */
 export type XPathQueryContexts = ExpressionContext | ModuleExpressionContexts;
 
-/** One `_xpath_query` clause and the context of the slot it comes from. */
+/** One `_xpath_query` clause, the context of the slot it comes from, and
+ *  which source wrote it: the case list filter, an advanced Search field's
+ *  condition, or the match a simple Search field derives. */
 export interface XPathQueryClause {
 	readonly expression: Expression;
 	readonly context: ExpressionContext;
+	readonly source: "filter" | "field" | "derived";
 }
 
-function contextFor(
+/** The typing context of one `_xpath_query` source slot, as the composer
+ *  builds it, so a reader prints a source in the context the emitter uses. */
+export function xpathQueryContextFor(
 	contexts: XPathQueryContexts,
 	address: Parameters<ModuleExpressionContexts>[0],
 ): ExpressionContext {
@@ -329,17 +334,24 @@ export function composeXPathQueryClauses(
 	caseType: string | undefined,
 	contexts: XPathQueryContexts,
 ): readonly XPathQueryClause[] | undefined {
-	const filterContext = contextFor(contexts, { slot: "case_list_filter" });
+	const filterContext = xpathQueryContextFor(contexts, {
+		slot: "case_list_filter",
+	});
 	const sources: XPathQueryClause[] = [];
 	if (caseListConfig.filter !== undefined)
-		sources.push({ expression: caseListConfig.filter, context: filterContext });
+		sources.push({
+			expression: caseListConfig.filter,
+			context: filterContext,
+			source: "filter",
+		});
 	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs))
 		sources.push({
 			expression: entry.predicate,
-			context: contextFor(contexts, {
+			context: xpathQueryContextFor(contexts, {
 				slot: "search_input_predicate",
 				member: { searchInputUuid: entry.uuid },
 			}),
+			source: "field",
 		});
 	// Simple-arm inputs whose authored semantics cannot ride Core's
 	// implicit exact matcher derive an advanced-style predicate at the
@@ -354,6 +366,7 @@ export function composeXPathQueryClauses(
 			sources.push({
 				expression: deriveSimpleArmPredicate(input, caseType, filterContext),
 				context: filterContext,
+				source: "derived",
 			});
 		}
 	const clauses: XPathQueryClause[] = [];
@@ -365,11 +378,21 @@ export function composeXPathQueryClauses(
 		const effective = effectiveFilterForEmission(source.expression);
 		if (effective === undefined) continue;
 		if (effective.kind === "match-none")
-			return [{ expression: effective, context: source.context }];
+			return [
+				{
+					expression: effective,
+					context: source.context,
+					source: source.source,
+				},
+			];
 		for (const clause of effective.kind === "and"
 			? effective.clauses
 			: [effective])
-			clauses.push({ expression: clause, context: source.context });
+			clauses.push({
+				expression: clause,
+				context: source.context,
+				source: source.source,
+			});
 	}
 	return clauses.length === 0 ? undefined : clauses;
 }

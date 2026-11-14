@@ -1,0 +1,517 @@
+/**
+ * The expression stage's two halves of the frame: the provisional document,
+ * built from the drafts as they stand in every reading, whether or not a
+ * finding stands, and the binding of every registered expression against it.
+ * A document is replaced, never changed in place: every typing fact and plan
+ * is memoized by the document object.
+ */
+
+import { freeze } from "immer";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import type {
+	BlueprintDoc,
+	Field,
+	Form,
+	Module,
+	PersistableDoc,
+	Uuid,
+} from "@/lib/domain";
+import { NEW_APP_SETTINGS } from "@/lib/domain/blueprint";
+import type { Expression } from "@/lib/domain/expression/types";
+import { walkExpression } from "@/lib/domain/expression/walk";
+import { isContainerKindName } from "@/lib/domain/fields";
+import { uniqueSlug } from "@/lib/domain/idSlug";
+import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
+import {
+	circumstanceFinding,
+	type Finding,
+	type HqPlace,
+} from "@/lib/publish/hqFindings";
+import { inventoryIndex } from "../surface/inventory";
+import type { ClaimSite } from "./accounting";
+import type { ReadContext } from "./context";
+import { readerDefect } from "./defects";
+import {
+	type ExpressionClaim,
+	type ExpressionReading,
+	readExpressions,
+} from "./expressions";
+import { slotForm } from "./expressions/readExpression";
+import {
+	instanceIdsRead,
+	unreadDeclarationUse,
+} from "./expressions/surfaceUses";
+import { pendingPlaceholder } from "./pendingExpressions";
+import { appPlace, whereText } from "./place";
+import { worldEntitiesFromReads } from "./worldEntities";
+import { type DraftField, expressionEnvOf, type ReadXForm } from "./xform";
+
+// ── The provisional document ─────────────────────────────────────────────
+
+const PROVISIONAL = new WeakMap<
+	ReadContext,
+	{ readonly revision: number; readonly doc: BlueprintDoc }
+>();
+
+/** A field as the document holds it: its kind's slots, with each required expression slot a
+ *  stage has not filled holding the pending placeholder. */
+function documentField(field: DraftField, uuid: Uuid): Field {
+	/* A question that got a finding stands in under the source's own name: a
+	 * Hidden Value for a leaf, a group for a node with children, so a path
+	 * another expression reads still binds. */
+	if (field.standIn)
+		return {
+			uuid,
+			id: field.id,
+			kind: isContainerKindName(field.kind) ? "group" : "hidden",
+		} as Field;
+	const slots: Record<string, unknown> = {
+		...field.field,
+		uuid,
+		id: field.id,
+		kind: field.kind,
+	};
+	if (field.kind === "repeat") {
+		if (slots.repeat_mode === "count_bound" && slots.repeat_count === undefined)
+			slots.repeat_count = pendingPlaceholder("value");
+		if (slots.repeat_mode === "query_bound") {
+			const source = slots.data_source as
+				| { readonly ids_query?: Expression }
+				| undefined;
+			if (source?.ids_query === undefined)
+				slots.data_source = {
+					...source,
+					ids_query: pendingPlaceholder("value"),
+				};
+		}
+	}
+	return slots as Field;
+}
+
+/** Each form's fields, by the order its reading holds them; a field with no UUID is left out
+ *  with everything under it, its finding standing for it. */
+function addFields(
+	xform: ReadXForm,
+	parent: DraftField | null,
+	parentUuid: Uuid,
+	fields: Record<Uuid, Field>,
+	fieldOrder: Record<Uuid, Uuid[]>,
+): void {
+	const order: Uuid[] = [];
+	for (const field of xform.childrenOf(parent)) {
+		const uuid = field.uuid;
+		if (uuid === undefined) continue;
+		fields[uuid] = documentField(field, uuid);
+		order.push(uuid);
+		if (isContainerKindName(field.kind))
+			addFields(xform, field, uuid, fields, fieldOrder);
+	}
+	fieldOrder[parentUuid] = order;
+}
+
+/** A slug for a menu or form a stage gave none, as the menu reader mints a menu's: the name,
+ *  suffixed past every id already taken. */
+function mintedId(
+	given: unknown,
+	name: string,
+	fallback: string,
+	taken: Set<string>,
+): string {
+	if (typeof given === "string") return given;
+	const id = uniqueSlug(name, fallback, taken);
+	taken.add(id);
+	return id;
+}
+
+/** The document the drafts give, unfrozen. */
+function documentFromDrafts(ctx: ReadContext): BlueprintDoc {
+	const { draft, input } = ctx;
+	const modules: Record<Uuid, Module> = {};
+	const forms: Record<Uuid, Form> = {};
+	const fields: Record<Uuid, Field> = {};
+	const formOrder: Record<Uuid, Uuid[]> = {};
+	const fieldOrder: Record<Uuid, Uuid[]> = {};
+	const moduleIds = new Set<string>();
+	const formIds = new Set<string>();
+	for (const module of draft.modules) {
+		if (typeof module.module.id === "string") moduleIds.add(module.module.id);
+		for (const form of module.forms)
+			if (typeof form.form.id === "string") formIds.add(form.form.id);
+	}
+	/* A hidden registration menu the menus stage folded is no menu of the
+	 * document: its one form is its host's last. */
+	const folded = new Set(draft.foldedMenus.map((one) => one.menu));
+	const menus = draft.modules.filter((module) => !folded.has(module));
+	const present = new Map(menus.map((module) => [module.uuid, module]));
+	for (const module of menus) {
+		const { parentModuleUuid, ...own } = module.module;
+		/* A parent the document does not hold, or one that has a parent of its
+		 * own, stands under its own finding; the child is a root here. */
+		const parent =
+			parentModuleUuid === undefined
+				? undefined
+				: present.get(parentModuleUuid);
+		const name = own.name ?? "";
+		modules[module.uuid] = {
+			...own,
+			uuid: module.uuid,
+			id: mintedId(own.id, name, "module", moduleIds),
+			name,
+			...(parent !== undefined && parent.module.parentModuleUuid === undefined
+				? { parentModuleUuid: parent.uuid }
+				: {}),
+		} as Module;
+		const order: Uuid[] = [];
+		const hosted = draft.foldedMenus.flatMap((one) =>
+			one.hostUuid === module.uuid ? one.menu.forms : [],
+		);
+		for (const form of [...module.forms, ...hosted]) {
+			const formName = form.form.name ?? "";
+			forms[form.uuid] = {
+				...form.form,
+				uuid: form.uuid,
+				id: mintedId(form.form.id, formName, "form", formIds),
+				name: formName,
+				type: form.form.type ?? "survey",
+			} as Form;
+			order.push(form.uuid);
+			if (form.xform === null) fieldOrder[form.uuid] = [];
+			else addFields(form.xform, null, form.uuid, fields, fieldOrder);
+		}
+		formOrder[module.uuid] = order;
+	}
+	const moduleOrder = projectedModulePreorder({
+		modules,
+		moduleOrder: menus.map((module) => module.uuid),
+	});
+	const doc: PersistableDoc = {
+		appId: input.appId,
+		appName: draft.appName?.value ?? "",
+		connectType: draft.connectType,
+		caseTypes: draft.caseTypes,
+		...(draft.localization === undefined
+			? {}
+			: { localization: draft.localization }),
+		appSettings: {
+			showSavedForms:
+				draft.appSettings.showSavedForms ?? NEW_APP_SETTINGS.showSavedForms,
+			showIncompleteForms:
+				draft.appSettings.showIncompleteForms ??
+				NEW_APP_SETTINGS.showIncompleteForms,
+		},
+		...(draft.logo === undefined ? {} : { logo: draft.logo }),
+		modules,
+		forms,
+		fields,
+		moduleOrder,
+		formOrder,
+		fieldOrder,
+		...(draft.levels.length === 0
+			? {}
+			: {
+					organizationLevels: Object.fromEntries(
+						draft.levels.map((level) => [level.uuid, level]),
+					),
+					organizationLevelOrder: draft.levels.map((level) => level.uuid),
+				}),
+		...(draft.userProperties.length === 0
+			? {}
+			: {
+					userProperties: Object.fromEntries(
+						draft.userProperties.map((one) => [one.uuid, one]),
+					),
+					userPropertyOrder: draft.userProperties.map((one) => one.uuid),
+				}),
+		...(draft.locationProperties.length === 0
+			? {}
+			: {
+					locationProperties: Object.fromEntries(
+						draft.locationProperties.map((one) => [one.uuid, one]),
+					),
+					locationPropertyOrder: draft.locationProperties.map(
+						(one) => one.uuid,
+					),
+				}),
+	} as PersistableDoc;
+	return hydratePersistedBlueprint(structuredClone(doc));
+}
+
+/**
+ * The document the drafts give as they stand: every draft menu, form and field with the slots
+ * the stages set, a required expression slot no stage filled holding the pending placeholder, a
+ * stand-in where a question got a finding. Deeply frozen, and the same object until a draft is
+ * next written (`ReadContext.writeDraft`).
+ */
+export function provisionalDocument(ctx: ReadContext): BlueprintDoc {
+	const known = PROVISIONAL.get(ctx);
+	if (known !== undefined && known.revision === ctx.draftRevision)
+		return known.doc;
+	const doc = freeze(documentFromDrafts(ctx), true);
+	PROVISIONAL.set(ctx, { revision: ctx.draftRevision, doc });
+	return doc;
+}
+
+// ── Binding ──────────────────────────────────────────────────────────────
+
+/** The leaves that read places: what makes a reading's `readsLocations`. */
+function readsPlaces(expression: Expression): boolean {
+	let found = false;
+	walkExpression(expression, {
+		visitExpression: (node) => {
+			if (node.kind === "locations") found = true;
+		},
+		visitTerm: (term) => {
+			if (
+				term.kind === "location-field" ||
+				term.kind === "location-level" ||
+				term.kind === "owner-location-at-level"
+			)
+				found = true;
+		},
+	});
+	return found;
+}
+
+/** The places above a place, nearest first: its form, its menu, the app. */
+function placesAtOrAbove(place: HqPlace): readonly HqPlace[] {
+	const app = appPlace();
+	switch (place.kind) {
+		case "question":
+			return [
+				place,
+				{
+					kind: "form",
+					menu: place.menu,
+					form: place.form,
+					menuName: place.menuName,
+					name: place.formName,
+				},
+				{ kind: "menu", menu: place.menu, name: place.menuName },
+				app,
+			];
+		case "form":
+			return [
+				place,
+				{ kind: "menu", menu: place.menu, name: place.menuName },
+				app,
+			];
+		case "case-list":
+		case "case-detail":
+		case "search":
+			return [place, { kind: "menu", menu: place.menu, name: place.name }, app];
+		case "app":
+			return [place];
+		default:
+			return [place, app];
+	}
+}
+
+/** The first finding standing at a place or the nearest place above it. */
+function findingAtOrAbove(
+	findings: readonly Finding[],
+	place: HqPlace,
+): Finding | undefined {
+	for (const level of placesAtOrAbove(place)) {
+		const where = whereText(level);
+		const found = findings.find(
+			(finding) => whereText(finding.place) === where,
+		);
+		if (found !== undefined) return found;
+	}
+	return undefined;
+}
+
+/** The three nodes of an `<instance>` declaration a claim of it covers: the element, its `id`
+ *  and its `src`. */
+function declarationSites(
+	element: ReadXForm["parsed"]["instances"][number]["element"],
+): ClaimSite[] {
+	return [
+		{ element },
+		{ element, attribute: "id" },
+		{ element, attribute: "src" },
+	];
+}
+
+/**
+ * Claims each form's `<instance>` declarations, which a form's expressions decide: one no held
+ * expression of the form reads under the expression reader's claim of it (`source` -1, matched
+ * by the key its `src` names), and one a held expression reads under the entry of that read,
+ * the claim of the read whose entry names the declaration's source key. Where that read's entry
+ * makes a finding, the declaration stands under that finding.
+ */
+function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
+	const pending = ctx.pending.list();
+	const index = inventoryIndex();
+	const unread = reading.claims.filter((claim) => claim.source < 0);
+	const used = new Set<ExpressionClaim>();
+	for (const module of ctx.draft.modules)
+		for (const form of module.forms) {
+			const xform = form.xform;
+			if (xform === null) continue;
+			const ids = new Set<string>();
+			const readClaims: ExpressionClaim[] = [];
+			const held = new Set<number>();
+			pending.forEach((registration, at) => {
+				if (reading.bound[at] === undefined) return;
+				if (slotForm(reading.doc, registration.ref) !== form.uuid) return;
+				held.add(at);
+				for (const id of instanceIdsRead(registration.text)) ids.add(id);
+			});
+			for (const claim of reading.claims)
+				if (held.has(claim.source)) readClaims.push(claim);
+			const where = whereText(form.place);
+			for (const [id, src] of xform.instanceSources) {
+				const declaration = xform.parsed.instances.find(
+					(instance) => instance.id === id,
+				);
+				if (declaration === undefined) continue;
+				const key = unreadDeclarationUse(src).key;
+				if (!ids.has(id)) {
+					const claim = unread.find(
+						(one) =>
+							!used.has(one) &&
+							one.key === key &&
+							whereText(one.place) === where,
+					);
+					if (claim === undefined) continue;
+					used.add(claim);
+					for (const site of declarationSites(declaration.element))
+						ctx.accounting.claimEntry(
+							site,
+							claim.entryId,
+							key,
+							form.place,
+							claim.detail,
+						);
+					continue;
+				}
+				const read = readClaims.find(
+					(claim) =>
+						index.entry(claim.entryId)?.surfaceKeys.includes(key) === true,
+				);
+				if (read === undefined) continue;
+				const standing = index.entry(read.entryId)?.standing;
+				if (
+					standing === "held" ||
+					standing === "inert" ||
+					standing === "kept"
+				) {
+					for (const site of declarationSites(declaration.element))
+						ctx.accounting.claimEntry(site, read.entryId, key, form.place);
+					continue;
+				}
+				const finding = ctx.accounting
+					.findings()
+					.find(
+						(one) =>
+							one.code === read.entryId &&
+							whereText(one.place) === whereText(read.place),
+					);
+				if (finding === undefined) continue;
+				for (const site of declarationSites(declaration.element))
+					ctx.accounting.cover(site, finding);
+			}
+		}
+}
+
+/** The slot a registration names and its owner's identity, for the invariant C10. */
+function slotWords(ref: {
+	readonly slot: string;
+	readonly entity: string;
+}): string {
+	const uuid = (ref as { readonly uuid?: string }).uuid ?? ref.entity;
+	return `${ref.slot} of ${uuid}`;
+}
+
+/**
+ * Applies the expression stage's answer: the bound document becomes `ctx.doc`, each claim is
+ * applied to the node its registration was read from, each `unrecognized` row is raised and
+ * covers its node, each registration with no owner stands under the finding at or above its
+ * place, and the run's tables, rewrites and rounds join the reading's facts.
+ */
+export function applyExpressionReading(
+	ctx: ReadContext,
+	reading: ExpressionReading,
+): void {
+	ctx.doc = freeze(reading.doc, true);
+	ctx.pending.answer(reading.bound, reading.claims);
+	const pending = ctx.pending.list();
+	for (const claim of reading.claims) {
+		if (claim.source < 0) continue;
+		ctx.accounting.claimEntry(
+			ctx.pending.site(claim.source).at,
+			claim.entryId,
+			claim.key,
+			claim.place,
+			claim.detail,
+		);
+	}
+	claimDeclarations(ctx, reading);
+	for (const row of reading.circumstances) {
+		const detail = { name: row.detail.name };
+		ctx.accounting.circumstance("unrecognized", row.place, detail);
+		ctx.accounting.defect(
+			row.place,
+			row.detail.name,
+			readerDefect.expressionNotWrittenBack(row.place, row.detail.reason),
+		);
+		if (row.detail.reason === "no-case-datum")
+			ctx.accounting.defect(
+				row.place,
+				row.detail.name,
+				readerDefect.noCaseDatum(row.place),
+			);
+		if (row.source >= 0)
+			ctx.accounting.cover(
+				ctx.pending.site(row.source).at,
+				circumstanceFinding("unrecognized", row.place, detail),
+			);
+	}
+	for (const at of reading.ownerless) {
+		const registration = pending[at];
+		if (registration === undefined) continue;
+		const finding = findingAtOrAbove(
+			ctx.accounting.findings(),
+			registration.place,
+		);
+		if (finding === undefined)
+			throw new Error(
+				`Nova was asked to read an expression for a slot the document doesn't hold (${slotWords(registration.ref)}), and no finding explains why. The structure readers create every owner before expressions are read; check the reader that registered this one.`,
+			);
+		ctx.accounting.cover(ctx.pending.site(at).at, finding);
+	}
+	for (const tag of reading.unreadTables)
+		if (!ctx.facts.unreadTables.some((table) => table.tag === tag))
+			ctx.facts.unreadTables.push({
+				tag,
+				place: { kind: "lookup-table", tag },
+			});
+	ctx.facts.rewrites.push(...reading.rewrites);
+	ctx.facts.expressionRounds = reading.rounds;
+	ctx.readsLocations =
+		reading.worldReads.locationDataSlugs.length > 0 ||
+		reading.bound.some((tree) => tree !== undefined && readsPlaces(tree));
+}
+
+/**
+ * Stage 7: every pending expression bound against the provisional document. The first run of
+ * the expression reader is kept only for what it learns the app reads of the worker and of
+ * places, which the drafts then hold; the second, over the document that holds them, is the
+ * reading, and the one applied.
+ */
+export function bindExpressions(ctx: ReadContext): void {
+	const env = expressionEnvOf(ctx);
+	const pending = ctx.pending.list();
+	const first = readExpressions(provisionalDocument(ctx), pending, env);
+	const world = worldEntitiesFromReads(first.worldReads, ctx.resolver);
+	if (world.userProperties.length > 0 || world.locationProperties.length > 0)
+		ctx.writeDraft(() => {
+			ctx.draft.userProperties = world.userProperties;
+			ctx.draft.locationProperties = world.locationProperties;
+		});
+	applyExpressionReading(
+		ctx,
+		readExpressions(provisionalDocument(ctx), pending, env),
+	);
+}

@@ -32,9 +32,9 @@ import {
 } from "../formLinkProjection";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../sessionContext";
 import type { FormNodeProjection } from "./formNodeProjection";
-import { refuse } from "./formParseIssues";
+import { FormParseRefusal, refuse } from "./formParseIssues";
 import type { FormParseScope } from "./formParseScope";
-import type { FormSyntax } from "./formSyntax";
+import { type FormSyntax, readFormSyntax } from "./formSyntax";
 
 export interface FormPathBinder {
 	readonly scope: FormParseScope;
@@ -198,7 +198,11 @@ function rowValue(
 				`${named.name} is a single value, so this path can't go past it. You can read the related record with its own query.`,
 			);
 		const property =
-			!named.attribute && named.name === "name" ? "case_name" : named.name;
+			!named.attribute &&
+			named.name === "name" &&
+			binder.scope.reading?.caseNameAlias !== false
+				? "case_name"
+				: named.name;
 		let caseType = row.caseType;
 		if (caseType === undefined && !isStandardCaseListProperty(property)) {
 			const declares = (type: string) =>
@@ -350,7 +354,7 @@ function instancePath(
 			whole,
 			"instance() needs the name of what it reads in quotes, such as instance('casedb').",
 		);
-	const id = root.args[0].value;
+	const id = readInstanceId(binder, root.args[0].value, whole);
 	const steps = path.steps;
 	const form = context.form;
 	const entryDatums = () =>
@@ -490,7 +494,9 @@ function instancePath(
 				whole,
 				`This search answer path needs one of the menu's search fields, read as instance('${id}')/input/field[@name = 'field name'].`,
 			);
-		const input = form?.searchInputs.find(
+		// A form reads its menu's Search fields; a menu's own slot (its filter,
+		// a Search field's condition) reads the fields its profile holds.
+		const input = (form?.searchInputs ?? context.profile.searchInputs).find(
 			(input) => input.name === keyed.value,
 		);
 		if (input === undefined)
@@ -706,8 +712,190 @@ export function bindFormPath(
 	context: ExpressionContext,
 ): Expression {
 	const path = flatten(whole);
+	const reading = binder.scope.reading;
+	if (reading !== undefined && path.steps[0]?.node.kind === "hashtag")
+		refuseReadHashtag(path.steps[0].node);
 	if (path.root?.kind === "call" && path.root.name === "instance")
 		return instancePath(binder, path, context, whole);
+	// HQ writes `current()` for the listed case in a slot that has no form and
+	// lists cases (`EntriesHelper.get_filter_xpath`): its steps are that row's.
+	const row = activeRowScope(context);
+	if (
+		reading !== undefined &&
+		context.form === undefined &&
+		context.rows.length === 1 &&
+		row?.kind === "case" &&
+		path.root?.kind === "call" &&
+		path.root.name === "current" &&
+		path.root.args.length === 0 &&
+		path.steps.length > 0
+	)
+		return binder.term(rowValue(binder, path.steps, context, whole), whole);
+	if (reading !== undefined && path.root?.kind === "root") {
+		const generated = generatedValuePath(path);
+		const expanding = expandingGenerated.get(binder) ?? new Set<string>();
+		const calculate =
+			generated === undefined || expanding.has(generated)
+				? undefined
+				: reading.generatedValue(generated);
+		if (generated !== undefined && calculate !== undefined) {
+			try {
+				return bindFormNodePath(binder, path, context, whole);
+			} catch (error) {
+				if (!(error instanceof FormParseRefusal)) throw error;
+				expanding.add(generated);
+				expandingGenerated.set(binder, expanding);
+				try {
+					return bindGeneratedValue(binder, calculate, context, whole);
+				} finally {
+					expanding.delete(generated);
+				}
+			}
+		}
+	}
+	return bindFormNodePath(binder, path, context, whole);
+}
+
+/** The generated values a binding is expanding, so a calculate that reads
+ *  its own node binds that read plainly instead of expanding it again. */
+const expandingGenerated = new WeakMap<FormPathBinder, Set<string>>();
+
+/** The text an absolute read with no predicate and plain named steps spells,
+ *  `/data/…`, the key a generated sibling's calculate is set aside under. */
+function generatedValuePath(path: ReadPath): string | undefined {
+	const names: string[] = [];
+	for (const step of path.steps) {
+		if (step.where.length > 0 || step.node.kind !== "name") return undefined;
+		if (step.node.wildcard) return undefined;
+		names.push(step.node.name);
+	}
+	return names.length === 0 ? undefined : `/${names.join("/")}`;
+}
+
+/** A generated sibling's calculate bound in place of the read of it, under
+ *  the read's own context. Its nodes take the read's bounds, so every span
+ *  the binding records indexes the text being read. */
+function bindGeneratedValue(
+	binder: FormPathBinder,
+	calculate: string,
+	context: ExpressionContext,
+	whole: FormSyntax,
+): Expression {
+	const syntax = readFormSyntax(calculate);
+	if (!syntax.ok || syntax.node === undefined)
+		refuse(
+			"syntax",
+			whole,
+			"This expression reads a value the form works out, and that value's own expression can't be read.",
+		);
+	return binder.bind(atBounds(syntax.node, whole), context);
+}
+
+function atBounds(node: FormSyntax, bounds: FormSyntax): FormSyntax {
+	const at = { from: bounds.from, to: bounds.to };
+	switch (node.kind) {
+		case "group":
+		case "negative":
+			return { ...node, ...at, value: atBounds(node.value, bounds) };
+		case "axis":
+			return { ...node, ...at, value: atBounds(node.value, bounds) };
+		case "child":
+			return {
+				...node,
+				...at,
+				...(node.left === undefined
+					? {}
+					: { left: atBounds(node.left, bounds) }),
+				step: atBounds(node.step, bounds),
+			};
+		case "filter":
+			return {
+				...node,
+				...at,
+				base: atBounds(node.base, bounds),
+				where: atBounds(node.where, bounds),
+			};
+		case "binary":
+			return {
+				...node,
+				...at,
+				left: atBounds(node.left, bounds),
+				right: atBounds(node.right, bounds),
+			};
+		case "call":
+			return {
+				...node,
+				...at,
+				args: node.args.map((arg) => atBounds(arg, bounds)),
+			};
+		default:
+			return { ...node, ...at };
+	}
+}
+
+/** A hashtag in a reading of CommCare HQ's app: Core's lexer has no token
+ *  for `#`, so the text never ran as written. */
+export function refuseReadHashtag(node: FormSyntax): never {
+	return refuse(
+		"unknown-hashtag",
+		node,
+		"CommCare can't run a # reference written into an expression. It needs the path the reference stands for, such as /data/question.",
+	);
+}
+
+/** The instance id a reading binds: the canonical id of the source the form
+ *  declares under `id`, or `id` as written where the form declares none (a
+ *  suite slot's ids name their sources). */
+function readInstanceId(
+	binder: FormPathBinder,
+	id: string,
+	whole: FormSyntax,
+): string {
+	const reading = binder.scope.reading;
+	if (reading === undefined) return id;
+	const source = reading.instanceSource(id);
+	if (source === undefined) return id;
+	const canonical = canonicalInstanceId(source);
+	if (canonical === undefined)
+		refuse(
+			"instance-unknown",
+			whole,
+			`This form reads instance('${id}'), whose source Nova doesn't read. A form can read records, the session, data tables, places and search answers.`,
+		);
+	return canonical;
+}
+
+const INSTANCE_SOURCE_IDS: Readonly<Record<string, string>> = {
+	"jr://instance/casedb": "casedb",
+	"jr://instance/session": "commcaresession",
+	"jr://fixture/locations": "locations",
+	"jr://fixture/user-groups": "groups",
+	"jr://instance/search-input/results": "search-input:results",
+	"jr://instance/search-input/results:inline": "search-input:results:inline",
+	"jr://instance/remote/results": "results",
+	"jr://instance/remote/results:inline": "results:inline",
+};
+
+/** The id the binder knows for a declared source
+ *  (`suite_xml/post_process/instances.py`'s factories, inverted). */
+export function canonicalInstanceId(source: string): string | undefined {
+	if (Object.hasOwn(INSTANCE_SOURCE_IDS, source))
+		return INSTANCE_SOURCE_IDS[source];
+	const table = "jr://fixture/item-list:";
+	if (source.startsWith(table) && source.length > table.length)
+		return `item-list:${source.slice(table.length)}`;
+	const selected = "jr://instance/selected-entities/";
+	if (source.startsWith(selected) && source.length > selected.length)
+		return source.slice(selected.length);
+	return undefined;
+}
+
+function bindFormNodePath(
+	binder: FormPathBinder,
+	path: ReadPath,
+	context: ExpressionContext,
+	whole: FormSyntax,
+): Expression {
 	if (
 		path.root !== undefined &&
 		path.root.kind !== "root" &&
@@ -745,7 +933,10 @@ export function bindFormPath(
 			: path.root?.kind === "call"
 				? "current"
 				: "relative";
-	let logical = spelling === "absolute";
+	// A reading of CommCare HQ's form binds an absolute path through the
+	// source's own node names, wire-only steps included (a model-iteration
+	// repeat's `item`); authoring binds it by the fields' logical ids.
+	let logical = spelling === "absolute" && binder.scope.reading === undefined;
 	let logicalPath: readonly string[] = [];
 	let current =
 		spelling === "absolute"

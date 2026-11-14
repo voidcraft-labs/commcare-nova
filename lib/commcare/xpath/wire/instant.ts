@@ -174,6 +174,12 @@ function blankGuard(value: WireExpr, text: WireExpr): WireExpr {
 	return w.call("if", [w.eq(value, w.str("")), w.str(""), text]);
 }
 
+/** The stored text of a node that holds a clock read's typed instant text
+ *  (`typedInstantValue`), blank where the node is. */
+export function storedClockValue(node: WireExpr): WireExpr {
+	return blankGuard(node, storedInstantOfText(node));
+}
+
 /** A typed date's UTC midnight. */
 function typedDateMidnight(value: WireExpr, suffix: string): WireExpr {
 	return w.call("concat", [
@@ -497,7 +503,7 @@ export function storedDatetimeValue(
 		const node = clock?.(expression);
 		return node === undefined
 			? storedInstantValue(emit.value(expression))
-			: blankGuard(node, storedInstantOfText(node));
+			: storedClockValue(node);
 	};
 	switch (operand.class) {
 		case "literal-instant":

@@ -4,8 +4,8 @@
 // Lezer-generated parser, resolved wire tree and canonical serializer.
 //
 // Lives inside lib/commcare/ because XPath is the expression dialect
-// that CommCare defines; the package's "one-way emission boundary" rule
-// is scoped to wire-format emission (XForm XML, HqApplication JSON),
+// that CommCare defines; the package's import rule (`biome.json`) is
+// scoped to the wire formats (XForm XML, HqApplication JSON),
 // not to shared parsing infrastructure that other layers legitimately
 // need to read (validator, Preview evaluator, hashtag rewriter, etc.).
 //

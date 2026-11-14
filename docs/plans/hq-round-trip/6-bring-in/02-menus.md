@@ -1379,7 +1379,8 @@ datum, also in a submenu, so its action carries computed datums alone: `entries.
 copies a parent's computed datums, and its match by case type alone (`_same_case`) would give the
 form's own `uuid()` datum a parent selection's id where the parent's first form opens a chosen case of
 the form's type, a form HQ's build cannot open, which the gate refuses
-(`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`).
+(`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`; the lane's readers and part 07's `entryFacts.corpus.test.ts`
+each found the shape).
 
 ### 10.3 The return frames
 

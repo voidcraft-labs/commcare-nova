@@ -1,6 +1,7 @@
 /** Typed navigation display-condition emission for suite.xml and HQ JSON. */
 
 import { RESERVED_CASE_ATTRIBUTES } from "@/lib/commcare/casePropertyWire";
+import type { RewriteControl } from "@/lib/commcare/emissionRewrites";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
@@ -62,6 +63,9 @@ export function emitModuleDisplayCondition(
 	carrier: DisplayConditionCarrier,
 	types: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
+	/** The rewrites a reader's print leaves out or reports; absent, the
+	 *  emitter's own print. */
+	rewrites?: RewriteControl,
 ): WireExpr | undefined {
 	return withMenuPresence(carrier, (rest) =>
 		toWire(rest, {
@@ -72,6 +76,7 @@ export function emitModuleDisplayCondition(
 					? {}
 					: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
 			},
+			...(rewrites === undefined ? {} : { rewrites }),
 		}),
 	);
 }
@@ -129,11 +134,15 @@ export function emitFormDisplayConditionForHq(
 	/** The ids the form's entry prints its datums under, after root
 	 * alignment: HQ copies `form_filter` into the command as written. */
 	datumId?: (ref: DatumRef) => string | undefined,
+	/** The rewrites a reader's print leaves out or reports; absent, the
+	 *  emitter's own print. */
+	rewrites?: RewriteControl,
 ): WireExpr | undefined {
 	return withMenuPresence(carrier, (rest) =>
 		toWire(rest, {
 			target: "hq-json",
 			types,
+			...(rewrites === undefined ? {} : { rewrites }),
 			bindings: {
 				...(datumId === undefined ? {} : { datumId }),
 				emitSelfProperty: (property) =>

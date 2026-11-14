@@ -2,6 +2,7 @@ import type { LookupOptionsSource } from "@/lib/domain";
 import { isMatchAll } from "@/lib/domain/expression/builders";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { simplifyForEmission } from "@/lib/domain/expression/simplify";
+import { type RewriteControl, rewriteWithheld } from "./emissionRewrites";
 import type { LookupWireNaming } from "./lookup/naming";
 import type { FormNodeProjection } from "./xpath/formNodeProjection";
 import { w } from "./xpath/wire/builders";
@@ -20,7 +21,9 @@ import type { WireExpr } from "./xpath/wire/tree";
  * id (`instanceScope`); the filter's form reads are the caller's, since only
  * a form question has sibling answers. Core evaluates the nodeset with the
  * question as `current()`, each row as the predicate's context
- * (`org/javarosa/core/model/ItemsetBinding.java::getChoices`).
+ * (`org/javarosa/core/model/ItemsetBinding.java::getChoices`). Where
+ * `scope.rewrites` withholds `filter-identities-dropped`, the row filter
+ * prints as stored, boolean identities and a `true()` filter included.
  */
 export function lookupOptionsNodeset(
 	source: Pick<LookupOptionsSource, "tableId" | "filter">,
@@ -31,18 +34,26 @@ export function lookupOptionsNodeset(
 		readonly instanceScope: "xform" | "suite";
 		readonly form?: FormNodeProjection;
 		readonly bindings?: Omit<WireTermBindings, "lookup">;
+		readonly rewrites?: RewriteControl;
 	},
 ): WireExpr {
 	const table = scope.naming.tableFor(source.tableId);
 	const predicates: WireExpr[] = [];
 	if (source.filter !== undefined) {
-		const filter = simplifyForEmission(source.filter);
-		if (!isMatchAll(filter))
+		const asStored = rewriteWithheld(
+			scope.rewrites,
+			"filter-identities-dropped",
+		);
+		const filter = asStored
+			? source.filter
+			: simplifyForEmission(source.filter);
+		if (asStored || !isMatchAll(filter))
 			predicates.push(
 				toWire(filter, {
 					target: scope.target,
 					types: scope.types,
 					...(scope.form === undefined ? {} : { form: scope.form }),
+					...(scope.rewrites === undefined ? {} : { rewrites: scope.rewrites }),
 					anchor: { kind: "unaddressable" },
 					bindings: {
 						...scope.bindings,

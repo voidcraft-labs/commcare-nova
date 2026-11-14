@@ -258,7 +258,9 @@ export function queryPrinter(context: QueryPrintContext) {
 			default:
 				// The device-data reads (`cases`, `table-rows`, `locations`,
 				// `selected-cases`, a `project` that is no chosen case's property)
-				// have no record spelling. No authoring surface stores one, so none
+				// have no record spelling. No authoring surface stores one and the
+				// reader of CommCare HQ's apps refuses the search values that hold
+				// one (`lib/commcare/reader/expressions/csqlRead.ts`), so none
 				// reaches this printer.
 				throw new Error(
 					`The saved ${value.kind} tree has no record value spelling.`,

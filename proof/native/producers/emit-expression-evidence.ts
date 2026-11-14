@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
 import { testUuid } from "../../../__tests__/helpers/uuid";
-import { buildDoc, f } from "../../../lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "../../../lib/__tests__/docHelpers";
 import {
 	type InstantOperand,
 	type InstantOperator,
@@ -11,7 +11,9 @@ import {
 	instantOrderingPairs,
 } from "../../../lib/commcare/__tests__/instantOrderingTable";
 import {
+	ROW_DEFAULT_ROWS,
 	ROW_PREDICATE_ROWS,
+	rowDefaultDoc,
 	rowPredicateDoc,
 } from "../../../lib/commcare/__tests__/rowPredicateFixture";
 import {
@@ -27,34 +29,71 @@ import {
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { xel } from "../../../lib/commcare/elementBuilders";
 import { expandDoc } from "../../../lib/commcare/expander";
-import { requireExpressionContext } from "../../../lib/commcare/expressionContext";
+import {
+	moduleExpressionContexts,
+	requireExpressionContext,
+} from "../../../lib/commcare/expressionContext";
+import { caseListStepDatumId } from "../../../lib/commcare/formLinkProjection";
+import { projectCaseListFilter } from "../../../lib/commcare/hqJson/caseList";
+import { hqXPathText } from "../../../lib/commcare/hqJson/xpath";
+import {
+	DOT_VECTORS,
+	INTERPOLATION_VECTORS,
+} from "../../../lib/commcare/reader/__tests__/interpolationVectors";
+import { SPELLING_VECTORS } from "../../../lib/commcare/reader/expressions/__tests__/spellingVectors";
+import {
+	dotInterpolate,
+	type HqInterpolationSlot,
+	hqInterpolationSlot,
+	interpolateHqXPath,
+} from "../../../lib/commcare/reader/hqInterpolation";
 import { serializeXml } from "../../../lib/commcare/serializeXml";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../../../lib/commcare/sessionContext";
+import { emitNodesetFilter } from "../../../lib/commcare/suite/case-list/nodesetFilter";
+import { searchPromptWire } from "../../../lib/commcare/suite/case-search/searchPrompts";
+import {
+	emitFormDisplayConditionForHq,
+	emitFormDisplayConditionForSuite,
+	emitModuleDisplayCondition,
+} from "../../../lib/commcare/suite/displayConditions";
 import { runValidation } from "../../../lib/commcare/validator/runner";
 import { formNodeProjection } from "../../../lib/commcare/xpath/formNodeProjection";
 import { w } from "../../../lib/commcare/xpath/wire/builders";
 import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
 import { InstanceSink } from "../../../lib/commcare/xpath/wire/instances";
 import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
+import type { WireExpr } from "../../../lib/commcare/xpath/wire/tree";
 import { datetimeSplitOriginal } from "../../../lib/doc/__tests__/datetimeSplitFixture";
 import { mutationCommitVerdict } from "../../../lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "../../../lib/doc/datetimeSplit";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import type { BlueprintDoc, Uuid } from "../../../lib/domain";
-import { fieldCaseWriteViews, proseText } from "../../../lib/domain";
+import {
+	fieldCaseWriteViews,
+	proseText,
+	simpleSearchInputDef,
+} from "../../../lib/domain";
 import type { Expression } from "../../../lib/domain/expression";
 import {
+	ancestorPath,
+	and,
 	concat,
 	datetimeCoerce,
 	eq,
 	formField,
 	gt,
 	gte,
+	input,
+	isBlank,
 	literal,
 	lt,
 	lte,
+	matchesPattern,
 	neq,
 	now,
+	prop,
+	relationStep,
+	sessionContext,
 	term,
 } from "../../../lib/domain/expression/builders";
 import { formStructure } from "../../../lib/domain/expression/formStructure";
@@ -505,6 +544,49 @@ function compiledForm(doc: BlueprintDoc, module: number, form: number) {
 	);
 }
 
+// RowPredicateCurrentRuntimeTest's controls of a starting value's two
+// spellings: a direct read of another question when the form opens and when
+// a repeat entry is made, which the absolute spelling answers alike, and a
+// read of the places filtered by another question of the entry, which only
+// `current()` answers per entry. The class makes the absolute spellings from
+// the same bytes, and writes the entry's number as a count of the repeat's
+// entries (Nova's count of the repeat inside an entry counts that entry).
+{
+	const doc = admitted("starting values form", rowDefaultDoc());
+	const form = compiledForm(doc, 0, 0);
+	const reads = {
+		early: "current()/../seed",
+		copy: "current()/../../seed",
+		entryCount: "count(current()/..)",
+		named: "current()/../entry",
+	};
+	for (const [name, read] of Object.entries(reads))
+		if (!form.includes(read))
+			throw new Error(
+				`The starting values form reads ${name} without ${read}, so it is no evidence of the print.`,
+			);
+	if (!form.includes('event="jr-insert"'))
+		throw new Error(
+			"The starting values form sets no value when an entry is made, so it is no evidence of a repeat's starting values.",
+		);
+	writeFileSync(resolve(output, "row-predicates", "starts.xml"), form);
+	writeFileSync(
+		resolve(output, "row-defaults.json"),
+		`${JSON.stringify({
+			schemaVersion: 1,
+			form: "/expression/row-predicates/starts.xml",
+			repeat: "/data/rounds",
+			seedReads: [
+				{ current: reads.copy, absolute: "/data/seed" },
+				{ current: reads.early, absolute: "/data/seed" },
+			],
+			entryCount: { nova: reads.entryCount, written: "count(/data/rounds)" },
+			named: { current: reads.named, absolute: "/data/rounds/entry" },
+			...ROW_DEFAULT_ROWS,
+		})}\n`,
+	);
+}
+
 // RepeatCountRuntimeTest counts rows in Core from the three whole-number
 // counts Nova admits beside an int question: a Hidden
 // Value calculating an integer and an integer single select, each named
@@ -688,6 +770,281 @@ writeFileSync(
 	resolve(output, "interpolation.json"),
 	`${JSON.stringify({ schemaVersion: 1, interpolation, xforms, enumKeys })}\n`,
 );
+// The reader of CommCare HQ's apps ports HQ's interpolation
+// (lib/commcare/reader/hqInterpolation.ts). test_hq_interpolation.py runs HQ's
+// own interpolate_xpath and dot_interpolate over the port's vectors and
+// requires the port's answer for each. For every slot HQ interpolates, it runs
+// HQ's helper over Nova's HQ JSON print of an expression that reads what the
+// slot may read, with the case path the reader gives that slot, and requires
+// the tree of the answer to be the tree of Nova's suite print of it.
+{
+	const ids = {
+		patients: testUuid("reader-interpolation-patients"),
+		visit: testUuid("reader-interpolation-visit"),
+		name: testUuid("reader-interpolation-name"),
+		check: testUuid("reader-interpolation-check"),
+	};
+	const doc = admitted(
+		"reader interpolation slots",
+		buildDoc({
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "village", label: proseText("Village") }],
+				},
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [{ name: "status_code", label: proseText("Status") }],
+				},
+			],
+			modules: [
+				{
+					uuid: "reader-interpolation-patients",
+					name: "Patients",
+					caseType: "patient",
+					displayCondition: eq(
+						term(sessionContext("username")),
+						term(literal("lead")),
+					),
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						filter: and(
+							eq(term(prop("patient", "status_code")), term(literal("active"))),
+							eq(
+								term(
+									prop(
+										"household",
+										"village",
+										ancestorPath(relationStep("parent")),
+									),
+								),
+								term(literal("north")),
+							),
+						),
+						searchInputs: [
+							simpleSearchInputDef(
+								ids.name,
+								"first_name",
+								"Name",
+								"text",
+								"case_name",
+								{ required: { message: "Add a name" } },
+							),
+							simpleSearchInputDef(
+								ids.check,
+								"name_check",
+								"Name check",
+								"text",
+								"case_name",
+								{
+									required: {
+										when: isBlank(input(ids.name)),
+										message: "Add either name",
+									},
+									validation: {
+										rule: matchesPattern(input(ids.check), "^[A-Z].*$"),
+										message: "Start the name with a capital letter",
+									},
+								},
+							),
+						],
+					},
+					caseSearchConfig: {},
+					forms: [
+						{
+							uuid: "reader-interpolation-visit",
+							name: "Visit",
+							type: "followup",
+							displayCondition: eq(
+								term(prop("patient", "status_code")),
+								term(literal("active")),
+							),
+							fields: [],
+						},
+					],
+				},
+			],
+		}),
+	);
+	const menu = doc.modules[ids.patients];
+	const form = doc.forms[ids.visit];
+	const filter = menu?.caseListConfig?.filter;
+	if (menu === undefined || form === undefined || filter === undefined)
+		throw new Error("The reader interpolation document lost its menu.");
+	const expressions = moduleExpressionContexts(doc, ids.patients);
+	const suite = (expression: WireExpr | undefined): string => {
+		if (expression === undefined)
+			throw new Error("A reader interpolation slot printed nothing.");
+		return serializeWire(expression, { target: "suite" }).text;
+	};
+	const slotOf = (
+		ref: Parameters<typeof hqInterpolationSlot>[1],
+		mode: Parameters<typeof hqInterpolationSlot>[2],
+	): HqInterpolationSlot => {
+		const slot = hqInterpolationSlot(doc, ref, mode);
+		if (slot === undefined)
+			throw new Error(`The reader gives the ${ref.slot} slot no case path.`);
+		return slot;
+	};
+	const row = (
+		name: string,
+		mode: Parameters<typeof hqInterpolationSlot>[2],
+		slot: HqInterpolationSlot,
+		hq: string,
+		local: string,
+	) => ({
+		slot: name,
+		mode,
+		caseXPath: slot.caseXPath ?? null,
+		interpolateDots: slot.interpolateDots,
+		hq,
+		suite: local,
+	});
+	const hqFilter = projectCaseListFilter(
+		filter,
+		undefined,
+		expressions,
+		undefined,
+		caseListStepDatumId(doc, ids.patients, "chainId"),
+	);
+	if (hqFilter === null)
+		throw new Error("The reader interpolation filter printed nothing.");
+	const formTypes = requireExpressionContext(doc, {
+		entity: "form",
+		uuid: ids.visit,
+		slot: "form_display_condition",
+	});
+	const formHq = emitFormDisplayConditionForHq(
+		form,
+		formTypes,
+		undefined,
+		"case_id",
+	);
+	const moduleTree = emitModuleDisplayCondition(
+		menu,
+		expressions({ slot: "module_display_condition" }),
+	);
+	if (formHq === undefined || moduleTree === undefined)
+		throw new Error(
+			"A reader interpolation display condition printed nothing.",
+		);
+	const slots = [
+		row(
+			"case_details.short.filter",
+			"case",
+			slotOf(
+				{ entity: "module", uuid: ids.patients, slot: "case_list_filter" },
+				"case",
+			),
+			hqXPathText(hqFilter),
+			suite(
+				emitNodesetFilter(filter, expressions({ slot: "case_list_filter" })),
+			),
+		),
+		row(
+			"form_filter",
+			"case",
+			slotOf(
+				{ entity: "form", uuid: ids.visit, slot: "form_display_condition" },
+				"case",
+			),
+			serializeWire(formHq, { target: "hq-json", interpolation: "case" }).text,
+			suite(
+				emitFormDisplayConditionForSuite(form, formTypes, undefined, "case_id"),
+			),
+		),
+		row(
+			"module_filter",
+			"no-case",
+			slotOf(
+				{
+					entity: "module",
+					uuid: ids.patients,
+					slot: "module_display_condition",
+				},
+				"no-case",
+			),
+			serializeWire(moduleTree, { target: "hq-json", interpolation: "no-case" })
+				.text,
+			suite(moduleTree),
+		),
+	];
+	for (const searchInput of menu.caseListConfig?.searchInputs ?? []) {
+		const wire = searchPromptWire(
+			searchInput,
+			undefined,
+			expressions,
+			undefined,
+			"search-input:results",
+		);
+		const required = wire.required?.test;
+		if (required !== undefined)
+			slots.push(
+				row(
+					`search_config.properties.${wire.key}.required.test`,
+					"no-case",
+					slotOf(
+						{
+							entity: "module",
+							uuid: ids.patients,
+							slot: "search_input_required_when",
+							member: { searchInputUuid: searchInput.uuid },
+						},
+						"no-case",
+					),
+					serializeWire(required, {
+						target: "hq-json",
+						interpolation: "no-case",
+					}).text,
+					suite(required),
+				),
+			);
+		const validation = wire.validation?.test;
+		if (validation !== undefined)
+			slots.push(
+				row(
+					`search_config.properties.${wire.key}.validations.0.test`,
+					"no-dots",
+					slotOf(
+						{
+							entity: "module",
+							uuid: ids.patients,
+							slot: "search_input_validation_rule",
+							member: { searchInputUuid: searchInput.uuid },
+						},
+						"no-dots",
+					),
+					serializeWire(validation, {
+						target: "hq-json",
+						interpolation: "no-dots",
+					}).text,
+					suite(validation),
+				),
+			);
+	}
+	writeFileSync(
+		resolve(output, "reader-interpolation.json"),
+		`${JSON.stringify({
+			schemaVersion: 1,
+			vectors: INTERPOLATION_VECTORS.map((vector) => ({
+				name: vector.name,
+				text: vector.text,
+				caseXPath: vector.slot.caseXPath ?? null,
+				interpolateDots: vector.slot.interpolateDots,
+				port: interpolateHqXPath(vector.text, vector.slot),
+			})),
+			dots: DOT_VECTORS.map((vector) => ({
+				name: vector.name,
+				text: vector.text,
+				replacement: vector.replacement,
+				port: dotInterpolate(vector.text, vector.replacement),
+			})),
+			slots,
+		})}\n`,
+	);
+}
+
 // ProseValueRuntimeTest reads each calculated value a label holds through
 // Core in every device zone, and requires the text Preview prints for it
 // (lib/preview/engine/__tests__/proseValue.vectors.ts). Its two checked
@@ -721,6 +1078,14 @@ writeFileSync(
 		})}\n`,
 	);
 }
+
+// ReaderSpellingRuntimeTest (run E1) reads each row of the reader's
+// equivalence table (lib/commcare/reader/syntaxCompare.ts) through Core:
+// both spellings of a vector parsed and evaluated over one instance.
+writeFileSync(
+	resolve(output, "reader-spelling.json"),
+	`${JSON.stringify({ schemaVersion: 1, vectors: SPELLING_VECTORS })}\n`,
+);
 
 // ListFilterMatchRuntimeTest runs Core's own StringUtils.normalize and
 // fuzzyMatch over the vectors Preview's port of the case list filter is held

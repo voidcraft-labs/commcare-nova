@@ -809,9 +809,7 @@ block HQ's build of each form writes from a baseline's normalized source,
 keyed by the form's `xmlns`: the basic blocks from each form's `actions` as
 `xform.py::XForm._create_casexml` writes them, the advanced ones as
 `_create_casexml_advanced` does, and each Save to Case block from the form's
-XForm, walked as elements. A source that is not an application gives no
-form, and a form whose `xmlns` or blocks the source does not say is left out,
-never guessed; the caller counts what it left out.
+XForm, walked as elements. A source that is not an application gives no form. A form whose `xmlns` or blocks the source does not say is listed in `unread` with the reason, never guessed and never passed over. Each block carries its condition, its close condition, its links, whether it writes the owner, and which writes save only a changed answer.
 
 Downloads record nothing: only a publish writes a `publish-placement` change
 (`lib/export/CLAUDE.md`).

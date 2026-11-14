@@ -23,7 +23,7 @@
  * `declaredForContent`, which applies a `declared` plan and throws on any
  * other.
  */
-import { Immer } from "immer";
+import { Immer, produce } from "immer";
 import {
 	type BlueprintDoc,
 	PLATFORM_FEATURE_IDS,
@@ -31,7 +31,9 @@ import {
 	PLATFORMS,
 	type Platform,
 	type PlatformFeatureId,
+	type PlatformFeatureUse,
 	type Uuid,
+	unavailablePlatform,
 	unavailableUses,
 } from "@/lib/domain";
 import { type DatetimeSplit, planDatetimeSplits } from "./datetimeSplit";
@@ -178,4 +180,158 @@ export function declaredForContent(doc: BlueprintDoc): BlueprintDoc {
 	return UNFROZEN.produce(doc, (draft) => {
 		applyMutations(draft, plan.mutations);
 	});
+}
+
+/** One declaration a document's content runs on, with the mutations that write it. */
+export interface DeclarationChoice {
+	/** Undefined is Web Apps and Android. */
+	readonly runsOnlyOn: Platform | undefined;
+	/** Whether every date-and-time question is split (`datetimeSplit.ts`). */
+	readonly split: boolean;
+	/** `setAppSettings` where `runsOnlyOn` is defined, then each split's mutations. */
+	readonly mutations: readonly Mutation[];
+	readonly splits: readonly DatetimeSplit[];
+}
+
+export type DeclarationChoices =
+	| {
+			readonly kind: "choices";
+			readonly choices: readonly DeclarationChoice[];
+			/** Index of the proposed choice. */
+			readonly proposed: number;
+			/** True where HQ holds Web Apps off and the proposal is narrower than the content needs. */
+			readonly narrowedByHq: boolean;
+			/** True where HQ holds Web Apps on and the proposal splits date-and-time questions to keep it. */
+			readonly keepsWebApps: boolean;
+	  }
+	| {
+			readonly kind: "none";
+			/** Every use some platform cannot run, with that platform. */
+			readonly blocking: readonly {
+				readonly use: PlatformFeatureUse;
+				readonly platform: Platform;
+			}[];
+			/** The question whose split is refused, where that is why no choice runs. */
+			readonly splitRefused?: Uuid;
+	  };
+
+/** The platforms a declaration runs the app on. */
+function declared(runsOnlyOn: Platform | undefined): readonly Platform[] {
+	return runsOnlyOn === undefined ? PLATFORMS : [runsOnlyOn];
+}
+
+/**
+ * Every declaration `doc`'s content runs on, with and without the
+ * date-and-time split, and the one to propose, over a document that declares
+ * nothing (its own declaration is not read).
+ *
+ * The candidates, in order: both platforms, Android only, Web Apps only, then,
+ * where the document holds a date-and-time question and every one splits,
+ * both with the split and Web Apps only with the split. A candidate runs where
+ * no use of its document (the split's mutations applied) is unavailable on a
+ * platform it declares. The choices are the candidates that run, less a split
+ * candidate whose unsplit twin runs, and less Web Apps only with the split
+ * where both with the split runs. With Web Apps off in HQ the proposal is
+ * Android only where it runs, else the first choice; with Web Apps on, the
+ * first choice that declares Web Apps, else the first choice, so the proposal
+ * never turns off a platform the project space serves while a choice keeps it.
+ */
+export function planDeclarationChoices(
+	doc: BlueprintDoc,
+	options: { readonly webAppsOnInHq: boolean },
+): DeclarationChoices {
+	const holdsDatetime = Object.values(doc.fields).some(
+		(field) => field.kind === "datetime",
+	);
+	// The split planner and the draft below share structure with the document
+	// they are given and freeze it; planning over a clone leaves the caller's
+	// document as mutable as it came, as `declaredForContent` does.
+	const working = holdsDatetime ? structuredClone(doc) : doc;
+	const splitPlan = holdsDatetime ? planDatetimeSplits(working) : undefined;
+	const split =
+		splitPlan?.ok === true
+			? {
+					mutations: splitPlan.mutations,
+					splits: splitPlan.splits,
+					doc: produce(working, (draft) => {
+						applyMutations(draft, splitPlan.mutations);
+					}),
+				}
+			: undefined;
+	const candidate = (
+		runsOnlyOn: Platform | undefined,
+		splitting: boolean,
+	): DeclarationChoice & { readonly runs: boolean } => {
+		const over = splitting && split !== undefined ? split.doc : doc;
+		return {
+			runsOnlyOn,
+			split: splitting,
+			mutations: [
+				...(runsOnlyOn === undefined ? [] : [declaring(runsOnlyOn)]),
+				...(splitting && split !== undefined ? split.mutations : []),
+			],
+			splits: splitting && split !== undefined ? split.splits : [],
+			runs: unavailableUses(over, declared(runsOnlyOn)).length === 0,
+		};
+	};
+	const both = candidate(undefined, false);
+	const android = candidate("android", false);
+	const webApps = candidate("web-apps", false);
+	const splitCandidates =
+		split === undefined
+			? []
+			: [candidate(undefined, true), candidate("web-apps", true)];
+	const bothSplit = splitCandidates[0];
+	const choices = [both, android, webApps, ...splitCandidates].filter(
+		(choice) => {
+			if (!choice.runs) return false;
+			if (!choice.split) return true;
+			const twin = choice.runsOnlyOn === undefined ? both : webApps;
+			if (twin.runs) return false;
+			return !(choice.runsOnlyOn === "web-apps" && bothSplit?.runs === true);
+		},
+	);
+	if (choices.length === 0) {
+		const blocking = unavailableUses(doc, PLATFORMS).flatMap((use) =>
+			PLATFORMS.filter(
+				(platform) =>
+					unavailablePlatform(use.feature, [platform]) !== undefined,
+			).map((platform) => ({ use, platform })),
+		);
+		return {
+			kind: "none",
+			blocking,
+			...(splitPlan?.ok === false &&
+			splitPlan.reason === "self-read-through-a-filter"
+				? { splitRefused: splitPlan.fieldUuid }
+				: {}),
+		};
+	}
+	const firstWhere = (test: (choice: DeclarationChoice) => boolean) =>
+		choices.findIndex(test);
+	const androidOnly = firstWhere(
+		(choice) => choice.runsOnlyOn === "android" && !choice.split,
+	);
+	let proposed: number;
+	let narrowedByHq = false;
+	if (!options.webAppsOnInHq) {
+		proposed = Math.max(androidOnly, 0);
+		narrowedByHq = androidOnly >= 0 && both.runs;
+	} else {
+		const keeping = firstWhere((choice) => choice.runsOnlyOn !== "android");
+		proposed = Math.max(keeping, 0);
+	}
+	const proposal = choices[proposed];
+	const keepsWebApps =
+		options.webAppsOnInHq &&
+		proposal?.split === true &&
+		androidOnly >= 0 &&
+		androidOnly < proposed;
+	return {
+		kind: "choices",
+		choices: choices.map(({ runs: _runs, ...choice }) => choice),
+		proposed,
+		narrowedByHq,
+		keepsWebApps,
+	};
 }

@@ -1,0 +1,407 @@
+/**
+ * A select's choices (10.1): its inline `item`s, or one `itemset` over a lookup table or over
+ * the worker's cases in the shape Nova writes for a question's case choices. An itemset's
+ * nodeset is read with the XPath grammar, and its filter is registered for the expression
+ * stage, never read here.
+ */
+
+import type { Element } from "domhandler";
+import { isTag } from "domhandler";
+import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
+import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
+import type { HqPlace } from "@/lib/publish/hqFindings";
+import { elementNamespace, splitName, XFORMS_NS } from "../../xmlNamespaces";
+import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import type { Accounting } from "../accounting";
+import { readerDefect } from "../defects";
+import type { ReaderLookupCatalog, UnreadTable } from "../types";
+import { ownText, type XmlCursor } from "../xmlCursor";
+import type { ControlNode } from "./body";
+import { X } from "./claims";
+import type { DraftField } from "./index";
+import type { ParsedXForm } from "./parse";
+
+/** The lookup tables' instance source, `jr://fixture/item-list:<tag>`. */
+const ITEM_LIST_SOURCE = "jr://fixture/item-list:";
+
+/** A select's case choices as the form stage proposes them, decided once the filter is bound. */
+export interface CaseChoicesProposal {
+	readonly itemset: Element;
+	readonly select: "select1" | "select";
+	readonly caseType: string;
+	readonly labelProperty: string;
+}
+
+export interface ReadChoicesInput {
+	readonly control: ControlNode;
+	readonly field: DraftField;
+	readonly parsed: ParsedXForm;
+	readonly cursor: XmlCursor;
+	readonly accounting: Accounting;
+	readonly place: HqPlace;
+	readonly lookup: ReaderLookupCatalog;
+	readonly instanceSources: ReadonlyMap<string, string>;
+	/** Appends a table the catalog does not hold, handed to project data. */
+	readonly unreadTable: (table: UnreadTable) => void;
+}
+
+function xformsChildren(
+	element: Element,
+	parsed: ParsedXForm,
+	local: string,
+): Element[] {
+	return element.children
+		.filter(isTag)
+		.filter(
+			(child) =>
+				elementNamespace(child, parsed.scope(child)) === XFORMS_NS &&
+				splitName(child.name).local === local,
+		);
+}
+
+function plain(element: Element, name: string): string | undefined {
+	return Object.hasOwn(element.attribs, name)
+		? element.attribs[name]
+		: undefined;
+}
+
+/** Reads a select's choices into `optionsSource`, or the proposal stage 10 decides. */
+export function readChoices(
+	input: ReadChoicesInput,
+): CaseChoicesProposal | undefined {
+	const { control, parsed, cursor, place } = input;
+	const select = control.tag === "select1" ? "select1" : "select";
+	const items = xformsChildren(control.element, parsed, "item");
+	const itemsets = xformsChildren(control.element, parsed, "itemset");
+	if (items.length > 0 === itemsets.length > 0) {
+		const claim = X.choicesBothOrNeither[select];
+		if (items.length === 0) input.accounting.finding(claim, place);
+		for (const element of [...items, ...itemsets])
+			cursor.refuseSubtree(element, claim, place);
+		return undefined;
+	}
+	if (itemsets.length > 1) {
+		for (const element of itemsets.slice(1))
+			cursor.refuseSubtree(element, X.choicesBothOrNeither[select], place);
+	}
+	if (items.length > 0) {
+		readItems(input, select, items);
+		return undefined;
+	}
+	return readItemset(input, select, itemsets[0] as Element);
+}
+
+function readItems(
+	input: ReadChoicesInput,
+	select: "select1" | "select",
+	items: readonly Element[],
+): void {
+	const { parsed, cursor, place } = input;
+	const sites = select === "select1" ? X.choice.single : X.choice.multi;
+	const options: { value: string }[] = [];
+	const optionItems: Element[] = [];
+	const seen = new Set<string>();
+	for (const item of items) {
+		const value = xformsChildren(item, parsed, "value")[0];
+		if (value === undefined) {
+			cursor.refuseSubtree(
+				item,
+				select === "select1"
+					? X.choiceMissingValue.select1Item
+					: X.choiceMissingValue.selectItem,
+				place,
+			);
+			continue;
+		}
+		cursor.take({ element: item }, sites.item).value;
+		const text = ownText(value);
+		const problem = value.children.some(isTag)
+			? "children"
+			: selectOptionValueProblemAmong(text, seen);
+		if (problem === "children") continue;
+		if (problem === "both-quotes")
+			cursor.refuseSubtree(value, X.choiceValueBothQuotes, place, {
+				name: text,
+			});
+		else if (problem === "instance-read")
+			cursor.refuseSubtree(value, X.choiceValueInstance, place, {
+				name: instanceScanRead(text) ?? text,
+			});
+		else if (problem !== undefined)
+			cursor.refuseSubtree(value, X.choiceValueRefused, place, { name: text });
+		else {
+			const quoted = text.includes("'") || text.includes('"');
+			const taken = cursor.take(
+				{ element: value },
+				quoted ? X.choiceValueQuote[select] : sites.value,
+			).value;
+			options.push({ value: taken });
+			optionItems.push(item);
+		}
+		seen.add(text);
+	}
+	input.field.field.optionsSource = { kind: "inline", options };
+	input.field.items = optionItems;
+}
+
+/** The steps of a chain `instance('<id>')/a/b…`, its last step's predicates apart. */
+function instanceChain(node: FormSyntax):
+	| {
+			readonly id: string;
+			readonly steps: readonly string[];
+			readonly predicates: readonly FormSyntax[];
+	  }
+	| undefined {
+	const predicates: FormSyntax[] = [];
+	let at = node;
+	while (at.kind === "filter") {
+		predicates.unshift(at.where);
+		at = at.base;
+	}
+	const steps: string[] = [];
+	while (at.kind === "child" && !at.descendant) {
+		if (at.step.kind !== "name" || at.step.wildcard) return undefined;
+		steps.unshift(at.step.name);
+		if (at.left === undefined) return undefined;
+		at = at.left;
+	}
+	if (
+		at.kind !== "call" ||
+		at.name !== "instance" ||
+		at.args.length !== 1 ||
+		at.args[0]?.kind !== "string"
+	)
+		return undefined;
+	return { id: at.args[0].value, steps, predicates };
+}
+
+/** A ref that is one name step: the column's or the property's name. */
+function singleName(text: string): string | undefined {
+	const read = readFormSyntax(text);
+	if (!read.ok || read.node?.kind !== "name" || read.node.wildcard)
+		return undefined;
+	return read.node.name;
+}
+
+/** A ref that is one attribute step `@name`. */
+function singleAttribute(text: string): string | undefined {
+	const read = readFormSyntax(text);
+	const node = read.ok ? read.node : undefined;
+	return node?.kind === "axis" &&
+		node.axis === "attribute" &&
+		node.value.kind === "name" &&
+		!node.value.wildcard
+		? node.value.name
+		: undefined;
+}
+
+/** Whether a ref calls `jr:itext`. */
+function callsItext(text: string): boolean {
+	const read = readFormSyntax(text);
+	return read.ok && read.node?.kind === "call" && read.node.name === "jr:itext";
+}
+
+function readItemset(
+	input: ReadChoicesInput,
+	select: "select1" | "select",
+	itemset: Element,
+): CaseChoicesProposal | undefined {
+	const { parsed, cursor, place, field, accounting } = input;
+	const label = xformsChildren(itemset, parsed, "label")[0];
+	const value = xformsChildren(itemset, parsed, "value")[0];
+	const copy = xformsChildren(itemset, parsed, "copy")[0];
+	if (label === undefined || (value === undefined && copy === undefined)) {
+		cursor.refuseSubtree(
+			itemset,
+			select === "select1"
+				? X.choiceMissingValue.select1Itemset
+				: X.choiceMissingValue.selectItemset,
+			place,
+		);
+		return undefined;
+	}
+	if (copy !== undefined) {
+		cursor.refuseSubtree(itemset, X.itemsetCopy, place);
+		return undefined;
+	}
+	if (
+		plain(itemset, "sort") !== undefined ||
+		itemset.children
+			.filter(isTag)
+			.some((child) => splitName(child.name).local === "sort")
+	) {
+		cursor.refuseSubtree(itemset, X.itemsetSort, place);
+		return undefined;
+	}
+	const nodeset = plain(itemset, "nodeset") ?? "";
+	accounting.noteSyntaxRead();
+	const read = readFormSyntax(nodeset);
+	const chain =
+		read.ok && read.node !== undefined ? instanceChain(read.node) : undefined;
+	const labelRef = plain(label, "ref") ?? "";
+	const valueRef = value === undefined ? "" : (plain(value, "ref") ?? "");
+	const source =
+		chain === undefined ? undefined : input.instanceSources.get(chain.id);
+	const other = () => {
+		cursor.refuseSubtree(itemset, X.otherItemset, place);
+		return undefined;
+	};
+	if (chain === undefined || value === undefined) return other();
+
+	// A lookup table: instance(id)/<tag>_list/<tag>, with at most one predicate.
+	const tag = chain.steps[1];
+	if (
+		source?.startsWith(ITEM_LIST_SOURCE) &&
+		tag !== undefined &&
+		source.slice(ITEM_LIST_SOURCE.length) === tag &&
+		chain.steps.length === 2 &&
+		chain.steps[0] === `${tag}_list` &&
+		chain.predicates.length <= 1
+	) {
+		const table = input.lookup.table(tag);
+		if (table === undefined) {
+			cursor.handOffSubtree(itemset, "lookup-table-read", tag);
+			input.unreadTable({ tag, place });
+			return undefined;
+		}
+		if (callsItext(labelRef)) {
+			cursor.refuseSubtree(itemset, X.itemsetItextLabel, place);
+			return undefined;
+		}
+		const labelName = singleName(labelRef);
+		const valueName = singleName(valueRef);
+		if (labelName === undefined || valueName === undefined) {
+			cursor.refuseSubtree(itemset, X.itemsetRefShape, place);
+			return undefined;
+		}
+		const sites = X.lookupItemset;
+		const refs = X.lookupRefs;
+		const one = select === "select1";
+		cursor.take({ element: itemset }, one ? sites.select1 : sites.select).value;
+		const predicate = chain.predicates[0];
+		if (predicate === undefined)
+			cursor.take(
+				{ element: itemset, attribute: "nodeset" },
+				one ? sites.select1Nodeset : sites.selectNodeset,
+			).value;
+		else
+			field.expressions.push({
+				slot: "lookup_options_source",
+				text: nodeset.slice(predicate.from, predicate.to),
+				at: { element: itemset, attribute: "nodeset" },
+				key: one
+					? "xform:select1/itemset@nodeset"
+					: "xform:select/itemset@nodeset",
+				mode: { target: "xform", constraint: false },
+			});
+		const labelColumn = table.column(labelName);
+		const valueColumn = table.column(valueName);
+		for (const [element, column, ref, siteElement, siteRef] of [
+			[
+				label,
+				labelColumn,
+				"label" as const,
+				one ? refs.select1Label : refs.selectLabel,
+				one ? refs.select1LabelRef : refs.selectLabelRef,
+			],
+			[
+				value,
+				valueColumn,
+				"value" as const,
+				one ? refs.select1Value : refs.selectValue,
+				one ? refs.select1ValueRef : refs.selectValueRef,
+			],
+		] as const) {
+			if (column === undefined) {
+				accounting.defect(
+					place,
+					`xform:itemset/${ref}@ref`,
+					readerDefect.itemsetColumn(place, ref),
+				);
+				continue;
+			}
+			cursor.take({ element }, siteElement).value;
+			cursor.take({ element, attribute: "ref" }, siteRef).value;
+		}
+		if (labelColumn !== undefined && valueColumn !== undefined)
+			field.field.optionsSource = {
+				kind: "lookup",
+				tableId: table.tableId,
+				labelColumnId: labelColumn,
+				valueColumnId: valueColumn,
+			};
+		return undefined;
+	}
+
+	// The worker's cases, in the shape Nova writes (`caseOptions.ts::caseOptionsNodeset`).
+	if (
+		source === "jr://instance/casedb" &&
+		chain.steps.length === 2 &&
+		chain.steps[0] === "casedb" &&
+		chain.steps[1] === "case" &&
+		chain.predicates.length >= 1 &&
+		chain.predicates.length <= 2 &&
+		singleAttribute(valueRef) === "case_id"
+	) {
+		const caseType = caseTypeTest(chain.predicates[0] as FormSyntax);
+		const labelProperty = singleName(labelRef) ?? singleAttribute(labelRef);
+		if (caseType === undefined || labelProperty === undefined) return other();
+		const filter = chain.predicates[1];
+		if (filter !== undefined)
+			field.expressions.push({
+				slot: "lookup_options_source",
+				text: nodeset.slice(filter.from, filter.to),
+				at: { element: itemset, attribute: "nodeset" },
+				key:
+					select === "select1"
+						? "xform:select1/itemset@nodeset"
+						: "xform:select/itemset@nodeset",
+				mode: { target: "xform", constraint: false },
+			});
+		field.field.optionsSource = { kind: "cases", caseType, labelProperty };
+		return { itemset, select, caseType, labelProperty };
+	}
+	return other();
+}
+
+/** `@case_type = '<type>'`, the first predicate Nova writes on a case choices itemset. */
+function caseTypeTest(predicate: FormSyntax): string | undefined {
+	if (predicate.kind !== "binary" || predicate.op !== "=") return undefined;
+	const { left, right } = predicate;
+	return left.kind === "axis" &&
+		left.axis === "attribute" &&
+		left.value.kind === "name" &&
+		left.value.name === "case_type" &&
+		right.kind === "string"
+		? right.value
+		: undefined;
+}
+
+/**
+ * Settles a case choices proposal once its filter is bound: the itemset Nova's own emitter
+ * rebuilds from the proposal equals the source's (`same`) and is held, or it is an itemset of
+ * another shape.
+ */
+export function settleCaseChoices(
+	cursor: XmlCursor,
+	parsed: ParsedXForm,
+	proposal: CaseChoicesProposal,
+	place: HqPlace,
+	same: boolean,
+): void {
+	const { itemset, select } = proposal;
+	if (!same) {
+		cursor.refuseSubtree(itemset, X.otherItemset, place);
+		return;
+	}
+	const one = select === "select1";
+	const element = one ? X.caseChoices.select1 : X.caseChoices.select;
+	cursor.take({ element: itemset }, element).value;
+	for (const part of [
+		...xformsChildren(itemset, parsed, "label"),
+		...xformsChildren(itemset, parsed, "value"),
+	]) {
+		cursor.take({ element: part }, element).value;
+		cursor.take({ element: part, attribute: "ref" }, element).value;
+	}
+}

@@ -1,0 +1,277 @@
+/**
+ * What the reader of CommCare HQ's apps takes and gives: its input, the
+ * draft a clean reading gives, the account a reading with a finding gives, and
+ * the facts later readers of a reading take from it.
+ */
+
+import type { DeclarationChoices } from "@/lib/doc/platformDeclaration";
+import type { Mutation } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	LookupColumnId,
+	LookupTableId,
+	MediaKind,
+	Uuid,
+	WireStringSource,
+} from "@/lib/domain";
+import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
+import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
+import type { HqAlignedModule } from "../hq/appReading";
+import type { HqAppSource } from "../hq/appSource";
+import type { HqLocationType } from "../hq/locations";
+import type { GeneratedNodePurpose } from "../xform/generatedNodes";
+import type { ClaimLog } from "./accounting";
+import type { ReaderDefectWhy } from "./defects";
+import type { ExpressionReading, RecordDialectJudge } from "./expressions";
+import type { IdentityMapEntry, IdentityResolver } from "./identity";
+
+export interface ReaderInput {
+	/** The app's id, derived from the reading's id. */
+	readonly appId: string;
+	/** The project space the source was read from, for a capture's link. */
+	readonly target: { readonly origin: string; readonly domain: string };
+	/** The source as served, with `raw` and each form's attachment. */
+	readonly source: HqAppSource;
+	/** The aligned menus, each form's real id and HQ's own question summary. */
+	readonly modules: readonly HqAlignedModule[];
+	/** `mintingResolver(appId)` for a reading; `matchingResolver` for a re-read
+	 *  that must give a known document's identities back. */
+	readonly resolver: IdentityResolver;
+	readonly lookup: ReaderLookupCatalog;
+	readonly organization: ReaderOrganization;
+	readonly media: ReaderMediaIndex;
+	/** The local app strings Nova's build gives a document, or `null` where Nova's gate refuses
+	 *  the document, which Nova's build cannot write. Pure. */
+	readonly appStrings: (doc: BlueprintDoc) => AppStringTable | null;
+	/** Whether the record dialect prints a tree and reads it back. Pure. */
+	readonly recordDialect: RecordDialectJudge;
+	/** Whether the source project space applies "save only if changed", as the probe of it
+	 *  answered; absent where the source holds no `update_mode: "edit"` and no probe was made. */
+	readonly saveOnlyEditedApplied?: boolean;
+}
+
+export interface ReaderOptions {
+	/** `counts`, the default, keeps claim counts by entry. `full` also keeps every claim. */
+	readonly claims?: "counts" | "full";
+}
+
+/** The tables of the source project space the app may read, with the ids project data gives them. */
+export interface ReaderLookupCatalog {
+	table(tag: string): ReaderLookupTable | undefined;
+	/** What `FormParseScope.lookup` and the checker read. */
+	readonly definitions: LookupDefinitionIndex;
+}
+export interface ReaderLookupTable {
+	readonly tableId: LookupTableId;
+	/** A column by the field name HQ holds. */
+	column(fieldName: string): LookupColumnId | undefined;
+}
+
+/** HQ's levels as project data read them; the slugs an app reads are learned from the app. */
+export interface ReaderOrganization {
+	readonly levelCodes: readonly string[];
+	readonly levels: readonly HqLocationType[];
+}
+
+export type ReaderMediaResolution =
+	/** `multimedia_map` holds the path and the reading has an asset for its file. */
+	| {
+			readonly kind: "asset";
+			readonly assetId: string;
+			readonly mediaKind: MediaKind;
+	  }
+	/** `multimedia_map` holds no entry for the path. */
+	| { readonly kind: "no-entry" }
+	/** The entry names no file Nova can ask for, or HQ serves none. */
+	| { readonly kind: "unreadable" };
+export interface ReaderMediaIndex {
+	resolve(path: string): ReaderMediaResolution;
+}
+
+/** The local app strings of a document, by language code, with each string's source. */
+export interface AppStringTable {
+	readonly languages: Readonly<
+		Record<string, Readonly<Record<string, string>>>
+	>;
+	/** A string's source where it comes from a translation unit or several. */
+	readonly units: Readonly<Record<string, WireStringSource>>;
+}
+
+export type ReadOutcome =
+	| {
+			readonly kind: "read";
+			readonly draft: ReadDraft;
+			readonly work: ReadWork;
+			readonly claims: ClaimLog;
+			readonly defects: readonly ReaderDefect[];
+	  }
+	| {
+			readonly kind: "account";
+			readonly findings: readonly Finding[];
+			readonly work: ReadWork;
+			readonly claims: ClaimLog;
+			readonly defects: readonly ReaderDefect[];
+			/** What `ReadFacts.unreadTables` held when the reading closed. */
+			readonly unreadTables: readonly UnreadTable[];
+			/** Whether any slot reads the `locations` instance. */
+			readonly readsLocations: boolean;
+	  };
+
+/** What the reader minted for the menus and forms the document holds. */
+export interface ReadMenuAndFormIdentities {
+	/** Every menu of HQ's app the document holds, a folded hidden menu under its synthetic UUID. */
+	readonly modules: readonly {
+		readonly uuid: Uuid;
+		readonly uniqueId: string;
+	}[];
+	readonly forms: readonly {
+		readonly uuid: Uuid;
+		readonly xmlns: string;
+		readonly moduleUniqueId: string;
+	}[];
+}
+
+export interface ReadDraft {
+	/** The document, before the gate. Acceptance runs the gate and export readiness over it. */
+	readonly doc: BlueprintDoc;
+	/** `diffDocsToMutations(emptyBlueprintDoc(appId), doc)`: the birth's construction batch. */
+	readonly batch: readonly Mutation[];
+	readonly identities: ReadMenuAndFormIdentities & {
+		readonly entries: readonly IdentityMapEntry[];
+	};
+	readonly declaration: DeclarationChoices;
+	readonly facts: ReadFacts;
+}
+
+/** Something the reader itself got wrong. Logged at error by the caller; never stored or shown. */
+export interface ReaderDefect {
+	readonly place: HqPlace;
+	/** The surface key of the `unrecognized` finding it stands behind. */
+	readonly name: string;
+	/** What went wrong, for a developer: text only `defects.ts::readerDefect` builds, from closed
+	 *  slots, so it holds no word of an app. */
+	readonly why: ReaderDefectWhy;
+}
+
+/** Work done, a function of the input alone: JSON values and XML nodes visited, texts read with
+ *  `readFormSyntax`, and expected trees built for a generated node. */
+export interface ReadWork {
+	readonly nodes: number;
+	readonly syntaxReads: number;
+	readonly rebuilds: number;
+}
+
+export interface ReadFacts {
+	/** HQ's `cloudcare_enabled`. */
+	readonly webAppsOnInHq: boolean;
+	/** Every media reference whose path resolved to an asset. */
+	readonly mediaReferences: readonly ReadMediaReference[];
+	/** Every media reference handed off: no file for its path. */
+	readonly pendingMedia: readonly PendingMedia[];
+	/** Every itemset over a table the catalog does not hold, handed off, and each tag an
+	 *  expression reads that the catalog lacks, at the place `{ kind: "lookup-table", tag }`. */
+	readonly unreadTables: readonly UnreadTable[];
+	/** The generated translation keys `assembleDocument` folded. */
+	readonly foldedTranslationKeys: number;
+	readonly forms: readonly ReadFormFacts[];
+
+	/** Each same-state rule applied: the entry, a JSON Pointer, and the id of the first-publish
+	 *  register's row the rule falls under. */
+	readonly sameStateRewrites: readonly SameStateRewrite[];
+	/** The forms `compareEntryFacts` found differing. */
+	readonly entryFactsRefused: readonly Uuid[];
+
+	/** The expression stage's report, passed through: the rewrites it applied. */
+	readonly rewrites: ExpressionReading["rewrites"];
+	/** `ExpressionReading.rounds`, for the reading's log. */
+	readonly expressionRounds: number;
+}
+
+/**
+ * The first-publish register's rows a same-state reading of a menu, a case
+ * list, a search or a form's case management is recorded under: each names a
+ * rewrite of the stored app the first publish makes, with the paths it may
+ * change.
+ */
+export const SAME_STATE_REGISTERS = [
+	"case-settings-respelled",
+	"search-filter-rows-recut",
+	"sort-rule-kept-as-hidden-column",
+	"list-settings-respelled",
+	"search-filter-joined-to-list",
+	"search-restates-list-filter",
+	"link-held-case-guards-added",
+] as const;
+
+/**
+ * The register's rows a reading records under that are no same-state rule of
+ * a comparison: a date and time a Save to Case value wrote in Nova's earlier
+ * spelling, and a registration label read as the words CommCare HQ's build
+ * writes for one with no text.
+ */
+export const FIRST_PUBLISH_READING_RECORDS = [
+	"date-and-time-saved-as-hq-stores-it",
+	"registration-label-fixed",
+] as const;
+
+export type SameStateRegister =
+	| (typeof SAME_STATE_REGISTERS)[number]
+	| (typeof FIRST_PUBLISH_READING_RECORDS)[number];
+
+/** One rewrite a reading allowed: the entry claimed, the JSON Pointer of the
+ *  stored value Nova writes back differently, and the register's row. */
+export interface SameStateRewrite {
+	readonly entry: string;
+	readonly path: string;
+	readonly register: SameStateRegister;
+}
+
+export interface UnreadTable {
+	readonly tag: string;
+	readonly place: HqPlace;
+}
+
+export interface ReadFormFacts {
+	readonly xmlns: string;
+	/** Every generated node folded, by purpose, owner, path and the name the source gave it. */
+	readonly generated: readonly ReadGeneratedNode[];
+	/** The data path of every control, leaf or container, whose `appearance` was accounted under
+	 *  an entry of standing `inert`, in body order. */
+	readonly inertAppearances: readonly string[];
+	/** The data path of every case region container and every Save to Case block. */
+	readonly caseRegionPaths: readonly string[];
+	/** The itext values blank in a language other than the first whose first-language text is not
+	 *  blank, each read as no translation. */
+	readonly blankTranslations: number;
+}
+
+export interface ReadGeneratedNode {
+	readonly purpose: GeneratedNodePurpose;
+	/** One key by one rule. For a question's node, the owner question's data path. For an
+	 *  operation's node, the data path of the `nova_operations` scope it stands in, a `#`, and the
+	 *  operation's id. */
+	readonly owner: string;
+	/** The node's absolute data path. */
+	readonly path: string;
+	readonly name: string;
+}
+
+export interface ReadMediaReference {
+	readonly path: string;
+	readonly assetId: string;
+	readonly mediaKind: MediaKind;
+	readonly place: HqPlace;
+	/** A `lib/domain/mediaRefs.ts::MediaRefLocation` kind: `field_media_bundle`, `option_media`,
+	 *  `app_logo`, and the menu and list kinds the menu and list readers pass. */
+	readonly slot: string;
+}
+
+/** A reference whose path the index gives no asset for: handed off, with its node in the log. */
+export interface PendingMedia {
+	readonly path: string;
+	readonly mediaKind: MediaKind;
+	readonly resolution: "no-entry" | "unreadable";
+	readonly place: HqPlace;
+	/** As `ReadMediaReference.slot`, or `unheld_itext` for a slot Nova holds no media for. */
+	readonly slot: string;
+}

@@ -2381,6 +2381,14 @@ check E1 records two outcomes: B, a lexical spelling row Core reads apart, with 
 `name` step that Core reads blank or refuses, where `lib/commcare/xpath/formPathBinding.ts::rowValue`
 reads it as `case_name` today, with what the reader then binds.
 
+E1, outcome D, settled from Core's source at the pin before the lane ran it: Core's `casedb` holds a
+case's name as `case_name` and answers any other step with a blank node it creates
+(`org/commcare/cases/instance/CaseChildElement.java::getChildrenWithName`). So the row S2 left the
+reader's table (`lib/commcare/reader/syntaxCompare.ts`), the reading hook passes `caseNameAlias:
+false`, and a `name` step in an app's text binds the case property called `name`, which the scan
+declares where nothing writes it. `ReaderSpellingRuntimeTest` keeps the pair as a negative control:
+`name` reads blank and `case_name` reads the case's name.
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's

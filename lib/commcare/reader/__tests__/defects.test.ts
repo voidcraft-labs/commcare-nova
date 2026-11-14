@@ -1,0 +1,339 @@
+/**
+ * The reader's own defects and the closure of their lines.
+ *
+ * Contract: a defect of the reader's own stands behind exactly one
+ * `unrecognized` finding whose name is a surface key, never the defect's
+ * sentence; and its line (`ReaderDefectWhy`) is exactly its row's template
+ * filled from closed slots, so no word of an app can reach the log. The
+ * closure case calls every constructor with places whose every name, path and
+ * tag is a marker, with each member of each closed argument and with values
+ * outside them (an unregistered claim, an entry the index lacks, an issue
+ * whose path holds the marker), and holds each line to its literal template:
+ * a line holding the marker, an unknown claim or entry printed as given, or a
+ * template that drifted fails by its text. The defects a stage raises from
+ * what it reads (a source Nova's parser refuses, an `xmlns` that differs, an
+ * itemset column the catalog lacks) are provoked through the forms stage, each
+ * with its one finding; the expression stage's two are provoked in
+ * `provisional.test.ts`, the assembly's in `assemble.test.ts`.
+ */
+
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { translationUnitRoles } from "@/lib/domain/translationUnits";
+import { type HqPlace, READ_STANDINGS } from "@/lib/publish/hqFindings";
+import { inventoryIndex } from "../../surface/inventory";
+import { Accounting } from "../accounting";
+import { defineClaims, drop, take } from "../claims";
+import { READER_DEFECT_CODES, readerDefect } from "../defects";
+import { EXTERNAL_ENTITY_KINDS, type ExternalEntityKind } from "../identity";
+import { appPlace } from "../place";
+import { readForm, XMLNS, xformSource } from "../xform/__tests__/formReading";
+
+const MARKER = "MARKER";
+const COMMENTS = "questions/xml-comments-processing-instructions";
+const HELD = "application-and-settings/doc-type-application";
+
+const CLAIMS = defineClaims("defectsTest", {
+	held: take(HELD, "schema:Application.doc_type"),
+	heldAgain: take(HELD, "schema:Application.doc_type"),
+	heldDrop: drop(HELD, "schema:Application.doc_type"),
+	comment: drop(COMMENTS, null),
+});
+
+/** Every kind of place, each name, path and tag the marker, with its key. */
+const PLACES: readonly (readonly [HqPlace, string])[] = [
+	[{ kind: "app" }, "app"],
+	[{ kind: "app-settings" }, "app-settings"],
+	[{ kind: "languages" }, "languages"],
+	[{ kind: "organization" }, "organization"],
+	[{ kind: "lookup-table", tag: MARKER }, "lookup-table"],
+	[{ kind: "media", path: MARKER }, "media"],
+	[{ kind: "menu", menu: 2, name: MARKER }, "menu[2]"],
+	[{ kind: "case-list", menu: 2, name: MARKER }, "case-list[2]"],
+	[{ kind: "case-detail", menu: 2, name: MARKER }, "case-detail[2]"],
+	[{ kind: "search", menu: 2, name: MARKER }, "search[2]"],
+	[
+		{ kind: "form", menu: 2, form: 0, menuName: MARKER, name: MARKER },
+		"form[2,0]",
+	],
+	[
+		{
+			kind: "question",
+			menu: 2,
+			form: 0,
+			menuName: MARKER,
+			formName: MARKER,
+			path: `${MARKER}/${MARKER}`,
+		},
+		"question[2,0]",
+	],
+];
+
+describe("each line is its template, from closed slots", () => {
+	it.each(PLACES)("at %j", (place, key) => {
+		const lines: [string, string][] = [
+			[
+				readerDefect.claimedTwice(place, "defectsTest.held", MARKER),
+				`claimed twice at ${key}: first by defectsTest.held, then by unregistered-claim`,
+			],
+			[
+				readerDefect.claimNotPermitted(place, MARKER, null),
+				`claim unregistered-claim at ${key} is not permitted by no-such-entry, which is now no-standing`,
+			],
+			[
+				readerDefect.claimedNotRead(place, "defectsTest.comment"),
+				`claimed and not read at ${key}: defectsTest.comment`,
+			],
+			[
+				readerDefect.identityMetTwice(place, MARKER as ExternalEntityKind),
+				`identity met twice at ${key}: a unknown-kind key`,
+			],
+			[
+				readerDefect.formSource(place, MARKER as "malformed"),
+				`form source at ${key}: Nova's parser answered unknown-kind`,
+			],
+			[
+				readerDefect.xmlnsDiffers(place),
+				`xmlns differs between the form and its source at ${key}`,
+			],
+			[
+				readerDefect.itemsetColumn(place, MARKER as "value"),
+				`itemset column at ${key}: the unknown-ref ref names a column the catalog lacks`,
+			],
+			[
+				readerDefect.assembly(place, {
+					path: ["modules", MARKER, 3],
+					code: "invalid_type",
+				}),
+				`assembly at ${key}: modules: invalid_type`,
+			],
+			[
+				readerDefect.assembly(place, { path: [MARKER], code: MARKER }),
+				`assembly at ${key}: root: unknown-code`,
+			],
+			[
+				readerDefect.unregisteredExpressionClaim(place, MARKER),
+				`expression claim at ${key} names no-such-entry, which no registered claim holds`,
+			],
+			[
+				readerDefect.unregisteredExpressionClaim(place, COMMENTS),
+				`expression claim at ${key} names ${COMMENTS}, which no registered claim holds`,
+			],
+			[
+				readerDefect.translation(
+					place,
+					MARKER as "form-name",
+					-1,
+					MARKER as "value-kind",
+				),
+				`translation at ${key}: unknown-role, language unknown-position: unknown-issue`,
+			],
+			[
+				readerDefect.expressionNotWrittenBack(place, MARKER),
+				`Nova read an expression from CommCare HQ and could not write the same expression back, at ${key}: unknown-reason. Nova treats the spellings in \`lib/commcare/reader/syntaxCompare.ts\` as one; this one needs a row there with a native vector, or a manifest entry that names it.`,
+			],
+			[
+				readerDefect.noCaseDatum(place),
+				`Nova couldn't find the session value that holds the case this form opens with, at ${key}, so it can't read the form's display condition as CommCare HQ builds it. CommCare HQ treats the form as one that opens on a case and Nova's reading of its menu and case operations does not; check what the case management reader made of this form.`,
+			],
+		];
+		for (const [line, template] of lines) {
+			expect(line).toBe(template);
+			expect(line).not.toContain(MARKER);
+		}
+	});
+
+	it("writes each member of each closed slot as itself", () => {
+		const place = appPlace();
+		for (const standing of READ_STANDINGS)
+			expect(
+				readerDefect.claimNotPermitted(place, "defectsTest.held", standing),
+			).toBe(
+				`claim defectsTest.held at app is not permitted by ${HELD}, which is now ${standing}`,
+			);
+		for (const kind of EXTERNAL_ENTITY_KINDS)
+			expect(readerDefect.identityMetTwice(place, kind)).toBe(
+				`identity met twice at app: a ${kind} key`,
+			);
+		for (const kind of ["xml-version", "malformed"] as const)
+			expect(readerDefect.formSource(place, kind)).toBe(
+				`form source at app: Nova's parser answered ${kind}`,
+			);
+		for (const ref of ["value", "label"] as const)
+			expect(readerDefect.itemsetColumn(place, ref)).toBe(
+				`itemset column at app: the ${ref} ref names a column the catalog lacks`,
+			);
+		for (const role of translationUnitRoles)
+			for (const issue of [
+				"value-kind",
+				"blank-content",
+				"protected-content",
+			] as const)
+				expect(readerDefect.translation(place, role, 2, issue)).toBe(
+					`translation at app: ${role}, language 2: ${issue}`,
+				);
+		for (const reason of ["no-case-datum", "parse:syntax", "differs:XPath"])
+			expect(readerDefect.expressionNotWrittenBack(place, reason)).toContain(
+				`at app: ${reason}.`,
+			);
+		expect(
+			readerDefect.expressionNotWrittenBack(place, "differs:MARKER"),
+		).toContain("at app: unknown-reason.");
+	});
+
+	it("names twelve codes", () => {
+		expect(READER_DEFECT_CODES).toHaveLength(12);
+	});
+});
+
+describe("a defect stands behind one finding named by a surface key", () => {
+	const place = appPlace();
+	it.each([
+		[
+			"a second claim",
+			(books: Accounting) => {
+				const root = books.json({ doc_type: "LinkedApplication" }, place);
+				expect(root.take("doc_type", CLAIMS.held, String).value).toBe(
+					"LinkedApplication",
+				);
+				root.take("doc_type", CLAIMS.heldAgain, String);
+			},
+			"claimed twice at app: first by defectsTest.held, then by defectsTest.heldAgain",
+		],
+		[
+			"a claim the manifest no longer permits",
+			(books: Accounting) => {
+				books
+					.json({ doc_type: "LinkedApplication" }, place)
+					.drop("doc_type", CLAIMS.heldDrop);
+			},
+			`claim defectsTest.heldDrop at app is not permitted by ${HELD}, which is now held`,
+		],
+		[
+			"a held value nothing read",
+			(books: Accounting) => {
+				books
+					.json({ doc_type: "LinkedApplication" }, place)
+					.take("doc_type", CLAIMS.held, String);
+			},
+			"claimed and not read at app: defectsTest.held",
+		],
+		[
+			"an identity met twice",
+			(books: Accounting) => {
+				books.json({}, place);
+				books.identity(
+					{
+						ok: false,
+						key: { kind: "module", parts: [MARKER] },
+						firstPlace: MARKER,
+					},
+					place,
+					"schema:Application.doc_type",
+				);
+			},
+			"identity met twice at app: a module key",
+		],
+	])("%s", (_label, provoke, line) => {
+		const books = new Accounting(inventoryIndex(), { log: "counts" });
+		provoke(books);
+		const { findings, defects } = books.close();
+		expect(defects.map((defect) => defect.why)).toEqual([line]);
+		expect(findings).toEqual([
+			{
+				code: "unrecognized",
+				standing: "not-yet",
+				place,
+				subject: null,
+				detail: { name: "schema:Application.doc_type" },
+			},
+		]);
+	});
+});
+
+describe("a defect the forms stage raises", () => {
+	/** The one finding and the defect lines of a reading of `source`. */
+	async function provoked(
+		source: string,
+		options: Parameters<typeof readForm>[1] = {},
+	) {
+		const reading = await readForm(source, options);
+		return {
+			place: reading.form.place,
+			findings: reading.closed.findings
+				.filter(
+					(finding) =>
+						finding.place.kind === "form" || finding.place.kind === "question",
+				)
+				.map((finding) => [finding.code, finding.place, finding.detail.name]),
+			whys: reading.closed.defects.map((defect) => defect.why),
+		};
+	}
+
+	it("stands behind a source Nova's parser refuses, by the kind it answered", async () => {
+		const source = xformSource({ data: "<q/>" }).replace(
+			'<?xml version="1.0" encoding="UTF-8"?>',
+			'<?xml version="1.1" encoding="UTF-8"?>',
+		);
+		const { place, findings, whys } = await provoked(source);
+		expect(whys).toEqual([readerDefect.formSource(place, "xml-version")]);
+		expect(findings).toEqual([["unrecognized", place, "xform:h:html"]]);
+	});
+
+	it("stands behind an xmlns that differs between the form and its source", async () => {
+		const source = xformSource({
+			data: "<q/>",
+			model: '<bind nodeset="/data/q" type="xsd:string"/>',
+		}).replace(
+			`xmlns="${XMLNS}"`,
+			'xmlns="http://openrosa.org/formdesigner/another-form"',
+		);
+		const { place, findings, whys } = await provoked(source);
+		expect(whys).toEqual([readerDefect.xmlnsDiffers(place)]);
+		expect(findings).toContainEqual([
+			"unrecognized",
+			place,
+			"schema:Form.xmlns",
+		]);
+	});
+
+	it("stands behind an itemset column the catalog lacks", async () => {
+		const source = xformSource({
+			data: "<pick/>",
+			model: [
+				'<instance id="clinics" src="jr://fixture/item-list:clinics"/>',
+				'<bind nodeset="/data/pick" type="xsd:string"/>',
+			].join(""),
+			body: [
+				'<select1 ref="/data/pick"><label>Pick</label>',
+				"<itemset nodeset=\"instance('clinics')/clinics_list/clinics\">",
+				'<label ref="name"/><value ref="id"/></itemset></select1>',
+			].join(""),
+		});
+		const reading = await readForm(source, {
+			lookup: {
+				table: (tag) =>
+					tag === "clinics"
+						? {
+								tableId: testUuid("defects-clinics") as never,
+								column: (name) =>
+									name === "id" ? (testUuid("defects-id") as never) : undefined,
+							}
+						: undefined,
+				definitions: new Map(),
+			},
+		});
+		const question = reading.closed.findings.find(
+			(finding) => finding.place.kind === "question",
+		)?.place;
+		if (question === undefined) throw new Error("No finding at the question.");
+		expect(reading.closed.defects.map((defect) => defect.why)).toEqual([
+			readerDefect.itemsetColumn(question, "label"),
+		]);
+		expect(
+			reading.closed.findings
+				.filter((finding) => finding.code === "unrecognized")
+				.map((finding) => finding.detail.name),
+		).toContain("xform:itemset/label@ref");
+	});
+});

@@ -7,6 +7,15 @@ import {
 } from "../../../lib/commcare/__tests__/csqlCompositionFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
+import {
+	CSQL_READER_VECTORS,
+	csqlRow,
+	csqlVectorDoc,
+	rowContext,
+	rowEnv,
+} from "../../../lib/commcare/reader/expressions/__tests__/csqlVectors";
+import { readSearchFilterRow } from "../../../lib/commcare/reader/expressions/csqlRead";
+import { inventoryIndex } from "../../../lib/commcare/surface/inventory";
 
 const output = process.argv[2];
 if (!output)
@@ -38,3 +47,33 @@ for (const scenario of csqlScenarios) {
 // One line per scenario: its cases, searches and expected ids. Not `.json`,
 // which the family's HQ step reads as app sources.
 writeFileSync(resolve(output, "scenarios.jsonl"), `${records.join("\n")}\n`);
+
+// The search row reader's reading of each CSQL text the reader is held to, for
+// test_csql_reader_parity.py, which reads the same texts with HQ's own CSQL
+// parser and filter builder.
+const readerDoc = csqlVectorDoc();
+const readerContext = rowContext(readerDoc);
+const readerEnv = rowEnv(readerDoc);
+const index = inventoryIndex();
+writeFileSync(
+	resolve(output, "csql-reader.json"),
+	`${JSON.stringify({
+		schemaVersion: 1,
+		vectors: CSQL_READER_VECTORS.map((vector) => {
+			const reading = readSearchFilterRow(
+				csqlRow(vector.csql),
+				readerContext,
+				readerEnv,
+			);
+			const verdict = reading.ok
+				? { held: reading.level }
+				: "claim" in reading
+					? {
+							entry: reading.claim.entryId,
+							disposition: index.entry(reading.claim.entryId)?.disposition,
+						}
+					: { unrecognized: true };
+			return { id: vector.id, csql: vector.csql, verdict };
+		}),
+	})}\n`,
+);

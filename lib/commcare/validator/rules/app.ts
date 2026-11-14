@@ -475,7 +475,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
  * the link can open. An ID HQ won't save is offered a replacement free
  * among the app's other deep link IDs.
  */
-function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
+export function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 	const inventory = entryPointInventory(doc);
 	const ids = new Set<string>();
 	return inventory.flatMap(({ target, entryPoint }) => {

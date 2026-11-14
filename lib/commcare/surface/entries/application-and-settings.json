@@ -495,7 +495,7 @@
 		"id": "application-and-settings/langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "`langs` code spelling matching HQ's grammar `^[a-z]{2,3}(-[a-z]*)?$` (e.g. `en`, `hin`, `pt-br`, codes outside HQ's registry, which it only warns about), each once",
+		"item": "`langs` code spelling matching HQ's grammar `^[a-z]{2,3}(-[a-z]*)?$` (e.g. `en`, `hin`, `pt-br`, codes outside HQ's registry, which it only warns about), each once, naming a living language of ISO 639-3, each language once",
 		"surfaceKeys": [
 			"schema:Application.langs",
 			"parser:SuiteParser/locale@language",
@@ -506,6 +506,33 @@
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: `localization.wireCodes`: the exact HQ code per language (codes are external identity: device locale, build profiles, UI strings)",
 		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the imported code verbatim; Nova-born languages keep `planLanguageWire`; a language's code is stored when the language is added (the migration stores each existing language's current code), since `planLanguageWire` recomputes every code from the whole set and would otherwise rename an existing language when a colliding one is added; only the new language takes a suffixed code",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/langs-code-nova-s-language-registry-cannot-name",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a `langs` code in HQ's grammar that names no living language of ISO 639-3, or two codes that name one language (`en` beside `eng`)",
+		"surfaceKeys": ["schema:Application.langs"],
+		"valueClass": "code-outside-nova-s-registry",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a language held by a code alone, with no identity in Nova's registry (`languageRegistry/index.ts::languageCodeVerdict`)",
+		"subject": "language-codes",
+		"owner": "settings-nova-comes-to-own",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -784,10 +811,82 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/translations-generated-key-with-no-effect",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a key matching a generated pattern, in a language, whose value is blank, or names no string of this app, or equals the text the app's own fields give that string in that language",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-key-no-effect",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no runtime shows anything else: a blank value is dropped (`app_strings.py`, `non_empty_only`), HQ's build generates no string under an id this app does not have, and an equal value is the string HQ generates",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "nothing: Nova never carries a generated key (`appStringKeys.ts::translationKeyOwner`, `generated`), so a publish removes it",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-key-over-one-text",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "any other key matching a generated pattern whose string comes from one authored text, where every string that text feeds in that language holds the same override: read as that text's wording in that language",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-key-folded",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the override is the text's wording in that language, which Nova writes into every string the text feeds",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the text's translation in that language, from which HQ generates the string; no key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-generated-key-anything-else",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "any other key matching a generated pattern: an override of a string Nova writes from a constant or derives, or of one string of a text that feeds several",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "generated-key-other",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a per-language override of one generated string, which no slot of Nova's document holds; a publish removes the key (`appStringKeys.ts::translationKeyOwner`, `generated`) and the worker would see the field's own text again",
+		"subject": "translation-overrides",
+		"owner": "settings-nova-comes-to-own",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the override, under its key",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "application-and-settings/translations-key-no-runtime-reads",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "`translations` key no runtime reads",
+		"item": "`translations` key no runtime reads: a key no generated pattern and no runtime catalog names",
 		"surfaceKeys": ["schema:Application.translations"],
 		"valueClass": "unread-key",
 		"disposition": "INERT",
@@ -1089,16 +1188,16 @@
 		"id": "application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare",
 		"area": "application-and-settings",
 		"section": "Application",
-		"item": "`logo_refs[slot].path` other than the uploader's `jr://file/commcare/logo/data/<slot><ext>`",
+		"item": "`logo_refs[slot]` the uploader did not write: a `path` other than `jr://file/commcare/logo/data/<slot><ext>`, or an entry with no `m_id`",
 		"surfaceKeys": ["schema:Application.logo_refs"],
 		"valueClass": "path-not-from-uploader",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-editable: the logo uploader writes only that path (`hqmedia/views.py::ProcessLogoFileUploadView.form_path`); not HQ-buildable (`MediaResourceError`) when the path is also a `multimedia_map` key outside `jr://file/`",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the logo uploader writes only that path (`hqmedia/views.py::ProcessLogoFileUploadView.form_path`) and always stores `m_id` (`hqmedia/models.py::CommCareMultimedia.get_media_info`); not HQ-buildable (`MediaResourceError`) when the path is also a `multimedia_map` key outside `jr://file/`",
 		"subject": "app-logos",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
-				"named": "the logo uploader writes only that path (`hqmedia/views.py::ProcessLogoFileUploadView.form_path`)"
+				"named": "the logo uploader writes only that path (`hqmedia/views.py::ProcessLogoFileUploadView.form_path`) and always stores `m_id` (`hqmedia/models.py::CommCareMultimedia.get_media_info`)"
 			},
 			{
 				"kind": "not-hq-buildable",
