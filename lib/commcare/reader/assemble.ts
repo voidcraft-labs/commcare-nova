@@ -10,14 +10,18 @@
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { holdsUserRepeat } from "@/lib/doc/groupFieldLists";
+import { applyHoldPlacements } from "@/lib/doc/mutations/placements";
 import { planDeclarationChoices } from "@/lib/doc/platformDeclaration";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	type BlueprintDoc,
+	caseCreateNameFields,
 	type Field,
 	type LanguageTag,
 	type LocalizedValue,
+	type Media,
 	makeTranslationUnitId,
+	type SelectOption,
 	type TranslationUnitId,
 	translationSourceFingerprintsEqual,
 	type Uuid,
@@ -33,8 +37,11 @@ import {
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
 import type { Finding, HqPlace } from "@/lib/publish/hqFindings";
 import { syntheticModuleUuid } from "../emissionPlan";
+import { placedBasic } from "../placement";
+import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
+import { catalogAsRead } from "./caseManagement/catalog";
 import { account, defineClaims, derived, refuse, take } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
 import { readerDefect } from "./defects";
@@ -149,6 +156,33 @@ function fieldUnit(field: Uuid, slot: "label" | "help"): TranslationUnitId {
 	return makeTranslationUnitId("field", field, slot);
 }
 
+/** The unit id of an inline choice's label, as the translation inventory names it. */
+function optionUnit(field: Uuid, option: Uuid): TranslationUnitId {
+	return makeTranslationUnitId("field", field, "option", option);
+}
+
+/** Whether a slot's media writes a form of its itext entry: an image, an audio or a video. */
+function carriesMedia(media: Media | undefined): boolean {
+	return (
+		media !== undefined &&
+		(media.image !== undefined ||
+			media.audio !== undefined ||
+			media.video !== undefined)
+	);
+}
+
+/** Whether a text's flag prints nothing: the text is blank in every language and its slot carries
+ *  no media, so `addItext` writes no entry for it and no form of it, markdown or plain. A blank
+ *  text with media is an entry whose markdown copy the flag decides. */
+function flagPrintsNothing(
+	doc: BlueprintDoc,
+	template: ProseTemplate | undefined,
+	media: Media | undefined,
+	unit: TranslationUnitId,
+): boolean {
+	return !carriesMedia(media) && blankEverywhere(doc, template, unit);
+}
+
 export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 	{
 		/** A root of `fieldList` groups with no condition and no worker-added repeat, and a root of
@@ -201,7 +235,9 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		},
 	},
 	{
-		/** `plainLabel` or `plainHelp` on a text blank in every language, and no flag. */
+		/** `plainLabel` or `plainHelp` on a text blank in every language whose slot carries no
+		 *  media, and no flag: Nova writes no itext entry for such a text. A question's label and
+		 *  help text and an inline choice's label alike. */
 		id: "plain-flag-on-blank-text-is-absent",
 		kind: "one-wire",
 		apply: (doc) =>
@@ -215,22 +251,44 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 					const own = fields[uuid] as Record<string, unknown>;
 					if (
 						slots.plainLabel === true &&
-						blankEverywhere(
+						flagPrintsNothing(
 							doc,
 							slots.label as ProseTemplate | undefined,
+							slots.label_media as Media | undefined,
 							fieldUnit(uuid, "label"),
 						)
 					)
 						delete own.plainLabel;
 					if (
 						slots.plainHelp === true &&
-						blankEverywhere(
+						flagPrintsNothing(
 							doc,
 							slots.help as ProseTemplate | undefined,
+							slots.help_media as Media | undefined,
 							fieldUnit(uuid, "help"),
 						)
 					)
 						delete own.plainHelp;
+					const source = slots.optionsSource as
+						| { kind?: string; options?: readonly SelectOption[] }
+						| undefined;
+					if (source?.kind !== "inline") continue;
+					const options = (own.optionsSource as { options: SelectOption[] })
+						.options;
+					source.options?.forEach((option, index) => {
+						const held = options[index];
+						if (
+							held !== undefined &&
+							option.plainLabel === true &&
+							flagPrintsNothing(
+								doc,
+								option.label,
+								option.media,
+								optionUnit(uuid, option.uuid),
+							)
+						)
+							delete held.plainLabel;
+					});
 				}
 			}),
 	},
@@ -348,6 +406,32 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: registrationFormLast,
 	},
 	{
+		/** A `required` condition on a question that names a case the form creates and is no
+		 *  Hidden Value, and none: the emitter writes `required="true()"` on that bind whatever
+		 *  the slot holds (`xform/builder.ts::buildFieldParts`), so the reader returns none. */
+		id: "create-name-required-is-absent",
+		kind: "one-wire",
+		apply: (doc) => {
+			const names: Uuid[] = [];
+			for (const formUuid of Object.keys(doc.forms) as Uuid[])
+				for (const uuid of caseCreateNameFields(doc, formUuid, {
+					placedBasic: placedBasic(doc, formUuid),
+				})) {
+					const field = doc.fields[uuid];
+					if (
+						field !== undefined &&
+						field.kind !== "hidden" &&
+						"required" in field
+					)
+						names.push(uuid);
+				}
+			return withCandidate(doc, (draft) => {
+				for (const uuid of names)
+					delete (draft.fields[uuid] as { required?: unknown }).required;
+			});
+		},
+	},
+	{
 		/** A form with no destinations storing its own default after-submit, and storing none:
 		 *  both print one workflow word, and the reader returns none. */
 		id: "default-post-submit-is-absent",
@@ -399,6 +483,34 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 							column.notOnList = true;
 				}
 			}),
+	},
+	{
+		/** A document's catalog as authored, and the catalog the reader derives from the same
+		 *  document: the emitter reads a property's type through `effectiveCaseTypes`, and a label
+		 *  and a property nothing reads reach no export, so the reader returns the derived one. */
+		id: "case-catalog-is-as-read",
+		kind: "one-wire",
+		apply: (doc) => {
+			const caseTypes = catalogAsRead(doc);
+			return withCandidate(doc, (draft) => {
+				draft.caseTypes = caseTypes as typeof draft.caseTypes;
+			});
+		},
+	},
+	{
+		/** A document holding a placement its emission derives and one holding none: holding what
+		 *  the emission derives changes no byte (`lib/commcare/__tests__/heldPlacementEmission.test.ts`), and a
+		 *  reading holds every placement it reads, a query repeat's included, so the reader returns
+		 *  the document holding every one `placementsToHold` gives. */
+		id: "unheld-placements-are-held",
+		kind: "one-wire",
+		apply: (doc) => {
+			const holds = [...placementsToHold(doc)];
+			return withCandidate(doc, (draft) => {
+				if (holds.length > 0)
+					applyHoldPlacements(draft, { kind: "holdPlacements", holds });
+			});
+		},
 	},
 ];
 
@@ -580,15 +692,8 @@ function coveringFinding(
 			finding.place.menu === owner.menu,
 	);
 	if (target.module === undefined || owner.kind === "menu") return atMenu;
-	if (target.form === undefined)
-		return (
-			sorted.find(
-				(finding) =>
-					finding.place.kind === "form" &&
-					finding.place.menu === owner.menu &&
-					finding.place.form === owner.form,
-			) ?? atMenu
-		);
+	// A form of a menu that read: the finding at that form, which stands where the form got no
+	// draft. A form position HQ's app holds no form at has none, and its key is classified.
 	return sorted.find(
 		(finding) =>
 			finding.place.kind === "form" &&

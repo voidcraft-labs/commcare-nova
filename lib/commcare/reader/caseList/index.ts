@@ -6,13 +6,25 @@
  * details, sort elements, filter and tile keys must equal the stored ones
  * after the inert claims and the same-state rows.
  */
-import type { BlueprintDoc, CaseOperation, Module, Uuid } from "@/lib/domain";
+import { produce } from "immer";
+import type {
+	BlueprintDoc,
+	CaseOperation,
+	CasePropertyDataType,
+	Module,
+	Uuid,
+} from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { defaultSortBlanks } from "@/lib/domain/modules";
+import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { projectCaseListForHq } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
+import { withCandidate } from "../candidate";
 import type { DraftApp, DraftForm, DraftModule, ReadContext } from "../context";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { readProjectionInputs } from "../projectionInputs";
+import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import {
 	appCodes,
@@ -24,8 +36,9 @@ import {
 	type CaseListReading,
 	caseListReadings,
 	readCaseDetails,
+	sameState,
 } from "./details";
-import { ORDER_CLAIMS } from "./order";
+import { CALCULATED_FIELD, ORDER_CLAIMS } from "./order";
 
 export { joinDetailColumns } from "./details";
 
@@ -74,7 +87,8 @@ function selectFieldsOf(form: DraftForm): Set<Uuid> {
 	return out;
 }
 
-/** Step 6, pass 1: every menu's case list, read from its two details. */
+/** Step 6, pass 1: every menu's case list, read from its two details, and the type each numeric
+ *  sort declares written into the draft's catalog before any expression binds. */
 export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
 	for (const module of app.modules) {
 		const caseType = module.module.caseType;
@@ -84,6 +98,69 @@ export function readCaseLists(ctx: ReadContext, app: DraftApp): void {
 				: selectProperties(app, caseType);
 		readCaseDetails(ctx, module, (property) => selects.has(property));
 	}
+	declareNumericSortsBeforeBinding(ctx, app);
+}
+
+/** The numeric sort declarations made before the expression stage, per reading: each case type
+ *  and property declared, with the type. */
+const EARLY_SORT_DECLARATIONS = new WeakMap<
+	ReadContext,
+	readonly {
+		readonly caseType: string;
+		readonly property: string;
+		readonly dataType: CasePropertyDataType;
+	}[]
+>();
+
+/**
+ * The numeric sort declarations, written into the draft's catalog before the expression stage, so
+ * a slot that reads such a property (a filter comparing it with a number) binds against the type
+ * the list declares. A Hidden Value writer is typed only once its expression is bound, so the
+ * settle takes these back and declares again over the bound document (`settleCaseLists`). The
+ * first menu to declare a property decides its type, as in the settle.
+ */
+function declareNumericSortsBeforeBinding(
+	ctx: ReadContext,
+	app: DraftApp,
+): void {
+	const doc = provisionalDocument(ctx);
+	const declarations: {
+		caseType: string;
+		property: string;
+		dataType: CasePropertyDataType;
+	}[] = [];
+	for (const module of app.modules) {
+		const reading = caseListReadings(ctx).get(module.uuid);
+		const caseType = module.module.caseType;
+		if (reading === undefined || caseType === undefined || !reading.whole)
+			continue;
+		for (const [property, dataType] of numericSortDeclarations(
+			doc,
+			caseType,
+			reading,
+		))
+			if (
+				!declarations.some(
+					(one) => one.caseType === caseType && one.property === property,
+				)
+			)
+				declarations.push({ caseType, property, dataType });
+	}
+	EARLY_SORT_DECLARATIONS.set(ctx, declarations);
+	const catalog = app.caseTypes;
+	if (declarations.length === 0 || catalog === undefined || catalog === null)
+		return;
+	const next = produce(catalog, (draft) => {
+		for (const { caseType, property, dataType } of declarations) {
+			const declared = draft
+				.find((one) => one.name === caseType)
+				?.properties.find((one) => one.name === property);
+			if (declared !== undefined) declared.data_type = dataType;
+		}
+	});
+	ctx.writeDraft(() => {
+		app.caseTypes = next;
+	});
 }
 
 // ── Acceptance by re-emission ───────────────────────────────────────────
@@ -190,10 +267,29 @@ function sortDifference(
 	if (ours.length !== expected) return "schema:Detail.sort_elements";
 	for (const [position, element] of kept.entries()) {
 		const other = ours[position] as JsonObject;
-		if (element.field !== other.field) return "schema:SortElement.field";
+		if (element.field !== other.field) {
+			// HQ's build reads its five renamed words as the properties Nova names
+			// (`detail_screen.py::CASE_PROPERTY_MAP`), so the two spellings sort one way.
+			const renamed = (field: unknown) =>
+				typeof field === "string"
+					? (HQ_PROPERTY_RENAMES[field] ?? field)
+					: field;
+			if (renamed(element.field) !== renamed(other.field))
+				return "schema:SortElement.field";
+			const index = reading.sort.kept[position] as number;
+			sameState(
+				ctx,
+				ORDER_CLAIMS.fieldHidden.entry,
+				`${reading.short.pointer}/sort_elements/${index}/field`,
+				"list-settings-respelled",
+			);
+		}
 		if (element.direction !== other.direction)
 			return "schema:SortElement.direction";
-		const own = element.direction === "descending" ? "first" : "last";
+		// A stored `""` is the direction's own: blanks first ascending, last descending.
+		const own = defaultSortBlanks(
+			element.direction === "descending" ? "desc" : "asc",
+		);
 		const blanksA =
 			element.blanks === "" || element.blanks === undefined
 				? own
@@ -236,8 +332,16 @@ function listDifference(
 		long: JsonObject;
 	};
 	const codes = appCodes(ctx);
-	const shortStored = objects(reading.short.peek("columns"));
-	const longStored = objects(reading.long.peek("columns"));
+	// A column an inert row dropped is written by no build.
+	const kept = (detail: unknown, dropped: ReadonlySet<number>) =>
+		(Array.isArray(detail) ? detail : []).flatMap((column, index) =>
+			isJsonObject(column) && !dropped.has(index) ? [column] : [],
+		);
+	const shortStored = kept(
+		reading.short.peek("columns"),
+		reading.dropped.short,
+	);
+	const longStored = kept(reading.long.peek("columns"), reading.dropped.long);
 	const shortOurs = objects(pair.short.columns);
 	const longOurs = objects(pair.long.columns);
 	const tile = mod.caseListConfig?.tile !== undefined;
@@ -315,16 +419,79 @@ function listDifference(
 }
 
 /**
+ * The catalog's type for each property an `int` or `double` sort element orders by where no writer
+ * types it: Nova derives the comparator from the property's type (`caseListOrder.ts`), so the
+ * property is declared `int` or `decimal`. A property the writers type keeps their type, and the
+ * comparison judges the element.
+ */
+function declareNumericSorts(
+	doc: BlueprintDoc,
+	caseType: string,
+	reading: CaseListReading,
+): BlueprintDoc {
+	const untyped = numericSortDeclarations(doc, caseType, reading);
+	if (untyped.length === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		const type = draft.caseTypes?.find((one) => one.name === caseType);
+		for (const [property, dataType] of untyped) {
+			const declared = type?.properties.find((one) => one.name === property);
+			if (declared !== undefined) declared.data_type = dataType;
+		}
+	});
+}
+
+/** Each property a menu's `int` or `double` sort element orders by that `doc`'s writers give no
+ *  type, with the type the element declares. */
+function numericSortDeclarations(
+	doc: BlueprintDoc,
+	caseType: string,
+	reading: CaseListReading,
+): [string, CasePropertyDataType][] {
+	const stored = objects(reading.short.peek("sort_elements"));
+	const wanted = new Map<string, CasePropertyDataType>();
+	for (const [index, type] of reading.sort.numeric) {
+		const field = stored[index]?.field;
+		if (typeof field !== "string" || CALCULATED_FIELD.test(field)) continue;
+		const property = HQ_PROPERTY_RENAMES[field] ?? field;
+		if (isStandardCaseListProperty(property)) continue;
+		wanted.set(property, type === "int" ? "int" : "decimal");
+	}
+	if (wanted.size === 0) return [];
+	const typed = effectiveCaseTypes(doc).find((one) => one.name === caseType);
+	return [...wanted].filter(
+		([property]) =>
+			typed?.properties.find((one) => one.name === property)?.data_type ===
+			undefined,
+	);
+}
+
+/**
  * Step 8, pass 2: each menu's case list accepted where the projection writes its stored details
- * back. A difference no row names is `unrecognized` at the list, under its surface key.
+ * back. A difference no row names is `unrecognized` at the list, under its surface key. The
+ * declarations made before binding are taken back first, so each is made again only where the
+ * bound document's writers, a Hidden Value's among them, still give the property no type.
  */
 export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
-	const doc = ctx.doc;
-	if (doc === undefined) return;
+	if (ctx.doc === undefined) return;
+	const early = EARLY_SORT_DECLARATIONS.get(ctx) ?? [];
+	if (early.length > 0)
+		ctx.doc = withCandidate(ctx.doc, (draft) => {
+			for (const { caseType, property, dataType } of early) {
+				const declared = draft.caseTypes
+					?.find((one) => one.name === caseType)
+					?.properties.find((one) => one.name === property);
+				if (declared?.data_type === dataType) delete declared.data_type;
+			}
+		});
 	for (const module of app.modules) {
 		const reading = caseListReadings(ctx).get(module.uuid);
+		const caseType = ctx.doc.modules[module.uuid]?.caseType;
+		if (reading === undefined || caseType === undefined || !reading.whole)
+			continue;
+		ctx.doc = declareNumericSorts(ctx.doc, caseType, reading);
+		const doc = ctx.doc;
 		const mod = doc.modules[module.uuid];
-		if (reading === undefined || mod === undefined || !reading.whole) continue;
+		if (mod === undefined) continue;
 		const place = caseListPlace(module);
 		let difference: string | undefined;
 		try {

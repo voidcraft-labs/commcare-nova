@@ -295,33 +295,48 @@ function sameLists<T>(
  * node and the setvalues that set it, since its children are other
  * blocks, each judged on its own: what is compared of them is their names,
  * in order, so a guard or a block the emitter writes beside it and the
- * source lacks is a difference.
+ * source lacks is a difference. Every other child of a wrapper, one not in
+ * `judgedApart` (the paths of the blocks and wrappers judged on their own),
+ * is compared whole with its binds and setvalues: a guard, a keyed create's
+ * count and a clock node are the emitter's, and an edit to one is a
+ * difference.
  */
 export function blockTreesEqual(
 	stored: StoredSaveToCaseBlock,
 	emitted: FormSourceModel,
+	judgedApart: ReadonlySet<string> = new Set(),
 ): boolean {
 	const { block, form } = stored;
-	const blockPath = block.path;
-	const emittedBlock = elementAt(emitted, blockPath);
-	if (emittedBlock === undefined) return false;
-	if (!sameDataElement(block.element, form, emittedBlock, emitted, true))
-		return false;
-	const under = (path: readonly string[]) => startsWith(path, blockPath);
 	const pathOf = (element: Element) => element.attribs.ref;
-	if (
-		!sameLists(
-			modelElements(form, form.binds, bindPathText, under),
-			modelElements(emitted, emitted.binds, bindPathText, under),
-			(a, b) => sameBind(a, form, b, emitted),
-		) ||
-		!sameLists(
-			modelElements(form, form.setvalues, pathOf, under),
-			modelElements(emitted, emitted.setvalues, pathOf, under),
-			sameSetvalue,
-		)
-	)
-		return false;
+	/** The element at `path` on both sides alike with everything under it,
+	 *  and the binds and setvalues under it. */
+	const sameSubtree = (
+		storedElement: Element,
+		path: readonly string[],
+	): boolean => {
+		const emittedElement = elementAt(emitted, path);
+		if (emittedElement === undefined) return false;
+		if (!sameDataElement(storedElement, form, emittedElement, emitted, true))
+			return false;
+		const under = (one: readonly string[]) => startsWith(one, path);
+		return (
+			sameLists(
+				modelElements(form, form.binds, bindPathText, under),
+				modelElements(emitted, emitted.binds, bindPathText, under),
+				(a, b) => sameBind(a, form, b, emitted),
+			) &&
+			sameLists(
+				modelElements(form, form.setvalues, pathOf, under),
+				modelElements(emitted, emitted.setvalues, pathOf, under),
+				sameSetvalue,
+			)
+		);
+	};
+	if (!sameSubtree(block.element, block.path)) return false;
+	const ownPath = new Set([
+		block.path.join("/"),
+		...block.wrappers.map((wrapper) => wrapper.path.join("/")),
+	]);
 	for (const wrapper of block.wrappers) {
 		const emittedWrapper = elementAt(emitted, wrapper.path);
 		if (
@@ -334,6 +349,15 @@ export function blockTreesEqual(
 			)
 		)
 			return false;
+		// Each child no other comparison judges (a guard, a keyed create's
+		// count, a clock node, a selected-cases query node) whole, with its
+		// binds and setvalues.
+		for (const child of children(wrapper.element)) {
+			const path = [...wrapper.path, child.name];
+			const key = path.join("/");
+			if (ownPath.has(key) || judgedApart.has(key)) continue;
+			if (!sameSubtree(child, path)) return false;
+		}
 		const at = (path: readonly string[]) =>
 			samePath(path, wrapper.path) ||
 			(path.length === wrapper.path.length + 1 &&

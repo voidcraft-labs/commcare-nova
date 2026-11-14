@@ -82,16 +82,20 @@ describe("Save to Case blocks of an earlier shape, as CommCare HQ served them", 
 			"targeted-migration-case-writes",
 		);
 		expect(outcome.kind).toBe("account");
-		// Three blocks the emitter now writes otherwise: the keyed create, the create in a
-		// repeat and the several-case update. The follow-up's update, the conditional update and
-		// the closes it writes today as it wrote them then, and each guard is its operation's.
+		// Two blocks the emitter now writes otherwise: the create in a repeat and the
+		// several-case update. The follow-up's update, the conditional update and the closes it
+		// writes today as it wrote them then, and each guard is its operation's. The keyed create
+		// is read too: its id is compared under the prefix the source's calculate holds, which
+		// names the app Nova exported then.
+		const keyed = "nova_operations/nova_keyed_add_referral/add_referral";
+		expect(blocks).toContainEqual({ menu: 1, form: 0, path: keyed });
+		expect(
+			(outcome.kind === "account" ? outcome.findings : []).filter(
+				(finding) => (finding.place as { path?: string }).path === keyed,
+			),
+		).toEqual([]);
 		expect(outside).toEqual([
 			{ menu: 1, form: 0, path: "arrivals/nova_operations/add_arrival" },
-			{
-				menu: 1,
-				form: 0,
-				path: "nova_operations/nova_keyed_add_referral/add_referral",
-			},
 			{
 				menu: 2,
 				form: 0,

@@ -9,9 +9,12 @@
  * name that differs from Nova's label.
  *
  * It would catch an `Application` key left unclaimed, a setting accounted
- * under the wrong value class, a logo entry with no `m_id` admitted, and a
- * display name raised as a finding where the manifest keeps it (or kept
- * where the manifest refuses it).
+ * under the wrong value class, a custom profile property Nova derives read
+ * as a finding (or another one read past), a logo entry with no `m_id`
+ * admitted, a slot of another name the uploader wrote refused, one node of
+ * `logo_refs` both handed off and claimed, and a display name raised as a
+ * finding where the manifest keeps it (or kept where the manifest refuses
+ * it).
  */
 
 import { describe, expect, it } from "vitest";
@@ -116,6 +119,67 @@ describe("readApplication over CommCare HQ's own apps", () => {
 		]);
 	});
 
+	it("accounts each value of a setting two entries name under the entry whose class is the value", async () => {
+		const body = retainedSourceBody("shell/app-source");
+		const profile = (body.profile ?? {}) as {
+			properties?: Record<string, string>;
+		};
+		for (const [value, entry] of [
+			["true", `${A}/2-properties-lazy-load-video-files-true`],
+			["false", `${A}/2p-properties-lazy-load-video-files-false`],
+		] as const) {
+			const { closed } = await readShell({
+				...body,
+				profile: {
+					...profile,
+					properties: {
+						...profile.properties,
+						"lazy-load-video-files": value,
+					},
+				},
+			});
+			expect(
+				entriesAt(closed, "/profile/properties/lazy-load-video-files"),
+			).toEqual([entry]);
+		}
+	});
+
+	it("reads past the custom property Nova derives and refuses any other, by its name", async () => {
+		const body = retainedSourceBody("shell/app-source");
+		const { closed } = await readShell({
+			...body,
+			profile: {
+				...((body.profile ?? {}) as object),
+				custom_properties: {
+					"cc-index-case-search-results": "yes",
+					"cc-auto-purge": "yes",
+				},
+			},
+		});
+		expect(
+			entriesAt(
+				closed,
+				"/profile/custom_properties/cc-index-case-search-results",
+			),
+		).toEqual([
+			`${A}/profile-custom-properties-cc-index-case-search-results-equal-to`,
+		]);
+		expect(
+			entriesAt(closed, "/profile/custom_properties/cc-auto-purge"),
+		).toEqual([
+			`${A}/profile-custom-properties-any-other-entry-incl-formplayer-keys`,
+		]);
+		expect(
+			closed.findings.filter((finding) => APP_PLACES.has(finding.place.kind)),
+		).toMatchObject([
+			{
+				code: `${A}/profile-custom-properties-any-other-entry-incl-formplayer-keys`,
+				place: { kind: "app" },
+				detail: { name: "cc-auto-purge" },
+			},
+		]);
+	});
+
 	it("refuses a build below Nova's floor at the app's settings, with the version HQ holds", async () => {
 		const body = retainedSourceBody("shell/app-source");
 		const { closed } = await readShell({
@@ -209,6 +273,45 @@ describe("readApplication's logos", () => {
 				place: { kind: "app-settings" },
 				slot: "app_logo",
 			},
+		]);
+	});
+
+	it("reads past a slot of another name the uploader wrote, beside an Android logo", async () => {
+		const { closed } = await readShell({
+			...retainedSourceBody("shell/app-source"),
+			logo_refs: {
+				hq_logo_android_home: {
+					path: "jr://file/commcare/logo/data/hq_logo_android_home.png",
+					m_id: "m1",
+				},
+				hq_logo_x: {
+					path: "jr://file/commcare/logo/data/hq_logo_x.png",
+					m_id: "m2",
+				},
+			},
+		});
+		expect(closed.findings).toEqual([]);
+		expect(entriesAt(closed, "/logo_refs")).toEqual([
+			`${A}/logo-refs-hq-logo-android-home-login-demo`,
+		]);
+	});
+
+	it("hands the Web Apps logo with no file to project data and claims the node no more", async () => {
+		const path = "jr://file/commcare/logo/data/hq_logo_web_apps.png";
+		const { closed } = await readShell({
+			...retainedSourceBody("shell/app-source"),
+			logo_refs: {
+				hq_logo_web_apps: { path, m_id: "m1" },
+				hq_logo_android_home: {
+					path: "jr://file/commcare/logo/data/hq_logo_android_home.png",
+					m_id: "m2",
+				},
+			},
+		});
+		expect(closed.defects).toEqual([]);
+		expect(entriesAt(closed, "/logo_refs")).toEqual([]);
+		expect(closed.claims.handOffs).toMatchObject([
+			{ where: "/logo_refs", to: "media-reference", subject: path },
 		]);
 	});
 

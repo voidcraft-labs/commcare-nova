@@ -1260,6 +1260,38 @@ export function classifyAppearance(
 	return classifyOne(control, bind, value, form);
 }
 
+/** The rows that leave a trigger a label: Android's `TriggerWidget` draws no acknowledge for
+ *  exactly `selectable`, and hides every widget whose appearance starts `floating-`. */
+const TRIGGER_LABEL_ENTRIES: ReadonlySet<string> = new Set([
+	"questions/trigger-selectable",
+	"questions/floating-good-floating-caution-floating-bad",
+	"questions/a-label-whose-appearance-string-starts-with-floating-other-than",
+]);
+
+/**
+ * Whether a trigger whose appearance is not exactly `minimal` stays a label (9.1): its verdict is
+ * the `selectable` row or a floating row, or a per-row refusal of a string starting `floating-`,
+ * which the per-row rows take from the floating row. Any other string is an acknowledge on
+ * Android, which draws a checkbox for every appearance but exactly `minimal` or `selectable`
+ * (`TriggerWidget`).
+ */
+export function triggerStaysLabel(
+	verdict: AppearanceVerdict,
+	value: string,
+): boolean {
+	if (verdict.kind !== "claim") return false;
+	if (TRIGGER_LABEL_ENTRIES.has(verdict.claim.entry)) return true;
+	return (
+		value.startsWith("floating-") &&
+		(verdict.claim === REFUSED.perRowWithoutDigits ||
+			verdict.claim === REFUSED.perRowHoldingRead)
+	);
+}
+
+/** The refusal of an `intent:<id>` naming an `odkx:intent` no callout question writes, which
+ *  the head's `odkx:intent` it names is refused under too. */
+export const INTENT_NAMING_ORPHAN: Claim<"refuse"> = REFUSED.intentNamingOrphan;
+
 /** Whether a claim's entry is one whose standing is `inert`: the appearances a first publish
  *  drops, which acceptance cuts from CommCare HQ's side. */
 export function isInertAppearanceClaim(claim: Claim): boolean {

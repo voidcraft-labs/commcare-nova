@@ -1,14 +1,18 @@
 /**
  * The last stage of a reading and the reader's canonical choices.
  *
- * Contract: where no finding stands, the draft's document parses whole and
- * its batch, applied to the empty document, rebuilds it, with every held
- * placement in one trailing `holdPlacements`; a document the schema refuses
- * gives no draft and the defect `assembly`; content no platform runs whole is
- * `no-platform-runs-everything` at each use, alone and beside another finding;
- * a generated translation key folds into its text once and is counted, and
- * none is ever `unrecognized`. Each canonical choice rewrites one member of its
- * pair into the other and leaves a document outside the pair as it was.
+ * Contract: over drafts the stages built from an export, where no finding
+ * stands, the draft's document parses whole and its batch, applied to the
+ * empty document, rebuilds it, with every held placement in one trailing
+ * `holdPlacements`, and its identities and form facts name the document's own
+ * menus and forms; a document the schema refuses gives no draft and the defect
+ * `assembly`; content no platform runs whole is `no-platform-runs-everything`
+ * at each use, alone and beside another finding; a generated translation key
+ * folds into its text once per unit, in the source language into the slot and
+ * in another through the translation entries, is counted once per key, and
+ * none is ever `unrecognized`; a date and time question Nova split reads back
+ * whole as its three questions. Each canonical choice rewrites one member of
+ * its pair into the other and leaves a document outside the pair as it was.
  *
  * Plausible failures: a batch that rebuilds another document, a fold counted
  * twice or never reaching the document, a refused document returned, a
@@ -33,6 +37,7 @@ import {
 import { PLATFORM_FEATURE_FIXTURES } from "@/lib/domain/__tests__/platformFeatureFixtures";
 import { placementsToHold } from "../../placementHolds";
 import { assembleDocument, READER_CANONICAL_CHOICES } from "../assemble";
+import { catalogAsRead } from "../caseManagement/catalog";
 import type { ReadContext } from "../context";
 import { readHqApp, STAGES } from "../index";
 import type { AppStringTable } from "../types";
@@ -56,11 +61,6 @@ async function beforeAssembly(
 		stage(ctx);
 	}
 	return ctx;
-}
-
-/** `doc` as the reading of the bare shell would hold it: its app id, frozen. */
-function asRead(doc: BlueprintDoc): BlueprintDoc {
-	return Object.freeze({ ...doc, appId: "app-1" }) as BlueprintDoc;
 }
 
 function holding(doc: BlueprintDoc): BlueprintDoc {
@@ -111,14 +111,12 @@ function caseApp(): BlueprintDoc {
 
 describe("the assembly", () => {
 	it("gives a draft whose batch rebuilds the document, its holds last", async () => {
-		const ctx = await beforeAssembly(retainedSourceBody("shell/app-source"));
-		const doc = asRead(holding(caseApp()));
-		ctx.doc = doc;
+		const ctx = await beforeAssembly(exportedBody(caseApp()));
 		assembleDocument(ctx);
 		const draft = ctx.assembled;
 		if (draft === undefined)
 			throw new Error(JSON.stringify(ctx.close().findings));
-		const rebuilt = produce(emptyBlueprintDoc("app-1"), (empty) => {
+		const rebuilt = produce(emptyBlueprintDoc(ctx.input.appId), (empty) => {
 			applyMutations(empty, draft.batch);
 		});
 		expect(toPersistableDoc(rebuilt)).toEqual(toPersistableDoc(draft.doc));
@@ -127,14 +125,28 @@ describe("the assembly", () => {
 		);
 		expect(holds).toHaveLength(1);
 		expect(draft.batch.at(-1)?.kind).toBe("holdPlacements");
+		expect(placementsToHold(draft.doc)).toEqual([]);
 		expect(draft.declaration.kind).toBe("choices");
+		// The identities name the document's own menus and forms, by the drafts that read them.
+		expect(draft.identities.modules.map((one) => one.uuid)).toEqual(
+			draft.doc.moduleOrder,
+		);
+		expect(draft.identities.forms.map((one) => one.uuid)).toEqual(
+			draft.doc.moduleOrder.flatMap((menu) => draft.doc.formOrder[menu] ?? []),
+		);
+		expect(draft.facts.forms.map((one) => one.xmlns)).toEqual(
+			draft.identities.forms.map((one) => one.xmlns),
+		);
 	});
 
 	it("gives no draft for a document the schema refuses, and says so", async () => {
-		const ctx = await beforeAssembly(retainedSourceBody("shell/app-source"));
-		const doc = caseApp();
-		const question = Object.keys(doc.fields)[0] as Uuid;
-		ctx.doc = asRead(
+		const ctx = await beforeAssembly(exportedBody(caseApp()));
+		const doc = ctx.doc;
+		if (doc === undefined) throw new Error("The stages bind a document.");
+		const question = doc.fieldOrder[
+			doc.formOrder[doc.moduleOrder[0] as Uuid]?.[0] as Uuid
+		]?.[0] as Uuid;
+		ctx.doc = Object.freeze(
 			produce(doc, (draft) => {
 				delete (draft.fields[question] as { label?: unknown }).label;
 			}),
@@ -151,17 +163,24 @@ describe("the assembly", () => {
 	});
 
 	it("names each use no platform runs, alone and beside another finding", async () => {
-		const neither = asRead(
-			produce(PLATFORM_FEATURE_FIXTURES["case-list-here"].with(), (draft) => {
-				delete draft.appSettings.runsOnlyOn;
-				for (const module of Object.values(draft.modules))
-					module.caseSearchConfig = { formsReadSearch: true };
-			}),
-		);
+		/* The stages read the fixture's export; the bound document then gains a menu whose forms
+		 * read the search beside `here()` in a case list, content no platform runs whole, which
+		 * no export of an admitted document holds. */
+		const neither = (doc: BlueprintDoc) =>
+			Object.freeze(
+				produce(doc, (draft) => {
+					delete draft.appSettings.runsOnlyOn;
+					for (const module of Object.values(draft.modules))
+						module.caseSearchConfig = { formsReadSearch: true };
+				}),
+			);
 		for (const other of [false, true]) {
-			const ctx = await beforeAssembly(retainedSourceBody("shell/app-source"));
+			const ctx = await beforeAssembly(
+				exportedBody(PLATFORM_FEATURE_FIXTURES["case-list-here"].with()),
+			);
 			if (other) ctx.accounting.finding(X.loadOrder, { kind: "app" });
-			ctx.doc = neither;
+			if (ctx.doc === undefined) throw new Error("The stages bind a document.");
+			ctx.doc = neither(ctx.doc);
 			assembleDocument(ctx);
 			const names = ctx
 				.close()
@@ -229,6 +248,73 @@ describe("a generated key in the assembly", () => {
 		expect(outcome.draft.facts.foldedTranslationKeys).toBe(1);
 		const menu = outcome.draft.doc.moduleOrder[0] as Uuid;
 		expect(outcome.draft.doc.modules[menu]?.name).toBe("Patients");
+	});
+
+	it("writes two keys of one unit in another language as one translation, and counts both", async () => {
+		const doc = produce(caseApp(), (draft) => {
+			draft.localization = {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "fra"],
+				wireCodes: { eng: "en", fra: "fra" },
+				translations: { fra: {} },
+			} as never;
+		});
+		const shell = retainedSourceBody("shell/app-source");
+		const body = exportedBody(doc, {
+			root: {
+				langs: ["en", "fra"],
+				translations: {
+					...(shell.translations as Record<string, unknown>),
+					fra: {
+						"modules.m0": "Les clients",
+						"case_lists.m0": "Les clients",
+					},
+				},
+			},
+		});
+		/* Nova's build spells the menu's name under both ids, in each language, from one unit. */
+		const strings = (read: BlueprintDoc): AppStringTable => {
+			const menu = read.moduleOrder[0] as Uuid;
+			const unit = makeTranslationUnitId("module", menu, "name");
+			const name = read.modules[menu]?.name ?? "";
+			const translated = read.localization?.translations.fra?.[unit]?.value;
+			const fra = typeof translated === "string" ? translated : name;
+			return {
+				languages: {
+					en: { "modules.m0": name, "case_lists.m0": name },
+					fra: { "modules.m0": fra, "case_lists.m0": fra },
+				},
+				units: { "modules.m0": unit, "case_lists.m0": unit },
+			};
+		};
+		const outcome = readHqApp(
+			{ ...(await inputFor(body)), appStrings: strings },
+			{ claims: "full" },
+		);
+		if (outcome.kind !== "read")
+			throw new Error(
+				JSON.stringify(outcome.findings.map((one) => one.detail.name)),
+			);
+		const records = [...outcome.claims.records()].filter((record) =>
+			record.entry.includes("translations-generated-key"),
+		);
+		expect(records.map((record) => record.entry)).toEqual([
+			"application-and-settings/translations-generated-key-over-one-text",
+			"application-and-settings/translations-generated-key-over-one-text",
+		]);
+		expect(outcome.draft.facts.foldedTranslationKeys).toBe(2);
+		const read = outcome.draft.doc;
+		const menu = read.moduleOrder[0] as Uuid;
+		expect(read.modules[menu]?.name).toBe("Clients");
+		expect(
+			read.localization?.translations.fra?.[
+				makeTranslationUnitId("module", menu, "name")
+			],
+		).toMatchObject({
+			value: "Les clients",
+			sourceFingerprint: translationSourceFingerprint("text", "Clients"),
+		});
 	});
 });
 
@@ -319,6 +405,119 @@ describe("the reader's canonical choices", () => {
 		expect(fields.find((one) => one.id === "b")).not.toHaveProperty(
 			"plainHelp",
 		);
+	});
+
+	it("keeps a plain flag on a blank text that carries media, a choice's alike, and drops one on a blank choice with none", () => {
+		const image = "33333333-3333-4333-8333-333333333333";
+		const doc = produce(
+			buildDoc({
+				modules: [
+					{
+						name: "Survey",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({
+										kind: "single_select",
+										id: "pick",
+										label: "Pick",
+										options: [
+											{ value: "a", label: "A" },
+											{ value: "b", label: "B" },
+										],
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+			(draft) => {
+				const pick = Object.values(draft.fields).find(
+					(one) => one.id === "pick",
+				) as unknown as Record<string, unknown> & {
+					optionsSource: {
+						options: Record<string, unknown>[];
+					};
+				};
+				pick.label = { parts: [] };
+				pick.label_media = { image };
+				pick.plainLabel = true;
+				const [withMedia, without] = pick.optionsSource.options;
+				Object.assign(withMedia ?? {}, {
+					label: { parts: [] },
+					media: { image },
+					plainLabel: true,
+				});
+				Object.assign(without ?? {}, {
+					label: { parts: [] },
+					plainLabel: true,
+				});
+			},
+		);
+		const read = choice("plain-flag-on-blank-text-is-absent").apply(doc);
+		const pick = Object.values(read.fields).find(
+			(one) => one.id === "pick",
+		) as unknown as {
+			plainLabel?: true;
+			optionsSource: { options: { plainLabel?: true }[] };
+		};
+		expect(pick.plainLabel).toBe(true);
+		expect(pick.optionsSource.options.map((one) => one.plainLabel)).toEqual([
+			true,
+			undefined,
+		]);
+	});
+
+	it("drops a required condition on the question that names a created case", () => {
+		const doc = produce(caseApp(), (draft) => {
+			const name = Object.values(draft.fields).find(
+				(one) => one.id === "case_name",
+			) as { required?: unknown };
+			name.required = { kind: "term", term: { kind: "literal", value: "x" } };
+		});
+		const read = choice("create-name-required-is-absent").apply(doc);
+		const name = Object.values(read.fields).find(
+			(one) => one.id === "case_name",
+		);
+		expect(name).not.toHaveProperty("required");
+		const note = Object.values(read.fields).find((one) => one.id === "note");
+		expect(note).toEqual(
+			Object.values(doc.fields).find((one) => one.id === "note"),
+		);
+	});
+
+	it("holds the catalog the reader derives, and every placement the emission derives", () => {
+		const doc = produce(caseApp(), (draft) => {
+			draft.caseTypes = [
+				{
+					name: "client",
+					properties: [
+						{
+							name: "note",
+							label: {
+								parts: [{ kind: "text", text: "A label no export holds" }],
+							},
+						},
+						{
+							name: "unread",
+							label: { parts: [{ kind: "text", text: "Nothing reads this" }] },
+						},
+					],
+				},
+			];
+		});
+		const catalog = choice("case-catalog-is-as-read").apply(doc);
+		expect(catalog.caseTypes).toEqual(catalogAsRead(doc));
+		expect(
+			catalog.caseTypes?.[0]?.properties.map((one) => one.name),
+		).not.toContain("unread");
+		expect(placementsToHold(doc)).not.toEqual([]);
+		const held = choice("unheld-placements-are-held").apply(doc);
+		expect(placementsToHold(held)).toEqual([]);
+		expect(toPersistableDoc(held)).toEqual(toPersistableDoc(holding(doc)));
 	});
 
 	it("reads a translation's provenance as reviewed, and drops an equal or stale one", () => {
@@ -420,21 +619,22 @@ describe("a date and time question Nova split", () => {
 		const outcome = readHqApp(await inputFor(exportedBody(split)), {
 			claims: "full",
 		});
-		const read =
-			outcome.kind === "read"
-				? Object.values(outcome.draft.doc.fields)
-				: undefined;
-		const findings = outcome.kind === "account" ? outcome.findings : [];
+		if (outcome.kind !== "read")
+			throw new Error(
+				JSON.stringify(
+					outcome.findings.map((one) => [one.code, one.detail.name]),
+				),
+			);
+		const read = outcome.draft.doc.fields;
+		const kinds = (fields: BlueprintDoc["fields"]) =>
+			Object.values(fields)
+				.map((field) => `${field.id}:${field.kind}`)
+				.sort();
 		expect(
-			findings.filter(
-				(finding) =>
-					finding.code ===
-					"questions/hidden-value-bound-a-type-nova-would-not-write",
-			),
-		).toEqual([]);
-		const kinds = Object.values(split.fields).map((field) => field.kind);
-		expect(kinds.sort()).toEqual(["date", "hidden", "time"]);
-		if (read !== undefined)
-			expect(read.map((field) => field.kind).sort()).toEqual(kinds.sort());
+			kinds(split.fields)
+				.map((one) => one.split(":")[1])
+				.sort(),
+		).toEqual(["date", "hidden", "time"]);
+		expect(kinds(read)).toEqual(kinds(split.fields));
 	});
 });

@@ -5,13 +5,15 @@
  * `readFormSyntax`, expected trees built for a generated node) is a function
  * of the input alone, and a form of 400 questions costs each counter at most
  * twice what a form of 200 costs. Both forms are emitted by the production
- * emitter in three languages and hold generated nodes of every purpose a
- * basic menu's form gives (an advanced open action's owner node stands only
- * in an advanced menu's form): a lifted validation count, a protected validation
- * message, a count repeat's count, a query repeat in the count placement, a
- * trimmed case name, a date and time's case text, a capture's link, and a
- * keyed create with its count, its condition, its guard and its clock.
- * Deterministic; no clock.
+ * emitter in three languages, each beside one registration of an advanced
+ * menu whose open action names an owner node, and together they hold
+ * generated nodes of every purpose: a lifted validation count, a protected
+ * validation message, a count repeat's count, a query repeat in the count
+ * placement, a trimmed case name, a date and time's case text, a capture's
+ * link, a keyed create with its count, its condition, its guard and its
+ * clock, and the owner node. Each export reads with no finding, so no block
+ * the reader refuses skips the work the counters measure. Deterministic; no
+ * clock.
  *
  * Plausible failure: a stage that walks every node, or rebuilds every
  * generated tree, once per question, which doubles twice when the form
@@ -178,6 +180,12 @@ function formOf(blocks: number): BlueprintDoc {
 					},
 				],
 			},
+			{
+				name: "episode",
+				parent_type: "patient",
+				relationship: "extension" as const,
+				properties: [{ name: "note", label: proseText("Note") }],
+			},
 		],
 		modules: [
 			{
@@ -210,6 +218,67 @@ function formOf(blocks: number): BlueprintDoc {
 					{ field: "case_name", header: "Name" },
 				]),
 				forms: [],
+			},
+			// An after-submit link that carries the episode a registration creates makes
+			// this menu advanced, and the create an open action with its owner node.
+			{
+				name: "Care",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						formLinks: [
+							{
+								target: {
+									type: "form" as const,
+									moduleUuid: testUuid("work-episodes"),
+									formUuid: testUuid("work-review"),
+								},
+							},
+						],
+						fields: [
+							f({
+								kind: "text",
+								id: "patient_name",
+								label: "Patient name",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+							f({
+								kind: "text",
+								id: "episode_name",
+								label: "Episode name",
+								caseWrite: { caseType: "episode", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+			{
+				uuid: "work-episodes",
+				name: "Episodes",
+				caseType: "episode",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "work-review",
+						name: "Review",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "review_note",
+								label: "Review note",
+								caseWrite: { caseType: "episode", property: "note" },
+							}),
+						],
+					},
+				],
 			},
 		],
 	});
@@ -277,7 +346,21 @@ const PURPOSE_NAMES: Readonly<Record<GeneratedNodePurpose, string>> = {
 	owner: "nova_owner_",
 };
 
-/** The work of reading `doc`'s export, and the purposes of the nodes it folded. */
+/** The purposes the case management stage reads as a Save to Case block's region, which a
+ *  reading records as the operations it read, not as folded nodes. */
+const CASE_REGION_PURPOSES: ReadonlySet<GeneratedNodePurpose> = new Set([
+	"keyed",
+	"keyed-count",
+	"condition",
+	"guard",
+	"instant",
+]);
+
+/**
+ * The work of reading `doc`'s export, and the purposes of the nodes the reading folded: each
+ * generated node the reading's facts record, and each case region node of the source, which a
+ * reading with no finding has read as its block's.
+ */
 async function workOf(
 	doc: BlueprintDoc,
 ): Promise<{ work: ReadWork; purposes: Set<GeneratedNodePurpose> }> {
@@ -290,14 +373,19 @@ async function workOf(
 			_attachments: emitted._attachments,
 		}),
 	);
+	expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+	if (outcome.kind !== "read") throw new Error("The export did not read.");
 	const sources = Object.values(emitted._attachments).join("\n");
 	return {
 		work: outcome.work,
-		purposes: new Set(
-			(Object.keys(PURPOSE_NAMES) as GeneratedNodePurpose[]).filter((purpose) =>
+		purposes: new Set([
+			...outcome.draft.facts.forms.flatMap((form) =>
+				form.generated.map((node) => node.purpose),
+			),
+			...[...CASE_REGION_PURPOSES].filter((purpose) =>
 				sources.includes(`<${PURPOSE_NAMES[purpose]}`),
 			),
-		),
+		]),
 	};
 }
 
@@ -308,12 +396,8 @@ it("reads a form of 400 questions with at most twice the work of one of 200", {
 	const blocks = 200 / QUESTIONS_PER_BLOCK;
 	const small = await workOf(formOf(blocks));
 	const large = await workOf(formOf(blocks * 2));
-	// Every purpose but an advanced open action's owner, which only an advanced menu's form
-	// holds, stands in the form.
 	expect([...small.purposes].sort()).toEqual(
-		(Object.keys(PURPOSE_NAMES) as GeneratedNodePurpose[])
-			.filter((purpose) => purpose !== "owner")
-			.sort(),
+		(Object.keys(PURPOSE_NAMES) as GeneratedNodePurpose[]).sort(),
 	);
 	for (const counter of ["nodes", "syntaxReads", "rebuilds"] as const) {
 		expect(small.work[counter]).toBeGreaterThan(0);

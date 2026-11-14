@@ -2304,11 +2304,11 @@
 		"id": "questions/jr-imagedimensionscaledmax-an-integer-with-or-without-px-on-any",
 		"area": "questions",
 		"section": "Question types",
-		"item": "`jr:imageDimensionScaledMax`, an integer with or without `px`, on any other upload (a signature, say)",
+		"item": "`jr:imageDimensionScaledMax`, an integer with or without `px`, on any other upload (a signature, say), or `-1` on an image question",
 		"surfaceKeys": ["jr-extension:UploadQuestionExtensionParser"],
 		"valueClass": "image-max-dimension-on-other-upload",
 		"disposition": "INERT",
-		"dispositionCell": "**INERT**: Vellum writes it only on image and face-capture questions (`mugs/types/media.js`) and drops it elsewhere on save, and no other widget reads it (only `ImageWidget` and its subclass `FaceCaptureWidget` apply it, and Core's parser rejects only a non-integer)",
+		"dispositionCell": "**INERT**: Vellum writes it only on image and face-capture questions (`mugs/types/media.js`) and drops it elsewhere on save, and no other widget reads it (only `ImageWidget` and its subclass `FaceCaptureWidget` apply it, and Core's parser rejects only a non-integer); `-1` on an image question is `ImageWidget`'s own no-limit value, the state with none",
 		"platforms": {
 			"kind": "not-applicable",
 			"cell": "n/a"

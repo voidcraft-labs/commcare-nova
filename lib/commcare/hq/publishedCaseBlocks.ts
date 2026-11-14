@@ -13,13 +13,13 @@
  * the form's XForm under `_attachments`, parsed and walked as elements.
  *
  * Forms are keyed by their `xmlns`, never by position. A source that is not
- * an application gives no form. A form this reader cannot read is never
- * guessed and never passed over in silence: it is listed in `unread` by its
- * position, with why (`UnreadFormReason`): a shadow form, whose actions are
- * its parent's; a form of another kind; no `xmlns`, or one two forms share; an
- * XForm missing or unparsed; actions HQ's build could not read; and blocks
- * that depend on what the source does not say (a data registry's case, a
- * visit schedule).
+ * an application gives no form. The reader returns what it read and, in
+ * `unread`, every form it left out with why. A form it cannot read is never
+ * guessed: it is listed by its position, with its `UnreadFormReason`: a
+ * shadow form, whose actions are its parent's; a form of another kind; no
+ * `xmlns`, or one two forms share; an XForm missing or unparsed; actions HQ's
+ * build could not read; and blocks that depend on what the source does not
+ * say (a data registry's case, a visit schedule).
  *
  * Every path is a data path relative to the instance root, its element names
  * joined by `/`. The own block's path is its `case` element at the data root;

@@ -28,7 +28,24 @@ import { X } from "./claims";
 import { type DataTree, readNodePath } from "./model";
 import { CASE_MAPPINGS, readHashtagMetadata } from "./shadow";
 
-const ODK_NS = "http://opendatakit.org/xforms";
+/** The namespace of a head's `odkx:intent`. */
+export const ODK_NS = "http://opendatakit.org/xforms";
+
+/** The ids an input's `intent:<id>` appearance names anywhere in the source. */
+export function intentIdsOf(root: Element): Set<string> {
+	const ids = new Set<string>();
+	const walk = (element: Element) => {
+		const appearance = element.attribs.appearance;
+		if (
+			splitName(element.name).local === "input" &&
+			appearance?.startsWith("intent:")
+		)
+			ids.add(appearance.slice("intent:".length));
+		for (const child of element.children) if (isTag(child)) walk(child);
+	};
+	walk(root);
+	return ids;
+}
 
 export interface HashtagMetadata {
 	readonly hashtags: Readonly<Record<string, string | null>>;
@@ -85,6 +102,11 @@ function find(
 function dispatched(element: Element): boolean {
 	if (DISPATCHED_NAMES.has(splitName(element.name).local)) return true;
 	return children(element).some(dispatched);
+}
+
+/** XML's whitespace, the only text between elements that is no construct. */
+function isXmlWhitespace(text: string): boolean {
+	return /^[ \t\r\n]*$/.test(text);
 }
 
 /** The value of an attribute written with no prefix. */
@@ -305,6 +327,7 @@ function claimHead(
 		else if (isElement(child, own, VELLUM_NS, "case_mappings"))
 			cursor.dropSubtree(child, CASE_MAPPINGS);
 		else if (isElement(child, own, ODK_NS, "intent")) {
+			// One an input names is claimed with the appearance that names it (`joinForm`).
 			const id = plain(child, "id");
 			if (id === undefined || !input.intentIds.has(id))
 				cursor.dropSubtree(child, X.odkxIntentUnreferenced);
@@ -342,20 +365,38 @@ export function claimModelChildren(
 ): void {
 	const own = (element: Element) => parsed.scope(element);
 	const all = children(parsed.model);
-	const sends = all.filter((child) =>
-		isElement(child, own(child), XFORMS_NS, "send"),
-	);
-	const sent = new Set(
-		sends
-			.map((send) => plain(send, "submission"))
+	// Text directly in the model is no construct of any reader's: one finding at the form.
+	if (
+		parsed.model.children.some(
+			(child) => child.type === "text" && !isXmlWhitespace(child.data),
+		)
+	) {
+		accounting.finding(X.modelXformsChild, formPlace, { name: "text()" });
+		accounting.claimText(parsed.model);
+	}
+	const submissions = new Set(
+		all
+			.filter((child) => isElement(child, own(child), XFORMS_NS, "submission"))
+			.map((submission) => plain(submission, "id"))
 			.filter((id) => id !== undefined),
+	);
+	// A `send` names a submission of the model, or it is a model child no reader knows.
+	const sent = new Set(
+		all
+			.filter((child) => isElement(child, own(child), XFORMS_NS, "send"))
+			.map((send) => plain(send, "submission"))
+			.filter((id) => id !== undefined && submissions.has(id)),
 	);
 	for (const child of all) {
 		const scope = own(child);
 		const namespace = elementNamespace(child, scope);
 		const local = splitName(child.name).local;
 		if (namespace === XFORMS_NS && MODEL_OWN.has(local)) continue;
-		if (namespace === XFORMS_NS && local === "send") {
+		if (
+			namespace === XFORMS_NS &&
+			local === "send" &&
+			sent.has(plain(child, "submission") ?? "")
+		) {
 			cursor.refuseSubtree(child, X.sendSubmission, formPlace);
 			continue;
 		}
@@ -368,10 +409,7 @@ export function claimModelChildren(
 			else cursor.refuseSubtree(child, X.submissionRefused, formPlace);
 			continue;
 		}
-		if (
-			(namespace === OPENROSA_NS || namespace === XFORMS_NS) &&
-			local === "pollsensor"
-		) {
+		if (namespace === OPENROSA_NS && local === "pollsensor") {
 			cursor.refuseSubtree(child, X.pollsensor, formPlace);
 			continue;
 		}

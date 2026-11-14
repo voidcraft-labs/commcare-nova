@@ -64,8 +64,10 @@ absolute path through the projection's node names, a model-iteration repeat's
 `item` step included, where authoring binds it by the fields' ids, binds an
 absolute read of a generated sibling the form reader set aside as that
 sibling's calculate, keeps the `name` to `case_name` alias unless the hook
-turns it off, and binds `current()/…` in a slot with no form whose one row is a
-case as that row's steps, the case HQ writes `current()` for in a case list.
+turns it off, binds `current()/…` in a slot with no form whose own row is a
+case as that row's steps at any depth of its predicates, the case HQ writes
+`current()` for in a case list and Core keeps as `current()` inside every
+nested predicate, and binds a Search answer read in a menu's own slot.
 
 ## Emission and capabilities
 
@@ -107,9 +109,9 @@ or a written choice and `jr:choice-name` of a select's choice, bind to the
 form's translation units and print the id `lib/commcare/xform/itextIds.ts`
 gives the itext block.
 A Search answer read, `instance('search-input:…')/input/field[@name = '…']`,
-binds to a field of the form's menu's search, and in a menu's own slot (its
-case list filter, a Search field's condition) to a field the slot's profile
-holds.
+binds to a field of the form's menu's search, and, only under
+`FormParseScope.reading`, in a menu's own slot (its case list filter, a Search
+field's condition) to a field the slot's profile holds.
 
 Native or lowered functions need proof against the pinned owning runtime before
 admission. `normalize-space` and `is-blank` lower through the wire tree.

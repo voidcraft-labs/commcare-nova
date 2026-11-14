@@ -591,6 +591,32 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/child-menu-form-creating-a-case-of-the-type-its-root-s-first-form-chooses",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "a form of a child menu that creates a case of the type its root menu's first form opens a chosen case of",
+		"surfaceKeys": [],
+		"noSurfaceKey": "a relation between a child menu's form and the first form of its root menu, which no surface item states",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ's build gives the new case the root's selection id (`entries.py::EntriesHelper.add_parent_datums`, `_same_case` matches by case type), so CommCare asks for a case, never makes the new one, and the form's case block reads a session value it never holds",
+		"subject": "menu-structure",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ's build gives the new case the root's selection id (`entries.py::EntriesHelper.add_parent_datums`, `_same_case` matches by case type), so CommCare asks for a case, never makes the new one, and the form's case block reads a session value it never holds"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/menu-order-that-separates-a-child-from-its-parent",
 		"area": "menus-and-case-lists",
 		"section": "Module types",
@@ -4590,8 +4616,13 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "UI bookkeeping keys `hasAutocomplete`, `calc_xpath`, `isTab`, `hasNodeset`, `nodeset`, `relevant`, `nodesetCaseType`, `nodesetFilter`",
-		"surfaceKeys": ["schema:DetailColumn.<undeclared>"],
+		"item": "UI bookkeeping keys `hasAutocomplete`, `calc_xpath`, `isTab`, `hasNodeset`, `nodeset`, `relevant`, `nodesetCaseType`, `nodesetFilter`, and the format extras the column editor saves on every column: `date_format` on a column that is no date, `late_flag` and `time_ago_interval` on a column of another format",
+		"surfaceKeys": [
+			"schema:DetailColumn.<undeclared>",
+			"schema:DetailColumn.date_format",
+			"schema:DetailColumn.late_flag",
+			"schema:DetailColumn.time_ago_interval"
+		],
 		"valueClass": "ui-bookkeeping-keys",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: dynamic properties no emitter reads",
@@ -8048,8 +8079,19 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "`lookup_enabled` on an `icon_text_grid` case list",
-		"surfaceKeys": ["schema:Detail.lookup_enabled"],
+		"item": "`lookup_enabled` and its keys on an `icon_text_grid` case list",
+		"surfaceKeys": [
+			"schema:Detail.lookup_action",
+			"schema:Detail.lookup_autolaunch",
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_enabled",
+			"schema:Detail.lookup_extras",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template",
+			"schema:Detail.lookup_image",
+			"schema:Detail.lookup_name",
+			"schema:Detail.lookup_responses"
+		],
 		"valueClass": "enabled-on-an-icon-text-grid-case-list",
 		"disposition": "INERT",
 		"dispositionCell": "**INERT**: HQ builds no `<lookup>` there (`case_tiles.py::build_case_tile_detail`; executed), so no runtime shows a callout",

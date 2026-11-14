@@ -86,6 +86,14 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 		`${S}instance-name-containing-casedb-ledgerdb-fixture-or-session`,
 		"schema:CaseSearch.instance_name",
 	),
+	instanceClash: refuse(
+		`${S}a-module-whose-effective-results-instance-results-instance-name`,
+		"schema:CaseSearch.instance_name",
+	),
+	instanceClashInert: drop(
+		`${S}an-effective-results-instance-equal-to-a-module-s-that-does-not`,
+		"schema:CaseSearch.instance_name",
+	),
 	additionalTypes: refuse(
 		`${S}additional-case-types`,
 		"schema:CaseSearch.additional_case_types",
@@ -137,6 +145,62 @@ const REMOVED_KEYS = new Set([
 	"additional_relevant",
 	"search_filter",
 ]);
+
+/** The words Core routes an instance source by before the search's own prefixes
+ *  (`CommCareInstanceInitializer.generateRoot`). */
+const RESERVED_INSTANCE_WORDS = ["casedb", "ledgerdb", "fixture", "session"];
+
+/** The results instance a menu's search loads into (`models/case_search.py::CaseSearch.get_instance_name`). */
+function resultsInstance(config: unknown): string {
+	const name = isJsonObject(config) ? config.instance_name : undefined;
+	return typeof name === "string" && name !== ""
+		? `results:${name}`
+		: "results:inline";
+}
+
+/** Whether a menu's search is inline (`util.py::module_uses_inline_search`). */
+function usesInlineSearch(config: unknown): boolean {
+	if (!isJsonObject(config)) return false;
+	const offers =
+		(Array.isArray(config.properties) && config.properties.length > 0) ||
+		(Array.isArray(config.default_properties) &&
+			config.default_properties.length > 0);
+	return offers && config.inline_search === true && config.auto_launch === true;
+}
+
+/**
+ * Whether the menu's results instance is the one of the menu HQ compares it with, its root menu or
+ * the menu its parent selection names (`helpers/validators.py`, `validate_search_config` and
+ * `validate_parent_select`, which compare whether or not the menu searches): `"inline"` where that
+ * menu's search is inline, which HQ's build refuses, `"other"` where it is not, which no runtime
+ * reads.
+ */
+function instanceClash(
+	ctx: ReadContext,
+	module: DraftModule,
+): "inline" | "other" | undefined {
+	const own = resultsInstance(module.json.peek("search_config"));
+	const root = module.json.peek("root_module_id");
+	const parent = module.json.peek("parent_select");
+	const ids = [
+		...(typeof root === "string" && root !== "" ? [root] : []),
+		...(isJsonObject(parent) &&
+		parent.active === true &&
+		typeof parent.module_id === "string"
+			? [parent.module_id]
+			: []),
+	];
+	let clash: "inline" | "other" | undefined;
+	for (const id of ids) {
+		const other = ctx.draft.modules.find((one) => one.uniqueId === id);
+		if (other === undefined || other === module) continue;
+		const config = other.json.peek("search_config");
+		if (resultsInstance(config) !== own) continue;
+		if (usesInlineSearch(config)) return "inline";
+		clash = "other";
+	}
+	return clash;
+}
 
 /** HQ's model default for the search button's text. */
 const BUTTON_DEFAULT = "Search All Cases";
@@ -319,6 +383,7 @@ export function readSearchSettings(
 			{ json: cursor, key },
 		);
 	};
+	const clash = instanceClash(ctx, module);
 	let owners: number | undefined;
 	if (cursor.used("blacklisted_owner_ids_expression")) {
 		if (!filterHoldsOwnerClause(module)) {
@@ -333,7 +398,14 @@ export function readSearchSettings(
 				config.excludedOwnerIds = pendingPlaceholder("value");
 		}
 	}
-	if (!offers) return { ok, ...(owners !== undefined && { owners }) };
+	if (!offers) {
+		// A menu that offers no search still loads its results instance by name.
+		if (clash === "inline") {
+			ctx.accounting.finding(T.instanceClash, place);
+			ok = false;
+		}
+		return { ok, ...(owners !== undefined && { owners }) };
+	}
 
 	const codes = appCodes(ctx);
 	const title = languageMap(cursor.peek("title_label"));
@@ -399,17 +471,21 @@ export function readSearchSettings(
 		config.searchButtonDisplayCondition = pendingPlaceholder("condition");
 
 	const instance = cursor.peek("instance_name");
+	const named = typeof instance === "string" && instance !== "";
 	if (
-		typeof instance === "string" &&
-		instance !== "" &&
-		instance !== "results"
+		named &&
+		RESERVED_INSTANCE_WORDS.some((word) => instance.includes(word))
 	) {
-		cursor.refuse(
-			"instance_name",
-			/casedb|ledgerdb|fixture|session/.test(instance)
-				? T.instanceReserved
-				: T.instanceUnreserved,
-		);
+		cursor.refuse("instance_name", T.instanceReserved);
+		ok = false;
+	} else if (clash === "inline") {
+		if (named) cursor.refuse("instance_name", T.instanceClash);
+		else ctx.accounting.finding(T.instanceClash, place);
+		ok = false;
+	} else if (named && clash === "other") {
+		cursor.drop("instance_name", T.instanceClashInert);
+	} else if (named) {
+		cursor.refuse("instance_name", T.instanceUnreserved);
 		ok = false;
 	}
 	const findings: [string, typeof T.additionalTypes][] = [

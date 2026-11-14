@@ -221,15 +221,49 @@ describe("a form's shadows", () => {
 		expect(codesAt(reading, "b")).toContain("shadow-disagrees");
 	});
 
-	it("reads a form saved with rich text off as having inert shadows", async () => {
+	it("raises shadow-disagrees where the shadow does not parse", async () => {
+		const reading = await readForm(
+			twoQuestions(
+				'<bind nodeset="/data/b" vellum:nodeset="#form/b" type="xsd:string" relevant="/data/a = \'x\'" vellum:relevant="#form/a = "/>',
+			),
+		);
+		const found = reading.closed.findings.filter(
+			(finding) =>
+				finding.code === "shadow-disagrees" &&
+				finding.place.kind === "question" &&
+				finding.place.path === "b",
+		);
+		expect(found.map((finding) => finding.detail.name)).toEqual(["relevant"]);
+	});
+
+	it("reads a form saved with rich text off as having inert shadows, each dropped", async () => {
 		const reading = await readForm(
 			twoQuestions(
 				'<bind nodeset="/data/b" vellum:nodeset="#form/b" type="xsd:string" relevant="/data/a = \'x\'" vellum:relevant="#form/a = \'y\'"/>',
 			).replace("<h:html ", '<h:html vellum:ignore="richText" '),
 		);
-		expect(formFindings(reading).map((finding) => finding.code)).not.toContain(
+		const findings = formFindings(reading);
+		expect(findings.map((finding) => finding.code)).not.toContain(
 			"shadow-disagrees",
 		);
+		// Neither left unclaimed nor refused: each shadow is dropped as inert.
+		const shadows = ["@vellum:relevant", "@vellum:nodeset", "@vellum:ref"];
+		expect(
+			findings.filter(
+				(finding) =>
+					finding.code === "unrecognized" &&
+					shadows.some((shadow) =>
+						(finding.detail.name ?? "").endsWith(shadow),
+					),
+			),
+		).toEqual([]);
+		expect(
+			findings.filter(
+				(finding) =>
+					finding.code !== "unrecognized" &&
+					(finding.place.kind === "question" || finding.place.kind === "form"),
+			),
+		).toEqual([]);
 	});
 });
 

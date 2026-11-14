@@ -13,6 +13,12 @@ conjoined condition, which HQ spells `(a) and (b)` (`XPath.paren(force=True)`).
 The explicit child-wildcard step serves generated parent-index selection,
 `index/*[not(@relationship = 'extension')]`; it is not a resolved field name.
 
+A caller may pass `rewrites`: the rewrites of `lib/commcare/emissionRewrites.ts`
+to leave out of the print, and a callback for each site the print reaches. Only
+the reader of CommCare HQ's apps passes it, to compare with text that never had
+them and to say what a first publish changes. Absent, every print is as
+described here.
+
 `WireFunction` derives from the one pinned native function table, plus
 `jr:itext`, `jr:choice-name` and the menu/detail handler `here`. Lowered Nova
 functions become native trees before printing. Core cannot execute XPath union;
@@ -91,8 +97,9 @@ dropped boolean identities, and the validation count moved to a sibling.
 builds no context) carries a `RewriteControl`: each site calls `reached` where
 its rewrite applies to the print, and prints what it printed before the
 rewrite existed where the control withholds the id. With no control nothing
-is reported and every byte is the emitter's own; the reader of CommCare HQ's
-apps alone passes one.
+is reported and every byte is the emitter's own
+(`lib/commcare/reader/expressions/__tests__/rewrites.test.ts` holds a control
+that withholds nothing to the same bytes over the emitter's own corpora).
 
 ## Reads of rows that may be empty
 

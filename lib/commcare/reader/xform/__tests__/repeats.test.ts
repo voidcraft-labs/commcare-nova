@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { buildXForm } from "../../../xform/builder";
 import { modelIterationVerdict } from "../repeats";
@@ -66,13 +66,59 @@ describe("the repeat table", () => {
 		]);
 	});
 
-	it("refuses a count that is no path, and one that names no node", async () => {
+	it("refuses a count that is no path, and one that names no node of the form's data", async () => {
 		expect(codesAt(await readForm(counted("/data/n + 1")), "r")).toEqual([
 			Q("jr-count-that-is-not-a-path-such-as-data-n-1"),
 		]);
 		expect(codesAt(await readForm(counted("/data/nothing")), "r")).toEqual([
 			Q("jr-count-naming-a-node-in-a-secondary-instance-or-no-node"),
 		]);
+		expect(
+			codesAt(
+				await readForm(counted("instance('casedb')/casedb/case/@count")),
+				"r",
+			),
+		).toEqual([Q("jr-count-naming-a-node-in-a-secondary-instance-or-no-node")]);
+	});
+
+	it("reads the count node Nova generates as the count, its calculate the repeat's count", async () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Menu",
+					forms: [
+						{
+							name: "Form",
+							type: "survey",
+							fields: [
+								f({ kind: "int", id: "n" }),
+								f({
+									kind: "repeat",
+									id: "rows",
+									repeat_mode: "count_bound",
+									repeat_count: "#form/n + 1",
+									children: [f({ kind: "text", id: "answer" })],
+								} as FieldSpec),
+							],
+						},
+					],
+				},
+			],
+		});
+		const reading = await readForm(
+			buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], { xmlns: XMLNS }),
+		);
+		const fields = readFields(reading.xform ?? ({} as never));
+		expect(fields.map((field) => field.id)).toEqual(["n", "rows", "answer"]);
+		const rows = fields[1];
+		expect(rows?.field.repeat_mode).toBe("count_bound");
+		expect(
+			rows?.expressions.map((one) => [one.slot, one.text, one.key]),
+		).toEqual([["repeat_count", "/data/n + 1", "xform:model/bind@calculate"]]);
+		// The count waits for the expression stage, which claims it.
+		expect(
+			codesAt(reading, "rows").filter((code) => code !== "unrecognized"),
+		).toEqual([]);
 	});
 
 	it("holds a count from an integer question, a Hidden Value or a single select", async () => {
@@ -97,6 +143,19 @@ describe("the repeat table", () => {
 				body: "",
 			}),
 		);
+		// An authored Hidden Value stays the person's field, and the count is a read of it,
+		// registered from the repeat's own `jr:count`, never the Hidden Value's calculate.
+		const hiddenFields = readFields(hidden.xform ?? ({} as never));
+		expect(
+			hiddenFields.map((field) => [field.id, field.kind, field.standIn]),
+		).toEqual([
+			["n", "hidden", false],
+			["r", "repeat", false],
+			["q", "text", false],
+		]);
+		expect(
+			hiddenFields[1]?.expressions.map((one) => [one.slot, one.text, one.key]),
+		).toEqual([["repeat_count", "/data/n", "xform:repeat@jr:count"]]);
 		expect(codesAt(hidden, "r")).toEqual(["unrecognized"]);
 		expect(
 			hidden.closed.claims.counts[
@@ -167,9 +226,11 @@ function queryDoc(
 		readonly query?: string;
 		readonly nested?: boolean;
 		readonly relevant?: string;
+		/** A display condition on a group around the repeat. */
+		readonly groupRelevant?: string;
 	} = {},
 ): BlueprintDoc {
-	const repeat = f({
+	const query = f({
 		uuid: REPEAT,
 		kind: "repeat",
 		id: "visits",
@@ -178,6 +239,15 @@ function queryDoc(
 		...(options.relevant === undefined ? {} : { relevant: options.relevant }),
 		children: [f({ kind: "text", id: "note" })],
 	});
+	const repeat =
+		options.groupRelevant === undefined
+			? query
+			: f({
+					kind: "group",
+					id: "around",
+					relevant: options.groupRelevant,
+					children: [query],
+				});
 	return buildDoc({
 		modules: [
 			{
@@ -254,6 +324,43 @@ describe("a model-iteration repeat Nova writes", () => {
 	});
 });
 
+describe("a count-placement query repeat Nova writes", () => {
+	it("reads back as a query repeat in the count placement, at its wrapper, its query registered", async () => {
+		const doc = queryDoc({ nested: true });
+		const reading = await readForm(
+			buildXForm(doc, doc.formOrder[doc.moduleOrder[0]][0], { xmlns: XMLNS }),
+		);
+		const fields = readFields(reading.xform ?? ({} as never));
+		expect(fields.map((field) => field.id)).toEqual([
+			"asked",
+			"outer",
+			"visits",
+			"note",
+		]);
+		const visits = fields.find((field) => field.id === "visits");
+		expect(visits?.field).toMatchObject({
+			repeat_mode: "query_bound",
+			placement: "count",
+		});
+		expect(visits?.standIn).toBe(false);
+		expect(visits?.expressions.map((one) => [one.slot, one.text])).toEqual([
+			["ids_query", "'a b'"],
+		]);
+		// The row is no field: the repeat's children are the row's.
+		expect(fields.find((field) => field.id === "item")).toBeUndefined();
+		expect(
+			codesAt(reading, "outer/visits").filter(
+				(code) => code !== "unrecognized",
+			),
+		).toEqual([]);
+		expect(
+			reading.closed.claims.counts[
+				Q("count-repeat-whose-count-and-row-ids-come-from-one-query-a")
+			],
+		).toBeGreaterThan(0);
+	});
+});
+
 describe("modelIterationVerdict", () => {
 	const verdict = (
 		doc: BlueprintDoc,
@@ -278,6 +385,12 @@ describe("modelIterationVerdict", () => {
 		);
 		expect(verdict(queryDoc({ query: "#form/asked" }))).toBe(
 			Q("model-iteration-repeat-whose-query-reads-a-form-answer-that-is"),
+		);
+	});
+
+	it("refuses one under a group whose condition reads an answer blank at load", () => {
+		expect(verdict(queryDoc({ groupRelevant: "#form/asked = 'yes'" }))).toBe(
+			Q("model-iteration-repeat-under-an-ancestor-that-core-s-load-can"),
 		);
 	});
 

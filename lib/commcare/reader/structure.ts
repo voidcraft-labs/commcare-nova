@@ -262,17 +262,26 @@ const FORM = defineClaims("structure.form", {
 		`${F}/case-references-data-load`,
 		"schema:CaseReferences.load",
 	),
-	"putInRoot@Form": account(
+	...perClass(
+		"putInRoot",
+		FORM_CLASSES,
+		account,
 		`${F}/put-in-root-on-a-form-dynamic-key`,
-		"schema:Form.<undeclared>",
+		"<undeclared>",
 	),
-	"noVellum@Form": account(
+	...perClass(
+		"noVellum",
+		FORM_CLASSES,
+		account,
 		`${F}/no-vellum-removed-field-dynamic-key`,
-		"schema:Form.<undeclared>",
+		"<undeclared>",
 	),
-	"otherUndeclared@Form": refuse(
+	...perClass(
+		"otherUndeclared",
+		FORM_CLASSES,
+		refuse,
 		`${F}/any-other-undeclared-key`,
-		"schema:Form.<undeclared>",
+		"<undeclared>",
 	),
 	advanced: take(`${F}/advancedform`, "schema:AdvancedForm"),
 });
@@ -512,15 +521,9 @@ function readFormKeys(
 	references.account("load", FORM.caseReferencesLoad);
 	CASE_REFERENCES.set(draft, references);
 	for (const key of json.undeclared()) {
-		if (cls !== "Form") continue;
-		if (key === "put_in_root")
-			json.account(key, FORM["putInRoot@Form"] as Claim<"account">);
-		else if (key === "no_vellum")
-			json.account(key, FORM["noVellum@Form"] as Claim<"account">);
-		else
-			json.refuse(key, FORM["otherUndeclared@Form"] as Claim<"refuse">, {
-				name: key,
-			});
+		if (key === "put_in_root") json.account(key, claim("putInRoot"));
+		else if (key === "no_vellum") json.account(key, claim("noVellum"));
+		else json.refuse(key, claim("otherUndeclared"), { name: key });
 	}
 }
 
@@ -593,8 +596,7 @@ export function readStructure(ctx: ReadContext): void {
 				return;
 		}
 		const cls = json.cls as MenuClass;
-		if (cls === "AdvancedModule")
-			read(json.take("doc_type", MENU.advanced, (value) => value));
+		if (cls === "AdvancedModule") read(json.takeClass(MENU.advanced));
 		const uniqueId = json.peek("unique_id");
 		if (typeof uniqueId !== "string" || uniqueId === "") {
 			json.refuseWhole(MENU[`uniqueIdMissing@${cls}`] as Claim<"refuse">);
@@ -628,8 +630,7 @@ export function readStructure(ctx: ReadContext): void {
 					return;
 			}
 			const formCls = form.cls as FormClass;
-			if (formCls === "AdvancedForm")
-				read(form.take("doc_type", FORM.advanced, (value) => value));
+			if (formCls === "AdvancedForm") read(form.takeClass(FORM.advanced));
 			const xmlns = form.peek("xmlns");
 			if (typeof xmlns !== "string" || xmlns === "") {
 				form.refuseWhole(FORM_TYPE.blankSource);

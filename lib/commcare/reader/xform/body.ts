@@ -188,6 +188,20 @@ export function readControls(input: ReadControlsInput): ReadControls {
 				(CONTROL_TAGS.has(local as ControlNode["tag"]) || isRepeat)
 					? (local as ControlNode["tag"])
 					: undefined;
+			// An action nested in a group or a repeat, as in any other control.
+			const action =
+				parent === null
+					? undefined
+					: local === "pollsensor"
+						? "pollsensor"
+						: namespace === XFORMS_NS &&
+								(local === "setvalue" || local === "send")
+							? local
+							: undefined;
+			if (action !== undefined) {
+				cursor.refuseSubtree(element, X.actionInControl[action], formPlace);
+				continue;
+			}
 			if (tag === undefined) {
 				cursor.refuseSubtree(element, X.unknownControl, formPlace, {
 					name: local,

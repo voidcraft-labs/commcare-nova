@@ -1574,6 +1574,28 @@ def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses, 
             app_strings_uses(data, manifest, f"{artifact}/{name}", found, carried_app_strings(carried, directory))
         else:
             xform_uses(data, manifest, f"{artifact}/form:{_form_position(name)}", found)
+    link_entry_suites(found, artifact, f"{artifact}/")
+
+
+def link_entry_suites(found: Uses, archive: str, form_prefix: str):
+    """Gives each form whose artifact begins ``form_prefix`` the suite of the local archive ``archive``
+    (``Form.entry_suite``): the entries that open a form are a suite's, so the value classes that read what an
+    entry writes into the session read them there. A form of an archive takes the archive's own suite; a form of
+    an app JSON takes the suite of the local archive Nova built of the same export, which holds an entry for each
+    of its forms under the same namespace."""
+    suite = next(
+        (
+            document
+            for document in found.documents
+            if isinstance(document, Runtime) and document.artifact == f"{archive}/suite.xml"
+        ),
+        None,
+    )
+    if suite is None:
+        return
+    for document in found.documents:
+        if isinstance(document, Form) and document.artifact.startswith(f"{form_prefix}form:"):
+            document.entry_suite = suite
 
 
 def _form_position(name):
@@ -2096,6 +2118,10 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
         archive_uses(
             {name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found, document.hq_side
         )
+    # An app JSON's forms are opened by the entries HQ builds from it, which the export does not carry: the local
+    # archive of the same export (``local.ccz``, ``edit/local.ccz``) holds Nova's entry for each.
+    for prefix in ("", "edit/"):
+        link_entry_suites(found, f"{prefix}local.ccz", prefix)
     read_observed(found, manifest, Readings.of(blobs.get_json(observed["readings"])))
     return found
 

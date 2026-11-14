@@ -3991,6 +3991,24 @@ INPUTS_SUITE = b"""<suite version="1">
 # The attribute every model iteration's container and SaveToCase node carries (``modeliteration.js``,
 # ``saveToCase.js``).
 ROLE = "vellum-markup:model/instance//*@vellum:role"
+# An entry whose first datum's filter reads the session's case_id, which only the datum after it writes, and whose
+# second datum's filter reads parent_id, which the first wrote; the detail the second datum shows its list with reads
+# parent_id, written before the list shows, and case_id, which the choice made on that list writes.
+SESSION_DATUMS_SUITE = b"""<suite version="1">
+  <detail id="d"><title><text><locale id="t"/></text></title>
+    <field><header><text><locale id="h"/></text></header><template><text>
+      <xpath function="instance('commcaresession')/session/data/parent_id"/></text></template></field>
+    <field><header><text><locale id="h"/></text></header><template><text>
+      <xpath function="instance('commcaresession')/session/data/case_id"/></text></template></field></detail>
+  <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="c"/></text></command>
+    <instance id="casedb" src="jr://instance/casedb"/>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session>
+      <datum id="parent_id" value="./@case_id"
+        nodeset="instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]"/>
+      <datum id="case_id" value="./@case_id" detail-select="d"
+        nodeset="instance('casedb')/casedb/case[index/parent = instance('commcaresession')/session/data/parent_id]"/>
+    </session></entry></suite>"""
 # A suite expression reading a variable (a menu's display condition).
 VARIABLES_SUITE = b"""<suite version="1"><menu id="m0" relevant="$v = 1"><text><locale id="m"/></text></menu></suite>"""
 # A case's system date read by name, ordered against a date, which is never a time of day; and another property
@@ -4696,6 +4714,24 @@ def _data_binds_and_itext():
         "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": (
             refused("app", supplied, "session-path:session/data/*", "bind[1]/@calculate", readings=True),
             accepted("app", supplied, "session-path:session/data/*", "bind[2]/@calculate", readings=True),
+        ),
+        "expressions-and-data/session-data-datum-the-entry-does-not-supply": (
+            refused("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[1]/@nodeset", readings=True),
+            accepted("suite", SESSION_DATUMS_SUITE, "session-path:session/data/*", "datum[2]/@nodeset", readings=True),
+            accepted(
+                "suite",
+                SESSION_DATUMS_SUITE,
+                "session-path:session/data/*",
+                "field[1]/template[1]/text[1]/xpath[1]/@function",
+                readings=True,
+            ),
+            refused(
+                "suite",
+                SESSION_DATUMS_SUITE,
+                "session-path:session/data/*",
+                "field[2]/template[1]/text[1]/xpath[1]/@function",
+                readings=True,
+            ),
         ),
         "expressions-and-data/var-in-a-form-expression": (
             refused("form", variables, "xpath-token:VAR", "bind[1]/@calculate", readings=True),

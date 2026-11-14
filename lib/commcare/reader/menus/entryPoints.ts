@@ -119,9 +119,23 @@ const ENTRY_POINTS = {
 		`${F}/function-datum-endpoints`,
 		"function_datum_endpoints",
 	),
-	sharedFirstMenuCase: refuse(
+	sharedFirstMenuCase: byClass(
+		FORMS,
+		refuse,
 		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
-		"schema:Form.session_endpoint_id",
+		"session_endpoint_id",
+	),
+	menuSharedFirstMenuCase: byClass(
+		MENUS,
+		refuse,
+		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		"session_endpoint_id",
+	),
+	caseListSharedFirstMenuCase: byClass(
+		MENUS,
+		refuse,
+		`${F}/form-link-or-endpoint-through-a-first-menu-that-shares-one-case`,
+		"case_list_session_endpoint_id",
 	),
 } as const;
 
@@ -130,7 +144,7 @@ defineClaims(
 	Object.fromEntries(
 		Object.entries(ENTRY_POINTS).flatMap(([name, one]) =>
 			"use" in one
-				? [[name, one as Claim]]
+				? [[name, one as unknown as Claim]]
 				: Object.entries(one as Record<string, Claim>).map(([cls, claim]) => [
 						`${name}@${cls}`,
 						claim,
@@ -151,8 +165,14 @@ interface StoredId {
 	readonly shared: () => void;
 }
 
+/** One deep link read: its owner, and the slot it stands in. */
+interface ReadEntryPoint {
+	readonly owner: DraftModule | DraftForm;
+	readonly slot: "session_endpoint_id" | "case_list_session_endpoint_id";
+}
+
 /** The deep links each reading read, for the gate's rule over the document. */
-const READ = new WeakMap<ReadContext, Map<Uuid, DraftModule | DraftForm>>();
+const READ = new WeakMap<ReadContext, Map<Uuid, ReadEntryPoint>>();
 
 /**
  * Pass 1, from `readMenus`: every deep link id the app stores, each refused
@@ -162,7 +182,7 @@ const READ = new WeakMap<ReadContext, Map<Uuid, DraftModule | DraftForm>>();
 export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 	const folded = new Set(app.foldedMenus.map((one) => one.menu));
 	const stored = rawModules(ctx);
-	const read = new Map<Uuid, DraftModule | DraftForm>();
+	const read = new Map<Uuid, ReadEntryPoint>();
 	READ.set(ctx, read);
 	const ids: StoredId[] = [];
 	const write = (target: DraftModule | DraftForm, patch: object) =>
@@ -210,7 +230,7 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 					);
 					if (uuid !== undefined) {
 						write(module, { entryPoint: { uuid, id: menuId } });
-						read.set(uuid, module);
+						read.set(uuid, { owner: module, slot: "session_endpoint_id" });
 					}
 				},
 				notSlug: () =>
@@ -246,7 +266,10 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 						);
 						if (uuid !== undefined) {
 							write(module, { caseListEntryPoint: { uuid, id: listId } });
-							read.set(uuid, module);
+							read.set(uuid, {
+								owner: module,
+								slot: "case_list_session_endpoint_id",
+							});
 						}
 					},
 					notSlug: () =>
@@ -309,7 +332,7 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 								...(ignore ? { ignoreDisplayConditions: true } : {}),
 							},
 						});
-						read.set(uuid, form);
+						read.set(uuid, { owner: form, slot: "session_endpoint_id" });
 					}
 				},
 				notSlug: () =>
@@ -330,7 +353,8 @@ export function readEntryPoints(ctx: ReadContext, app: DraftApp): void {
 /**
  * Pass 2, from `settleMenus`: the gate's deep link rule over the document.
  * An id the gate refuses was refused from the stored ids already; a frame
- * through a first menu that shares one case is that row's finding; any other
+ * through a first menu that shares one case, a form's, a menu's or a case
+ * list's, is that row's finding; any other
  * refusal is a deep link Nova cannot build for a reason no row names.
  */
 export function settleEntryPoints(ctx: ReadContext): void {
@@ -341,16 +365,24 @@ export function settleEntryPoints(ctx: ReadContext): void {
 		const details = error.details as
 			| { entryPointUuid?: string; reason?: string }
 			| undefined;
-		const owner =
+		const entry =
 			details?.entryPointUuid === undefined
 				? undefined
 				: read.get(details.entryPointUuid as Uuid);
-		if (owner === undefined) continue;
-		if (details?.reason === "first-menu-shared-case" && "form" in owner)
-			ctx.accounting.finding(ENTRY_POINTS.sharedFirstMenuCase, owner.place);
+		if (entry === undefined) continue;
+		const { owner, slot } = entry;
+		if (details?.reason === "first-menu-shared-case")
+			ctx.accounting.finding(
+				"form" in owner
+					? ENTRY_POINTS.sharedFirstMenuCase[owner.docType]
+					: slot === "session_endpoint_id"
+						? ENTRY_POINTS.menuSharedFirstMenuCase[owner.docType]
+						: ENTRY_POINTS.caseListSharedFirstMenuCase[owner.docType],
+				owner.place,
+			);
 		else
 			ctx.accounting.circumstance("unrecognized", owner.place, {
-				name: `schema:${owner.docType}.session_endpoint_id`,
+				name: `schema:${owner.docType}.${slot}`,
 			});
 	}
 }

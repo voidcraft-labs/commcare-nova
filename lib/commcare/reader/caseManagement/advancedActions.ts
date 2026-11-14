@@ -17,6 +17,7 @@ import {
 	type CaseOperationWrite,
 	type Expression,
 	type FormType,
+	isCaseOperationIdentifier,
 	ownCaseOperationId,
 	type TargetedCaseOperation,
 	type Term,
@@ -36,7 +37,13 @@ import type { HqPlace } from "@/lib/publish/hqFindings";
 import type { PlannedLoad } from "../../advancedSelections";
 import { HQ_CASE_TAG_PATTERN } from "../../advancedTags";
 import { planFormCaseWire } from "../../casePlacementPlan";
+import {
+	datumIdsFromFacts,
+	type HqAppEntryFacts,
+	hqEntryFacts,
+} from "../../hq/entryFacts";
 import { planPlacements } from "../../placement";
+import { generatedBaseName } from "../../xform/generatedNodes";
 import type { Admitted } from "../accounting";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
@@ -45,6 +52,8 @@ import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import type { DraftField } from "../xform";
+import { isAllocatedName } from "../xform/generated";
+import type { DataNode } from "../xform/model";
 import {
 	type ProposedValue,
 	questionValue,
@@ -381,6 +390,26 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/index-identifier-outside-an-xml-element-name`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
+	openIndexRenamedLoad: refuse(
+		`${F}/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	questionToLoad: refuse(
+		`${F}/caseindex-relationship-question-relationship-question-the-index-naming-a`,
+		"schema:CaseIndex.relationship",
+	),
+	questionInRepeat: refuse(
+		`${F}/caseindex-relationship-question-inside-a-repeat`,
+		"schema:CaseIndex.relationship_question",
+	),
+	questionToOpen: refuse(
+		`${F}/caseindex-relationship-question-relationship-question-the-index-naming-an`,
+		"schema:CaseIndex.relationship",
+	),
+	questionAfterOpenIndex: refuse(
+		`${F}/caseindex-relationship-question-on-an-index-to-a-load-that`,
+		"schema:CaseIndex.relationship",
+	),
 });
 
 // ── What the first pass proposes ────────────────────────────────────────
@@ -557,15 +586,49 @@ export function readLoadChain(
 		const own = reading?.chain;
 		if (reading === undefined || own === undefined || own.length === 0)
 			continue;
+		const tag = reading.chosen[reading.chosen.length - 1]?.tag ?? "";
+		// A form's chain ends at the menu the form stands in.
+		if (own[own.length - 1] !== module.uuid) {
+			disagreeing.push({ form, tag });
+			continue;
+		}
 		if (chain === undefined) chain = own;
-		else if (!sameJson(chain, own))
-			disagreeing.push({
-				form,
-				tag: reading.chosen[reading.chosen.length - 1]?.tag ?? "",
-			});
+		else if (!sameJson(chain, own)) disagreeing.push({ form, tag });
 	}
-	void module;
 	return { chain, disagreeing };
+}
+
+/** The entry facts of each source, read once. */
+const SOURCE_FACTS = new WeakMap<object, HqAppEntryFacts>();
+
+/**
+ * Whether CommCare HQ's entry gives the load tagged `tag` another session
+ * value than its `case_id_<tag>`: a child menu's load its parent's first
+ * form already selects (`entries.py::EntriesHelper.add_parent_datums`), by
+ * HQ's own id rules over the source's facts (`datumIdsFromFacts`). A form
+ * whose facts HQ's rules cannot read gives no answer here; the entry facts
+ * comparison judges it.
+ */
+function loadDatumRenamed(
+	ctx: ReadContext,
+	form: DraftForm,
+	tag: string,
+): boolean {
+	const raw = ctx.input.source.raw as object;
+	let facts = SOURCE_FACTS.get(raw);
+	if (facts === undefined) {
+		facts = hqEntryFacts(raw);
+		SOURCE_FACTS.set(raw, facts);
+	}
+	const own = facts.forms.get(form.xmlns);
+	if (own === undefined) return false;
+	let ids: readonly string[];
+	try {
+		ids = datumIdsFromFacts(own, facts);
+	} catch {
+		return false;
+	}
+	return !ids.includes(`case_id_${tag}`);
 }
 
 // ── The first pass ──────────────────────────────────────────────────────
@@ -588,10 +651,14 @@ function readProperties(
 		readonly slash: Claim<"refuse"> | undefined;
 	},
 	indexed: boolean,
+	/** An open action's: whose `owner_id` may name Nova's owner node, which the open action
+	 *  settles once its operation has an id. */
+	opens = false,
 ): {
 	writes: { property: string; value: ProposedValue }[];
 	name?: ProposedValue;
 	owner?: ProposedValue | "acting-user" | "unowned";
+	ownerNode?: OwnerNode;
 } {
 	const out: ReturnType<typeof readProperties> = { writes: [] };
 	if (!parent.used("case_properties")) return out;
@@ -630,23 +697,18 @@ function readProperties(
 			continue;
 		}
 		// An open action's owner may name the owner node Nova folds beside it.
-		if (key === "owner_id") {
+		if (key === "owner_id" && opens) {
 			const owner = ownerNode(r, path);
 			if (owner !== undefined) {
-				out.owner = owner;
+				out.ownerNode = owner;
 				continue;
 			}
 		}
 		const read = questionValue(r.ctx, r.form, path, key);
 		if (read.kind === "finding") {
-			r.ctx.accounting.finding(
-				read.claim.entry ===
-					`${F}/a-case-write-name-or-preload-on-a-question-the-picker-does-not`
-					? ADVANCED_CLAIMS.labelQuestion
-					: read.claim,
-				r.form.place,
-				{ name: key },
-			);
+			r.ctx.accounting.finding(advancedReadClaim(read.claim), r.form.place, {
+				name: key,
+			});
 			r.ok = false;
 			continue;
 		}
@@ -657,22 +719,103 @@ function readProperties(
 	return out;
 }
 
-/** The owner an open action's `owner_id` reads where it names Nova's owner node. */
-function ownerNode(
-	r: Reading,
-	path: string,
-): "acting-user" | "unowned" | undefined {
+/** An open action's `owner_id` naming a node the form stage proposed as an owner node. */
+interface OwnerNode {
+	readonly node: DataNode;
+	readonly value: "acting-user" | "unowned";
+	/** The stored `question_path`. */
+	readonly path: string;
+}
+
+/** The owner node an open action's `owner_id` names, where the form stage proposed one there. */
+function ownerNode(r: Reading, path: string): OwnerNode | undefined {
 	const xform = r.form.xform;
 	const relative = conditionQuestionPath(r.form, path);
 	const node = relative === undefined ? undefined : xform?.nodes.get(relative);
 	const role = node === undefined ? undefined : xform?.roles.get(node);
 	if (
+		node === undefined ||
 		role?.kind !== "generated-candidate" ||
 		role.purpose !== "owner" ||
 		role.ownerValue === undefined
 	)
 		return undefined;
-	return role.ownerValue;
+	return { node, value: role.ownerValue, path };
+}
+
+const OWNER_NODE_PREFIX = generatedBaseName("owner", "");
+
+/** The operation id an owner node's name gives: what follows `nova_owner_`, where that is
+ *  an operation id. A suffix the allocator added on a collision reads as part of the id,
+ *  which names the node the same. */
+function ownerNodeOperationId(
+	owner: OwnerNode | undefined,
+): string | undefined {
+	if (owner === undefined || !owner.node.name.startsWith(OWNER_NODE_PREFIX))
+		return undefined;
+	const id = owner.node.name.slice(OWNER_NODE_PREFIX.length);
+	return isCaseOperationIdentifier(id) ? id : undefined;
+}
+
+/** Whether a node stands in the scope the emitter writes an open action's owner node in: the
+ *  form's root, or a row of the action's repeat. */
+function standsInScope(
+	form: DraftForm,
+	node: DataNode,
+	repeat: DraftField | undefined,
+): boolean {
+	if (node.parent === null) return repeat === undefined;
+	const role = form.xform?.roles.get(node.parent);
+	const holder =
+		role?.kind === "field"
+			? role.field
+			: role?.kind === "query-row"
+				? role.repeat
+				: undefined;
+	return holder !== undefined && holder === repeat;
+}
+
+/**
+ * Settles the owner node an open action names, once the action's operation has its id: Nova's
+ * node where it holds the allocator's name for that id in the action's scope, and the owner
+ * its value states; otherwise the person's own Hidden Value, and the owner a read of it.
+ * Undefined where that read is a finding, which it records.
+ */
+function settleOwner(
+	r: Reading,
+	owner: OwnerNode,
+	operation: string,
+	repeat: DraftField | undefined,
+): ProposedValue | "acting-user" | "unowned" | undefined {
+	const xform = r.form.xform;
+	if (xform === null || xform === undefined) return undefined;
+	const open = xform.candidates.includes(owner.node);
+	if (
+		open &&
+		isAllocatedName(owner.node.name, generatedBaseName("owner", operation)) &&
+		standsInScope(r.form, owner.node, repeat)
+	) {
+		r.ctx.writeDraft(() => xform.settle(owner.node, "generated", operation));
+		return owner.value;
+	}
+	if (open) r.ctx.writeDraft(() => xform.settle(owner.node, "field"));
+	const read = questionValue(r.ctx, r.form, owner.path, "owner_id");
+	if (read.kind === "finding") {
+		r.ctx.accounting.finding(advancedReadClaim(read.claim), r.form.place, {
+			name: "owner_id",
+		});
+		r.ok = false;
+		return undefined;
+	}
+	return read.value;
+}
+
+/** A basic action's finding as an advanced action's: a label read is the advanced entry's. */
+function advancedReadClaim(claim: Claim<"refuse">): Claim<"refuse"> {
+	return claim.entry ===
+		`${F}/a-case-write-name-or-preload-on-a-question-the-picker-does-not`
+		? ADVANCED_CLAIMS.labelQuestion
+		: claim;
 }
 
 function mint(
@@ -761,6 +904,14 @@ export function readAdvancedActions(
 		const id = ownCaseOperationId(type, takenIds);
 		takenIds.add(id);
 		return id;
+	};
+	// An open action whose owner node names its operation keeps that id, so Nova names the node
+	// as the source does.
+	const openOperationId = (type: string, owner: OwnerNode | undefined) => {
+		const named = ownerNodeOperationId(owner);
+		if (named === undefined || takenIds.has(named)) return operationId(type);
+		takenIds.add(named);
+		return named;
 	};
 	const counts = new Map<string, number>();
 	const ordinal = (tag: string, action: string) => {
@@ -881,6 +1032,12 @@ export function readAdvancedActions(
 				L.refuse("case_index", ADVANCED_CLAIMS.caseIndexOnFirst);
 				chainOk = false;
 				r.ok = false;
+			} else {
+				// An index with a blank tag indexes nothing: HQ's page writes one on a load that
+				// indexes no case (`advanced/actions.js`, `case_index.tag('')`).
+				consume(
+					L.take("case_index", ADVANCED_CLAIMS.caseIndex, (value) => value),
+				);
 			}
 		} else {
 			const previous = storedLoads[
@@ -950,14 +1107,16 @@ export function readAdvancedActions(
 		readLoadPreloads(r, L, load, caseType as string, indexed);
 		const closeStored = load.close_condition;
 		const closes = activeCondition(closeStored);
-		if (closes)
-			consume(
-				L.take(
-					"close_condition",
-					last ? ADVANCED_CLAIMS.ownClose : ADVANCED_CLAIMS.otherClose,
-					(value) => value,
-				),
-			);
+		// A close that never runs is read as no close. HQ's page stores one with its question,
+		// answer and operator cleared (`advanced/actions.js::actionBase.clean_condition`), which
+		// is not the schema's default, so the claim is made whether or not it closes.
+		consume(
+			L.take(
+				"close_condition",
+				last ? ADVANCED_CLAIMS.ownClose : ADVANCED_CLAIMS.otherClose,
+				(value) => value,
+			),
+		);
 		const changes =
 			properties.writes.length > 0 ||
 			properties.name !== undefined ||
@@ -1152,6 +1311,7 @@ export function readAdvancedActions(
 				slash: ADVANCED_CLAIMS.openSlashKey,
 			},
 			false,
+			true,
 		);
 		// The repeat: the name question's innermost.
 		const context =
@@ -1179,6 +1339,11 @@ export function readAdvancedActions(
 				O.refuse("repeat_context", ADVANCED_CLAIMS.openRepeatOther);
 				r.ok = false;
 			}
+		} else if (nameRepeat === undefined) {
+			// A blank context names the root, where a name question in no repeat stands.
+			consume(
+				O.take("repeat_context", ADVANCED_CLAIMS.openRepeat, (value) => value),
+			);
 		}
 		const openStored = open.open_condition;
 		if (O.used("open_condition"))
@@ -1191,10 +1356,10 @@ export function readAdvancedActions(
 			);
 		const closeStored = open.close_condition;
 		const closes = activeCondition(closeStored);
-		if (closes)
-			consume(
-				O.take("close_condition", ADVANCED_CLAIMS.openClose, (value) => value),
-			);
+		// A close that never runs is read as no close, claimed as a load's is.
+		consume(
+			O.take("close_condition", ADVANCED_CLAIMS.openClose, (value) => value),
+		);
 		const condition = (stored: unknown): ProposedCondition | undefined =>
 			conditionType(stored) === "if"
 				? {
@@ -1213,6 +1378,8 @@ export function readAdvancedActions(
 				"CaseIndex",
 				ADVANCED_CLAIMS.openIndices,
 			);
+			// Whether an index before this one, on this open action, names an open action.
+			let afterOpenIndex = false;
 			indexCursors.forEach((I, k) => {
 				const index = indices[k] as Record<string, unknown>;
 				const indexTag = typeof index.tag === "string" ? index.tag : "";
@@ -1220,20 +1387,56 @@ export function readAdvancedActions(
 					typeof index.reference_id === "string" && index.reference_id !== ""
 						? index.reference_id
 						: "parent";
+				const loadIndex = loadTags.get(indexTag);
+				const openIndex = openTags.get(indexTag);
+				const namesOpen = openIndex !== undefined && loadIndex === undefined;
+				const earlierOpenIndex = afterOpenIndex;
+				if (namesOpen) afterOpenIndex = true;
 				if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
 					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
 					r.ok = false;
 					return;
 				}
-				if (index.relationship === "question") {
-					I.refuseWhole(ADVANCED_CLAIMS.openIndexQuestion);
+				// A load HQ's entry renames is one the index's `case_id_<tag>` read never finds.
+				if (loadIndex !== undefined && loadDatumRenamed(ctx, form, indexTag)) {
+					I.refuseWhole(ADVANCED_CLAIMS.openIndexRenamedLoad, {
+						name: indexTag,
+					});
 					r.ok = false;
 					return;
 				}
+				if (index.relationship === "question") {
+					const question =
+						typeof index.relationship_question === "string"
+							? index.relationship_question
+							: "";
+					const field = question === "" ? undefined : fieldAt(form, question);
+					const claim =
+						question === ""
+							? ADVANCED_CLAIMS.openIndexQuestion
+							: field !== undefined && repeatOfField(field) !== undefined
+								? ADVANCED_CLAIMS.questionInRepeat
+								: namesOpen
+									? ADVANCED_CLAIMS.questionToOpen
+									: loadIndex !== undefined && earlierOpenIndex
+										? ADVANCED_CLAIMS.questionAfterOpenIndex
+										: loadIndex !== undefined && loadUuids.has(loadIndex)
+											? ADVANCED_CLAIMS.questionToLoad
+											: undefined;
+					if (claim !== undefined) {
+						I.refuseWhole(claim);
+						r.ok = false;
+						return;
+					}
+				}
 				const relationship =
 					index.relationship === "extension" ? "extension" : "child";
-				const loadIndex = loadTags.get(indexTag);
-				const openIndex = openTags.get(indexTag);
+				if (loadIndex !== undefined && !loadUuids.has(loadIndex)) {
+					// An index to a load the form selects no case for (an auto-selected
+					// one) names an action the chain does not hold: nothing here reads it.
+					r.ok = false;
+					return;
+				}
 				if (loadIndex !== undefined && loadUuids.has(loadIndex)) {
 					const load = storedLoads[loadIndex] as Record<string, unknown>;
 					links.push({
@@ -1278,7 +1481,27 @@ export function readAdvancedActions(
 						consume(I.take(key, ADVANCED_CLAIMS.openIndices, (value) => value));
 			});
 		}
+		// HQ's build refuses an open action with no name (`case_name required`,
+		// `AdvancedFormValidator.check_actions`), and a `name` among its
+		// properties renames the case it opens in the same block, which no
+		// create of Nova's holds: neither is dropped unseen.
+		const nameless = typeof namePath !== "string" || namePath === "";
+		if (nameless || properties.name !== undefined) {
+			ctx.accounting.circumstance("unrecognized", form.place, {
+				name: nameless
+					? "schema:AdvancedOpenCaseAction.name_update"
+					: "schema:AdvancedOpenCaseAction.case_properties",
+			});
+			r.ok = false;
+			return;
+		}
+		// A name question the reader refused is that finding already.
 		if (name === undefined) return;
+		/** The operation's owner: an owner node it names settled once the operation has its id. */
+		const ownerOfOpen = (id: string) =>
+			properties.ownerNode === undefined
+				? properties.owner
+				: settleOwner(r, properties.ownerNode, id, repeat);
 		const placementTag = tag as string;
 		const row =
 			repeat !== undefined && (repeatsWithIndices.get(context) ?? 0) < 2
@@ -1294,13 +1517,15 @@ export function readAdvancedActions(
 			const uuid = mint(r, placementTag, "own", ordinal(placementTag, "own"));
 			if (uuid === undefined) return;
 			opUuidOfOpen.set(j, uuid);
+			const id = openOperationId(caseType, properties.ownerNode);
+			const owner = ownerOfOpen(id);
 			operations.unshift({
 				uuid,
-				id: operationId(caseType),
+				id,
 				action: "own",
 				tag: placementTag,
 				name,
-				...(properties.owner !== undefined && { owner: properties.owner }),
+				...(owner !== undefined && { owner }),
 				writes: properties.writes,
 				links,
 			});
@@ -1315,15 +1540,17 @@ export function readAdvancedActions(
 		if (uuid === undefined) return;
 		opUuidOfOpen.set(j, uuid);
 		const openOn = condition(openStored);
+		const id = openOperationId(caseType, properties.ownerNode);
+		const owner = ownerOfOpen(id);
 		operations.push({
 			uuid,
-			id: operationId(caseType),
+			id,
 			action: "create",
 			caseType,
 			tag: placementTag,
 			...(row !== undefined && { row }),
 			name,
-			...(properties.owner !== undefined && { owner: properties.owner }),
+			...(owner !== undefined && { owner }),
 			writes: properties.writes,
 			...(openOn !== undefined && { condition: openOn }),
 			...(repeat !== undefined && { forEach: repeat }),
@@ -1449,6 +1676,25 @@ function readAutoSelectLoad(
 		r.ok = false;
 		return undefined;
 	}
+	// The worker's load Nova writes names no value and saves answers outside
+	// any repeat: a stray `value_source` or `value_key`, or a write from a
+	// repeat's question, is a load Nova does not write, never claimed unseen.
+	const stray = ["value_source", "value_key"].find(
+		(one) => typeof auto[one] === "string" && auto[one] !== "",
+	);
+	const repeated = properties.writes.some(
+		(write) => repeatOfField(write.value.field) !== undefined,
+	);
+	if (stray !== undefined || repeated) {
+		r.ctx.accounting.circumstance("unrecognized", r.form.place, {
+			name:
+				stray !== undefined
+					? `schema:AutoSelectCase.${stray}`
+					: "schema:LoadUpdateAction.case_properties",
+		});
+		r.ok = false;
+		return undefined;
+	}
 	consume(L.take("auto_select", C.usercase, (value) => value));
 	consume(L.take("case_tag", C.tag, (value) => value));
 	consume(L.take("case_type", C.caseType, (value) => value));
@@ -1533,6 +1779,14 @@ function readLoadPreloads(
 		return;
 	}
 	consume(L.take("preload", ADVANCED_CLAIMS.preload, (value) => value));
+	// Nova writes the load as each question's default, never as a stored
+	// preload: the first publish respells the case settings.
+	if (entries.length > 0)
+		r.ctx.facts.sameStateRewrites.push({
+			entry: ADVANCED_CLAIMS.preload.entry,
+			path: `${L.pointer}/preload`,
+			register: "case-settings-respelled",
+		});
 	for (const { field, property } of entries) {
 		const question = field as DraftField;
 		const read: Term = {
@@ -1802,7 +2056,7 @@ function object(value: unknown): JsonObject {
 }
 
 /** A question path of `form`, mapped through each generated node to the
- *  question it belongs to; an owner node as `#owner`. */
+ *  question it belongs to; an owner node as `#owner:` and its path. */
 function ownerPathOf(form: DraftForm, path: unknown): string | null {
 	if (typeof path !== "string" || path === "") return null;
 	const xform = form.xform;
@@ -1811,13 +2065,22 @@ function ownerPathOf(form: DraftForm, path: unknown): string | null {
 	const node = xform.nodes.get(relative);
 	const role = node === undefined ? undefined : xform.roles.get(node);
 	if (role?.kind === "generated")
-		return role.purpose === "owner" ? "#owner" : role.owner.path.join("/");
+		return role.purpose === "owner"
+			? `#owner:${relative}`
+			: role.owner.path.join("/");
 	if (role?.kind === "generated-candidate")
-		return role.purpose === "owner" ? "#owner" : relative;
+		return role.purpose === "owner" ? `#owner:${relative}` : relative;
 	return relative;
 }
 
-function plannedPath(form: DraftForm, path: unknown): string | null {
+/** A planned question path; an owner node the plan names (each in
+ *  `plannedOwnerPaths` by its path from the data root) as `#owner:` and
+ *  that path, so which open action names which node is compared by name. */
+function plannedPath(
+	form: DraftForm,
+	path: unknown,
+	plannedOwnerPaths: ReadonlySet<string>,
+): string | null {
 	if (typeof path !== "string" || path === "") return null;
 	const root = form.xform?.parsed.dataRoot.name ?? "data";
 	const relative = path.startsWith(`/${root}/`)
@@ -1825,9 +2088,7 @@ function plannedPath(form: DraftForm, path: unknown): string | null {
 		: path.startsWith("/data/")
 			? path.slice(6)
 			: path;
-	return relative.split("/").some((step) => step.startsWith("nova_owner_"))
-		? "#owner"
-		: relative;
+	return plannedOwnerPaths.has(relative) ? `#owner:${relative}` : relative;
 }
 
 function conditionShape(
@@ -1987,6 +2248,12 @@ export function settleAdvancedForm(
 		return;
 	}
 	const applied = ctx.input.saveOnlyEditedApplied === true;
+	const plannedOwnerPaths = new Set(
+		planned.generated.map((node) =>
+			// `/<root>/...`: the path from the data root.
+			node.scope.child(node.name).toXPath().split("/").slice(2).join("/"),
+		),
+	);
 	if (
 		!sameJson(
 			comparableActions(
@@ -1996,7 +2263,7 @@ export function settleAdvancedForm(
 			),
 			comparableActions(
 				planned.actions,
-				(path) => plannedPath(form, path),
+				(path) => plannedPath(form, path, plannedOwnerPaths),
 				true,
 			),
 		)
@@ -2008,18 +2275,43 @@ export function settleAdvancedForm(
 	}
 	const plan = planPlacements(doc, form.uuid);
 	const operations = doc.forms[form.uuid]?.caseOperations ?? [];
+	// A close with no placement shares the place of the action it was read
+	// from: the create it closes, or its load's update.
+	const sharedWith = (uuid: Uuid): Uuid | undefined =>
+		reading.operations.find((one) => one.uuid === uuid)?.shares;
 	const held =
 		plan.inexpressible.length === 0 &&
 		operations.every((operation) => {
 			const placed = plan.placements.get(operation.uuid);
-			return operation.placement === undefined
-				? placed?.sharesWith !== undefined
-				: placed?.held === true;
+			if (operation.placement !== undefined) return placed?.held === true;
+			const shares = sharedWith(operation.uuid);
+			return shares !== undefined && placed?.sharesWith === shares;
 		});
-	const folded =
-		form.xform?.generated.filter((node) => node.purpose === "owner").length ??
-		0;
-	if (!held || folded !== planned.generated.length)
+	// The own close, where the form closes its own case, shares the own arm's place.
+	const own = operations.find((operation) => operation.action === "own");
+	const formDoc = doc.forms[form.uuid];
+	const closesOwn =
+		formDoc?.type === "close" ||
+		(formDoc?.type === "registration" && formDoc.closeCondition !== undefined);
+	const ownCloseHeld =
+		!closesOwn ||
+		own === undefined ||
+		formDoc?.ownClosePlacement !== undefined ||
+		plan.placements.get("own-close")?.sharesWith === own.uuid;
+	// The owner nodes the plan names are the ones the form reader folded, one to one by the
+	// operation each serves.
+	const folded = (form.xform?.generated ?? [])
+		.filter((node) => node.purpose === "owner")
+		.map((node) => node.owner.slice(node.owner.lastIndexOf("#") + 1))
+		.sort();
+	const plannedOwners = planned.generated
+		.map(
+			(node) =>
+				operations.find((operation) => operation.uuid === node.operationUuid)
+					?.id ?? "",
+		)
+		.sort();
+	if (!held || !ownCloseHeld || !sameJson(folded, plannedOwners))
 		ctx.accounting.circumstance("unrecognized", form.place, {
 			name: "schema:AdvancedForm.actions",
 		});

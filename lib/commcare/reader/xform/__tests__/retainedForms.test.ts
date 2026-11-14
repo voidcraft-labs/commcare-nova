@@ -15,12 +15,11 @@
  * question.
  */
 
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { inventoryIndex } from "../../../surface/inventory";
 import {
 	readerInput,
+	retainedSaveReads,
 	retainedSourceBody,
 	sourceFromBody,
 } from "../../__tests__/readerInput";
@@ -28,12 +27,7 @@ import { createReadContext } from "../../context";
 import { STAGES } from "../../index";
 import type { ReaderMediaResolution } from "../../types";
 
-const SAVES = readdirSync(join(process.cwd(), "proof/hq-reads/navigation-base"))
-	.filter(
-		(name) => name.startsWith("app-source-after-") && name.endsWith(".json"),
-	)
-	.map((name) => `navigation-base/${name.slice(0, -".json".length)}`)
-	.sort();
+const SAVES = retainedSaveReads();
 
 const APPS = [
 	"hq-built/app-source",

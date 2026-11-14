@@ -162,8 +162,6 @@ export function conditionFinding(
 	reasons: readonly PlacementIneligibilityReason[],
 	own: boolean,
 ): Claim<"refuse"> | undefined {
-	if (reasons.includes("condition-apostrophe"))
-		return CONDITION_CLAIMS.apostrophe;
 	const offered: readonly PlacementIneligibilityReason[] = own
 		? [
 				"condition-question-kind",
@@ -180,6 +178,8 @@ export function conditionFinding(
 		return own
 			? CONDITION_CLAIMS.ownNotOffered
 			: CONDITION_CLAIMS.childNotOffered;
+	if (reasons.includes("condition-apostrophe"))
+		return CONDITION_CLAIMS.apostrophe;
 	return undefined;
 }
 

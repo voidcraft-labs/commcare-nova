@@ -129,11 +129,13 @@ const CASE_SCALAR_BOUNDARY_CODE_UNIT_PATTERN =
  * On-device half of the shared authored-key identity contract. Invalid keys
  * calculate to the empty id, which Core and HQ both reject atomically; the
  * Preview executor uses `deriveAuthoredCaseId` to surface the same failure
- * before submission.
+ * before submission. `prefix` is the scope's own unless a caller names the
+ * one a source already holds.
  */
 export function authoredCaseIdCalculation(
 	scope: Parameters<typeof authoredCaseIdPrefix>[0],
 	keyExpression: WireExpr,
+	prefix: string = authoredCaseIdPrefix(scope),
 ): WireExpr {
 	const length = w.call("string-length", [keyExpression]);
 	return w.call("if", [
@@ -141,7 +143,7 @@ export function authoredCaseIdCalculation(
 			w.gt(length, w.num(0)),
 			w.lte(length, w.num(MAX_AUTHORED_CASE_KEY_LENGTH)),
 		),
-		w.call("concat", [w.str(authoredCaseIdPrefix(scope)), keyExpression]),
+		w.call("concat", [w.str(prefix), keyExpression]),
 		w.str(""),
 	]);
 }
@@ -664,7 +666,11 @@ function selectedCountPlacementNames(name: string): SelectedCountPlacement {
  * Save to Case block's (`saveToCase.js::getBindList`): a create's id when it
  * stands in a repeat, the Open Case Condition, the create rows, the update
  * rows, the index rows, `@date_modified`, `@user_id`, and the id of a block
- * that does not create. */
+ * that does not create.
+ *
+ * A create keyed by an answer writes its id under the prefix
+ * `keyedCaseIdPrefixes` holds for its operation, where it holds one, and
+ * under the prefix the document derives otherwise. */
 export function buildCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -676,6 +682,8 @@ export function buildCaseOperations(
 	selectedCaseIdRef: WireExpr = SESSION_CASE_ID,
 	selectedCasesInstanceId?: string,
 	attachmentTarget: AttachmentUrlTarget | null = null,
+	places?: CaseOperationPlaces,
+	keyedCaseIdPrefixes?: ReadonlyMap<Uuid, string>,
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const context: WireElementContext = {
@@ -895,17 +903,28 @@ export function buildCaseOperations(
 			lookup: { naming: lookupNaming, instanceScope: "xform" },
 		}),
 	});
+	/** Records where a slot's expression is printed: the first place the
+	 *  emitter prints it whole, the node its text stands in. */
+	const notePlace = (
+		slot: FormExpressionSlotRef,
+		bindings: WireTermBindings,
+	): void => {
+		const key = caseOperationPlaceKey(slot);
+		if (places !== undefined && !places.has(key)) places.set(key, bindings);
+	};
 	const printAt = (
 		expression: Expression,
 		slot: FormExpressionSlotRef,
 		bindings: WireTermBindings,
-	): WireExpr =>
-		toWire(expression, {
+	): WireExpr => {
+		notePlace(slot, bindings);
+		return toWire(expression, {
 			target: "xform",
 			types: expressions.context(slot),
 			form: expressions.projection,
 			bindings,
 		});
+	};
 	/** A capture's link, read where the row stands. */
 	const captureLinkAt = (
 		fieldUuid: Uuid,
@@ -1262,6 +1281,7 @@ export function buildCaseOperations(
 								caseType,
 							},
 							boundFieldPath(fields, target.idFrom, repeat, caseIdPath),
+							keyedCaseIdPrefixes?.get(operation.uuid),
 						)
 					: w.call("uuid");
 			// HQ's form builder keeps a create's id as a bind inside a repeat and
@@ -1488,6 +1508,8 @@ export function buildCaseOperations(
 					// datetime leaf stays untyped, and the value is the text CommCare
 					// HQ stores for its moment. A typed leaf that reads the clock is
 					// read once into a node of its own, which the row reads.
+					if (destination?.data_type === "datetime")
+						notePlace(valueSlot, operationBindings(writePath));
 					value =
 						destination?.data_type === "datetime"
 							? datetimeCaseValue(
@@ -2620,6 +2642,26 @@ export function attachCaseOperationBody(
 		if (child.placement === "prepend") prependChildren(parent, [child.element]);
 		else appendChildren(parent, [child.element]);
 	}
+}
+
+/** Where each case operation expression of a form is printed: the
+ *  bindings of the node its text stands in, by `caseOperationPlaceKey`. A
+ *  slot is printed with these bindings exactly where a Save to Case block
+ *  holds it; a slot Case Management holds has none. */
+export type CaseOperationPlaces = Map<string, WireTermBindings>;
+
+/** The key of a case operation slot among a form's places. */
+export function caseOperationPlaceKey(slot: FormExpressionSlotRef): string {
+	const member =
+		"member" in slot ? (slot.member as Readonly<Record<string, unknown>>) : {};
+	return JSON.stringify([
+		slot.slot,
+		slot.uuid,
+		member.operationUuid ?? null,
+		member.property ?? null,
+		member.via ?? null,
+		member.identifier ?? null,
+	]);
 }
 
 export function collectFieldLocations(

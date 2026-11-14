@@ -78,6 +78,19 @@ describe("languageIdentityForHqCode", () => {
 		});
 	});
 
+	it("reads Swahili's bare code as its predominant member, with or without the name both members share", () => {
+		/* `swh` and `swc` both widen to Classic's `sw` and are both named
+		 * Kiswahili, so neither the minter nor the name tells them apart. */
+		expect(mintLanguageWireCode(new Set(), { language: "swc" })).toBe("sw");
+		expect(languageIdentityForHqCode("sw")).toEqual({ language: "swh" });
+		expect(
+			languageIdentityForHqCode(
+				"sw",
+				resolvedLanguageDisplayLabel({ language: "swh" }),
+			),
+		).toEqual({ language: "swh" });
+	});
+
 	it.each<AppLanguageIdentity>([
 		{ language: "eng" },
 		{ language: "eng", region: "GB" },
@@ -86,6 +99,7 @@ describe("languageIdentityForHqCode", () => {
 		{ language: "cmn", script: "Hant", region: "TW" },
 		{ language: "hin" },
 		{ language: "fra", region: "CA" },
+		{ language: "swh" },
 	])(
 		"reads the code Nova writes for %o back to it, alone and beside a language that holds its spelling",
 		(identity) => {

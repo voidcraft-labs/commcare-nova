@@ -572,12 +572,12 @@ export const MACROLANGUAGE_CATALOG: readonly {
 		name: "Serbo-Croatian",
 		members: [
 			{
-				code: "cnr",
-				name: "Montenegrin",
-			},
-			{
 				code: "srp",
 				name: "Serbian",
+			},
+			{
+				code: "cnr",
+				name: "Montenegrin",
 			},
 			{
 				code: "bos",
@@ -1675,12 +1675,12 @@ export const MACROLANGUAGE_CATALOG: readonly {
 		name: "Swahili (macrolanguage)",
 		members: [
 			{
-				code: "swc",
-				name: "Congo Swahili",
-			},
-			{
 				code: "swh",
 				name: "Swahili (individual language)",
+			},
+			{
+				code: "swc",
+				name: "Congo Swahili",
 			},
 		],
 	},

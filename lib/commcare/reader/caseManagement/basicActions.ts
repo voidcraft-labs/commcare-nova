@@ -8,6 +8,8 @@
  * question has its UUID. `settleCaseManagement` accepts them by re-emission.
  */
 import {
+	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
+	type BlueprintDoc,
 	type CaseOperation,
 	type CaseOperationWrite,
 	type CasePlacement,
@@ -15,11 +17,14 @@ import {
 	captureFieldKinds,
 	type Expression,
 	type FormType,
+	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
 	ownCaseOperationId,
 	type RelationStep,
 	type Uuid,
 } from "@/lib/domain";
 import { formField, matchAll, term } from "@/lib/domain/expression/builders";
+import { clockKeepingJoin } from "@/lib/domain/expression/datePattern";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { RESERVED_CASE_PROPERTIES } from "../../constants";
 import {
@@ -38,7 +43,7 @@ import {
 } from "../claims";
 import type { DraftForm, DraftModule, ReadContext } from "../context";
 import { type CaseOperationPlaceKey, externalKey } from "../identity";
-import { isJsonObject, type JsonCursor } from "../jsonCursor";
+import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { whereText } from "../place";
 import type { DraftField, ReadXForm } from "../xform";
 import type { DataNode } from "../xform/model";
@@ -224,6 +229,34 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 	datetimeStraight: refuse(
 		`${F}/a-datetime-question-saved-straight-to-a-case`,
 		null,
+	),
+	datetimeSibling: take(
+		`${F}/update-from-a-date-and-time-question-through-a-hidden-sibling`,
+		"schema:ConditionalCaseUpdate.question_path",
+	),
+	datetimeJoin: take(
+		`${F}/update-through-the-date-and-time-join-of-a-date-and-a-time`,
+		"schema:ConditionalCaseUpdate.question_path",
+	),
+	captureLink: take(
+		`${F}/capture-link-write-a-hidden-value-whose-calculate-builds-hq-s`,
+		"schema:ConditionalCaseUpdate.question_path",
+	),
+	nameKey: take(
+		`${F}/update-key-name`,
+		"schema:ConditionalCaseUpdate.question_path",
+	),
+	ownerKey: take(
+		`${F}/update-key-owner-id`,
+		"schema:ConditionalCaseUpdate.question_path",
+	),
+	categoryStateKey: take(
+		`${F}/update-keys-location-id-hq-user-id-category-state`,
+		"schema:ConditionalCaseUpdate.question_path",
+	),
+	undeclaredActions: refuse(
+		`${F}/any-other-undeclared-key`,
+		"schema:FormActions.<undeclared>",
 	),
 
 	closeCase: take(
@@ -463,6 +496,13 @@ export interface BasicCaseReading {
 		readonly condition: ProposedCondition;
 		readonly slot: "open" | "close" | { readonly operation: Uuid };
 	}[];
+	/**
+	 * The own arm of a form that loads its case and changes nothing of it here, which is not
+	 * among `operations`: it claims its key and answers the operation where no Save to Case
+	 * block of the form took the form's own case (`writeBasicOperations`), so a key is never
+	 * claimed for an operation the document does not hold.
+	 */
+	readonly bareOwn?: () => ProposedOperation | undefined;
 }
 
 const READINGS = new WeakMap<DraftForm, BasicCaseReading>();
@@ -470,6 +510,106 @@ const ACTIONS = new WeakMap<
 	DraftForm,
 	{ readonly cursor: JsonCursor; readonly inactive: Claim<"derived"> }
 >();
+
+/** A question path through a Hidden Value's date-and-time sibling, claimed once
+ *  the form is bound: under the join's row where the Hidden Value is the
+ *  date-and-time join, else under `otherwise`. */
+interface PendingJoin {
+	readonly cursor: JsonCursor;
+	readonly field: DraftField;
+	readonly otherwise: Claim<"take">;
+}
+
+const JOINS = new WeakMap<DraftForm, PendingJoin[]>();
+
+function deferJoinClaim(
+	form: DraftForm,
+	cursor: JsonCursor,
+	field: DraftField,
+	otherwise: Claim<"take">,
+): void {
+	const pending = JOINS.get(form) ?? [];
+	pending.push({ cursor, field, otherwise });
+	JOINS.set(form, pending);
+}
+
+/** `expression` with every form field read's spelling left out: the join
+ *  Nova writes reads its two questions however the source spells the path. */
+function withoutSpelling(expression: unknown): unknown {
+	if (Array.isArray(expression)) return expression.map(withoutSpelling);
+	if (typeof expression !== "object" || expression === null) return expression;
+	const record = expression as Readonly<Record<string, unknown>>;
+	return Object.fromEntries(
+		Object.entries(record)
+			.filter(([key]) => !(record.kind === "field" && key === "spelling"))
+			.map(([key, value]) => [key, withoutSpelling(value)]),
+	);
+}
+
+/**
+ * Whether the Hidden Value `fieldUuid` of `formUuid` is the date-and-time
+ * join the split writes (`lib/doc/datetimeSplit.ts`): its bound calculate is
+ * `datePattern.ts::clockKeepingJoin` over a date question and a time question
+ * of the same form. The bound calculate is the tree whose print the
+ * expression stage compared with the source's own text, so this is the join
+ * re-emitted and compared.
+ */
+export function isDatetimeJoin(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	fieldUuid: Uuid,
+): boolean {
+	const field = doc.fields[fieldUuid];
+	if (field?.kind !== "hidden" || field.calculate === undefined) return false;
+	const inForm = new Set<Uuid>();
+	const walk = (parent: Uuid) => {
+		for (const uuid of doc.fieldOrder[parent] ?? []) {
+			inForm.add(uuid);
+			walk(uuid);
+		}
+	};
+	walk(formUuid);
+	const reads: Uuid[] = [];
+	walkExpressionTerms(field.calculate, (one) => {
+		if (one.kind === "field") reads.push(one.uuid);
+	});
+	const [date, time] = [...new Set(reads)];
+	if (
+		date === undefined ||
+		time === undefined ||
+		!inForm.has(date) ||
+		!inForm.has(time) ||
+		doc.fields[date]?.kind !== "date" ||
+		doc.fields[time]?.kind !== "time"
+	)
+		return false;
+	const read = (uuid: Uuid): Expression => term(formField(uuid));
+	return sameJson(
+		withoutSpelling(field.calculate),
+		withoutSpelling(clockKeepingJoin(read(date), read(time))),
+	);
+}
+
+/** Claims each question path the first pass left for the bound form: a write
+ *  through the date-and-time join under the join's row, any other under its own. */
+export function settleDatetimeJoins(ctx: ReadContext, form: DraftForm): void {
+	const pending = JOINS.get(form);
+	if (pending === undefined) return;
+	JOINS.delete(form);
+	for (const { cursor, field, otherwise } of pending) {
+		const joined =
+			ctx.doc !== undefined &&
+			field.uuid !== undefined &&
+			isDatetimeJoin(ctx.doc, form.uuid, field.uuid);
+		consume(
+			cursor.take(
+				"question_path",
+				joined ? BASIC_CLAIMS.datetimeJoin : otherwise,
+				(value) => value,
+			),
+		);
+	}
+}
 
 /** The cursor over a basic form's `actions`, opened by the first pass, with
  *  the claim its type reads an inactive action under. */
@@ -521,7 +661,9 @@ function generatedShape(
 		return property === "name" || property === "external_id";
 	if (purpose === "url")
 		return (captureFieldKinds as readonly string[]).includes(owner.kind);
-	if (purpose === "datetime") return owner.kind === "datetime";
+	// A date-and-time question, or a Hidden Value that writes a date-and-time property.
+	if (purpose === "datetime")
+		return owner.kind === "datetime" || owner.kind === "hidden";
 	return false;
 }
 
@@ -635,16 +777,21 @@ function isCoreNameCharacter(character: string): boolean {
 	const code = character.codePointAt(0) ?? -1;
 	return CORE_NAME_RANGES.some(([low, high]) => code >= low && code <= high);
 }
-const AUTHORED_PROPERTY = /^[A-Za-z][A-Za-z0-9_-]*$/;
-
-/** The class of a property key outside Nova's own grammar, first match in
- *  HQ's rows; undefined for a name Nova holds. */
+/** The class of a property key outside Nova's own grammar
+ *  (`casePropertyName.ts`), first match in HQ's rows; undefined for a name
+ *  Nova holds, and `unrecognized` for a name in Nova's grammar past its
+ *  length, which no row of HQ's names. */
 function propertyNameFinding(
 	key: string,
 	child: boolean,
-): Claim<"refuse"> | undefined {
-	if (AUTHORED_PROPERTY.test(key) && !RESERVED_CASE_PROPERTIES.has(key))
-		return undefined;
+): Claim<"refuse"> | "unrecognized" | undefined {
+	if (
+		AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(key) &&
+		!RESERVED_CASE_PROPERTIES.has(key)
+	)
+		return key.length > MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH
+			? "unrecognized"
+			: undefined;
 	if (!HQ_PROPERTY.test(key) || RESERVED_CASE_PROPERTIES.has(key))
 		return child ? BASIC_CLAIMS.illegalChildKey : BASIC_CLAIMS.illegalKey;
 	for (const character of key)
@@ -804,22 +951,43 @@ function consume<T>(admitted: Admitted<T>): T {
 	return admitted.value;
 }
 
+/**
+ * The entry a question path that read into `read` is claimed under, by the
+ * rows of "A question path" before the key's own row: a capture's link, a
+ * date-and-time question's sibling, then `keyClaim` (the `name`, `owner_id`,
+ * `category` and `state` keys), then `pathClaim`. A Hidden Value's
+ * date-and-time sibling is `"join"`: whether its calculate is the
+ * date-and-time join is known once the form is bound.
+ */
+function pathClaimOf(
+	read: QuestionValue & { readonly kind: "value" },
+	pathClaim: Claim<"take">,
+	keyClaim: Claim<"take"> | undefined,
+): Claim<"take"> | "join" {
+	if (read.value.link) return BASIC_CLAIMS.captureLink;
+	if (read.datetimeSibling)
+		return read.value.field.kind === "hidden"
+			? "join"
+			: BASIC_CLAIMS.datetimeSibling;
+	return keyClaim ?? pathClaim;
+}
+
 /** One `ConditionalCaseUpdate` of a write: its question path and its mode.
- *  `own` is a property write of a follow-up or close form's own case. */
+ *  `own` is a property write of a follow-up or close form's own case;
+ *  `keyClaim` the row its key names, where one does. */
 function readUpdate(
 	r: FormReading,
 	cursor: JsonCursor,
 	property: string,
 	own: boolean,
 	pathClaim: Claim<"take">,
+	keyClaim?: Claim<"take">,
 ): {
 	readonly value?: ProposedValue;
 	readonly onlyIfChanged?: true;
 	readonly ok: boolean;
 } {
-	const path = consume(
-		cursor.take("question_path", pathClaim, (value) => value),
-	);
+	const path = cursor.peek("question_path");
 	let onlyIfChanged: true | undefined;
 	let ok = true;
 	if (cursor.peek("update_mode") === "edit") {
@@ -839,17 +1007,21 @@ function readUpdate(
 			ok = false;
 		} else cursor.drop("update_mode", BASIC_CLAIMS.editNotApplied);
 	}
-	if (typeof path !== "string" || path === "") {
-		finding(r.ctx, CONDITION_CLAIMS.noQuestion, r.form.place, {
+	const read =
+		typeof path === "string" && path !== ""
+			? questionValue(r.ctx, r.form, path, property)
+			: undefined;
+	if (read === undefined || read.kind === "finding") {
+		consume(cursor.take("question_path", pathClaim, (value) => value));
+		finding(r.ctx, read?.claim ?? CONDITION_CLAIMS.noQuestion, r.form.place, {
 			name: property,
 		});
 		return { ok: false };
 	}
-	const read = questionValue(r.ctx, r.form, path, property);
-	if (read.kind === "finding") {
-		finding(r.ctx, read.claim, r.form.place, { name: property });
-		return { ok: false };
-	}
+	const claim = pathClaimOf(read, pathClaim, keyClaim);
+	if (claim === "join")
+		deferJoinClaim(r.form, cursor, read.value.field, keyClaim ?? pathClaim);
+	else consume(cursor.take("question_path", claim, (value) => value));
 	return {
 		value: read.value,
 		...(onlyIfChanged !== undefined && { onlyIfChanged }),
@@ -944,15 +1116,33 @@ function readUpdateMap(
 		}
 		const facet =
 			indices.length === 0 && (property === "name" || property === "owner_id");
-		if (!facet && property !== "category" && property !== "state") {
+		const categoryOrState = property === "category" || property === "state";
+		if (!facet && !categoryOrState) {
 			const named = propertyNameFinding(property, false);
+			if (named === "unrecognized") {
+				r.ctx.accounting.circumstance("unrecognized", r.form.place, {
+					name: "schema:UpdateCaseAction.update",
+				});
+				continue;
+			}
 			if (named !== undefined) {
 				finding(r.ctx, named, r.form.place, { name: key });
 				continue;
 			}
 		}
 		const ownWrite = slot === "own" && loads && !facet && via === undefined;
-		const read = readUpdate(r, cursor, property, ownWrite, pathClaim);
+		// The rows the own case's `update` names by its key.
+		const keyClaim =
+			slot !== "own" || indices.length > 0
+				? undefined
+				: property === "name" && r.type !== "registration"
+					? BASIC_CLAIMS.nameKey
+					: property === "owner_id"
+						? BASIC_CLAIMS.ownerKey
+						: categoryOrState
+							? BASIC_CLAIMS.categoryStateKey
+							: undefined;
+		const read = readUpdate(r, cursor, property, ownWrite, pathClaim, keyClaim);
 		if (!read.ok || read.value === undefined) continue;
 		// The own case and the worker's record are written once, from questions in no repeat.
 		if (!valueInScope(read.value, undefined)) {
@@ -1064,7 +1254,9 @@ export function readBasicActions(
 	const registry = menuMayLoadRegistryCase(menu);
 	const opens = active.has("open_case");
 	const loads = row.type === "followup" || row.type === "close";
-	const defaultCaseManagement = !multi || opens;
+	// HQ's build writes a form's update, close and child cases only here
+	// (`xform.py::XForm._create_casexml`, `default_case_management`).
+	const defaultCaseManagement = (!multi && !registry) || opens;
 	const ownBlock = opens || (loads && !(registry && !multi));
 
 	const operations: ProposedOperation[] = [];
@@ -1159,7 +1351,15 @@ export function readBasicActions(
 			if (key === "name_update_multi" || key === "update_multi")
 				O.drop(key, BASIC_CLAIMS.updateMultiOpen);
 			else O.refuse(key, BASIC_CLAIMS.undeclaredOpen, { name: key });
-	} else if (opens) A.drop("open_case", BASIC_CLAIMS.openOnFollowup);
+	} else if (
+		opens ||
+		(requires === "case" &&
+			(conditionType(openCase.condition) === "if" ||
+				conditionType(openCase.condition) === "always"))
+	)
+		// `activeActions` leaves an open action out on a form that requires a
+		// case; HQ's build never reads it there.
+		A.drop("open_case", BASIC_CLAIMS.openOnFollowup);
 	else if (
 		typeof openCase.external_id === "string" &&
 		openCase.external_id !== ""
@@ -1171,9 +1371,21 @@ export function readBasicActions(
 	const update = isJsonObject(actions.update_case) ? actions.update_case : {};
 	const updateType = conditionType(update.condition);
 	if (row.type === "survey") A.derived("update_case", inactive);
-	else if (loads && !defaultCaseManagement)
-		A.drop("update_case", BASIC_CLAIMS.multiSelectNoBlock);
-	else {
+	else if (loads && !defaultCaseManagement) {
+		if (updateType === "never") {
+			// HQ writes no primary block here under either word; Nova writes `always`.
+			A.object(
+				"update_case",
+				"UpdateCaseAction",
+				BASIC_CLAIMS.updateNeverMulti,
+			);
+			rewrite(
+				ctx,
+				BASIC_CLAIMS.updateNeverMulti.entry,
+				`${A.pointer}/update_case/condition`,
+			);
+		} else A.drop("update_case", BASIC_CLAIMS.multiSelectNoBlock);
+	} else {
 		const others = [...active].some((type) => type !== "update_case");
 		let claims:
 			| { container: Claim<"take">; condition?: Claim<"take"> }
@@ -1199,9 +1411,12 @@ export function readBasicActions(
 			}
 		} else if (row.type === "registration") {
 			claims = { container: BASIC_CLAIMS.updateNeverRegistration };
-		} else if (multi || registry)
-			claims = { container: BASIC_CLAIMS.updateNeverMulti };
-		else if (others) {
+			rewrite(
+				ctx,
+				BASIC_CLAIMS.updateNeverRegistration.entry,
+				`${A.pointer}/update_case/condition`,
+			);
+		} else if (others) {
 			claims = { container: BASIC_CLAIMS.updateNeverWithOthers };
 			rewrite(
 				ctx,
@@ -1266,10 +1481,36 @@ export function readBasicActions(
 		}
 	} else A.derived("close_case", inactive);
 
-	// The own arm.
+	// The own arm. One that opens nothing and carries nothing is the form's own case only
+	// where no Save to Case block takes it (`saveToCase.ts`, `ownTaken`), which is known once
+	// the blocks are read, so its key is claimed when the operations are written.
 	let ownUuid: Uuid | undefined;
-	if (caseType !== "" && row.type !== "survey" && (ownBlock || opens)) {
-		const place: CaseOperationPlaceKey = ["basic", "own"];
+	let bareOwn: BasicCaseReading["bareOwn"];
+	const ownPlace: CaseOperationPlaceKey = ["basic", "own"];
+	if (
+		caseType !== "" &&
+		row.type !== "survey" &&
+		ownBlock &&
+		!opens &&
+		ownName === undefined &&
+		ownOwner === undefined &&
+		ownWrites.length === 0
+	) {
+		const id = operationId(caseType);
+		bareOwn = () => {
+			const uuid = mint(r, ownPlace, "own", ordinal(ownPlace, "own"));
+			return uuid === undefined
+				? undefined
+				: {
+						uuid,
+						id,
+						action: "own",
+						writes: [],
+						placement: { kind: "basic", slot: "own" },
+					};
+		};
+	} else if (caseType !== "" && row.type !== "survey" && (ownBlock || opens)) {
+		const place = ownPlace;
 		ownUuid = mint(r, place, "own", ordinal(place, "own"));
 		if (ownUuid !== undefined)
 			operations.push({
@@ -1364,6 +1605,8 @@ export function readBasicActions(
 		else if (caseType !== "") A.drop(key, BASIC_CLAIMS.referralWithType);
 		else A.refuse(key, BASIC_CLAIMS.referralWithoutType);
 	}
+	for (const key of A.undeclared())
+		A.refuse(key, BASIC_CLAIMS.undeclaredActions, { name: key });
 
 	// The question that names a created case: HQ's build writes its bind's
 	// `required` whatever the source holds.
@@ -1375,6 +1618,7 @@ export function readBasicActions(
 		...(openCondition !== undefined && { openCondition }),
 		...(closeCondition !== undefined && { closeCondition }),
 		conditions,
+		...(bareOwn !== undefined && { bareOwn }),
 	});
 }
 
@@ -1499,6 +1743,11 @@ function readSubcases(
 		} else if (nameRepeat !== undefined) {
 			finding(ctx, BASIC_CLAIMS.notOffered, form.place, { name: "name" });
 			ok = false;
+		} else {
+			// A blank context names the root, where a name question in no repeat stands.
+			consume(
+				S.take("repeat_context", BASIC_CLAIMS.subcaseRepeat, (value) => value),
+			);
 		}
 		const writes: ProposedWrite[] = [];
 		let owner: ProposedValue | undefined;
@@ -1515,6 +1764,13 @@ function readSubcases(
 			}
 			const named =
 				key === "owner_id" ? undefined : propertyNameFinding(key, true);
+			if (named === "unrecognized") {
+				ctx.accounting.circumstance("unrecognized", form.place, {
+					name: "schema:OpenSubCaseAction.case_properties",
+				});
+				ok = false;
+				continue;
+			}
 			if (named !== undefined) {
 				finding(ctx, named, form.place, { name: key });
 				ok = false;
@@ -1664,13 +1920,26 @@ function conditionExpression(
 	return read.kind === "if" ? read.expression : undefined;
 }
 
-/** Writes one basic form's proposed operations and conditions into its draft. */
-export function writeBasicOperations(ctx: ReadContext, form: DraftForm): void {
+/**
+ * Writes one basic form's proposed operations and conditions into its draft. `ownInBlock`:
+ * a Save to Case block of the form took the form's own case, so an own arm that changes
+ * nothing is not the form's own case and claims no key.
+ */
+export function writeBasicOperations(
+	ctx: ReadContext,
+	form: DraftForm,
+	ownInBlock: boolean,
+): void {
 	const reading = READINGS.get(form);
 	if (reading === undefined) return;
+	const bareOwn = ownInBlock ? undefined : reading.bareOwn?.();
+	const proposals =
+		bareOwn === undefined
+			? reading.operations
+			: [bareOwn, ...reading.operations];
 	const operations: CaseOperation[] = [];
-	const ownUuid = reading.operations.find((one) => one.action === "own")?.uuid;
-	for (const proposal of reading.operations) {
+	const ownUuid = proposals.find((one) => one.action === "own")?.uuid;
+	for (const proposal of proposals) {
 		const name =
 			proposal.name === undefined ? undefined : valueExpression(proposal.name);
 		const owner =

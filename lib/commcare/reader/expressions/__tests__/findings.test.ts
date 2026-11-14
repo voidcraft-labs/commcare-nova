@@ -24,8 +24,10 @@ import type { FormParseIssueCode } from "../../../xpath/formParseIssues";
 import type { PendingExpression } from "../../pendingExpressions";
 import {
 	checkErrorEntry,
+	claimKey,
 	EXPRESSION_CLAIMS,
 	formRefusalEntry,
+	nameGrammarEntry,
 	parseIssueEntry,
 	SLOT_ENTRIES,
 	type SlotName,
@@ -376,5 +378,152 @@ describe("the expression stage's claims", () => {
 					);
 			}
 		}
+	});
+});
+
+describe("a parse issue's entry, by what the text and the form hold", () => {
+	const relevant: SlotContextRef = {
+		entity: "field",
+		uuid: FIELD as never,
+		slot: "relevant",
+	};
+	const declared = (text: string, sources: Record<string, string>) =>
+		parseIssueEntry(
+			{ code: "instance-unknown", message: "", from: 0, to: text.length },
+			doc,
+			{ ...pending(relevant), text },
+			{
+				instanceSources: new Map(Object.entries(sources)),
+				computedDatums: new Set(),
+			},
+		).entryId;
+
+	it("reads an unknown instance by the source the form declares it from, then by its id", () => {
+		const text = "instance('products')/products/product";
+		expect(
+			declared(text, { products: "jr://fixture/commtrack:products" }),
+		).toBe("expressions-and-data/commtrack-products-commtrack-programs");
+		expect(declared(text, { products: "jr://instance/ledgerdb" })).toBe(
+			"expressions-and-data/ledgerdb-vellum-id-ledger",
+		);
+		expect(declared(text, { products: "jr://elsewhere/products" })).toBe(
+			"expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src",
+		);
+		expect(declared(text, {})).toBe(
+			"expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
+		);
+		expect(declared("instance('ledgerdb')/ledgerdb", {})).toBe(
+			"expressions-and-data/ledgerdb-vellum-id-ledger",
+		);
+	});
+
+	it("reads supply_point_id by whether the advanced form computes it", () => {
+		const text = "instance('commcaresession')/session/data/supply_point_id";
+		const issue = {
+			code: "unknown-datum" as const,
+			message: "",
+			from: 0,
+			to: text.length,
+		};
+		const reading = { ...pending(relevant), text };
+		expect(
+			parseIssueEntry(issue, doc, reading, {
+				instanceSources: new Map(),
+				computedDatums: new Set(["supply_point_id"]),
+			}).entryId,
+		).toBe(
+			"expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed",
+		);
+		expect(parseIssueEntry(issue, doc, reading).entryId).toBe(
+			"expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
+		);
+	});
+
+	it("sends self::node() alone to the slot's default, and any other self step to the axes entry", () => {
+		const axis = (text: string) =>
+			parseIssueEntry(
+				{ code: "axis", message: "", from: 0, to: text.length },
+				doc,
+				{ ...pending(relevant), text },
+			).entryId;
+		expect(axis("self::node()")).toBe("slot-default");
+		expect(axis("parent::node()")).toBe("slot-default");
+		expect(axis("self::foo")).toBe(
+			"expressions-and-data/and-axes-other-than-child-name-or-attribute-name-self-node",
+		);
+	});
+
+	it("reads a bind attribute's syntax error by the characters outside its string literals", () => {
+		const syntax = (text: string) =>
+			parseIssueEntry(
+				{ code: "syntax", message: "", from: 0, to: text.length },
+				doc,
+				{ ...pending(relevant), text },
+			).entryId;
+		expect(syntax("/data/q = 'café' and")).toBe(
+			"expressions-and-data/an-invalid-xpath-in-a-bind-attribute",
+		);
+		expect(syntax("/data/café = 'x' and")).toBe("unrecognized");
+	});
+});
+
+describe("a name outside a grammar Nova keeps unchanged", () => {
+	const prop = (property: string) =>
+		({
+			kind: "term",
+			term: { kind: "prop", caseType: "patient", property },
+		}) as never;
+
+	it("refuses a case property name outside the authored grammar, under N7 where it holds a character past ASCII", () => {
+		expect(nameGrammarEntry(prop("prénom"))).toEqual({
+			entryId:
+				"forms-and-case-writes/update-key-holding-a-non-ascii-core-name-character",
+			reason: "name:case-property",
+		});
+		expect(nameGrammarEntry(prop("first.name"))).toEqual({
+			entryId: "slot-default",
+			reason: "name:case-property",
+		});
+		expect(nameGrammarEntry(prop("first_name"))).toBeUndefined();
+	});
+
+	it("refuses an index identifier outside the element-name grammar", () => {
+		const index = (identifier: string) =>
+			nameGrammarEntry({
+				kind: "term",
+				term: { kind: "case-index", identifier },
+			} as never);
+		expect(index("my-index")).toEqual({
+			entryId: "slot-default",
+			reason: "name:index-identifier",
+		});
+		expect(index("host")).toBeUndefined();
+	});
+});
+
+describe("the key a refusal is claimed under", () => {
+	const UNTYPED =
+		"case-search/p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of";
+
+	it("takes the slot's own key where the entry holds it", () => {
+		expect(
+			claimKey(
+				"case-search/a-search-value-that-queries-cases-a-table-or-places",
+				"schema:DefaultCaseSearchProperty.defaultValue",
+				[],
+			),
+		).toBe("schema:DefaultCaseSearchProperty.defaultValue");
+	});
+
+	it("takes the key of the use the entry is registered under, else its first member's", () => {
+		expect(claimKey(UNTYPED, "csql-key:_xpath_query", ["csql-op:<="])).toBe(
+			"csql-op:<=",
+		);
+		expect(claimKey(UNTYPED, "csql-key:_xpath_query", [])).toBe("csql-op:>");
+		const m2 =
+			"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant";
+		expect(claimKey(m2, "xform:bind@relevant", ["jr-fn:if"])).toBe(
+			"xform:bind@relevant",
+		);
 	});
 });

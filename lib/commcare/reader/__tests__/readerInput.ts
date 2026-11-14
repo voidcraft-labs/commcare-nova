@@ -6,6 +6,8 @@
  * tables, the expression judge or the app strings, which answer nothing.
  */
 
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { expect } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import {
@@ -31,6 +33,17 @@ const APP_ID = "0123456789abcdef0123456789abcdef";
 /** A retained answer's body, as JSON, for a test to change. */
 export function retainedSourceBody(file: string): Record<string, unknown> {
 	return retainedBodyJson(retainedGroupRead(file));
+}
+
+/** The retained reads of Nova's navigation export after each of HQ's own pages saved it, by
+ *  the name `retainedSourceBody` takes. */
+export function retainedSaveReads(): string[] {
+	return readdirSync(join(process.cwd(), "proof/hq-reads/navigation-base"))
+		.filter(
+			(name) => name.startsWith("app-source-after-") && name.endsWith(".json"),
+		)
+		.map((name) => `navigation-base/${name.slice(0, -".json".length)}`)
+		.sort();
 }
 
 /** The source Nova's reader gives for `body`, served as HQ's source view answers. */

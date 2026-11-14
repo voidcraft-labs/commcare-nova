@@ -4,7 +4,12 @@ import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Expression, Uuid } from "@/lib/domain";
 import { readMenusOf } from "../../menus/__tests__/menuReading";
 import { laterLoadReaders } from "../preloads";
-import { readCases, readFields } from "./caseReading";
+import { type CaseReading, readCases, readFields } from "./caseReading";
+
+/** Every entry a reading claimed something under. */
+function entriesOf(reading: CaseReading): string[] {
+	return [...reading.ctx.close().claims.records()].map((one) => one.entry);
+}
 
 const read = (uuid: Uuid): Expression => ({
 	kind: "term",
@@ -177,6 +182,117 @@ describe("a case preload, read as the question's default", () => {
 		expect(
 			reading.findings.filter((one) => one.code.includes("case-preload")),
 		).toEqual([]);
+		const claimed = entriesOf(reading);
+		expect(claimed).toContain(
+			"forms-and-case-writes/case-preload-into-a-question-inside-a-repeat",
+		);
+		expect(claimed).not.toContain(
+			"forms-and-case-writes/case-preload-question-property-into-a-question-outside-any",
+		);
+	});
+
+	it("claims a map that reads into a question outside a repeat and one inside under the held row", async () => {
+		const reading = await preloaded(
+			[
+				f({ kind: "text", id: "q", uuid: Q }),
+				f({
+					kind: "repeat",
+					id: "rows",
+					children: [f({ kind: "text", id: "row_q" })],
+				}),
+			],
+			{ "/data/q": "dob", "/data/rows/row_q": "dob" },
+		);
+		const claimed = entriesOf(reading);
+		expect(claimed).toContain(
+			"forms-and-case-writes/case-preload-question-property-into-a-question-outside-any",
+		);
+		expect(claimed).not.toContain(
+			"forms-and-case-writes/case-preload-into-a-question-inside-a-repeat",
+		);
+	});
+
+	it("reads a preload in a multi-select child menu as a question with no default, dropping its own", async () => {
+		const reading = await readCases(
+			buildDoc({
+				caseTypes: [
+					{ name: "household", properties: [] },
+					{ name: "patient", parent_type: "household", properties: [] },
+				],
+				modules: [
+					{
+						uuid: "preload-households",
+						name: "Households",
+						caseType: "household",
+						forms: [
+							{
+								name: "Register household",
+								type: "registration",
+								fields: [
+									f({
+										kind: "text",
+										id: "hh",
+										caseWrite: { caseType: "household", property: "case_name" },
+									}),
+								],
+							},
+						],
+					},
+					{
+						name: "Patients",
+						caseType: "patient",
+						parentCaseModuleUuid: "preload-households",
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({
+										kind: "text",
+										id: "q",
+										uuid: Q,
+										default_value: {
+											kind: "term",
+											term: { kind: "literal", value: "authored" },
+										},
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
+			{
+				parentSelections: true,
+				edit: (app) => {
+					const details = app.modules[1]?.case_details as {
+						short: Record<string, unknown>;
+					};
+					details.short.multi_select = true;
+					const actions = app.modules[1]?.forms[0]?.actions as Record<
+						string,
+						unknown
+					>;
+					actions.case_preload = {
+						doc_type: "PreloadAction",
+						preload: { "/data/q": "dob" },
+						condition: { type: "always", doc_type: "FormActionCondition" },
+					};
+				},
+			},
+		);
+		const form = reading.forms.find((one) => one.form.name === "Visit");
+		const field =
+			form?.xform == null
+				? undefined
+				: readFields(form.xform).find((one) => one.id === "q");
+		expect(field?.field.default_value).toBeUndefined();
+		expect(field?.expressions.some((one) => one.slot === "default_value")).toBe(
+			false,
+		);
+		expect(entriesOf(reading)).toContain(
+			"forms-and-case-writes/case-preload-into-a-question-outside-any-repeat-in-a-multi-select-child",
+		);
 	});
 
 	it("refuses a preload into a Hidden Value with a calculation, which holds one value source", async () => {
@@ -193,6 +309,43 @@ describe("a case preload, read as the question's default", () => {
 		);
 		expect(reading.findings.map((one) => one.code)).toContain(
 			"forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
+		);
+	});
+
+	it("refuses a worker-record preload into a Hidden Value with a calculation as a question that holds no default", async () => {
+		const reading = await readCases(
+			followup([
+				f({
+					kind: "text",
+					id: "mood",
+					caseWrite: { caseType: "commcare-user", property: "mood" },
+				}),
+				f({
+					kind: "hidden",
+					id: "h",
+					calculate: { kind: "term", term: { kind: "literal", value: "c" } },
+				}),
+			]),
+			{
+				edit: (app) => {
+					const actions = app.modules[0]?.forms[0]?.actions as Record<
+						string,
+						unknown
+					>;
+					actions.usercase_preload = {
+						doc_type: "PreloadAction",
+						preload: { "/data/h": "mood" },
+						condition: { type: "always", doc_type: "FormActionCondition" },
+					};
+				},
+			},
+		);
+		const codes = reading.findings.map((one) => one.code);
+		expect(codes).toContain(
+			"forms-and-case-writes/case-preload-into-a-question-that-holds-no-default",
+		);
+		expect(codes).not.toContain(
+			"forms-and-case-writes/any-other-usercase-preload",
 		);
 	});
 

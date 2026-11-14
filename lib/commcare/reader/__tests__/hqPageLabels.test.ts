@@ -7,40 +7,23 @@
  * surface key or a column HQ named for itself. A finding at a workflow word
  * carries the end-of-form menu's label, and one at a column format the
  * format menu's. The battery reads Nova's emission with one key changed as
- * HQ's pages store it, through the reader's own stages. The failure it
+ * HQ's pages store it, through the reader's own stages, and every case of the
+ * suites that read HQ's own shapes and formats (`basicActions`,
+ * `advancedActions`, `afterSubmit` and `order` hqShapes, `columns` hqFormats)
+ * reads through `hqPageNames.ts::namingFromHqPages`, which holds each of
+ * their findings to the same rule. The failure it
  * catches: "In CommCare HQ: previous_screen" shown to a person.
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn } from "@/lib/domain/modules";
-import type { Finding } from "@/lib/publish/hqFindings";
 import { patients, uuid } from "../caseList/__tests__/fixtures";
 import { readLists } from "../caseList/__tests__/listReading";
-import { HQ_PAGE_LABELS } from "../hqPageLabels";
 import { readMenusOf } from "../menus/__tests__/menuReading";
+import { manifestFindings, storedNames } from "./hqPageNames";
 
 const M = "menus-and-case-lists/";
 const F = "forms-and-case-writes/";
-
-/** Every word a map of `HQ_PAGE_LABELS` holds: the stored words a finding must never show. */
-const STORED_WORDS: ReadonlySet<string> = new Set(
-	Object.values(HQ_PAGE_LABELS).flatMap((labels) => Object.keys(labels)),
-);
-
-/** A manifest finding's name a person would not know from HQ's pages, or undefined. */
-function storedName(finding: Finding): string | undefined {
-	const name = (finding.detail as { name?: unknown }).name;
-	if (typeof name !== "string") return undefined;
-	return name.startsWith("schema:") ||
-		name.includes("_cc_calculated_") ||
-		STORED_WORDS.has(name)
-		? name
-		: undefined;
-}
-
-/** The manifest's findings (an entry's id, `<area>/<slug>`), the circumstances left out. */
-const manifestFindings = (findings: readonly Finding[]) =>
-	findings.filter((one) => one.code.includes("/"));
 
 async function readColumnChange(change: Record<string, unknown>) {
 	const reading = await readLists(
@@ -189,13 +172,28 @@ describe("a finding's name", () => {
 		]);
 		const findings = readings.flatMap(manifestFindings);
 		expect(findings.length).toBeGreaterThan(10);
-		expect(
-			findings.flatMap((one) =>
-				storedName(one) === undefined
-					? []
-					: [`${one.code}: ${storedName(one)}`],
-			),
-		).toEqual([]);
+		expect(storedNames(findings)).toEqual([]);
+	});
+
+	it("tells a stored word, a surface key and a column HQ named for itself from a name typed in HQ", () => {
+		const at = (name: string) => ({
+			code: `${M}owner-name`,
+			detail: { name },
+		});
+		const names = [
+			"previous_screen",
+			"late-flag",
+			"schema:Detail.filter",
+			"_cc_calculated_2",
+			"Previous Screen",
+			"notes",
+		].map(at);
+		expect(storedNames(names as never)).toEqual([
+			`${M}owner-name: previous_screen`,
+			`${M}owner-name: late-flag`,
+			`${M}owner-name: schema:Detail.filter`,
+			`${M}owner-name: _cc_calculated_2`,
+		]);
 	});
 
 	it("names a column over a property Nova's grammar cannot hold by its own entry", async () => {
@@ -207,6 +205,11 @@ describe("a finding's name", () => {
 		expect(long.map((one) => one.code)).toContain(
 			`${M}column-field-outside-nova-s-property-grammar`,
 		);
+		const nearOwner = await readColumnChange({ field: "#owner_names" });
+		expect(nearOwner.map((one) => one.code)).toContain(
+			`${M}column-field-outside-nova-s-property-grammar`,
+		);
+		expect(nearOwner.map((one) => one.code)).not.toContain(`${M}owner-name`);
 		const failing = await readColumnChange({ field: "no tes" });
 		expect(failing.map((one) => one.code)).toContain(
 			`${M}field-failing-details-utils-js-isvalidpropertyname-non`,

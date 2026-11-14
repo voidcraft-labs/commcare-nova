@@ -17,11 +17,13 @@ import {
 	menuScreenOf,
 	projectedModulePreorder,
 	screenChoosesCaseFirst,
+	type TranslationUnitId,
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
-import { expressionReadsCaseData } from "@/lib/domain/expression/walk";
+import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import {
@@ -66,6 +68,20 @@ const MENU = {
 	survey: take(
 		`${M}/module-with-case-type-survey-module`,
 		"schema:Module.case_type",
+	),
+	caseTypeGrammar: perClass(
+		MENU_CLASSES,
+		refuse,
+		`${M}/case-type-outside-the-menu-page-s-grammar`,
+		"case_type",
+	),
+	caseTypeReservedBasic: refuse(
+		`${M}/case-type-commcare-user-or-user-owner-mapping-case-on-a-basic`,
+		"schema:Module.case_type",
+	),
+	caseTypeWorkerAdvanced: refuse(
+		`${M}/case-type-commcare-user-on-an-advancedmodule`,
+		"schema:AdvancedModule.case_type",
 	),
 	training: perClass(
 		MENU_CLASSES,
@@ -469,6 +485,31 @@ export function writeBuiltLabel(
 	return source;
 }
 
+/**
+ * A label map of the expansion as the document will print it once the text
+ * stage has written this reading's translations: each language other than the
+ * first takes the text read for `unit` in that language, where one was read.
+ * `settleMenus` expands the app before the text stage runs, so the expansion
+ * holds the first language's text in every language until then.
+ */
+export function withReadTranslations(
+	ctx: ReadContext,
+	unit: TranslationUnitId,
+	map: Readonly<Record<string, string | null>>,
+): Readonly<Record<string, string | null>> {
+	const languages = applicationReading(ctx)?.languages;
+	const read = ctx.translations.units().find((one) => one.unit === unit);
+	if (languages === undefined || read === undefined) return map;
+	const out: Record<string, string | null> = { ...map };
+	for (const code of languages.codes) {
+		if (code === languages.first) continue;
+		const tag = languages.tagOf.get(code);
+		const text = tag === undefined ? undefined : read.byLanguage.get(tag);
+		if (typeof text === "string") out[code] = text;
+	}
+	return out;
+}
+
 /** A menu's or form's name in each app language as Nova writes it: its own
  *  text, or the first language's where it holds none. */
 export function effectiveNames(
@@ -572,6 +613,25 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 	const { json } = module;
 	const caseType = json.peek("case_type");
 	if (typeof caseType === "string" && caseType !== "") {
+		// A name the menu page would not save, and the two case types HQ keeps
+		// for itself, are each their entry; the menu keeps the name it stores, so
+		// the stages after this one read its forms as written.
+		const refused = !CASE_TYPE_PATTERN.test(caseType)
+			? MENU.caseTypeGrammar[menuClass(module)]
+			: module.docType === "Module" &&
+					(caseType === "commcare-user" ||
+						caseType === "user-owner-mapping-case")
+				? MENU.caseTypeReservedBasic
+				: module.docType === "AdvancedModule" && caseType === "commcare-user"
+					? MENU.caseTypeWorkerAdvanced
+					: undefined;
+		if (refused !== undefined) {
+			json.refuse("case_type", refused);
+			ctx.writeDraft(() => {
+				Object.assign(module.module, { caseType });
+			});
+			return;
+		}
 		const value = json.take(
 			"case_type",
 			MENU.caseType[menuClass(module)],
@@ -588,7 +648,20 @@ function readCaseType(ctx: ReadContext, module: DraftModule): void {
 		json.take("case_type", MENU.caseType[menuClass(module)], textOf).value;
 }
 
-/** `root_module_id`: the parent, one tier deep, or the finding its row names. */
+/** Whether following `root_module_id` from `start` returns to `start`: HQ's `root cycle`. */
+function nestingCycles(ctx: ReadContext, start: string): boolean {
+	const seen = new Set<string>();
+	let current: unknown = start;
+	while (typeof current === "string" && current !== "") {
+		if (seen.has(current)) return current === start;
+		seen.add(current);
+		current = rawModuleById(ctx, current)?.root_module_id;
+	}
+	return false;
+}
+
+/** `root_module_id`: the parent, one tier deep, or the finding its row names. A cycle is
+ *  tested before depth, since every menu of a cycle has a parent that has one. */
 function readNesting(
 	ctx: ReadContext,
 	app: DraftApp,
@@ -599,7 +672,7 @@ function readNesting(
 	const rootId = json.peek("root_module_id");
 	if (typeof rootId !== "string" || rootId === "") return;
 	const target = rawModuleById(ctx, rootId);
-	if (target === undefined || rootId === module.uniqueId) {
+	if (target === undefined || nestingCycles(ctx, module.uniqueId)) {
 		json.refuse("root_module_id", MENU.rootMissing[cls]);
 		return;
 	}
@@ -1148,13 +1221,27 @@ export function settleModules(ctx: ReadContext): void {
 	settleParentSelections(ctx, reading);
 }
 
+/**
+ * Whether a form's display condition reads the case its menu chooses: the
+ * form's own case or one above it (`form-case`), or a value an earlier
+ * selection supplies (`session-datum`). A query over the case database that
+ * names no chosen case reads nothing a screen has to choose first.
+ */
+function readsChosenCase(expression: Expression): boolean {
+	let found = false;
+	walkExpressionTerms(expression, (term) => {
+		if (term.kind === "form-case" || term.kind === "session-datum")
+			found = true;
+	});
+	return found;
+}
+
 function settleFormFilters(ctx: ReadContext, reading: ModulesReading): void {
 	const doc = ctx.doc;
 	if (doc === undefined) return;
 	for (const [form, { menu }] of reading.formFilters) {
 		const condition = doc.forms[form.uuid]?.displayCondition;
-		if (condition === undefined || !expressionReadsCaseData(condition))
-			continue;
+		if (condition === undefined || !readsChosenCase(condition)) continue;
 		if (doc.modules[menu.uuid] === undefined) continue;
 		if (!screenChoosesCaseFirst(doc, menuScreenOf(doc, menu.uuid)))
 			ctx.accounting.finding(MENU.formFilterOffCaseFirstScreen, form.place);

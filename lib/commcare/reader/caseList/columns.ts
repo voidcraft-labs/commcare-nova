@@ -129,6 +129,14 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}3p-time-ago-other-interval`,
 		"schema:DetailColumn.format",
 	),
+	timeAgoInterval: refuse(
+		`${A}3-time-ago-time-ago-interval-the-7-menu-values-years-months`,
+		"schema:DetailColumn.time_ago_interval",
+	),
+	timeAgoOtherInterval: refuse(
+		`${A}3p-time-ago-other-interval`,
+		"schema:DetailColumn.time_ago_interval",
+	),
 	phone: take(`${A}4-phone`, "schema:DetailColumn.format"),
 	enumFormat: take(`${A}5-enum-id-mapping`, "schema:DetailColumn.format"),
 	enumMapping: take(`${A}5-enum-id-mapping`, "schema:DetailColumn.enum"),
@@ -148,6 +156,14 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 	lateFlagZero: refuse(
 		`${A}6p-late-flag-late-flag-0`,
 		"schema:DetailColumn.format",
+	),
+	lateFlagValue: refuse(
+		`${A}6-late-flag-late-flag-1`,
+		"schema:DetailColumn.late_flag",
+	),
+	lateFlagZeroValue: refuse(
+		`${A}6p-late-flag-late-flag-0`,
+		"schema:DetailColumn.late_flag",
 	),
 	invisible: take(
 		`${A}7-invisible-search-only-on-the-case-list-outside-a-custom-tile`,
@@ -190,6 +206,18 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 	),
 	geoWithout: refuse(
 		`${A}a-geo-column-without-the-column-it-depends-on`,
+		"schema:DetailColumn.format",
+	),
+	severalOfOneFormat: refuse(
+		`${A}more-than-one-address-column-or-more-than-one-image-or-geo`,
+		"schema:DetailColumn.format",
+	),
+	severalAddressAdvanced: refuse(
+		`${A}more-than-one-address-column-in-a-detail-of-an-advanced-module`,
+		"schema:DetailColumn.format",
+	),
+	severalImageGeoAdvanced: refuse(
+		`${A}more-than-one-image-or-geo-column-of-the-same-format-in-a-detail`,
 		"schema:DetailColumn.format",
 	),
 	addressPopup: refuse(`${A}15-address-popup`, "schema:DetailColumn.format"),
@@ -259,6 +287,14 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-over-a-property`,
 		"schema:DetailColumn.format",
 	),
+	translatableEnumRelationOffers: refuse(
+		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-offers`,
+		"schema:DetailColumn.format",
+	),
+	translatableEnumRelationDoes: refuse(
+		`${A}translatable-enum-on-a-column-that-is-not-a-calculated-property-relation-does`,
+		"schema:DetailColumn.format",
+	),
 	graph: refuse(`${A}22-graph`, "schema:DetailColumn.format"),
 	image: refuse(`${A}23-image-cc-case-image`, "schema:DetailColumn.format"),
 	filterInert: drop(
@@ -298,6 +334,18 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 	bookkeeping: drop(
 		`${A}ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
 		"schema:DetailColumn.<undeclared>",
+	),
+	dateFormatElsewhere: drop(
+		`${A}ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
+		"schema:DetailColumn.date_format",
+	),
+	lateFlagElsewhere: drop(
+		`${A}ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
+		"schema:DetailColumn.late_flag",
+	),
+	timeAgoElsewhere: drop(
+		`${A}ui-bookkeeping-keys-hasautocomplete-calc-xpath-istab-hasnodeset`,
+		"schema:DetailColumn.time_ago_interval",
 	),
 	optimization: refuse(
 		`${A}optimization-cache-lazy-load-cache-and-lazy-load`,
@@ -345,6 +393,32 @@ const BOOKKEEPING_KEYS = [
 	"nodeset",
 	"relevant",
 ];
+
+/** The intervals HQ's Time Since or Until Date menu offers, in days
+ *  (`static/app_manager/js/details/utils.js::TIME_AGO`, the menu in
+ *  `details/bootstrap5/column.js`): years, months, weeks and days since; days, weeks and months
+ *  until. */
+const TIME_AGO_MENU: readonly number[] = [
+	365.25,
+	365.25 / 12,
+	7,
+	1,
+	-1,
+	-7,
+	-365.25 / 12,
+];
+
+/** The formats a geo format needs beside it in its detail
+ *  (`static/app_manager/js/details/utils.js::COLUMN_FORMAT_DEPENDENCIES`). */
+const GEO_DEPENDENCIES: Readonly<Record<string, readonly string[]>> = {
+	"geo-boundary": ["address"],
+	"geo-points": ["address"],
+	"geo-boundary-color": ["address", "geo-boundary"],
+	"geo-points-colors": ["address", "geo-points"],
+};
+
+/** The formats HQ's Case List and Case Detail saves admit once per detail (`screen.js::save`). */
+const ONCE_PER_DETAIL = new Set(["image", ...Object.keys(GEO_DEPENDENCIES)]);
 
 /** Keys every column's reading takes or drops by its own row. */
 const CELL_KEYS = [
@@ -449,8 +523,7 @@ const HQ_PROPERTY_NAME = new RegExp(
 
 /** The column field a property-backed column reads, classified by the rows of the field. */
 function classifyField(field: string): FieldClass {
-	if (field.startsWith("#owner_name") || field === "#owner_name")
-		return { kind: "finding", claim: C.ownerName };
+	if (field === "#owner_name") return { kind: "finding", claim: C.ownerName };
 	const colon = field.indexOf(":");
 	if (colon > 0) {
 		const prefix = field.slice(0, colon);
@@ -607,6 +680,12 @@ function claimOtherKeys(
 		column.peek("graph_configuration") === null ? C.graphNull : C.graphOther,
 	);
 	for (const key of BOOKKEEPING_KEYS) column.drop(key, C.bookkeeping);
+	// HQ's column editor saves every format's extra on every column (`column.js::serialize`); a
+	// format that does not read one leaves it behind.
+	if (format !== "date") column.drop("date_format", C.dateFormatElsewhere);
+	if (format !== "late-flag") column.drop("late_flag", C.lateFlagElsewhere);
+	if (format !== "time-ago")
+		column.drop("time_ago_interval", C.timeAgoElsewhere);
 	if (column.used("optimization")) {
 		column.refuse("optimization", C.optimization);
 		ok = false;
@@ -624,7 +703,8 @@ function claimOtherKeys(
 	const known = new Set([...BOOKKEEPING_KEYS, ...CELL_KEYS]);
 	for (const key of column.undeclared()) {
 		if (known.has(key)) continue;
-		column.refuse(key, C.undeclared, { name: key });
+		// A stored key is no word a person knows from HQ's pages, so the finding names nothing.
+		column.refuse(key, C.undeclared);
 		ok = false;
 	}
 	return ok;
@@ -639,21 +719,91 @@ function fieldOf(column: JsonCursor): { text: string; xpath: boolean } {
 	};
 }
 
+/** What reading one column gives: the Nova column it would be, `"dropped"` where its row is an
+ *  inert one that changes no build, or `undefined` where its row raised a finding. */
+export type ColumnReading = ColumnProposal | "dropped" | undefined;
+
+/** What a column's reading needs of its detail and its menu. */
+export interface ColumnOptions {
+	/** Whether a property is one the app's select questions write. */
+	readonly selectProperty: SelectProperty;
+	/** Whether the short detail is a custom tile. */
+	readonly inTile: boolean;
+	/** How many columns of each format the detail holds. */
+	readonly formats: ReadonlyMap<string, number>;
+	/** Whether the menu is an advanced module. */
+	readonly advanced: boolean;
+	/** Whether the menu offers search (`util.py::module_offers_search`). */
+	readonly offersSearch: boolean;
+	/** For a `filter` column, whether it changes HQ's build of its detail. */
+	readonly filterChangesBuild: boolean;
+}
+
+/** HQ's word for a column's property a relation path reads: `parent/prop`, `host/prop`. */
+function isRelationPath(field: string): boolean {
+	return (
+		field.includes("/") && !field.startsWith("user/") && !field.includes(":")
+	);
+}
+
+/** A non-calculated `translatable-enum` column, by its rows: a key outside the editor's grammar or
+ *  two entries of one key first, then the property it reads. Always a finding. */
+function readOwnTranslatableEnum(
+	column: JsonCursor,
+	field: string,
+	offersSearch: boolean,
+): undefined {
+	const entries = enumEntries(column);
+	if (
+		entries.some(
+			(entry) =>
+				typeof entry.key !== "string" || !/^[A-Za-z0-9_-]+$/.test(entry.key),
+		)
+	) {
+		column.refuse("enum", C.translatableEnumKey);
+		return undefined;
+	}
+	const keys = entries.map((entry) => entry.key as string);
+	if (new Set(keys).size !== keys.length) {
+		column.refuse("enum", C.enumDuplicateKey);
+		return undefined;
+	}
+	const named = field === "" ? undefined : { name: field.slice(0, 200) };
+	if (!isRelationPath(field)) {
+		const classified = classifyField(field);
+		if (classified.kind === "finding") {
+			column.refuse(
+				"field",
+				classified.claim,
+				classified.claim === C.fieldInvalid ? undefined : named,
+			);
+			return undefined;
+		}
+	}
+	column.take("field", C.field, String).value;
+	column.refuse(
+		"format",
+		!isRelationPath(field)
+			? C.translatableEnumOwn
+			: offersSearch
+				? C.translatableEnumRelationOffers
+				: C.translatableEnumRelationDoes,
+		named,
+	);
+	return undefined;
+}
+
 /**
  * One detail column as the Nova column it would be. `undefined` where the column's row raised a
- * finding. `screen` is the detail it stands in; `selectProperty` says whether a property is one
- * the app's select questions write; `inTile` whether the short detail is a custom tile.
+ * finding, `"dropped"` where its row changes no build. `screen` is the detail it stands in.
  */
 export function readDetailColumn(
 	ctx: ReadContext,
 	module: DraftModule,
 	column: JsonCursor,
 	screen: "short" | "long",
-	options: {
-		readonly selectProperty: SelectProperty;
-		readonly inTile: boolean;
-	},
-): ColumnProposal | undefined {
+	options: ColumnOptions,
+): ColumnReading {
 	const header = column.take("header", C.header, languageMap).value;
 	const place = column.place;
 	if (column.peek("model") === "product") {
@@ -739,6 +889,9 @@ export function readDetailColumn(
 			);
 	}
 
+	if (format === "translatable-enum")
+		return readOwnTranslatableEnum(column, field.text, options.offersSearch);
+
 	if (format === "invisible" && screen === "long") {
 		column.take("format", C.invisibleLong, String).value;
 	} else if (format === "invisible" && options.inTile) {
@@ -814,16 +967,35 @@ export function readDetailColumn(
 			return readImageMap(ctx, module, column, name, base, proposal);
 		case "late-flag": {
 			const flag = column.peek("late_flag");
+			const zero = typeof flag === "number" && flag <= 0;
 			column.refuse(
 				"format",
-				typeof flag === "number" && flag <= 0 ? C.lateFlagZero : C.lateFlag,
+				zero ? C.lateFlagZero : C.lateFlag,
+				formatName(format),
+			);
+			column.refuse(
+				"late_flag",
+				zero ? C.lateFlagZeroValue : C.lateFlagValue,
 				formatName(format),
 			);
 			return undefined;
 		}
-		case "time-ago":
-			column.refuse("format", C.timeAgo, formatName(format));
+		case "time-ago": {
+			const interval = column.peek("time_ago_interval");
+			const onMenu =
+				typeof interval === "number" && TIME_AGO_MENU.includes(interval);
+			column.refuse(
+				"format",
+				onMenu ? C.timeAgo : C.timeAgoOther,
+				formatName(format),
+			);
+			column.refuse(
+				"time_ago_interval",
+				onMenu ? C.timeAgoInterval : C.timeAgoOtherInterval,
+				formatName(format),
+			);
 			return undefined;
+		}
 		case "clickable-icon":
 			column.refuse(
 				"format",
@@ -839,24 +1011,49 @@ export function readDetailColumn(
 		case "markdown":
 			column.refuse("format", C.markdownOther, formatName(format));
 			return undefined;
-		case "translatable-enum":
-			column.refuse("format", C.translatableEnumOwn, fieldName);
-			return undefined;
 		case "filter":
-			// Its effect on the build is judged with the whole short detail (`details.ts`).
+			// HQ's build writes no field for it (`detail_screen.py::Filter`); the detail decides
+			// whether it moves the default sort, a sort element, a calculated column's index or a
+			// template tile's slot.
+			if (options.filterChangesBuild) {
+				column.refuse("format", C.filterRefused, fieldName);
+				return undefined;
+			}
+			column.drop("format", C.filterInert);
+			return others ? "dropped" : undefined;
+	}
+	// Several of a format HQ admits once per detail: refused before the format's own row.
+	const count = options.formats.get(format) ?? 0;
+	if (count > 1 && (format === "address" || ONCE_PER_DETAIL.has(format))) {
+		column.refuse(
+			"format",
+			!options.advanced
+				? C.severalOfOneFormat
+				: format === "address"
+					? C.severalAddressAdvanced
+					: C.severalImageGeoAdvanced,
+			formatName(format),
+		);
+		return undefined;
+	}
+	const dependencies = GEO_DEPENDENCIES[format];
+	if (dependencies !== undefined) {
+		if (dependencies.some((one) => (options.formats.get(one) ?? 0) === 0)) {
+			column.refuse("format", C.geoWithout, formatName(format));
+			return undefined;
+		}
+		if (screen === "long") {
+			column.take("format", C.geoOnDetail, String).value;
 			return proposal({
 				kind: "plain",
 				field: name,
 				...base,
 			} as ColumnProposal["column"]);
+		}
 	}
-	if (format.startsWith("geo-") && screen === "long") {
-		column.take("format", C.geoOnDetail, String).value;
-		return proposal({
-			kind: "plain",
-			field: name,
-			...base,
-		} as ColumnProposal["column"]);
+	if (format === "address" && options.inTile && screen === "short") {
+		column.refuse("format", C.invisibleInTile, formatName(format));
+		return undefined;
 	}
 	const finding = FORMAT_FINDING[format];
 	if (finding !== undefined) {

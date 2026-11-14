@@ -6,7 +6,9 @@
  * `unrecognized`; a path that differs by language, or is held in one language
  * only, is refused. A hint's or a group label's media, which no slot holds, is
  * inert where the file is there and handed off as `unheld_itext` where it is
- * not. A map of paths by language reads by the same rule.
+ * not. Each question that references one text reads its media as its own. A
+ * map of paths by language reads by the same rule: a path one app language
+ * holds and another does not differs.
  */
 
 import { describe, expect, it } from "vitest";
@@ -154,6 +156,33 @@ describe("media on a text", () => {
 		expect(unclaimedMedia(reading)).toEqual([]);
 	});
 
+	it("puts the media of a text two questions reference in each question's slot, claimed once", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<a/><b/>",
+				model: `<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>${itext(
+					{
+						en: `<text id="shared"><value>Same</value><value form="image">jr://file/commcare/s.png</value></text>`,
+					},
+				)}`,
+				body: `<input ref="/data/a"><label ref="jr:itext('shared')"/></input>
+					<input ref="/data/b"><label ref="jr:itext('shared')"/></input>`,
+			}),
+			{ media: index },
+		);
+		expect(field(reading, "a").label_media).toEqual({ image: "asset-s.png" });
+		expect(field(reading, "b").label_media).toEqual({ image: "asset-s.png" });
+		expect(
+			reading.ctx.facts.mediaReferences.map((reference) => reference.place),
+		).toEqual([
+			expect.objectContaining({ path: "a" }),
+			expect.objectContaining({ path: "b" }),
+		]);
+		expect(codes(reading)).toEqual([]);
+		expect(unclaimedMedia(reading)).toEqual([]);
+		expect(reading.closed.defects).toEqual([]);
+	});
+
 	it("refuses a path that differs by language, and one held in one language only", async () => {
 		const differing = await readForm(
 			source({
@@ -261,13 +290,26 @@ describe("a map of paths by language", () => {
 		]);
 	});
 
+	it("answers differs for a path one app language holds and another does not", async () => {
+		const ctx = await context(index);
+		expect(readMediaMap(ctx, { en: "jr://file/a.png" }, at(ctx))).toEqual({
+			kind: "differs",
+		});
+		expect(
+			readMediaMap(ctx, { en: "jr://file/a.png", fr: "" }, at(ctx)),
+		).toEqual({ kind: "differs" });
+		expect(ctx.facts.mediaReferences).toEqual([]);
+	});
+
 	it("hands a path with no file off, with a record, and lists it", async () => {
 		const ctx = await context(index);
-		expect(readMediaMap(ctx, { en: "jr://file/missing.png" }, at(ctx))).toEqual(
-			{
-				kind: "handed-off",
-			},
-		);
+		expect(
+			readMediaMap(
+				ctx,
+				{ en: "jr://file/missing.png", fr: "jr://file/missing.png" },
+				at(ctx),
+			),
+		).toEqual({ kind: "handed-off" });
 		expect(ctx.facts.pendingMedia).toEqual([
 			expect.objectContaining({ resolution: "no-entry", slot: "module_media" }),
 		]);

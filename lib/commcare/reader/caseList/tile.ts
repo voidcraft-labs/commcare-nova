@@ -233,6 +233,7 @@ export function readTile(
 	joined: JoinedDetails,
 	shortColumns: readonly JsonCursor[],
 	longColumns: readonly JsonCursor[],
+	dropped: ReadonlySet<number> = new Set(),
 ): TileReading {
 	let ok = true;
 	const cells = new Map<number, TileCell>();
@@ -305,5 +306,10 @@ export function readTile(
 		if (cell === "finding") ok = false;
 		else cells.set(index, cell);
 	});
+	// A column an inert row dropped writes no field, so no cell (`detail_screen.py::Filter`).
+	for (const index of dropped) {
+		const cursor = shortColumns[index];
+		if (cursor !== undefined) dropCells(cursor);
+	}
 	return { ok, config, cells };
 }

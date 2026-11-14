@@ -6,11 +6,13 @@
  * What the pass decides is written into the menu's draft; what the second
  * pass compares is kept in the reading (`caseListReading`).
  */
+import { produce } from "immer";
 import type { CaseListConfig, Column, ColumnSort, Uuid } from "@/lib/domain";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import { caseListColumnTextShows } from "@/lib/domain/modules";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { applicationReading } from "../appShell";
+import { noteProperty } from "../caseManagement/catalog";
 import { type Claim, defineClaims, drop, refuse, take } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
 import { externalKey } from "../identity";
@@ -21,12 +23,14 @@ import { sameXPathText } from "../syntaxCompare";
 import type { SameStateRegister } from "../types";
 import {
 	appCodes,
+	type ColumnOptions,
 	type ColumnProposal,
+	type ColumnReading,
 	languageMap,
 	readDetailColumn,
 	type SelectProperty,
 } from "./columns";
-import { readSortElements, type SortReading } from "./order";
+import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
 import { readTile, type TileReading } from "./tile";
 
 const A = "menus-and-case-lists/";
@@ -165,17 +169,29 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}data-tab-over-a-custom-nodeset-xpath`,
 		"schema:Detail.tabs",
 	),
-	lookupOnLong: refuse(
-		`${A}lookup-on-the-long-detail-tabbed-or-not`,
-		"schema:Detail.lookup_enabled",
+	tabsColumnsAbove: refuse(
+		`${A}columns-above-the-first-tab-when-tabs-exist`,
+		"schema:Detail.tabs",
+	),
+	tabRelevant: refuse(
+		`${A}tab-relevant-lifts-into-predicate-not`,
+		"schema:DetailTab.relevant",
+	),
+	tabsTileRowMixed: refuse(
+		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-a-basic-or`,
+		"schema:DetailTab.starting_index",
+	),
+	tabsTileRowMixedAdvanced: refuse(
+		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced`,
+		"schema:DetailTab.starting_index",
 	),
 	lookupNoExtras: refuse(
 		`${A}callout-with-no-extras-or-no-responses`,
 		"schema:Detail.lookup_extras",
 	),
-	lookupEnabled: refuse(
-		`${A}lookup-enabled-lookup-action`,
-		"schema:Detail.lookup_enabled",
+	lookupNoResponses: refuse(
+		`${A}callout-with-no-extras-or-no-responses`,
+		"schema:Detail.lookup_responses",
 	),
 	lookupOff: drop(
 		`${A}lookup-enabled-false-with-stale-keys`,
@@ -215,6 +231,88 @@ const LOOKUP_OFF_KEYS = defineClaims(
 		]),
 	) as Record<string, Claim<"drop">>,
 );
+
+/** The switch and every key of a callout. */
+const CALLOUT_KEYS = ["lookup_enabled", ...LOOKUP_KEYS];
+
+/** Each key of a callout on the case list, by the entry that names it. */
+const LOOKUP_ENTRY_OF_KEY: Readonly<Record<string, string>> = {
+	lookup_enabled: "lookup-enabled-lookup-action",
+	lookup_action: "lookup-enabled-lookup-action",
+	lookup_name: "lookup-name",
+	lookup_image: "lookup-image-jr",
+	lookup_autolaunch: "lookup-autolaunch",
+	lookup_extras: "lookup-extras-key-value",
+	lookup_responses: "lookup-responses-key",
+	lookup_display_results:
+		"lookup-display-results-lookup-field-header-lookup-field-template",
+	lookup_field_header:
+		"lookup-display-results-lookup-field-header-lookup-field-template",
+	lookup_field_template:
+		"lookup-display-results-lookup-field-header-lookup-field-template",
+};
+
+const LOOKUP_ON_KEYS = defineClaims(
+	"caseList.details.lookupOn",
+	Object.fromEntries(
+		CALLOUT_KEYS.map((key) => [
+			key,
+			refuse(`${A}${LOOKUP_ENTRY_OF_KEY[key]}`, `schema:Detail.${key}`),
+		]),
+	) as Record<string, Claim<"refuse">>,
+);
+
+const LOOKUP_LONG_KEYS = defineClaims(
+	"caseList.details.lookupLong",
+	Object.fromEntries(
+		CALLOUT_KEYS.map((key) => [
+			key,
+			refuse(
+				`${A}lookup-on-the-long-detail-tabbed-or-not`,
+				`schema:Detail.${key}`,
+			),
+		]),
+	) as Record<string, Claim<"refuse">>,
+);
+
+/** HQ builds no callout on an `icon_text_grid` list (`case_tiles.py::build_case_tile_detail`). */
+const LOOKUP_GRID_KEYS = defineClaims(
+	"caseList.details.lookupGrid",
+	Object.fromEntries(
+		CALLOUT_KEYS.map((key) => [
+			key,
+			drop(
+				`${A}lookup-enabled-on-an-icon-text-grid-case-list`,
+				`schema:Detail.${key}`,
+			),
+		]),
+	) as Record<string, Claim<"drop">>,
+);
+
+/** Whether a row of a custom tile holds columns of two tabs: each column stands in the last tab
+ *  that starts at or before it (`Detail.get_tab_spans`). */
+function tileRowMixesTabs(
+	detail: JsonCursor,
+	tabs: readonly Readonly<Record<string, unknown>>[],
+): boolean {
+	const columns = detail.peek("columns");
+	if (!Array.isArray(columns)) return false;
+	const starts = tabs.map((tab) =>
+		typeof tab.starting_index === "number" ? tab.starting_index : 0,
+	);
+	const tabsOfRow = new Map<number, Set<number>>();
+	columns.forEach((column, index) => {
+		if (!isJsonObject(column) || typeof column.grid_y !== "number") return;
+		let tab = -1;
+		starts.forEach((start, at) => {
+			if (start <= index) tab = at;
+		});
+		const set = tabsOfRow.get(column.grid_y) ?? new Set<number>();
+		set.add(tab);
+		tabsOfRow.set(column.grid_y, set);
+	});
+	return [...tabsOfRow.values()].some((set) => set.size > 1);
+}
 
 /** One Nova column the join made, before its identity is minted. */
 export interface JoinedColumn {
@@ -350,6 +448,11 @@ export interface CaseListReading {
 	readonly filter?: number;
 	/** Whether every column and key was read: false where a finding stands on the list. */
 	readonly whole: boolean;
+	/** The stored columns of each detail an inert row dropped, by index: no build writes them. */
+	readonly dropped: {
+		readonly short: ReadonlySet<number>;
+		readonly long: ReadonlySet<number>;
+	};
 }
 
 const READINGS = new WeakMap<ReadContext, Map<Uuid, CaseListReading>>();
@@ -417,6 +520,76 @@ function listNeeded(
 			return "parent";
 	}
 	return "unread";
+}
+
+/**
+ * Whether the `filter` column at `index` of the short detail changes HQ's build of it. It writes
+ * no field (`detail_screen.py::Filter`), so it changes the build where it is the column HQ's
+ * default sort reads (the first column of a list with no sort element,
+ * `details.py::get_default_sort_elements`), where it is the first column whose `field` a sort
+ * element names (`util.py::get_sort_and_sort_only_columns` attaches the sort to it), where a
+ * `_cc_calculated_<n>` element names a column after it, or where a template tile maps it to a slot
+ * (`case_tiles.py::_get_matched_detail_column`).
+ */
+function filterChangesBuild(short: JsonCursor, index: number): boolean {
+	const stored = short.peek("columns");
+	const columns = Array.isArray(stored) ? stored : [];
+	const column = columns[index];
+	if (!isJsonObject(column)) return false;
+	const sorts = short.peek("sort_elements");
+	const elements = Array.isArray(sorts) ? sorts.filter(isJsonObject) : [];
+	if (index === 0 && elements.length === 0) return true;
+	const field = column.field;
+	if (
+		typeof field === "string" &&
+		elements.some((element) => element.field === field) &&
+		!columns
+			.slice(0, index)
+			.some((earlier) => isJsonObject(earlier) && earlier.field === field)
+	)
+		return true;
+	if (
+		elements.some((element) => {
+			const named =
+				typeof element.field === "string"
+					? CALCULATED_FIELD.exec(element.field)
+					: null;
+			return named !== null && Number(named[1]) > index;
+		})
+	)
+		return true;
+	const template = short.peek("case_tile_template");
+	return (
+		typeof template === "string" &&
+		template !== "" &&
+		template !== "custom" &&
+		typeof column.case_tile_field === "string" &&
+		column.case_tile_field !== ""
+	);
+}
+
+/** How many columns of each format a detail holds. */
+function formatCounts(detail: JsonCursor): Map<string, number> {
+	const stored = detail.peek("columns");
+	const counts = new Map<string, number>();
+	if (!Array.isArray(stored)) return counts;
+	for (const column of stored) {
+		if (!isJsonObject(column)) continue;
+		const format = typeof column.format === "string" ? column.format : "plain";
+		counts.set(format, (counts.get(format) ?? 0) + 1);
+	}
+	return counts;
+}
+
+/** Whether the menu offers search (`util.py::module_offers_search`). */
+function menuOffersSearch(module: DraftModule): boolean {
+	const config = module.json.peek("search_config");
+	if (!isJsonObject(config)) return false;
+	return (
+		(Array.isArray(config.properties) && config.properties.length > 0) ||
+		(Array.isArray(config.default_properties) &&
+			config.default_properties.length > 0)
+	);
 }
 
 /** Claims the keys of a detail that hold no setting Nova reads: the inert ones and each finding. */
@@ -494,33 +667,82 @@ function readDetailKeys(
 	};
 	texts("no_items_text", NO_ITEMS_DEFAULT, D.noItemsDefault, D.noItemsOther);
 	texts("select_text", SELECT_DEFAULT, D.selectDefault, D.selectOther);
-	const tabs = detail.peek("tabs");
-	if (Array.isArray(tabs) && tabs.length > 0) {
-		const data = tabs.find(
-			(tab) => isJsonObject(tab) && tab.has_nodeset === true,
-		);
-		const claim = !isJsonObject(data)
-			? D.tabs
-			: typeof data.nodeset_case_type === "string" &&
-					data.nodeset_case_type !== ""
-				? D.tabsDataChild
-				: D.tabsDataCustom;
-		detail.refuse("tabs", claim);
+	const stored = detail.peek("tabs");
+	const tabs = Array.isArray(stored) ? stored.filter(isJsonObject) : [];
+	if (tabs.length > 0) {
+		// Every kind the tabs hold is a finding; the first kind of the tabs themselves claims the key.
+		const start = tabs[0]?.starting_index;
+		const data = tabs.filter((tab) => tab.has_nodeset === true);
+		const overChildren = (tab: Readonly<Record<string, unknown>>) =>
+			typeof tab.nodeset_case_type === "string" && tab.nodeset_case_type !== "";
+		const child = data.some(overChildren);
+		const custom = data.some((tab) => !overChildren(tab));
+		const kinds = [
+			...(typeof start === "number" && start > 0 ? [D.tabsColumnsAbove] : []),
+			...(data.length < tabs.length ? [D.tabs] : []),
+			...(child ? [D.tabsDataChild] : []),
+			...(custom ? [D.tabsDataCustom] : []),
+		];
+		const [primary, ...rest] = kinds;
+		if (primary !== undefined) detail.refuse("tabs", primary);
+		for (const kind of rest) ctx.accounting.finding(kind, detail.place);
+		if (
+			screen === "long" &&
+			detail.peek("case_tile_template") === "custom" &&
+			tileRowMixesTabs(detail, tabs)
+		)
+			ctx.accounting.finding(
+				module.docType === "AdvancedModule"
+					? D.tabsTileRowMixedAdvanced
+					: D.tabsTileRowMixed,
+				detail.place,
+			);
+		if (
+			tabs.some(
+				(tab) => typeof tab.relevant === "string" && tab.relevant.trim() !== "",
+			)
+		)
+			ctx.accounting.finding(D.tabRelevant, detail.place);
 		ok = false;
 	}
 	if (detail.peek("lookup_enabled") === true) {
-		const extras = detail.peek("lookup_extras");
-		const responses = detail.peek("lookup_responses");
-		if (screen === "long") detail.refuse("lookup_enabled", D.lookupOnLong);
-		else if (
-			!Array.isArray(extras) ||
-			extras.length === 0 ||
-			!Array.isArray(responses) ||
-			responses.length === 0
-		)
-			detail.refuse("lookup_extras", D.lookupNoExtras);
-		else detail.refuse("lookup_enabled", D.lookupEnabled);
-		ok = false;
+		if (
+			screen === "short" &&
+			detail.peek("case_tile_template") === "icon_text_grid"
+		) {
+			for (const key of CALLOUT_KEYS) {
+				const claim = LOOKUP_GRID_KEYS[key];
+				if (claim !== undefined) detail.drop(key, claim);
+			}
+		} else if (screen === "long") {
+			for (const key of CALLOUT_KEYS) {
+				const claim = LOOKUP_LONG_KEYS[key];
+				if (claim !== undefined) detail.refuse(key, claim);
+			}
+			ok = false;
+		} else {
+			// The refused row is tested before the rows of its keys: a callout with no extras or no
+			// responses claims those two, and every other key takes its own row.
+			const extras = detail.peek("lookup_extras");
+			const responses = detail.peek("lookup_responses");
+			const unready =
+				!Array.isArray(extras) ||
+				extras.length === 0 ||
+				!Array.isArray(responses) ||
+				responses.length === 0;
+			if (unready) {
+				detail.refuse("lookup_extras", D.lookupNoExtras);
+				detail.refuse("lookup_responses", D.lookupNoResponses);
+				ctx.accounting.finding(D.lookupNoExtras, detail.place);
+			}
+			for (const key of CALLOUT_KEYS) {
+				if (unready && (key === "lookup_extras" || key === "lookup_responses"))
+					continue;
+				const claim = LOOKUP_ON_KEYS[key];
+				if (claim !== undefined) detail.refuse(key, claim);
+			}
+			ok = false;
+		}
 	} else {
 		detail.drop("lookup_enabled", D.lookupOff);
 		for (const key of LOOKUP_KEYS) {
@@ -532,11 +754,11 @@ function readDetailKeys(
 		if (key === "custom_variables") detail.drop(key, D.legacyVariables);
 		else if (key === "print_template") detail.drop(key, D.printTemplate);
 		else {
-			detail.refuse(key, D.undeclared, { name: key });
+			// A stored key is no word a person knows from HQ's pages, so the finding names nothing.
+			detail.refuse(key, D.undeclared);
 			ok = false;
 		}
 	}
-	void ctx;
 	return ok;
 }
 
@@ -603,9 +825,10 @@ export function readCaseDetails(
 		}
 		return;
 	}
-	let whole =
-		readDetailKeys(ctx, module, short, "short") &&
-		readDetailKeys(ctx, module, long, "long");
+	// Both details are read whatever the first holds, so every finding is raised in one pass.
+	const shortKeys = readDetailKeys(ctx, module, short, "short");
+	const longKeys = readDetailKeys(ctx, module, long, "long");
+	let whole = shortKeys && longKeys;
 	const selection = readSelection(ctx, module, short);
 	whole &&= selection.ok;
 	const tileTemplate = short.peek("case_tile_template");
@@ -622,20 +845,49 @@ export function readCaseDetails(
 	}
 	const shortCursors = short.list("columns", "DetailColumn", D.shortColumns);
 	const longCursors = long.list("columns", "DetailColumn", D.longColumns);
-	const shortProposals = shortCursors.map((column) =>
-		readDetailColumn(ctx, module, column, "short", { selectProperty, inTile }),
-	);
-	const longProposals = longCursors.map((column) =>
-		readDetailColumn(ctx, module, column, "long", {
-			selectProperty,
-			inTile: false,
+	const shared = {
+		selectProperty,
+		advanced: module.docType === "AdvancedModule",
+		offersSearch: menuOffersSearch(module),
+	};
+	const shortOptions: Omit<ColumnOptions, "filterChangesBuild"> = {
+		...shared,
+		inTile,
+		formats: formatCounts(short),
+	};
+	const longOptions: ColumnOptions = {
+		...shared,
+		inTile: false,
+		formats: formatCounts(long),
+		filterChangesBuild: false,
+	};
+	const shortReadings = shortCursors.map((column, index) =>
+		readDetailColumn(ctx, module, column, "short", {
+			...shortOptions,
+			filterChangesBuild: filterChangesBuild(short, index),
 		}),
 	);
+	const longReadings = longCursors.map((column) =>
+		readDetailColumn(ctx, module, column, "long", longOptions),
+	);
 	whole &&=
-		shortProposals.every((one) => one !== undefined) &&
-		longProposals.every((one) => one !== undefined);
+		shortReadings.every((one) => one !== undefined) &&
+		longReadings.every((one) => one !== undefined);
+	const droppedOf = (readings: readonly ColumnReading[]) =>
+		new Set(
+			readings.flatMap((one, index) => (one === "dropped" ? [index] : [])),
+		);
+	const dropped = {
+		short: droppedOf(shortReadings),
+		long: droppedOf(longReadings),
+	};
+	const proposalsOf = (readings: readonly ColumnReading[]) =>
+		readings.map((one) => (one === "dropped" ? undefined : one));
 
-	const joined = joinDetailColumns(shortProposals, longProposals);
+	const joined = joinDetailColumns(
+		proposalsOf(shortReadings),
+		proposalsOf(longReadings),
+	);
 	const sort = readSortElements(ctx, module, short, joined, shortCursors);
 	whole &&= sort.ok;
 	const tile = readTile(
@@ -646,8 +898,30 @@ export function readCaseDetails(
 		joined,
 		shortCursors,
 		longCursors,
+		dropped.short,
 	);
 	whole &&= tile.ok;
+
+	// Each property a column or a sort element reads is a property of the catalog.
+	const caseType = module.module.caseType;
+	const properties = joined.columns.flatMap((column) =>
+		column.proposal.column.kind !== "calculated" &&
+		"field" in column.proposal.column &&
+		typeof column.proposal.column.field === "string"
+			? [column.proposal.column.field]
+			: [],
+	);
+	if (
+		caseType !== undefined &&
+		properties.length > 0 &&
+		ctx.draft.caseTypes != null
+	)
+		ctx.writeDraft(() => {
+			ctx.draft.caseTypes = produce(ctx.draft.caseTypes ?? [], (draft) => {
+				for (const property of properties)
+					noteProperty(draft, caseType, property);
+			});
+		});
 
 	// Each column's identity: by (kind, field, n), n its ordinal among equal pairs in list order.
 	const seen = new Map<string, number>();
@@ -785,5 +1059,6 @@ export function readCaseDetails(
 		joined,
 		...(filter !== undefined && { filter }),
 		whole,
+		dropped,
 	});
 }

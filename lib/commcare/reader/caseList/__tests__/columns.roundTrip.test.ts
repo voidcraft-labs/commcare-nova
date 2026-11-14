@@ -7,6 +7,7 @@
  * changes screens on the way back.
  */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { Column, Uuid } from "@/lib/domain";
 import { concat, prop, term } from "@/lib/domain/expression/builders";
@@ -15,11 +16,15 @@ import {
 	dateColumn,
 	idMappingColumn,
 	idMappingEntry,
+	imageMapColumn,
+	imageMapEntry,
 	intervalColumn,
 	linkColumn,
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain/modules";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 import { codes, comparableList, listOf, readLists } from "./listReading";
 
 /** A standard property of the list's case type, as the reader binds it. */
@@ -59,6 +64,26 @@ function app(columns: Column[], listOrder?: Uuid[], detailOrder?: Uuid[]) {
 								id: "phone",
 								caseWrite: { caseType: "patient", property: "phone" },
 							}),
+							f({
+								kind: "single_select",
+								id: "risk",
+								caseWrite: { caseType: "patient", property: "risk" },
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											value: "low",
+											label: proseText("Low"),
+											uuid: testUuid("o-low"),
+										},
+										{
+											value: "high",
+											label: proseText("High"),
+											uuid: testUuid("o-high"),
+										},
+									],
+								},
+							}),
 						],
 					},
 				],
@@ -91,6 +116,10 @@ describe("a case list Nova emits reads back as the columns it was emitted from",
 			intervalColumn(uuid(6), "dob", "Due", 7, "days", "flag", "Late"),
 		],
 		[
+			"interval shown always",
+			intervalColumn(uuid(8), "dob", "Age", 2, "weeks", "always", "Old"),
+		],
+		[
 			"calculated",
 			calculatedColumn(
 				uuid(7),
@@ -111,6 +140,20 @@ describe("a case list Nova emits reads back as the columns it was emitted from",
 				),
 			);
 		});
+
+	it("reads an image-map column shown on both screens", async () => {
+		const icon = testUuid("asset-icon") as unknown as MediaAssetId;
+		const doc = app([
+			imageMapColumn(uuid(10), "notes", "Icon", [imageMapEntry("a", icon)]),
+		]);
+		const reading = await readLists(doc, { media: true });
+		expect(codes(reading)).toEqual([]);
+		expect(comparableList(listOf(reading))).toEqual(
+			comparableList(
+				doc.modules[doc.moduleOrder[0] as Uuid]?.caseListConfig as never,
+			),
+		);
+	});
 
 	it("reads a column shown on one screen, hidden from both, and not on the list", async () => {
 		const columns = [

@@ -1,14 +1,18 @@
 /**
  * After-submit shapes CommCare HQ's form settings page stores that Nova's
- * emitter does not: the otherwise written as a last link, a fallback beside
- * links that always run, a guard-shaped conjunct of the author's, a link that
- * carries a case with no guard, and the workflow word `default`.
+ * emitter does not: the otherwise written as a last link (and written back in
+ * HQ's order), a fallback beside links that always run, a guard-shaped
+ * conjunct of the author's, a link that carries a case with no guard, the
+ * workflow word `default`, and the two link shapes HQ's build or a running
+ * app refuses: `form` with no link, and a link that leaves its destination's
+ * case empty.
  */
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { buildShape } from "../../../__tests__/formLinkDocArbitrary";
 import { expandDoc } from "../../../expander";
+import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import {
 	readContext,
 	readerInput,
@@ -17,14 +21,16 @@ import {
 } from "../../__tests__/readerInput";
 import { STAGES } from "../../index";
 import { bindExpressions } from "../../provisional";
-import { defaultPostSubmitAbsent } from "../afterSubmit";
+import { defaultPostSubmitAbsent, linkGuards } from "../afterSubmit";
 import {
 	type AppJson,
 	codesOf,
 	formNamed,
 	type JsonObject,
-	readMenusOf,
+	readMenusOf as readMenusOfDoc,
 } from "./menuReading";
+
+const readMenusOf = namingFromHqPages(readMenusOfDoc);
 
 /** The stored links of the generator's source form. */
 function links(app: AppJson): JsonObject[] {
@@ -83,6 +89,11 @@ describe("the otherwise written as a last link", () => {
 				target: { type: "module", moduleUuid: expect.any(String) },
 			}),
 		);
+		// Written back in HQ's order: the destination, then the otherwise link.
+		const stored = links(reading.app).map((one) => one.xpath);
+		const written = expandDoc(reading.doc as BlueprintDoc).modules[0]?.forms[0]
+			?.form_links as unknown as JsonObject[];
+		expect(written.map((one) => one.xpath)).toEqual(stored);
 	});
 
 	it("reads a fallback beside links that always run as nothing", async () => {
@@ -134,6 +145,21 @@ describe("held-case guards", () => {
 		expect(link?.condition).toBeUndefined();
 		expect(link?.datums).toHaveLength(1);
 		expect(rewrites(reading)).toContain("link-held-case-guards-added");
+		// The stored link is marked as one whose guard the first publish adds, and the publish
+		// writes the guard Nova's own link holds.
+		const read = reading.doc as BlueprintDoc;
+		const check = formNamed(read, "Check");
+		if (link === undefined) throw new Error("The link reads back.");
+		expect(linkGuards(read, check.uuid, link, "").guards).toBe("added");
+		const republished = links(expandDoc(read) as unknown as AppJson)[0];
+		if (republished === undefined) throw new Error("The link is published.");
+		const carried = (republished.datums as JsonObject[]).map(
+			(datum) => datum.xpath as string,
+		);
+		expect(
+			linkGuards(read, check.uuid, link, republished.xpath as string, carried)
+				.guards,
+		).toBe("written");
 	});
 });
 
@@ -196,5 +222,93 @@ describe("the workflow word `default`", () => {
 		const canonical = defaultPostSubmitAbsent(stored);
 		expect(formNamed(canonical, "Visit").postSubmit).toBeUndefined();
 		expect(defaultPostSubmitAbsent(canonical)).toBe(canonical);
+	});
+});
+
+describe("links HQ's build or a running app refuses", () => {
+	const app = () =>
+		buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+				{
+					name: "Households",
+					caseType: "household",
+					forms: [
+						{
+							name: "Check household",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									caseWrite: { caseType: "household", property: "notes" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("refuses `form` with no link to follow", async () => {
+		const reading = await readMenusOf(app(), (json) => {
+			(json.modules[0]?.forms[0] as JsonObject).post_form_workflow = "form";
+		});
+		expect(codesOf(reading)).toContain(
+			"forms-and-case-writes/form-links-failing-hq-s-link-checks-no-form-links-and-bad-form",
+		);
+		expect(codesOf(reading)).not.toContain(
+			"unrecognized:schema:Form.post_form_workflow",
+		);
+	});
+
+	it("refuses a link whose destination's case nothing the form holds supplies", async () => {
+		const reading = await readMenusOf(app(), (json) => {
+			const households = json.modules[1];
+			const target = households?.forms[0] as JsonObject;
+			const source = json.modules[0]?.forms[0] as JsonObject;
+			source.post_form_workflow = "form";
+			source.form_links = [
+				{
+					doc_type: "FormLink",
+					xpath: "",
+					form_id: target.unique_id,
+					form_module_id: households?.unique_id,
+					datums: [],
+				},
+			];
+		});
+		expect(codesOf(reading)).toContain(
+			"forms-and-case-writes/form-links-datums-that-leave-the-target-s-case-id-empty",
+		);
+		expect(
+			codesOf(reading).filter((code) => code.startsWith("unrecognized")),
+		).toEqual([]);
+	});
+
+	it("reads a workflow word Nova writes as stored", async () => {
+		const reading = await readMenusOf(app(), (json) => {
+			(json.modules[1]?.forms[0] as JsonObject).post_form_workflow = "root";
+		});
+		expect(codesOf(reading)).toEqual([]);
+		expect(
+			formNamed(reading.doc as BlueprintDoc, "Check household").postSubmit,
+		).toBe("firstMenu");
 	});
 });

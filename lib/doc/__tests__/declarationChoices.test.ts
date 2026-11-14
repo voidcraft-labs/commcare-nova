@@ -227,11 +227,13 @@ describe("planDeclarationChoices over production documents", () => {
 		const doc = withSelfReadThroughAFilter(
 			withDatetimeQuestion(fixture("forms-read-search")),
 		);
-		const choices = planDeclarationChoices(doc, { webAppsOnInHq: true });
-		expect(choices).toMatchObject({
-			kind: "none",
-			splitRefused: firstQuestion(doc),
-		});
+		for (const webAppsOnInHq of [true, false]) {
+			const choices = planDeclarationChoices(doc, { webAppsOnInHq });
+			expect(choices).toMatchObject({
+				kind: "none",
+				splitRefused: firstQuestion(doc),
+			});
+		}
 	});
 
 	it("leaves the document it is given as it came", () => {

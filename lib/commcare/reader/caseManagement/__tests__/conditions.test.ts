@@ -296,12 +296,19 @@ describe("a basic action's condition read by the inverse of stateCondition", () 
 		expect(conditionFinding(["condition-not-a-choice"], false)?.entry).toBe(
 			"forms-and-case-writes/a-subcase-or-advanced-action-condition-on-a-question-the-picker",
 		);
+		// The rows in table order: a question the picker does not offer before an apostrophe.
 		expect(
 			conditionFinding(
 				["condition-question-kind", "condition-apostrophe"],
 				false,
 			)?.entry,
 		).toBe(
+			"forms-and-case-writes/a-subcase-or-advanced-action-condition-on-a-question-the-picker",
+		);
+		expect(conditionFinding(["condition-apostrophe"], false)?.entry).toBe(
+			"forms-and-case-writes/an-open-close-child-case-or-advanced-action-condition-with",
+		);
+		expect(conditionFinding(["condition-apostrophe"], true)?.entry).toBe(
 			"forms-and-case-writes/an-open-close-child-case-or-advanced-action-condition-with",
 		);
 		expect(conditionFinding(["condition-shape"], true)).toBeUndefined();

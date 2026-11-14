@@ -214,6 +214,27 @@ function compareText(a: string, b: string): number {
 }
 
 /** The document an element belongs to. */
+/** The surface key of the CommCare HQ object a place stands in: what a finding at a place with
+ *  no node of its own names, where its claim names no surface key and its detail no value. */
+function placeSurfaceKey(place: HqPlace): string {
+	switch (place.kind) {
+		case "menu":
+			return "schema:Module";
+		case "case-list":
+		case "case-detail":
+			return "schema:Detail";
+		case "search":
+			return "schema:CaseSearch";
+		case "form":
+		case "question":
+			return "schema:Form";
+		case "media":
+			return "schema:HQMediaMapItem";
+		default:
+			return "schema:Application";
+	}
+}
+
 function documentOf(element: Element): Document | null {
 	let node: Element["parent"] = element.parent;
 	while (node !== null && node.type !== "root") node = node.parent;
@@ -506,8 +527,10 @@ export class Accounting implements ClaimLedger {
 	/**
 	 * A manifest finding that is a relation between several nodes, each already
 	 * claimed. The claim's use must be `refuse` or `account` and its entry's
-	 * standing one that makes a finding; any other is the defect D2. It claims
-	 * no node.
+	 * standing one that makes a finding; any other is the defect D2, whose
+	 * `unrecognized` finding names the claim's surface key, else the value
+	 * `detail` names, else the surface key of the object the place stands in.
+	 * It claims no node.
 	 */
 	finding(claim: Claim, place: HqPlace, detail?: FindingDetail): void {
 		const entry = this.#index.entry(claim.entry);
@@ -518,7 +541,7 @@ export class Accounting implements ClaimLedger {
 		) {
 			this.defect(
 				place,
-				claim.key ?? claim.entry,
+				claim.key ?? detail?.name ?? placeSurfaceKey(place),
 				readerDefect.claimNotPermitted(
 					place,
 					claimName(claim) ?? "unregistered-claim",
@@ -574,11 +597,6 @@ export class Accounting implements ClaimLedger {
 			this.#manifestFinding(entry.id, place, detail);
 	}
 
-	/**
-	 * Marks a node as covered by a finding already raised: a log record under
-	 * the finding's entry where it is a manifest finding, none where it is a
-	 * circumstance, and no second finding.
-	 */
 	/** Whether some finding already stands at exactly `place`: a check whose inputs a finding
 	 *  there withheld is skipped, and that finding sends the person to the place. */
 	hasFindingAt(place: HqPlace): boolean {
@@ -605,6 +623,11 @@ export class Accounting implements ClaimLedger {
 		this.handOff(ledgerSite, key ?? ledgerSite.name, to, subject);
 	}
 
+	/**
+	 * Marks a node as covered by a finding already raised: a log record under
+	 * the finding's entry where it is a manifest finding, none where it is a
+	 * circumstance, and no second finding.
+	 */
 	cover(site: ClaimSite, by: Finding): void {
 		const ledgerSite = this.#site(site);
 		if (ledgerSite === undefined) return;

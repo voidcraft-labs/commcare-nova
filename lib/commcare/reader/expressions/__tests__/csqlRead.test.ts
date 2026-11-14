@@ -139,6 +139,7 @@ describe("a search filter row's CSQL", () => {
 		expect(readSearchFilterRow("'village ='", filter, env)).toEqual({
 			ok: false,
 			unrecognized: true,
+			reason: "differs:string",
 		});
 	});
 });

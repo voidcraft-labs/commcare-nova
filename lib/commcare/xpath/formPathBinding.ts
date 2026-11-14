@@ -494,11 +494,16 @@ function instancePath(
 				whole,
 				`This search answer path needs one of the menu's search fields, read as instance('${id}')/input/field[@name = 'field name'].`,
 			);
-		// A form reads its menu's Search fields; a menu's own slot (its filter,
-		// a Search field's condition) reads the fields its profile holds.
-		const input = (form?.searchInputs ?? context.profile.searchInputs).find(
-			(input) => input.name === keyed.value,
-		);
+		// A form reads its menu's Search fields. In a reading of CommCare HQ's
+		// app, a menu's own slot (its filter, a Search field's condition) reads
+		// the fields its profile holds. Without the reading hook a slot with
+		// no form finds no field here.
+		const fields =
+			form?.searchInputs ??
+			(binder.scope.reading === undefined
+				? undefined
+				: context.profile.searchInputs);
+		const input = fields?.find((input) => input.name === keyed.value);
 		if (input === undefined)
 			refuse(
 				"unknown-search-input",
@@ -719,18 +724,26 @@ export function bindFormPath(
 		return instancePath(binder, path, context, whole);
 	// HQ writes `current()` for the listed case in a slot that has no form and
 	// lists cases (`EntriesHelper.get_filter_xpath`): its steps are that row's.
-	const row = activeRowScope(context);
+	// Core keeps the first row a predicate rescopes to as `current()` through
+	// every nested predicate (`EvaluationContext.rescope`), so the steps are
+	// the slot's own row's at any depth. Inside a table's rows a case value is
+	// that captured row's; inside another query of cases Nova has no tree for
+	// it, so the bound read is the inner row's, whose print differs, and the
+	// slot is left unread rather than refused as text Core cannot run.
+	const listed = context.rows[0];
 	if (
 		reading !== undefined &&
 		context.form === undefined &&
-		context.rows.length === 1 &&
-		row?.kind === "case" &&
+		listed?.kind === "case" &&
 		path.root?.kind === "call" &&
 		path.root.name === "current" &&
 		path.root.args.length === 0 &&
 		path.steps.length > 0
 	)
-		return binder.term(rowValue(binder, path.steps, context, whole), whole);
+		return binder.term(
+			rowValue(binder, path.steps, { ...context, rows: [listed] }, whole),
+			whole,
+		);
 	if (reading !== undefined && path.root?.kind === "root") {
 		const generated = generatedValuePath(path);
 		const expanding = expandingGenerated.get(binder) ?? new Set<string>();

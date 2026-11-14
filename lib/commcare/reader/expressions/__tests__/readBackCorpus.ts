@@ -23,6 +23,7 @@ import {
 	expressionSlotValues,
 } from "@/lib/domain/referenceSlots";
 import type { Uuid } from "@/lib/domain/uuid";
+import type { LookupWireNaming } from "../../../lookup/naming";
 import { inventoryIndex } from "../../../surface/inventory";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
 import { type ClosedAccounting, createReadContext } from "../../context";
@@ -33,6 +34,7 @@ import type {
 	PendingExpression,
 	PendingOutcome,
 } from "../../pendingExpressions";
+import type { ReaderLookupCatalog, ReadFacts } from "../../types";
 import { expressionEnvOf } from "../../xform";
 import { canonicalExpression } from "../canonical";
 import type {
@@ -80,14 +82,32 @@ export interface EmissionReading {
 	readonly closed: ClosedAccounting;
 	/** What the expression stage read with. */
 	readonly env: ExpressionReadEnv;
+	/** The rewrites the reading reported, each at its slot's key. */
+	readonly rewrites: ReadFacts["rewrites"];
+}
+
+/** The tables an app reads: their names for the export, and the source
+ *  project space's catalog for the reading. */
+export interface ReadTables {
+	readonly naming: LookupWireNaming;
+	readonly catalog: ReaderLookupCatalog;
 }
 
 /** Every stage of a reading over HQ's export of `doc`, under `doc`'s own identities. */
 export function readEmission(
 	doc: BlueprintDoc,
 	recordDialect: RecordDialectJudge,
+	tables?: ReadTables,
 ): Promise<EmissionReading> {
-	return readBody(exportedBody(doc), doc, recordDialect);
+	return readBody(
+		exportedBody(
+			doc,
+			tables === undefined ? {} : { expand: { lookupNaming: tables.naming } },
+		),
+		doc,
+		recordDialect,
+		tables,
+	);
 }
 
 /** Every stage of a reading over `body`, an export of `doc` a test may have
@@ -96,6 +116,7 @@ export async function readBody(
 	body: Readonly<Record<string, unknown>>,
 	doc: BlueprintDoc,
 	recordDialect: RecordDialectJudge,
+	tables?: ReadTables,
 ): Promise<EmissionReading> {
 	const input = await inputFor(body, {
 		resolver: matchingResolver(
@@ -103,6 +124,7 @@ export async function readBody(
 			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 		),
 		recordDialect,
+		...(tables === undefined ? {} : { lookup: tables.catalog }),
 	});
 	const ctx = createReadContext(input, { claims: "full" }, inventoryIndex());
 	for (const stage of STAGES) stage(ctx);
@@ -112,7 +134,13 @@ export async function readBody(
 		registration,
 		outcome: ctx.pending.outcome(index),
 	}));
-	return { doc: ctx.doc, slots, closed, env: expressionEnvOf(ctx) };
+	return {
+		doc: ctx.doc,
+		slots,
+		closed,
+		env: expressionEnvOf(ctx),
+		rewrites: [...ctx.facts.rewrites],
+	};
 }
 
 /** One stored expression of a document, under the key its slot reads by. */

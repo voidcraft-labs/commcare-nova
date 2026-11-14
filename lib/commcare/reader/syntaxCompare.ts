@@ -48,7 +48,8 @@ interface Position {
 	readonly predicate: boolean;
 }
 
-/** `options` defaults to `{ ruleSet: "record" }`, the comparison parts 07's two-argument calls mean. */
+/** `options` defaults to `{ ruleSet: "record" }`, the comparison a call
+ *  with two arguments means. */
 export function sameSyntax(
 	source: FormSyntax,
 	print: FormSyntax,

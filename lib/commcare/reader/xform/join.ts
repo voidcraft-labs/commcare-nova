@@ -23,7 +23,12 @@ import {
 	RESERVED_QUESTION_IDS,
 } from "@/lib/domain/questionId";
 import type { HqPlace } from "@/lib/publish/hqFindings";
-import { elementNamespace, JAVAROSA_NS, splitName } from "../../xmlNamespaces";
+import {
+	elementNamespace,
+	isElement,
+	JAVAROSA_NS,
+	splitName,
+} from "../../xmlNamespaces";
 import type { Accounting } from "../accounting";
 import type { GeneratedValue } from "../expressions";
 import { questionPlace } from "../place";
@@ -33,6 +38,8 @@ import {
 	type AppearanceForm,
 	claimAppearance,
 	classifyAppearance,
+	INTENT_NAMING_ORPHAN,
+	triggerStaysLabel,
 } from "./appearances";
 import {
 	type ControlNode,
@@ -68,7 +75,7 @@ import {
 	type SetvalueFacts,
 } from "./model";
 import { type CaseChoicesProposal, readChoices } from "./options";
-import type { ParsedXForm } from "./parse";
+import { intentIdsOf, ODK_NS, type ParsedXForm } from "./parse";
 import { type RepeatRead, readRepeat, settleRepeatCount } from "./repeats";
 
 type FormPlace = Extract<HqPlace, { kind: "form" }>;
@@ -345,17 +352,23 @@ export function joinForm(input: JoinInput): JoinedForm {
 		};
 		let row: FieldKindRow | undefined = fieldKindOf(facts);
 		let labelAppearance = false;
-		if (control?.tag === "trigger" && row?.kind === undefined) {
-			const verdict =
-				control.appearance === undefined
-					? undefined
-					: classifyAppearance(
-							control,
-							bind,
-							control.appearance,
-							input.intents,
-						);
-			if (verdict?.kind === "claim") {
+		// A trigger whose appearance is not exactly `minimal` is a label only where its
+		// appearance leaves Android's widget no acknowledge; any other is the kind row's refusal.
+		if (
+			control?.tag === "trigger" &&
+			row?.kind === undefined &&
+			control.appearance !== undefined
+		) {
+			const verdict = classifyAppearance(
+				control,
+				bind,
+				control.appearance,
+				input.intents,
+			);
+			if (
+				verdict.kind === "claim" &&
+				triggerStaysLabel(verdict, control.appearance)
+			) {
 				row = fieldKindOf({ ...facts, appearance: "minimal" });
 				if (claimAppearance(cursor, control, verdict, place).inert)
 					inertAppearances.push(node.path.join("/"));
@@ -455,17 +468,21 @@ export function joinForm(input: JoinInput): JoinedForm {
 		const node = { element: control.element, attribute: name };
 		const written = control.element.attribs[name] ?? "";
 		const digits = written.endsWith("px") ? written.slice(0, -2) : written;
-		const number = /^-?\d+$/.test(digits) ? Number(digits) : undefined;
+		// Core reads the value with `Integer.parseInt`, which takes one leading sign.
+		const number = /^[+-]?\d+$/.test(digits) ? Number(digits) : undefined;
 		const image = row.kind === "image";
 		if (
 			number === undefined ||
 			number > 2147483647 ||
+			number < -2147483648 ||
 			(image && (number === 0 || number < -1))
 		)
 			cursor.refuse(node, X.imageMaxDimensionInvalid, place, { name: written });
 		else if (image && number > 0)
 			cursor.refuse(node, X.imageMaxDimension, place, { name: written });
-		else if (!image) cursor.account(node, X.imageMaxDimensionElsewhere, place);
+		// Any integer on another upload, and `-1` on an image, Android's own no-limit value
+		// (`ImageWidget`), the state with none.
+		else cursor.account(node, X.imageMaxDimensionElsewhere, place);
 	};
 
 	/** A control's field, by the nearest ancestor control that made a container field. */
@@ -739,6 +756,48 @@ export function joinForm(input: JoinInput): JoinedForm {
 		}
 	}
 
+	// The head's `odkx:intent`s an input's `intent:<id>` names (8.2): a callout question's own
+	// is refused with the callout, at its question, and one no callout writes with the
+	// appearance that names it.
+	const named = intentIdsOf(parsed.html);
+	const callouts = new Map<string, ControlNode>();
+	const naming = new Map<string, ControlNode>();
+	for (const control of input.controls.all) {
+		const appearance = control.appearance;
+		if (control.tag !== "input" || !appearance?.startsWith("intent:")) continue;
+		const id = appearance.slice("intent:".length);
+		const type =
+			control.node === undefined
+				? undefined
+				: input.binds.get(control.node)?.type;
+		const into =
+			type !== undefined && stripXsd(type) === "intent" ? callouts : naming;
+		if (!into.has(id)) into.set(id, control);
+	}
+	const controlPlace = (control: ControlNode) =>
+		control.node === undefined ? formPlace : placeOf(control.node);
+	for (const element of parsed.head.children) {
+		if (!isTag(element)) continue;
+		if (!isElement(element, parsed.scope(element), ODK_NS, "intent")) continue;
+		const id = element.attribs.id;
+		if (id === undefined || !named.has(id)) continue;
+		const callout = callouts.get(id);
+		const by = naming.get(id);
+		if (callout !== undefined)
+			cursor.refuseSubtree(
+				element,
+				X.refusedKind.intent,
+				controlPlace(callout),
+			);
+		else
+			cursor.refuseSubtree(
+				element,
+				INTENT_NAMING_ORPHAN,
+				by === undefined ? formPlace : controlPlace(by),
+				{ name: by?.appearance ?? `intent:${id}` },
+			);
+	}
+
 	// 3, 5 and 6. The nodes no control names. Every generated name starts `nova_`, which
 	// orders the proposals and proves none: the other leaves are Hidden Values first, so a
 	// generated node is proposed against every field it could serve, and a `nova_` leaf no
@@ -748,6 +807,20 @@ export function joinForm(input: JoinInput): JoinedForm {
 		!fieldOf.has(node) &&
 		!tree.refused.has(node) &&
 		!covered.has(node);
+	// 6 first: a node with element children and no control is refused whole and stands in as a
+	// group, before the leaves are read, so each leaf under it stands under that group, at the
+	// data path it has. A container under one already refused stands in under it.
+	const refusedContainers = new Set<DataNode>();
+	for (const node of tree.order) {
+		if (!open(node) || node.children.length === 0) continue;
+		let within = false;
+		for (let at = node.parent; at !== null && !within; at = at.parent)
+			within = refusedContainers.has(at);
+		if (!within)
+			cursor.refuseSubtree(node.element, X.hiddenWithChildren, placeOf(node));
+		refusedContainers.add(node);
+		make(node, dataParent(node), undefined, "group", true);
+	}
 	for (const node of tree.order)
 		if (
 			open(node) &&
@@ -756,36 +829,26 @@ export function joinForm(input: JoinInput): JoinedForm {
 		)
 			readQuestion(node, undefined, dataParent(node));
 	for (const node of tree.order) {
-		if (!open(node)) continue;
-		const parent = dataParent(node);
-		if (node.children.length === 0) {
-			accounting.noteRebuild();
-			const role = recognizeGenerated(node, input.binds, fields, input.target);
-			if (role === undefined) {
-				readQuestion(node, undefined, parent);
-				continue;
-			}
-			setGenerated(node, role);
-			if (role.kind === "generated") {
-				const bind = input.binds.get(node);
-				claimGeneratedNode(cursor, node, bind, {
-					calculate: role.purpose !== "count",
-				});
-				const calculate = bind?.logic.calculate;
-				if (role.purpose === "constraint-count" && calculate !== undefined)
-					generatedValues.set(absolutePath(node, root), {
-						purpose: "constraint-count",
-						calculate,
-					});
-			}
+		if (!open(node) || node.children.length > 0) continue;
+		accounting.noteRebuild();
+		const role = recognizeGenerated(node, input.binds, fields, input.target);
+		if (role === undefined) {
+			readQuestion(node, undefined, dataParent(node));
 			continue;
 		}
-		cursor.refuse(
-			{ element: node.element },
-			X.hiddenWithChildren,
-			placeOf(node),
-		);
-		make(node, parent, undefined, "group", true);
+		setGenerated(node, role);
+		if (role.kind === "generated") {
+			const bind = input.binds.get(node);
+			claimGeneratedNode(cursor, node, bind, {
+				calculate: role.purpose !== "count",
+			});
+			const calculate = bind?.logic.calculate;
+			if (role.purpose === "constraint-count" && calculate !== undefined)
+				generatedValues.set(absolutePath(node, root), {
+					purpose: "constraint-count",
+					calculate,
+				});
+		}
 	}
 
 	// A refused data node stands in, so a path another expression writes to it still binds.

@@ -117,7 +117,9 @@ def test_hq_preserves_literals_through_interpolation_and_instance_discovery(nati
             "enumKeys": enum_results,
             "limits": "Native HQ interpolate_xpath, dot_interpolate, MappingItem.key_as_condition and "
             "get_instance_names; libxml XPath values with only JavaRosa's one-backslash substr escape adapted. "
-            "Generated record literals and XForm attributes only; no app build, Core, or served reader.",
+            "Generated record literals and XForm attributes; the reader port's vectors and Nova's prints of a "
+            "case read in each interpolating slot are held by this file's two reader cases. No app build, Core, or "
+            "served reader.",
         },
     )
 
@@ -187,6 +189,9 @@ def test_hq_interpolates_novas_hq_print_into_its_suite_print(native):
     exports, source, payload = _reader_payload(native)
     slots = payload["slots"]
     assert {row["mode"] for row in slots} == {"case", "no-case", "no-dots"}
+    # A form's display condition is interpolated with a case path where the form opens on a case, and without one
+    # where it opens on none: both are held.
+    assert {("form_filter", "case"), ("form_filter", "no-case")} <= {(row["slot"], row["mode"]) for row in slots}
     slot_results = []
     for row in slots:
         interpolated = interpolate_xpath(

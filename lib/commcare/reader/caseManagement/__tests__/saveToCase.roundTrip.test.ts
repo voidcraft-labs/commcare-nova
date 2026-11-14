@@ -13,9 +13,11 @@
  * declares; today's spelling records nothing. The plausible failures: a
  * block read into the wrong operation, a guard read as an operation, a
  * wrapper read as part of the value (the emitter would then wrap it twice
- * and every Nova-born block would fail its re-emission), and an app Nova
- * published before refused, or brought in with no word of what its first
- * publish changes.
+ * and every Nova-born block would fail its re-emission), a keyed create's
+ * id compared under the reading's own prefix rather than the source's, so
+ * that every Nova-born keyed create reads as outside Nova's shape, and an
+ * app Nova published before refused, or brought in with no word of what its
+ * first publish changes.
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -23,8 +25,11 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import {
 	actingUser,
+	eq,
 	formField,
+	literal,
 	now,
+	or,
 	term,
 	unowned,
 } from "@/lib/domain/expression";
@@ -41,6 +46,8 @@ import { readFormSyntax } from "../../../xpath/formSyntax";
 import { w } from "../../../xpath/wire/builders";
 import { typedInstantValue } from "../../../xpath/wire/instant";
 import { serializeWire } from "../../../xpath/wire/serialize";
+import { exportedBody, inputFor } from "../../__tests__/novaExport";
+import { readHqApp } from "../../index";
 import { sameXPathText } from "../../syntaxCompare";
 import { saveToCaseReading } from "../saveToCase";
 import { type CaseReading, readCases } from "./caseReading";
@@ -319,6 +326,27 @@ describe("a value read through its wrapper", () => {
 		]);
 	});
 
+	it("reads a follow-up form's root create keyed by an answer whole, its id printed back under the prefix the source holds", async () => {
+		const keyed: CaseOperation = {
+			uuid: testUuid("stc-keyed"),
+			id: "photo",
+			action: "create",
+			caseType: "photo",
+			target: { kind: "new", idFrom: SEEN },
+			name: term(formField(SEEN)),
+		};
+		const outcome = readHqApp(await inputFor(exportedBody(visitApp([keyed]))));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("The export did not read.");
+		const doc = outcome.draft.doc;
+		const seen = Object.values(doc.fields).find((field) => field.id === "seen");
+		const create = Object.values(doc.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.find((operation) => operation.action === "create");
+		expect(create?.target).toEqual({ kind: "new", idFrom: seen?.uuid });
+		expect(create?.placement).toMatchObject({ kind: "save-to-case" });
+	});
+
 	it("reads an owner of the acting user's id as absent, and of no owner as unowned", async () => {
 		const create = (owner: CaseOperation["owner"]): CaseOperation =>
 			({
@@ -346,5 +374,85 @@ describe("a value read through its wrapper", () => {
 				),
 			).toEqual([]);
 		}
+	});
+});
+
+describe("the worker's record and the own arm in a block", () => {
+	it("reads an update of the worker's record that takes a block as that update, never the reserved type's finding", async () => {
+		const worker: CaseOperation = {
+			uuid: testUuid("stc-worker"),
+			id: "worker",
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			// A write condition keeps the update out of Case Management's worker slot.
+			writes: [
+				{
+					property: "last_seen",
+					value: term(formField(SEEN)),
+					condition: eq(term(formField(SEEN)), literal("yes")),
+				},
+			],
+		};
+		const reading = await readCases(visitApp([worker]));
+		expect(reading.findings.map((one) => one.code)).not.toContain(OUTSIDE);
+		expect(reading.findings.map((one) => one.code)).not.toContain(
+			"questions/savetocase-create-close-or-link-of-commcare-user-or-type-user",
+		);
+		const read = reading.forms
+			.flatMap((form) => form.form.caseOperations ?? [])
+			.find((one) => one.action === "update");
+		expect(read).toMatchObject({
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			placement: { kind: "save-to-case" },
+		});
+		// The row's presence conjunct is the emitter's, so only the authored condition is read.
+		const condition = registered(reading).find(
+			(one) => one.slot === "case_operation_write_condition",
+		);
+		expect(
+			condition !== undefined &&
+				sameXPathText(condition.text, "/data/seen = 'yes'", {
+					ruleSet: "form",
+				}),
+		).toBe(true);
+	});
+
+	it("reads an own update of a question's answer with no condition, and one under a bracketed condition, each without the emitter's presence conjunct", async () => {
+		const own: CaseOperation = {
+			...ownVisited,
+			writes: [
+				{ property: "visited_at", value: now() },
+				{ property: "note", value: term(formField(SEEN)) },
+				{
+					property: "seen_by",
+					value: term(formField(SEEN)),
+					condition: or(
+						eq(term(formField(SEEN)), literal("a")),
+						eq(term(formField(SEEN)), literal("b")),
+					),
+				},
+			],
+		};
+		const doc = visitApp([own]);
+		const reading = await readCases(doc);
+		expect(reading.findings.map((one) => one.code)).not.toContain(OUTSIDE);
+		const conditions = registered(reading).filter(
+			(one) => one.slot === "case_operation_write_condition",
+		);
+		expect(conditions.map((one) => one.member)).toEqual([
+			expect.objectContaining({ property: "seen_by" }),
+		]);
+		const text = conditions[0]?.text ?? "";
+		expect(readFormSyntax(text).ok).toBe(true);
+		expect(
+			sameXPathText(text, "(/data/seen = 'a' or /data/seen = 'b')", {
+				ruleSet: "form",
+			}),
+		).toBe(true);
+		// Read through every stage, the block the emitter writes back is the stored one.
+		const outcome = readHqApp(await inputFor(exportedBody(doc)));
+		expect(outcome.kind === "account" ? outcome.findings : []).toEqual([]);
 	});
 });

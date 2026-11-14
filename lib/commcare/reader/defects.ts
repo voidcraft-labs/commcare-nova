@@ -9,6 +9,7 @@
  * list; a value outside its slot's list is written as the slot's fallback.
  */
 
+import type { core } from "zod";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import {
 	type TranslationUnitRole,
@@ -19,7 +20,7 @@ import type { HqPlace, ReadStanding } from "@/lib/publish/hqFindings";
 import { READ_STANDINGS } from "@/lib/publish/hqFindings";
 import { inventoryIndex } from "../surface/inventory";
 import type { FormParseIssueCode } from "../xpath/formParseIssues";
-import { parser } from "../xpath/parser";
+import type { FormSyntax } from "../xpath/formSyntax";
 import { claimRegistry } from "./claims";
 import { EXTERNAL_ENTITY_KINDS, type ExternalEntityKind } from "./identity";
 import { placeKey } from "./place";
@@ -117,10 +118,25 @@ const PARSE_ISSUE_CODES = Object.keys({
 	"capture-link-not-a-question": true,
 } satisfies Record<FormParseIssueCode, true>);
 
-/** The names of the XPath grammar's nodes, the kinds a tree comparison can differ at. */
-const GRAMMAR_NODE_KINDS: readonly string[] = parser.nodeSet.types
-	.map((type) => type.name)
-	.filter((name) => name !== "");
+/** The kinds of the one grammar's syntax tree (`xpath/formSyntax.ts`), the
+ *  nodes a tree comparison can differ at. */
+const GRAMMAR_NODE_KINDS = Object.keys({
+	string: true,
+	number: true,
+	name: true,
+	hashtag: true,
+	self: true,
+	parent: true,
+	root: true,
+	variable: true,
+	group: true,
+	negative: true,
+	axis: true,
+	child: true,
+	filter: true,
+	binary: true,
+	call: true,
+} satisfies Record<FormSyntax["kind"], true>);
 
 /** Part of the expression reader's `detail.reason`, written only where it is
  *  one of the three codes of Nova's own. */
@@ -139,19 +155,26 @@ function reasonSlot(reason: string): string {
 const DOCUMENT_KEYS: readonly string[] = Object.keys(blueprintDocSchema.shape);
 
 /** Zod's issue codes, the only `<issue code>` a line writes. */
-const ZOD_ISSUE_CODES = [
-	"invalid_type",
-	"too_big",
-	"too_small",
-	"invalid_format",
-	"not_multiple_of",
-	"unrecognized_keys",
-	"invalid_union",
-	"invalid_key",
-	"invalid_element",
-	"invalid_value",
-	"custom",
-] as const;
+const ZOD_ISSUE_CODES = Object.keys({
+	invalid_type: true,
+	too_big: true,
+	too_small: true,
+	invalid_format: true,
+	not_multiple_of: true,
+	unrecognized_keys: true,
+	invalid_union: true,
+	invalid_key: true,
+	invalid_element: true,
+	invalid_value: true,
+	custom: true,
+} satisfies Record<core.$ZodIssueCode, true>);
+
+/** The integrity issues of a written translation, the only `<issue>` a line writes. */
+const TRANSLATION_ISSUES = Object.keys({
+	"value-kind": true,
+	"blank-content": true,
+	"protected-content": true,
+} satisfies Record<TranslationValueIntegrityIssue, true>);
 
 export const readerDefect = {
 	/** `first` and `second` are names `claims.ts::claimRegistry()` holds. */
@@ -226,13 +249,8 @@ export const readerDefect = {
 		language: number,
 		issue: TranslationValueIntegrityIssue,
 	): ReaderDefectWhy {
-		const issues: readonly TranslationValueIntegrityIssue[] = [
-			"value-kind",
-			"blank-content",
-			"protected-content",
-		];
 		return why(
-			`translation at ${placeKey(place)}: ${oneOf(role, translationUnitRoles, "unknown-role")}, language ${positionSlot(language)}: ${oneOf(issue, issues, "unknown-issue")}`,
+			`translation at ${placeKey(place)}: ${oneOf(role, translationUnitRoles, "unknown-role")}, language ${positionSlot(language)}: ${oneOf(issue, TRANSLATION_ISSUES, "unknown-issue")}`,
 		);
 	},
 	/** `reason` is the row's `detail.reason`, one of the expression reader's codes. */

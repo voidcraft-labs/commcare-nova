@@ -743,6 +743,11 @@ export const X = {
 			appearance: "xform:group@appearance",
 		},
 	),
+	groupInQuestionList: one(
+		"take",
+		Q("groups-nested-in-a-question-list"),
+		"vellum-feature:group_in_field_list",
+	),
 	userRepeatInQuestionList: one(
 		"refuse",
 		Q("user-controlled-repeat-inside-a-question-list-a-group-whose"),

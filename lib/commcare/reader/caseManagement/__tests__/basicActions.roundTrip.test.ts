@@ -7,6 +7,7 @@ import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import { proseText } from "@/lib/domain/prose";
 import { blueprintDocArbitrary } from "../../../__tests__/xformDocArbitrary";
 import { planPlacements } from "../../../placement";
+import { codesOf, readMenusOf } from "../../menus/__tests__/menuReading";
 import {
 	comparableOperations,
 	docNames,
@@ -177,9 +178,96 @@ describe("a basic form read back from Nova's own emission", () => {
 		expect(operationsRead).toBeGreaterThan(0);
 	});
 
-	it("holds every placement it reads, the canonical member of the unheld-placements-are-held choice", async () => {
-		const reading = await readCases(app(cases[0]?.forms as FormSpec[]));
-		const own = reading.forms[0]?.form.caseOperations?.[0];
-		expect(own?.placement).toEqual({ kind: "basic", slot: "own" });
+	/** A follow-up that opens a child case and closes it again, the close sharing the create's place. */
+	function childWithClose(): BlueprintDoc {
+		const VISIT = testUuid("rt-visit");
+		const CHILD_NAME = testUuid("rt-child-name");
+		const CREATE = testUuid("rt-create");
+		return buildDoc(
+			{
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								uuid: "rt-visit",
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "text", id: "child", uuid: CHILD_NAME })],
+							},
+						],
+					},
+				],
+			},
+			(built) => {
+				built.forms[VISIT] = {
+					...built.forms[VISIT],
+					caseOperations: [
+						{ uuid: testUuid("rt-own"), id: "patient", action: "own" },
+						{
+							uuid: CREATE,
+							id: "patient_1",
+							action: "create",
+							caseType: "patient",
+							target: { kind: "new" },
+							name: {
+								kind: "term",
+								term: { kind: "field", uuid: CHILD_NAME },
+							},
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									target: { kind: "session" },
+									relationship: "child",
+								},
+							],
+						},
+						{
+							uuid: testUuid("rt-close"),
+							id: "patient_2",
+							action: "close",
+							caseType: "patient",
+							target: { kind: "op", opUuid: CREATE },
+						},
+					] as CaseOperation[],
+				} as never;
+			},
+		);
+	}
+
+	it("holds every placement of the read document, each close sharing the place it was read beside, through the settle", async () => {
+		const docs = [...cases.map(({ forms }) => app(forms)), childWithClose()];
+		for (const doc of docs) {
+			const reading = await readMenusOf(doc);
+			expect(
+				codesOf(reading).filter(
+					(code) =>
+						code.startsWith("unrecognized:schema:Form") ||
+						code.startsWith("forms-and-case-writes/"),
+				),
+			).toEqual([]);
+			const read = reading.doc;
+			if (read === undefined)
+				throw new Error(
+					`The reading holds a finding: ${codesOf(reading).join(", ")}`,
+				);
+			for (const [formUuid, form] of Object.entries(read.forms)) {
+				const plan = planPlacements(read, formUuid as Uuid);
+				expect(plan.inexpressible).toEqual([]);
+				const operations = form.caseOperations ?? [];
+				for (const operation of operations) {
+					const planned = plan.placements.get(operation.uuid);
+					if (operation.placement !== undefined)
+						expect(planned?.held).toBe(true);
+					else if (
+						operation.action === "close" &&
+						operation.target.kind === "op"
+					)
+						expect(planned?.sharesWith).toBe(operation.target.opUuid);
+				}
+			}
+		}
 	});
 });

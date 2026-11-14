@@ -3,7 +3,8 @@
  *
  * Contract: an app holding a mirror menu, an appearance Nova can't hold yet,
  * two load-time values in an order a save in HQ's form builder changes, and an
- * expression the checker refuses reads to one account that names all four,
+ * expression that parses and the checker refuses (a date ordered against a
+ * date and time) reads to one account that names all four,
  * each at its own place: no stage stops the reading early, and a finding of one
  * stage hides none of another's.
  *
@@ -76,7 +77,11 @@ it("names every finding of an app in one account", async () => {
 			'<select1 ref="/data/choice"',
 			'<select1 appearance="combobox" ref="/data/choice"',
 		);
-		const refused = appearance.replaceAll("= &apos;x&apos;", "= frobnicate(1)");
+		// It parses, and the checker refuses a date ordered against a date and time.
+		const refused = appearance.replaceAll(
+			"early = &apos;x&apos;",
+			"early = &apos;x&apos; and today() &lt; now()",
+		);
 		expect(refused).not.toBe(appearance);
 		expect(appearance).not.toBe(xml);
 		return swapSetvalues(refused);
@@ -107,9 +112,10 @@ it("names every finding of an app in one account", async () => {
 		"questions/select1-combobox",
 	);
 	expect(
-		question("shown").filter((finding) => finding.code !== "shadow-disagrees")
-			.length,
-	).toBeGreaterThan(0);
+		question("shown").map((finding) =>
+			finding.code.slice(finding.code.indexOf("/") + 1),
+		),
+	).toContain("a-form-expression-outside-what-nova-types");
 	expect(outcome.findings.map((finding) => finding.code)).toContain(
 		"questions/default-setvalues-in-an-order-a-save-in-the-form-builder-changes",
 	);

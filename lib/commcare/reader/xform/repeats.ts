@@ -280,6 +280,17 @@ function modelIteration(
 	return true;
 }
 
+/** Whether a `jr:count` is a path that starts at `instance('…')`: a path to a node of a
+ *  secondary instance, which the form's data tree holds none of. */
+function secondaryInstancePath(text: string): boolean {
+	const read = readFormSyntax(text);
+	let at = read.ok ? read.node : undefined;
+	if (at?.kind !== "child" && at?.kind !== "filter") return false;
+	while (at?.kind === "child" || at?.kind === "filter")
+		at = at.kind === "child" ? at.left : at.base;
+	return at?.kind === "call" && at.name === "instance";
+}
+
 /**
  * Reads a repeat's own attributes and claims the wrapping group, its captions and, for a
  * repeat with no count or a model-iteration repeat, the repeat itself. A counted repeat's
@@ -357,7 +368,11 @@ export function readRepeat(
 	}
 	const text = repeat.element.attribs[count] ?? "";
 	const read = readNodePath(text, tree, node.parent, input.accounting);
-	if (read.kind === "not-a-path") return refuseAll(X.countNotAPath, text);
+	if (read.kind === "not-a-path")
+		return refuseAll(
+			secondaryInstancePath(text) ? X.countNamingNoNode : X.countNotAPath,
+			text,
+		);
 	if (read.kind === "none") return refuseAll(X.countNamingNoNode, text);
 	if (read.attribute !== undefined) {
 		const wrapperNode = node.parent;

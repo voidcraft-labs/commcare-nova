@@ -8,8 +8,16 @@
  */
 import { describe, expect, it } from "vitest";
 import { columnSort, plainColumn } from "@/lib/domain/modules";
+import { namingFromHqPages } from "../../__tests__/hqPageNames";
 import { patients, uuid } from "./fixtures";
-import { codes, comparableList, listOf, readLists } from "./listReading";
+import {
+	codes,
+	comparableList,
+	listOf,
+	readLists as readListsOf,
+} from "./listReading";
+
+const readLists = namingFromHqPages(readListsOf);
 
 const element = (field: string, extra: Record<string, unknown> = {}) => ({
 	doc_type: "SortElement",
@@ -133,4 +141,65 @@ describe("CommCare HQ's sort elements", () => {
 			"menus-and-case-lists/display-lang-sort-by-label-on-a-sort-only-element",
 		);
 	});
+
+	it("declares `int` on a property no writer types, so the plan derives the stored comparator", async () => {
+		const doc = patients([plainColumn(uuid(1), "case_name", "Name")]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const short = app.modules[0]?.case_details.short;
+				if (short !== undefined)
+					short.sort_elements = [element("visits", { type: "int" })];
+			},
+		});
+		expect(codes(reading)).toEqual([]);
+		const visits = reading.ctx.doc?.caseTypes
+			?.find((type) => type.name === "patient")
+			?.properties.find((property) => property.name === "visits");
+		expect(visits?.data_type).toBe("int");
+		const read = comparableList(listOf(reading)) as {
+			list: Record<string, unknown>[];
+		};
+		expect(read.list.map((column) => [column.field, column.sort])).toEqual([
+			["case_name", undefined],
+			["visits", columnSort("asc", 0)],
+		]);
+	});
+
+	it("raises `int` on a property a text question saves", async () => {
+		const doc = patients([
+			plainColumn(uuid(1), "notes", "Notes", { sort: columnSort("asc", 0) }),
+		]);
+		const reading = await readLists(doc, {
+			edit: (app) => {
+				const first = app.modules[0]?.case_details.short.sort_elements[0];
+				if (first !== undefined) first.type = "int";
+			},
+		});
+		expect(codes(reading)).toContain(
+			"menus-and-case-lists/type-int-or-double-differing-from-the-derived-type-on-a-column",
+		);
+	});
+
+	for (const [stored, property] of [
+		["name", "case_name"],
+		["date-opened", "date_opened"],
+		["external-id", "external_id"],
+	] as const)
+		it(`reads a sort-only element on HQ's \`${stored}\` as a hidden column over \`${property}\``, async () => {
+			const doc = patients([plainColumn(uuid(1), "notes", "Notes")]);
+			const reading = await readLists(doc, {
+				edit: (app) => {
+					const short = app.modules[0]?.case_details.short;
+					if (short !== undefined) short.sort_elements = [element(stored)];
+				},
+			});
+			expect(codes(reading)).toEqual([]);
+			const read = comparableList(listOf(reading)) as {
+				list: Record<string, unknown>[];
+			};
+			expect(read.list.map((column) => [column.field, column.sort])).toEqual([
+				["notes", undefined],
+				[property, columnSort("asc", 0)],
+			]);
+		});
 });

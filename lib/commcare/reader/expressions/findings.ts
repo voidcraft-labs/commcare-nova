@@ -7,6 +7,7 @@
  * being registered and held to the manifest by `claimsBindManifest.test.ts`.
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type {
 	CheckError,
@@ -18,6 +19,7 @@ import {
 	isProseSlotRef,
 	type SlotContextRef,
 	type Term,
+	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
@@ -27,8 +29,10 @@ import { canonicalProseAtom } from "@/lib/domain/proseExpression";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import type { Uuid } from "@/lib/domain/uuid";
+import { inventoryIndex } from "../../surface/inventory";
 import type { FormParseIssue } from "../../xpath/formParseIssues";
 import { type FormSyntax, readFormSyntax } from "../../xpath/formSyntax";
+import { parser } from "../../xpath/parser";
 import { defineClaims, drop, refuse, take } from "../claims";
 import type { PendingExpression } from "../pendingExpressions";
 
@@ -1516,7 +1520,12 @@ export const SLOT_ENTRIES: Readonly<Record<SlotName, SlotRow>> = {
 	),
 	// Part of the case reader's structured actions: no text is registered.
 	form_open_condition: formSlot(undefined),
-	form_close_condition: formSlot(undefined),
+	// Registered only from a Save to Case block: the own close's condition,
+	// its group's `relevant` or the own arm's close in its block.
+	form_close_condition: fixed(
+		C["savetocase-inside-a-group-whose-display-condition-gates-it"].entry,
+		SAVE_TO_CASE_REFUSED,
+	),
 	assessment_user_score: formSlot(C["connect-assessment"].entry),
 	deliver_entity_id: formSlot(C["connect-deliver-unit"].entry),
 	deliver_entity_name: formSlot(C["connect-deliver-unit"].entry),
@@ -1617,7 +1626,7 @@ export function readsCaseAttributeThroughHashtag(text: string): boolean {
 		if (
 			node.kind === "child" &&
 			node.left?.kind === "hashtag" &&
-			node.left.namespace === "#case" &&
+			node.left.namespace === "case" &&
 			node.left.segments.length === 0 &&
 			node.step.kind === "axis" &&
 			node.step.axis === "attribute"
@@ -1699,9 +1708,29 @@ function inFormLogic(ref: SlotContextRef): boolean {
 		ref.slot !== "form_link_datum_xpath"
 	);
 }
-function asciiOnly(text: string): boolean {
-	for (let index = 0; index < text.length; index++)
+/** Whether every character outside the text's string literals is ASCII. The
+ *  literals are the grammar's own `StringLiteral` tokens, which the parser
+ *  reads in a text it cannot read whole too. */
+function asciiOutsideStrings(text: string): boolean {
+	const literals: { readonly from: number; readonly to: number }[] = [];
+	parser.parse(text).iterate({
+		enter(node) {
+			if (node.name !== "StringLiteral") return;
+			literals.push({ from: node.from, to: node.to });
+			return false;
+		},
+	});
+	let literal = 0;
+	for (let index = 0; index < text.length; index++) {
+		while (
+			literal < literals.length &&
+			(literals[literal] as { readonly to: number }).to <= index
+		)
+			literal++;
+		const at = literals[literal];
+		if (at !== undefined && at.from <= index) continue;
 		if (text.charCodeAt(index) > 0x7f) return false;
+	}
 	return true;
 }
 
@@ -1736,9 +1765,43 @@ function namesIn(node: FormSyntax | undefined): {
 	return { names, strings };
 }
 
-/** The entry a declared or named instance id claims when the parser does
- *  not know it, by the scheme of its id. */
-function instanceEntry(id: string | undefined): string {
+/** The entry an instance the parser does not know claims: by the source the
+ *  form declares it from where it declares one, then by the scheme of its id.
+ *  A declared source outside every scheme is the unrecognized-source entry;
+ *  an undeclared id outside every scheme the undeclared-id entry. */
+function instanceEntry(
+	id: string | undefined,
+	sources: ReadonlyMap<string, string> | undefined,
+): string {
+	const src = id === undefined ? undefined : sources?.get(id);
+	if (src !== undefined)
+		return (
+			schemeEntry(sourceSchemeId(src)) ??
+			C["declared-and-referenced-instance-with-an-unrecognized-src"].entry
+		);
+	return (
+		schemeEntry(id) ??
+		C[
+			"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
+		].entry
+	);
+}
+
+/** The id a declared source names an instance by, as CommCare HQ's build
+ *  writes each scheme's source (`suite_xml/post_process/instances.py`): the
+ *  fixture id of `jr://fixture/<id>`, the remote id of
+ *  `jr://instance/remote/<id>`, and `ledgerdb` for the ledger's source. */
+function sourceSchemeId(src: string): string | undefined {
+	if (src === "jr://instance/ledgerdb") return "ledgerdb";
+	for (const prefix of ["jr://fixture/", "jr://instance/remote/"])
+		if (src.startsWith(prefix) && src.length > prefix.length)
+			return src.slice(prefix.length);
+	return undefined;
+}
+
+/** The entry an instance id's scheme claims, the text before its first colon;
+ *  undefined for a scheme no entry of this table names. */
+function schemeEntry(id: string | undefined): string | undefined {
 	const scheme = id === undefined ? "" : (id.split(":")[0] ?? "");
 	switch (scheme) {
 		case "ledgerdb":
@@ -1766,9 +1829,7 @@ function instanceEntry(id: string | undefined): string {
 		case "case-search-fixture":
 			return C["case-search-fixture"].entry;
 		default:
-			return C[
-				"referenced-undeclared-instance-id-with-no-known-scheme-or-one@instance-scheme:commcare"
-			].entry;
+			return undefined;
 	}
 }
 
@@ -1811,15 +1872,30 @@ function readsLookupChoices(
 	});
 }
 
+/** What a form declares beside its expressions that a parse issue's entry
+ *  reads: each declared instance's `src` by id, and the ids the form's
+ *  computed datums give (an advanced form's `arbitrary_datums`). */
+export interface FormDeclarations {
+	readonly instanceSources: ReadonlyMap<string, string>;
+	readonly computedDatums: ReadonlySet<string>;
+}
+const NO_DECLARATIONS: FormDeclarations = {
+	instanceSources: new Map(),
+	computedDatums: new Set(),
+};
+
 /** "By parse issue", from its second row down: the entry, `"unrecognized"`,
  *  or `"slot-default"`, with the `detail.reason`. The two refusals of HQ's
  *  interpolation are judged here too. The first row, a `#case` attribute
  *  read in a form's display condition, is tested on the raw text before it is
- *  interpolated (`rawTextEntry`). */
+ *  interpolated (`rawTextEntry`). `form` holds what the slot's form declares
+ *  beside its expressions: its instances, by id, and the ids its computed
+ *  datums give. */
 export function parseIssueEntry(
 	issue: FormParseIssue | { readonly code: "case-reference" | "fixture-value" },
 	doc: BlueprintDoc,
 	pending: PendingExpression,
+	form: FormDeclarations = NO_DECLARATIONS,
 ): {
 	readonly entryId: string | "unrecognized" | "slot-default";
 	readonly reason: string;
@@ -1827,7 +1903,7 @@ export function parseIssueEntry(
 	const reason = `parse:${issue.code}`;
 	const ref = pending.ref;
 	const answer = (entryId: string) => ({ entryId, reason });
-	const bindAscii = inBindAttribute(ref) && asciiOnly(pending.text);
+	const bindAscii = inBindAttribute(ref) && asciiOutsideStrings(pending.text);
 	const spanned = () =>
 		"from" in issue ? spannedSyntax(pending, issue) : undefined;
 	switch (issue.code) {
@@ -1884,9 +1960,15 @@ export function parseIssueEntry(
 					: node?.kind === "child" && node.step.kind === "axis"
 						? node.step
 						: undefined;
+			// `self::node()` and `parent::node()` are refused only by a case,
+			// table or place row's path (`formPathBinding.ts::name`): a form
+			// path reads both as `.` and `..`.
 			if (
 				axis !== undefined &&
-				(axis.axis === "self" || axis.axis === "parent")
+				(axis.axis === "self" || axis.axis === "parent") &&
+				axis.value.kind === "call" &&
+				axis.value.name === "node" &&
+				axis.value.args.length === 0
 			)
 				return answer("slot-default");
 			return answer(
@@ -1919,8 +2001,13 @@ export function parseIssueEntry(
 			const { names } = namesIn(spanned());
 			if (names.includes("supply_point_id"))
 				return answer(
-					C["session-data-supply-point-id-anywhere-except-in-an-advanced-form"]
-						.entry,
+					form.computedDatums.has("supply_point_id")
+						? C[
+								"session-data-supply-point-id-in-an-advanced-form-whose-computed"
+							].entry
+						: C[
+								"session-data-supply-point-id-anywhere-except-in-an-advanced-form"
+							].entry,
 				);
 			if (names.includes("fingerprintquery"))
 				return answer(C["session-data-fingerprintquery"].entry);
@@ -1936,7 +2023,7 @@ export function parseIssueEntry(
 				: answer("slot-default");
 		case "instance-unknown": {
 			const { strings } = namesIn(spanned());
-			return answer(instanceEntry(strings[0]));
+			return answer(instanceEntry(strings[0], form.instanceSources));
 		}
 		case "unknown-table":
 		case "lookup-unavailable":
@@ -1961,8 +2048,20 @@ export function parseIssueEntry(
 		case "relative-no-context":
 		case "instance-argument":
 		case "search-results-unexcluded":
-		case "unknown-search-input":
 			return answer("slot-default");
+		case "unknown-search-input": {
+			// A child menu's form reads no Search field of its own menu; where
+			// its parent's forms read the search, the read is its parent's.
+			const owner =
+				ref.entity === "form"
+					? ref.uuid
+					: ref.entity === "field"
+						? formOfField(doc, ref.uuid)
+						: undefined;
+			return owner !== undefined && childOfInlineSearchMenu(doc, owner)
+				? answer(M8)
+				: answer("slot-default");
+		}
 		default: {
 			const exhaustive: never = issue;
 			throw new Error(
@@ -2031,7 +2130,10 @@ function untypedRelation(
 
 /** Whether the menu a form belongs to is a child of a menu whose forms read
  *  the search, and chooses its parent's case from that menu's list. */
-function childOfInlineSearchMenu(doc: BlueprintDoc, form: Uuid): boolean {
+export function childOfInlineSearchMenu(
+	doc: BlueprintDoc,
+	form: Uuid,
+): boolean {
 	const moduleUuid = moduleUuidOfForm(doc, form);
 	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	const parentUuid = mod?.parentModuleUuid;
@@ -2157,8 +2259,15 @@ export function checkErrorEntry(
 		);
 	if (error.code === "arm-unavailable" && error.reason === "project") {
 		const identifier = untypedRelation(node);
+		// An index identifier outside the element-name grammar Nova keeps
+		// unchanged: the relation folds made no proposal for it.
 		if (identifier !== undefined)
-			return { entryId: "slot-default", reason: `relation:${identifier}` };
+			return {
+				entryId: "slot-default",
+				reason: XML_ELEMENT_NAME_PATTERN.test(identifier)
+					? `relation:${identifier}`
+					: "name:index-identifier",
+			};
 	}
 	if (
 		error.code === "arm-unavailable" &&
@@ -2245,4 +2354,94 @@ export function formRefusalEntry(code: CheckErrorCode): string {
 			);
 		}
 	}
+}
+
+// ── Names outside a grammar ──────────────────────────────────────────
+
+type NameRefusal = {
+	readonly entryId: string | "slot-default";
+	readonly reason: string;
+};
+
+const NAME_REASONS = {
+	property: "name:case-property",
+	index: "name:index-identifier",
+} as const;
+
+/** Whether a name holds a character past ASCII, which Core reads in a name
+ *  and Nova's property grammar does not. */
+function nonAscii(name: string): boolean {
+	for (let index = 0; index < name.length; index++)
+		if (name.charCodeAt(index) > 0x7f) return true;
+	return false;
+}
+
+/** The refusal of a tree that names a case property outside
+ *  `AUTHORED_CASE_PROPERTY_NAME_PATTERN`, or a relation's index identifier
+ *  outside `XML_ELEMENT_NAME_PATTERN`, the two grammars Nova keeps such names
+ *  in unchanged: a property name that holds a character past ASCII claims the
+ *  entry for a key holding one, and every other name the slot's default.
+ *  Undefined where every name the tree holds is in its grammar. */
+export function nameGrammarEntry(tree: Expression): NameRefusal | undefined {
+	let found: NameRefusal | undefined;
+	const index = (identifier: string) => {
+		if (found === undefined && !XML_ELEMENT_NAME_PATTERN.test(identifier))
+			found = { entryId: "slot-default", reason: NAME_REASONS.index };
+	};
+	walkExpression(tree, {
+		visitTerm(term) {
+			if (found !== undefined) return;
+			if (term.kind === "case-index") index(term.identifier);
+			if (term.kind !== "prop" && term.kind !== "form-case") return;
+			if (term.kind === "prop" && term.via?.kind === "ancestor")
+				for (const step of term.via.via) index(step.identifier);
+			if (
+				found === undefined &&
+				!AUTHORED_CASE_PROPERTY_NAME_PATTERN.test(term.property)
+			)
+				found = {
+					entryId: nonAscii(term.property)
+						? C["update-key-holding-a-non-ascii-core-name-character"].entry
+						: "slot-default",
+					reason: NAME_REASONS.property,
+				};
+		},
+	});
+	return found;
+}
+
+// ── The key a claim is made under ────────────────────────────────────
+
+/** The surface key a refusal's claim is made under: the slot's own key where
+ *  the entry holds it, else the key of a use the expression's syntax makes
+ *  that a member of the entry is registered under, else the first member's
+ *  key, and the slot's own key for an entry no surface key holds. */
+export function claimKey(
+	entryId: string,
+	slotKey: string,
+	useKeys: readonly string[],
+): string {
+	if (inventoryIndex().entry(entryId)?.surfaceKeys.includes(slotKey) === true)
+		return slotKey;
+	return (
+		claimKeyOfUse(entryId, useKeys) ??
+		Object.values(EXPRESSION_CLAIMS).find(
+			(claim) => claim.entry === entryId && claim.key !== null,
+		)?.key ??
+		slotKey
+	);
+}
+
+/** The first of `useKeys` a member of the entry is registered under: the use
+ *  of the expression's syntax a refusal under that entry stands for. */
+export function claimKeyOfUse(
+	entryId: string,
+	useKeys: readonly string[],
+): string | undefined {
+	const keys = new Set(
+		Object.values(EXPRESSION_CLAIMS).flatMap((claim) =>
+			claim.entry === entryId && claim.key !== null ? [claim.key] : [],
+		),
+	);
+	return useKeys.find((key) => keys.has(key));
 }
