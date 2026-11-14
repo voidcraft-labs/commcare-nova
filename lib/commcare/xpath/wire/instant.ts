@@ -674,6 +674,237 @@ export function storedInstantOfText(t: WireExpr): WireExpr {
 	]);
 }
 
+/** Whether any leaf of `operand` can hold date-and-time text with a written
+ * offset, which Core's date-and-time parse misreads on a device whose date
+ * for the moment is not the written one (`deviceInstantText`). A typed leaf
+ * holds a `Date`, and a value that names no moment holds no such text. */
+export function mayHoldInstantText(operand: InstantOperand): boolean {
+	switch (operand.kind) {
+		case "if":
+			return (
+				mayHoldInstantText(operand.whenTrue) ||
+				mayHoldInstantText(operand.whenFalse)
+			);
+		case "coalesce":
+			return operand.values.some(mayHoldInstantText);
+		case "switch":
+			return (
+				operand.cases.some(mayHoldInstantText) ||
+				mayHoldInstantText(operand.fallback)
+			);
+		case "leaf":
+			break;
+	}
+	switch (operand.class) {
+		case "typed":
+		case "clock-lost":
+		case "not-instant":
+			return false;
+		case "day-only":
+		case "unknown":
+			return operand.held !== "date";
+		case "literal-instant":
+		case "text":
+		case "coerced-date-typed":
+		case "coerced-date-text":
+		case "coerced-text":
+		case "epoch-days":
+			return true;
+	}
+}
+
+/**
+ * Instant text `t` as text Core's date-and-time parse reads back to the same
+ * moment on the device that evaluates it: the device's own date and clock
+ * for the moment, and its offset then. Core's parse keeps the written date
+ * and moves only the clock to the device's zone
+ * (`DateUtils.java::parseDateTime`, `parseTimeAndStore`), so CommCare HQ's
+ * UTC text, read where the device's date for the moment is not the UTC one,
+ * names a moment a day away. Every reader of text as a typed date and time
+ * reaches that parse: a starting value cast into a date-and-time node
+ * (`SetValueAction` casts through `DateTimeData.cast`), `format-date` and
+ * `date()` (`FunctionUtils.toDate`).
+ *
+ * Text with no `T` at its eleventh character or with no offset after its
+ * minutes is itself, since Core reads it as written (a date, a wall clock in
+ * the device's zone, a blank). Otherwise, with whole-number arithmetic over
+ * the written fields, which read an offset written `Z`, `±HH` or `±HH:MM`:
+ *
+ * - `U`, the moment's minute counted from the written date's UTC midnight,
+ *   is the written clock less the written offset;
+ * - `C`, the device's clock for the moment, is Core's own: `format-date(t,
+ *   '%H')` and `'%M'`, which print the clock the parse moved;
+ * - the whole days `d` between the written date and the device's are those
+ *   that bring `C - U` nearest the offset Core prints for the parsed value
+ *   (`'%Z'`, read to the hour), which differs from the device's offset for
+ *   the moment by a daylight saving turn at most, while the candidates
+ *   differ by a day; the device's offset `O` is `C - U + 1440 d`;
+ * - the device's date is the written one moved by `d`, worked out from the
+ *   written year, month and day (a day number counts from the JVM's epoch,
+ *   which on Web Apps is not the zone `date()` reads, and `date(n)` misses a
+ *   day in a zone whose offset moved by more than twelve hours since 1970);
+ * - the text is that date, `C`, the written seconds, the written milliseconds
+ *   and a `5` (Core reads the seconds as a double and truncates their
+ *   milliseconds, `DateUtils.parseRawTime`, so `.999` alone can read as 998
+ *   and `.9995` reads as 999), and `O` as `+00:O`: Core reads an offset's
+ *   hours and minutes as signed integers and adds them
+ *   (`parseTimeAndStore`), so `O` minutes need no hours and no sign of
+ *   their own, and the value is printed once.
+ *
+ * The date, `C` and `O` name the moment whatever `C` is (`date + C - O` is
+ * the written date's midnight plus `U`), so a clock Core moved forward across
+ * a skipped hour on the written date still names it. Every compound term is
+ * printed at each of its uses, and the terms are chosen for few uses of `t`.
+ */
+export function deviceInstantText(t: WireExpr): WireExpr {
+	const piece = (start: number, end?: number) =>
+		w.call(
+			"substr",
+			end === undefined ? [t, w.num(start)] : [t, w.num(start), w.num(end)],
+		);
+	const number = (value: WireExpr) => w.call("number", [value]);
+	// A blank piece of the offset reads as zero.
+	const zeroed = (value: WireExpr) =>
+		number(w.call("concat", [w.str("0"), value]));
+	const twoDigits = (value: WireExpr) =>
+		w.call("substr", [w.add(w.num(100), value), w.num(1)]);
+	const sign = (negative: WireExpr) =>
+		w.call("if", [negative, w.num(-1), w.num(1)]);
+	// After the minutes: the seconds, a fraction and the offset, as written.
+	const rest = piece(16);
+	const marked = w.call("translate", [rest, w.str("Z+-"), w.str("|||")]);
+	const zoned = w.and(
+		w.eq(piece(10, 11), w.str("T")),
+		w.call("contains", [marked, w.str("|")]),
+	);
+	// The written offset's digits, `HH` or `HH:MM`, and none for `Z`.
+	const digits = w.call("substring-after", [marked, w.str("|")]);
+	const writtenOffset = w.mul(
+		sign(w.call("contains", [rest, w.str("-")])),
+		w.add(
+			w.mul(zeroed(w.call("substr", [digits, w.num(0), w.num(2)])), w.num(60)),
+			zeroed(w.call("substr", [digits, w.num(3), w.num(5)])),
+		),
+	);
+	const utcMinute = w.sub(
+		w.add(w.mul(number(piece(11, 13)), w.num(60)), number(piece(14, 16))),
+		writtenOffset,
+	);
+	const deviceClock = (pattern: string) =>
+		number(w.call("format-date", [t, w.str(pattern)]));
+	const deviceMinute = w.add(
+		w.mul(deviceClock("%H"), w.num(60)),
+		deviceClock("%M"),
+	);
+	// Core's `%Z` for the parsed value (`Z`, `±HH`, `±HH:MM`, or `Z:MM` for
+	// an offset under an hour), read to the hour, which is near enough to
+	// choose a day.
+	const printedZone = w.call("format-date", [t, w.str("%Z")]);
+	const printedOffset = w.mul(
+		sign(w.call("starts-with", [printedZone, w.str("-")])),
+		w.mul(
+			zeroed(
+				w.call("translate", [
+					w.call("substr", [printedZone, w.num(1), w.num(3)]),
+					w.str(":"),
+					w.str(""),
+				]),
+			),
+			w.num(60),
+		),
+	);
+	const days = w.call("round", [
+		w.div(w.add(w.sub(printedOffset, deviceMinute), utcMinute), w.num(1440)),
+	]);
+	const offset = w.add(
+		w.sub(deviceMinute, utcMinute),
+		w.mul(days, w.num(1440)),
+	);
+	const year = number(piece(0, 4));
+	const month = number(piece(5, 7));
+	const target = w.add(number(piece(8, 10)), days);
+	const leap = (y: WireExpr) =>
+		w.or(
+			w.and(
+				w.eq(w.mod(y, w.num(4)), w.num(0)),
+				w.cmp("!=", w.mod(y, w.num(100)), w.num(0)),
+			),
+			w.eq(w.mod(y, w.num(400)), w.num(0)),
+		);
+	// A month's days: February's 28 and a leap day; otherwise 31 for January,
+	// March, May, July, August, October and December, 30 for the rest.
+	const daysIn = (m: WireExpr, y: WireExpr) =>
+		w.call("if", [
+			w.eq(m, w.num(2)),
+			w.add(w.num(28), leap(y)),
+			w.add(
+				w.num(30),
+				w.mod(w.add(m, w.call("floor", [w.div(m, w.num(8))])), w.num(2)),
+			),
+		]);
+	const yearText = (y: WireExpr) =>
+		w.call("if", [
+			w.gt(y, w.num(9999)),
+			y,
+			w.call("substr", [w.add(w.num(10000), y), w.num(1)]),
+		]);
+	const firstMonth = w.eq(month, w.num(1));
+	const lastMonth = w.eq(month, w.num(12));
+	const previousMonth = w.call("if", [
+		firstMonth,
+		w.num(12),
+		w.sub(month, w.num(1)),
+	]);
+	const previousYear = w.call("if", [firstMonth, w.sub(year, w.num(1)), year]);
+	const monthDays = daysIn(month, year);
+	const date = w.call("if", [
+		w.lt(target, w.num(1)),
+		w.call("concat", [
+			yearText(previousYear),
+			w.str("-"),
+			twoDigits(previousMonth),
+			w.str("-"),
+			twoDigits(w.add(daysIn(previousMonth, previousYear), target)),
+		]),
+		w.call("if", [
+			w.gt(target, monthDays),
+			w.call("concat", [
+				yearText(w.call("if", [lastMonth, w.add(year, w.num(1)), year])),
+				w.str("-"),
+				twoDigits(w.call("if", [lastMonth, w.num(1), w.add(month, w.num(1))])),
+				w.str("-"),
+				twoDigits(w.sub(target, monthDays)),
+			]),
+			w.call("concat", [piece(0, 8), twoDigits(target)]),
+		]),
+	]);
+	const clockTail = w.call("substring-before", [marked, w.str("|")]);
+	const seconds = w.call("if", [
+		w.gte(w.call("string-length", [clockTail]), w.num(3)),
+		w.call("substr", [clockTail, w.num(1), w.num(3)]),
+		w.str("00"),
+	]);
+	const milliseconds = w.call("substr", [
+		w.call("concat", [w.call("substr", [clockTail, w.num(4)]), w.str("000")]),
+		w.num(0),
+		w.num(3),
+	]);
+	const converted = w.call("concat", [
+		date,
+		w.str("T"),
+		twoDigits(w.call("floor", [w.div(deviceMinute, w.num(60))])),
+		w.str(":"),
+		twoDigits(w.mod(deviceMinute, w.num(60))),
+		w.str(":"),
+		seconds,
+		w.str("."),
+		milliseconds,
+		w.str("5+00:"),
+		offset,
+	]);
+	return w.call("if", [zoned, converted, t]);
+}
+
 /** A typed date and time as the text CommCare HQ stores, blank when it is:
  * the spelling a case write of a typed date and time takes
  * (`xform/datetimeCaseValue.ts::datetimeCaseValue`). */

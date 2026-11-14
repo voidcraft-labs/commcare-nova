@@ -77,7 +77,13 @@ final class SuiteFormRun {
     private final TestInstanceInitializer runtime;
 
     SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns) throws Exception {
-        seed("/" + family + "/" + name + ".cases.json");
+        this(family, name, hq, formFile, xmlns, record -> { });
+    }
+
+    /** As the plain run, each seeded case first handed to {@code adjust} (a property the run opens on). */
+    SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns,
+            java.util.function.Consumer<Case> adjust) throws Exception {
+        seed("/" + family + "/" + name + ".cases.json", adjust);
         Suite suite;
         try (InputStream in = SuiteFormRun.class.getResourceAsStream("/" + family + "/" + name + (hq ? ".hq-suite.xml" : ".suite.xml"))) {
             assertNotNull("The case family holds no suite for " + name + " (hq=" + hq + ")", in);
@@ -131,7 +137,7 @@ final class SuiteFormRun {
         form.initialize(true, runtime);
     }
 
-    private void seed(String resource) throws Exception {
+    private void seed(String resource, java.util.function.Consumer<Case> adjust) throws Exception {
         try (InputStream input = SuiteFormRun.class.getResourceAsStream(resource)) {
             assertNotNull("The case family holds no seeded cases " + resource, input);
             JSONArray cases = new JSONArray(new String(input.readAllBytes(), StandardCharsets.UTF_8));
@@ -147,6 +153,7 @@ final class SuiteFormRun {
                     JSONObject index = indices.getJSONObject(j);
                     record.setIndex(new CaseIndex(index.getString("name"), index.getString("type"), index.getString("target"), index.getString("relationship")));
                 }
+                adjust.accept(record);
                 sandbox.getCaseStorage().write(record);
                 seeded.add(record.getCaseId());
             }

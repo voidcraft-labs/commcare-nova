@@ -201,7 +201,8 @@ production device-scoped detail reader and then applies ordinary form/menu
 eligibility. Informational details have no Continue action. Details opened
 through ordinary Back read current stored values, even if the record no longer
 matches its old Results page. Back retains the visited destinations; returning to a form
-starts a fresh entry. These observations describe Preview navigation, not a
+starts a fresh entry (`navigation.ts::appTestBackScreen`), which carries no case list
+Register launch, since a launch belongs to the one entry it opened. These observations describe Preview navigation, not a
 native session-stack proof.
 
 A leaf record's inline form chooser carries its selection on that screen and

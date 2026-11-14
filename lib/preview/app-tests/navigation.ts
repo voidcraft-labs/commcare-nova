@@ -53,6 +53,26 @@ export function appTestEntryScreen(platform: Platform): AppTestScreen {
 		: { kind: "home" };
 }
 
+/**
+ * The screen Back returns to. A form it returns to opens a fresh entry,
+ * reading the session's device cases and its search again; that entry is no
+ * Register launch, since a launch belongs to the one entry it opened, so the
+ * form routes after submit as a form opened any other way does.
+ */
+export function appTestBackScreen(
+	prior: AppTestScreen,
+	deviceCases: AppTestSessionState["deviceCases"],
+): AppTestScreen {
+	if (prior.kind !== "form") return prior;
+	const {
+		caseListRegistrationLaunch: _ended,
+		entry: _retired,
+		searchResults: _reread,
+		...screen
+	} = prior;
+	return { ...screen, entryCases: deviceCases };
+}
+
 /** The session's device cases, as a navigation condition reads them. */
 function appTestDeviceCases(
 	context: AppTestContext,

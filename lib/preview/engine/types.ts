@@ -25,6 +25,11 @@ export interface FieldState {
 	touched: boolean;
 	/** A user supplied an answer, including clearing it, before or after blur. */
 	edited?: boolean;
+	/** The shown answer is one the worker typed and the platform's number
+	 *  keypad refused: the instance keeps the earlier answer, and the
+	 *  question shows the keypad's message. Only set on a Text question with
+	 *  a number keypad, and only while that typed answer stands. */
+	keypadRefused?: true;
 	/** Label with hashtag refs evaluated to runtime values. Only set when the label contains refs. */
 	resolvedLabel?: string;
 	/** Hint with hashtag refs evaluated to runtime values. Only set when the hint contains refs. */

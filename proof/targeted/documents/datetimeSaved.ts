@@ -17,6 +17,15 @@
  * row's calculate is the long one `datetimeCaseValue` prints, which two
  * saves in CommCare HQ's form builder must keep; what a phone then stores in
  * every device zone is `proof/native/core/StoredInstantRuntimeTest.java`'s.
+ * "Revisit" opens on the visit: a date-and-time question that starts on the
+ * stored `seen_at` and saves it back through Case Management, and a Hidden
+ * Value calculated as the stored `seen_at` that saves it to `seen_kept`. The
+ * question's starting value reads the stored text in the device's own date
+ * and clock before Core casts it, and the Hidden Value's sibling copies its
+ * text as it is, so a form opened and saved unchanged leaves `seen_at` as it
+ * was and `seen_kept` holds the same text, in every device zone
+ * (`StoredInstantRuntimeTest`, which opens this form from the local archive
+ * and from CommCare HQ's build).
  * The list orders by `seen_at` ascending.
  *
  * The document declares Android only: a date-and-time question has no entry
@@ -58,6 +67,12 @@ export function datetimeSaved() {
 	const check = uuid("check");
 	const when = uuid("check-when");
 	const keep = uuid("check-keep");
+	// The visit's stored `seen_at`, read in a form of the visit.
+	const stored = term({
+		kind: "form-case",
+		caseType: "visit",
+		property: "seen_at",
+	});
 	// The visit's saved `seen_at`, read on the case the form opened.
 	const saved = term(prop("visit", "seen_at"));
 	const datetime = (name: string, label: string) => ({
@@ -80,6 +95,7 @@ export function datetimeSaved() {
 					datetime("stamped_at", "Stamped at"),
 					datetime("seen_copy", "Seen copy"),
 					datetime("chosen_at", "Chosen at"),
+					datetime("seen_kept", "Seen kept"),
 				],
 			},
 		],
@@ -132,6 +148,28 @@ export function datetimeSaved() {
 								uuid: keep,
 								id: "keep",
 								label: proseText("Keep this time? yes or no"),
+							}),
+						],
+					},
+					{
+						uuid: uuid("revisit"),
+						name: "Revisit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "datetime",
+								uuid: uuid("revisit-seen"),
+								id: "seen",
+								label: proseText("Seen at"),
+								default_value: stored,
+								caseWrite: { caseType: "visit", property: "seen_at" },
+							}),
+							f({
+								kind: "hidden",
+								uuid: uuid("revisit-kept"),
+								id: "kept",
+								calculate: stored,
+								caseWrite: { caseType: "visit", property: "seen_kept" },
 							}),
 						],
 					},

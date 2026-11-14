@@ -420,6 +420,9 @@ describe("userFacingError — voice", () => {
 		expect(render(`it's "x"`, "both-quotes")).toContain(
 			"holds both an apostrophe and a double quote",
 		);
+		expect(render("instance('abc')", "instance-read")).toContain(
+			`has the stored value "instance('abc')", which CommCare HQ reads as a data source when it builds the form`,
+		);
 		expect(render("", "empty")).toContain('"not_applicable"');
 	});
 

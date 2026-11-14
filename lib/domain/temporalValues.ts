@@ -312,25 +312,77 @@ export function hqInstantText(instantMs: number): string {
 }
 
 /**
+ * A moment as the text a case holds for it: CommCare HQ's spelling
+ * (`hqInstantText`) where its UTC year has four digits. Otherwise the moment
+ * at the whole-hour offset nearest UTC whose wall clock has a four-digit
+ * year, `YYYY-MM-DDTHH:MM:SS.mmm±HH:00`, the kind of spelling a device keeps
+ * for such a literal (`expression/instantOperand.ts::literalStoredInstantText`
+ * keeps the literal's own); a moment no offset of at most 23 hours brings
+ * into the years 0000 to 9999 is spelled at UTC with its year whole, which
+ * the storage schema refuses. Total: it never throws.
+ */
+export function caseInstantText(instantMs: number): string {
+	const year = new Date(instantMs).getUTCFullYear();
+	if (Number.isFinite(instantMs) && year >= 0 && year <= 9999)
+		return hqInstantText(instantMs);
+	const edge = new Date(0);
+	if (year > 9999) edge.setUTCFullYear(10000, 0, 1);
+	else edge.setUTCFullYear(0, 0, 1);
+	const hours =
+		year > 9999
+			? -Math.ceil((instantMs - edge.getTime() + 1) / 3_600_000)
+			: Math.ceil((edge.getTime() - instantMs) / 3_600_000);
+	const offsetMinutes = Math.abs(hours) <= 23 ? hours * 60 : 0;
+	const wall = new Date(instantMs + offsetMinutes * 60_000);
+	const wallYear = wall.getUTCFullYear();
+	return `${wallYear < 0 ? "-" : ""}${pad(Math.abs(wallYear), 4)}-${pad(
+		wall.getUTCMonth() + 1,
+		2,
+	)}-${pad(wall.getUTCDate(), 2)}T${pad(wall.getUTCHours(), 2)}:${pad(
+		wall.getUTCMinutes(),
+		2,
+	)}:${pad(wall.getUTCSeconds(), 2)}.${pad(
+		wall.getUTCMilliseconds(),
+		3,
+	)}${formatZoneOffset(offsetMinutes)}`;
+}
+
+/**
  * The text a date and time takes on a case: the instant
  * `storageDatetimeValue(text, zone)` names, as `hqInstantText`. A phone
  * writes this text too (`lib/commcare/xform/datetimeCaseValue.ts`), so the
  * order of a property's texts is the order of its moments. Text already in
  * CommCare HQ's spelling is returned as it is, its microseconds kept.
  *
- * Total: text the grammar cannot read comes back trimmed, for the schema to
- * refuse, and a moment whose UTC year has no four digits keeps
+ * Total: text the grammar cannot read, or whose date is no day of the
+ * calendar (`2026-02-30`), comes back as `storageDatetimeValue` spells it,
+ * for the schema to refuse; a moment whose UTC year has no four digits keeps
  * `storageDatetimeValue`'s spelling, which the schema accepts.
  */
 export function caseDatetimeValue(text: string, zone: string): string {
 	const trimmed = text.trim();
 	if (HQ_INSTANT_TEXT_RE.test(trimmed)) return trimmed;
 	const stored = storageDatetimeValue(trimmed, zone);
-	if (parseDatetime(stored) === null) return stored;
+	const parsed = parseDatetime(stored);
+	if (parsed === null || !calendarDayExists(parsed.wall.slice(0, 10)))
+		return stored;
 	const instantMs = Date.parse(stored);
 	if (Number.isNaN(instantMs)) return stored;
 	const year = new Date(instantMs).getUTCFullYear();
 	return year < 0 || year > 9999 ? stored : hqInstantText(instantMs);
+}
+
+/** Whether `YYYY-MM-DD` names a day of the proleptic Gregorian calendar.
+ * `Date.parse` rolls a day the month lacks into the next month, so a
+ * canonicalizer that reads text into an instant asks this first. */
+function calendarDayExists(date: string): boolean {
+	const year = Number(date.slice(0, 4));
+	const month = Number(date.slice(5, 7));
+	const day = Number(date.slice(8, 10));
+	const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+	const days =
+		month === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(month) ? 30 : 31;
+	return day >= 1 && day <= days;
 }
 
 /**

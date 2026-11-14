@@ -26,6 +26,13 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 
+/** The menus and forms the offer planners read, and nothing of a form's
+ *  content. */
+export type RegistrationOfferSource = Pick<
+	BlueprintDoc,
+	"modules" | "moduleOrder" | "forms" | "formOrder"
+>;
+
 export type AlwaysOfferedRegistrationPlan =
 	| { readonly kind: "planned"; readonly mutations: Mutation[] }
 	/** The host holds the `after-empty-search` arm. `message` is the agent's
@@ -43,7 +50,7 @@ export type AlwaysOfferedRegistrationPlan =
  * slot, and replacing one with the other is a decision the person makes.
  */
 export function alwaysOfferedRegistrationMutations(
-	doc: BlueprintDoc,
+	doc: RegistrationOfferSource,
 	hostUuid: Uuid,
 	slot: AlwaysOfferedRegistration | null,
 ): AlwaysOfferedRegistrationPlan {
@@ -124,7 +131,7 @@ export interface AlwaysOfferedRegistrationChoice {
  * is blocked.
  */
 export function alwaysOfferedRegistrationChoices(
-	doc: BlueprintDoc,
+	doc: RegistrationOfferSource,
 	hostUuid: Uuid,
 ): readonly AlwaysOfferedRegistrationChoice[] {
 	const host = doc.modules[hostUuid];

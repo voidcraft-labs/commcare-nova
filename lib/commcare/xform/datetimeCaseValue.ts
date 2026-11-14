@@ -1,10 +1,13 @@
 import type { Uuid } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression/builders";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import { instantOperand } from "@/lib/domain/expression/instantOperand";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
 	storedDatetimeWire,
 	type WireBuildContext,
 } from "../xpath/wire/fromExpression";
-import { storedInstantValue } from "../xpath/wire/instant";
+import { storedDatetimeValue } from "../xpath/wire/instant";
 import type { WireExpr } from "../xpath/wire/tree";
 import type { FormPath } from "./formPath";
 import type { GeneratedNodePlan } from "./generatedNodes";
@@ -31,7 +34,8 @@ export function datetimeCaseValuePath(
  * `dimagi/utils/parsing.py::json_format_datetime`). Written on an untyped
  * node: every Save to Case leaf that writes a date-and-time property
  * (`caseOps.ts`) and, through `questionDatetimeCaseValue`, a question's
- * sibling text value (`builder.ts`). HQ's form builder writes a Save to Case
+ * sibling text value (`builder.ts`), which classifies its question as a
+ * field read. HQ's form builder writes a Save to Case
  * row's bind with no `type`, so a typed leaf would lose its clock on the
  * first save. The phone, CommCare HQ and every other phone then hold one
  * text, and a list ordered by the property orders by the moment. Each leaf
@@ -50,8 +54,34 @@ export function datetimeCaseValue(
 	return storedDatetimeWire(expression, ctx, clock);
 }
 
-/** A date-and-time question's answer as the text a case holds: a question
- * read is a typed leaf (`datetimeCaseValue` of it as a field read). */
-export function questionDatetimeCaseValue(path: FormPath): WireExpr {
-	return storedInstantValue(path.toWire());
+/** A question's answer as the text a case holds for a date and time:
+ * `datetimeCaseValue` of the question read as a field (`types`, a slot of
+ * the question's own form), printed at its node `path`. A date-and-time
+ * question, and a Hidden Value Core holds as a typed `Date` (a starting value
+ * cast under `xsd:dateTime`, or a calculate that gives a `Date`), is a typed
+ * leaf; a Hidden Value whose calculate gives text, such as a copy of a
+ * case's stored value, holds that text (`Recalculate.wrapData` keeps a
+ * string as it is) and is written as itself, so a copy is exact. */
+export function questionDatetimeCaseValue(
+	fieldUuid: Uuid,
+	path: FormPath,
+	types: ExpressionContext,
+): WireExpr {
+	const node = path.toWire();
+	const read: Expression = term(formField(fieldUuid));
+	return storedDatetimeValue(instantOperand(read, types), {
+		value: (expression) => {
+			if (expression !== read)
+				throw new Error(
+					"A question's date-and-time sibling reads only its question.",
+				);
+			return node;
+		},
+		condition: () => {
+			throw new Error("A question read has no condition.");
+		},
+		switchTests: () => {
+			throw new Error("A question read has no switch.");
+		},
+	});
 }

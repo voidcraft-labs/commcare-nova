@@ -375,6 +375,35 @@ describe("BuilderSession store", () => {
 		});
 	});
 
+	it("holds a Register launch's form entry apart from the case target, until Home or a Preview flip ends it", () => {
+		const store = createBuilderSessionStore();
+		const entry = {
+			hostModuleUuid: testUuid("host-module"),
+			moduleUuid: testUuid("form-module"),
+			formUuid: testUuid("form-1"),
+		};
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewCaseListRegistrationEntry(entry);
+		expect(store.getState().previewCaseListRegistrationEntry).toEqual(entry);
+
+		/* The same launch again is no change. */
+		const prev = store.getState();
+		store.getState().setPreviewCaseListRegistrationEntry({ ...entry });
+		expect(store.getState()).toBe(prev);
+
+		/* Whatever next writes the case target, the launch is its own fact. */
+		store.getState().setPreviewCaseTarget(undefined);
+		store.getState().setPreviewCaseTarget({ formUuid: entry.formUuid });
+		expect(store.getState().previewCaseListRegistrationEntry).toBe(entry);
+
+		store.getState().clearPreviewNavigation();
+		expect(store.getState().previewCaseListRegistrationEntry).toBeUndefined();
+
+		store.getState().setPreviewCaseListRegistrationEntry(entry);
+		store.getState().setPreviewing(false);
+		expect(store.getState().previewCaseListRegistrationEntry).toBeUndefined();
+	});
+
 	it("setPreviewSelectedCase sets the open case and no-ops on a shallow-equal value", () => {
 		const store = createBuilderSessionStore();
 		store.getState().setPreviewSelectedCase({ caseId: "c1", caseName: "Ana" });

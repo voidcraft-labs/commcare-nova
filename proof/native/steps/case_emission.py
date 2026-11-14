@@ -26,7 +26,7 @@ EXTENSION_SCENARIOS = ["registration", "followup", "repeat", "query", "multiple"
 # The extension scenarios Core opens from their suites (``CaseOperationRuntimeTest``), HQ's beside Nova's.
 SUITE_RUN_SCENARIOS = ["followup", "repeat"]
 # The targeted documents the family emits whole (``proof/native/producers/emit-case-evidence.ts``).
-WHOLE_DOCUMENTS = ["advanced-module", "root-case-block-names"]
+WHOLE_DOCUMENTS = ["advanced-module", "root-case-block-names", "datetime-saved"]
 # What HQ answers an advanced document's build on: Save to Case blocks, child cases and the worker's record.
 WHOLE_PRIVILEGES = {"VELLUM_SAVE_TO_CASE", "CHILD_CASES", "USERCASE"}
 WORKER_SCENARIOS = ["worker-survey", "worker-followup"]

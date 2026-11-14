@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import type { Uuid } from "@/lib/domain";
 import type { NavigationItemVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import type { Location } from "@/lib/routing/types";
 import { admittedControllerDoc } from "../engine/__tests__/fixtures/controllerDoc";
 import { inheritedModuleVisibility } from "../menuProjection";
-import { locationToPreviewScreen } from "../screenProjection";
+import {
+	locationToPreviewScreen,
+	parentCaseSelectorLocation,
+	previewRunningScreenForLocation,
+} from "../screenProjection";
 
 const parent = testUuid("screen-parent");
 const child = testUuid("screen-child");
@@ -123,5 +128,90 @@ describe("Running screen route admission", () => {
 			type: "module",
 			moduleUuid: child,
 		});
+	});
+});
+
+describe("A parent case selector whose forms show in the menu above", () => {
+	/* The household menu shows its forms on the first menu, so it has no
+	 * screen of its own; the member menu keeps its screen and chooses its
+	 * household case through the household menu. */
+	const aboveDoc = admittedControllerDoc(
+		(() => {
+			const built = buildDoc({
+				caseTypes: [
+					{ name: "household", properties: [] },
+					{ name: "person", parent_type: "household", properties: [] },
+				],
+				modules: (
+					[
+						[parent, parentForm, "household"],
+						[child, childForm, "person"],
+					] as const
+				).map(([uuid, formUuid, caseType]) => ({
+					uuid,
+					name: caseType,
+					caseType,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: formUuid,
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				})),
+			});
+			built.modules[parent].formsInMenuAbove = true;
+			built.modules[child].parentCaseModuleUuid = parent;
+			return built;
+		})(),
+	);
+	const shown = new Map<Uuid, NavigationItemVisibility>([
+		[parent, "shown"],
+		[child, "shown"],
+	]);
+	function running(
+		loc: Location,
+		mode: "edit" | "preview" = "preview",
+		requiredCaseAdmissionModuleUuid?: Uuid,
+	) {
+		return previewRunningScreenForLocation({
+			loc,
+			mode,
+			doc: aboveDoc,
+			moduleOrder: aboveDoc.moduleOrder,
+			modules: aboveDoc.modules,
+			formOrder: aboveDoc.formOrder,
+			moduleVisibility: shown,
+			...(requiredCaseAdmissionModuleUuid !== undefined && {
+				requiredCaseAdmissionModuleUuid,
+			}),
+		});
+	}
+
+	it("enters the selection at the selector's case list, which a menu with no screen still has", () => {
+		expect(running(parentCaseSelectorLocation(parent))).toEqual({
+			type: "caseList",
+			moduleUuid: parent,
+		});
+	});
+
+	it("resolves a route naming the menu itself to the screen that lists its forms", () => {
+		expect(running({ kind: "module", moduleUuid: parent })).toEqual({
+			type: "home",
+		});
+		expect(running({ kind: "module", moduleUuid: parent }, "edit")).toEqual({
+			type: "module",
+			moduleUuid: parent,
+		});
+	});
+
+	it("keeps the selector's own screen while the selector still needs a parent case, so that screen starts the next selection", () => {
+		expect(
+			running(parentCaseSelectorLocation(parent), "preview", parent),
+		).toEqual({ type: "module", moduleUuid: parent });
 	});
 });

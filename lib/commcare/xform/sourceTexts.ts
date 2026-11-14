@@ -9,9 +9,11 @@
  * default language is the text of `<h:title>` and the data root's `name`
  * attribute (`dataRootAttributes.ts`), which HQ's form builder writes again on
  * every save. A choice's value is the text of an `<item>`'s `<value>`, and
- * holds no quote mark (`lib/domain/selectOptionValue.ts`), so it is not
- * listed. Every other text the source holds is itext, or a composed
- * validation message's escaped pieces (`constraintMessage.ts`).
+ * it is not listed: a value CommCare HQ reads as an instance is refused by
+ * the value's own grammar (`lib/domain/selectOptionValue.ts`, `instance-read`),
+ * which the builder's editor and the tools' schemas apply before the gate.
+ * Every other text the source holds is itext, or a composed validation
+ * message's escaped pieces (`constraintMessage.ts`).
  *
  * This module imports the domain alone, so the validator, which also runs in
  * the browser, reads it without the emitter.

@@ -142,6 +142,52 @@ describe("previewBreadcrumbTrail — form screens", () => {
 		expect(trail.map((crumb) => crumb.label)).toEqual(["Home", "Care"]);
 	});
 
+	it("names no menu without a screen on a submenu's own screen, its case list or its forms", () => {
+		const aboveUuid = testUuid("module-above");
+		const aboveCrumb: BreadcrumbItem = {
+			key: `m:${aboveUuid}`,
+			label: "Care",
+			location: { kind: "module", moduleUuid: aboveUuid },
+		};
+		const trailAt = (
+			loc: Location,
+			renderedScreen: Parameters<
+				typeof previewBreadcrumbTrail
+			>[0]["renderedScreen"],
+		) =>
+			previewBreadcrumbTrail({
+				loc,
+				baseBreadcrumbs: [
+					home,
+					aboveCrumb,
+					moduleCrumb,
+					...(loc.kind === "form"
+						? [{ key: `f:${loc.formUuid}`, label: "?", location: loc }]
+						: []),
+				],
+				moduleUuid,
+				moduleForms: forms,
+				previewCaseTarget: undefined,
+				previewSelectedCase: undefined,
+				renderedScreen,
+				screenlessModuleUuids: new Set([aboveUuid]),
+			}).map((crumb) => crumb.label);
+
+		expect(
+			trailAt({ kind: "module", moduleUuid }, { type: "module", moduleUuid }),
+		).toEqual(["Home", "Households"]);
+		expect(
+			trailAt({ kind: "cases", moduleUuid }, { type: "caseList", moduleUuid }),
+		).toEqual(["Home", "Households"]);
+		expect(
+			trailAt(formLoc(registerUuid), {
+				type: "form",
+				moduleUuid,
+				formUuid: registerUuid,
+			}),
+		).toEqual(["Home", "Households", "Register Household"]);
+	});
+
 	it("uses Home when a hidden child route cannot run", () => {
 		const trail = previewBreadcrumbTrail({
 			loc: { kind: "form", moduleUuid, formUuid: followupUuid },

@@ -172,6 +172,10 @@ export interface FrameDatum {
 		readonly caseFixtureUrl: string;
 		/** Whether that datum is a multiple selection (`instance-datum`). */
 		readonly nextDatumIsCollection: boolean;
+		/** The menu whose search the query runs: the menu that supplies the
+		 *  datum it feeds. Preview's bridge to that menu's search; never
+		 *  suite wire. */
+		readonly searchModuleUuid?: Uuid;
 	};
 }
 
@@ -497,6 +501,8 @@ function toFrameDatum(
 	const selectionSourceModuleUuid = ctx.selectionSourceModules.get(datum);
 	if (datum.query !== undefined) {
 		const next = ctx.queryNextDatums.get(datum);
+		const searchModuleUuid =
+			next === undefined ? undefined : ctx.selectionSourceModules.get(next);
 		return {
 			id: datum.id,
 			// HQ `WorkflowQueryMeta.requires_selection`: a query with nothing
@@ -507,6 +513,7 @@ function toFrameDatum(
 				nextDatumId: next?.id ?? datum.id,
 				caseFixtureUrl: runtimeUrls(ctx.runtimeTarget).caseFixture,
 				nextDatumIsCollection: next?.maxSelectValue !== undefined,
+				...(searchModuleUuid !== undefined && { searchModuleUuid }),
 			},
 		};
 	}
@@ -1832,28 +1839,61 @@ export interface CaseListFormReturnFrame {
 	/** The frame's children before matching, cut where `children` is cut:
 	 *  what Preview's `screenOfFrame` reads. Never emitted. */
 	readonly target: readonly FrameChild[];
+	/** The menus whose search the frame runs again over the new case alone:
+	 *  each query child it keys to the form's new case, named by the menu
+	 *  that searches (`FrameDatum.query.searchModuleUuid`). That menu's
+	 *  Results, and its forms' read of what the search found, hold that one
+	 *  case. What Preview reads; never emitted. */
+	readonly newCaseSearchModuleUuids: readonly Uuid[];
+}
+
+/** HQ's `_add_stack_children_for_target` adds a module's children only
+ *  where it has forms or a case list shown as a menu entry. */
+function returnFramePassReads(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): boolean {
+	const mod = doc.modules[moduleUuid];
+	return (
+		(ctx.formOrder[moduleUuid] ?? []).length > 0 ||
+		(mod !== undefined && moduleHasCaseListMenuItem(mod))
+	);
 }
 
 /**
  * HQ's `CaseListFormWorkflow` frames for a registration form a host's case
- * list offers (`get_stack_frames_for_case_list_form_target`): the host's
- * `_frame_children_for_module` plus the common datum prefix of its menu
- * forms (`get_frame_children(target_module)`), matched to the form's datums
- * (`_get_datums_matched_to_source`), where the host's first selection of
- * `caseType` reads the form's new case and a query feeding it is re-keyed to
- * that case.
+ * list offers (`get_stack_frames_for_case_list_form_target`), built in its
+ * two passes (`_add_stack_children_for_target`): for a host with a parent,
+ * the parent's `get_frame_children`, then the host's own (its menu command
+ * and the common datum prefix of its form entries), each pass read only for
+ * a module with forms or a case list menu entry. Each pass's children are
+ * matched to the form's datums (`_get_datums_matched_to_source`), which
+ * matches every target datum on its own: a selection of `caseType` reads
+ * the form's new case and a query whose next datum selects `caseType` is
+ * re-keyed to that case; any other selection reads its own session value,
+ * as HQ's unmatched target does.
  *
- * `case-list` (`post_form_workflow: case_list`) is one frame cut before the
- * matched selection (`CaseListFormStackFrames.add_children` breaks at
- * `source_session_var`), so the worker returns to the host's screen with no
- * case chosen; for a host whose forms read the search that is the module
- * command plus the results query keyed to the new case. `new-case`
- * (`default`) is two frames, in this order: one guarded by the new case
- * being on the device and holding every child, the matched selection reading
- * the new case, then one guarded by its absence and cut as `case-list` is.
+ * `case-list` (`post_form_workflow: case_list`) is one frame. Each pass adds
+ * its children up to its first matched selection
+ * (`CaseListFormStackFrames.add_children` breaks at `source_session_var`
+ * within one call, and the next pass adds again), so the worker returns to
+ * the host's screen with no case chosen; for a host whose forms read the
+ * search that is the module command plus the results query keyed to the new
+ * case. `new-case` (`default`) is two frames, in this order: one guarded by
+ * the new case being on the device and holding every child, each matched
+ * selection reading the new case, then one guarded by its absence and cut as
+ * `case-list` is. In `new-case` the host pass drops every child whose id, a
+ * command's or a datum's, the first frame already holds (`ids_on_stack`,
+ * which is empty without that frame, so `case-list` keeps such a child).
  * Each guard opens with `count(S/return_to) = 1 and S/return_to = 'm{H}'`
  * (`get_if_clause`), so nothing fires unless the host's Register action
  * opened the form.
+ *
+ * HQ's `_get_entries_datums` reads form entries only (`_include_datums`
+ * skips the `*-case-list` entry), so a host without menu forms has no common
+ * prefix: its pass is its command alone, and the worker returns to the
+ * module rather than to a Results keyed to the new case.
  *
  * `newCaseId` is the form's own new-case datum (`case_id_new_<t>_0`).
  */
@@ -1865,43 +1905,74 @@ export function caseListFormReturnFrames(
 	caseType: string,
 	afterSubmit: CaseListRegistrationReturn,
 ): readonly CaseListFormReturnFrame[] {
-	/* HQ's `_get_entries_datums` reads form entries only (`_include_datums`
-	 * skips the `*-case-list` entry), so a host without menu forms has no
-	 * common prefix: the frame is the host command alone, and the worker
-	 * returns to the module rather than to a Results keyed to the new case. */
-	const hostForms = ctx.formOrder[hostUuid] ?? [];
-	const common = commonPrefixById(
-		hostForms.map((uuid) => entryFrameDatums(doc, ctx, hostUuid, uuid)),
-	);
-	const target: FrameChild[] = [
-		...moduleFrameChildren(doc, ctx, hostUuid),
-		...common.map((datum) => ({ type: "datum" as const, datum })),
-	];
-	const matchIndex = target.findIndex(
-		(child) =>
-			child.type === "datum" &&
-			child.datum.query === undefined &&
-			child.datum.requiresSelection &&
-			child.datum.caseType === caseType,
-	);
-	const pending: PendingChild[] = target.map((child, index) => {
+	const parentUuid = moduleParent(doc, hostUuid);
+	const passes = [
+		...(parentUuid !== undefined && parentUuid !== null ? [parentUuid] : []),
+		hostUuid,
+	]
+		.filter((moduleUuid) => returnFramePassReads(doc, ctx, moduleUuid))
+		.map((moduleUuid) => frameChildrenOf(doc, ctx, moduleUuid));
+	/* A selection of `caseType`, which reads the new case, and a query whose
+	 * next datum is one, which fetches it. */
+	const selectsNewCase = (child: FrameChild): boolean =>
+		child.type === "datum" &&
+		child.datum.query === undefined &&
+		child.datum.requiresSelection &&
+		child.datum.caseType === caseType;
+	const readsNewCase = (child: FrameChild): boolean =>
+		selectsNewCase(child) ||
+		(child.type === "datum" &&
+			child.datum.query !== undefined &&
+			child.datum.caseType === caseType);
+	const matched = (child: FrameChild): PendingChild => {
 		if (child.type === "command") return child;
 		const { datum } = child;
 		if (datum.query !== undefined)
 			return queryChild(
 				datum,
-				index + 1 === matchIndex ? newCaseId : datum.query.nextDatumId,
+				readsNewCase(child) ? newCaseId : datum.query.nextDatumId,
 			);
 		if (!datum.requiresSelection) return functionChild(datum);
-		/* The matched selection reads the new case; any other selection reads
-		 * its own session value, as HQ's unmatched target does. */
 		return {
 			type: "datum",
 			id: datum.id,
-			value: sessionDataRef(index === matchIndex ? newCaseId : datum.id),
+			value: sessionDataRef(readsNewCase(child) ? newCaseId : datum.id),
 		};
+	};
+	const sources = new Set([newCaseId]);
+	type Built = { readonly target: FrameChild; readonly pending: PendingChild };
+	const full: Built[] = [];
+	const cut: Built[] = [];
+	for (const pass of passes) {
+		const onStack = new Set(full.map((built) => frameChildId(built.target)));
+		let reachedNewCase = false;
+		for (const child of pass) {
+			if (afterSubmit === "new-case" && onStack.has(frameChildId(child)))
+				continue;
+			const built = { target: child, pending: matched(child) };
+			full.push(built);
+			if (selectsNewCase(child)) reachedNewCase = true;
+			if (!reachedNewCase) cut.push(built);
+		}
+	}
+	const frameOf = (
+		built: readonly Built[],
+		ifClause: WireExpr,
+	): CaseListFormReturnFrame => ({
+		ifClause,
+		children: replaceSessionReferences(
+			built.map((child) => child.pending),
+			sources,
+		),
+		target: built.map((child) => child.target),
+		newCaseSearchModuleUuids: built.flatMap(({ target }) =>
+			target.type === "datum" &&
+			target.datum.query?.searchModuleUuid !== undefined &&
+			readsNewCase(target)
+				? [target.datum.query.searchModuleUuid]
+				: [],
+		),
 	});
-	const cut = matchIndex < 0 ? target.length : matchIndex;
 	const returnTo = sessionDataRef(RETURN_TO_DATUM_ID);
 	const command = `m${moduleIndexOf(ctx, hostUuid)}`;
 	const guard = (...extra: WireExpr[]): WireExpr =>
@@ -1910,23 +1981,13 @@ export function caseListFormReturnFrames(
 			w.eq(returnTo, w.str(command)),
 			...extra,
 		);
-	const sources = new Set([newCaseId]);
-	const cutFrame: CaseListFormReturnFrame = {
-		ifClause: guard(),
-		children: replaceSessionReferences(pending.slice(0, cut), sources),
-		target: target.slice(0, cut),
-	};
-	if (afterSubmit === "case-list") return [cutFrame];
+	if (afterSubmit === "case-list") return [frameOf(cut, guard())];
 	const newCaseCount = w.call("count", [
 		caseById(sessionDataRef(newCaseId), "casedb"),
 	]);
 	return [
-		{
-			ifClause: guard(w.gt(newCaseCount, w.num(0))),
-			children: replaceSessionReferences(pending, sources),
-			target,
-		},
-		{ ...cutFrame, ifClause: guard(w.eq(newCaseCount, w.num(0))) },
+		frameOf(full, guard(w.gt(newCaseCount, w.num(0)))),
+		frameOf(cut, guard(w.eq(newCaseCount, w.num(0)))),
 	];
 }
 

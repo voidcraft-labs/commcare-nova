@@ -56,7 +56,11 @@ import {
 	type AuthoringValueDecoders,
 	decodeAuthoringValues,
 } from "./schema";
-import { normalizeText, printAuthoringText } from "./text";
+import {
+	normalizeText,
+	printAuthoringText,
+	textHoldsCalculatedValue,
+} from "./text";
 import { authoringToolSchema } from "./toolSchema";
 
 type Input = Record<string, unknown>;
@@ -568,11 +572,12 @@ async function prepareInput<S extends z.ZodType>(args: {
 				needsTables = true;
 				preparedForms.register(value, path);
 			}
-			// A calculated value is form logic, which may read a data table.
+			// A calculated value is form logic, which may read a data table. It
+			// is read by the rule the text's parse reads it by.
 			if (
 				(family === "text" || family === "localized") &&
 				typeof value === "string" &&
-				value.includes("{{=")
+				textHoldsCalculatedValue(value)
 			)
 				needsTables = true;
 			if (["condition", "value", "reference"].includes(family)) {

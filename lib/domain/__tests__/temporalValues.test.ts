@@ -6,6 +6,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
 	caseDatetimeValue,
+	caseInstantText,
 	hqInstantText,
 	instantDatetimeValue,
 	isReadableTemporalValue,
@@ -473,6 +474,49 @@ describe("caseDatetimeValue", () => {
 	it("keeps the offset spelling where the moment's UTC year has no four digits", () => {
 		expect(caseDatetimeValue("9999-12-31T23:30:00.000-05:00", "UTC")).toBe(
 			"9999-12-31T23:30:00.000-05:00",
+		);
+	});
+
+	it("never rolls a day the month lacks into the next month", () => {
+		// `Date.parse` reads 30 February as 2 March; the schema refuses the
+		// text as written, so a cast parks it rather than storing another day.
+		expect(caseDatetimeValue("2026-02-30T08:00:00Z", "UTC")).toBe(
+			"2026-02-30T08:00:00.000Z",
+		);
+		expect(caseDatetimeValue("2026-04-31", "UTC")).toBe(
+			"2026-04-31T00:00:00.000Z",
+		);
+		expect(caseDatetimeValue("2025-02-29T08:00:00.000+03:00", "UTC")).toBe(
+			"2025-02-29T08:00:00.000+03:00",
+		);
+		// A leap day of a leap year is a day.
+		expect(caseDatetimeValue("2024-02-29T08:00:00Z", "UTC")).toBe(
+			"2024-02-29T08:00:00.000000Z",
+		);
+	});
+});
+
+describe("caseInstantText", () => {
+	it("is CommCare HQ's text where the UTC year has four digits", () => {
+		for (const vector of HQ_INSTANT_VECTORS)
+			expect(caseInstantText(Date.parse(vector.instant)), vector.id).toBe(
+				vector.text,
+			);
+	});
+
+	it("spells a moment past 9999 in UTC at the offset that keeps its year, as a device keeps the literal", () => {
+		// '9999-12-31T23:59:59-05:00', whose UTC moment is in the year 10000.
+		expect(caseInstantText(Date.parse("+010000-01-01T04:59:59.000Z"))).toBe(
+			"9999-12-31T23:59:59.000-05:00",
+		);
+		expect(caseInstantText(Date.parse("-000001-12-31T22:00:00.000Z"))).toBe(
+			"0000-01-01T00:00:00.000+02:00",
+		);
+	});
+
+	it("never throws, spelling a moment no offset brings into four digits with its year whole", () => {
+		expect(caseInstantText(Date.parse("+010000-03-01T00:00:00.000Z"))).toBe(
+			"10000-03-01T00:00:00.000Z",
 		);
 	});
 });

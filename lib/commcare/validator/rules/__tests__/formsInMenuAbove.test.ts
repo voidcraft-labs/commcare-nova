@@ -586,19 +586,47 @@ describe("no chosen case ahead of a command", () => {
 		expect(defaultPostSubmitOf(placed.nextDoc, CHECK)).toBe("firstMenu");
 	});
 
-	it("refuses a stored module destination, after submit or as the otherwise, that a batch strands", () => {
+	it("moves a stored module destination, after submit or as the otherwise, when removing a form makes every form above open one case", () => {
+		// With "Register" listed from Clients, the forms above open no one
+		// case and Check may go to its module; its removal turns that, in a
+		// menu other than Check's.
 		const starter = [
 			registration(REGISTER, "Register"),
 			followup(VISIT, "Visit"),
 		];
-		const stranded = (check: Partial<FormSpec>) => {
+		const removedRegister = (check: Partial<FormSpec>) => {
 			const placed = verdictOf(submenuDoc(check, starter), [above(CLIENTS)]);
 			expect(placed.ok).toBe(true);
-			if (!placed.ok) return [];
-			return refusals(placed.nextDoc, [{ kind: "removeForm", uuid: REGISTER }]);
+			if (!placed.ok) throw new Error("the starter shape is admitted");
+			expect(postSubmitDestinationsOffered(placed.nextDoc, CHECK)).toContain(
+				"module",
+			);
+			const removed = verdictOf(placed.nextDoc, [
+				{ kind: "removeForm", uuid: REGISTER },
+			]);
+			expect(removed.ok ? [] : removed.findings).toEqual([]);
+			if (!removed.ok) throw new Error("the removal is admitted");
+			return removed.nextDoc;
 		};
 
-		const postSubmit = stranded({ postSubmit: "module" });
+		const postSubmit = removedRegister({ postSubmit: "module" });
+		expect(postSubmit.forms[CHECK]?.postSubmit).toBe("firstMenu");
+
+		const otherwise = removedRegister({
+			formLinks: [conditionalLinkToSummary],
+			otherwise: { kind: "destination", destination: "module" },
+		});
+		expect(otherwise.forms[CHECK]?.otherwise).toEqual({
+			kind: "destination",
+			destination: "firstMenu",
+		});
+	});
+
+	it("refuses a module destination set there, after submit or as the otherwise", () => {
+		const postSubmit = refusals(submenuDoc(), [
+			above(CLIENTS),
+			{ kind: "updateForm", uuid: CHECK, patch: { postSubmit: "module" } },
+		]);
 		expect(postSubmit.map((finding) => finding.code)).toEqual([
 			"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
 		]);
@@ -609,10 +637,17 @@ describe("no chosen case ahead of a command", () => {
 			aboveModuleName: "Clients",
 		});
 
-		const otherwise = stranded({
-			formLinks: [conditionalLinkToSummary],
-			otherwise: { kind: "destination", destination: "module" },
-		});
+		const otherwise = refusals(
+			submenuDoc({ formLinks: [conditionalLinkToSummary] }),
+			[
+				above(CLIENTS),
+				{
+					kind: "setFormOtherwise",
+					formUuid: CHECK,
+					otherwise: { kind: "destination", destination: "module" },
+				},
+			],
+		);
 		expect(otherwise.map((finding) => finding.code)).toEqual([
 			"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
 		]);

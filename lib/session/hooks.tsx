@@ -70,6 +70,7 @@ export type { AccessPhase } from "./store";
 import type {
 	GenerationError,
 	GenerationStage,
+	PreviewCaseListRegistrationEntry,
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
@@ -176,6 +177,22 @@ export function useSetPreviewCaseTarget(): (
 	target: PreviewCaseTarget | undefined,
 ) => void {
 	return useBuilderSession((s) => s.setPreviewCaseTarget);
+}
+
+/** The form entry a case list's Register action opened, while the running
+ *  app stays on that launch's path; `undefined` otherwise. */
+export function usePreviewCaseListRegistrationEntry():
+	| PreviewCaseListRegistrationEntry
+	| undefined {
+	return useBuilderSession((s) => s.previewCaseListRegistrationEntry);
+}
+
+/** Setter for the Register launch's form entry: the case list's Register
+ *  action sets it, and its end clears it. */
+export function useSetPreviewCaseListRegistrationEntry(): (
+	entry: PreviewCaseListRegistrationEntry | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewCaseListRegistrationEntry);
 }
 
 /** The case currently open in the running-app case list (detail/confirm), or
