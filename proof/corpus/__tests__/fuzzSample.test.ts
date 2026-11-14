@@ -318,7 +318,9 @@ function draw(sampleSize: number, sampleSeed = seed): SampledDocument[] {
 	});
 }
 
-describe("the corpus's fuzz sample", () => {
+// Each test draws the sample again, once or more, and a draw validates every
+// document it makes, so a test takes seconds on a hosted runner.
+describe("the corpus's fuzz sample", { timeout: 60_000 }, () => {
 	let sample: SampledDocument[] = [];
 	beforeAll(() => {
 		sample = draw(size);

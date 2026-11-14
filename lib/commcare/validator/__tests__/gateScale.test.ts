@@ -109,6 +109,7 @@ function largeDoc(): BlueprintDoc {
 }
 
 describe("complete validation of a large app", () => {
+	// The whole gate over 3,000 fields, twice: seconds on a shared CI runner.
 	it("accepts 3,000 fields, then finds a broken reference in the last form", () => {
 		const doc = largeDoc();
 		blueprintDocSchema.parse(toPersistableDoc(doc));
@@ -137,5 +138,5 @@ describe("complete validation of a large app", () => {
 				fieldUuid: location.fieldUuid,
 			})),
 		).toEqual([{ code: "INVALID_REF", fieldUuid: lastField.uuid }]);
-	});
+	}, 30_000);
 });
