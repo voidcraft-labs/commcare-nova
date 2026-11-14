@@ -1360,6 +1360,17 @@ def _settings_and_forms():
     survey_child = _form_json("none", subcases=[_subcase(relationship="extension")])
     closing = _form_json("case", update_case={"condition": NEVER}, close_case={"condition": ALWAYS})
     lone_never = _form_json("case", update_case={"condition": NEVER}, close_case={"condition": NEVER})
+
+    def named(names, langs=("en",)):
+        """An app whose one form is named ``names``, its languages ``langs`` (the first the default)."""
+        return _app([_module([{**_form_json("none"), "name": names}])], langs=list(langs))
+
+    def advanced_named(names):
+        app = _advanced_app()
+        app["modules"][0]["forms"][0]["name"] = names
+        return app
+
+    form_name = "/modules/0/forms/0/name"
     preloaded = _form(
         data="<q/><r/>",
         model='<setvalue event="xforms-ready" ref="/data/r" value="/data/q"/>',
@@ -1487,6 +1498,25 @@ def _settings_and_forms():
             ),
         ),
         # Forms and case writes
+        "forms-and-case-writes/form-name-read-as-an-instance": (
+            refused("app", named({"en": "instance('abc') practice"}), "schema:Form.name", form_name),
+            refused(
+                "app",
+                named({"fr": 'instance( "item-list:v" )', "en": "Visit"}, ("fr", "en")),
+                "schema:Form.name",
+                form_name,
+            ),
+            refused("app", advanced_named({"en": "instance('casedb')"}), "schema:AdvancedForm.name", form_name),
+            # The spelling Nova offers: a space before the bracket, which HQ's pattern does not read.
+            accepted("app", named({"en": "instance ('abc') practice"}), "schema:Form.name", form_name),
+            # A name in another language reaches only the app's strings.
+            accepted(
+                "app", named({"en": "Visit", "fr": "instance('abc')"}, ("en", "fr")), "schema:Form.name", form_name
+            ),
+            accepted("app", advanced_named({"en": "Visit"}), "schema:AdvancedForm.name", form_name),
+            # No default-language name: what the source's title holds is not in the app JSON.
+            unsettled("app", named({"fr": "instance('abc')"}, ("en", "fr")), "schema:Form.name", form_name),
+        ),
         "forms-and-case-writes/form-requires-referral": (
             refused(
                 "app", _app([_module([_form_json("referral")])]), "schema:Form.requires", "/modules/0/forms/0/requires"
@@ -4742,6 +4772,11 @@ KNOWN_GAPS = frozenset(
         "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole",
         "questions/a-choice-bind-type-contradicting-the-control-listitem-select1-on",
         "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
+        # Its keys are a Connect block's mug types and Vellum's Connect plugin, and the extraction makes a use of
+        # neither: HQ's reader types a question from its body control (``xform.py::_infer_vellum_type``), and a
+        # Connect block is data with none, whose leaves ``get_questions`` lists as ``DataBindOnly``; no family reads
+        # a ``vellum-plugin:`` key.
+        "questions/connect-block-text-read-as-an-instance",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-does",
         "questions/a-per-row-token-the-first-token-web-apps-per-row-pattern-matches-starts",
         "questions/bare-repeat-with-no-group-wrapper",

@@ -695,6 +695,20 @@ child therefore commonly emits root
 index predicate refreshed to reference the final root id. Case list menu
 item entries use the same projection.
 
+HQ's match is by case type and datum kind alone (`_same_case`), so it also
+takes a basic child form's new-case `uuid()` datum for a root selection of the
+same type once the child's own selections are matched: the entry then holds
+the root's selection id, CommCare asks for that case first and never mints
+the new id, and HQ's build still has the form's case block read
+`case_id_new_<type>_<i>`, so the form cannot open (a lane run showed Android's
+"Logic references … case_id_new_patient_0 which is not a valid question or
+value"). The projection reports that walk
+(`hqRootAlignmentTakenNewCase`, `onRootSelectionTakesNewCase`) and
+`validator/rules/parentSelection.ts::rootSelectionTakesNewCase` refuses the
+form (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`), so the local suite never
+writes the shape either. An advanced form's open-action datums follow the
+alignment and are never matched.
+
 Two native HQ limitations are target refusals in
 `hqNestedSelection.ts`, called only by the export boundary for HQ JSON/upload.
 A parent datum selecting several cases cannot feed HQ's scalar parent-index

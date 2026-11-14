@@ -51,21 +51,25 @@ const P_VISIT = testUuid("above-p-visit");
 const SUMMARY = testUuid("above-summary");
 const CHECK = testUuid("above-e-check");
 
-const nameField = () =>
+const nameField = (caseType = "patient") =>
 	f({
 		kind: "text",
 		id: "case_name",
 		label: proseText("Name"),
-		caseWrite: { caseType: "patient", property: "case_name" },
+		caseWrite: { caseType, property: "case_name" },
 	});
 const noteField = () =>
 	f({ kind: "text", id: "note", label: proseText("Note") });
 
-const registration = (uuid: string, name: string): FormSpec => ({
+const registration = (
+	uuid: string,
+	name: string,
+	caseType = "patient",
+): FormSpec => ({
 	uuid,
 	name,
 	type: "registration",
-	fields: [nameField()],
+	fields: [nameField(caseType)],
 });
 const followup = (
 	uuid: string,
@@ -380,8 +384,13 @@ describe("a menu that shows its forms in the menu above", () => {
 
 describe("a form's display condition on a screen with another menu's forms", () => {
 	it("refuses a case read once a submenu's registration form lists beside it", () => {
+		// The submenu registers a visit: one registering a patient under
+		// "Patients", whose first form opens a chosen patient, is refused
+		// whatever its menu shows (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`).
 		const doc = docOf({
-			extra: [registration("above-e-register", "Enrol")],
+			visits: true,
+			extraModule: { caseType: "visit" },
+			extra: [registration("above-e-register", "Enrol", "visit")],
 			pVisit: {
 				displayCondition: eq(prop("patient", "status"), literal("open")),
 			},

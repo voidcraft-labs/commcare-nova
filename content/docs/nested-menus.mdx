@@ -29,6 +29,14 @@ A parent with only a case list can group child modules that use the same case
 type. To group a child with a different case type, make the parent form-bearing
 and give it a form so CommCare can keep both case selections distinct.
 
+A child's form that creates a case of the type its parent's first form opens
+can't sit under that parent: CommCare HQ would give the new case the place of
+the case chosen in the parent, and the form couldn't open. Nova names the form
+and invites you to move it to another menu, or to start the parent with a form
+that doesn't open a case of that type. A registration form for that type
+belongs in a top-level menu, which can show it in the first menu or offer it
+from a case list.
+
 Nova will not remove a parent while it still has children. Move or remove those
 children first, then remove the parent.
 

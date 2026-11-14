@@ -27,7 +27,9 @@ questions from the lane's fixed answer table (``proof/core/answers.json``,
 whose values are already in the encoding Web Apps sends Formplayer; a file
 question, signature included, is given the table's file for its kind from
 ``proof/core/captures``, uploaded as the client uploads one, ``media_kind``
-and ``WebApps.answer_media``), clears a question that refused every value
+and ``WebApps.answer_media``; a question a worker answers on a number keypad is
+given the table's ``numberKeypad`` values, which that keypad takes as typed,
+``number_keypad``), clears a question that refused every value
 the table holds for it, as a worker who cannot satisfy it leaves it blank
 (``CLEARED``), adds to each repeat a worker adds to as many instances as the
 table says (``addable``, the table's ``repeats.add``, the count Core's and
@@ -235,6 +237,11 @@ CLIENT_DATA_TYPES = frozenset(
 # Formplayer's name for a question's style that asks for an address, which the client answers only with the
 # geocoder (``const.js``, ``ADDRESS``).
 ADDRESS = "address"
+# Formplayer's name for a question's style that asks for a number keypad (``const.js``, ``NUMERIC``).
+NUMERIC = "numeric"
+# The whole appearances, in any case, for which a device builds its number keypad widget (CommCare Android
+# ``WidgetFactory.java::buildBasicWidget``, ``StringNumberWidget``).
+DEVICE_KEYPADS = frozenset({"numeric", "numbers"})
 
 
 def answerable(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
@@ -250,6 +257,22 @@ def answerable(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
     if datatype in ("str", "barcode") and ADDRESS in str(style.get("raw") or "").split():
         return False
     return datatype in CLIENT_DATA_TYPES or (not web_apps and datatype == "datetime")
+
+
+def number_keypad(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
+    """Whether a worker answers ``question`` on a number keypad, which takes no letter: in Web Apps the client
+    draws ``PhoneEntry`` for a text or barcode question whose style holds ``numeric`` but not ``address``, which
+    comes first (``entries.js::getEntry``), and sends Formplayer only an answer its pattern takes
+    (``PhoneEntry.getErrorMessage``, ``FreeTextEntry.onPreProcess``). Where the app declares no Web Apps
+    (``web_apps`` false) the worker is on a device, which builds its keypad widget for a text question whose
+    whole appearance is ``numeric`` or ``numbers`` in any case (``DEVICE_KEYPADS``). The walk answers such a
+    question with the answer table's ``numberKeypad`` values, which a worker types on either keypad."""
+    style = question.get("style") if isinstance(question.get("style"), dict) else {}
+    raw = str(style.get("raw") or "")
+    if not web_apps:
+        return question.get("datatype") == "str" and raw.lower() in DEVICE_KEYPADS
+    styles = raw.split(" ")
+    return question.get("datatype") in ("str", "barcode") and NUMERIC in styles and ADDRESS not in styles
 
 
 def media_kind(question: Mapping[str, Any]) -> str | None:
@@ -542,6 +565,9 @@ class Walk:
         kind = media_kind(question)
         if kind is not None:
             return list(self.answer_table["novaKinds"].get(kind, ()))
+        if number_keypad(question, web_apps=self.web_apps):
+            # What a worker types on the keypad: the box takes no letter, so the text answers are not a worker's.
+            return list(self.answer_table["numberKeypad"])
         name = DATA_TYPES.get(question.get("datatype"))
         values = list(self.answer_table["dataTypes"].get(name, ())) if name else []
         today = self.clock.split("T", 1)[0]

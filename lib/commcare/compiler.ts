@@ -60,6 +60,8 @@ import {
 	requireExpressionContext,
 } from "@/lib/commcare/expressionContext";
 import {
+	alwaysOfferedReturnFrames,
+	alwaysOfferedTarget,
 	caseListFormReturnFrames,
 	caseListSessionDatums,
 	caseListStepDatumId,
@@ -76,7 +78,6 @@ import {
 	moduleCaseTypeForActions,
 	moduleDestinationFrameChildren,
 	moduleIndexOf,
-	owningModuleOf,
 	parentMenuDestinationFrameChildren,
 	parentSelectModuleUuid,
 	previousFrameChildren,
@@ -136,7 +137,6 @@ import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
-	caseListRegistrationReturnOf,
 	caseListsOffering,
 	effectiveCaseSearchConfig,
 	effectivePostSubmit,
@@ -264,32 +264,6 @@ function registerActionFor(
 		...(slot?.icon !== undefined && { icon: slot.icon }),
 		...(slot?.audioLabel !== undefined && { audioLabel: slot.audioLabel }),
 	};
-}
-
-/**
- * The form a host's case list always offers, where the emitter can write
- * its action: the host has a case list, keeps its own screen, and the form
- * stands in a menu of the projection. Elsewhere the slot is a validator
- * finding, and the emitter, being total, writes no action.
- */
-function alwaysOfferedTarget(
-	doc: BlueprintDoc,
-	linkContext: FormLinkProjectionContext,
-	hostModuleUuid: Uuid,
-): { readonly moduleUuid: Uuid; readonly formUuid: Uuid } | undefined {
-	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
-	const host = doc.modules[hostModuleUuid];
-	if (
-		slot === undefined ||
-		host === undefined ||
-		!host.caseType ||
-		moduleShowsFormsInMenuAbove(host)
-	)
-		return undefined;
-	const moduleUuid = owningModuleOf(linkContext, slot.formUuid);
-	return moduleUuid === undefined
-		? undefined
-		: { moduleUuid, formUuid: slot.formUuid };
 }
 
 /**
@@ -907,31 +881,14 @@ export function compileCcz(
 								synthetic.caseType,
 								"case-list",
 							)
-					: caseListsOffering(doc, formUuid).flatMap((hostUuid) => {
-							const returnTo = caseListRegistrationReturnOf(doc, hostUuid);
-							const hostCaseType = doc.modules[hostUuid]?.caseType;
-							if (
-								returnTo === undefined ||
-								returnTo.kind === "own" ||
-								!hostCaseType ||
-								alwaysOfferedTarget(doc, linkContext, hostUuid) === undefined
-							)
-								return [];
-							const newCaseId = entryNewCaseDatumId(
+					: caseListsOffering(doc, formUuid).flatMap((hostUuid) =>
+							alwaysOfferedReturnFrames(
+								doc,
+								linkContext,
+								hostUuid,
 								projectedSessionDatums,
-								hostCaseType,
-							);
-							return newCaseId === undefined
-								? []
-								: caseListFormReturnFrames(
-										doc,
-										linkContext,
-										hostUuid,
-										newCaseId,
-										hostCaseType,
-										returnTo.kind,
-									);
-						});
+							),
+						);
 			const commandInstances = new InstanceSink();
 			const menuCommand = xel(
 				"command",
