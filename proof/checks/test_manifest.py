@@ -772,6 +772,30 @@ def test_a_value_the_upload_carries_back_from_the_target_is_not_novas_use(manife
     assert "add-on:menu_mode" in uses("Begin a visit", True, None)
 
 
+def test_a_ui_text_an_archive_writes_back_from_its_project_space_is_not_novas_use(manifest):
+    """A local archive is made for its project space and writes the runtime UI text that space holds: in each
+    language's strings the text a person saved in that language (``hq-side.json``), and in ``default`` HQ's merge
+    of every language's. Such an id at a saved text, as HQ's reader reads back what HQ's build writes (a blank as
+    ``""``, a ``#`` escaped), is the target's text written back and no use of Nova's; the same id at another text,
+    in a language that saved none, or with no saves at all, is the archive's use."""
+    saved = {"uiTranslations": {"en": {"home.start": "Begin a visit"}, "fra": {"home.start": "Visite #1  "}}}
+
+    def uses(directory, text, carried=saved):
+        found = manifest_usage.Uses()
+        strings = f"app.display.name=Clinic\nhome.start={text}\n".encode()
+        manifest_usage.archive_uses({f"{directory}/app_strings.txt": strings}, manifest, "local.ccz", found, carried)
+        return {use.key for use in found.uses}
+
+    assert "ui-string:home.start" in manifest.items
+    assert uses("en", "Begin a visit") == {"ui-string:app.display.name"}
+    assert uses("fra", "Visite \\#1") == {"ui-string:app.display.name"}
+    assert uses("default", "Begin a visit") == uses("default", "Visite \\#1") == {"ui-string:app.display.name"}
+    assert "ui-string:home.start" in uses("en", "Begin")
+    assert "ui-string:home.start" in uses("en", "Visite \\#1")
+    assert "ui-string:home.start" in uses("default", "Begin")
+    assert "ui-string:home.start" in uses("en", "Begin a visit", None)
+
+
 def test_a_feature_is_hqs_setting_or_the_one_its_template_writes_for_every_app(manifest):
     """In a profile, a feature HQ's settings hold is its setting, one HQ's profile template writes for every app is
     that item (``profile-feature:<name>``), held with the parser's own key, and one neither holds keeps the setting

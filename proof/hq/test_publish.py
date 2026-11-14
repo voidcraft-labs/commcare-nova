@@ -855,6 +855,48 @@ def test_a_working_app_serves_what_a_ccz_names(hq, core_runner, documents):
             assert "parent" in paths.get(case_type, set())
 
 
+# Each of HQ's views a working app's runtime URL names the app to, by the URL name HQ reverses it with: the
+# restore and both receivers ``ApplicationBase.post_url`` picks between (the profile's), and the search and case
+# fixture (the suite's).
+APP_URL_NAMES = (
+    "app_aware_restore",
+    "receiver_post_with_app_id",
+    "receiver_secure_post_with_app_id",
+    "app_aware_remote_search",
+    "case_fixture",
+)
+
+
+def test_the_archive_names_the_working_app_in_every_url_hq_writes_with_its_id(hq):
+    """``operations.with_runtime_app_id`` writes A's id in place of the capture's placeholder in each URL HQ's own
+    build writes with the app's id, each reversed from HQ's URLconf on the placeholder: the plain and the secure
+    receiver among them, so an archive made for a project space whose app submits securely names the app its
+    device posts to. A URL that names no app (the key server) is left as it is."""
+    import io
+    import zipfile
+
+    from django.urls import reverse
+
+    def url(name, *app_id):
+        return "https://www.commcarehq.org" + reverse(name, args=["nova-proof", *app_id])
+
+    placeholder, app_id = operations.PLACEHOLDER_APP_ID, "0123456789abcdef0123456789abcdef"
+    profile = (
+        "".join(f'<property key="{name}" value="{url(name, placeholder)}"/>' for name in APP_URL_NAMES)
+        + f'<property key="key_server" value="{url("key_server_url")}"/>'
+    )
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as written:
+        written.writestr("profile.ccpr", f"<profile>{profile}</profile>")
+    rewritten = operations.with_runtime_app_id(archive.getvalue(), app_id)
+    properties = _profile_properties(_archive_member(rewritten, "profile.ccpr"))
+    assert properties == {
+        **{name: url(name, app_id) for name in APP_URL_NAMES},
+        "key_server": url("key_server_url"),
+    }
+    assert {_view_of(properties[name]) for name in APP_URL_NAMES} == set(APP_URL_NAMES)
+
+
 def _ask(state, request, label):
     """HQ's answer to a device's request, from its own handler and middleware (``proof.views.conftest.ask``)."""
     import hashlib

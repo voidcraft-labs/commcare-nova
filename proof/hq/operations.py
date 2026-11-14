@@ -319,13 +319,21 @@ def publish_capture(state, create: Upload, content: Upload, content_source, upda
 
 # A local archive's runtime URLs: each ``(member, element, attribute)`` that names one, and the path segments
 # after ``/a/<domain>/`` of the URLs that name the app (``lib/commcare/runtimeTarget.ts::runtimeUrls``,
-# ``::profileServerProperties``).
+# ``::profileServerProperties``): the search, the case fixture, the restore, and both receivers HQ's
+# ``ApplicationBase.post_url`` picks between, the secure one where the project space's app submits securely
+# (``receiverwrapper/urls.py``: ``receiver_post_with_app_id``, ``receiver_secure_post_with_app_id``).
 _RUNTIME_URL_PLACES = (
     ("suite.xml", "query", "url"),
     ("suite.xml", "query", "value"),
     ("profile.ccpr", "property", "value"),
 )
-_APP_ID_PATHS = (("phone", "search"), ("phone", "case_fixture"), ("phone", "restore"), ("receiver",))
+_APP_ID_PATHS = (
+    ("phone", "search"),
+    ("phone", "case_fixture"),
+    ("phone", "restore"),
+    ("receiver",),
+    ("receiver", "secure"),
+)
 
 
 def _with_app_id_in_url(url, app_id):
@@ -371,7 +379,8 @@ def _rewritten_member(xml: bytes, places, app_id):
 def with_runtime_app_id(archive: bytes, app_id: str) -> bytes:
     """The local archive with the placeholder app id its capture named (``PLACEHOLDER_APP_ID``) replaced by
     ``app_id``, the app HQ holds, in every runtime URL that names the app: the ``suite.xml`` member's search and
-    case fixture URLs, and the ``profile.ccpr`` member's ``PostURL`` and ``ota-restore-url``.
+    case fixture URLs, and the ``profile.ccpr`` member's ``PostURL`` (the plain receiver or the secure one) and
+    ``ota-restore-url``.
 
     Each member is parsed and written as XML, never edited as text, and every other member and every entry's
     name, order and compression are kept. It is the counterpart of ``with_app_id``, which names A in an update's

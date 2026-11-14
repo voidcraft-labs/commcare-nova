@@ -137,6 +137,14 @@ def parse_app_strings(content):
     return commcare_translations.loads(content)
 
 
+def read_back(key, text):
+    """What HQ's reader reads of one string HQ's build wrote: ``text`` under ``key`` written by
+    ``commcare_translations.dumps`` (a blank text as a non-breaking space, a line break as ``\\n``, an unescaped
+    ``#`` escaped) and read by ``loads``, which strips each line."""
+    commcare_translations = _reader()
+    return commcare_translations.loads(commcare_translations.dumps({key: text})).get(key.strip())
+
+
 def compare_strings_maps(before, after, *, check, document, artifact):
     """Every key whose value differs between two read app strings maps."""
     found = []

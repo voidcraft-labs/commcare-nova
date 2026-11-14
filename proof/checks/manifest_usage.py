@@ -188,7 +188,15 @@ family is read by the reader the surface records for it:
   runtime reads as one of its own UI strings (``ui-string:<id>``, an item the
   surface records a reader for, by the id or a prefix a runtime reads ids
   under); the other ids, those only a catalog holds among them, are the
-  app's own text.
+  app's own text. An archive is made for its configuration's project space
+  and writes the text that space holds under each runtime UI id into each
+  language's strings and HQ's merge of them into ``default``
+  (``lib/commcare/compiler.ts::compileCcz``), so an id at a text the
+  document's ``hq-side.json`` says a person saved in HQ is the target's text
+  written back, not a use of Nova's, as on the upload: in a language's
+  strings, the text saved in that language, and in ``default``, a text saved
+  in any language, each as HQ's reader reads back what HQ's build writes of
+  it (``carried_app_strings``). The same id at any other text is a use.
 
 Every flag the unit's records show HQ reading while it built the export is
 held to the gate entries (``flag_reads``), and every soft assertion HQ noted
@@ -210,7 +218,7 @@ from urllib.parse import quote, urlsplit
 from lxml import etree
 
 from proof.checks import observations
-from proof.checks.compare.app_strings import parse_app_strings
+from proof.checks.compare.app_strings import parse_app_strings, read_back
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
     VALUE_CLASSES,
@@ -648,10 +656,29 @@ def _ui_string_prefixes(manifest):
     )
 
 
-def app_strings_uses(text: bytes, manifest: Manifest, artifact: str, found: Uses):
+def carried_app_strings(hq_side, directory) -> dict:
+    """The texts an archive's ``<directory>/app_strings.txt`` writes back from its project space, by id: each
+    UI translation the document's ``hq-side.json`` says a person saved in HQ (``uiTranslations``, by language
+    code), as HQ's reader reads back what HQ's build writes of it (``read_back``). A language's strings take the
+    texts saved in that language, and ``default``, which HQ's build merges from every language
+    (``app_strings.py::AppStringsBase.create_default_app_strings``), the texts saved in any."""
+    saved = (hq_side or {}).get("uiTranslations") or {}
+    languages = saved.values() if directory == "default" else (saved.get(directory) or {},)
+    carried = {}
+    for texts in languages:
+        for key, text in texts.items():
+            carried.setdefault(key, set()).add(read_back(key, text))
+    return carried
+
+
+def app_strings_uses(text: bytes, manifest: Manifest, artifact: str, found: Uses, carried=None):
     """The ids of an app strings file a runtime reads as its own UI strings, read with HQ's reader of the
-    format (``commcare_translations.loads``, which HQ's build writes them with as ``dumps``)."""
-    for name in sorted(parse_app_strings(text)):
+    format (``commcare_translations.loads``, which HQ's build writes them with as ``dumps``), but an id at a text
+    its project space holds and the archive writes back (``carried``, ``carried_app_strings``)."""
+    strings = parse_app_strings(text)
+    for name in sorted(strings):
+        if strings[name] in (carried or {}).get(name, ()):
+            continue
         _ui_string(name, manifest, artifact, name, found)
 
 
@@ -1529,9 +1556,11 @@ def _profile_setting(element, manifest, artifact, where, found, at=None):
         found.add(feature_key(manifest, local), artifact, where, at)
 
 
-def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses):
+def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses, carried=None):
     """The surface items a local ``.ccz`` uses, from the entries the manifest reads (``{name: bytes}``,
-    ``proof.observe.manifest.read_entry``): its suites, profile, app strings and forms."""
+    ``proof.observe.manifest.read_entry``): its suites, profile, app strings and forms. ``carried`` is the
+    document's ``hq-side.json``, whose saved UI translations the archive writes back from its project space and
+    does not use (``carried_app_strings``)."""
     for name in sorted(entries):
         data = entries[name]
         if not read_entry(name):
@@ -1541,7 +1570,8 @@ def archive_uses(entries: dict, manifest: Manifest, artifact: str, found: Uses):
         elif name == "profile.ccpr":
             runtime_xml_uses(data, "ProfileParser", manifest, f"{artifact}/{name}", found)
         elif name.endswith("/app_strings.txt"):
-            app_strings_uses(data, manifest, f"{artifact}/{name}", found)
+            directory = name.rpartition("/")[0]
+            app_strings_uses(data, manifest, f"{artifact}/{name}", found, carried_app_strings(carried, directory))
         else:
             xform_uses(data, manifest, f"{artifact}/form:{_form_position(name)}", found)
 
@@ -2063,7 +2093,9 @@ def export_uses(document, records, manifest: Manifest) -> Uses:
             as_imported(app), manifest, artifact, found, carried=document.hq_side, configurations=configurations
         )
     for artifact, entries in sorted(observed["archives"].items()):
-        archive_uses({name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found)
+        archive_uses(
+            {name: blobs.get(ref) for name, ref in entries.items()}, manifest, artifact, found, document.hq_side
+        )
     read_observed(found, manifest, Readings.of(blobs.get_json(observed["readings"])))
     return found
 
