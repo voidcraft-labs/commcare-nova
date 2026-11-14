@@ -939,7 +939,14 @@ instance. HQ's form builder reads it as its own question and writes it back unch
 build keeps the attribute, and the `.ccz` carries the same bytes. Lane document
 `targeted-number-keypad` (declares both platforms): a registration form whose `phone` question holds
 the keypad, saves to a property and shows in a Phone column. Its checks are in "Tests", and G5 reads
-the question's widget on the Android reader.
+the question's widget on the Android reader. Every reader's walk answers a keypad question with what a
+worker types on the keypad: the answer table's text values hold letters, which the client's
+`PhoneEntry` never sends Formplayer, so the lane's first run of the document had the client submit the
+form otherwise than Formplayer's walk (`SubmittedOtherwise`). `proof/core/answers.json` holds a
+`numberKeypad` list (`0712345678`, `+254712345678`, `7`, each kept as typed by both keypads), which
+Formplayer's walk gives a question the client draws `PhoneEntry` for (`walk.py::number_keypad`) and
+Core's and Android's walks give a text question whose whole appearance is `numeric` or `numbers`
+(`Answers.java::numberKeypad`).
 
 ---
 
@@ -1622,7 +1629,18 @@ holds a value class of its own, so every pair on a shared key is disjoint. The H
 choice's value is a use of its key in every select Nova emits, beside that allowing entry, so the
 lane's manifest check reads each one: `proof/checks/manifest_value_classes.py::choice_value_read_as_an_instance`
 takes a value where HQ's pattern, its name widened as `instanceScanRead`'s is, reads it, with its
-shapes in `test_manifest_value_classes.py`.
+shapes in `test_manifest_value_classes.py`. A form's name is a use of `schema:Form.name` or
+`schema:AdvancedForm.name` in every form Nova emits too, beside `forms-and-case-writes/name-lang`, so
+the check reads it the same way:
+`manifest_value_classes.py::form_name_read_as_an_instance` takes a form whose name in the app's
+default language (the first of `langs`) HQ's pattern reads, and a name in another language it does
+not. Without it every form of every document was undecided under the new class. The Connect entry's
+keys are a use of nothing the check extracts (HQ's reader types a question from its body control, a
+Connect block has none, and no family reads a `vellum-plugin:` key), so it joins
+`test_manifest_value_classes.py::KNOWN_GAPS` beside
+`questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or`, whose keys are the same.
+`proof/ci/__tests__/manifestReaders.test.ts` holds, in ordinary CI, that every REFUSED entry with a
+value class has its reader or is such a gap.
 `questions/h-title-and-data-name-whatever-their-text` stays too: a reader takes a form's name from
 `Form.name`, never from the title. Both entries exist before the reader does, so the reader adds
 neither and claims each (part 06, sections 7.4 and 15).

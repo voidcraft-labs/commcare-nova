@@ -274,3 +274,30 @@ def test_the_clients_placeholder_is_held_only_in_an_app_that_declares_web_apps()
     sent = walk_module.submission(tree, set(), held(False))["answers"]
     assert sent == {"0": "2001-02-03T04:05:06.000Z", "1": "Ada"}
     assert walk_module.UNSUPPORTED not in sent.values()
+
+
+def test_a_question_on_a_number_keypad_is_given_what_a_worker_types_on_it():
+    """In Web Apps the client draws its number keypad box (``PhoneEntry``) for a text question whose style holds
+    ``numeric``, unless it also holds ``address``, and sends Formplayer only an answer its pattern takes, so a worker
+    types digits there: the walk gives such a question the answer table's ``numberKeypad`` values, which hold no
+    letter, and gives a plain text question and an address the text values. Where the app declares no Web Apps the
+    worker is on a device, whose keypad answers a text question whose whole appearance is ``numeric`` or
+    ``numbers``. Plausible failure: a walk that types ``proof`` into the phone number box, which the client refuses
+    and never sends, so the client submits the form otherwise than the walk (``targeted-number-keypad``)."""
+    walk = walk_module.Walk(None, None, domain="proof", app_id="app")
+    keypad_values = list(walk.answer_table["numberKeypad"])
+    text_values = list(walk.answer_table["dataTypes"]["text"])
+    assert keypad_values and not any(character.isalpha() for value in keypad_values for character in value)
+
+    def question(raw, datatype="str"):
+        return {"type": "question", "ix": "0", "datatype": datatype, "style": {"raw": raw} if raw else None}
+
+    assert walk._values(question("numeric")) == keypad_values
+    assert walk._values(question("numeric", datatype="barcode")) == keypad_values
+    assert walk._values(question(None)) == text_values
+    assert walk._values(question("numeric address")) == []
+
+    device = walk_module.Walk(None, None, domain="proof", app_id="app", web_apps=False)
+    assert device._values(question("Numbers")) == keypad_values
+    assert device._values(question("numeric")) == keypad_values
+    assert device._values(question("numeric minimal")) == text_values

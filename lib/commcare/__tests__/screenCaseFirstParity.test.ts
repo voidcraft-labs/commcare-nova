@@ -254,7 +254,11 @@ describe("a screen two menus list forms on", () => {
 	});
 
 	it("lists forms first where a submenu's form opens without a case", () => {
-		expect(parentScreen(sharedScreen({ registration: true }))).toEqual({
+		// The submenu registers a household: a patient's registration under
+		// "Patients" is refused (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`).
+		expect(
+			parentScreen(sharedScreen({ registration: true, caseType: "household" })),
+		).toEqual({
 			menu: "Patients",
 			nova: false,
 			core: false,

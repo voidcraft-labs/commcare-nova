@@ -64,9 +64,11 @@ import { type FormCaseEntryPlan, formCaseEntryPlan } from "./formCaseEntryPlan";
 
 import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
+	alwaysOfferedRegistrationOf,
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type CaseListRegistrationReturn,
+	caseListRegistrationReturnOf,
 	type DatumEntry,
 	type DatumRef,
 	datumRefKey,
@@ -231,6 +233,11 @@ export interface FormLinkProjectionContext {
 	readonly onHqSelectionBoundMismatch?: (
 		issue: HqSelectionBoundMismatch,
 	) => void;
+	/** Observer of a child entry whose new case HQ's root alignment would
+	 *  give a root selection's id (`hqRootAlignmentTakenNewCase`). */
+	readonly onRootSelectionTakesNewCase?: (
+		issue: RootSelectionTakesNewCase,
+	) => void;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
@@ -309,6 +316,9 @@ export function formLinkProjectionContext(
 		readonly onHqSelectionBoundMismatch?: (
 			issue: HqSelectionBoundMismatch,
 		) => void;
+		readonly onRootSelectionTakesNewCase?: (
+			issue: RootSelectionTakesNewCase,
+		) => void;
 		readonly runtimeTarget?: RuntimeTarget;
 		readonly attachmentTarget?: AttachmentUrlTarget | null;
 		readonly lookupNaming?: LookupWireNaming;
@@ -345,6 +355,9 @@ export function formLinkProjectionContext(
 		}),
 		...(opts.onHqSelectionBoundMismatch !== undefined && {
 			onHqSelectionBoundMismatch: opts.onHqSelectionBoundMismatch,
+		}),
+		...(opts.onRootSelectionTakesNewCase !== undefined && {
+			onRootSelectionTakesNewCase: opts.onRootSelectionTakesNewCase,
 		}),
 		runtimeTarget: opts.runtimeTarget,
 		moduleOrder,
@@ -651,15 +664,72 @@ function refreshDatumReferences(datums: readonly SessionDatum[]): void {
 	}
 }
 
+/** A child form whose new case HQ's root alignment gives a root selection's
+ *  id: the form's module, the root menu and its first form, and the case
+ *  type the two share. */
+export interface RootSelectionTakesNewCase {
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
+	readonly rootModuleUuid: Uuid;
+	readonly rootFormUuid: Uuid;
+	readonly caseType: string;
+}
+
+/**
+ * The new case of a child entry that HQ's `add_parent_datums` matches to a
+ * selection of the root menu's first form, or undefined. HQ walks the root's
+ * selections in order against the child's next datum, and matches one of the
+ * same case type and the same datum kind (`_same_case`) that came from an
+ * action (a selection, or a case the form creates; never the worker's record
+ * or a tile's parents), renaming it to the root's id. A new case so matched
+ * keeps the root's selection id and never runs its `uuid()`: the entry holds
+ * no `case_id_new_<type>_<i>`, which HQ's build still has the form's case
+ * block read (`xform.py::XForm._create_casexml`), so the form cannot open
+ * after the root's case is chosen. `newCases` are the child's own new-case
+ * datums among `current`.
+ */
+function hqRootAlignmentTakenNewCase(
+	parentDatums: readonly SessionDatum[],
+	current: readonly SessionDatum[],
+	newCases: ReadonlySet<SessionDatum>,
+): SessionDatum | undefined {
+	const remaining = [...current];
+	for (const parentDatum of parentDatums) {
+		if (
+			parentDatum.query !== undefined ||
+			!sessionDatumRequiresSelection(parentDatum)
+		)
+			continue;
+		const next = remaining[0];
+		if (next === undefined) return undefined;
+		const fromAction =
+			sessionDatumRequiresSelection(next) || newCases.has(next);
+		if (
+			!fromAction ||
+			next.caseType === undefined ||
+			next.caseType !== parentDatum.caseType ||
+			(next.maxSelectValue !== undefined) !==
+				(parentDatum.maxSelectValue !== undefined)
+		)
+			continue;
+		remaining.shift();
+		if (newCases.has(next)) return next;
+	}
+	return undefined;
+}
+
 /** Mirror HQ's `add_parent_datums`: child entries live in the root menu's
  * session namespace, so collisions are renamed and same-case selections are
  * aligned to the parent's datum identity. Parent computed datums are carried
- * forward; unrelated parent selections are not. */
+ * forward; unrelated parent selections are not. A new case HQ would match to
+ * a root selection is reported (`onRootSelectionTakesNewCase`), and the
+ * validator refuses the document, so it keeps its own id here. */
 function alignWithRootMenu(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	entry: DatumEntry,
 	current: SessionDatum[],
+	newCases: ReadonlySet<SessionDatum> = new Set(),
 ): SessionDatum[] {
 	const alignment = rootSelectionAlignment(doc, entry);
 	const parent = alignment.parentEntry;
@@ -682,6 +752,22 @@ function alignWithRootMenu(
 	for (const datum of current) {
 		if (parentIds.has(datum.id))
 			datum.id = `${datum.id}_${datum.alignmentSuffix ?? datum.caseType ?? "child"}`;
+	}
+	if (
+		entry.kind === "form" &&
+		parent.kind === "form" &&
+		newCases.size > 0 &&
+		ctx.onRootSelectionTakesNewCase !== undefined
+	) {
+		const taken = hqRootAlignmentTakenNewCase(parentDatums, current, newCases);
+		if (taken?.caseType !== undefined)
+			ctx.onRootSelectionTakesNewCase({
+				moduleUuid: entry.module,
+				formUuid: entry.form,
+				rootModuleUuid: parent.module,
+				rootFormUuid: parent.form,
+				caseType: taken.caseType,
+			});
 	}
 	const remaining = [...current];
 	const prefix: SessionDatum[] = [];
@@ -786,6 +872,7 @@ export function entrySessionDatums(
 		if (companion !== undefined)
 			ctx.tileGroupingSources.set(companion, moduleUuid);
 	}
+	const newCaseIds = new Set(newCases.map((created) => created.id));
 	const aligned = withInlineSearchQueries(
 		doc,
 		ctx,
@@ -794,6 +881,11 @@ export function entrySessionDatums(
 			ctx,
 			{ kind: "form", module: moduleUuid, form: formUuid },
 			datums,
+			new Set(
+				datums.filter(
+					(datum) => datum.function !== undefined && newCaseIds.has(datum.id),
+				),
+			),
 		),
 	);
 	ctx.entryDatums.set(formUuid, aligned);
@@ -2005,6 +2097,68 @@ export function entryNewCaseDatumId(
 			candidate.caseType === caseType &&
 			candidate.id.startsWith("case_id_new_"),
 	)?.id;
+}
+
+/**
+ * The form a host's case list always offers, where the emitter can write
+ * its action: the host has a case list, keeps its own screen, and the form
+ * stands in a menu of the projection. Elsewhere the slot is a validator
+ * finding, and the emitter, being total, writes no action.
+ */
+export function alwaysOfferedTarget(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	hostModuleUuid: Uuid,
+): { readonly moduleUuid: Uuid; readonly formUuid: Uuid } | undefined {
+	const slot = alwaysOfferedRegistrationOf(doc, hostModuleUuid);
+	const host = doc.modules[hostModuleUuid];
+	if (
+		slot === undefined ||
+		host === undefined ||
+		!host.caseType ||
+		moduleShowsFormsInMenuAbove(host)
+	)
+		return undefined;
+	const moduleUuid = owningModuleOf(ctx, slot.formUuid);
+	return moduleUuid === undefined
+		? undefined
+		: { moduleUuid, formUuid: slot.formUuid };
+}
+
+/**
+ * The return frames the entry of the form a host's case list always offers
+ * carries for that host (`CaseListFormWorkflow.case_list_forms_frames`):
+ * none where the form's own after-submit writes a frame
+ * (`caseListRegistrationReturnOf` gives `own`), where the emitter writes no
+ * action, or where the entry (`entryDatums`, the offered form's own) gives
+ * the form no new case of the host's type.
+ */
+export function alwaysOfferedReturnFrames(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	hostUuid: Uuid,
+	entryDatums: readonly SessionDatum[],
+): readonly CaseListFormReturnFrame[] {
+	const returnTo = caseListRegistrationReturnOf(doc, hostUuid);
+	const hostCaseType = doc.modules[hostUuid]?.caseType;
+	if (
+		returnTo === undefined ||
+		returnTo.kind === "own" ||
+		!hostCaseType ||
+		alwaysOfferedTarget(doc, ctx, hostUuid) === undefined
+	)
+		return [];
+	const newCaseId = entryNewCaseDatumId(entryDatums, hostCaseType);
+	return newCaseId === undefined
+		? []
+		: caseListFormReturnFrames(
+				doc,
+				ctx,
+				hostUuid,
+				newCaseId,
+				hostCaseType,
+				returnTo.kind,
+			);
 }
 
 /** HQ `const.RETURN_TO`: the datum the Register action pushes so the
