@@ -12,6 +12,7 @@ import { literalShape } from "@/lib/domain/expression/ruleSets";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { inventoryIndex } from "../../surface/inventory";
+import { canonicalInstanceId } from "../../xpath/formPathBinding";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import {
 	CSQL_QUERY_FUNCTIONS,
@@ -191,13 +192,27 @@ export interface SurfaceUseFacts {
 	 *  the menu itself (`inline`), a child menu whose parent selection
 	 *  chooses a case from that menu's list (`child-of-inline`), or neither. */
 	readonly menu: "inline" | "child-of-inline" | "other";
+	/** The source the slot's form declares for each instance id it names, by
+	 *  id; empty outside a form. */
+	readonly instanceSources: ReadonlyMap<string, string>;
 }
 
 const NO_FACTS: SurfaceUseFacts = {
 	unsupplied: new Set(),
 	computedDatums: new Set(),
 	menu: "other",
+	instanceSources: new Map(),
 };
+
+/** The id an `instance()` read is classed under: in a form, the id the source
+ *  it declares for the id names, since Core reads the instance its source
+ *  gives (a table's `jr://fixture/item-list:<tag>` under the bare tag Nova
+ *  writes is `item-list:<tag>`); elsewhere, and for a source no id names,
+ *  the id as written. */
+function classedInstanceId(id: string, facts: SurfaceUseFacts): string {
+	const source = facts.instanceSources.get(id);
+	return (source === undefined ? undefined : canonicalInstanceId(source)) ?? id;
+}
 
 /** The session path key and class a path through the session instance makes. */
 function sessionUse(
@@ -356,11 +371,13 @@ function xpathUses(
 					uses.add("xpath-expr:XPathPathExpr", "instance-or-current-root");
 					const id =
 						node.args[0] === undefined ? undefined : bare(node.args[0]);
-					if (node.name === "instance" && id?.kind === "string")
+					if (node.name === "instance" && id?.kind === "string") {
+						const classed = classedInstanceId(id.value, facts);
 						uses.add(
-							`instance-scheme:${scheme(id.value)}`,
-							instanceClass(id.value, context, facts),
+							`instance-scheme:${scheme(classed)}`,
+							instanceClass(classed, context, facts),
 						);
+					}
 				} else if (HANDLERS.has(node.name))
 					uses.add(
 						`jr-handler:${node.name}`,

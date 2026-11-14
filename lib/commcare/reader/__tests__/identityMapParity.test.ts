@@ -496,14 +496,13 @@ async function readRetained(answer: RetainedHqAnswer): Promise<ReadOutcome> {
 const RETAINED_READ: readonly string[] = [
 	"navigation-base/app-source",
 	"navigation-base/app-source-after-form-builder-save",
+	"case-list-inline/app-source",
 ];
 
 /**
  * Retained app sources holding content Nova does not hold, with the finding
- * that says so: a mirror form, a report menu and a visit schedule, and a
- * case list column of a related case's property by a name past the first
- * step. Each is held to its account; one that comes to read moves to
- * `RETAINED_READ`.
+ * that says so: a mirror form, and a report menu and a visit schedule. Each
+ * is held to its account; one that comes to read moves to `RETAINED_READ`.
  */
 const RETAINED_ACCOUNT: readonly [string, () => RetainedHqAnswer, string][] = [
 	[
@@ -515,11 +514,6 @@ const RETAINED_ACCOUNT: readonly [string, () => RetainedHqAnswer, string][] = [
 		"hq-built/app-source",
 		() => retainedGroupRead("hq-built/app-source"),
 		"menus-and-case-lists/reportmodule-mobile-ucr-and-all-of-report-configs",
-	],
-	[
-		"case-list-inline/app-source",
-		() => retainedGroupRead("case-list-inline/app-source"),
-		"menus-and-case-lists/idx-prop-parent-host-any-index-names-other-than-a-first-step",
 	],
 ];
 

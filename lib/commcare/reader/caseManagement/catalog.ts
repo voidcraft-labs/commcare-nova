@@ -15,10 +15,12 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { casePropertyShowsOptionLabels } from "@/lib/domain/caseListOrder";
 import {
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 } from "@/lib/domain/effectiveCaseTypes";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { type ProseTemplate, proseText } from "@/lib/domain/prose";
@@ -316,9 +318,9 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				for (const write of block.writes) {
 					// A value that is one question's answer is that question's write.
 					const field =
-						write.value.kind === "capture"
-							? write.value.field
-							: write.value.readsField;
+						write.value.kind === "text"
+							? write.value.readsField
+							: write.value.field;
 					writes.push({
 						caseType: destination,
 						property: write.property,
@@ -524,9 +526,25 @@ function typedReaders(
 		const caseType = module?.caseType;
 		if (module === undefined || caseType === undefined) continue;
 		for (const column of module.caseListConfig?.columns ?? []) {
+			if (column.sort === undefined) continue;
 			const field = (column as { field?: unknown }).field;
-			if (column.sort !== undefined && typeof field === "string")
-				add(caseType, field, ["int", "decimal"]);
+			if (typeof field === "string") add(caseType, field, ["int", "decimal"]);
+			// A sorted calculated column that is one property's read alone, on
+			// the menu's case or a case a relation reaches, orders by it.
+			if (
+				column.kind === "calculated" &&
+				column.expression.kind === "term" &&
+				column.expression.term.kind === "prop"
+			) {
+				const { property, via } = column.expression.term;
+				const destination = resolveRelationDestination(
+					via,
+					caseType,
+					effectiveCaseTypes(doc),
+				);
+				if (destination.ok)
+					add(destination.caseType, property, ["int", "decimal"]);
+			}
 		}
 		for (const input of module.caseListConfig?.searchInputs ?? []) {
 			const record = input as {
@@ -651,6 +669,34 @@ export function catalogAsRead(
 		}
 		for (const read of reads) noteProperty(draft, read.caseType, read.property);
 		declareSelectTypes(draft, selects);
+		// A property a plain column shows by its choices' labels, where no
+		// select question gives it choices: the column states its kind and
+		// its choices, as the list reader declares them.
+		const effective = effectiveCaseTypes(doc);
+		for (const uuid of doc.moduleOrder) {
+			const module = doc.modules[uuid];
+			const caseType = module?.caseType;
+			if (caseType === undefined) continue;
+			for (const column of module?.caseListConfig?.columns ?? []) {
+				if (column.kind !== "plain") continue;
+				const shown = effective
+					.find((type) => type.name === caseType)
+					?.properties.find((one) => one.name === column.field);
+				const entry = draft
+					.find((type) => type.name === caseType)
+					?.properties.find((one) => one.name === column.field);
+				if (
+					shown === undefined ||
+					entry === undefined ||
+					!casePropertyShowsOptionLabels(shown) ||
+					(entry.options ?? []).length > 0 ||
+					(entry.data_type !== undefined && entry.data_type !== shown.data_type)
+				)
+					continue;
+				entry.data_type = shown.data_type;
+				noteChoices(entry, shown.options ?? []);
+			}
+		}
 		// A type declared only where a reader keeps it and no writer types the property.
 		const declared = new Map<string, CasePropertyDataType>();
 		for (const type of doc.caseTypes ?? [])

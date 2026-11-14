@@ -59,7 +59,9 @@ export function csqlVectorDoc(filter?: Expression): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "village", label: proseText("Village") },
+					// A text property: one the catalog holds untyped takes the type
+					// a row's ordering against a date gives it.
+					{ name: "village", label: proseText("Village"), data_type: "text" },
 					{ name: "age", label: proseText("Age"), data_type: "int" },
 					{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 					{ name: "seen", label: proseText("Seen"), data_type: "datetime" },
@@ -70,6 +72,8 @@ export function csqlVectorDoc(filter?: Expression): BlueprintDoc {
 					},
 				],
 			},
+			// A patient's subcases, which a row counts.
+			{ name: "visit", parent_type: "patient", properties: [] },
 		],
 		modules: [
 			{

@@ -68,7 +68,11 @@ sibling's calculate, keeps the `name` to `case_name` alias unless the hook
 turns it off, binds `current()/…` in a slot with no form whose own row is a
 case as that row's steps at any depth of its predicates, the case HQ writes
 `current()` for in a case list and Core keeps as `current()` inside every
-nested predicate, and binds a Search answer read in a menu's own slot.
+nested predicate, binds a Search answer read in a menu's own slot, and
+binds a session value read in a menu's own slot to the case a menu above it
+chose, among the datums the menu's case list entry holds, by its id or by its
+id before HQ aligns a child entry with its root menu
+(`formLinkProjection.ts::caseListStepDatumId`).
 
 ## Emission and capabilities
 

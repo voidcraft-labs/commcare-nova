@@ -10,7 +10,9 @@
  * with a date held, or left unrecognized, where Nova can't evaluate it; a
  * text property ordered claimed as anything but the record rule set's
  * wider vocabulary; a property name built at run time held; an
- * unparenthesized later argument held.
+ * unparenthesized later argument held; a count of subcases bounded by a
+ * Search field's answer, whose zero the row writes bare, or a test of the
+ * case's own type, not read back as the tree that wrote it.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -118,6 +120,26 @@ describe("a search filter row's CSQL", () => {
 			expect(
 				readSearchFilterRow(novaRow(predicate, condition), condition, env),
 			).toEqual({ ok: true, predicate, level: "exact", rewrites: [] });
+	});
+
+	it("reads a count of subcases bounded by a Search field's answer, and a case type test, as the trees that wrote them", () => {
+		// The bound's zero is written bare by a choice around the answer.
+		const counted: Expression = whenInput(input(REGION), {
+			kind: "gt",
+			left: {
+				kind: "count",
+				via: { kind: "subcase", identifier: "parent", ofCaseType: "visit" },
+			},
+			right: { kind: "double", value: term(input(REGION)) },
+		});
+		const ownType: Expression = eq(
+			term({ kind: "case-row-type" }),
+			term({ kind: "case-type", caseType: "patient" }),
+		);
+		for (const predicate of [counted, ownType])
+			expect(
+				readSearchFilterRow(novaRow(predicate, condition), condition, env),
+			).toMatchObject({ ok: true, predicate });
 	});
 
 	it("refuses a property name the device builds as computed at run time", () => {

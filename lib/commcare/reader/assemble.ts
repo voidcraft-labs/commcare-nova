@@ -27,6 +27,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import { PLATFORM_FEATURES } from "@/lib/domain/platforms";
 import type { PlatformFeatureUse } from "@/lib/domain/platformUses";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -42,6 +43,7 @@ import { placedBasic } from "../placement";
 import { placementsToHold } from "../placementHolds";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
+import { rulesOnTheColumnsTheyLandOn } from "./caseList/order";
 import { catalogAsRead } from "./caseManagement/catalog";
 import { keyedCreatesRead } from "./caseManagement/saveToCase";
 import { account, defineClaims, derived, refuse, take } from "./claims";
@@ -54,7 +56,10 @@ import {
 	type HeldGeneratedKey,
 	repositionGeneratedKey,
 } from "./generatedTranslationKeys";
-import { defaultPostSubmitAbsent } from "./menus/afterSubmit";
+import {
+	defaultPostSubmitAbsent,
+	searchLinkGuardsAreCarriedValues,
+} from "./menus/afterSubmit";
 import { registrationFormLast } from "./menus/registration";
 import { appPlace, placeOrder } from "./place";
 import { provisionalDocument } from "./provisional";
@@ -453,6 +458,15 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 		apply: defaultPostSubmitAbsent,
 	},
 	{
+		/** A link into a menu whose forms read the search that carries no value and whose
+		 *  condition ends with the held-case guards of the values automatic matching carries, and
+		 *  the link that carries those values by hand: both print one link, and the reader
+		 *  returns the one that carries them. */
+		id: "search-link-guards-are-carried-values",
+		kind: "one-wire",
+		apply: searchLinkGuardsAreCarriedValues,
+	},
+	{
 		/** An advanced Search field whose condition is a simple field's derivation, where the rows
 		 *  come out in one order either way, and that simple field: both print one search, and
 		 *  the reader returns the simple field. */
@@ -476,6 +490,31 @@ export const READER_CANONICAL_CHOICES: readonly ReaderCanonicalChoice[] = [
 							delete column.tile;
 				}
 			}),
+	},
+	{
+		/** A list filter that simplifies to `match-all`, and none: `effectiveFilterForEmission` is
+		 *  every print's one reading of a filter, and it gives none for such a filter, so both print
+		 *  one source and the reader returns none. */
+		id: "match-all-list-filter-is-absent",
+		kind: "one-wire",
+		apply: (doc) =>
+			withCandidate(doc, (draft) => {
+				for (const module of Object.values(draft.modules)) {
+					const config = module.caseListConfig;
+					if (
+						config?.filter !== undefined &&
+						effectiveFilterForEmission(config.filter) === undefined
+					)
+						delete config.filter;
+				}
+			}),
+	},
+	{
+		/** An order rule HQ joins to another column prints the element that column's own rule
+		 *  prints; the reader returns each rule on the column it lands on (`caseList/order.ts`). */
+		id: "order-rules-on-the-columns-they-land-on",
+		kind: "one-wire",
+		apply: rulesOnTheColumnsTheyLandOn,
 	},
 	{
 		/** In a tile list a column hidden from Results with no order rule is no field, with or

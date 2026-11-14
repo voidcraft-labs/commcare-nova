@@ -15,14 +15,21 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import { literalInstantMicros } from "@/lib/domain/expression/instantOperand";
+import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
 import type { RelationPath } from "@/lib/domain/expression/types";
 import type {
 	SearchInputMode,
 	SimpleSearchInputDef,
 } from "@/lib/domain/modules";
-import { moduleExpressionContexts } from "../../expressionContext";
-import { hqXPath, hqXPathText } from "../../hqJson/xpath";
+import {
+	type ModuleExpressionContexts,
+	moduleExpressionContexts,
+} from "../../expressionContext";
+import { projectCaseListForHq } from "../../hqJson/caseList";
+import { HqXPath, hqXPath, hqXPathText } from "../../hqJson/xpath";
 import {
 	deriveSimpleArmPredicate,
 	simpleArmNeedsXPathQueryEmission,
@@ -32,6 +39,7 @@ import { withCandidate } from "../candidate";
 import { sameState } from "../caseList/details";
 import { defineClaims, refuse } from "../claims";
 import type { DraftModule, ReadContext } from "../context";
+import type { ComparedType } from "../expressions/comparedTypes";
 import { searchRowProperties } from "../expressions/scanReads";
 import {
 	emittedSearchConjuncts,
@@ -40,10 +48,15 @@ import {
 } from "../expressions/searchRows";
 import { isJsonObject, sameJson } from "../jsonCursor";
 import { readProjectionInputs } from "../projectionInputs";
+import { sameXPathText } from "../syntaxCompare";
 import type { PromptReading } from "./prompts";
 import { searchPlace } from "./workflow";
 
 const S = "case-search/";
+
+/** The most simple-field readings of one menu whose combinations are tried against the stored
+ *  order of its rows: the combinations double with each. */
+const MAX_DERIVATIONS_RECONSIDERED = 8;
 
 /** Nova's zero-input row as HQ JSON holds it. */
 const ZERO_INPUT_ROW = hqXPathText(hqXPath(ZERO_INPUT_SEARCH_SENTINEL));
@@ -434,6 +447,46 @@ export function dateFieldDeclarations(
 	return out;
 }
 
+/**
+ * The types the comparisons of the menu's rows give the properties `doc` leaves untyped, worked
+ * out before any expression binds. A row compares a property with a value of its own type, and
+ * Nova prints the comparison by that type (a date and time's equality as the moment's two
+ * bounds), so the row reads back only over a catalog that holds it
+ * (`expressions/csqlRead.ts::readSearchFilterRow`, which reads under them and reports them). Each
+ * row is read in the case list filter's slot, else in the slot of the first excluded advanced
+ * field that admits it, as the classification reads it.
+ */
+export function rowComparedTypes(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	module: DraftModule,
+	input: RowsInput,
+): ComparedType[] {
+	if (input.zeroInput || doc.modules[module.uuid] === undefined) return [];
+	const naming = readProjectionInputs(ctx).lookupNaming;
+	const env = { doc, lookup: ctx.input.lookup.definitions };
+	const contexts = moduleExpressionContexts(doc, module.uuid, naming);
+	const out: ComparedType[] = [];
+	for (const row of input.rows) {
+		let read = readSearchRowConjuncts(
+			row.text,
+			contexts({ slot: "case_list_filter" }),
+			env,
+		);
+		if (!read.ok)
+			for (const prompt of input.prompts) {
+				const own = fieldConditionContext(contexts, prompt, new Set());
+				if (own === undefined) continue;
+				const again = readSearchRowConjuncts(row.text, own, env);
+				if (!again.ok) continue;
+				read = again;
+				break;
+			}
+		if (read.ok) out.push(...read.types);
+	}
+	return out;
+}
+
 /** Whether an advanced form of the app names the menu as its load's `details_module`. */
 function loadNamesMenu(ctx: ReadContext, module: DraftModule): boolean {
 	for (const other of ctx.draft.modules)
@@ -453,6 +506,114 @@ function loadNamesMenu(ctx: ReadContext, module: DraftModule): boolean {
 				return true;
 		}
 	return false;
+}
+
+/** The slot context of an excluded field's own condition, where the field can still take one:
+ *  an advanced field not read as a simple field's derivation. */
+function fieldConditionContext(
+	contexts: ModuleExpressionContexts,
+	prompt: PromptReading,
+	derivedInputs: ReadonlySet<Uuid>,
+): ExpressionContext | undefined {
+	if (
+		!prompt.exclude ||
+		prompt.input.kind !== "advanced" ||
+		derivedInputs.has(prompt.uuid)
+	)
+		return undefined;
+	try {
+		return contexts({
+			slot: "search_input_predicate",
+			member: { searchInputUuid: prompt.uuid },
+		});
+	} catch {
+		return undefined;
+	}
+}
+
+/** The case list filter Nova's projection of the menu writes, as HQ JSON holds it; `""` for none,
+ *  undefined where the projection does not write the menu. */
+function listFilterText(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): string | undefined {
+	const mod = doc.modules[moduleUuid];
+	if (mod === undefined) return undefined;
+	const inputs = readProjectionInputs(ctx);
+	try {
+		const filter = projectCaseListForHq(
+			mod,
+			doc,
+			inputs.assets,
+			inputs.lookupNaming,
+		).caseDetails.short.filter;
+		return filter instanceof HqXPath
+			? hqXPathText(filter)
+			: typeof filter === "string"
+				? filter
+				: "";
+	} catch {
+		return undefined;
+	}
+}
+
+/** `clause` with each date-and-time literal written as `other` writes a literal naming the same
+ *  moment: a device's comparison folds a literal to its moment, and a search row keeps the text. */
+function withInstantSpellings(
+	clause: Expression,
+	other: Expression,
+): Expression {
+	const spellings = new Map<number, string>();
+	mapExpressionAst(other, {
+		mapTerm: (term) => {
+			if (term.kind === "literal" && typeof term.value === "string") {
+				const micros = literalInstantMicros(term.value);
+				if (micros !== undefined && !spellings.has(micros))
+					spellings.set(micros, term.value);
+			}
+			return undefined;
+		},
+	});
+	return mapExpressionAst(clause, {
+		mapTerm: (term) => {
+			if (term.kind !== "literal" || typeof term.value !== "string")
+				return undefined;
+			const micros = literalInstantMicros(term.value);
+			const spelling = micros === undefined ? undefined : spellings.get(micros);
+			return spelling === undefined || spelling === term.value
+				? undefined
+				: { ...term, value: spelling };
+		},
+	});
+}
+
+/** `doc` with the list filter's top-level clause `clause` replaced by `respelled`; undefined where
+ *  the filter holds no such clause. */
+function withListClause(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	clause: Expression,
+	respelled: Expression,
+): BlueprintDoc | undefined {
+	const filter = doc.modules[moduleUuid]?.caseListConfig?.filter;
+	if (filter === undefined) return undefined;
+	const clauses = topLevel(filter);
+	const at = clauses.findIndex((one) => sameJson(one, clause));
+	if (at === -1) return undefined;
+	return withCandidate(doc, (draft) => {
+		const config = draft.modules[moduleUuid]?.caseListConfig;
+		if (config === undefined) return;
+		config.filter =
+			filter.kind === "and"
+				? {
+						kind: "and",
+						clauses: clauses.map((one, index) =>
+							index === at ? respelled : one,
+						) as unknown as [Expression, ...Expression[]],
+					}
+				: respelled;
+	});
 }
 
 function setFilter(
@@ -496,6 +657,81 @@ function setPredicate(
 				};
 }
 
+/** `clause` among the list filter's top-level clauses, before `before` where the filter holds it,
+ *  else last. */
+function insertFilterClause(
+	draft: BlueprintDoc,
+	moduleUuid: Uuid,
+	clause: Expression,
+	before: Expression | undefined,
+): void {
+	const config = draft.modules[moduleUuid]?.caseListConfig;
+	if (config === undefined) return;
+	const clauses =
+		config.filter === undefined || config.filter.kind === "match-all"
+			? []
+			: topLevel(config.filter);
+	const at =
+		before === undefined
+			? -1
+			: clauses.findIndex((one) => sameJson(one, before));
+	const next =
+		at === -1
+			? [...clauses, clause]
+			: [...clauses.slice(0, at), clause, ...clauses.slice(at)];
+	config.filter =
+		next.length === 1
+			? (next[0] as Expression)
+			: { kind: "and", clauses: next as [Expression, ...Expression[]] };
+}
+
+/** A simple field read as a derivation, turned back into the excluded field whose condition is
+ *  no row of its own. */
+function asExcludedField(
+	draft: BlueprintDoc,
+	moduleUuid: Uuid,
+	input: Uuid,
+): void {
+	const inputs = draft.modules[moduleUuid]?.caseListConfig?.searchInputs;
+	const at = inputs?.findIndex((one) => one.uuid === input) ?? -1;
+	const entry = inputs?.[at];
+	if (inputs === undefined || entry?.kind !== "simple") return;
+	const {
+		property: _property,
+		via: _via,
+		mode: _mode,
+		...rest
+	} = entry as SimpleSearchInputDef;
+	inputs[at] = {
+		...rest,
+		kind: "advanced",
+		predicate: { kind: "match-all" },
+	} as SearchInputDef;
+}
+
+/** Takes `clause` back out of an advanced field's condition, which `setPredicate` added it to. */
+function withoutPredicateClause(
+	draft: BlueprintDoc,
+	moduleUuid: Uuid,
+	input: Uuid,
+	clause: Expression,
+): void {
+	const entry = draft.modules[moduleUuid]?.caseListConfig?.searchInputs.find(
+		(one) => one.uuid === input,
+	);
+	if (entry === undefined || entry.kind !== "advanced") return;
+	const clauses = topLevel(entry.predicate);
+	const at = clauses.findIndex((one) => sameJson(one, clause));
+	if (at === -1) return;
+	const rest = clauses.filter((_, index) => index !== at);
+	entry.predicate =
+		rest.length === 0
+			? { kind: "match-all" }
+			: rest.length === 1
+				? (rest[0] as Expression)
+				: { kind: "and", clauses: rest as [Expression, ...Expression[]] };
+}
+
 /**
  * Classifies every conjunct of the menu's rows, writes each placement into the document
  * (`ctx.doc`), runs the two closing checks and the comparison of the menu's rows, and returns
@@ -526,7 +762,17 @@ export function classifySearchRows(
 	const naming = readProjectionInputs(ctx).lookupNaming;
 	let doc = start;
 	const derivedInputs = new Set<Uuid>();
+	// The advanced fields a placed conjunct has made a condition of.
+	const conditioned = new Set<Uuid>();
 	const ownsFilter = input.formsReadSearch && !loadNamesMenu(ctx, module);
+	// Whether a row could not be read: a list clause it restates is then not known to go unrestated.
+	let unread = false;
+	// Each conjunct read as a simple field's derivation, with its record's place.
+	const derivations: { input: Uuid; conjunct: Expression; at: number }[] = [];
+	// Each conjunct read as a field's own condition where the list filter could also take it,
+	// with its record's place.
+	const fieldConditions: { input: Uuid; conjunct: Expression; at: number }[] =
+		[];
 
 	if (input.zeroInput) {
 		for (const row of input.rows)
@@ -538,12 +784,27 @@ export function classifySearchRows(
 		return { conjuncts, unrestated: [] };
 	}
 	for (const row of input.rows) {
-		const context = moduleExpressionContexts(
-			doc,
-			module.uuid,
-			naming,
-		)({ slot: "case_list_filter" });
-		const read = readSearchRowConjuncts(row.text, context, { ...env, doc });
+		const contexts = moduleExpressionContexts(doc, module.uuid, naming);
+		let read = readSearchRowConjuncts(
+			row.text,
+			contexts({ slot: "case_list_filter" }),
+			{ ...env, doc },
+		);
+		// A row the list filter's slot does not admit can be an advanced field's own condition,
+		// which only HQ's search evaluates: it is read in that field's slot, the first excluded
+		// field's that admits it, and can be that field's condition alone.
+		let onlyField: PromptReading | undefined;
+		if (!read.ok)
+			for (const prompt of input.prompts) {
+				const own = fieldConditionContext(contexts, prompt, derivedInputs);
+				if (own === undefined) continue;
+				const again = readSearchRowConjuncts(row.text, own, { ...env, doc });
+				if (!again.ok) continue;
+				read = again;
+				onlyField = prompt;
+				break;
+			}
+		if (!read.ok) unread = true;
 		const site = { json: row.cursor, key: "defaultValue" };
 		// The keys the row's own claims hold; each use its CSQL makes under
 		// another key is claimed after them, held or not, under the entry
@@ -588,35 +849,68 @@ export function classifySearchRows(
 			place,
 		);
 		claimUses();
+		const rowIndex = input.rows.indexOf(row);
+		// HQ joins every row with `and`, so two rows of one text are one condition wherever each
+		// sits: a candidate writes this row back where it writes either.
+		const isThisRow = (source: number) =>
+			source === rowIndex || sameXPathText(sourceRows[source] ?? "", row.text);
+		// Whether `candidate` writes this row back from `from`, and then whether every row it
+		// matches is in the stored order; undefined where it does not write the row.
+		const keepsOrder = (
+			candidate: BlueprintDoc,
+			from: "filter" | "field" | "derived",
+		): boolean | undefined => {
+			const match = matchSearchRows(candidate, module.uuid, sourceRows, {
+				...env,
+				doc: candidate,
+			});
+			if (
+				!match.matched.some((one) => isThisRow(one.source) && one.from === from)
+			)
+				return undefined;
+			const sources = match.matched.map((one) => one.source);
+			return sources.every(
+				(one, index) => index === 0 || (sources[index - 1] as number) <= one,
+			);
+		};
 		for (const conjunct of read.conjuncts) {
 			const record = (placement: ConjunctPlacement) =>
 				conjuncts.push({ row: row.index, predicate: conjunct, placement });
-			// Whether `candidate` writes this conjunct's row back from `from`, every row it matches in
-			// the stored order; undefined where it does not write the row.
-			const keepsOrder = (
-				candidate: BlueprintDoc,
-				from: "field" | "derived",
-			): boolean | undefined => {
-				const match = matchSearchRows(candidate, module.uuid, sourceRows, {
-					...env,
-					doc: candidate,
-				});
-				if (
-					!match.matched.some(
-						(one) =>
-							one.source === input.rows.indexOf(row) && one.from === from,
-					)
-				)
-					return undefined;
-				const sources = match.matched.map((one) => one.source);
-				return sources.every(
-					(one, index) => index === 0 || (sources[index - 1] as number) <= one,
-				);
-			};
-			// B: a list filter clause restated.
-			const clause = listClauses.findIndex(
-				(one, index) => !restated.has(index) && sameJson(one, conjunct),
+			// B: a list filter clause restated: one the conjunct is, or one the conjunct is another
+			// spelling of. Two spellings of a value can print one list filter and two rows (a date
+			// and time's offset, which the device's comparison folds away and the row keeps), so the
+			// clause takes the row's spelling where both print the stored filter and the row.
+			const unmatched = (index: number) =>
+				!restated.has(index) && onlyField === undefined;
+			let clause = listClauses.findIndex(
+				(one, index) => unmatched(index) && sameJson(one, conjunct),
 			);
+			if (clause === -1 && read.conjuncts.length === 1) {
+				const filterText = listFilterText(ctx, doc, module.uuid);
+				clause = listClauses.findIndex((one, index) => {
+					if (!unmatched(index) || filterText === undefined) return false;
+					// The row's own clause, then the list's with the row's spelling of each date and time.
+					for (const spelling of [
+						conjunct,
+						withInstantSpellings(one, conjunct),
+					]) {
+						const respelled = withListClause(doc, module.uuid, one, spelling);
+						if (respelled === undefined) continue;
+						const text = listFilterText(ctx, respelled, module.uuid);
+						if (text === undefined || !sameXPathText(text, filterText))
+							continue;
+						const rows = matchSearchRows(respelled, module.uuid, [row.text], {
+							...env,
+							doc: respelled,
+						});
+						if (!rows.matched.some((match) => match.from === "filter"))
+							continue;
+						doc = respelled;
+						return true;
+					}
+					return false;
+				});
+			}
 			if (clause !== -1) {
 				restated.add(clause);
 				record({ kind: "B", clause });
@@ -625,6 +919,7 @@ export function classifySearchRows(
 			// C: a simple field's derivation.
 			const prompt = input.prompts.find(
 				(one) =>
+					onlyField === undefined &&
 					one.exclude &&
 					!derivedInputs.has(one.uuid) &&
 					conjunct.kind === "when-input-present" &&
@@ -684,6 +979,11 @@ export function classifySearchRows(
 			) {
 				derivedInputs.add(prompt.uuid);
 				doc = simple;
+				derivations.push({
+					input: prompt.uuid,
+					conjunct,
+					at: conjuncts.length,
+				});
 				record({
 					kind: "C",
 					input: prompt.uuid,
@@ -694,76 +994,94 @@ export function classifySearchRows(
 				continue;
 			}
 			const reads = inputReads(conjunct);
-			if (reads.length > 0) {
-				// D: the field's own condition, then a list clause that waits for its fields.
-				const ordered = input.prompts.filter((one) =>
+			const candidates: {
+				from: "field" | "filter";
+				input?: Uuid;
+				doc: BlueprintDoc;
+			}[] = [];
+			const fieldCandidate = (field: PromptReading) =>
+				candidates.push({
+					from: "field",
+					input: field.uuid,
+					doc: withCandidate(doc, (draft) =>
+						setPredicate(
+							draft as BlueprintDoc,
+							module.uuid,
+							field.uuid,
+							conjunct,
+						),
+					),
+				});
+			const filterCandidate = () =>
+				candidates.push({
+					from: "filter",
+					doc: withCandidate(doc, (draft) =>
+						setFilter(draft as BlueprintDoc, module.uuid, conjunct),
+					),
+				});
+			// The excluded advanced fields that can take a condition, those that hold none yet first,
+			// each group in `properties` order. Nova writes one row per top-level conjunct of each
+			// field's condition, field after field, so a run of rows that read no field prints the
+			// same whichever of the fields holds each: each row is its own field's where the fields
+			// allow it.
+			const holders = () => {
+				const all = input.prompts.filter(
+					(field) =>
+						field.exclude &&
+						field.input.kind === "advanced" &&
+						!derivedInputs.has(field.uuid),
+				);
+				return [
+					...all.filter((field) => !conditioned.has(field.uuid)),
+					...all.filter((field) => conditioned.has(field.uuid)),
+				];
+			};
+			if (onlyField !== undefined) {
+				// Read in a field's slot: the first field it reads where that field can take it, as
+				// kind D's first candidate; one that reads no field, any field that can.
+				const firstRead = input.prompts.find((one) =>
 					reads.some((read_) => read_.uuid === one.uuid),
 				);
-				const firstPrompt = ordered[0];
-				const candidates: {
-					from: "field" | "filter";
-					input?: Uuid;
-					doc: BlueprintDoc;
-				}[] = [];
-				if (firstPrompt?.exclude && !derivedInputs.has(firstPrompt.uuid))
-					candidates.push({
-						from: "field",
-						input: firstPrompt.uuid,
-						doc: withCandidate(doc, (draft) =>
-							setPredicate(
-								draft as BlueprintDoc,
-								module.uuid,
-								firstPrompt.uuid,
-								conjunct,
-							),
-						),
-					});
-				if (reads.every((one) => one.guarded))
-					candidates.push({
-						from: "filter",
-						doc: withCandidate(doc, (draft) =>
-							setFilter(draft as BlueprintDoc, module.uuid, conjunct),
-						),
-					});
-				const passing = candidates.flatMap((candidate) => {
-					const match = matchSearchRows(
-						candidate.doc,
-						module.uuid,
-						sourceRows,
-						{ ...env, doc: candidate.doc },
-					);
-					const own = match.matched.find(
-						(one) =>
-							one.source === input.rows.indexOf(row) &&
-							one.from === candidate.from,
-					);
-					if (own === undefined) return [];
-					const sources = match.matched.map((one) => one.source);
-					const inOrder = sources.every(
-						(one, index) =>
-							index === 0 || (sources[index - 1] as number) <= one,
-					);
-					return [{ ...candidate, inOrder }];
-				});
-				const chosen = passing.find((one) => one.inOrder) ?? passing[0];
-				if (chosen !== undefined) {
-					doc = chosen.doc;
-					record({
-						kind: "D",
-						from: chosen.from,
-						...(chosen.input !== undefined && { input: chosen.input }),
-					});
-					continue;
-				}
-				ctx.accounting.finding(ROW_CLAIMS.readsMatchedField, place);
-				record({ kind: "E", entry: ROW_CLAIMS.readsMatchedField.entry });
-				continue;
-			}
-			// F: the search's own filter, joined to the list filter.
-			if (ownsFilter) {
-				doc = withCandidate(doc, (draft) =>
-					setFilter(draft as BlueprintDoc, module.uuid, conjunct),
+				if (reads.length === 0)
+					for (const field of holders()) fieldCandidate(field);
+				else if (
+					firstRead !== undefined &&
+					fieldConditionContext(contexts, firstRead, derivedInputs) !==
+						undefined
+				)
+					fieldCandidate(firstRead);
+				else fieldCandidate(onlyField);
+			} else if (reads.length > 0) {
+				// D: the field's own condition, then a list clause that waits for its fields.
+				const firstPrompt = input.prompts.find((one) =>
+					reads.some((read_) => read_.uuid === one.uuid),
 				);
+				if (firstPrompt?.exclude && !derivedInputs.has(firstPrompt.uuid))
+					fieldCandidate(firstPrompt);
+				if (reads.every((one) => one.guarded)) filterCandidate();
+			} else {
+				// A conjunct that reads no field: the search's own filter (F) on a menu whose forms
+				// read the search, then the condition of an excluded field, which may read no field.
+				if (ownsFilter) filterCandidate();
+				for (const field of holders()) fieldCandidate(field);
+			}
+			const passing = candidates.flatMap((candidate) => {
+				const inOrder = keepsOrder(candidate.doc, candidate.from);
+				return inOrder === undefined ? [] : [{ ...candidate, inOrder }];
+			});
+			const chosen = passing.find((one) => one.inOrder) ?? passing[0];
+			// F: the search's own filter, joined to the list filter.
+			const joinsFilter =
+				reads.length === 0 &&
+				onlyField === undefined &&
+				ownsFilter &&
+				(chosen === undefined || chosen.from === "filter");
+			if (joinsFilter) {
+				doc =
+					chosen?.doc ??
+					withCandidate(doc, (draft) =>
+						setFilter(draft as BlueprintDoc, module.uuid, conjunct),
+					);
 				sameState(
 					ctx,
 					ROWS_HELD,
@@ -773,15 +1091,174 @@ export function classifySearchRows(
 				record({ kind: "F" });
 				continue;
 			}
-			ctx.accounting.finding(ROW_CLAIMS.noSlot, place);
-			record({ kind: "E", entry: ROW_CLAIMS.noSlot.entry });
+			if (chosen !== undefined) {
+				doc = chosen.doc;
+				if (chosen.from === "field" && chosen.input !== undefined)
+					conditioned.add(chosen.input);
+				if (
+					chosen.from === "field" &&
+					chosen.input !== undefined &&
+					passing.some((one) => one.from === "filter")
+				)
+					fieldConditions.push({
+						input: chosen.input,
+						conjunct,
+						at: conjuncts.length,
+					});
+				record({
+					kind: "D",
+					from: chosen.from,
+					...(chosen.input !== undefined && { input: chosen.input }),
+				});
+				continue;
+			}
+			const claim =
+				reads.length > 0 ? ROW_CLAIMS.readsMatchedField : ROW_CLAIMS.noSlot;
+			ctx.accounting.finding(claim, place);
+			record({ kind: "E", entry: claim.entry });
+		}
+	}
+
+	// A field read as a simple field's derivation is that field only where the search it writes is
+	// the one its own condition writes, row for row (the canonical choice
+	// `derived-search-conditions-are-simple-fields`). Each row was placed before the later rows,
+	// whose fields can move a derivation's row behind theirs. Over the settled menu, where the
+	// simple readings write the rows out of the stored order, the fewest of them read as their
+	// conditions instead under which the rows come back in the stored order are.
+	const writesInOrder = (candidate: BlueprintDoc) => {
+		const match = matchSearchRows(candidate, module.uuid, sourceRows, {
+			...env,
+			doc: candidate,
+		});
+		const sources = match.matched.map((one) => one.source);
+		return (
+			match.unmatched.length === 0 &&
+			sources.every(
+				(one, index) => index === 0 || (sources[index - 1] as number) <= one,
+			)
+		);
+	};
+	if (
+		derivations.length > 0 &&
+		derivations.length <= MAX_DERIVATIONS_RECONSIDERED &&
+		!writesInOrder(doc)
+	) {
+		const asConditions = (chosen: readonly (typeof derivations)[number][]) =>
+			withCandidate(doc, (draft) => {
+				const inputs = draft.modules[module.uuid]?.caseListConfig?.searchInputs;
+				for (const derivation of chosen) {
+					const at =
+						inputs?.findIndex((one) => one.uuid === derivation.input) ?? -1;
+					const entry = inputs?.[at];
+					if (inputs === undefined || entry?.kind !== "simple") continue;
+					const {
+						property: _property,
+						via: _via,
+						mode: _mode,
+						...rest
+					} = entry as SimpleSearchInputDef;
+					inputs[at] = {
+						...rest,
+						kind: "advanced",
+						predicate: derivation.conjunct,
+					} as SearchInputDef;
+				}
+			});
+		const subsets = Array.from(
+			{ length: 2 ** derivations.length - 1 },
+			(_, index) => derivations.filter((_, bit) => ((index + 1) >> bit) & 1),
+		).sort((a, b) => a.length - b.length);
+		for (const chosen of subsets) {
+			const candidate = asConditions(chosen);
+			if (!writesInOrder(candidate)) continue;
+			doc = candidate;
+			for (const derivation of chosen) {
+				const record = conjuncts[derivation.at];
+				if (record !== undefined)
+					conjuncts[derivation.at] = {
+						...record,
+						placement: { kind: "D", from: "field", input: derivation.input },
+					};
+			}
+			break;
+		}
+	}
+
+	// A conjunct that reads Search fields under their guards is placed as the first field's own
+	// condition, or as a simple field's derivation, where that keeps the rows placed so far in
+	// order, but Nova writes the list filter's rows before field conditions and derivations, so a
+	// later row can show the conjunct was the list filter's. Over the settled menu, where the rows
+	// come out of the stored order, the fewest of those conjuncts read as list filter clauses
+	// instead, each among the list filter's clauses in row order, under which they come back in
+	// order are.
+	const movable = [
+		...fieldConditions.map((one) => ({ ...one, from: "field" as const })),
+		...derivations
+			.filter((one) => conjuncts[one.at]?.placement.kind === "C")
+			.map((one) => ({ ...one, from: "derived" as const })),
+	].sort((a, b) => a.at - b.at);
+	if (
+		movable.length > 0 &&
+		movable.length <= MAX_DERIVATIONS_RECONSIDERED &&
+		!writesInOrder(doc)
+	) {
+		const asFilter = (chosen: readonly (typeof movable)[number][]) => {
+			const fromFilter = new Set(
+				conjuncts.flatMap((one, index) =>
+					(one.placement.kind === "D" && one.placement.from === "filter") ||
+					one.placement.kind === "F"
+						? [index]
+						: [],
+				),
+			);
+			return withCandidate(doc, (draft) => {
+				for (const one of chosen) {
+					if (one.from === "field")
+						withoutPredicateClause(
+							draft as BlueprintDoc,
+							module.uuid,
+							one.input,
+							one.conjunct,
+						);
+					else asExcludedField(draft as BlueprintDoc, module.uuid, one.input);
+					// Before the first clause a later row's conjunct put in the list filter.
+					const later = [...fromFilter]
+						.sort((a, b) => a - b)
+						.find((index) => index > one.at);
+					insertFilterClause(
+						draft as BlueprintDoc,
+						module.uuid,
+						one.conjunct,
+						later === undefined ? undefined : conjuncts[later]?.predicate,
+					);
+					fromFilter.add(one.at);
+				}
+			});
+		};
+		const subsets = Array.from(
+			{ length: 2 ** movable.length - 1 },
+			(_, index) => movable.filter((_, bit) => ((index + 1) >> bit) & 1),
+		).sort((a, b) => a.length - b.length);
+		for (const chosen of subsets) {
+			const candidate = asFilter(chosen);
+			if (!writesInOrder(candidate)) continue;
+			doc = candidate;
+			for (const one of chosen) {
+				const record = conjuncts[one.at];
+				if (record !== undefined)
+					conjuncts[one.at] = {
+						...record,
+						placement: { kind: "D", from: "filter" },
+					};
+			}
+			break;
 		}
 	}
 
 	const unrestated = listClauses.flatMap((_, index) =>
 		restated.has(index) ? [] : [index],
 	);
-	if (unrestated.length > 0) {
+	if (unrestated.length > 0 && !unread) {
 		if (input.formsReadSearch)
 			sameState(
 				ctx,

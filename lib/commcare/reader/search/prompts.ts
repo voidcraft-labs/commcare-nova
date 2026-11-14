@@ -19,7 +19,10 @@ import {
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchInputLookupOptions,
 } from "@/lib/domain/modules";
-import { SEARCH_RUNTIME_VALIDATION_MESSAGES } from "@/lib/domain/searchRuntimeValidationMessages";
+import {
+	SEARCH_RUNTIME_VALIDATION_MESSAGES,
+	type SearchRuntimeValidationMessage,
+} from "@/lib/domain/searchRuntimeValidationMessages";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { applicationReading } from "../appShell";
@@ -626,7 +629,14 @@ function readPrompt(
 	if (first !== undefined) {
 		const test = first.peek("test");
 		const text = first.take("text", P.validationText, languageMap).value;
-		const authored = withoutRuntimeGuard(test, firstText(ctx, text));
+		const authored = withoutRuntimeGuard(
+			test,
+			appCodes(ctx).map((code) => text[code] ?? ""),
+		);
+		const guarded =
+			authored.kind === "whole"
+				? undefined
+				: guardTexts(ctx).get(authored.guard.key);
 		if (authored.kind === "guard") first.derived("test", P.validationGuard);
 		else {
 			const rule = authored.kind === "split" ? authored.rule : test;
@@ -643,7 +653,10 @@ function readPrompt(
 					? Object.fromEntries(
 							Object.entries(text).map(([code, one]) => [
 								code,
-								withoutSuffix(one, ` ${authored.guardMessage}`),
+								withoutSuffix(
+									one,
+									` ${guarded?.get(code) ?? authored.guard.message}`,
+								),
 							]),
 						)
 					: text;
@@ -746,33 +759,160 @@ function readPrompt(
 	};
 }
 
-/** A prompt's stored validation, apart from the runtime guard Nova's emitter conjoins. */
+/** A prompt's stored validation, apart from the runtime guard Nova's emitter conjoins: the
+ *  guard is the catalog's entry whose source sentence told it. */
 type ValidationReading =
 	| { readonly kind: "whole" }
-	| { readonly kind: "guard" }
+	| { readonly kind: "guard"; readonly guard: SearchRuntimeValidationMessage }
 	| {
 			readonly kind: "split";
 			readonly rule: string;
-			readonly guardMessage: string;
+			readonly guard: SearchRuntimeValidationMessage;
 	  };
+
+/** Each runtime guard's text in each of the app's languages, by the guard's key, per reading. */
+const GUARD_TEXTS = new WeakMap<
+	ReadContext,
+	ReadonlyMap<string, ReadonlyMap<string, string>>
+>();
+
+/**
+ * Each runtime guard's text in each language, read over every Search field of the app: the
+ * guard's message is one translation unit of the app (`system/search-validation/<key>`), joined
+ * after each field's own message (`searchPrompts.ts::buildValidation`). In the first language,
+ * the reading's source, the unit's text is its source, the catalog sentence, whatever the stored
+ * texts say: a document holds no other text there, and a field whose stored text does not end
+ * with it keeps its whole text, which the menu's projection then does not print back. In any
+ * other language a text that is the guard alone gives its language's text as it stands; else,
+ * where every text that joins it ends with
+ * the source sentence, it is untranslated; else it is the longest text after a space that every
+ * joined text of that language ends with and that leaves each field a message of its own. The
+ * stored bytes are the join alone, so the last is the reading's choice of where one field's
+ * message ends; the whole menu's projection holds every choice. Each text read is written as the
+ * unit's translation.
+ */
+function guardTexts(
+	ctx: ReadContext,
+): ReadonlyMap<string, ReadonlyMap<string, string>> {
+	const cached = GUARD_TEXTS.get(ctx);
+	if (cached !== undefined) return cached;
+	const codes = appCodes(ctx);
+	const entries = new Map<string, SearchRuntimeValidationMessage>();
+	const alone = new Map<string, Map<string, string>>();
+	const joined = new Map<string, Map<string, string[]>>();
+	for (const module of ctx.draft.modules) {
+		const config = module.json.peek("search_config");
+		const properties =
+			isJsonObject(config) && Array.isArray(config.properties)
+				? config.properties
+				: [];
+		for (const property of properties) {
+			const first =
+				isJsonObject(property) && Array.isArray(property.validations)
+					? property.validations[0]
+					: undefined;
+			if (!isJsonObject(first)) continue;
+			const text = languageMap(first.text);
+			const reading = withoutRuntimeGuard(
+				first.test,
+				codes.map((code) => text[code] ?? ""),
+			);
+			if (reading.kind === "whole") continue;
+			const key = reading.guard.key;
+			entries.set(key, reading.guard);
+			for (const code of codes) {
+				const one = text[code] ?? "";
+				if (reading.kind === "guard") {
+					const byCode = alone.get(key) ?? new Map<string, string>();
+					alone.set(key, byCode);
+					if (!byCode.has(code)) byCode.set(code, one);
+				} else {
+					const byCode = joined.get(key) ?? new Map<string, string[]>();
+					joined.set(key, byCode);
+					byCode.set(code, [...(byCode.get(code) ?? []), one]);
+				}
+			}
+		}
+	}
+	const out = new Map<string, ReadonlyMap<string, string>>();
+	const [source] = codes;
+	for (const [key, entry] of entries) {
+		const byCode = new Map<string, string>();
+		for (const code of codes) {
+			const given = alone.get(key)?.get(code);
+			const texts = joined.get(key)?.get(code) ?? [];
+			const read =
+				code === source
+					? entry.message
+					: (given ??
+						(texts.every((one) => one.endsWith(` ${entry.message}`))
+							? entry.message
+							: sharedGuardText(texts)));
+			if (read !== undefined) byCode.set(code, read);
+		}
+		out.set(key, byCode);
+		ctx.translations.set(
+			makeTranslationUnitId("system", "search-validation", key),
+			"text",
+			byLanguage(ctx, Object.fromEntries(byCode)),
+		);
+	}
+	GUARD_TEXTS.set(ctx, out);
+	return out;
+}
+
+/** The longest text after a space that every text ends with, leaving each a text before it. */
+function sharedGuardText(texts: readonly string[]): string | undefined {
+	const [first, ...rest] = texts;
+	if (first === undefined) return undefined;
+	for (
+		let at = first.indexOf(" ", 1);
+		at !== -1;
+		at = first.indexOf(" ", at + 1)
+	) {
+		const suffix = first.slice(at + 1);
+		if (suffix === "") continue;
+		if (
+			rest.every(
+				(one) => one.length > suffix.length + 1 && one.endsWith(` ${suffix}`),
+			)
+		)
+			return suffix;
+	}
+	return undefined;
+}
 
 /**
  * Nova's emitter writes a prompt's one validation as the authored rule and
  * message, then the runtime guard of the search's own values and its message
- * (`searchPrompts.ts::buildValidation`). A first-language message that is one
- * of the guard's messages is the guard alone; one that ends with a guard
- * message after a space is an authored rule followed by the guard, the guard
- * being the last conjunct of the stored test's top-level `and`. The message is
- * only the precondition: the whole menu's projection, compared with the stored
- * search when the menu settles, holds the reading.
+ * (`searchPrompts.ts::buildValidation`), each language joining its own two
+ * texts. The guard's message is Nova's own sentence in its source language and
+ * any text in a translation, so the messages are read in the app's language
+ * order and the first that tells decides: one that is one of the guard's
+ * messages is the guard alone; one that ends with a guard message after a
+ * space is an authored rule followed by the guard, the guard being the last
+ * conjunct of the stored test's top-level `and`. The message is only the
+ * precondition: the whole menu's projection, compared with the stored search
+ * when the menu settles, holds the reading.
  */
 function withoutRuntimeGuard(
 	test: unknown,
-	message: string,
+	messages: readonly string[],
 ): ValidationReading {
 	if (typeof test !== "string") return { kind: "whole" };
-	if (SEARCH_RUNTIME_VALIDATION_MESSAGES.some((one) => one.message === message))
-		return { kind: "guard" };
+	for (const message of messages) {
+		const reading = guardReading(test, message);
+		if (reading.kind !== "whole") return reading;
+	}
+	return { kind: "whole" };
+}
+
+/** What one language's message says of the stored test. */
+function guardReading(test: string, message: string): ValidationReading {
+	const whole = SEARCH_RUNTIME_VALIDATION_MESSAGES.find(
+		(one) => one.message === message,
+	);
+	if (whole !== undefined) return { kind: "guard", guard: whole };
 	const guard = SEARCH_RUNTIME_VALIDATION_MESSAGES.filter((one) =>
 		message.endsWith(` ${one.message}`),
 	).sort((a, b) => b.message.length - a.message.length)[0];
@@ -783,7 +923,7 @@ function withoutRuntimeGuard(
 	return {
 		kind: "split",
 		rule: test.slice(node.left.from, node.left.to),
-		guardMessage: guard.message,
+		guard,
 	};
 }
 

@@ -61,6 +61,29 @@ function actionsOf(app: AppJson): Record<string, unknown> & {
 	throw new Error("The app holds the advanced form under test.");
 }
 
+/** The surface keys of an advanced form's actions. */
+const ACTION_KEYS = [
+	"schema:LoadUpdateAction",
+	"schema:AdvancedOpenCaseAction",
+	"schema:AdvancedForm.actions",
+];
+
+/** The findings a form's actions raise: their entries, and every key of theirs left unclaimed. */
+function actionFindings(
+	reading: Awaited<ReturnType<typeof readCases>>,
+): string[] {
+	return reading.findings.flatMap((finding) =>
+		finding.code.startsWith(F)
+			? [finding.code]
+			: finding.code === "unrecognized" &&
+					ACTION_KEYS.some((key) =>
+						(finding.detail?.name ?? "").startsWith(key),
+					)
+				? [`unrecognized ${finding.detail?.name}`]
+				: [],
+	);
+}
+
 const memberFollowup = (extra: CaseOperation[] = []) =>
 	advancedFixture({
 		formType: "followup",
@@ -321,6 +344,75 @@ describe("an advanced form's loads and open actions", () => {
 			},
 		});
 		expect(findingCodes(reading)).toContain(`${F}/auto-select-mode-user`);
+	});
+
+	it("claims every key of the worker's load Nova writes, and refuses one indexed to another load", async () => {
+		const { doc } = memberFollowup([
+			{
+				uuid: OP("worker"),
+				id: "commcare_user",
+				action: "update",
+				caseType: "commcare-user",
+				target: { kind: "worker-record" },
+				writes: [{ property: "last_household", value: read("name") }],
+			},
+		]);
+		const whole = await readCases(doc);
+		expect(actionFindings(whole)).toEqual([]);
+		const indexed = await readCases(doc, {
+			edit: (app) => {
+				const loads = actionsOf(app).load_update_cases;
+				const worker = loads.find((load) => load.auto_select !== null);
+				if (worker === undefined)
+					throw new Error("The form loads the worker's record.");
+				worker.case_index = {
+					doc_type: "CaseIndex",
+					tag: loads[0]?.case_tag,
+					reference_id: "parent",
+					relationship: "child",
+					relationship_question: "",
+				};
+			},
+		});
+		expect(findingCodes(indexed)).toContain(
+			`${F}/loadupdateaction-case-index-on-an-auto-selected-load-or-on-the`,
+		);
+	});
+
+	it("refuses open actions of one repeat that share the row's block, and reads them where two are indexed", async () => {
+		const visit: CaseOperation = {
+			uuid: OP("kid-visit"),
+			id: "visit",
+			action: "create",
+			caseType: "visit",
+			target: { kind: "new" },
+			name: read("kid_name"),
+			forEach: { repeat: U("kids") },
+			links: [
+				{
+					identifier: "member",
+					targetType: "member",
+					target: { kind: "op", opUuid: OP("kid") },
+					relationship: "child",
+				},
+			],
+		};
+		const { doc } = registration([kid, visit]);
+		const nested = await readCases(doc);
+		expect(actionFindings(nested)).toEqual([]);
+		// One of the two indexed: HQ's build writes both blocks at the row's one `case`.
+		const shared = await readCases(doc, {
+			edit: (app) => {
+				const open = actionsOf(app).open_cases.find(
+					(one) => one.case_type === "visit",
+				);
+				if (open === undefined) throw new Error("The form opens a visit.");
+				open.case_indices = [];
+			},
+		});
+		expect(findingCodes(shared)).toContain(
+			`${F}/two-or-more-open-actions-whose-repeat-context-is-one-repeat`,
+		);
 	});
 
 	it("raises one finding at an advanced menu Nova would write basic", async () => {

@@ -36,7 +36,10 @@ import {
 } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
+import { planFormCaseWire } from "../../casePlacementPlan";
 import { expandDoc } from "../../expander";
+import { sessionDataRef } from "../../formLinkProjection";
+import { isMultiSelectMenu } from "../../hq/publishedCaseBlocks";
 import { planPlacements } from "../../placement";
 import { USERCASE_ID_FUNCTION } from "../../usercaseWire";
 import { captureUrlCalculate } from "../../xform/captureUrlNode";
@@ -46,7 +49,12 @@ import {
 	saveToCaseBlockShape,
 } from "../../xform/caseOps";
 import { caseSaveReferencesOf } from "../../xform/caseSaveReferences";
-import { GUARD_KINDS, generatedBaseName } from "../../xform/generatedNodes";
+import {
+	GUARD_KINDS,
+	type GuardKind,
+	generatedBaseName,
+	operationGuardKinds,
+} from "../../xform/generatedNodes";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
 import {
@@ -303,7 +311,9 @@ type ProposedTarget =
 	  }
 	| { readonly kind: "op"; readonly path: string }
 	| { readonly kind: "worker-record" }
-	| { readonly kind: "session" }
+	/** Every other id: the session's case, or the id a create of the form's
+	 *  Case Management has from its entry, by its source `text`. */
+	| { readonly kind: "session"; readonly text: string }
 	| {
 			readonly kind: "expression";
 			readonly text: string;
@@ -321,8 +331,27 @@ interface ProposedRow {
 				 *  (the catalog's choices follow it). */
 				readonly readsField?: DraftField;
 		  }
-		| { readonly kind: "capture"; readonly field: DraftField };
+		| { readonly kind: "capture"; readonly field: DraftField }
+		/** A question's answer as it is, in a child's block the emitter
+		 *  writes from the question paths of HQ's child case action: the
+		 *  question's own term, which no expression reading binds. */
+		| {
+				readonly kind: "answer";
+				readonly field: DraftField;
+				readonly site: ClaimSite;
+		  };
 	readonly condition?: { readonly text: string; readonly site: ClaimSite };
+	/**
+	 * A row of a block of the session's case that saves an answer as it is: the
+	 * emitter writes the form's own arm there with the presence conjunct
+	 * `count(A) > 0` ahead of the row's condition, and any other update with
+	 * the row's condition alone. `led` says whether the stored condition leads
+	 * with that conjunct, and `rest` is what follows it.
+	 */
+	readonly answerAsIs?: {
+		readonly led: boolean;
+		readonly rest?: { readonly text: string; readonly site: ClaimSite };
+	};
 }
 
 interface ProposedLink {
@@ -332,7 +361,7 @@ interface ProposedLink {
 	readonly target:
 		| null
 		| { readonly kind: "op"; readonly path: string }
-		| { readonly kind: "session" }
+		| { readonly kind: "session"; readonly text: string }
 		| {
 				readonly kind: "expression";
 				readonly text: string;
@@ -349,9 +378,23 @@ export interface ProposedBlock {
 	/** The segments its path's wrappers say, then `block`. */
 	readonly segments: readonly SaveToCaseBlockSegment[];
 	readonly target: ProposedTarget;
-	readonly name?: { readonly text: string; readonly site: ClaimSite };
+	readonly name?: {
+		readonly text: string;
+		readonly site: ClaimSite;
+		/** The question whose answer the name is, where the block reads the
+		 *  question's trimmed value the way a child's block written from HQ's
+		 *  child case action does: its term, which no expression reading binds. */
+		readonly answer?: DraftField;
+	};
 	readonly owner?: ProposedOwner;
-	readonly rename?: { readonly text: string; readonly site: ClaimSite };
+	readonly rename?: {
+		readonly text: string;
+		readonly site: ClaimSite;
+		/** The question whose answer the own arm's name is, where its row
+		 *  reads the question's trimmed value: its term, which no expression
+		 *  reading binds. */
+		readonly answer?: DraftField;
+	};
 	readonly retype?: string;
 	readonly writes: readonly ProposedRow[];
 	readonly links: readonly ProposedLink[];
@@ -360,6 +403,22 @@ export interface ProposedBlock {
 	readonly closes: boolean;
 	readonly closeCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly place: HqPlace;
+	/**
+	 * The block read as a several-case form's shared update of every selected
+	 * case, where it stands in that shape and prints as it: each row present
+	 * only while its value is (`count(S) > 0 and string(S) != ''` for a
+	 * question's answer as it is, else `string(S) != ''`), its group present
+	 * while some row is, or always where the block links. By property, each
+	 * row's condition after that presence and the generated sibling its value
+	 * reads; the name's and the owner's rows have no condition of their own.
+	 */
+	readonly shared?: ReadonlyMap<string, SharedRow>;
+}
+
+/** One row of a block read as a several-case form's shared update. */
+interface SharedRow {
+	readonly rest?: { readonly text: string; readonly site: ClaimSite };
+	readonly sibling?: GeneratedSibling;
 }
 
 interface FormBlocks {
@@ -389,6 +448,10 @@ export function saveToCaseReading(form: DraftForm): FormBlocks | undefined {
 
 const CONTAINER_SEGMENT: Readonly<Record<string, SaveToCaseBlockSegment>> = {
 	operations: "operations",
+	// The group a published placement keeps a child's block in, which the
+	// emitter writes where an operations group would stand (`caseOps.ts`,
+	// `keptInSubcases`), under the placement's own path.
+	subcases: "operations",
 	condition: "condition",
 	keyed: "keyed",
 	"selected-cases": "selected-cases",
@@ -502,6 +565,75 @@ function fieldAt(
 	const node = xform.nodes.get(path.join("/"));
 	const role = node === undefined ? undefined : xform.roles.get(node);
 	return role?.kind === "field" ? role.field : undefined;
+}
+
+/**
+ * The question whose trimmed value `text` reads, where it is a path alone to
+ * the node the emitter writes beside a question for a case name
+ * (`nova_trimmed_<question>`), the node then settled as generated; else
+ * nothing, and the node left to the first pass.
+ */
+function trimmedValueOf(
+	ctx: ReadContext,
+	xform: ReadXForm,
+	text: string,
+	context: readonly string[],
+): DraftField | undefined {
+	const sibling = generatedSiblingOf(xform, text, context);
+	if (sibling?.purpose !== "trimmed") return undefined;
+	settleSibling(ctx, xform, sibling);
+	return sibling.field;
+}
+
+/** A node the emitter writes beside a question for a case write: its link
+ *  to a capture, its date and time as text, or its trimmed value. */
+interface GeneratedSibling {
+	readonly node: DataNode;
+	readonly purpose: "url" | "datetime" | "trimmed";
+	/** The question it belongs to. */
+	readonly field: DraftField;
+}
+
+/** The sibling `text` reads, where it is a path alone to one; else nothing. */
+function generatedSiblingOf(
+	xform: ReadXForm,
+	text: string,
+	context: readonly string[],
+): GeneratedSibling | undefined {
+	const node = parse(text);
+	const path =
+		node === undefined
+			? undefined
+			: resolvePath(node, context, xform.parsed.dataRoot.name);
+	const target =
+		path === undefined ? undefined : xform.nodes.get(path.join("/"));
+	const role = target === undefined ? undefined : xform.roles.get(target);
+	if (
+		target === undefined ||
+		(role?.kind !== "generated" && role?.kind !== "generated-candidate") ||
+		(role.purpose !== "url" &&
+			role.purpose !== "datetime" &&
+			role.purpose !== "trimmed") ||
+		role.owner === null
+	)
+		return undefined;
+	const ownerRole = xform.roles.get(role.owner);
+	if (ownerRole?.kind !== "field") return undefined;
+	return { node: target, purpose: role.purpose, field: ownerRole.field };
+}
+
+/** Settles a sibling a block reads as generated, where it is a candidate. */
+function settleSibling(
+	ctx: ReadContext,
+	xform: ReadXForm,
+	sibling: GeneratedSibling,
+): void {
+	const role = xform.roles.get(sibling.node);
+	if (
+		role?.kind === "generated-candidate" &&
+		xform.candidates.includes(sibling.node)
+	)
+		ctx.writeDraft(() => xform.settle(sibling.node, "generated"));
 }
 
 /**
@@ -651,6 +783,63 @@ function conjuncts(node: FormSyntax): FormSyntax[] {
  *  states their conjunction. */
 function conjunction(text: string, parts: readonly FormSyntax[]): string {
 	return parts.map((part) => text.slice(part.from, part.to)).join(" and ");
+}
+
+/** The operands of an `or` chain, left to right, as `conjuncts` gives an
+ *  `and` chain's. */
+function disjuncts(node: FormSyntax): FormSyntax[] {
+	let at = node;
+	while (at.kind === "group") at = at.value;
+	return at.kind === "binary" && at.op === "or"
+		? [...disjuncts(at.left), ...disjuncts(at.right)]
+		: [node];
+}
+
+/** The segments of a several-case form's shared update of every selected
+ *  case (`basicCaseSlots.ts::ownOrCreateBlockShape` for the own arm). */
+const SHARED_UPDATE_SEGMENTS: readonly SaveToCaseBlockSegment[] = [
+	"selected-cases",
+	"selected-case",
+	"operations",
+	"condition",
+	"block",
+];
+
+/**
+ * A shared update row's relevance split at the presence the emitter leads
+ * it with (`caseOps.ts`, the several-case form's own case): `count(S) > 0
+ * and string(S) != ''` where the row saves a question's answer as it is,
+ * else `string(S) != ''`, `S` the row's value; then the row's own condition.
+ * Nothing where it does not lead so.
+ */
+function presenceSplit(
+	relevant: string | undefined,
+	value: string,
+): { readonly presence: string; readonly rest?: string } | undefined {
+	const tree = parse(relevant);
+	if (relevant === undefined || tree === undefined) return undefined;
+	const parts = conjuncts(tree);
+	const holds = (part: FormSyntax | undefined, template: WireExpr): boolean => {
+		if (part === undefined) return false;
+		const hole = inside(relevant.slice(part.from, part.to), template);
+		return (
+			hole !== undefined && sameXPathText(hole, value, { ruleSet: "form" })
+		);
+	};
+	const present = w.gt(w.call("count", [holeWire()]), w.num(0));
+	const filled = w.ne(w.call("string", [holeWire()]), w.str(""));
+	const lead =
+		holds(parts[0], present) && holds(parts[1], filled)
+			? 2
+			: holds(parts[0], filled)
+				? 1
+				: 0;
+	if (lead === 0) return undefined;
+	const rest = parts.slice(lead);
+	return {
+		presence: conjunction(relevant, parts.slice(0, lead)),
+		...(rest.length > 0 && { rest: conjunction(relevant, rest) }),
+	};
 }
 
 /** A row's condition, its presence conjunct `count(A) > 0` taken off where
@@ -818,9 +1007,18 @@ function readBlock(
 	if (creates) {
 		const nameText = calc("case/create/case_name");
 		if (nameText === undefined) return { ok: false };
+		const unwrapped = untrimmed(nameText);
+		const trimmed = unwrapped.trimmed
+			? undefined
+			: trimmedValueOf(ctx, xform, nameText, [
+					...casePath,
+					"create",
+					"case_name",
+				]);
 		name = {
-			text: untrimmed(nameText).text,
+			text: unwrapped.text,
 			site: site("case/create/case_name", "calculate"),
+			...(trimmed !== undefined && { answer: trimmed }),
 		};
 		const ownerBind = bindAt("case/create/owner_id");
 		if (ownerBind?.attribs.relevant !== undefined)
@@ -839,8 +1037,22 @@ function readBlock(
 	let retype: string | undefined;
 	const writes: ProposedRow[] = [];
 	const update = parts.get("update");
-	const presenceApplies =
-		!creates && (target.kind === "session" || target.kind === "worker-record");
+	// The worker's record always takes the presence conjunct; the session's
+	// case takes it only as the form's own arm, which is decided once every
+	// block is read, so its rows keep both readings.
+	const presenceApplies = !creates && target.kind === "worker-record";
+	const presenceMayApply = !creates && target.kind === "session";
+	// The shape a several-case form's shared update of every selected case
+	// stands in; whether the block is that update is decided once every
+	// block is read, so its rows keep both readings.
+	const sharedShape =
+		!creates &&
+		target.kind === "session" &&
+		segments.join("/") === SHARED_UPDATE_SEGMENTS.join("/");
+	let sharedHolds = sharedShape;
+	const sharedRows = new Map<string, SharedRow>();
+	const presences: string[] = [];
+	let ownerLed = false;
 	if (update !== undefined) {
 		const rows = children(update);
 		for (const row of rows) {
@@ -857,6 +1069,30 @@ function readBlock(
 				else if (rows.length > 1) retype = literal;
 				continue;
 			}
+			const rowPath = [...casePath, "update", property];
+			if (sharedShape) {
+				const split = presenceSplit(bind.attribs.relevant, text);
+				// The name's and the owner's rows carry their presence alone.
+				if (
+					split === undefined ||
+					(split.rest !== undefined &&
+						(property === "case_name" || property === "owner_id"))
+				)
+					sharedHolds = false;
+				else {
+					presences.push(split.presence);
+					const sibling = generatedSiblingOf(xform, text, rowPath);
+					sharedRows.set(property, {
+						...(split.rest !== undefined && {
+							rest: {
+								text: split.rest,
+								site: { element: bind, attribute: "relevant" },
+							},
+						}),
+						...(sibling !== undefined && { sibling }),
+					});
+				}
+			}
 			if (property === "case_name") {
 				rename = {
 					text: untrimmed(text).text,
@@ -865,8 +1101,10 @@ function readBlock(
 				continue;
 			}
 			if (property === "owner_id") {
-				if (bind.attribs.relevant !== undefined)
-					return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+				if (bind.attribs.relevant !== undefined) {
+					if (!sharedShape) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+					ownerLed = true;
+				}
 				owner = readOwner(untrimmed(text).text, root, {
 					element: bind,
 					attribute: "calculate",
@@ -877,7 +1115,7 @@ function readBlock(
 				ctx,
 				xform,
 				property === "external_id" ? untrimmed(text).text : text,
-				[...casePath, "update", property],
+				rowPath,
 				block.path[block.path.length - 1] as string,
 			);
 			if (value.earlier) {
@@ -901,6 +1139,49 @@ function readBlock(
 					: resolvePath(valueNode, [...casePath, "update", property], root);
 			const readsField =
 				valuePath === undefined ? undefined : fieldAt(xform, valuePath);
+			let answerAsIs: ProposedRow["answerAsIs"];
+			if (
+				presenceMayApply &&
+				value.value === undefined &&
+				readsField !== undefined
+			) {
+				const rest = rowCondition(bind.attribs.relevant, value.text, true);
+				const led =
+					bind.attribs.relevant !== undefined && rest !== bind.attribs.relevant;
+				answerAsIs = {
+					led,
+					...(led &&
+						rest !== undefined && {
+							rest: {
+								text: rest,
+								site: { element: bind, attribute: "relevant" },
+							},
+						}),
+				};
+			}
+			// A child's block written from HQ's child case action: each row a
+			// question's answer, saved while the question is answered.
+			if (name?.answer !== undefined && value.value === undefined) {
+				const presence =
+					readsField === undefined
+						? undefined
+						: rowCondition(bind.attribs.relevant, value.text, true);
+				if (
+					readsField !== undefined &&
+					bind.attribs.relevant !== undefined &&
+					presence === undefined
+				) {
+					writes.push({
+						property,
+						value: {
+							kind: "answer",
+							field: readsField,
+							site: { element: bind, attribute: "calculate" },
+						},
+					});
+					continue;
+				}
+			}
 			writes.push({
 				property,
 				value: value.value ?? {
@@ -915,6 +1196,7 @@ function readBlock(
 						site: { element: bind, attribute: "relevant" },
 					},
 				}),
+				...(answerAsIs !== undefined && { answerAsIs }),
 			});
 		}
 	}
@@ -983,6 +1265,27 @@ function readBlock(
 		};
 	if (closes && creates) return fail(SAVE_TO_CASE_CLAIMS.writeAndClose);
 
+	// The shared update's group is present while some row is, or always
+	// where the block links.
+	if (sharedHolds && !closes) {
+		const relevant = condition?.text;
+		const tree = parse(relevant);
+		const parts = tree === undefined ? [] : disjuncts(tree);
+		sharedHolds =
+			links.length > 0
+				? relevant === undefined
+				: relevant !== undefined &&
+					parts.length === presences.length &&
+					parts.every((part, at) =>
+						sameXPathText(
+							relevant.slice(part.from, part.to),
+							presences[at] as string,
+							{ ruleSet: "form" },
+						),
+					);
+	} else sharedHolds = false;
+	if (ownerLed && !sharedHolds) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+
 	return {
 		ok: true,
 		proposal: {
@@ -1001,6 +1304,7 @@ function readBlock(
 			closes,
 			...(closeCondition !== undefined && { closeCondition }),
 			place,
+			...(sharedHolds && { shared: sharedRows }),
 		},
 	};
 }
@@ -1126,7 +1430,7 @@ function readTarget(
 		if (selected !== undefined)
 			return { kind: "expression", text: selected, site };
 	}
-	return { kind: "session" };
+	return { kind: "session", text };
 }
 
 /** The emitter's print of a fixed tree, for a comparison of trees. */
@@ -1144,6 +1448,159 @@ function guardOf(name: string, ids: ReadonlySet<string>): boolean {
 			if (isAllocatedName(name, generatedBaseName("guard", id, kind)))
 				return true;
 	return false;
+}
+
+/** Whether `block` stands in the group a published placement keeps a
+ *  child's block in. */
+function keptInSubcases(xform: ReadXForm, block: ReadSaveToCaseBlock): boolean {
+	const parent = block.wrappers[block.wrappers.length - 1];
+	const role = parent === undefined ? undefined : xform.roles.get(parent);
+	return role?.kind === "case-region" && role.container === "subcases";
+}
+
+/** The operation id the guard right after `block` is named after
+ *  (`generatedBaseName("guard", id, kind)`), for a block in the group a
+ *  published placement keeps a child's block in, whose own name is the
+ *  placement's and names no operation. */
+function keptName(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	guards: readonly ReadSaveToCaseBlock[],
+): string | undefined {
+	if (!keptInSubcases(xform, block)) return undefined;
+	const siblings = (block.element.parent as Element | null)?.children.filter(
+		isTag,
+	);
+	const next = siblings?.[siblings.indexOf(block.element) + 1];
+	const guard = guards.find((one) => one.element === next);
+	if (guard === undefined) return undefined;
+	const name = guard.path[guard.path.length - 1] as string;
+	const HOLE_ID = "\u0000";
+	for (const kind of GUARD_KINDS) {
+		const [prefix, suffix] = generatedBaseName("guard", HOLE_ID, kind).split(
+			HOLE_ID,
+		) as [string, string];
+		// The allocator may have suffixed the base past a sibling of its name.
+		for (const base of [name, name.slice(0, name.lastIndexOf("_"))]) {
+			if (
+				!base.startsWith(prefix) ||
+				!base.endsWith(suffix) ||
+				base.length <= prefix.length + suffix.length
+			)
+				continue;
+			const id = base.slice(prefix.length, base.length - suffix.length);
+			if (isAllocatedName(name, generatedBaseName("guard", id, kind)))
+				return id;
+		}
+	}
+	return undefined;
+}
+
+/** The kinds of the guards that stand beside `block` under its operation's
+ *  name (`guardOf`'s names), in `GUARD_KINDS` order. */
+function guardKindsBeside(
+	block: ReadSaveToCaseBlock,
+	guards: readonly ReadSaveToCaseBlock[],
+): GuardKind[] {
+	const parent = block.path.slice(0, -1).join("/");
+	const name = block.path[block.path.length - 1] as string;
+	return GUARD_KINDS.filter((kind) =>
+		guards.some(
+			(guard) =>
+				guard.path.slice(0, -1).join("/") === parent &&
+				isAllocatedName(
+					guard.path[guard.path.length - 1] as string,
+					generatedBaseName("guard", name, kind),
+				),
+		),
+	);
+}
+
+function sameKinds(a: readonly GuardKind[], b: readonly GuardKind[]): boolean {
+	return a.length === b.length && a.every((kind) => b.includes(kind));
+}
+
+/**
+ * A shared update of every selected case read as the own arm: its group's
+ * presence is derived, so it has no condition of its own; each row's
+ * condition is what follows its presence; and a row or a name that reads a
+ * question's generated sibling is the question's own value (its link, for a
+ * capture's), the sibling settled as generated.
+ */
+function sharedOwn(
+	ctx: ReadContext,
+	xform: ReadXForm,
+	read: NonNullable<BlockRead["proposal"]>,
+	rows: ReadonlyMap<string, SharedRow>,
+): NonNullable<BlockRead["proposal"]> {
+	const { condition: _group, ...block } = read;
+	const writes = read.writes.map((row): ProposedRow => {
+		const one = rows.get(row.property);
+		const sibling = one?.sibling;
+		const value: ProposedRow["value"] =
+			sibling === undefined || row.value.kind !== "text"
+				? row.value
+				: sibling.purpose === "url"
+					? { kind: "capture", field: sibling.field }
+					: { kind: "answer", field: sibling.field, site: row.value.site };
+		if (value !== row.value && sibling !== undefined)
+			settleSibling(ctx, xform, sibling);
+		return {
+			property: row.property,
+			value,
+			...(one?.rest !== undefined && { condition: one.rest }),
+		};
+	});
+	const name = rows.get("case_name")?.sibling;
+	if (read.rename !== undefined && name?.purpose === "trimmed")
+		settleSibling(ctx, xform, name);
+	return {
+		...block,
+		writes,
+		...(read.rename !== undefined &&
+			name?.purpose === "trimmed" && {
+				rename: { ...read.rename, answer: name.field },
+			}),
+	};
+}
+
+/** A block of the session's case as the form's own arm, as far as the
+ *  guards the emitter gives an operation read it (`operationGuardKinds`):
+ *  its name, owner, rows and links, and no rename, which the own arm states
+ *  as its name. */
+function ownShape(read: NonNullable<BlockRead["proposal"]>): CaseOperation {
+	return {
+		action: "own",
+		...(read.owner !== undefined && { owner: placeholder("value") }),
+		writes: read.writes.map((row) => ({
+			property: row.property,
+			value: placeholder("value"),
+		})),
+		links: read.links.map((link) => ({
+			identifier: link.identifier,
+			targetType: link.targetType,
+			relationship: link.relationship,
+			target:
+				link.target === null
+					? null
+					: link.target.kind === "expression"
+						? { kind: "expression", expr: placeholder("value") }
+						: { kind: "session" },
+		})),
+	} as unknown as CaseOperation;
+}
+
+/** The same block as an update of the session's case, for the guards it
+ *  takes (`operationGuardKinds`). */
+function updateShape(read: NonNullable<BlockRead["proposal"]>): CaseOperation {
+	return {
+		...(ownShape(read) as object),
+		action: "update",
+		caseType: read.caseType,
+		target: { kind: "session" },
+		...(read.rename !== undefined && { rename: placeholder("value") }),
+		...(read.owner !== undefined && { owner: placeholder("value") }),
+	} as unknown as CaseOperation;
 }
 
 /**
@@ -1190,11 +1647,17 @@ export function readSaveToCaseBlocks(
 		}
 		const read = readBlock(ctx, form, xform, block, place, earlierCreates);
 		if (!read.ok || read.proposal === undefined) {
+			// The group a published placement keeps a child's block in holds no
+			// author's block: one it holds that Nova does not write today is of
+			// an earlier shape of Nova's own.
+			const kept = keptInSubcases(xform, block);
 			reading.failed.push({
 				block,
 				place,
-				claim: read.claim ?? SAVE_TO_CASE_CLAIMS.outsideShape,
-				...(read.detail !== undefined && { detail: read.detail }),
+				claim: kept
+					? SAVE_TO_CASE_CLAIMS.outsideShape
+					: (read.claim ?? SAVE_TO_CASE_CLAIMS.outsideShape),
+				...(!kept && read.detail !== undefined && { detail: read.detail }),
 			});
 			continue;
 		}
@@ -1208,9 +1671,13 @@ export function readSaveToCaseBlocks(
 	// Guards: each belongs to an operation proposed in its scope; the guard of
 	// a block that is a finding is covered by that finding, at its place.
 	const ids = new Set(
-		proposed.map(
-			({ read }) => read.block.path[read.block.path.length - 1] as string,
-		),
+		proposed.flatMap(({ read }) => {
+			const kept = keptName(xform, read.block, guards);
+			return [
+				read.block.path[read.block.path.length - 1] as string,
+				...(kept === undefined ? [] : [kept]),
+			];
+		}),
 	);
 	const failedBlocks = [...reading.failed];
 	for (const guard of guards) {
@@ -1240,19 +1707,81 @@ export function readSaveToCaseBlocks(
 	);
 	const menuType = module.module.caseType;
 	const type = form.form.type;
+	// The own arm where its block prints back as the own arm's: each row of an
+	// answer as it is led by its presence, and the guards the own arm takes.
+	// Where the form's own case also has a basic block that writes nothing,
+	// a block that prints back as an update of the session's case as well is
+	// that update, beside the basic block (R3). The two differ by name: the
+	// emitter names a block by its operation's id, and the basic block's
+	// operation takes the id the own arm would.
+	const bareOwnId = basicCaseReading(form)?.bareOwnId;
 	const ownCandidate =
 		!ownTaken &&
 		menuType !== undefined &&
 		(type === "followup" || type === "close")
+			? proposed.find(({ read }) => {
+					if (
+						read.kind === "create" ||
+						read.caseType !== menuType ||
+						read.target.kind !== "session" ||
+						read.block.repeat !== null ||
+						read.segments.join("/") !== "operations/block" ||
+						read.retype !== undefined
+					)
+						return false;
+					const present = guardKindsBeside(read.block, guards);
+					const answers = read.writes.flatMap((row) =>
+						row.answerAsIs === undefined ? [] : [row.answerAsIs],
+					);
+					const name = read.block.path[read.block.path.length - 1];
+					const asOwn =
+						answers.every((one) => one.led) &&
+						sameKinds(present, operationGuardKinds(ownShape(read)));
+					const asUpdate =
+						answers.every((one) => !one.led) &&
+						sameKinds(present, operationGuardKinds(updateShape(read))) &&
+						name !== bareOwnId;
+					return asOwn && !(bareOwnId !== undefined && asUpdate);
+				})
+			: undefined;
+	// The own arm of a form whose menu selects several cases: one shared
+	// update of every selected case, in the shape no other operation takes
+	// with a group present while some row is.
+	const sharedCandidate =
+		ownCandidate === undefined &&
+		!ownTaken &&
+		menuType !== undefined &&
+		(type === "followup" || type === "close") &&
+		isMultiSelectMenu({
+			case_details: module.json.peek("case_details"),
+			search_config: module.json.peek("search_config"),
+		})
 			? proposed.find(
 					({ read }) =>
-						read.kind !== "create" &&
+						read.shared !== undefined &&
+						read.kind === "update" &&
 						read.caseType === menuType &&
-						read.target.kind === "session" &&
 						read.block.repeat === null &&
-						read.segments.join("/") === "operations/block",
+						read.retype === undefined,
 				)
 			: undefined;
+	// Any other block whose owner row carries a condition is that entry.
+	for (const one of [...proposed]) {
+		const { read } = one;
+		if (
+			read !== sharedCandidate?.read &&
+			read.shared !== undefined &&
+			bindsUnder(xform, read.block.path).get("case/update/owner_id")?.attribs
+				.relevant !== undefined
+		) {
+			reading.failed.push({
+				block: read.block,
+				place: read.place,
+				claim: SAVE_TO_CASE_CLAIMS.ownerCondition,
+			});
+			proposed.splice(proposed.indexOf(one), 1);
+		}
+	}
 
 	// Mint, register and record each proposal.
 	// Free among the form's ids: its root questions' and the operations its
@@ -1265,13 +1794,25 @@ export function readSaveToCaseBlocks(
 		takenIds.add(one.id);
 	const counts = new Map<string, number>();
 	for (const { read } of proposed) {
-		const own = read === ownCandidate?.read;
+		const shared = read === sharedCandidate?.read;
+		const own = read === ownCandidate?.read || shared;
 		const action: ProposedBlock["action"] = own ? "own" : read.kind;
 		const blockName = read.block.path[read.block.path.length - 1] as string;
+		// A block named by a published placement or by the child's place
+		// names no operation: its id is the one its guard is named after, else
+		// its case type's, as HQ's child case action reads. So is the shared
+		// update's, whose block the emitter names by its purpose.
+		const named = keptName(xform, read.block, guards);
 		const id =
-			isCaseOperationIdentifier(blockName) && !takenIds.has(blockName)
-				? blockName
-				: ownCaseOperationId(read.caseType, takenIds);
+			named !== undefined && !takenIds.has(named)
+				? named
+				: read.name?.answer === undefined &&
+						!shared &&
+						!keptInSubcases(xform, read.block) &&
+						isCaseOperationIdentifier(blockName) &&
+						!takenIds.has(blockName)
+					? blockName
+					: ownCaseOperationId(read.caseType, takenIds);
 		takenIds.add(id);
 		const repeatPath =
 			read.block.repeat === null ? [] : fieldIdsOf(read.block.repeat);
@@ -1309,7 +1850,29 @@ export function readSaveToCaseBlocks(
 			});
 			continue;
 		}
-		reading.proposals.push({ ...read, uuid, id, action });
+		// The own arm's rows of an answer as it is lead with its presence.
+		const writes = own
+			? read.writes.map(({ answerAsIs, condition, ...row }) =>
+					answerAsIs === undefined
+						? { ...row, ...(condition !== undefined && { condition }) }
+						: {
+								...row,
+								...(answerAsIs.rest !== undefined && {
+									condition: answerAsIs.rest,
+								}),
+							},
+				)
+			: read.writes;
+		if (shared && read.shared !== undefined) {
+			reading.proposals.push({
+				...sharedOwn(ctx, xform, read, read.shared),
+				uuid,
+				id,
+				action,
+			});
+			continue;
+		}
+		reading.proposals.push({ ...read, writes, uuid, id, action });
 	}
 	// The own close in a block of its own: a close-only block of the own case
 	// in a condition group under the root operations container.
@@ -1408,9 +1971,9 @@ function claimAccepted(
 		registeredAttributes.set(site.element, set);
 	};
 	for (const one of reading.proposals) {
-		note(one.name?.site);
+		if (one.name?.answer === undefined) note(one.name?.site);
 		if (one.owner?.kind === "text") note(one.owner.site);
-		note(one.rename?.site);
+		if (one.rename?.answer === undefined) note(one.rename?.site);
 		note(one.condition?.site);
 		note(one.closeCondition?.site);
 		if (one.target.kind === "expression") note(one.target.site);
@@ -1634,7 +2197,7 @@ function registerTexts(
 	const RELEVANT = "xform:model/bind@relevant";
 	for (const one of reading.proposals) {
 		const op = one.uuid;
-		if (one.name !== undefined)
+		if (one.name !== undefined && one.name.answer === undefined)
 			register(
 				`${op} name`,
 				caseSlot(form.uuid, "case_operation_name", op),
@@ -1643,7 +2206,7 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
-		if (one.rename !== undefined)
+		if (one.rename !== undefined && one.rename.answer === undefined)
 			register(
 				`${op} rename`,
 				caseSlot(
@@ -1813,6 +2376,13 @@ function placeholder(expectation: "condition" | "value"): Expression {
 	return pendingPlaceholder(expectation);
 }
 
+/** A question's answer as it is: the question's own term. */
+function answerOf(field: DraftField): Expression | undefined {
+	return field.uuid === undefined
+		? undefined
+		: term({ kind: "field", uuid: field.uuid });
+}
+
 /** The operation a proposal writes into the draft, its texts as placeholders until the expression stage binds them. */
 function operationOf(
 	one: ProposedBlock,
@@ -1837,7 +2407,9 @@ function operationOf(
 				? write.value.field.uuid === undefined
 					? undefined
 					: term({ kind: "capture-link", field: write.value.field.uuid })
-				: placeholder("value");
+				: write.value.kind === "answer"
+					? answerOf(write.value.field)
+					: placeholder("value");
 		if (value === undefined) return undefined;
 		writes.push({
 			property: write.property,
@@ -1881,29 +2453,42 @@ function operationOf(
 		} as CaseOperationLink);
 	}
 	const forEach = repeat === undefined ? undefined : { repeat };
+	// A child's block written from HQ's child case action is where the
+	// emitter keeps a basic child of a several-case form, a place no
+	// placement holds.
 	const common = {
 		uuid: one.uuid,
 		id: one.id,
 		...(writes.length > 0 && { writes }),
-		placement,
+		...(one.name?.answer === undefined && { placement }),
 	};
 	if (one.action === "own")
 		return {
 			...common,
 			action: "own",
-			...(one.rename !== undefined && { name: placeholder("value") }),
+			...(one.rename !== undefined && {
+				name:
+					one.rename.answer === undefined
+						? placeholder("value")
+						: answerOf(one.rename.answer),
+			}),
 			...(owner !== undefined && { owner }),
 			...(links.length > 0 && { links }),
 		} as CaseOperation;
 	if (one.action === "create") {
 		const idFrom =
 			one.target.kind === "new" ? one.target.idFrom?.uuid : undefined;
+		const name =
+			one.name?.answer === undefined
+				? placeholder("value")
+				: answerOf(one.name.answer);
+		if (name === undefined) return undefined;
 		return {
 			...common,
 			action: "create",
 			caseType: one.caseType,
 			target: { kind: "new", ...(idFrom !== undefined && { idFrom }) },
-			name: placeholder("value"),
+			name,
 			...(owner !== undefined && { owner }),
 			...(links.length > 0 && { links }),
 			...(one.condition !== undefined && {
@@ -2311,6 +2896,64 @@ function withSeveralCaseOwn(
 	});
 }
 
+/**
+ * `doc` with each target and link the reading took for the session's case
+ * that reads the id a create of the form's Case Management has from its entry
+ * (the case a registration opens, a basic subcase outside a repeat) naming
+ * that create: the emitter prints such a create's id as its entry's datum
+ * (`casePlacementPlan.ts::planFormCaseWire`'s `datums`), and the session's
+ * case as the selected case's. `doc` itself where none does.
+ */
+function withBasicCreateTargets(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	ops: readonly ProposedBlock[],
+): BlueprintDoc {
+	let datums: readonly { readonly operationUuid: Uuid; readonly id: string }[];
+	try {
+		datums = planFormCaseWire(doc, formUuid).datums;
+	} catch {
+		return doc;
+	}
+	if (datums.length === 0) return doc;
+	const createOf = (text: string): Uuid | undefined =>
+		datums.find((datum) =>
+			sameXPathText(text, serializeForm(sessionDataRef(datum.id)), {
+				ruleSet: "form",
+			}),
+		)?.operationUuid;
+	const named = new Map<Uuid, { target?: Uuid; links: Map<string, Uuid> }>();
+	for (const one of ops) {
+		const target =
+			one.target.kind === "session" ? createOf(one.target.text) : undefined;
+		const links = new Map<string, Uuid>();
+		for (const link of one.links)
+			if (link.target?.kind === "session") {
+				const create = createOf(link.target.text);
+				if (create !== undefined) links.set(link.identifier, create);
+			}
+		if (target !== undefined || links.size > 0)
+			named.set(one.uuid, { ...(target !== undefined && { target }), links });
+	}
+	if (named.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const operation of draft.forms[formUuid]?.caseOperations ?? []) {
+			const read = named.get(operation.uuid);
+			if (read === undefined) continue;
+			const held = operation as {
+				target?: { kind: string };
+				links?: { identifier: string; target: unknown }[];
+			};
+			if (read.target !== undefined && held.target?.kind === "session")
+				held.target = { kind: "op", opUuid: read.target } as { kind: string };
+			for (const link of held.links ?? []) {
+				const create = read.links.get(link.identifier);
+				if (create !== undefined) link.target = { kind: "op", opUuid: create };
+			}
+		}
+	});
+}
+
 /** The owner a create holds where the stored one is the acting user's id. */
 function withOwner(
 	doc: BlueprintDoc,
@@ -2357,8 +3000,13 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 		judgeSaveReferences(ctx, form, reading.failed);
 		return;
 	}
-	// Each condition read apart from the conditions it inherits.
-	const own = withoutInheritedConditions(doc, form.uuid, reading.proposals);
+	// Each id the session holds for a create of the form's Case Management
+	// read as that create, then each condition apart from those it inherits.
+	const own = withoutInheritedConditions(
+		withBasicCreateTargets(doc, form.uuid, reading.proposals),
+		form.uuid,
+		reading.proposals,
+	);
 	if (own !== doc) ctx.doc = own;
 	let failing = blocksHold(ctx, own, form, reading);
 	const owners = failing.filter(

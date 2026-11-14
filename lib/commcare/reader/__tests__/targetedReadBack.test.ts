@@ -32,6 +32,8 @@ import {
 	blueprintDocSchema,
 	type Field,
 	type LanguageTag,
+	levelDescendantCases,
+	levelOwnsCases,
 	type Media,
 	type MediaKind,
 	type Uuid,
@@ -218,7 +220,11 @@ function lookupCatalog(document: CorpusDocument): ReaderLookupCatalog {
 	};
 }
 
-/** The project space's levels: the document's own, as HQ holds them. */
+/**
+ * The project space's levels: the document's own, as HQ holds them once a
+ * publish has set them up, each sharing cases where it owns them and
+ * viewing descendants where its workers' cases reach below.
+ */
 function levelsOf(doc: BlueprintDoc): HqLocationType[] {
 	const levels = doc.organizationLevels ?? {};
 	return Object.values(levels).map((level) => ({
@@ -230,8 +236,8 @@ function levelsOf(doc: BlueprintDoc): HqLocationType[] {
 				? null
 				: (levels[level.parentLevelUuid]?.code ?? null),
 		administrative: false,
-		sharesCases: false,
-		viewDescendants: false,
+		sharesCases: levelOwnsCases(level),
+		viewDescendants: levelDescendantCases(level).kind !== "none",
 	}));
 }
 

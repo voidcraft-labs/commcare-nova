@@ -8,7 +8,7 @@
  * `projectCaseListForHq` writes the stored details back
  * (`caseList/index.ts::settleCaseLists`).
  */
-import type { Column } from "@/lib/domain";
+import type { CaseProperty, Column } from "@/lib/domain";
 import {
 	AUTHORED_CASE_PROPERTY_NAME_PATTERN,
 	MAX_AUTHORED_CASE_PROPERTY_NAME_LENGTH,
@@ -19,13 +19,16 @@ import {
 	TIME_SINCE_UNIT_DAYS,
 	TIME_SINCE_UNITS,
 } from "@/lib/domain/modules";
+import { proseText } from "@/lib/domain/prose";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
 import {
 	imageMapEnumKey,
 	intervalColumnDisplayXpath,
 	linkColumnDisplayXpath,
+	plainSelectDisplayXpath,
 } from "../../suite/case-list/columns";
+import { hqEnumPlaceholder } from "../../suite/case-list/orderPlanOptions";
 import { casePropertyPath } from "../../suite/wire";
 import type { FormSyntax } from "../../xpath/formSyntax";
 import { w } from "../../xpath/wire/builders";
@@ -472,6 +475,18 @@ export interface ColumnProposal {
 	readonly invisible: boolean;
 	/** The cursor the column was read from, for the tile and the comparison. */
 	readonly json: JsonCursor;
+	/** For a plain column read from Nova's label projection of a select property, the property's
+	 *  kind and choices the projection holds: each value with its label in every app language. */
+	readonly choices?: SelectChoices;
+}
+
+/** A select property's kind and choices, as a column's label projection holds them. */
+export interface SelectChoices {
+	readonly dataType: "single_select" | "multi_select";
+	readonly options: readonly {
+		readonly value: string;
+		readonly labels: Readonly<Record<string, string>>;
+	}[];
 }
 
 /** A `{lang: text}` map, every value a string. */
@@ -897,7 +912,6 @@ export function readDetailColumn(
 				header,
 				base,
 				others,
-				options.selectProperty,
 			);
 	}
 
@@ -911,7 +925,13 @@ export function readDetailColumn(
 		return undefined;
 	}
 
-	const classified = classifyField(field.text);
+	// A column of any other format over one case attribute: Nova writes a column over `case_id`,
+	// `owner_id` or `status` as the expression `@<name>` with its kind's format.
+	const attribute = field.xpath ? oneAttribute(parse(field.text)) : undefined;
+	const classified: FieldClass =
+		attribute !== undefined && ATTRIBUTE_PROPERTIES.has(attribute)
+			? { kind: "property", name: attribute }
+			: classifyField(field.text);
 	if (classified.kind === "finding") {
 		// A field HQ's page would not accept is no property name a person typed there, so it names nothing.
 		const named = field.text !== "" && classified.claim !== C.fieldInvalid;
@@ -922,7 +942,10 @@ export function readDetailColumn(
 		);
 		return undefined;
 	}
-	column.take("field", C.field, String).value;
+	if (attribute !== undefined && classified.name === attribute) {
+		column.take("useXpathExpression", C.fieldAttribute, Boolean).value;
+		column.take("field", C.fieldAttributeField, String).value;
+	} else column.take("field", C.field, String).value;
 	const name = classified.name;
 	const fieldName = { name };
 
@@ -1162,14 +1185,28 @@ function selectedValue(key: string, property: string): string | undefined {
 		node.args.length !== 2
 	)
 		return undefined;
-	const value = node.args[1];
-	if (value?.kind !== "string") return undefined;
+	const value = literalText(node.args[1]);
+	if (value === undefined) return undefined;
 	return sameXPathText(
 		interpolated,
-		dotInterpolate(imageMapEnumKey(value.value), property),
+		dotInterpolate(imageMapEnumKey(value), property),
 	)
-		? value.value
+		? value
 		: undefined;
+}
+
+/** The text a string literal spells, or a `concat` of string literals, which is how a literal
+ *  holding both quote marks is printed. */
+function literalText(node: FormSyntax | undefined): string | undefined {
+	if (node?.kind === "string") return node.value;
+	if (node?.kind !== "call" || node.name !== "concat") return undefined;
+	let out = "";
+	for (const arg of node.args) {
+		const part = literalText(arg);
+		if (part === undefined) return undefined;
+		out += part;
+	}
+	return out;
 }
 
 function readImageMap(
@@ -1365,8 +1402,8 @@ function intervalCandidate(
 }
 
 /** A calculated `markdown` or `translatable-enum` column, read as one of Nova's projections:
- *  a link, an interval, or a plain column over a select property (whose label projection
- *  the comparison of the whole menu holds). */
+ *  a link, an interval, or a plain column over a select property with the choices its label
+ *  projection holds (which the comparison of the whole menu holds against the catalog). */
 function readProjection(
 	ctx: ReadContext,
 	column: JsonCursor,
@@ -1375,10 +1412,10 @@ function readProjection(
 	header: Readonly<Record<string, string>>,
 	base: { header: string },
 	others: boolean,
-	selectProperty: SelectProperty,
 ): ColumnProposal | undefined {
 	const entries = enumEntries(column);
 	let candidate: ArmOmit<ColumnBody, "header"> | undefined;
+	let choices: SelectChoices | undefined;
 	const texts: Record<string, Record<string, string>> = {};
 	if (format === "markdown") candidate = linkCandidate(text);
 	else {
@@ -1397,9 +1434,17 @@ function readProjection(
 			if (candidate !== undefined) texts[""] = first.value;
 		}
 		if (candidate === undefined) {
-			const field = literalsOf(parse(text)).properties[0];
-			if (field !== undefined && selectProperty(field))
-				candidate = { kind: "plain", field };
+			const select = selectLabelCandidate(text, entries);
+			if (select !== undefined) {
+				candidate = { kind: "plain", field: select.field };
+				choices = {
+					dataType: select.dataType,
+					options: select.values.map((value, index) => ({
+						value,
+						labels: entries[index]?.value ?? {},
+					})),
+				};
+			}
 		}
 	}
 	if (candidate === undefined) {
@@ -1433,5 +1478,88 @@ function readProjection(
 		texts,
 		invisible: false,
 		json: column,
+		...(choices !== undefined && { choices }),
 	};
+}
+
+/** The document a label projection is printed against: its labels are enum variables, so it
+ *  names nothing. */
+const NO_REFERENCES = { fields: {}, forms: {}, fieldOrder: {} };
+
+/** The second argument of every `selected(…, '<value>')` of a tree, in document order. */
+function selectedValues(node: FormSyntax | undefined, out: string[]): string[] {
+	if (node === undefined) return out;
+	switch (node.kind) {
+		case "call": {
+			const value = node.args[1];
+			if (node.name === "selected" && node.args.length === 2) {
+				const text = literalText(value);
+				if (text !== undefined) out.push(text);
+			}
+			for (const arg of node.args) selectedValues(arg, out);
+			return out;
+		}
+		case "group":
+		case "negative":
+			return selectedValues(node.value, out);
+		case "binary":
+			selectedValues(node.left, out);
+			return selectedValues(node.right, out);
+		default:
+			return out;
+	}
+}
+
+/**
+ * The select property a `translatable-enum` column's text is Nova's label projection of: the
+ * property, its kind and its option values, the first of a single and a multiple choice that
+ * `plainSelectDisplayXpath` prints back as `text`, one enum variable per entry
+ * (`hqJson/caseList.ts::projectColumnToDetail`, a plain column over a select property). Each
+ * entry's key must be the variable the projection names for its option.
+ */
+function selectLabelCandidate(
+	text: string,
+	entries: readonly { key: unknown }[],
+):
+	| {
+			field: string;
+			dataType: SelectChoices["dataType"];
+			values: readonly string[];
+	  }
+	| undefined {
+	if (entries.some((entry, index) => entry.key !== hqEnumPlaceholder(index)))
+		return undefined;
+	const tree = parse(text);
+	const { strings, properties } = literalsOf(tree);
+	const field = properties[0];
+	if (field === undefined) return undefined;
+	const proposals: [SelectChoices["dataType"], readonly string[]][] = [
+		["single_select", strings],
+		["multi_select", selectedValues(tree, [])],
+	];
+	for (const [dataType, values] of proposals) {
+		if (
+			values.length !== entries.length ||
+			values.length === 0 ||
+			values.some((value) => value === "") ||
+			new Set(values).size !== values.length
+		)
+			continue;
+		const property: CaseProperty = {
+			name: field,
+			label: proseText(field),
+			data_type: dataType,
+			options: values.map((value) => ({ value, label: proseText(value) })),
+		};
+		const back = printed(
+			plainSelectDisplayXpath(
+				casePropertyPath(field),
+				property,
+				NO_REFERENCES,
+				(_option, index) => w.hqEnumVar(index),
+			),
+		);
+		if (sameXPathText(back, text)) return { field, dataType, values };
+	}
+	return undefined;
 }

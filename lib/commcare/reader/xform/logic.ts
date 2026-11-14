@@ -18,8 +18,12 @@ import {
 } from "@/lib/domain/questionId";
 import type { FindingDetail, HqPlace } from "@/lib/publish/hqFindings";
 import { questionScalarCheck } from "../../xform/builder";
+import type { FormSyntax } from "../../xpath/formSyntax";
+import { w } from "../../xpath/wire/builders";
+import { serializeWire } from "../../xpath/wire/serialize";
 import type { Claim } from "../claims";
 import type { DefaultEvent, ReadMode } from "../pendingExpressions";
+import { sameSyntax } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import type { XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
@@ -94,9 +98,9 @@ export function pendingLogic(input: PendingLogicInput): void {
 /**
  * The scalar check Nova's emitter conjoins onto the `constraint` of a question
  * that names a case or gives its external id (`builder.ts::questionScalarCheck`),
- * alone or as the last operand of an `and`: which of the two it is, and the
- * source text of the author's own validation beside it (none where it stands
- * alone). Undefined where the constraint carries neither tree, so the whole
+ * alone or after the author's own validation: which of the two it is, and the
+ * source text of the author's validation beside it (none where it stands
+ * alone). Undefined where the constraint carries neither, so the whole
  * constraint is the author's.
  */
 export function foldScalarCheck(constraint: string):
@@ -105,22 +109,57 @@ export function foldScalarCheck(constraint: string):
 			readonly authored: string | undefined;
 	  }
 	| undefined {
-	const matches = (text: string) =>
-		SCALAR_CHECKS.find((check) =>
-			sameTree(text, questionScalarCheck(check), true),
-		);
-	const alone = matches(constraint);
-	if (alone !== undefined) return { check: alone, authored: undefined };
+	for (const check of SCALAR_CHECKS)
+		if (sameTree(constraint, questionScalarCheck(check), true))
+			return { check, authored: undefined };
 	const read = readFormSyntax(constraint);
-	let top = read.ok ? read.node : undefined;
-	while (top?.kind === "group") top = top.value;
-	if (top?.kind !== "binary" || top.op !== "and") return undefined;
-	const check = matches(constraint.slice(top.right.from, top.right.to));
-	if (check === undefined) return undefined;
-	return { check, authored: constraint.slice(top.left.from, top.left.to) };
+	if (!read.ok || read.node === undefined) return undefined;
+	for (const check of SCALAR_CHECKS) {
+		const authored = authoredBeside(read.node, check);
+		if (authored !== undefined)
+			return {
+				check,
+				authored: constraint.slice(authored.from, authored.to),
+			};
+	}
+	return undefined;
 }
 
 const SCALAR_CHECKS: readonly CaseScalarTextGuard[] = ["reject", "allow"];
+
+/**
+ * The author's validation in a constraint the emitter wrote as
+ * `w.and(validation, check)`. The emitter's own print of that conjunction,
+ * with an atom standing for the validation, is read with the grammar: `and`
+ * reads left to right, so the atom sits at the foot of the print's left spine
+ * of `and`s and each check operand on the right of one of them, however many
+ * operands the check holds. The source is walked down the same spine, each
+ * right operand compared with the print's, and the node at the foot is the
+ * author's validation. Undefined where the source holds no such spine.
+ */
+function authoredBeside(
+	source: FormSyntax,
+	check: CaseScalarTextGuard,
+): FormSyntax | undefined {
+	const printed = readFormSyntax(
+		serializeWire(w.and(w.call("true"), questionScalarCheck(check)), {
+			target: "xform",
+			constraint: true,
+		}).text,
+	);
+	if (!printed.ok || printed.node === undefined) return undefined;
+	let print: FormSyntax = printed.node;
+	let at: FormSyntax = source;
+	while (print.kind === "binary" && print.op === "and") {
+		while (at.kind === "group") at = at.value;
+		if (at.kind !== "binary" || at.op !== "and") return undefined;
+		if (!sameSyntax(at.right, print.right, { ruleSet: "form" }))
+			return undefined;
+		at = at.left;
+		print = print.left;
+	}
+	return at;
+}
 
 function readBindLogic(
 	input: PendingLogicInput,

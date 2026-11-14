@@ -1199,6 +1199,9 @@ function displaySlots(expression: Expression): {
 	return { hidden: false, condition: expression };
 }
 
+/** The two slots written over the whole filter the expression stage bound
+ *  into the condition slot: a filter that is `false()` alone holds no
+ *  condition of its own. */
 function applyDisplay(
 	target: Draft<{ hiddenFromMenu?: true; displayCondition?: Expression }>,
 	expression: Expression,
@@ -1207,6 +1210,7 @@ function applyDisplay(
 	if (slots.hidden) target.hiddenFromMenu = true;
 	if (slots.condition !== undefined)
 		target.displayCondition = slots.condition as Draft<Expression>;
+	else delete target.displayCondition;
 }
 
 /**

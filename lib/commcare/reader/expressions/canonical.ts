@@ -22,7 +22,11 @@ import {
 	literalInstantText,
 } from "@/lib/domain/expression/instantOperand";
 import { mapExpressionChildren } from "@/lib/domain/expression/mapAst";
-import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import {
+	canonicalizeRelationPath,
+	normalizeRelationEvaluationScopes,
+} from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { literalShape } from "@/lib/domain/expression/ruleSets";
 import {
 	effectiveFilterForEmission,
 	simplifyForEmission,
@@ -39,6 +43,7 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { CASE_LOADING_FORM_TYPES } from "@/lib/domain/forms";
+import type { Uuid } from "@/lib/domain/uuid";
 import { userPropertySlugVerdict } from "../../validator/userPropertySlug";
 import type { FormNodeProjection } from "../../xpath/formNodeProjection";
 import { crossesSourceRepeatInRowPredicate } from "../../xpath/wire/formReads";
@@ -46,14 +51,23 @@ import { literalArguments } from "../../xpath/wire/serialize";
 import type { WireMode } from "../../xpath/wire/tree";
 import { shapedLiteral as shapedLiteralText } from "./folds";
 
+/** What the emitter's print of the slot binds beside its context: the
+ *  questions whose read prints as the path the case operation emitter binds
+ *  it to, whatever its spelling, where `xform/caseOps.ts` prints the slot
+ *  from a Save to Case block's node (`readExpression.ts::slotPrint`). */
+export interface SlotPrint {
+	readonly boundFields?: ReadonlySet<Uuid>;
+}
+
 /** One row: a tree shape and the canonical tree that prints the same bytes
- *  in this slot. `at.root` says the node is the slot's whole tree. */
+ *  in this slot. `at.root` says the node is the slot's whole tree, and
+ *  `at.print` what the slot's print binds. */
 export interface PrintCollision {
 	readonly id: string;
 	rewrite(
 		node: Expression,
 		context: ExpressionContext,
-		at: { readonly root: boolean },
+		at: { readonly root: boolean; readonly print: SlotPrint },
 	): Expression | undefined;
 }
 
@@ -68,6 +82,51 @@ function isComparison(node: Expression): node is Comparison {
 
 function termOf(node: Expression): Term | undefined {
 	return node.kind === "term" ? node.term : undefined;
+}
+
+/** `value`, a text, as the choices of the question `opposite` reads where it
+ *  names them and they print as the same text; undefined otherwise. */
+function choiceOf(
+	value: Expression,
+	opposite: Expression,
+	context: ExpressionContext,
+): Expression | undefined {
+	const literal = termOf(value);
+	const other = termOf(opposite);
+	if (
+		literal?.kind !== "literal" ||
+		typeof literal.value !== "string" ||
+		literal.data_type !== undefined ||
+		other?.kind !== "field" ||
+		other.role !== undefined
+	)
+		return undefined;
+	const field = context.form?.fields.get(other.uuid);
+	const choices = field?.choices;
+	if (field === undefined || choices?.kind !== "inline") return undefined;
+	const values =
+		field.kind === "multi_select"
+			? literal.value.split(/\s+/u).filter(Boolean)
+			: [literal.value];
+	const options = values.map(
+		(selected) =>
+			choices.options.find((option) => option.value === selected)?.uuid,
+	);
+	const [first, ...rest] = options;
+	if (
+		first === undefined ||
+		rest.some((uuid) => uuid === undefined) ||
+		values.join(" ") !== literal.value
+	)
+		return undefined;
+	return {
+		kind: "term",
+		term: {
+			kind: "choice",
+			field: other.uuid,
+			options: [first, ...(rest as Uuid[])],
+		},
+	};
 }
 
 /** Two subtrees equal as stored data. */
@@ -127,7 +186,9 @@ function formRead(node: Expression): FormRead | undefined {
 function relocationSite(
 	read: FormRead,
 	context: ExpressionContext,
+	print: SlotPrint,
 ): "default" | "row-predicate" | undefined {
+	if (boundRead(read, print)) return undefined;
 	const projection = graphProjection(context);
 	const target: FormNodeRef =
 		read.kind === "field"
@@ -148,6 +209,18 @@ function relocationSite(
 		context.slot.slot === "default_value"
 		? "default"
 		: undefined;
+}
+
+/** Whether a read prints as the path the slot's print binds its question to,
+ *  whatever its spelling: a question read with no role and no filter
+ *  (`fromExpression.ts` prints such a read as its binding). */
+function boundRead(read: FormRead, print: SlotPrint): boolean {
+	return (
+		read.kind === "field" &&
+		read.role === undefined &&
+		read.filters === undefined &&
+		print.boundFields?.has(read.uuid) === true
+	);
 }
 
 function withSpelling(
@@ -439,32 +512,34 @@ function instantOperand(text: Expression, record: boolean): Expression {
 export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 	{
 		id: "field-spelling",
-		rewrite(node, context) {
+		rewrite(node, context, at) {
 			const read = formRead(node);
-			if (read?.spelling !== "absolute") return undefined;
-			return relocationSite(read, context) === undefined
+			if (read?.spelling === undefined) return undefined;
+			if (boundRead(read, at.print)) return withSpelling(read, undefined);
+			if (read.spelling !== "absolute") return undefined;
+			return relocationSite(read, context, at.print) === undefined
 				? withSpelling(read, undefined)
 				: undefined;
 		},
 	},
 	{
 		id: "default-current",
-		rewrite(node, context) {
+		rewrite(node, context, at) {
 			const read = formRead(node);
 			if (read === undefined || read.spelling === "current") return undefined;
 			if (read.spelling === "relative") return undefined;
-			return relocationSite(read, context) === "default"
+			return relocationSite(read, context, at.print) === "default"
 				? withSpelling(read, "current")
 				: undefined;
 		},
 	},
 	{
 		id: "row-predicate-current",
-		rewrite(node, context) {
+		rewrite(node, context, at) {
 			const read = formRead(node);
 			if (read === undefined || read.spelling === "current") return undefined;
 			if (read.spelling === "relative") return undefined;
-			return relocationSite(read, context) === "row-predicate"
+			return relocationSite(read, context, at.print) === "row-predicate"
 				? withSpelling(read, "current")
 				: undefined;
 		},
@@ -538,9 +613,19 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// A device compares a date-and-time literal as the integer it folds
+		// to, so every spelling of one moment prints alike there. A search's
+		// condition, and a list filter its search restates, print the literal
+		// as written into CSQL, which tells the spellings apart.
 		id: "instant-literal",
 		rewrite(node, context) {
-			if (!isComparison(node)) return undefined;
+			if (
+				!isComparison(node) ||
+				context.slot.slot === "search_input_predicate" ||
+				(context.slot.slot === "case_list_filter" &&
+					context.profile.targets.has("CS"))
+			)
+				return undefined;
 			const operands = comparisonOperands(node, context);
 			if (
 				comparisonPlan(node.kind, operands.left, operands.right) !== "lowered"
@@ -675,6 +760,100 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 				upper: upper.right,
 				lowerInclusive: lower.kind === "gte",
 				upperInclusive: upper.kind === "lte",
+			};
+		},
+	},
+	{
+		// A `null` literal prints as the empty text in every target
+		// (`fromExpression.ts::wireLiteral`, `csql/emitter.ts::termValue`).
+		id: "null-literal",
+		rewrite(node) {
+			const term = termOf(node);
+			if (term?.kind !== "literal" || term.value !== null) return undefined;
+			const { data_type: _type, ...rest } = term;
+			return { kind: "term", term: { ...rest, value: "" } };
+		},
+	},
+	{
+		// A text compared with a question of fixed choices, tested by
+		// `selected`, or a question's own starting value, that names its
+		// choices, prints as their values: the form parser binds it as those
+		// choices (`expressionAst.ts::choiceFor`).
+		id: "choice-literal",
+		rewrite(node, context, at) {
+			if (isComparison(node)) {
+				const left = choiceOf(node.left, node.right, context);
+				const right = choiceOf(node.right, node.left, context);
+				return left === undefined && right === undefined
+					? undefined
+					: { ...node, left: left ?? node.left, right: right ?? node.right };
+			}
+			if (node.kind === "multi-select-contains" && node.values.length === 1) {
+				const [only] = node.values;
+				if (only?.kind !== "literal" || node.property.kind === "prop")
+					return undefined;
+				const choice = choiceOf(
+					{ kind: "term", term: only },
+					node.property as Expression,
+					context,
+				);
+				return choice?.kind === "term"
+					? { ...node, values: [choice.term] as typeof node.values }
+					: undefined;
+			}
+			const slot = context.slot;
+			if (at.root && slot.entity === "field" && slot.slot === "default_value")
+				return choiceOf(
+					node,
+					{ kind: "term", term: { kind: "field", uuid: slot.uuid } },
+					context,
+				);
+			return undefined;
+		},
+	},
+	{
+		// A text compared with the case's own type prints as that text, as a
+		// case type does; the form parser binds it as the case type
+		// (`expressionAst.ts::choiceFor`), and so does a search row's reading.
+		id: "case-type-literal",
+		rewrite(node) {
+			if (!isComparison(node)) return undefined;
+			const named = (value: Expression, opposite: Expression) => {
+				const literal = termOf(value);
+				return termOf(opposite)?.kind === "case-row-type" &&
+					literal?.kind === "literal" &&
+					literal.data_type === undefined &&
+					typeof literal.value === "string"
+					? ({
+							kind: "term",
+							term: { kind: "case-type", caseType: literal.value },
+						} as const)
+					: undefined;
+			};
+			const left = named(node.left, node.right);
+			const right = named(node.right, node.left);
+			return left === undefined && right === undefined
+				? undefined
+				: { ...node, left: left ?? node.left, right: right ?? node.right };
+		},
+	},
+	{
+		// A switch of one case prints as the `if` of its one test, which is
+		// the equality of its value and the case's.
+		id: "one-case-switch",
+		rewrite(node) {
+			if (node.kind !== "switch" || node.cases.length !== 1) return undefined;
+			const [only] = node.cases;
+			return {
+				kind: "if",
+				cond: {
+					kind: "eq",
+					left: node.on,
+					right: { kind: "term", term: only.when },
+				},
+				// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+				then: only.then,
+				else: node.fallback,
 			};
 		},
 	},
@@ -861,6 +1040,36 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 		},
 	},
 	{
+		// The session value the form's own case comes in prints as the read of
+		// that case's id, `#<own>/case_id`, where the case is read by that
+		// value: the case the form's menu chose, in a link's slots, and the one
+		// a registration creates.
+		id: "own-case-id",
+		rewrite(node, context) {
+			const form = context.form;
+			const term = termOf(node);
+			if (form === undefined || term?.kind !== "session-datum")
+				return undefined;
+			// After the form closes (a link's condition and values) the chosen
+			// case's id is its datum; in a registration, before it closes too.
+			const link =
+				context.slot.slot === "form_link_condition" ||
+				context.slot.slot === "form_link_datum_xpath";
+			const own =
+				(link &&
+					term.datum.kind === "selected-case" &&
+					term.datum.module === form.moduleUuid) ||
+				(term.datum.kind === "new-case" &&
+					(link || form.type === "registration"));
+			const caseType = context.facts.moduleCaseTypes.get(form.moduleUuid);
+			if (!own || caseType === undefined) return undefined;
+			return {
+				kind: "term",
+				term: { kind: "form-case", caseType, property: "case_id" },
+			};
+		},
+	},
+	{
 		// The worker's own case, queried by its type and the session's user,
 		// prints as the worker-record leaf.
 		id: "worker-record",
@@ -904,6 +1113,101 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 					: undefined;
 			if (input?.kind !== "input") return undefined;
 			return { kind: "when-input-present", input, clause: node.then };
+		},
+	},
+	{
+		// A Search field's condition prints a date or a date and time literal
+		// inside `date()` or `datetime()` as its text whether it is typed or
+		// not, so the literal is typed by its own shape.
+		id: "coerced-literal-type",
+		rewrite(node, context) {
+			if (
+				context.slot.slot !== "search_input_predicate" ||
+				(node.kind !== "date-coerce" && node.kind !== "datetime-coerce")
+			)
+				return undefined;
+			const term = termOf(node.value);
+			if (
+				term?.kind !== "literal" ||
+				term.data_type !== undefined ||
+				typeof term.value !== "string"
+			)
+				return undefined;
+			const shape = literalShape(term.value);
+			if (shape?.type !== "date" && shape?.type !== "datetime")
+				return undefined;
+			return {
+				...node,
+				value: { kind: "term", term: { ...term, data_type: shape.type } },
+			};
+		},
+	},
+	{
+		// A device tests an ancestor walk one hop at a time
+		// (`rowScope.ts::immediateRelationPresence`): the presence of the
+		// first hop's case whose own candidates hold the rest, so a walk of
+		// several hops prints as the presence nested hop by hop. A Search
+		// field's condition prints as CSQL, which keeps the walk whole.
+		id: "relation-hops",
+		rewrite(node, context) {
+			if (
+				context.ruleSet !== "record" ||
+				context.slot.slot === "search_input_predicate" ||
+				(node.kind !== "exists" && node.kind !== "missing") ||
+				node.via.kind !== "ancestor"
+			)
+				return undefined;
+			const [first, second, ...rest] = node.via.via;
+			if (first === undefined || second === undefined) return undefined;
+			return {
+				kind: node.kind,
+				via: { kind: "ancestor", via: [first] },
+				where: {
+					kind: "exists",
+					via: { kind: "ancestor", via: [second, ...rest] },
+					...(node.where === undefined ? {} : { where: node.where }),
+				},
+			};
+		},
+	},
+	{
+		// A device writes a presence test's candidates `[<type test> and
+		// true()]` with no condition and with `match-all`, which prints
+		// `true()`; a Search field's condition prints as CSQL, which tells
+		// the two apart.
+		id: "relation-where-match-all",
+		rewrite(node, context) {
+			if (
+				context.ruleSet !== "record" ||
+				context.slot.slot === "search_input_predicate" ||
+				(node.kind !== "exists" && node.kind !== "missing") ||
+				node.where?.kind !== "match-all"
+			)
+				return undefined;
+			const { where: _where, ...rest } = node;
+			return rest;
+		},
+	},
+	{
+		// Every record target first gives one boolean test one related row
+		// (`normalizeRelationEvaluationScopes`): a comparison of a related
+		// case's property prints as the presence of a related case whose own
+		// property compares, so a record slot's whole tree is that normal form.
+		id: "relation-scope",
+		rewrite(node, context, at) {
+			if (!at.root || context.ruleSet !== "record") return undefined;
+			const row = activeRowScope(context);
+			const rowType = row?.kind === "case" ? row.caseType : undefined;
+			try {
+				const normalized = normalizeRelationEvaluationScopes(node, {
+					caseTypes: context.facts.caseTypes,
+					...(rowType === undefined ? {} : { currentCaseType: rowType }),
+				});
+				return sameTree(normalized, node) ? undefined : normalized;
+			} catch {
+				// A tree the normalizer refuses is the checker's to refuse.
+				return undefined;
+			}
 		},
 	},
 	{
@@ -959,6 +1263,32 @@ export const PRINT_COLLISIONS: readonly PrintCollision[] = [
 export function canonicalExpression(
 	expression: Expression,
 	context: ExpressionContext,
+	print: SlotPrint = {},
+): Expression {
+	return settledBy(PRINT_COLLISIONS, expression, context, print);
+}
+
+/** The `relation-type` row alone, bottom-up: each relation path typed as the
+ *  catalog resolves it, which every target prints alike, CSQL's search rows
+ *  among them (`csql/emitter.ts` writes a hop's type test from the
+ *  normalized path). */
+export function typedRelations(
+	expression: Expression,
+	context: ExpressionContext,
+): Expression {
+	return settledBy(
+		PRINT_COLLISIONS.filter((row) => row.id === "relation-type"),
+		expression,
+		context,
+		{},
+	);
+}
+
+function settledBy(
+	rows: readonly PrintCollision[],
+	expression: Expression,
+	context: ExpressionContext,
+	print: SlotPrint,
 ): Expression {
 	const contextAt = (path: CheckPath): ExpressionContext =>
 		path.length === 0
@@ -970,10 +1300,10 @@ export function canonicalExpression(
 		root: boolean,
 	): Expression => {
 		let current = node;
-		for (let turn = 0; turn < PRINT_COLLISIONS.length * 4; turn++) {
+		for (let turn = 0; turn < rows.length * 4; turn++) {
 			let next: Expression | undefined;
-			for (const row of PRINT_COLLISIONS) {
-				next = row.rewrite(current, at, { root });
+			for (const row of rows) {
+				next = row.rewrite(current, at, { root, print });
 				if (next !== undefined && next !== current) break;
 				next = undefined;
 			}
@@ -982,16 +1312,23 @@ export function canonicalExpression(
 		}
 		return current;
 	};
-	const visit = (node: Expression, path: CheckPath): Expression => {
-		const children = mapExpressionChildren(
+	// A term's own expressions (a question read's row filters) are visited
+	// through it, so every expression of the tree settles.
+	const visitChildren = <T extends Expression | Term>(
+		node: T,
+		path: CheckPath,
+	): T =>
+		mapExpressionChildren(
 			node,
 			(child) =>
 				child.kind === "expression"
 					? visit(child.value, child.path)
-					: child.value,
+					: child.kind === "term"
+						? visitChildren(child.value, child.path)
+						: child.value,
 			path,
 		);
-		return settle(children, contextAt(path), path.length === 0);
-	};
+	const visit = (node: Expression, path: CheckPath): Expression =>
+		settle(visitChildren(node, path), contextAt(path), path.length === 0);
 	return visit(expression, []);
 }

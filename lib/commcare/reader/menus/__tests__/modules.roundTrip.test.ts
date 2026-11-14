@@ -149,6 +149,47 @@ describe("a menu read back from Nova's emission", () => {
 		});
 	});
 
+	it("reads a menu and a form off the menu, with and without a condition for when they are back", async () => {
+		const back = {
+			kind: "eq",
+			left: { kind: "term", term: { kind: "session-user", field: "role" } },
+			right: { kind: "term", term: { kind: "literal", value: "lead" } },
+		} as const;
+		const doc = produce(app(), (draft) => {
+			const survey = Object.values(draft.modules).find(
+				(one) => one.name === "Survey",
+			);
+			if (survey !== undefined) survey.hiddenFromMenu = true;
+			const visitForm = Object.values(draft.forms).find(
+				(one) => one.name === "Visit",
+			);
+			if (visitForm !== undefined) visitForm.hiddenFromMenu = true;
+			const checkIn = Object.values(draft.forms).find(
+				(one) => one.name === "Check in",
+			);
+			if (checkIn !== undefined) {
+				checkIn.hiddenFromMenu = true;
+				checkIn.displayCondition = back;
+			}
+		});
+		const reading = await readMenusOf(doc);
+		expect(codesOf(reading)).toEqual([]);
+		const read = reading.doc as BlueprintDoc;
+		const survey = moduleNamed(read, "Survey");
+		expect(survey.hiddenFromMenu).toBe(true);
+		expect(survey.displayCondition).toBeUndefined();
+		const visitForm = formNamed(read, "Visit");
+		expect(visitForm.hiddenFromMenu).toBe(true);
+		expect(visitForm.displayCondition).toBeUndefined();
+		const checkIn = formNamed(read, "Check in");
+		expect(checkIn.hiddenFromMenu).toBe(true);
+		// The worker's field reads as the worker property the reading declares for it.
+		expect(checkIn.displayCondition).toMatchObject({
+			kind: "eq",
+			right: back.right,
+		});
+	});
+
 	it("keeps forms shown in the menu above", async () => {
 		const doc = produce(app(), (draft) => {
 			const module = Object.values(draft.modules).find(

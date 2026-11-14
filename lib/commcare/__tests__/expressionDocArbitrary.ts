@@ -86,6 +86,15 @@ function hasRepeat(doc: BlueprintDoc, field: Uuid): boolean {
 	}
 	return false;
 }
+/** A Hidden Value whose value is the clock: Core holds it under `xsd:string`,
+ * which keeps only its day, so the checker refuses comparing it as a moment
+ * (`clock-lost`), even with itself. */
+function holdsClockLostMoment(field: Field): boolean {
+	return (
+		field.kind === "hidden" &&
+		(field.calculate ?? field.default_value)?.kind === "now"
+	);
+}
 function read(field: Field, plan: Plan): Expression {
 	return term({
 		...formField(field.uuid),
@@ -329,6 +338,7 @@ function applyPlan(doc: BlueprintDoc, plan: Plan): Landing | undefined {
 			if (!field) return undefined;
 			if (
 				plan.operator % 2 === 0 &&
+				!holdsClockLostMoment(field) &&
 				fields.some(
 					(candidate) =>
 						candidate.uuid !== field.uuid &&

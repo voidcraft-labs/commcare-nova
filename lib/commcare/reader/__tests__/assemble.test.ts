@@ -35,6 +35,8 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { PLATFORM_FEATURE_FIXTURES } from "@/lib/domain/__tests__/platformFeatureFixtures";
+import type { Expression } from "@/lib/domain/expression";
+import { and, matchAll, matchNone } from "@/lib/domain/expression/builders";
 import { caseOperationFixture } from "../../__tests__/caseOperationFixture";
 import { expandDoc } from "../../expander";
 import { placementsToHold } from "../../placementHolds";
@@ -617,6 +619,30 @@ describe("the reader's canonical choices", () => {
 		const note = Object.values(read.fields).find((one) => one.id === "note");
 		expect(note).toEqual(
 			Object.values(doc.fields).find((one) => one.id === "note"),
+		);
+	});
+
+	it("reads a list filter that simplifies to match-all as none, the two printing one source, and keeps one that narrows", () => {
+		const listed = (filter: Expression) =>
+			produce(caseApp(), (draft) => {
+				const module = Object.values(draft.modules)[0];
+				if (module === undefined) throw new Error("The app has no menu.");
+				module.caseListConfig = {
+					...caseListConfig([{ field: "note", header: "Note" }]),
+					filter,
+				};
+			});
+		for (const filter of [matchAll(), and(matchAll(), matchAll())]) {
+			const doc = listed(filter);
+			const read = choice("match-all-list-filter-is-absent").apply(doc);
+			expect(Object.values(read.modules)[0]?.caseListConfig).not.toHaveProperty(
+				"filter",
+			);
+			expect(expandDoc(read)).toEqual(expandDoc(doc));
+		}
+		const narrowing = listed(matchNone());
+		expect(choice("match-all-list-filter-is-absent").apply(narrowing)).toEqual(
+			narrowing,
 		);
 	});
 

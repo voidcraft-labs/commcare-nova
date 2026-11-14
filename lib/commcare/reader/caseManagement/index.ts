@@ -30,7 +30,11 @@ import {
 	type PublishedCaseBlocks,
 	publishedCaseBlocks,
 } from "../../hq/publishedCaseBlocks";
-import { type PlacementSubject, planPlacements } from "../../placement";
+import {
+	type PlacementSubject,
+	placedBasic,
+	planPlacements,
+} from "../../placement";
 import type { DraftApp, DraftForm, ReadContext } from "../context";
 import { readerDefect } from "../defects";
 import { isJsonObject, sameJson } from "../jsonCursor";
@@ -388,7 +392,11 @@ function settleScalarChecks(
 ): void {
 	const xform = form.xform;
 	if (xform === null || doc.forms[form.uuid] === undefined) return;
-	const guards = caseScalarTextGuards(doc, form.uuid);
+	// The emitter's own question: a name or an external id a Save to Case
+	// block writes is checked by that block, never on its question.
+	const guards = caseScalarTextGuards(doc, form.uuid, {
+		placedBasic: placedBasic(doc, form.uuid),
+	});
 	for (const field of readFields(xform)) {
 		if (field.scalarCheck === undefined || field.uuid === undefined) continue;
 		if (
