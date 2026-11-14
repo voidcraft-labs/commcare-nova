@@ -12,13 +12,15 @@ HQ's URLconf and answered by the view it names, decorators and all.
   ``translations``, each JSON) to ``views/apps.py::edit_app_ui_translations``;
 - ``appAttributes``: each attribute the person changes on the app settings page, where HQ lists it as an ``hq``
   setting (``static/app_manager/json/commcare-app-settings.yml``), posted as that page posts it
-  (``{"hq": {...}}``) to ``views/settings.py::edit_commcare_settings`` (the page's save,
-  ``views/apps.py::get_app_view_context``' ``urls.save``). That view runs ``edit_commcare_profile`` (which, under
-  ``CUSTOM_PROPERTIES``, resets ``custom_properties`` to ``{}``) and then ``views/apps.py::edit_app_attr`` with
+  (``{"hq": {...}}``, beside the custom properties the page holds, ``_page_custom_properties``) to
+  ``views/settings.py::edit_commcare_settings`` (the page's save, ``views/apps.py::get_app_view_context``'
+  ``urls.save``). That view runs ``edit_commcare_profile`` (which, under ``CUSTOM_PROPERTIES``, resets
+  ``custom_properties`` to ``{}`` and stores the ones posted) and then ``views/apps.py::edit_app_attr`` with
   ``attr`` ``all``, which stores each attribute the body names under ``hq``. An attribute's own URL is no save the
   page makes, and ``edit_app_attr`` answers it with 400 for every attribute outside its short list,
   ``secure_submissions`` among them. The page's body names every setting it holds, and both views store only the
-  settings a body names, so a body naming the person's change stores what the page's save stores of it. The page
+  settings a body names but the custom properties, which the page posts whole, so a body naming the person's
+  change and the custom properties stores what the page's save stores of it. The page
   shows some of these settings to a previewer only (``preview: true``, ``commcare_settings.js``' ``visible``:
   ``secure_submissions`` is one), so the person who saves one is a previewer;
 - ``buildProfiles``: the profiles posted as the language profiles page posts them (``{"profiles": [...]}``) to
@@ -36,11 +38,13 @@ HQ's URLconf and answered by the view it names, decorators and all.
   map with every slug before it stores the posted ones (``add_ons.get_dict``, ``add_ons.init_app``), so a save
   naming fewer is not what a person's page sends and is refused (``HqSideSaveRefused``);
 - ``profileProperties``: each setting the person changes on the app settings page, posted as that page posts it
-  (``{"properties": {...}}``) to ``views/settings.py::edit_commcare_profile``, which stores each beside the
-  settings A holds (and, under ``CUSTOM_PROPERTIES``, resets ``custom_properties`` to ``{}``);
+  (``{"properties": {...}}``, beside the custom properties the page holds) to
+  ``views/settings.py::edit_commcare_profile``, which stores each beside the settings A holds (and, under
+  ``CUSTOM_PROPERTIES``, resets ``custom_properties`` to ``{}`` and stores the posted ones, so A keeps each but one
+  with an empty key or value);
 - ``profileFeatures``: each profile feature the person changes on the same page (the worker activity level
-  ``credentials`` among them), posted as that page posts it (``{"features": {...}}``) to the same view, which stores
-  each beside the features A holds, with the same reset.
+  ``credentials`` among them), posted as that page posts it (``{"features": {...}}``, with the same custom
+  properties) to the same view, which stores each beside the features A holds, with the same reset and refill.
 
 ``hq-side.json`` also states what Nova's next publish over the saves does (``republish``, with ``stopCode`` where
 it stops), which the capture holds at emission (``proof/corpus/publish.ts``); neither is a save.
@@ -129,9 +133,34 @@ def ui_translations(unit, app_id, translations):
     return found
 
 
+def _page_custom_properties(unit, app_id):
+    """The custom properties the app settings page posts with every save, as it posts them.
+
+    The page lists the custom properties A holds where the project space holds ``CUSTOM_PROPERTIES`` and A's
+    profile has the key (``views/apps.py::get_app_view_context``' ``customProperties``), and its save posts each one
+    whose key and value are both set (``commcare_settings.js``' ``serialize``), and ``{}`` where it lists none.
+    ``edit_commcare_profile`` resets ``custom_properties`` to ``{}`` under the flag before it stores the posted ones,
+    so a page's save keeps every custom property A holds but one with an empty key or value. A body without them
+    would clear every one, Nova's ``cc-index-case-search-results`` among them, which no save of the page does."""
+    from corehq import toggles
+
+    from proof.hq import operations
+
+    app = operations.held_app(unit, app_id)
+    held = app.profile.get("custom_properties") if app.get_doc_type() == "Application" else None
+    if not toggles.CUSTOM_PROPERTIES.enabled(unit.domain) or held is None:
+        return {}
+    return {key: value for key, value in held.items() if key and value}
+
+
+def _settings_page_body(unit, app_id, settings):
+    """The JSON body the app settings page's save posts: ``settings`` beside the custom properties it holds."""
+    return _json_body({**settings, "custom_properties": _page_custom_properties(unit, app_id)})
+
+
 def app_attributes(unit, app_id, attributes):
     """The app attributes saved as the app settings page saves them: one save, every attribute under ``hq``."""
-    body, content_type = _json_body({"hq": dict(sorted(attributes.items()))})
+    body, content_type = _settings_page_body(unit, app_id, {"hq": dict(sorted(attributes.items()))})
     return [
         _answer(
             unit,
@@ -302,13 +331,13 @@ def add_ons(unit, app_id, switches):
 
 def profile_properties(unit, app_id, properties):
     """Each setting saved as the app settings page saves it."""
-    body, content_type = _json_body({"properties": dict(sorted(properties.items()))})
+    body, content_type = _settings_page_body(unit, app_id, {"properties": dict(sorted(properties.items()))})
     return [_answer(unit, "POST", "edit_commcare_profile", [unit.domain, app_id], body, content_type, "app settings")]
 
 
 def profile_features(unit, app_id, features):
     """Each profile feature saved as the app settings page saves it."""
-    body, content_type = _json_body({"features": dict(sorted(features.items()))})
+    body, content_type = _settings_page_body(unit, app_id, {"features": dict(sorted(features.items()))})
     return [_answer(unit, "POST", "edit_commcare_profile", [unit.domain, app_id], body, content_type, "app features")]
 
 

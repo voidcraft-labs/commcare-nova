@@ -85,7 +85,11 @@ test.describe("on Android, in a zone the stored offset matches", () => {
 		try {
 			await openLanguageJourney(page, peer.origin);
 			const date = page.getByRole("button", { name: /Visit date/ });
-			await expect(date).toHaveAccessibleName(/Question 1.*Required/);
+			// The date is required, and Android marks a required question only
+			// where the project space turns the asterisk on. This peer reaches
+			// no project space, so the screen reader hears its position and
+			// label alone, in each language.
+			await expect(date).toHaveAccessibleName("Question 1. Visit date");
 			// Android draws no group card: a screen's groups are its header.
 			await expect(
 				page.getByRole("button", { name: /^Collapse.*Visit details/ }),
@@ -116,7 +120,7 @@ test.describe("on Android, in a zone the stored offset matches", () => {
 			await page.getByRole("button", { name: "Español", exact: true }).click();
 			await expect(date).toHaveText("9 de enero de 2024");
 			await expect(formBody).toHaveAttribute("aria-busy", "false");
-			await expect(date).toHaveAccessibleName(/Pregunta 1.*Obligatoria/);
+			await expect(date).toHaveAccessibleName("Pregunta 1. Visit date");
 			await expect(
 				page.getByRole("button", { name: "Fecha", exact: true }),
 			).toHaveText("15 de enero de 2024");
@@ -198,7 +202,7 @@ test.describe("on Android, in a zone the stored offset matches", () => {
 				page.getByRole("textbox", { name: /Visit note/ }),
 			).toHaveCount(0);
 			await page.getByRole("button", { name: "English", exact: true }).click();
-			await expect(date).toHaveAccessibleName(/Question 1.*Required/);
+			await expect(date).toHaveAccessibleName("Question 1. Visit date");
 			await expect(
 				page.getByRole("button", { name: "Replace location", exact: true }),
 			).toBeVisible();

@@ -169,6 +169,27 @@ function json(status: number, body: unknown): Answer {
 }
 
 /**
+ * The custom properties an app holds after a save of HQ's app settings page,
+ * where the project space holds `CUSTOM_PROPERTIES`
+ * (`proof/observe/hqside.py::_page_custom_properties`). The page lists the
+ * ones the profile holds (`views/apps.py::get_app_view_context`'
+ * `customProperties`, none where the profile has no such key), and its save
+ * posts each whose key and value are both set (`commcare_settings.js`'
+ * `serialize`); `views/settings.py::edit_commcare_profile` resets the key to
+ * `{}` and stores the posted ones. So the save keeps every custom property,
+ * Nova's own among them, but one with an empty key or value.
+ */
+function pageSavedCustomProperties(
+	profile: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+	const held = profile.custom_properties;
+	if (held === null || typeof held !== "object") return {};
+	return Object.fromEntries(
+		Object.entries(held).filter(([key, value]) => key !== "" && Boolean(value)),
+	);
+}
+
+/**
  * The keys HQ serves for an app created without them, each with the value
  * its source read gives such an app (`models/applications.py::Application`:
  * an empty `DictProperty` or `SchemaDictProperty`, `auto_gps_capture`'s
@@ -452,14 +473,33 @@ export class TargetPeer {
 	}
 
 	/**
+	 * `source` as a save of the app settings page leaves its custom
+	 * properties: under `CUSTOM_PROPERTIES` the page posts the ones it lists
+	 * (`pageSavedCustomProperties`) and `edit_commcare_profile` resets the
+	 * key to `{}` before it stores them; without the flag the view leaves
+	 * the key alone.
+	 */
+	private pageSaved(source: Record<string, unknown>): Record<string, unknown> {
+		if (!this.state.flags.has("CUSTOM_PROPERTIES")) return source;
+		const profile = (source.profile ?? {}) as Record<string, unknown>;
+		return {
+			...source,
+			profile: {
+				...profile,
+				custom_properties: pageSavedCustomProperties(profile),
+			},
+		};
+	}
+
+	/**
 	 * Apply what a person saves in HQ over the app (`HqSideSaves`), as the HQ
 	 * view each save reaches applies it (`proof/observe/hqside.py`):
 	 *
 	 * - `uiTranslations`: each language's texts beside the ones the app holds
 	 *   for it (`views/apps.py::edit_app_ui_translations`);
 	 * - `appAttributes`: each attribute set on the app, and `custom_properties`
-	 *   reset to `{}` where the project space holds `CUSTOM_PROPERTIES`
-	 *   (the settings page's save, `views/settings.py::edit_commcare_settings`:
+	 *   as the settings page's save leaves them (`pageSavedCustomProperties`;
+	 *   the page's save, `views/settings.py::edit_commcare_settings`:
 	 *   `edit_commcare_profile`, then `views/apps.py::edit_app_attr` over
 	 *   every attribute it names);
 	 * - `buildProfiles`: none of the peer's state, since an update never
@@ -471,11 +511,10 @@ export class TargetPeer {
 	 *   another), so HQ's fill of an empty map before it stores them
 	 *   (`add_ons.py::init_app`) leaves no slug the save does not name;
 	 * - `profileProperties`: each setting set over the app's
-	 *   `profile.properties`, and `custom_properties` reset to `{}` where the
-	 *   project space holds `CUSTOM_PROPERTIES`
-	 *   (`views/settings.py::edit_commcare_profile`);
+	 *   `profile.properties`, and `custom_properties` as the same page's save
+	 *   leaves them (`views/settings.py::edit_commcare_profile`);
 	 * - `profileFeatures`: each feature set over the app's
-	 *   `profile.features`, by the same view, with the same reset;
+	 *   `profile.features`, by the same view, with the same custom properties;
 	 * - `lookupTable`: the table under its tag uploaded again with a property
 	 *   on one field and an attribute on every row, which
 	 *   `run_upload.py::_run_upload` reads as another table and makes under a
@@ -511,15 +550,7 @@ export class TargetPeer {
 		}
 		if (saves.appAttributes !== undefined) {
 			next = { ...next, ...structuredClone(saves.appAttributes) };
-			if (this.state.flags.has("CUSTOM_PROPERTIES")) {
-				next = {
-					...next,
-					profile: {
-						...((next.profile ?? {}) as Record<string, unknown>),
-						custom_properties: {},
-					},
-				};
-			}
+			next = this.pageSaved(next);
 		}
 		if (saves.addOns !== undefined) {
 			next = {
@@ -540,11 +571,9 @@ export class TargetPeer {
 						...((profile.properties ?? {}) as Record<string, unknown>),
 						...saves.profileProperties,
 					},
-					...(this.state.flags.has("CUSTOM_PROPERTIES") && {
-						custom_properties: {},
-					}),
 				},
 			};
+			next = this.pageSaved(next);
 		}
 		if (saves.profileFeatures !== undefined) {
 			const profile = (next.profile ?? {}) as Record<string, unknown>;
@@ -556,11 +585,9 @@ export class TargetPeer {
 						...((profile.features ?? {}) as Record<string, unknown>),
 						...saves.profileFeatures,
 					},
-					...(this.state.flags.has("CUSTOM_PROPERTIES") && {
-						custom_properties: {},
-					}),
 				},
 			};
+			next = this.pageSaved(next);
 		}
 		this.holding = { ...this.holding, source: next };
 		const kept = saves.lookupTable;
