@@ -21,6 +21,7 @@ export function columnContentSnapshot(column: Column): ColumnContent {
 		tile: _tile,
 		visibleInList: _visibleInList,
 		visibleInDetail: _visibleInDetail,
+		notOnList: _notOnList,
 		...content
 	} = column;
 	return content;
@@ -76,22 +77,41 @@ export function columnContentEqualIgnoringGranularSlots(
 	return deepEqual(stripGranularSlots(a), stripGranularSlots(b));
 }
 
-/** Plan the independent Results/Details visibility changes between snapshots. */
+/** A column's list state: shown, hidden and still on the list, or held by
+ *  the case's detail alone. */
+function listState(column: Column): "shown" | "hidden" | "off" {
+	if (column.visibleInList !== false) return "shown";
+	return column.notOnList === true ? "off" : "hidden";
+}
+
+/**
+ * Plan the independent Results/Details visibility changes between snapshots.
+ * Results' change carries the column's whole list state, so taking a column
+ * off the list or keeping it on is the same granular write as hiding it.
+ */
 export function columnVisibilityMutations(
 	current: Column,
 	next: Column,
 	moduleUuid: Uuid,
 ): Mutation[] {
 	const mutations: Mutation[] = [];
-	if ((current.visibleInList !== false) !== (next.visibleInList !== false)) {
+	const before = listState(current);
+	const after = listState(next);
+	if (before !== after) {
 		mutations.push({
 			kind: "updateColumn",
 			moduleUuid,
 			uuid: next.uuid,
-			visibilityPatch: {
-				surface: "list",
-				visible: next.visibleInList !== false,
-			},
+			visibilityPatch:
+				after === "shown"
+					? { surface: "list", visible: true }
+					: {
+							surface: "list",
+							visible: false,
+							...((before === "off") !== (after === "off") && {
+								notOnList: after === "off",
+							}),
+						},
 		});
 	}
 	if (
@@ -196,6 +216,7 @@ function stripGranularSlots(column: Column): unknown {
 		sort: _sort,
 		visibleInList: _visibleInList,
 		visibleInDetail: _visibleInDetail,
+		notOnList: _notOnList,
 		tile: _tile,
 		...content
 	} = column;

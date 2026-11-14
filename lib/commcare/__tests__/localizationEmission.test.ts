@@ -439,10 +439,12 @@ describe("a translation blank beside text in another language", () => {
 	it("fills the source language's blank with the default language's text, in both forms", () => {
 		const xml = formSource(expandDoc(localizationWireFixture("optional")));
 		const values = valuesByItem(xml);
+		// A hint writes no markdown form, so its fill is in its text alone.
+		expect(
+			Object.fromEntries(values.get("section-name-hint text") ?? []),
+		).toEqual({ es: "Pista", en: "Pista" });
+		expect(values.get("section-name-hint markdown")).toBeUndefined();
 		for (const form of ["text", "markdown"]) {
-			expect(
-				Object.fromEntries(values.get(`section-name-hint ${form}`) ?? []),
-			).toEqual({ es: "Pista", en: "Pista" });
 			expect(
 				Object.fromEntries(values.get(`section-label ${form}`) ?? []),
 			).toEqual({ es: "Sección", en: "Sección" });

@@ -45,6 +45,7 @@ import {
 	entityTargetKey,
 	hiddenSearchInputDef,
 	locationTargetKey,
+	type ProseTemplate,
 	plainColumn,
 	printProseTemplate,
 	simpleSearchInputDef,
@@ -1148,5 +1149,94 @@ describe("incremental maintenance", () => {
 				Object.keys(slotsFor(next, casePropertyTargetKey("patient", property))),
 			).toContain(automationUuid);
 		}
+	});
+});
+
+describe("a calculated value in a text", () => {
+	const valueForm = () =>
+		buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Round",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "name", label: proseText("Name") }),
+								f({
+									kind: "text",
+									id: "summary",
+									label: {
+										parts: [
+											{ kind: "text", text: "Hello " },
+											{
+												kind: "value",
+												expression: "concat(#form/name, '!')",
+											},
+										],
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("indexes the answer a value reads under the text's slot", () => {
+		const doc = valueForm();
+		expect(
+			slotsFor(doc, entityTargetKey(uuidByFieldId(doc, "name")))[
+				uuidByFieldId(doc, "summary")
+			],
+		).toEqual({ label: true });
+	});
+
+	it("keeps the question a value reads from being removed", () => {
+		const doc = valueForm();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "removeField", uuid: uuidByFieldId(doc, "name") }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+	});
+
+	it("maintains the value's edges incrementally as a rebuild finds them", () => {
+		const doc = valueForm();
+		const summary = uuidByFieldId(doc, "summary");
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateField",
+					uuid: summary,
+					targetKind: "text",
+					patch: { label: proseText("Hello") },
+				},
+			]);
+		});
+		expect(next.refIndex).toEqual(buildReferenceIndex(next));
+		expect(
+			slotsFor(next, entityTargetKey(uuidByFieldId(next, "name")))[summary],
+		).toBeUndefined();
+		const restored = produce(next, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateField",
+					uuid: summary,
+					targetKind: "text",
+					patch: {
+						label: (doc.fields[summary] as { label?: ProseTemplate }).label,
+					},
+				},
+			]);
+		});
+		expect(restored.refIndex).toEqual(buildReferenceIndex(restored));
+		expect(
+			slotsFor(restored, entityTargetKey(uuidByFieldId(restored, "name")))[
+				summary
+			],
+		).toEqual({ label: true });
 	});
 });

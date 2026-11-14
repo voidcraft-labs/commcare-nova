@@ -649,10 +649,11 @@ interface HqModuleBase<XPath> {
 	};
 	/**
 	 * HQ `CaseListForm` (`models/modules.py`): the registration form the
-	 * Register action on the case list opens. Nova emits it only for a
-	 * host whose forms read the search and that names a case list
-	 * registration form (`Module.caseListRegistrationForm`); every other module keeps
-	 * the null shell.
+	 * Register action on the case list opens. Nova emits it for a module
+	 * whose `caseListRegistrationForm` names one: a hidden module's form
+	 * offered after an empty search, with its relevancy, or another menu's
+	 * form the list always offers, with the button's media
+	 * (`NavMenuItemMediaMixin`). Every other module keeps the null shell.
 	 */
 	case_list_form: {
 		doc_type: "CaseListForm";
@@ -660,6 +661,8 @@ interface HqModuleBase<XPath> {
 		label: Record<string, string> | Record<string, never>;
 		post_form_workflow?: "default" | "case_list";
 		relevancy_expression?: XPath;
+		media_image?: Record<string, string>;
+		media_audio?: Record<string, string>;
 	};
 	search_config: CaseSearchConfig<XPath>;
 	media_image: Record<string, string>;

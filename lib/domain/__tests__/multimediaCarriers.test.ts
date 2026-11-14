@@ -237,6 +237,40 @@ describe("module schema — icon + audioLabel", () => {
 	});
 });
 
+describe("module schema — the Register button's icon + audioLabel", () => {
+	it("an always-offered registration parses with icon + audioLabel, and one offered after an empty search holds neither", () => {
+		const base = {
+			uuid: "20000000-0000-4000-8000-000000000001",
+			id: "patients",
+			name: "Patients",
+		};
+		const parsed = moduleSchema.parse({
+			...base,
+			caseListRegistrationForm: {
+				kind: "always",
+				formUuid: "30000000-0000-4000-8000-000000000001",
+				icon: "00000000-0000-4000-8000-000000000005",
+				audioLabel: "00000000-0000-4000-8000-000000000006",
+				afterSubmit: "case-list",
+			},
+		});
+		expect(parsed.caseListRegistrationForm).toMatchObject({
+			icon: "00000000-0000-4000-8000-000000000005",
+			audioLabel: "00000000-0000-4000-8000-000000000006",
+		});
+		expect(
+			moduleSchema.safeParse({
+				...base,
+				caseListRegistrationForm: {
+					kind: "after-empty-search",
+					formUuid: "30000000-0000-4000-8000-000000000001",
+					icon: "00000000-0000-4000-8000-000000000005",
+				},
+			}).success,
+		).toBe(false);
+	});
+});
+
 describe("form schema — icon + audioLabel", () => {
 	it("form parses with icon + audioLabel", () => {
 		const parsed = formSchema.parse({

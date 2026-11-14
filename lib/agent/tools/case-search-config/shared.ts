@@ -307,10 +307,10 @@ export const setCaseSearchAdvancedBodySchema = z.strictObject({
  */
 export const setCaseSearchDisplayBodySchema = z.strictObject({
 	searchScreenTitle: z
-		.string()
+		.union([z.string(), z.strictObject({ kind: z.literal("none") })])
 		.nullable()
 		.describe(
-			"Plain-text title shown above the search inputs, or `null` to clear. The runtime falls back to a generic title when absent.",
+			'Plain-text title shown above the search inputs. null returns the default title, Search. { "kind": "none" } shows no title.',
 		),
 	searchScreenSubtitle: z
 		.string()

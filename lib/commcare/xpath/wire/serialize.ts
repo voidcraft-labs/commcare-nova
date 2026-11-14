@@ -1,5 +1,6 @@
 import { decodeHTML } from "entities";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { instanceScanCuts } from "../../hqInstanceScan";
 import { keyAsVariable } from "../../suite/case-list/keyVariable";
 import { w } from "./builders";
 import { InstanceSink } from "./instances";
@@ -13,10 +14,7 @@ import type {
 	WireStep,
 } from "./tree";
 
-// These examine literal VALUES, never XPath structure. Python's regex also
-// treats U+0085 and the four information separators as whitespace.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: HQ's Python whitespace class includes these decoded characters.
-const INSTANCE_LITERAL = /instance\([\s\u001c-\u001f\u0085]*['"]/gu;
+// These examine literal VALUES, never XPath structure.
 const INTERPOLATION_LITERAL = /#(?:user|session\/|case|parent|host)/gu;
 // localName from grammar.lezer.grammar. Endpoint arguments are generated datum
 // identities, never an authored arbitrary variable or a qualified name.
@@ -70,15 +68,14 @@ function literalPieces(value: string, mode: WireMode): string[] {
 		mode.target === "vellum" ||
 		mode.target === "hq-json";
 	if (hqBound) {
-		for (const match of value.matchAll(INSTANCE_LITERAL))
-			cuts.add(match.index + "instance".length);
+		for (const cut of instanceScanCuts(value)) cuts.add(cut);
 	}
 	// HQ reads raw JSON XPath through html.unescape before its instance regex.
 	// Splitting the original ampersands preserves the value while preventing a
 	// single unescape from constructing an instance call across literal tokens.
 	if (
 		mode.target === "hq-json" &&
-		[...hqHtmlUnescape(value).matchAll(INSTANCE_LITERAL)].length > 0
+		instanceScanCuts(hqHtmlUnescape(value)).length > 0
 	) {
 		for (let index = 0; index < value.length; index++)
 			if (value[index] === "&") cuts.add(index + 1);
@@ -154,6 +151,8 @@ function children(expr: WireExpr): readonly WireExpr[] {
 			return expr.items;
 		case "neg":
 			return [expr.value];
+		case "paren":
+			return [expr.expr];
 		case "call":
 			return expr.args;
 		case "path":
@@ -340,6 +339,9 @@ export function serializeWire(
 				break;
 			case "neg":
 				result = `-${operand(node.value, node, true, inPredicate)}`;
+				break;
+			case "paren":
+				result = `(${print(node.expr, inPredicate)})`;
 				break;
 			case "call":
 				result = `${node.fn}(${node.args

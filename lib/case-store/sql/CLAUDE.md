@@ -189,7 +189,11 @@ A Results read orders by the case list's order plan
 Most keys are an `Expression` this compiler already compiles (a property,
 a calculation, a select's label `switch`, a link's markdown `concat`), read as the text a device reads
 (`compileExpression.ts::compileDeviceTextExpression`): a multi select's stored
-JSON array is its tokens joined by one space, blank when none is selected. The
+JSON array is its tokens joined by one space, blank when none is selected. A
+custom date-and-time property reads as the text a device holds, CommCare HQ's
+text of its instant (`HQ_DATETIME_PATTERN` at UTC over `compileStoredInstant`),
+and its stored text where it names no instant, so rows saved in either
+spelling order by the moment, whatever the session's zone. The
 comparator is applied where a key becomes
 `ORDER BY`, in `lib/case-store/postgres/store.ts::query` and `queryGrouped`, as
 typed-builder expressions: text is the value lowercased with Unicode case
@@ -200,7 +204,8 @@ trimmed text is a plain decimal (`^-?[0-9]+(\.[0-9]+)?$`), truncated toward zero
 for integer, with anything else sorting after every number ascending. A leading
 blanks term puts a blank and a missing property first or last as the rule says,
 whatever its direction, because Postgres puts `NULL` last ascending and Core
-places blanks by the rule's `blanks`.
+places blanks by the rule's `blanks`, which is the rule's own and follows its
+direction only where the author says nothing.
 
 A mapping's position is a key of its own (`mapping-position`): the device
 orders an ID mapping or an image map by `selected()`, which finds an entry as

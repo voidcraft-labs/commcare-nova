@@ -1,4 +1,5 @@
-/** React NodeView for a structural prose-reference atom. */
+/** React NodeView for a structural prose atom: a reference or a calculated
+ * value. */
 
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import type { MouseEvent } from "react";
@@ -13,6 +14,7 @@ import {
 	useReferenceProvider,
 	useReferenceTemplateProjection,
 } from "@/lib/references/ReferenceContext";
+import { ProseValueAtom } from "@/lib/references/ValueChip";
 
 export function CommcareRefView({
 	node,
@@ -34,12 +36,15 @@ export function CommcareRefView({
 			</NodeViewWrapper>
 		);
 	}
+	const atom = parsed.data;
 	const projected =
-		provider?.projectPart(parsed.data, formUuid) ??
-		({
-			ok: false,
-			unresolved: unresolvedReferenceProjection(parsed.data),
-		} as const);
+		atom.kind === "value"
+			? undefined
+			: (provider?.projectPart(atom, formUuid) ??
+				({
+					ok: false,
+					unresolved: unresolvedReferenceProjection(atom),
+				} as const));
 	return (
 		<NodeViewWrapper
 			as="span"
@@ -53,11 +58,13 @@ export function CommcareRefView({
 				editor.chain().focus().setNodeSelection(position).run();
 			}}
 		>
-			{projected.ok ? (
+			{atom.kind === "value" ? (
+				<ProseValueAtom part={atom} />
+			) : projected?.ok ? (
 				<ReferenceChip reference={projected.reference} />
-			) : (
+			) : projected !== undefined ? (
 				<UnresolvedReferenceChip unresolved={projected.unresolved} />
-			)}
+			) : null}
 		</NodeViewWrapper>
 	);
 }

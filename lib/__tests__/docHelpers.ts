@@ -64,9 +64,11 @@ import {
 	type FormStructure,
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
-import type {
-	Expression,
-	ExpressionSlotRef,
+import {
+	type Expression,
+	type ExpressionSlotRef,
+	isProseSlotRef,
+	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
@@ -118,12 +120,21 @@ export function f(spec: FieldSpec): FieldSpec {
 	return spec;
 }
 
+/** A field's text as a fixture writes it: a calculated value's expression
+ *  may be form text, which `resolveDocExpressions` parses in its prose slot. */
+export type FixtureProseTemplate = {
+	parts: (
+		| Exclude<ProseTemplate["parts"][number], { kind: "value" }>
+		| { kind: "value"; expression: Expression | string }
+	)[];
+};
+
 /** A spec for a single field (possibly with nested children). */
 export type FieldSpec = {
 	kind: FieldKind;
 	id: string;
 	uuid?: string;
-	label?: string | ProseTemplate;
+	label?: string | ProseTemplate | FixtureProseTemplate;
 	children?: FieldSpec[];
 	[key: string]: unknown;
 };
@@ -761,7 +772,9 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 	const pending = new Map<string, { ref: ExpressionSlotRef; source: string }>();
 	for (const owner of owners) {
 		rewriteExpressionSlotValues(doc, owner, (value, ref) => {
-			if (typeof value === "string")
+			// A calculated value in prose is no slot another expression reads;
+			// each is parsed in its prose slot after the slots are resolved.
+			if (typeof value === "string" && !isProseSlotRef(ref))
 				pending.set(expressionSlotKey(ref), { ref, source: value });
 			return value;
 		});
@@ -862,13 +875,28 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 	}
 	for (const { ref } of pending.values()) read(ref);
 	for (const owner of owners)
-		rewriteExpressionSlotValues(doc, owner, (value, ref) =>
-			typeof value === "string" ? resolved.get(expressionSlotKey(ref)) : value,
-		);
+		rewriteExpressionSlotValues(doc, owner, (value, ref) => {
+			if (typeof value !== "string") return value;
+			if (!isProseSlotRef(ref)) return resolved.get(expressionSlotKey(ref));
+			const form = [...structures.values()].find((candidate) =>
+				candidate.fields.has(ref.uuid),
+			);
+			const parsed = parseFormExpression(value, {
+				doc: parsingDoc,
+				slot: ref,
+				lookup: "unavailable",
+				...(form === undefined ? {} : { form }),
+			});
+			if (!parsed.ok || parsed.expression === undefined)
+				throw new Error(
+					`Fixture calculated value in ${expressionSlotKey(ref)} does not parse: ${parsed.ok ? "it is empty" : parsed.issues.map((issue) => issue.message).join("\n")}`,
+				);
+			return parsed.expression;
+		});
 	return doc;
 }
 
-function isFormLinkSlot(ref: ExpressionSlotRef): boolean {
+function isFormLinkSlot(ref: SlotContextRef): ref is ExpressionSlotRef {
 	return (
 		ref.entity === "form" &&
 		(ref.slot === "form_link_condition" || ref.slot === "form_link_datum_xpath")
@@ -919,7 +947,8 @@ function installFields(
 		// Hidden has no `label`, and a section's title is optional (absent =
 		// untitled, the canonical state) — omit it when the caller does too.
 		if (label !== undefined) {
-			base.label = fixtureProse(label);
+			// A calculated value written as form text is parsed after assembly.
+			base.label = fixtureProse(label as FixtureProse);
 		} else if (kind !== "hidden" && kind !== "section") {
 			base.label = proseText(id);
 		}

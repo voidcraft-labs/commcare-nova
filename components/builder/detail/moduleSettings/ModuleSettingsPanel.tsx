@@ -9,6 +9,7 @@ import { useAdvancedKindLine } from "@/lib/doc/hooks/useAdvancedKindReasons";
 import type { Uuid } from "@/lib/doc/types";
 import { CaseListMenuItemSection } from "./CaseListMenuItemSection";
 import { MenuPlacementSection } from "./MenuPlacementSection";
+import { MenuScreenSection } from "./MenuScreenSection";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
 import { ModuleCaseTypeSection } from "./ModuleCaseTypeSection";
 import { ModuleNameSection } from "./ModuleNameSection";
@@ -65,6 +66,7 @@ export function ModuleSettingsPanel({
 					onNavigateAway={onClose}
 				/>
 				<MenuPlacementSection moduleUuid={moduleUuid} />
+				<MenuScreenSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 				<CaseListMenuItemSection moduleUuid={moduleUuid} />

@@ -73,6 +73,21 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					{ uuid: IDS.place, kind: "geopoint", id: "place", label: "Place" },
 					{ uuid: IDS.code, kind: "barcode", id: "code", label: "Code" },
 					{
+						uuid: IDS.phone,
+						kind: "text",
+						id: "phone",
+						label: "Phone",
+						keypad: "numbers",
+					},
+					/* What the form holds for the phone answer: a refused answer
+					 * leaves the earlier one here. */
+					{
+						uuid: IDS.phoneHeld,
+						kind: "hidden",
+						id: "phone_held",
+						calculate: "#form/phone",
+					},
+					{
 						uuid: IDS.name,
 						kind: "text",
 						id: "name",
@@ -88,6 +103,16 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 						id: "note",
 						label: "Note",
 						help_media: { image: IDS.helpImage },
+					},
+					{
+						/* Written with formatting off; Web Apps formats every
+						 * help text anyway. */
+						uuid: IDS.plainHelp,
+						kind: "text",
+						id: "plain_help",
+						label: "Plain help",
+						help: "Ask for the **full** name",
+						plainHelp: true,
 					},
 					{
 						uuid: IDS.choice,

@@ -21,7 +21,10 @@ export interface WorkerRecordRequirement {
 function readsWorkerRecord(value: unknown): boolean {
 	if (isProseTemplate(value))
 		return value.parts.some(
-			(part) => part.kind === "user-ref" || part.kind === "user-property-ref",
+			(part) =>
+				part.kind === "user-ref" ||
+				part.kind === "user-property-ref" ||
+				(part.kind === "value" && readsWorkerRecord(part.expression)),
 		);
 	if (!isExpression(value)) return false;
 	let reads = false;

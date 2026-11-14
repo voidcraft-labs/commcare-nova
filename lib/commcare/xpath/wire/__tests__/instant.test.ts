@@ -8,7 +8,6 @@ import {
 	instantSpellings,
 } from "@/lib/commcare/__tests__/instantOrderingTable";
 import { emitCsql } from "@/lib/commcare/csql/emitter";
-import { datetimeCaseValueExpression } from "@/lib/commcare/xform/datetimeCaseValue";
 import {
 	between,
 	coalesce,
@@ -34,7 +33,14 @@ import {
 } from "@/lib/domain/expression/instantOperand";
 import type { Expression } from "@/lib/domain/expression/types";
 import { w } from "../builders";
-import { instantMicros, typedInstantText } from "../instant";
+import {
+	instantMicros,
+	storedInstantOfText,
+	storedInstantSource,
+	storedInstantValue,
+	typedInstantText,
+	typedInstantValue,
+} from "../instant";
 import { serializeWire } from "../serialize";
 import type { WireExpr } from "../tree";
 import { instantFixture } from "./instantFixture";
@@ -432,7 +438,7 @@ describe("each operand takes the instant text of how its device holds it", () =>
 			]),
 		);
 		expect(fx.lowerForm(datetimeCoerce(fx.field("dt")))).toEqual(
-			datetimeCaseValueExpression(value(fx.field("dt"))),
+			typedInstantValue(value(fx.field("dt"))),
 		);
 		expect(fx.lowerForm(datetimeCoerce(fx.field("copy")))).toEqual(
 			value(fx.field("copy")),
@@ -517,5 +523,31 @@ describe("CSQL text holds no device lowering", () => {
 				),
 			).toEqual([]);
 		}
+	});
+});
+
+describe("storedInstantSource", () => {
+	it("is the inverse of storedInstantValue", () => {
+		for (const value of [
+			w.form(["visit_time"]),
+			w.call("now", []),
+			w.call("coalesce", [w.form(["a"]), w.form(["b"])]),
+		])
+			expect(storedInstantSource(storedInstantValue(value))).toEqual(value);
+	});
+
+	it("reads no source from any other tree", () => {
+		const value = w.form(["visit_time"]);
+		expect(storedInstantSource(typedInstantValue(value))).toBeUndefined();
+		expect(storedInstantSource(value)).toBeUndefined();
+		expect(
+			storedInstantSource(
+				w.call("if", [
+					w.eq(value, w.str("")),
+					w.str(""),
+					storedInstantOfText(typedInstantText(w.form(["other"]))),
+				]),
+			),
+		).toBeUndefined();
 	});
 });

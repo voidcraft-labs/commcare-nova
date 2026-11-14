@@ -156,6 +156,22 @@ describe("field schema admission", () => {
 			expect(fieldSchema.parse(value)).toEqual(value);
 	});
 
+	it("admits a number keypad on a Text question only, and only the keypads it names", () => {
+		const phone = { ...identity, kind: "text", label, keypad: "numbers" };
+		expect(fieldSchema.parse(phone)).toEqual(phone);
+		expect(fieldSchema.safeParse({ ...phone, keypad: "letters" }).success).toBe(
+			false,
+		);
+		expect(fieldSchema.safeParse({ ...phone, keypad: null }).success).toBe(
+			false,
+		);
+		for (const value of fixtures.filter((fixture) => fixture.kind !== "text"))
+			expect([
+				value.kind,
+				fieldSchema.safeParse({ ...value, keypad: "numbers" }).success,
+			]).toEqual([value.kind, false]);
+	});
+
 	it.each([undefined, null, "missing", "constructor", "__proto__", "toString"])(
 		"does not recognize %s as a container kind",
 		(kind) => {

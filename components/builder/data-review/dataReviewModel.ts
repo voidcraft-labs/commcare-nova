@@ -6,7 +6,7 @@
 // against the property's current declaration).
 
 import {
-	storageDatetimeValue,
+	caseDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
 import type {
@@ -176,10 +176,11 @@ export function standingPhrase(
  * pattern).
  *
  * `zone` is the editing viewer's timezone, for the same reason the form
- * engine passes one: a datetime someone types here lands in the property a
- * form answer lands in, and the viewer-local `format-date` renders both. A
- * value put back through this editor must not read an offset away from the
- * identical value entered through a form.
+ * engine passes one: a datetime someone types here is a wall clock in the
+ * viewer's zone, as a form answer is, and it lands as the text a submitted
+ * form writes, CommCare HQ's UTC spelling of that moment
+ * (`caseDatetimeValue`). A value put back through this editor must not name
+ * another moment than the identical value entered through a form.
  */
 export function replacementDraftToValue(
 	dataType: CasePropertyDataType,
@@ -217,7 +218,7 @@ export function replacementDraftToValue(
 			if (clock === null) return { ok: false };
 			return {
 				ok: true,
-				value: storageDatetimeValue(`${match[1]}T${clock}`, zone),
+				value: caseDatetimeValue(`${match[1]}T${clock}`, zone),
 			};
 		}
 		case "multi_select":

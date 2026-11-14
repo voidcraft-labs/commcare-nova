@@ -945,10 +945,9 @@
 			"schema:ShadowModule.put_in_root"
 		],
 		"valueClass": "true-without-an-endpoint-inline-search-or-form-return",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.showFormsInParent`",
-		"subject": "display-only-forms",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.formsInMenuAbove`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -6891,10 +6890,9 @@
 			"schema:SortElement.blanks"
 		],
 		"valueClass": "first-or-last",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `sort.blanks`",
-		"subject": "case-list-sorting",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Column.sort.blanks`, stored where it differs from the direction's own",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8092,10 +8090,9 @@
 			"schema:ShadowModule.case_list_form"
 		],
 		"valueClass": "registration-form-in-another-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.caseListRegistrationForm` (today only the search-no-matches entry exists)",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.caseListRegistrationForm { kind: \"always\" }`: a registration form of the list's type whose one case of that type Case Management registers, in a basic menu, offered by a basic menu whose forms all open a case",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8200,8 +8197,9 @@
 		"section": "Case selection extras",
 		"item": "`case_list_form.label{lang}`",
 		"surfaceKeys": ["schema:CaseListForm.label"],
+		"valueClass": "with-text-beside-a-form-id",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the no-matches form's label in the case list: its entry label, else its name (`emissionPlan.ts::caseListFormLabelUnit`)",
+		"dispositionCell": "**HELD**: the registration's label on the case list where it holds text in some language: the slot's `label`, else the form's name (`emissionPlan.ts::caseListFormLabelUnit`); a language whose value is an empty string is read as \"Create a new Case\" in that language, the text HQ's build writes there, and the first publish says so; a language the label holds no key for is no translation",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -8215,6 +8213,32 @@
 		},
 		"emission": {
 			"cell": "`label`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-label-empty",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form.label{lang}` with no text in any language, beside a `form_id`",
+		"surfaceKeys": ["schema:CaseListForm.label"],
+		"valueClass": "no-text-beside-a-form-id",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a label with no text in any language beside a `form_id` is read as the label \"Create a new Case\", the text HQ's build writes for it (`app_strings.py::_create_case_list_form_app_strings`); the first publish says the button's text is fixed at those words",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`label`, the text in every language",
 			"markers": []
 		},
 		"gates": []
@@ -8234,13 +8258,8 @@
 		],
 		"valueClass": "default-or-case-list",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: `case_list` for the case list registration form (`expander.ts::expandDoc`); widen: the case list registration form's after-submit destination, `default` or `case_list`",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "the case list registration form's after-submit destination, `default` or `case_list`"
-			}
-		],
+		"dispositionCell": "**HELD**: `case_list` for the `after-empty-search` arm; the `always` arm's `afterSubmit` (`case-list` is `case_list`, `new-case` is `default`), stored also where the form's own end-of-form navigation overrides it",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -8253,6 +8272,71 @@
 		},
 		"emission": {
 			"cell": "the value",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-post-form-workflow-default-on-the-hidden-module-shape",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form.post_form_workflow: default` beside a form in an always-hidden module of a host whose forms read the search",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "default-on-the-hidden-module-shape",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `default` beside a form in an always-hidden module of a host whose forms read the search: Nova's `after-empty-search` arm returns to Results, and `default` goes on with the new case chosen (`CaseListFormWorkflow._get_stack_frames`)",
+		"subject": "case-list-registration",
+		"owner": "menus",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`post_form_workflow: default`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form.post_form_workflow: default` on a module whose case list selects several cases",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "default-on-a-multi-select-host",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: the one new case cannot be carried into a selection of several",
+		"subject": "case-list-registration",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "the one new case cannot be carried into a selection of several"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -8316,10 +8400,10 @@
 			"schema:CaseListForm.media_audio",
 			"schema:CaseListForm.media_image"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm.icon`, `audioLabel`",
-		"subject": "case-list-registration",
-		"owner": "menus",
+		"valueClass": "beside-a-form-id",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `always` arm's `icon` and `audioLabel`, one file for every language",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (label text only) / RUNS",
@@ -8334,6 +8418,31 @@
 		"emission": {
 			"cell": "media dicts",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-fields-beside-a-blank-form-id",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form.label`, `post_form_workflow`, `media_image`, `media_audio` or `relevancy_expression` beside a blank `form_id`",
+		"surfaceKeys": [
+			"schema:CaseListForm.label",
+			"schema:CaseListForm.media_audio",
+			"schema:CaseListForm.media_image",
+			"schema:CaseListForm.post_form_workflow",
+			"schema:CaseListForm.relevancy_expression"
+		],
+		"valueClass": "beside-a-blank-form-id",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: every reader tests `form_id` first (`details.py`, `app_strings.py::_create_case_list_form_app_strings`, `FormBase.case_list_modules`, `hqmedia/models.py::ModuleMediaMixin`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -8488,6 +8597,138 @@
 		},
 		"emission": {
 			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-on-an-advanced-module-or-naming-an-advanced-form",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form` on an `AdvancedModule`, or naming a form of one",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "advanced-host-or-form",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a host or a named form in an advanced menu: HQ's six rules bind every form of the host to one case tag and one detail module, and an advanced form registers through `case_session_var`, a second return-frame source (`AdvancedModuleValidator`); Nova's `always` arm needs both menus basic (`CASE_LIST_REGISTRATION_ADVANCED_MENU`)",
+		"subject": "case-list-registration",
+		"owner": "menus",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`case_list_form.form_id`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-pointing-at-a-form-whose-one-registration-of-the-type-is-a-child-case",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form` pointing at a follow-up form, or a registration form of another case type, whose one registration of the list's case type is a basic subcase at its root",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "form-registering-the-type-as-a-root-child-case",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a form whose one registration of the list's type is a root child case (`Form.get_registration_actions`): its action may carry a selection and its return reads a subcase datum (`session_var_for_action` of the subcase); Nova's `always` arm names a registration form of the list's type",
+		"subject": "case-list-registration",
+		"owner": "menus",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`case_list_form.form_id`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-naming-a-form-another-list-offers-after-an-empty-search",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form` naming a form another module's case list offers after a search finds nothing",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "form-of-another-list-s-empty-search",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: one form offered after an empty search by one list and always by another: the form is on no menu and Preview admits it from one launch",
+		"subject": "case-list-registration",
+		"owner": "menus",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`case_list_form.form_id`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-list-form-on-a-host-under-a-menu-that-shares-the-first-menu-s-case",
+		"area": "menus-and-case-lists",
+		"section": "Case selection extras",
+		"item": "`case_list_form` on a module under a top-level `put_in_root` module, while every form of every `put_in_root` module opens one chosen case",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list_form",
+			"schema:CaseListForm",
+			"schema:CaseListForm.form_id",
+			"schema:Module.case_list_form",
+			"schema:ShadowModule.case_list_form"
+		],
+		"valueClass": "host-under-a-display-only-parent-sharing-one-case",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a Register return whose frame HQ builds through the first menu with that menu's shared case ahead of its first command, which CommCare keeps on the first menu (`firstMenuSharedCase`)",
+		"subject": "case-list-registration",
+		"owner": "menus",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`case_list_form.form_id`",
 			"markers": []
 		},
 		"gates": []

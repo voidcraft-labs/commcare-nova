@@ -5,8 +5,9 @@
 // translation orchestration, and CommCare emission consume this projection;
 // none independently walks display slots.
 
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import type { BlueprintDoc, CaseProperty } from "./blueprint";
-import type { ItextUnit } from "./expression/types";
+import type { ItextUnit, ProseSlotRef } from "./expression/types";
 import type { Field } from "./fields";
 import { isContainer } from "./fields";
 import {
@@ -22,14 +23,14 @@ import {
 import { collectAssetRefs } from "./mediaRefs";
 import {
 	caseListColumnTextShows,
-	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	isSelectSearchInput,
 	type Module,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+	searchScreenTitleText,
 } from "./modules";
 import {
-	type ProseReferencePart,
+	type ProseAtomPart,
 	type ProseTemplate,
 	projectProseTemplate,
 } from "./prose";
@@ -559,6 +560,26 @@ export function collectTranslationUnits(
 			);
 		}
 		const registration = module.caseListRegistrationForm;
+		// The Register button of a list that always offers another menu's
+		// form: the module owns its label, and the form is not its own.
+		if (registration?.kind === "always" && registration.label !== undefined) {
+			const formName = doc.forms[registration.formUuid]?.name ?? "";
+			out.push(
+				unit({
+					id: makeTranslationUnitId(
+						"module",
+						moduleUuid,
+						"case-list-registration-label",
+					),
+					valueKind: "text",
+					role: "case-list-registration-label",
+					source: registration.label,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "case list", "Register button"],
+					context: { moduleName: module.name, formName },
+				}),
+			);
+		}
 
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
@@ -578,7 +599,8 @@ export function collectTranslationUnits(
 			// wire falls back to the form-name unit when it is not. The
 			// module owns it, beside the form its slot names.
 			if (
-				registration?.formUuid === formUuid &&
+				registration?.kind === "after-empty-search" &&
+				registration.formUuid === formUuid &&
 				registration.label !== undefined
 			) {
 				out.push(
@@ -770,18 +792,21 @@ export function collectTranslationUnits(
 		const search = effectiveCaseSearchConfig(module);
 		if (search !== undefined) {
 			const searchOwner = { kind: "module" as const, moduleUuid };
-			const title = search.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
-			out.push(
-				unit({
-					id: makeTranslationUnitId("module", moduleUuid, "search-title"),
-					valueKind: "text",
-					role: "search-screen-title",
-					source: title,
-					owner: searchOwner,
-					breadcrumb: [...moduleBreadcrumb, "Search", "title"],
-					context: { moduleName: module.name },
-				}),
-			);
+			// A search with no title has no text to translate.
+			const title = searchScreenTitleText(search);
+			if (title !== null) {
+				out.push(
+					unit({
+						id: makeTranslationUnitId("module", moduleUuid, "search-title"),
+						valueKind: "text",
+						role: "search-screen-title",
+						source: title,
+						owner: searchOwner,
+						breadcrumb: [...moduleBreadcrumb, "Search", "title"],
+						context: { moduleName: module.name },
+					}),
+				);
+			}
 			if (search.searchScreenSubtitle !== undefined) {
 				out.push(
 					unit({
@@ -959,8 +984,42 @@ function sameValueKind(unit: TranslationUnit, value: LocalizedValue): boolean {
 		: typeof value === "object" && value !== null;
 }
 
-function proseReferenceIdentity(part: ProseReferencePart): string {
+/** The prose slot a field's text unit translates: where a calculated value
+ *  in it is checked and printed. Every other unit holds text no form
+ *  evaluates, so it has none. */
+export function translationUnitProseSlot(
+	unit: Pick<TranslationUnit, "owner" | "role">,
+): ProseSlotRef | undefined {
+	const owner = unit.owner;
+	if (owner.kind === "select-option")
+		return {
+			entity: "field",
+			uuid: owner.fieldUuid,
+			slot: "option_label",
+			member: { optionUuid: owner.optionUuid },
+		};
+	if (owner.kind !== "field") return undefined;
+	switch (unit.role) {
+		case "field-label":
+			return { entity: "field", uuid: owner.fieldUuid, slot: "label" };
+		case "field-hint":
+			return { entity: "field", uuid: owner.fieldUuid, slot: "hint" };
+		case "field-help":
+			return { entity: "field", uuid: owner.fieldUuid, slot: "help" };
+		case "field-validation-message":
+			return { entity: "field", uuid: owner.fieldUuid, slot: "validate_msg" };
+		default:
+			return undefined;
+	}
+}
+
+/** A protected part's identity: a reference by what it names, a calculated
+ *  value by its whole expression, so a translation may move a value and may
+ *  not change it. */
+function proseReferenceIdentity(part: ProseAtomPart): string {
 	switch (part.kind) {
+		case "value":
+			return `value\0${canonicalJsonText(part.expression)}`;
 		case "field-ref":
 			return `field-ref\0${part.uuid}`;
 		case "case-ref":
@@ -974,7 +1033,7 @@ function proseReferenceIdentity(part: ProseReferencePart): string {
 
 function proseReferenceSignature(template: ProseTemplate): readonly string[] {
 	return template.parts
-		.filter((part): part is ProseReferencePart => part.kind !== "text")
+		.filter((part): part is ProseAtomPart => part.kind !== "text")
 		.map(proseReferenceIdentity)
 		.sort();
 }

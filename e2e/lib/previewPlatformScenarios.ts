@@ -42,6 +42,12 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		describe:
 			"a barcode question is a text box with no Scan button, and its typed answer is the answer",
 	},
+	"number-keypad-web-apps": {
+		platform: "web-apps",
+		fixture: "questions",
+		describe:
+			"a Text question with a number keypad keeps 0712 and +254712, and refuses 12 34 with its message while keeping the earlier answer",
+	},
 	"image-attach-web-apps": {
 		platform: "web-apps",
 		fixture: "media",
@@ -73,6 +79,12 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		fixture: "questions",
 		describe:
 			"help opens from a button on the label line into a dialog with a close button, and a question with help media alone has no help button",
+	},
+	"help-plain-web-apps": {
+		platform: "web-apps",
+		fixture: "questions",
+		describe:
+			"a help text written with formatting off still renders its markdown",
 	},
 	"hint-markdown-web-apps": {
 		platform: "web-apps",

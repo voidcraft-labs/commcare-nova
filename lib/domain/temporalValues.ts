@@ -281,6 +281,58 @@ export function instantDatetimeValue(instantMs: number, zone: string): string {
 	)}.${pad(wall.getUTCMilliseconds(), 3)}${formatZoneOffset(offsetMinutes)}`;
 }
 
+/** CommCare HQ's spelling of a moment, which a stored text already holds. */
+const HQ_INSTANT_TEXT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+/**
+ * A moment as CommCare HQ stores it: UTC, `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
+ * HQ's form processing rewrites every date-and-time text of a submission
+ * to this (`corehq/form_processor/utils/xform.py::adjust_datetimes`, printed
+ * by `dimagi/utils/parsing.py::json_format_datetime`). A JavaScript instant
+ * holds milliseconds, so the last three fraction digits are zeros.
+ *
+ * The UTC year must have four digits, the years HQ's `datetime` holds; any
+ * other instant has no such text and is refused, since a caller that reaches
+ * one holds a value no device writes.
+ */
+export function hqInstantText(instantMs: number): string {
+	const instant = new Date(instantMs);
+	const year = instant.getUTCFullYear();
+	if (!Number.isFinite(instantMs) || year < 0 || year > 9999)
+		throw new RangeError(
+			`The moment ${instantMs} ms after 1970 falls outside the years 0000 to 9999, so it has no text in CommCare HQ's spelling. Check the value before asking for its stored text.`,
+		);
+	return `${pad(year, 4)}-${pad(instant.getUTCMonth() + 1, 2)}-${pad(
+		instant.getUTCDate(),
+		2,
+	)}T${pad(instant.getUTCHours(), 2)}:${pad(instant.getUTCMinutes(), 2)}:${pad(
+		instant.getUTCSeconds(),
+		2,
+	)}.${pad(instant.getUTCMilliseconds(), 3)}000Z`;
+}
+
+/**
+ * The text a date and time takes on a case: the instant
+ * `storageDatetimeValue(text, zone)` names, as `hqInstantText`. A phone
+ * writes this text too (`lib/commcare/xform/datetimeCaseValue.ts`), so the
+ * order of a property's texts is the order of its moments. Text already in
+ * CommCare HQ's spelling is returned as it is, its microseconds kept.
+ *
+ * Total: text the grammar cannot read comes back trimmed, for the schema to
+ * refuse, and a moment whose UTC year has no four digits keeps
+ * `storageDatetimeValue`'s spelling, which the schema accepts.
+ */
+export function caseDatetimeValue(text: string, zone: string): string {
+	const trimmed = text.trim();
+	if (HQ_INSTANT_TEXT_RE.test(trimmed)) return trimmed;
+	const stored = storageDatetimeValue(trimmed, zone);
+	if (parseDatetime(stored) === null) return stored;
+	const instantMs = Date.parse(stored);
+	if (Number.isNaN(instantMs)) return stored;
+	const year = new Date(instantMs).getUTCFullYear();
+	return year < 0 || year > 9999 ? stored : hqInstantText(instantMs);
+}
+
 /**
  * The zone designator a wall clock takes in `zone` — the offset in force at
  * the instant that wall clock denotes, not the offset in force today, so a

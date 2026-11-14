@@ -7,10 +7,10 @@
  */
 
 import {
+	afterEmptySearchRegistrationFormOf,
 	type BlueprintDoc,
 	CONNECT_TYPE_LABELS,
 	caseListColumnTextShows,
-	caseListRegistrationFormOf,
 	caseWriteValueField,
 	effectiveCaseSearchConfig,
 	type Field,
@@ -281,7 +281,8 @@ export function linkWriteDestinations(
  *   landing there through its relation.
  * - A question's prose (every slot `proseSurfaceReads` lists) holds a
  *   `case-ref` to the destination, or a `field-ref` to a question whose
- *   `calculate` or `default_value` reads it. A translation keeps its source's
+ *   `calculate` or `default_value` reads it, or a calculated value one of
+ *   whose terms is such a read. A translation keeps its source's
  *   references (`translationValueIntegrityIssue`), so the source prose is
  *   every language's. Prose is not parsed as markdown: a markdown link is
  *   what a worker taps (Web Apps' `markdown.js::initMd`, Android's
@@ -334,6 +335,21 @@ export function linkWriteIsShown(
 			("default_value" in field && readsDestination(field.default_value))
 		);
 	};
+	// A calculated value prints what its expression reads: the same two
+	// tests, over each of its terms.
+	const valueReads = (expression: Expression): boolean => {
+		let reads = false;
+		walkExpressionTerms(expression, (term: Term) => {
+			if (
+				(term.kind === "form-case" &&
+					term.caseType === caseType &&
+					term.property === property) ||
+				(term.kind === "field" && fieldLogicReads(term.uuid))
+			)
+				reads = true;
+		});
+		return reads;
+	};
 	return Object.values(doc.fields).some((field) =>
 		proseSurfaceReads(field, doc).some((read) =>
 			read.template.parts.some(
@@ -341,7 +357,8 @@ export function linkWriteIsShown(
 					(part.kind === "case-ref" &&
 						part.caseType === caseType &&
 						part.property === property) ||
-					(part.kind === "field-ref" && fieldLogicReads(part.uuid)),
+					(part.kind === "field-ref" && fieldLogicReads(part.uuid)) ||
+					(part.kind === "value" && valueReads(part.expression)),
 			),
 		),
 	);
@@ -372,7 +389,7 @@ function moduleRequiresCaseListRegistration(
 ): boolean {
 	return (
 		hostLowersCaseListRegistration(module) &&
-		caseListRegistrationFormOf(doc, module.uuid) !== undefined
+		afterEmptySearchRegistrationFormOf(doc, module.uuid) !== undefined
 	);
 }
 

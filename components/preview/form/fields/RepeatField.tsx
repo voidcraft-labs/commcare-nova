@@ -43,18 +43,19 @@ import {
 	useLocalizedField,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
+import {
+	labelShowsAsTyped,
+	type RepeatField as RepeatFieldEntity,
+} from "@/lib/domain";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -171,6 +172,7 @@ export function RepeatField({
 	const state = useEngineStateAt(field.uuid, path);
 	const entryKey = controller.entryKey;
 	const projectProse = useProseProjection();
+	const textForm = useFieldTextForm(field.uuid);
 	const writeAuthority = useAttachmentEntryWriteAuthority(entryKey);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
@@ -318,7 +320,7 @@ export function RepeatField({
 										label={field.label}
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
-										plainLabel={ownerHoldsPlainLabel(field)}
+										plainLabel={labelShowsAsTyped(textForm, field)}
 										className={FIELD_STYLES.label}
 									/>
 								</div>

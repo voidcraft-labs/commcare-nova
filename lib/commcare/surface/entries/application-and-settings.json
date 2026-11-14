@@ -3136,7 +3136,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "`true` when any module shows forms in its parent",
+			"cell": "`true` when any module shows its forms in the menu above",
 			"markers": []
 		},
 		"gates": []

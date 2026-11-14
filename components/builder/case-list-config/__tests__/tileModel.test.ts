@@ -36,6 +36,7 @@ import {
 	tileMemberUuids,
 	tileShowsColumn,
 } from "../tile/tileModel";
+import { LIST_SEARCH_OFF_LINE } from "../workspaceProjection";
 
 function column(
 	id: string,
@@ -540,6 +541,15 @@ describe("hiddenFromResultsLine", () => {
 				HIDDEN_FROM_RESULTS_LINE,
 			);
 		}
+	});
+
+	it("says only Details shows a column that is not on the list, in a list with no tile", () => {
+		expect(
+			hiddenFromResultsLine(
+				column("a", "A", { visibleInList: false, notOnList: true }),
+				false,
+			),
+		).toBe(LIST_SEARCH_OFF_LINE);
 	});
 
 	it("says a tile's search doesn't match a hidden column with no order rule, and says nothing of one with a rule", () => {

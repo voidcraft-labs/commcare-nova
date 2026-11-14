@@ -14,20 +14,20 @@
  *   form could never open, and Nova's parser refuses the unknown datum
  *   (the unknown session value, finding 68); a read of a datum the form's
  *   entry declares is admitted. The path written as text, in a string or a
- *   label, reads nothing and is admitted, and every export writes the
- *   path's apostrophes as `&apos;`, so the bytes Nova sends do not hold the
- *   text HQ's substring test
- *   (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`) looks
- *   for; a save in HQ's form builder can write them plainly, which is why
- *   Nova's publish asks CommCare Supply off for such a form
- *   (`targeted-supply-point-text`). The control `targeted-supply-point-read`
- *   keeps the read from before the refusal, and the lane observes what HQ
- *   does with it.
+ *   label, reads nothing and is admitted, and every export splits it after
+ *   `instance` (a string into two literals, a label with its bracket as a
+ *   literal output), so no stretch of the source holds the text HQ's
+ *   substring test (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`)
+ *   looks for, in Nova's bytes or after a save in HQ's form builder writes
+ *   the apostrophes plainly (`targeted-supply-point-text`). The control
+ *   `targeted-supply-point-read` keeps the read from before the refusal, and
+ *   the lane observes what HQ does with it.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
+import { formSourceHoldsSupplyPointText } from "@/lib/commcare/xform/supplyPointText";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { plainColumn, proseText } from "@/lib/domain";
@@ -55,9 +55,6 @@ function exported(doc: BlueprintDoc): HqApp {
 }
 
 describe("a form that reads the session's supply point", () => {
-	const escapedSuffix =
-		"(&apos;commcaresession&apos;)/session/data/supply_point_id";
-
 	function visit(field: ReturnType<typeof f>): BlueprintDoc {
 		return buildDoc({
 			appId: ID,
@@ -118,13 +115,14 @@ describe("a form that reads the session's supply point", () => {
 	};
 
 	it.each(Object.entries(text))(
-		"is admitted with %s, which reads nothing, and its export spells the path so HQ's test does not find it",
+		"is admitted with %s, which reads nothing, and its export holds the path in no stretch of its source, decoded or not",
 		(_name, field) => {
 			const sources = Object.values(exported(visit(field))._attachments);
 			expect(sources).toHaveLength(1);
 			for (const source of sources) {
-				expect(source).toContain(escapedSuffix);
+				expect(source).toContain("commcaresession");
 				expect(source).not.toContain(SUPPLY_POINT_PATH);
+				expect(formSourceHoldsSupplyPointText(source)).toBe(false);
 			}
 		},
 	);

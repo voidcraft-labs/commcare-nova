@@ -46,6 +46,7 @@ STEPS = {
     "media": Step("media", media_emission.media),
     "navigation": Step("navigation", form_emission.navigations),
     "nested-menu": Step("nested-menu", suite_emission.nested_menus),
+    "menu-screens": Step("menu-screens", suite_emission.menu_screens),
     "no-matches": Step("no-matches", suite_emission.no_matches),
     "search": Step("search", suite_emission.searches("search")),
     "prompt": Step("prompt", suite_emission.searches("prompt")),

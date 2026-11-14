@@ -380,6 +380,61 @@ describe("document order", () => {
 	});
 });
 
+describe("text shown as typed", () => {
+	it("finds a help text's plainHelp at the field and a form's plainText at the form", () => {
+		const doc = buildDoc({
+			appName: "Text",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "answer",
+									label: proseText("Answer"),
+									help: proseText("Ask *gently*"),
+									plainHelp: true,
+								}),
+								f({
+									kind: "text",
+									id: "other",
+									label: proseText("Other"),
+									help: proseText("Ask *gently*"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const features = new Set<PlatformFeatureId>(["plain-text"]);
+		const sites = (document: typeof doc) =>
+			platformFeatureUses(document, { features }).map((use) => [
+				use.owner.kind,
+				use.site.kind === "slot" ? use.site.slot : undefined,
+			]);
+		expect(sites(doc)).toEqual([["field", "plainHelp"]]);
+
+		const formUuid = doc.formOrder[doc.moduleOrder[0] ?? ""]?.[0];
+		if (formUuid === undefined) throw new Error("The fixture has no form.");
+		const switchedOff = {
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: { ...doc.forms[formUuid], plainText: true as const },
+			},
+		};
+		expect(sites(switchedOff)).toEqual([
+			["form", "plainText"],
+			["field", "plainHelp"],
+		]);
+	});
+});
+
 describe("inline choices", () => {
 	it("gives each choice its own uses after the field's, plain text before media", () => {
 		const doc = buildDoc({

@@ -150,3 +150,144 @@ describe("expression slot addresses", () => {
 		).toEqual(["relevant"]);
 	});
 });
+
+describe("calculated values in prose", () => {
+	const SELECT = testUuid("slot-prose-select");
+	const RED = testUuid("slot-prose-red");
+	const BLUE = testUuid("slot-prose-blue");
+	const value = (literalText: string) => ({
+		kind: "value" as const,
+		expression: term(literal(literalText)),
+	});
+	function proseFixture() {
+		return buildDoc({
+			modules: [
+				{
+					uuid: MODULE,
+					name: "Records",
+					caseType: "record",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Visit",
+							type: "followup",
+							fields: [
+								{
+									uuid: SELECT,
+									id: "colour",
+									kind: "single_select",
+									relevant: eq(literal(1), literal(1)),
+									label: {
+										parts: [
+											value("label-first"),
+											{ kind: "text", text: " and " },
+											value("label-second"),
+										],
+									},
+									hint: { parts: [value("hint")] },
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: RED,
+												value: "red",
+												label: { parts: [value("red")] },
+											},
+											{
+												uuid: BLUE,
+												value: "blue",
+												label: { parts: [value("blue")] },
+											},
+										],
+									},
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("yields each value under its prose slot, after the expression slots, in slot and part order", () => {
+		const values = expressionSlotValues(proseFixture(), {
+			entity: "field",
+			uuid: SELECT,
+		});
+		expect(
+			values.map(({ ref, expression, path }) => ({
+				slot: ref.slot,
+				option: "member" in ref ? ref.member : undefined,
+				expression,
+				path,
+			})),
+		).toEqual([
+			{
+				slot: "relevant",
+				option: undefined,
+				expression: eq(literal(1), literal(1)),
+				path: ["relevant"],
+			},
+			{
+				slot: "label",
+				option: undefined,
+				expression: term(literal("label-first")),
+				path: ["label", "parts", 0, "expression"],
+			},
+			{
+				slot: "label",
+				option: undefined,
+				expression: term(literal("label-second")),
+				path: ["label", "parts", 2, "expression"],
+			},
+			{
+				slot: "hint",
+				option: undefined,
+				expression: term(literal("hint")),
+				path: ["hint", "parts", 0, "expression"],
+			},
+			{
+				slot: "option_label",
+				option: { optionUuid: RED },
+				expression: term(literal("red")),
+				path: [
+					"optionsSource",
+					"options",
+					0,
+					"label",
+					"parts",
+					0,
+					"expression",
+				],
+			},
+			{
+				slot: "option_label",
+				option: { optionUuid: BLUE },
+				expression: term(literal("blue")),
+				path: [
+					"optionsSource",
+					"options",
+					1,
+					"label",
+					"parts",
+					0,
+					"expression",
+				],
+			},
+		]);
+	});
+
+	it("keys a prose slot apart from every expression slot and each option's label apart", () => {
+		const keys = expressionSlotValues(proseFixture(), {
+			entity: "field",
+			uuid: SELECT,
+		}).map(({ ref }) => expressionSlotKey(ref));
+		const relevant = keys[0];
+		const label = keys[1];
+		const red = keys[4];
+		const blue = keys[5];
+		expect(new Set([relevant, label, keys[3], red, blue]).size).toBe(5);
+		// Two values of one text share their slot's key.
+		expect(keys[2]).toBe(label);
+	});
+});

@@ -1031,6 +1031,54 @@ describe("editField: field_list and plain_label", () => {
 	});
 });
 
+describe("editField: a number keypad and a help text shown as typed", () => {
+	it("sets and clears keypad and plain_help, and a read sent back keeps both", async () => {
+		const h = makeAuthoringHarness({}, makeHouseholdDoc());
+		const address = visitAddress(VISIT_TEXT);
+		const set = await h.call("editField", {
+			...address,
+			updates: {
+				kind: "text",
+				keypad: "numbers",
+				help: "Use *short* words",
+				plain_help: true,
+			},
+		});
+		expect(set).toMatchObject({ ok: true });
+		expect(h.currentDoc().fields[VISIT_TEXT]).toMatchObject({
+			keypad: "numbers",
+			plainHelp: true,
+		});
+
+		const read = (await h.call("getField", address)) as {
+			field: Record<string, unknown>;
+		};
+		expect(read.field).toMatchObject({ keypad: "numbers", plain_help: true });
+		expect(read.field).not.toHaveProperty("plainHelp");
+		const resent = await h.call("editField", {
+			...address,
+			updates: {
+				kind: "text",
+				keypad: read.field.keypad,
+				plain_help: read.field.plain_help,
+			},
+		});
+		expect(resent).toMatchObject({ ok: true });
+		expect(h.currentDoc().fields[VISIT_TEXT]).toMatchObject({
+			keypad: "numbers",
+			plainHelp: true,
+		});
+
+		const cleared = await h.call("editField", {
+			...address,
+			updates: { kind: "text", keypad: null, plain_help: false },
+		});
+		expect(cleared).toMatchObject({ ok: true });
+		expect(h.currentDoc().fields[VISIT_TEXT]).not.toHaveProperty("keypad");
+		expect(h.currentDoc().fields[VISIT_TEXT]).not.toHaveProperty("plainHelp");
+	});
+});
+
 describe("editField: a choice shown as typed survives a read and edit", () => {
 	it("reads plain_label on the choice and keeps plainLabel when the read is sent back", async () => {
 		const base = makeSelectDoc();

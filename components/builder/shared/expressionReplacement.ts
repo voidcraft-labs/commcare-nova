@@ -10,6 +10,7 @@ import {
 	formatDate,
 	now,
 	today,
+	valueList,
 } from "@/lib/domain/expression";
 
 const UNARY_KINDS = new Set<Expression["kind"]>([
@@ -75,6 +76,9 @@ export function planPreservedExpressionReplacement(
 				break;
 			case "coalesce":
 				candidate = coalesce(currentValue);
+				break;
+			case "value-list":
+				candidate = valueList(currentValue);
 				break;
 			case "format-date":
 				candidate = formatDate(currentValue, "short");

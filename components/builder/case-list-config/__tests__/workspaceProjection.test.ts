@@ -6,16 +6,26 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { type Column, emptyCaseListConfig } from "@/lib/domain";
 import {
+	keepColumnOnList,
+	LIST_SEARCH_OFF_LINE,
+	LIST_SEARCH_ON_LINE,
+	LIST_SEARCH_SORTED_REASON,
+	listSearchSwitch,
 	projectCaseWorkspaceColumns,
 	removeColumnFromDisplay,
 	showColumnOnDisplay,
+	takeColumnOffList,
 } from "../workspaceProjection";
 
 function column(
 	uuid: string,
-	visibility: Pick<Column, "visibleInList" | "visibleInDetail"> = {},
+	visibility: Pick<
+		Column,
+		"visibleInList" | "visibleInDetail" | "notOnList" | "sort"
+	> = {},
 ): Column {
 	return {
 		uuid: testUuid(uuid),
@@ -170,5 +180,80 @@ describe("showColumnOnDisplay", () => {
 				header: "detail-only",
 			},
 		]);
+	});
+});
+
+describe("the List search matches this switch", () => {
+	const MODULE = testUuid("module");
+	const hidden = column("village", { visibleInList: false });
+	const off = column("village", { visibleInList: false, notOnList: true });
+
+	it("takeColumnOffList writes notOnList on a hidden field, one granular list-state write", () => {
+		const [taken] = takeColumnOffList([hidden], hidden.uuid);
+		expect(taken).toEqual(off);
+		expect(columnSnapshotMutations(MODULE, hidden, taken)).toEqual([
+			{
+				kind: "updateColumn",
+				moduleUuid: MODULE,
+				uuid: hidden.uuid,
+				visibilityPatch: { surface: "list", visible: false, notOnList: true },
+			},
+		]);
+	});
+
+	it("takeColumnOffList leaves a field shown on Results as it is", () => {
+		const shown = column("village");
+		expect(takeColumnOffList([shown], shown.uuid)).toEqual([shown]);
+	});
+
+	it("keepColumnOnList removes notOnList, and its write keeps the field hidden", () => {
+		const [kept] = keepColumnOnList([off], off.uuid);
+		expect(kept).toEqual(hidden);
+		expect(columnSnapshotMutations(MODULE, off, kept)).toEqual([
+			{
+				kind: "updateColumn",
+				moduleUuid: MODULE,
+				uuid: off.uuid,
+				visibilityPatch: { surface: "list", visible: false, notOnList: false },
+			},
+		]);
+	});
+
+	it("showing a field off the list on Results clears both slots in one write", () => {
+		const [shown] = showColumnOnDisplay([off], off.uuid, "list");
+		expect(shown).toEqual(column("village"));
+		expect(columnSnapshotMutations(MODULE, off, shown)).toEqual([
+			{
+				kind: "updateColumn",
+				moduleUuid: MODULE,
+				uuid: off.uuid,
+				visibilityPatch: { surface: "list", visible: true },
+			},
+		]);
+	});
+
+	it("shows only for a field hidden from Results in a list with no tile", () => {
+		expect(listSearchSwitch(column("village"), false)).toBeUndefined();
+		expect(listSearchSwitch(hidden, true)).toBeUndefined();
+		expect(listSearchSwitch(off, true)).toBeUndefined();
+		expect(listSearchSwitch(hidden, false)).toEqual({
+			checked: true,
+			description: LIST_SEARCH_ON_LINE,
+		});
+		expect(listSearchSwitch(off, false)).toEqual({
+			checked: false,
+			description: LIST_SEARCH_OFF_LINE,
+		});
+	});
+
+	it("is on and disabled with its reason while Default order uses the field", () => {
+		const sorted = column("village", {
+			visibleInList: false,
+			sort: { direction: "asc", priority: 0 },
+		});
+		expect(listSearchSwitch(sorted, false)).toEqual({
+			checked: true,
+			disabledReason: LIST_SEARCH_SORTED_REASON,
+		});
 	});
 });

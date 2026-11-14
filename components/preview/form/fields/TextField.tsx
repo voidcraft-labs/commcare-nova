@@ -22,12 +22,17 @@ export function TextField({
 }: TextFieldProps) {
 	// `secret` kind renders a password-masked input; `text` is plain.
 	const inputType = field.kind === "secret" ? "password" : "text";
+	// A Text question with a number keypad asks a phone for its telephone
+	// keypad, as Web Apps' `PhoneEntry` does; on both platforms the engine
+	// decides what the answer keeps.
+	const numberKeypad = field.kind === "text" && field.keypad !== undefined;
 	const showError = state.touched && !state.valid;
 
 	return (
 		<div>
 			<input
 				type={inputType}
+				inputMode={numberKeypad ? "tel" : undefined}
 				aria-labelledby={labelledBy}
 				aria-invalid={showError || undefined}
 				value={state.value}

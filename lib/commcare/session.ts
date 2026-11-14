@@ -1100,16 +1100,16 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	/** The claim post of a case-requiring entry of a menu whose forms read the search. */
 	readonly post?: EntryPost;
 	/**
-	 * HQ's case-list-form return frame (`CaseListFormWorkflow`): the one
-	 * `<create if="…return_to = 'm{N}'">` a no-matches registration form's
-	 * entry carries after its own workflow frames, so submitting returns to
-	 * the host module's Results. Built by
-	 * `formLinkProjection.ts::caseListFormReturnFrame`.
+	 * HQ's case-list-form return frames (`CaseListFormWorkflow`): each
+	 * `<create if="…return_to = 'm{H}'…">` a registration form a case list
+	 * offers carries after its own workflow frames, in order, so submitting
+	 * from a host's Register action returns where that host's choice says.
+	 * Built by `formLinkProjection.ts::caseListFormReturnFrames`.
 	 */
-	readonly returnFrame?: {
+	readonly returnFrames?: readonly {
 		readonly ifClause: WireExpr;
 		readonly children: readonly MatchedChild[];
-	};
+	}[];
 }
 
 export function deriveEntryDefinition(
@@ -1157,19 +1157,16 @@ export function deriveEntryDefinition(
 					moduleFrame,
 					parentFrame,
 				)),
-		// The compiler supplies this only for the implicit no-matches return.
-		// A no-matches form's explicit `firstMenu` writes its one empty frame
-		// above and no return, matching HQ WorkflowHelper._get_stack_frames
-		// precedence.
-		...(args.returnFrame === undefined
-			? []
-			: [
-					{
-						op: "create" as const,
-						ifClause: args.returnFrame.ifClause,
-						children: args.returnFrame.children.map(toStackChild),
-					},
-				]),
+		// The compiler supplies these only where the form's own after-submit
+		// writes no frame, matching HQ WorkflowHelper._get_stack_frames
+		// precedence: a no-matches form's explicit `firstMenu`, or a form a
+		// case list always offers that has its own destination, writes its
+		// own frame above and no return.
+		...(args.returnFrames ?? []).map((frame) => ({
+			op: "create" as const,
+			ifClause: frame.ifClause,
+			children: frame.children.map(toStackChild),
+		})),
 	];
 	const entryAssertions = [
 		...(datums.some((datum) => datum.id === USERCASE_DATUM_ID)

@@ -182,3 +182,38 @@ describe("admitted display replacements", () => {
 		).toBeUndefined();
 	});
 });
+
+describe("a column that is not on the list", () => {
+	it.each(
+		targets.filter((target) => target !== "date" && target !== "interval"),
+	)(
+		"keeps notOnList through a plain to %s replacement and its commit",
+		(target) => {
+			const shown = plainColumn(testUuid("display-shown"), "case_name", "Name");
+			const source = plainColumn(uuid, "case_name", "Authored label", {
+				visibleInList: false,
+				notOnList: true,
+			});
+			const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+			config.columns = [shown, source];
+			config.listColumnOrder = [shown.uuid, uuid];
+			config.detailColumnOrder = [shown.uuid, uuid];
+			const { doc, moduleUuid } = admittedWorkspace(
+				caseTypes,
+				config,
+				"patient",
+			);
+			const next = preservedColumnSwap(source, target, ctx);
+			if (!next) throw new Error("missing display");
+			expect(next).toMatchObject({ visibleInList: false, notOnList: true });
+			const mutations = columnSnapshotMutations(moduleUuid, source, next);
+			expect(mutations.some((mutation) => "visibilityPatch" in mutation)).toBe(
+				false,
+			);
+			expect(
+				commitWorkspace(doc, mutations).modules[moduleUuid].caseListConfig
+					?.columns[1],
+			).toMatchObject({ visibleInList: false, notOnList: true });
+		},
+	);
+});

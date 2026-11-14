@@ -2,7 +2,11 @@ import type { Editor, Range } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
 import { NodeSelection, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { exitSuggestion } from "@tiptap/suggestion";
-import { buildHashtagRefRegex, prosePartSchema } from "@/lib/domain";
+import {
+	buildHashtagRefRegex,
+	type ProseAtomPart,
+	prosePartSchema,
+} from "@/lib/domain";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import type { Reference } from "@/lib/references/types";
 
@@ -52,7 +56,18 @@ export function insertProseReference(
 	formUuid: string | undefined,
 ): boolean {
 	const live = provider.resolvePart(reference.part, formUuid);
-	if (!live || editor.isDestroyed) return false;
+	if (!live) return false;
+	return insertProseAtom(editor, range, live.part);
+}
+
+/** Put an atom that is already built (a calculated value, or the reference a
+ *  formula reads alone) in place of `range`, as one undo step. */
+export function insertProseAtom(
+	editor: Editor,
+	range: Range,
+	part: ProseAtomPart,
+): boolean {
+	if (editor.isDestroyed) return false;
 	const { doc, storedMarks } = editor.state;
 	const start = doc.resolve(range.from);
 	const marks =
@@ -60,11 +75,7 @@ export function insertProseReference(
 			? (storedMarks ?? start.marks())
 			: (start.marksAcross(doc.resolve(range.to)) ?? []);
 	return editProseReference(editor, (tr) => {
-		const node = editor.schema.nodes.commcareRef.create(
-			{ part: live.part },
-			null,
-			marks,
-		);
+		const node = editor.schema.nodes.commcareRef.create({ part }, null, marks);
 		tr.replaceWith(range.from, range.to, node);
 	});
 }

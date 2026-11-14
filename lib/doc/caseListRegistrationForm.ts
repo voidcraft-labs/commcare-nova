@@ -19,6 +19,7 @@
 import { produce } from "immer";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	afterEmptySearchRegistrationFormOf,
 	asUuid,
 	type BlueprintDoc,
 	type Field,
@@ -173,7 +174,8 @@ export function caseListRegistrationMutations(
 ): Mutation[] {
 	const mod = doc.modules[moduleUuid];
 	if (entry === null) {
-		if (mod?.caseListRegistrationForm?.formUuid !== formUuid) return [];
+		if (afterEmptySearchRegistrationFormOf(doc, moduleUuid) !== formUuid)
+			return [];
 		const defaultsCleared = searchAnswerDefaultsOf(
 			doc,
 			moduleUuid,

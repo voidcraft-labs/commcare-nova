@@ -962,3 +962,117 @@ test("native default order withholds Record ID from a tile list with the reason 
 	expect((await savedModule(page)).caseListConfig).toEqual(before);
 	await page.keyboard.press("Escape");
 });
+
+const DOB_SELECT =
+	'[data-case-column-select="00000000-0000-7000-8000-000000006002"]';
+
+function savedDob(module: { caseListConfig: { columns: { uuid: string }[] } }) {
+	return module.caseListConfig.columns.find(
+		(column) => column.uuid === "00000000-0000-7000-8000-000000006002",
+	);
+}
+
+test("native List search matches this takes a hidden field off the list, and Default order brings it back by layout", async ({
+	page,
+}) => {
+	await page.goto(peer.origin);
+	// Hide Birth date from Results; Details still shows it.
+	await page.locator(DOB_SELECT).first().click();
+	await page
+		.getByRole("button", { name: "Hide from Results", exact: true })
+		.click();
+	await page.getByRole("button", { name: "Details", exact: true }).click();
+	await page.locator(DOB_SELECT).first().click();
+	const listSearch = page.getByRole("switch", {
+		name: /^List search matches this/,
+	});
+	await expect(listSearch).toBeChecked();
+	await expect(
+		page.getByText(
+			"People filtering the list can find a case by this, though the list doesn't show it.",
+		),
+	).toBeVisible();
+	await listSearch.click();
+	await expect(listSearch).not.toBeChecked();
+	await expect(
+		page.getByText(
+			"Only Details shows this. The list doesn't search or sort by it.",
+		),
+	).toBeVisible();
+	expect(savedDob(await savedModule(page))).toMatchObject({
+		visibleInList: false,
+		notOnList: true,
+	});
+
+	// In a list with no tile, Default order lists the field disabled, with
+	// the line that names the switch.
+	await page.getByRole("button", { name: "Results", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Set default order", exact: true })
+		.press("Enter");
+	const add = page.getByRole("combobox", {
+		name: "Add to default order",
+		exact: true,
+	});
+	await add.click();
+	const birthDate = page.getByRole("option", { name: /^Birth date/ });
+	await expect(birthDate).toHaveAttribute("aria-disabled", "true");
+	await expect(birthDate).toContainText(
+		"This isn't on the list, so the list can't sort by it. You can turn on List search matches this to sort by it.",
+	);
+	await birthDate.click({ force: true });
+	expect(savedDob(await savedModule(page))).not.toHaveProperty("sort");
+	await page.keyboard.press("Escape");
+
+	// Turned on again, the field is on the list, so Default order takes it,
+	// and while it sorts the switch is on and disabled with its reason.
+	await page.getByRole("button", { name: "Details", exact: true }).click();
+	await page.locator(DOB_SELECT).first().click();
+	await listSearch.click();
+	await expect(listSearch).toBeChecked();
+	expect(savedDob(await savedModule(page))).not.toHaveProperty("notOnList");
+	await page.getByRole("button", { name: "Results", exact: true }).click();
+	await add.click();
+	await page.getByRole("option", { name: /^Birth date/ }).click();
+	expect(savedDob(await savedModule(page))).toMatchObject({
+		visibleInList: false,
+		sort: { direction: "asc", priority: 0 },
+	});
+	await page.getByRole("button", { name: "Details", exact: true }).click();
+	await page.locator(DOB_SELECT).first().click();
+	await expect(listSearch).toBeChecked();
+	await expect(listSearch).toBeDisabled();
+	await expect(
+		page.getByText(
+			"The list sorts by this, so its search matches it too. You can remove it from Default order to change that.",
+		),
+	).toBeVisible();
+});
+
+test("native Default order offers a tile list's field that is off the list and puts it back on, hidden, with its rule", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=tile-off-list`);
+	await page
+		.getByRole("button", { name: "Set default order", exact: true })
+		.press("Enter");
+	await page
+		.getByRole("combobox", { name: "Add to default order", exact: true })
+		.click();
+	const birthDate = page.getByRole("option", { name: /^Birth date/ });
+	await expect(birthDate).not.toHaveAttribute("aria-disabled", "true");
+	await birthDate.click();
+	const saved = savedDob(await savedModule(page));
+	expect(saved).toMatchObject({
+		visibleInList: false,
+		sort: { direction: "asc", priority: 0 },
+	});
+	expect(saved).not.toHaveProperty("notOnList");
+	// A tile list shows no switch: its search matches a hidden field only
+	// through its sort row.
+	await page.getByRole("button", { name: "Details", exact: true }).click();
+	await page.locator(DOB_SELECT).first().click();
+	await expect(
+		page.getByRole("switch", { name: /^List search matches this/ }),
+	).toHaveCount(0);
+});

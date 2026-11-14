@@ -1048,6 +1048,9 @@ function extractProseRefs(
 		switch (part.kind) {
 			case "text":
 			case "user-ref":
+			// A calculated value's reads are the expression enumeration's,
+			// under this same prose slot.
+			case "value":
 				break;
 			case "field-ref":
 				sink.edge(entityTargetKey(part.uuid), slot);
@@ -1245,6 +1248,16 @@ export function planReferenceIndexMaintenance(
 	const index = doc.refIndex;
 	if (!index) return NO_MAINTENANCE;
 	const carriers = new Set<string>();
+	/* The modules whose case list registration slot names the form: the
+	 * reducers of `removeForm` and `removeModule` delete those slots. */
+	const addRegistrationHosts = (formUuid: string): void => {
+		for (const carrier of Object.keys(
+			ownRecordValue(index.in, entityTargetKey(formUuid)) ?? {},
+		)) {
+			if (ownRecordValue(doc.modules, carrier) !== undefined)
+				carriers.add(carrier);
+		}
+	};
 	const addFieldSubtree = (uuid: Uuid): void => {
 		carriers.add(uuid);
 		for (const descendant of walkFormFieldUuids(doc, uuid)) {
@@ -1318,6 +1331,7 @@ export function planReferenceIndexMaintenance(
 			carriers.add(mut.uuid);
 			for (const formUuid of ownRecordValue(doc.formOrder, mut.uuid) ?? []) {
 				carriers.add(formUuid);
+				addRegistrationHosts(formUuid);
 				for (const fieldUuid of walkFormFieldUuids(doc, formUuid)) {
 					carriers.add(fieldUuid);
 				}
@@ -1359,10 +1373,9 @@ export function planReferenceIndexMaintenance(
 			for (const fieldUuid of walkFormFieldUuids(doc, mut.uuid)) {
 				carriers.add(fieldUuid);
 			}
-			// The reducer deletes the owning module's case list registration
-			// slot when it names this form, so that module's edge re-extracts.
-			const owner = resolveFormModule(doc, mut.uuid);
-			if (owner !== undefined) carriers.add(owner);
+			// The reducer deletes every module's case list registration slot
+			// that names this form, so those modules' edges re-extract.
+			addRegistrationHosts(mut.uuid);
 			break;
 		}
 		case "moveForm": {

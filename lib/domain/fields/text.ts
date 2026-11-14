@@ -3,6 +3,9 @@
 // Free-text single-line string field. Supports XPath validation and a
 // `default_value` seed; a computed value belongs on a `hidden` field, not a
 // `calculate` on this visible control. Maps to CommCare <input> with xsd:string.
+// `keypad: "numbers"` is the Phone Number or Numeric ID question: the worker
+// types on a number keypad and the answer stays text, so a leading zero or a
+// `+` is kept.
 
 import tablerForms from "@iconify-icons/tabler/forms";
 import { z } from "zod";
@@ -13,8 +16,13 @@ import {
 	proseTemplateSchema,
 } from "./base";
 
+/** The keypads a Text question can give the worker, beside the full keyboard. */
+export const TEXT_KEYPADS = ["numbers"] as const;
+
 export const textFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("text"),
+	/** The worker types on a number keypad; the answer stays text. Absent: the full keyboard. */
+	keypad: z.enum(TEXT_KEYPADS).optional(),
 	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
 	default_value: formLogicSchema.optional(),
@@ -32,7 +40,7 @@ export const textFieldMetadata: FieldKindMetadata<"text"> = {
 	isContainer: false,
 	carriesValidation: true,
 	saDocs:
-		"Free-text field for single-line string input. Supports XPath validation.",
+		"Free-text field for single-line string input. Supports XPath validation. With keypad numbers it is a phone number or numeric ID question.",
 	// The string-compatible tier: every target stores the same string
 	// values text does, so history never needs parsing or per-row
 	// migration. `single_select` requires options in the same convert

@@ -2,7 +2,10 @@
  * SA tool: `updateModule` — patch module-level metadata.
  *
  * Module-scoped patches: display name, `case_type`, the display condition,
- * `hiddenFromMenu` and the case list menu item. The case-type
+ * `hiddenFromMenu`, where its forms show (`forms_in_menu_above`), the case
+ * list menu item, and the registration form of another menu its case list
+ * always offers (`register_from_case_list`, planned through
+ * `lib/doc/alwaysOfferedRegistration.ts`). The case-type
  * slot is the SA's repair path when the commit gate rejects adding a
  * case form to a module that never declared one (`NO_CASE_TYPE` names
  * exactly this fix) — without it the only correction would be
@@ -37,19 +40,23 @@
 
 import { z } from "zod";
 import { updateModuleMutation } from "@/lib/doc/addModuleMutation";
+import { alwaysOfferedRegistrationMutations } from "@/lib/doc/alwaysOfferedRegistration";
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import {
 	setModuleDisplayConditionMutation,
+	setModuleFormsInMenuAboveMutation,
 	setModuleHiddenFromMenuMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { moduleCaseTypeChangeMutations } from "@/lib/doc/formTypeMutations";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
 import {
+	alwaysOfferedRegistrationOf,
 	asUuid,
 	findAuthoredBlueprintIdentity,
 	menuFormUuidsOf,
 	moduleHasCaseListMenuItem,
+	moduleShowsFormsInMenuAbove,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -59,6 +66,7 @@ import type { ToolInvocationContext } from "../workspace/types";
 import {
 	CASE_LIST_ORDER_GUIDANCE,
 	columnInputSchema,
+	columnListStateRefusal,
 	newUuid,
 	stampColumnUuid,
 } from "./case-list-config/shared";
@@ -75,6 +83,11 @@ import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "./shared/entityAddresses";
+import {
+	alwaysOfferedRegistrationFromInput,
+	REGISTER_FROM_CASE_LIST_DESCRIPTION,
+	registerFromCaseListInputSchema,
+} from "./shared/registerFromCaseList";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -119,12 +132,29 @@ export const updateModuleInputSchema = moduleAddressSchema
 			.describe(
 				"true takes the module and every form in it off the menu, null puts it back, omission keeps it. Off the menu, its forms open on Android from an after-submit link or an entry point, and in Web Apps only from an entry point that ignores display conditions. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point.",
 			),
+		forms_in_menu_above: z
+			.literal(true)
+			.nullable()
+			.optional()
+			.describe(
+				"true shows this module's forms, and its case list item, in the menu above with no entry for the " +
+					"module itself: on the app's first menu for a top-level module, in its parent for a submenu. null " +
+					"gives the module its own screen again, omission keeps it. A module that shows its forms above has " +
+					"no screen of its own: it takes no search and no registration from its case list, no entry point " +
+					"or case list entry point, and can be no after-submit link's target and no form's module " +
+					"destination. A form listed on the app's first menu can't go to the previous screen after " +
+					"submit. Its submenus show on the app's first menu. Its name and icon are kept and not shown.",
+			),
 		case_list_menu_item: caseListMenuItemInputSchema
 			.nullable()
 			.optional()
 			.describe(
 				"Shows the case list as its own item in this menu, beside its forms or alone. Needs a case type. null removes it, which a menu with no forms refuses. Leave it out to keep it.",
 			),
+		register_from_case_list: registerFromCaseListInputSchema
+			.nullable()
+			.optional()
+			.describe(REGISTER_FROM_CASE_LIST_DESCRIPTION),
 	})
 	.strict();
 
@@ -136,13 +166,15 @@ export type UpdateModuleResult =
 			columns: Array<{ uuid: Uuid }>;
 			retiredCaseType?: string;
 			hiddenFromMenu?: boolean;
+			formsInMenuAbove?: boolean;
 			caseListMenuItem?: boolean;
+			registerFromCaseList?: boolean;
 	  })
 	| { error: string };
 
 export const updateModuleTool = {
 	description:
-		"Update a module's name, case type, parent-record selection, visibility, or whether its menu shows the case list as its own item.",
+		"Update a module's name, case type, parent-record selection, visibility, where its forms show, whether its menu shows the case list as its own item, or the registration its case list offers.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
@@ -157,7 +189,9 @@ export const updateModuleTool = {
 			displayCondition,
 			hiddenFromMenu,
 			parentCaseModuleUuid,
+			forms_in_menu_above,
 			case_list_menu_item,
+			register_from_case_list,
 		} = input;
 		try {
 			if (
@@ -166,7 +200,9 @@ export const updateModuleTool = {
 				displayCondition === undefined &&
 				hiddenFromMenu === undefined &&
 				parentCaseModuleUuid === undefined &&
-				case_list_menu_item === undefined
+				forms_in_menu_above === undefined &&
+				case_list_menu_item === undefined &&
+				register_from_case_list === undefined
 			) {
 				return {
 					kind: "mutate" as const,
@@ -231,6 +267,43 @@ export const updateModuleTool = {
 					kind: "mutate" as const,
 					mutations: [],
 					result: { error: retirement.message },
+				};
+			}
+
+			/* The registration a case list always offers is planned whole: the
+			 * input names the form, the button's text and where a worker goes
+			 * after registering, and the arm keeps its stored icon and spoken
+			 * label. The planner refuses while the list offers its own form
+			 * after an empty search, since the two arms share one slot. */
+			const registration =
+				register_from_case_list === undefined
+					? undefined
+					: alwaysOfferedRegistrationMutations(
+							doc,
+							moduleUuid,
+							register_from_case_list === null
+								? null
+								: alwaysOfferedRegistrationFromInput(
+										register_from_case_list,
+										alwaysOfferedRegistrationOf(doc, moduleUuid),
+									),
+						);
+			if (registration?.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: registration.message },
+				};
+			}
+
+			const listStateRefusal = (case_list_columns ?? [])
+				.map(columnListStateRefusal)
+				.find((refusal) => refusal !== undefined);
+			if (listStateRefusal !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: listStateRefusal },
 				};
 			}
 
@@ -313,6 +386,18 @@ export const updateModuleTool = {
 								hiddenFromMenu === true,
 							),
 						]),
+				/* Omission keeps the slot; true lists the module's forms in the menu
+				 * above and null gives it its own screen again. The reducer moves
+				 * the after-submit destinations its forms and its child modules'
+				 * forms lose. */
+				...(forms_in_menu_above === undefined
+					? []
+					: [
+							setModuleFormsInMenuAboveMutation(
+								moduleUuid,
+								forms_in_menu_above === true,
+							),
+						]),
 				/* Omission keeps the item; an object sets it, keeping its media, and
 				 * null takes it off the menu. */
 				...(case_list_menu_item === undefined
@@ -330,6 +415,7 @@ export const updateModuleTool = {
 											),
 							},
 						]),
+				...(registration?.mutations ?? []),
 				// Each column follows the one before it, so the seeded set lands in
 				// the order the SA wrote it.
 				...(seedColumns ?? []).map((column, index, all) =>
@@ -375,8 +461,15 @@ export const updateModuleTool = {
 					...(hiddenFromMenu !== undefined && {
 						hiddenFromMenu: newMod.hiddenFromMenu === true,
 					}),
+					...(forms_in_menu_above !== undefined && {
+						formsInMenuAbove: moduleShowsFormsInMenuAbove(newMod),
+					}),
 					...(case_list_menu_item !== undefined && {
 						caseListMenuItem: moduleHasCaseListMenuItem(newMod),
+					}),
+					...(register_from_case_list !== undefined && {
+						registerFromCaseList:
+							alwaysOfferedRegistrationOf(newDoc, moduleUuid) !== undefined,
 					}),
 					columns: (seedColumns ?? []).map((column) => ({
 						uuid: column.uuid,

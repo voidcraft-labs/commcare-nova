@@ -19,6 +19,7 @@ import {
 	type InstantOperand,
 	literalInstantMicros,
 	literalInstantText,
+	literalStoredInstantText,
 	unlowerableLeaves,
 } from "@/lib/domain/expression/instantOperand";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -344,8 +345,8 @@ export function instantOperandWire(
 /**
  * A `datetime-coerce` as a value (a case write, a calculated column, a
  * `format-date` operand): the moment as text. A date is its UTC midnight
- * under a blank guard, date-and-time text itself, a typed date and time in
- * `datetimeCaseValueExpression`'s shape, a day number its UTC midnight. A
+ * under a blank guard, date-and-time text itself, a typed date and time as
+ * `typedInstantValue`, a day number its UTC midnight. A
  * casedb system date, a clock-lost value or a value that names no moment has
  * no moment to print; it keeps Core's `date()`, a day.
  */
@@ -421,8 +422,305 @@ export function datetimeCoerceValue(
 	}
 }
 
-/** A typed date and time as text, blank when it is: the one spelling a
- * date-and-time value takes where its clock must survive an untyped node. */
+/** A literal's stored text (`literalStoredInstantText`), CommCare HQ's
+ * spelling of its moment. */
+function literalStoredText(
+	leaf: Extract<InstantLeaf, { class: "literal-instant" }>,
+) {
+	const text = literalStoredInstantText(leaf.literal.value);
+	if (text === undefined) throw new Error(UNREADABLE(leaf.literal.value));
+	return text;
+}
+
+/** CommCare HQ's spelling of a UTC midnight. */
+const STORED_MIDNIGHT = "T00:00:00.000000Z";
+
+/**
+ * A date and time as the text a case holds, CommCare HQ's spelling of its
+ * moment (`storedInstantOfText`), distributed over `if`, `coalesce` and
+ * `switch` as `datetimeCoerceValue` is, each leaf by what a device holds: a
+ * typed moment, a value of unknown type holding a date and a `casedb` system
+ * date through `storedInstantValue`; stored text, a value of unknown type
+ * holding text and a blank as itself, since stored text is already a stored
+ * moment and Core parses nothing; a literal folded to its stored text; a
+ * coerced date or day number as its UTC midnight. `clock` reads a typed leaf
+ * whose tree holds `now()` from the node that holds it (`if(N = '', '',
+ * storedInstantOfText(N))`), because each print of a value evaluates it
+ * again and `now()` reads the clock each time. A clock-lost value is
+ * refused by the checker (`expected-value`, reason `clock-lost`) before it
+ * reaches here.
+ */
+export function storedDatetimeValue(
+	operand: InstantOperand,
+	emit: InstantEmission,
+	clock?: (expression: Expression) => WireExpr | undefined,
+): WireExpr {
+	switch (operand.kind) {
+		case "if":
+			return w.call("if", [
+				emit.condition(operand.source.cond),
+				storedDatetimeValue(operand.whenTrue, emit, clock),
+				storedDatetimeValue(operand.whenFalse, emit, clock),
+			]);
+		case "coalesce":
+			return w.call(
+				"coalesce",
+				operand.values.map((value) => storedDatetimeValue(value, emit, clock)),
+			);
+		case "switch": {
+			const tests = emit.switchTests(operand.source);
+			let result = storedDatetimeValue(operand.fallback, emit, clock);
+			for (let index = operand.cases.length - 1; index >= 0; index--) {
+				const test = tests[index];
+				const branch = operand.cases[index];
+				if (test === undefined || branch === undefined)
+					throw new Error("A switch case has no test in its emitted chain.");
+				result = w.call("if", [
+					test,
+					storedDatetimeValue(branch, emit, clock),
+					result,
+				]);
+			}
+			return result;
+		}
+		case "leaf":
+			break;
+	}
+	const typed = (expression: Expression): WireExpr => {
+		const node = clock?.(expression);
+		return node === undefined
+			? storedInstantValue(emit.value(expression))
+			: blankGuard(node, storedInstantOfText(node));
+	};
+	switch (operand.class) {
+		case "literal-instant":
+			return w.str(literalStoredText(operand));
+		case "typed":
+		case "day-only":
+			return typed(operand.value);
+		case "unknown":
+			return operand.held === "date"
+				? typed(operand.value)
+				: emit.value(operand.value);
+		case "text":
+		case "not-instant":
+			return emit.value(operand.value);
+		case "coerced-date-typed": {
+			const value = emit.value(operand.value);
+			return blankGuard(value, typedDateMidnight(value, STORED_MIDNIGHT));
+		}
+		case "coerced-date-text": {
+			const value = emit.value(operand.value);
+			return blankGuard(
+				value,
+				w.call("concat", [value, w.str(STORED_MIDNIGHT)]),
+			);
+		}
+		case "coerced-text":
+			return coercedTextInstant(emit.value(operand.value), STORED_MIDNIGHT);
+		case "epoch-days": {
+			const value = emit.value(operand.value);
+			return blankGuard(value, epochDayMidnight(value, STORED_MIDNIGHT));
+		}
+		case "clock-lost":
+			throw new Error(
+				"A date and time whose clock may be lost reached a case write. The checker should refuse it (expected-value, clock-lost) before emission.",
+			);
+	}
+}
+
+/** A typed date and time as text, blank when it is: the device's clock in
+ * one fixed shape with its offset, the spelling a generated clock node holds
+ * (`xform/caseOps.ts`), in which one `format-date` feeds the text, so it
+ * names one moment. */
 export function typedInstantValue(value: WireExpr): WireExpr {
 	return blankGuard(value, typedInstantText(value));
+}
+
+/**
+ * Instant text in `typedInstantText`'s own shape (`YYYY-MM-DDTHH:MM:SS.mmm`
+ * then Core's `%Z`: `Z`, `±HH` or `±HH:MM`, `DateUtils.getOffsetInStandardFormat`)
+ * as the text CommCare HQ stores for it: UTC, six fraction digits and `Z`
+ * (`dimagi/utils/parsing.py::json_format_datetime`). Whole-number arithmetic
+ * moves the clock to UTC: `%Z` prints whole minutes, so the seconds and
+ * milliseconds of the UTC text are `t`'s own, copied; the minute of the UTC
+ * day `U` lies from -840 to 2159, so the day moves by at most one either way
+ * and `U + 1440` is never negative (`XPathArithExpr` takes Java's
+ * remainder); and `substr(100 + h, 1)` is `h` in two digits, since Core
+ * prints a whole number with no decimal point (`FunctionUtils.toString`).
+ *
+ * The day before or after is worked out from the written year, month and
+ * day, never through a day number: a day number counts from the epoch of the
+ * JVM's zone (`DateUtils.daysSinceEpoch`), which on Web Apps is UTC's while
+ * `date()` of text is the browser zone's midnight, so `date(date(day) + 1)`
+ * would land a day early in a zone more than twelve hours ahead of UTC.
+ * Every sub-term is built once and shared, so the memoised print stays
+ * linear.
+ *
+ * An offset under an hour and not zero prints as `Z:MM` whatever its sign,
+ * so it reads as UTC here; only historic offsets are such. A moment whose UTC
+ * year has no four digits has no such text.
+ */
+export function storedInstantOfText(t: WireExpr): WireExpr {
+	const piece = (start: number, end?: number) =>
+		w.call(
+			"substr",
+			end === undefined ? [t, w.num(start)] : [t, w.num(start), w.num(end)],
+		);
+	const tail = piece(23);
+	const offset = w.call("if", [
+		w.call("starts-with", [tail, w.str("Z")]),
+		w.num(0),
+		w.mul(
+			w.call("if", [
+				w.call("starts-with", [tail, w.str("-")]),
+				w.num(-1),
+				w.num(1),
+			]),
+			w.add(
+				w.mul(
+					w.call("number", [w.call("substr", [tail, w.num(1), w.num(3)])]),
+					w.num(60),
+				),
+				w.call("if", [
+					w.gt(w.call("string-length", [tail]), w.num(3)),
+					w.call("number", [w.call("substr", [tail, w.num(4), w.num(6)])]),
+					w.num(0),
+				]),
+			),
+		),
+	]);
+	const minuteOfDay = w.sub(
+		w.add(
+			w.mul(w.call("number", [piece(11, 13)]), w.num(60)),
+			w.call("number", [piece(14, 16)]),
+		),
+		offset,
+	);
+	const utcMinute = w.mod(w.add(minuteOfDay, w.num(1440)), w.num(1440));
+	const twoDigits = (value: WireExpr) =>
+		w.call("substr", [w.add(w.num(100), value), w.num(1)]);
+	const fourDigits = (value: WireExpr) =>
+		w.call("substr", [w.add(w.num(10000), value), w.num(1)]);
+	const year = w.call("number", [piece(0, 4)]);
+	const month = w.call("number", [piece(5, 7)]);
+	const day = w.call("number", [piece(8, 10)]);
+	const yearMonth = piece(0, 8);
+	const leapYear = w.or(
+		w.and(
+			w.eq(w.mod(year, w.num(4)), w.num(0)),
+			w.cmp("!=", w.mod(year, w.num(100)), w.num(0)),
+		),
+		w.eq(w.mod(year, w.num(400)), w.num(0)),
+	);
+	// A month's days: February's 28 and a leap day; otherwise 31 for January,
+	// March, May, July, August, October and December, 30 for the rest.
+	const daysIn = (m: WireExpr) =>
+		w.call("if", [
+			w.eq(m, w.num(2)),
+			w.add(w.num(28), leapYear),
+			w.add(
+				w.num(30),
+				w.mod(w.add(m, w.call("floor", [w.div(m, w.num(8))])), w.num(2)),
+			),
+		]);
+	const nextDay = w.call("if", [
+		w.lt(day, daysIn(month)),
+		w.call("concat", [yearMonth, twoDigits(w.add(day, w.num(1)))]),
+		w.call("if", [
+			w.lt(month, w.num(12)),
+			w.call("concat", [
+				piece(0, 5),
+				twoDigits(w.add(month, w.num(1))),
+				w.str("-01"),
+			]),
+			w.call("concat", [fourDigits(w.add(year, w.num(1))), w.str("-01-01")]),
+		]),
+	]);
+	const previousMonth = w.sub(month, w.num(1));
+	const previousDay = w.call("if", [
+		w.gt(day, w.num(1)),
+		w.call("concat", [yearMonth, twoDigits(w.sub(day, w.num(1)))]),
+		w.call("if", [
+			w.gt(month, w.num(1)),
+			w.call("concat", [
+				piece(0, 5),
+				twoDigits(previousMonth),
+				w.str("-"),
+				twoDigits(daysIn(previousMonth)),
+			]),
+			w.call("concat", [fourDigits(w.sub(year, w.num(1))), w.str("-12-31")]),
+		]),
+	]);
+	const utcDay = w.call("if", [
+		w.lt(minuteOfDay, w.num(0)),
+		previousDay,
+		w.call("if", [w.gte(minuteOfDay, w.num(1440)), nextDay, piece(0, 10)]),
+	]);
+	return w.call("concat", [
+		utcDay,
+		w.str("T"),
+		twoDigits(w.call("floor", [w.div(utcMinute, w.num(60))])),
+		w.str(":"),
+		twoDigits(w.mod(utcMinute, w.num(60))),
+		w.str(":"),
+		piece(17, 23),
+		w.str("000Z"),
+	]);
+}
+
+/** A typed date and time as the text CommCare HQ stores, blank when it is:
+ * the spelling a case write of a typed date and time takes
+ * (`xform/datetimeCaseValue.ts::datetimeCaseValue`). */
+export function storedInstantValue(value: WireExpr): WireExpr {
+	return blankGuard(value, storedInstantOfText(typedInstantText(value)));
+}
+
+/** The value `storedInstantValue` was built over, or undefined: the blank
+ * guard's first operand, kept only where `storedInstantValue` of it is the
+ * tree. */
+export function storedInstantSource(tree: WireExpr): WireExpr | undefined {
+	if (tree.k !== "call" || tree.fn !== "if" || tree.args.length !== 3)
+		return undefined;
+	const guard = tree.args[0];
+	if (guard?.k !== "cmp" || guard.op !== "=") return undefined;
+	const candidate = guard.left;
+	return sameWire(storedInstantValue(candidate), tree) ? candidate : undefined;
+}
+
+/** Structural equality of two wire trees. */
+function sameWire(a: WireExpr, b: WireExpr): boolean {
+	if (a === b) return true;
+	if (a.k !== b.k) return false;
+	const left = a as unknown as Record<string, unknown>;
+	const right = b as unknown as Record<string, unknown>;
+	const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+	for (const key of keys) {
+		if (!sameValue(left[key], right[key])) return false;
+	}
+	return true;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (Array.isArray(a) || Array.isArray(b)) {
+		if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length)
+			return false;
+		return a.every((item, index) => sameValue(item, b[index]));
+	}
+	if (
+		typeof a !== "object" ||
+		typeof b !== "object" ||
+		a === null ||
+		b === null
+	)
+		return false;
+	if ("k" in a && "k" in b) return sameWire(a as WireExpr, b as WireExpr);
+	const left = a as Record<string, unknown>;
+	const right = b as Record<string, unknown>;
+	const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+	for (const key of keys) {
+		if (!sameValue(left[key], right[key])) return false;
+	}
+	return true;
 }

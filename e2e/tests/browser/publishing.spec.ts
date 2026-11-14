@@ -1357,15 +1357,16 @@ test("native publish answers a confirmation refusal with the same rows, and With
 /*
  * What the check reports, word for word as `commtrackReasons` names it
  * (lib/commcare/__tests__/planPrivileges.test.ts): a form of an app on
- * Android alone whose Restock form has a label holding the session's supply
- * point text, and an advanced menu, Households, whose case list is its own
+ * Android alone, Restock, whose source holds the session's supply point text
+ * (the reason the planner reads off the emitted source, which no label or
+ * string writes whole), and an advanced menu, Households, whose case list is its own
  * menu item beside its forms, whose entry CommCare HQ's build gives a
  * product step under CommCare Supply. The check reads server-only modules,
  * so the route answers with its report here.
  */
 for (const { subject, reason } of [
 	{
-		subject: "a form whose label names the session's supply point",
+		subject: "a form whose source names the session's supply point",
 		reason:
 			"Restock holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
 	},

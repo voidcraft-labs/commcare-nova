@@ -1103,6 +1103,19 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		},
 	);
 
+	it("names a list of values outside a search field's condition and offers “is any of”", () => {
+		expect(
+			userFacingError(
+				finding("CASE_LIST_FILTER_TYPE_ERROR", {
+					checkCode: "arm-unavailable",
+					checkReason: "value-list",
+				}),
+			),
+		).toBe(
+			'The Cases available setting in "Clients" compares with a list of values, which only a search field\'s condition can do. You can use “is any of” here to match any of several fixed values.',
+		);
+	});
+
 	it("names a link and a CommCare Connect setting as the carrier that reads a form's value", () => {
 		const atForm = (
 			code: ValidationErrorCode,
@@ -1332,6 +1345,46 @@ describe("userFacingError — after-submit links", () => {
 			),
 		).toBe(
 			'"Source" goes to the parent module after submit, but "Intake" has no parent module. Choose one of: "App home", "First menu".',
+		);
+	});
+});
+
+describe("text CommCare HQ reads as a data source", () => {
+	const finding = (details: Record<string, string>) =>
+		validationError(
+			"FORM_TEXT_READ_AS_INSTANCE",
+			"form",
+			"Internal",
+			{ formName: "Lesson" },
+			details,
+		);
+
+	it("names the form's name, and each Connect text by its site, with the match", () => {
+		expect(
+			userFacingError(
+				finding({ site: "form-name", match: "instance('casedb')" }),
+			),
+		).toBe(
+			`The name of "Lesson" holds instance('casedb'), which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.`,
+		);
+		const sites = {
+			"learn-module-name": "learn module's name",
+			"learn-module-description": "learn module's description",
+			"deliver-unit-name": "deliver unit's name",
+			"task-name": "task's name",
+			"task-description": "task's description",
+		};
+		for (const [site, words] of Object.entries(sites))
+			expect(userFacingError(finding({ site, match: "instance('a')" }))).toBe(
+				`The ${words} in "Lesson" holds instance('a'), which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.`,
+			);
+	});
+
+	it("still reads as a sentence for a site it does not know", () => {
+		expect(
+			userFacingError(finding({ site: "toString", match: "instance('a')" })),
+		).toBe(
+			`A name or description in "Lesson" holds instance('a'), which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.`,
 		);
 	});
 });

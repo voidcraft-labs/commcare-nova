@@ -318,7 +318,8 @@ function withPendingCaseListRegistration(
 	if (moduleUuid === undefined || module === undefined) return doc;
 	const { caseListRegistrationForm: current, ...rest } = module;
 	if (input.case_list_registration === null)
-		return current?.formUuid === formUuid
+		return current?.kind === "after-empty-search" &&
+			current.formUuid === formUuid
 			? { ...doc, modules: { ...doc.modules, [moduleUuid]: rest } }
 			: doc;
 	const label = object.parse(input.case_list_registration).label;

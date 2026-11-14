@@ -125,6 +125,20 @@ if (scenario === "selection-viewer") {
 	config.selection = { kind: "multiple", maximum: 8 };
 	config.tile = {};
 }
+// A tile list holding Birth date off the list: the case's Details alone
+// shows it, as a reading of a detail-only column brings it in.
+if (scenario === "tile-off-list") {
+	config.tile = {};
+	config.columns = [
+		plainColumn(nameId, "case_name", "Client name", {
+			tile: tileCell(0, 0, 12, 1),
+		}),
+		plainColumn(dobId, "dob", "Birth date", {
+			visibleInList: false,
+			notOnList: true,
+		}),
+	];
+}
 if (scenario.startsWith("filter"))
 	config.filter = eq(prop("patient", "region"), literal("North"));
 const source = buildDoc({

@@ -21,7 +21,9 @@ import type {
 	FormLinkAddChoices,
 	FormLinkTargetVerdict,
 } from "@/lib/doc/formLinkReview";
+import type { FormLinkMenuChoice } from "@/lib/doc/formLinkTargetChoices";
 import type { Uuid } from "@/lib/doc/types";
+import { firstMenuSharedCaseSentence } from "@/lib/doc/userFacingErrors";
 import { destinationLabel } from "./afterSubmitCopy";
 
 /** Why "Otherwise, go somewhere else" or an Otherwise can't be set now. */
@@ -40,6 +42,53 @@ export function submenuNotOfferedReason(
 	return parentName === undefined
 		? "CommCare HQ can't link to this submenu from here. You can choose a form inside it."
 		: `CommCare HQ can't link to this submenu from here. You can choose ${parentName} or a form inside it.`;
+}
+
+/** Why a built-in destination a menu that shows its forms in the menu above
+ *  withholds is listed disabled: `module` in such a menu, `parentMenu` under
+ *  one, and `previous` for a form listed on the app's first menu. */
+export function menuAboveWithheldReason(
+	reason:
+		| "menu-forms-in-menu-above"
+		| "parent-forms-in-menu-above"
+		| "menu-forms-on-first-menu",
+	menuName: string,
+	parentName: string,
+): string {
+	switch (reason) {
+		case "menu-forms-in-menu-above":
+			return `${menuName} shows its forms in the menu above, so it has no screen of its own.`;
+		case "parent-forms-in-menu-above":
+			return `${parentName} shows its forms in the menu above, so it has no screen of its own.`;
+		case "menu-forms-on-first-menu":
+			return `${menuName} shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
+	}
+}
+
+/** Why a menu that shows its forms in the menu above is listed but not on
+ *  offer: it has no screen of its own, and its forms stay offered. */
+export const FORMS_IN_MENU_ABOVE_TARGET_REASON =
+	"Shows its forms in the menu above. You can choose one of its forms.";
+
+/** Why a menu's form-list row can't be chosen as a destination from this
+ *  form; `undefined` when the planners admit it. */
+export function menuChoiceRefusal(
+	menu: FormLinkMenuChoice,
+	menuNameOf: (moduleUuid: Uuid) => string | undefined,
+): string | undefined {
+	if (menu.offered) return targetRefusal(menu.verdict, menuNameOf);
+	switch (menu.reason) {
+		case "parent":
+			return submenuNotOfferedReason(
+				menu.parentUuid === undefined ? undefined : menuNameOf(menu.parentUuid),
+			);
+		case "forms-in-menu-above":
+			return FORMS_IN_MENU_ABOVE_TARGET_REASON;
+		case "first-menu-shared-case":
+			return firstMenuSharedCaseSentence(
+				menuNameOf(menu.aboveModuleUuid) ?? "",
+			);
+	}
 }
 
 /** Why a destination cannot be chosen. `menuNameOf` names the menu that
@@ -63,6 +112,10 @@ export function targetRefusalReason(
 			return "This form can't carry its complete case selection there. Open the destination's form list so the person can choose again.";
 		case "selection-case-type":
 			return `This form can change the selected cases' type before they get there. Open the destination's form list so the person can choose matching cases, or keep every selected case as “${verdict.expectedCaseType}”.`;
+		case "first-menu-shared-case":
+			return firstMenuSharedCaseSentence(
+				menuNameOf(verdict.aboveModuleUuid) ?? "",
+			);
 	}
 }
 
@@ -107,6 +160,10 @@ export function formLinkRefusalReason(
 			return "A module's form list asks for no values. You can remove the carried values, or send the link to a form inside it.";
 		case "selection-cardinality":
 			return "That form chooses cases differently from this one, so the link can't hand its cases on. You can choose another destination.";
+		case "first-menu-shared-case":
+			return firstMenuSharedCaseSentence(
+				menuNameOf(reason.aboveModuleUuid) ?? "",
+			);
 		case "otherwise-unreachable":
 			return OTHERWISE_UNREACHABLE_REASON;
 		case "otherwise-not-offered":

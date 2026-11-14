@@ -24,6 +24,7 @@ import {
 import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEditor";
 import { FieldListEditor } from "@/components/builder/editor/fields/FieldListEditor";
 import type { HiddenValueEditor as HiddenValueEditorComponent } from "@/components/builder/editor/fields/HiddenValueEditor";
+import { KeypadEditor } from "@/components/builder/editor/fields/KeypadEditor";
 import type { MediaSlotEditor as MediaSlotEditorComponent } from "@/components/builder/editor/fields/MediaSlotEditor";
 import type { OptionsSourceEditor as OptionsSourceEditorComponent } from "@/components/builder/editor/fields/OptionsSourceEditor";
 import type { RepeatRowsEditor as RepeatRowsEditorComponent } from "@/components/builder/editor/fields/RepeatRowsEditor";
@@ -314,6 +315,9 @@ function caseWriteEntry<F extends Field>(): {
 // `validate_msg` is deliberately absent as a sibling entry, XPathEditor
 // renders it as a nested affordance under `validate`.
 
+// A Text question's Number keypad switch (`KeypadEditor`) is always shown,
+// never a pill: off is the full keyboard, a state to choose from. It writes
+// `keypad: "numbers"` on and `keypad: null` off.
 const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 	data: [caseWriteEntry<TextField>()],
 	logic: [
@@ -323,6 +327,7 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 		defaultValueEntry<TextField>(),
 	],
 	ui: [
+		{ key: "keypad", component: KeypadEditor, label: "Number keypad" },
 		mediaEntry<TextField, "label_media">("label_media", "Label media"),
 		hintEntry<TextField>(),
 		textEntry<TextField, "help">("help", "Help"),

@@ -95,6 +95,7 @@ from proof.rules import (  # noqa: E402
     empty_binds,
     empty_media_maps,
     form_link_fallback,
+    hint_validation_markdown_form,
     inactive_parent_select,
     itext_value_order,
     lookup_fields_unshown,
@@ -122,6 +123,8 @@ RULES: tuple[SpellingRule, ...] = (
     # Before empty_binds: a select's bind left with its node set alone is then an empty bind.
     select_string_type.RULE,
     empty_binds.RULE,
+    # Before itext_value_order: the values it sorts are the ones left.
+    hint_validation_markdown_form.RULE,
     itext_value_order.RULE,
     model_order.RULE,
     setvalue_order.RULE,

@@ -21,13 +21,19 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
+	type CaseOperation,
 	type Module,
 	simpleSearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	registrationMintsOwnCaseId,
+	rootBasicSubcaseCreates,
+} from "@/lib/domain/basicCaseSlots";
 import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { formField, gt, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
-import { runValidation } from "../../../runner";
+import { errorWithinScope, runValidation } from "../../../runner";
 
 const MODULE = testUuid("00000000-0000-4000-8000-0000000d0001");
 const VISIT = testUuid("00000000-0000-4000-8000-0000000d0002");
@@ -464,5 +470,683 @@ describe("case list registration return cardinality", () => {
 		expect(
 			codes(returningHome, "CASE_LIST_REGISTRATION_HAS_NAVIGATION"),
 		).toEqual([]);
+	});
+});
+
+// ── Both arms through one app rule ─────────────────────────────────────
+
+const INTAKE = testUuid("00000000-0000-4000-8000-0000000d0030");
+const REG = testUuid("00000000-0000-4000-8000-0000000d0031");
+const CLINIC = testUuid("00000000-0000-4000-8000-0000000d0032");
+const CHECKUP = testUuid("00000000-0000-4000-8000-0000000d0033");
+const HOUSEHOLDS = testUuid("00000000-0000-4000-8000-0000000d0034");
+const HOUSE_VISIT = testUuid("00000000-0000-4000-8000-0000000d0035");
+const SURVEY = testUuid("00000000-0000-4000-8000-0000000d0036");
+const GONE_FORM = testUuid("00000000-0000-4000-8000-0000000d0037");
+const NAME_F = testUuid("00000000-0000-4000-8000-0000000d0040");
+const AGE_F = testUuid("00000000-0000-4000-8000-0000000d0041");
+const KIDS_F = testUuid("00000000-0000-4000-8000-0000000d0042");
+const KID_NAME_F = testUuid("00000000-0000-4000-8000-0000000d0043");
+const SECOND = testUuid("00000000-0000-4000-8000-0000000d0044");
+
+const checkup = (uuid = CHECKUP, name = "Checkup"): FormSpec => ({
+	uuid,
+	name,
+	type: "followup",
+	fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+});
+
+/** The registration form the `always` arm names, in Intake: a name that
+ *  saves the patient's name, an age and a repeat of kids. */
+function intakeForm(overrides: Partial<FormSpec> = {}): FormSpec {
+	return {
+		uuid: REG,
+		name: "Register patient",
+		type: "registration",
+		fields: [
+			f({
+				uuid: NAME_F,
+				kind: "text",
+				id: "case_name",
+				label: proseText("Name"),
+				caseWrite: { caseType: "patient", property: "case_name" },
+			}),
+			f({ uuid: AGE_F, kind: "int", id: "age", label: proseText("Age") }),
+			f({
+				uuid: KIDS_F,
+				kind: "repeat",
+				id: "kids",
+				label: proseText("Kids"),
+				repeat_mode: "user_controlled",
+				children: [
+					f({
+						uuid: KID_NAME_F,
+						kind: "text",
+						id: "kid_name",
+						label: proseText("Kid's name"),
+					}),
+				],
+			}),
+		],
+		...overrides,
+	};
+}
+
+interface AlwaysShape {
+	readonly afterSubmit?: "case-list" | "new-case";
+	readonly formUuid?: Uuid;
+	readonly register?: Partial<FormSpec>;
+	readonly intake?: Partial<ModuleSpec>;
+	readonly clinic?: Partial<ModuleSpec>;
+	/** Extra modules, after Clinic. */
+	readonly more?: readonly ModuleSpec[];
+	readonly caseTypes?: NonNullable<Parameters<typeof buildDoc>[0]>["caseTypes"];
+	readonly configure?: (doc: BlueprintDoc) => void;
+}
+
+const list = () => caseListConfig([{ field: "case_name", header: "Name" }]);
+
+/** Intake holds "Register patient"; Clinic's case list always offers it. */
+function alwaysDoc(shape: AlwaysShape = {}): BlueprintDoc {
+	return buildDoc(
+		{
+			appName: "Clinic",
+			caseTypes: shape.caseTypes ?? [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+				{
+					name: "kid",
+					parent_type: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					uuid: INTAKE,
+					name: "Intake",
+					caseType: "patient",
+					caseListConfig: list(),
+					forms: [intakeForm(shape.register)],
+					...shape.intake,
+				},
+				{
+					uuid: CLINIC,
+					name: "Clinic",
+					caseType: "patient",
+					caseListConfig: list(),
+					forms: [checkup()],
+					...shape.clinic,
+				},
+				...(shape.more ?? []),
+			],
+		},
+		(doc) => {
+			doc.modules[CLINIC] = {
+				...doc.modules[CLINIC],
+				caseListRegistrationForm: {
+					kind: "always",
+					formUuid: shape.formUuid ?? REG,
+					afterSubmit: shape.afterSubmit ?? "case-list",
+				},
+			};
+			shape.configure?.(doc);
+		},
+	);
+}
+
+/** Every case list registration finding: code, reason and message. */
+function registrationFindings(doc: BlueprintDoc) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+		.filter((error) => error.code.startsWith("CASE_LIST_REGISTRATION_"))
+		.map((error) => ({
+			code: error.code,
+			moduleUuid: error.location.moduleUuid,
+			reason: error.details?.reason,
+			message: error.message,
+		}));
+}
+
+/** A create of a second case at the form's root (or in `repeat`), linked
+ *  as a child of the form's own new case. */
+function addCreate(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	caseType: string,
+	extra: { readonly repeat?: Uuid; readonly held?: boolean } = {},
+): void {
+	const form = doc.forms[formUuid];
+	const own = form.caseOperations?.[0];
+	if (own?.action !== "own") throw new Error("The form has its own case.");
+	const create = {
+		uuid: SECOND,
+		id: "second_case",
+		action: "create",
+		caseType,
+		target: { kind: "new" },
+		name: term(formField(extra.repeat === undefined ? NAME_F : KID_NAME_F)),
+		links: [
+			{
+				identifier: "parent",
+				targetType: "patient",
+				target: { kind: "op", opUuid: own.uuid },
+				relationship: "child",
+			},
+		],
+		...(extra.repeat !== undefined && { forEach: { repeat: extra.repeat } }),
+		...(extra.held === true && {
+			placement: {
+				kind: "save-to-case",
+				path: ["nova_operations", "second_case"],
+			},
+		}),
+	} as CaseOperation;
+	doc.forms[formUuid] = {
+		...form,
+		caseOperations: [...(form.caseOperations ?? []), create],
+	};
+}
+
+describe("caseListRegistrationApp: the always arm", () => {
+	it("admits another menu's registration form, which stays on its menu", () => {
+		for (const afterSubmit of ["case-list", "new-case"] as const) {
+			const doc = alwaysDoc({ afterSubmit });
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			expect(doc.formOrder[INTAKE]).toEqual([REG]);
+		}
+	});
+
+	it("admits the form's own links, after-submit, display condition and off-the-menu flag, which the after-empty-search arm refuses", () => {
+		const doc = alwaysDoc({
+			register: {
+				displayCondition: eq(sessionUser("username"), literal("ada")),
+				formLinks: [
+					{
+						uuid: testUuid("00000000-0000-4000-8000-0000000d0045"),
+						target: { type: "form", moduleUuid: CLINIC, formUuid: CHECKUP },
+					},
+				],
+			},
+		});
+		expect(registrationFindings(doc)).toEqual([]);
+		const offMenu = alwaysDoc({
+			register: { postSubmit: "firstMenu" },
+			configure: (draft) => {
+				draft.forms[REG].hiddenFromMenu = true;
+			},
+		});
+		expect(registrationFindings(offMenu)).toEqual([]);
+	});
+
+	it("asks the host's forms to read no search", () => {
+		const doc = alwaysDoc({ clinic: { caseSearchConfig: {} } });
+		expect(
+			registrationFindings(doc).map((finding) => finding.code),
+		).not.toContain("CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH");
+	});
+
+	it("refuses a form no longer in the app", () => {
+		expect(registrationFindings(alwaysDoc({ formUuid: GONE_FORM }))).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_FORM_NOT_FOUND",
+				moduleUuid: CLINIC,
+				reason: undefined,
+				message: `"Clinic" offers a registration form on its case list, but that form is no longer in the app. You can choose another registration form, or stop offering one (register_from_case_list null).`,
+			},
+		]);
+	});
+
+	it("refuses a form that is not a registration form", () => {
+		const doc = alwaysDoc({
+			formUuid: SURVEY,
+			intake: {
+				forms: [
+					intakeForm(),
+					{
+						uuid: SURVEY,
+						name: "Intake survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		});
+		expect(registrationFindings(doc)).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+				moduleUuid: CLINIC,
+				reason: "form-type",
+				message: `"Clinic" offers "Intake survey" on its case list, so "Intake survey" needs to register a new "patient" case, and it is a survey form. You can choose a registration form, or stop offering it there.`,
+			},
+		]);
+	});
+
+	it("refuses a registration form of another case type", () => {
+		const doc = alwaysDoc({
+			intake: { caseType: "kid" },
+			register: {
+				fields: [
+					f({
+						uuid: NAME_F,
+						kind: "text",
+						id: "case_name",
+						label: proseText("Name"),
+						caseWrite: { caseType: "kid", property: "case_name" },
+					}),
+				],
+			},
+		});
+		expect(registrationFindings(doc)).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+				moduleUuid: CLINIC,
+				reason: "case-type",
+				message: `"Clinic" lists "patient" cases and offers "Register patient" on its case list, but "Register patient" registers a "kid" case in "Intake". You can choose a form that registers a "patient" case, or stop offering it there.`,
+			},
+		]);
+	});
+
+	it("refuses a form whose own case Save to Case holds", () => {
+		const doc = alwaysDoc({
+			register: { openCondition: gt(term(formField(AGE_F)), literal(18)) },
+		});
+		expect(registrationMintsOwnCaseId(doc, REG)).toBe(false);
+		expect(registrationFindings(doc)).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+				moduleUuid: CLINIC,
+				reason: "own-case-save-to-case",
+				message: `"Clinic" offers "Register patient" on its case list, so CommCare HQ needs Case Management to register its new "patient" case, and "Register patient" saves that case through Save to Case. You can change the form's case so Case Management can hold it, or stop offering it there.`,
+			},
+		]);
+	});
+
+	it("refuses a form that also registers a case of the list's type at its root", () => {
+		const doc = alwaysDoc();
+		addCreate(doc, REG, "patient");
+		expect(rootBasicSubcaseCreates(doc, REG)).toEqual([
+			{ operationUuid: SECOND, caseType: "patient" },
+		]);
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(error) => error.code === "CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+		);
+		expect(findings.map((error) => [error.details, error.message])).toEqual([
+			[
+				{
+					formUuid: REG,
+					formName: "Register patient",
+					kind: "always",
+					caseType: "patient",
+					reason: "several-registrations",
+					operationUuid: SECOND,
+				},
+				`"Clinic" offers "Register patient" on its case list, but "Register patient" registers more than one "patient" case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other "patient" case into a repeat or to another form, or stop offering "Register patient" there.`,
+			],
+		]);
+	});
+
+	it("counts no child of another type, no child in a repeat and no child Save to Case holds", () => {
+		const otherType = alwaysDoc();
+		addCreate(otherType, REG, "kid");
+		const inRepeat = alwaysDoc();
+		addCreate(inRepeat, REG, "patient", { repeat: KIDS_F });
+		const held = alwaysDoc();
+		addCreate(held, REG, "patient", { held: true });
+		for (const doc of [otherType, inRepeat, held]) {
+			expect(
+				rootBasicSubcaseCreates(doc, REG).filter(
+					(create) => create.caseType === "patient",
+				),
+			).toEqual([]);
+			expect(
+				registrationFindings(doc).map((finding) => finding.reason),
+			).not.toContain("several-registrations");
+		}
+	});
+
+	it("refuses a form another menu offers after a search finds nothing", () => {
+		const doc = alwaysDoc({
+			intake: {
+				caseListConfig: searchList(),
+				caseSearchConfig: { formsReadSearch: true },
+				caseListMenuItem: {},
+				caseListRegistrationForm: { formUuid: REG },
+			},
+		});
+		expect(
+			registrationFindings(doc).filter(
+				(finding) => finding.moduleUuid === CLINIC,
+			),
+		).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+				moduleUuid: CLINIC,
+				reason: "after-empty-search-form",
+				message: `"Clinic" offers "Register patient" on its case list, but "Register patient" opens only after a search finds nothing in "Intake", so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`,
+			},
+		]);
+	});
+
+	it("refuses a host with no case type", () => {
+		const doc = alwaysDoc({
+			clinic: {
+				caseType: undefined,
+				caseListConfig: undefined,
+				forms: [
+					{
+						uuid: CHECKUP,
+						name: "Checkup",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		});
+		expect(registrationFindings(doc)).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST",
+				moduleUuid: CLINIC,
+				reason: "no-case-type",
+				message: `"Clinic" offers "Register patient" on its case list, but "Clinic" has no case type, so it has no case list to offer it from. You can set its case type, or stop offering "Register patient" there.`,
+			},
+		]);
+	});
+
+	it("refuses a host with a form that opens without a case", () => {
+		const doc = alwaysDoc({
+			clinic: {
+				forms: [
+					checkup(),
+					{
+						uuid: SURVEY,
+						name: "Clinic survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		});
+		expect(registrationFindings(doc)).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST",
+				moduleUuid: CLINIC,
+				reason: "form-opens-without-a-case",
+				message: `"Clinic" offers "Register patient" on its case list, but "Clinic survey" in "Clinic" opens without a case, and CommCare HQ offers registration from a case list only where every form of the menu opens a case. You can move "Clinic survey" to another menu, or stop offering "Register patient" on the list.`,
+			},
+		]);
+	});
+
+	it("refuses a host that shows its forms in the menu above", () => {
+		const doc = alwaysDoc({
+			configure: (draft) => {
+				draft.modules[CLINIC].formsInMenuAbove = true;
+			},
+		});
+		expect(
+			registrationFindings(doc).filter(
+				(finding) =>
+					finding.code === "CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE",
+			),
+		).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE",
+				moduleUuid: CLINIC,
+				reason: "host",
+				message: `"Clinic" shows its forms in the menu above, and CommCare offers no Register on the case list of such a menu, so "Register patient" would never be offered. You can give "Clinic" its own screen again (forms_in_menu_above null), or stop offering "Register patient" there.`,
+			},
+		]);
+	});
+
+	/** Households shows its forms on the first menu, each opening a chosen
+	 *  patient; Clinic is its submenu with a screen of its own. */
+	function underSharedCase(shape: AlwaysShape = {}): BlueprintDoc {
+		return buildDoc(
+			{
+				appName: "Clinic",
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "case_name", label: proseText("Name") }],
+					},
+				],
+				modules: [
+					{
+						uuid: HOUSEHOLDS,
+						name: "Households",
+						caseType: "patient",
+						caseListConfig: list(),
+						forms: [checkup(HOUSE_VISIT, "Household visit")],
+					},
+					{
+						uuid: CLINIC,
+						name: "Clinic",
+						caseType: "patient",
+						caseListConfig: list(),
+						forms: [checkup()],
+					},
+					{
+						uuid: INTAKE,
+						name: "Intake",
+						caseType: "patient",
+						caseListConfig: list(),
+						forms: [intakeForm(shape.register)],
+					},
+				],
+			},
+			(doc) => {
+				doc.modules[HOUSEHOLDS].formsInMenuAbove = true;
+				doc.modules[CLINIC] = {
+					...doc.modules[CLINIC],
+					parentModuleUuid: HOUSEHOLDS,
+					caseListRegistrationForm: {
+						kind: "always",
+						formUuid: REG,
+						afterSubmit: shape.afterSubmit ?? "case-list",
+					},
+				};
+			},
+		);
+	}
+
+	it("refuses a return whose frame would open with the first menu's shared case", () => {
+		expect(
+			registrationFindings(underSharedCase({ afterSubmit: "new-case" })),
+		).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE",
+				moduleUuid: CLINIC,
+				reason: "parent-shares-first-menu-case",
+				message: `"Clinic" is under "Households", which shows its forms on the app's first menu, where every form listed that way opens one chosen case. CommCare HQ would put that case ahead of "Clinic" when a worker returns from "Register patient". You can give "Households" its own screen again (forms_in_menu_above null), or stop offering "Register patient" there.`,
+			},
+		]);
+	});
+
+	it("admits a return cut before the shared case, and no return where the form's own after-submit is in force", () => {
+		expect(registrationFindings(underSharedCase())).toEqual([]);
+		expect(
+			registrationFindings(
+				underSharedCase({
+					afterSubmit: "new-case",
+					register: { postSubmit: "firstMenu" },
+				}),
+			),
+		).toEqual([]);
+	});
+
+	it("refuses carrying the new case into a selection of several", () => {
+		const several = (afterSubmit: "case-list" | "new-case") =>
+			alwaysDoc({
+				afterSubmit,
+				clinic: {
+					caseListConfig: {
+						...list(),
+						selection: { kind: "multiple", maximum: 5 },
+					},
+				},
+			});
+		expect(registrationFindings(several("new-case"))).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_MULTIPLE_RETURN",
+				moduleUuid: CLINIC,
+				reason: undefined,
+				message: `"Register patient" registers one case, but "Clinic" selects several cases, and CommCare can't carry that one new case into a selection of several. You can set After registering to Back to this list (after_submit "case-list"), or let "Clinic" select one case.`,
+			},
+		]);
+		expect(registrationFindings(several("case-list"))).toEqual([]);
+	});
+
+	it("refuses an advanced host, and a form of an advanced menu", () => {
+		const host = alwaysDoc({
+			configure: (draft) => {
+				draft.modules[CLINIC].heldKind = "advanced";
+			},
+		});
+		expect(registrationFindings(host)).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
+				moduleUuid: CLINIC,
+				reason: "host",
+				message: `"Clinic" is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering "Register patient" there.`,
+			},
+		]);
+		const form = alwaysDoc({
+			configure: (draft) => {
+				draft.modules[INTAKE].heldKind = "advanced";
+			},
+		});
+		expect(
+			registrationFindings(form).filter(
+				(finding) => finding.code === "CASE_LIST_REGISTRATION_ADVANCED_MENU",
+			),
+		).toEqual([
+			{
+				code: "CASE_LIST_REGISTRATION_ADVANCED_MENU",
+				moduleUuid: CLINIC,
+				reason: "form",
+				message: `"Register patient" is in "Intake", which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
+			},
+		]);
+	});
+
+	it("is reported by a run scoped to the form's menu, as by the full run", () => {
+		const doc = alwaysDoc({
+			formUuid: SURVEY,
+			intake: {
+				forms: [
+					intakeForm(),
+					{
+						uuid: SURVEY,
+						name: "Intake survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		});
+		const scope = {
+			moduleUuids: new Set([INTAKE]),
+			formUuids: new Set([SURVEY]),
+		};
+		const full = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		const scoped = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { scope });
+		expect(scoped).toEqual(
+			full.filter((error) => errorWithinScope(error, scope)),
+		);
+		expect(scoped.map((error) => error.code)).toContain(
+			"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+		);
+	});
+});
+
+describe("caseListRegistrationApp: the after-empty-search arm", () => {
+	it("refuses a form that also registers a case of its menu's type at its root", () => {
+		const doc = docWith();
+		const form = doc.forms[REGISTER];
+		const own = form.caseOperations?.[0];
+		if (own?.action !== "own") throw new Error("The form has its own case.");
+		const nameUuid = (doc.fieldOrder[REGISTER] ?? [])[0];
+		doc.forms[REGISTER] = {
+			...form,
+			caseOperations: [
+				...(form.caseOperations ?? []),
+				{
+					uuid: SECOND,
+					id: "second_case",
+					action: "create",
+					caseType: "patient",
+					target: { kind: "new" },
+					name: term(formField(nameUuid)),
+					links: [
+						{
+							identifier: "parent",
+							targetType: "patient",
+							target: { kind: "op", opUuid: own.uuid },
+							relationship: "child",
+						},
+					],
+				} as CaseOperation,
+			],
+		};
+		expect(findings(doc, "CASE_LIST_REGISTRATION_NOT_REGISTRATION")).toEqual([
+			{
+				moduleUuid: MODULE,
+				formUuid: undefined,
+				details: {
+					formUuid: REGISTER,
+					formName: "Register patient",
+					reason: "several-registrations",
+					caseType: "patient",
+					operationUuid: SECOND,
+				},
+				message: `Module "Patients" offers "Register patient" when a search finds nothing, but "Register patient" registers more than one "patient" case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other "patient" case into a repeat or to another form, or stop offering "Register patient" there.`,
+			},
+		]);
+	});
+
+	it("gives no always-arm finding to the form it offers on no menu", () => {
+		const doc = docWith();
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code),
+		).toEqual([]);
+	});
+
+	it("is reported by a run scoped away from the module, as by the filtered full run", () => {
+		const doc = docWith(
+			{
+				forms: [
+					visitForm(),
+					registerForm({
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					}),
+				],
+			},
+			{
+				uuid: OTHER_MODULE,
+				name: "Intake",
+				forms: [
+					{
+						uuid: OTHER_FORM,
+						name: "Intake survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		);
+		const scope = {
+			moduleUuids: new Set([OTHER_MODULE]),
+			formUuids: new Set([OTHER_FORM]),
+		};
+		const full = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		const scoped = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { scope });
+		expect(full.map((error) => error.code)).toContain(
+			"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+		);
+		expect(scoped).toEqual(
+			full.filter((error) => errorWithinScope(error, scope)),
+		);
 	});
 });

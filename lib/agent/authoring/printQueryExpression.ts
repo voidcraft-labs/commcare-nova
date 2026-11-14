@@ -253,11 +253,13 @@ export function queryPrinter(context: QueryPrintContext) {
 					"The saved record read has no record value spelling: only a property of the case chosen in a menu has one.",
 				);
 			}
+			case "value-list":
+				return call("list", ...value.items.map(expression));
 			default:
-				// `value-list` and the other held reads (`cases`, `table-rows`,
-				// `locations`, `selected-cases`) have no record spelling, and no
-				// authoring surface stores one. An app made in CommCare HQ can hold
-				// them, and reading those back belongs to bringing such an app in.
+				// The device-data reads (`cases`, `table-rows`, `locations`,
+				// `selected-cases`, a `project` that is no chosen case's property)
+				// have no record spelling. No authoring surface stores one, so none
+				// reaches this printer.
 				throw new Error(
 					`The saved ${value.kind} tree has no record value spelling.`,
 				);

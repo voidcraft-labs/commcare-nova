@@ -102,6 +102,13 @@ export type FormLinkRefusal =
 	  }
 	| { readonly kind: "menu-carries-values" }
 	| { readonly kind: "selection-cardinality" }
+	/** The target's frame would open through the app's first menu with the
+	 *  case every form listed there from a menu above opens.
+	 *  `aboveModuleUuid` is the menu to give its own screen again. */
+	| {
+			readonly kind: "first-menu-shared-case";
+			readonly aboveModuleUuid: Uuid;
+	  }
 	| { readonly kind: "otherwise-unreachable" }
 	| {
 			readonly kind: "otherwise-not-offered";
@@ -212,6 +219,11 @@ function targetRefusal(
 			case "selection-cardinality":
 			case "selection-case-type":
 				return { kind: "selection-cardinality" };
+			case "first-menu-shared-case":
+				return {
+					kind: "first-menu-shared-case",
+					aboveModuleUuid: verdict.aboveModuleUuid,
+				};
 		}
 	}
 	if (target.type === "module" && datums !== undefined) {

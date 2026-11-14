@@ -8,6 +8,7 @@ import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
+import { previewScreenEntries } from "../menuProjection";
 import { AppTestActionError } from "./errors";
 import {
 	type AppTestAuthoredAction,
@@ -47,20 +48,44 @@ function menu(doc: BlueprintDoc, value: string, language?: string) {
 		"Menu",
 	);
 }
+/** The menus whose forms a form name may address on the current screen: a
+ *  home or menu screen's own forms and those of every menu that shows its
+ *  forms there (`previewScreenEntries`); a record list's or a form's own
+ *  menu; any menu on Android's home screen. */
+function formAddressModules(
+	doc: BlueprintDoc,
+	state: AppTestSessionState,
+): ReadonlySet<Uuid> | undefined {
+	const screen = state.screen;
+	if (screen.kind === "device-home") return undefined;
+	if (screen.kind === "home" || screen.kind === "menu")
+		return new Set(
+			previewScreenEntries(
+				doc,
+				screen.kind === "home"
+					? { kind: "first-menu" }
+					: { kind: "menu", moduleUuid: screen.moduleUuid },
+			).flatMap((entry) => (entry.kind === "form" ? [entry.moduleUuid] : [])),
+		);
+	return new Set([screen.moduleUuid]);
+}
+
 function form(
 	doc: BlueprintDoc,
 	value: string,
-	moduleUuid?: Uuid,
+	moduleUuids?: ReadonlySet<Uuid>,
 	language?: string,
 ) {
 	return one(
 		value,
 		Object.values(doc.forms)
-			.filter(
-				(item) =>
-					moduleUuid === undefined ||
-					moduleUuidOfForm(doc, item.uuid) === moduleUuid,
-			)
+			.filter((item) => {
+				const owner = moduleUuidOfForm(doc, item.uuid);
+				return (
+					moduleUuids === undefined ||
+					(owner !== undefined && moduleUuids.has(owner))
+				);
+			})
 			.map((item) => ({
 				uuid: item.uuid,
 				names: [
@@ -128,15 +153,20 @@ export function bindAppTestAction(
 				moduleUuid: menu(doc, action.moduleUuid, state.language),
 			};
 			break;
+		case "records":
+			if (action.moduleUuid !== undefined)
+				bound = {
+					...action,
+					moduleUuid: menu(doc, action.moduleUuid, state.language),
+				};
+			break;
 		case "form":
 			bound = {
 				...action,
 				formUuid: form(
 					doc,
 					action.formUuid,
-					state.screen.kind === "home" || state.screen.kind === "device-home"
-						? undefined
-						: state.screen.moduleUuid,
+					formAddressModules(doc, state),
 					state.language,
 				),
 			};
@@ -195,7 +225,12 @@ export function appTestExpectationMismatch(
 		expect.formUuid !== undefined &&
 		(screen.kind !== "form" ||
 			screen.formUuid !==
-				form(doc, expect.formUuid, screen.moduleUuid, state.language))
+				form(
+					doc,
+					expect.formUuid,
+					new Set([screen.moduleUuid]),
+					state.language,
+				))
 	)
 		return "The observed form differs from the expected destination.";
 }

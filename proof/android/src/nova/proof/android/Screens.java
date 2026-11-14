@@ -132,6 +132,7 @@ final class Screens {
         Answers.table = request.optJSONObject("answers");
         Forms.views = request.optBoolean("views");
         Forms.typeRefused = request.optBoolean("typeRefused");
+        Forms.keys = request.optBoolean("keys");
         JSONObject walks = new JSONObject();
         JSONArray commands = request.optJSONArray("commands");
         if (commands != null) {

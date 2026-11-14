@@ -122,6 +122,48 @@ describe("form metadata and Connect helper ownership", () => {
 		expect(form?.connect).toEqual(doc.forms[FORM_UUID].connect);
 	});
 
+	it("turns a form's text formatting off and on again through admission and JSON", () => {
+		const doc = docWithEveryHelperClearableSlot();
+		const off = updateFormMutations(doc, FORM_UUID, { plainText: true });
+		const offDoc = produce(doc, (draft) => {
+			applyMutations(
+				draft,
+				admitMutationBatch(JSON.parse(JSON.stringify(off)) as unknown),
+			);
+		});
+		expect(runValidation(offDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(offDoc.forms[FORM_UUID]).toMatchObject({ plainText: true });
+
+		const on = updateFormMutations(offDoc, FORM_UUID, { plainText: null });
+		const onDoc = produce(offDoc, (draft) => {
+			applyMutations(
+				draft,
+				admitMutationBatch(JSON.parse(JSON.stringify(on)) as unknown),
+			);
+		});
+		expect(Object.hasOwn(onDoc.forms[FORM_UUID] ?? {}, "plainText")).toBe(
+			false,
+		);
+	});
+
+	it("creates a form with its text formatting off where the input says so", () => {
+		const doc = docWithEveryHelperClearableSlot();
+		const created = addFormMutations(doc, MODULE_UUID, {
+			uuid: testUuid("update-form-plain-form"),
+			name: "Plain",
+			type: "survey",
+			plainText: true,
+		});
+		const added = created.find((mutation) => mutation.kind === "addForm");
+		expect(added).toMatchObject({ form: { plainText: true } });
+		const formatted = addFormMutations(doc, MODULE_UUID, {
+			uuid: testUuid("update-form-formatted-form"),
+			name: "Formatted",
+			type: "survey",
+		}).find((mutation) => mutation.kind === "addForm");
+		expect(formatted).not.toMatchObject({ form: { plainText: true } });
+	});
+
 	it("refines an existing participant but cannot remove participation", () => {
 		const doc = docWithEveryHelperClearableSlot();
 		const refined = {

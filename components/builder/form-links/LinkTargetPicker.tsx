@@ -23,7 +23,7 @@ import { useFormLinkTargetChoices } from "@/lib/doc/hooks/useFormLinkChoices";
 import type { Uuid } from "@/lib/doc/types";
 import type { FormLinkTarget } from "@/lib/domain";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
-import { submenuNotOfferedReason, targetRefusal } from "./refusalCopy";
+import { menuChoiceRefusal, targetRefusal } from "./refusalCopy";
 
 export function sameTarget(
 	left: FormLinkTarget | undefined,
@@ -103,11 +103,7 @@ export function LinkTargetPickerContent({
 							reason={
 								menu.offered
 									? reasonOf(menu.target, menu.verdict)
-									: submenuNotOfferedReason(
-											menu.parentUuid === undefined
-												? undefined
-												: menuNameOf(menu.parentUuid),
-										)
+									: menuChoiceRefusal(menu, menuNameOf)
 							}
 							onClick={() => onChoose(menu.target)}
 						/>

@@ -36,6 +36,7 @@ DOCUMENTS = (
     "targeted-media-slots",
     "targeted-multi-select-destinations",
     "targeted-platform-declaration",
+    "targeted-search-no-title",
     "targeted-survey-menu",
     "targeted-tile-hidden-order",
 )

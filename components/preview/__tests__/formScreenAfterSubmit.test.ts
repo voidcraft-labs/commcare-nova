@@ -786,7 +786,7 @@ describe("afterSubmitRoute per platform", () => {
 			routeOn(
 				WEB_APPS_RULES,
 				{ type: "form", moduleUuid: MENU, formUuid: NOTE },
-				"form-hidden",
+				{ kind: "form-hidden", shownModuleUuid: MENU },
 			),
 		).toEqual({
 			kind: "module",
@@ -925,7 +925,7 @@ describe("afterSubmitRoute per platform", () => {
 		const route = routeOn(
 			ANDROID_RULES,
 			{ type: "form", moduleUuid: MENU, formUuid: NOTE },
-			"form-hidden",
+			{ kind: "form-hidden", shownModuleUuid: MENU },
 		);
 		expect(route).toMatchObject({
 			kind: "form",

@@ -4,8 +4,10 @@ import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	makeTranslationUnitId,
+	NO_SEARCH_SCREEN_TITLE,
 	plainColumn,
 	proseText,
+	simpleSearchInputDef,
 	translationUnitsById,
 } from "@/lib/domain";
 
@@ -132,5 +134,67 @@ describe("the labels a module's case list owns", () => {
 		const units = translationUnitsById(menuWithLabels({}));
 		expect(units.has(entry)).toBe(false);
 		expect(units.has(register)).toBe(false);
+	});
+});
+
+describe("a search's title unit", () => {
+	const SEARCH_MODULE = testUuid("translation-units-search-module");
+	const SEARCH_NAME = testUuid("translation-units-search-name");
+	const SEARCH_INPUT = testUuid("translation-units-search-input");
+	const title = makeTranslationUnitId("module", SEARCH_MODULE, "search-title");
+	function searchModule(
+		caseSearchConfig: NonNullable<
+			BlueprintDoc["modules"][string]
+		>["caseSearchConfig"],
+	): BlueprintDoc {
+		return buildDoc({
+			appName: "Clinic",
+			modules: [
+				{
+					uuid: SEARCH_MODULE,
+					name: "Patients",
+					caseType: "patient",
+					caseListMenuItem: {},
+					caseListConfig: resolveCaseListConfig({
+						columns: [plainColumn(SEARCH_NAME, "case_name", "Name")],
+						searchInputs: [
+							simpleSearchInputDef(
+								SEARCH_INPUT,
+								"case_name",
+								"Name",
+								"text",
+								"case_name",
+							),
+						],
+					}),
+					...(caseSearchConfig !== undefined && { caseSearchConfig }),
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+		});
+	}
+
+	it("is listed for an authored title and for the default Search", () => {
+		expect(translationUnitsById(searchModule({})).get(title)?.source).toBe(
+			"Search",
+		);
+		expect(
+			translationUnitsById(
+				searchModule({ searchScreenTitle: "Find a patient" }),
+			).get(title)?.source,
+		).toBe("Find a patient");
+	});
+
+	it("is not listed for a search with no title", () => {
+		expect(
+			translationUnitsById(
+				searchModule({ searchScreenTitle: NO_SEARCH_SCREEN_TITLE }),
+			).has(title),
+		).toBe(false);
 	});
 });

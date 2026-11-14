@@ -181,7 +181,7 @@ rather than becoming opaque text that renames cannot maintain.
 
 Wording is Markdown. Answer interpolation is parsed at this boundary and printed
 back to the same authoring representation. Literal braces and backslashes must
-round-trip. Expressions are authored in two grammars, one per slot family: form
+round-trip. A `{{= formula}}` insertion ends at the first `}}` outside a quoted string. Wording takes `{{= formula}}` for a calculated value, parsed in the text's prose slot (`proseSlots.ts`). Expressions are authored in two grammars, one per slot family: form
 logic (fields, Connect, form links) in CommCare's form XPath, and record
 expressions (filters, calculated columns, search, case operations, display
 conditions) in the record dialect. Each holds the round-trip law under the
@@ -190,6 +190,10 @@ is canonical, so a read sent back as an edit stores the same tree. A form-logic
 re-parse of an edited slot takes its stored tree as its binding hint. Instance
 and current()-rooted paths bind to typed identities in their actual slot.
 Connect expressions resolve from their generated evaluation node through the same form graph as field expressions.
+`list(<value>, …)` is `value-list`: several values a case value is compared
+with by `=` or `!=`. The parser adds no rule about where one stands: the
+checker admits the arm only in a slot CommCare's server search alone reads,
+and CSQL representability refuses it anywhere but opposite `=` or `!=`.
 
 Preparation runs inside the authorized workspace invocation. Agent and MCP workspaces retain incomplete construction privately; saving
 passes the full canonical gate. Builder edits retain their immediate canonical

@@ -66,6 +66,7 @@ import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
+	type CaseListRegistrationReturn,
 	type DatumEntry,
 	type DatumRef,
 	datumRefKey,
@@ -75,8 +76,10 @@ import {
 	type FormLinkTarget,
 	formLinkEntries,
 	guardedLinkDatums,
+	menuScreenOf,
 	moduleHasCaseListMenuItem,
 	moduleParent,
+	moduleShowsFormsInMenuAbove,
 	type OtherwiseDestination,
 	projectedModulePreorder,
 	type ResolvedFormLinkTarget,
@@ -259,7 +262,10 @@ export interface FormLinkProjectionContext {
 	readonly alignedSelectionSources: WeakMap<SessionDatum, Uuid>;
 	readonly tileGroupingSources: WeakMap<SessionDatum, Uuid>;
 	readonly datumIds: Map<Uuid, readonly EntryDatumId[]>;
-	/** Stable command identity for runtime projections; never emitted on wire. */
+	/** Stable command identity for runtime projections; never emitted on wire.
+	 * A module command records the module whose screen its id names, which is
+	 * the parent for a submenu that shows its forms there; a form command
+	 * records its own module and form. */
 	readonly commandTargets: WeakMap<
 		FrameChild,
 		{ moduleUuid: Uuid; formUuid?: Uuid }
@@ -454,6 +460,15 @@ function formIndexOf(
 		);
 	}
 	return index;
+}
+
+/** A form's suite command, `m{M}-f{K}`, in the projection's sequences. */
+export function formCommandId(
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): string {
+	return `m${moduleIndexOf(ctx, moduleUuid)}-f${formIndexOf(ctx, moduleUuid, formUuid)}`;
 }
 
 /** The module that owns `formUuid` in the projection's sequences. */
@@ -1218,6 +1233,104 @@ export function commonPrefixById(
 	return prefix;
 }
 
+/** The first selection in the common prefix of the root lists: the chosen
+ *  case HQ puts ahead of every frame built through the first menu. Undefined
+ *  where that prefix holds no selection. The root lists are the form entries
+ *  of every module that shows its forms above, whichever screen lists them,
+ *  in module then form order (HQ's `WorkflowHelper._root_module_datums`); a
+ *  case list entry is never one (`_get_entries_datums`). */
+export function firstMenuSharedCase(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+): FrameDatum | undefined {
+	return commonPrefixById(rootFrameDatumLists(doc, ctx)).find(
+		(datum) => datum.requiresSelection,
+	);
+}
+
+/** HQ's `id_strings.menu_id`: the root menu's id. */
+export const ROOT_MENU_ID = "root";
+
+/**
+ * HQ's `id_strings.menu_id`: the id of the `<menu>` that lists the module's
+ * forms. `m<M>` for a module with its own screen; for one that shows its
+ * forms in the menu above, its parent's id, which is `root` where the parent
+ * shows its forms above too; `root` for a top-level one.
+ */
+export function menuIdOf(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): string {
+	const screen = menuScreenOf(doc, moduleUuid);
+	return screen.kind === "first-menu"
+		? ROOT_MENU_ID
+		: `m${moduleIndexOf(ctx, screen.moduleUuid)}`;
+}
+
+/** The form entries of every module that shows its forms above, whichever
+ *  screen lists it, in module then form order (HQ's
+ *  `WorkflowHelper._root_module_datums`); a case list entry is never one
+ *  (`_get_entries_datums` skips `*-case-list`). */
+function rootFrameDatumLists(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+): (readonly FrameDatum[])[] {
+	return ctx.moduleOrder
+		.filter((moduleUuid) =>
+			moduleShowsFormsInMenuAbove(doc.modules[moduleUuid]),
+		)
+		.flatMap((moduleUuid) => moduleFormDatumLists(doc, ctx, moduleUuid));
+}
+
+/** The datum list of each of the module's form entries, in form order. */
+function moduleFormDatumLists(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): (readonly FrameDatum[])[] {
+	return (ctx.formOrder[moduleUuid] ?? []).map((formUuid) =>
+		entryFrameDatums(doc, ctx, moduleUuid, formUuid),
+	);
+}
+
+/** The datum lists `get_frame_children` takes the common prefix of: the
+ *  module's own form entries, or, where its menu id is `root`, the form
+ *  entries of every module that shows its forms above, in module then form
+ *  order (`WorkflowHelper._root_module_datums`). */
+function frameDatumLists(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): (readonly FrameDatum[])[] {
+	return menuScreenOf(doc, moduleUuid).kind === "first-menu"
+		? rootFrameDatumLists(doc, ctx)
+		: moduleFormDatumLists(doc, ctx, moduleUuid);
+}
+
+/** The module command, or nothing where the menu id is `root`. The command
+ *  is recorded against the module whose screen its id names. */
+function menuCommand(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): FrameChild[] {
+	const screen = menuScreenOf(doc, moduleUuid);
+	if (screen.kind === "first-menu") return [];
+	return [frameCommand(ctx, screen.moduleUuid)];
+}
+
+/** Whether a selection datum stands before the frame's first command. */
+export function frameLeadsWithSelection(
+	children: readonly FrameChild[],
+): boolean {
+	for (const child of children) {
+		if (child.type === "command") return false;
+		if (child.datum.requiresSelection) return true;
+	}
+	return false;
+}
+
 /**
  * HQ's `get_frame_children(module, form)` for a form target, or its
  * `_frame_children_for_module(module, include_user_selections=False)` for a
@@ -1254,70 +1367,88 @@ function frameCommand(
 	return child;
 }
 
-function baseFormFrameChildren(
+/**
+ * HQ's `WorkflowHelper.get_frame_children(module, form, include_root_module)`:
+ * the module command (none where the menu id is `root`), the common prefix
+ * by id of `frameDatumLists`, then for a form its command and its own datums
+ * past that prefix. `includeRootModule` (the `previous` frame) adds, for a
+ * submenu whose menu id is not `root`, the form entries of the module whose
+ * index the parent's menu id names (none where it is `root`) and that
+ * parent's command ahead of the module's.
+ */
+function frameChildrenOf(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
-	formUuid: Uuid,
+	formUuid?: Uuid,
+	includeRootModule = false,
 ): FrameChild[] {
-	const formUuids = ctx.formOrder[moduleUuid] ?? [];
-	// HQ reads every `m{N}-f{K}` entry of the module (browse `*-case-list`
-	// entries are filtered out in `_get_entries_datums`), so the common
-	// prefix runs over the module's FORMS only.
-	const common = commonPrefixById(
-		formUuids.map((uuid) => entryFrameDatums(doc, ctx, moduleUuid, uuid)),
-	);
+	const children: FrameChild[] = [];
+	const lists = [...frameDatumLists(doc, ctx, moduleUuid)];
+	if (menuScreenOf(doc, moduleUuid).kind !== "first-menu") {
+		const parentUuid = moduleParent(doc, moduleUuid);
+		if (includeRootModule && parentUuid !== undefined && parentUuid !== null) {
+			const parentScreen = menuScreenOf(doc, parentUuid);
+			if (parentScreen.kind === "menu")
+				lists.push(...moduleFormDatumLists(doc, ctx, parentScreen.moduleUuid));
+			children.push(...menuCommand(doc, ctx, parentUuid));
+		}
+		children.push(...menuCommand(doc, ctx, moduleUuid));
+	}
+	const common = commonPrefixById(lists);
+	children.push(...common.map((datum) => ({ type: "datum" as const, datum })));
+	if (formUuid === undefined) return children;
+	children.push(frameCommand(ctx, moduleUuid, formUuid));
 	const remaining = entryFrameDatums(doc, ctx, moduleUuid, formUuid).slice(
 		common.length,
 	);
-	return [
-		frameCommand(ctx, moduleUuid),
-		...common.map((datum) => ({ type: "datum" as const, datum })),
-		frameCommand(ctx, moduleUuid, formUuid),
+	children.push(
 		...remaining.map((datum) => ({ type: "datum" as const, datum })),
-	];
+	);
+	return children;
 }
 
-/** `_frame_children_for_module`: ancestors include their common user
- * selections; the destination child contributes its command only. */
+/** `_frame_children_for_module(module, include_user_selections=False)`:
+ * the parent's `get_frame_children` with its common user selections, then
+ * the module's own command, none where its menu id is `root`. */
 export function moduleFrameChildren(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 ): FrameChild[] {
 	const parentUuid = moduleParent(doc, moduleUuid);
-	const ownCommand = frameCommand(ctx, moduleUuid);
-	if (parentUuid === undefined || parentUuid === null) return [ownCommand];
-	const parentForms = ctx.formOrder[parentUuid] ?? [];
-	const parentCommon = commonPrefixById(
-		parentForms.map((uuid) => entryFrameDatums(doc, ctx, parentUuid, uuid)),
-	);
 	return [
-		...moduleFrameChildren(doc, ctx, parentUuid),
-		...parentCommon.map((datum) => ({ type: "datum" as const, datum })),
-		ownCommand,
+		...(parentUuid === undefined || parentUuid === null
+			? []
+			: frameChildrenOf(doc, ctx, parentUuid)),
+		...menuCommand(doc, ctx, moduleUuid),
 	];
 }
 
-/** `get_frame_children(module, form)` plus HQ's parent-frame prepend. */
+/** The id a frame child is compared by in HQ's parent prepend: a command's
+ *  or a datum's. */
+function frameChildId(child: FrameChild): string {
+	return child.type === "command" ? child.id : child.datum.id;
+}
+
+/** `get_frame_children(module, form)` plus HQ's
+ * `prepend_parent_frame_children`: the parent's `get_frame_children`, then
+ * every child of the form's own frame whose id the parent part does not
+ * hold. */
 export function formFrameChildren(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): FrameChild[] {
-	const base = baseFormFrameChildren(doc, ctx, moduleUuid, formUuid);
+	const base = frameChildrenOf(doc, ctx, moduleUuid, formUuid);
 	const parentUuid = moduleParent(doc, moduleUuid);
 	if (parentUuid === undefined || parentUuid === null) return base;
-	const prefix = moduleFrameChildren(doc, ctx, moduleUuid).slice(0, -1);
-	const prefixedIds = new Set(
-		prefix.flatMap((child) => (child.type === "datum" ? [child.datum.id] : [])),
-	);
+	const prefix = frameChildrenOf(doc, ctx, parentUuid);
+	const prefixedIds = new Set(prefix.map(frameChildId));
 	return [
 		...prefix,
-		...base.filter(
-			(child) => child.type === "command" || !prefixedIds.has(child.datum.id),
-		),
+		...base.filter((child) => !prefixedIds.has(frameChildId(child))),
 	];
 }
 
@@ -1669,28 +1800,7 @@ export function previousEntryFrameChildren(
 	moduleUuid: Uuid,
 	formUuid: Uuid,
 ): FrameChild[] {
-	const parentUuid = moduleParent(doc, moduleUuid);
-	let children: FrameChild[];
-	if (parentUuid === undefined || parentUuid === null) {
-		children = baseFormFrameChildren(doc, ctx, moduleUuid, formUuid);
-	} else {
-		const childForms = ctx.formOrder[moduleUuid] ?? [];
-		const rootForms = ctx.formOrder[parentUuid] ?? [];
-		const common = commonPrefixById([
-			...childForms.map((uuid) => entryFrameDatums(doc, ctx, moduleUuid, uuid)),
-			...rootForms.map((uuid) => entryFrameDatums(doc, ctx, parentUuid, uuid)),
-		]);
-		const remaining = entryFrameDatums(doc, ctx, moduleUuid, formUuid).slice(
-			common.length,
-		);
-		children = [
-			frameCommand(ctx, parentUuid),
-			frameCommand(ctx, moduleUuid),
-			...common.map((datum) => ({ type: "datum" as const, datum })),
-			frameCommand(ctx, moduleUuid, formUuid),
-			...remaining.map((datum) => ({ type: "datum" as const, datum })),
-		];
-	}
+	const children = frameChildrenOf(doc, ctx, moduleUuid, formUuid, true);
 	let last = children.pop();
 	while (
 		last !== undefined &&
@@ -1715,81 +1825,125 @@ function staticFrameChild(child: FrameChild): PendingChild {
 		: functionChild(datum);
 }
 
+/** One return frame of a registration form a case list offers. */
+export interface CaseListFormReturnFrame {
+	readonly ifClause: WireExpr;
+	readonly children: MatchedChild[];
+	/** The frame's children before matching, cut where `children` is cut:
+	 *  what Preview's `screenOfFrame` reads. Never emitted. */
+	readonly target: readonly FrameChild[];
+}
+
 /**
- * HQ's `CaseListFormWorkflow` frame for a no-matches registration form
- * returning to its host module under `post_form_workflow: case_list`: the
- * host's `_frame_children_for_module` plus the common datum prefix of its
- * menu forms (`get_frame_children(target_module)`), matched to the source
- * form's datums (`_get_datums_matched_to_source`) and cut at the datum the
- * form's new case satisfies (`CaseListFormStackFrames.add_children` breaks
- * at `source_session_var`). For a host whose forms read the search that is the module
- * command plus the results query re-keyed to the new case id, so the
- * worker lands on Results showing the case they just registered.
+ * HQ's `CaseListFormWorkflow` frames for a registration form a host's case
+ * list offers (`get_stack_frames_for_case_list_form_target`): the host's
+ * `_frame_children_for_module` plus the common datum prefix of its menu
+ * forms (`get_frame_children(target_module)`), matched to the form's datums
+ * (`_get_datums_matched_to_source`), where the host's first selection of
+ * `caseType` reads the form's new case and a query feeding it is re-keyed to
+ * that case.
  *
- * `sourceSessionVar` is the form's own new-case datum (`case_id_new_<t>_0`).
+ * `case-list` (`post_form_workflow: case_list`) is one frame cut before the
+ * matched selection (`CaseListFormStackFrames.add_children` breaks at
+ * `source_session_var`), so the worker returns to the host's screen with no
+ * case chosen; for a host whose forms read the search that is the module
+ * command plus the results query keyed to the new case. `new-case`
+ * (`default`) is two frames, in this order: one guarded by the new case
+ * being on the device and holding every child, the matched selection reading
+ * the new case, then one guarded by its absence and cut as `case-list` is.
+ * Each guard opens with `count(S/return_to) = 1 and S/return_to = 'm{H}'`
+ * (`get_if_clause`), so nothing fires unless the host's Register action
+ * opened the form.
+ *
+ * `newCaseId` is the form's own new-case datum (`case_id_new_<t>_0`).
  */
-export function caseListFormReturnFrame(
+export function caseListFormReturnFrames(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
-	hostModuleUuid: Uuid,
-	sourceSessionVar: string,
+	hostUuid: Uuid,
+	newCaseId: string,
 	caseType: string,
-): { readonly ifClause: WireExpr; readonly children: MatchedChild[] } {
+	afterSubmit: CaseListRegistrationReturn,
+): readonly CaseListFormReturnFrame[] {
 	/* HQ's `_get_entries_datums` reads form entries only (`_include_datums`
 	 * skips the `*-case-list` entry), so a host without menu forms has no
 	 * common prefix: the frame is the host command alone, and the worker
 	 * returns to the module rather than to a Results keyed to the new case. */
-	const hostForms = ctx.formOrder[hostModuleUuid] ?? [];
+	const hostForms = ctx.formOrder[hostUuid] ?? [];
 	const common = commonPrefixById(
-		hostForms.map((uuid) => entryFrameDatums(doc, ctx, hostModuleUuid, uuid)),
+		hostForms.map((uuid) => entryFrameDatums(doc, ctx, hostUuid, uuid)),
 	);
 	const target: FrameChild[] = [
-		...moduleFrameChildren(doc, ctx, hostModuleUuid),
+		...moduleFrameChildren(doc, ctx, hostUuid),
 		...common.map((datum) => ({ type: "datum" as const, datum })),
 	];
-	const pending: PendingChild[] = [];
-	for (const [index, child] of target.entries()) {
-		if (child.type === "command") {
-			pending.push(child);
-			continue;
-		}
+	const matchIndex = target.findIndex(
+		(child) =>
+			child.type === "datum" &&
+			child.datum.query === undefined &&
+			child.datum.requiresSelection &&
+			child.datum.caseType === caseType,
+	);
+	const pending: PendingChild[] = target.map((child, index) => {
+		if (child.type === "command") return child;
 		const { datum } = child;
-		if (datum.query !== undefined) {
-			const next = target[index + 1];
-			const nextMatches =
-				next?.type === "datum" &&
-				next.datum.requiresSelection &&
-				next.datum.caseType === caseType;
-			pending.push(
-				queryChild(
-					datum,
-					nextMatches ? sourceSessionVar : datum.query.nextDatumId,
-				),
+		if (datum.query !== undefined)
+			return queryChild(
+				datum,
+				index + 1 === matchIndex ? newCaseId : datum.query.nextDatumId,
 			);
-			continue;
-		}
-		if (!datum.requiresSelection) {
-			pending.push(functionChild(datum));
-			continue;
-		}
-		// The datum the new case satisfies ends the frame; any other
-		// selection reads its own session value, as HQ's unmatched target.
-		if (datum.caseType === caseType) break;
-		pending.push({
+		if (!datum.requiresSelection) return functionChild(datum);
+		/* The matched selection reads the new case; any other selection reads
+		 * its own session value, as HQ's unmatched target does. */
+		return {
 			type: "datum",
 			id: datum.id,
-			value: sessionDataRef(datum.id),
-		});
-	}
+			value: sessionDataRef(index === matchIndex ? newCaseId : datum.id),
+		};
+	});
+	const cut = matchIndex < 0 ? target.length : matchIndex;
 	const returnTo = sessionDataRef(RETURN_TO_DATUM_ID);
-	const command = `m${moduleIndexOf(ctx, hostModuleUuid)}`;
-	return {
-		ifClause: w.and(
+	const command = `m${moduleIndexOf(ctx, hostUuid)}`;
+	const guard = (...extra: WireExpr[]): WireExpr =>
+		w.and(
 			w.eq(w.call("count", [returnTo]), w.num(1)),
 			w.eq(returnTo, w.str(command)),
-		),
-		children: replaceSessionReferences(pending, new Set([sourceSessionVar])),
+			...extra,
+		);
+	const sources = new Set([newCaseId]);
+	const cutFrame: CaseListFormReturnFrame = {
+		ifClause: guard(),
+		children: replaceSessionReferences(pending.slice(0, cut), sources),
+		target: target.slice(0, cut),
 	};
+	if (afterSubmit === "case-list") return [cutFrame];
+	const newCaseCount = w.call("count", [
+		caseById(sessionDataRef(newCaseId), "casedb"),
+	]);
+	return [
+		{
+			ifClause: guard(w.gt(newCaseCount, w.num(0))),
+			children: replaceSessionReferences(pending, sources),
+			target,
+		},
+		{ ...cutFrame, ifClause: guard(w.eq(newCaseCount, w.num(0))) },
+	];
+}
+
+/** The entry's new-case datum for `caseType` (`case_id_new_<type>_0`): the
+ *  session value a registration's own new case, or a basic child of that
+ *  type, takes. Undefined where the entry gives the form no new case of the
+ *  type. */
+export function entryNewCaseDatumId(
+	datums: readonly SessionDatum[],
+	caseType: string,
+): string | undefined {
+	return datums.find(
+		(candidate) =>
+			candidate.nodeset === undefined &&
+			candidate.caseType === caseType &&
+			candidate.id.startsWith("case_id_new_"),
+	)?.id;
 }
 
 /** HQ `const.RETURN_TO`: the datum the Register action pushes so the
@@ -1811,8 +1965,8 @@ export function moduleDestinationFrameChildren(
 /**
  * The static `parentMenu` destination (HQ `parent_module`,
  * `_frame_children_for_module(module.root_module)`): the parent module's
- * frame with its selections kept, which is the form's module frame without
- * its last child. A module with no parent has none.
+ * `get_frame_children`, its selections kept. A module with no parent has
+ * none.
  */
 export function parentMenuDestinationFrameChildren(
 	doc: BlueprintDoc,
@@ -1821,9 +1975,9 @@ export function parentMenuDestinationFrameChildren(
 ): MatchedChild[] {
 	const parentUuid = moduleParent(doc, moduleUuid);
 	if (parentUuid === undefined || parentUuid === null) return [];
-	const pending: PendingChild[] = moduleFrameChildren(doc, ctx, moduleUuid)
-		.slice(0, -1)
-		.map(staticFrameChild);
+	const pending: PendingChild[] = frameChildrenOf(doc, ctx, parentUuid).map(
+		staticFrameChild,
+	);
 	return replaceSessionReferences(pending, new Set());
 }
 

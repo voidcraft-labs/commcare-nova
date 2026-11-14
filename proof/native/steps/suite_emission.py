@@ -19,6 +19,10 @@ registration.
 - ``nested_menus`` / ``no_matches``: with endpoints, and the form Core
   opens regenerated (``<scenario>.hq.xml``: the second module's first form
   for nested menus, the last module's first form for no-matches).
+- ``menu_screens``: menus that show their forms in the menu above and
+  registration from the case list, with endpoints, each document's suite and,
+  for the two-registrations control, the error HQ's own module validator gives
+  its case list (``ModuleValidator.validate_case_list_form``).
 - ``localizations(family)``: the localization and worker corpora, each form
   regenerated and, for localization, each language's app strings
   (``<scenario>.hq.<lang>.strings.txt``).
@@ -160,6 +164,37 @@ nested_menus = _child_menu_step("nested-menu", "nested-menu-*.json", "nested-men
 no_matches = _child_menu_step(
     "no-matches", "no-matches-*.json", "no-matches-evidence", lambda app: len(app.modules) - 1
 )
+
+
+def menu_screens(session):
+    exports = session.family("menu-screens")
+    records = []
+    flags = {"CASE_SEARCH_ADVANCED", "SESSION_ENDPOINTS"}
+    with _check(session, ENDPOINT_DOMAIN, flags):
+        from corehq.apps.app_manager.helpers.validators import ModuleValidator
+
+        for source in sorted(exports.glob("*.json")):
+            if source.name.endswith((".screens.json", ".offers.json")):
+                continue
+            raw = source.read_bytes()
+            app = _target(import_source(raw, ENDPOINT_DOMAIN), "menu-screens-evidence")
+            suite = hand_assembled_suite(app, endpoints=True)
+            source.with_suffix(".hq-suite.xml").write_bytes(suite)
+            records.append(
+                {
+                    "scenario": source.stem,
+                    "sourceSha256": sha256(raw),
+                    "local": source.with_suffix(".suite.xml").read_bytes(),
+                    "native": suite,
+                    "caseListFormErrors": sorted(
+                        error["type"]
+                        for module in app.get_modules()
+                        if module.doc_type == "Module"
+                        for error in ModuleValidator(module).validate_case_list_form()
+                    ),
+                }
+            )
+    return records
 
 
 def localizations(family):

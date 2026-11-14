@@ -12,9 +12,11 @@ import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import {
+	asMediaAssetId,
 	hiddenSearchInputDef,
 	linkColumn,
 	plainColumn,
+	proseText,
 	simpleSearchInputDef,
 	tileCell,
 } from "@/lib/domain";
@@ -28,6 +30,7 @@ import {
 } from "../afterSubmitStack";
 import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
+import { previewRegisterAction } from "../caseListRegistration";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import { projectTileGrid } from "../caseTileLayout";
 import { planTileCell } from "../caseTileRendering";
@@ -196,6 +199,67 @@ function entryPointArgs(platform: Platform) {
 		},
 		rules: previewPlatformRules(platform),
 	};
+}
+
+const REGISTER_HOST = testUuid("cell-model-register-host");
+const REGISTER_FORM = testUuid("cell-model-register-form");
+const REGISTER_ICON = asMediaAssetId(testUuid("cell-model-register-icon"));
+const REGISTER_AUDIO = asMediaAssetId(testUuid("cell-model-register-audio"));
+
+/** A case list that always offers another menu's registration form, its
+ *  Register button holding an icon and a spoken label. */
+function registerActionDoc() {
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "cell-model-register-host",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "cell-model-register-form",
+						name: "Register patient",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[REGISTER_HOST].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: REGISTER_FORM,
+		icon: REGISTER_ICON,
+		audioLabel: REGISTER_AUDIO,
+		afterSubmit: "case-list",
+	};
+	assertAdmittedPreviewDoc(doc);
+	return doc;
 }
 
 function searchFixture() {
@@ -380,6 +444,24 @@ export const PLATFORM_MODEL_CHECKS = {
 		expect(caseListMenuItemSelection(WEB_APPS)).toEqual({ kind: "step-back" });
 		expect(caseListMenuItemSelection(ANDROID)).toEqual({
 			kind: "device-home",
+		});
+	},
+
+	/* The Register button on a case list shows its text alone in Web Apps,
+	 * and its icon and spoken label beside it on Android. */
+	"register-action-media": () => {
+		const doc = registerActionDoc();
+		expect(previewRegisterAction(doc, REGISTER_HOST, "web-apps")).toMatchObject(
+			{
+				label: "Register patient",
+				icon: undefined,
+				audioLabel: undefined,
+			},
+		);
+		expect(previewRegisterAction(doc, REGISTER_HOST, "android")).toMatchObject({
+			label: "Register patient",
+			icon: REGISTER_ICON,
+			audioLabel: REGISTER_AUDIO,
 		});
 	},
 

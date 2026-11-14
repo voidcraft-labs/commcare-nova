@@ -72,6 +72,7 @@ export function IdMappingCard({
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
+		notOnList: value.notOnList,
 		tile: value.tile,
 	};
 	const setField = (next: string) =>

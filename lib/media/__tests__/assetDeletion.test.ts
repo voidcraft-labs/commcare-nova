@@ -161,6 +161,32 @@ describe("carriersForAsset", () => {
 		expect(carriers).toHaveLength(2);
 	});
 
+	it("names the Register button a case list carries the asset on", () => {
+		walkAuthoredAssetRefs.mockReturnValue([
+			{
+				assetId: ASSET_ID,
+				slotKind: "image",
+				location: {
+					kind: "case_list_registration_icon",
+					moduleUuid: testUuid("patients"),
+					moduleName: "Patients",
+				},
+			},
+			{
+				assetId: ASSET_ID,
+				slotKind: "audio",
+				location: {
+					kind: "case_list_registration_audio_label",
+					moduleUuid: testUuid("patients"),
+					moduleName: "Patients",
+				},
+			},
+		]);
+		expect(carriersForAsset(doc, ASSET_ID)).toEqual([
+			"the Register button on Patients's case list",
+		]);
+	});
+
 	it("dedups identical carrier phrases", () => {
 		walkAuthoredAssetRefs.mockReturnValue([
 			{ assetId: ASSET_ID, slotKind: "image", location: { kind: "app_logo" } },

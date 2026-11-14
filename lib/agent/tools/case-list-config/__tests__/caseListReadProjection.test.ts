@@ -318,4 +318,53 @@ describe("case-list read projections", () => {
 		expect(tiled).toContain("      saved_off_screen:\n");
 		expect(tiled).not.toContain("the list's search matches these");
 	});
+
+	it("summary says which columns are not on the list, and keeps the search note to columns it carries", () => {
+		const base = independentlyArrangedDoc();
+		const config = base.modules[MOD_A]?.caseListConfig;
+		if (config === undefined) throw new Error("fixture config missing");
+		const detailOnly = plainColumn(
+			testUuid("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+			"external_id",
+			"External ID",
+			{ visibleInList: false, notOnList: true },
+		);
+		const offScreen = plainColumn(
+			testUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+			"date_opened",
+			"Opened",
+			{ visibleInList: false, visibleInDetail: false, notOnList: true },
+		);
+		const added = [detailOnly, offScreen];
+		const doc = {
+			...base,
+			modules: {
+				...base.modules,
+				[MOD_A]: {
+					...base.modules[MOD_A],
+					caseListConfig: {
+						...config,
+						columns: [...config.columns, ...added],
+						listColumnOrder: [
+							...config.listColumnOrder,
+							...added.map((column) => column.uuid),
+						],
+						detailColumnOrder: [
+							...config.detailColumnOrder,
+							...added.map((column) => column.uuid),
+						],
+					},
+				},
+			},
+		};
+		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
+		const detailLine = summary
+			.split("\n")
+			.find((line) => line.includes(String(detailOnly.uuid)));
+		expect(detailLine).toMatch(/External ID.*\(not on the list\)$/);
+		expect(summary).not.toContain("saved_off_screen");
+		const offTheList = summary.indexOf("      saved_off_the_list:");
+		expect(offTheList).toBeGreaterThan(-1);
+		expect(summary.slice(offTheList)).toContain(String(offScreen.uuid));
+	});
 });

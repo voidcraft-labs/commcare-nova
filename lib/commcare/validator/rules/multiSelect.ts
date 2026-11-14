@@ -31,7 +31,7 @@ import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {
 	datumRefKey,
 	type Expression,
-	type ExpressionSlotRef,
+	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
@@ -135,7 +135,7 @@ function referencePartsReadCase(value: unknown): boolean {
  * collections, explicit selected-case sets and their row-local reads stay distinct. */
 function expressionReadsSelectedCase(
 	doc: BlueprintDoc,
-	slot: ExpressionSlotRef,
+	slot: SlotContextRef,
 	expression: Expression,
 ): boolean {
 	const context = slotContext(doc, slot, new Map());

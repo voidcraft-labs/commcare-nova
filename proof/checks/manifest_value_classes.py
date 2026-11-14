@@ -668,7 +668,9 @@ def _protected_message_values(form, base):
             if _local(value) != "value" or name in values:
                 return None
             values[name] = value
-        if None not in values or "markdown" not in values:
+        # The message's own markdown copy is optional: Nova writes none, and a retained control holds the one it
+        # was emitted with.
+        if None not in values:
             return None
         internal = set(values) - allowed
         held_media = internal & set(media_modes)
@@ -4452,6 +4454,47 @@ on_display_only_module_with_tile_list.__doc__ = (
 )
 
 
+def default_on_multi_select_host(use, manifest):
+    """``menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host``: a registration
+    form offered from a case list that selects several cases, whose ``post_form_workflow`` is ``default``: HQ's
+    return frame carries the one new case into the selection (``CaseListFormWorkflow._get_stack_frames``)."""
+    return _case_list_form_reader(
+        lambda at, module, form_id: (
+            ((module.get("case_list_form") or {}).get("post_form_workflow") or "default") == "default"
+            and _multi_select(module)
+        )
+    )(use, manifest)
+
+
+def put_in_root_beside_an_endpoint_inline_search_or_form_return(use, manifest):
+    """``menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of``: a module that shows
+    its forms in the menu above (``put_in_root``) beside one of what HQ's build refuses there: its own
+    ``session_endpoint_id``, inline search (``util.py::module_uses_inline_search``), a form of its own whose
+    ``post_form_workflow`` is ``module``, a form of a child module whose ``post_form_workflow`` is
+    ``parent_module``, or a ``form_links`` entry anywhere in the app that names it by ``module_unique_id`` with no
+    ``form_id`` (``helpers/validators.py``: ``endpoint to display only forms``, ``inline search to display only
+    forms``, ``form link to display only forms``)."""
+    at, module = _module_of_detail(use)
+    if module is None:
+        return None
+    if not module.get("put_in_root"):
+        return False
+    if module.get("session_endpoint_id") or _inline_search(module):
+        return True
+    if any(form.get("post_form_workflow") == "module" for form in _forms(module)):
+        return True
+    me = module.get("unique_id")
+    for other in at.app.modules:
+        child = other.get("root_module_id") == me
+        for form in _forms(other):
+            if child and form.get("post_form_workflow") == "parent_module":
+                return True
+            for link in form.get("form_links") or []:
+                if isinstance(link, dict) and link.get("module_unique_id") == me and not link.get("form_id"):
+                    return True
+    return False
+
+
 def _root_reader(test):
     """A reader of the module a use's module sits under (``root_module_id``), on a module and a suite menu
     alike where the suite does not settle it (None there)."""
@@ -6353,11 +6396,19 @@ def _inner(element):
     return (element.text or "") + "".join(etree.tostring(child, encoding=str) for child in element)
 
 
+# The texts no runtime reads a ``markdown`` value of: a hint (``FormEntryPrompt.getHintText``) and a validation
+# message, by the body's ``<alert>`` or the bind's ``jr:constraintMsg`` (``FormEntryPrompt.getConstraintText``),
+# each asking for no form. Their copies are ``questions/hint-markdown-form``'s and
+# ``questions/validation-message-markdown-form``'s, INERT whether they equal the text or differ from it.
+UNREAD_MARKDOWN_KINDS = frozenset({"hint", "alert", "message"})
+
+
 def markdown_differing(use, manifest):
     """``questions/markdown-form-differing-from-the-default-text``: a ``markdown`` value whose content differs from
-    its text's default value in the same language, which a Vellum save replaces with it
-    (``javaRosa/plugin.js::loadXML`` loads the markdown value as the default text, and the writer writes both from
-    it). A text holding no default value has none to differ from: not settled here."""
+    its text's default value in the same language, on a label, a choice or a help text, which a Vellum save
+    replaces with it (``javaRosa/plugin.js::loadXML`` loads the markdown value as the default text, and the writer
+    writes both from it). A text holding no default value has none to differ from: not settled here. A text every
+    question reference names as a hint or a validation message is the INERT entries' (``UNREAD_MARKDOWN_KINDS``)."""
     form, value = _itext_value(use)
     if form is None:
         return None
@@ -6366,7 +6417,15 @@ def markdown_differing(use, manifest):
     plain = [other for other in _children(value.getparent()) if _local(other) == "value" and other.get("form") is None]
     if not plain:
         return None
-    return _inner(plain[0]) != _inner(value)
+    if _inner(plain[0]) == _inner(value):
+        return False
+    kinds, unplaced = form.itext_references
+    held = kinds.get(value.getparent().get("id"))
+    if held is not None and held <= UNREAD_MARKDOWN_KINDS:
+        return False
+    if held is None and unplaced:
+        return None
+    return True
 
 
 def markdown_in_some_languages(use, manifest):
@@ -6892,6 +6951,12 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/case-list-form-on-a-put-in-root-module-whose-case-list-is-a-tile": (
         on_display_only_module_with_tile_list
+    ),
+    "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
+        default_on_multi_select_host
+    ),
+    "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of": (
+        put_in_root_beside_an_endpoint_inline_search_or_form_return
     ),
     "menus-and-case-lists/any-module-under-a-training-menu": names_a_training_module,
     "menus-and-case-lists/any-other-module-under-a-shadow-menu": names_a_shadow_module,

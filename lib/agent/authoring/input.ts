@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
-import { parseProseReference } from "@/lib/doc/expressionText";
+import { parseProseAtom } from "@/lib/doc/expressionText";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import {
 	appLanguageIdentitySchema,
@@ -16,6 +16,7 @@ import {
 	searchInputRuntimeValueType,
 	type TranslationEntry,
 	type TranslationUnit,
+	translationUnitProseSlot,
 	translationUnitsById,
 	type Uuid,
 	uuidSchema,
@@ -43,6 +44,7 @@ import { parseAuthoringIcon } from "./icons";
 import { bindNamedIdentity } from "./identityBindings";
 import { namedIdentityInputs } from "./identitySchema";
 import { parseAuthoringMessage } from "./messages";
+import { proseSlotAt, proseValuePrinter } from "./proseSlots";
 import {
 	parseQueryPredicate,
 	parseQueryReference,
@@ -360,6 +362,41 @@ async function prepareInput<S extends z.ZodType>(args: {
 			.parse(record.parse(input.automation).caseType);
 	}
 
+	// Read authorized catalogs only when a name or expression needs them. These
+	// server reads prepare no rows and add no model context.
+	let tables: AuthoringScopeOptions["tables"];
+	let locations: AuthoringScopeOptions["locations"];
+	let tablesLoaded = false;
+	async function loadTables() {
+		if (tablesLoaded) return;
+		tables = (await ctx.lookupCatalog?.())?.definitions;
+		tablesLoaded = true;
+	}
+	async function loadLocations() {
+		if (locations) return;
+		locations =
+			ctx.appId === null
+				? []
+				: (
+						await readOrganization({
+							appId: ctx.appId,
+							projectId: ctx.projectId,
+							actorUserId: ctx.userId,
+							role: "tool",
+							changeSource: {
+								kind: ctx.chatRunHolder === undefined ? "mcp" : "chat",
+								runId: ctx.runId,
+							},
+							...(ctx.chatRunHolder && { chatRunHolder: ctx.chatRunHolder }),
+						})
+					).locations.map((location) => ({
+						uuid: location.id,
+						name: location.name,
+						siteCode: location.siteCode,
+					}));
+	}
+	const lookupIndex = () =>
+		new Map((tables ?? []).map((table) => [table.id, table]));
 	const units =
 		toolName === "updateTranslations" ? translationUnitsById(doc) : undefined;
 	const translated = new Map<number, TranslationUnit>();
@@ -399,10 +436,23 @@ async function prepareInput<S extends z.ZodType>(args: {
 					);
 				reviewed.set(index, entry);
 				delete update.revision;
+				if (
+					typeof entry.value !== "string" &&
+					entry.value.parts.some((part) => part.kind === "value")
+				)
+					await loadTables();
 				update.expectedValue =
 					typeof entry.value === "string"
 						? entry.value
-						: printAuthoringText(entry.value, doc);
+						: printAuthoringText(
+								entry.value,
+								doc,
+								proseValuePrinter(
+									doc,
+									translationUnitProseSlot(unit),
+									lookupIndex(),
+								),
+							);
 				update.expectedSourceFingerprint = authoringFingerprint(
 					entry.sourceFingerprint,
 				);
@@ -443,39 +493,6 @@ async function prepareInput<S extends z.ZodType>(args: {
 		}
 	}
 
-	// Read authorized catalogs only when a name or expression needs them. These
-	// server reads prepare no rows and add no model context.
-	let tables: AuthoringScopeOptions["tables"];
-	let locations: AuthoringScopeOptions["locations"];
-	let tablesLoaded = false;
-	async function loadTables() {
-		if (tablesLoaded) return;
-		tables = (await ctx.lookupCatalog?.())?.definitions;
-		tablesLoaded = true;
-	}
-	async function loadLocations() {
-		if (locations) return;
-		locations =
-			ctx.appId === null
-				? []
-				: (
-						await readOrganization({
-							appId: ctx.appId,
-							projectId: ctx.projectId,
-							actorUserId: ctx.userId,
-							role: "tool",
-							changeSource: {
-								kind: ctx.chatRunHolder === undefined ? "mcp" : "chat",
-								runId: ctx.runId,
-							},
-							...(ctx.chatRunHolder && { chatRunHolder: ctx.chatRunHolder }),
-						})
-					).locations.map((location) => ({
-						uuid: location.id,
-						name: location.name,
-						siteCode: location.siteCode,
-					}));
-	}
 	function optionsAt(path: AuthoringPath) {
 		const selected = scopes
 			.filter((scope) =>
@@ -518,7 +535,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 		input,
 		ctx,
 		formUuid,
-		lookup: () => new Map((tables ?? []).map((table) => [table.id, table])),
+		lookup: lookupIndex,
 		authoringAt(path) {
 			const scope = scopeAt(path);
 			return {
@@ -540,6 +557,13 @@ async function prepareInput<S extends z.ZodType>(args: {
 				needsTables = true;
 				preparedForms.register(value, path);
 			}
+			// A calculated value is form logic, which may read a data table.
+			if (
+				(family === "text" || family === "localized") &&
+				typeof value === "string" &&
+				value.includes("{{=")
+			)
+				needsTables = true;
 			if (["condition", "value", "reference"].includes(family)) {
 				const expression = parseAuthoringExpression(
 					valueExpression.parse(value),
@@ -578,8 +602,9 @@ async function prepareInput<S extends z.ZodType>(args: {
 	}
 	function textAt(value: unknown, path: AuthoringPath) {
 		const scope = scopeAt(path);
-		return normalizeText(z.string().parse(value), (source) =>
-			parseProseReference(
+		const slot = proseSlotAt(toolName, input, path, doc);
+		return normalizeText(z.string().parse(value), (name) =>
+			parseProseAtom(
 				{
 					doc,
 					formUuid: scope.formUuid,
@@ -590,7 +615,9 @@ async function prepareInput<S extends z.ZodType>(args: {
 						selectedCaseType: scope.currentCaseType,
 					},
 				},
-				source,
+				name,
+				slot,
+				lookupIndex(),
 			),
 		);
 	}

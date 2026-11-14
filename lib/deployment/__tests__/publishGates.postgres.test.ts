@@ -37,7 +37,6 @@ import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locatio
 import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "@/lib/commcare/projectSpaceCompatibility";
 import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
-import { SUPPLY_POINT_SESSION_TEXT } from "@/lib/commcare/xform/supplyPointText";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitAppProjectMoveInTransaction } from "@/lib/db/apps";
 import {
@@ -47,7 +46,6 @@ import {
 	declaresWebApps,
 	type MediaAssetId,
 	type OrganizationLevel,
-	proseText,
 } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
@@ -967,30 +965,48 @@ describe("sync on form entry", () => {
 
 // ── CommCare Supply ─────────────────────────────────────────────────────
 
-/** A survey whose label holds the text HQ reads as the session's supply point. */
+/**
+ * A Households menu CommCare HQ builds as advanced (its kind held), whose
+ * case list is its own menu item beside a follow-up form: HQ's build adds a
+ * product step to that entry under CommCare Supply.
+ */
 function supplyDocument(): BlueprintDoc {
-	return buildDoc({
-		appName: "Supplies",
-		modules: [
-			{
-				name: "Visits",
-				forms: [
-					{
-						name: "Stock count",
-						type: "survey",
-						fields: [
-							f({ kind: "text", id: "count" }),
-							f({
-								kind: "label",
-								id: "note",
-								label: proseText(`Your place is ${SUPPLY_POINT_SESSION_TEXT}`),
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
+	const households = testUuid("supply-households");
+	return buildDoc(
+		{
+			appName: "Supplies",
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+			modules: [
+				{
+					uuid: "supply-households",
+					name: "Households",
+					caseType: "household",
+					caseListMenuItem: {},
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Household visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "visit_note" })],
+						},
+					],
+				},
+			],
+		},
+		(doc) => {
+			doc.modules[households] = {
+				...doc.modules[households],
+				heldKind: "advanced",
+			};
+		},
+	);
 }
 
 const COMMTRACK_OFF_KEY: DeploymentConfirmationKey = { kind: "commtrack-off" };
@@ -1007,7 +1023,7 @@ describe("CommCare Supply turned off", () => {
 					plans: "",
 					consequence: COMMTRACK_OFF.consequence,
 					reasons: [
-						"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
+						"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.",
 					],
 					whereMissing: COMMTRACK_OFF.whereMissing,
 				},

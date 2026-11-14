@@ -60,6 +60,12 @@ import {
 import { formStructure } from "../../../lib/domain/expression/formStructure";
 import { checkExpression } from "../../../lib/domain/expression/typeChecker";
 import {
+	PROSE_VALUE_ANSWERS,
+	PROSE_VALUE_MESSAGES,
+	PROSE_VALUE_VECTORS,
+	proseValueVectorDoc,
+} from "../../../lib/preview/engine/__tests__/proseValue.vectors";
+import {
 	CORE_DATE_PARITY,
 	CORE_DATE_PARITY_ZONES,
 } from "../../../lib/preview/xpath/__tests__/fixtures/coreDateParity";
@@ -678,6 +684,40 @@ writeFileSync(
 	resolve(output, "interpolation.json"),
 	`${JSON.stringify({ schemaVersion: 1, interpolation, xforms, enumKeys })}\n`,
 );
+// ProseValueRuntimeTest reads each calculated value a label holds through
+// Core in every device zone, and requires the text Preview prints for it
+// (lib/preview/engine/__tests__/proseValue.vectors.ts). Its two checked
+// questions compose a validation message holding a value, alone and beside
+// a reference, which Core reads through FormEntryPrompt.getConstraintText.
+{
+	const directory = resolve(output, "prose-values");
+	mkdirSync(directory, { recursive: true });
+	const doc = admitted("calculated value vectors", proseValueVectorDoc());
+	writeFileSync(resolve(directory, "form.xml"), compiledForm(doc, 0, 0));
+	writeFileSync(
+		resolve(output, "prose-values.json"),
+		`${JSON.stringify({
+			schemaVersion: 1,
+			form: "/expression/prose-values/form.xml",
+			answers: Object.entries(PROSE_VALUE_ANSWERS).map(([id, value]) => ({
+				question: `/data/${id}`,
+				value,
+			})),
+			vectors: PROSE_VALUE_VECTORS.map((vector) => ({
+				id: vector.id,
+				question: `/data/${vector.id}`,
+				text: vector.text,
+			})),
+			messages: PROSE_VALUE_MESSAGES.map((message) => ({
+				id: message.id,
+				question: `/data/${message.id}`,
+				refused: "0",
+				text: message.text,
+			})),
+		})}\n`,
+	);
+}
+
 console.log(
 	`Produced ${pairs.length} private expression controls over ${Object.keys(lowered).length} lowered comparisons and ${CORE_DATE_PARITY.rows.length} date parity rows.`,
 );

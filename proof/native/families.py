@@ -69,6 +69,12 @@ ZONED_CLASSES = {
     # wall clock, in a gap and a repeated hour too, as a device reads it.
     "DatetimeSplitRuntimeTest": DEVICE_ZONES,
     "InstantOrderingRuntimeTest": ZONES,
+    # A phone writes a date and time as CommCare HQ stores it, UTC, whatever the
+    # device's zone: Core prints %Z in it and fixes its epoch at class load.
+    "StoredInstantRuntimeTest": DEVICE_ZONES,
+    # A calculated value in a text prints as Preview prints it; the date and
+    # time vector reads the device's zone.
+    "ProseValueRuntimeTest": DEVICE_ZONES,
 }
 
 
@@ -101,6 +107,7 @@ FAMILIES = {
         _script("location", "emit-location-evidence.ts"),
         _script("lookup", "emit-lookup-evidence.ts"),
         _script("media", "emit-media-evidence.ts"),
+        _script("menu-screens", "emit-menu-screens-evidence.ts"),
         _script("navigation", "emit-navigation-evidence.ts"),
         _script("nested-menu", "emit-nested-menu-evidence.ts"),
         _script("no-matches", "emit-no-matches-evidence.ts"),
@@ -136,6 +143,8 @@ CORE_CLASSES = {
     # Reads only its checked-in control (/case-list-order/orders.json), which Preview's case store is held to too.
     "CaseListOrderRuntimeTest": "case-list",
     "CaseOperationRuntimeTest": "case",
+    # The case family's sequence form in each device zone (ZONED_CLASSES), over /case/stored-instants.json.
+    "StoredInstantRuntimeTest": "case",
     "ConnectRuntimeTest": "connect",
     "ContainerRuntimeTest": "container",
     "CoreDateParityRuntimeTest": "expression",
@@ -153,9 +162,15 @@ CORE_CLASSES = {
     "MediaRuntimeTest": "media",
     "NavigationRuntimeTest": "navigation",
     "NestedMenuRuntimeTest": "nested-menu",
+    # The menus of menus that show their forms above, and the step-back control (built past the gate).
+    "MenuScreensRuntimeTest": "menu-screens",
     "NoMatchesRuntimeTest": "no-matches",
     "OperationRelevanceRuntimeTest": "case",
     "PredicateRuntimeTest": "predicate",
+    # The labels and validation messages of /expression/prose-values/, in each device zone (ZONED_CLASSES).
+    "ProseValueRuntimeTest": "expression",
+    # Registration from the case list: the Register action and its return frames, by host shape (run G3).
+    "RegisterFromListRuntimeTest": "menu-screens",
     "RelationInstanceRuntimeTest": "relation-instance",
     # The whole-number counts Nova admits, and the fractional carrier they replaced, on one local form.
     "RepeatCountRuntimeTest": "expression",

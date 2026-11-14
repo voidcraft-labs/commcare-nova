@@ -110,6 +110,24 @@ describe("admitted field conversion", () => {
 			expect(next.fieldParent).toEqual(before.fieldParent);
 		},
 	);
+	it("drops a Text question's number keypad where the target kind has none, and keeps the rest", () => {
+		const phone = fixture({
+			id: "answer",
+			kind: "text",
+			keypad: "numbers",
+			validate: "string-length(.) > 3",
+		});
+		const { keypad, ...withoutKeypad } = phone.fields[Q] as Record<
+			string,
+			unknown
+		>;
+		expect(keypad).toBe("numbers");
+		for (const toKind of ["secret", "barcode"] as const)
+			expect(convert(phone, toKind).fields[Q]).toEqual({
+				...withoutKeypad,
+				kind: toKind,
+			});
+	});
 	it("preserves nontrivial numeric validation and text default values", () => {
 		const numeric = fixture({ id: "answer", kind: "int", validate: ". > 0" });
 		expect(convert(numeric, "decimal").fields[Q]).toEqual({

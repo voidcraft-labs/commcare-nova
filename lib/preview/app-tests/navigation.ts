@@ -2,11 +2,14 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
+	childModuleUuids,
 	formLaunch,
+	type MenuScreen,
 	menuFormUuidsOf,
+	menuScreenOf,
 	moduleDestination,
 	moduleIsBareCaseList,
-	moduleIsCaseFirst,
+	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
@@ -25,13 +28,16 @@ import { caseListStepSession } from "../engine/entrySessionData";
 import { previewSessionValues } from "../engine/identity";
 import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
+	combineNavigationVisibility,
 	moduleHasChildren,
 	previewAutomaticForm,
 	previewCaseDescendantModuleUuids,
 	previewCaseListMenuEntry,
+	previewContributorVisibility,
 	previewMenuCaseContext,
-	previewMenuModuleUuids,
+	previewModuleOwnVisibility,
 	previewModuleVisibility,
+	previewScreenEntries,
 } from "../menuProjection";
 import { previewPlatformRules } from "../platform";
 import { previewCaseChoiceOf } from "../searchClaims";
@@ -58,23 +64,117 @@ function appTestDeviceCases(
 	};
 }
 
+/** The screen a home or menu screen draws: the app's first menu for Home
+ *  (`null`), else that menu's own screen. */
+function appTestMenuScreen(parent: Uuid | null): MenuScreen {
+	return parent === null
+		? { kind: "first-menu" }
+		: { kind: "menu", moduleUuid: parent };
+}
+
+/** The arguments every running-menu visibility read takes. */
+function appTestVisibilityArgs(
+	context: AppTestContext,
+	state: Pick<AppTestSessionState, "deviceCases">,
+) {
+	return {
+		authoring: false,
+		session: previewSessionValues(context.identity, context.device),
+		lookup: { kind: "data", data: context.lookup },
+		deviceCases: appTestDeviceCases(context, state),
+	} as const;
+}
+
+/** The menu tiles a home (`null`) or menu screen lists, by the same
+ *  projection the browser's screens list them (`previewScreenEntries`). */
 export function appTestMenus(
 	context: AppTestContext,
 	parent: Uuid | null,
 	state: Pick<AppTestSessionState, "deviceCases">,
 ) {
-	const { doc, identity, lookup } = context;
-	const visibility = previewModuleVisibility(doc, {
-		authoring: false,
-		session: previewSessionValues(identity, context.device),
-		lookup: { kind: "data", data: lookup },
-		deviceCases: appTestDeviceCases(context, state),
-	});
-	return previewMenuModuleUuids(doc, parent).map((uuid) => ({
-		uuid,
-		name: projectLocalizedModule(doc, context.language, uuid)?.name,
-		visibility: visibility.get(uuid) ?? "hidden",
-	}));
+	const { doc } = context;
+	const visibility = previewModuleVisibility(
+		doc,
+		appTestVisibilityArgs(context, state),
+	);
+	return previewScreenEntries(doc, appTestMenuScreen(parent)).flatMap(
+		(entry) =>
+			entry.kind === "menu"
+				? [
+						{
+							uuid: entry.moduleUuid,
+							name: projectLocalizedModule(
+								doc,
+								context.language,
+								entry.moduleUuid,
+							)?.name,
+							visibility: visibility.get(entry.moduleUuid) ?? "hidden",
+						},
+					]
+				: [],
+	);
+}
+
+/** The forms a home (`null`) or menu screen lists, each with the menu that
+ *  holds it: its own menu's forms and those of every menu that shows its
+ *  forms there (`previewScreenEntries`). */
+export function appTestScreenForms(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	parent: Uuid | null,
+) {
+	const formsByModule = new Map<Uuid, ReturnType<typeof appTestForms>>();
+	return previewScreenEntries(context.doc, appTestMenuScreen(parent)).flatMap(
+		(entry) => {
+			if (entry.kind !== "form") return [];
+			let forms = formsByModule.get(entry.moduleUuid);
+			if (forms === undefined) {
+				forms = appTestForms(context, state, entry.moduleUuid);
+				formsByModule.set(entry.moduleUuid, forms);
+			}
+			const listed = forms.find((item) => item.form.uuid === entry.formUuid);
+			return listed === undefined
+				? []
+				: [{ ...listed, moduleUuid: entry.moduleUuid }];
+		},
+	);
+}
+
+/** The case list entries a home (`null`) or menu screen lists, each with its
+ *  menu and how the screen shows it (`previewCaseListMenuEntry`), shown or
+ *  hidden by the menus whose condition it carries. */
+export function appTestScreenCaseLists(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	parent: Uuid | null,
+) {
+	const own = previewModuleOwnVisibility(
+		context.doc,
+		appTestVisibilityArgs(context, state),
+	);
+	return previewScreenEntries(context.doc, appTestMenuScreen(parent)).flatMap(
+		(screenEntry) => {
+			if (screenEntry.kind !== "case-list") return [];
+			const entry = appTestCaseListMenuEntry(
+				context,
+				state,
+				screenEntry.moduleUuid,
+			);
+			return entry === undefined
+				? []
+				: [
+						{
+							moduleUuid: screenEntry.moduleUuid,
+							entry,
+							visibility: previewContributorVisibility(
+								context.doc,
+								own,
+								screenEntry.moduleUuid,
+							),
+						},
+					];
+		},
+	);
 }
 
 /** Browser leaf form choosers keep their selection local to CaseListScreen.
@@ -100,6 +200,13 @@ export function appTestForms(
 ) {
 	const { doc, identity, lookup } = context;
 	const mod = doc.modules[moduleUuid];
+	/* A form's row shows while every menu whose condition it carries does: its
+	 * own, and its parent where its menu shows its forms above. */
+	const contributor = previewContributorVisibility(
+		doc,
+		previewModuleOwnVisibility(doc, appTestVisibilityArgs(context, state)),
+		moduleUuid,
+	);
 	const selected = appTestMenuSelection(context, state, moduleUuid)?.cases;
 	const leafChooser =
 		state.screen.kind === "menu" &&
@@ -130,19 +237,22 @@ export function appTestForms(
 		return [
 			{
 				form,
-				visibility: formDisplayVisibility({
-					condition: form.displayCondition,
-					hiddenFromMenu: form.hiddenFromMenu === true,
-					session: previewSessionValues(identity, context.device),
-					types: previewExpressionContext(
-						doc,
-						{ entity: "form", uuid, slot: "form_display_condition" },
-						lookup,
-					),
-					selectedCase,
-					deviceCases: appTestDeviceCases(context, state),
-					lookup: { kind: "data", data: lookup },
-				}),
+				visibility: combineNavigationVisibility(
+					contributor,
+					formDisplayVisibility({
+						condition: form.displayCondition,
+						hiddenFromMenu: form.hiddenFromMenu === true,
+						session: previewSessionValues(identity, context.device),
+						types: previewExpressionContext(
+							doc,
+							{ entity: "form", uuid, slot: "form_display_condition" },
+							lookup,
+						),
+						selectedCase,
+						deviceCases: appTestDeviceCases(context, state),
+						lookup: { kind: "data", data: lookup },
+					}),
+				),
 			},
 		];
 	});
@@ -289,7 +399,7 @@ export function selectAppTestRecords(
 	if (selectsForMenu) {
 		selections[screen.moduleUuid] = selection;
 		for (const uuid of [
-			...previewMenuModuleUuids(context.doc, screen.moduleUuid),
+			...childModuleUuids(context.doc, screen.moduleUuid),
 			...previewCaseDescendantModuleUuids(context.doc, mod.caseType),
 		])
 			delete selections[uuid];
@@ -395,9 +505,10 @@ export function isCaseListMenuItemList(
 }
 
 /**
- * The module menu's case list entry as the running menu lists it, after the
- * forms (`menuProjection.ts::previewCaseListMenuEntry`): in a case-first menu
- * only once its case is chosen, when choosing it is the selection itself.
+ * The module's case list entry as the screen that lists it shows it, after
+ * the forms (`menuProjection.ts::previewCaseListMenuEntry`): on a case-first
+ * screen only once its case is chosen, when choosing it is the selection
+ * itself.
  */
 export function appTestCaseListMenuEntry(
 	context: AppTestContext,
@@ -405,7 +516,10 @@ export function appTestCaseListMenuEntry(
 	moduleUuid: Uuid,
 ) {
 	return previewCaseListMenuEntry(context.doc, moduleUuid, {
-		isCaseFirst: moduleIsCaseFirst(context.doc, moduleUuid),
+		isCaseFirst: screenChoosesCaseFirst(
+			context.doc,
+			menuScreenOf(context.doc, moduleUuid),
+		),
 		hasSelectedCase:
 			appTestMenuSelection(context, state, moduleUuid) !== undefined,
 	});

@@ -71,8 +71,7 @@ consumer must select a lexical context before descending.
 ## Context and projection
 
 `ExpressionSlotRef` is the canonical owner UUID, slot, and typed member identity.
-Array indexes are never slot identities. `ProseSlotRef` extends context selection
-without pretending prose is a stored expression. The reference-slot registry owns
+Array indexes are never slot identities. `ProseSlotRef` is the context of a prose slot and of each calculated value it holds: expressionSlotValues yields a value part under its prose slot with its path, and expressionSlotKey keys a prose slot too. The reference-slot registry owns
 stored access; `FormStructure.expressionAt` supplies the same read to a prepared
 form without manufacturing a partial document. `slotContext` retains the actual
 slot while lexical row and form-node context can change.

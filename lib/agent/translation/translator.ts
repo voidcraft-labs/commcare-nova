@@ -13,7 +13,6 @@ import {
 	canonicalProseTemplate,
 	type LocalizedValue,
 	type ProsePart,
-	type ProseReferencePart,
 	type TranslationUnit,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
@@ -218,7 +217,7 @@ export function decodeTranslatedValue(
 		}
 	}
 	translatedText = normalizeTranslatedFormatting(encoded, translatedText);
-	const parts: Array<{ kind: "text"; text: string } | ProseReferencePart> = [];
+	const parts: ProsePart[] = [];
 	let cursor = 0;
 	while (cursor < translatedText.length) {
 		let nextIndex = -1;

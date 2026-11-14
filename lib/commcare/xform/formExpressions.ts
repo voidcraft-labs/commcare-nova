@@ -14,7 +14,8 @@ import type {
 	ProseSlotRef,
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
-import type { ProseReferencePart } from "@/lib/domain/prose";
+import type { ProseAtomPart } from "@/lib/domain/prose";
+import { proseAtomExpression } from "@/lib/domain/proseExpression";
 import {
 	planRepeatCountCarriers,
 	type RepeatCountCarrierPlan,
@@ -31,7 +32,6 @@ import {
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import type { WireExpr } from "../xpath/wire/tree";
 import { itextIdFor } from "./itextIds";
-import { proseReferenceExpression } from "./proseExpression";
 
 export interface FormExpressionEmission {
 	readonly form: FormStructure;
@@ -47,7 +47,9 @@ export interface FormExpressionEmission {
 		slot: SlotContextRef,
 		overrides?: ReadonlyMap<Expression, WireExpr>,
 	): WireExpr;
-	prose(reference: ProseReferencePart, slot: ProseSlotRef): WireExpr;
+	/** A prose atom lowered in its slot: a reference's read, or a calculated
+	 *  value's own expression. */
+	prose(part: ProseAtomPart, slot: ProseSlotRef): WireExpr;
 }
 
 /** Every authored form expression enters wire lowering with its actual slot
@@ -116,7 +118,6 @@ export function formExpressionEmission(
 		datumId: bindings.datumId,
 		context,
 		lower,
-		prose: (reference, slot) =>
-			lower(proseReferenceExpression(reference), slot),
+		prose: (part, slot) => lower(proseAtomExpression(part), slot),
 	};
 }

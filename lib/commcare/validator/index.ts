@@ -18,7 +18,11 @@ import {
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
-import { datumRefKey, type ProseSlotRef } from "@/lib/domain/expression/types";
+import {
+	datumRefKey,
+	isProseSlotRef,
+	type ProseSlotRef,
+} from "@/lib/domain/expression/types";
 import { buildFieldTree } from "@/lib/preview/engine/fieldTree";
 import { type CycleReport, TriggerDag } from "@/lib/preview/engine/triggerDag";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
@@ -155,15 +159,28 @@ export function validateBlueprintDeep(
 									},
 								]
 							: formLogicFindings(expression, ctx);
+					// A calculated value in prose is checked in its prose slot and
+					// reported on the text it belongs to.
 					for (const error of findings)
-						errors.push({
-							...loc,
-							kind: "field-xpath",
-							fieldUuid,
-							fieldId: field.id,
-							surface: ref.slot,
-							error,
-						});
+						errors.push(
+							isProseSlotRef(ref)
+								? {
+										...loc,
+										kind: "field-prose",
+										fieldUuid,
+										fieldId: field.id,
+										surface: ref.slot,
+										error,
+									}
+								: {
+										...loc,
+										kind: "field-xpath",
+										fieldUuid,
+										fieldId: field.id,
+										surface: ref.slot,
+										error,
+									},
+						);
 				}
 				for (const { slot, template, indices } of proseSurfaceReads(
 					field,

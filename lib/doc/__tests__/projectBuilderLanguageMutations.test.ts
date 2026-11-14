@@ -10,9 +10,13 @@ import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	isOrdinaryCaseSearchConfig,
 	makeTranslationUnitId,
+	NO_SEARCH_SCREEN_TITLE,
+	type ProseTemplate,
 	projectLocalizedModule,
 	proseText,
+	searchScreenTitleText,
 	simpleSearchInputDef,
 	type TranslationUnit,
 } from "@/lib/domain";
@@ -526,6 +530,56 @@ describe("projectBuilderLanguageMutations", () => {
 		).toBe("Encontrar pacientes");
 	});
 
+	it("turns a search's title off and on again under another language, on the source", () => {
+		const doc = fixture();
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
+		const before = localized?.caseSearchConfig;
+		if (before === undefined) throw new Error("Expected a localized search.");
+		const off = project(
+			doc,
+			caseSearchConfigPatchMutations(MODULE, before, {
+				...before,
+				searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+			}),
+		);
+		const untitled = apply(doc, off);
+		expect(untitled.modules[MODULE]?.caseSearchConfig).toMatchObject({
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		});
+		// No title has no text and no translation unit, in either lens.
+		expect(
+			collectTranslationUnits(untitled).some(
+				(unit) =>
+					unit.id === makeTranslationUnitId("module", MODULE, "search-title"),
+			),
+		).toBe(false);
+		const shown = projectLocalizedModule(
+			untitled,
+			"spa",
+			MODULE,
+		)?.caseSearchConfig;
+		if (!isOrdinaryCaseSearchConfig(shown))
+			throw new Error("Expected a localized search.");
+		expect(shown.searchScreenTitle).toEqual(NO_SEARCH_SCREEN_TITLE);
+
+		const { searchScreenTitle: _none, ...titled } = shown;
+		const on = project(
+			untitled,
+			caseSearchConfigPatchMutations(MODULE, shown, titled),
+		);
+		expect(on).not.toHaveLength(0);
+		const restored = apply(untitled, on);
+		expect(
+			restored.modules[MODULE]?.caseSearchConfig &&
+				"searchScreenTitle" in restored.modules[MODULE].caseSearchConfig,
+		).toBe(false);
+		expect(
+			searchScreenTitleText(
+				projectLocalizedModule(restored, "spa", MODULE)?.caseSearchConfig,
+			),
+		).toBe("Search");
+	});
+
 	it("leaves source-lens mutations canonical and refuses a removed target", () => {
 		const doc = fixture();
 		const mutation: Mutation = {
@@ -611,8 +665,79 @@ describe("projectBuilderLanguageMutations", () => {
 		).toEqual({
 			ok: false,
 			message:
-				"This translation must preserve every referenced answer, case value, and worker value. Edit it in Languages to repair the protected references.",
+				"This translation keeps every answer, case value, worker value and calculated value its source shows. You can repair them in Languages.",
 		});
+	});
+
+	it("refuses target prose that changes a calculated value's formula, and admits one that moves it", () => {
+		const doc = fixture();
+		const protectedField = doc.fields[FIELD];
+		if (!("label" in protectedField)) {
+			throw new Error("Expected a visible field.");
+		}
+		const count = (value: number) => ({
+			kind: "value" as const,
+			expression: {
+				kind: "arith" as const,
+				op: "+" as const,
+				left: {
+					kind: "term" as const,
+					term: { kind: "literal" as const, value: 1 },
+				},
+				right: {
+					kind: "term" as const,
+					term: { kind: "literal" as const, value },
+				},
+			},
+		});
+		protectedField.label = {
+			parts: [{ kind: "text", text: "Visits: " }, count(2)],
+		};
+		const unit = collectTranslationUnits(doc).find(
+			(candidate) =>
+				candidate.id === makeTranslationUnitId("field", FIELD, "label"),
+		);
+		if (unit === undefined) throw new Error("Expected the protected unit.");
+		const localization = structuredClone(doc.localization);
+		if (localization === undefined) {
+			throw new Error("Expected persisted localization.");
+		}
+		doc.localization = {
+			...localization,
+			translations: {
+				...localization.translations,
+				spa: {
+					...localization.translations.spa,
+					[unit.id]: {
+						value: unit.source,
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+					},
+				},
+			},
+		};
+		const edit = (label: ProseTemplate) =>
+			projectBuilderLanguageMutations(doc, "spa", [
+				{
+					kind: "updateField",
+					uuid: FIELD,
+					targetKind: "single_select",
+					patch: { label },
+				},
+			]);
+
+		expect(
+			edit({ parts: [{ kind: "text", text: "Visitas: " }, count(3)] }),
+		).toEqual({
+			ok: false,
+			message:
+				"This translation keeps every answer, case value, worker value and calculated value its source shows. You can repair them in Languages.",
+		});
+		expect(
+			edit({ parts: [count(2), { kind: "text", text: " visitas" }] }).ok,
+		).toBe(true);
 	});
 
 	it("projects a Search prompt's hint and messages into the selected language", () => {

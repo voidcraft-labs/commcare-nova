@@ -21,8 +21,14 @@ import {
 	formLinkTargetDatumIds,
 	projectAfterSubmit,
 } from "@/lib/commcare/formLinkProjection";
+import { instanceScanRead } from "@/lib/commcare/hqInstanceScan";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
+	CONNECT_SOURCE_TEXT_WORDS,
+	formSourceTexts,
+} from "@/lib/commcare/xform/sourceTexts";
+import {
+	afterEmptySearchRegistrationFormOf,
 	appConnectIds,
 	type BlueprintDoc,
 	connectDeliverFormHoldsTask,
@@ -39,6 +45,7 @@ import {
 	isConnectLearnConfig,
 	type Module,
 	menuTargetOffered,
+	moduleShowsFormsInMenuAbove,
 	otherwiseDestinationsOffered,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
@@ -66,6 +73,10 @@ import { validateCaseOperations } from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
 import { validateCasePlacements } from "./casePlacement";
 import { formDisplayCondition } from "./displayConditions";
+import {
+	linksSharingFirstMenuCase,
+	menuAboveLinkTargets,
+} from "./formsInMenuAbove";
 import { hiddenMenuLinkTargets } from "./hiddenFromMenu";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
 import {
@@ -458,13 +469,14 @@ const DESTINATION_PHRASE: Readonly<
 	previous: "the previous screen",
 };
 
-/** Some module's case list registration slot names the form. */
+/** Some module's `after-empty-search` registration names the form. */
 function namedByCaseListRegistration(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): boolean {
-	return Object.values(doc.modules).some(
-		(mod) => mod.caseListRegistrationForm?.formUuid === formUuid,
+	return doc.moduleOrder.some(
+		(moduleUuid) =>
+			afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid,
 	);
 }
 
@@ -499,6 +511,12 @@ function notOfferedSentence(
 			return `"${formName}" goes to ${phrase} ${when}, but "${moduleName}" is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
 		case "parent-off-the-menu":
 			return `"${formName}" goes to the parent module ${when}, but "${parentName}" is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
+		case "menu-forms-in-menu-above":
+			return `"${formName}" goes to its module ${when}, but "${moduleName}" shows its forms in the menu above, so it has no screen of its own to land on.`;
+		case "parent-forms-in-menu-above":
+			return `"${formName}" goes to the parent module ${when}, but "${parentName}" shows its forms in the menu above, so it has no screen of its own to land on.`;
+		case "menu-forms-on-first-menu":
+			return `"${formName}" goes to the previous screen ${when}, but "${moduleName}" shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 	}
 }
 
@@ -536,7 +554,8 @@ function postSubmitValidation(
 		];
 	}
 	if (form.formLinks !== undefined) return [];
-	if (mod.caseListRegistrationForm?.formUuid === ctx.formUuid) return [];
+	if (afterEmptySearchRegistrationFormOf(doc, ctx.moduleUuid) === ctx.formUuid)
+		return [];
 
 	const reason = postSubmitNotOfferedReason(doc, ctx.formUuid, dest);
 	if (reason === undefined) return [];
@@ -750,7 +769,12 @@ function formLinkValidation(
 			continue;
 		}
 		if (target.type === "module") {
-			if (!menuTargetOffered(doc, ctx.moduleUuid, target.moduleUuid)) {
+			// A menu that shows its forms above is no target at all, which
+			// `FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION` says.
+			if (
+				!moduleShowsFormsInMenuAbove(targetMod) &&
+				!menuTargetOffered(doc, ctx.moduleUuid, target.moduleUuid)
+			) {
 				const parentName = parentNameOf(doc, targetMod) ?? "";
 				errors.push(
 					validationError(
@@ -871,11 +895,20 @@ function formLinkValidation(
 	) {
 		return errors;
 	}
+	// A link whose frame opens with the first menu's shared case is
+	// `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`'s; the datum rules judge only
+	// frames whose every selection follows a command.
+	const sharesFirstMenuCase = new Set(
+		linksSharingFirstMenuCase(doc, ctx.formUuid).map(
+			({ entry }) => entry.link.uuid,
+		),
+	);
 	const entryContext = entryPlanContext(doc);
 	let hasDatumCollision = false;
 	for (const { entry, target } of resolved) {
 		const datums = entry.link.datums;
-		if (datums === undefined) continue;
+		if (datums === undefined || sharesFirstMenuCase.has(entry.link.uuid))
+			continue;
 		const { label, details } = formLinkLabel(doc, ctx.formUuid, entry);
 		for (const targetDatum of formLinkTargetDatumIds(
 			doc,
@@ -929,7 +962,7 @@ function formLinkValidation(
 	);
 	for (const link of projected?.links ?? []) {
 		const entry = entryByUuid.get(link.uuid);
-		if (entry === undefined) continue;
+		if (entry === undefined || sharesFirstMenuCase.has(link.uuid)) continue;
 		const { label, details } = formLinkLabel(doc, ctx.formUuid, entry);
 		const refused = refusedNewCases.get(link.uuid);
 		const unsatisfied = [...link.unmatched, ...link.missing].filter(
@@ -1263,6 +1296,54 @@ function duplicateFieldIds(
 	return errors;
 }
 
+/** The most characters of a matched text a finding carries. */
+const INSTANCE_TEXT_MATCH_MAX_LENGTH = 40;
+
+/**
+ * Plain text in the form's source that CommCare HQ's build reads as an
+ * instance read. HQ renders the whole form and matches its instance pattern
+ * over it (`xform.py::XForm.add_missing_instances`,
+ * `suite_xml/post_process/instances.py::get_instance_names`), so a name it
+ * has no source for stops the build and one it has a source for adds a
+ * declaration no formula reads. A label's text is written so the pattern
+ * cannot match it (`xform/builder.ts::literalLabelNodes`); a form's name and
+ * a Connect block's text are plain text that CommCare Connect and HQ's form
+ * builder read as the element's own, where no spelling keeps the pattern
+ * out, so the text is refused and a space before the bracket keeps it as
+ * text.
+ */
+function formTextReadAsInstance(
+	doc: BlueprintDoc,
+	ctx: FormContext,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const { site, text } of formSourceTexts(doc, ctx.formUuid)) {
+		const read = instanceScanRead(text);
+		if (read === undefined) continue;
+		const match = Array.from(read)
+			.slice(0, INSTANCE_TEXT_MATCH_MAX_LENGTH)
+			.join("");
+		const reading =
+			"CommCare HQ reads instance( followed by a quoted name and a closing bracket as a data source wherever it appears in a form";
+		const outcome =
+			"so CommCare HQ would add that data source to the form or stop its build. A space before the bracket keeps it as text: instance ('...').";
+		const message =
+			site === "form-name"
+				? `The name of the form "${ctx.formName}" in the app's default language holds ${match}. ${reading}, and a form's name is written there as plain text, ${outcome}`
+				: `The ${CONNECT_SOURCE_TEXT_WORDS[site]} in "${ctx.formName}" holds ${match}. ${reading}, and CommCare Connect reads this text exactly as the form holds it, ${outcome}`;
+		errors.push(
+			validationError(
+				"FORM_TEXT_READ_AS_INSTANCE",
+				"form",
+				message,
+				baseLocation(ctx),
+				{ site, match },
+			),
+		);
+	}
+	return errors;
+}
+
 // ── Rule runner ────────────────────────────────────────────────────
 
 export function runFormRules(
@@ -1299,7 +1380,9 @@ export function runFormRules(
 	errors.push(...formLinkSelectionCardinality(doc, form, mod, ctx));
 	errors.push(...formLinkValidation(doc, form, ctx, mod, lookupTables));
 	errors.push(...hiddenMenuLinkTargets(doc, form, baseLocation(ctx)));
+	errors.push(...menuAboveLinkTargets(doc, form, baseLocation(ctx)));
 	errors.push(...connectValidation(doc, form, ctx));
+	errors.push(...formTextReadAsInstance(doc, ctx));
 	errors.push(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);

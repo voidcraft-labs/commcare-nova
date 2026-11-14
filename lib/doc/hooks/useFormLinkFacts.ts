@@ -27,6 +27,11 @@ import {
 	resolveFormLinkTarget,
 } from "@/lib/domain";
 import { type AfterSubmitPlan, afterSubmitPlan } from "../formLinkMutations";
+import {
+	MENU_ABOVE_WITHHELD_BY_KEY,
+	type MenuAboveWithheldDestination,
+	menuAboveWithheldDestinations,
+} from "../formLinkTargetChoices";
 import type { Uuid } from "../types";
 import {
 	useBlueprintDoc,
@@ -115,6 +120,30 @@ export function usePostSubmitDestinationChoices(
 ): readonly PostSubmitDestination[] {
 	return useBlueprintDocShallow((state) =>
 		postSubmitDestinationChoices(state, formUuid),
+	);
+}
+
+/**
+ * The built-in destinations a menu that shows its forms in the menu above
+ * withholds from the form (`formLinkTargetChoices.ts::
+ * menuAboveWithheldDestinations`), so a chooser shows each disabled with its
+ * reason. Selected as stable keys, so an unrelated edit re-renders nothing.
+ */
+export function useMenuAboveWithheldDestinations(
+	formUuid: Uuid,
+): readonly MenuAboveWithheldDestination[] {
+	const keys = useBlueprintDocShallow((state) =>
+		menuAboveWithheldDestinations(state, formUuid).map(
+			(withheld) => `${withheld.destination}:${withheld.reason}`,
+		),
+	);
+	return useMemo(
+		() =>
+			keys.map(
+				(key) =>
+					MENU_ABOVE_WITHHELD_BY_KEY.get(key) as MenuAboveWithheldDestination,
+			),
+		[keys],
 	);
 }
 

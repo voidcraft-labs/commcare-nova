@@ -76,13 +76,17 @@ import {
 	compileBoundRef,
 	compileBoundValue,
 	compileChosenCaseProperty,
+	compileStoredText,
 	compileTerm,
 	recordQueryContextFor,
 	type TermCompileContext,
 } from "./compileTerm";
 import { compileCoreDayNumber, compileEpochDayInstant } from "./coreDayNumber";
 import type { Database } from "./database";
-import { NAIVE_TEMPORAL_TEXT_PATTERN } from "./dataTypeTokens";
+import {
+	NAIVE_TEMPORAL_TEXT_PATTERN,
+	RESERVED_SCALAR_COLUMN_BY_PROPERTY,
+} from "./dataTypeTokens";
 import {
 	javaLocalTimestamp,
 	javaOffsetMinutes,
@@ -304,7 +308,7 @@ export function compileExpression(
 }
 
 /** HQ's `json_format_datetime` as a Postgres pattern: UTC, six fraction
- *  digits, `Z` (`lib/preview/columnDisplay.ts::hqDatetimeText`). */
+ *  digits, `Z` (`lib/domain/temporalValues.ts::hqInstantText`). */
 const HQ_DATETIME_PATTERN = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
 
 /**
@@ -334,21 +338,40 @@ export function compileReadingText(
 
 /**
  * A `DomainExpression` as the text a device reads for it, for a case list's
- * order. Every value reads as `compileReadingText` gives it, but a multi
- * select: Nova stores its tokens as a JSON array, and a device reads them
- * joined by one space, so the order compares that text, blank when no token
- * is selected. A stored value that is not an array reads as its own text.
+ * order. Every value reads as `compileReadingText` gives it, but two:
+ *
+ * - A multi select: Nova stores its tokens as a JSON array, and a device
+ *   reads them joined by one space, so the order compares that text, blank
+ *   when no token is selected. A stored value that is not an array reads as
+ *   its own text.
+ * - A custom date-and-time property: a device holds CommCare HQ's text of
+ *   its instant (a phone writes that text, and HQ rewrites every other to
+ *   it), so the order compares that text, printed at UTC with
+ *   `HQ_DATETIME_PATTERN` (`compileTerm.ts::compileStoredInstant` reads
+ *   either spelling a row holds as its instant), and the stored text where it
+ *   names no instant. A text comparison of that is the order of the moments
+ *   whatever the session's zone.
  */
 export function compileDeviceTextExpression(
 	expr: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const compiled = compileReadingText(expr, ctx);
+	const data = scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data);
 	if (
-		scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data) !==
-		"multi_select"
+		data === "datetime" &&
+		expr.kind === "term" &&
+		expr.term.kind === "prop" &&
+		!RESERVED_SCALAR_COLUMN_BY_PROPERTY.has(expr.term.property)
 	)
-		return compiled;
+		return eb.fn<string>("coalesce", [
+			eb.fn<string>("to_char", [
+				eb.fn<Date>("timezone", [eb.val("UTC"), compiled]),
+				eb.val(HQ_DATETIME_PATTERN),
+			]),
+			compileStoredText(expr.term, ctx),
+		]);
+	if (data !== "multi_select") return compiled;
 	return sql<unknown>`(case jsonb_typeof(${compiled})
 		when 'array' then (
 			select string_agg(tokens.token, ' ' order by tokens.position)

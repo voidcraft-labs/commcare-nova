@@ -61,10 +61,10 @@ import {
 } from "@/lib/domain";
 import {
 	type Expression,
-	type ExpressionSlotRef,
 	type FormExpressionSlotRef,
 	isExpression,
 	type RelationPath,
+	type SlotContextRef,
 	type Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
@@ -538,7 +538,7 @@ type OperationExpressionSlotRef = Extract<
 >;
 
 function isOperationExpressionSlot(
-	ref: ExpressionSlotRef,
+	ref: SlotContextRef,
 ): ref is OperationExpressionSlotRef {
 	return (
 		ref.entity === "form" && "member" in ref && "operationUuid" in ref.member
@@ -968,7 +968,10 @@ function proseNamesCaseType(
 	return (
 		Array.isArray(template?.parts) &&
 		template.parts.some(
-			(part) => part.kind === "case-ref" && part.caseType === caseType,
+			(part) =>
+				(part.kind === "case-ref" && part.caseType === caseType) ||
+				(part.kind === "value" &&
+					expressionRefsCaseType(part.expression, caseType)),
 		)
 	);
 }

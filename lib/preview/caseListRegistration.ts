@@ -1,6 +1,9 @@
 /**
  * Whether the running app may open a module's case list registration form
- * (`Module.caseListRegistrationForm`, `caseListRegistrationFormOf`).
+ * offered after an empty search (`Module.caseListRegistrationForm`,
+ * `afterEmptySearchRegistrationFormOf`). A form a case list always offers
+ * is an ordinary form of its own menu, opened from the list with a launch
+ * that only decides where it returns (`alwaysOfferedRegistrationReturn`).
  *
  * On the wire the form is reachable only through the Register action on
  * Results, relevant when the inline search found nothing
@@ -13,7 +16,10 @@
  */
 
 import type { BlueprintDoc, Form, SearchInputDef, Uuid } from "@/lib/domain";
-import { caseListRegistrationFormOf, moduleUuidOfForm } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	moduleUuidOfForm,
+} from "@/lib/domain";
 import {
 	type SearchInputValues,
 	searchInputInstanceValues,
@@ -23,6 +29,16 @@ import type {
 	PreviewSearchLaunch,
 	PreviewSearchState,
 } from "@/lib/session/types";
+
+/* The Register action a list draws, for either arm, and the return of a form
+ * a list always offers, which read the wire owner's frames. */
+export {
+	alwaysOfferedRegistrationReturn,
+	type PreviewRegisterAction,
+	previewRegisterAction,
+	registeredCaseOnDevice,
+	selectionsAfterRegistrationReturn,
+} from "./engine/caseListRegisterAction";
 
 type RegistrationDoc = Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
 
@@ -36,7 +52,7 @@ export function isCaseListRegistrationForm(
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	return (
 		moduleUuid !== undefined &&
-		caseListRegistrationFormOf(doc, moduleUuid) === formUuid
+		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid
 	);
 }
 

@@ -16,8 +16,11 @@ import type { BlueprintDoc } from "@/lib/domain";
 import type { FormStructure } from "@/lib/domain/expression/formStructure";
 import type {
 	Expression,
-	ExpressionSlotRef,
+	ProseSlotRef,
+	SlotContextRef,
 } from "@/lib/domain/expression/types";
+import type { ProseAtomPart, ProseValuePart } from "@/lib/domain/prose";
+import { canonicalProseAtom } from "@/lib/domain/proseExpression";
 import { expressionSlotKey } from "@/lib/domain/referenceSlots";
 import { useLookupCommitState } from "../lookupCommitContext";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
@@ -28,7 +31,7 @@ import {
 
 function useProjection(
 	expression: Expression | undefined,
-	slot: ExpressionSlotRef | undefined,
+	slot: SlotContextRef | undefined,
 	candidate: ExpressionSlotCandidate | undefined,
 	form: FormStructure | undefined,
 	layout: boolean,
@@ -60,7 +63,7 @@ function useProjection(
  * what was stored. */
 export function useExpressionProjection(
 	expression: Expression | undefined,
-	slot: ExpressionSlotRef | undefined,
+	slot: SlotContextRef | undefined,
 	candidate?: ExpressionSlotCandidate,
 	form?: FormStructure,
 ) {
@@ -71,16 +74,67 @@ export function useExpressionProjection(
  * show it inline rather than in an editor. */
 export function useFormExpressionText(
 	expression: Expression | undefined,
-	slot: ExpressionSlotRef | undefined,
+	slot: SlotContextRef | undefined,
 	candidate?: ExpressionSlotCandidate,
 	form?: FormStructure,
 ): string {
 	return useProjection(expression, slot, candidate, form, false).text;
 }
 
+/** A calculated value's formula on one line, as its chip shows it; undefined
+ *  where the slot is gone or the expression no longer prints
+ *  (`projectFormExpression` reports it unresolved). */
+export function useProseValueText(
+	part: ProseValuePart,
+	slot: ProseSlotRef | undefined,
+): string | undefined {
+	const projection = useProjection(
+		part.expression,
+		slot,
+		undefined,
+		undefined,
+		false,
+	);
+	return slot !== undefined && projection.ok ? projection.text : undefined;
+}
+
+/** Parses a formula in a prose slot and builds its part with
+ *  `canonicalProseAtom`, so a formula that only reads one reference becomes
+ *  that reference. `current` is the expression of the part being edited.
+ *  Throws an `Error` holding the parse's sentences joined by a space, as
+ *  `useParseFormExpression` does; the slot's check is the editor's lint. */
+export function useParseProseValue(
+	slot: ProseSlotRef | undefined,
+	current?: Expression,
+): (text: string) => ProseAtomPart {
+	const api = useBlueprintDocApi();
+	const { lookupContext } = useLookupCommitState();
+	return useCallback(
+		(text: string) => {
+			if (slot === undefined)
+				throw new Error(
+					"This text's place in the app changed. Reopen it to use the latest version.",
+				);
+			const parsed = parseFormExpressionForSlot(
+				api.getState(),
+				slot,
+				text,
+				lookupExpressionDefinitions(lookupContext),
+				current === undefined ? {} : { current },
+			);
+			if (!parsed.ok)
+				throw new Error(parsed.issues.map((issue) => issue.message).join(" "));
+			if (parsed.expression === undefined)
+				throw new Error("Enter a formula before saving.");
+			return canonicalProseAtom(parsed.expression);
+		},
+		[api, slot, current, lookupContext],
+	);
+}
+
 /** Missing context or invalid source refuses the save; text never becomes stored fallback. */
 export function useParseFormExpression(
-	slot: ExpressionSlotRef | undefined,
+	slot: SlotContextRef | undefined,
 	candidate?: ExpressionSlotCandidate,
 	form?: FormStructure,
 ): (text: string) => Expression {
@@ -116,6 +170,9 @@ export function useParseFormExpression(
 interface CachedEditorContext {
 	readonly candidate: ExpressionSlotCandidate | undefined;
 	readonly form: FormStructure | undefined;
+	/** The calculated value a prose slot's editor binds against, compared by
+	 *  identity: two values of one text share a slot and differ here. */
+	readonly current: Expression | undefined;
 	readonly context: ExpressionEditorContext | undefined;
 }
 
@@ -147,16 +204,19 @@ function sameCandidate(
  * The slot's editor context for one document snapshot, built once. Lint,
  * every completion source and the chips each ask for it on a keystroke, and
  * an idle display asks on every change to the document; each of those reads
- * the one context this snapshot, lookup definitions, slot, pending candidate
- * and form produce. A candidate is the same when it substitutes the same
- * entity value, since mounts rebuild the wrapper object on every render.
+ * the one context this snapshot, lookup definitions, slot, pending candidate,
+ * form and, in a prose slot, the calculated value being edited produce. A
+ * candidate is the same when it substitutes the same entity value, since
+ * mounts rebuild the wrapper object on every render; `current` is the same
+ * object or both absent.
  */
 export function expressionEditorContextFor(
 	doc: BlueprintDoc,
-	slot: ExpressionSlotRef,
+	slot: SlotContextRef,
 	lookupContext: LookupValidationContext,
 	candidate?: ExpressionSlotCandidate,
 	form?: FormStructure,
+	current?: Expression,
 ): ExpressionEditorContext | undefined {
 	let byLookup = editorContexts.get(doc);
 	if (byLookup === undefined) {
@@ -171,17 +231,23 @@ export function expressionEditorContextFor(
 	const key = expressionSlotKey(slot);
 	const variants = bySlot.get(key) ?? [];
 	const hit = variants.find(
-		(entry) => entry.form === form && sameCandidate(entry.candidate, candidate),
+		(entry) =>
+			entry.form === form &&
+			entry.current === current &&
+			sameCandidate(entry.candidate, candidate),
 	);
 	if (hit !== undefined) return hit.context;
-	const current = expressionCandidateDoc(doc, slot, candidate);
+	const candidateDoc = expressionCandidateDoc(doc, slot, candidate);
 	const context =
-		current === undefined
+		candidateDoc === undefined
 			? undefined
-			: buildExpressionEditorContext(current, slot, lookupContext, { form });
+			: buildExpressionEditorContext(candidateDoc, slot, lookupContext, {
+					form,
+					...(current === undefined ? {} : { current }),
+				});
 	bySlot.set(key, [
 		...variants.slice(-(VARIANTS_PER_SLOT - 1)),
-		{ candidate, form, context },
+		{ candidate, form, current, context },
 	]);
 	return context;
 }
@@ -189,9 +255,10 @@ export function expressionEditorContextFor(
 /** The slot's editor context for the current document, built at most once
  * per document snapshot (`expressionEditorContextFor`). */
 export function useExpressionEditorContext(
-	slot: ExpressionSlotRef | undefined,
+	slot: SlotContextRef | undefined,
 	candidate?: ExpressionSlotCandidate,
 	form?: FormStructure,
+	current?: Expression,
 ) {
 	const api = useBlueprintDocApi();
 	const { lookupContext } = useLookupCommitState();
@@ -205,8 +272,9 @@ export function useExpressionEditorContext(
 						lookupContext,
 						candidate,
 						form,
+						current,
 					),
-		[api, slot, candidate, lookupContext, form],
+		[api, slot, candidate, lookupContext, form, current],
 	);
 }
 

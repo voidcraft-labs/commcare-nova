@@ -1,5 +1,4 @@
 /** Navigation decisions shared by authoring reads and the running app. */
-import type { BlueprintDoc } from "./blueprint";
 import { resolveFormLinkTarget } from "./formLinkTargets";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -7,11 +6,13 @@ import {
 	type FormType,
 	type PostSubmitDestination,
 } from "./forms";
+import { afterEmptySearchRegistrationFormOf } from "./menuForms";
 import {
-	caseListRegistrationFormOf,
-	moduleIsBareCaseList,
-	moduleIsCaseFirst,
-} from "./menuForms";
+	type MenuScreenSource,
+	moduleHasOwnScreen,
+	screenChoosesCaseFirst,
+	screenIsBareCaseList,
+} from "./menuScreens";
 import { moduleSearchWorkflow } from "./modules";
 import { effectivePostSubmit, moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
@@ -147,20 +148,25 @@ export type NavigationDestination =
 			readonly findings?: readonly NavigationReadFinding[];
 	  };
 
-type NavigationDoc = Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
+type NavigationDoc = MenuScreenSource;
 
 /** An ordinary module entry, rather than an entry point that pins its menu.
- * Without a concrete session, preserve the selected-record alternative. */
+ * Without a concrete session, preserve the selected-record alternative. A
+ * module that shows its forms in the menu above has no screen to land on.
+ * Case first and the bare case list are facts of the module's own screen,
+ * which lists the forms of any submenu that shows its forms there. */
 export function moduleDestination(
 	doc: NavigationDoc,
 	moduleUuid: Uuid,
 	hasSelectedRecord?: boolean,
 ): NavigationDestination {
 	const mod = doc.modules[moduleUuid];
-	if (!mod) return { screen: "unavailable" };
+	if (!mod || !moduleHasOwnScreen(doc, moduleUuid))
+		return { screen: "unavailable" };
+	const screen = { kind: "menu", moduleUuid } as const;
 	const shape = {
-		isCaseFirst: moduleIsCaseFirst(doc, moduleUuid),
-		isBareCaseList: moduleIsBareCaseList(doc, moduleUuid),
+		isCaseFirst: screenChoosesCaseFirst(doc, screen),
+		isBareCaseList: screenIsBareCaseList(doc, screen),
 		hasChildren: Object.values(doc.modules).some(
 			(child) => child.parentModuleUuid === moduleUuid,
 		),
@@ -266,7 +272,7 @@ export function formNavigation(
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (!form || !moduleUuid || !doc.modules[moduleUuid]) return undefined;
 	const registersFromCaseList =
-		caseListRegistrationFormOf(doc, moduleUuid) === formUuid;
+		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid;
 	const hasDestinations = form.formLinks !== undefined;
 	const postSubmit: NavigationDestination | undefined = hasDestinations
 		? undefined

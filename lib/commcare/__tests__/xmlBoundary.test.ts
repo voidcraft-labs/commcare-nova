@@ -289,7 +289,10 @@ describe("XML admission and consumer boundaries", () => {
 						(value) =>
 							!value.attributes.form || value.attributes.form === "markdown",
 					);
-					expect(values).toHaveLength(2);
+					// A hint and a validation message write no markdown form.
+					expect(values).toHaveLength(
+						id === "answer-hint" || id === "answer-constraintMsg" ? 1 : 2,
+					);
 					for (const value of values) {
 						expect(value.text).toBe(expected);
 						expect(value.children.map((node) => node.attributes.value)).toEqual(

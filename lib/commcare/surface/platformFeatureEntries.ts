@@ -54,9 +54,11 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"questions/question-list-unlabelled-anywhere-else",
 		"questions/groups-nested-in-a-question-list",
 	],
+	"number-keypad": ["questions/phone-number-xsd-string-appearance-numeric"],
 	"plain-text": [
 		"questions/plain-label-containing-html-text",
 		"questions/choice-label-with-no-markdown-form",
+		"questions/help-text-with-no-markdown-form",
 	],
 	"choice-media": ["questions/choice-image", "questions/choice-audio-video"],
 	"help-media": ["questions/help-media"],
@@ -97,6 +99,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true",
 		"menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms",
 		"menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",
+	],
+	"case-list-registration-media": [
+		"menus-and-case-lists/case-list-form-media-image-media-audio",
 	],
 	"tile-grouping": [
 		"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows",
@@ -213,8 +218,6 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 	"questions/hint-text":
 		"Renderer only: markdown on Web Apps, plain on Android.",
 	"questions/help-text-markdown-form": "Renderer only.",
-	"questions/validation-message-markdown-form":
-		"Neither platform renders markdown there.",
 	"questions/choice-label-text-markdown": "Renderer only.",
 	"questions/group-repeat-label-text-markdown": "Renderer only.",
 } as const satisfies Readonly<Record<string, string>>;

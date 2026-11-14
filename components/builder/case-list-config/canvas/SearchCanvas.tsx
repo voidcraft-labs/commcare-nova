@@ -41,11 +41,11 @@ import {
 	type CaseProperty,
 	type CaseSearchConfig,
 	type CaseType,
-	DEFAULT_CASE_SEARCH_TITLE,
 	isStandardCaseListProperty,
 	type SearchInputDef,
 	type SearchWorkflow,
 	searchInputDefault,
+	searchScreenTitleText,
 	type Uuid,
 	visibleSearchInputs,
 } from "@/lib/domain";
@@ -85,6 +85,9 @@ export interface SearchCanvasProps {
 	readonly onAddHiddenInput: () => void;
 	/** Disabled-add hint: `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
+	/** Why this menu takes no Search at all (it shows its forms in the menu
+	 *  above), stated under the heading in place of the workflow line. */
+	readonly searchUnavailableReason?: string;
 	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
 	/** Whether the worker actually sees a search screen (requires an input). */
 	readonly hasSearchSurface?: boolean;
@@ -117,6 +120,7 @@ export function SearchCanvas({
 	onAddInput,
 	onAddHiddenInput,
 	addInputDisabledReason,
+	searchUnavailableReason,
 	onMoveInput,
 	hasSearchSurface,
 	hasSearchAction,
@@ -216,8 +220,8 @@ export function SearchCanvas({
 						enabledSearchConfig?.searchButtonDisplayCondition !== undefined,
 					formsReadSearch,
 				});
-	const title =
-		enabledSearchConfig?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE;
+	/* Null for a search with no title, which draws no heading. */
+	const title = searchScreenTitleText(enabledSearchConfig);
 	const subtitle = enabledSearchConfig?.searchScreenSubtitle;
 	const openSearchSettings = () => {
 		if (onConfigureSearchAction !== undefined) onConfigureSearchAction();
@@ -231,11 +235,13 @@ export function SearchCanvas({
 						Search
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-						{workflowLine !== undefined
-							? workflowLine
-							: canEdit
-								? "Choose how people narrow cases before selecting one"
-								: "People narrow cases here before selecting one"}
+						{searchUnavailableReason !== undefined
+							? searchUnavailableReason
+							: workflowLine !== undefined
+								? workflowLine
+								: canEdit
+									? "Choose how people narrow cases before selecting one"
+									: "People narrow cases here before selecting one"}
 					</p>
 				</div>
 			</header>
@@ -290,15 +296,17 @@ export function SearchCanvas({
 								</span>
 								<div className="min-w-0 flex-1">
 									<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-										<h3 className="min-w-0 break-words font-display tracking-tighter text-[16px] font-semibold text-nova-text">
-											{searchEnabled
-												? title
-												: opensResultsAutomatically
-													? "Results can open automatically"
-													: searchActionEnabled
-														? "Search is available from Results"
-														: "No search fields"}
-										</h3>
+										{(!searchEnabled || title !== null) && (
+											<h3 className="min-w-0 break-words font-display tracking-tighter text-[16px] font-semibold text-nova-text">
+												{searchEnabled
+													? title
+													: opensResultsAutomatically
+														? "Results can open automatically"
+														: searchActionEnabled
+															? "Search is available from Results"
+															: "No search fields"}
+											</h3>
+										)}
 										{searchSettingsHasError && (
 											<span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-nova-rose">
 												<Icon icon={tablerAlertCircle} width="13" height="13" />

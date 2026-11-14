@@ -1,8 +1,13 @@
 import AdmZip from "adm-zip";
+import { produce } from "immer";
 import { expect, it } from "vitest";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	NO_SEARCH_SCREEN_TITLE,
+} from "@/lib/domain";
 import {
 	eq,
 	input,
@@ -15,6 +20,7 @@ import {
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { COMMCARE_SERVER_IDS, type CommCareServer } from "../servers";
+import { validateHqJson } from "../validator/hqJsonOracle";
 import { runValidation } from "../validator/runner";
 import { collectOracleInstanceRefs } from "../validator/suiteOracle";
 import {
@@ -542,3 +548,47 @@ it.each(["remote", "remote-defaults"] as const)(
 		}
 	},
 );
+
+it("writes a search with no title blank in every language on both paths", () => {
+	const titled = searchEmissionFixture(searchEmissionScenarios[0]);
+	const moduleUuid = titled.moduleOrder[0];
+	if (moduleUuid === undefined) throw new Error("Expected a module.");
+	const doc = produce(titled, (draft) => {
+		const module = draft.modules[moduleUuid];
+		if (module === undefined) throw new Error("Expected the module.");
+		module.caseSearchConfig = {
+			...(module.caseSearchConfig ?? {}),
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		};
+	});
+	const { hq, zip, suite } = exported(doc);
+	expect(validateHqJson(hq)).toEqual([]);
+	const config = hq.modules[0].search_config;
+	expect(Object.values(config.title_label)).not.toHaveLength(0);
+	expect(Object.values(config.title_label).every((text) => text === "")).toBe(
+		true,
+	);
+	// The suite still names the title's locale, and every language's table
+	// writes it as the blank HQ's locale writer writes, a non-breaking space.
+	const remote = xmlChildren(suite, "remote-request");
+	const queryHost =
+		remote.length > 0
+			? one(onlyXml(remote), "session")
+			: one(entry(suite, "m0-f0"), "session");
+	expect(
+		one(one(one(one(queryHost, "query"), "title"), "text"), "locale")
+			.attributes,
+	).toEqual({ id: "case_search.m0.inputs" });
+	const tables = zip
+		.getEntries()
+		.filter((file) => file.entryName.endsWith("app_strings.txt"));
+	expect(tables).not.toHaveLength(0);
+	for (const table of tables)
+		expect(
+			zip
+				.readAsText(table)
+				.split("\n")
+				.find((line) => line.startsWith("case_search.m0.inputs=")),
+			table.entryName,
+		).toBe("case_search.m0.inputs=\u00a0");
+});

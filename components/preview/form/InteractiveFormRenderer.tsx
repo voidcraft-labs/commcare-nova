@@ -40,8 +40,15 @@ import { memo, useId } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import { asUuid, isCaptureFieldKind, type Uuid } from "@/lib/domain";
+import {
+	asUuid,
+	helpShowsAsTyped,
+	isCaptureFieldKind,
+	labelShowsAsTyped,
+	type Uuid,
+} from "@/lib/domain";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
@@ -50,10 +57,7 @@ import {
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { useAppId, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
@@ -185,6 +189,8 @@ const InteractiveField = memo(function InteractiveField({
 	const rules = usePreviewPlatformRules();
 	const screen = useFormScreenScope();
 	const field = usePresentationField(uuid);
+	// The form's text formatting switch, read beside each text's own setting.
+	const textForm = useFieldTextForm(uuid);
 	// Engine state is keyed by the CONCRETE path so each repeat instance
 	// carries its own value / visibility / validity; the uuid covers the
 	// render before the doc row resolves.
@@ -310,7 +316,7 @@ const InteractiveField = memo(function InteractiveField({
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
 										rendering={rules.labelMarkdown}
-										plainLabel={ownerHoldsPlainLabel(field)}
+										plainLabel={labelShowsAsTyped(textForm, field)}
 										className="text-lg font-semibold leading-7 text-nova-text"
 									/>
 								) : null
@@ -356,6 +362,10 @@ const InteractiveField = memo(function InteractiveField({
 	const questionLabelText =
 		state.resolvedLabel ??
 		(field.label ? projectProse(field.label) : undefined);
+	const helpAsTyped = helpShowsAsTyped(
+		textForm,
+		"plainHelp" in field ? field : {},
+	);
 
 	// Discriminated union narrowing on `field.kind` so each branch sees
 	// the kind-specific entity shape. `label` is absent from the `hidden`
@@ -435,7 +445,7 @@ const InteractiveField = memo(function InteractiveField({
 								resolvedLabel={state.resolvedLabel}
 								isEditMode={false}
 								rendering={rules.labelMarkdown}
-								plainLabel={ownerHoldsPlainLabel(field)}
+								plainLabel={labelShowsAsTyped(textForm, field)}
 								className={FIELD_STYLES.label}
 							/>
 							{state.required ? (
@@ -456,6 +466,7 @@ const InteractiveField = memo(function InteractiveField({
 								help={"help" in field ? field.help : undefined}
 								resolvedHelp={state.resolvedHelp}
 								helpMedia={"help_media" in field ? field.help_media : undefined}
+								asTyped={helpAsTyped}
 								interactive
 								questionLabel={questionLabelText}
 								placement="label"
@@ -500,6 +511,7 @@ const InteractiveField = memo(function InteractiveField({
 						help={"help" in field ? field.help : undefined}
 						resolvedHelp={state.resolvedHelp}
 						helpMedia={"help_media" in field ? field.help_media : undefined}
+						asTyped={helpAsTyped}
 						interactive
 						questionLabel={questionLabelText}
 						placement="label"
@@ -539,6 +551,7 @@ const InteractiveField = memo(function InteractiveField({
 					help={"help" in field ? field.help : undefined}
 					resolvedHelp={state.resolvedHelp}
 					helpMedia={"help_media" in field ? field.help_media : undefined}
+					asTyped={helpAsTyped}
 					interactive
 					questionLabel={questionLabelText}
 					placement="below"

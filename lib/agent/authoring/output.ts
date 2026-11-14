@@ -30,11 +30,13 @@ import {
 	proseTemplateSchema,
 	resolveFormLinkTarget,
 	translationEntrySchema,
+	translationUnitProseSlot,
 	translationUnitsById,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
 import { automationMessageTemplateSchema } from "@/lib/domain/automations";
+import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { printFormExpression } from "@/lib/domain/expression/print";
 import {
 	conditionSchema,
@@ -42,6 +44,7 @@ import {
 	type ExpressionSlotRef,
 	formLinkDatumNameSchema,
 	formLogicSchema,
+	type ProseSlotRef,
 	relationPathSchema,
 	termSchema,
 	valueSchema,
@@ -59,6 +62,7 @@ import { formRecordContext } from "./formRecordContext";
 import { printAuthoringIcon } from "./icons";
 import { printAuthoringMessage } from "./messages";
 import { queryPrinter } from "./printQueryExpression";
+import { proseValuePrinter } from "./proseSlots";
 import { type AuthoringValueDecoders, encodeAuthoringValues } from "./schema";
 import { printAuthoringText } from "./text";
 
@@ -78,9 +82,15 @@ export async function projectAuthoringReadInContext(
 	ctx: ToolInvocationContext,
 ) {
 	const tables =
-		["getField", "getForm", "getModule", "getCaseOperations"].includes(
-			toolName,
-		) && extractLookupReferenceTargets(ctx.snapshot.doc).tableIds.length > 0
+		[
+			"getField",
+			"getForm",
+			"getModule",
+			"getCaseOperations",
+			"searchBlueprint",
+			"getTranslatableContent",
+		].includes(toolName) &&
+		extractLookupReferenceTargets(ctx.snapshot.doc).tableIds.length > 0
 			? (await ctx.lookupCatalog?.())?.definitions
 			: undefined;
 	try {
@@ -197,9 +207,58 @@ export function authoringEncoders(
 			`The stored expression at ${path.join(".")} has no evaluating slot.`,
 		);
 	}
+	/* The prose slot of a field's text at `path` in the field's canonical
+	 * content, where a calculated value in it prints. A text that is no
+	 * field's (a case property's label) has none, and holds no value. */
+	function proseSlotAt(
+		path: readonly (string | number)[],
+	): ProseSlotRef | undefined {
+		const content = record.safeParse(source);
+		if (!content.success) return undefined;
+		const uuid = uuidSchema.safeParse(content.data.uuid);
+		if (!uuid.success || options.doc.fields[uuid.data] === undefined)
+			return undefined;
+		const [slot] = path;
+		if (
+			path.length === 1 &&
+			(slot === "label" ||
+				slot === "hint" ||
+				slot === "help" ||
+				slot === "validate_msg")
+		)
+			return { entity: "field", uuid: uuid.data, slot };
+		if (
+			path.length === 4 &&
+			path[0] === "optionsSource" &&
+			path[1] === "options" &&
+			typeof path[2] === "number" &&
+			path[3] === "label"
+		) {
+			const option = records.safeParse(
+				record.safeParse(content.data.optionsSource).data?.options,
+			).data?.[path[2]];
+			const optionUuid = uuidSchema.safeParse(option?.uuid);
+			return optionUuid.success
+				? {
+						entity: "field",
+						uuid: uuid.data,
+						slot: "option_label",
+						member: { optionUuid: optionUuid.data },
+					}
+				: undefined;
+		}
+		return undefined;
+	}
+	const lookup = new Map(
+		(options.tables ?? []).map((table) => [table.id, table]),
+	);
 	return {
-		text: (value) =>
-			printAuthoringText(proseTemplateSchema.parse(value), options.doc),
+		text: (value, path) =>
+			printAuthoringText(
+				proseTemplateSchema.parse(value),
+				options.doc,
+				proseValuePrinter(options.doc, proseSlotAt(path), lookup, options.form),
+			),
 		xpath(value, path) {
 			const projection = projectFormExpression(
 				options.doc,
@@ -300,6 +359,8 @@ type Slots<Value> = { [Key in KeysOf<Value>]?: SlotOf<Value, Key> };
 
 interface ReadProjection {
 	readonly doc: BlueprintDoc;
+	/** The Project's data table definitions the read loaded, by id. */
+	readonly lookup: LookupDefinitionIndex;
 	scope(formUuid?: Uuid, moduleUuid?: Uuid): AuthoringScopeOptions;
 	project<Schema extends z.ZodType>(
 		schema: Schema,
@@ -369,7 +430,7 @@ const readProjectors: {
 			currentCaseType: data.caseType,
 		}),
 	}),
-	searchBlueprint(data, { doc }) {
+	searchBlueprint(data, { doc, lookup }) {
 		const payload = record.parse(data);
 		return {
 			...payload,
@@ -378,13 +439,25 @@ const readProjectors: {
 				const source = doc.fields[uuidSchema.parse(item.fieldUuid)];
 				if (!source)
 					throw new Error("The searched field is no longer in this app.");
+				const slot = item.field;
 				if (
-					["label", "hint", "help", "validate_msg"].includes(String(item.field))
+					slot === "label" ||
+					slot === "hint" ||
+					slot === "help" ||
+					slot === "validate_msg"
 				) {
-					const value = record.parse(source)[String(item.field)];
+					const value = record.parse(source)[slot];
 					return {
 						...item,
-						value: printAuthoringText(proseTemplateSchema.parse(value), doc),
+						value: printAuthoringText(
+							proseTemplateSchema.parse(value),
+							doc,
+							proseValuePrinter(
+								doc,
+								{ entity: "field", uuid: source.uuid, slot },
+								lookup,
+							),
+						),
 					};
 				}
 				if (item.field === "option") {
@@ -402,6 +475,7 @@ const readProjectors: {
 			openCondition,
 			closeCondition,
 			ownClosePlacement: _heldClose,
+			plainText,
 			...form
 		} = data.form;
 		// A held placement is an identity no author chooses: no edit accepts
@@ -436,6 +510,9 @@ const readProjectors: {
 						openCondition,
 					),
 				}),
+				// Read under the name an edit takes, so a read sent back
+				// through `updateForm` keeps it.
+				...(plainText === true && { plain_text: true }),
 				...(closeCondition !== undefined && {
 					closeCondition: formCondition(
 						form.uuid,
@@ -467,6 +544,28 @@ const readProjectors: {
 				data.case_search_config,
 				options,
 			),
+			caseListMenuItem:
+				data.caseListMenuItem === null
+					? null
+					: {
+							...data.caseListMenuItem,
+							icon: project(
+								moduleIconRefSchema.nullable(),
+								data.caseListMenuItem.icon,
+								options,
+							),
+						},
+			caseListRegistrationForm:
+				data.caseListRegistrationForm?.kind === "always"
+					? {
+							...data.caseListRegistrationForm,
+							icon: project(
+								formIconRefSchema.nullable(),
+								data.caseListRegistrationForm.icon,
+								options,
+							),
+						}
+					: data.caseListRegistrationForm,
 			forms: data.forms.map((form) => ({
 				...form,
 				icon: project(formIconRefSchema.nullable(), form.icon, options),
@@ -491,7 +590,7 @@ const readProjectors: {
 					: { ...operation, ...placement };
 			}),
 	}),
-	getTranslatableContent(data, { doc, scope }) {
+	getTranslatableContent(data, { doc, lookup }) {
 		const payload = record.parse(data);
 		const units = translationUnitsById(doc);
 		return {
@@ -500,15 +599,21 @@ const readProjectors: {
 				const unit = [...units.values()].find((unit) => unit.id === item.id);
 				if (!unit)
 					throw new Error("The translation source changed during this read.");
-				const owner = unit.owner;
-				const encoders = authoringEncoders(
-					scope(
-						"formUuid" in owner ? owner.formUuid : undefined,
-						"moduleUuid" in owner ? owner.moduleUuid : undefined,
-					),
-				);
 				const explicit =
 					item.explicit == null ? item.explicit : record.parse(item.explicit);
+				/* A field's text prints its calculated values in the slot the
+				 * unit translates; every other unit holds none. */
+				const printValue = proseValuePrinter(
+					doc,
+					translationUnitProseSlot(unit),
+					lookup,
+				);
+				const localized = (value: unknown) => {
+					const content = localizedValueSchema.parse(value);
+					return typeof content === "string"
+						? content
+						: printAuthoringText(content, doc, printValue);
+				};
 				return {
 					...item,
 					...(explicit
@@ -525,20 +630,22 @@ const readProjectors: {
 					sourceFingerprint: authoringFingerprint(
 						z.string().parse(item.sourceFingerprint),
 					),
-					source: encoders.localized(item.source, []),
-					effective: encoders.localized(item.effective, []),
+					source: localized(item.source),
+					effective: localized(item.effective),
 					explicit: explicit && {
 						origin: explicit.origin,
 						review: explicit.review,
 						translatedFrom: explicit.translatedFrom,
-						value: encoders.localized(explicit.value, []),
+						value: localized(explicit.value),
 					},
 					protectedParts:
 						unit.valueKind === "prose"
 							? proseTemplateSchema
 									.parse(unit.source)
 									.parts.filter((part) => part.kind !== "text")
-									.map((part) => printAuthoringText({ parts: [part] }, doc))
+									.map((part) =>
+										printAuthoringText({ parts: [part] }, doc, printValue),
+									)
 							: [],
 				};
 			}),
@@ -649,6 +756,10 @@ export function projectAuthoringRead(args: {
 			result.plain_label = result.plainLabel;
 			delete result.plainLabel;
 		}
+		if (result.plainHelp !== undefined) {
+			result.plain_help = result.plainHelp;
+			delete result.plainHelp;
+		}
 		return {
 			...result,
 			...effectiveFieldBehavior(doc, content),
@@ -699,6 +810,7 @@ export function projectAuthoringRead(args: {
 	}
 	return projector(data, {
 		doc,
+		lookup: new Map((tables ?? []).map((table) => [table.id, table])),
 		scope,
 		project,
 		field,

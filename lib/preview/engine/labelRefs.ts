@@ -5,7 +5,7 @@
  * written, and each reference part is evaluated by the caller, which prints
  * it at the Preview target as the XForm's `<output>` for it reads.
  */
-import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
+import type { ProseAtomPart, ProseTemplate } from "@/lib/domain";
 import { isNodesetCardinalityFailure } from "../xpath/runtimeError";
 
 /** Only ambiguous custom validation wording uses the standard warning.
@@ -35,14 +35,15 @@ export async function resolveConstraintMessageAsync(
 }
 
 /**
- * Resolve each typed prose reference against the captured runtime context.
+ * Resolve each typed prose atom (a reference or a calculated value) against
+ * the captured runtime context.
  * Literal text is preserved, including text that looks like a reference.
  * A template with no reference resolves to `undefined`: the renderer shows
  * its authored text.
  */
 export function resolveLabel(
 	template: ProseTemplate | undefined,
-	evaluator: (part: ProseReferencePart) => string,
+	evaluator: (part: ProseAtomPart) => string,
 ): string | undefined {
 	if (!template?.parts.some((part) => part.kind !== "text")) return undefined;
 	let resolved = "";
@@ -55,7 +56,7 @@ export function resolveLabel(
  * while each typed reference is evaluated in document order. */
 export async function resolveLabelAsync(
 	template: ProseTemplate | undefined,
-	evaluator: (part: ProseReferencePart) => Promise<string>,
+	evaluator: (part: ProseAtomPart) => Promise<string>,
 ): Promise<string | undefined> {
 	if (!template?.parts.some((part) => part.kind !== "text")) {
 		return undefined;

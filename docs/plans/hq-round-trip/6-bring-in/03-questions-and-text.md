@@ -468,20 +468,24 @@ outcome B or C the sentence on Android's widget in the paragraph "The Phone Numb
 the row.
 
 **G6. A phone writes a date and time as CommCare HQ stores it.** The lane's native family
-`expression`, in the pull request run, with one test of the lane's HQ unit. The producer
-`proof/native/producers/emit-expression-evidence.ts` writes `stored-instants.json` from the vectors
+`case`, in the pull request run, with one test of the lane's HQ unit (the `case` family, not
+`expression`: it alone has an HQ step that builds its forms again, and its sequence form holds a
+question saved through Case Management, `now()` and a literal written with an offset). The producer
+`proof/native/producers/emit-case-evidence.ts` writes `stored-instants.json` from the vectors
 of `lib/domain/__tests__/hqInstantText.vectors.ts`, each an instant with the text `hqInstantText`
 gives it: a moment whose UTC day is the day after the device's and one whose UTC day is the day
 before, the last millisecond before UTC midnight, both sides of a daylight saving turn, a moment
-before 1970, and midnight itself. `proof/native/core/StoredInstantRuntimeTest.java`, entered in
-`proof/native/families.py::CORE_CLASSES` as `"StoredInstantRuntimeTest": "expression"` and in
+before 1970, midnight itself, and the UTC day after or before a device's across a month, a February (common and leap) and a year. `proof/native/core/StoredInstantRuntimeTest.java`, entered in
+`proof/native/families.py::CORE_CLASSES` as `"StoredInstantRuntimeTest": "case"` and in
 `ZONED_CLASSES` under `DEVICE_ZONES` (UTC, New York, Kolkata with its half hour, Kiritimati at
-fourteen hours), opens the forms of `targeted-datetime-saved` from the local archive and from
-CommCare HQ's build, sets each vector as the question's answer and as the recorded clock `now()`
-reads, submits, applies the submission through `CaseXmlParser` and reads the case's property. It
-reads the copy row over a case stored in CommCare HQ's spelling too.
-`proof/hq/test_stored_datetime.py` hands each vector's text, and the earlier device-offset text of
-the same instant, to CommCare HQ's own `adjust_datetimes`.
+fourteen hours), opens the case family's sequence form from the local archive and from CommCare
+HQ's build, sets each vector as the question's answer and as the recorded clock `now()` reads,
+submits, applies the submission through `CaseXmlParser` and reads the case's properties. The copy
+row and the `if` row are `targeted-datetime-saved`'s, read by proofs 2 to 4 and by this class once
+that document's forms are in the family. `proof/hq/test_stored_datetime.py` hands each vector's
+text, and the earlier device-offset text of the same instant in three zones
+(`proof/hq/fixtures/stored-instant-vectors.json`, held to the vectors in Vitest), to CommCare HQ's
+own `adjust_datetimes`.
 - *A: every stored value equals its vector's text in every zone, the copy is exact, and
   `adjust_datetimes` returns the vector's text for both spellings.* Nothing more lands.
 - *B: a value differs in some zone.* The piece of `storedInstantOfText` that the difference names
@@ -665,11 +669,13 @@ The setting tokens are an exported table of the same file, keyed by setting and 
 ```ts
 /** The token each value of each display setting writes. */
 export const FIELD_DISPLAY_SETTING_TOKENS: {
-	readonly [K in FieldDisplaySettingKey]: Readonly<Record<string, string>>;
+	readonly [K in FieldDisplaySettingKey]: Readonly<
+		Record<keyof Extract<(typeof FIELD_DISPLAY_SETTINGS)[number], { key: K }>["values"], string>
+	>;
 } = { keypad: { numbers: "numeric" } };
 ```
 
-A registry row with no entry here fails `tsc`, and `appearance.test.ts` holds that every value of a
+A registry row with no entry here, or a registry value with no token, fails `tsc`, and `appearance.test.ts` holds that every value of a
 registry row has a token (section "Tests"). The reader reads the table backwards for the strings
 Nova writes, and any other string is its own manifest entry's to decide (part 06, section 9.2).
 `builder.ts::buildLeafControl` and `buildContainer` take
@@ -874,8 +880,11 @@ export function numberKeypadStores(rule: PreviewPlatformRules["numberKeypad"], r
 `lib/preview/engine/formEngine.ts`, where it reads a typed answer for a Text question holding
 `keypad`, calls both: under `"keys"` the stored and shown text is `numberKeypadTyped`; under
 `"pattern"` an answer that does not match is not written to the instance, the question's state is
-invalid with `runtimeMessage(language, "numberKeypadAnswer")`, and the earlier answer stays in the
-instance, as `readNumericAnswer` refuses a whole number today. `TextField.tsx` sets `inputMode="tel"`
+invalid with `runtimeMessage(language, "numberKeypadAnswer")` (through `answerShapeError`, so it
+blocks Submit and shows on blur), and the earlier answer stays in the instance. This is not what
+`readNumericAnswer` does for a whole number, which writes the typed text to the instance and marks the
+state invalid; `PhoneEntry` sends Formplayer nothing it refuses, so the keypad's refusal changes nothing
+the form reads. `TextField.tsx` sets `inputMode="tel"`
 for such a question on both platforms. `numberKeypadTyped` under `"keys"` is G5's outcome A (a
 character filter); outcome B or C gives the rule written there.
 
@@ -1037,7 +1046,8 @@ so one value's address is its slot and its `path`, and a caller that edits one h
 |---|---|
 | `lib/commcare/validator/index.ts` (the field expression loop) | checks it; reports `field-prose` with the slot as `surface` |
 | `lib/doc/referenceIndex.ts::extractFieldEdges` | `expressionEdges(sink, ref.slot, …)`, so its edges carry the prose slot's name; `extractProseRefs` handles the four reference kinds only |
-| `lib/doc/lookupReferences.ts`, `platformNotes.ts`, `fieldWalk.ts`; `lib/domain/platformUses.ts` (expression uses, site the prose slot); `lib/commcare/locations/readsLocationsFixture.ts`; `lib/commcare/validator/rules/multiSelect.ts`, `rules/form.ts` | reads it as any field form-logic value: no arm of its own |
+| `platformNotes.ts`, `fieldWalk.ts`; `lib/domain/platformUses.ts` (expression uses, site the prose slot); `lib/commcare/locations/readsLocationsFixture.ts`; `lib/commcare/validator/rules/multiSelect.ts`, `rules/form.ts` | reads it as any field form-logic value: no arm of its own |
+| `lib/doc/lookupReferences.ts` | its production registry is one extractor per registered slot name, so it gains one for each of a field's prose slots; a value's occurrence is carried by its field (an option label's by its option) with the part's place, `["parts", n]`, below the slot |
 | `lib/domain/expression/context.ts` (`expressionFacts`, `referencedCountResults`) | included as a reader of answers and of count results; it feeds no other value, so inference gives it no type to anyone |
 | `lib/commcare/xform/builder.ts` | included where the form's expressions are walked for carriers and instances; the text itself is written by 4.4 |
 | `lib/preview/engine/expressionCaseReads.ts`, `useCaseDatabaseSnapshot.tsx`, `caseDataBindingHelpers.ts` | included, so Preview loads the case data a label's value reads |
@@ -1184,6 +1194,12 @@ alike. `proseTemplateSurvivesTiptapRoundTrip` holds for a value because the code
   	readonly onCommit: (part: ProseAtomPart) => void;
   	/** Removes `editing`. The Remove button shows only while `editing` is set. */
   	readonly onRemove: () => void;
+  	/** Where the popover opens: the reference picker's trigger. */
+  	readonly anchor?: Element | null;
+  	/** Attributes that mark the popover as part of the text's editing session
+  	 *  (`data-inline-toolbar`, `data-prose-editor`), so focus moving into it
+  	 *  does not end the edit. */
+  	readonly sessionAttributes?: Readonly<Record<`data-${string}`, string>>;
   }
   export function ProseValuePopover(props: ProseValuePopoverProps): ReactNode;
   ```
@@ -1297,6 +1313,11 @@ or that a worker reads the same characters, which is the lane's reading of `targ
 - Nothing is refused, the text stays one `text` part in the document, and no editor shows a
   difference. The reader's inverse is the one it already needs for whitespace outputs: a literal string
   output reads back as its text.
+- The cut also takes CommCare HQ's CommCare Supply substring test off a label: a label holding
+  `instance('commcaresession')/session/data/supply_point_id` no longer holds that text in the source,
+  so `lib/commcare/planPrivileges.ts::commtrackReasons` names no form for it, and its tests say so.
+  With a literal cut by the serializer and a form's name and Connect text refused (5.1), no admitted
+  document's source holds the text; the form half of that rule stays as a reading of the emission.
 
 An output's own text needs no guard: a `value` part's instances are declared (4.4), and the string
 literals inside it are cut by the serializer. The split changes no behavior and nothing declares it
@@ -1536,7 +1557,8 @@ neither and claims each (part 06, sections 7.4 and 15).
 holds section 5's label controls, in the pull request run, as every `proof/hq` test with no served
 reader does.
 
-- *The pattern.* New fixture `lib/commcare/__tests__/fixtures/hq-instance-scan-vectors.json`, one
+- *The pattern.* New fixture `proof/hq/fixtures/hq-instance-scan-vectors.json` (under `proof/`, because a
+  lane shard's checkout holds only `proof/` and `lib/commcare/surface/`), one
   row per text: the text, the names HQ reads in it (`hqReads`), and whether Nova refuses it
   (`refused`). The lane puts each text into an element's text and into an attribute, renders it as
   `WrappedNode.render` does, and asks HQ's own `get_instance_names`. It requires the answer to equal
@@ -1844,7 +1866,14 @@ moment is written as it is, so a copy is exact.
 
 ```ts
 /** The text a date and time takes on a case: its moment as CommCare HQ stores it. */
-export function datetimeCaseValue(operand: InstantOperand, emit: InstantEmission): WireExpr;
+export function datetimeCaseValue(
+	expression: Expression,
+	ctx: WireBuildContext,
+	clock?: (leaf: Expression) => WireExpr | undefined,
+): WireExpr; // xpath/wire/fromExpression.ts::storedDatetimeWire, which classifies the
+            // write in its slot and prints each leaf through instant.ts::storedDatetimeValue
+/** The sibling's value: a question read is a typed leaf. */
+export function questionDatetimeCaseValue(path: FormPath): WireExpr;
 ```
 
 Both sites hand it the value's classification
@@ -1893,7 +1922,11 @@ offset = if(starts-with(tail, 'Z'), 0,
 U      = number(substr(T, 11, 13)) * 60 + number(substr(T, 14, 16)) - offset
 D      = floor(U div 1440)
 M      = (U + 1440) mod 1440
-day    = format-date(date(date(substr(T, 0, 10)) + D), '%Y-%m-%d')
+day    = if(U < 0, previousDay, if(U >= 1440, nextDay, substr(T, 0, 10)))
+         -- nextDay and previousDay from the written year, month and day: the day
+         -- before or after within the month, else the month's first or last day,
+         -- else the year's (a month's days: 28 + leap in February, else
+         -- 30 + ((m + floor(m div 8)) mod 2))
 text   = concat(day, 'T', substr(100 + floor(M div 60), 1), ':', substr(100 + M mod 60, 1), ':',
                 substr(T, 17, 23), '000Z')
 ```
@@ -1906,21 +1939,23 @@ What each piece rests on, read at the commcare-core pin and not run (check G6 ru
 - `substr` counts from 0 and reads its first argument as text
   (`xpath/expr/XPathSubstrFunc.java::substring`), and Core prints a whole number with no decimal
   point (`FunctionUtils.java::toString`), so `substr(100 + h, 1)` is `h` in two digits.
-- `date(text) + D` is a count of days (`FunctionUtils.java::toNumeric` of a `Date` is
-  `DateUtils.java::daysSinceEpoch`), `date(number)` is the day that many days after 1970-01-01
-  (`FunctionUtils.java::toDate`, `DateUtils.java::dateAdd`), and `format-date` prints a `Date` it is
-  handed without rounding it (`FunctionUtils.java::expandDateSafe`). It is the day arithmetic
-  `instant.ts::epochDayMidnight` prints today.
+- The day before or after is worked out from the written fields, never through a day number.
+  Planned first as `date(date(substr(T, 0, 10)) + D)`, that reads a `Date` as days from
+  `DateUtils.EPOCH_DATE`, fixed in the JVM's zone when the class loads, while `date()` of text
+  is the provider zone's midnight: on Web Apps (Formplayer's JVM in UTC, the browser's zone as
+  provider) a day number of a local midnight more than twelve hours ahead of UTC rounds one
+  day short, so the text would land a day early in Kiritimati, Tonga, Samoa and Chatham
+  (`lib/preview/CLAUDE.md`, "Day numbers" for Web Apps).
 - An offset under an hour and not zero prints as `Z:MM` whatever its sign
   (`getOffsetInStandardFormat`), so it reads as UTC here. Only historic offsets are such, the limit
   `lib/commcare/xpath/CLAUDE.md` ("The instant lowering") already states for a typed instant.
 
-`T` is printed 23 times, about 3 KB for a question read. One operand of a lowered comparison prints
+`T` is printed 56 times, about 5.7 KB for a question read. One operand of a lowered comparison prints
 its text more often (`instantMicros`).
 
 **A leaf that reads the clock.** XPath holds no value: each print of `T` evaluates `V` again.
 A question read gives one answer however often it is read. `now()` is a new `Date` each time
-(`xpath/expr/XPathNowFunc.java::evalBody`, which Core does not cache), so 23 prints of it can fall
+(`xpath/expr/XPathNowFunc.java::evalBody`, which Core does not cache), so 56 prints of it can fall
 on both sides of a minute's turn, and the pieces would then name a moment that never was. So a
 `typed` leaf whose tree holds `now()` is read once, into a node:
 
@@ -2028,7 +2063,8 @@ are the pattern `typedInstantText` prints and the date-and-time split's join rea
 That is the whole of it. No notice is written, no script reads or writes production for this
 change, and no stored row or document is rewritten.
 
-**The lane document.** `targeted-datetime-saved` (declares both platforms): a registration form
+**The lane document.** `targeted-datetime-saved` (declares Android only, since a date-and-time
+question has no entry in Web Apps, the platform row `datetime-question`): a registration form
 whose date and time question saves to a property through Case Management, a follow-up whose Save
 to Case rows write the question's answer, `now()`, a copy of the saved property, and an `if` that
 chooses between a typed answer and the stored text, and a list ordered by the property ascending.
@@ -2180,9 +2216,12 @@ validation message as typed, which `lib/preview/CLAUDE.md` states.
   `RefLabelInput`'s `labelRight` the **Format text** toggle the label's inline editor has, driven by
   the new `components/preview/form/useHelpFormatText.ts`, which exports
   `useHelpFormatText(field: Field | undefined): FormatTextControl | undefined` on the model of
-  `useLabelFormatText`: the same `FormatTextControl`, whose `plain` is the field holding `plainHelp`
-  and whose `write(true | null)` patches `plainHelp` in one `updateField`, and `undefined` for a
-  kind whose schema holds no `help`. `formatText.ts::FormatTextOwner` gains `"help"`,
+  `useLabelFormatText`: the same `FormatTextControl`, whose `plain` is the help showing as typed
+  (`helpShowsAsTyped`: the field holding `plainHelp`, or its form holding `plainText`), whose
+  `formOff` is the form holding `plainText` (the toggle then shows off and changes nothing), and
+  whose `write(true | null)` patches `plainHelp` in one `updateField`, and `undefined` for a
+  kind whose schema holds no `help`. The toggle is a switch in `RefLabelInput`'s label row, which
+  sits beside the label outside the text that names the editor. `formatText.ts::FormatTextOwner` gains `"help"`,
   `formatTextOffLine("help", platforms)` gives the lines of "Copy", and `formatTextGesture` is
   unchanged. A hint and a validation message get no toggle.
 - *The form.* `components/builder/detail/formSettings/FormAppearanceSection.tsx` gains a `ToggleRow`
@@ -2315,9 +2354,12 @@ of `lib/agent/authoring/reference.ts` gains `${platformSentence("number-keypad")
   ProseValuePart) => string): string` prints a value as `{{= ` + what `printValue` gives + `}}`, and
   hands `printValue` to `printProseTemplate`, so a caller that passes none and meets a value throws
   `ProseProjectionError` (4.1). `output.ts`'s `text` encoder takes the path and resolves the slot
-  with `proseSlotAt`, and its `printValue` is `projectFormExpression(doc, slot, part.expression,
+  (below), and its `printValue` is `projectFormExpression(doc, slot, part.expression,
   lookup).text`; `searchBlueprint`'s and the translation tools' printers do the same with the field
-  they already hold. A catalog text's printer passes none: it holds no value.
+  they already hold. A read walks the stored field, not a tool's input, so `output.ts` resolves a
+  text's slot from the canonical field it projects (its `uuid`, and an option's `uuid` for a choice
+  label) and a translation unit's from `translationUnitProseSlot`, and `proseSlotAt` serves the
+  inputs alone. A catalog text's printer passes none: it holds no value.
 - **The guide.** `reference.ts`'s forms paragraph gains the sentence of "Copy".
 
 ### 9.3 The title, blanks and text as typed
@@ -2671,7 +2713,7 @@ and the served readers in the lane dispatch over the step's new targeted documen
 
 | Test | Boundary | Catches |
 |---|---|---|
-| `lib/commcare/__tests__/hqInstanceScan.test.ts` (the file above), over `fixtures/hq-instance-scan-vectors.json` | `instanceScanRead` as a function of its input, against rows HQ's own function answers in the lane | a text HQ reads that Nova admits; the offered spelling (`instance ('casedb')`) refused; text typed as `&apos;` refused |
+| `lib/commcare/__tests__/hqInstanceScan.test.ts` (the file above), over `proof/hq/fixtures/hq-instance-scan-vectors.json` | `instanceScanRead` as a function of its input, against rows HQ's own function answers in the lane | a text HQ reads that Nova admits; the offered spelling (`instance ('casedb')`) refused; text typed as `&apos;` refused |
 | `lib/commcare/validator/__tests__/formTextInstanceRead.test.ts` (new) | the commit gate over real documents (`lib/doc/commitVerdicts.ts::mutationCommitVerdict`): a rename, a Connect edit through `updateForm`, a `setTranslation` of the default language's name, and a `setDefaultLanguage` that makes a language holding the text the default | a site the rule does not read; the default language's translated name slipping past; a name in another language refused; a finding with the wrong `site`; a scoped run that misses what the whole-document run finds |
 | `lib/commcare/xform/__tests__/sourceTexts.test.ts` (new) | the emitted form through `parseXml`, for a learn form and a deliver form whose every authored text is its own marker | a text node outside `<itext>`, or an attribute outside a formula, that holds an authored marker and is not a `formSourceTexts` entry (the defect returning at a new place in the emitter); an entry the emitter no longer writes |
 | `lib/doc/__tests__/userFacingErrors.test.ts` | the message table | the builder sentence naming the wrong text for a site, or showing no match |
@@ -2946,7 +2988,7 @@ alternatives it weighed and did not take. Each item is this plan's decision, wit
 - `lib/domain/__tests__/hqInstantText.vectors.ts`: the vectors Vitest and the lane share (G6).
 - The tests "Tests" marks new, among them `e2e/tests/app/number-keypad.spec.ts`,
   `e2e/tests/app/text-and-lists.spec.ts` and the fixture
-  `lib/commcare/__tests__/fixtures/hq-instance-scan-vectors.json`.
+  `proof/hq/fixtures/hq-instance-scan-vectors.json`.
 - The lane: the five documents `targeted-number-keypad`, `targeted-prose-value`,
   `targeted-search-no-title`, `targeted-sort-blanks` and `targeted-plain-help`;
   `proof/hq/test_instance_text.py`; `proof/native/core/ProseValueRuntimeTest.java`;

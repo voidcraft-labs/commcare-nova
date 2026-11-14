@@ -44,6 +44,7 @@ import {
 } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
 import {
+	ProseSlotScope,
 	useReferenceProvider,
 	useReferenceTemplateProjection,
 } from "@/lib/references/ReferenceContext";
@@ -124,11 +125,13 @@ export const FieldRow = memo(function FieldRow({
 	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);
 	const displayText = fieldLabel || field.id;
 	const chipContent =
-		!textIndices && fieldTemplate
-			? textWithChips(fieldTemplate, provider, formUuid)
-			: !textIndices
-				? field.id
-				: null;
+		!textIndices && fieldTemplate ? (
+			<ProseSlotScope slot={{ entity: "field", uuid, slot: "label" }}>
+				{textWithChips(fieldTemplate, provider, formUuid)}
+			</ProseSlotScope>
+		) : !textIndices ? (
+			field.id
+		) : null;
 	const preloadInspector = () => {
 		const preload =
 			field.kind === "section"

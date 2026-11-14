@@ -17,7 +17,7 @@ import { planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { planPlacements } from "@/lib/commcare/placement";
-import { caseListRegistrationForm } from "@/lib/commcare/validator/rules/case-search/caseListRegistration";
+import { caseListRegistrationApp } from "@/lib/commcare/validator/rules/case-search/caseListRegistration";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { buildXForm } from "@/lib/commcare/xform/builder";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -164,7 +164,7 @@ describe("a registration whose own arm takes Save to Case", () => {
 				formUuid,
 			},
 		};
-		const findings = caseListRegistrationForm(host, moduleUuid, {
+		const findings = caseListRegistrationApp({
 			...doc,
 			modules: { ...doc.modules, [moduleUuid]: host },
 		}).filter((f) => f.code === "CASE_LIST_REGISTRATION_NOT_REGISTRATION");

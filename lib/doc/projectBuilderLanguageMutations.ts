@@ -13,10 +13,12 @@ import {
 	localizeTranslationUnit,
 	makeTranslationUnitId,
 	proseText,
+	searchScreenTitleSchema,
 	type TranslationEntry,
 	type TranslationUnitId,
 	translationUnitsById,
 	translationValueIntegrityIssue,
+	type Uuid,
 } from "@/lib/domain";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 
@@ -77,7 +79,7 @@ export function projectBuilderLanguageMutations(
 		if (issue !== undefined) {
 			refusal =
 				issue === "protected-content"
-					? "This translation must preserve every referenced answer, case value, and worker value. Edit it in Languages to repair the protected references."
+					? "This translation keeps every answer, case value, worker value and calculated value its source shows. You can repair them in Languages."
 					: "That value is not valid for this worker-facing translation. Edit it in Languages and try again.";
 			return unit.source;
 		}
@@ -151,6 +153,19 @@ export function projectBuilderLanguageMutations(
 						if (!hasOwn(searchPatch, slot)) continue;
 						const id = makeTranslationUnitId("module", mutation.uuid, unitSlot);
 						const value = searchPatch[slot];
+						// No title is one setting for every language, with no translation
+						// unit: the source takes turning it off, and turning it back on
+						// (a `null` while the source holds the `none` arm).
+						if (
+							slot === "searchScreenTitle" &&
+							(isNoSearchScreenTitle(value) ||
+								(value === null &&
+									isNoSearchScreenTitle(
+										sourceSearchScreenTitle(doc, mutation.uuid),
+									)))
+						) {
+							continue;
+						}
 						let handled = false;
 						if (!units.has(id)) {
 							handled = true;
@@ -484,4 +499,18 @@ export function projectBuilderLanguageMutations(
 		});
 	}
 	return { ok: true, mutations: projected };
+}
+
+/** Whether a stored or patched search title is the `none` arm. */
+function isNoSearchScreenTitle(value: unknown): boolean {
+	const parsed = searchScreenTitleSchema.safeParse(value);
+	return parsed.success && typeof parsed.data !== "string";
+}
+
+/** The source document's stored search title of a module, if any. */
+function sourceSearchScreenTitle(doc: BlueprintDoc, moduleUuid: Uuid): unknown {
+	const config = doc.modules[moduleUuid]?.caseSearchConfig;
+	return config !== undefined && "searchScreenTitle" in config
+		? config.searchScreenTitle
+		: undefined;
 }

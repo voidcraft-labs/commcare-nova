@@ -55,6 +55,7 @@ import type {
 } from "@/lib/commcare/validator/errors";
 import type { UserFacingValidationCode } from "@/lib/commcare/validator/gate";
 import { chosenCaseReadSentence } from "@/lib/commcare/validator/recordFindings";
+import { CONNECT_SOURCE_TEXT_WORDS } from "@/lib/commcare/xform/sourceTexts";
 import {
 	type EntryPointIdProblem,
 	entryPointIdProblemSentence,
@@ -301,6 +302,12 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 				return `${form} goes to ${phrase} ${when}, but ${module} is off the menu: on Android that screen lists nothing, and Web Apps opens another screen instead.`;
 			case "parent-off-the-menu":
 				return `${form} goes to the parent module ${when}, but ${q(parentName)} is off the menu: on Android it lists none of its own forms, and Web Apps opens the app's first screen instead.`;
+			case "menu-forms-in-menu-above":
+				return `${form} goes to its module ${when}, but ${module} shows its forms in the menu above, so it has no screen of its own to land on.`;
+			case "parent-forms-in-menu-above":
+				return `${form} goes to the parent module ${when}, but ${q(parentName)} shows its forms in the menu above, so it has no screen of its own to land on.`;
+			case "menu-forms-on-first-menu":
+				return `${form} goes to the previous screen ${when}, but ${module} shows its forms on the app's first menu, where Nova doesn't offer the previous screen.`;
 			default:
 				return `${form} goes somewhere ${when} that ${module} doesn't offer.`;
 		}
@@ -309,6 +316,40 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 	return otherwise
 		? `${choose} You can also remove the Otherwise, and the app home follows.`
 		: choose;
+}
+
+/** The sentence of a target or an entry point whose frame would open
+ *  through the first menu with the case every form listed there from a menu
+ *  above opens. The offering sites show it beside the disabled choice. */
+/** Why a menu that shows its forms in the menu above takes no Search, in the
+ *  builder's words: the `search` arm of `FORMS_IN_MENU_ABOVE_WITH_SEARCH`,
+ *  which the Search panel's controls show while they are disabled. */
+export function menuAboveSearchSentence(moduleName: string): string {
+	return `${q(moduleName)} shows its forms in the menu above, and CommCare offers no Search on the case list of such a menu, so a worker could never open its search. You can remove the search from ${q(moduleName)}, or give it its own screen again.`;
+}
+
+/** Why the form an `always` case list registration names is no registration
+ *  form the host's list can offer, by the finding's reason. */
+function alwaysNotRegistrationSentence(e: ValidationError): string {
+	const host = q(modName(e));
+	const form = q(registrationFormName(e));
+	const caseType = q(det(e, "caseType", ""));
+	switch (det(e, "reason", "")) {
+		case "form-type":
+			return `${host} offers ${form} on its case list, so ${form} needs to register a new ${caseType} case, and it is a ${det(e, "formType", "")} form. You can choose a registration form, or stop offering it there.`;
+		case "case-type":
+			return `${host} lists ${caseType} cases and offers ${form} on its case list, but ${form} registers a ${q(det(e, "formCaseType", ""))} case in ${q(det(e, "formModuleName", ""))}. You can choose a form that registers a ${caseType} case, or stop offering it there.`;
+		case "own-case-save-to-case":
+			return `${host} offers ${form} on its case list, so CommCare HQ needs Case Management to register its new ${caseType} case, and ${form} saves that case through Save to Case. You can change the form's case so Case Management can hold it, or stop offering it there.`;
+		case "several-registrations":
+			return `${host} offers ${form} on its case list, but ${form} registers more than one ${caseType} case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other ${caseType} case into a repeat or to another form, or stop offering ${form} there.`;
+		default:
+			return `${host} offers ${form} on its case list, but ${form} opens only after a search finds nothing in ${q(det(e, "formModuleName", ""))}, so it is on no menu to offer from. You can choose a registration form that is on a menu, or stop offering it there.`;
+	}
+}
+
+export function firstMenuSharedCaseSentence(aboveModuleName: string): string {
+	return `Every form listed on the app's first menu from a menu like ${q(aboveModuleName)} opens one chosen case, and CommCare would keep that case on the first menu. You can give ${q(aboveModuleName)} its own screen again to use this.`;
 }
 
 const ENTRY_POINT_ID_PROBLEMS: ReadonlySet<string> =
@@ -573,8 +614,9 @@ export function platformBuilderSentence(
 }
 
 /** A record slot's sentence for a comparison a device can't run between two
- * moments (`typeChecker.ts::checkInstantComparison`) or for a read of places,
- * which no record slot declares, or undefined for any other finding. The
+ * moments (`typeChecker.ts::checkInstantComparison`), for a read of places,
+ * which no record slot declares, or for a list of values outside a slot
+ * CommCare's server search alone reads, or undefined for any other finding. The
  * checker's code and reason reach a record finding as `checkCode` and
  * `checkReason`. */
 const recordFindingCopy = (
@@ -591,6 +633,11 @@ const recordFindingCopy = (
 		e.details.checkReason === "places-unavailable"
 	)
 		return `${subject} reads places, which only a form's questions and its links can read. You can read them there instead.`;
+	if (
+		e.details?.checkCode === "arm-unavailable" &&
+		e.details.checkReason === "value-list"
+	)
+		return `${subject} compares with a list of values, which only a search field's condition can do. You can use “is any of” here to match any of several fixed values.`;
 	const sentence =
 		e.details?.checkCode === undefined
 			? undefined
@@ -846,6 +893,8 @@ const USER_MESSAGE_BY_CODE: Record<
 			}
 			case "display-conditions":
 				return "Only a link to a form can skip display conditions. Keep display conditions enabled for this destination.";
+			case "first-menu-shared-case":
+				return firstMenuSharedCaseSentence(det(e, "aboveModuleName", ""));
 			default:
 				return "This change would leave a deep link without a usable destination. In Deep links, choose a compatible destination or remove that link first.";
 		}
@@ -881,8 +930,20 @@ const USER_MESSAGE_BY_CODE: Record<
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The display condition for ${q(modName(e))}`) ??
 		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,
-	FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
-		`The display condition for ${q(formName(e))} uses case information that isn't available there. Use information from the selected case only when this module chooses a case first, or use current-user information.`,
+	FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) => {
+		const lead = `The display condition for ${q(formName(e))} uses case information that isn't available there.`;
+		const blockingMenu = q(det(e, "blockingModuleName", ""));
+		switch (e.details?.reason) {
+			case "first-menu":
+				return `${lead} Its forms show on the app's first menu, where a worker chooses a form before any case.`;
+			case "opens-without-a-case":
+				return `${lead} Its forms show with ${blockingMenu}'s on one screen, and ${q(det(e, "blockingFormName", ""))} there opens without a case, so a worker chooses a form before any case.`;
+			case "chooses-another-case":
+				return `${lead} Its forms show with ${blockingMenu}'s on one screen, and those forms choose a different case first, so a worker chooses a form before any case.`;
+			default:
+				return `${lead} Use information from the selected case only when this module chooses a case first, or use current-user information.`;
+		}
+	},
 	FORM_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
 		recordFindingCopy(e, `The display condition for ${q(formName(e))}`) ??
 		`The display condition for ${q(formName(e))} compares values that don't go together. Open it and adjust the comparison.`,
@@ -902,6 +963,22 @@ const USER_MESSAGE_BY_CODE: Record<
 		const subject = e.scope === "module" ? modName(e) : formName(e);
 		return `${q(det(e, "name", subject))} has a display condition that starts with "never". To keep it off the menu, turn off "Show on the menu" and keep the rest of the condition.`;
 	},
+	FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION: (e) => {
+		switch (e.details?.arm) {
+			case "link": {
+				const target = q(det(e, "targetModuleName", "this module"));
+				return `${target} shows its forms in the menu above, so it has no screen of its own for the link from ${q(formName(e))} to open. You can point the link at one of its forms, or give ${target} its own screen again.`;
+			}
+			case "case-list-entry-point":
+				return `${q(modName(e))} shows its forms in the menu above, so its case list entry point would open ${det(e, "above", "the menu above")} and never the list. You can remove that entry point, or give ${q(modName(e))} its own screen again.`;
+			default:
+				return `${q(modName(e))} shows its forms in the menu above, so it has no screen of its own for its entry point to open. You can give one of its forms an entry point, or give ${q(modName(e))} its own screen again.`;
+		}
+	},
+	FORMS_IN_MENU_ABOVE_WITH_SEARCH: (e) =>
+		e.details?.reason === "forms-read-search"
+			? `${q(modName(e))} shows its forms in the menu above and has its forms read the search, and CommCare HQ can't build a menu that does both. You can turn off Forms read the search, or give ${q(modName(e))} its own screen again.`
+			: menuAboveSearchSentence(modName(e)),
 	HIDDEN_MENU_NOT_A_DESTINATION: (e) => {
 		const arm = e.details?.arm;
 		const module =
@@ -939,6 +1016,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		}
 		return `${q(modName(e))}'s tile list can't order by a calculation that isn't on the tile. You can place that column on the tile, or order by a case property.`;
 	},
+	CASE_LIST_COLUMN_NOT_ON_LIST_INVALID: (e) =>
+		det(e, "reason", "") === "sorted"
+			? "This isn't on the list, so the list can't sort by it. You can turn on List search matches this to sort by it."
+			: `One item in ${q(modName(e))} is set to show on Results and to stay off the list, and it can't be both. You can hide it from Results and try again.`,
 	CASE_LIST_ID_MAPPING_KEY_CHARACTERS: (e) =>
 		`${q(modName(e))} has a value label for ${q(det(e, "value", "a saved value"))}, and a saved value there can't hold &, <, >, " or '. You can change the value or remove its label.`,
 	CASE_LIST_DATE_PATTERN_APOSTROPHE: (e) =>
@@ -1203,15 +1284,35 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: (e) =>
 		`${q(modName(e))} offers ${q(registrationFormName(e))} when a search finds nothing, but its forms don't read the search. You can turn on Forms read the search, or stop offering the form there.`,
 	CASE_LIST_REGISTRATION_NOT_REGISTRATION: (e) =>
-		det(e, "reason", "") === "own-case-save-to-case"
-			? `${q(registrationFormName(e))} is offered when a search finds nothing, so CommCare needs Case Management to register its new case, but the form saves that case through Save to Case. You can change the form's case so Case Management can hold it, or stop offering it there.`
-			: `${q(registrationFormName(e))} is offered when a search finds nothing, so it needs to register a new case. You can make it a registration form, or stop offering it there.`,
+		det(e, "kind", "") === "always"
+			? alwaysNotRegistrationSentence(e)
+			: det(e, "reason", "") === "own-case-save-to-case"
+				? `${q(registrationFormName(e))} is offered when a search finds nothing, so CommCare needs Case Management to register its new case, but the form saves that case through Save to Case. You can change the form's case so Case Management can hold it, or stop offering it there.`
+				: det(e, "reason", "") === "several-registrations"
+					? `${q(modName(e))} offers ${q(registrationFormName(e))} when a search finds nothing, but ${q(registrationFormName(e))} registers more than one ${q(det(e, "caseType", ""))} case, and CommCare HQ offers a form from a case list only where it registers one. You can move the other ${q(det(e, "caseType", ""))} case into a repeat or to another form, or stop offering ${q(registrationFormName(e))} there.`
+					: `${q(registrationFormName(e))} is offered when a search finds nothing, so it needs to register a new case. You can make it a registration form, or stop offering it there.`,
 	CASE_LIST_REGISTRATION_HAS_NAVIGATION: (e) =>
 		`${q(registrationFormName(e))} is offered when a search finds nothing. It returns to Results or First menu, and can't have after-submit links, a display condition, or be taken off the menu. You can clear those settings, or stop offering it there.`,
 	CASE_LIST_REGISTRATION_MULTIPLE_RETURN: (e) =>
-		`${q(registrationFormName(e))} registers one case, but ${q(modName(e))} selects several. You can choose First menu after submit, or let the menu select one case.`,
+		det(e, "kind", "") === "always"
+			? `${q(registrationFormName(e))} registers one case, but ${q(modName(e))} selects several cases, and CommCare can't carry that one new case into a selection of several. You can set After registering to Back to this list, or let ${q(modName(e))} select one case.`
+			: `${q(registrationFormName(e))} registers one case, but ${q(modName(e))} selects several. You can choose First menu after submit, or let the menu select one case.`,
 	CASE_LIST_REGISTRATION_FORM_NOT_IN_MODULE: (e) =>
 		`${q(modName(e))} offers a form from another menu when a search finds nothing. You can choose one of its own forms instead.`,
+	CASE_LIST_REGISTRATION_FORM_NOT_FOUND: (e) =>
+		`${q(modName(e))} offers a registration form on its case list, but that form is no longer in the app. You can choose another registration form, or stop offering one.`,
+	CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST: (e) =>
+		det(e, "reason", "") === "no-case-type"
+			? `${q(modName(e))} offers ${q(registrationFormName(e))} on its case list, but ${q(modName(e))} has no case type, so it has no case list to offer it from. You can set its case type, or stop offering ${q(registrationFormName(e))} there.`
+			: `${q(modName(e))} offers ${q(registrationFormName(e))} on its case list, but ${q(det(e, "blockingFormName", "a form"))} in ${q(modName(e))} opens without a case, and CommCare HQ offers registration from a case list only where every form of the menu opens a case. You can move ${q(det(e, "blockingFormName", "that form"))} to another menu, or stop offering ${q(registrationFormName(e))} on the list.`,
+	CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE: (e) =>
+		det(e, "reason", "") === "host"
+			? `${q(modName(e))} shows its forms in the menu above, and CommCare offers no Register on the case list of such a menu, so ${q(registrationFormName(e))} would never be offered. You can give ${q(modName(e))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`
+			: `${q(modName(e))} is under ${q(det(e, "aboveModuleName", "its parent"))}, which shows its forms on the app's first menu, where every form listed that way opens one chosen case. CommCare HQ would put that case ahead of ${q(modName(e))} when a worker returns from ${q(registrationFormName(e))}. You can give ${q(det(e, "aboveModuleName", "its parent"))} its own screen again, or stop offering ${q(registrationFormName(e))} there.`,
+	CASE_LIST_REGISTRATION_ADVANCED_MENU: (e) =>
+		det(e, "reason", "") === "host"
+			? `${q(modName(e))} is kept in CommCare HQ as an advanced menu, and Nova doesn't offer registration from an advanced menu's case list. You can stop offering ${q(registrationFormName(e))} there.`
+			: `${q(registrationFormName(e))} is in ${q(det(e, "formModuleName", "its menu"))}, which CommCare HQ keeps as an advanced menu, and Nova doesn't offer a form of an advanced menu from a case list. You can choose a registration form in another menu, or stop offering it there.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
@@ -1258,6 +1359,18 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} has after-submit links turned on but none added. Add a link, or turn the setting off.`,
 	FORM_LINK_TARGET_NOT_OFFERED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} opens ${q(det(e, "menuName", "that submenu"))}, a submenu CommCare HQ can't link to from here. You can point it at ${q(det(e, "parentName", "the menu that holds it"))}, which holds it, or at a form inside it.`,
+	FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE: (e) => {
+		const above = q(det(e, "aboveModuleName", ""));
+		const target = q(det(e, "targetName", ""));
+		if (e.details?.destination === "module") {
+			const when =
+				e.details?.slot === "otherwise"
+					? "when no destination runs"
+					: "after submit";
+			return `${q(formName(e))} goes to its module ${when}, and ${target} opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of ${target}, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give ${above} its own screen again, or send ${q(formName(e))} somewhere else ${when}.`;
+		}
+		return `The link from ${q(formName(e))} to ${target} opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of ${target} in the link, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give ${above} its own screen again, or remove the link.`;
+	},
 	FORM_LINK_MENU_DATUMS: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries values to ${q(det(e, "menuName", "that module"))}, and a module's form list asks for none. You can remove the carried values, or send the link to a form inside it.`,
 	FORM_OTHERWISE_NOT_OFFERED: (e) => postSubmitNotOfferedSentence(e),
@@ -1304,6 +1417,23 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
 		`${q(formName(e))} holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
+	FORM_TEXT_READ_AS_INSTANCE: (e) => {
+		const match = det(e, "match", "some text");
+		const site = e.details?.site;
+		const words =
+			site !== undefined && Object.hasOwn(CONNECT_SOURCE_TEXT_WORDS, site)
+				? CONNECT_SOURCE_TEXT_WORDS[
+						site as keyof typeof CONNECT_SOURCE_TEXT_WORDS
+					]
+				: undefined;
+		const subject =
+			site === "form-name"
+				? `The name of ${q(formName(e))}`
+				: words !== undefined
+					? `The ${words} in ${q(formName(e))}`
+					: `A name or description in ${q(formName(e))}`;
+		return `${subject} holds ${match}, which CommCare HQ reads as a data source and not as text. A space before the bracket keeps it as text.`;
+	},
 	SESSION_DATUM_NOT_SUPPLIED: (e) => {
 		const carrier = det(e, "carrier", "");
 		if (

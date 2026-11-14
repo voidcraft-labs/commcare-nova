@@ -72,7 +72,8 @@ import {
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
-	storageDatetimeValue,
+	caseDatetimeValue,
+	hqInstantText,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
 import {
@@ -721,9 +722,11 @@ async function evaluateBatch(
  *
  * `zone` is the submitting viewer's timezone where one is known
  * (`CaseOperationProgram.viewerTimeZone`), because a form answer reaching
- * this boundary is a wall clock a person just entered and the device would
- * stamp its own offset on it. It falls back to UTC for a caller with no
- * viewer, which is deterministic rather than the server's incidental zone.
+ * this boundary can be a wall clock a person just entered in that zone. A
+ * date and time is then stored as the text CommCare HQ stores for its
+ * moment, UTC with six fraction digits and `Z`, the text a phone writes
+ * (`caseDatetimeValue`). It falls back to UTC for a caller with no viewer,
+ * which is deterministic rather than the server's incidental zone.
  */
 export function storageValueFromEvaluation(
 	value: unknown,
@@ -767,11 +770,13 @@ export function storageValueFromEvaluation(
 			return String(value);
 		}
 		case "datetime": {
-			// A `Date` came back from a pg `timestamptz` and already
-			// denotes an exact instant; only a string can still be the
-			// naive wall clock a form answer carries.
-			if (value instanceof Date) return value.toISOString();
-			return storageDatetimeValue(String(value), zone);
+			// A date and time on a case is the text CommCare HQ stores, UTC
+			// with six fraction digits and `Z`, the text a phone writes too. A
+			// `Date` came back from a pg `timestamptz` and already denotes an
+			// exact instant; only a string can still be the naive wall clock
+			// a form answer carries, read in the viewer's zone.
+			if (value instanceof Date) return hqInstantText(value.getTime());
+			return caseDatetimeValue(String(value), zone);
 		}
 		case "time": {
 			// A time answer is a wall clock with no zone of its own

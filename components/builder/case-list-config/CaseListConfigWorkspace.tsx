@@ -41,7 +41,10 @@ import {
 } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ModuleSettingsButton } from "@/components/builder/detail/moduleSettings/ModuleSettingsButton";
-import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
+import {
+	RemoveRow,
+	ToggleRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -89,6 +92,7 @@ import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
+import { menuAboveSearchSentence } from "@/lib/doc/userFacingErrors";
 import {
 	type CaseListConfig,
 	type CaseProperty,
@@ -98,7 +102,6 @@ import {
 	type Column,
 	caseListOrdersByMapping,
 	caseSearchConfigAfterFinalInputRemoval,
-	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
 	type Field,
@@ -106,8 +109,10 @@ import {
 	humanizeId,
 	isCaptureField,
 	isOwnerOnlyCaseSearchConfig,
+	moduleShowsFormsInMenuAbove,
 	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
+	searchScreenTitleText,
 	searchWorkflow,
 	type TileCell,
 	visibleSearchInputs,
@@ -192,9 +197,13 @@ import {
 import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
 import {
 	type CaseDisplaySurface,
+	keepColumnOnList,
+	LIST_SEARCH_SWITCH_LABEL,
+	listSearchSwitch,
 	projectCaseWorkspaceColumns,
 	removeColumnFromDisplay,
 	showColumnOnDisplay,
+	takeColumnOffList,
 } from "./workspaceProjection";
 import {
 	type SearchConditionSlot,
@@ -452,7 +461,12 @@ function authoredSearchScreenSettings(
 	if (config === undefined || isOwnerOnlyCaseSearchConfig(config)) return [];
 	return (Object.keys(SEARCH_SCREEN_SETTING_LABELS) as SearchScreenSettingKey[])
 		.filter((key) => config[key] !== undefined)
-		.map((key) => SEARCH_SCREEN_SETTING_LABELS[key]);
+		.map((key) =>
+			key === "searchScreenTitle" &&
+			typeof config.searchScreenTitle !== "string"
+				? "choice to show no title"
+				: SEARCH_SCREEN_SETTING_LABELS[key],
+		);
 }
 
 function authoredSearchActionSettings(
@@ -978,6 +992,13 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	);
 
 	const ct = caseTypes.find((c) => c.name === caseType);
+	/* A menu that shows its forms in the menu above takes no Search, so the
+	 * Search panel's controls say why instead of adding one the gate would
+	 * refuse. */
+	const searchUnavailableReason =
+		mod !== undefined && moduleShowsFormsInMenuAbove(mod)
+			? menuAboveSearchSentence(mod.name)
+			: undefined;
 	const addDisabledReason =
 		(ct?.properties.length ?? 0) === 0 ? PROPERTYLESS_HINT : undefined;
 
@@ -2101,6 +2122,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
+		searchUnavailableReason,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		searchConditionSurface,
@@ -2330,6 +2352,7 @@ export function CaseListWorkspaceCanvas() {
 		setTilePersistOnForms,
 		setTileGrouping,
 		addDisabledReason,
+		searchUnavailableReason,
 		addResultsDisabledReason,
 		opensResultsAutomatically,
 		resultsDependencyReview,
@@ -2410,7 +2433,12 @@ export function CaseListWorkspaceCanvas() {
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
 								onAddHiddenInput={addHiddenInput}
-								addInputDisabledReason={addDisabledReason}
+								addInputDisabledReason={
+									searchUnavailableReason ?? addDisabledReason
+								}
+								{...(searchUnavailableReason !== undefined && {
+									searchUnavailableReason,
+								})}
 								hasSearchSurface={config.searchInputs.length > 0}
 								hasSearchAction={effectiveSearchConfig !== undefined}
 								opensResultsAutomatically={opensResultsAutomatically}
@@ -2718,7 +2746,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			return {
 				kicker: hasVisibleSearchScreen ? "Search screen" : "More settings",
 				title: hasVisibleSearchScreen
-					? (effectiveSearch?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE)
+					? (searchScreenTitleText(effectiveSearch) ?? "No title")
 					: "Search action",
 				body: (
 					<SearchPanelInspectorBody
@@ -2797,6 +2825,14 @@ function ColumnInspectorBody({
 		...(column.visibleInList !== false ? ["Results"] : []),
 		...(column.visibleInDetail !== false ? ["Details"] : []),
 	];
+	const listSearch = listSearchSwitch(column, tileOn);
+	const setListSearch = (on: boolean) => {
+		const next = (on ? keepColumnOnList : takeColumnOffList)(
+			[column],
+			column.uuid,
+		)[0];
+		if (next !== undefined) onChange(next);
+	};
 	const deleteDescription = `${
 		displayedOn.length === 0
 			? "This deletes its saved label and formatting"
@@ -2838,6 +2874,15 @@ function ColumnInspectorBody({
 				}}
 				onPutOnTile={onPutOnTile}
 			/>
+			{listSearch !== undefined && (
+				<ToggleRow
+					label={LIST_SEARCH_SWITCH_LABEL}
+					description={listSearch.description}
+					checked={listSearch.checked}
+					onChange={setListSearch}
+					disabledReason={listSearch.disabledReason}
+				/>
+			)}
 			<div className="border-t border-nova-border pt-3">
 				<Button
 					ref={hideRef}

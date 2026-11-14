@@ -10,10 +10,10 @@ import {
 	type TranslationUnitId,
 } from "./localization";
 import {
-	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	type Module,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+	searchScreenTitleText,
 } from "./modules";
 import { filledProse, translationFillSource } from "./translationFill";
 import {
@@ -184,10 +184,15 @@ export function projectLocalizedModule(
 	const effectiveSearch = effectiveCaseSearchConfig(module);
 	if (effectiveSearch !== undefined) {
 		const search = structuredClone(effectiveSearch);
-		search.searchScreenTitle = text(
-			makeTranslationUnitId("module", module.uuid, "search-title"),
-			effectiveSearch.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE,
-		);
+		// A search with no title keeps its `none` arm: it has no text, and no
+		// translation unit.
+		const title = searchScreenTitleText(effectiveSearch);
+		if (title !== null) {
+			search.searchScreenTitle = text(
+				makeTranslationUnitId("module", module.uuid, "search-title"),
+				title,
+			);
+		}
 		if (effectiveSearch.searchScreenSubtitle !== undefined) {
 			search.searchScreenSubtitle = text(
 				makeTranslationUnitId("module", module.uuid, "search-subtitle"),

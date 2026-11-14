@@ -947,12 +947,15 @@ function RemoveLanguageDialog({
 }
 
 function TranslationUnitRow({
-	projectValue,
+	projectValue: projectAnyValue,
 	unit,
 	isSource,
 	filledFromName,
 }: {
-	readonly projectValue: (value: LocalizedValue) => string;
+	readonly projectValue: (
+		value: LocalizedValue,
+		unit?: LocalizedTranslationUnit,
+	) => string;
 	readonly unit: LocalizedTranslationUnit;
 	readonly isSource: boolean;
 	/** The name of the language workers read here while this translation is
@@ -962,6 +965,8 @@ function TranslationUnitRow({
 	const { inline } = useBlueprintMutations();
 	const navigate = useNavigate();
 	const editor = useTranslationUnitEditor(unit.id);
+	/* A calculated value shows as its formula, printed in this unit's slot. */
+	const projectValue = (value: LocalizedValue) => projectAnyValue(value, unit);
 	/* A blank translation beside text shows workers another language's text
 	 * (the form builder's fill); its stored value there is that text. */
 	const filledFrom = useLocalizedTranslationUnit(

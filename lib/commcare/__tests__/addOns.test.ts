@@ -160,6 +160,12 @@ describe("addOnsNeededBy", () => {
 				}),
 			],
 			[
+				"menu_mode",
+				app((module) => {
+					module.put_in_root = true;
+				}),
+			],
+			[
 				"submenus",
 				app((module) => {
 					module.root_module_id = "m9";

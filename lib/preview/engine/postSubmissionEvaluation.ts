@@ -1,7 +1,6 @@
 import type { SubmissionEnvelopeResult } from "@/lib/case-store";
 import {
 	type BlueprintDoc,
-	moduleIsCaseFirst,
 	moduleUuidOfForm,
 	reachableCaseTypes,
 	type Uuid,
@@ -17,6 +16,7 @@ import {
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "../afterSubmitRouting";
+import { previewCaseFirstModuleUuids } from "../menuProjection";
 import { previewPlatformRules } from "../platform";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -168,9 +168,7 @@ export async function evaluatePostSubmissionSnapshot(
 			evaluate,
 			world,
 		});
-		const caseFirstModules = new Set(
-			doc.moduleOrder.filter((uuid) => moduleIsCaseFirst(doc, uuid)),
-		);
+		const caseFirstModules = previewCaseFirstModuleUuids(doc);
 		const submittedCases =
 			"caseIds" in args.mutation
 				? args.mutation.caseIds.map((caseId) => ({

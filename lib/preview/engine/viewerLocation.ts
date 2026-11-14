@@ -23,7 +23,7 @@
 // Pure: no I/O, no React, no browser API, so the server action, the hooks
 // and the tests share one definition.
 
-import type { CaseListConfig, Column } from "@/lib/domain";
+import { type CaseListConfig, type Column, columnOnList } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import { javaRosaPointDistance } from "@/lib/preview/xpath/javaRosaGeo";
@@ -76,8 +76,8 @@ export function positionSettles(accuracy: number | undefined): boolean {
 
 /**
  * Whether a screen of this case list shows a calculated column whose tree
- * holds `here()`. `"list"` is Results: every column of a list without a
- * tile, and the columns shown in Results for a tile list. `"detail"` is the
+ * holds `here()`. `"list"` is Results: every column on the list of a list
+ * without a tile, and the columns shown in Results for a tile list. `"detail"` is the
  * case's Details. A column the screen never shows asks for no position,
  * as Android turns its location on only when a list evaluates `here()`.
  */
@@ -100,6 +100,8 @@ function columnShowsOn(
 	screen: "list" | "detail",
 ): boolean {
 	if (screen === "detail") return column.visibleInDetail !== false;
+	// A column that is not on the list is no field of it in either layout.
+	if (!columnOnList(column)) return false;
 	return config.tile === undefined || column.visibleInList !== false;
 }
 

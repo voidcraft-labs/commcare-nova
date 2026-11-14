@@ -32,7 +32,12 @@ import {
 	fieldCaseWriteViews,
 	plainColumn,
 } from "@/lib/domain";
-import { formField, literal, term } from "@/lib/domain/expression/builders";
+import {
+	concat,
+	formField,
+	literal,
+	term,
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -254,6 +259,63 @@ describe("explicit app-wide case-property rename", () => {
 				{ kind: "text", text: " actual" },
 			],
 		});
+	});
+
+	it("renames a property a calculated value reads, in the source and in its translation", () => {
+		const start = fixture();
+		const field = start.fields[FIELD_A];
+		if (field.kind !== "text") throw new Error("The fixture's A is text.");
+		const reads = (property: string) => ({
+			kind: "value" as const,
+			expression: concat(
+				term({ kind: "form-case", caseType: "patient", property }),
+				term(literal("!")),
+			),
+		});
+		field.label = { parts: [{ kind: "text", text: "Seen " }, reads("a")] };
+		const unit = collectTranslationUnits(start).find(
+			(candidate) =>
+				candidate.owner.kind === "field" &&
+				candidate.owner.fieldUuid === FIELD_A &&
+				candidate.role === "field-label",
+		);
+		if (unit === undefined) throw new Error("The label has no unit.");
+		start.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
+			wireCodes: { eng: "en", spa: "es" },
+			translations: {
+				spa: {
+					[unit.id]: {
+						value: { parts: [reads("a"), { kind: "text", text: " visto" }] },
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+					},
+				},
+			},
+		};
+
+		const renamed = apply(
+			structuredClone(start),
+			admittedRename({ caseType: "patient", from: "a", to: "fresh" }),
+		);
+		const label = renamed.fields[FIELD_A];
+		expect(label.kind === "text" ? label.label : undefined).toEqual({
+			parts: [{ kind: "text", text: "Seen " }, reads("fresh")],
+		});
+		const entry = renamed.localization?.translations.spa?.[unit.id];
+		expect(entry?.value).toEqual({
+			parts: [reads("fresh"), { kind: "text", text: " visto" }],
+		});
+		// The translation was current before the rename and stays current.
+		expect(entry?.sourceFingerprint).toBe(
+			collectTranslationUnits(renamed).find(
+				(candidate) => candidate.id === unit.id,
+			)?.sourceFingerprint,
+		);
 	});
 
 	it("preserves every translated option through a simultaneous property swap", () => {

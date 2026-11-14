@@ -12,6 +12,7 @@ import {
 	mapCasePropertiesInProse,
 	materializableCaseTypes,
 } from "@/lib/domain";
+import { mapCasePropertiesInExpression } from "@/lib/domain/expression/rewrite";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import {
 	rewriteFieldReferenceSlots,
@@ -271,7 +272,13 @@ export function rewriteCasePropertyCarriers(
 					}
 				}
 				if (typeof entry.value === "object" && entry.value !== null) {
-					mapCasePropertiesInProse(entry.value, resolve);
+					mapCasePropertiesInProse(entry.value, resolve, (expression) =>
+						mapCasePropertiesInExpression(
+							expression,
+							resolve,
+							doc.caseTypes ?? [],
+						),
+					);
 				}
 				const newUnit = translationUnitsAfter.get(newUnitId);
 				if (

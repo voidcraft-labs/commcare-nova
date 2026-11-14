@@ -574,7 +574,9 @@ describe("formLinkTargetChoices", () => {
 			choices.menus.map((menu) => ({
 				uuid: menu.uuid,
 				offered: menu.offered,
-				...(menu.offered ? {} : { parentUuid: menu.parentUuid }),
+				...(!menu.offered && menu.reason === "parent"
+					? { parentUuid: menu.parentUuid }
+					: {}),
 			})),
 		).toEqual([
 			{ uuid: INTAKE, offered: true },

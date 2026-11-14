@@ -93,3 +93,20 @@ A form in a child menu can also go to **Parent module** after submit: the
 parent menu opens with the case it selected still selected, listing its own
 forms and its child menus. That destination isn't offered while the parent
 selects several cases, or while the parent is off the menu.
+
+## Show a menu's forms in the menu above
+
+A menu can show its forms in the menu above. You can turn on **Show its forms
+in the menu above** in the menu's settings, and its forms appear on the app's
+first menu, or in its parent menu for a submenu, with no entry for the menu
+itself. It suits one or two forms people should reach without opening a menu,
+such as a registration form on the first screen. The menu keeps its case type
+and case list, so each form still opens the right case. Such a menu has no
+screen of its own, so it can't have a search, a registration from its case list
+or a deep link, and a link or an after-submit destination can't open it; you can
+link and deep link to its forms. A form shown on the first menu returns to the
+first menu after it is sent, since **Previous screen** isn't offered there.
+Where every form shown on the first menu this way opens the same case, Nova asks
+you to give the menu its own screen before you link to one of those forms. On a
+screen that lists forms from more than one menu, people choose a case first only
+when every form there opens the same case; otherwise they choose a form first.

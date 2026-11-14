@@ -523,6 +523,38 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/form-name-read-as-an-instance",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "`name{lang}` in the app's default language holding `instance('…')`",
+		"surfaceKeys": ["schema:Form.name", "schema:AdvancedForm.name"],
+		"valueClass": "default-language-name-read-as-an-instance",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's build reads the text as an instance read (`xform.py::XForm.add_missing_instances`) and no spelling of plain text keeps it out. It stops the build for a name it has no source for, and adds the source to the built form for a name it has one for, which stops the form from opening where that is a fixture the device does not hold. For `casedb` and `commcaresession` the built form only gains a declaration nothing reads; Nova refuses those with the rest (`FORM_TEXT_READ_AS_INSTANCE`), so that one rule covers the text and a form declares only what its formulas read.",
+		"subject": "instance-text",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`xform.py::XForm.add_missing_instances`: \"is missing some instance declarations that can't be automatically added\"",
+				"condition": "a name CommCare HQ has no source for"
+			},
+			{
+				"kind": "broken-at-runtime",
+				"named": "the built form declares the source (`XForm.add_instance`), Core opens every declared source with the form (`FormDef.initialize`), and a fixture the device does not hold raises `FixtureInitializationException` (`CommCareInstanceInitializer.loadFixtureRoot`)",
+				"condition": "a fixture name CommCare HQ has a source for"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/unique-id",
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
@@ -1110,6 +1142,31 @@
 		"gates": []
 	},
 	{
+		"id": "forms-and-case-writes/post-form-workflow-previous-screen-on-a-form-listed-on-the-first-menu",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "`post_form_workflow: previous_screen` on a form of a `put_in_root` module listed on the first menu",
+		"surfaceKeys": [
+			"schema:Form.post_form_workflow",
+			"schema:AdvancedForm.post_form_workflow",
+			"schema:ShadowForm.post_form_workflow"
+		],
+		"valueClass": "previous-screen-on-a-form-listed-on-the-first-menu",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a return to the screen before a form the first menu lists",
+		"subject": "display-only-forms",
+		"owner": "menus",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "forms-and-case-writes/post-form-workflow-parent-module",
 		"area": "forms-and-case-writes",
 		"section": "Form fields",
@@ -1416,6 +1473,35 @@
 		"emission": {
 			"cell": "`{xpath, form_id, form_module_id, datums}`",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/form-link-or-endpoint-through-a-first-menu-that-shares-one-case",
+		"area": "forms-and-case-writes",
+		"section": "Form fields",
+		"item": "a `form_links` entry or a `session_endpoint_id` whose frame HQ builds through the first menu while every form of every `put_in_root` module opens one chosen case",
+		"surfaceKeys": [
+			"schema:Form.form_links",
+			"schema:AdvancedForm.form_links",
+			"schema:ShadowForm.form_links",
+			"schema:FormLink.form_id",
+			"schema:Form.session_endpoint_id",
+			"schema:AdvancedForm.session_endpoint_id",
+			"schema:ShadowForm.session_endpoint_id"
+		],
+		"valueClass": "through-a-first-menu-that-shares-one-case",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a link or a deep link through a first menu that keeps one case",
+		"subject": "display-only-forms",
+		"owner": "menus",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},
@@ -2912,7 +2998,7 @@
 		"id": "forms-and-case-writes/update-from-a-date-and-time-question-through-a-hidden-sibling",
 		"area": "forms-and-case-writes",
 		"section": "Basic form actions",
-		"item": "update from a date-and-time question through a hidden sibling `nova_datetime_<question>` whose calculate is `if(p = '', '', format-date(coalesce(p, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`",
+		"item": "update from a date-and-time question through a hidden sibling `nova_datetime_<question>` whose calculate is the question's moment as CommCare HQ stores it (`datetimeCaseValue.ts::datetimeCaseValue`), or the device-offset spelling Nova wrote before (`instant.ts::typedInstantValue`)",
 		"surfaceKeys": [
 			"schema:Form.actions",
 			"schema:FormActions.update_case",

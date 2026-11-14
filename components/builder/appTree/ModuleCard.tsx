@@ -26,6 +26,7 @@ import {
 } from "@/components/builder/appTree/shared";
 import { TreeRowDelete } from "@/components/builder/appTree/TreeRowDelete";
 import type { TreeSelectHandler } from "@/components/builder/appTree/useAppTreeSelection";
+import { menuScreenTreeLine } from "@/components/builder/detail/moduleSettings/menuScreenCopy";
 import { useLocalizedText } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
@@ -88,6 +89,7 @@ export const ModuleCard = memo(function ModuleCard({
 	 *  when THIS module changes (Immer structural sharing on the entity ref). */
 	const mod = useModuleDoc(moduleUuid);
 	const parentModule = useModuleDoc(mod?.parentModuleUuid);
+	const menuScreenLine = menuScreenTreeLine(mod, parentModule);
 	const localizedModuleName = useLocalizedText(
 		makeTranslationUnitId("module", moduleUuid, "name"),
 	);
@@ -200,6 +202,14 @@ export const ModuleCard = memo(function ModuleCard({
 						{mod.caseType && (
 							<span className="block truncate text-xs text-nova-text-muted">
 								{moduleCaseTypeLabel(mod.caseType)}
+							</span>
+						)}
+						{menuScreenLine !== undefined && (
+							<span
+								className="block text-xs text-nova-text-muted [overflow-wrap:anywhere]"
+								data-menu-screen-tree-line
+							>
+								{menuScreenLine}
 							</span>
 						)}
 					</div>

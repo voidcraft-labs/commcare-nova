@@ -24,6 +24,7 @@ import { caseTileGrouping } from "./case-list/caseTileGrouping";
 import { caseTileHiddenCalculatedSort } from "./case-list/caseTileHiddenCalculatedSort";
 import { caseTileLayout } from "./case-list/caseTileLayout";
 import { columnKindPropertyType } from "./case-list/columnKindPropertyType";
+import { columnNotOnList } from "./case-list/columnNotOnList";
 import { columnReferences } from "./case-list/columnReferences";
 import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
@@ -57,6 +58,7 @@ import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButto
 import { searchRelatedCalculationCompatibility } from "./case-search/searchRelatedCalculationCompatibility";
 import { heldModuleKindInexpressible } from "./casePlacement";
 import { moduleDisplayCondition } from "./displayConditions";
+import { menuAboveEntryPoints, menuAboveSearch } from "./formsInMenuAbove";
 import { hiddenMenuEntryPoints } from "./hiddenFromMenu";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 import { multiSelectTopology } from "./multiSelect";
@@ -285,6 +287,7 @@ export const CASE_LIST_ORDER_RULES: readonly ModuleRule[] = [
 	sortPriorityUniqueness,
 	sortPropertyOwnership,
 	caseTileHiddenCalculatedSort,
+	columnNotOnList,
 ];
 
 export const MODULE_RULES: readonly ModuleRule[] = [
@@ -300,6 +303,8 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	heldModuleKindInexpressible,
 	moduleDisplayCondition,
 	hiddenMenuEntryPoints,
+	menuAboveEntryPoints,
+	menuAboveSearch,
 	// Case-list-config rules (sit at module scope; the cross-form
 	// kind-vs-property-type rule lives at app scope in `app.ts`).
 	columnReferences,

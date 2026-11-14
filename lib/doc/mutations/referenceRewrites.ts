@@ -60,10 +60,18 @@ export function rewriteFieldReferenceSlots(
 				changed += rewriteExpressions(field, slot.path, ops);
 				break;
 			case "prose":
+				// A calculated value's reads take the rewrite an expression
+				// slot's tree takes.
 				for (const { value } of readSlotValues(field, slot.path))
 					changed += mapCasePropertiesInProse(
 						value as ProseTemplate,
 						ops.resolveCaseProperty,
+						(expression) =>
+							mapCasePropertiesInExpression(
+								expression,
+								ops.resolveCaseProperty,
+								ops.caseTypes,
+							),
 					);
 				break;
 			case "options-source":

@@ -22,6 +22,7 @@ import {
 	type CaseListOrderPlan,
 	type CaseListOrderRule,
 	calculatedColumn,
+	columnSort,
 	dateColumn,
 	idMappingColumn,
 	idMappingEntry,
@@ -31,6 +32,7 @@ import {
 	proseText,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/expression";
+import { previewCaseListOrderPlan } from "@/lib/preview/engine/caseListOrder";
 import { mediaIds, mediaManifest } from "./mediaWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { readXmlEvidence, type XmlEvidence, xmlChildren } from "./xmlEvidence";
@@ -112,6 +114,27 @@ const LISTS: Record<string, CaseListConfig> = {
 				{ sort: { direction: "asc", priority: 0 } },
 			),
 			plainColumn(id("code-order"), "code", "Code order", HIDDEN),
+		],
+		searchInputs: [],
+	}),
+	"Detail only": resolveCaseListConfig({
+		columns: [
+			plainColumn(id("detail-name"), "case_name", "Name"),
+			plainColumn(id("detail-phone"), "phone", "Phone", {
+				visibleInList: false,
+				notOnList: true,
+			}),
+		],
+		searchInputs: [],
+	}),
+	"Blanks against direction": resolveCaseListConfig({
+		columns: [
+			plainColumn(id("blanks-name"), "case_name", "Name", {
+				sort: columnSort("asc", 0, "last"),
+			}),
+			plainColumn(id("blanks-age"), "age", "Age", {
+				sort: columnSort("desc", 1, "first"),
+			}),
 		],
 		searchInputs: [],
 	}),
@@ -297,6 +320,58 @@ describe("the order plan's two emitters", () => {
 			]);
 		},
 	);
+
+	it("writes a rule's own blanks, against its direction, to both emitters", () => {
+		const index = Object.keys(LISTS).indexOf("Blanks against direction");
+		const short = hq.modules[index].case_details.short;
+		expect(
+			short.sort_elements.map((element) => [
+				element.field,
+				element.direction,
+				element.blanks,
+			]),
+		).toEqual([
+			["case_name", "ascending", "last"],
+			["age", "descending", "first"],
+		]);
+		const sorts = xmlChildren(shortDetail(suite, index), "field").map(
+			(field) => xmlChildren(field, "sort")[0]?.attributes,
+		);
+		expect(
+			sorts.map((sort) => [sort?.order, sort?.direction, sort?.blanks]),
+		).toEqual([
+			["1", "ascending", "last"],
+			["2", "descending", "first"],
+		]);
+	});
+
+	it("holds a column that is not on the list in neither short detail and in both long details, and Preview reads the same plan", () => {
+		const index = Object.keys(LISTS).indexOf("Detail only");
+		const mod = doc.modules[doc.moduleOrder[index]];
+		const { short, long } = hq.modules[index].case_details;
+		expect(short.columns.map((column) => column.field)).toEqual(["case_name"]);
+		expect(long.columns.map((column) => column.field)).toEqual([
+			"case_name",
+			"phone",
+		]);
+
+		const localShort = xmlChildren(shortDetail(suite, index), "field");
+		expect(localShort).toHaveLength(1);
+		const longDetail = xmlChildren(suite, "detail").find(
+			(candidate) => candidate.attributes.id === `m${index}_case_long`,
+		);
+		if (longDetail === undefined) throw new Error("Missing long detail");
+		expect(xmlChildren(longDetail, "field")).toHaveLength(2);
+
+		const plan = moduleCaseListOrderPlan(mod, doc, true);
+		const config = mod.caseListConfig;
+		if (config === undefined) throw new Error("Missing case list");
+		expect(previewCaseListOrderPlan(mod, doc, config)).toEqual(plan);
+		expect(plan.fields.map((field) => field.column.uuid)).toEqual([
+			id("detail-name"),
+		]);
+		expect(plan.carriers).toEqual([]);
+	});
 
 	it("puts the hidden case_id rule on the shown case_id field on both paths", () => {
 		const short = hq.modules[0].case_details.short;

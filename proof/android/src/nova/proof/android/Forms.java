@@ -487,6 +487,45 @@ final class Forms {
     private static final int TYPED = 3;
     /** Set by the reader where a request asks the walk to type a value the form refused (``typeRefused``). */
     static boolean typeRefused;
+    /**
+     * Set by the reader where a request asks the walk to enter a number keypad question's value key by key
+     * (``keys``): each character is committed into the question's own box as the keypad sends it, so the box's
+     * own filters decide what it keeps, and the form is given the answer the widget then holds.
+     */
+    static boolean keys;
+
+    /** The box a text widget types into, the widget's own (``StringWidget.mAnswer``). */
+    private static android.widget.EditText box(org.commcare.views.widgets.StringWidget widget) throws Exception {
+        java.lang.reflect.Field answer = org.commcare.views.widgets.StringWidget.class.getDeclaredField("mAnswer");
+        answer.setAccessible(true);
+        return (android.widget.EditText)answer.get(widget);
+    }
+
+    /**
+     * Enters ``value`` into a number keypad question's box one character at a time, through the box's own input
+     * connection, as the keypad commits each key, then gives the form the answer the widget holds. Records what
+     * was entered (``typed``), what the box kept (``kept``) and what the form took (``given``).
+     */
+    private static boolean keyIn(org.commcare.views.widgets.StringNumberWidget widget, FormEntryPrompt prompt,
+                                 String value, JSONObject entry) throws Exception {
+        android.widget.EditText box = box(widget);
+        box.setText("");
+        android.view.inputmethod.InputConnection connection =
+                box.onCreateInputConnection(new android.view.inputmethod.EditorInfo());
+        for (int at = 0; at < value.length(); ) {
+            int next = value.offsetByCodePoints(at, 1);
+            connection.commitText(value.substring(at, next), 1);
+            at = next;
+        }
+        ShadowLooper.idleMainLooper();
+        IAnswerData kept = widget.getAnswer();
+        entry.put("typed", value);
+        entry.put("kept", String.valueOf(box.getText()));
+        int status = FormEntryActivity.mFormController.answerQuestion(prompt.getIndex(), kept);
+        boolean taken = status == FormEntryController.ANSWER_OK;
+        entry.put("given", taken && kept != null ? kept.getDisplayText() : JSONObject.NULL);
+        return taken;
+    }
 
     /**
      * Gives each question on the screen its answer from the table, through the form's own controller: the first
@@ -520,6 +559,12 @@ final class Forms {
                     screen.put("answered", given);
                     return ADVANCED;
                 }
+                continue;
+            }
+            if (keys && widget instanceof org.commcare.views.widgets.StringNumberWidget
+                    && !Answers.valuesFor(prompt).isEmpty()) {
+                answered |= keyIn((org.commcare.views.widgets.StringNumberWidget)widget, prompt,
+                        Answers.valuesFor(prompt).get(0), entry);
                 continue;
             }
             Object taken = JSONObject.NULL;

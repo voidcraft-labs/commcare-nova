@@ -58,12 +58,16 @@ export function UnresolvedReferenceChip({
 	unresolved: UnresolvedReferenceProjection;
 }) {
 	const config = REF_TYPE_CONFIG[unresolved.type];
+	const value = unresolved.referenceKind === "value";
 	const accessibleKind =
 		unresolved.type === "form"
 			? "Form field"
 			: unresolved.type === "user"
 				? "Worker information"
 				: "Case property";
+	const text = value
+		? "Calculated value needs repair"
+		: "Reference needs repair";
 
 	return (
 		<span
@@ -77,7 +81,7 @@ export function UnresolvedReferenceChip({
 			}}
 			data-reference-repair={unresolved.referenceKind}
 			role="img"
-			aria-label={`${accessibleKind} reference needs repair`}
+			aria-label={value ? text : `${accessibleKind} reference needs repair`}
 		>
 			<Icon
 				icon={config.icon}
@@ -85,7 +89,7 @@ export function UnresolvedReferenceChip({
 				height={CHIP.iconSize}
 				className="shrink-0"
 			/>
-			<span className="whitespace-nowrap">Reference needs repair</span>
+			<span className="whitespace-nowrap">{text}</span>
 		</span>
 	);
 }

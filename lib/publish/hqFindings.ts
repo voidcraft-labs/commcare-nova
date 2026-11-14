@@ -97,6 +97,7 @@ export const SUBJECTS = [
 	"form-source",
 	"hand-written-content",
 	"hierarchical-locations",
+	"instance-text",
 	"language-codes",
 	"lookup-selection",
 	"lookup-tables",

@@ -10,7 +10,10 @@ import type {
 	SearchInputDef,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
-import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import type {
+	ExpressionSlotRef,
+	SlotContextRef,
+} from "@/lib/domain/expression/types";
 import { lookupTypeIndex } from "../commitVerdicts";
 import { useLookupCommitState } from "../lookupCommitContext";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
@@ -23,10 +26,11 @@ export type ExpressionSlotCandidate =
 	| { readonly entity: "case-operation"; readonly value: CaseOperation }
 	| { readonly entity: "form-link"; readonly value: FormLink };
 
-/** Keep the real owner and siblings while substituting one complete candidate. */
+/** Keep the real owner and siblings while substituting one complete candidate.
+ *  A prose slot's entity is its field, so the field arm substitutes for it. */
 export function expressionCandidateDoc(
 	doc: BlueprintDoc,
-	slot: ExpressionSlotRef,
+	slot: SlotContextRef,
 	candidate?: ExpressionSlotCandidate,
 ): BlueprintDoc | undefined {
 	if (candidate === undefined) return doc;

@@ -315,7 +315,8 @@ does. None runs on the planning machine.
 **G1. HQ's build against the local suite over the new documents.** The pull request lane, on hosted
 runners, in the work's own CI: proof 3 and the manifest check over `targeted-forms-in-menu-above`,
 `targeted-forms-in-menu-above-nested`, `targeted-forms-in-menu-above-one-case`,
-`targeted-forms-in-menu-above-registration-only` and `targeted-register-from-case-list` (section 15).
+`targeted-forms-in-menu-above-registration-only`, `targeted-register-from-case-list` and
+`targeted-register-from-case-list-web-apps` (section 15).
 - *A: no difference.* Nothing more is written.
 - *B: any difference.* The emitter is wrong: `lib/commcare/compiler.ts` or
   `formLinkProjection.ts` is corrected to HQ's bytes, with a unit test that holds the corrected
@@ -883,9 +884,14 @@ In the frames Nova builds the second holds exactly where the first is defined an
 through the first menu: its target is a form of a menu whose forms list there, or a form, a case list
 or the screen of a submenu that keeps its screen under a top-level menu that shows its forms above.
 Core keeps such a case on the first menu when a worker steps back (section 2), so Nova refuses the
-frame at its source. Each of the three findings below comes from an app rule, because the shared case
+frame at its source. The same holds for a form's built-in `module` destination (after submit or as
+the otherwise) in a submenu that keeps its screen under a top-level menu above: HQ builds it as
+`_frame_children_for_module(M, include_user_selections=False)`, the parent's
+`get_frame_children(P)` (the root lists' prefix and no command) then M's command, so it too opens
+with the shared case. Each of the findings below comes from an app rule, because the shared case
 reads every menu above, and each rule returns at once where `firstMenuSharedCase` is undefined and
-otherwise judges its projected frames by `frameLeadsWithSelection`: the link's from a new rule,
+otherwise judges its projected frames by `frameLeadsWithSelection`: the link's and the built-in
+`module` destination's from a new rule,
 `firstMenuSharedCaseFrames(doc)` in `rules/formsInMenuAbove.ts`, added to `rules/app.ts`'s list, whose
 code joins `runner.ts::SCOPE_EXEMPT_CODES`; the entry point's from the existing `validEntryPoints`;
 the Register return's from `caseListRegistrationApp` (section 11.3). `<above menu>` is the target's
@@ -894,6 +900,7 @@ own menu where that shows its forms above, else its parent.
 | Source | Finding | Message |
 |---|---|---|
 | an after-submit link, a destination or the otherwise link | `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE` (new, `soundness`), at the source form; `details.linkUuid`, `role`, `aboveModuleUuid`, `aboveModuleName` | `The link from "<form>" to "<target>" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "<target>" in the link, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "<above menu>" its own screen again (forms_in_menu_above null), or remove the link.` |
+| a form's built-in `module` destination, its after-submit (stored or default) or its otherwise, in a submenu that keeps its screen under a top-level menu above | `FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE` at the form; `details.slot` (`post-submit` or `otherwise`), `destination: "module"`, `aboveModuleUuid`, `aboveModuleName` | `"<form>" goes to its module <when>, and "<menu>" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "<menu>", and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "<above menu>" its own screen again (forms_in_menu_above null), or send "<form>" somewhere else <when>.` |
 | an entry point: on a form, or on a submenu or its case list under a top-level menu above | `ENTRY_POINT_INVALID`, new reason `first-menu-shared-case` in `rules/app.ts::validEntryPoints`, chosen where no earlier reason holds and before `destination`; `details.aboveModuleUuid` | `The entry point on "<target>" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "<target>" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "<above menu>" its own screen again (forms_in_menu_above null), or remove the entry point.` |
 | the Register return of an `always` arm | `CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE`, reason `parent-shares-first-menu-case` (section 11.3) | section 11.3 |
 
@@ -914,7 +921,7 @@ is.
 | HQ shape | Stays, as | Why |
 |---|---|---|
 | `previous` on a form listed on the first menu | HELD-NEW, `menus`, subject `display-only-forms` | HQ's frame returns to the form's own case list only while some form listed on the first menu opens differently; where they all open one chosen case it is that case and no command, which lands on the first menu and is no screen before the form (section 2, row 14). Which of the two a form gets depends on every other menu above, so one form's offered set would move with an edit to another menu, and every such edit would have to reconcile every form listed there. Step 7 brings it with that reconcile |
-| a link, an entry point or a Register return built through the first menu while every form above opens one chosen case | HELD-NEW, `menus`, subject `display-only-forms` | Android keeps the case on the first menu when a worker steps back, and Preview has no screen that holds a chosen case there (the step back is read at source in "Executed during planning") |
+| a link, a built-in `module` destination, an entry point or a Register return built through the first menu while every form above opens one chosen case | HELD-NEW, `menus`, subject `display-only-forms` | Android keeps the case on the first menu when a worker steps back, and Preview has no screen that holds a chosen case there (the step back is read at source in "Executed during planning") |
 
 ---
 
@@ -992,7 +999,7 @@ function menuCommand(doc, ctx, moduleUuid: Uuid): FrameChild[];
 | `get_frame_children(M, form)` | that, then the form command `m<M>-f<K>`, then the form's own datums from index `common.length` on (`baseFormFrameChildren`) |
 | `prepend_parent_frame_children` (form targets, entry points) | `get_frame_children(P)`, then every base child whose id, a command's or a datum's, the parent part does not hold (`formFrameChildren`; today it keeps every command, which is the same wherever no two commands share an id) |
 | `_frame_children_for_module(M, include_user_selections=False)` (module targets, `module`) | the parent's `get_frame_children(P)`, then `menuCommand(M)` (`moduleFrameChildren`) |
-| `_frame_children_for_module(P)` (`parentMenu`) | as today; refused under an above parent |
+| `_frame_children_for_module(P)` (`parentMenu`) | P's `get_frame_children`, read directly rather than as the module frame less its last child, which drops the wrong child where M is above and has no command (`parentMenuDestinationFrameChildren`); refused under an above parent |
 | `get_frame_children(M, form, include_root_module=True)` then pop (`previous`) | where `menuIdOf(M)` is not `root` and M has a parent: the datum lists gain the form entries of the module whose index `menuIdOf(P)` names (none where it is `root`), the children start with P's command unless it is `root`, then M's command; then the common prefix, the form command and the rest; then HQ's pop (`previousEntryFrameChildren`). Where `menuIdOf(M)` is `root` no form holds `previous` (section 5.1); `previousEntryFrameChildren` stays total there and returns HQ's children, which no reader asks for |
 
 **The root lists.** Where a module's menu id is `root`, `frameDatumLists` is every form entry of every
@@ -1063,7 +1070,9 @@ before any match is read, so no link is matched against a case type another menu
 - **The scoped gate.** `lib/doc/incrementalValidationScope.ts`: an `updateModule` whose patch names
   `formsInMenuAbove` takes the whole-document gate. For every other scoped batch, each touched module
   adds every contributor of `menuScreenOf` of that module, before and after the batch, with their
-  forms, since one module's form types decide another's case-first answer. The first menu's shared
+  forms, since one module's form types decide another's case-first answer. A screen the touched
+  module alone lists on adds nothing: its answer is that module's own, which the footprint already
+  covers. The first menu's shared
   case needs no addition: its rule is an app rule and runs on every scoped batch (section 5.5).
 - **The registries.** `lib/domain/referenceSlots.ts` classifies `formsInMenuAbove` as `"config"` in
   `NON_REFERENCE_MODULE_PATHS`, its one module table, beside `hiddenFromMenu`. It holds no identity,
@@ -1147,7 +1156,9 @@ in such a menu names the screen it lists on, never the menu.
 ### 8.5 After submit
 
 `lib/preview/afterSubmitRouting.ts` reads frames through `previousTaskProjection.ts`, whose commands
-now resolve to screens (section 6.3). A new helper there, `screenOfFrame`, turns a frame's commands and
+now resolve to screens (section 6.3). A new helper, `screenOfFrame` (written in
+`lib/preview/engine/frameLanding.ts`, since `biome.json` admits `lib/commcare` imports under
+`lib/preview/engine` and not in `afterSubmitRouting.ts`, which re-exports it), turns a frame's commands and
 selections into a landing: the last menu command's screen (the first menu where the frame holds none),
 with the frame's selections applied to the menus that supply them
 (`formLinkProjection.ts::entrySelectionDatumSources`), then the form the frame's form command names
@@ -1194,8 +1205,10 @@ run); run G2 is the check.
 
 `lib/preview/app-tests/navigation.ts::appTestMenus` and `appTestForms` list by the same projection, so
 a journey may choose a form or a case list entry from the home screen or a parent menu where the
-screen lists it; `lib/preview/app-tests/actions.ts` admits those choices on `home` and `menu` screens
-by membership in `previewScreenEntries`. Nothing here moves `RUNTIME_VERSION` (section 16).
+screen lists it; `lib/preview/app-tests/run.ts` (where the `form` and `records` actions run;
+`actions.ts` holds only the read actions) admits those choices on `home` and `menu` screens by
+membership in `previewScreenEntries`, and the `records` action takes an optional `moduleUuid` naming
+the menu whose case list entry to open where a screen lists several. Nothing here moves `RUNTIME_VERSION` (section 16).
 
 ---
 
@@ -1418,7 +1431,9 @@ out-of-scope module's finding that a scoped run never produces. The two moved fi
 module's own findings in a run's order, on both sides of the law alike.
 
 Every `always` finding sits at the host and carries `details.formUuid`, `formName` and
-`kind: "always"`. All are `soundness`, and each new code takes its row in
+`kind: "always"` (`FORM_NOT_FOUND` carries no `formName`: the form is gone). A host with no case
+type takes `HOST_NOT_CASE_FIRST` reason `no-case-type` and no `NOT_REGISTRATION`, whose sentences
+name the host's type. All are `soundness`, and each new code takes its row in
 `lib/commcare/validator/errors.ts::ValidationErrorCode`, `gate.ts::VALIDITY_CLASS_BY_CODE` and
 `lib/doc/userFacingErrors.ts`.
 
@@ -1705,8 +1720,9 @@ Both platforms run it alike (read, not run; run G2 is the check), apart from the
   `case_list_registration_icon` and `case_list_registration_audio_label`, each `{ moduleUuid,
   moduleName }`, beside `case_list_icon` and `case_list_audio_label`. `walkAssetRefs`, the emitted
   walk the manifest, the export budget and `MEDIA_FORMAT_NOT_PLAYED` read, yields the arm's `icon`
-  (where it is an asset, never a built-in slug) and `audioLabel` for a module whose `always` arm
-  holds them, after the case list menu item's. `walkAuthoredAssetRefs`, the persistence walk, calls
+  (an uploaded asset or a built-in ref, as every menu-icon carrier yields it: the manifest
+  resolves a built-in through `builtinIconAssets.ts`, and the reverse index filters it out) and
+  `audioLabel` for a module whose `always` arm holds them, after the case list menu item's. `walkAuthoredAssetRefs`, the persistence walk, calls
   `walkAssetRefs` and inherits them, so attach verdicts and deletion guards cover them.
   `remapAssetRefs`, which a Project move uses, gains the arm beside its `caseListMenuItem` arm.
   `describeCarrier` gains "the Register button on <menu>'s case list" for both kinds, and
@@ -1960,7 +1976,9 @@ update_module."
   any time (register_from_case_list on update_module), so a worker looks for a case before adding
   one. The form stays on its own menu. After registering from the list the worker returns to the
   list or goes on with the new case. Use case_list_registration on the form instead when the form
-  should open only after a search finds nothing."
+  should open only after a search finds nothing. The Register button can take an icon and a spoken
+  label (set_menu_media, target case-list-registration)." followed by the generated platform sentence
+  of `case-list-registration-media` (section 13), which needs that sentence as its referent.
 
 **What reaches a served tool or the guide.** `lib/models.ts::MODEL_CONTEXT_VERSION` moves once for
 the whole step (the top-level file, "Versions"). This part's share of what moves it: the two new
@@ -2067,8 +2085,8 @@ and REFUSED row takes subject `case-list-registration`; every new HELD-NEW row t
 | `menus-and-case-lists/case-list-form-pointing-at-a-registration-form-in-another-module` | HELD-NEW to HELD; cell "**HELD**: `Module.caseListRegistrationForm { kind: \"always\" }`: a registration form of the list's type whose one case of that type Case Management registers, in a basic menu, offered by a basic menu whose forms all open a case"; `slotChanges: []` |
 | `menus-and-case-lists/case-list-form-media-image-media-audio` | HELD-NEW to HELD; cell "**HELD**: the `always` arm's `icon` and `audioLabel`, one file for every language"; gains value class `beside-a-form-id`; platforms unchanged (IGNORED / RUNS) |
 | `menus-and-case-lists/case-list-form-post-form-workflow-default-case-list` | stays HELD, value class `default-or-case-list` kept; cell "**HELD**: `case_list` for the `after-empty-search` arm; the `always` arm's `afterSubmit` (`case-list` is `case_list`, `new-case` is `default`), stored also where the form's own end-of-form navigation overrides it"; the `widen` leaves `slotChanges` (part 04, `04-names.md`, section 2.4, row 30), and part 04's section 11.4 takes `widen` out of the manifest's schema, which parses only once this row has dropped its own |
-| new `menus-and-case-lists/case-list-form-post-form-workflow-default-on-the-hidden-module-shape` | HELD-NEW; key `schema:CaseListForm.post_form_workflow`; value class `default-on-the-hidden-module-shape`; cell "**HELD-NEW**: `default` beside a form in an always-hidden module of a host whose forms read the search: Nova's `after-empty-search` arm returns to Results, and `default` goes on with the new case chosen (`CaseListFormWorkflow._get_stack_frames`)". This is the standing of `default` on the `after-empty-search` arm that part 04 (section 2.4, row 30) asks of this part |
-| new `menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host` | REFUSED, `broken-at-runtime`, "the one new case cannot be carried into a selection of several"; key `schema:CaseListForm.post_form_workflow`; value class `default-on-a-multi-select-host`; lands unless run G3 gives outcome B |
+| new `menus-and-case-lists/case-list-form-post-form-workflow-default-on-the-hidden-module-shape` | HELD-NEW; keys F (`default` is `CaseListForm.post_form_workflow`'s model default, which the lane counts as no use of that key, `manifest_usage.py::_walk_object`, so the block's `form_id` carries the class); value class `default-on-the-hidden-module-shape`; cell "**HELD-NEW**: `default` beside a form in an always-hidden module of a host whose forms read the search: Nova's `after-empty-search` arm returns to Results, and `default` goes on with the new case chosen (`CaseListFormWorkflow._get_stack_frames`)". This is the standing of `default` on the `after-empty-search` arm that part 04 (section 2.4, row 30) asks of this part |
+| new `menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host` | REFUSED, `broken-at-runtime`, "the one new case cannot be carried into a selection of several"; keys F, for the reason the row above gives; value class `default-on-a-multi-select-host`; lands unless run G3 gives outcome B |
 | `menus-and-case-lists/case-list-form-label-lang` | stays HELD; cell "**HELD**: the registration's label on the case list where it holds text in some language: the slot's `label`, else the form's name (`emissionPlan.ts::caseListFormLabelUnit`); a language whose value is an empty string is read as \"Create a new Case\" in that language, the text HQ's build writes there, and the first publish says so; a language the label holds no key for is no translation"; gains value class `with-text-beside-a-form-id` (section 11.8) |
 | new `menus-and-case-lists/case-list-form-label-empty` | HELD; key `schema:CaseListForm.label`; value class `no-text-beside-a-form-id`; `slotChanges: []`; platforms RUNS / RUNS; emission "`label`, the text in every language"; cell "**HELD**: a label with no text in any language beside a `form_id` is read as the label \"Create a new Case\", the text HQ's build writes for it (`app_strings.py::_create_case_list_form_app_strings`); the first publish says the button's text is fixed at those words" (section 11.8). It is a row of its own because no language of the block holds a text of its author's, so the whole label Nova holds is the text HQ's build writes; the row above keeps the author's text and takes HQ's words only in a language whose value is empty |
 | new `menus-and-case-lists/case-list-form-fields-beside-a-blank-form-id` | INERT; keys `schema:CaseListForm.label`, `.post_form_workflow`, `.media_image`, `.media_audio`, `.relevancy_expression`; value class `beside-a-blank-form-id`; cell "**INERT**: every reader tests `form_id` first (`details.py`, `app_strings.py::_create_case_list_form_app_strings`, `FormBase.case_list_modules`, `hqmedia/models.py::ModuleMediaMixin`)"; platforms `not-applicable`; emission `omit` |
@@ -2200,10 +2218,14 @@ shapes out of every Nova document, so the lane meets no use of either.
   follow-up forms alone, with their default after-submit and no link or entry point into them (the
   gate refuses those, section 5.5), which holds the menus, the entries and the `firstMenu` frames of
   the shape whose shared case is defined.
-- `registerFromCaseList.ts`, `targeted-register-from-case-list`, both platforms: the ten host
-  scenarios of run G3 over one registration form per case type, the health shape among them (the form
-  in a menu above, a label, an uploaded icon, `case-list`), one form offered by two lists, and one
-  named form with its own after-submit.
+- `registerFromCaseList.ts`, two documents over one registration form per case type, which
+  together hold the ten host scenarios of run G3, the health shape among them (the form in a menu
+  above, a label, an uploaded icon, `case-list`), one form offered by two lists, and one named form
+  with its own after-submit. `targeted-register-from-case-list`, both platforms, holds the eight hosts
+  both platforms run. `targeted-register-from-case-list-web-apps`, Web Apps alone, holds the host whose
+  forms read the search and the host that selects several cases: Nova refuses both on Android
+  (`forms-read-search`, `several-cases`, refusable rows of `platforms.ts`), so no document declaring
+  both platforms can hold them.
 
 **The native family** `menu-screens` (`proof/native/families.py`), in the lane. `FAMILIES` gains the
 producer, and `CORE_CLASSES` gains `MenuScreensRuntimeTest` and `RegisterFromListRuntimeTest`, each
@@ -2541,8 +2563,12 @@ A sibling subsection follows it, "#### Register from the case list":
 > **A label with no text.** Where a block made in CommCare HQ holds a label that yields no text
 > in a language, HQ's build writes "Create a new Case" there
 > (`app_strings.py::_create_case_list_form_app_strings`): in every language where no language
-> holds text, and in each language whose value is an empty string. Nova reads it as that text,
-> and the first publish says the button's text is fixed at those words.
+> holds text, and in each language whose value is an empty string. A label Nova writes always
+> holds text: the slot's `label`, else the form's name.
+>
+> (The reading of such a label, and the first publish's statement of it, are added to this
+> paragraph by the part that builds the menus reader, since the architecture reference describes
+> implemented behavior.)
 >
 > **The button by platform.** Web Apps draws the action's text alone
 > (`cloudcare/partials/case_list/list.html`); commcare-android draws its image and a button

@@ -23,12 +23,14 @@ import {
 	fieldKinds,
 	fieldRegistry,
 	HASHTAG_SEGMENT_SOURCE,
+	type ProseAtomPart,
 	type ProseProjectionResult,
 	type ProseReferencePart,
 	type ProseTemplate,
 	projectProseTemplate,
 	type ReferenceNamesDoc,
 	readCaseReference,
+	UNPRINTED_PROSE_VALUE_TEXT,
 	type Uuid,
 } from "@/lib/domain";
 import { classifyNamespace } from "./config";
@@ -75,7 +77,7 @@ export type ReferenceSurface = "prose" | "xpath";
  */
 export interface UnresolvedReferenceProjection {
 	readonly kind: "unresolved-reference";
-	readonly referenceKind: ProseReferencePart["kind"];
+	readonly referenceKind: ProseAtomPart["kind"];
 	readonly type: ReferenceType;
 	readonly repairText: string;
 }
@@ -428,6 +430,9 @@ export class ReferenceProvider {
 		const unresolved: UnresolvedReferenceProjection[] = [];
 		for (const part of template.parts) {
 			if (part.kind === "text") result += part.text;
+			// A calculated value has no one reference to resolve; a plain-text
+			// surface shows that one stands here and reports nothing unresolved.
+			else if (part.kind === "value") result += UNPRINTED_PROSE_VALUE_TEXT;
 			else {
 				const projected = this.projectPart(part, formUuid);
 				if (projected.ok) result += projected.reference.raw;
@@ -541,9 +546,16 @@ export class ReferenceProvider {
 }
 
 export function unresolvedReferenceProjection(
-	part: ProseReferencePart,
+	part: ProseAtomPart,
 ): UnresolvedReferenceProjection {
 	switch (part.kind) {
+		case "value":
+			return {
+				kind: "unresolved-reference",
+				referenceKind: part.kind,
+				type: "form",
+				repairText: "[calculated value needs repair]",
+			};
 		case "field-ref":
 			return {
 				kind: "unresolved-reference",

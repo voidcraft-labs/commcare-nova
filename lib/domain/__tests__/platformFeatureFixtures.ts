@@ -189,11 +189,17 @@ function caseApp(
 		readonly columns?: Column[];
 		readonly list?: (config: CaseListConfigSpec) => void;
 		readonly module?: Partial<
-			Pick<Module, "caseSearchConfig" | "caseListMenuItem">
+			Pick<
+				Module,
+				"caseSearchConfig" | "caseListMenuItem" | "caseListRegistrationForm"
+			>
 		>;
 		/** The module holds no form: a bare case list beside a registering
 		 *  module. */
 		readonly formless?: true;
+		/** The registering module stands beside the module, which keeps its
+		 *  follow-up form. */
+		readonly registrationMenu?: true;
 		readonly searchInputs?: SearchInputDef[];
 		/** The follow-up form's fields, in place of its one text question. */
 		readonly fields?: FieldSpec[];
@@ -211,7 +217,7 @@ function caseApp(
 		config.searchInputs = options.searchInputs;
 	options.list?.(config);
 	const listOnly = options.formless === true;
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Platforms",
 		modules: [
 			{
@@ -238,7 +244,7 @@ function caseApp(
 							},
 						],
 			},
-			...(listOnly
+			...(listOnly || options.registrationMenu === true
 				? [
 						{
 							name: "Registration",
@@ -277,6 +283,12 @@ function caseApp(
 			},
 		],
 	});
+	// The slot names its form by its stored identity, which `buildDoc`'s
+	// spec would map again, so it is set on the built document.
+	const registration = options.module?.caseListRegistrationForm;
+	if (registration !== undefined)
+		doc.modules[FIXTURE_MODULE].caseListRegistrationForm = registration;
+	return doc;
 }
 
 function input(
@@ -557,6 +569,18 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			]),
 		use: slotUse("question-pages", FIELD_OWNER, "kind"),
 	},
+	"number-keypad": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "phone",
+				label: proseText("Phone"),
+				keypad: "numbers",
+			}),
+		without: () =>
+			oneField({ kind: "text", id: "phone", label: proseText("Phone") }),
+		use: slotUse("number-keypad", FIELD_OWNER, "keypad"),
+	},
 	"plain-text": {
 		with: () =>
 			oneField({
@@ -698,6 +722,36 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		with: () => caseApp({ module: { caseListMenuItem: {} }, formless: true }),
 		without: () => caseApp(),
 		use: slotUse("case-list-menu-item", MODULE_OWNER, "caseListMenuItem"),
+	},
+	"case-list-registration-media": {
+		with: () =>
+			caseApp({
+				module: {
+					caseListRegistrationForm: {
+						kind: "always",
+						formUuid: REGISTER_FORM,
+						icon: ASSET,
+						afterSubmit: "case-list",
+					},
+				},
+				registrationMenu: true,
+			}),
+		without: () =>
+			caseApp({
+				module: {
+					caseListRegistrationForm: {
+						kind: "always",
+						formUuid: REGISTER_FORM,
+						afterSubmit: "case-list",
+					},
+				},
+				registrationMenu: true,
+			}),
+		use: slotUse(
+			"case-list-registration-media",
+			MODULE_OWNER,
+			"caseListRegistrationForm.icon",
+		),
 	},
 	"tile-grouping": {
 		with: () =>

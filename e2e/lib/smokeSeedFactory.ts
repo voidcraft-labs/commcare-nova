@@ -101,19 +101,25 @@ import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
+	buildRegisterFromListBlueprint,
 	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
+	buildSearchValueListBlueprint,
 	FORM_REFUSED_SEED,
 	formRefusedRoute,
 	HERE_COLUMN_SEED,
 	hereColumnRoute,
 	PREVIEW_ANDROID_MEDIA_SEED,
 	previewAndroidMediaRoute,
+	REGISTER_FROM_LIST_SEED,
+	registerFromListRoute,
 	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
 	SEARCH_RESULTS_SEED,
+	SEARCH_VALUE_LIST_SEED,
 	searchChoiceRoute,
+	searchValueListRoute,
 } from "./previewRuntimeSeeds";
 import {
 	buildPreviousTaskBlueprint,
@@ -1452,6 +1458,45 @@ export async function createSmokeBuilders(
 				});
 			return {
 				searchChoice: { appId, route: searchChoiceRoute(appId) },
+			};
+		},
+		"register-from-list": async () => {
+			const seed = REGISTER_FROM_LIST_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildRegisterFromListBlueprint,
+			);
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.existing,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				registerFromList: { appId, route: registerFromListRoute(appId) },
+			};
+		},
+		"search-value-list": async () => {
+			const seed = SEARCH_VALUE_LIST_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchValueListBlueprint,
+			);
+			for (const client of seed.clients)
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: seed.caseType,
+						case_name: client.caseName,
+						status: "open",
+						properties: { region: client.region, age: client.age },
+					},
+				});
+			return {
+				searchValueList: { appId, route: searchValueListRoute(appId) },
 			};
 		},
 		localization: async () => {

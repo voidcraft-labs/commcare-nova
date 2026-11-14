@@ -23,7 +23,8 @@ import {
 } from "../forms";
 import type { TranslationUnitId } from "../localization";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
-import { moduleIsCaseFirst } from "../menuForms";
+import { afterEmptySearchRegistrationFormOf } from "../menuForms";
+import { menuScreenOf, screenChoosesCaseFirst } from "../menuScreens";
 import {
 	effectiveCaseSearchConfig,
 	moduleFormsReadSearch,
@@ -142,9 +143,9 @@ export interface FormExpressionFacts extends FormStructure {
 	 * form. */
 	readonly ownCaseIdMinted: boolean;
 	readonly searchInputs: readonly SearchInputDecl[];
-	/** Whether the form is its module's case list registration form
-	 * (`Module.caseListRegistrationForm`), which opens from Results after a
-	 * search found nothing and carries the Search answers. */
+	/** Whether the form is its module's `after-empty-search` registration form
+	 * (`menuForms.ts::afterEmptySearchRegistrationFormOf`), which opens from
+	 * Results after a search found nothing and carries the Search answers. */
 	readonly caseListRegistrationForm: boolean;
 	/** Whether the form's menu has its forms read the search, so its forms
 	 * open after the inline query that keeps the Search answers
@@ -508,7 +509,8 @@ function buildFormFacts(
 		fields,
 		searchInputs,
 		caseListRegistrationForm:
-			module?.caseListRegistrationForm?.formUuid === structure.formUuid,
+			afterEmptySearchRegistrationFormOf(doc, structure.moduleUuid) ===
+			structure.formUuid,
 		formsReadSearchModule:
 			module !== undefined && moduleFormsReadSearch(module),
 		unitShowsAnswer: (unitId) =>
@@ -758,7 +760,11 @@ export function slotContext(
 		);
 		if (slot.slot === "form_display_condition") {
 			if (saved === undefined) return undefined;
-			const caseFirst = moduleIsCaseFirst(doc, moduleUuid, options.form);
+			const caseFirst = screenChoosesCaseFirst(
+				doc,
+				menuScreenOf(doc, moduleUuid),
+				options.form,
+			);
 			profile = slotProfile(
 				"record",
 				"session",

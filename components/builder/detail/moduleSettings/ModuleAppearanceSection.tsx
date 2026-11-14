@@ -3,7 +3,10 @@
 import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useMenuScreenSource } from "@/lib/doc/hooks/useMenuScreenSource";
+import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { asUuid, type Uuid } from "@/lib/doc/types";
+import { menuScreenKeptAppearanceNote } from "./menuScreenCopy";
 
 /** Props for the module-appearance section: just the module being edited. */
 interface ModuleAppearanceSectionProps {
@@ -23,7 +26,13 @@ export function ModuleAppearanceSection({
 	const module = useModule(moduleUuid);
 	const parentModule = useModule(module?.parentModuleUuid);
 	const { setModuleMedia } = useBlueprintMutations();
+	const source = useMenuScreenSource();
+	/* A bare case list's name section states the note for both. */
+	const bare = useIsBareCaseListModule(moduleUuid);
 	if (!module) return null;
+	const keptNote = bare
+		? undefined
+		: menuScreenKeptAppearanceNote(source, moduleUuid);
 	const uuid = asUuid(moduleUuid);
 
 	return (
@@ -40,6 +49,14 @@ export function ModuleAppearanceSection({
 						? "Shown on the app's main menu"
 						: `Shown inside ${parentModule.name}`}
 				</p>
+				{keptNote !== undefined && (
+					<p
+						className="mt-1 text-[13px] leading-relaxed text-nova-text-muted"
+						data-menu-screen-kept-note
+					>
+						{keptNote}
+					</p>
+				)}
 				<div className="mt-3 space-y-2">
 					<div>
 						<span className="mb-1 block text-xs text-nova-text-muted">

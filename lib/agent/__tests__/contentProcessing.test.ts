@@ -776,6 +776,52 @@ describe("plain_label on an added field and its choices", () => {
 		expect(verdict.nextDoc.fields[NOTE]).not.toHaveProperty("plainLabel");
 	});
 
+	it("lands keypad and plain_help on an added Text question, where a key left uncopied would answer ok and store nothing", () => {
+		const doc = namedFormFixture([
+			{ name: "Intake", forms: [{ name: FORM_NAME, type: "survey" }] },
+		]);
+		const form = Object.values(doc.forms).find(
+			(each) => each.name === FORM_NAME,
+		);
+		if (form === undefined) throw new Error("The fixture form is missing.");
+		const phone = testUuid("keypad-phone");
+		const notes = testUuid("keypad-notes");
+		const assembly = assembleFieldMutations({
+			doc,
+			formUuid: form.uuid,
+			items: [
+				addFieldsItemSchema.parse({
+					fieldUuid: phone,
+					kind: "text",
+					id: "phone",
+					label: proseText("Phone"),
+					keypad: "numbers",
+				}),
+				addFieldsItemSchema.parse({
+					fieldUuid: notes,
+					kind: "text",
+					id: "notes",
+					label: proseText("Notes"),
+					help: proseText("Use *short* words"),
+					plain_help: true,
+					keypad: null,
+				}),
+			],
+		});
+		if (!assembly.ok) throw new Error("The batch didn't assemble.");
+		const verdict = mutationCommitVerdict(
+			doc,
+			assembly.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+		expect(verdict.nextDoc.fields[phone]).toMatchObject({ keypad: "numbers" });
+		expect(verdict.nextDoc.fields[phone]).not.toHaveProperty("plainHelp");
+		expect(verdict.nextDoc.fields[notes]).toMatchObject({ plainHelp: true });
+		expect(verdict.nextDoc.fields[notes]).not.toHaveProperty("keypad");
+		expect(verdict.nextDoc.fields[notes]).not.toHaveProperty("plain_help");
+	});
+
 	it("takes a replacement choice's plainLabel from the input, not the prior choice", () => {
 		const yes = testUuid("plain-label-yes");
 		const no = testUuid("plain-label-no");

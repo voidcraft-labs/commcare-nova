@@ -37,7 +37,8 @@ const CASE_LIST_FEATURES: ReadonlySet<string> = new Set([
  * In order: a case operation, a form link, a form's display condition, then
  * the form (selecting the finding's field). A module finding about the
  * menu's case list registration form (`CASE_LIST_REGISTRATION_*`, which
- * names the form in `details.formUuid`) opens that form. A platform finding
+ * names the form in `details.formUuid`) opens that form, or, for the
+ * `always` arm (`details.kind`), the host's case list. A platform finding
  * at a module (`details.feature`, which only platform findings carry) and a
  * finding about Forms read the search open Search settings or the case list
  * by its feature; any other module finding opens the module.
@@ -76,6 +77,13 @@ export function findingOpenAction(
 	}
 	if (moduleUuid === undefined) return undefined;
 	const parsedRegistrationUuid = uuidSchema.safeParse(details?.formUuid);
+	// The `always` arm is set on the host's case list, and its form lives in
+	// another menu.
+	if (
+		finding.code.startsWith("CASE_LIST_REGISTRATION_") &&
+		details?.kind === "always"
+	)
+		return () => navigate.openCaseList(moduleUuid);
 	if (
 		finding.code.startsWith("CASE_LIST_REGISTRATION_") &&
 		finding.code !== "CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH" &&
@@ -132,6 +140,8 @@ export function mediaLocationOpenAction(
 			return () => navigate.openModule(location.moduleUuid);
 		case "case_list_icon":
 		case "case_list_audio_label":
+		case "case_list_registration_icon":
+		case "case_list_registration_audio_label":
 		case "image_map_mapping":
 			return () => navigate.openCaseList(location.moduleUuid);
 	}
@@ -152,6 +162,8 @@ export function mediaLocationTargetName(location: MediaRefLocation): string {
 		case "module_audio_label":
 		case "case_list_icon":
 		case "case_list_audio_label":
+		case "case_list_registration_icon":
+		case "case_list_registration_audio_label":
 		case "image_map_mapping":
 			return location.moduleName;
 	}

@@ -20,7 +20,7 @@ import {
 	retainedBodyJson,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { decrypt } from "@/lib/commcare/encryption";
@@ -1240,30 +1240,44 @@ it("names sync on form entry structurally for an app with a menu with Search who
 	expect(await snapshot()).toEqual({ deployments: [], resources: [] });
 });
 
-it("names CommCare Supply structurally for a form holding the session's supply point text, and keeps confirm_commtrack_off once the upload goes ahead", async () => {
+it("names CommCare Supply structurally for an advanced menu whose case list is its own menu item, and keeps confirm_commtrack_off once the upload goes ahead", async () => {
 	await seed(
-		buildDoc({
-			appName: "Stock",
-			modules: [
-				{
-					name: "Stock",
-					forms: [
-						{
-							name: "Stock count",
-							type: "survey",
-							fields: [
-								{
-									id: "note",
-									kind: "label",
-									label:
-										"Your place is instance('commcaresession')/session/data/supply_point_id",
-								},
-							],
-						},
-					],
-				},
-			],
-		}),
+		buildDoc(
+			{
+				appName: "Supplies",
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+				modules: [
+					{
+						uuid: "supply-households",
+						name: "Households",
+						caseType: "household",
+						caseListMenuItem: {},
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Household visit",
+								type: "followup",
+								fields: [{ id: "visit_note", kind: "text" }],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				const households = testUuid("supply-households");
+				doc.modules[households] = {
+					...doc.modules[households],
+					heldKind: "advanced",
+				};
+			},
+		),
 	);
 	await withHttpPeer(async (peer) => {
 		await asUser(async (client) => {
@@ -1280,7 +1294,7 @@ it("names CommCare Supply structurally for a form holding the session's supply p
 					plans: "",
 					consequence: COMMTRACK_OFF.consequence,
 					reasons: [
-						"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
+						"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.",
 					],
 					where_missing: COMMTRACK_OFF.whereMissing,
 				},

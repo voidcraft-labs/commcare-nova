@@ -56,6 +56,7 @@ import {
 	CALCULATED_SEARCH_EXPRESSION_GUIDANCE,
 	CASE_LIST_ORDER_GUIDANCE,
 	columnInputSchema,
+	columnListStateRefusal,
 	newUuid,
 	SEARCH_ANSWER_QUOTE_MARKS_GUIDANCE,
 	searchInputDefInputSchema,
@@ -279,6 +280,16 @@ export const configureCaseListTool = {
 				};
 			}
 			const { moduleUuid, module: originalModule } = address;
+			const listStateRefusal = (input.columns ?? [])
+				.map(columnListStateRefusal)
+				.find((refusal) => refusal !== undefined);
+			if (listStateRefusal !== undefined) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: listStateRefusal },
+				};
+			}
 			const columnUuids = (input.columns ?? []).map((column) =>
 				column.columnUuid === undefined ? newUuid() : asUuid(column.columnUuid),
 			);

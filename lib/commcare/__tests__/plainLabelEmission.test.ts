@@ -3,8 +3,7 @@
  *
  * Contract: a question's label and an inline choice's label holding
  * `plainLabel` write no `<value form="markdown">` in any language, while
- * their `<value>` (references included, as `<output>`) is what it was; a
- * hint, a help text and a validation message keep their markdown form, and a
+ * their `<value>` (references included, as `<output>`) is what it was, and a
  * protected validation message's internal forms are unchanged. CommCare
  * renders a label's markdown only where that form exists (Core
  * `FormEntryCaption.getMarkdownText`, Formplayer `PromptToJson.parseCaption`,
@@ -12,9 +11,11 @@
  * markdown per text across every language, so the flag drops the form
  * everywhere at once.
  *
- * Plausible failures: the markdown form kept in one language, dropped from a
- * hint or help text, dropped from every choice when one is plain, or a plain
- * label losing its reference. The built forms are read as elements.
+ * Plausible failures: the markdown form kept in one language, dropped from
+ * every choice when one is plain, or a plain label losing its reference.
+ * What a hint, a help text and a validation message write is
+ * `xform/__tests__/markdownForms.test.ts`'s. The built forms are read as
+ * elements.
  */
 
 import type { Element } from "domhandler";
@@ -174,20 +175,11 @@ describe("a plain label", () => {
 		}
 	});
 
-	it("keeps the hint's and the help text's markdown forms", () => {
-		for (const lang of LANGUAGES) {
-			for (const id of ["age-hint", "age-help"]) {
-				expect(forms(entry(plain, lang, id))).toEqual([undefined, "markdown"]);
-			}
-		}
-	});
-
 	it("leaves a protected validation message's forms as they were", () => {
 		for (const lang of LANGUAGES) {
 			const message = entry(plain, lang, "age-constraintMsg");
 			expect(forms(message)).toEqual(
 				expect.arrayContaining([
-					"markdown",
 					"__nova_identity",
 					"__nova_mode",
 					"__nova_mode;markdown",

@@ -24,6 +24,7 @@ import {
 	type CaseListConfig,
 	type CaseTileGrouping,
 	type Column,
+	columnOnList,
 	orderedColumns,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/domain";
 import type { Platform } from "@/lib/domain/platforms";
 import { columnLabel } from "../canvas/ColumnInventory";
+import { LIST_SEARCH_OFF_LINE } from "../workspaceProjection";
 
 /** One column the tile lays out, with the place it currently holds. */
 export interface TilePlacement {
@@ -99,7 +101,13 @@ export function hiddenFromResultsLine(
 	tiled: boolean,
 ): string | undefined {
 	if (column.visibleInList !== false) return undefined;
-	if (!tiled) return HIDDEN_FROM_RESULTS_LINE;
+	if (!tiled) {
+		/* A column that is not on the list says what its List search matches
+		 * this switch says when it is off. */
+		return columnOnList(column)
+			? HIDDEN_FROM_RESULTS_LINE
+			: LIST_SEARCH_OFF_LINE;
+	}
 	return column.sort === undefined ? NOT_ON_TILE_LINE : undefined;
 }
 

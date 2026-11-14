@@ -578,6 +578,33 @@
 		"gates": []
 	},
 	{
+		"id": "case-search/search-on-a-put-in-root-module",
+		"area": "case-search",
+		"section": "Case search",
+		"item": "a search on a module whose `put_in_root` is true",
+		"surfaceKeys": [
+			"schema:CaseSearch.auto_launch",
+			"schema:CaseSearch.default_search",
+			"schema:CaseSearch.inline_search",
+			"parser:ActionParser/action@auto_launch",
+			"parser:SessionDatumParser/query@default_search"
+		],
+		"valueClass": "on-a-put-in-root-module",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a search on a menu that shows its forms above. It is not inert: only the Search and Register actions test `put_in_root` (`details.py::DetailContributor.build_detail`); HQ's build still gives the module's form entries their claim `<post>` while the project space syncs cases on form entry (`entries.py::EntriesHelper.include_post_in_entry`) and writes the module's `<remote-request>` (`remote_requests.py::RemoteRequestsHelper.update_suite`), and Nova's gate refuses the shape (`FORMS_IN_MENU_ABOVE_WITH_SEARCH`)",
+		"subject": "search-setup",
+		"owner": "case-search",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 		"area": "case-search",
 		"section": "Case search",
@@ -1027,7 +1054,7 @@
 		],
 		"valueClass": "non-empty",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `searchScreenTitle`",
+		"dispositionCell": "**HELD**: `searchScreenTitle`, a text; absent is \"Search\"",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1051,28 +1078,29 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "`title_label` `{}` or blank (HQ's default)",
+		"item": "`title_label` `{}` or blank in every language (HQ's default)",
 		"surfaceKeys": [
 			"schema:CaseSearch.title_label",
 			"parser:SessionDatumParser/title"
 		],
 		"valueClass": "empty",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: no search title, which HQ builds as a non-breaking space in the default app strings, shown empty (executed)",
-		"subject": "search-setup",
-		"owner": "case-search",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `searchScreenTitle: { kind: \"none\" }`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS / IGNORED",
+			"cell": "RUNS (no heading) / RUNS (Android draws no search title)",
 			"webApps": {
-				"reading": "runs"
+				"reading": "runs",
+				"note": "no heading"
 			},
 			"android": {
-				"reading": "ignored"
+				"reading": "runs",
+				"note": "Android draws no search title"
 			}
 		},
 		"emission": {
-			"cell": "`{}` (Nova writes \"Search\" today for a module that sets none, `lib/domain/modules.ts` `DEFAULT_CASE_SEARCH_TITLE`; step 7's migration writes \"Search\" as the title of each such module, so nothing changes)",
+			"cell": "`title_label` blank for every language",
 			"markers": []
 		},
 		"gates": []

@@ -1,4 +1,5 @@
 import {
+	type EntryPointTarget,
 	editorSafeEntryPointId,
 	entryPointIdProblem,
 	entryPointIdProblemSentence,
@@ -34,11 +35,19 @@ import {
 	SELECT_OPTION_VALUE_BOTH_QUOTES,
 	selectOptionValueProblem,
 	translationValueIntegrityIssue,
+	type Uuid,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import { AUTOMATION_RULES } from "./automations";
-import { caseListRegistrationFormInModule } from "./case-search/caseListRegistration";
+import {
+	caseListRegistrationApp,
+	caseListRegistrationFormInModule,
+} from "./case-search/caseListRegistration";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
+import {
+	entryPointSharesFirstMenuCase,
+	firstMenuSharedCaseFrames,
+} from "./formsInMenuAbove";
 import { hiddenValueWriterAgreement } from "./hiddenValueWriterAgreement";
 import { ORGANIZATION_RULES } from "./organization";
 import { platformFeatureAvailability } from "./platforms";
@@ -483,20 +492,33 @@ function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 		const displayConditions =
 			target.kind !== "form" &&
 			entryPoint.ignoreDisplayConditions !== undefined;
+		const duplicate = ids.has(entryPoint.id);
+		const shared =
+			refusal || displayConditions || duplicate
+				? undefined
+				: entryPointSharesFirstMenuCase(doc, target);
 		const reason = refusal
 			? "id-format"
 			: displayConditions
 				? "display-conditions"
-				: ids.has(entryPoint.id)
+				: duplicate
 					? "duplicate-id"
-					: "destination";
+					: shared
+						? "first-menu-shared-case"
+						: "destination";
 		const issue = refusal
 			? `Deep link "${entryPoint.id}": ${entryPointIdProblemSentence(refusal.problem, refusal.suggestedId)}`
 			: displayConditions
 				? "Only form entry points can ignore display conditions."
-				: ids.has(entryPoint.id)
+				: duplicate
 					? "Entry point IDs must be unique within the app."
-					: entryPointProjectionIssue(doc, target);
+					: shared
+						? firstMenuSharedCaseEntryPointMessage(
+								doc,
+								target,
+								shared.aboveModuleUuid,
+							)
+						: entryPointProjectionIssue(doc, target);
 		ids.add(entryPoint.id);
 		return issue
 			? [
@@ -505,16 +527,43 @@ function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 						"app",
 						issue,
 						{ moduleUuid: target.moduleUuid },
-						{ entryPointUuid: entryPoint.uuid, reason, ...refusal },
+						{
+							entryPointUuid: entryPoint.uuid,
+							reason,
+							...refusal,
+							...(shared && {
+								aboveModuleUuid: shared.aboveModuleUuid,
+								aboveModuleName:
+									doc.modules[shared.aboveModuleUuid]?.name ?? "",
+							}),
+						},
 					),
 				]
 			: [];
 	});
 }
 
+/** The entry point's sentence where its frame opens through the first menu
+ *  with the case every form listed there from a menu above opens. */
+function firstMenuSharedCaseEntryPointMessage(
+	doc: BlueprintDoc,
+	target: EntryPointTarget,
+	aboveModuleUuid: Uuid,
+): string {
+	const name =
+		target.kind === "form"
+			? (doc.forms[target.formUuid]?.name ?? "")
+			: (doc.modules[target.moduleUuid]?.name ?? "");
+	const above = doc.modules[aboveModuleUuid]?.name ?? "";
+	return `The entry point on "${name}" opens through the app's first menu, where every form listed from a menu that shows its forms above opens one chosen case. CommCare HQ puts that case ahead of "${name}" in the entry point, and on Android CommCare keeps it on the first menu when a worker steps back, for the next form to open on. You can give "${above}" its own screen again (forms_in_menu_above null), or remove the entry point.`;
+}
+
 export const APP_RULES = [
 	authoredXmlText,
 	validEntryPoints,
+	// A link or a built-in `module` destination that opens through the first
+	// menu with the case every form listed there from a menu above opens.
+	firstMenuSharedCaseFrames,
 	closedBlueprintTopology,
 	globallyUniqueEntityUuids,
 	catalogOptionValuesValid,
@@ -526,6 +575,9 @@ export const APP_RULES = [
 	connectNoParticipatingForms,
 	// A case list registration slot naming a form outside its module.
 	caseListRegistrationFormInModule,
+	// Every other finding of both case list registration arms: the `always`
+	// arm reads a form in another module.
+	caseListRegistrationApp,
 	// A feature the app holds that a platform it declares cannot run.
 	platformFeatureAvailability,
 	// Cross-form rule — multi-writer disagreement detection requires the

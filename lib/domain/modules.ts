@@ -33,7 +33,7 @@
 // bound against the same Zod schemas.
 
 import { z } from "zod";
-import { moduleIconRefSchema } from "./builtinIcons";
+import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
@@ -86,19 +86,75 @@ export type SortDirection = (typeof SORT_DIRECTIONS)[number];
 export const SORT_TYPES = ["plain", "date", "integer", "decimal"] as const;
 export type SortType = (typeof SORT_TYPES)[number];
 
+/** Where a sort rule puts the cases with no value. */
+export const SORT_BLANKS = ["first", "last"] as const;
+export type SortBlanks = (typeof SORT_BLANKS)[number];
+
+/** Where a rule of this direction puts blank values when it says nothing:
+ *  first ascending, last descending. */
+export function defaultSortBlanks(direction: SortDirection): SortBlanks {
+	return direction === "asc" ? "first" : "last";
+}
+
+/** A rule's keys with no rule between them: what a tool input takes before
+ *  `columnSort` stores it. */
+export const columnSortShape = {
+	direction: z.enum(SORT_DIRECTIONS),
+	priority: persistableJsonNonnegativeIntegerSchema,
+	/** Where cases with no value sort. Stored only where it differs from the
+	 *  direction's own. */
+	blanks: z
+		.enum(SORT_BLANKS)
+		.optional()
+		.describe(
+			'Where cases with no value sort: "first" or "last". Leave it out to follow the direction: first when ascending, last when descending.',
+		),
+};
+
 /**
- * Per-column sort directive. Carries direction + priority only —
- * the comparator type is derived at wire emission, not authored.
+ * Per-column sort directive: direction, priority, and where blanks sort
+ * where that differs from the direction's own. The comparator type is
+ * derived at wire emission, not authored.
  *
  * `priority` is a non-negative integer; tie-break to Results display
  * order is uniform across saga / preview / wire layers (no layer
- * assumes uniqueness).
+ * assumes uniqueness). One meaning has one stored form: an ascending rule
+ * with blanks first is the rule with no `blanks`, so every writer builds a
+ * rule through `columnSort`.
  */
-export const columnSortSchema = z.strictObject({
-	direction: z.enum(SORT_DIRECTIONS),
-	priority: persistableJsonNonnegativeIntegerSchema,
-});
+export const columnSortSchema = z
+	.strictObject(columnSortShape)
+	.superRefine((sort, ctx) => {
+		if (
+			sort.blanks !== undefined &&
+			sort.blanks === defaultSortBlanks(sort.direction)
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["blanks"],
+				message:
+					"An ascending rule already puts blank values first, and a descending rule last, so blanks is kept only when it says the other one.",
+			});
+		}
+	});
 export type ColumnSort = z.infer<typeof columnSortSchema>;
+
+/** Where the rule puts blank values. The one reader. */
+export function sortBlanks(sort: ColumnSort): SortBlanks {
+	return sort.blanks ?? defaultSortBlanks(sort.direction);
+}
+
+/** A rule in its one stored form: `blanks` left out where it is the
+ *  direction's own. */
+export function columnSort(
+	direction: SortDirection,
+	priority: number,
+	blanks?: SortBlanks,
+): ColumnSort {
+	return blanks === undefined || blanks === defaultSortBlanks(direction)
+		? { direction, priority }
+		: { direction, priority, blanks };
+}
 
 // ── Interval-column units ────────────────────────────────────────
 
@@ -157,6 +213,12 @@ const columnCommonSlots = z.strictObject({
 	sort: columnSortSchema.optional(),
 	visibleInList: z.boolean().optional(),
 	visibleInDetail: z.boolean().optional(),
+	/** Present when the column is no field of the case list at all: the
+	 *  case's detail alone holds it. The list does not show it, match it in
+	 *  its filter or sort by it. A column that holds it holds
+	 *  `visibleInList: false` and no `sort`
+	 *  (`CASE_LIST_COLUMN_NOT_ON_LIST_INVALID`). */
+	notOnList: z.literal(true).optional(),
 });
 
 // ── Case-tile cells ──────────────────────────────────────────────
@@ -720,13 +782,20 @@ export const columnSchema = z.discriminatedUnion("kind", [
 export type Column = z.infer<typeof columnSchema>;
 export type ColumnKind = Column["kind"];
 
+/** Whether the column is a field of the list: shown, or hidden and still carried. */
+export function columnOnList(column: Pick<Column, "notOnList">): boolean {
+	return column.notOnList !== true;
+}
+
 /**
- * Whether a runtime evaluates the column's value: every column of a list
- * with no tile layout, since each is a field of the short detail on both
- * export paths, a column hidden from Results included as HQ's `invisible`
- * field (`lib/domain/caseListOrder.ts`, rule 1); in a tile list, a column
- * shown on Results or on Details, since a column hidden from both is no
- * field there and its order rule rides as a sort row with no stored column.
+ * Whether a runtime evaluates the column's value: every column on the list
+ * of a list with no tile layout, since each is a field of the short detail
+ * on both export paths, a column hidden from Results included as HQ's
+ * `invisible` field (`lib/domain/caseListOrder.ts`, rule 1); in a tile list,
+ * a column shown on Results or on Details, since a column hidden from both is
+ * no field there and its order rule rides as a sort row with no stored
+ * column; and a column that is not on the list (`columnOnList`) where
+ * Details shows it, since only the case's detail holds it.
  *
  * Admission never consults this projection: a column hidden from both
  * screens is legitimate reversible authoring state and is validated as
@@ -737,6 +806,7 @@ export function caseListColumnRuns(
 	column: Column,
 	config: Pick<CaseListConfig, "tile">,
 ): boolean {
+	if (!columnOnList(column)) return column.visibleInDetail !== false;
 	if (config.tile === undefined) return true;
 	return column.visibleInList !== false || column.visibleInDetail !== false;
 }
@@ -799,6 +869,8 @@ export interface ColumnCommonSlots {
 	readonly sort?: ColumnSort;
 	readonly visibleInList?: boolean;
 	readonly visibleInDetail?: boolean;
+	/** The column is no field of the list: the case's detail alone holds it. */
+	readonly notOnList?: true;
 	/** Placement on the case list's tile grid. Independent of the two
 	 *  surface membership sequences — a cell is where the column sits on
 	 *  the tile, while the owning config arrays hold sequence. */
@@ -818,6 +890,7 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		sort?: ColumnSort;
 		visibleInList?: boolean;
 		visibleInDetail?: boolean;
+		notOnList?: true;
 		tile?: TileCell;
 	} = { ...base };
 	if (slots.sort !== undefined) out.sort = slots.sort;
@@ -825,6 +898,7 @@ function withCommonSlots<T extends Record<string, unknown>>(
 		out.visibleInList = slots.visibleInList;
 	if (slots.visibleInDetail !== undefined)
 		out.visibleInDetail = slots.visibleInDetail;
+	if (slots.notOnList !== undefined) out.notOnList = slots.notOnList;
 	if (slots.tile !== undefined) out.tile = slots.tile;
 	return out;
 }
@@ -2570,6 +2644,16 @@ export const DEFAULT_CASE_SEARCH_TITLE = "Search";
  */
 export const CASE_SEARCH_BUTTON_LABEL = "Search All Cases";
 
+/** The stored title of a search with no title: a worker sees no heading. */
+export const NO_SEARCH_SCREEN_TITLE = { kind: "none" } as const;
+/** A search's title: authored text, or the `none` arm for no title at all.
+ *  Absent is `DEFAULT_CASE_SEARCH_TITLE`. */
+export const searchScreenTitleSchema = z.union([
+	z.string().min(1),
+	z.strictObject({ kind: z.literal("none") }),
+]);
+export type SearchScreenTitle = z.infer<typeof searchScreenTitleSchema>;
+
 // The runtime case-claim step (which fires when an author picks a
 // case from search results) runs unconditionally on the CCHQ
 // runtime — there is no authoring affordance for it. Display sort,
@@ -2612,7 +2696,9 @@ export const ordinaryCaseSearchConfigSchema = z
 		// Both wire emitters and preview share Nova's friendly defaults.
 		// Rejecting empty keeps the contract simple: present means useful
 		// authored copy; clearing a control removes the override.
-		searchScreenTitle: z.string().min(1).optional(),
+		// A search with no title holds the `none` arm; absent is
+		// `DEFAULT_CASE_SEARCH_TITLE`. `searchScreenTitleText` is the one reader.
+		searchScreenTitle: searchScreenTitleSchema.optional(),
 		searchScreenSubtitle: z.string().min(1).optional(),
 		searchButtonDisplayCondition: conditionSchema.optional(),
 
@@ -2704,6 +2790,18 @@ export function isOrdinaryCaseSearchConfig(
 	return config !== undefined && !isOwnerOnlyCaseSearchConfig(config);
 }
 
+/** The title a worker reads: the authored text, "Search" where none is
+ *  authored, or null for a search with no title. The one reader. */
+export function searchScreenTitleText(
+	config: CaseSearchConfig | undefined,
+): string | null {
+	const title = isOrdinaryCaseSearchConfig(config)
+		? config.searchScreenTitle
+		: undefined;
+	if (title === undefined) return DEFAULT_CASE_SEARCH_TITLE;
+	return typeof title === "string" ? title : null;
+}
+
 /**
  * Project Search configuration after its final input is removed.
  *
@@ -2750,17 +2848,52 @@ export const caseListMenuItemSchema = z.strictObject({
 });
 export type CaseListMenuItem = z.infer<typeof caseListMenuItemSchema>;
 
-/** A registration form the module's case list offers. */
-export const caseListRegistrationFormSchema = z.strictObject({
-	/** When the case list offers it. Step 5's one arm: after a search finds nothing. */
+/** Where a worker goes after registering from the case list. */
+export const CASE_LIST_REGISTRATION_RETURNS = [
+	"case-list",
+	"new-case",
+] as const;
+export type CaseListRegistrationReturn =
+	(typeof CASE_LIST_REGISTRATION_RETURNS)[number];
+
+const afterEmptySearchRegistrationSchema = z.strictObject({
 	kind: z.literal("after-empty-search"),
 	/** A registration form of this module, on no menu. */
 	formUuid: uuidSchema,
 	/** The Register action's label. Absent is the form's name. */
 	label: z.string().min(1).optional(),
 });
+
+const alwaysOfferedRegistrationSchema = z.strictObject({
+	kind: z.literal("always"),
+	/** A registration form of this module's case type in another menu. It
+	 *  stays on its own menu. */
+	formUuid: uuidSchema,
+	/** The Register action's label. Absent is the form's name. */
+	label: z.string().min(1).optional(),
+	/** The action's image. Web Apps shows the label alone. */
+	icon: formIconRefSchema.optional(),
+	/** The action's spoken label, played in audio-prompt mode. */
+	audioLabel: mediaAssetIdSchema.optional(),
+	/** Back to the list, or on to this menu with the new case chosen. Applies
+	 *  while the form's own after-submit is Home (`caseListRegistrationReturnOf`). */
+	afterSubmit: z.enum(CASE_LIST_REGISTRATION_RETURNS),
+});
+
+/** A registration form the module's case list offers: its own, on no menu,
+ *  after a search finds nothing; or another menu's, always. */
+export const caseListRegistrationFormSchema = z.discriminatedUnion("kind", [
+	afterEmptySearchRegistrationSchema,
+	alwaysOfferedRegistrationSchema,
+]);
 export type CaseListRegistrationForm = z.infer<
 	typeof caseListRegistrationFormSchema
+>;
+export type AfterEmptySearchRegistration = z.infer<
+	typeof afterEmptySearchRegistrationSchema
+>;
+export type AlwaysOfferedRegistration = z.infer<
+	typeof alwaysOfferedRegistrationSchema
 >;
 
 export const moduleSchema = z.strictObject({
@@ -2782,8 +2915,10 @@ export const moduleSchema = z.strictObject({
 	 */
 	caseListMenuItem: caseListMenuItemSchema.optional(),
 	/**
-	 * A registration form of this module the case list offers, on no menu.
-	 * The form stays in the module's `formOrder`.
+	 * A registration form the module's case list offers: its own, on no menu,
+	 * after a search finds nothing; or another menu's, always. The
+	 * `after-empty-search` form stays in the module's `formOrder`; the
+	 * `always` form stays in its own menu's.
 	 */
 	caseListRegistrationForm: caseListRegistrationFormSchema.optional(),
 	purpose: z.string().optional(),
@@ -2796,9 +2931,20 @@ export const moduleSchema = z.strictObject({
 	 * Present when the module is off the menu: no menu lists it or any of
 	 * its forms, whatever `displayCondition` says. The condition keeps
 	 * applying once the module is back on the menu. A child module of a
-	 * module off the menu is not itself off the menu, but no menu reaches it.
+	 * module off the menu is not itself off the menu, but no menu reaches it,
+	 * unless that module shows its forms in the menu above: then a child that
+	 * keeps its screen lists on the app's first menu by its own condition
+	 * alone.
 	 */
 	hiddenFromMenu: z.literal(true).optional(),
+	/**
+	 * Present when the module's forms, and its case list entry, are listed in the
+	 * menu above (the app's first menu for a top-level module, its parent for a
+	 * submenu) and the module has no entry and no screen of its own. Its name,
+	 * icon and spoken label stay stored and are shown nowhere while this is set.
+	 * `menuScreens.ts` is the one reader of what lists where.
+	 */
+	formsInMenuAbove: z.literal(true).optional(),
 	caseListConfig: caseListConfigSchema.optional(),
 	caseSearchConfig: caseSearchConfigSchema.optional(),
 	/** Image shown on the module's home-screen tile. */
@@ -2872,6 +3018,13 @@ export function moduleFormsReadSearch(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
 ): boolean {
 	return effectiveCaseSearchConfig(module)?.formsReadSearch === true;
+}
+
+/** The module shows its forms in the menu above (`formsInMenuAbove`). */
+export function moduleShowsFormsInMenuAbove(
+	module: Pick<Module, "formsInMenuAbove"> | undefined,
+): boolean {
+	return module?.formsInMenuAbove === true;
 }
 
 /** The menu lists the case list as its own entry. */

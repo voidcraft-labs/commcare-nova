@@ -584,6 +584,56 @@ describe("translation unit inventory", () => {
 		expect(translationValueIntegrityIssue(unit, "Hola")).toBe("value-kind");
 	});
 
+	it("protects a calculated value: a translation may move it and may not change it", () => {
+		const visit = testUuid("localization-value-visit");
+		const formatted = (pattern: string) => ({
+			kind: "value" as const,
+			expression: {
+				kind: "format-date" as const,
+				date: {
+					kind: "date-coerce" as const,
+					value: {
+						kind: "term" as const,
+						term: { kind: "field" as const, uuid: visit },
+					},
+				},
+				pattern,
+			},
+		});
+		const source = {
+			parts: [{ kind: "text" as const, text: "Due " }, formatted("%e %b %Y")],
+		};
+		const unit = {
+			valueKind: "prose" as const,
+			source,
+			contentPolicy: "allow-blank" as const,
+		} as unknown as Parameters<typeof translationValueIntegrityIssue>[0];
+		expect(
+			translationValueIntegrityIssue(unit, {
+				parts: [formatted("%e %b %Y"), { kind: "text", text: " vence" }],
+			}),
+		).toBeUndefined();
+		expect(
+			translationValueIntegrityIssue(unit, {
+				parts: [{ kind: "text", text: "Vence " }, formatted("%d/%m/%Y")],
+			}),
+		).toBe("protected-content");
+		expect(translationValueIntegrityIssue(unit, proseText("Vence"))).toBe(
+			"protected-content",
+		);
+		// A template that holds no value fingerprints to the bytes it did
+		// before the arm existed, so no stored translation goes out of date.
+		expect(translationSourceFingerprint("prose", proseText("Due"))).toBe(
+			'source-v1:prose:{"parts":[{"kind":"text","text":"Due"}]}',
+		);
+		// Editing the formula changes the fingerprint, as editing text does.
+		expect(translationSourceFingerprint("prose", source)).not.toBe(
+			translationSourceFingerprint("prose", {
+				parts: [source.parts[0], formatted("%d/%m/%Y")],
+			}),
+		);
+	});
+
 	it("carries slot-specific blank-content policy into integrity checks", () => {
 		const { doc: original } = fixture();
 		const doc = { ...original, modules: structuredClone(original.modules) };

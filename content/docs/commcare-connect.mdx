@@ -33,6 +33,15 @@ completes a task, so a form holding both a deliver unit and a task has its own
 visit turned away while the task is assigned. Nova offers a form's task only
 while that form holds no deliver unit, and the other way round.
 
+## Names and descriptions
+
+CommCare Connect reads each learn module's, deliver unit's and task's name and
+description from the form exactly as you wrote them. One phrase can't go in
+them: instance( followed by a quoted name and a closing bracket, such as
+instance('casedb'). CommCare HQ reads that as a data source wherever it appears
+in a form, and would add the source to the form or stop the app's build. A space
+before the bracket keeps it as text.
+
 ## IDs
 
 Each learn module, assessment, deliver unit and task has an ID that CommCare

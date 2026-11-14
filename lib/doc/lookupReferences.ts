@@ -26,7 +26,8 @@ import {
 import {
 	datumRefKey,
 	type Expression,
-	type ExpressionSlotRef,
+	isProseSlotRef,
+	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
@@ -467,7 +468,7 @@ function extractLookupOptionsSources(
 function extractRegisteredExpressions(
 	doc: BlueprintDoc,
 	ownerKind: ExpressionCarrierRef["entity"],
-	registrySlot: ExpressionSlotRef["slot"],
+	registrySlot: SlotContextRef["slot"],
 ): ExtractedLookupReference[] {
 	const references: ExtractedLookupReference[] = [];
 	const parents = parentByField(doc);
@@ -478,13 +479,19 @@ function extractRegisteredExpressions(
 				? sortedForms(doc)
 				: sortedModules(doc);
 	for (const owner of owners) {
-		for (const { ref, expression } of expressionSlotValues(doc, {
+		for (const { ref, expression, path } of expressionSlotValues(doc, {
 			entity: ownerKind,
 			uuid: owner.uuid,
 		})) {
 			if (ref.slot !== registrySlot) continue;
 			let carrierUuid = owner.uuid;
 			let subpath: readonly LookupReferencePathSegment[] = [];
+			// A calculated value in prose: one of any number in its text, so
+			// its part's place is its anchor below the slot.
+			if (isProseSlotRef(ref)) {
+				const parts = path.lastIndexOf("parts");
+				subpath = ["parts", Number(path[parts + 1])];
+			}
 			let location: LookupReferenceValidationLocation;
 			if (ref.entity === "field")
 				location = {
@@ -506,6 +513,7 @@ function extractRegisteredExpressions(
 					carrierUuid = member.linkUuid;
 					if ("datum" in member) subpath = ["datum", datumRefKey(member.datum)];
 				} else if ("columnUuid" in member) carrierUuid = member.columnUuid;
+				else if ("optionUuid" in member) carrierUuid = member.optionUuid;
 				else carrierUuid = member.searchInputUuid;
 			}
 			if (
@@ -554,7 +562,10 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 		]
 			.filter(
 				(entry, index, all) =>
-					(entry.kind === "expression" || entry.kind === "options-source") &&
+					(entry.kind === "expression" ||
+						entry.kind === "options-source" ||
+						// A field's prose slots hold calculated values.
+						(entry.kind === "prose" && entry.entity === "field")) &&
 					// A slot held at two paths (a destination's and the otherwise
 					// link's carried values) is one extractor: it reads every path.
 					all.findIndex(
@@ -572,7 +583,7 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 					...extractRegisteredExpressions(
 						doc,
 						entry.entity,
-						entry.slot as ExpressionSlotRef["slot"],
+						entry.slot as SlotContextRef["slot"],
 					),
 				]),
 			),

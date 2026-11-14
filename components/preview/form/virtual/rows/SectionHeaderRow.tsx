@@ -47,10 +47,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
@@ -181,14 +178,16 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 									onSave={saveTitle ?? undefined}
 									fieldType="label"
 									formatText={labelFormatText}
+									proseSlot={{ entity: "field", uuid, slot: "label" }}
 								>
 									{hasTitle && shownLabel ? (
 										<LabelContent
 											label={shownLabel}
 											resolvedLabel={state.resolvedLabel}
 											isEditMode
-											plainLabel={ownerHoldsPlainLabel(shown)}
+											plainLabel={labelFormatText?.plain === true}
 											className="text-lg font-semibold leading-7 text-nova-text"
+											proseSlot={{ entity: "field", uuid, slot: "label" }}
 										/>
 									) : (
 										<span className="text-lg font-semibold italic leading-7 text-nova-text-muted">

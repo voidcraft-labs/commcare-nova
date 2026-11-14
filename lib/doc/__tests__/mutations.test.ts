@@ -53,6 +53,24 @@ describe("canonical mutation grammar", () => {
 			column: { ...column, listOrder: "obsolete" },
 		},
 		{
+			kind: "updateColumn",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			visibilityPatch: { surface: "list", visible: true, notOnList: true },
+		},
+		{
+			kind: "updateColumn",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			visibilityPatch: { surface: "detail", visible: false, notOnList: true },
+		},
+		{
+			kind: "updateColumn",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			column: { ...column, notOnList: true },
+		},
+		{
 			kind: "moveColumn",
 			moduleUuid: uuid,
 			uuid: columnUuid,
@@ -83,5 +101,20 @@ describe("canonical mutation grammar", () => {
 		expect(() =>
 			admitMutationBatch([payload as unknown as Mutation]),
 		).toThrow();
+	});
+});
+
+describe("a column's list state", () => {
+	it.each([
+		{ surface: "list", visible: false, notOnList: true },
+		{ surface: "list", visible: false, notOnList: false },
+	])("admits hiding a column from Results with notOnList %j", (patch) => {
+		const payload = {
+			kind: "updateColumn",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			visibilityPatch: patch,
+		};
+		expect(mutationSchema.safeParse(payload).success).toBe(true);
 	});
 });

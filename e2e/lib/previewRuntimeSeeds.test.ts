@@ -32,9 +32,11 @@ import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildPreviewAndroidMediaBlueprint,
+	buildRegisterFromListBlueprint,
 	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
+	buildSearchValueListBlueprint,
 	HERE_COLUMN_SEED,
 	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
@@ -50,6 +52,8 @@ describe("Preview runtime smoke seeds", () => {
 		["search-claim", buildSearchClaimBlueprint],
 		["search-results", buildSearchResultsBlueprint],
 		["search-choice", buildSearchChoiceBlueprint],
+		["search-value-list", buildSearchValueListBlueprint],
+		["register-from-list", buildRegisterFromListBlueprint],
 	])("%s is a persistable app with no validator findings", (_name, build) => {
 		const doc = build(APP_ID);
 		const persistable = toPersistableDoc(doc);

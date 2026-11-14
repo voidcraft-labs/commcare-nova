@@ -1,0 +1,135 @@
+/**
+ * The planner of a case list that always offers another menu's registration
+ * form (`Module.caseListRegistrationForm`, the `always` arm), and the forms a
+ * list may offer. The slot rides `updateModule.patch.caseListRegistrationForm`
+ * whole, with `null` to clear, so one mutation sets the form, the button's
+ * text and media, and where a worker goes after registering.
+ *
+ * Whether the gate admits a choice is not decided here: every choice carries
+ * the batch that would offer it, and the surface reads the gate's verdict of
+ * that batch (`hooks/useOfferedBatchRefusals.ts`), so the picker and the
+ * commit cannot disagree.
+ */
+
+import type { Mutation } from "@/lib/doc/types";
+import {
+	type AlwaysOfferedRegistration,
+	afterEmptySearchRegistrationFormOf,
+	alwaysOfferedRegistrationOf,
+	type BlueprintDoc,
+	type Uuid,
+} from "@/lib/domain";
+
+export type AlwaysOfferedRegistrationPlan =
+	| { readonly kind: "planned"; readonly mutations: Mutation[] }
+	/** The host holds the `after-empty-search` arm. `message` is the agent's
+	 *  sentence, `userMessage` the builder's. */
+	| {
+			readonly kind: "blocked";
+			readonly message: string;
+			readonly userMessage: string;
+	  };
+
+/**
+ * Set the host's `always` arm whole, or clear it with `null`. Clearing a host
+ * that holds no `always` arm plans no mutation. Setting is refused while the
+ * host offers its own form after an empty search: the two arms share one
+ * slot, and replacing one with the other is a decision the person makes.
+ */
+export function alwaysOfferedRegistrationMutations(
+	doc: BlueprintDoc,
+	hostUuid: Uuid,
+	slot: AlwaysOfferedRegistration | null,
+): AlwaysOfferedRegistrationPlan {
+	if (slot === null)
+		return {
+			kind: "planned",
+			mutations:
+				alwaysOfferedRegistrationOf(doc, hostUuid) === undefined
+					? []
+					: [
+							{
+								kind: "updateModule",
+								uuid: hostUuid,
+								patch: { caseListRegistrationForm: null },
+							},
+						],
+		};
+	const afterEmptySearch = afterEmptySearchRegistrationFormOf(doc, hostUuid);
+	if (afterEmptySearch !== undefined) {
+		const host = doc.modules[hostUuid]?.name ?? "";
+		const form = doc.forms[afterEmptySearch]?.name ?? "";
+		const lead = `"${host}" already offers "${form}" after a search finds nothing. You can stop offering that`;
+		return {
+			kind: "blocked",
+			message: `${lead} (case_list_registration null on update_form), and then offer a form on the list.`,
+			userMessage: `${lead}, and then offer a form on the list.`,
+		};
+	}
+	return {
+		kind: "planned",
+		mutations: [
+			{
+				kind: "updateModule",
+				uuid: hostUuid,
+				patch: { caseListRegistrationForm: slot },
+			},
+		],
+	};
+}
+
+export interface AlwaysOfferedRegistrationChoice {
+	readonly formUuid: Uuid;
+	readonly formName: string;
+	readonly moduleUuid: Uuid;
+	readonly moduleName: string;
+	/** The batch that would offer this form on the host. */
+	readonly mutations: readonly Mutation[];
+}
+
+/**
+ * Every registration form of the host's case type outside the host, in
+ * module then form order, each with the batch that offers it under the
+ * host's stored label, media and `afterSubmit` (`case-list` on a first
+ * offer). None where the host has no case type, and none where the planner
+ * is blocked.
+ */
+export function alwaysOfferedRegistrationChoices(
+	doc: BlueprintDoc,
+	hostUuid: Uuid,
+): readonly AlwaysOfferedRegistrationChoice[] {
+	const host = doc.modules[hostUuid];
+	if (host?.caseType === undefined) return [];
+	if (afterEmptySearchRegistrationFormOf(doc, hostUuid) !== undefined)
+		return [];
+	const stored = alwaysOfferedRegistrationOf(doc, hostUuid);
+	const choices: AlwaysOfferedRegistrationChoice[] = [];
+	for (const moduleUuid of doc.moduleOrder) {
+		if (moduleUuid === hostUuid) continue;
+		const mod = doc.modules[moduleUuid];
+		if (mod?.caseType !== host.caseType) continue;
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (form?.type !== "registration") continue;
+			const plan = alwaysOfferedRegistrationMutations(doc, hostUuid, {
+				kind: "always",
+				formUuid,
+				...(stored?.label !== undefined && { label: stored.label }),
+				...(stored?.icon !== undefined && { icon: stored.icon }),
+				...(stored?.audioLabel !== undefined && {
+					audioLabel: stored.audioLabel,
+				}),
+				afterSubmit: stored?.afterSubmit ?? "case-list",
+			});
+			if (plan.kind === "blocked") return [];
+			choices.push({
+				formUuid,
+				formName: form.name,
+				moduleUuid,
+				moduleName: mod.name,
+				mutations: plan.mutations,
+			});
+		}
+	}
+	return choices;
+}

@@ -590,6 +590,57 @@ it("stores a quoted name opposite record-type() as a record type, and keeps list
 	});
 });
 
+it("reads list(...) as a list of values, each argument a value, and prints it back the same", () => {
+	const parsed = parseQueryPredicate(
+		"#Client/region = list('north', #search/region, 3)",
+		scope,
+	);
+	expect(parsed).toEqual({
+		kind: "eq",
+		left: {
+			kind: "term",
+			term: { kind: "prop", caseType: "Client", property: "region" },
+		},
+		right: {
+			kind: "value-list",
+			items: [
+				{ kind: "term", term: { kind: "literal", value: "north" } },
+				{
+					kind: "term",
+					term: {
+						kind: "input",
+						searchInputUuid: identity("search", "region"),
+					},
+				},
+				{ kind: "term", term: { kind: "literal", value: 3 } },
+			],
+		},
+	});
+	expect(parseQueryPredicate(printer.predicate(parsed), scope)).toEqual(parsed);
+	// A quoted name in a list compared with record-type() stays the text it
+	// spells, as every value does.
+	const types = parseQueryPredicate(
+		"record-type() != list('visit', 'referral')",
+		scope,
+	);
+	expect(types).toMatchObject({
+		right: {
+			kind: "value-list",
+			items: [
+				{ kind: "term", term: { kind: "literal", value: "visit" } },
+				{ kind: "term", term: { kind: "literal", value: "referral" } },
+			],
+		},
+	});
+	expect(printer.predicate(types)).toBe(
+		"(record-type() != list('visit', 'referral'))",
+	);
+	expect(parseQueryPredicate(printer.predicate(types), scope)).toEqual(types);
+	expect(() => parseQueryValue("list()", scope)).toThrow(
+		new AuthoringInputError("list() needs 1 or more arguments; received 0."),
+	);
+});
+
 it("takes a value as a distance, a unit and a selected choice, and refuses a unit CommCare doesn't know", () => {
 	expect(
 		parseQueryPredicate(
@@ -845,6 +896,20 @@ it("prints and parses back every drawn record condition unchanged", () => {
 				.tuple(tie("condition"), tie("condition"))
 				.map(([a, b]) => ({ kind: "and", clauses: [a, b] }) as Expression),
 			tie("condition").map((clause) => ({ kind: "not", clause }) as Expression),
+			fc
+				.tuple(
+					fc.constantFrom("eq", "neq"),
+					value,
+					fc.array(value, { minLength: 1, maxLength: 3 }),
+				)
+				.map(
+					([kind, left, items]) =>
+						({
+							kind,
+							left,
+							right: { kind: "value-list", items },
+						}) as Expression,
+				),
 			fc
 				.tuple(tie("condition"), tie("condition"), tie("condition"))
 				.map(

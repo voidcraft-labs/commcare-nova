@@ -170,8 +170,9 @@ async function helpOf(run: Run, platform: "web-apps" | "android") {
 	const { page } = run;
 	const showHelp = page.getByRole("button", { name: "Show help", exact: true });
 	/* Web Apps draws help only for help text; Android for help media alone
-	 * too. */
-	await expect(showHelp).toHaveCount(platform === "web-apps" ? 1 : 2);
+	 * too. Two questions hold help text, one of them written with formatting
+	 * off. */
+	await expect(showHelp).toHaveCount(platform === "web-apps" ? 2 : 3);
 	await showHelp.first().click();
 	const dialog = page.getByRole("dialog", { name: "Name" });
 	await expect(dialog).toBeVisible();
@@ -279,6 +280,28 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		);
 		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-7");
 	},
+	async "number-keypad-web-apps"(page) {
+		await openScenario(page, "number-keypad-web-apps");
+		const phone = page.getByRole("textbox", { name: /Phone/ });
+		await expect(phone).toHaveAttribute("inputmode", "tel");
+		const refusal =
+			"This answer takes digits, with an optional + or - in front and an optional decimal part.";
+		await phone.fill("0712");
+		await phone.blur();
+		await expect.poll(() => answer(page, PLATFORM_IDS.phoneHeld)).toBe("0712");
+		await phone.fill("+254712");
+		await phone.blur();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.phoneHeld))
+			.toBe("+254712");
+		await expect(page.getByText(refusal)).toHaveCount(0);
+		await phone.fill("12 34");
+		await phone.blur();
+		await expect(page.getByText(refusal)).toBeVisible();
+		await expect(phone).toHaveValue("12 34");
+		await expect(phone).toHaveAttribute("aria-invalid", "true");
+		expect(await answer(page, PLATFORM_IDS.phoneHeld)).toBe("+254712");
+	},
 	async "image-attach-web-apps"(page) {
 		await attachOnly(
 			await openScenario(page, "image-attach-web-apps"),
@@ -323,6 +346,21 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 	},
 	async "help-web-apps"(page) {
 		await helpOf(await openScenario(page, "help-web-apps"), "web-apps");
+	},
+	async "help-plain-web-apps"(page) {
+		await openScenario(page, "help-plain-web-apps");
+		/* The question holds `plainHelp`, so its help writes no markdown form;
+		 * the Web Apps client formats its default text all the same. */
+		await page
+			.getByRole("button", { name: "Show help", exact: true })
+			.nth(1)
+			.click();
+		const dialog = page.getByRole("dialog", { name: "Plain help" });
+		await expect(dialog).toBeVisible();
+		await expect(dialog.locator("strong")).toHaveText("full");
+		await expect(dialog.getByText("Ask for the **full** name")).toHaveCount(0);
+		await dialog.getByRole("button", { name: "Close", exact: true }).click();
+		await expect(dialog).toHaveCount(0);
 	},
 	async "hint-markdown-web-apps"(page) {
 		await openScenario(page, "hint-markdown-web-apps");

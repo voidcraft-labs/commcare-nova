@@ -9,17 +9,19 @@ import { emptyCaseListConfig } from "@/lib/domain";
 import { describe, expect, it } from "vitest";
 import { eq, literal, sessionUser, term } from "../expression";
 import {
-	caseListRegistrationFormOf,
+	afterEmptySearchRegistrationFormOf,
 	menuFormUuidsOf,
 	moduleIsBareCaseList,
 } from "../menuForms";
 import {
 	type AdvancedSearchInputDef,
 	advancedSearchInputDef,
+	CASE_LIST_REGISTRATION_RETURNS,
 	type CaseSearchConfig,
 	type Column,
 	calculatedColumn,
 	caseListConfigSchema,
+	caseListRegistrationFormSchema,
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
 	caseSearchConfigSchema,
@@ -27,7 +29,10 @@ import {
 	caseSelectionCardinality,
 	caseSelectionMaximum,
 	columnSchema,
+	columnSort,
+	columnSortSchema,
 	dateColumn,
+	defaultSortBlanks,
 	effectiveCaseSearchConfig,
 	idMappingColumn,
 	idMappingEntry,
@@ -37,13 +42,16 @@ import {
 	moduleHasCaseListMenuItem,
 	moduleSchema,
 	moduleSearchWorkflow,
+	NO_SEARCH_SCREEN_TITLE,
 	ordinaryCaseSearchConfigSchema,
 	phoneColumn,
 	plainColumn,
 	type SimpleSearchInputDef,
 	searchInputDefSchema,
+	searchScreenTitleText,
 	searchWorkflow,
 	simpleSearchInputDef,
+	sortBlanks,
 	splitMultiSelectSearchAnswer,
 } from "../modules";
 import { asMediaAssetId } from "../multimedia";
@@ -1510,7 +1518,9 @@ describe("the case list menu entry", () => {
 		});
 		expect(moduleIsBareCaseList(onlyRegistration, menu)).toBe(true);
 		expect(menuFormUuidsOf(onlyRegistration, menu)).toEqual([]);
-		expect(caseListRegistrationFormOf(onlyRegistration, menu)).toBe(register);
+		expect(afterEmptySearchRegistrationFormOf(onlyRegistration, menu)).toBe(
+			register,
+		);
 		expect(moduleIsBareCaseList(docOf([], {}), menu)).toBe(false);
 	});
 });
@@ -1547,5 +1557,191 @@ describe("columnSchema — link", () => {
 
 	it("refuses a link column with no link text at all", () => {
 		expect(columnSchema.safeParse(base).success).toBe(false);
+	});
+});
+
+describe("a sort rule's blanks", () => {
+	it("follow the direction where the rule says nothing", () => {
+		expect(defaultSortBlanks("asc")).toBe("first");
+		expect(defaultSortBlanks("desc")).toBe("last");
+		expect(sortBlanks({ direction: "asc", priority: 0 })).toBe("first");
+		expect(sortBlanks({ direction: "desc", priority: 0 })).toBe("last");
+		expect(sortBlanks({ direction: "asc", priority: 0, blanks: "last" })).toBe(
+			"last",
+		);
+	});
+
+	it("are stored only where they differ from the direction's own", () => {
+		expect(
+			columnSortSchema.safeParse({
+				direction: "asc",
+				priority: 0,
+				blanks: "last",
+			}).success,
+		).toBe(true);
+		expect(
+			columnSortSchema.safeParse({
+				direction: "desc",
+				priority: 0,
+				blanks: "first",
+			}).success,
+		).toBe(true);
+		const ownBlanks = columnSortSchema.safeParse({
+			direction: "asc",
+			priority: 0,
+			blanks: "first",
+		});
+		expect(ownBlanks.success).toBe(false);
+		expect(ownBlanks.error?.issues[0]?.message).toBe(
+			"An ascending rule already puts blank values first, and a descending rule last, so blanks is kept only when it says the other one.",
+		);
+		expect(
+			columnSortSchema.safeParse({
+				direction: "desc",
+				priority: 0,
+				blanks: "last",
+			}).success,
+		).toBe(false);
+		expect(
+			columnSortSchema.safeParse({
+				direction: "asc",
+				priority: 0,
+				blanks: "middle",
+			}).success,
+		).toBe(false);
+	});
+
+	it("leave the stored rule through columnSort in its one form", () => {
+		expect(columnSort("asc", 2, "first")).toEqual({
+			direction: "asc",
+			priority: 2,
+		});
+		expect(columnSort("desc", 1, "last")).toEqual({
+			direction: "desc",
+			priority: 1,
+		});
+		expect(columnSort("asc", 0, "last")).toEqual({
+			direction: "asc",
+			priority: 0,
+			blanks: "last",
+		});
+		for (const direction of ["asc", "desc"] as const)
+			for (const blanks of [undefined, "first", "last"] as const)
+				expect(
+					columnSortSchema.safeParse(columnSort(direction, 0, blanks)).success,
+				).toBe(true);
+	});
+});
+
+describe("a search with no title", () => {
+	it("is the none arm, beside a text title and the absent default", () => {
+		expect(
+			ordinaryCaseSearchConfigSchema.safeParse({
+				searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+			}).success,
+		).toBe(true);
+		expect(
+			ordinaryCaseSearchConfigSchema.safeParse({ searchScreenTitle: "" })
+				.success,
+		).toBe(false);
+		expect(
+			ordinaryCaseSearchConfigSchema.safeParse({
+				searchScreenTitle: { kind: "none", text: "x" },
+			}).success,
+		).toBe(false);
+	});
+
+	it("reads as null through the one reader, with Search where none is authored", () => {
+		expect(searchScreenTitleText(undefined)).toBe("Search");
+		expect(searchScreenTitleText({})).toBe("Search");
+		expect(searchScreenTitleText({ searchScreenTitle: "Find a client" })).toBe(
+			"Find a client",
+		);
+		expect(
+			searchScreenTitleText({ searchScreenTitle: NO_SEARCH_SCREEN_TITLE }),
+		).toBeNull();
+	});
+
+	it("is an authored setting that leaves with the last input", () => {
+		const config: CaseSearchConfig = {
+			searchScreenTitle: NO_SEARCH_SCREEN_TITLE,
+		};
+		expect(caseSearchConfigHasAuthoredSettings(config)).toBe(true);
+		expect(
+			caseSearchConfigAfterFinalInputRemoval(config, false),
+		).toBeUndefined();
+	});
+});
+
+describe("the case list registration slot", () => {
+	const form = u(40);
+	const parse = (slot: unknown) =>
+		moduleSchema.safeParse({
+			uuid: u(41),
+			id: "patients",
+			name: "Patients",
+			caseType: "patient",
+			caseListRegistrationForm: slot,
+		});
+
+	it("parses a stored after-empty-search arm unchanged", () => {
+		for (const slot of [
+			{ kind: "after-empty-search", formUuid: form },
+			{ kind: "after-empty-search", formUuid: form, label: "Add a patient" },
+		]) {
+			const parsed = parse(slot);
+			expect(parsed.success).toBe(true);
+			expect(parsed.data?.caseListRegistrationForm).toEqual(slot);
+		}
+	});
+
+	it("parses the always arm with each return, a label, a form icon and a spoken label", () => {
+		expect(CASE_LIST_REGISTRATION_RETURNS).toEqual(["case-list", "new-case"]);
+		for (const afterSubmit of CASE_LIST_REGISTRATION_RETURNS) {
+			const slot = {
+				kind: "always",
+				formUuid: form,
+				label: "Register a new case",
+				icon: "nova-icon:register",
+				audioLabel: asMediaAssetId(u(42)),
+				afterSubmit,
+			};
+			const parsed = parse(slot);
+			expect(parsed.success).toBe(true);
+			expect(parsed.data?.caseListRegistrationForm).toEqual(slot);
+		}
+	});
+
+	it("refuses an always arm that says nowhere to go, an unknown return, or a menu icon", () => {
+		for (const slot of [
+			{ kind: "always", formUuid: form },
+			{ kind: "always", formUuid: form, afterSubmit: "home" },
+			{
+				kind: "always",
+				formUuid: form,
+				afterSubmit: "case-list",
+				icon: "nova-icon:household",
+			},
+			{ kind: "always", formUuid: form, afterSubmit: "case-list", label: "" },
+		])
+			expect(caseListRegistrationFormSchema.safeParse(slot).success).toBe(
+				false,
+			);
+	});
+
+	it("keeps the after-empty-search arm to its own slots, and the kind required", () => {
+		for (const slot of [
+			{ kind: "after-empty-search", formUuid: form, afterSubmit: "case-list" },
+			{
+				kind: "after-empty-search",
+				formUuid: form,
+				icon: "nova-icon:register",
+			},
+			{ formUuid: form },
+			{ kind: "follow-up", formUuid: form },
+		])
+			expect(caseListRegistrationFormSchema.safeParse(slot).success).toBe(
+				false,
+			);
 	});
 });

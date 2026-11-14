@@ -50,6 +50,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { planPlacements } from "@/lib/commcare/placement";
+import { formSourceHoldsSupplyPointText } from "@/lib/commcare/xform/supplyPointText";
 import { placementMoveOffer } from "@/lib/deployment/placementMoves";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
@@ -73,6 +74,7 @@ import {
 import { retainedMigrationA } from "../../corpus/inputs";
 import { minimumConfiguration, novaPublishVerdict } from "../../corpus/publish";
 import { targetedDocument, targetedUuid } from "../build";
+import { commtrackAdvanced } from "../documents/advancedModules";
 import { sameTypeChild } from "../documents/sameTypeChild";
 import { supplyPointText } from "../documents/supplyPointText";
 import type { Expected } from "../expected";
@@ -810,12 +812,14 @@ describe("the case-writes document", () => {
 });
 
 /*
- * `targeted-same-type-child` and `targeted-supply-point-text`: the two
- * documents whose verdicts state what a project space must have off. The
+ * `targeted-same-type-child` and `targeted-commtrack-advanced`: the
+ * documents whose verdicts state what a project space must have off, and
+ * `targeted-supply-point-text`, whose text no longer asks anything. The
  * plausible failures: a document that no longer holds its shape (the
- * same-type create planned into Save to Case, the supply-point text spelled
- * so the check misses it), a verdict that drops the requirement, and an edit
- * that leaves the same-type create where the flag still matters.
+ * same-type create planned into Save to Case, an advanced menu's case list
+ * item gone), a verdict that drops the requirement or keeps one its source
+ * no longer gives, and an edit that leaves the same-type create where the
+ * flag still matters.
  */
 describe("the documents whose publish needs a setting off", () => {
 	it("admits targeted-same-type-child, whose D needs DONT_INDEX_SAME_CASETYPE off and whose edit no longer does", () => {
@@ -885,13 +889,31 @@ describe("the documents whose publish needs a setting off", () => {
 		).not.toHaveProperty("flagsOff");
 	});
 
-	it("admits targeted-supply-point-text, whose verdict needs CommCare Supply off", () => {
-		const document = supplyPointText();
+	it("admits targeted-commtrack-advanced, whose verdict needs CommCare Supply off", () => {
+		const document = commtrackAdvanced();
 		const verdict = novaPublishVerdict(
 			hydratePersistedBlueprint(document.doc),
 			document,
 		);
 		expect(verdict.minimumConfiguration.commtrackEnabled).toBe(false);
+		expect(verdict.minimumConfiguration).not.toHaveProperty("flagsOff");
+	});
+
+	it("admits targeted-supply-point-text, whose source holds the text nowhere, so its verdict needs nothing off", () => {
+		const document = supplyPointText();
+		const doc = hydratePersistedBlueprint(document.doc);
+		const sources = Object.values(
+			(
+				expandDoc(doc, { attachmentTarget: null }) as unknown as {
+					readonly _attachments: Readonly<Record<string, string>>;
+				}
+			)._attachments,
+		);
+		expect(sources).toHaveLength(1);
+		for (const source of sources)
+			expect(formSourceHoldsSupplyPointText(source)).toBe(false);
+		const verdict = novaPublishVerdict(doc, document);
+		expect(verdict.minimumConfiguration).not.toHaveProperty("commtrackEnabled");
 		expect(verdict.minimumConfiguration).not.toHaveProperty("flagsOff");
 		expect(document.edit).toBeUndefined();
 	});

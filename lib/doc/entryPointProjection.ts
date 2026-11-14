@@ -1,6 +1,8 @@
 import { createEntryPointProjector } from "@/lib/commcare/entryPointProjection";
 import type { BlueprintDoc, EntryPointTarget, Uuid } from "@/lib/domain";
 
+export { entryPointSharesFirstMenuCase } from "@/lib/commcare/validator/rules/formsInMenuAbove";
+
 /** Author-facing selection requirements. Private suite argument names never
  * become addresses on the Builder or shared authoring tool surface. */
 export interface EntryPointSelectionRequirement {

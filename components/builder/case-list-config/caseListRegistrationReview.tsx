@@ -36,7 +36,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
-	caseListRegistrationFormOf,
+	afterEmptySearchRegistrationFormOf,
 	caseSelectionCardinality,
 	menuFormUuidsOf,
 	moduleFormsReadSearch,
@@ -122,7 +122,7 @@ export function planCaseListRegistrationChoice(
 			};
 		}
 		case "clear": {
-			const formUuid = caseListRegistrationFormOf(doc, moduleUuid);
+			const formUuid = afterEmptySearchRegistrationFormOf(doc, moduleUuid);
 			const form = formUuid === undefined ? undefined : doc.forms[formUuid];
 			if (form === undefined) return null;
 			return {
@@ -169,7 +169,7 @@ export function useCaseListRegistration(moduleUuid: Uuid | undefined) {
 			);
 			const clearing = choice.kind === "clear";
 			const current = clearing
-				? caseListRegistrationFormOf(doc, moduleUuid)
+				? afterEmptySearchRegistrationFormOf(doc, moduleUuid)
 				: undefined;
 			let firstMenuAfterSubmit =
 				doc.forms[planned.formUuid]?.postSubmit === "firstMenu";

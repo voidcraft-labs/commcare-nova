@@ -31,6 +31,7 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
 import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
+import { useHelpFormatText } from "@/components/preview/form/useHelpFormatText";
 import { useLabelFormatText } from "@/components/preview/form/useLabelFormatText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useFilledField } from "@/lib/doc/hooks/useLocalization";
@@ -45,10 +46,8 @@ import {
 } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
+import { ProseSlotScope } from "@/lib/references/ReferenceContext";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
@@ -79,6 +78,7 @@ export const FieldRow = memo(function FieldRow({
 		makeTranslationUnitId("field", uuid, "label"),
 	);
 	const labelFormatText = useLabelFormatText(q);
+	const helpFormatText = useHelpFormatText(q);
 	const hintEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "hint"),
 	);
@@ -186,13 +186,15 @@ export const FieldRow = memo(function FieldRow({
 								onSave={saveField ? (v) => saveField("label", v) : undefined}
 								fieldType="label"
 								formatText={labelFormatText}
+								proseSlot={{ entity: "field", uuid, slot: "label" }}
 							>
 								<LabelContent
 									label={shownLabel}
 									resolvedLabel={state.resolvedLabel}
 									isEditMode
-									plainLabel={ownerHoldsPlainLabel(shown)}
+									plainLabel={labelFormatText?.plain === true}
 									className={FIELD_STYLES.label}
+									proseSlot={{ entity: "field", uuid, slot: "label" }}
 								/>
 							</TextEditable>
 						</div>
@@ -206,24 +208,29 @@ export const FieldRow = memo(function FieldRow({
 						value={q.hint}
 						onSave={saveField ? (v) => saveField("hint", v) : undefined}
 						fieldType="hint"
+						proseSlot={{ entity: "field", uuid, slot: "hint" }}
 					>
 						<LabelContent
 							label={shownHint}
 							resolvedLabel={state.resolvedHint}
 							isEditMode
 							className={FIELD_STYLES.hint}
+							proseSlot={{ entity: "field", uuid, slot: "hint" }}
 						/>
 					</TextEditable>
 				)}
 				{/* Help text + help media. Nova's preview shows help inline
 				    (CommCare hides it behind a "?"); both slots are input-kind
 				    only, so guard the access. */}
-				<FieldHelp
-					help={"help" in shown ? shown.help : undefined}
-					resolvedHelp={state.resolvedHelp}
-					helpMedia={"help_media" in q ? q.help_media : undefined}
-					interactive={false}
-				/>
+				<ProseSlotScope slot={{ entity: "field", uuid, slot: "help" }}>
+					<FieldHelp
+						help={"help" in shown ? shown.help : undefined}
+						resolvedHelp={state.resolvedHelp}
+						helpMedia={"help_media" in q ? q.help_media : undefined}
+						asTyped={helpFormatText?.plain === true}
+						interactive={false}
+					/>
+				</ProseSlotScope>
 				<FieldRenderer
 					field={shown}
 					state={displayState}

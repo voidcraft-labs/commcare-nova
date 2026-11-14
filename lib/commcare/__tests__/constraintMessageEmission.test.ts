@@ -158,7 +158,7 @@ describe("constraint message emission", () => {
 		for (const root of routes(fixture)) {
 			expect(
 				entry(root, "en").children.map((value) => value.attributes.form),
-			).toEqual([undefined, "markdown"]);
+			).toEqual([undefined]);
 		}
 	});
 
@@ -217,7 +217,6 @@ describe("constraint message emission", () => {
 		for (const root of routes(fixture)) {
 			expect(entry(root, "en").children.map((value) => value.text)).toEqual([
 				message,
-				message,
 			]);
 			expect(carrierBinds(root)).toEqual([]);
 			expect(bind(root).attributes["jr:constraintMsg"]).toBe(
@@ -231,9 +230,12 @@ describe("constraint message emission", () => {
 		for (const root of routes(fixture)) {
 			const message = entry(root, "en");
 			const ordinary = entry(root, "en", "ordinary_output-label");
-			expect(message.children.slice(0, 2)).toEqual(
-				ordinary.children.slice(0, 2),
+			// The plain value matches an ordinary label's; a validation message
+			// writes no markdown copy beside it.
+			expect(message.children.slice(0, 1)).toEqual(
+				ordinary.children.slice(0, 1),
 			);
+			expect(message.children[1]?.attributes.form).not.toBe("markdown");
 			// The message carries no media, so it writes no media form and no
 			// `__nova_mode;<medium>` form: its mode is plain in every reading.
 			expect(

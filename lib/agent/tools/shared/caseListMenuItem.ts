@@ -1,7 +1,8 @@
 /**
  * The `case_list_menu_item` input the module tools share: the module's case
- * list as its own item in its menu (`Module.caseListMenuItem`). No tool sets
- * the item's icon or spoken label.
+ * list as its own item in its menu (`Module.caseListMenuItem`).
+ * `set_menu_media` sets the item's icon and spoken label (target
+ * `case-list-menu-item`).
  */
 
 import { z } from "zod";

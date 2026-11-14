@@ -54,10 +54,7 @@ import {
 } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
@@ -241,14 +238,16 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 									onSave={saveField ? (v) => saveField("label", v) : undefined}
 									fieldType="label"
 									formatText={labelFormatText}
+									proseSlot={{ entity: "field", uuid, slot: "label" }}
 								>
 									{shownLabel && !proseTemplateIsEmpty(shownLabel) ? (
 										<LabelContent
 											label={shownLabel}
 											resolvedLabel={state.resolvedLabel}
 											isEditMode
-											plainLabel={ownerHoldsPlainLabel(shown)}
+											plainLabel={labelFormatText?.plain === true}
 											className={FIELD_STYLES.label}
+											proseSlot={{ entity: "field", uuid, slot: "label" }}
 										/>
 									) : (
 										<span className="text-xs italic text-nova-text-muted">

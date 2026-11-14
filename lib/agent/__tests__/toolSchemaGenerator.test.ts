@@ -68,6 +68,56 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
+	it("takes a number keypad on a Text question alone, on both tools", () => {
+		const keypad = { ...validAddPayload("text"), keypad: "numbers" };
+		expect(generated.addFieldsItemSchema.safeParse(keypad).success).toBe(true);
+		// A whole-number question is the quantity a number keypad is not for.
+		const onInt = generated.addFieldsItemSchema.safeParse({
+			...validAddPayload("int"),
+			keypad: "numbers",
+		});
+		expect(onInt.success).toBe(false);
+		expect(onInt.error?.issues.map((issue) => issue.path)).toEqual([
+			["keypad"],
+		]);
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				...validAddPayload("text"),
+				keypad: "letters",
+			}).success,
+		).toBe(false);
+		// null returns the full keyboard on an edit; on another kind even a
+		// clear names a slot the kind lacks.
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({ kind: "text", keypad: null })
+				.success,
+		).toBe(true);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "secret",
+				keypad: null,
+			}).success,
+		).toBe(false);
+	});
+
+	it("takes plain_help on a kind with a help text, and refuses it on one without", () => {
+		expect(
+			generated.addFieldsItemSchema.safeParse({
+				...validAddPayload("text"),
+				help: proseText("Use *short* words"),
+				plain_help: true,
+			}).success,
+		).toBe(true);
+		const onLabel = generated.editFieldUpdatesSchema.safeParse({
+			kind: "label",
+			plain_help: true,
+		});
+		expect(onLabel.success).toBe(false);
+		expect(onLabel.error?.issues.map((issue) => issue.message)).toEqual([
+			'kind "label" carries no help text, so leave plain_help out.',
+		]);
+	});
+
 	it("accepts useful help content during atomic field creation", () => {
 		const field = {
 			...validAddPayload("text"),

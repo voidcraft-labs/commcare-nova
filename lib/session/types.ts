@@ -70,6 +70,12 @@ export interface PreviewCaseTarget {
 	 * other way into a form, which is what lets the form screen refuse a
 	 * direct URL (`lib/preview/caseListRegistration.ts`). */
 	searchLaunch?: PreviewSearchLaunch;
+	/** The Register action of a case list that always offers this form
+	 * opened it: after submit the form returns where that list's choice says
+	 * (`lib/preview/caseListRegistration.ts::alwaysOfferedRegistrationReturn`).
+	 * Absent on every other way into the form, which is then an ordinary
+	 * form. Ephemeral, never stored. */
+	caseListRegistrationLaunch?: PreviewCaseListRegistrationLaunch;
 	/** Post-submit local-device world carried by a direct form link. A fresh
 	 * restore may omit a case the device just closed, but the linked form still
 	 * opens against the case and casedb state the submitting entry committed. */
@@ -168,6 +174,11 @@ export type PreviewSearchState =
 export interface PreviewSearchLaunch {
 	readonly moduleUuid: Uuid;
 	readonly attempt: number;
+}
+
+/** Which case list's Register action opened a form it always offers. */
+export interface PreviewCaseListRegistrationLaunch {
+	readonly hostModuleUuid: Uuid;
 }
 
 /**

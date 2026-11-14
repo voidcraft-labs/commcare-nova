@@ -568,6 +568,8 @@ export interface NewFormInput {
 	type: FormType;
 	purpose?: string;
 	postSubmit?: PostSubmitDestination;
+	/** Text formatting off for the whole form. */
+	plainText?: true;
 }
 
 /** Build an empty form under an existing module. Its questions are separate
@@ -601,6 +603,7 @@ export function addFormMutations(
 		type: input.type,
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
+		...(input.plainText === true && { plainText: true }),
 		...(own !== undefined && { caseOperations: [own] }),
 	};
 	return [
@@ -642,6 +645,7 @@ export function updateFormMutations(
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
+		plainText: true | null;
 	}>,
 ): Mutation[] {
 	if (doc.forms[formUuid] === undefined) return [];
@@ -665,6 +669,7 @@ export function updateFormMutations(
 	if (patch.purpose !== undefined) {
 		reducerPatch.purpose = patch.purpose === null ? null : patch.purpose;
 	}
+	if (patch.plainText !== undefined) reducerPatch.plainText = patch.plainText;
 	if (Object.keys(reducerPatch).length > 0) {
 		mutations.push({ kind: "updateForm", uuid: formUuid, patch: reducerPatch });
 	}

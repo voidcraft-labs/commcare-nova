@@ -1177,6 +1177,20 @@ export type ProseSlotRef =
 	  };
 export type SlotContextRef = ExpressionSlotRef | ProseSlotRef;
 
+const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
+	"label",
+	"hint",
+	"help",
+	"validate_msg",
+	"option_label",
+]);
+
+/** Whether a slot address names a prose slot (a text, and the calculated
+ *  values it holds) rather than an expression slot. */
+export function isProseSlotRef(ref: SlotContextRef): ref is ProseSlotRef {
+	return ref.entity === "field" && PROSE_SLOT_NAMES.has(ref.slot);
+}
+
 z.globalRegistry.add(expressionSchema, { id: "Expression" });
 z.globalRegistry.add(termSchema, { id: "Term" });
 z.globalRegistry.add(relationPathSchema, { id: "RelationPath" });

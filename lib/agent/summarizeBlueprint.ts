@@ -25,13 +25,18 @@ import type {
 } from "@/lib/domain";
 import {
 	assignedLocationUuids,
+	caseListRegistrationReturnOf,
 	childModuleUuids,
+	columnOnList,
 	declaredPlatforms,
 	fieldCaseWriteViews,
 	formLinkDestination,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
+	menuAbove,
+	moduleShowsFormsInMenuAbove,
 	moduleSiblingUuids,
+	moduleUuidOfForm,
 	orderedColumns,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
@@ -257,14 +262,18 @@ function summarizeCaseList(mod: Module): string | undefined {
 		for (const col of details) {
 			// Details is never a tile — long-detail tiles are out of scope by
 			// contract — so no placement is reported here even when the column
-			// carries one for Results.
-			lines.push(`        - ${formatColumn(col, "")}`);
+			// carries one for Results. A column the detail alone holds says so.
+			lines.push(
+				`        - ${formatColumn(col, "")}${columnOnList(col) ? "" : " (not on the list)"}`,
+			);
 		}
 	}
-	const dormant = orderedColumns(config, "list").filter(
+	const offScreen = orderedColumns(config, "list").filter(
 		(column) =>
 			column.visibleInList === false && column.visibleInDetail === false,
 	);
+	const dormant = offScreen.filter(columnOnList);
+	const offTheList = offScreen.filter((column) => !columnOnList(column));
 	if (dormant.length > 0) {
 		// A list with no tile layout keeps every column a field, so its search
 		// matches these; a tile list keeps them off the tile and its search does
@@ -275,6 +284,12 @@ function summarizeCaseList(mod: Module): string | undefined {
 				: "      saved_off_screen:",
 		);
 		for (const col of dormant) {
+			lines.push(`        - ${formatColumn(col, "")}`);
+		}
+	}
+	if (offTheList.length > 0) {
+		lines.push("      saved_off_the_list:");
+		for (const col of offTheList) {
 			lines.push(`        - ${formatColumn(col, "")}`);
 		}
 	}
@@ -421,17 +436,43 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 
 /**
  * The menu's registration from the case list, on the module: the form the
- * results offer after a search finds nothing, and the button's text.
+ * results offer after a search finds nothing and the button's text, or the
+ * form of another menu the list always offers and where a worker goes after
+ * registering from it (`caseListRegistrationReturnOf`).
  */
 function summarizeCaseListRegistration(
 	doc: BlueprintDoc,
+	moduleUuid: Uuid,
 	mod: Module,
 ): string | undefined {
 	const slot = mod.caseListRegistrationForm;
 	if (slot === undefined) return undefined;
 	const form = doc.forms[slot.formUuid];
 	const formName = form?.name ?? slot.formUuid;
-	return `    case list registration: ${formName} ("${slot.label ?? formName}")`;
+	if (slot.kind === "after-empty-search")
+		return `    case list registration: ${formName} ("${slot.label ?? formName}")`;
+	const formModuleUuid = moduleUuidOfForm(doc, slot.formUuid);
+	const menuName =
+		formModuleUuid === undefined
+			? ""
+			: (doc.modules[formModuleUuid]?.name ?? "");
+	const returnTo = caseListRegistrationReturnOf(doc, moduleUuid);
+	const after =
+		returnTo?.kind === "own"
+			? "follows the form's own after submit"
+			: returnTo?.kind === "new-case"
+				? "on with the new case"
+				: "back to the list";
+	return `    case list offers "${formName}" (in "${menuName}"); after registering: ${after}`;
+}
+
+/** Where a module that shows its forms in the menu above lists them. */
+function formsInMenuAboveInfo(doc: BlueprintDoc, moduleUuid: Uuid): string {
+	if (!moduleShowsFormsInMenuAbove(doc.modules[moduleUuid])) return "";
+	const above = menuAbove(doc, moduleUuid);
+	const where =
+		above.kind === "first-menu" ? "the app's first menu" : `"${above.name}"`;
+	return ` [forms show in ${where} (no screen of its own)]`;
 }
 
 function indentBlock(block: string, indent: string): string {
@@ -464,13 +505,13 @@ function summarizeModule(
 		mod.parentModuleUuid === undefined
 			? " [top-level menu]"
 			: ` [child menu of uuid ${mod.parentModuleUuid}]`;
-	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listInMenu}${offTheMenu}`;
+	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listInMenu}${offTheMenu}${formsInMenuAboveInfo(doc, moduleUuid)}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(indentBlock(caseList, indent));
 	const caseSearch = summarizeCaseSearch(mod);
 	if (caseSearch) sections.push(indentBlock(caseSearch, indent));
-	const registration = summarizeCaseListRegistration(doc, mod);
+	const registration = summarizeCaseListRegistration(doc, moduleUuid, mod);
 	if (registration) sections.push(indentBlock(registration, indent));
 	const formUuids = orderedFormUuids(doc, moduleUuid);
 	const forms = formUuids.map((fUuid) => summarizeForm(doc, fUuid)).join("\n");

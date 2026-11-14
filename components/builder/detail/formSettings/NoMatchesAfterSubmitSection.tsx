@@ -38,7 +38,8 @@ export function NoMatchesAfterSubmitSection({
 	if (
 		!form ||
 		!module ||
-		module.caseListRegistrationForm?.formUuid !== formUuid
+		module.caseListRegistrationForm?.kind !== "after-empty-search" ||
+		module.caseListRegistrationForm.formUuid !== formUuid
 	)
 		return null;
 	const model = noMatchesAfterSubmitModel({

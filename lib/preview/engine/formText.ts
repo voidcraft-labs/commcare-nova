@@ -29,6 +29,7 @@ import {
 	printProseTemplate,
 	proseTemplateIsEmpty,
 	snapshotTranslationUnits,
+	UNPRINTED_PROSE_VALUE_TEXT,
 	type Uuid,
 } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
@@ -133,7 +134,16 @@ export function previewFormText(
 		);
 		if (!itextEntryWritten(field, unit, anyText)) continue;
 		const template = textOf(unit, current);
-		itext[id] = template === undefined ? "" : printProseTemplate(template, doc);
+		/* A text that shows a reference or a calculated value is one Core
+		 * reads with a placeholder, so the checker refuses every `jr:itext`
+		 * read of it (`translationUnitShowsAnswer`); its entry prints the
+		 * reference's text and the value's projection only to stay total. */
+		itext[id] =
+			template === undefined
+				? ""
+				: printProseTemplate(template, doc, {
+						value: () => UNPRINTED_PROSE_VALUE_TEXT,
+					});
 	}
 
 	const projection = previewFormNodeProjection(doc, formUuid);

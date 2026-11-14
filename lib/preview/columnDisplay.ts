@@ -9,6 +9,7 @@ type ProseProjector = (template: ProseTemplate) => string;
 import {
 	type CaseProperty,
 	type Column,
+	hqInstantText,
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
 import type { ExpressionContext } from "@/lib/domain/expression";
@@ -168,13 +169,8 @@ function caseListDisplaySourceValue(
 	if (reading === "results")
 		return field === "date_opened"
 			? date.toISOString().slice(0, 10)
-			: hqDatetimeText(date);
+			: hqInstantText(date.getTime());
 	return XPathDate.localDateOf(date.getTime()).toISOString();
-}
-
-/** HQ's `json_format_datetime`: UTC, six fraction digits, `Z`. */
-function hqDatetimeText(date: Date): string {
-	return `${date.toISOString().slice(0, 23)}000Z`;
 }
 
 function caseListDisplayValue(

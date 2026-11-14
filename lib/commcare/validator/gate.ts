@@ -183,6 +183,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	DISPLAY_CONDITION_NOT_ON_DEVICE: "soundness",
 	DISPLAY_CONDITION_USE_HIDDEN_FROM_MENU: "shape",
 	HIDDEN_MENU_NOT_A_DESTINATION: "soundness",
+	FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION: "soundness",
+	FORMS_IN_MENU_ABOVE_WITH_SEARCH: "soundness",
 	// ── Case-list-config rules ───────────────────────────────────────
 	CASE_LIST_COLUMN_UNKNOWN_FIELD: "soundness",
 	CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH: "soundness",
@@ -213,6 +215,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_DATE_PATTERN_APOSTROPHE: "soundness",
 	CASE_LIST_SORT_PROPERTY_AMBIGUOUS: "soundness",
 	CASE_TILE_HIDDEN_CALCULATED_SORT: "soundness",
+	CASE_LIST_COLUMN_NOT_ON_LIST_INVALID: "soundness",
 	CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE: "soundness",
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: "soundness",
 	CASE_LIST_SIMPLE_INPUT_VIA_INCOMPATIBLE_MODE: "soundness",
@@ -260,6 +263,10 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_REGISTRATION_MULTIPLE_RETURN: "soundness",
 	CASE_LIST_REGISTRATION_HAS_NAVIGATION: "soundness",
 	CASE_LIST_REGISTRATION_FORM_NOT_IN_MODULE: "soundness",
+	CASE_LIST_REGISTRATION_FORM_NOT_FOUND: "soundness",
+	CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST: "soundness",
+	CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE: "soundness",
+	CASE_LIST_REGISTRATION_ADVANCED_MENU: "soundness",
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: "completeness",
 	// A section is a page. A half-sectioned form, a section inside a field,
@@ -295,6 +302,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// A link CommCare HQ's form settings page would not keep: a submenu it
 	// does not list from here, or carried values on a menu.
 	FORM_LINK_TARGET_NOT_OFFERED: "soundness",
+	FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE: "soundness",
 	FORM_LINK_MENU_DATUMS: "soundness",
 	FORM_LINK_SELF_REFERENCE: "soundness",
 	FORM_OTHERWISE_NOT_OFFERED: "soundness",
@@ -319,6 +327,11 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CONNECT_ID_DUPLICATE: "soundness",
 	// Connect turns away the visit in a form that also completes a task.
 	CONNECT_DELIVER_FORM_HOLDS_TASK: "soundness",
+	// HQ's build reads a form's name or a Connect block's text as an instance
+	// read, and stops the build or adds a source no formula reads. It binds
+	// every target: HQ builds every form it is sent, and a `.ccz` is made only
+	// for a project space the app is published to.
+	FORM_TEXT_READ_AS_INSTANCE: "soundness",
 	// Core can't load a form that reads a session datum its entry lacks.
 	SESSION_DATUM_NOT_SUPPLIED: "soundness",
 	// Core reads `results:inline` from the inline query's frame step

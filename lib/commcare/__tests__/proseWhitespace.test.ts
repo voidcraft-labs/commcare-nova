@@ -100,10 +100,12 @@ describe("exported prose whitespace", () => {
 					const standardValues = entry.children.filter(
 						(value) => !value.attributes.form?.startsWith("__nova_"),
 					);
-					expect(standardValues.map((value) => value.attributes.form)).toEqual([
-						undefined,
-						"markdown",
-					]);
+					// A hint and a validation message write no markdown form.
+					expect(standardValues.map((value) => value.attributes.form)).toEqual(
+						id.endsWith("-hint") || id.endsWith("-constraintMsg")
+							? [undefined]
+							: [undefined, "markdown"],
+					);
 					for (const value of standardValues) {
 						expect(value.children.map((output) => output.name)).toEqual(
 							values.map(() => "output"),

@@ -91,6 +91,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"form-source": "A form's source",
 	"hand-written-content": "Hand-written XML",
 	"hierarchical-locations": "The older organization list",
+	"instance-text": "Text read as a data source",
 	"language-codes": "Language codes",
 	"lookup-selection": "Choosing from a lookup table first",
 	"lookup-tables": "Lookup tables",
@@ -279,6 +280,7 @@ export const FINDING_COPY: Readonly<
 		never:
 			"This uses the older, nested list of places, which Nova doesn't bring in.",
 	},
+	"instance-text": {},
 	"language-codes": {},
 	"lookup-selection": {
 		never:
@@ -485,6 +487,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		either:
 			"An expression here is one CommCare can't run or CommCare HQ can't build.",
 		"hq-refuses": "An expression here is one CommCare HQ can't build.",
+	},
+	"instance-text": {
+		either:
+			"A name or description here holds text that CommCare HQ reads as a data source. A space before its bracket keeps it as text.",
 	},
 	"language-codes": {
 		"hq-refuses":

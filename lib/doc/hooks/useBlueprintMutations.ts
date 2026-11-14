@@ -43,8 +43,13 @@
 import { produce } from "immer";
 import { useContext, useMemo } from "react";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
+import { alwaysOfferedRegistrationMutations } from "@/lib/doc/alwaysOfferedRegistration";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
+import {
+	type CaseListRegistrationDependentsPlan,
+	planCaseListRegistrationDependentsOnRemove,
+} from "@/lib/doc/caseListRegistrationDependents";
 import {
 	type CaseTypeRetirement,
 	planCaseTypeRetirementOnRemove,
@@ -1048,6 +1053,35 @@ export function createBlueprintMutations(
 			if (announce) notifyRejectedCommit(messages);
 			return { ok: false, messages };
 		};
+		/* Removing a form a case list always offers is refused naming each
+		 * list. The toast's "Stop offering it" clears the offer on every named
+		 * list in one gated batch on the announcing flavor, read from the
+		 * document at the press; the person then removes the form again. */
+		const refuseOfferedRemoval = (
+			plan: Extract<CaseListRegistrationDependentsPlan, { kind: "blocked" }>,
+		): void => {
+			if (!announce) return;
+			const hosts = [
+				...new Set(
+					plan.dependents.map((dependent) => dependent.hostModuleUuid),
+				),
+			];
+			notifyRejectedCommit([plan.userMessage], {
+				label: "Stop offering it",
+				onPress: () => {
+					const current = get();
+					const mutations = hosts.flatMap((hostUuid) => {
+						const cleared = alwaysOfferedRegistrationMutations(
+							current,
+							hostUuid,
+							null,
+						);
+						return cleared.kind === "planned" ? cleared.mutations : [];
+					});
+					if (mutations.length > 0) guardedApply(mutations, "commit", true);
+				},
+			});
+		};
 		const rejectAutomationConflict = (): CommitOutcome & { ok: false } => {
 			const messages = [
 				"This automation changed while you were editing it. Close and reopen it to review the latest version.",
@@ -1600,6 +1634,17 @@ export function createBlueprintMutations(
 					if (announce) notifyRejectedCommit([dependents.userMessage]);
 					return { ok: false, messages: [dependents.userMessage] };
 				}
+				/* A case list that always offers this form would offer nothing;
+				 * the removal waits until each list stops offering it
+				 * (`lib/doc/caseListRegistrationDependents.ts`). */
+				const offering = planCaseListRegistrationDependentsOnRemove(doc, {
+					kind: "form",
+					formUuid: uuid,
+				});
+				if (offering.kind === "blocked") {
+					refuseOfferedRemoval(offering);
+					return { ok: false, messages: [offering.userMessage] };
+				}
 				const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
 				/* Removing the LAST menu form of a case-managing module would
 				 * leave it formless+typed (`NO_FORMS_OR_CASE_LIST`). Give it its
@@ -1789,6 +1834,14 @@ export function createBlueprintMutations(
 				if (dependents.kind === "blocked") {
 					if (announce) notifyRejectedCommit([dependents.userMessage]);
 					return { ok: false, messages: [dependents.userMessage] };
+				}
+				const offering = planCaseListRegistrationDependentsOnRemove(doc, {
+					kind: "module",
+					moduleUuid: uuid,
+				});
+				if (offering.kind === "blocked") {
+					refuseOfferedRemoval(offering);
+					return { ok: false, messages: [offering.userMessage] };
 				}
 				return toOutcome(
 					guardedApply([

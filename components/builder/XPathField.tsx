@@ -7,9 +7,22 @@ import {
 	indentUnit,
 } from "@codemirror/language";
 import { EditorState, Prec } from "@codemirror/state";
-import { EditorView, keymap, tooltips } from "@codemirror/view";
+import {
+	EditorView,
+	keymap,
+	placeholder as placeholderExtension,
+	tooltips,
+} from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type Ref,
+	useCallback,
+	useEffect,
+	useImperativeHandle,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useRegisterEditGuard } from "@/components/builder/contexts/EditGuardContext";
 import {
 	REJECTION_SURFACE_CLS,
@@ -155,6 +168,20 @@ interface XPathFieldProps {
 	/** Fixes offered on a finding: a button in the finding's lint tooltip
 	 *  and in the notice a refused save shows. */
 	lintActions?: XPathFieldLintActions;
+	/** What the empty editor shows. */
+	placeholder?: string;
+	/** Each change to the open editor's draft, for a mount whose own
+	 *  controls depend on it (an Insert button disabled while empty). */
+	onDraftChange?: (draft: string) => void;
+	/** Lets a mount's own commit button run the editor's save gate. A
+	 *  control that calls it marks itself `data-xpath-field-action` and
+	 *  keeps focus in the editor on press, so no blur saves first. */
+	handleRef?: Ref<XPathFieldHandle>;
+}
+
+/** The open editor's save, for a mount's own commit button. */
+export interface XPathFieldHandle {
+	save(): void;
 }
 
 // ── Component ──────────────────────────────────────────────────────────
@@ -183,6 +210,9 @@ export function XPathField({
 	autoEdit,
 	onEditingChange,
 	lintActions,
+	placeholder,
+	onDraftChange,
+	handleRef,
 }: XPathFieldProps) {
 	const [editing, setEditing] = useState(autoEdit ?? false);
 	/** Viewport coordinates of the activation click for cursor placement. */
@@ -307,6 +337,9 @@ export function XPathField({
 			getEditorContext={getEditorContext}
 			clickPosition={clickPosRef.current}
 			lintActions={lintActions}
+			placeholder={placeholder}
+			onDraftChange={onDraftChange}
+			handleRef={handleRef}
 		/>
 	);
 }
@@ -323,6 +356,9 @@ interface InlineXPathEditorProps {
 	getEditorContext?: () => ExpressionEditorContext | undefined;
 	clickPosition: { x: number; y: number } | null;
 	lintActions?: XPathFieldLintActions;
+	placeholder?: string;
+	onDraftChange?: (draft: string) => void;
+	handleRef?: Ref<XPathFieldHandle>;
 }
 
 /** A mount's fix, bound to this editor: running it closes the editor on a
@@ -359,6 +395,9 @@ function InlineXPathEditor({
 	getEditorContext,
 	clickPosition,
 	lintActions,
+	placeholder,
+	onDraftChange,
+	handleRef,
 }: InlineXPathEditorProps) {
 	const projectedValue = value;
 	/* The document and lookup definitions the draft's identities resolve
@@ -593,6 +632,9 @@ function InlineXPathEditor({
 
 	const saveRef = useRef(save);
 	saveRef.current = save;
+	useImperativeHandle(handleRef, () => ({ save: () => saveRef.current() }), []);
+	const onDraftChangeRef = useRef(onDraftChange);
+	onDraftChangeRef.current = onDraftChange;
 	const cancelRef = useRef(cancel);
 	cancelRef.current = cancel;
 	const getErrorsRef = useRef(getErrors);
@@ -703,12 +745,14 @@ function InlineXPathEditor({
 			if (!wrapper) return;
 			const target = e.target as Node;
 			/* Clicks inside the editor wrapper, inside a portal-mounted
-			 * autocomplete or lint tooltip, or on the editor's own notice (its
-			 * fixes) are not "outside" clicks. */
+			 * autocomplete or lint tooltip, on the editor's own notice (its
+			 * fixes), or on a mount's own commit control are not "outside" clicks. */
 			if (
 				wrapper.contains(target) ||
 				(target instanceof HTMLElement &&
-					target.closest(".cm-tooltip, [data-xpath-field-notice]"))
+					target.closest(
+						".cm-tooltip, [data-xpath-field-notice], [data-xpath-field-action]",
+					))
 			)
 				return;
 			clickedOutsideRef.current = true;
@@ -735,8 +779,9 @@ function InlineXPathEditor({
 			saveKeymap,
 			escapeDom,
 			tooltipDismissExt,
+			...(placeholder === undefined ? [] : [placeholderExtension(placeholder)]),
 		],
-		[saveKeymap, escapeDom, tooltipDismissExt, boundLintActions],
+		[saveKeymap, escapeDom, tooltipDismissExt, boundLintActions, placeholder],
 	);
 
 	return (
@@ -759,6 +804,7 @@ function InlineXPathEditor({
 				onChange={(next) => {
 					draftRef.current = next;
 					setDraft(next);
+					onDraftChangeRef.current?.(next);
 				}}
 				onCreateEditor={(view) => {
 					/* Place cursor at click position when available, otherwise at end. */

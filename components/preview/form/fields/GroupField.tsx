@@ -35,15 +35,16 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { useCallback, useId } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import type { GroupField as GroupFieldEntity } from "@/lib/domain";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
+import {
+	type GroupField as GroupFieldEntity,
+	labelShowsAsTyped,
+} from "@/lib/domain";
 import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import {
-	LabelContent,
-	ownerHoldsPlainLabel,
-} from "@/lib/references/LabelContent";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -95,6 +96,7 @@ export function GroupField({
 	// the engine state for resolved label/hint rendering: path-keyed so
 	// a group inside a repeat instance shows that instance's resolution.
 	const state = useEngineStateAt(field.uuid, path);
+	const textForm = useFieldTextForm(field.uuid);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
 	const headerId = useId();
@@ -160,7 +162,7 @@ export function GroupField({
 										label={field.label}
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
-										plainLabel={ownerHoldsPlainLabel(field)}
+										plainLabel={labelShowsAsTyped(textForm, field)}
 										className={FIELD_STYLES.label}
 									/>
 								</div>

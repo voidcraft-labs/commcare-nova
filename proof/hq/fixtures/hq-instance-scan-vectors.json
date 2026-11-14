@@ -1,0 +1,32 @@
+{
+	"about": "One row per text: the names CommCare HQ's build reads in it as instances (hqReads, written by reading suite_xml/post_process/instances.py::get_instance_names and held by proof/hq/test_instance_text.py, which asks that function), and whether Nova refuses it in a form's name or a Connect block's text (refused, held by lib/commcare/__tests__/hqInstanceScan.test.ts against hqInstanceScan.ts::instanceScanRead). Every row HQ reads a name in is refused.",
+	"rows": [
+		{ "text": "instance('casedb')", "hqReads": ["casedb"], "refused": true },
+		{
+			"text": "instance(\"item-list:villages\")",
+			"hqReads": ["item-list:villages"],
+			"refused": true
+		},
+		{ "text": "instance( 'a-b' )", "hqReads": ["a-b"], "refused": true },
+		{ "text": "instance('a\")", "hqReads": ["a"], "refused": true },
+		{ "text": "instance( 'a')", "hqReads": ["a"], "refused": true },
+		{ "text": "instance(\u0085'a')", "hqReads": ["a"], "refused": true },
+		{
+			"text": "Read instance('a') and instance('b')",
+			"hqReads": ["a", "b"],
+			"refused": true
+		},
+		{ "text": "instance('a b')", "hqReads": [], "refused": true },
+		{ "text": "instance ('casedb')", "hqReads": [], "refused": false },
+		{ "text": "Instance('casedb')", "hqReads": [], "refused": false },
+		{ "text": "instance('casedb'", "hqReads": [], "refused": false },
+		{ "text": "instance(casedb)", "hqReads": [], "refused": false },
+		{ "text": "instance('')", "hqReads": [], "refused": false },
+		{
+			"text": "instance(&apos;casedb&apos;)",
+			"hqReads": [],
+			"refused": false
+		},
+		{ "text": "instance(&#39;casedb&#39;)", "hqReads": [], "refused": false }
+	]
+}

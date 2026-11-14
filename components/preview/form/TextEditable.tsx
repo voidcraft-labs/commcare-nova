@@ -19,6 +19,7 @@ import dynamic from "next/dynamic";
 import { type ReactNode, useCallback, useRef, useState } from "react";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import type { CommitOutcome, ProseTemplate } from "@/lib/domain";
+import type { ProseSlotRef } from "@/lib/domain/expression/types";
 import { useCanEdit, usePreviewing } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
@@ -47,6 +48,9 @@ interface TextEditableProps {
 	children: ReactNode;
 	/** A label's Format text toggle, shown in the editor's toolbar. */
 	formatText?: FormatTextControl;
+	/** The text's prose slot, where a calculated value is parsed, checked and
+	 *  printed. */
+	proseSlot?: ProseSlotRef;
 }
 
 export function TextEditable({
@@ -55,6 +59,7 @@ export function TextEditable({
 	fieldType,
 	children,
 	formatText,
+	proseSlot,
 }: TextEditableProps) {
 	const previewing = usePreviewing();
 	const canEdit = useCanEdit();
@@ -136,6 +141,7 @@ export function TextEditable({
 					autoFocus
 					clickPosition={clickPosRef.current}
 					formatText={formatText}
+					proseSlot={proseSlot}
 				/>
 				<RejectionInline message={rejection ?? null} className="max-w-sm" />
 			</div>

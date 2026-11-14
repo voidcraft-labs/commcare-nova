@@ -1,5 +1,11 @@
 import type { AppTestScope } from "@/lib/db/appTests";
-import { caseListRegistrationFormOf } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	alwaysOfferedRegistrationOf,
+	type Form,
+	moduleUuidOfForm,
+	type Uuid,
+} from "@/lib/domain";
 import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import {
@@ -98,7 +104,7 @@ export async function appTestRecords(
 						...read,
 						page: { offset: screen.offset ?? 0, limit: 50 },
 					});
-	const candidateUuid = caseListRegistrationFormOf(
+	const candidateUuid = afterEmptySearchRegistrationFormOf(
 		context.doc,
 		screen.moduleUuid,
 	);
@@ -132,6 +138,37 @@ export async function appTestRecords(
 		search,
 		searched,
 		result,
-		registration: admission.kind === "admitted" ? candidate : undefined,
+		registration:
+			admission.kind === "admitted" && candidate !== undefined
+				? {
+						form: candidate,
+						moduleUuid: screen.moduleUuid,
+						arm: "after-empty-search",
+					}
+				: alwaysOfferedRegistrationForm(context, screen.moduleUuid),
 	};
+}
+
+/** A registration a records screen offers: the form, the menu that holds
+ *  it, and the arm that offers it. */
+export interface AppTestRecordsRegistration {
+	readonly form: Form;
+	readonly moduleUuid: Uuid;
+	readonly arm: "after-empty-search" | "always";
+}
+
+/** The form the host's list always offers, on every read of its records,
+ *  with no search and no admission to pass: the Register action shows
+ *  wherever the list shows, and the form opens in its own menu. */
+function alwaysOfferedRegistrationForm(
+	context: AppTestContext,
+	hostModuleUuid: Uuid,
+): AppTestRecordsRegistration | undefined {
+	const slot = alwaysOfferedRegistrationOf(context.doc, hostModuleUuid);
+	if (slot === undefined) return undefined;
+	const form = context.doc.forms[slot.formUuid];
+	const moduleUuid = moduleUuidOfForm(context.doc, slot.formUuid);
+	return form === undefined || moduleUuid === undefined
+		? undefined
+		: { form, moduleUuid, arm: "always" };
 }

@@ -2,8 +2,11 @@
  * Render canonical prose templates as Markdown with structural reference chips.
  *
  * Literal text is handed to Markdown unchanged, including hashtag-looking
- * text. Only typed reference parts become chips. A label whose owner holds
- * `plainLabel` skips Markdown: its text shows as written, line breaks kept,
+ * text. Only typed parts become chips: a reference as its reference chip, a
+ * calculated value as its formula, printed in the text's prose slot. A text
+ * shown as typed (`lib/domain/plainText.ts`: its owner's `plainLabel` or
+ * `plainHelp`, or its form's `plainText`) skips Markdown: its text shows as
+ * written, line breaks kept,
  * with the same chips, which is what Android and the Web Apps client show
  * for a label with no markdown form. A tag in it stays text: no surface
  * here renders author HTML. The temporary render markers
@@ -14,7 +17,8 @@
 "use client";
 import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
 import { Fragment, type ReactNode, useMemo } from "react";
-import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
+import type { ProseAtomPart, ProseTemplate } from "@/lib/domain";
+import type { ProseSlotRef } from "@/lib/domain/expression/types";
 import {
 	type LabelMarkdownRendering,
 	previewOptionsFor,
@@ -25,7 +29,12 @@ import {
 	unresolvedReferenceProjection,
 } from "./provider";
 import { ReferenceChip, UnresolvedReferenceChip } from "./ReferenceChip";
-import { useCurrentFormUuid, useReferenceProvider } from "./ReferenceContext";
+import {
+	ProseSlotScope,
+	useCurrentFormUuid,
+	useReferenceProvider,
+} from "./ReferenceContext";
+import { ProseValueAtom } from "./ValueChip";
 
 interface LabelContentProps {
 	label: ProseTemplate;
@@ -36,16 +45,33 @@ interface LabelContentProps {
 	 *  (`lib/preview/platform.ts`, `labelMarkdown`). Edit mode always shows
 	 *  the default rendering. */
 	rendering?: LabelMarkdownRendering;
-	/** The owner (a question, group, repeat or section) holds `plainLabel`:
-	 *  the text shows as written on every platform and in edit mode. */
+	/** The text shows as written (`lib/domain/plainText.ts`), which the
+	 *  caller decides for its platform and mode. */
 	plainLabel?: boolean;
+	/** The text's prose slot, where a calculated value's chip prints its
+	 *  formula. Absent leaves the nearest `ProseSlotScope`'s. */
+	proseSlot?: ProseSlotRef;
 }
 
-/** Whether a label's owner (a field, a section or a choice) holds
- *  `plainLabel`: its text shows as written, with no markdown. */
-export function ownerHoldsPlainLabel(owner: object | undefined): boolean {
-	return (
-		owner !== undefined && "plainLabel" in owner && owner.plainLabel === true
+/** One atom's chip: a reference resolved through the provider, or a
+ *  calculated value's formula. */
+function atomChip(
+	part: ProseAtomPart,
+	key: string | number,
+	provider: ReferenceProvider | null,
+	formUuid: string | undefined,
+): ReactNode {
+	if (part.kind === "value") return <ProseValueAtom key={key} part={part} />;
+	const projected =
+		provider?.projectPart(part, formUuid) ??
+		({
+			ok: false,
+			unresolved: unresolvedReferenceProjection(part),
+		} as const);
+	return projected.ok ? (
+		<ReferenceChip key={key} reference={projected.reference} />
+	) : (
+		<UnresolvedReferenceChip key={key} unresolved={projected.unresolved} />
 	);
 }
 
@@ -61,19 +87,10 @@ export function textWithChips(
 				<Fragment key={index}>{part.text}</Fragment>
 			);
 		}
-		const projected =
-			provider?.projectPart(part, formUuid) ??
-			({
-				ok: false,
-				unresolved: unresolvedReferenceProjection(part),
-			} as const);
-		return projected.ok ? (
-			// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered prose parts
-			<ReferenceChip key={index} reference={projected.reference} />
-		) : (
+		return (
 			// biome-ignore lint/suspicious/noArrayIndexKey: canonical ordered prose parts
 			<Fragment key={index}>
-				<UnresolvedReferenceChip unresolved={projected.unresolved} />
+				{atomChip(part, index, provider, formUuid)}
 			</Fragment>
 		);
 	});
@@ -81,7 +98,7 @@ export function textWithChips(
 
 interface RenderTemplate {
 	markdown: string;
-	refs: Map<string, ProseReferencePart>;
+	refs: Map<string, ProseAtomPart>;
 }
 
 function makeRenderTemplate(template: ProseTemplate): RenderTemplate {
@@ -95,7 +112,7 @@ function makeRenderTemplate(template: ProseTemplate): RenderTemplate {
 		prefix = `\uE000NOVA_REF_${nonce++}_`;
 	} while (literal.includes(prefix));
 
-	const refs = new Map<string, ProseReferencePart>();
+	const refs = new Map<string, ProseAtomPart>();
 	let markdown = "";
 	let refIndex = 0;
 	for (const part of template.parts) {
@@ -112,7 +129,7 @@ function makeRenderTemplate(template: ProseTemplate): RenderTemplate {
 
 function renderMarkedText(
 	text: string,
-	refs: ReadonlyMap<string, ProseReferencePart>,
+	refs: ReadonlyMap<string, ProseAtomPart>,
 	provider: ReferenceProvider | null,
 	formUuid: string | undefined,
 ): ReactNode {
@@ -123,22 +140,7 @@ function renderMarkedText(
 		const index = text.indexOf(marker, cursor);
 		if (index < 0) continue;
 		if (index > cursor) result.push(text.slice(cursor, index));
-		const projected =
-			provider?.projectPart(part, formUuid) ??
-			({
-				ok: false,
-				unresolved: unresolvedReferenceProjection(part),
-			} as const);
-		result.push(
-			projected.ok ? (
-				<ReferenceChip key={marker} reference={projected.reference} />
-			) : (
-				<UnresolvedReferenceChip
-					key={marker}
-					unresolved={projected.unresolved}
-				/>
-			),
-		);
+		result.push(atomChip(part, marker, provider, formUuid));
 		cursor = index + marker.length;
 	}
 	if (cursor < text.length) result.push(text.slice(cursor));
@@ -146,7 +148,7 @@ function renderMarkedText(
 }
 
 function chipRule(
-	refs: ReadonlyMap<string, ProseReferencePart>,
+	refs: ReadonlyMap<string, ProseAtomPart>,
 	provider: ReferenceProvider | null,
 	formUuid: string | undefined,
 ): NonNullable<MarkdownToJSX.Options["renderRule"]> {
@@ -172,6 +174,7 @@ export function LabelContent({
 	className,
 	rendering,
 	plainLabel = false,
+	proseSlot,
 }: LabelContentProps) {
 	const provider = useReferenceProvider();
 	const formUuid = useCurrentFormUuid();
@@ -186,6 +189,12 @@ export function LabelContent({
 		[baseOptions, rendered, provider, formUuid],
 	);
 	const wrapperCls = `preview-markdown ${className}`;
+	const scoped = (content: ReactNode) =>
+		proseSlot === undefined ? (
+			content
+		) : (
+			<ProseSlotScope slot={proseSlot}>{content}</ProseSlotScope>
+		);
 
 	/* The wrapper's `white-space: break-spaces` keeps the written line
 	 * breaks; nothing here parses the text. */
@@ -194,7 +203,7 @@ export function LabelContent({
 			<div className={wrapperCls}>
 				{!isEditMode && resolvedLabel !== undefined
 					? resolvedLabel
-					: textWithChips(label, provider, formUuid)}
+					: scoped(textWithChips(label, provider, formUuid))}
 			</div>
 		);
 	}
@@ -209,7 +218,7 @@ export function LabelContent({
 
 	return (
 		<div className={wrapperCls}>
-			<Markdown options={options}>{rendered.markdown}</Markdown>
+			{scoped(<Markdown options={options}>{rendered.markdown}</Markdown>)}
 		</div>
 	);
 }

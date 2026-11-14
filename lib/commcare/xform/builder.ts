@@ -57,10 +57,8 @@ import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import type { HqCaseSaveReference } from "@/lib/commcare/types";
-import {
-	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
-	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,
-} from "@/lib/commcare/xform/captureUpload";
+import { fieldAppearance } from "@/lib/commcare/xform/appearance";
+import { UPLOAD_MEDIATYPE_BY_CAPTURE_KIND } from "@/lib/commcare/xform/captureUpload";
 import {
 	type AttachmentUrlTarget,
 	captureUrlCalculate,
@@ -92,13 +90,16 @@ import {
 	expressionSlotValue,
 	expressionSlotValues,
 	type Field,
+	type Form,
 	fieldCaseWriteViews,
 	fieldKindCarriesValidation,
+	helpShowsAsTyped,
 	isCaptureField,
 	isCaptureFieldKind,
 	isContainer,
+	labelShowsAsTyped,
 	type Media,
-	type ProseReferencePart,
+	type ProseAtomPart,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
 	type Uuid,
@@ -125,6 +126,7 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { instanceScanCuts } from "../hqInstanceScan";
 import { lookupOptionsNodeset } from "../lookupOptions";
 import { placedBasic } from "../placement";
 import { w } from "../xpath/wire/builders";
@@ -135,8 +137,8 @@ import { fieldBindType } from "./bindType";
 import { protectConstraintMessage } from "./constraintMessage";
 import { countPlacementRowPieces } from "./countPlacementRow";
 import {
-	datetimeCaseValueCalculate,
 	datetimeCaseValuePath,
+	questionDatetimeCaseValue,
 } from "./datetimeCaseValue";
 import { formCasePropertyRead } from "./formCaseRead";
 import {
@@ -213,7 +215,31 @@ function whitespaceOutput(value: string, context: WireElementContext): Element {
 	);
 }
 
+/**
+ * A literal run of label text. Where CommCare HQ's build would read
+ * `instance(` followed by a quote mark as an instance read
+ * (`hqInstanceScan.ts::instanceScanCuts`), the bracket is written as a
+ * literal output, `<output value="'('"/>`, after the word: the worker reads
+ * the same characters on every runtime, and the build's pattern finds no
+ * `instance(` in the rendered form. Like the whitespace outputs, it carries no
+ * Vellum shadow.
+ */
 function literalLabelNodes(
+	literal: string,
+	context: WireElementContext,
+): ChildNode[] {
+	const nodes: ChildNode[] = [];
+	let previous = 0;
+	for (const cut of instanceScanCuts(literal)) {
+		nodes.push(...literalRunNodes(literal.slice(previous, cut), context));
+		nodes.push(xel("output", { xpath: { value: w.str("(") } }, context));
+		previous = cut + 1;
+	}
+	nodes.push(...literalRunNodes(literal.slice(previous), context));
+	return nodes;
+}
+
+function literalRunNodes(
 	literal: string,
 	context: WireElementContext,
 ): ChildNode[] {
@@ -254,8 +280,8 @@ function literalLabelNodes(
  *     use XPath literals; Unicode runs use ASCII JSON escapes consumed by
  *     Core's json-property. Embedded NBSP uses the same protected spelling
  *     because Vellum replaces literal NBSP throughout its serialized XML.
- *   - Each typed reference atom becomes a constructed self-closing `<output>`
- *     element. Its runtime value and eligible Vellum shadow serialize the
+ *   - Each typed atom (a reference or a calculated value) becomes a
+ *     constructed self-closing `<output>` element. Its runtime value and eligible Vellum shadow serialize the
  *     same typed tree; the serializer withholds unsupported editor vocabulary.
  *
  * Author-written `<output ...>` markup or hashtag-looking literal text is
@@ -269,7 +295,7 @@ function literalLabelNodes(
  */
 function buildLabelNodes(
 	template: ProseTemplate,
-	lower: (part: ProseReferencePart) => WireExpr,
+	lower: (part: ProseAtomPart) => WireExpr,
 	context: WireElementContext,
 ): ChildNode[] {
 	const nodes: ChildNode[] = [];
@@ -826,12 +852,19 @@ export function buildXFormSource(
 	// Register an itext `<text>` entry. An entry emits the plain value and,
 	// unless `markdown` is false, a `<value form="markdown">` duplicate:
 	// CommCare renders a label's markdown only when the markdown form is
-	// present, so without it `**bold**` shows as literal asterisks. `markdown`
-	// is false only for a label whose owner holds `plainLabel`, and then no
-	// language writes the markdown form, because CommCare holds markdown per
-	// text across every language. A hint, a help text and a validation message
-	// always write it. `buildLabelNodes` is called ONCE PER `<value>` so each
-	// gets independent node instances (a domhandler node has a single parent).
+	// present, so without it `**bold**` shows as literal asterisks. A label, a
+	// choice and a help text write it unless they show as typed
+	// (`lib/domain/plainText.ts`: the form holds `plainText`, or the text's
+	// owner holds `plainLabel` or `plainHelp`), and then no language writes it,
+	// because CommCare holds markdown per text across every language. A hint
+	// and a validation message never write it: no runtime reads either's
+	// (Android `QuestionWidget.java::addHintText` reads `getHintText()`, and
+	// `FormEntryPrompt.java::getConstraintText` asks for no form), and HQ's
+	// form builder keeps a text without one as it is
+	// (`javaRosa/plugin.js::contributeToModelXML` writes the copy only where
+	// `item.hasMarkdown`). `buildLabelNodes` is called ONCE PER `<value>` so
+	// each gets independent node instances (a domhandler node has a single
+	// parent).
 	//
 	// `media` appends `<value form="image|audio|video">jr://file/...` siblings
 	// after the text values (the CCHQ shape — see `multimedia/itextMedia.ts`).
@@ -863,7 +896,7 @@ export function buildXFormSource(
 		const sourceTemplate = label ?? { parts: [] };
 		const unitId = itextUnitIds.get(id);
 		const unit = itextUnits.get(id);
-		const lowerProse = (part: ProseReferencePart): WireExpr => {
+		const lowerProse = (part: ProseAtomPart): WireExpr => {
 			if (unit === undefined)
 				throw new Error(`The reference in ${id} has no owning prose slot.`);
 			return expressions.prose(part, itextProseSlot(unit));
@@ -932,6 +965,8 @@ export function buildXFormSource(
 		),
 	};
 
+	// The form's text formatting switch, read beside each text's own setting.
+	const textForm: Pick<Form, "plainText"> = doc.forms[formUuid] ?? {};
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
 		buildFieldParts(
 			doc,
@@ -950,6 +985,7 @@ export function buildXFormSource(
 			opts.attachmentTarget,
 			generatedNodes,
 			caseScalarText,
+			textForm,
 		);
 	}
 
@@ -1066,6 +1102,12 @@ export function buildXFormSource(
 			"xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
 			"xmlns:jr": "http://openrosa.org/javarosa",
 			"xmlns:vellum": "http://commcarehq.org/xforms/vellum",
+			// A form whose text formatting is off carries the form builder's
+			// Disable Text Formatting (`writer.js::write_html_tag_boilerplate`,
+			// read by `parser.js::parseXForm`), so a save there gives every
+			// text the plain widget and writes no formatted copy. No runtime
+			// and no HQ server code reads it.
+			...(textForm.plainText === true ? { "vellum:ignore": "markdown" } : {}),
 		},
 		[el("h:head", {}, headChildren), body],
 	);
@@ -1148,6 +1190,7 @@ function buildFieldParts(
 	attachmentTarget: AttachmentUrlTarget | undefined,
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
+	textForm: Pick<Form, "plainText">,
 ): void {
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
@@ -1213,8 +1256,16 @@ function buildFieldParts(
 		: readFieldMedia(field, "label_media");
 	const helpMedia = readFieldMedia(field, "help_media");
 	const canValidate = fieldKindCarriesValidation(field.kind);
-	// A label owner holding `plainLabel` writes no markdown form for it.
-	const labelMarkdown = carrier.plainLabel !== true;
+	// A label or a help text shown as typed writes no markdown form; a hint
+	// and a validation message never write one.
+	const labelMarkdown = !labelShowsAsTyped(
+		textForm,
+		"plainLabel" in field ? field : {},
+	);
+	const helpMarkdown = !helpShowsAsTyped(
+		textForm,
+		"plainHelp" in field ? field : {},
+	);
 	const hasLabel =
 		field.kind !== "hidden" &&
 		addItext(
@@ -1226,12 +1277,22 @@ function buildFieldParts(
 			labelMarkdown,
 		).registered;
 	const hasHint =
-		field.kind !== "hidden" && addItext(`${itextKey}-hint`, hint).registered;
+		field.kind !== "hidden" &&
+		addItext(`${itextKey}-hint`, hint, undefined, false, false, false)
+			.registered;
 	const hasHelp =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-help`, help, helpMedia).registered;
+		addItext(`${itextKey}-help`, help, helpMedia, false, false, helpMarkdown)
+			.registered;
 	const validationMessage = canValidate
-		? addItext(`${itextKey}-constraintMsg`, validateMsg, undefined, false, true)
+		? addItext(
+				`${itextKey}-constraintMsg`,
+				validateMsg,
+				undefined,
+				false,
+				true,
+				false,
+			)
 		: { registered: false };
 	const hasValidationMessage = validationMessage.registered;
 
@@ -1471,7 +1532,7 @@ function buildFieldParts(
 							fieldUuid,
 							nodePath,
 						).toWire(),
-						calculate: datetimeCaseValueCalculate(nodePath),
+						calculate: questionDatetimeCaseValue(nodePath),
 						relevant: w.gt(w.call("count", [nodePath.toWire()]), w.num(0)),
 					},
 				},
@@ -1540,7 +1601,7 @@ function buildFieldParts(
 				opt.media,
 				true,
 				false,
-				opt.plainLabel !== true,
+				!labelShowsAsTyped(textForm, opt),
 			);
 		});
 	}
@@ -1574,6 +1635,7 @@ function buildFieldParts(
 			attachmentTarget,
 			generatedNodes,
 			caseScalarText,
+			textForm,
 		);
 		return;
 	}
@@ -1798,10 +1860,15 @@ function buildLookupItemset(
  * control element and its attributes:
  *
  *   - select kinds → `<select1>` / `<select>` with one `<item>` per option;
- *   - label kind   → `<trigger appearance="minimal">`;
+ *   - label kind   → `<trigger>`;
  *   - secret kind  → `<secret>`;
- *   - capture kinds → `<upload mediatype="...">` (+ `appearance="signature"`);
+ *   - capture kinds → `<upload mediatype="...">`;
  *   - everything else (text/int/date/...) → `<input>`.
+ *
+ * Every control's `appearance` is `appearance.ts::fieldAppearance`'s, the one
+ * writer of the attribute (`minimal` on a label, `signature` on a signature,
+ * `numeric` on a Text question with a number keypad), so no branch here holds
+ * a token of its own.
  */
 function buildLeafControl(
 	field: Field,
@@ -1861,6 +1928,9 @@ function buildLeafControl(
 		);
 	}
 	const ref = nodePath.toWire();
+	const appearance = fieldAppearance(field);
+	const attributes: Record<string, string> =
+		appearance === undefined ? {} : { appearance };
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
@@ -1872,7 +1942,10 @@ function buildLeafControl(
 		// `<value>` emits `opt.value` verbatim — the serializer escapes it;
 		// JavaRosa permits duplicate `<value>`s.
 		if (itemset !== undefined) {
-			return xel(tag, { xpath: { ref: ref } }, context, [...head, itemset]);
+			return xel(tag, { attributes, xpath: { ref: ref } }, context, [
+				...head,
+				itemset,
+			]);
 		}
 		const options = readOptions(field) ?? [];
 		const items = options.map((opt, index) =>
@@ -1889,20 +1962,18 @@ function buildLeafControl(
 				el("value", {}, [text(opt.value)]),
 			]),
 		);
-		return xel(tag, { xpath: { ref: ref } }, context, [...head, ...items]);
+		return xel(tag, { attributes, xpath: { ref: ref } }, context, [
+			...head,
+			...items,
+		]);
 	}
 
 	if (field.kind === "label") {
-		return xel(
-			"trigger",
-			{ attributes: { appearance: "minimal" }, xpath: { ref: ref } },
-			context,
-			head,
-		);
+		return xel("trigger", { attributes, xpath: { ref: ref } }, context, head);
 	}
 
 	if (field.kind === "secret") {
-		return xel("secret", { xpath: { ref: ref } }, context, head);
+		return xel("secret", { attributes, xpath: { ref: ref } }, context, head);
 	}
 
 	if (isCaptureFieldKind(field.kind)) {
@@ -1913,9 +1984,8 @@ function buildLeafControl(
 		// `Not Supported by Web Entry` instead of failing).
 		const uploadAttribs: Record<string, string> = {
 			mediatype: UPLOAD_MEDIATYPE_BY_CAPTURE_KIND[field.kind],
+			...attributes,
 		};
-		const appearance = UPLOAD_APPEARANCE_BY_CAPTURE_KIND[field.kind];
-		if (appearance !== undefined) uploadAttribs.appearance = appearance;
 		return xel(
 			"upload",
 			{ attributes: uploadAttribs, xpath: { ref } },
@@ -1928,7 +1998,7 @@ function buildLeafControl(
 	// geopoint, barcode. They all render as `<input>`; their per-kind bind
 	// `type` (XSD for the scalar kinds, a bare ODK type for geopoint/barcode)
 	// is added by the caller from `bindType.ts::fieldBindType`.
-	return xel("input", { xpath: { ref: ref } }, context, head);
+	return xel("input", { attributes, xpath: { ref: ref } }, context, head);
 }
 
 /**
@@ -1969,6 +2039,7 @@ function buildContainer(
 	attachmentTarget: AttachmentUrlTarget | undefined,
 	generatedNodes: GeneratedNodePlan,
 	caseScalarText: FormCaseScalarText,
+	textForm: Pick<Form, "plainText">,
 ): void {
 	// Containers recurse through children, then rewrite the parent data element
 	// to wrap them and swap the leaf bind for a container bind (relevant-only
@@ -2008,6 +2079,7 @@ function buildContainer(
 			attachmentTarget,
 			generatedNodes,
 			caseScalarText,
+			textForm,
 		);
 	}
 
@@ -2120,14 +2192,11 @@ function buildContainer(
 	// An untitled section or field-list group emits the group with no
 	// `<label>`, legal on every runtime. The validator refuses a repeat
 	// workers add entries to inside either (`FORM_SECTION_USER_REPEAT`,
-	// `FIELD_LIST_USER_REPEAT`), so this gate stays total.
-	const groupAttribs: Record<string, string> = {};
-	if (
-		field.kind === "section" ||
-		(field.kind === "group" && field.fieldList === true)
-	) {
-		groupAttribs.appearance = "field-list";
-	}
+	// `FIELD_LIST_USER_REPEAT`), so this gate stays total. The token is
+	// `appearance.ts::fieldAppearance`'s, the one writer of the attribute.
+	const groupAppearance = fieldAppearance(field);
+	const groupAttribs: Record<string, string> =
+		groupAppearance === undefined ? {} : { appearance: groupAppearance };
 	const groupChildren: Element[] = labelEl
 		? [labelEl, ...childBody]
 		: childBody;

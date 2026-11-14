@@ -3,7 +3,9 @@
 // Properties for the search panel itself: what the search canvas's
 // panel chrome selects. Owns every Search-screen `caseSearchConfig` slot:
 //
-//   1. `searchScreenTitle`: title above the search inputs.
+//   1. `searchScreenTitle`: title above the search inputs. **Show a title**
+//      off writes `NO_SEARCH_SCREEN_TITLE` and hides the field; on clears
+//      the slot, which shows the default title in the field again.
 //   2. `searchScreenSubtitle`: markdown subtitle below the title.
 //   3. `searchButtonDisplayCondition`: optional predicate gating the
 //      button's visibility at runtime. This rail only summarizes it
@@ -31,6 +33,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { type ReactNode, useEffect, useState } from "react";
+import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
@@ -48,7 +51,9 @@ import {
 	CASE_SEARCH_BUTTON_LABEL,
 	type CaseType,
 	DEFAULT_CASE_SEARCH_TITLE,
+	NO_SEARCH_SCREEN_TITLE,
 	type OrdinaryCaseSearchConfig,
+	searchScreenTitleText,
 	searchWorkflow,
 	type Uuid,
 } from "@/lib/domain";
@@ -112,6 +117,15 @@ export function SearchPanelInspectorBody({
 					slot: "search_button_display_condition",
 				},
 	);
+	const showsTitle = searchScreenTitleText(value) !== null;
+	const setShowTitle = (next: boolean) =>
+		onChange(
+			setOptionalSlot(
+				value,
+				"searchScreenTitle",
+				next ? undefined : NO_SEARCH_SCREEN_TITLE,
+			),
+		);
 	const setTitle = (next: string | undefined) => {
 		const authored = next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
 		// Clearing an untouched default should only restore that default in the
@@ -137,14 +151,26 @@ export function SearchPanelInspectorBody({
 		<>
 			{hasVisibleSearchScreen ? (
 				<>
-					<OptionalTextRow
-						label="Title"
-						hint="Shown above the search fields"
-						// The worker sees this real default, so the author should edit that
-						// same value rather than infer it from disposable placeholder copy.
-						value={value?.searchScreenTitle ?? DEFAULT_CASE_SEARCH_TITLE}
-						onCommit={setTitle}
-					/>
+					<div data-search-show-title={showsTitle ? "true" : "false"}>
+						<ToggleRow
+							label="Show a title"
+							description="A heading above the search fields in Web Apps"
+							checked={showsTitle}
+							onChange={setShowTitle}
+						/>
+					</div>
+
+					{showsTitle && (
+						<OptionalTextRow
+							label="Title"
+							hint="Shown above the search fields"
+							// The worker sees this real default, so the author should edit
+							// that same value rather than infer it from disposable
+							// placeholder copy.
+							value={searchScreenTitleText(value) ?? DEFAULT_CASE_SEARCH_TITLE}
+							onCommit={setTitle}
+						/>
+					)}
 
 					<OptionalMarkdownRow
 						label="Subtitle"

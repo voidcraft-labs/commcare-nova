@@ -62,13 +62,18 @@ describe("the split's joined value in an XForm", () => {
 	});
 
 	it("keeps the writer's case-write sibling exactly as a date-and-time question had it", () => {
-		expect(found.get("/data/nova_datetime_seen_at")).toEqual({
+		const before = binds(datetimeSplitOriginal()).get(
+			"/data/nova_datetime_seen_at",
+		);
+		expect(before).toMatchObject({
 			type: "xsd:string",
 			nodeset: "/data/nova_datetime_seen_at",
-			calculate:
-				"if(/data/seen_at = '', '', format-date(coalesce(/data/seen_at, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))",
 			relevant: "count(/data/seen_at) > 0",
 		});
+		expect(before?.calculate?.startsWith("if(/data/seen_at = '', '', ")).toBe(
+			true,
+		);
+		expect(found.get("/data/nova_datetime_seen_at")).toEqual(before);
 	});
 
 	it("binds a non-writer xsd:dateTime too, so Core keeps its clock", () => {

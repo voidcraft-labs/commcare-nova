@@ -8,15 +8,25 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { simpleSearchInputDef } from "@/lib/domain";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	type BlueprintDoc,
+	type CaseListRegistrationReturn,
+	type PostSubmitDestination,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 import type { PreviewSearchState } from "@/lib/session/types";
 import {
+	alwaysOfferedRegistrationReturn,
 	caseListRegistrationAdmission,
 	caseListRegistrationPostSubmit,
 	caseListRegistrationRefusalCopy,
 	formSearchAnswers,
 	isCaseListRegistrationForm,
+	previewRegisterAction,
+	selectionsAfterRegistrationReturn,
 } from "../caseListRegistration";
 
 const MODULE = testUuid("mod-patients");
@@ -310,5 +320,234 @@ describe("formSearchAnswers", () => {
 				searchState: completed(3),
 			}),
 		).toBeUndefined();
+	});
+});
+
+// ── A case list that always offers another menu's registration form ──────
+
+const HOST = testUuid("host");
+const OFFERED = testUuid("offered");
+const OFFERED_MENU = testUuid("offered-menu");
+const ICON = asMediaAssetId(testUuid("register-icon"));
+
+/** `Patients` lists patients for a follow-up (or, with `bare`, is its case
+ *  list alone) and always offers `Registration`'s form. */
+function offeringDoc(
+	afterSubmit: CaseListRegistrationReturn,
+	options: {
+		readonly bare?: boolean;
+		readonly formPostSubmit?: PostSubmitDestination;
+	} = {},
+): BlueprintDoc {
+	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "host",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: list,
+				...(options.bare === true
+					? { caseListMenuItem: {} }
+					: {
+							forms: [
+								{
+									uuid: "host-visit",
+									name: "Visit",
+									type: "followup" as const,
+									fields: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
+								},
+							],
+						}),
+			},
+			{
+				uuid: "offered-menu",
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "offered",
+						name: "Register patient",
+						type: "registration" as const,
+						...(options.formPostSubmit !== undefined && {
+							postSubmit: options.formPostSubmit,
+						}),
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[HOST].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: OFFERED,
+		label: "New patient",
+		icon: ICON,
+		afterSubmit,
+	};
+	return doc;
+}
+
+const launch = { hostModuleUuid: HOST };
+
+describe("previewRegisterAction", () => {
+	it("offers the form where it stands, under the slot's label, its icon on Android alone", () => {
+		const doc = offeringDoc("case-list");
+		expect(previewRegisterAction(doc, HOST, "android")).toMatchObject({
+			arm: "always",
+			formUuid: OFFERED,
+			formModuleUuid: OFFERED_MENU,
+			label: "New patient",
+			icon: ICON,
+		});
+		expect(previewRegisterAction(doc, HOST, "web-apps")).toMatchObject({
+			arm: "always",
+			label: "New patient",
+			icon: undefined,
+			audioLabel: undefined,
+		});
+	});
+
+	it("offers a module's own form after an empty search from the host itself", () => {
+		expect(previewRegisterAction(doc, MODULE, "web-apps")).toMatchObject({
+			arm: "after-empty-search",
+			formUuid: REGISTER,
+			formModuleUuid: MODULE,
+			label: "Register",
+		});
+		expect(previewRegisterAction(doc, OTHER, "web-apps")).toBeUndefined();
+	});
+});
+
+describe("alwaysOfferedRegistrationReturn", () => {
+	it("goes on to the host's forms with the new case chosen", () => {
+		expect(
+			alwaysOfferedRegistrationReturn(
+				offeringDoc("new-case"),
+				OFFERED,
+				launch,
+				"new-case-id",
+			),
+		).toEqual({
+			screen: { kind: "menu", moduleUuid: HOST },
+			selectingModuleUuids: [HOST],
+		});
+	});
+
+	it("returns to the host's screen with no case chosen where the form created none", () => {
+		expect(
+			alwaysOfferedRegistrationReturn(
+				offeringDoc("new-case"),
+				OFFERED,
+				launch,
+				undefined,
+			),
+		).toEqual({
+			screen: { kind: "menu", moduleUuid: HOST },
+			selectingModuleUuids: [],
+		});
+	});
+
+	it("returns Back to this list with no case chosen, a created case or not", () => {
+		for (const created of ["new-case-id", undefined])
+			expect(
+				alwaysOfferedRegistrationReturn(
+					offeringDoc("case-list"),
+					OFFERED,
+					launch,
+					created,
+				),
+			).toEqual({
+				screen: { kind: "menu", moduleUuid: HOST },
+				selectingModuleUuids: [],
+			});
+	});
+
+	it("carries no selection onto a bare case list, whose frame is its command alone", () => {
+		expect(
+			alwaysOfferedRegistrationReturn(
+				offeringDoc("new-case", { bare: true }),
+				OFFERED,
+				launch,
+				"new-case-id",
+			),
+		).toEqual({
+			screen: { kind: "menu", moduleUuid: HOST },
+			selectingModuleUuids: [],
+		});
+	});
+
+	it("is ordinary routing for a form opened another way, or with its own after-submit", () => {
+		const doc = offeringDoc("new-case");
+		expect(
+			alwaysOfferedRegistrationReturn(doc, OFFERED, undefined, "id"),
+		).toBeUndefined();
+		expect(
+			alwaysOfferedRegistrationReturn(
+				doc,
+				OFFERED,
+				{ hostModuleUuid: OFFERED_MENU },
+				"id",
+			),
+		).toBeUndefined();
+		expect(
+			alwaysOfferedRegistrationReturn(
+				offeringDoc("new-case", { formPostSubmit: "firstMenu" }),
+				OFFERED,
+				launch,
+				"id",
+			),
+		).toBeUndefined();
+	});
+});
+
+describe("selectionsAfterRegistrationReturn", () => {
+	const elsewhere = { caseType: "household", cases: [{ caseId: "h1" }] };
+	it("chooses the new case in the host and clears every menu the frame does not select in", () => {
+		expect(
+			selectionsAfterRegistrationReturn(
+				{ [HOST]: { caseType: "patient", cases: [] }, [OTHER]: elsewhere },
+				{
+					screen: { kind: "menu", moduleUuid: HOST },
+					selectingModuleUuids: [HOST],
+				},
+				HOST,
+				"patient",
+				{ caseId: "new-case-id", caseName: "Ada" },
+			),
+		).toEqual({
+			[HOST]: {
+				caseType: "patient",
+				cases: [{ caseId: "new-case-id", caseName: "Ada" }],
+			},
+		});
+	});
+
+	it("keeps the selection of a menu the frame selects in that is not the host", () => {
+		expect(
+			selectionsAfterRegistrationReturn(
+				{ [OTHER]: elsewhere },
+				{
+					screen: { kind: "menu", moduleUuid: HOST },
+					selectingModuleUuids: [OTHER],
+				},
+				HOST,
+				"patient",
+				undefined,
+			),
+		).toEqual({ [OTHER]: elsewhere });
 	});
 });

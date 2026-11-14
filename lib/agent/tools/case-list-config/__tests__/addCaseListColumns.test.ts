@@ -303,4 +303,66 @@ describe("addCaseListColumns", () => {
 			h.currentDoc().modules[MOD_A]?.caseListConfig?.columns.at(-1),
 		).toMatchObject({ visibleInList: false, visibleInDetail: false });
 	});
+
+	describe("a column that is not on the list", () => {
+		it("writes visibleInList false with notOnList", async () => {
+			const h = makeCaseListFixture();
+			const result = await h.runTool(addCaseListColumnsTool, {
+				moduleUuid: MOD_A,
+				columns: [
+					{
+						kind: "plain",
+						field: "case_name",
+						header: "Patient",
+						notOnList: true,
+					},
+				],
+			});
+			expect(result.result).not.toHaveProperty("error");
+			expect(
+				h.currentDoc().modules[MOD_A]?.caseListConfig?.columns.at(-1),
+			).toMatchObject({ visibleInList: false, notOnList: true });
+		});
+
+		it("refuses notOnList beside visibleInList true before staging", async () => {
+			const h = makeCaseListFixture();
+			const result = await h.runTool(addCaseListColumnsTool, {
+				moduleUuid: MOD_A,
+				columns: [
+					{
+						kind: "plain",
+						field: "case_name",
+						header: "Patient",
+						visibleInList: true,
+						notOnList: true,
+					},
+				],
+			});
+			expect(result.mutations).toEqual([]);
+			expect(result.result).toEqual({
+				error:
+					"A column can't be shown on Results and off the list at once. Leave out notOnList to show it, or leave out visibleInList to keep it off the list.",
+			});
+		});
+
+		it("refuses notOnList beside a sort before staging, in the gate's words", async () => {
+			const h = makeCaseListFixture();
+			const result = await h.runTool(addCaseListColumnsTool, {
+				moduleUuid: MOD_A,
+				columns: [
+					{
+						kind: "plain",
+						field: "case_name",
+						header: "Patient",
+						notOnList: true,
+						sort: { direction: "asc", priority: 0 },
+					},
+				],
+			});
+			expect(result.mutations).toEqual([]);
+			expect(result.result).toEqual({
+				error: `The "Patient" column isn't on the list, so the list can't sort by it. You can remove its sort rule, or keep the column on the list as a hidden one, which the list's search then matches.`,
+			});
+		});
+	});
 });

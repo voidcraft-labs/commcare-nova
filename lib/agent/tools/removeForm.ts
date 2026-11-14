@@ -24,6 +24,7 @@
  */
 
 import type { z } from "zod";
+import { planCaseListRegistrationDependentsOnRemove } from "@/lib/doc/caseListRegistrationDependents";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import type { Mutation } from "@/lib/doc/types";
 import { removeFormMutations } from "../blueprintHelpers";
@@ -89,6 +90,21 @@ export const removeFormTool = {
 					kind: "mutate" as const,
 					mutations: [],
 					result: { error: dependents.message },
+				};
+			}
+			/* A case list that always offers a form being removed would offer
+			 * nothing; the removal waits until each list stops offering it
+			 * (`lib/doc/caseListRegistrationDependents.ts`), as the builder's
+			 * remove flow does. */
+			const offering = planCaseListRegistrationDependentsOnRemove(doc, {
+				kind: "form",
+				formUuid,
+			});
+			if (offering.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: offering.message },
 				};
 			}
 

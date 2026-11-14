@@ -123,7 +123,8 @@ export type GeneratedNodePurpose =
 	| "keyed"
 	| "condition"
 	| "guard"
-	| "owner";
+	| "owner"
+	| "instant";
 
 export interface GeneratedNode {
 	readonly purpose: GeneratedNodePurpose;
@@ -182,6 +183,18 @@ export interface GeneratedNodePlan {
 	 * not set as the operation states it (`advancedOwnerNodeValue`).
 	 */
 	owner(operationUuid: Uuid): string;
+	/**
+	 * The Hidden Value `nova_instant_<operation id>_<n>` that reads the `n`th
+	 * typed leaf holding `now()` of an operation's date-and-time writes once
+	 * (from 1, in write order), in the `nova_operations` group of the
+	 * operation's scope. Each print of a value evaluates it again, and `now()`
+	 * reads the clock each time, so the leaf is read once into this node.
+	 * Which leaves take one is the emitter's classification
+	 * (`xpath/wire/instant.ts::storedDatetimeValue`), so a name is allocated
+	 * when the emitter first asks for it, after every other name of the
+	 * scope, and an added or removed clock read renames nothing else.
+	 */
+	instant(operationUuid: Uuid, n: number): string;
 	/**
 	 * The `n`th source-lowered subcase block: in the operations namespace of
 	 * `operationsScope` when it stands in a selected-cases group, otherwise in
@@ -728,6 +741,23 @@ function allocateGeneratedNodes(
 		condition: (operationUuid) => lookup("condition", operationUuid),
 		guard: (operationUuid, kind) => lookup("guard", operationUuid, kind),
 		owner: (operationUuid) => lookup("owner", operationUuid),
+		instant: (operationUuid, n) => {
+			const part = String(n);
+			const held = byOwner.get(ownerKey("instant", operationUuid, part));
+			if (held !== undefined) return held;
+			const operation = operationByUuid.get(operationUuid);
+			if (operation === undefined)
+				throw new Error(
+					`Nova was asked for a clock node of case operation ${operationUuid} in form ${formUuid}, which the form does not hold.`,
+				);
+			const name = allocateFor(
+				scopeOf(operation),
+				operation.uuid,
+				`nova_instant_${operation.id}_${n}`,
+			);
+			record("instant", operationUuid, name, part);
+			return name;
+		},
 		subcase: (n, operationsScope) =>
 			operationsScope === undefined
 				? `nova_subcase_${n}`

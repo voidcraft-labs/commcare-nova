@@ -72,6 +72,8 @@ export const w = {
 	or: (...items: readonly WireExpr[]) => logical("or", items),
 	not: (value: WireExpr) => call("not", [value]),
 	neg: (value: WireExpr): WireExpr => ({ k: "neg", value }),
+	/** Its operand in parentheses in every mode, a primary to its parent. */
+	paren: (expr: WireExpr): WireExpr => ({ k: "paren", expr }),
 	call,
 	path,
 	step,
