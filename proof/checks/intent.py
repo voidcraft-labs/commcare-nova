@@ -53,11 +53,18 @@ On every corpus document the checks are structural:
     no case without its case management, ``xform.py::XForm._create_casexml``:
     ``default_case_management = False`` for ``is_multi_select()``, while the
     worker's own case is ``_add_usercase``'s, in any menu);
-  - an advanced form's ``load_update_cases``, which Nova does not emit.
+  - an advanced form's ``load_update_cases``: in a module HQ holds as
+    ``AdvancedModule`` (read from the state's stored app), a load takes the
+    form's own case on a follow-up and the worker's record, the writes the
+    first slot above holds in a basic one.
 
   A child or extension case a form creates (``actions.subcases``) is a slot
   the refresh never reads, so its writes are not expected there; HQ learns
-  them all the same (``get_all_case_updates``, above).
+  them all the same (``get_all_case_updates``, above). Nor does it read an
+  advanced form's open actions (``open_cases``), which state a registration's
+  own case and each create an open action can express, the rest taking Save
+  to Case; so in an advanced module the writes only such an operation states
+  (``FormIntent.opened_writes``) are expected in no slot.
 - **HQ, each attachment path**: each write a control retained before step 5
   stores as a case attachment (its field's ``caseWrite.mode``
   ``attachment``) is an ``attachment`` child
@@ -232,6 +239,10 @@ class FormIntent:
     # fields' caseWrite)
     field_writes: dict = field(default_factory=dict)
     operation_writes: dict = field(default_factory=dict)  # case type -> {property}, the writes Save to Case holds
+    # case type -> {property}, the writes only an operation that opens a case states (a create, or a
+    # registration's own case): in a form HQ holds in an advanced menu, an open action's (``open_cases``) where
+    # one can state it, which the data dictionary refresh never reads. Empty on a control retained without it.
+    opened_writes: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -361,6 +372,7 @@ def intent_json(intent: Intent) -> dict:
             "multiple": form.multiple,
             "fieldWrites": form.field_writes,
             "operationWrites": {case_type: sorted(props) for case_type, props in form.operation_writes.items()},
+            "openedWrites": {case_type: sorted(props) for case_type, props in form.opened_writes.items()},
         }
 
     return {
@@ -385,6 +397,7 @@ def intent_from_json(value) -> Intent:
             multiple=held["multiple"],
             field_writes=held["fieldWrites"],
             operation_writes={case_type: set(props) for case_type, props in held["operationWrites"].items()},
+            opened_writes={case_type: set(props) for case_type, props in (held.get("openedWrites") or {}).items()},
         )
 
     return Intent(
@@ -720,6 +733,8 @@ def _form_intent(doc, uuid, form, module_type, multiple=False):
     operations = form.get("caseOperations") or ()
     own_case = next((operation for operation in operations if operation.get("action") == "own"), None)
     facts = _form_facts(doc, uuid, form, module_type, multiple)
+    opening = {}
+    other = {}
     for operation in operations:
         own = operation.get("action") == "own"
         case_type = module_type if own else operation.get("caseType")
@@ -727,6 +742,11 @@ def _form_intent(doc, uuid, form, module_type, multiple=False):
             continue
         if operation.get("action") == "create":
             intent.creates.add(case_type)
+        opens = operation.get("action") == "create" or (own and form.get("type") == "registration")
+        for write in operation.get("writes") or ():
+            prop = write.get("property")
+            if not write.get("via") and _custom(prop):
+                (opening if opens else other).setdefault(case_type, set()).add(prop)
         # A several-case menu's own case is saved per selected case in a Save to Case block: HQ builds no case
         # management there (xform.py::XForm._create_casexml, default_case_management = False).
         managed = _case_management_holds(facts, operation, own_case) and not (
@@ -741,6 +761,10 @@ def _form_intent(doc, uuid, form, module_type, multiple=False):
                 intent.field_writes.setdefault(case_type, {})[prop] = "value"
             else:
                 intent.operation_writes.setdefault(case_type, set()).add(prop)
+    for case_type, props in opening.items():
+        alone = props - other.get(case_type, set())
+        if alone:
+            intent.opened_writes[case_type] = alone
     return intent
 
 
@@ -757,7 +781,7 @@ def written_properties(intent: Intent):
 SAVE_TO_CASE_PRIVILEGE = "VELLUM_SAVE_TO_CASE"  # commcare-hq corehq/privileges.py
 
 
-def expected_dictionary(intent: Intent, privileges) -> dict:
+def expected_dictionary(intent: Intent, privileges, advanced=frozenset()) -> dict:
     """The data dictionary rows HQ's save writes for an app that states the document's writes in HQ's slots.
 
     ``tasks.py::_refresh_data_dictionary_from_app``, slot by slot (the module
@@ -765,13 +789,18 @@ def expected_dictionary(intent: Intent, privileges) -> dict:
     form's ``{case type: properties}`` merged over the previous ones with
     ``dict.update`` (``case_type_to_prop.update(form.get_save_to_case_updates())``),
     then each case-named menu's updates of its case and the worker's, added.
+    ``advanced`` holds the positions of the modules HQ holds as advanced, whose
+    forms' writes only an opening operation states are claimed nowhere
+    (``FormIntent.opened_writes``).
     """
     save_to_case = {}
     updates = {}
-    for case_type, forms in intent.modules:
+    for position, (case_type, forms) in enumerate(intent.modules):
         for form in forms:
-            saved = {t: set(props) for t, props in form.operation_writes.items()}
-            for written_type, props in form.field_writes.items():
+            unread = form.opened_writes if position in advanced else {}
+            saved = {t: set(props) - unread.get(t, set()) for t, props in form.operation_writes.items()}
+            for written_type, written in form.field_writes.items():
+                props = set(written) - unread.get(written_type, set())
                 if written_type == USERCASE_TYPE:
                     if case_type:
                         updates.setdefault(written_type, set()).update(props)
@@ -1016,8 +1045,12 @@ def learned_properties(document, intent: Intent, state) -> list:
 
 
 def data_dictionary(document, intent: Intent, state, privileges) -> list:
-    """Each row HQ's save writes for the document's writes (``expected_dictionary``) is one it wrote."""
-    expected = expected_dictionary(intent, privileges)
+    """Each row HQ's save writes for the document's writes (``expected_dictionary``) is one it wrote, for the
+    module kinds the state holds (a module HQ holds as ``AdvancedModule`` reads its forms' loads, never their
+    open actions)."""
+    held = state.doc.get("modules") or []
+    advanced = frozenset(i for i, module in enumerate(held) if module.get("doc_type") == "AdvancedModule")
+    expected = expected_dictionary(intent, privileges, advanced)
     observed = {case_type: set(props) for case_type, props in state.data_dictionary.items()}
     return _set_differences(document, f"data_dictionary@{state.name}", "", expected, observed, report_added=False)
 

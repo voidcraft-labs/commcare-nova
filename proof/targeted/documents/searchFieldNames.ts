@@ -20,8 +20,13 @@
  * A menu whose forms read the search runs in Web Apps alone, so the app
  * declares Web Apps and has no local archive.
  *
- * Fixed values: the follow-up of HQ's build, opened on the client
- * `targeted-client`, holds its note as answered.
+ * Fixed values: Core's evaluate opens a form with no search behind it, and
+ * the forms that read the search read `search-input:results:inline`, which
+ * only a search loads, so the hand-fixed value is the plain "Visit" form's
+ * answer: the follow-up of HQ's build, opened on the client
+ * `targeted-client`, holds its note as answered. The reads of the search
+ * answer run on every walk of the document, and the readers' records hold
+ * the searched name.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -44,6 +49,7 @@ const text = (source: string) => source as unknown as Expression;
 export function searchFieldNames() {
 	const firstName = uuid("first-name-input");
 	const note = uuid("note");
+	const visit = uuid("visit");
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Client search",
@@ -112,6 +118,19 @@ export function searchFieldNames() {
 						],
 					},
 					{
+						uuid: visit,
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								uuid: uuid("visit-note"),
+								id: "note",
+								label: proseText("Note"),
+							}),
+						],
+					},
+					{
 						uuid: uuid("register"),
 						name: "Register client",
 						type: "registration",
@@ -136,8 +155,8 @@ export function searchFieldNames() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld("note-held", note, "/data/note", "seen", "A", {
-					command: "m0-f0",
+				answerHeld("note-held", visit, "/data/note", "seen", "A", {
+					command: "m0-f1",
 					caseId: "targeted-client",
 				}),
 			],
