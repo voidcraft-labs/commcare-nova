@@ -198,6 +198,15 @@ entries name is held-new: Nova emits an item the manifest says it does not
 hold yet, so the entry's disposition or the emitter is wrong, and the register
 refuses to hold it too.
 
+What a person saved in HQ (`hq-side.json`) and Nova writes back is the
+project space's, not a use of Nova's. An upload carries each UI translation
+and add-on at the value saved (`manifest_usage.py::without_carried`), and a
+local archive, made for its configuration's project space, writes each saved
+runtime UI text into that language's strings and HQ's merge of them into
+`default` (`manifest_usage.py::carried_app_strings`, each text as HQ's reader
+reads back what HQ's build writes of it). The same key at any other value is
+the export's use, held to the entries as every other use is.
+
 An allowing class is a HELD, TARGET-OWNED or INERT entry's. An allowing class
 is what its row describes and is never read: it holds the rest of its item's
 values, every use no REFUSED class takes, so a value is a use only where a

@@ -382,7 +382,7 @@ archive, and proof 2 over `profile.ccpr` and each `app_strings.txt`.
 | A profile property differs in value or `force` | It corrects `lib/commcare/keptProfile.ts::targetProfileProperties`. |
 | A property HQ writes is absent from the archive for a key section 4 calls inert | That entry is not inert on Android. It moves the entry's row to kept with `mirrors`, and the key joins `KEPT_PROFILE_PROPERTY_KEYS`. |
 | An app string differs for a runtime UI key | It corrects `compileCcz`'s table merge (6.3). |
-| `PostURL` differs under `secure_submissions` | It corrects `profileServerProperties`. |
+| `PostURL` differs under `secure_submissions` | It corrects `profileServerProperties`, or, where the archive's URL still names the capture's placeholder app id (`proof/corpus/publish.ts::PLACEHOLDER_APP_ID`), the harness's rewrite that writes A's id into each runtime URL naming the app (`proof/hq/operations.py::with_runtime_app_id`), which must know both receivers `ApplicationBase.post_url` picks between (`receiver_post_with_app_id`, `receiver_secure_post_with_app_id`). |
 | The `<credentials>` block differs or is absent on one side | It corrects `generateProfile`'s features (6.3). Where HQ's build writes none for a stored level, the row moves to `no-reader` and `credentialLevel` leaves `TargetFacts`. |
 | HQ's build shows a difference no row of section 5 names | Where the archive misses something a row of section 5 already promises, it corrects the archive. Otherwise it puts the key to the kept test of section 4. Where no publish writes the key, nothing the document holds does something different under it, and the archive can write HQ's value from the stored source or state the difference in an advisory, its entry becomes TARGET-OWNED with a `KEPT_AT_HQ` row (`mirrors` or `states`). Where clause 2 or clause 3 fails, the value is content Nova has no place for: its entry moves to not-yet with owner `settings-nova-comes-to-own`, and the list of kept settings in `content/docs/publishing.mdx` (9.7) loses the setting where it names it. |
 
@@ -1056,6 +1056,18 @@ project space writes the same block (`compiler.ts::generateProfile`)". Its emiss
 type=\"APP_ACTIVITY\"/></credentials>` where the project space holds a level", and the marker `omit`
 leaves it, since `omit` says Nova writes nothing (`schema.ts::EMISSION_MARKERS`). The entry already
 names the profile parser's `credentials` keys, so the archive's use of them is held by it.
+
+**The kept UI text in a `.ccz` is the project space's, not a use.**
+`translations-key-in-a-runtime-s-ui-string-catalog-core-android` keeps its one surface key,
+`schema:Application.translations`, and names no `ui-string:` key: the ids a project space may reword
+are every id a runtime reads, and an entry naming them would hold Nova's own text under any of them. The
+lane reads the archive's mirror as it reads the upload's carry. An upload holds each UI translation at
+the value the document's `hq-side.json` saved, and that value is the target's carried back
+(`proof/checks/manifest_usage.py::without_carried`). A `.ccz` made for the project space writes each saved
+text into that language's `app_strings.txt` and HQ's merge of them into `default`, and an id there at a
+saved text (in `default`, one saved in any language), as HQ's reader reads back what HQ's build writes of
+it, is the target's text written back (`manifest_usage.py::carried_app_strings`). The same id at any other
+text is the export's use, which no entry names, so a runtime UI key Nova writes of its own is refused.
 
 ### 3.7 `build_profiles`
 
