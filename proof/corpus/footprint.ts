@@ -59,6 +59,11 @@
  *   `suite_xml/post_process/workflow.py::WorkflowHelper.get_frame_children`,
  *   which walks every form in the module, and its root module's under
  *   `include_root_module`);
+ * - what its case list registration writes into the entry of the form it
+ *   always offers (the return frames, `registrationReturnFrames`) reaches
+ *   that form, read through the same projection, so a change to its arm or
+ *   to what the frames carry of it reaches the form exactly when the frames
+ *   change;
  * - a module that reads an edited entity through a setting its selection
  *   datum prints as an expression (its case list filter, owner exclusion,
  *   or the search inputs of a module whose forms read the search: the reference index's slot
@@ -105,6 +110,8 @@ import { emissionPlan } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
+	alwaysOfferedReturnFrames,
+	alwaysOfferedTarget,
 	caseListSessionDatums,
 	commonPrefixById,
 	entryFrameDatums,
@@ -972,6 +979,52 @@ const commonFrameDatums: ModuleDerivation = {
 	framed: true,
 };
 
+/**
+ * The form the module's case list always offers (its `always` arm), where
+ * that form stands in a menu of the projection.
+ */
+const offeredRegistrationForms: Holders = (side, moduleUuid) => {
+	const target = alwaysOfferedTarget(side.wire, side.links, moduleUuid as Uuid);
+	return target === undefined ? [] : [target.formUuid];
+};
+
+/**
+ * The return frames the module's case list registration writes into the
+ * entry of the form it always offers (`alwaysOfferedReturnFrames`, as
+ * `CaseListFormWorkflow.case_list_forms_frames` writes them): its arm's
+ * form and After registering, the form's own after-submit, and the commands
+ * and datums of the module and its parent the frames carry. Read through
+ * Nova's own projection, so a change to the host reaches the offered form
+ * exactly when it changes the frames that form's entry holds. No frame
+ * carries an entry's stack.
+ */
+const registrationReturnFrames: ModuleDerivation = {
+	settings: (side, _module, moduleUuid) => {
+		const target = alwaysOfferedTarget(side.wire, side.links, moduleUuid);
+		if (target === undefined) return undefined;
+		const frames = alwaysOfferedReturnFrames(
+			side.wire,
+			side.links,
+			moduleUuid,
+			entrySessionDatums(
+				side.wire,
+				side.links,
+				target.moduleUuid,
+				target.formUuid,
+			),
+		);
+		return {
+			formUuid: target.formUuid,
+			frames: frames.map((frame) => ({
+				ifClause: frame.ifClause,
+				children: frame.children,
+			})),
+		};
+	},
+	holders: offeredRegistrationForms,
+	framed: false,
+};
+
 /** Every module setting Nova writes into forms' wire, with the forms whose wire holds it. */
 const MODULE_DERIVATIONS: readonly ModuleDerivation[] = [
 	selectionNames,
@@ -986,6 +1039,7 @@ const MODULE_DERIVATIONS: readonly ModuleDerivation[] = [
 	alignedComputedDatums,
 	alignedSelectionDatums,
 	commonFrameDatums,
+	registrationReturnFrames,
 ];
 
 /**

@@ -20,8 +20,9 @@ import java.util.Vector;
  * The values a walk answers a form's questions with: the lane's own answer table (proof/core/answers.json, sent
  * with the request), read as the Core runner reads it (proof/core Answers.java), so a device's walk gives a
  * question what Core's and Formplayer's walks give it. A question takes the values the request's own
- * {@code questions} map names for it, else those of its control's entry, else of its data type's (the lane's
- * own table holds no {@code questions}, so no walk of the lane reads one); a select takes the 1-based index of
+ * {@code questions} map names for it, else the table's {@code numberKeypad} list where a worker answers it on
+ * the number keypad ({@link #numberKeypad}), else those of its control's entry, else of its data type's (the
+ * lane's own table holds no {@code questions}, so no walk of the lane reads one); a select takes the 1-based index of
  * an option, a multi-select a list of them, and any other value is cast from its text by Core's own template
  * for the question (AnswerDataFactory).
  *
@@ -42,6 +43,9 @@ final class Answers {
             return found;
         }
         JSONArray values = named(prompt);
+        if (values == null && numberKeypad(prompt)) {
+            values = table.optJSONArray("numberKeypad");
+        }
         if (values == null && table.optJSONObject("controls") != null) {
             values = table.optJSONObject("controls").optJSONArray(control(prompt.getControlType()));
         }
@@ -54,6 +58,17 @@ final class Answers {
                     : "@clock:now".equals(value) ? ProofClock.nowText() : value);
         }
         return found;
+    }
+
+    /**
+     * Whether a worker answers the question on the number keypad, which takes no letter: a text question whose
+     * whole appearance is "numeric" or "numbers", in any case, for which the app builds StringNumberWidget
+     * (WidgetFactory.java::buildBasicWidget). Its values are what a worker types on that keypad.
+     */
+    static boolean numberKeypad(FormEntryPrompt prompt) {
+        String appearance = prompt.getAppearanceHint();
+        return prompt.getDataType() == Constants.DATATYPE_TEXT && appearance != null
+                && (appearance.equalsIgnoreCase("numeric") || appearance.equalsIgnoreCase("numbers"));
     }
 
     /**

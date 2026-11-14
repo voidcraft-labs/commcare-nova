@@ -239,8 +239,23 @@ STRINGS = {"default": {"m0.short.title": "Cases", "m0.long.title": "Case", "m1.s
 
 
 def _side(xml, placed=TWO_MODULES_PLACED):
-    """One archive's suite as ``proof5.suite_comparison`` reads it: parsed, with Core's parse, and owned."""
-    suite = proof5.suite_of(parse_xml(xml), STRINGS, TWO_MODULES_CORE, {}, "?")
+    """One archive's suite as ``proof5.suite_comparison`` reads it: parsed, with Core's parse, and owned.
+
+    Core's parse is ``TWO_MODULES_CORE``'s for the menus and entries the archive still holds, as Core reads
+    only what the archive holds."""
+    root = parse_xml(xml)
+    menus = {menu.get("id") for menu in root.iter("menu")}
+    commands = {command.get("id") for entry in root.iter("entry") for command in entry.iter("command")}
+    (held,) = TWO_MODULES_CORE["suites"]
+    core = {
+        "suites": [
+            {
+                "menus": [menu for menu in held["menus"] if menu["id"] in menus],
+                "entries": [entry for entry in held["entries"] if entry["command"] in commands],
+            }
+        ]
+    }
+    suite = proof5.suite_of(root, STRINGS, core, {}, "?")
     xmlns_of = {"F0": "urn:f0", "F1": "urn:f1"}
     owned, ids = proof5._owned(suite, placed, xmlns_of)
     return suite, placed, owned, ids, xmlns_of
@@ -255,7 +270,9 @@ def _compare_suites(
     before,
     after,
     *,
+    core_before=TWO_MODULES_CORE,
     core_after=TWO_MODULES_CORE,
+    placed_before=TWO_MODULES_PLACED,
     placed_after=TWO_MODULES_PLACED,
     strings_after=STRINGS,
 ):
@@ -268,11 +285,11 @@ def _compare_suites(
                 archive.writestr(
                     f"{language}/app_strings.txt", "\n".join(f"{key}={value}" for key, value in values.items())
                 )
-    namespaces = {("form", "F0"): {"xmlns": "urn:f0"}, ("form", "F1"): {"xmlns": "urn:f1"}}
+    namespaces = {("form", form): {"xmlns": f"urn:{form.lower()}"} for form in placed_before[1]}
     return proof5.suite_comparison(
         SimpleNamespace(local_ccz=paths[0], edit=SimpleNamespace(local_ccz=paths[1])),
-        {"admissions": {"local.ccz": TWO_MODULES_CORE, "edit/local.ccz": core_after}},
-        (TWO_MODULES_PLACED, placed_after),
+        {"admissions": {"local.ccz": core_before, "edit/local.ccz": core_after}},
+        (placed_before, placed_after),
         (namespaces, namespaces),
     )
 
@@ -304,6 +321,79 @@ def test_a_reused_session_datum_id_does_not_rename_an_unchanged_parents_detail(t
     changed = after.replace('<locale id="m0.short.title"/>', '<locale id="m0.long.title"/>', 1)
     found = proof5.by_entity("nested-selection", [_compare_suites(tmp_path, NESTED_SELECTION, changed)], footprint)
     assert set(found) == {("module", "M0")}
+
+
+ABOVE_MENUS = """<suite>
+<entry><form>urn:f0</form><command id="m0-f0"/></entry>
+<entry><form>urn:f1</form><command id="m1-f0"/></entry>
+<entry><form>urn:f2</form><command id="m2-f0"/></entry>
+<menu id="root" relevant="true()"><command id="m0-f0"/></menu>
+<menu id="root"><command id="m1-f0"/></menu>
+<menu id="root" relevant="false()"><command id="m2-f0"/></menu>
+</suite>"""
+ABOVE_CORE = {
+    "suites": [
+        {
+            "menus": [
+                {"id": "root", "commands": ["m0-f0"]},
+                {"id": "root", "commands": ["m1-f0"]},
+                {"id": "root", "commands": ["m2-f0"]},
+            ],
+            "entries": [{"command": f"m{m}-f0", "xmlns": f"urn:f{m}"} for m in range(3)],
+        }
+    ]
+}
+ABOVE_PLACED = ({"M0": 0, "M1": 1, "M2": 2}, {"F0": (0, 0), "F1": (1, 0), "F2": (2, 0)})
+
+
+def test_menus_that_share_an_id_are_each_their_own_modules(tmp_path):
+    """Several menus that show their forms in the menu above write that menu's id, and Core reads each
+    ``<menu>`` as a menu of its own. Giving the last of them its own screen changes that module's menu alone:
+    the other modules keep their own menus, and every entry stays read. Read by the id alone, each module's menu
+    would be the last one of the id, so the edit would show on the modules it never reached."""
+    after = ABOVE_MENUS.replace('<menu id="root" relevant="false()">', '<menu id="m2" relevant="false()">')
+    core_after = json.loads(
+        json.dumps(ABOVE_CORE).replace('{"id": "root", "commands": ["m2-f0"]}', '{"id": "m2", "commands": ["m2-f0"]}')
+    )
+    for xml, core in ((ABOVE_MENUS, ABOVE_CORE), (after, core_after)):
+        suite = proof5.suite_of(parse_xml(xml), {}, core, {}, "?")
+        assert proof5.unread(suite) == []
+        owned, _ = proof5._owned(suite, ABOVE_PLACED, {f"F{m}": f"urn:f{m}" for m in range(3)})
+        assert [element.get("relevant") for element in owned[("module", "M0")] if element.tag == "menu"] == ["true()"]
+        assert [element.get("relevant") for element in owned[("module", "M1")] if element.tag == "menu"] == [None]
+    compared = _compare_suites(
+        tmp_path,
+        ABOVE_MENUS,
+        after,
+        core_before=ABOVE_CORE,
+        core_after=core_after,
+        placed_before=ABOVE_PLACED,
+        placed_after=ABOVE_PLACED,
+        strings_after=STRINGS,
+    )
+    assert proof5.by_entity("menus-above", [compared], proof5.Footprint(frozenset({"M2"}), False, False)) == {}
+    # A change to the middle module's menu is that module's alone.
+    conditioned = ABOVE_MENUS.replace(
+        '<menu id="root"><command id="m1-f0"/>', '<menu id="root" relevant="1 = 1"><command id="m1-f0"/>'
+    )
+    compared = _compare_suites(
+        tmp_path,
+        ABOVE_MENUS,
+        conditioned,
+        core_before=ABOVE_CORE,
+        core_after=ABOVE_CORE,
+        placed_before=ABOVE_PLACED,
+        placed_after=ABOVE_PLACED,
+    )
+    found = proof5.by_entity("menus-above", [compared], proof5.Footprint(frozenset(), False, False))
+    assert set(found) == {("module", "M1")}
+
+
+def test_a_menu_core_read_and_the_suite_does_not_hold_is_refused():
+    with pytest.raises(corpus.CorpusLayoutError, match="cannot be paired"):
+        proof5.suite_of(
+            parse_xml(ABOVE_MENUS.replace('<menu id="root"><command id="m1-f0"/></menu>', "")), {}, ABOVE_CORE, {}, "?"
+        )
 
 
 def _swap_module_names(value):

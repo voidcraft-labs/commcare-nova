@@ -944,6 +944,11 @@ const USER_MESSAGE_BY_CODE: Record<
 	// type and must read sensibly for a delete (not just "add a form").
 	NO_FORMS_OR_CASE_LIST: (e) =>
 		`${q(modName(e))} needs at least one form. Add a form, or, if you're removing its last one, delete the whole module instead.`,
+	NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE: (e) => {
+		const caseType = q(det(e, "caseType", ""));
+		const root = q(det(e, "rootModuleName", ""));
+		return `${q(formName(e))} creates a new ${caseType} case, and ${q(modName(e))} sits under ${root}, whose first form opens a chosen ${caseType} case. CommCare HQ would give the new case that chosen case's place, so the form couldn't open. Move ${q(formName(e))} to a menu outside ${root}, or start ${root} with a form that doesn't open a chosen ${caseType} case.`;
+	},
 	NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM: (e) =>
 		`${q(modName(e))} uses a different case type from its parent, and that parent only shows Results. Add a form to the parent, use the same case type, or make this module top-level.`,
 	INVALID_CASE_TYPE_FORMAT: (e) =>

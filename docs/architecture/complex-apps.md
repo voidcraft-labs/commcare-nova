@@ -2900,7 +2900,13 @@ the app's first menu lists forms first, since no command is chosen yet; a screen
 bare case list opens on its list; a screen holding a form that opens without a case lists
 forms first; and so does a screen whose contributors choose different cases.
 `lib/commcare/__tests__/screenCaseFirstParity.test.ts` holds that answer to the first datum
-the wire gives every entry.
+the wire gives every entry. A form of a submenu that creates a case of the type its parent's
+first form opens never stands on such a screen: HQ's `entries.py::EntriesHelper.add_parent_datums`
+matches its new case's `uuid()` datum to the parent's selection by case type alone
+(`_same_case`) and gives it the selection's id, so HQ's build would list the screen case first
+and the form, whose case block reads `case_id_new_<type>_0`, could not open there. The gate
+refuses that form (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`), in a submenu that shows its forms
+above as in one that keeps its screen.
 
 **No chosen case ahead of a command.** Core keeps what a frame collected (`syncState`), and an
 entry's next question is its first datum whose id the session lacks (`getFirstMissingDatum`).

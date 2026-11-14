@@ -50,9 +50,11 @@ What is compared is Nova's emitted wire, never what HQ makes of it:
   element is whose is read from Core's parse of the archive (the ``local``
   record's admission: each menu's commands, each entry's form ``xmlns``),
   never from an id's text: an entry is its form's by the ``xmlns`` Core read
-  for it, a menu its module's by the forms its commands open (a menu that
-  opens no form, a case list's, is placed by its order among such menus and
-  the modules that hold no form). The archive names a module's and a form's
+  for it, a menu its module's by the forms its commands open (each
+  ``<menu>`` element Core reads is a menu of its own, also where several
+  share an id, as the menus that show their forms in one menu above do; a
+  menu that opens no form, a case list's, is placed by its order among such
+  menus and the modules that hold no form). The archive names a module's and a form's
   parts by position (``m<i>``, ``m<i>-f<j>``, ``m<i>_case_short``, the keys
   of their app strings, and a stack step's command, an XPath literal), so
   D''s are mapped to D's: a menu's and an entry's id by the entity Core says
@@ -454,9 +456,14 @@ class _Suite:
     strings: dict  # language -> {key: value}
     readings: dict  # stack step value -> Core's string reading
     hole: str
-    elements: dict  # (tag, id) -> element: menu, entry and remote-request by command id, detail by id
+    elements: dict  # (tag, id) -> element: entry and remote-request by command id, detail and endpoint by id
     menus: list  # Core's menus, in order: {id, root, commands}
     entries: dict  # command -> Core's entry: {xmlns, view, remoteRequest}
+    menu_elements: dict  # id() of each of Core's menus -> the <menu> element Core read it from
+
+    def menu_element(self, menu):
+        """The ``<menu>`` element Core read ``menu`` from."""
+        return self.menu_elements[id(menu)]
 
 
 def _read_suite(path, admission, readings, hole):
@@ -473,14 +480,24 @@ def _read_suite(path, admission, readings, hole):
 
 
 def suite_of(root, strings, admission, readings, hole):
-    """A parsed suite with its app strings and Core's parse of it (its admission report and stack readings)."""
+    """A parsed suite with its app strings and Core's parse of it (its admission report and stack readings).
+
+    Several ``<menu>`` elements may share an id (a menu that shows its forms in the menu above writes the
+    above menu's id, ``root`` or its parent's), and Core reads each as a menu of its own
+    (``SuiteParser`` adds every one to the suite's menus in document order), so each of Core's menus is
+    paired with the element it was read from by its id and its place among the menus of that id, never by
+    the id alone.
+    """
     elements = {}
+    by_menu_id = {}
     for child in root:
         if not isinstance(child.tag, str):
             continue
         tag = qname(child.tag)[1]
-        if tag in ("detail", "menu"):
+        if tag == "detail":
             elements[(tag, child.get("id"))] = child
+        elif tag == "menu":
+            by_menu_id.setdefault(child.get("id"), []).append(child)
         elif tag in ("entry", "remote-request", "endpoint"):
             command = next(
                 (c.get("id") for c in child if isinstance(c.tag, str) and qname(c.tag)[1] == "command"), None
@@ -491,7 +508,18 @@ def suite_of(root, strings, admission, readings, hole):
         menus += suite.get("menus") or []
         for entry in suite.get("entries") or []:
             entries[entry["command"]] = entry
-    return _Suite(root, strings, readings, hole, elements, menus, entries)
+    menu_elements, seen = {}, {}
+    for menu in menus:
+        place = seen.get(menu["id"], 0)
+        seen[menu["id"]] = place + 1
+        read_from = by_menu_id.get(menu["id"], [])
+        if place >= len(read_from):
+            raise CorpusLayoutError(
+                f"Core read {place + 1} menus with the id {menu['id']!r}, and the suite holds {len(read_from)}, "
+                "so a menu cannot be paired with the element it was read from."
+            )
+        menu_elements[id(menu)] = read_from[place]
+    return _Suite(root, strings, readings, hole, elements, menus, entries, menu_elements)
 
 
 def _literal(reading, hole):
@@ -554,7 +582,7 @@ def _owned(suite, placed, xmlns_of):
         held.setdefault("remotes", [])
         elements = owned.setdefault(entity, [])
         for menu in held["menus"]:
-            elements.append(suite.elements[("menu", menu["id"])])
+            elements.append(suite.menu_element(menu))
             for command in menu["commands"]:
                 if command in command_form:
                     continue
@@ -567,9 +595,16 @@ def _owned(suite, placed, xmlns_of):
                     held["views"].append(command)
                     elements.append(suite.elements[("entry", command)])
     _claim_details(suite, owned, ids, placed, remotes, taken)
-    app = [suite.elements[("menu", menu["id"])] for menu in unowned if ("menu", menu["id"]) in suite.elements]
+    app = [suite.menu_element(menu) for menu in unowned]
     commands = {command: entity for entity, held in ids.items() for command in held.get("commands", [])}
-    menus = {menu["id"]: entity for entity, held in ids.items() for menu in held.get("menus", [])}
+    # A menu id names an entity only where every menu of that id is the one entity's.
+    menu_owners = {}
+    for entity, held in ids.items():
+        for menu in held.get("menus", []):
+            menu_owners.setdefault(menu["id"], set()).add(entity)
+    for menu in unowned:
+        menu_owners.setdefault(menu["id"], set()).add(None)
+    menus = {menu_id: owners.pop() for menu_id, owners in menu_owners.items() if len(owners) == 1}
     # An endpoint is the entity's whose command its stack opens last, with every remote request its stack
     # opens (an entry point's claim).
     for (tag, _), element in sorted(suite.elements.items(), key=lambda item: str(item[0])):
@@ -611,17 +646,16 @@ def unread(suite):
     """
     by_command = {key: el for (tag, key), el in suite.elements.items() if tag in ("entry", "remote-request")}
     details = {key: el for (tag, key), el in suite.elements.items() if tag == "detail"}
-    commands_of = {menu["id"]: list(menu["commands"]) for menu in suite.menus}
-    frontier = [
-        el for (tag, key), el in suite.elements.items() if tag == "endpoint" or (tag == "menu" and key in commands_of)
-    ]
+    commands_of = {id(suite.menu_element(menu)): list(menu["commands"]) for menu in suite.menus}
+    frontier = [el for (tag, _), el in suite.elements.items() if tag == "endpoint"]
+    frontier += [suite.menu_element(menu) for menu in suite.menus]
     reached = set()
     while frontier:
         element = frontier.pop()
         if id(element) in reached:
             continue
         reached.add(id(element))
-        commands = commands_of.get(element.get("id"), []) if qname(element.tag)[1] == "menu" else []
+        commands = commands_of.get(id(element), [])
         for command in commands + _opened(element, suite):
             if command in by_command:
                 frontier.append(by_command[command])
@@ -634,7 +668,8 @@ def unread(suite):
 
 
 def _key(element):
-    """An owned element's ``(tag, id)`` as ``_Suite.elements`` keys it."""
+    """An owned element's ``(tag, id)`` as ``_Suite.elements`` keys it (a menu by its id, which menus may
+    share)."""
     tag = qname(element.tag)[1]
     if tag in ("detail", "menu", "endpoint"):
         return (tag, element.get("id"))

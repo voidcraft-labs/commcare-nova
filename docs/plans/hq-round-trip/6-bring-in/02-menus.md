@@ -322,6 +322,15 @@ runners, in the work's own CI: proof 3 and the manifest check over `targeted-for
   `formLinkProjection.ts` is corrected to HQ's bytes, with a unit test that holds the corrected
   shape. No register entry and no walk stop. A menu condition's instances are no candidate: HQ
   declares them on each `<menu>` at Nova's version floor (section 2, row 11), where Nova writes them.
+- *Run, and settled.* The first run with every reader gave B on two documents for one cause, which is
+  neither outcome as written: a registration form in a submenu of a menu whose first form opens a
+  chosen case of the form's type. HQ's `add_parent_datums` matches the form's `uuid()` datum to the
+  parent's selection by case type alone (`_same_case`) and gives it the selection's id, so HQ's own
+  build asks for that case first and its case block reads a `case_id_new_<type>_0` the session never
+  holds (Formplayer: "Logic references instance(commcaresession)/session/data/case_id_new_member_0
+  which is not a valid question or value"). Correcting the emitter to HQ's bytes would write a form
+  that cannot open, so the gate refuses the shape (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`), and the
+  two documents register a case of another type there (section 15).
 
 **G2. The served readers' walks reach every entry and land where Preview does.** A lane run the
 session starts itself, with the lane's nightly reader set (Core, formplayer, the Web Apps client,
@@ -354,9 +363,9 @@ top-level file lists the lane runs ("What needs your yes before this starts").
 (section 15), in the pull request lane, over ten scenarios: a host that is case first, a bare case
 list, a host that chooses a parent first, a host with a tile, a submenu host, a host with an ordinary
 search (the action on both short details), a host whose forms read the search, a host that selects
-several cases, two hosts offering one form, and a host whose screen lists a registration form of a
-submenu that shows its forms above (the screen lists forms first); each with `case-list` and
-`new-case` where the rules admit both. The bare case list is expected on its list under either value,
+several cases, two hosts offering one form, and a host whose screen lists a registration form, of
+another case type, of a submenu that shows its forms above (the screen lists forms first); each
+with `case-list` and `new-case` where the rules admit both. The bare case list is expected on its list under either value,
 since HQ's frame for a host with no forms carries no selection (section 11.5).
 - *A: each lands where section 11.5 says.* Nothing more is written.
 - *B: `new-case` on a host that selects several cases lands with the new case as the selection.* The
@@ -1333,8 +1342,11 @@ build (`validate_case_list_form` raises `case list form not registration`, `add_
 writes no action, and `CaseListFormWorkflow.case_list_forms_frames` skips the host), and a form of
 another type whose one root child case is of the list's type holds one and is. Section 11.3 refuses
 the first and section 11.9 keeps the second for step 7. A Nova registration form has no selection
-datum, also in a submenu (`entries.py::add_parent_datums` copies a parent's computed datums and
-aligns only the child's own selections), so its action carries computed datums alone.
+datum, also in a submenu, so its action carries computed datums alone: `entries.py::add_parent_datums`
+copies a parent's computed datums, and its match by case type alone (`_same_case`) would give the
+form's own `uuid()` datum a parent selection's id where the parent's first form opens a chosen case of
+the form's type, a form HQ's build cannot open, which the gate refuses
+(`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`).
 
 ### 10.3 The return frames
 
@@ -2286,7 +2298,8 @@ shapes out of every Nova document, so the lane meets no use of either.
   parent with a same-type submenu above (the screen stays case first) whose form reads the case in its
   display condition; under that parent, a second same-type submenu above whose only entry is its case
   list (the screen still stays case first, section 4.3); a second parent whose submenu above holds a
-  registration form (the screen turns forms first); a submenu above that chooses a child case under
+  registration form of another case type than the one its first form opens (the screen turns forms
+  first; one of that type is refused, section 10.2); a submenu above that chooses a child case under
   the parent's case; conditions on a parent and its submenu above (the conjunction), the submenu's
   admitting a role the parent's refuses and holding a form with no condition of its own, so with no
   case chosen that role does not see it and a role both admit does; a top-level menu
@@ -2350,7 +2363,10 @@ naming `menu-screens`:
 - `proof/native/core/RegisterFromListRuntimeTest.java`: run G3.
 
 **The lane.** Proof 1 to 5 run over the five documents as over any targeted document (run G1, run
-G2). `proof/corpus/editKinds.ts` draws both slots' edits for proof 5 as arms of its `updateModule`
+G2). Proof 5 pairs each `<menu>` element of the local suite with the menu Core read from it by its id
+and its place among the menus of that id (`proof/checks/proof5.py::suite_of`), since the menus that
+show their forms in one menu above share that menu's id; its first run, which read a menu by its id
+alone, gave each such module the last menu of the id. `proof/corpus/editKinds.ts` draws both slots' edits for proof 5 as arms of its `updateModule`
 generator (`menuScreenEdits`), since `EDIT_KIND_GENERATORS` holds one generator per mutation kind and
 both slots ride `updateModule`: forms in the menu above off, and on for a top-level menu nothing opens
 (no link to it, no entry point on it), through `setModuleFormsInMenuAboveMutation`; and the `always`

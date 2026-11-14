@@ -189,7 +189,11 @@ only by the entry whose class takes it
 in the export by the rule the entry's row states): a use a REFUSED class takes
 is refused under that class's name, and a use the check cannot place in or out
 of a REFUSED class is undecided, a gap in the check that a value-class reader
-closes and that the register refuses to hold. A use whose key only HELD-NEW
+closes and that the register refuses to hold. So a REFUSED entry with a value
+class lands with its reader (`VALUE_CLASSES`, with its refused and accepted
+shapes), unless HQ's build alone refuses it or no export uses its keys
+(`test_manifest_value_classes.py::KNOWN_GAPS`); ordinary CI holds that before
+the lane runs (`proof/ci/__tests__/manifestReaders.test.ts`). A use whose key only HELD-NEW
 entries name is held-new: Nova emits an item the manifest says it does not
 hold yet, so the entry's disposition or the emitter is wrong, and the register
 refuses to hold it too.
@@ -3487,6 +3491,12 @@ lane does:
   client's unchanged widget does. The walk reconciles only a changed
   answer, so an unnecessary request cannot make Formplayer reread and trim
   an earlier text answer (`walk.py::_fill`, `_reconcile`);
+- a question a worker answers on a number keypad is given the table's
+  `numberKeypad` values, which hold no letter: the client's phone number
+  box sends Formplayer only what its pattern takes, so a text answer typed
+  there is never sent and the form is submitted otherwise
+  (`walk.py::number_keypad`; Core's and Android's walks read the same list,
+  `Answers.java::numberKeypad`);
 - a repeat a worker adds to is added to, as many times as the table says
   (`repeats.add`), so its repetition and the case it creates are submitted
   (`walk.py::addable`);

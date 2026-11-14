@@ -22,7 +22,10 @@
  *   short details;
  * - "Intake", whose screen also lists the registration form of its submenu
  *   "Intake registration", which shows its forms there, so the screen lists
- *   forms first;
+ *   forms first. That form registers a household: one registering a patient
+ *   under "Intake", whose first form opens a chosen patient, would take that
+ *   patient's place in its session on CommCare HQ's build and could not
+ *   open (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`);
  * - "Households", which offers "Register household" of "Household
  *   registration", a form with its own after-submit, which it follows from
  *   the list too.
@@ -254,10 +257,10 @@ export function registerFromCaseList() {
 			{
 				uuid: key("intake-registration"),
 				name: "Intake registration",
-				caseType: "patient",
+				caseType: "household",
 				caseListConfig: nameList(key, "intake-registration"),
 				forms: [
-					registration(key, "intake-register", "Intake register", "patient"),
+					registration(key, "intake-register", "Intake register", "household"),
 				],
 			},
 		],

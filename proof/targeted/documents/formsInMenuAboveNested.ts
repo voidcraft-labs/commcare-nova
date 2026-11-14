@@ -17,10 +17,13 @@ import { answerHeld } from "./echo";
  *   submenu "Household list" shows only its case list entry there (the screen
  *   still stays case first); "Household extras" keeps its screen and returns
  *   to its parent after submit.
- * - "Members" has a submenu "Member registration" that shows a registration
- *   form there (the screen turns forms first), and a submenu "Member
- *   referrals" that shows a follow-up of a referral, a case under the
- *   member, there.
+ * - "Members" has a submenu "Household registration" that shows a
+ *   registration form of a household there (the screen turns forms first),
+ *   and a submenu "Member referrals" that shows a follow-up of a referral, a
+ *   case under the member, there. A registration form of a member there
+ *   would take the chosen member's place in its session on CommCare HQ's
+ *   build, since the first form of "Members" opens a chosen member, and
+ *   could not open (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`).
  * - "Outreach" is a top-level menu above with one submenu that keeps its
  *   screen and one that shows its forms above too.
  * - The follow-up and the registration form of the two submenus above
@@ -187,16 +190,16 @@ export function formsInMenuAboveNested() {
 			},
 			{
 				uuid: key("member-registration"),
-				name: "Member registration",
-				caseType: "member",
+				name: "Household registration",
+				caseType: "household",
 				caseListConfig: list("member-registration"),
 				forms: [
 					{
 						uuid: key("register-member"),
-						name: "Register member",
+						name: "Register household",
 						type: "registration",
 						postSubmit: "previous",
-						fields: [nameField("register-member", "member")],
+						fields: [nameField("register-member", "household")],
 					},
 				],
 			},

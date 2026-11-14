@@ -795,3 +795,114 @@ describe("nested-menu navigation frames", () => {
 		]);
 	});
 });
+
+describe("a submenu's new case and its root menu's first form", () => {
+	// HQ's `add_parent_datums` matches a child entry's next datum to each root
+	// selection by case type alone, so a registration of the root's chosen
+	// type in a submenu has its `uuid()` datum renamed to the root's
+	// selection: CommCare asks for a case first and the form's case block
+	// reads a new-case id the session never holds. A lane run showed it on
+	// HQ's build ("Logic references … case_id_new_patient_0 which is not a
+	// valid question or value"). The plausible failure is admitting that
+	// shape; its pairs are a submenu that registers another type, and a root
+	// whose first form opens no chosen case of the type.
+	const nestedRegistration = (
+		rootFirst: "followup" | "registration",
+		childType: "patient" | "household",
+	): { doc: BlueprintDoc; childForm: Uuid } => {
+		const nameField = (caseType: string) =>
+			f({
+				kind: "text",
+				id: "case_name",
+				label: proseText("Name"),
+				caseWrite: { caseType, property: "case_name" },
+			});
+		const doc = buildDoc({
+			appName: "Nested intake",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						rootFirst === "followup"
+							? {
+									name: "Visit patient",
+									type: "followup",
+									fields: [f({ kind: "text", id: "note" })],
+								}
+							: {
+									name: "Enrol patient",
+									type: "registration",
+									fields: [nameField("patient")],
+								},
+					],
+				},
+				{
+					name: "Intake",
+					caseType: childType,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register intake",
+							type: "registration",
+							fields: [nameField(childType)],
+						},
+					],
+				},
+			],
+		});
+		const { childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("missing child form");
+		return { doc, childForm };
+	};
+	const takenFindings = (doc: BlueprintDoc) =>
+		runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(finding) => finding.code === "NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE",
+		);
+
+	it("refuses a registration of the type the root's first form chooses", () => {
+		const { doc, childForm } = nestedRegistration("followup", "patient");
+		const findings = takenFindings(doc);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.location.formUuid).toBe(childForm);
+		expect(findings[0]?.details).toMatchObject({
+			caseType: "patient",
+			rootModuleName: "Patients",
+			rootFormName: "Visit patient",
+		});
+		expect(findings[0]?.message).toContain(
+			'"Register intake" in "Intake" creates a new "patient" case',
+		);
+	});
+
+	it("admits a registration of another type under the same root", () => {
+		const { doc, childForm } = nestedRegistration("followup", "household");
+		expect(takenFindings(doc)).toEqual([]);
+		const ctx = formLinkProjectionContext(doc);
+		expect(
+			entrySessionDatums(doc, ctx, doc.moduleOrder[1], childForm).map(
+				(datum) => datum.id,
+			),
+		).toEqual(["case_id_new_household_0"]);
+	});
+
+	it("admits a registration of the type under a root whose first form chooses no case", () => {
+		const { doc } = nestedRegistration("registration", "patient");
+		expect(takenFindings(doc)).toEqual([]);
+	});
+});

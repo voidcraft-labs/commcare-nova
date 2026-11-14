@@ -5683,9 +5683,31 @@ def choice_value_refused_by_vellum(use, manifest):
 
 
 # HQ's pattern for an instance read (``suite_xml/post_process/instances.py::instance_re``), over literal text,
-# with the name widened to any run that holds no quote mark: the reading Nova refuses a choice's value by
-# (``lib/domain/hqInstanceRead.ts::instanceScanRead``). Python's ``\s`` over text is ``str.isspace``, HQ's own.
+# with the name widened to any run that holds no quote mark: the reading Nova refuses a choice's value and a form's
+# name by (``lib/domain/hqInstanceRead.ts::instanceScanRead``). Python's ``\s`` over text is ``str.isspace``, HQ's
+# own.
 INSTANCE_READ = re.compile(r"""instance\(\s*['"][^'"]+['"]\s*\)""")
+
+
+def form_name_read_as_an_instance(use, manifest):
+    """``forms-and-case-writes/form-name-read-as-an-instance``: a form whose name in the app's default language
+    (``Application.default_language``: the first of ``langs``, ``en`` where there is none) holds text CommCare HQ's
+    build reads as an instance. That name is the text of the form's ``<h:title>`` and its data root's ``name``,
+    which HQ's form builder writes from it on every save (``views/formdesigner.py::_get_vellum_core_context``,
+    ``formName``), and ``XForm.add_missing_instances`` reads both in the whole rendered form (``xform.py``). A
+    name in another language reaches only the app's strings, which that scan does not read. A name that holds no
+    text in the default language does not say what the source's title holds: not settled here."""
+    at = _json(use)
+    if at is None or at.key != "name":
+        return None
+    names = at.value
+    if not isinstance(names, dict):
+        return None
+    langs = at.app.doc.get("langs") or []
+    name = names.get(langs[0] if langs else "en")
+    if not isinstance(name, str):
+        return None
+    return INSTANCE_READ.search(name) is not None
 
 
 def choice_value_read_as_an_instance(use, manifest):
@@ -6812,6 +6834,7 @@ VALUE_CLASSES = {
         sense_or_review_entry_mode
     ),
     # Forms and case writes
+    "forms-and-case-writes/form-name-read-as-an-instance": form_name_read_as_an_instance,
     "forms-and-case-writes/form-requires-referral": referral,
     "forms-and-case-writes/form-requires-none-with-child-cases-but-no-open": child_cases_without_open,
     "forms-and-case-writes/subcases-condition-never": subcase_never,

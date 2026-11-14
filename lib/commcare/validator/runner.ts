@@ -48,7 +48,10 @@ import { runFieldRules } from "./rules/field";
 import { entryPlanContext, runFormRules } from "./rules/form";
 import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
-import { parentSelectionConflicts } from "./rules/parentSelection";
+import {
+	parentSelectionConflicts,
+	rootSelectionTakesNewCase,
+} from "./rules/parentSelection";
 
 /** Optional context for a validation run. */
 export interface RunValidationOptions {
@@ -107,6 +110,9 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"ENTRY_POINT_INVALID",
 	// APP_RULES products.
 	"CASE_PARENT_SELECTION_CONFLICT",
+	// A child form's entry reads its root menu's first form, so a batch in
+	// the root can strand a form of the child.
+	"NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE",
 	"NO_MODULES",
 	"EMPTY_APP_NAME",
 	"APP_TEXT_UNREPRESENTABLE",
@@ -280,8 +286,10 @@ export function runValidation(
 			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 	);
 	errors.push(...lookupFindings);
-	if (lookupFindings.length === 0)
+	if (lookupFindings.length === 0) {
 		errors.push(...parentSelectionConflicts(doc, lookupContext));
+		errors.push(...rootSelectionTakesNewCase(doc, lookupContext));
+	}
 
 	errors.push(...runDeepValidation(doc, scope, lookupTables));
 

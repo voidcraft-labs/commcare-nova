@@ -112,7 +112,10 @@
  *   button condition, calculated column, or search input on a module whose
  *   forms do not read the search does, and not a link that opens one of
  *   them;
- * - a new language reaches the app.
+ * - a new language reaches the app;
+ * - a case list's After registering reaches the form the list always
+ *   offers, whose entry holds the list's return frames, and the action's
+ *   label, which only the list's detail holds, does not.
  *
  * Dropping any one of these derivations fails at least one control, and so
  * does widening one to what an earlier footprint read.
@@ -135,6 +138,7 @@ import {
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { parseXml } from "@/lib/commcare/xmlParse";
+import { alwaysOfferedRegistrationMutations } from "@/lib/doc/alwaysOfferedRegistration";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
@@ -151,6 +155,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { formScaffoldMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	type AlwaysOfferedRegistration,
 	asUuid,
 	type BlueprintDoc,
 	blueprintDocSchema,
@@ -162,6 +167,8 @@ import {
 } from "@/lib/domain";
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
+import { targetedUuid } from "../../targeted/build";
+import { registerFromCaseList } from "../../targeted/documents/registerFromCaseList";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import type { CorpusDocument } from "../documents";
 import {
@@ -533,6 +540,64 @@ describe("the corpus's fixed sources", () => {
 		expect(changed).toBeGreaterThan(50);
 		expect(appChanged).toBeGreaterThan(5);
 		expect(localCompared).toBeGreaterThan(outcomes.length / 2);
+	});
+});
+
+describe("a case list's registration return", () => {
+	// The form a case list always offers carries that list's return frames
+	// in its own entry, so an edit to the list's arm reaches it, and only
+	// where the frames change. The plausible failure, which the lane's
+	// proof 5 showed, is a footprint that reads the arm as the host's alone.
+	const id = "targeted-register-from-case-list";
+	const register = targetedUuid(id, "register-patient");
+	const host = targetedUuid(id, "patients");
+	const document = registerFromCaseList();
+	const before = hydratePersistedBlueprint(
+		blueprintDocSchema.parse(document.doc),
+	);
+	const slotOf = (doc: BlueprintDoc) => {
+		const slot = doc.modules[host]?.caseListRegistrationForm;
+		if (slot?.kind !== "always") throw new Error("Patients offers no form.");
+		return slot;
+	};
+	const edited = (patch: Partial<AlwaysOfferedRegistration>) => {
+		const plan = alwaysOfferedRegistrationMutations(before, host, {
+			...slotOf(before),
+			...patch,
+		});
+		if (plan.kind === "blocked") throw new Error(plan.message);
+		const verdict = mutationCommitVerdict(
+			before,
+			plan.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error("The commit gate refused the edit.");
+		return {
+			mutations: plan.mutations,
+			after: docAfter(before, plan.mutations),
+		};
+	};
+
+	it("reaches the offered form when the list's After registering changes", () => {
+		const { mutations, after } = edited({ afterSubmit: "new-case" });
+		const diff = changedWire(
+			wireOf(before, undefined),
+			wireOf(after, undefined),
+		);
+		expect(diff.changed).toContain(register);
+		expect(batchFootprint(before, after, mutations).forms).toContain(register);
+	});
+
+	it("leaves the offered form out when only the list's action label changes", () => {
+		const { mutations, after } = edited({ label: "Add a patient" });
+		const diff = changedWire(
+			wireOf(before, undefined),
+			wireOf(after, undefined),
+		);
+		expect(diff.changed).not.toContain(register);
+		expect(batchFootprint(before, after, mutations).forms).not.toContain(
+			register,
+		);
 	});
 });
 
@@ -1788,7 +1853,10 @@ describe("the footprint's derivations", () => {
 				addFlag,
 				...addSurvey("Parents")(doc),
 				...showFormsAlways(doc, "Child care"),
-				...addForm(doc, "Child care", "registration").mutations,
+				// A survey, which opens no case: a registration of the case type
+				// "Parents" chooses first can't sit under it
+				// (`NESTED_MENU_NEW_CASE_TAKES_ROOT_CASE`).
+				...addSurvey("Child care")(doc),
 			],
 			batch: writeFlagOn("Parents", 0),
 			reaches: (doc) => [
