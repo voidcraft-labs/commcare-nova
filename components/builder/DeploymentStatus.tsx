@@ -33,6 +33,13 @@ import {
 	DEPLOYMENT_STATE_LABELS,
 	liveConfirmationRows,
 } from "@/components/builder/app-setup/publishingSectionModel";
+import {
+	KEPT_REFRESH_BUTTON,
+	KEPT_REFRESH_BUTTON_PENDING,
+	type KeptRefreshNotice,
+	keptDateText,
+	keptRefreshNotice,
+} from "@/components/builder/keptListModel";
 import { Button } from "@/components/shadcn/button";
 import type { SetupArtifactSection } from "@/lib/deployment";
 import {
@@ -47,13 +54,23 @@ import {
 	type DeploymentView,
 	type RefreshedDeploymentView,
 	refreshDeploymentAction,
+	refreshKeptValuesAction,
 	withdrawDeploymentConfirmationAction,
 } from "@/lib/deployment/actions";
 import {
 	activeRemoteApp,
 	remoteAppReportedGone,
 } from "@/lib/deployment/resources";
-import type { DeploymentConfirmationKey } from "@/lib/deployment/types";
+import type {
+	CommCareServer,
+	DeploymentConfirmationKey,
+	DeploymentKept,
+} from "@/lib/deployment/types";
+import {
+	KEPT_FOLLOWS_LINE,
+	KEPT_LABELS,
+	keptLead,
+} from "@/lib/publish/keptValues";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 
 /**
@@ -254,6 +271,17 @@ export function DeploymentStatus({
 				})}
 			</ol>
 
+			{view.kept !== null ? (
+				<KeptValues
+					appId={appId}
+					kept={view.kept}
+					server={record.server}
+					domain={record.domain}
+					canRefresh={canRefresh}
+					onUpdated={onUpdated}
+				/>
+			) : null}
+
 			{failure?.status === "failed" ? (
 				/* Amber, the same tone the refusal hero above it uses. A phase
 				   that stopped is recoverable and says how; rose is reserved on
@@ -310,6 +338,112 @@ export function DeploymentStatus({
 
 			<SetupNotes sections={view.artifact.sections} />
 		</section>
+	);
+}
+
+/**
+ * The settings this project space keeps in CommCare HQ at another value
+ * than a new app's, with the date Nova read them, and a way to read them
+ * again.
+ *
+ * Drawn with an empty list too: that is where a person asks Nova to look
+ * again after changing a setting in CommCare HQ, and a project space that
+ * held every default at the last publish would otherwise have no way to tell
+ * Preview that fuzzy search is now on. The refresh's in-flight state and its
+ * sentence are held here, as Check status holds its own.
+ */
+function KeptValues({
+	appId,
+	kept,
+	server,
+	domain,
+	canRefresh,
+	onUpdated,
+}: {
+	appId: string;
+	kept: DeploymentKept;
+	server: CommCareServer;
+	domain: string;
+	canRefresh: boolean;
+	onUpdated: (next: RefreshedDeploymentView) => void;
+}) {
+	const sessionApi = useBuilderSessionApi();
+	const [pending, startTransition] = useTransition();
+	const [notice, setNotice] = useState<KeptRefreshNotice | null>(null);
+	const leadId = useId();
+	const date = keptDateText(kept.observedAt, new Date());
+	const hasLabels = kept.labels.length > 0;
+
+	const handleRefresh = useCallback(() => {
+		/* Refreshing writes the baseline, so it re-reads live capability
+		 * rather than trusting the prop this rendered with. */
+		if (!sessionApi.getState().canEdit) return;
+		setNotice(null);
+		const shown = kept;
+		startTransition(async () => {
+			/* A rejected async transition is re-thrown during render, which
+			 * would take the whole builder page down over one failed read. */
+			try {
+				const result = await refreshKeptValuesAction({ appId, server, domain });
+				const next = keptRefreshNotice(result, shown, {
+					now: new Date(),
+					space: domain,
+				});
+				if (next.view !== null) onUpdated(next.view);
+				setNotice(next);
+			} catch {
+				setNotice({
+					sentence:
+						"Nova couldn't reach the server to read these again. Try again in a moment.",
+					failed: true,
+					view: null,
+				});
+			}
+		});
+	}, [appId, server, domain, kept, onUpdated, sessionApi]);
+
+	return (
+		<div className="mt-4 text-[13px] leading-relaxed" data-kept-values>
+			<p id={leadId} className="text-nova-text">
+				{keptLead(date, hasLabels)}
+			</p>
+			{hasLabels ? (
+				<ul
+					aria-labelledby={leadId}
+					className="mt-1.5 flex list-disc flex-col gap-1 pl-5 text-nova-text-secondary"
+				>
+					{kept.labels.map((label) => (
+						<li key={label}>{KEPT_LABELS[label]}</li>
+					))}
+				</ul>
+			) : null}
+			<p className="mt-1.5 text-nova-text-secondary">{KEPT_FOLLOWS_LINE}</p>
+			{canRefresh ? (
+				<Button
+					variant="ghost"
+					className="mt-1"
+					onClick={handleRefresh}
+					disabled={pending}
+				>
+					<Icon
+						icon={pending ? tablerLoader2 : tablerRefresh}
+						width="16"
+						height="16"
+						className={pending ? "animate-spin" : undefined}
+						aria-hidden="true"
+					/>
+					{pending ? KEPT_REFRESH_BUTTON_PENDING : KEPT_REFRESH_BUTTON}
+				</Button>
+			) : null}
+			{notice !== null ? (
+				<p
+					role={notice.failed ? "alert" : "status"}
+					className={`mt-1 ${notice.failed ? "text-nova-rose" : "text-nova-text-secondary"}`}
+				>
+					{notice.sentence}
+				</p>
+			) : null}
+		</div>
 	);
 }
 

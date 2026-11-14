@@ -68,8 +68,9 @@ localized property maps, itext language/default attributes,
 `default/app_strings.txt`, per-language directories, endonyms, and
 `lang.current` are one-way CommCare wire spellings here.
 `classicLanguages.ts` (over `config/commcare-classic-languages.json`) is wire
-data quarantined here, and its only consumers are the wire plan and the
-language-identity migration script. An `eng`-only app — including every app
+data quarantined here, and its only consumers are the wire plan, the name a
+build profile's refusal gives each language (`targetBuildProfiles.ts`), and
+the language-identity migration script. An `eng`-only app — including every app
 with an absent localization root — emits byte-identical output to the
 historical `en`-only shape.
 
@@ -88,8 +89,18 @@ the HQ JSON path read, since HQ writes its own URLs when it builds); `expandDoc`
 direct publishing supplies its selected server and domain. Every `.ccz` is
 made for one published project space, and its profile names that space's
 four server properties (`ota-restore-url`, `PostURL`, `key_server` and
-`cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`); an app
-that is published nowhere is offered no `.ccz`. An app that does not declare
+`cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`), on the
+origin of the project space's custom base URL and on its secure receiver where
+its app holds them; an app that is published nowhere is offered no `.ccz`. The
+archive writes what that project space keeps of the values Nova leaves to
+CommCare HQ (`CompileOptions.targetFacts`, `targetFacts.ts::TargetFacts`, read
+from the deployment's baseline), as HQ's build there does: the kept profile
+settings and the worker activity credential described below, location capture
+on every form, each language's text under keys the project space owns (its
+runtime UI text) over Nova's own, spelled as HQ spells it
+(`localeFile.ts::hqLocaleFileValue`), and on an app Nova brought in, CommCare
+HQ's language names. With no facts, Nova's own values stand, byte for byte. An
+app that does not declare
 Android has no `.ccz` at all (`runtimeTarget.ts::chooseDownloadTarget`,
 `not-declared-for-android`): a `.ccz` installs an app on Android. The HQ import
 file carries derived ids and no target.
@@ -110,9 +121,16 @@ did not change. The profile requires CommCare 2.57 (`requiredMajor`,
 `requiredMinor` from `versionFloor.ts::COMMCARE_VERSION_FLOOR`,
 `requiredMinimal="0"`). `cur_locale` is the first language's wire code,
 `force="false"`. `<features>` opens with `<checkoff active="true"/>`, without
-which a device hides its saved forms whatever the setting says. The seventeen
-settings of `appProfileSettings.ts::appProfileProperties` follow in its order,
-each with the `force` its table gives. The archive writes neither
+which a device hides its saved forms whatever the setting says. It ends with
+the `<credentials>` block HQ's build writes where the project space issues a
+worker activity credential (`TargetFacts.credentialLevel`), which Android's
+work history reads. The seventeen settings follow in `appProfileProperties`'
+order, each with the `force` its table gives: the two the app owns at the
+app's value, and each of the fifteen others at the value the archive's project
+space holds, or Nova's where it holds none and Nova created the app there
+(`keptProfile.ts::targetProfileProperties`, over the deployment's
+`TargetFacts`), then `cc-log-entity-detail-enabled` where the project space
+sets it. The archive writes neither
 `heartbeat-url` nor HQ's six other server properties: a `.ccz` is no HQ build,
 and a phone on one takes a newer `.ccz` for the same project space through
 Offline Update, on CommCare's update screen.
@@ -180,6 +198,16 @@ must have a gate entry (`proof/README.md`, "Manifest checks"). Server code
 reads gate entries through `surface/gates.ts`, never `surface.json`, so a
 server bundle carries the gate entries alone.
 
+A TARGET-OWNED entry is content Nova leaves at CommCare HQ's value under the
+kept test: a publish never changes it, nothing the document holds does
+something different under it, and every Nova surface that shows or runs what
+it changes reads the target's value or says so. `surface/keptAtHq.ts::KEPT_AT_HQ`
+holds one row per such entry (what a `.ccz` does, what Preview does, what a
+first publish to another project space does, and the base that exhibits it),
+bound to the manifest by `surface/__tests__/keptAtHq.test.ts`. A kept entry
+keeps the Web Apps and Android reading its row states, and what Preview does
+for it is `KEPT_AT_HQ`'s Preview cell, never a row of the platform tables.
+
 The platform table in `lib/domain/platforms.ts` stands for the manifest's
 per-platform readings, held to them by `surface/__tests__/platformFeatures.test.ts`
 over `surface/platformFeatureEntries.ts`, which only tests import; a HELD entry
@@ -192,23 +220,39 @@ platform cannot run (`validator/rules/platforms.ts`, `PLATFORM_FEATURE_UNAVAILAB
 Deployment readiness uses the bounded `readBuildXml` path for an exact released
 build. `probeBuildProfile` confirms the profile's remote suite identity with
 `profileReferencesBuildSuite`; HTTP 200 with empty, malformed, unrelated, or
-wrong-build bytes is unverified. Version and build-list readers validate the
-JSON envelope before reading fields, so JSON `null` remains an unavailable HQ
-answer rather than an internal exception.
+wrong-build bytes is unverified. The version reader and the application
+resource reader (`hq/application.ts::readHqApplication`, the one reader of that
+resource, bounded at 64 MiB for a status check and at
+`HQ_BRING_IN_APP_MAX_BYTES` for a bring-in) validate the JSON envelope before
+reading fields; its modules stay unread until `hqApplicationModules` types
+them, so a summary Nova cannot read never stops a status check. JSON `null`
+remains an unavailable HQ answer rather than an internal exception.
 
 The XML reader counts decompressed HTTP body bytes as it streams, accepts at most
 20,000,000 bytes, and cancels an oversized body before buffering more. UTF-8
 decoding spans chunks; the 30-second deadline owns headers and body consumption.
 Resource consumers still own XML syntax and selected-build identity checks.
 
-JSON source, version/build, project-space and collection reads share
-`hq/readJson.ts`: native fetch, no redirects, no cache, an owned deadline through
-body consumption, and explicit HTTP/transport/JSON failures. Paginated reads
-carry one signal through the full list; compatibility retains its shorter
-five-second deadline. Project-space pages must retain their count, unique valid
-names, exact endpoint and private filter. Discovery awaits every started probe
-in its eight-request window before returning a failure. App-access success
-requires the HQ `status: success` / `applications` envelope. Build rows and
+JSON source, application, version, app-list, project-space and collection reads
+share `hq/readJson.ts`: native fetch, no redirects, no cache, an owned deadline
+through body consumption, and five causes told apart (no answer, the deadline,
+a body over the bound, a page for a browser, an answer Nova cannot read). A 429
+is sent again by one rule (`hq/throttle.ts`): three sends at most, a
+`Retry-After` of at most two seconds waited, one second where HQ names none,
+inside the read's deadline. Every status a read synthesizes for an answer it
+could not use names its cause; a request Nova will not send (a slug or an id it
+cannot put in a URL) is a bare 400. Every failed answer is classified once, by
+`hq/failure.ts::classifyHqFailure`; no caller writes its own status ladder.
+Paginated reads carry one deadline, its signal and its instant, through the
+full list. A deadline belongs to one call or one list and is never shared
+between reads; a caller's `cancel` stops a read early and is no deadline;
+compatibility retains its shorter five-second deadline. Project-space pages
+must retain their count, unique valid names, exact endpoint and private filter.
+Discovery awaits every started probe in its eight-request window before
+returning a failure. App-access success requires the HQ `status: success` /
+`applications` envelope (`hq/apps.ts::readHqAppListEnvelope`); the rows are
+read only by `listHqApps`, for the picker, so one app Nova cannot type never
+costs a key its project spaces. Build rows and
 version fields are complete evidence: malformed release flags or missing
 version values are unavailable, never an absent release.
 
@@ -358,7 +402,8 @@ Nova derives one profile property from app behavior, the custom property
 enters `BlueprintDoc`. Seventeen ordinary profile properties are stated by
 `appProfileSettings.ts::appProfileProperties`: `cc-show-saved` and
 `cc-show-incomplete` are app content (`appSettings`), and the other fifteen
-are constants, each the value a device reads when the key is absent.
+are CommCare HQ's to keep: Nova states its own value, the one a device reads
+when the key is absent, only where a project space holds none.
 Effective remote Search derives
 `cc-index-case-search-results=yes`, which indexes Search results in CommCare's
 temporary case storage and does not request or imitate a sync. Local CCZ emits
@@ -385,6 +430,57 @@ that fails the shape check stops the import with `hq_app_state_unknown` and is
 never read as empty. Every content write is an update of an app Nova has
 read, the empty app a first publish makes included, so no body is sent blind.
 `_attachments` remains the final HQ JSON key after every projection.
+
+### Reading an app from CommCare HQ
+
+`hq/apps.ts::listHqApps` reads `views/cli.py::list_apps`: every working app of a project space by
+id, name and save counter. A row carries no kind, no date and no build fact, so a linked or a
+remote app looks like any other until it is read. `hq/apps.ts::probeHqApiAccess` asks the lookup
+table list for one row, after the list answered. API access is read from two sentences of
+`api/resources/__init__.py::HqBaseResource.dispatch` that `hq/http.ts::apiRefusalSentence` matches
+exactly (`HQ_API_ACCESS_REFUSAL`, `HQ_API_CUT_OFF_REFUSAL`); any other 401 is a key that was not
+accepted, never a guess at the plan. A superuser's key does not pass the plan check.
+
+`hq/appReading.ts::readHqAppForReading` is one bracketed attempt: the application resource
+(`hq/application.ts::readHqApplication`: the save counter, real form ids and HQ's question
+summary), the source (`readHqAppSource` with `admit: "any"`), then `readAppVersions`. A counter
+that moved answers `changed`, and the function never loops: how often a bring-in asks again is its
+caller's rule. The bracket covers the app document and its media map and nothing else: lookup
+tables, levels and places are rows outside it. Two saves keep the counter
+(`models/delete_records.py::DeleteApplicationRecord.undo`, `views/utils.py::_update_forms`), and
+neither is of an app a bring-in reads through. `linked` is the source's `doc_type`
+`LinkedApplication`; `remote` is an app the list holds that the application resource answers 404
+for.
+
+`alignHqForms` pairs menus and forms by position, held by the menu's `unique_id` where the source
+stores one and by each form's `xmlns`, a shadow form by its parent's; any disagreement is kind
+`answer-unreadable`. A mirror menu stores a null `case_type` and no forms, a shadow form a null
+`xmlns` and `shadow_parent_form_id`, and a menu may store no `unique_id`. Only a bring-in admits
+the three (`admit: "any"`); a publish's read refuses them as before. A menu HQ returns as an
+error is `not-summarized`; `notSummarizedMenus` says whether that is a finding at each menu or
+one at the app, and HQ's message goes to the log and to no person.
+
+A deadline is a timeout on one call, through its last byte. None is shared between a bring-in's
+calls and none is added to another: the application resource and the source have
+`HQ_APP_BODY_DEADLINE_MS` each, and every other read the default. A bring-in's caller stops its
+reads early with `cancel`, which is no deadline. An app body over `HQ_BRING_IN_APP_MAX_BYTES` is
+refused before it is parsed. The throttled reads of one bring-in run one at a time. For a
+bring-in, a table's row read and the place list stop once they are certain to pass Nova's limit
+(`stopPast`).
+
+`client.ts::readHqSaveOnlyEditedAnswers` reads the one flag a bring-in needs of the source
+project space, by the two lists the publish probe reads, and answers a failure where a publish's
+probe would answer `unverified`: a bring-in never guesses whether a write is saved only if
+changed.
+
+`hq/media.ts::readHqMediaFile` reads one file from the address HQ gives its media map item
+(`hqmedia/models.py::HQMediaMapItem.url`), bounded by the caller's limit, under a deadline of its
+own, with one resend. It returns bytes and the declared type; `lib/media` says what a file is.
+`HQ_MEDIA_READ_CONCURRENCY` and `HQ_MEDIA_IN_FLIGHT_MAX_BYTES` bound how many files, and how
+many bytes of them at their limits, are in flight at once.
+
+HQ's answers to these reads are retained under `proof/hq-reads/reading/` and held byte for byte
+by `proof/hq/test_retained_reads.py`.
 
 ### Typed form expression emission
 
@@ -1190,7 +1286,7 @@ The OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`
 
 `addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep: one splice-into-`<data>`/`<model>` path, one instance set their printed reads join, one `serializeXml` escaping authority.
 
-For a Connect app the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture`): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
+For a Connect app, and for an app whose project space holds `auto_gps_capture` on (`TargetFacts.autoGpsCapture`), the local block also captures location, as HQ's build does (`metaBlock.ts::addMetaBlock(xform, { captureLocation })`, with `captureLocation` the condition `expandDoc` uses for HQ's `auto_gps_capture` or that fact): `<cc:location/>` is the last child of `<orx:meta>`, after `<orx:drift/>`, and the model's last two children are `<orx:pollsensor event="xforms-ready" ref="/data/meta/location"/>` and `<bind nodeset="/data/meta/location" type="geopoint"/>`. A model holds one `pollsensor` or none, as `xform.py::XForm._add_meta_2` writes it.
 
 ### Form reads
 
@@ -1816,12 +1912,14 @@ unknown id, and 400 for an app deleted in HQ, whose source read still answers
 200 with a `doc_type` ending `-Deleted` (`app_manager/util.py::app_doc_types`)).
 An update never writes `multimedia_map`, `build_profiles`, `custom_base_url` or
 `practice_mobile_worker_id`, and Nova sends no `multimedia_map` in any mode.
+`readHqAppSource` reads `build_profiles` so that a publish can refuse to leave
+a profile naming a language the app no longer has (`targetBuildProfiles.ts`).
 Which of the two a publish does, and what happens to it
 afterwards, lives in `lib/deployment`:
 this package owns the HTTP calls, that one owns the lifecycle, the ownership
 ledger, and the setup artifact. The three reads a key CAN make about a
-published app (`readAppVersions`, `listAppBuilds`, `probeBuildProfile`) live
-here beside the writes. `probeBuildProfile`'s doc block states what that call
+published app (`readAppVersions`, `hq/application.ts::readHqApplication`,
+`probeBuildProfile`) live here beside the writes. `probeBuildProfile`'s doc block states what that call
 actually is: the catch-all `download_file` route handles it, not
 `download_odk_profile`, so it can regenerate a build's files, and naming a
 BUILD id is what keeps it on that build instead of falling through to
@@ -1841,7 +1939,7 @@ names. The file carries derived ids and no runtime URL, and a person who
 imports it makes a create that carries forms, so its form ids are HQ's and its
 menu ids and every `xmlns` are Nova's.
 
-A key is **not** one-project-per-user: an unscoped HQ key reaches every project space its owner belongs to. `discoverAccessibleDomains` lists them and probes app-level access in a bounded-concurrency window (an unbounded fan-out self-inflicts a 429 on big accounts). The upload *target* is chosen by `resolveUploadDomain` (`@/lib/db/domainResolution`) — explicit arg, else the sole space of a single-space key, else **error** (ambiguous) for a multi-space key (never silently the first space). There is no stored default: a multi-space key's target is a per-upload choice, and no path assumes one project space per key.
+A key is **not** one-project-per-user: an unscoped HQ key reaches every project space its owner belongs to. `discoverAccessibleDomains` lists them and probes app-level access in a bounded-concurrency window (an unbounded fan-out self-inflicts a 429 on big accounts). The project space an operation targets is chosen by `resolveHqDomain` (`@/lib/db/domainResolution`) — explicit arg, else the sole space of a single-space key, else **error** (ambiguous) for a multi-space key (never silently the first space). There is no stored default: a multi-space key's target is a per-upload choice, and no path assumes one project space per key.
 
 The import endpoints carry `@csrf_exempt` (`app_import_api.py`, live on all
 three servers since commcare-hq `b5dfe459`), so the client fetches no CSRF
@@ -1900,13 +1998,15 @@ fifteen other explicit settings, constants at today's device behavior, are
 seeded on HQ only where the target's profile holds no value (absent, null or
 empty) and never written over a value the target holds, because Nova does not
 yet hold them as settings an author sets, and writing over a person's choice
-in HQ would undo it at every publish; the local `.ccz` writes all seventeen.
+in HQ would undo it at every publish; the local `.ccz` writes the same
+seventeen the project space then holds (`keptProfile.ts::targetProfileProperties`).
 In `translations`, of the keys HQ generates Nova writes only
 `app.display.name` and `homescreen.title`, each only in a language whose
 localized app name differs from `appName`, and it writes every current
 language's name; `android.package.name.*`, every runtime UI-catalog key and
 any other key keep HQ's value verbatim, and a generated key is never carried
-(`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides.
+(`appStringKeys.ts::translationKeyOwner`): Nova holds no UI string overrides,
+and a `.ccz` made for the project space carries the ones it holds.
 `add_ons` sets needed slugs `true` and keeps the rest; `auto_gps_capture` is
 `true` for a Connect app and otherwise omitted. `profile`, `translations` and
 `add_ons` are the three keys an update projects against the target's current

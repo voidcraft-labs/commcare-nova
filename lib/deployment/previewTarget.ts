@@ -6,6 +6,7 @@
 // it read the same rule.
 
 import { deploymentDisplaysAsReached } from "./stateMachine";
+import type { DeploymentTargetKey } from "./store";
 import type { DeploymentRecord } from "./types";
 
 /** What Preview shows for `commcare_project`, and why. */
@@ -28,7 +29,7 @@ export type PreviewDeploymentTarget =
  * deployment refused BEFORE its app got there still counts for nothing.
  *
  * Several qualifying deployments produce `ambiguous` rather than a pick.
- * The same refusal `resolveUploadDomain` makes for an upload target: with
+ * The same refusal `resolveHqDomain` makes for an upload target: with
  * two real answers, choosing one silently would make a condition on
  * `commcare_project` pass in Preview and fail for half the workers.
  */
@@ -63,4 +64,33 @@ export function previewProjectSpace(
 	target: PreviewDeploymentTarget,
 ): string | null {
 	return target.kind === "known" ? target.domain : null;
+}
+
+/**
+ * The one project space whose kept settings Preview plays, or `null` for
+ * none or several.
+ *
+ * The same rule that names `commcare_project`: a deployment counts once it
+ * displays as uploaded, and with two real answers Preview takes neither.
+ * It tells deployments apart by server and domain together, where the
+ * project space's name tells them apart by the domain alone, because the
+ * facts are one deployment's: one domain on two servers is two project
+ * spaces that may hold different settings.
+ */
+export function resolvePreviewFactsTarget(
+	deployments: readonly Pick<
+		DeploymentRecord,
+		"state" | "resumePhase" | "server" | "domain"
+	>[],
+): DeploymentTargetKey | null {
+	const targets = new Map<string, DeploymentTargetKey>();
+	for (const deployment of deployments) {
+		if (!deploymentDisplaysAsReached(deployment, "uploaded")) continue;
+		targets.set(JSON.stringify([deployment.server, deployment.domain]), {
+			server: deployment.server,
+			domain: deployment.domain,
+		});
+	}
+	const [only, ...others] = targets.values();
+	return only !== undefined && others.length === 0 ? only : null;
 }

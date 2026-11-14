@@ -432,6 +432,11 @@ export interface CaseGroup {
  */
 export interface GroupedQueryResult {
 	readonly groups: readonly CaseGroup[];
+	/**
+	 * The page's case ids in the list's own order, the order the rows held before they were
+	 * clustered. With it a reader can re-cluster whatever a filter leaves of the page.
+	 */
+	readonly listOrder: readonly string[];
 	readonly totalGroups: number;
 	readonly totalRows: number;
 }

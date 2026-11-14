@@ -10,33 +10,67 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import {
+	type RetainedHqAnswer,
 	type RetainedPublishRead,
 	replyRetained,
 	retainedBodyJson,
 	retainedBodyText,
+	retainedGroupRead,
 	retainedPublishRead,
+	retainedReadingRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { readHqAppSource } from "../hq/appSource";
+import { type ReadHqAppSourceOptions, readHqAppSource } from "../hq/appSource";
 
 const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
 const HOST = "https://india.commcarehq.org";
 const PATH = "/a/clinic/apps/source/working-app/";
-const read = (options?: { maxBytes?: number }) =>
+const read = (options?: ReadHqAppSourceOptions) =>
 	readHqAppSource(CREDS, "clinic", "working-app", options);
+const MALFORMED = { success: false, status: 502, cause: "malformed" };
 afterEach(() => vi.useRealTimers());
 
-function serve(
-	peer: Parameters<Parameters<typeof withHttpPeer>[0]>[0],
-	name: RetainedPublishRead,
-) {
+type Peer = Parameters<Parameters<typeof withHttpPeer>[0]>[0];
+
+function serve(peer: Peer, name: RetainedPublishRead) {
+	serveAnswer(peer, retainedPublishRead(name));
+}
+
+function serveAnswer(peer: Peer, answer: RetainedHqAnswer) {
 	replyRetained(
 		peer.get(HOST).intercept({
 			path: PATH,
 			method: "GET",
 			headers: { authorization: "ApiKey account:key" },
 		}),
-		retainedPublishRead(name),
+		answer,
 	);
+}
+
+/** A retained answer with its body changed. */
+function changed(
+	answer: RetainedHqAnswer,
+	change: (body: Record<string, unknown>) => void,
+): RetainedHqAnswer {
+	const body = structuredClone(retainedBodyJson(answer));
+	change(body);
+	return { ...answer, body: JSON.stringify(body) };
+}
+
+/** Read one answer under both modes, the default first. */
+async function readUnderBoth(answer: RetainedHqAnswer) {
+	return withHttpPeer(async (peer) => {
+		serveAnswer(peer, answer);
+		serveAnswer(peer, answer);
+		const plain = await read();
+		const any = await read({ admit: "any" });
+		return { plain, any };
+	});
+}
+
+function sourceOf(result: Awaited<ReturnType<typeof read>>) {
+	if (!("kind" in result) || result.kind !== "source")
+		throw new Error(`Expected a source, got ${JSON.stringify(result)}`);
+	return result.source;
 }
 
 /** The retained live read with one change, for the shape refusals. */
@@ -119,15 +153,15 @@ describe("readHqAppSource", () => {
 		});
 	});
 
-	it.each(["source-missing", "source-deleted"] as const)(
-		"reads %s as gone",
-		async (name) => {
-			await withHttpPeer(async (peer) => {
-				serve(peer, name);
-				expect(await read()).toEqual({ kind: "gone" });
-			});
-		},
-	);
+	it.each([
+		["source-missing", false],
+		["source-deleted", true],
+	] as const)("reads %s as gone, deleted %s", async (name, deleted) => {
+		await withHttpPeer(async (peer) => {
+			serve(peer, name);
+			expect(await read()).toEqual({ kind: "gone", deleted });
+		});
+	});
 
 	it("reads a linked app as unsupported, naming its doc_type", async () => {
 		await withHttpPeer(async (peer) => {
@@ -217,6 +251,280 @@ describe("readHqAppSource", () => {
 		},
 	);
 
+	it("reads the app's name, when HQ last saved it and its media map as stored", async () => {
+		const answer = retainedGroupRead("case-list-inline/app-source-after-media");
+		const body = retainedBodyJson(answer);
+		const { plain } = await readUnderBoth(answer);
+		const source = sourceOf(plain);
+		expect(source.name).toBe(body.name);
+		expect(source.lastModified).toBe(body.last_modified);
+		const [[path, entry]] = Object.entries(
+			body.multimedia_map as Record<string, Record<string, unknown>>,
+		);
+		expect(source.multimediaMap).toEqual([
+			{
+				path,
+				multimediaId: entry.multimedia_id,
+				mediaType: entry.media_type,
+				unreadable: false,
+			},
+		]);
+		expect(source.buildProfiles).toEqual([]);
+	});
+
+	it("keeps a media map whose entries name no file or one Nova cannot ask for, and still reads the source", async () => {
+		const answer = retainedGroupRead("case-list-inline/app-source-after-media");
+		const map = retainedBodyJson(answer).multimedia_map as Record<
+			string,
+			Record<string, unknown>
+		>;
+		const [[path, entry]] = Object.entries(map);
+		const { plain } = await readUnderBoth(
+			changed(answer, (body) => {
+				body.multimedia_map = {
+					[path]: { ...entry, multimedia_id: "../other" },
+					"jr://file/commcare/no-id.png": { ...entry, multimedia_id: null },
+					"jr://file/commcare/odd-type.png": {
+						...entry,
+						media_type: "CommCareText",
+					},
+					"jr://file/commcare/no-object.png": "file",
+					"jr://file/commcare/kept.png": entry,
+				};
+			}),
+		);
+		expect(sourceOf(plain).multimediaMap).toEqual([
+			{ path, multimediaId: null, mediaType: null, unreadable: true },
+			{
+				path: "jr://file/commcare/no-id.png",
+				multimediaId: null,
+				mediaType: null,
+				unreadable: false,
+			},
+			{
+				path: "jr://file/commcare/odd-type.png",
+				multimediaId: null,
+				mediaType: null,
+				unreadable: true,
+			},
+			{
+				path: "jr://file/commcare/no-object.png",
+				multimediaId: null,
+				mediaType: null,
+				unreadable: true,
+			},
+			{
+				path: "jr://file/commcare/kept.png",
+				multimediaId: entry.multimedia_id,
+				mediaType: entry.media_type,
+				unreadable: false,
+			},
+		]);
+	});
+
+	it("reads no name, no save time and no media map where HQ sent none, and refuses nothing for them", async () => {
+		const { plain } = await readUnderBoth(
+			changed(retainedPublishRead("source-live"), (body) => {
+				body.name = 7;
+				delete body.last_modified;
+				body.multimedia_map = [];
+			}),
+		);
+		const source = sourceOf(plain);
+		expect(source.name).toBeNull();
+		expect(source.lastModified).toBeNull();
+		expect(source.multimediaMap).toBeNull();
+	});
+
+	it.each(["hq-built/app-source", "reading/source-shadow"])(
+		"refuses %s under the default and reads it with its mirror menus and shadow form under admit any",
+		async (file) => {
+			const answer =
+				file === "reading/source-shadow"
+					? retainedReadingRead("source-shadow")
+					: retainedGroupRead(file);
+			const sent = retainedBodyJson(answer).modules as Record<
+				string,
+				unknown
+			>[];
+			const { plain, any } = await readUnderBoth(answer);
+			expect(plain).toEqual(MALFORMED);
+			const source = sourceOf(any);
+			expect(source.modules.map((module) => module.docType)).toEqual(
+				sent.map((module) => module.doc_type),
+			);
+			for (const [i, module] of source.modules.entries()) {
+				expect(module.caseType).toBe(sent[i].case_type);
+				if (module.docType === "ShadowModule")
+					expect(module.caseType).toBeNull();
+			}
+			const forms = source.modules.flatMap((module) => module.forms);
+			const shadow = forms.find((form) => form.docType === "ShadowForm");
+			if (shadow === undefined) throw new Error("Expected a shadow form");
+			expect(shadow.xmlns).toBeNull();
+			const parent = forms.find(
+				(form) => form.readUniqueId === shadow.shadowParentReadId,
+			);
+			expect(parent?.docType).toBe("AdvancedForm");
+			expect(parent?.xmlns).not.toBeNull();
+			for (const form of forms)
+				if (form !== shadow) expect(form.shadowParentReadId).toBeNull();
+		},
+	);
+
+	it("reads the two mirror menus of the shadow state with no case type", async () => {
+		const source = sourceOf(
+			(await readUnderBoth(retainedReadingRead("source-shadow"))).any,
+		);
+		const mirrors = source.modules.filter(
+			(module) => module.docType === "ShadowModule",
+		);
+		expect(mirrors).toHaveLength(2);
+		for (const mirror of mirrors)
+			expect(mirror).toMatchObject({ caseType: null, forms: [] });
+		const report = source.modules.find(
+			(module) => module.docType === "ReportModule",
+		);
+		expect(report?.caseType).toBe("");
+	});
+
+	it.each([
+		[
+			"removed",
+			(module: Record<string, unknown>) => {
+				delete module.unique_id;
+			},
+		],
+		[
+			"null",
+			(module: Record<string, unknown>) => {
+				module.unique_id = null;
+			},
+		],
+	])(
+		"refuses a menu whose unique_id is %s under the default and reads it with no id under admit any",
+		async (_, change) => {
+			const { plain, any } = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), (body) => {
+					change(firstModule(body));
+				}),
+			);
+			expect(plain).toEqual(MALFORMED);
+			expect(sourceOf(any).modules[0].uniqueId).toBeNull();
+		},
+	);
+
+	it("reads an empty unique_id as itself under the default and as no id under admit any", async () => {
+		const { plain, any } = await readUnderBoth(
+			changed(retainedPublishRead("source-live"), (body) => {
+				firstModule(body).unique_id = "";
+			}),
+		);
+		expect(sourceOf(plain).modules[0].uniqueId).toBe("");
+		expect(sourceOf(any).modules[0].uniqueId).toBeNull();
+	});
+
+	it.each([
+		[
+			"a numeric unique_id",
+			(body: Record<string, unknown>) => {
+				firstModule(body).unique_id = 7;
+			},
+		],
+		[
+			"a menu with no doc_type",
+			(body: Record<string, unknown>) => {
+				delete firstModule(body).doc_type;
+			},
+		],
+		[
+			"a numeric case_type",
+			(body: Record<string, unknown>) => {
+				firstModule(body).case_type = 7;
+			},
+		],
+	])(
+		"refuses %s under admit any as under the default",
+		async (name, change) => {
+			const { plain, any } = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), change),
+			);
+			expect(any).toEqual(MALFORMED);
+			if (name === "a menu with no doc_type")
+				expect(sourceOf(plain).modules[0].docType).toBe("");
+			else expect(plain).toEqual(MALFORMED);
+		},
+	);
+
+	it("reads a build profile HQ holds, with its languages", async () => {
+		const { plain, any } = await readUnderBoth(
+			retainedGroupRead(
+				"targeted-hq-side-state/app-source-after-buildProfiles",
+			),
+		);
+		const expected = [
+			{ id: "mandarin-only", name: "Mandarin", langs: ["zho"] },
+		];
+		expect(sourceOf(plain).buildProfiles).toEqual(expected);
+		expect(sourceOf(any).buildProfiles).toEqual(expected);
+	});
+
+	it("reads an app with no build profile as none", async () => {
+		const { plain } = await readUnderBoth(
+			changed(retainedPublishRead("source-live"), (body) => {
+				body.build_profiles = {};
+			}),
+		);
+		expect(sourceOf(plain).buildProfiles).toEqual([]);
+	});
+
+	it.each([
+		[
+			"no build_profiles",
+			(body: Record<string, unknown>) => {
+				delete body.build_profiles;
+			},
+		],
+		[
+			"a profile with no langs list",
+			(body: Record<string, unknown>) => {
+				body.build_profiles = { mandarin: { name: "Mandarin", langs: "zho" } };
+			},
+		],
+		[
+			"build_profiles as a list",
+			(body: Record<string, unknown>) => {
+				body.build_profiles = [{ name: "Mandarin", langs: ["zho"] }];
+			},
+		],
+		[
+			"a profile whose langs hold a number",
+			(body: Record<string, unknown>) => {
+				body.build_profiles = { mandarin: { name: "Mandarin", langs: [7] } };
+			},
+		],
+	])(
+		"refuses a source with %s under both modes, never reading it as no profile",
+		async (_, change) => {
+			const { plain, any } = await readUnderBoth(
+				changed(retainedPublishRead("source-live"), change),
+			);
+			expect(plain).toEqual(MALFORMED);
+			expect(any).toEqual(MALFORMED);
+		},
+	);
+
+	it("reads a profile with no string name as unnamed", async () => {
+		const { plain } = await readUnderBoth(
+			changed(retainedPublishRead("source-live"), (body) => {
+				body.build_profiles = { mandarin: { name: null, langs: ["zho"] } };
+			}),
+		);
+		expect(sourceOf(plain).buildProfiles).toEqual([
+			{ id: "mandarin", name: "", langs: ["zho"] },
+		]);
+	});
+
 	it("reads Web Apps as off and no logo slot where HQ holds them so", async () => {
 		await withHttpPeer(async (peer) => {
 			peer
@@ -249,7 +557,7 @@ describe("readHqAppSource", () => {
 			expect(await read({ maxBytes: bytes - 1 })).toEqual({
 				success: false,
 				status: 502,
-				cause: "malformed",
+				cause: "too-large",
 			});
 			expect(await read({ maxBytes: bytes })).toMatchObject({
 				kind: "source",

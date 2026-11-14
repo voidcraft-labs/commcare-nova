@@ -8,11 +8,13 @@
 
 import { expect, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
+import { rowsMatchingFilterText } from "@/components/preview/shared/listFilter";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import {
 	asMediaAssetId,
+	type CaseListOrderPlan,
+	type Column,
 	hiddenSearchInputDef,
 	linkColumn,
 	plainColumn,
@@ -521,26 +523,20 @@ export const PLATFORM_MODEL_CHECKS = {
 	"hidden-column-searchable": () => {
 		const village = plainColumn(VILLAGE, "village", "Village");
 		expect(
-			rowMatchesFilterText(
-				[],
-				row({ village: "Riverside" }),
-				"riverside",
-				DISPLAY,
-				{
-					fields: [
-						{
-							column: village,
-							position: 0,
-							hidden: true,
-							wire: "property",
-							joinText: "village",
-							comparator: "text",
-						},
-					],
-					carriers: [],
-					authored: [],
-				},
-			),
+			filterKeepsRow([], row({ village: "Riverside" }), "riverside", DISPLAY, {
+				fields: [
+					{
+						column: village,
+						position: 0,
+						hidden: true,
+						wire: "property",
+						joinText: "village",
+						comparator: "text",
+					},
+				],
+				carriers: [],
+				authored: [],
+			}),
 		).toBe(true);
 	},
 
@@ -771,3 +767,20 @@ export const PLATFORM_MODEL_CHECKS = {
 >;
 
 export type PlatformModelCheckId = keyof typeof PLATFORM_MODEL_CHECKS;
+
+/** Whether the list's filter, exact and as Web Apps runs it, keeps the row. */
+function filterKeepsRow(
+	columns: readonly Column[],
+	row: CaseRowWithCalculated,
+	filterText: string,
+	context: ColumnDisplayContext,
+	plan?: CaseListOrderPlan,
+): boolean {
+	return (
+		rowsMatchingFilterText(columns, [row], filterText, context, plan, {
+			fuzzy: false,
+			rules: previewPlatformRules("web-apps").listFilter,
+			edited: true,
+		}).length === 1
+	);
+}

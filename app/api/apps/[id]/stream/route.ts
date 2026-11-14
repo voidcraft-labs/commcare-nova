@@ -45,6 +45,12 @@
  *                                on the notify every deployment write sends,
  *                                so a co-member's publish or Check status
  *                                reaches every open tab. Seq-less.
+ *   event: preview-target-facts  what that one project space holds of the
+ *                                kept settings Preview plays (fuzzy search
+ *                                in a case list, the asterisk on a required
+ *                                question), or `null`. Sent on connect and
+ *                                on that same notify when the facts changed.
+ *                                Seq-less.
  *   event: reload                replay is impossible (below the retention
  *                                efficiency bound or a gap), or a server-only
  *                                change requires a fresh snapshot handoff; the
@@ -68,6 +74,7 @@ import {
 	admitMutationFrame,
 	type MutationFrame,
 } from "@/lib/collab/mutationFrame";
+import type { PreviewTargetFactsFrame } from "@/lib/collab/previewTargetFactsFrame";
 import type { RevocationReason } from "@/lib/collab/revocationFrame";
 import { isUserActive } from "@/lib/db/api-keys";
 import {
@@ -99,10 +106,14 @@ import {
 	type AppLifecycleStatus,
 	isCollaborationFrameKind,
 } from "@/lib/db/types";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import {
+	previewProjectSpaceFor,
+	previewTargetFactsFor,
+} from "@/lib/deployment/previewSpace";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	nextPersistedSequence,
 	safePersistedSequence,
@@ -607,25 +618,42 @@ function openStream(args: {
 					 * co-member's publish or Check status takes into every open
 					 * tab. The scope re-read keeps the emit authorized against
 					 * the CURRENT Project, same as the status lane; the resolver
-					 * applies the ambiguity rule the server alone can. `null`
-					 * versus "not yet announced" are distinct here, so the
-					 * connect-time emit still fires for an app on no project
-					 * space. */
+					 * applies the ambiguity rule the server alone can. The same
+					 * run resolves what that one project space holds of the
+					 * kept settings Preview plays, so a publish or a refresh
+					 * that changes them reaches every open tab too. Each frame
+					 * is sent only when its value differs from the last one
+					 * announced; "not yet announced" is distinct from `null`,
+					 * so the connect-time emits still fire for an app on no
+					 * project space. */
 					let announcedProjectSpace: string | null | undefined;
+					let announcedTargetFacts: string | undefined;
 					deploymentPump = createCoalescedStreamPump({
 						async run() {
 							if (closed) return;
 							const fresh = await reauthorizeStreamScope(appId, userId);
 							if (closed) return;
-							const projectSpace = await previewProjectSpaceFor({
+							const scope = {
 								appId,
 								projectId: fresh.projectId,
 								role: fresh.role,
 								actorUserId: userId,
-							});
-							if (closed || projectSpace === announcedProjectSpace) return;
-							announcedProjectSpace = projectSpace;
-							send("preview-project-space", { projectSpace });
+							};
+							const [projectSpace, facts] = await Promise.all([
+								previewProjectSpaceFor(scope),
+								previewTargetFactsFor(scope),
+							]);
+							if (closed) return;
+							if (projectSpace !== announcedProjectSpace) {
+								announcedProjectSpace = projectSpace;
+								send("preview-project-space", { projectSpace });
+							}
+							const frame: PreviewTargetFactsFrame = { facts };
+							const factsText = canonicalJsonText(frame);
+							if (factsText !== announcedTargetFacts) {
+								announcedTargetFacts = factsText;
+								send("preview-target-facts", frame);
+							}
 						},
 						onError(err) {
 							if (err instanceof AppAccessError) {

@@ -1163,6 +1163,62 @@ describe("preview-project-space frame → subscriber fan-out", () => {
 	});
 });
 
+describe("preview-target-facts frame → subscriber fan-out", () => {
+	it("fans frames out, replays the latest to a late subscriber, and keeps the held value on garbage", () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(toPersistableDoc(emptyDoc()));
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 0, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		const stream = FakeEventSource.instances[0];
+
+		const seen: unknown[] = [];
+		runtime.subscribePreviewTargetFacts((facts) => seen.push(facts));
+		const on = { fuzzyListSearch: true, markRequiredQuestions: true };
+
+		stream.emit("preview-target-facts", "not json");
+		stream.emit(
+			"preview-target-facts",
+			JSON.stringify({ facts: { fuzzyListSearch: true } }),
+		);
+		/* The project space's frame is another channel: it moves no facts. */
+		stream.emit(
+			"preview-project-space",
+			JSON.stringify({ projectSpace: "acme" }),
+		);
+		expect(seen).toEqual([]);
+
+		stream.emit("preview-target-facts", JSON.stringify({ facts: on }));
+		stream.emit("preview-target-facts", "{");
+		stream.emit("preview-target-facts", JSON.stringify({ facts: null }));
+		expect(seen).toEqual([on, null]);
+
+		const late: unknown[] = [];
+		const unsubscribe = runtime.subscribePreviewTargetFacts((facts) =>
+			late.push(facts),
+		);
+		expect(late).toEqual([null]);
+		unsubscribe();
+		stream.emit("preview-target-facts", JSON.stringify({ facts: on }));
+		expect(late).toEqual([null]);
+		expect(seen).toEqual([on, null, on]);
+
+		runtime.suspend();
+	});
+});
+
 describe("native fetch cancellation and resumable state", () => {
 	it.each(["headers", "body"] as const)(
 		"suspending during %s preserves edits through an interrupted read and viewer reauthorization",

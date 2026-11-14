@@ -5,7 +5,7 @@ import { requireSession } from "@/lib/auth-utils";
 import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { getHqCredentials } from "@/lib/db/settings";
 import { projectSpaceConfirmations } from "@/lib/deployment/service";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -16,7 +16,7 @@ import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
 vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
-vi.mock("@/lib/db/settings", () => ({ getCredentialsForUpload: vi.fn() }));
+vi.mock("@/lib/db/settings", () => ({ getHqCredentials: vi.fn() }));
 /* The confirmation rows read the deployment ledger; their derivation and
  * state are `publishGates.postgres.test.ts`'s and `confirmations.ts`'s.
  * This route passes them through beside the report. */
@@ -68,7 +68,7 @@ function caseSearchDoc() {
 beforeEach(() => {
 	vi.mocked(requireSession).mockReset();
 	vi.mocked(resolveAppAccess).mockReset();
-	vi.mocked(getCredentialsForUpload).mockReset();
+	vi.mocked(getHqCredentials).mockReset();
 	vi.mocked(probeHqProjectSpaceCompatibility).mockReset();
 	vi.mocked(projectSpaceConfirmations).mockReset();
 	vi.mocked(projectSpaceConfirmations).mockResolvedValue({
@@ -110,7 +110,7 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 		expect(body.project_space_compatibility.target_domain).toBeUndefined();
 		expect(JSON.stringify(body)).not.toMatch(/slug|namespace/);
 		expect(resolveAppAccess).toHaveBeenCalledWith("app-1", "u1", "view");
-		expect(getCredentialsForUpload).not.toHaveBeenCalled();
+		expect(getHqCredentials).not.toHaveBeenCalled();
 		expect(probeHqProjectSpaceCompatibility).not.toHaveBeenCalled();
 		expect(body).toMatchObject({
 			plan_features: [],
@@ -153,7 +153,7 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 	});
 
 	it("blocks a selected project space when required app support is missing", async () => {
-		vi.mocked(getCredentialsForUpload).mockResolvedValueOnce({
+		vi.mocked(getHqCredentials).mockResolvedValueOnce({
 			ok: true,
 			creds: { username: "agent", apiKey: "secret", server: "india" },
 			domain: { name: "clinic-space", displayName: "Clinic Space" },
@@ -195,7 +195,7 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 			],
 		});
 		expect(JSON.stringify(body)).not.toMatch(/slug|namespace/);
-		expect(getCredentialsForUpload).toHaveBeenCalledWith("u1", "clinic-space");
+		expect(getHqCredentials).toHaveBeenCalledWith("u1", "clinic-space");
 		expect(vi.mocked(projectSpaceConfirmations).mock.calls[0]?.[2]).toEqual({
 			server: "india",
 			domain: "clinic-space",

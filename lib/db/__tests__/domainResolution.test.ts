@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { CommCareDomain } from "@/lib/commcare/client";
-import { resolveUploadDomain } from "@/lib/db/domainResolution";
+import { resolveHqDomain } from "@/lib/db/domainResolution";
 
 const ACME: CommCareDomain = { name: "acme", displayName: "ACME Research" };
 const PROD: CommCareDomain = {
@@ -21,16 +21,16 @@ const PROD: CommCareDomain = {
 };
 const DEMO: CommCareDomain = { name: "demo", displayName: "Demo Space" };
 
-describe("resolveUploadDomain — single reachable space", () => {
+describe("resolveHqDomain — single reachable space", () => {
 	it("returns the sole space with no request (zero friction)", () => {
-		const r = resolveUploadDomain({ availableDomains: [ACME] });
+		const r = resolveHqDomain({ availableDomains: [ACME] });
 		expect(r).toEqual({ ok: true, domain: ACME });
 	});
 });
 
-describe("resolveUploadDomain — explicit request wins", () => {
+describe("resolveHqDomain — explicit request wins", () => {
 	it("returns the requested space when reachable", () => {
-		const r = resolveUploadDomain({
+		const r = resolveHqDomain({
 			availableDomains: [ACME, PROD, DEMO],
 			requested: "connect-ace-prod",
 		});
@@ -38,7 +38,7 @@ describe("resolveUploadDomain — explicit request wins", () => {
 	});
 
 	it("returns not_authorized (with the reachable set) when the request is unreachable", () => {
-		const r = resolveUploadDomain({
+		const r = resolveHqDomain({
 			availableDomains: [ACME, PROD],
 			requested: "some-other-space",
 		});
@@ -50,7 +50,7 @@ describe("resolveUploadDomain — explicit request wins", () => {
 	});
 
 	it("treats a whitespace-only request as no request (does not fail authorization)", () => {
-		const r = resolveUploadDomain({
+		const r = resolveHqDomain({
 			availableDomains: [ACME],
 			requested: "   ",
 		});
@@ -58,9 +58,9 @@ describe("resolveUploadDomain — explicit request wins", () => {
 	});
 });
 
-describe("resolveUploadDomain — ambiguous (the bug this kills)", () => {
+describe("resolveHqDomain — ambiguous (the bug this kills)", () => {
 	it("returns ambiguous for a multi-space key with no request", () => {
-		const r = resolveUploadDomain({ availableDomains: [ACME, PROD, DEMO] });
+		const r = resolveHqDomain({ availableDomains: [ACME, PROD, DEMO] });
 		expect(r).toEqual({
 			ok: false,
 			reason: "ambiguous",

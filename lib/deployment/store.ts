@@ -6,6 +6,10 @@ import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import {
+	type TargetFacts,
+	targetFactsFromSource,
+} from "@/lib/commcare/targetFacts";
+import {
 	type AppDatabase,
 	type AppDeploymentResourcesTable,
 	type AppDeploymentsTable,
@@ -929,6 +933,102 @@ export async function recordCreatedRemoteApp(
 }
 
 /**
+ * Replace a deployment's app baseline with a fresh read that compared equal to it.
+ *
+ * The read was compared outside any transaction, so the write states its
+ * precondition against the row as it stands under the lock: the stored
+ * baseline is still the one the read was compared with (same HQ app, same
+ * digest, an origin that holds a read), it carries no later date than the
+ * read, and the live app mapping still names that app. A publish writes its
+ * read-back under the same lock, so where one landed while HQ was answering,
+ * the digest or the date has moved and nothing is written (`superseded`).
+ * The date test covers the one case the digest cannot: a publish whose
+ * read-back equals the old baseline byte for byte. The read's `observedAt`
+ * is taken before its request was sent, so it never outdates a publish that
+ * imported after that moment.
+ *
+ * The stored origin and ownership are kept: they say how the app came to be
+ * there and what Nova's upload owned in it, which a read without a publish
+ * does not change. A stored discard record is kept too.
+ */
+export async function recordRefreshedAppBaseline(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	input: {
+		readonly remoteAppId: string;
+		/** The `sourceDigest` of the baseline the read was compared with. */
+		readonly comparedDigest: string;
+		/** The fresh read: gzip, bytes, digest and `observedAt`. */
+		readonly read: Pick<
+			AppBaselineWrite,
+			"sourceGzip" | "sourceBytes" | "sourceDigest" | "observedAt"
+		>;
+	},
+): Promise<{
+	readonly outcome: "written" | "superseded";
+	readonly deployment: DeploymentWithResources;
+}> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			const stored = await tx
+				.selectFrom("app_deployment_baselines")
+				.select([
+					"remote_app_id",
+					"origin",
+					"source_digest",
+					"ownership",
+					"observed_at",
+				])
+				.where("deployment_id", "=", row.id)
+				.executeTakeFirst();
+			const liveMapping = await tx
+				.selectFrom("app_deployment_resources")
+				.select("remote_id")
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", "app")
+				.where("nova_resource_id", "=", scope.appId)
+				.where("superseded_at", "is", null)
+				.executeTakeFirst();
+			const ownership =
+				stored === undefined ? null : appOwnershipFromRow(stored.ownership);
+			const origin = stored?.origin;
+			if (
+				stored === undefined ||
+				stored.remote_app_id !== input.remoteAppId ||
+				(origin !== "push" && origin !== "cutover") ||
+				stored.source_digest !== input.comparedDigest ||
+				stored.observed_at.getTime() > Date.parse(input.read.observedAt) ||
+				ownership === null ||
+				liveMapping?.remote_id !== input.remoteAppId
+			) {
+				return {
+					outcome: "superseded",
+					deployment: await loadWithinTransaction(tx, row.id),
+				};
+			}
+			await writeAppBaseline(tx, row.id, scope, {
+				origin,
+				remoteAppId: input.remoteAppId,
+				sourceGzip: input.read.sourceGzip,
+				sourceBytes: input.read.sourceBytes,
+				sourceDigest: input.read.sourceDigest,
+				ownership,
+				observedAt: input.read.observedAt,
+				discard: null,
+			});
+			await notifyAppDeployments(tx, scope.appId);
+			return {
+				outcome: "written",
+				deployment: await loadWithinTransaction(tx, row.id),
+			};
+		},
+	);
+}
+
+/**
  * Upsert the one app baseline of a deployment, inside a caller's
  * transaction.
  *
@@ -1130,21 +1230,53 @@ export async function readAppBaseline(
 		observedBy: row.observed_by,
 	};
 	if (row.origin === "unread") return { origin: "unread", ...observed };
-	if (
-		row.origin !== "create" &&
-		row.origin !== "push" &&
-		row.origin !== "cutover"
-	) {
-		throw new Error(
-			`Deployment ${row.deployment_id} stores an app baseline of origin "${row.origin}", which Nova does not know.`,
-		);
+	const origin = knownReadOrigin(row.deployment_id, row.origin);
+	const verified = verifiedBaselineSource(row);
+	if (verified === null || row.source_digest === null) {
+		return { origin: "unread", ...observed };
 	}
-	const unverified = (reason: string): AppBaseline => {
+	return {
+		origin,
+		...observed,
+		source: verified.source,
+		sourceDigest: row.source_digest,
+		ownership: verified.ownership,
+	};
+}
+
+/** The origin of a stored baseline that holds a read, or a throw for one Nova does not know. */
+function knownReadOrigin(
+	deploymentId: string,
+	origin: string,
+): "create" | "push" | "cutover" {
+	if (origin === "create" || origin === "push" || origin === "cutover") {
+		return origin;
+	}
+	throw new Error(
+		`Deployment ${deploymentId} stores an app baseline of origin "${origin}", which Nova does not know.`,
+	);
+}
+
+/**
+ * Gunzip, check the digest, parse the JSON and read the ownership of one
+ * stored baseline row.
+ *
+ * A row that does not verify is no read Nova can use: it is logged and
+ * answers null, which `readAppBaseline` reports as `unread` and
+ * `readTargetFacts` as no facts.
+ */
+function verifiedBaselineSource(row: {
+	readonly deployment_id: string;
+	readonly source_gzip: Buffer | null;
+	readonly source_digest: string | null;
+	readonly ownership: unknown;
+}): { readonly source: unknown; readonly ownership: AppOwnership } | null {
+	const unverified = (reason: string): null => {
 		log.error("[deployment] app baseline does not verify", undefined, {
 			deploymentId: row.deployment_id,
 			reason,
 		});
-		return { origin: "unread", ...observed };
+		return null;
 	};
 	if (row.source_gzip === null || row.source_digest === null) {
 		return unverified("missing source");
@@ -1166,13 +1298,134 @@ export async function readAppBaseline(
 	}
 	const ownership = appOwnershipFromRow(row.ownership);
 	if (ownership === null) return unverified("ownership");
-	return {
-		origin: row.origin,
-		...observed,
-		source,
-		sourceDigest: row.source_digest,
-		ownership,
-	};
+	return { source, ownership };
+}
+
+/** At most this many projections are held per instance. */
+const TARGET_FACTS_CACHE_LIMIT = 64;
+
+/**
+ * Projections already made, keyed by the row, the bytes its digest names,
+ * the ownership of `auto_gps_capture` and whether the app was brought in:
+ * everything the projection reads but the date, which each read applies.
+ * The digest names the bytes, so an entry is never stale; the limit bounds
+ * the memory an instance spends. The oldest entry leaves first, and a hit
+ * moves its entry to the newest place.
+ */
+const targetFactsCache = new Map<string, TargetFacts | null>();
+
+function targetFactsCacheKey(
+	deploymentId: string,
+	sourceDigest: string,
+	novaOwnsAutoGpsCapture: boolean,
+	adopted: boolean,
+): string {
+	return [
+		deploymentId,
+		sourceDigest,
+		novaOwnsAutoGpsCapture ? "nova-gps" : "target-gps",
+		adopted ? "adopted" : "created",
+	].join("\u0000");
+}
+
+function rememberTargetFacts(key: string, facts: TargetFacts | null): void {
+	targetFactsCache.delete(key);
+	targetFactsCache.set(key, facts);
+	while (targetFactsCache.size > TARGET_FACTS_CACHE_LIMIT) {
+		const oldest = targetFactsCache.keys().next();
+		if (oldest.done === true) break;
+		targetFactsCache.delete(oldest.value);
+	}
+}
+
+/**
+ * What the project space holds of the values Nova leaves to CommCare HQ,
+ * projected from this target's stored app baseline, or null where there is
+ * no baseline, it is `unread` or a shell's, or it does not verify.
+ *
+ * `view`, where `readAppBaseline` takes `edit`: this returns the typed
+ * projection and never the source, and every value of it is one a viewer's
+ * own `.ccz` carries. It reads in two steps so a page load does not unzip
+ * the source each time: the row without its bytes first, then the bytes
+ * only for a projection this instance has not made before.
+ */
+export async function readTargetFacts(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<TargetFacts | null> {
+	if (!roleAllowsApp(scope.role, "view")) throw deploymentNotFound();
+	const db = await getAppDb();
+	const row = await db
+		.selectFrom("app_deployment_baselines as b")
+		.innerJoin("app_deployments as d", "d.id", "b.deployment_id")
+		.leftJoin("app_deployment_resources as r", (join) =>
+			join
+				.onRef("r.deployment_id", "=", "d.id")
+				.on("r.kind", "=", "app")
+				.on("r.superseded_at", "is", null),
+		)
+		.select([
+			"b.deployment_id",
+			"b.origin",
+			"b.source_digest",
+			"b.ownership",
+			"b.observed_at",
+			"r.ownership as app_ownership",
+		])
+		.where("d.app_id", "=", scope.appId)
+		.where("d.project_id", "=", scope.projectId)
+		.where("d.server", "=", target.server)
+		.where("d.domain", "=", target.domain)
+		.executeTakeFirst();
+	if (row === undefined || row.origin === "unread") return null;
+	if (knownReadOrigin(row.deployment_id, row.origin) === "create") return null;
+	const observedAt = row.observed_at.toISOString();
+	const adopted = row.app_ownership === "adopted";
+	const ownership = appOwnershipFromRow(row.ownership);
+	if (row.source_digest !== null && ownership !== null) {
+		const key = targetFactsCacheKey(
+			row.deployment_id,
+			row.source_digest,
+			ownership.autoGpsCapture,
+			adopted,
+		);
+		if (targetFactsCache.has(key)) {
+			const facts = targetFactsCache.get(key) ?? null;
+			rememberTargetFacts(key, facts);
+			return facts === null ? null : { ...facts, observedAt };
+		}
+	}
+
+	const bytes = await db
+		.selectFrom("app_deployment_baselines")
+		.select(["source_gzip", "source_digest", "ownership"])
+		.where("deployment_id", "=", row.deployment_id)
+		.executeTakeFirst();
+	/* A baseline rewritten between the two reads is a newer read, projected
+	 * on the next call and never paired with this row's date. */
+	if (bytes === undefined || bytes.source_digest !== row.source_digest) {
+		return null;
+	}
+	const verified = verifiedBaselineSource({
+		deployment_id: row.deployment_id,
+		...bytes,
+	});
+	if (verified === null || bytes.source_digest === null) return null;
+	const facts = targetFactsFromSource(verified.source, {
+		observedAt,
+		novaOwnsAutoGpsCapture: verified.ownership.autoGpsCapture,
+		adopted,
+	});
+	rememberTargetFacts(
+		targetFactsCacheKey(
+			row.deployment_id,
+			bytes.source_digest,
+			verified.ownership.autoGpsCapture,
+			adopted,
+		),
+		facts,
+	);
+	return facts;
 }
 
 function stringList(value: unknown): readonly string[] | null {

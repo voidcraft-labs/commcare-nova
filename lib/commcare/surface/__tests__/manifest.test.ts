@@ -436,6 +436,109 @@ describe("the instance reads Nova's expressions hold", () => {
 	);
 });
 
+/**
+ * Keys the manifest splits by value, each with every entry that names it: a
+ * split that lost one side, or whose two sides came to share a class, would
+ * leave some of the key's values with no standing or with two.
+ */
+const SPLIT_KEYS: ReadonlyArray<{
+	readonly key: string;
+	readonly entries: Readonly<
+		Record<string, readonly [InventoryEntry["disposition"], string]>
+	>;
+}> = [
+	{
+		key: "schema:DetailColumn.case_tile_field",
+		entries: {
+			"menus-and-case-lists/case-tile-field-template-slot-on-icon-text-grid": [
+				"HELD-NEW",
+				"slot-on-a-template-tile",
+			],
+			"menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile": [
+				"INERT",
+				"blank-or-off-a-template-tile",
+			],
+		},
+	},
+	{
+		key: "schema:Application.build_profiles",
+		entries: {
+			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker":
+				["TARGET-OWNED", "empty"],
+			"application-and-settings/build-profiles-non-empty": [
+				"HELD-NEW",
+				"non-empty",
+			],
+		},
+	},
+	{
+		key: "schema:Application.auto_gps_capture",
+		entries: {
+			"application-and-settings/45-hq-auto-gps-capture": [
+				"HELD",
+				"connect-app",
+			],
+			"application-and-settings/45p-hq-auto-gps-capture-on-an-app-that-is-not-a-connect-app":
+				["TARGET-OWNED", "not-a-connect-app"],
+		},
+	},
+];
+
+/** The tile cell keys a list that is no custom tile holds, which one INERT entry takes. */
+const OFF_TILE_ENTRY =
+	"menus-and-case-lists/tile-cell-keys-on-a-list-that-is-not-a-tile";
+const TILE_CELL_KEYS = [
+	"grid_x",
+	"grid_y",
+	"width",
+	"height",
+	"horizontal_align",
+	"vertical_align",
+	"font_size",
+	"show_border",
+	"show_shading",
+].map((field) => `schema:DetailColumn.${field}`);
+
+describe("the keys split by value", () => {
+	it.each(SPLIT_KEYS)("splits $key between its entries", ({ key, entries }) => {
+		expect(MANIFEST.items.has(key)).toBe(true);
+		const naming = MANIFEST.inventory.filter((each) =>
+			each.surfaceKeys.includes(key),
+		);
+		expect(
+			Object.fromEntries(
+				naming.map((each) => [each.id, [each.disposition, each.valueClass]]),
+			),
+		).toEqual(entries);
+	});
+
+	it("gives the nine tile cell keys a class of their own off a custom tile", () => {
+		const off = entry(OFF_TILE_ENTRY);
+		expect(off.disposition).toBe("INERT");
+		expect([...off.surfaceKeys].sort()).toEqual([...TILE_CELL_KEYS].sort());
+		for (const key of TILE_CELL_KEYS) {
+			expect(MANIFEST.items.has(key)).toBe(true);
+			const others = MANIFEST.inventory.filter(
+				(each) => each.id !== OFF_TILE_ENTRY && each.surfaceKeys.includes(key),
+			);
+			expect(others.length).toBeGreaterThan(0);
+			for (const other of others) {
+				expect(other.valueClass).toBeDefined();
+				expect(other.valueClass).not.toBe(off.valueClass);
+			}
+		}
+	});
+
+	it("holds a form's xmlns with no slot change, since a form stores none", () => {
+		const xmlns = entry(
+			"forms-and-case-writes/xmlns-form-json-and-xform-data-node",
+		);
+		expect(xmlns.disposition).toBe("HELD");
+		if (xmlns.disposition !== "HELD") return;
+		expect(xmlns.slotChanges).toEqual([]);
+	});
+});
+
 describe("the manifest", () => {
 	it.each(Object.keys(RULES) as Rule[])("holds: %s", (rule) => {
 		expect(RULES[rule](MANIFEST)).toEqual([]);
@@ -709,6 +812,34 @@ describe("each rule refuses a planted entry the real manifest lacks", () => {
 			{ ...(entries[0] as Record<string, unknown>), noSurfaceKey: "" },
 		];
 		expect(inventoryEntriesFileSchema.safeParse(blank).success).toBe(false);
+	});
+
+	it("refuses a HELD entry that states a widen, naming the change", () => {
+		const raw = INVENTORY_AREAS.flatMap(
+			(area) => readJson(`entries/${area}.json`) as Record<string, unknown>[],
+		);
+		const narrowing = raw.find(
+			(each) =>
+				each.disposition === "HELD" &&
+				Array.isArray(each.slotChanges) &&
+				each.slotChanges.length > 0,
+		);
+		if (narrowing === undefined)
+			throw new Error(
+				"The entries hold no HELD entry with a slot change to plant a widen on.",
+			);
+		expect(inventoryEntriesFileSchema.safeParse([narrowing]).success).toBe(
+			true,
+		);
+		const widening = {
+			...narrowing,
+			slotChanges: [{ direction: "widen", text: "a planted widen" }],
+		};
+		const parsed = inventoryEntriesFileSchema.safeParse([widening]);
+		expect(parsed.success).toBe(false);
+		expect(parsed.error?.issues.map((issue) => issue.path)).toEqual([
+			[0, "slotChanges", 0, "direction"],
+		]);
 	});
 
 	describe("asks a subject and an owner where they belong, and nowhere else", () => {

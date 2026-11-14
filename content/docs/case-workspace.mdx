@@ -199,8 +199,10 @@ Four things to know before you turn it on:
 
 - **Choosing a group uses its first case.** With Several cases, each group has
   one checkbox and adds its first case. The other rows are there to read, not to
-  choose. If people need to choose every case separately, keep the ungrouped
-  tile.
+  choose. When someone filters the list, a group shows only the cases that
+  match, so its first case is the first match: the heading is drawn from it,
+  choosing the group uses it, and the groups are ordered by it. If people need
+  to choose every case separately, keep the ungrouped tile.
 - **Cases with no such connection all appear in one group.** That is what a
   device does with them, so Nova shows the same thing. The grouping settings
   tell you how many of your cases that is right now.
@@ -782,7 +784,8 @@ several-case workflow, its checkbox adds or removes the case and **Details**
 opens it without changing the selection. Other actions inside the row, such as
 calling a phone number or checking why a value is shown, work independently.
 The Results filter matches the same text people see, including formatted dates,
-calculated answers, and choice labels. If an older case contains a choice value
+calculated answers, and choice labels, and ignores accents, so "jose" finds
+"José" as it does on a device. If an older case contains a choice value
 that is no longer in the app, Nova leaves that saved value visible instead of
 hiding the data.
 Large result sets appear 50 cases at a time with **Previous** and **Next**.

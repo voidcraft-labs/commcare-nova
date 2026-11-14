@@ -62,10 +62,14 @@ import { requireSession } from "@/lib/auth-utils";
 import { isValidDomainSlug } from "@/lib/commcare/client";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import {
+	previewProjectSpaceFor,
+	previewTargetFactsFor,
+} from "@/lib/deployment/previewSpace";
 import { leftBehindResources } from "@/lib/deployment/resources";
 import {
 	currentResourceIdentities,
+	deploymentKept,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import {
@@ -341,6 +345,9 @@ export async function POST(req: NextRequest) {
 				 * HQ. Null on a refusal and for an app with no logo. */
 				logo_step: outcome.landed ? outcome.logoStep : null,
 				preview_project_space: await previewProjectSpaceFor(scope),
+				/* What that one project space keeps of the settings Preview
+				 * plays, under the same rule, or null. */
+				preview_target_facts: await previewTargetFactsFor(scope),
 				/* Null when the app has never reached this target: a refused
 				 * first publish leaves nothing durable behind, and the refusal
 				 * below is the whole answer. */
@@ -356,6 +363,12 @@ export async function POST(req: NextRequest) {
 									(resource) => resource.kind === "app",
 								)
 							: leftBehindResources(outcome.deployment, identities),
+				/* The settings the project space keeps in CommCare HQ, with the
+				 * date of the read this publish left, or null. */
+				kept:
+					outcome.deployment === null
+						? null
+						: await deploymentKept(scope, outcome.deployment),
 				/* Why THIS attempt stopped, when it did. The record cannot
 				 * carry it: a refusal against an already-live deployment
 				 * deliberately writes nothing durable. */

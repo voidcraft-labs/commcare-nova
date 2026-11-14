@@ -1,6 +1,7 @@
 /**
- * Upload-target resolution — the single source of truth for "which project
- * space does this upload land in."
+ * Project-space resolution — the single source of truth for "which project
+ * space does this operation on CommCare HQ act in": an upload, a status
+ * check, a read.
  *
  * A CommCare HQ API key can authorize multiple project spaces (an unscoped
  * key reaches every space its owner belongs to). So "the domain" is no longer
@@ -39,13 +40,13 @@ export interface NamedSpace {
  * - `ambiguous` — no explicit ask and multiple reachable spaces; the caller
  *   must force a choice rather than guess. `available` lists the candidates.
  */
-export type ResolveUploadDomainResult<T extends NamedSpace> =
+export type ResolveHqDomainResult<T extends NamedSpace> =
 	| { ok: true; domain: T }
 	| { ok: false; reason: "not_authorized"; available: T[] }
 	| { ok: false; reason: "ambiguous"; available: T[] };
 
-/** Inputs to {@link resolveUploadDomain}. */
-export interface ResolveUploadDomainArgs<T extends NamedSpace> {
+/** Inputs to {@link resolveHqDomain}. */
+export interface ResolveHqDomainArgs<T extends NamedSpace> {
 	/** Every space the key can actually upload to (already access-probed). */
 	availableDomains: T[];
 	/** An explicit per-call/per-request space `name`. */
@@ -66,9 +67,9 @@ export interface ResolveUploadDomainArgs<T extends NamedSpace> {
  *      is no stored default to fall back on by design; the caller forces a
  *      per-upload choice rather than guess.
  */
-export function resolveUploadDomain<T extends NamedSpace>(
-	args: ResolveUploadDomainArgs<T>,
-): ResolveUploadDomainResult<T> {
+export function resolveHqDomain<T extends NamedSpace>(
+	args: ResolveHqDomainArgs<T>,
+): ResolveHqDomainResult<T> {
 	const { availableDomains } = args;
 	/* Normalize: treat whitespace-only / empty requests as "no request" so a
 	 * blank arg can't masquerade as a deliberate (and failing) ask. */

@@ -553,7 +553,8 @@ async function casesOutsideRestore(
  * `rows` still carries the flat page in clustered order, so every consumer
  * that reads rows — selection, the persistent tile, the empty-state copy —
  * keeps working unchanged; `grouped` adds the clustering the tile renderer
- * draws from.
+ * draws from and the page's own list order, which the list filter's cards are
+ * made from.
  *
  * The reclamp mirrors `readCases`' stale-final-page repair, once and only
  * once, but needs no recount: `totalGroups` comes from the same statement as
@@ -603,6 +604,7 @@ async function readGroupedCases(
 		totalCount: result.totalRows,
 		grouped: {
 			groups: result.groups,
+			listOrder: result.listOrder,
 			pageOffset,
 			pageSize: page.limit,
 			totalGroupCount: result.totalGroups,

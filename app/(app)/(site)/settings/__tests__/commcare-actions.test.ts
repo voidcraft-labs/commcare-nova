@@ -10,8 +10,8 @@
  * The behavior this locks: verifying stores EVERY reachable space (the fix
  * for the silent-first-match bug) on the server the user picked, the picker
  * action surfaces a rejection message that names that server (a key only
- * works on the deployment that issued it), and refresh maps an HQ status to
- * a user-facing message.
+ * works on the deployment that issued it), and refresh maps the HQ error it
+ * was handed to a user-facing message.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -190,7 +190,7 @@ describe("refreshDomainsAction", () => {
 		mocks.refreshApprovedDomains.mockResolvedValue({
 			ok: false,
 			kind: "hq_error",
-			status: 429,
+			error: { success: false, status: 429 },
 		});
 		const result = await refreshDomainsAction();
 		expect(result).toEqual({
@@ -203,7 +203,7 @@ describe("refreshDomainsAction", () => {
 		mocks.refreshApprovedDomains.mockResolvedValue({
 			ok: false,
 			kind: "hq_error",
-			status: 401,
+			error: { success: false, status: 401 },
 		});
 		const result = await refreshDomainsAction();
 		expect(result.success).toBe(false);

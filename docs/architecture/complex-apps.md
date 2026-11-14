@@ -1854,7 +1854,11 @@ Three facts shape everything above the wire:
   `templates/cloudcare/partials/case_list/tile_grouped_item.html` gives the body
   rows no id, no checkbox, and no click target. Nova reproduces exactly that and
   says so where a worker sees it and where an author turns grouping on, rather
-  than inventing a per-row selection the device does not have.
+  than inventing a per-row selection the device does not have. Formplayer
+  filters before it groups (`EntityScreenHelper.java::initEntities`), so under
+  the list's filter a group's first case is its first match, and the groups
+  stand in the order of those matches. Preview makes its cards from the rows
+  that remain by the same rule (`lib/preview/caseTileGrouping.ts::tileGroupCards`).
 - **Cases with no such connection all land in ONE group.**
   `commcare-core/.../cases/entity/NodeEntityFactory::getEntity` evaluates the
   function to a plain `String`, which is `""` for them, and the clustering map
@@ -2970,8 +2974,8 @@ workspace can prepare dependent forms together before a valid checkpoint; no
 separate build compiler schedules the selection change.
 
 Results rows and tiles both support multiple selection. A grouped tile remains
-one selectable group whose selection is its first case; its other body rows are
-display only. A tile cannot remain above a form because that runtime surface
+one selectable group whose selection is its first case, its first match while
+the list is filtered; its other body rows are display only. A tile cannot remain above a form because that runtime surface
 looks up one scalar selected case, so enabling multiple selection clears only
 `persistOnForms` in the same authored change and explains the consequence.
 Menu navigation carries a set only between compatible modules: the same case

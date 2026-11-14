@@ -1,0 +1,141 @@
+/**
+ * The kept list's words: a label for every label id and no two alike, a
+ * sentence for every refresh answer, and the voice rules a machine can hold
+ * over every string the file holds and over the title and message of each
+ * kept advisory a `.ccz` carries.
+ */
+
+import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { exportAdvisories } from "../exportAdvisories";
+import {
+	KEPT_FOLLOWS_LINE,
+	KEPT_LABEL_IDS,
+	KEPT_LABELS,
+	type KeptRefreshKind,
+	keptLead,
+	keptRefreshSentence,
+} from "../keptValues";
+
+const KINDS: readonly KeptRefreshKind[] = [
+	"refreshed",
+	"changed-in-hq",
+	"superseded",
+	"no-baseline",
+	"app-gone",
+	"unreadable",
+	"key-not-accepted",
+	"no-permission",
+	"unavailable",
+];
+
+const CONTEXT = { date: "10 November", space: "acme-health" };
+
+const refreshSentences = KINDS.flatMap((kind) =>
+	[true, false].map((listChanged) =>
+		keptRefreshSentence({ kind, listChanged }, CONTEXT),
+	),
+);
+const leads = [keptLead(CONTEXT.date, true), keptLead(CONTEXT.date, false)];
+const labels = KEPT_LABEL_IDS.map((id) => KEPT_LABELS[id]);
+/** Every kept advisory a `.ccz` can carry, each fact holding. */
+const keptAdvisories = exportAdvisories(
+	buildDoc({ appName: "Kept values" }),
+	"known",
+	{
+		uiTextFallsBack: true,
+		androidLogos: true,
+		practiceWorker: true,
+		languageNames: true,
+	},
+);
+
+describe("the labels", () => {
+	it("words every label id, and no two alike", () => {
+		expect(Object.keys(KEPT_LABELS).sort()).toEqual([...KEPT_LABEL_IDS].sort());
+		expect(new Set(labels).size).toBe(labels.length);
+	});
+});
+
+describe("the sentences", () => {
+	it("answers every refresh outcome, with every placeholder filled", () => {
+		for (const sentence of [...refreshSentences, ...leads]) {
+			expect(sentence, sentence).not.toContain("{");
+			expect(sentence, sentence).not.toContain("}");
+		}
+	});
+
+	it("names the date and the project space where an answer speaks of them", () => {
+		const sentence = (kind: KeptRefreshKind) =>
+			keptRefreshSentence({ kind, listChanged: false }, CONTEXT);
+		for (const kind of [
+			"changed-in-hq",
+			"unreadable",
+			"key-not-accepted",
+			"no-permission",
+		] as const) {
+			expect(sentence(kind)).toContain(CONTEXT.date);
+		}
+		for (const kind of ["app-gone", "no-permission"] as const) {
+			expect(sentence(kind)).toContain(CONTEXT.space);
+		}
+		for (const lead of leads) expect(lead).toContain(CONTEXT.date);
+	});
+
+	it("says whether a refresh changed the list", () => {
+		expect(
+			keptRefreshSentence({ kind: "refreshed", listChanged: true }, CONTEXT),
+		).toBe("Updated. This is what CommCare HQ holds now.");
+		expect(
+			keptRefreshSentence({ kind: "refreshed", listChanged: false }, CONTEXT),
+		).toBe("Nothing has changed. This is still what CommCare HQ holds.");
+	});
+});
+
+describe("the voice of every string", () => {
+	const leadWithLabels = keptLead(CONTEXT.date, true);
+	/** Whole sentences: each ends with a full stop. */
+	const sentences = [
+		...refreshSentences,
+		keptLead(CONTEXT.date, false),
+		KEPT_FOLLOWS_LINE,
+		...keptAdvisories.map((advisory) => advisory.message),
+	];
+	/** Labels and advisory titles: no closing punctuation. */
+	const titles = [
+		...labels,
+		...keptAdvisories.map((advisory) => advisory.title),
+	];
+	const everything = [...sentences, leadWithLabels, ...titles];
+
+	it("reads every kept advisory", () => {
+		expect(keptAdvisories.map((advisory) => advisory.id)).toEqual([
+			"kept_ui_text_falls_back",
+			"kept_android_logos_absent",
+			"kept_practice_worker_absent",
+			"kept_language_names_differ",
+		]);
+	});
+
+	it("uses no em dash, no ellipsis and never the word import", () => {
+		for (const text of everything) {
+			expect(text, text).not.toContain("—");
+			expect(text, text).not.toContain("…");
+			expect(text, text).not.toContain("...");
+			expect(text, text).not.toMatch(/\bimport\b/i);
+		}
+	});
+
+	it("opens every string in sentence case", () => {
+		for (const text of everything) expect(text, text).toMatch(/^\p{Lu}/u);
+	});
+
+	it("ends every sentence with a full stop, the lead above a list with its colon, and no label or title with either", () => {
+		for (const text of sentences) expect(text.endsWith("."), text).toBe(true);
+		expect(leadWithLabels.endsWith(":")).toBe(true);
+		for (const text of titles) {
+			expect(text.endsWith("."), text).toBe(false);
+			expect(text.endsWith(":"), text).toBe(false);
+		}
+	});
+});

@@ -13,7 +13,7 @@
  *
  * Multi-space keys: an HQ API key can reach several project spaces, so this
  * module stores the full reachable set (`approved_domains`). Which space an
- * upload targets is decided per-upload by the pure `resolveUploadDomain` —
+ * upload targets is decided per-upload by the pure `resolveHqDomain` —
  * never re-implemented here, and deliberately never remembered as a stored
  * default (a multi-space key exists to operate across spaces).
  */
@@ -26,7 +26,7 @@ import {
 } from "@/lib/commcare/client";
 import { decrypt, encrypt } from "@/lib/commcare/encryption";
 import { type CommCareServer, isCommCareServer } from "@/lib/commcare/servers";
-import { resolveUploadDomain } from "./domainResolution";
+import { resolveHqDomain } from "./domainResolution";
 import { getAppDb } from "./pg";
 
 // ── Public types ───────────────────────────────────────────────────
@@ -57,13 +57,13 @@ export type CommCareSettingsPublic =
  * case. The decrypted key is only attached on success, so a doomed request
  * never triggers a KMS call.
  */
-export type CredentialsForUploadResult =
+export type HqCredentialsResult =
 	| { ok: true; creds: CommCareCredentials; domain: CommCareDomain }
 	| { ok: false; error: "not_configured" }
-	| UploadTargetRefusal;
+	| HqTargetRefusal;
 
 /** Everything an upload target resolves to EXCEPT the key. */
-export type UploadTargetResult =
+export type HqTargetResult =
 	| {
 			ok: true;
 			username: string;
@@ -73,9 +73,9 @@ export type UploadTargetResult =
 			encryptedApiKey: string;
 	  }
 	| { ok: false; error: "not_configured" }
-	| UploadTargetRefusal;
+	| HqTargetRefusal;
 
-type UploadTargetRefusal = {
+type HqTargetRefusal = {
 	ok: false;
 	error: "not_authorized" | "ambiguous";
 	available: CommCareDomain[];
@@ -137,10 +137,10 @@ export async function getCommCareSettings(
  * Returns the encrypted key without reaching KMS. Consumers decrypt it only
  * when an admitted operation needs to use it.
  */
-export async function resolveUploadTarget(
+export async function resolveHqTarget(
 	userId: string,
 	requested?: string,
-): Promise<UploadTargetResult> {
+): Promise<HqTargetResult> {
 	const db = await getAppDb();
 	const data = await db
 		.selectFrom("user_settings")
@@ -166,7 +166,7 @@ export async function resolveUploadTarget(
 		return { ok: false, error: "not_configured" };
 	}
 
-	const resolved = resolveUploadDomain({ availableDomains, requested });
+	const resolved = resolveHqDomain({ availableDomains, requested });
 	if (!resolved.ok) {
 		return { ok: false, error: resolved.reason, available: resolved.available };
 	}
@@ -184,16 +184,16 @@ export async function resolveUploadTarget(
  * The same resolution, plus the decrypted key.
  *
  * Call this only where the key is about to be USED. A caller that just needs
- * to know which project space it is publishing to wants `resolveUploadTarget`
+ * to know which project space it is publishing to wants `resolveHqTarget`
  * — decrypting a live credential for a caller with no use for it puts a
  * second plaintext copy in memory for nothing, and every place a secret
  * exists is a place it can escape.
  */
-export async function getCredentialsForUpload(
+export async function getHqCredentials(
 	userId: string,
 	requested?: string,
-): Promise<CredentialsForUploadResult> {
-	const target = await resolveUploadTarget(userId, requested);
+): Promise<HqCredentialsResult> {
+	const target = await resolveHqTarget(userId, requested);
 	if (!target.ok) return target;
 	return {
 		ok: true,
@@ -249,7 +249,7 @@ export async function saveCommCareSettings(
  * a contextual message and tell "HQ is down" from "key lost all access." */
 export type RefreshDomainsResult =
 	| { ok: true; settings: CommCareSettingsPublic }
-	| { ok: false; kind: "hq_error"; status: number }
+	| { ok: false; kind: "hq_error"; error: CommCareApiError }
 	| { ok: false; kind: "no_spaces" };
 
 /**
@@ -257,7 +257,7 @@ export type RefreshDomainsResult =
  *
  * Decrypts the stored key and re-runs domain discovery. A row with no stored
  * key reads back as unconfigured (nothing to refresh). An HQ API error returns
- * `hq_error` WITHOUT writing.
+ * `hq_error`, carrying the error discovery gave, WITHOUT writing.
  *
  * Empty-but-successful result guard: `testDomainAccess` maps a per-domain
  * 401/403 to a definitive `false` (only 5xx propagates as an error), so a
@@ -293,7 +293,7 @@ export async function refreshApprovedDomains(
 			server: data.commcare_server,
 		});
 	if (!Array.isArray(accessible))
-		return { ok: false, kind: "hq_error", status: accessible.status };
+		return { ok: false, kind: "hq_error", error: accessible };
 	if (accessible.length === 0) return { ok: false, kind: "no_spaces" };
 
 	await db

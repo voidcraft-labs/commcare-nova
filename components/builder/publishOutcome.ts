@@ -23,6 +23,7 @@
  */
 
 import { sameConfirmationKey } from "@/components/builder/app-setup/publishingSectionModel";
+import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import type { DeploymentView } from "@/lib/deployment/actions";
 import type {
 	DeploymentAttemptRefusal,
@@ -77,6 +78,8 @@ export interface PublishResponseBody {
 	readonly deployment?: DeploymentView["deployment"] | null;
 	readonly setup_artifact?: DeploymentView["artifact"];
 	readonly left_behind?: DeploymentView["leftBehind"];
+	/** The settings the project space keeps in CommCare HQ, with their date, or null. */
+	readonly kept?: DeploymentView["kept"];
 	/** Why THIS attempt stopped, from the one publish lifecycle. */
 	readonly refusal?: DeploymentAttemptRefusal | null;
 	/**
@@ -94,6 +97,11 @@ export interface PublishResponseBody {
 	 * names nothing.
 	 */
 	readonly preview_project_space?: string | null;
+	/**
+	 * What that one project space keeps of the settings Preview plays, under
+	 * the same rule. `null` (or absent) means Preview holds no facts.
+	 */
+	readonly preview_target_facts?: PreviewTargetFacts | null;
 	readonly preflight?: readonly {
 		readonly title: string;
 		readonly status: string;
@@ -123,6 +131,8 @@ export type PublishOutcome =
 			readonly warnings: string[];
 			/** What Preview may name, per the server's ambiguity rule. */
 			readonly previewProjectSpace: string | null;
+			/** What that project space keeps of the settings Preview plays. */
+			readonly previewTargetFacts: PreviewTargetFacts | null;
 			/**
 			 * A line the landed outcome shows after a publish that wrote over
 			 * the app without knowing it unchanged: after the person chose to
@@ -151,7 +161,8 @@ export type PublishOutcome =
 			};
 			/**
 			 * The HQ app's address, where the app is there: the floor's stop
-			 * sends the person to that app's settings. Null otherwise.
+			 * sends the person to that app's settings, and a build profile's
+			 * stop to its Releases page. Null otherwise.
 			 */
 			readonly hqAppUrl: string | null;
 			/**
@@ -195,6 +206,7 @@ export type PublishOutcome =
 			readonly placements: PublishPlacements;
 			readonly warnings: string[];
 			readonly previewProjectSpace: string | null;
+			readonly previewTargetFacts: PreviewTargetFacts | null;
 	  }
 	| {
 			readonly kind: "failure";
@@ -207,6 +219,19 @@ export type PublishOutcome =
 			 */
 			readonly blockedDetail: string | undefined;
 	  };
+
+/**
+ * Whether a refusal's way forward is on the app's own page in CommCare HQ,
+ * so the dialog offers "Open the app in CommCare HQ" beside it: the
+ * CommCare version is raised in the app's settings, and an application
+ * profile is changed on its Releases page, which `hqAppUrl` opens.
+ */
+export function refusalOpensHqApp(code: DeploymentFailureCode): boolean {
+	return (
+		code === "hq_app_version_below_floor" ||
+		code === "hq_build_profile_language_missing"
+	);
+}
 
 /** What a response that names no placements recorded: nothing. */
 const NO_PLACEMENTS: PublishPlacements = { recorded: 0, moved: 0 };
@@ -228,6 +253,8 @@ export function publishOutcome(
 					 * reports nothing left behind instead of the client guessing
 					 * from `superseded` and naming tables that are not there. */
 					leftBehind: body.left_behind ?? [],
+					/* Absent reads as no kept list, which draws nothing. */
+					kept: body.kept ?? null,
 				}
 			: null;
 	if (responseOk && body.success === true) {
@@ -238,6 +265,7 @@ export function publishOutcome(
 			appUrl: body.url ?? "",
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
+			previewTargetFacts: body.preview_target_facts ?? null,
 			appPreviewNote: body.app_preview_note ?? null,
 			logoStep: body.logo_step ?? null,
 			placements: body.placements ?? NO_PLACEMENTS,
@@ -264,6 +292,7 @@ export function publishOutcome(
 			placements: body.placements ?? NO_PLACEMENTS,
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
+			previewTargetFacts: body.preview_target_facts ?? null,
 		};
 	}
 	return {

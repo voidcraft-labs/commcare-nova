@@ -332,9 +332,69 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		}
 		expect(grouped).toEqual({
 			groups: [...expectedGroups].map(([key, rows]) => ({ key, rows })),
+			listOrder: flat.map((row) => row.case_id),
 			totalRows: flat.length,
 			totalGroups: expectedGroups.size,
 		});
+	});
+
+	it("names the page's cases in the list's own order, before the clustering", async () => {
+		const store = makeStore();
+		await seed(store);
+		const read = (sort: SortKey[], groupOffset: number, groupLimit: number) =>
+			store.queryGrouped({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas(),
+				indexIdentifier: "parent",
+				sort,
+				groupOffset,
+				groupLimit,
+			});
+		const namesOf = async (page: Awaited<ReturnType<typeof read>>) => {
+			const pageRows = page.groups.flatMap((group) => group.rows);
+			// A permutation of the page's own case ids, whatever the window.
+			expect([...page.listOrder].sort()).toEqual(
+				pageRows.map((row) => row.case_id).sort(),
+			);
+			const names = new Map(
+				pageRows.map((row) => [row.case_id, row.case_name]),
+			);
+			return page.listOrder.map((caseId) => names.get(caseId));
+		};
+
+		const whole = await read(byName, 0, 10);
+		// The groups read Ada, Cal, Ben, Dot, Eve; the list's own order is the
+		// sort's, so an order built from the clustered rows fails here.
+		expect(
+			whole.groups.flatMap((group) => group.rows.map((row) => row.case_name)),
+		).toEqual(["Ada", "Cal", "Ben", "Dot", "Eve"]);
+		expect(await namesOf(whole)).toEqual(["Ada", "Ben", "Cal", "Dot", "Eve"]);
+		const flat = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+			caseTypeSchemas: schemas(),
+			sort: byName,
+		});
+		expect(whole.listOrder).toEqual(flat.map((row) => row.case_id));
+
+		// A page of one group names that group's cases alone.
+		expect(await namesOf(await read(byName, 0, 1))).toEqual(["Ada", "Cal"]);
+
+		// A page past the end names none.
+		expect((await read(byName, 99, 10)).listOrder).toEqual([]);
+
+		// Under a descending sort the list's own order reverses.
+		const descending = await read([{ ...byName[0], direction: "desc" }], 0, 10);
+		expect(await namesOf(descending)).toEqual([
+			"Eve",
+			"Dot",
+			"Cal",
+			"Ben",
+			"Ada",
+		]);
 	});
 
 	it("counts the cases that carry no such index", async () => {

@@ -1681,22 +1681,32 @@ def test_a_submissions_version_is_read_as_its_own_forms_on_each_path_and_any_oth
     assert proof3.declared_versions({"modules-0/forms-0.xml": form, "suite.xml": b"<suite/>"}) == {"urn:local": "7"}
 
 
-STATED = {"appAttributes": {"auto_gps_capture": True}, "profileProperties": {"cc-autoup-freq": "freq-daily"}}
+# A location, a UI translation and a kept setting the local archive writes as HQ's build does, and a setting it
+# cannot hold (``purge-freq`` is no setting Nova's archive writes).
+STATED = {
+    "appAttributes": {"auto_gps_capture": True},
+    "uiTranslations": {"en": {"home.start": "Begin a visit"}},
+    "profileProperties": {"cc-autoup-freq": "freq-daily", "cc-log-entity-detail-enabled": True, "purge-freq": "30"},
+}
 EVERY_READER = {"trace@local.ccz", "formplayer@local.ccz", "android@local.ccz"}
+PURGE = "/profile/properties/purge-freq"
 
 
 def _stated_differences():
-    """Each difference a location and an update frequency saved only in HQ make between HQ's side and the local
-    archive's, as each reader's comparison reports it."""
-    found = []
-    for artifact, paths in proof3.LOCATION_PATHS.items():
-        found += [Difference("proof3", "d", artifact, path, path, "removed", "here", None) for path in paths]
-    value = "/profile/properties/cc-autoup-freq/value"
-    found.append(Difference("proof3", "d", "trace@local.ccz", value, value, "changed", "freq-daily", "freq-never"))
-    for reader in proof3.SETTING_READERS["cc-autoup-freq"]:
-        path = f"/profile/readers/{reader}"
-        found.append(Difference("proof3", "d", "android@local.ccz", path, path, "changed", "freq-daily", "freq-never"))
-    return found
+    """The one difference a setting the local archive cannot hold makes between HQ's side and the local
+    archive's: HQ's trace holds it and the local archive's profile does not."""
+    return [Difference("proof3", "d", "trace@local.ccz", PURGE, PURGE, "removed", {"value": "30"}, None)]
+
+
+def test_only_a_value_the_local_archive_cannot_hold_is_stated():
+    assert [(value.save, value.artifact, value.path) for value in proof3.stated_values(STATED)] == [
+        ("purge-freq", "trace@local.ccz", PURGE)
+    ]
+    # A location and a kept setting the archive mirrors are no statement: a difference there is reported.
+    assert proof3.stated_values({"appAttributes": {"auto_gps_capture": True}}) == []
+    assert proof3.stated_values({"profileProperties": {"cc-autoup-freq": "freq-daily"}}) == []
+    # A setting saved off is one HQ's build writes nothing for, so nothing differs.
+    assert proof3.stated_values({"profileProperties": {"purge-freq": ""}}) == []
 
 
 def test_a_value_saved_only_in_hq_is_held_both_ways_on_each_reader_that_ran():
@@ -1705,40 +1715,19 @@ def test_a_value_saved_only_in_hq_is_held_both_ways_on_each_reader_that_ran():
     # A document that saves nothing in HQ keeps every difference.
     assert proof3.stated_hq_side_values("d", None, _stated_differences(), EVERY_READER) == _stated_differences()
 
-    # The location missing from HQ's side, or held by the local archive too: no difference, which is reported.
-    held = [d for d in _stated_differences() if d.path != "/walks/*/steps/*/form/deviceGave"]
-    found = proof3.stated_hq_side_values("d", STATED, held, EVERY_READER)
-    assert [(d.artifact, d.path) for d in found] == [
-        ("android@local.ccz", "/stated-hq-side/auto_gps_capture/walks/*/steps/*/form/deviceGave")
-    ]
-    # The local archive's side holding a location HQ's lacks is another shape, kept, and the statement unmet.
-    flipped = [
-        Difference("proof3", "d", d.artifact, d.path, d.at, "added", None, "here")
-        if d.path == "/runs/*/trace/*/submission/data/meta[*]/location[*]"
-        else d
-        for d in _stated_differences()
-    ]
+    # The setting missing from HQ's side, or held by the local archive too: no difference, which is reported.
+    found = proof3.stated_hq_side_values("d", STATED, [], EVERY_READER)
+    assert [(d.artifact, d.path) for d in found] == [("trace@local.ccz", f"/stated-hq-side/purge-freq{PURGE}")]
+    # The local archive's side holding a setting HQ's lacks is another shape, kept, and the statement unmet.
+    flipped = [Difference("proof3", "d", "trace@local.ccz", PURGE, PURGE, "added", None, {"value": "30"})]
     found = proof3.stated_hq_side_values("d", STATED, flipped, EVERY_READER)
     assert sorted((d.artifact, d.path, d.kind) for d in found) == [
-        ("trace@local.ccz", "/runs/*/trace/*/submission/data/meta[*]/location[*]", "added"),
-        (
-            "trace@local.ccz",
-            "/stated-hq-side/auto_gps_capture/runs/*/trace/*/submission/data/meta[*]/location[*]",
-            "removed",
-        ),
+        ("trace@local.ccz", PURGE, "added"),
+        ("trace@local.ccz", f"/stated-hq-side/purge-freq{PURGE}", "removed"),
     ]
-    # Nova's constant in HQ's trace in place of the saved value is not the statement.
-    wrong = [
-        Difference("proof3", "d", d.artifact, d.path, d.at, d.kind, "freq-never", "freq-never")
-        if d.path == "/profile/properties/cc-autoup-freq/value"
-        else d
-        for d in _stated_differences()
-    ]
-    found = proof3.stated_hq_side_values("d", STATED, wrong, EVERY_READER)
-    assert sorted(d.path for d in found) == [
-        "/profile/properties/cc-autoup-freq/value",
-        "/stated-hq-side/cc-autoup-freq/profile/properties/cc-autoup-freq/value",
-    ]
+    # A location HQ's side holds and the local archive's lacks is a difference again: the archive mirrors it.
+    location = "/runs/*/trace/*/submission/data/meta[*]/location[*]"
+    missing = Difference("proof3", "d", "trace@local.ccz", location, location, "removed", "here", None)
+    assert proof3.stated_hq_side_values("d", STATED, [*_stated_differences(), missing], EVERY_READER) == [missing]
     # A reader whose comparison did not run makes no claim.
-    without_android = [d for d in _stated_differences() if d.artifact != "android@local.ccz"]
-    assert proof3.stated_hq_side_values("d", STATED, without_android, EVERY_READER - {"android@local.ccz"}) == []
+    assert proof3.stated_hq_side_values("d", STATED, [], EVERY_READER - {"trace@local.ccz"}) == []

@@ -11,6 +11,7 @@
 
 import { createContext, useContext } from "react";
 import type { PresenceFrame } from "@/lib/collab/presenceTypes";
+import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import type { ProjectScopeResetSubscriber } from "@/lib/collab/projectScopeReset";
 import type {
 	PlacementConflictReplay,
@@ -46,6 +47,14 @@ export interface ReconcilerContextValue {
 	 *  Preview names nothing. `DeploymentTargetProvider` is the consumer. */
 	subscribePreviewProjectSpace: (
 		cb: (projectSpace: string | null) => void,
+	) => () => void;
+	/** Subscribe to `event: preview-target-facts` frames off the shared
+	 *  stream: what the one reached project space holds of the kept settings
+	 *  Preview plays, under the rule that names `commcare_project`. The held
+	 *  latest value replays at once to a late subscriber; `null` means Preview
+	 *  holds no facts. `DeploymentTargetProvider` is the consumer. */
+	subscribePreviewTargetFacts: (
+		cb: (facts: PreviewTargetFacts | null) => void,
 	) => () => void;
 	/** Subscribe to full Project lookup manifests from `event: lookup-revision`
 	 *  on the shared app stream. Lookup revisions are independent of blueprint

@@ -153,11 +153,6 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	Record<PlatformFeatureId, readonly [string, ...string[]]>
 >;
 
-/** Nova writes the value a device reads when the key is absent; no author
- * choice until `appSettings` holds it. */
-const SEEDED_PROFILE_PROPERTY =
-	"Nova writes the value a device reads when the key is absent; no author choice until appSettings holds it.";
-
 /** HELD entries that differ by platform and that no author choice reaches, with why. */
 export const AMBIENT_PLATFORM_ENTRIES = {
 	"application-and-settings/hq-default-app-strings":
@@ -170,31 +165,6 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"Derived from the search configuration; no author sets it.",
 	"application-and-settings/40-hq-cloudcare-enabled":
 		"The platform declaration's own wire form; Android reads no cloudcare_enabled.",
-	"application-and-settings/1-properties-cc-autoup-freq":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/4-properties-cc-days-form-retain":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/5-properties-logenabled": SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/17-properties-cc-content-valid":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/18-properties-unsent-number-limit":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/19-properties-unsent-time-limit":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/22-properties-cc-resize-images":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/25-properties-cc-login-duration-seconds":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/26-properties-cc-inflation-target-density":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/27-properties-cc-gps-auto-capture-accuracy":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/28-properties-cc-maps-default-layer":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/29-properties-cc-enable-tts":
-		SEEDED_PROFILE_PROPERTY,
-	"application-and-settings/30-properties-cc-label-required-questions-with-asterisk":
-		SEEDED_PROFILE_PROPERTY,
 	"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false":
 		"The wire form of list first in an app that declares Android only, which no Web App reads; `list-first` states list first's readings.",
 	"expressions-and-data/commcaresession-jr-instance-session":

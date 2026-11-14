@@ -110,7 +110,9 @@ export type LoadCasesResult =
 			 *
 			 * `rows` above stays the flat page in clustered order, so every
 			 * consumer that reads rows keeps working; this adds the clustering
-			 * the tile renderer draws from.
+			 * the tile renderer draws from, and `listOrder`, the page's case
+			 * ids in the list's own order, from which the renderer re-clusters
+			 * what the list filter leaves.
 			 *
 			 * Its window is a SEPARATE slot rather than an alternate reading of
 			 * `pageOffset` / `pageSize` because its unit is different: a
@@ -124,6 +126,7 @@ export type LoadCasesResult =
 			 */
 			grouped?: {
 				groups: ReadonlyArray<CaseGroup>;
+				listOrder: ReadonlyArray<string>;
 				pageOffset: number;
 				pageSize: number;
 				totalGroupCount: number;

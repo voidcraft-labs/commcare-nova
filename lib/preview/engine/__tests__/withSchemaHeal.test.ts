@@ -140,7 +140,12 @@ describe("withSchemaHeal", () => {
 describe("schemaHealingCaseStore adapter", () => {
 	it("retries a grouped read with the same request", async () => {
 		persistedSnapshot();
-		const settled = { groups: [], totalGroups: 0, totalRows: 0 };
+		const settled = {
+			groups: [],
+			listOrder: [],
+			totalGroups: 0,
+			totalRows: 0,
+		};
 		const queryGrouped = vi
 			.fn<CaseStore["queryGrouped"]>()
 			.mockRejectedValueOnce(notSynced())

@@ -12,7 +12,7 @@ import { z } from "zod";
 import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { decrypt } from "@/lib/commcare/encryption";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
-import { resolveUploadTarget } from "@/lib/db/settings";
+import { resolveHqTarget } from "@/lib/db/settings";
 import { projectSpaceConfirmations } from "@/lib/deployment/service";
 import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
 import {
@@ -98,7 +98,7 @@ export async function checkProjectSpaceCompatibility(
 			role: loaded.access.role,
 			actorUserId: ctx.userId,
 		};
-		const credentials = await resolveUploadTarget(ctx.userId, args.domain);
+		const credentials = await resolveHqTarget(ctx.userId, args.domain);
 		if (!credentials.ok) {
 			if (credentials.error === "not_configured") {
 				return makeHqGateError(

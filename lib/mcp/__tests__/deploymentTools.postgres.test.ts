@@ -4,6 +4,7 @@ import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { applicationAnswer } from "@/__tests__/helpers/retainedHqReads";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -93,12 +94,14 @@ function ready(peer: MockAgent, profile = PROFILE, profileStatus = 200) {
 		latestBuild: 3,
 		latestReleasedBuild: 3,
 	});
-	reply(peer, BUILD_PATH, {
-		versions: [
+	reply(
+		peer,
+		BUILD_PATH,
+		applicationAnswer("working-app", [
 			{ id: "wrong-unreleased", version: 3, is_released: false },
 			{ id: "released-build", version: 3, is_released: true },
-		],
-	});
+		]).body,
+	);
 	reply(peer, PROFILE_PATH, profile, profileStatus);
 }
 function urls(peer: MockAgent) {

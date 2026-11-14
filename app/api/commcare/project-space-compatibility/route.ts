@@ -37,7 +37,7 @@ import {
 } from "@/lib/commcare/projectSpaceCompatibility";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { getHqCredentials } from "@/lib/db/settings";
 import { projectSpaceConfirmations } from "@/lib/deployment/service";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
@@ -71,10 +71,7 @@ export async function POST(req: NextRequest) {
 		const domain =
 			typeof request?.domain === "string" ? request.domain.trim() : "";
 		if (domain) {
-			const credentialResult = await getCredentialsForUpload(
-				session.user.id,
-				domain,
-			);
+			const credentialResult = await getHqCredentials(session.user.id, domain);
 			if (!credentialResult.ok) {
 				if (credentialResult.error === "not_configured") {
 					throw new ApiError(

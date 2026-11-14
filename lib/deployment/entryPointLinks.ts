@@ -1,7 +1,6 @@
 import "server-only";
 import { profileReferencesBuildSuite } from "@/lib/commcare/buildProfile";
 import {
-	listAppBuilds,
 	probeHqProjectSpaceCompatibility,
 	readAppVersions,
 	readBuildXml,
@@ -10,11 +9,12 @@ import {
 	endpointSignaturesMatch,
 	endpointSuiteSignature,
 } from "@/lib/commcare/entryPointSignature";
+import { readHqApplication } from "@/lib/commcare/hq/application";
 import { listHqLocations } from "@/lib/commcare/hq/locations";
 import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { getHqCredentials } from "@/lib/db/settings";
 import { type BlueprintDoc, entryPointInventory } from "@/lib/domain";
 import type { EntryPointLink, PublishedEntryPoint } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
@@ -118,10 +118,7 @@ export async function getEntryPointLink(input: {
 	)
 		refuse("Publish this entry point before creating its HQ link.");
 	const args = entryPointArguments(entry, input.selections);
-	const credentials = await getCredentialsForUpload(
-		scope.actorUserId,
-		target.domain,
-	);
+	const credentials = await getHqCredentials(scope.actorUserId, target.domain);
 	if (!credentials.ok)
 		throw new DeploymentError(
 			"hq_not_connected",
@@ -151,12 +148,16 @@ export async function getEntryPointLink(input: {
 		);
 	if (versions.latestReleasedVersion === null)
 		refuse("Release a build on CommCare HQ before creating a link.");
-	const builds = await listAppBuilds(creds, target.domain, remote.remoteId);
-	if ("success" in builds)
+	const application = await readHqApplication(
+		creds,
+		target.domain,
+		remote.remoteId,
+	);
+	if ("success" in application)
 		refuse(
 			"Nova couldn't read this app's builds. Check that your CommCare HQ account has Access APIs permission, then try again.",
 		);
-	const released = builds.find(
+	const released = application.builds.find(
 		(build) =>
 			build.isReleased && build.version === versions.latestReleasedVersion,
 	);

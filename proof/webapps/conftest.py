@@ -39,6 +39,7 @@ DOCUMENTS = (
     "targeted-platform-declaration",
     "targeted-search-no-title",
     "targeted-survey-menu",
+    "targeted-tile-group-filter",
     "targeted-tile-hidden-order",
 )
 # Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.

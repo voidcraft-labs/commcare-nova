@@ -75,7 +75,10 @@ import {
 	loadThread,
 } from "@/lib/db/threads";
 import type { AppDoc } from "@/lib/db/types";
-import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
+import {
+	previewProjectSpaceFor,
+	previewTargetFactsFor,
+} from "@/lib/deployment/previewSpace";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { log } from "@/lib/logger";
 import {
@@ -161,12 +164,16 @@ export default async function BuilderPage({
 	 * cold load's critical path. Its own error handling lives inside
 	 * `previewProjectSpaceFor`, which degrades to `null`, so this promise
 	 * cannot reject while it waits. */
-	const previewProjectSpacePromise = previewProjectSpaceFor({
+	const deploymentScope = {
 		appId: id,
 		projectId: initialAccess.projectId,
 		role: initialAccess.role,
 		actorUserId: session.user.id,
-	});
+	};
+	const previewProjectSpacePromise = previewProjectSpaceFor(deploymentScope);
+	/* What that one project space keeps of the settings Preview plays, under
+	 * the same rule and with the same degrade to `null`, started beside it. */
+	const previewTargetFactsPromise = previewTargetFactsFor(deploymentScope);
 
 	const threadHydrationPromise = (async () => {
 		let threads: LoadedThreadMeta[] = [];
@@ -191,13 +198,19 @@ export default async function BuilderPage({
 		app.status === "error" || app.status === "generating"
 			? loadMaterializedSessionForApp(id)
 			: Promise.resolve(null);
-	const [threadHydration, previewProjectSpace, materializedDesign, notices] =
-		await Promise.all([
-			threadHydrationPromise,
-			previewProjectSpacePromise,
-			materializedDesignPromise,
-			noticesPromise,
-		]);
+	const [
+		threadHydration,
+		previewProjectSpace,
+		previewTargetFacts,
+		materializedDesign,
+		notices,
+	] = await Promise.all([
+		threadHydrationPromise,
+		previewProjectSpacePromise,
+		previewTargetFactsPromise,
+		materializedDesignPromise,
+		noticesPromise,
+	]);
 	const { threads, initialThread } = threadHydration;
 
 	/* An `error` app is reachable when either its hydrated thread carries a
@@ -244,6 +257,7 @@ export default async function BuilderPage({
 			 * thread-activation decisions. */
 			initialBuildUnfinished={buildUnfinished}
 			initialProjectSpace={previewProjectSpace}
+			initialTargetFacts={previewTargetFacts}
 			initialNotices={notices}
 			userId={session.user.id}
 		>

@@ -676,7 +676,9 @@ each Connect ID field's published note, `useAppPublishedAnywhere`, which shows
 the note when a failed load leaves no record to rule publishing out) — reading
 once per `deploymentRecordsRevision`, which the dialog bumps, so a publish made
 while the section is mounted reaches it — and renders one full `DeploymentStatus` card
-per project space the app has reached, composing `DeploymentWorkers` into the
+per project space the app has reached, with the list of what stays as it is in
+CommCare HQ with its date and Refresh from CommCare HQ (`keptListModel.ts`),
+composing `DeploymentWorkers` into the
 card's `workers` slot — the panel's one mount in the product. Every state is
 explicit: loading, a `role="alert"` load failure with Try again, a
 `role="status"` refreshing line and a stale warning when a reload is pending
@@ -696,7 +698,8 @@ preseeded to that domain. Check status is gated exactly as in the dialog
 (`canEdit`, observable record, active mapping); a refresh or provisioning
 result upserts the store under a fresh generation — superseding any load in
 flight, whose stale answer is then ignored — and a refresh also applies
-`previewProjectSpace`. All derivations — the record fold,
+`previewProjectSpace` and `previewTargetFacts` (the dialog applies a
+publish's `previewTargetFacts` too). All derivations — the record fold,
 the generation guard, compact rows, retry eligibility, preseeding — live in
 the pure `publishingSectionModel.ts` and are unit-tested there, never in the
 component.

@@ -40,7 +40,7 @@ const cases = [
 				doc_type: "Application",
 				name: "Visits",
 			}),
-		expected: { success: false, status: 503 },
+		expected: { success: false, status: 503, cause: "timeout" },
 	},
 	{
 		name: "lookup workbook",
@@ -100,6 +100,12 @@ const cases = [
 ] as const;
 afterEach(() => vi.useRealTimers());
 
+/** A refusal whose body stalled is HQ's status, which no synthesized cause describes. */
+function withoutCause<T extends object>(value: T): Omit<T, "cause"> {
+	const { cause: _cause, ...rest } = value as T & { cause?: unknown };
+	return rest;
+}
+
 it.each(
 	cases.flatMap((item) =>
 		["headers", "body", "refusal body"].map((stage) => ({ ...item, stage })),
@@ -152,7 +158,7 @@ it.each(
 					expect(await pending).toEqual(
 						stage === "refusal body" && !name.startsWith("worker")
 							? {
-									...expected,
+									...withoutCause(expected),
 									status: 500,
 									...(name === "location batch" ? {} : { edgeRefusal: false }),
 								}

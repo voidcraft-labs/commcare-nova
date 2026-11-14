@@ -84,6 +84,7 @@ function view(overrides: {
 			sections: [],
 		},
 		leftBehind: [],
+		kept: null,
 	};
 }
 

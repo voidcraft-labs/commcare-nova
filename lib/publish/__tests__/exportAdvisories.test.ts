@@ -17,6 +17,8 @@ import {
 	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
 	exportAdvisories,
+	type KeptAdvisoryFacts,
+	type KeptExportAdvisoryId,
 } from "../exportAdvisories";
 
 /**
@@ -103,7 +105,7 @@ describe("exportAdvisories", () => {
 			{ id: "photo", property: "photo_url" },
 			{ id: "consent", property: "consent_url" },
 		]);
-		const [advisory, ...rest] = exportAdvisories(doc, "none");
+		const [advisory, ...rest] = exportAdvisories(doc, "none", null);
 
 		expect(rest).toEqual([]);
 		expect(advisory?.id).toBe("attachment_links_without_target");
@@ -120,7 +122,7 @@ describe("exportAdvisories", () => {
 
 	it("uses the singular when one property is affected", () => {
 		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
-		const message = exportAdvisories(doc, "none")[0]?.message ?? "";
+		const message = exportAdvisories(doc, "none", null)[0]?.message ?? "";
 		expect(message).toContain("The case property photo_url holds");
 		expect(message).toContain("fills it in");
 		expect(message).not.toContain("fills them in");
@@ -130,14 +132,14 @@ describe("exportAdvisories", () => {
 		// Two project spaces is not "not published yet", and telling somebody
 		// to publish would be the wrong next step.
 		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
-		const message = exportAdvisories(doc, "ambiguous")[0]?.message ?? "";
+		const message = exportAdvisories(doc, "ambiguous", null)[0]?.message ?? "";
 		expect(message).toContain("More than one CommCare project space");
 		expect(message).not.toContain("has not reached");
 	});
 
 	it("says nothing when the links have somewhere to point", () => {
 		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
-		expect(exportAdvisories(doc, "known")).toEqual([]);
+		expect(exportAdvisories(doc, "known", null)).toEqual([]);
 	});
 
 	it("says nothing about an app with no attachment links", () => {
@@ -145,15 +147,88 @@ describe("exportAdvisories", () => {
 		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }], {
 			saved: false,
 		});
-		expect(exportAdvisories(doc, "none")).toEqual([]);
-		expect(exportAdvisories(doc, "ambiguous")).toEqual([]);
+		expect(exportAdvisories(doc, "none", null)).toEqual([]);
+		expect(exportAdvisories(doc, "ambiguous", null)).toEqual([]);
+	});
+});
+
+const NOTHING_KEPT: KeptAdvisoryFacts = {
+	uiTextFallsBack: false,
+	androidLogos: false,
+	practiceWorker: false,
+	languageNames: false,
+};
+
+/** Each kept advisory and the fact it is said under. */
+const KEPT: readonly [keyof KeptAdvisoryFacts, KeptExportAdvisoryId][] = [
+	["uiTextFallsBack", "kept_ui_text_falls_back"],
+	["androidLogos", "kept_android_logos_absent"],
+	["practiceWorker", "kept_practice_worker_absent"],
+	["languageNames", "kept_language_names_differ"],
+];
+
+describe("what a CCZ cannot follow of what its project space keeps", () => {
+	const plain = docWithCaptures([{ id: "photo", property: "photo_url" }], {
+		saved: false,
+	});
+
+	it.each(KEPT)("says %s exactly where it holds", (fact, id) => {
+		expect(
+			exportAdvisories(plain, "known", { ...NOTHING_KEPT, [fact]: true }).map(
+				(advisory) => advisory.id,
+			),
+		).toEqual([id]);
+		expect(exportAdvisories(plain, "known", NOTHING_KEPT)).toEqual([]);
+	});
+
+	it("lists every kept advisory after the attachment links, in a fixed order", () => {
+		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
+		const every = Object.fromEntries(
+			KEPT.map(([fact]) => [fact, true]),
+		) as unknown as KeptAdvisoryFacts;
+		expect(
+			exportAdvisories(doc, "none", every).map((advisory) => advisory.id),
+		).toEqual(["attachment_links_without_target", ...KEPT.map(([, id]) => id)]);
+	});
+
+	it("says nothing of kept values for a file made for no project space read", () => {
+		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
+		expect(
+			exportAdvisories(doc, "none", null).map((advisory) => advisory.id),
+		).toEqual(["attachment_links_without_target"]);
+		expect(exportAdvisories(plain, "known", null)).toEqual([]);
+	});
+
+	it("speaks in Nova's voice", () => {
+		const every = Object.fromEntries(
+			KEPT.map(([fact]) => [fact, true]),
+		) as unknown as KeptAdvisoryFacts;
+		for (const { title, message } of exportAdvisories(plain, "known", every)) {
+			for (const text of [title, message]) {
+				expect(text, text).not.toMatch(/\u2014|\u2026|\.\.\./);
+				expect(text, text).not.toMatch(/\bimport\b/i);
+				expect(text[0], text).toBe(text[0]?.toUpperCase());
+			}
+			expect(title, title).not.toMatch(/[.:]$/);
+			expect(message, message).toMatch(/\.$/);
+		}
+	});
+
+	it("survives the trip through a response header", () => {
+		const every = Object.fromEntries(
+			KEPT.map(([fact]) => [fact, true]),
+		) as unknown as KeptAdvisoryFacts;
+		const advisories = exportAdvisories(plain, "known", every);
+		expect(decodeExportAdvisories(encodeExportAdvisories(advisories))).toEqual(
+			advisories,
+		);
 	});
 });
 
 describe("the export header", () => {
 	it("survives the trip through a response header", () => {
 		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
-		const advisories = exportAdvisories(doc, "none").map((advisory) => ({
+		const advisories = exportAdvisories(doc, "none", null).map((advisory) => ({
 			...advisory,
 			title: "Résumé 调查表",
 			message: `${advisory.message}\n100% complete`,

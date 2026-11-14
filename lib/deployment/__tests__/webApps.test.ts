@@ -28,6 +28,10 @@ function source(cloudcareEnabled: boolean): HqAppSource {
 		addOns: {},
 		modules: [],
 		raw: {},
+		name: null,
+		lastModified: null,
+		multimediaMap: [],
+		buildProfiles: [],
 	};
 }
 

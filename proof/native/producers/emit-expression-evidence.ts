@@ -60,6 +60,10 @@ import {
 import { formStructure } from "../../../lib/domain/expression/formStructure";
 import { checkExpression } from "../../../lib/domain/expression/typeChecker";
 import {
+	LIST_FILTER_FUZZY_VECTORS,
+	LIST_FILTER_NORMALIZE_VECTORS,
+} from "../../../lib/preview/__tests__/fixtures/listFilterMatch";
+import {
 	PROSE_VALUE_ANSWERS,
 	PROSE_VALUE_MESSAGES,
 	PROSE_VALUE_VECTORS,
@@ -717,6 +721,18 @@ writeFileSync(
 		})}\n`,
 	);
 }
+
+// ListFilterMatchRuntimeTest runs Core's own StringUtils.normalize and
+// fuzzyMatch over the vectors Preview's port of the case list filter is held
+// to (lib/preview/__tests__/fixtures/listFilterMatch.ts).
+writeFileSync(
+	resolve(output, "list-filter-match.json"),
+	`${JSON.stringify({
+		schemaVersion: 1,
+		normalize: LIST_FILTER_NORMALIZE_VECTORS,
+		fuzzy: LIST_FILTER_FUZZY_VECTORS,
+	})}\n`,
+);
 
 console.log(
 	`Produced ${pairs.length} private expression controls over ${Object.keys(lowered).length} lowered comparisons and ${CORE_DATE_PARITY.rows.length} date parity rows.`,

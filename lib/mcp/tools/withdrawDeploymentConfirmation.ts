@@ -18,6 +18,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
 	currentResourceIdentities,
+	deploymentKept,
 	setupArtifactFor,
 } from "@/lib/deployment/service";
 import {
@@ -138,6 +139,7 @@ export function registerWithdrawDeploymentConfirmation(
 								...describeDeployment(
 									deployment,
 									await currentResourceIdentities(scope, doc),
+									await deploymentKept(scope, deployment),
 								),
 								setup_artifact: await setupArtifactFor(scope, deployment, doc),
 							}),

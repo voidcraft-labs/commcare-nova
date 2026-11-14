@@ -298,6 +298,12 @@ it("tells a client what an upload records and what a move offer asks of the user
 	);
 });
 
+it("tells a client what a build profile's stop asks of it, right after the unreadable source's", () => {
+	expect(served("upload_app_to_hq").description).toContain(
+		"If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If an application profile of the app on CommCare HQ includes a language the app no longer has, the call returns `hq_build_profile_language_missing` before sending the app's content: relay the `message` and its `url`, and upload again once the user has changed the profile there.",
+	);
+});
+
 it("serves the CommCare Supply confirmation on upload and withdrawal, and names it in the compatibility check", () => {
 	const upload = (served("upload_app_to_hq").inputSchema as Json).properties;
 	if (!object(upload) || !object(upload.confirm_commtrack_off))
@@ -328,5 +334,26 @@ it("serves the CommCare Supply confirmation on upload and withdrawal, and names 
 
 	expect(served("check_project_space_compatibility").description).toContain(
 		"`commtrack_off` says whether the project space's CommCare Supply setting needs confirming, and `placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case.",
+	);
+});
+
+it("serves refresh_deployment's kept_values and tells a client what the kept list is", () => {
+	const refresh = served("refresh_deployment");
+	const properties = (refresh.inputSchema as Json).properties;
+	if (!object(properties) || !object(properties.kept_values))
+		throw new Error("refresh_deployment serves no kept_values");
+	expect(properties.kept_values.type).toBe("boolean");
+	expect(properties.kept_values.description).toBe(
+		"Read the project space's kept settings again, in place of the build and release check.",
+	);
+	const required = (refresh.inputSchema as Json).required;
+	expect(Array.isArray(required) && required.includes("kept_values")).toBe(
+		false,
+	);
+	expect(refresh.description).toMatch(
+		/ Pass `kept_values: true` to read again the settings this project space keeps in CommCare HQ \(the `kept` list of `get_deployment`\) without asking about builds\. It updates them only where nothing Nova publishes has changed in CommCare HQ since the last publish, and says so otherwise\.$/,
+	);
+	expect(served("get_deployment").description).toMatch(
+		/ `deployment\.kept` lists the settings that stay as CommCare HQ holds them on that project space, with the date Nova read them\.$/,
 	);
 });

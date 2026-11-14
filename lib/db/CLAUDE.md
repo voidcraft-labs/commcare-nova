@@ -282,7 +282,8 @@ every deployment write pokes it with a `deploymentChanged` marker
 (`notifyAppDeployments`, called by `lib/deployment/store.ts` inside each
 record-writing transaction) so connected streams re-resolve what Preview
 may name for `commcare_project` and announce it as a
-`preview-project-space` frame;
+`preview-project-space` frame, and what that project space keeps of the
+settings Preview plays as a `preview-target-facts` frame when it changed;
 presence reauthorizes against
 the app row + exact membership and writes/sweeps/deletes + pokes
 `nova_presence` in that same transaction; chat chunk-log appends poke `nova_chat_stream`; lookup writers

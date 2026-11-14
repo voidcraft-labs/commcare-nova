@@ -204,6 +204,8 @@ table held to the surface manifest (`lib/domain/platforms.ts`,
 `lib/commcare/surface/__tests__/platformFeatures.test.ts`), and the builder
 states it where the author works.
 
+**Some of an app stays CommCare HQ's.** Content outside an app's menus that Nova's publish never writes is kept at CommCare HQ's value only when three things hold: no publish changes it on that project space; nothing the document holds does something different under its value; and every Nova surface that shows or runs what it changes reads the project space's value or says how it differs. `lib/commcare/surface/keptAtHq.ts::KEPT_AT_HQ` holds one row per kept entry with what a `.ccz` does, what Preview does and what a first publish to another project space does, and a test binds it to the manifest both ways.
+
 ---
 
 ## Approved product contracts

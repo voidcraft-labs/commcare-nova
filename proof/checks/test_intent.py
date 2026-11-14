@@ -1646,6 +1646,38 @@ def test_every_version_a_local_archive_carries_is_the_documents_sequence():
     assert intent.local_profile_settings("doc", older, hidden, "local.ccz") == []
 
 
+def test_a_local_archive_writes_the_settings_a_person_saved_in_hq():
+    """The archive is made for the project space the saves were made in: a kept setting saved there is the saved
+    value in the archive, the detail-view log a person turned on is written, and a setting Nova owns stays the
+    document's."""
+    stated = intent.Intent(
+        app_name="Clinic", modules=[], settings={"showSavedForms": False, "showIncompleteForms": True}, sequence=7
+    )
+    saved = {"cc-autoup-freq": "freq-daily", "cc-log-entity-detail-enabled": True, "cc-show-saved": "yes"}
+    files = _local_archive(7)
+    assert _found(intent.local_profile_settings("doc", stated, files, "local.ccz", saved)) == [
+        (
+            "local.ccz/profile.ccpr",
+            f"/profile/property[@key={key}]/@value",
+            f"/profile/property[@key={key}]/@value",
+            "changed",
+            expected,
+            observed,
+        )
+        for key, expected, observed in (
+            ("cc-autoup-freq", "freq-daily", "freq-never"),
+            ("cc-log-entity-detail-enabled", "True", None),
+        )
+    ]
+    profile = etree.fromstring(files["profile.ccpr"])
+    for element in profile.iter("property"):
+        if element.get("key") == "cc-autoup-freq":
+            element.set("value", "freq-daily")
+    etree.SubElement(profile, "property", key="cc-log-entity-detail-enabled", value="True")
+    mirrored = {**files, "profile.ccpr": etree.tostring(profile)}
+    assert intent.local_profile_settings("doc", stated, mirrored, "local.ccz", saved) == []
+
+
 def test_an_add_on_hq_says_the_stored_app_uses_is_one_it_holds_on():
     from types import SimpleNamespace
 

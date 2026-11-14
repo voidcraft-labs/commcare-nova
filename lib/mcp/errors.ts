@@ -169,6 +169,11 @@ export type HqToolErrorType =
  *   - `hq_app_version_below_floor` — the app on CommCare HQ is set to a
  *     CommCare version below the one Nova's apps need. Nothing of its
  *     content was sent; the payload carries the app's `url` there.
+ *   - `hq_build_profile_language_missing` — an application profile of the
+ *     app on CommCare HQ includes a language this app no longer has, and no
+ *     API key can change one. Nothing of its content was sent; the message
+ *     names each profile and language on its own line, and the payload
+ *     carries the app's `url` there.
  *   - `hq_plan_lacks_web_apps` — CommCare HQ made the new app with Web Apps
  *     off for an app that runs in Web Apps, so the project space's plan has
  *     no Web Apps. Only the empty app was made, and Nova withdrew the
@@ -195,6 +200,7 @@ export type UploadErrorType =
 	| "hq_confirmation_needed"
 	| "hq_web_apps_change"
 	| "hq_app_version_below_floor"
+	| "hq_build_profile_language_missing"
 	| "hq_plan_lacks_web_apps"
 	| "app_changed_while_publishing"
 	| "hq_placement_moves_changed";

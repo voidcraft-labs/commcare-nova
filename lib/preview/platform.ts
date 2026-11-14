@@ -237,6 +237,34 @@ export interface PreviewPlatformRules {
 	 *  `setupActionAudio`); Web Apps draws the action's text alone
 	 *  (`cloudcare/partials/case_list/list.html`, `action.text`). */
 	readonly caseListActionMedia: "shown" | "text-only";
+	/**
+	 * How the list's filter box splits what a worker types, what closeness does to the order,
+	 * and what an emptied box does.
+	 *
+	 * Both runtimes run Core's `util/EntitySortUtil.java::sortEntities`
+	 * (`lib/preview/listFilterMatch.ts`) and differ around it. Formplayer splits
+	 * on single spaces (`util/screen/EntityScreenHelper.java::filterEntities`,
+	 * `searchText.split(" ")`), puts the matches back in the list's own order
+	 * with a stable sort (`sortEntities`) and skips an empty text. Android
+	 * splits on runs of whitespace (`adapters/EntityListAdapter.java::filterByString`,
+	 * `split("\\s+")`), shows the matches as the filter returns them, stably
+	 * re-sorted by ascending score under fuzzy search
+	 * (`cases/entity/EntityStringFilterer.java::buildMatchList`), and runs every
+	 * change once the worker has typed, an emptied box included, which is one
+	 * empty term (`adapters/EntityStringFilterer.java`, `isFilterEmpty`).
+	 */
+	readonly listFilter: {
+		readonly terms: "single-spaces" | "whitespace-runs";
+		readonly fuzzyOrder: "list-order" | "closest-first";
+		readonly emptyText: "skipped" | "runs-once-edited";
+	};
+	/**
+	 * Whether a required question carries the asterisk. Web Apps marks every one
+	 * (`form_entry/question.html`, the `required` class); Android only where the
+	 * profile's `cc-label-required-questions-with-asterisk` is `yes`
+	 * (`QuestionWidget.java::setTextFromPrompt`).
+	 */
+	readonly requiredMark: "always" | "by-setting";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -289,6 +317,12 @@ export const PREVIEW_PLATFORM_RULES = {
 		submitLabel: "submit",
 		logo: true,
 		caseListActionMedia: "text-only",
+		listFilter: Object.freeze({
+			terms: "single-spaces",
+			fuzzyOrder: "list-order",
+			emptyText: "skipped",
+		}),
+		requiredMark: "always",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -337,6 +371,12 @@ export const PREVIEW_PLATFORM_RULES = {
 		submitLabel: "finish",
 		logo: false,
 		caseListActionMedia: "shown",
+		listFilter: Object.freeze({
+			terms: "whitespace-runs",
+			fuzzyOrder: "closest-first",
+			emptyText: "runs-once-edited",
+		}),
+		requiredMark: "by-setting",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 
@@ -359,6 +399,21 @@ export function searchScreenHeading(
 	return rules.searchScreenText
 		? authored
 		: { title: CASE_SEARCH_BUTTON_LABEL, subtitle: undefined };
+}
+
+/** Whether Preview draws the mark on a required question.
+ *
+ *  Under `by-setting` the mark shows exactly where the reached project space
+ *  holds `cc-label-required-questions-with-asterisk` as `yes`. With no facts
+ *  (`null`) it answers by Nova's own value, `no`
+ *  (`lib/commcare/appProfileSettings.ts`), which is also the phone's default
+ *  (`HiddenPreferences.java::shouldLabelRequiredQuestionsWithAsterisk`). */
+export function requiredMarkShown(
+	rule: PreviewPlatformRules["requiredMark"],
+	/** The reached project space's setting, or null where Preview holds no facts. */
+	settingOn: boolean | null,
+): boolean {
+	return rule === "always" || settingOn === true;
 }
 
 function otherPlatform(platform: Platform): Platform {

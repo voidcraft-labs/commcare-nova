@@ -485,7 +485,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 - **Initialization actions run in authored scope and order.** Defaults and query snapshots run in document order; a preload is a default and runs in its place. Count-bound repeats read live counts after calculations and defaults settle, and again during entry and answer changes. Increasing a count inserts only new rows; decreasing it retains rows, answers, and case operations. Each write triggers dependent calculations and relevance changes before the next action, including reads affected by a hidden group. A later default that reads a preloaded question therefore reads the case's value. Standalone calculations run after the actions. Inserting a repeat initializes only that new subtree, including its bound descendants, without recapturing earlier rows. Query identity attributes precede child initialization. Generated snapshot targets carry their enclosing row through the XPath worker even before a repeat has rows; they are expression-local contexts, never answer rows or saved data. Several-case forms preload no single selected record. Root-section query repeats retain their form-start membership; count-bound repeats refresh their target. A count-placement query repeat's rows follow its query; one past the end is not relevant and keeps its answers, and its result is written, and what reads it run, before a row grows, so a new row is within the result while its starting values read its id. Each new row runs as Core's `createNewRepeat` runs it: its starting values, then what it triggers and what it roots, narrowed to the row (`getAffectedInitialization`, `getRootedInitialization`), and the program's values and conditions are published without running again (`commitInitialization`), so a growth never gives older rows what the newest read. A query repeat's row is made only where its condition holds at its place, and none after one where it does not, until it does (`rowPromptRelevant`, Core's prompt for an unmade row, `FormEntryModel.isIndexRelevant` → `FormDef.isRepeatRelevant`); a model-iteration repeat makes such rows later too, from the membership the form opened with. A model-iteration row's `@index` is the relevant rows before it, its `int(@current_index)`. The wrapper's `@ids`, `@count` and `@current_index` sit on an element of their own beside the rows (`queryWrapperName.ts`), keyed by the repeat's path; `@current_index` counts the relevant rows as it is read. A query repeat's condition is evaluated at each of its rows (`FieldState.rowConditions`), in both placements. A row that is not relevant drops out of every nodeset that selects it, so `count()` reads only the relevant rows (Core `XPathLazyNodeset.java::performEvaluation`). Both defer insertion until that page is entered. Nested initialization then reads earlier-page answers. Entry checkpoints retain pending snapshots and the active page. Already inserted rows never recapture membership on Back/Next. Unsectioned Preview still presents the form together; no universal native question-by-question parity is claimed.
 
-- **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission. Both synchronous and worker-backed blur obey this rule; a required warning already shown by submission remains until the answer changes.
+- **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk, where the platform Preview plays draws one (`requiredMark`), communicates requiredness until submission. Both synchronous and worker-backed blur obey this rule; a required warning already shown by submission remains until the answer changes.
 - **Typed answers are checked before authored validation.** `answerShapeError` checks numeric and temporal answers on blur and at submission. Empty values belong to requiredness. Integer answers use signed decimal digits in the signed 32-bit range; decimal answers accept finite decimal and exponent notation. The numeric widget preserves incomplete text so an optional malformed answer cannot become an empty value through native input sanitization. Numeric case-write projection uses the same full-answer parser and never truncates a prefix. Temporal checks accept every spelling `isReadableTemporalValue` can canonicalize, including older stored values. Errors stay beside the owning question instead of surfacing later as a case-property refusal. Submit retains answer focus during a mouse press so blur validation cannot move the button out from under its release; activation then blurs the current control so local coordinate drafts and clock normalization commit before submission captures answers. A refusal reveals and focuses the first invalid question. Keyboard activation remains native.
 - **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a starting value, a preload among them, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast; a starting value into a date-and-time bind is the tree the XForm's `<setvalue>` prints, its stored text read in the device's own date and clock first (`formEngine.ts::startingValueSource`, `lib/commcare/xpath/wire/instant.ts::deviceInstantText`), because the cast keeps the written date and moves only the clock (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
 - **Default text remains text.** A default evaluating to `"false"` is a nonempty answer in both synchronous and worker execution; only the empty string means no default value. XPath numeric coercion and `selected()` use Java ASCII-control trimming, so nonbreaking spaces remain significant.
@@ -1147,8 +1147,9 @@ opens one record without selecting it. The review tray is persistent, keyboard
 reachable, and reports zero and over-limit states through both visible text and
 an announcement. Select-all considers the current visible window in its stable
 row order and reports when capacity left rows untouched. A grouped tile is still
-one runtime choice whose id is the group's first case; its body rows remain
-display-only even in multiple-selection mode.
+one runtime choice whose id is the first case its card holds, the group's first
+match while the list is filtered; its body rows remain display-only even in
+multiple-selection mode.
 
 Continue validates the whole set in one bounded server read: distinct ids,
 Project/app tenancy, declared case type, current availability, and maximum.
@@ -1226,10 +1227,29 @@ store compares text lowercased by code point, a number only where its trimmed
 text is a plain decimal, and places blanks by the rule's `blanks` whatever its
 direction (`lib/case-store/postgres/store.ts`).
 
-The quick filter (`components/preview/shared/listFilter.tsx::rowMatchesFilterText`)
+The quick filter (`components/preview/shared/listFilter.tsx::rowsMatchingFilterText`)
 matches what a device's search matches, all from the plan: each shown column's
 text, each hidden field's text (the raw property, or a hidden calculated
-column's value), and each carrier's raw value, in a tile list too.
+column's value), and each carrier's raw value, in a tile list too. The rule is
+Core's entity filter, ported in `lib/preview/listFilterMatch.ts`
+(`StringUtils.normalize` and `fuzzyMatch`, `EntitySortUtil.sortEntities`):
+accents folded, every term required, and with fuzzy search on a near miss
+matched against a word of each field's sort text, the value its plan key
+orders by (a field with no key has none; a carrier's raw value is its own).
+The platform rule `listFilter` holds what each runtime does around it: Web
+Apps splits the typed text on single spaces, keeps the list's own order and
+skips an empty text; Android splits on runs of whitespace, puts the closest
+matches first and, once the worker has typed, runs an emptied box as one empty
+term. The required question's asterisk follows the platform rule
+`requiredMark` (`platform.ts::requiredMarkShown`): every one in Web Apps, and
+on Android only where the project space's
+`cc-label-required-questions-with-asterisk` is `yes`, Nova's own value being
+`no`. Both read the reached project space's facts
+(`DeploymentTargetProvider.tsx::useDeploymentTargetFacts`, a
+`PreviewTargetFacts` of `fuzzyListSearch` and `markRequiredQuestions`), which
+travel as `commcare_project` does (below): `null` where Preview holds none
+(no reached project space, several, or a baseline Nova never read), and then
+Preview plays a new project space's exact filter and, on Android, no mark.
 
 Where Preview orders differently from a device: an `option-label` key over a
 multi select orders by known labels in catalog order and then the raw value,
@@ -1295,7 +1315,13 @@ Four things the rest of the preview has to know:
   `totalCount` still counts cases. A grouped page is therefore unbounded in rows
   — N groups arrive with however many cases they hold, which is
   `EntityListResponse::getEntitiesForCurrentPage`'s own behaviour, not a bug to
-  clamp. Cases carrying no such connection all land in the empty-key group,
+  clamp. The slot also carries `listOrder`, the page's case ids in the list's own
+  order. Under the list filter the cards are made from the rows that remain, as
+  Formplayer makes them (`EntityScreenHelper.java::initEntities` filters, sorts,
+  then gathers groups): `caseTileGrouping.ts::groupedPageRows` puts the page
+  back in list order and `tileGroupCards` clusters the matches, so the groups
+  stand in the order of each one's first match and a card's first case, which
+  draws its heading and is its one choice, is its first match. Cases carrying no such connection all land in the empty-key group,
   because that is what `string(./index/<id>)` evaluates to for them.
 - **The persistent tile is a separate read.** `PersistentCaseTile` loads its own
   row with the display config attached so calculated cells project exactly as in
@@ -1765,6 +1791,20 @@ emits a `preview-project-space` frame, and `DeploymentTargetProvider`
 subscribes through the reconciler's `subscribePreviewProjectSpace` seam.
 Every value on every path is the SERVER's resolution; a client-asserted one
 would bypass the ambiguity rule only the server can apply.
+
+The project space's kept facts ride beside it on every path:
+`previewSpace.ts::previewTargetFactsFor` resolves the one `(server, domain)`
+the deployments display as uploaded at (`previewTarget.ts::resolvePreviewFactsTarget`,
+which de-dupes on both, since the facts are one deployment's), reads
+`readTargetFacts` and projects the two settings Preview plays, degrading to
+`null` with one `log.warn`. The page load seeds it (`initialTargetFacts`), a
+publish answers `preview_target_facts` and a Check status
+`previewTargetFacts`, and the stream's deployment lane sends a
+`preview-target-facts` frame (`lib/collab/previewTargetFactsFrame.ts`) when
+the canonical JSON of the facts changes, the connect-time emit included. It
+is its own frame name, not a key on `preview-project-space`, whose strict
+schema would make an older tab drop the widened frame and lose
+`commcare_project` with it.
 
 ## Entry-point launch
 

@@ -36,6 +36,10 @@ import {
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import { writeThreadTranscript } from "@/lib/db/threadTranscript";
+import {
+	foldDeploymentAttempt,
+	recordRemoteResource,
+} from "@/lib/deployment/store";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
@@ -93,6 +97,12 @@ import {
 	FORMS_READ_SEARCH_SEED,
 	formsReadSearchRoutes,
 } from "./formsReadSearchSeed";
+import {
+	buildKeptBaselineBlueprint,
+	KEPT_BASELINE_SEED,
+	keptBaselineRoutes,
+	keptBaselineWrite,
+} from "./keptBaselineSeed";
 import {
 	buildLocalizationBlueprint,
 	LOCALIZATION_SEED,
@@ -1857,6 +1867,68 @@ export async function createSmokeBuilders(
 				{ name: SEED.moveAppName, status: "complete" },
 			);
 			return { openAppId, moveDestinationProjectId, moveAppId };
+		},
+		"kept-baseline": async () => {
+			/* Each app published to its own project space, with the `push`
+			 * baseline a publish's read-back stores: a preflight that passed,
+			 * then the app mapping recorded with the baseline in one write. */
+			const seedPublished = async (
+				variant: { readonly appName: string; readonly domain: string },
+				value: "yes" | "no",
+			) => {
+				const appId = await seedRuntimeApp(variant.appName, (id) =>
+					buildKeptBaselineBlueprint(id, variant.appName),
+				);
+				const scope = {
+					appId,
+					projectId: seedProjectId,
+					role: "owner",
+					actorUserId: SEED.userId,
+				};
+				const target = {
+					server: "production" as const,
+					domain: variant.domain,
+				};
+				const at = KEPT_BASELINE_SEED.observedAt;
+				await foldDeploymentAttempt(
+					scope,
+					target,
+					"preflight",
+					{ status: "succeeded", at },
+					{ ensure: true },
+				);
+				const remoteAppId = `hq-${randomUUID().replaceAll("-", "")}`;
+				await recordRemoteResource(scope, target, {
+					kind: "app",
+					novaResourceId: appId,
+					remoteId: remoteAppId,
+					ownership: "nova-created",
+					pushedRevision: 1,
+					uploadedAt: at,
+					remoteRevision: null,
+					baseline: keptBaselineWrite(remoteAppId, value),
+				});
+				for (const caseName of [
+					KEPT_BASELINE_SEED.match,
+					KEPT_BASELINE_SEED.other,
+				])
+					await caseStore.insert({
+						appId,
+						row: {
+							case_type: KEPT_BASELINE_SEED.caseType,
+							case_name: caseName,
+							status: "open",
+							properties: {},
+						},
+					});
+				return { appId, routes: keptBaselineRoutes(appId) };
+			};
+			return {
+				keptBaseline: {
+					kept: await seedPublished(KEPT_BASELINE_SEED.kept, "yes"),
+					twin: await seedPublished(KEPT_BASELINE_SEED.twin, "no"),
+				},
+			};
 		},
 		"app-notices": async () => {
 			const { appId } = await createExplicitBlankApp(

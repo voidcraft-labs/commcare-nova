@@ -2643,6 +2643,33 @@ test.describe("authenticated builder", () => {
 				"Choosing a group selects its first case",
 			);
 		});
+
+		await test.step("a filter makes the cards from the cases it leaves", async () => {
+			// Ben and Cal are referred. Web Apps filters, sorts, then groups, so
+			// Ben's household comes first and Cal's card is Cal's alone: its
+			// heading and its one choice are Cal, never Ada.
+			await page.getByLabel("Filter results").fill("Referred");
+			await expect(groups).toHaveCount(2);
+			await expect(groups.first()).toContainText("Ben");
+			await expect(groups.last()).toContainText("Cal");
+			for (const absent of ["Ada", "Dot"]) {
+				await expect(groups.first()).not.toContainText(absent);
+				await expect(groups.last()).not.toContainText(absent);
+			}
+
+			const actions = list.locator("[data-case-result-action]");
+			await expect(actions).toHaveCount(2);
+			await expect(actions.last()).toHaveAttribute(
+				"aria-label",
+				/View details for .*Cal/,
+			);
+			// Cal's name is on the list already, so the Details title is what
+			// says the card's choice opened Cal and not the group's first case.
+			await actions.last().click();
+			await expect(page.locator("[data-case-detail-title]")).toHaveText("Cal", {
+				timeout: 20_000,
+			});
+		});
 	});
 
 	/**

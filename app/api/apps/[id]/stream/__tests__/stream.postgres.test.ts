@@ -948,6 +948,118 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		for (const frame of spaceFrames) expect(frame.id).toBeUndefined();
 	});
 
+	it("announces the preview target facts on connect and after a baseline write that changes them, and not after one that leaves them", async () => {
+		/* The second frame of the deployment lane: each baseline write pokes
+		 * the lane in its own transaction, and the pump re-reads what the one
+		 * reached project space holds. A write that changes a kept setting
+		 * Preview does not play moves neither fact, so it sends nothing; the
+		 * frame list then holds no repeat of the facts before it. */
+		const { foldDeploymentAttempt, recordRemoteResource } = await import(
+			"@/lib/deployment/store"
+		);
+		const { normalizeHqAppSource } = await import(
+			"@/lib/deployment/hqSourceBaseline"
+		);
+		const { gzipSync } = await import("node:zlib");
+		const appId = await seedApp(0);
+		const scope = {
+			appId,
+			projectId: PROJECT,
+			role: "editor",
+			actorUserId: USER,
+		};
+		const target = { server: "production" as const, domain: "acme" };
+		const at = "2026-11-10T09:00:00.000Z";
+		const ownership = {
+			addOns: [],
+			profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+			profileCustomProperties: [],
+			autoGpsCapture: false,
+		};
+		const publishWith = async (properties: Record<string, string>) => {
+			const read = normalizeHqAppSource({
+				doc_type: "Application",
+				name: "Vaccine Tracker",
+				langs: ["en"],
+				translations: { en: { en: "English" } },
+				profile: { properties },
+				modules: [],
+				_attachments: {},
+			});
+			if ("malformed" in read) throw new Error(read.malformed);
+			await recordRemoteResource(scope, target, {
+				kind: "app",
+				novaResourceId: appId,
+				remoteId: "hq-1",
+				ownership: "nova-created",
+				pushedRevision: 1,
+				uploadedAt: at,
+				remoteRevision: null,
+				baseline: {
+					origin: "push",
+					remoteAppId: "hq-1",
+					sourceGzip: gzipSync(Buffer.from(read.text, "utf8")),
+					sourceBytes: read.bytes,
+					sourceDigest: read.digest,
+					ownership,
+					observedAt: at,
+					discard: null,
+				},
+			});
+		};
+		const factsFrames = (frames: readonly Frame[]) =>
+			frames.filter((x) => x.event === "preview-target-facts");
+		const fuzzyOnly = { fuzzyListSearch: true, markRequiredQuestions: false };
+		const both = { fuzzyListSearch: true, markRequiredQuestions: true };
+
+		const { frames } = await collectUntil(appId, {
+			predicate: (f) =>
+				f.some(
+					(x) =>
+						x.event === "preview-target-facts" &&
+						JSON.stringify(x.data) === JSON.stringify({ facts: both }),
+				),
+			onOpen: async (currentFrames) => {
+				const seen = async (count: number) =>
+					vi.waitFor(
+						() => expect(factsFrames(currentFrames()).length).toBe(count),
+						{ timeout: 2_000 },
+					);
+				/* The connect-time announce first, so the first write's frame
+				 * is its own and not the connect-time one. */
+				await seen(1);
+				await foldDeploymentAttempt(
+					scope,
+					target,
+					"preflight",
+					{ status: "succeeded", at },
+					{ ensure: true },
+				);
+				await publishWith({ "cc-fuzzy-search-enabled": "yes" });
+				await seen(2);
+				/* Another kept setting moves; both facts stay. */
+				await publishWith({
+					"cc-fuzzy-search-enabled": "yes",
+					"cc-autoup-freq": "7",
+				});
+				await publishWith({
+					"cc-fuzzy-search-enabled": "yes",
+					"cc-autoup-freq": "7",
+					"cc-label-required-questions-with-asterisk": "yes",
+				});
+			},
+		});
+
+		const announced = factsFrames(frames);
+		expect(announced.map((frame) => frame.data)).toEqual([
+			{ facts: null },
+			{ facts: fuzzyOnly },
+			{ facts: both },
+		]);
+		/* Seq-less: only mutation frames own Last-Event-ID. */
+		for (const frame of announced) expect(frame.id).toBeUndefined();
+	});
+
 	it("emits an initial full lookup manifest without an SSE mutation id", async () => {
 		const appId = await seedApp(0);
 

@@ -71,10 +71,6 @@ const outside = (reason: string): PlatformCell => ({
 	reason,
 });
 
-const PROFILE_PROPERTY_ONLY_ANDROID_READS = outside(
-	"A profile property only Android reads; Preview reads no profile property.",
-);
-
 export const PLATFORM_CELLS: Readonly<
 	Record<`${string}@${Platform}`, PlatformCell>
 > = {
@@ -320,32 +316,6 @@ export const PLATFORM_CELLS: Readonly<
 	"application-and-settings/21-properties-cc-show-incomplete@web-apps": outside(
 		"Web Apps lists unfinished form sessions from its own store; Preview keeps no unfinished forms.",
 	),
-	"application-and-settings/1-properties-cc-autoup-freq@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/4-properties-cc-days-form-retain@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/5-properties-logenabled@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/17-properties-cc-content-valid@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/18-properties-unsent-number-limit@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/19-properties-unsent-time-limit@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/22-properties-cc-resize-images@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/25-properties-cc-login-duration-seconds@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/26-properties-cc-inflation-target-density@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/27-properties-cc-gps-auto-capture-accuracy@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/28-properties-cc-maps-default-layer@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/29-properties-cc-enable-tts@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
-	"application-and-settings/30-properties-cc-label-required-questions-with-asterisk@web-apps":
-		PROFILE_PROPERTY_ONLY_ANDROID_READS,
 	"forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case@web-apps":
 		outside(
 			"Preview always holds the worker's own record, so the assertion never fails in Preview.",

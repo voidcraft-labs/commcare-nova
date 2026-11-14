@@ -59,6 +59,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"app-settings": "App settings",
 	"auto-select": "Choosing a case automatically",
 	"blank-form": "Forms with no questions",
+	"build-profiles": "Build profiles",
 	"call-center-indicators": "Call center indicators",
 	"case-attachments": "Files saved on a case",
 	"case-detail-tabs": "Case detail tabs",
@@ -157,10 +158,7 @@ export const FINDING_COPY: Readonly<
 		never:
 			"A menu here has no ID in CommCare HQ, so Nova has nothing to keep it by.",
 	},
-	"app-logos": {
-		"not-yet":
-			"This uses logos for the Android home, sign-in and practice screens, which Nova can't hold yet.",
-	},
+	"app-logos": {},
 	"app-settings": {
 		never: "This uses an app setting, which Nova doesn't bring in.",
 		"not-yet": "This uses an app setting, which Nova can't hold yet.",
@@ -170,6 +168,9 @@ export const FINDING_COPY: Readonly<
 			"This uses a setting that chooses a case for the worker, which Nova can't hold yet.",
 	},
 	"blank-form": {},
+	"build-profiles": {
+		"not-yet": "This uses build profiles, which Nova can't hold yet.",
+	},
 	"call-center-indicators": {
 		never: "This uses call center indicators, which Nova doesn't bring in.",
 	},

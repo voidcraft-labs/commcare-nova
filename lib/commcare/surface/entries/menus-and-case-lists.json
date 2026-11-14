@@ -631,7 +631,7 @@
 			"cell": "n/a"
 		},
 		"emission": {
-			"cell": "the target's recorded id; Nova-minted for a project space Nova creates the app in (today random per expansion)",
+			"cell": "the target's recorded id; derived from the menu's UUID elsewhere (`wireIdentity.ts`)",
 			"markers": []
 		},
 		"gates": []
@@ -4013,8 +4013,9 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`case_tile_field` (template slot) on `icon_text_grid`",
+		"item": "`case_tile_field` holding text, on a detail whose `case_tile_template` is a template with slots: `icon_text_grid`, or `person_simple` or a removed template, where the detail's own REFUSED entry also applies",
 		"surfaceKeys": ["schema:DetailColumn.case_tile_field"],
+		"valueClass": "slot-on-a-template-tile",
 		"disposition": "HELD-NEW",
 		"dispositionCell": "**HELD-NEW**: `column.tileSlot`",
 		"subject": "case-tiles",
@@ -4037,11 +4038,31 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/case-tile-field-blank-or-off-a-template-tile",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`case_tile_field` `\"\"` or `null`, or any value on a detail with no `case_tile_template` or with `custom`",
+		"surfaceKeys": ["schema:DetailColumn.case_tile_field"],
+		"valueClass": "blank-or-off-a-template-tile",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's Case List page writes `\"\"` on every column at every save (`details/bootstrap5/column.js`, `serialize`), and HQ reads the key only to fill a template's slots, which a detail with no template, or with the `custom` one, has none of (`suite_xml/features/case_tiles.py::case_tile_template_config`, `CaseTileHelper._get_matched_detail_column`; `helpers/validators.py`, the tile checks)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/grid-x-grid-y-width-height-custom-tile",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`grid_x`, `grid_y`, `width`, `height` (custom tile)",
+		"item": "`grid_x`, `grid_y`, `width`, `height` (custom tile), on a detail whose `case_tile_template` is `custom`",
 		"surfaceKeys": [
 			"parser:GridParser/grid@grid-height",
 			"parser:GridParser/grid@grid-width",
@@ -4108,7 +4129,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`horizontal_align`, `vertical_align`",
+		"item": "`horizontal_align`, `vertical_align`, on a detail whose `case_tile_template` is `custom`",
 		"surfaceKeys": [
 			"parser:StyleParser/style@horz-align",
 			"parser:StyleParser/style@vert-align",
@@ -4171,7 +4192,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`font_size`",
+		"item": "`font_size`, on a detail whose `case_tile_template` is `custom`",
 		"surfaceKeys": [
 			"parser:StyleParser/style@font-size",
 			"schema:DetailColumn.font_size"
@@ -4231,7 +4252,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail columns",
-		"item": "`show_border`, `show_shading`",
+		"item": "`show_border`, `show_shading`, on a detail whose `case_tile_template` is `custom`",
 		"surfaceKeys": [
 			"parser:StyleParser/style@show-border",
 			"parser:StyleParser/style@show-shading",
@@ -4255,6 +4276,36 @@
 		"emission": {
 			"cell": "keys",
 			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/tile-cell-keys-on-a-list-that-is-not-a-tile",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "`grid_x`, `grid_y`, `width`, `height`, `horizontal_align`, `vertical_align`, `font_size`, `show_border`, `show_shading` at any value, on a detail with no `case_tile_template` or with a template other than `custom`, whose layout is the template's own",
+		"surfaceKeys": [
+			"schema:DetailColumn.grid_x",
+			"schema:DetailColumn.grid_y",
+			"schema:DetailColumn.width",
+			"schema:DetailColumn.height",
+			"schema:DetailColumn.horizontal_align",
+			"schema:DetailColumn.vertical_align",
+			"schema:DetailColumn.font_size",
+			"schema:DetailColumn.show_border",
+			"schema:DetailColumn.show_shading"
+		],
+		"valueClass": "off-a-custom-tile",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ's Case List page writes all nine on every column at every save, and HQ reads them only while it builds a custom tile (`CaseTileHelper.build_case_tile_detail`, under `case_tile_template == CUSTOM`). Read as cells they would stack every column at the top left; Nova reads none and writes none while a list has no tile",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
 		},
 		"gates": []
 	},

@@ -15,6 +15,7 @@ import {
 } from "@/__tests__/helpers/httpPeer";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
+	applicationAnswer,
 	type RetainedHqAnswer,
 	replyRetained,
 	retainedBodyJson,
@@ -1418,6 +1419,40 @@ it("refuses a target app below the CommCare version floor with its address", asy
 	});
 });
 
+it("refuses an app whose build profile names a language the app lacks, with each profile on a line and the app's address", async () => {
+	await seed();
+	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
+		imported(peer);
+		await asUser(async (client) => {
+			body(await call(client));
+			const before = requests(peer).length;
+			const profiled = retainedBodyJson(retainedPublishRead("source-live"));
+			profiled.build_profiles = {
+				"profile-1": {
+					name: "Field team",
+					langs: ["en", "fra"],
+					practice_mobile_worker_id: "",
+					doc_type: "BuildProfile",
+				},
+			};
+			request(peer, SOURCE).reply(200, JSON.stringify(profiled));
+			const refused = body(await call(client), true);
+			expect(refused).toMatchObject({
+				error_type: "hq_build_profile_language_missing",
+				app_id: APP,
+				url: `${HOST}/a/clinic/apps/view/working-app/`,
+			});
+			expect(refused.message).toBe(
+				"An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.\n“Field team”: French (fra)",
+			);
+			expect(requests(peer).slice(before)).not.toContain(
+				`POST ${HOST}${IMPORT}`,
+			);
+		});
+	});
+});
+
 it.each([
 	{
 		name: "XML success",
@@ -2174,9 +2209,12 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			200,
 			{ currentVersion: 1, latestBuild: 1, latestReleasedBuild: 1 },
 		);
-		request(peer, "/a/clinic/api/application/v1/working-app/").reply(200, {
-			versions: [{ id: "released-build", version: 1, is_released: true }],
-		});
+		replyRetained(
+			request(peer, "/a/clinic/api/application/v1/working-app/"),
+			applicationAnswer("working-app", [
+				{ id: "released-build", version: 1, is_released: true },
+			]),
+		);
 		request(peer, "/a/clinic/apps/download/released-build/profile.ccpr").reply(
 			200,
 			`<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`,

@@ -18,6 +18,7 @@ import {
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import type { KeptLabelId } from "@/lib/publish/keptValues";
 import type { PlacementMoveOfferView } from "@/lib/publish/placementMoves";
 import {
 	PLAN_FEATURE_IDS,
@@ -227,6 +228,12 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 */
 	"hq_app_version_below_floor",
 	/**
+	 * A build profile of the app on CommCare HQ names a language this app no
+	 * longer has, and no API key can change a build profile. Nothing of this
+	 * publish's content was sent.
+	 */
+	"hq_build_profile_language_missing",
+	/**
 	 * CommCare HQ made the new app with Web Apps off, which it does where the
 	 * plan has no Web Apps, for an app that runs in Web Apps. Only the empty
 	 * app was made, and the person's plan answer is withdrawn.
@@ -415,9 +422,12 @@ export interface BaselineDiscardWrite {
 	readonly digest: string;
 }
 
-/** What the app baseline writers take. Gzip and digests are computed before the transaction. */
+/**
+ * What the app baseline writers take. Gzip and digests are computed before the transaction.
+ * `cutover` is written only by a refresh, which keeps the origin the baseline it replaces held.
+ */
 export interface AppBaselineWrite {
-	readonly origin: "create" | "push" | "unread";
+	readonly origin: "create" | "push" | "cutover" | "unread";
 	readonly remoteAppId: string;
 	readonly sourceGzip: Buffer | null;
 	readonly sourceBytes: number | null;
@@ -645,6 +655,17 @@ export interface AppOwnership {
 	readonly profileProperties: readonly string[];
 	readonly profileCustomProperties: readonly string[];
 	readonly autoGpsCapture: boolean;
+}
+
+/**
+ * The kept list of one deployment: the settings its project space holds in
+ * CommCare HQ at another value than a new app's, as label ids in the list's
+ * order, and the date of the baseline they were read from (an ISO 8601
+ * instant). Empty `labels` is a list that names nothing, which still has a date.
+ */
+export interface DeploymentKept {
+	readonly labels: readonly KeptLabelId[];
+	readonly observedAt: string;
 }
 
 /** The app as CommCare HQ returned it when Nova last read it, or the fact that Nova could not read it. */

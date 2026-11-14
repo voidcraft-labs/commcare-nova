@@ -42,6 +42,10 @@ function shellSource(overrides: Partial<HqAppSource> = {}): HqAppSource {
 		addOns: {},
 		modules: [],
 		raw: {},
+		name: null,
+		lastModified: null,
+		multimediaMap: [],
+		buildProfiles: [],
 		...overrides,
 	};
 }

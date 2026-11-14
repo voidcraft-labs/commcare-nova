@@ -16,11 +16,8 @@
 
 import { getSession } from "@/lib/auth-utils";
 import { discoverAccessibleDomains } from "@/lib/commcare/client";
-import {
-	COMMCARE_SERVERS,
-	type CommCareServer,
-	isCommCareServer,
-} from "@/lib/commcare/servers";
+import { classifyHqFailure } from "@/lib/commcare/hq/failure";
+import { isCommCareServer } from "@/lib/commcare/servers";
 import {
 	type CommCareSettingsPublic,
 	deleteCommCareSettings,
@@ -29,6 +26,7 @@ import {
 	saveCommCareSettings,
 } from "@/lib/db/settings";
 import { log } from "@/lib/logger";
+import { settingsFailureMessage } from "./hqFailureMessage";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -44,33 +42,6 @@ export type SettingsResult =
 export type DeleteResult =
 	| { success: true }
 	| { success: false; error: string };
-
-// ── Error messages ──────────────────────────────────────────────────
-
-/**
- * A verify-time 401, naming the deployment the key was tried against. The
- * US, India, and EU servers are separate deployments with separate accounts,
- * and a key carries no hint of which one issued it, so "invalid key"
- * against one server very often means "valid key, wrong server," and the
- * message has to point there or the user has nothing left to check.
- */
-function invalidKeyMessage(server: CommCareServer): string {
-	const { label, host } = COMMCARE_SERVERS[server];
-	return `CommCare HQ (${label}: ${host}) rejected this API key. Check that you copied it correctly, and that ${label} is the server where your account lives, a key only works on the server that issued it.`;
-}
-
-/**
- * Map the non-401 CommCare HQ status codes to user-facing messages. Each
- * caller owns its 401 (verify → `invalidKeyMessage`; refresh → its
- * revoked-key copy) because what a 401 MEANS depends on whether the key was
- * just typed or has worked before.
- */
-function settingsErrorMessage(status: number): string {
-	if (status === 429)
-		return "Rate limited by CommCare HQ. Wait a moment and try again.";
-	if (status >= 500) return "CommCare HQ is unavailable. Try again later.";
-	return `CommCare HQ returned an error (HTTP ${status}).`;
-}
 
 // ── Actions ─────────────────────────────────────────────────────────
 
@@ -107,10 +78,10 @@ export async function verifyAndSaveCredentials(
 		if (!Array.isArray(accessible)) {
 			return {
 				success: false,
-				error:
-					accessible.status === 401
-						? invalidKeyMessage(server)
-						: settingsErrorMessage(accessible.status),
+				error: settingsFailureMessage(
+					classifyHqFailure(accessible, "app-list"),
+					{ server, moment: "verify" },
+				),
 			};
 		}
 		if (accessible.length === 0) {
@@ -162,17 +133,16 @@ export async function refreshDomainsAction(): Promise<SettingsResult> {
 						"This API key no longer reaches any project space, it may have been revoked or had its access changed. Your saved connection is unchanged.",
 				};
 			}
-			/* A refresh 401 can't be a copy/paste or wrong-server mistake, the
-			 * stored key already verified once, so it means the key stopped
-			 * being accepted (revoked, deactivated, or expired). */
-			if (result.status === 401) {
-				return {
-					success: false,
-					error:
-						"CommCare HQ no longer accepts your stored API key, it may have been revoked or expired. Disconnect and reconnect with a new key.",
-				};
-			}
-			return { success: false, error: settingsErrorMessage(result.status) };
+			/* A refresh's rejected key can't be a copy/paste or wrong-server
+			 * mistake, the stored key already verified once, so the sentence
+			 * says it stopped being accepted. */
+			return {
+				success: false,
+				error: settingsFailureMessage(
+					classifyHqFailure(result.error, "app-list"),
+					{ moment: "refresh" },
+				),
+			};
 		}
 		return { success: true, settings: result.settings };
 	} catch (err) {

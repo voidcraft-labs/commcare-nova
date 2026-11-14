@@ -3938,7 +3938,7 @@
 		],
 		"valueClass": "xpath-query-rows",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: each row a typed default filter kept as its own row (today Nova emits one row per top-level conjunct of its composed predicate, `xpathQuery.ts::composeXPathQueryEmission` and `caseList.ts::projectDefaultProperties`, so an imported row that is itself an `and` would be split)",
+		"dispositionCell": "**HELD-NEW**: each row a typed default filter kept as its own row; Nova emits one row per top-level conjunct of its composed condition (`xpathQuery.ts::composeXPathQueryEmission`), and HQ joins every row with `and` (`case_search/utils.py::_apply_filter`); no reader reads rows back yet",
 		"subject": "search-default-filters",
 		"owner": "case-search",
 		"platforms": {

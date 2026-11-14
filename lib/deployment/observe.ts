@@ -1,11 +1,8 @@
 import "server-only";
 
 import type { CommCareCredentials } from "@/lib/commcare/client";
-import {
-	listAppBuilds,
-	probeBuildProfile,
-	readAppVersions,
-} from "@/lib/commcare/client";
+import { probeBuildProfile, readAppVersions } from "@/lib/commcare/client";
+import { readHqApplication } from "@/lib/commcare/hq/application";
 import type {
 	DeploymentFailureCode,
 	DeploymentPhase,
@@ -188,8 +185,8 @@ export async function observeDeployment(input: {
 	// working app rather than a build. Naming the id keeps the request on
 	// this build; see `probeBuildProfile` for what that request is and is
 	// not.
-	const builds = await listAppBuilds(creds, domain, hqAppId);
-	if ("success" in builds) {
+	const application = await readHqApplication(creds, domain, hqAppId);
+	if ("success" in application) {
 		/* Only the PROBE could not run. CommCare HQ already answered for
 		 * the build and the release on this same pass, and throwing those
 		 * away to report the whole check unavailable would strand any
@@ -204,7 +201,7 @@ export async function observeDeployment(input: {
 			"probe",
 			pending(
 				now,
-				builds.status === 401 || builds.status === 403
+				application.status === 401 || application.status === 403
 					? "Nova can't confirm the released build installs on a device, because reading this app's builds needs the Access APIs permission on your CommCare HQ account. Everything above is confirmed."
 					: "Nova can't confirm the released build installs on a device, because CommCare HQ didn't answer the request that lists this app's builds. Everything above is confirmed. Check again in a moment.",
 			),
@@ -216,7 +213,7 @@ export async function observeDeployment(input: {
 			releasedBuildId: null,
 		};
 	}
-	const released = builds.find(
+	const released = application.builds.find(
 		(build) =>
 			build.isReleased && build.version === versions.latestReleasedVersion,
 	);

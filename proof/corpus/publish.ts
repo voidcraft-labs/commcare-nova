@@ -136,6 +136,7 @@ import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 import { gateEntriesFileSchema } from "@/lib/commcare/surface/schema";
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
+import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
@@ -168,6 +169,7 @@ import {
 	describeLookupChange,
 } from "@/lib/deployment/remoteChanges";
 import { chooseDownloadTarget } from "@/lib/deployment/runtimeTarget";
+import { targetFactsFromBaseline } from "@/lib/deployment/targetFacts";
 import type {
 	AppOwnership,
 	CanonicalLookupTable,
@@ -1152,6 +1154,13 @@ export interface SentImport {
 	readonly assumedSource: AssumedSource;
 	/** What the peer answered for the tables the publish pushes, when it pushes any. */
 	readonly assumedResources?: AssumedResources;
+	/**
+	 * What the project space keeps of the values Nova leaves to CommCare HQ
+	 * after the import: the facts of the source read back as the app's next
+	 * baseline (`lib/deployment/targetFacts.ts::targetFactsFromBaseline`),
+	 * which a `.ccz` downloaded for the project space then reads.
+	 */
+	readonly targetFacts: TargetFacts | null;
 }
 
 /**
@@ -1630,6 +1639,20 @@ async function sendContent(
 			ownership,
 			assumedSource: assumedSourceOf(source),
 			...(assumedResources !== undefined && { assumedResources }),
+			/* The deployment is one Nova created, so its mapping is not
+			 * `adopted`. */
+			targetFacts: targetFactsFromBaseline(
+				{
+					origin: "push",
+					remoteAppId: imported.appId,
+					source: readBack.normalized,
+					sourceDigest: readBack.digest,
+					ownership,
+					observedAt: new Date(CCZ_CLOCK).toISOString(),
+					observedBy: "proof-capture",
+				},
+				false,
+			),
 		},
 		ledger: {
 			app: { normalized: readBack.normalized, ownership, origin: "push" },
@@ -2333,6 +2356,22 @@ export async function capturePublish(
 	);
 }
 
+/**
+ * What the project space keeps after the publish a `.ccz` downloaded then
+ * follows: the facts of the baseline the named update left where it went
+ * through, else of the one the first publish's content left. Null where
+ * neither was sent: no baseline was read.
+ */
+export function capturedTargetFacts(
+	capture: PublishCapture | RepublishCapture,
+	update: string,
+): TargetFacts | null {
+	if (capture.status === "refused") return null;
+	const step = capture.updates[update];
+	if (step?.status === "sent") return step.targetFacts;
+	return capture.status === "sent" ? capture.create.content.targetFacts : null;
+}
+
 function assertModeled(peer: TargetPeer): void {
 	if (peer.unexpected.length > 0) {
 		throw new Error(
@@ -2393,7 +2432,11 @@ function atInstant<T>(instant: number, build: () => T): T {
  * afresh (`earlierHqApps` 0), and it holds `USH_EMPTY_CASE_LIST_TEXT` where
  * `emptyCaseListText` says the configuration does, as the publish would have
  * read it, so the archive writes the empty-list text exactly where HQ's
- * build there does. Returns null where the rule refuses an app that does
+ * build there does. `targetFacts` is what that project space keeps of the
+ * values Nova leaves to CommCare HQ, as the deployment's baseline gives them
+ * (`SentImport.targetFacts` of the publish the archive follows), which the
+ * archive writes as HQ's build there does; null, the default, where no
+ * baseline was read. Returns null where the rule refuses an app that does
  * not declare Android (`not-declared-for-android`): Nova offers no `.ccz` of
  * it. Throws `UnexportableDocumentError` where the route's boundary refuses,
  * and on any other refusal of the rule. With an operation, a draw made while the archive is
@@ -2404,7 +2447,10 @@ export async function localCcz(
 	source: PublishDocument,
 	domain: string,
 	operation?: EntropyOperation,
-	options: { readonly emptyCaseListText?: boolean } = {},
+	options: {
+		readonly emptyCaseListText?: boolean;
+		readonly targetFacts?: TargetFacts | null;
+	} = {},
 ): Promise<Buffer | null> {
 	const emptyCaseListText = options.emptyCaseListText === true;
 	const choice = chooseDownloadTarget(
@@ -2443,6 +2489,7 @@ export async function localCcz(
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,
+					targetFacts: options.targetFacts ?? null,
 				},
 			),
 		),

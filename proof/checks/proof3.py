@@ -159,18 +159,16 @@ content's own on both sides (``declared_versions``, ``local_versions``); a
 version a form does not declare is compared as it is. The B build is aligned
 to A already.
 
-A value a person saved only in HQ (``hq-side.json``) is one the local archive
-cannot hold, so on such a document the local archive's comparisons hold it
-both ways (``stated_hq_side_values``): Auto Capture Location saved on an app
-that is not a Connect app is a location HQ's side holds and the local
-archive's lacks, on Core's trace (``trace@local.ccz``), on Formplayer's
-output and submissions (``formplayer@local.ccz``) and on a device's walks
-(``android@local.ccz``: the location the form asks for, the fix it is given
-and the location the saved record holds); a profile setting saved in HQ is
-the saved value in HQ's trace and Nova's constant in the local archive's,
-and the device's readers of it differ accordingly. Each is a difference of
-exactly that shape, which the check takes as the statement holding; one of
-another shape, or none where the comparison ran, is reported.
+A value a person saved only in HQ (``hq-side.json``) that the local archive
+cannot hold is held both ways on such a document's local archive
+comparisons (``stated_hq_side_values``). The local archive is made for the
+project space the saves were made in and writes what it keeps as HQ's build
+there does (Auto Capture Location, its UI translations, each kept profile
+setting), so only a profile setting outside those is stated: HQ's trace
+holds it (``trace@local.ccz``) and the local archive's profile does not.
+Each is a difference of exactly that shape, which the check takes as the
+statement holding; one of another shape, or none where the comparison ran,
+is reported.
 
 The sessions, HQ's restores and HQ's case processing are observed over B's
 state, or A's where HQ refused B (``proof.observe.sessions``), and kept in
@@ -1226,53 +1224,24 @@ class StatedValue:
     values: tuple | None = None
 
 
-# The paths a location HQ's side holds and the local archive's lacks shows at, on each reader's comparison.
-LOCATION_PATHS = {
-    "trace@local.ccz": ("/runs/*/trace/*/submission/data/meta[*]/location[*]",),
-    f"{FORMPLAYER}@local.ccz": (
-        "/runs/*/steps/*/response/instanceXml/output/data/meta[*]/location[*]",
-        "/runs/*/steps/*/submissions/*/instance/data/meta[*]/location[*]",
-    ),
-    "android@local.ccz": (
-        "/walks/*/steps/*/form/deviceAsked",
-        "/walks/*/steps/*/form/deviceGave",
-        "/walks/*/steps/*/form/saved/records/*/metaLocation",
-    ),
-}
-# The device's readers that answer from a profile setting (``proof/android/src/nova/proof/android/Profile.java``).
-SETTING_READERS = {
-    "cc-autoup-freq": (
-        "UpdateHelper.getAutoUpdateFrequency",
-        "UpdateHelper.getAutoUpdatePeriodicity",
-        "UpdateHelper.isAutoUpdateOn",
-    ),
-}
-
-
 def stated_values(hq_side) -> list:
-    """What a document's ``hq-side.json`` says HQ's side holds and the local archive cannot, as ``StatedValue``s."""
-    from proof.checks.intent import NOVA_PROFILE_CONSTANTS
+    """What a document's ``hq-side.json`` says HQ's side holds and the local archive cannot, as ``StatedValue``s.
 
+    The local archive is made for the project space the saves were made in, and writes what that project space
+    keeps as HQ's build there does (``lib/commcare/compiler.ts::compileCcz`` over the deployment's ``TargetFacts``):
+    Auto Capture Location, a UI translation and each kept profile setting (``intent.NOVA_PROFILE_CONSTANTS`` and
+    ``intent.LOCAL_KEPT_UNSTATED``) are no difference. A profile setting outside them is HQ's build's alone: the
+    local archive's profile lacks it."""
+    from proof.checks.intent import LOCAL_KEPT_UNSTATED, NOVA_PROFILE_CONSTANTS, hq_profile_text
+
+    kept = {*NOVA_PROFILE_CONSTANTS, *LOCAL_KEPT_UNSTATED}
     found = []
     if not hq_side:
         return found
-    if ((hq_side.get("appAttributes") or {}).get("auto_gps_capture")) is True:
-        for artifact, paths in LOCATION_PATHS.items():
-            found += [StatedValue("auto_gps_capture", artifact, path, "removed") for path in paths]
     for key, value in sorted((hq_side.get("profileProperties") or {}).items()):
-        found.append(
-            StatedValue(
-                key,
-                "trace@local.ccz",
-                f"/profile/properties/{pointer_token(key)}/value",
-                "changed",
-                (value, NOVA_PROFILE_CONSTANTS.get(key)),
-            )
-        )
-        found += [
-            StatedValue(key, "android@local.ccz", f"/profile/readers/{reader}", "changed")
-            for reader in SETTING_READERS.get(key, ())
-        ]
+        if key in kept or hq_profile_text(value) is None:
+            continue
+        found.append(StatedValue(key, "trace@local.ccz", f"/profile/properties/{pointer_token(key)}", "removed"))
     return found
 
 

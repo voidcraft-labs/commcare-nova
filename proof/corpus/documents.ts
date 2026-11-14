@@ -175,7 +175,10 @@ export interface TargetedEdit {
  *   add-ons Nova wrote;
  * - `profileProperties`: on the app's settings page, each setting's value
  *   by key (`views/settings.py::edit_commcare_profile`), beside the settings
- *   A holds.
+ *   A holds: a choice as its text, a switch as `true` or `false`;
+ * - `profileFeatures`: on the same page, each profile feature's value by
+ *   key, such as the worker activity level `credentials`, beside the
+ *   features A holds.
  *
  * It also states what Nova's next publish over the saves does, which the
  * capture holds (`./publish.ts`): `republish` is `"proceeds"` (it goes
@@ -222,7 +225,8 @@ export interface HqSideSaveKinds {
 		readonly description: string;
 	};
 	readonly addOns?: Readonly<Record<string, boolean>>;
-	readonly profileProperties?: Readonly<Record<string, string>>;
+	readonly profileProperties?: Readonly<Record<string, string | boolean>>;
+	readonly profileFeatures?: Readonly<Record<string, string>>;
 }
 
 /**

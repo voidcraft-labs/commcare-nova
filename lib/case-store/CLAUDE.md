@@ -782,8 +782,10 @@ user's sort and the page window, so the clustering has to run inside
 the same statement. `queryGrouped` is a SEPARATE method rather than a
 flag on `query` because its WINDOW COUNTS GROUPS: `groupOffset` /
 `groupLimit` name that in the shape instead of leaving `limit` /
-`offset` meaning two things. It returns the groups plus `totalGroups`
-(the pager's denominator) and `totalRows`, all from one statement, so
+`offset` meaning two things. It returns the groups, `listOrder` (the
+page's case ids in the user's sort, before clustering, which lets a reader
+re-cluster what a filter leaves of the page), `totalGroups` (the pager's
+denominator) and `totalRows`, all from one statement, so
 the page and the pager can never disagree and the ungrouped path's
 stale-final-page reclamp has no counterpart here.
 

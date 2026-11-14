@@ -42,6 +42,7 @@ import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
 import { errorToString } from "@/lib/commcare/validator/errors";
 import {
 	downloadAttachmentState,
+	downloadKeptAdvisoryFacts,
 	resolveDownloadTarget,
 } from "@/lib/deployment/downloadTarget";
 import { downloadRefusalLines } from "@/lib/deployment/runtimeTarget";
@@ -209,6 +210,9 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				const advisories = exportAdvisories(
 					preparedDoc,
 					downloadAttachmentState(download),
+					/* What a CCZ cannot follow of the values its project space
+					 * keeps; the import file is made for no project space. */
+					downloadKeptAdvisoryFacts(download, preparedDoc),
 				);
 				const advisoryContent = exportAdvisoryContent(advisories);
 				const advisoryMeta =
@@ -293,7 +297,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							boundary.prepared,
 							download.runtimeTarget,
 							download.identity,
-							download.target,
+							{
+								emptyCaseListText: download.target.emptyCaseListText,
+								earlierHqApps: download.target.earlierHqApps,
+								targetFacts: download.targetFacts,
+							},
 						);
 						return {
 							content: [

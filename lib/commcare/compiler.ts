@@ -1,4 +1,4 @@
-import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
+import { targetProfileProperties } from "@/lib/commcare/keptProfile";
 import {
 	profileServerProperties,
 	profileUniqueId,
@@ -6,6 +6,7 @@ import {
 } from "@/lib/commcare/runtimeTarget";
 import { buildEntryPointSuite } from "./entryPointSuite";
 import { basicActionsWriteWorker } from "./session";
+import type { TargetFacts } from "./targetFacts";
 import { COMMCARE_VERSION_FLOOR } from "./versionFloor";
 import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
@@ -85,7 +86,10 @@ import {
 	selectedCaseSessionDatum,
 	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
-import { serializeLocaleFileValue } from "@/lib/commcare/localeFile";
+import {
+	hqLocaleFileValue,
+	serializeLocaleFileValue,
+} from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -195,6 +199,15 @@ export interface CompileOptions {
 	 * Absent reads false.
 	 */
 	emptyCaseListText?: boolean;
+	/**
+	 * What the target project space holds of the values Nova leaves to
+	 * CommCare HQ, read from its deployment's baseline: the archive writes
+	 * them as HQ's build there does (the profile's kept settings, its server
+	 * properties and worker activity credential, each language's runtime UI
+	 * text, location capture, and on a deployment Nova brought in, CommCare
+	 * HQ's language names). Absent or null reads Nova's own values.
+	 */
+	targetFacts?: TargetFacts | null;
 }
 
 /** The entry's new-case datum for `caseType`, which a form offered after an
@@ -299,6 +312,7 @@ export function compileCcz(
 	const sequence = opts.compiledAtSeq ?? 1;
 	const archiveVersion = sequence + (opts.earlierHqApps ?? 0);
 	const emptyCaseListText = opts.emptyCaseListText === true;
+	const facts = opts.targetFacts ?? null;
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
@@ -322,6 +336,7 @@ export function compileCcz(
 		doc: authoredDoc,
 		appName,
 		runtimeTarget: opts.runtimeTarget,
+		facts,
 		firstLanguage: localization.languages[0],
 		sequence,
 		archiveVersion,
@@ -804,7 +819,13 @@ export function compileCcz(
 				xform = setFormVersion(
 					stripVellumAttributes(
 						addMetaBlock(xform, {
-							captureLocation: authoredDoc.connectType !== null,
+							/* HQ's build captures location on every form where the
+							 * app's `auto_gps_capture` is on: a Connect app's, which
+							 * Nova sets, or another app's where the project space
+							 * holds it (`xform.py::XForm._add_meta_2`). */
+							captureLocation:
+								authoredDoc.connectType !== null ||
+								facts?.autoGpsCapture === true,
 						}),
 					),
 					sequence,
@@ -1284,24 +1305,48 @@ export function compileCcz(
 	// Materialize every runtime table from the one canonical source registry.
 	// A linked value resolves through the domain translation unit (including
 	// stale/missing fallback); language-neutral media paths repeat unchanged.
+	//
+	// The project space's own text (`TargetFacts`) then joins each table: on a
+	// deployment Nova brought in, a language name CommCare HQ holds in place of
+	// Nova's label, and the text the project space holds under its own keys
+	// (its runtime UI text among them), after Nova's own entries and over any
+	// of them, as HQ's build
+	// puts a stored translation over every string. Each is written in HQ's own
+	// spelling (`hqLocaleFileValue`), being text Nova did not write. `default`
+	// takes the default language's, as it takes that language's whole table;
+	// a language of the facts the app does not have writes nothing, as HQ
+	// builds no table for it.
 	for (const [language, dir] of langDirs) {
-		const table: Record<string, string> = {};
+		const table = new Map<string, string>();
+		const heldText = new Set<string>();
 		for (const [localeId, source] of Object.entries(appStrings)) {
 			const unitSource = appStringUnits[localeId];
-			table[localeId] =
+			table.set(
+				localeId,
 				unitSource === undefined
 					? source
-					: localization.wireTextFor(language, unitSource);
+					: localization.wireTextFor(language, unitSource),
+			);
 		}
+		const heldNames = ownEntry(facts?.languageNames, language);
 		for (const code of localization.languages) {
-			table[code] = localization.languageName(code);
+			const held = ownEntry(heldNames, code);
+			table.set(code, held ?? localization.languageName(code));
+			if (held !== undefined) heldText.add(code);
 		}
-		table["lang.current"] = language;
+		for (const [key, value] of Object.entries(
+			ownEntry(facts?.uiText, language) ?? {},
+		)) {
+			table.set(key, value);
+			heldText.add(key);
+		}
+		table.set("lang.current", language);
+		heldText.delete("lang.current");
 		const localizedSuiteErrors = validateSuite(
 			suiteXml,
-			new Set(Object.keys(table)),
+			new Set(table.keys()),
 			{
-				appStringValues: new Map(Object.entries(table)),
+				appStringValues: table,
 				manifest: bundledWirePaths,
 			},
 		);
@@ -1312,12 +1357,23 @@ export function compileCcz(
 					.join("\n")}`,
 			);
 		}
-		files[`${dir}/app_strings.txt`] = Object.entries(table)
-			.map(([key, value]) => `${key}=${serializeLocaleFileValue(key, value)}`)
+		files[`${dir}/app_strings.txt`] = [...table]
+			.map(
+				([key, value]) =>
+					`${key}=${heldText.has(key) ? hqLocaleFileValue(value) : serializeLocaleFileValue(key, value)}`,
+			)
 			.join("\n");
 	}
 
 	return packageCcz(files, mediaBundle.cczEntries);
+}
+
+/** The value `record` holds under its own `key`, never one it inherits. */
+function ownEntry<T>(
+	record: Readonly<Record<string, T>> | null | undefined,
+	key: string,
+): T | undefined {
+	return record != null && Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
 /**
@@ -1333,16 +1389,22 @@ export function compileCcz(
  *   both the sequence.
  * - The four server properties (`profileServerProperties`), each forced,
  *   so a worker signs in, syncs and sends forms to the project space the
- *   archive is made for.
+ *   archive is made for: on its custom base URL and to its secure receiver
+ *   where the project space holds them.
  * - `cur_locale`, the first language's wire code, unforced, as HQ writes
  *   it, so the app starts in its first language.
- * - The seventeen settings (`appProfileSettings.ts`), each with HQ's own
- *   `force`.
+ * - The seventeen settings (`keptProfile.ts::targetProfileProperties`),
+ *   each with HQ's own `force`: a seeded one at the project space's value
+ *   where it holds one, and the detail-view log setting after them where it
+ *   holds that.
  * - The derived properties, each forced as HQ's custom-property template
  *   writes them, and the logo's web-apps banner where the app has a logo.
  * - `<features>`: `<checkoff active="true"/>`, as HQ's `profile.ccpr` has
  *   it, with which Android keeps a sent form as saved and offers the Saved
- *   button where `cc-show-saved` allows it; then `<users active="true"/>`.
+ *   button where `cc-show-saved` allows it; then `<users active="true"/>`;
+ *   then, where the project space issues a worker activity credential, the
+ *   `<credentials>` block HQ's `profile.xml` writes in that place (HQ's
+ *   `<dependencies>` sits between the two, and Nova writes none).
  * - The suite and the media suite, each at the archive's version.
  *
  * Constructed via `domhandler` element tree + single `serializeXml`
@@ -1355,13 +1417,14 @@ function generateProfile(input: {
 	readonly doc: BlueprintDoc;
 	readonly appName: string;
 	readonly runtimeTarget: RuntimeTarget;
+	readonly facts: TargetFacts | null;
 	readonly firstLanguage: string | undefined;
 	readonly sequence: number;
 	readonly archiveVersion: number;
 	readonly logoProperty?: Element;
 	readonly derivedProperties: Readonly<Record<string, string>>;
 }): string {
-	const { appName, runtimeTarget } = input;
+	const { appName, runtimeTarget, facts } = input;
 	const archiveVersion = String(input.archiveVersion);
 	const profileEl = el(
 		"profile",
@@ -1382,7 +1445,7 @@ function generateProfile(input: {
 				value: String(input.sequence),
 			}),
 			el("property", { key: "cc-app-version", value: String(input.sequence) }),
-			...profileServerProperties(runtimeTarget).map(({ key, value }) =>
+			...profileServerProperties(runtimeTarget, facts).map(({ key, value }) =>
 				el("property", { key, value, force: "true" }),
 			),
 			...(input.firstLanguage === undefined
@@ -1394,8 +1457,9 @@ function generateProfile(input: {
 							force: "false",
 						}),
 					]),
-			...appProfileProperties(input.doc).map(({ key, value, force }) =>
-				el("property", { key, value, ...(force && { force: "true" }) }),
+			...targetProfileProperties(input.doc, facts).map(
+				({ key, value, force }) =>
+					el("property", { key, value, ...(force && { force: "true" }) }),
 			),
 			...Object.entries(input.derivedProperties).map(([key, value]) =>
 				el("property", { key, value, force: "true" }),
@@ -1404,6 +1468,16 @@ function generateProfile(input: {
 			el("features", {}, [
 				el("checkoff", { active: "true" }),
 				el("users", { active: "true" }),
+				...(facts === null || facts.credentialLevel === null
+					? []
+					: [
+							el("credentials", { active: "true" }, [
+								el("credential", {
+									level: facts.credentialLevel,
+									type: "APP_ACTIVITY",
+								}),
+							]),
+						]),
 			]),
 			el("suite", {}, [
 				el(

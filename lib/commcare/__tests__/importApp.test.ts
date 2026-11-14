@@ -130,7 +130,7 @@ it.each(
 					APP,
 					update ? "working-app" : undefined,
 				),
-			).toEqual({ success: false, status: 502 });
+			).toEqual({ success: false, status: 502, cause: "malformed" });
 		});
 	},
 );
@@ -149,10 +149,14 @@ it("keeps HQ's explicit application rejection distinct from a malformed or lost 
 			.get(HOST)
 			.intercept({ path: PATH, method: "POST" })
 			.replyWithError(new Error("connection lost"));
-		for (const status of [422, 502, 503])
+		for (const failure of [
+			{ status: 422 },
+			{ status: 502, cause: "malformed" },
+			{ status: 503, cause: "network" },
+		])
 			expect(await importApp(CREDS, "clinic", "Visits", APP)).toEqual({
 				success: false,
-				status,
+				...failure,
 			});
 	});
 });

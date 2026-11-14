@@ -46,6 +46,95 @@ export function retainedPublishRead(
 	return { status: raw.status, headers: raw.headers ?? {}, body: raw.body };
 }
 
+/** The files of `proof/hq-reads/reading/`, by name without `.json`. */
+export type RetainedReadingRead =
+	| "list-apps"
+	| "list-apps-429"
+	| "api-access"
+	| "api-access-no-plan"
+	| "api-access-no-permission"
+	| "application"
+	| "application-error-module"
+	| "application-no-api-access"
+	| "application-no-api-access-superuser"
+	| "application-api-cut-off"
+	| "application-no-permission"
+	| "application-linked"
+	| "application-deleted"
+	| "application-remote"
+	| "application-other-space"
+	| "application-build"
+	| "application-429"
+	| "source-remote"
+	| "source-other-space"
+	| "source-shadow"
+	| "application-shadow"
+	| "current-version"
+	| "current-version-after-save"
+	| "fixture-rows-empty-field"
+	| "project-spaces"
+	| "project-spaces-flag-on"
+	| "project-spaces-flag-off";
+
+const READING_READS = path.join(process.cwd(), "proof", "hq-reads", "reading");
+
+/**
+ * One reading answer. A file that holds `{"exception": "<class>"}` is a view
+ * that raised, which a deployed HQ answers through its `handler500`: it is
+ * read as `{ status: 500, headers: {} }` with no body, and no test serves an
+ * exception's name.
+ */
+export function retainedReadingRead(
+	name: RetainedReadingRead,
+): RetainedHqAnswer {
+	const raw = JSON.parse(
+		readFileSync(path.join(READING_READS, `${name}.json`), "utf8"),
+	) as {
+		status?: number;
+		headers?: Record<string, string>;
+		body?: unknown;
+		exception?: string;
+	};
+	if (raw.exception !== undefined) return { status: 500, headers: {} };
+	if (raw.status === undefined)
+		throw new Error(`The retained reading ${name} holds no status.`);
+	return { status: raw.status, headers: raw.headers ?? {}, body: raw.body };
+}
+
+/**
+ * The retained `application` answer with its body's `id` set to `appId` and its `versions` set
+ * to `versions`, HQ's build rows as a suite writes them.
+ */
+export function applicationAnswer(
+	appId: string,
+	versions: readonly unknown[],
+): RetainedHqAnswer {
+	const answer = retainedReadingRead("application");
+	return {
+		...answer,
+		body: JSON.stringify({
+			...retainedBodyJson(answer),
+			id: appId,
+			versions,
+		}),
+	};
+}
+
+/**
+ * Another group's retained read by its path under `proof/hq-reads/`, without
+ * `.json` (`hq-built/app-source`), for a suite that reads one state of a
+ * group no helper above names.
+ */
+export function retainedGroupRead(file: string): RetainedHqAnswer {
+	const raw = JSON.parse(
+		readFileSync(
+			path.join(process.cwd(), "proof", "hq-reads", `${file}.json`),
+			"utf8",
+		),
+	) as { status: number; headers?: Record<string, string>; body?: unknown };
+	return { status: raw.status, headers: raw.headers ?? {}, body: raw.body };
+}
+
 /** The retained answer's body as the bytes a peer sends. */
 export function retainedBodyText(answer: RetainedHqAnswer): string {
 	if (answer.body === undefined || answer.body === null) return "";

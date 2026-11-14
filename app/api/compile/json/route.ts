@@ -80,7 +80,9 @@ export async function POST(req: NextRequest) {
 		// The import file is complete and correct; the advisories say what it
 		// could not carry, so they ride beside it rather than replacing it.
 		const advisoryHeader = encodeExportAdvisories(
-			exportAdvisories(doc, attachmentTargetState),
+			/* The import file is made for no project space, so nothing it
+			 * keeps is stated. */
+			exportAdvisories(doc, attachmentTargetState, null),
 		);
 
 		// The RAW name goes to the builder and the guide: the archive's

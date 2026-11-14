@@ -41,7 +41,7 @@ import {
 } from "@/lib/commcare/hq/workers";
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { getHqCredentials } from "@/lib/db/settings";
 import type { BlueprintDoc } from "@/lib/domain";
 import { organizationLevelsOf, personasOf } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -664,10 +664,7 @@ async function resolveCredentials(input: ProvisionWorkersInput): Promise<
 			readonly details: readonly string[];
 	  }
 > {
-	const result = await getCredentialsForUpload(
-		input.scope.actorUserId,
-		input.domain,
-	);
+	const result = await getHqCredentials(input.scope.actorUserId, input.domain);
 	if (!result.ok) {
 		return result.error === "not_configured"
 			? {

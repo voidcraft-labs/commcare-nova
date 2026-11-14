@@ -16,6 +16,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { produce } from "immer";
 import type { MockAgent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -39,6 +40,8 @@ import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitAppProjectMoveInTransaction } from "@/lib/db/apps";
+import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -512,6 +515,49 @@ function republishLookup(
 	accepted(peer, 200, bodies);
 	serve(peer, "source-live");
 }
+
+// ── The table list a publish could not read ─────────────────────────────
+
+describe("the lookup table list", () => {
+	const COULD_NOT_ASK =
+		"Nova couldn't ask “clinic” which lookup tables it already has, so it stopped rather than push over them. Try publishing again in a moment.";
+
+	it("stops at project-data with couldn't ask, and sends nothing, where HQ serves a field with no name", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			request(peer, TABLES).reply(200, {
+				objects: [{ ...remoteTable, fields: [{ properties: [] }] }],
+				meta: { next: null },
+			});
+			expect(refusal(await publish(doc, [LOOKUP]))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_resource_state_unknown",
+					message: COULD_NOT_ASK,
+				},
+			});
+			expect(requests(peer)).toEqual([`GET ${TABLES}`]);
+		});
+	});
+
+	it("prints the same where the edge refuses the read, never naming a plan or a permission", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			request(peer, TABLES).reply(
+				403,
+				"<html><head><title>403 Forbidden</title></head><body><center><h1>403 Forbidden</h1></center></body></html>",
+			);
+			expect(refusal(await publish(doc, [LOOKUP]))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_resource_state_unknown",
+					message: COULD_NOT_ASK,
+				},
+			});
+			expect(requests(peer)).toEqual([`GET ${TABLES}`]);
+		});
+	});
+});
 
 // ── C1. The version floor ───────────────────────────────────────────────
 
@@ -1842,5 +1888,189 @@ describe("logos", () => {
 		});
 		expect(bodies[0]?.app).not.toHaveProperty("logo_refs");
 		expect(bodies[1]?.app.logo_refs).toEqual({});
+	});
+});
+
+// ── A build profile that names a language the app no longer has ─────────
+
+/** The clinic app in English and French. */
+function bilingualDocument(): BlueprintDoc {
+	const doc = clinicVisitsDocument();
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "fra"],
+		wireCodes: { eng: "en", fra: "fra" },
+		translations: { fra: {} },
+	};
+	return doc;
+}
+
+/** `doc` after `mutations`, through the production reducer. */
+function withMutations(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	return produce(doc, (draft) => {
+		applyMutations(draft, mutations);
+	});
+}
+
+/** A source holding one build profile, as HQ's Application Profiles tab saves it. */
+const withProfile =
+	(name: string, langs: readonly string[]) =>
+	(source: Record<string, unknown>) => {
+		source.build_profiles = {
+			"profile-1": {
+				name,
+				langs: [...langs],
+				practice_mobile_worker_id: "",
+				doc_type: "BuildProfile",
+			},
+		};
+	};
+
+describe("a build profile that names a language the app no longer has", () => {
+	const ONE_AT_PREFLIGHT =
+		"An application profile of the app on “clinic” includes a language this app no longer has, so Nova stopped before sending anything. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.";
+
+	it("lets an update over a profile naming a language the app has land, and sends no build_profiles", async () => {
+		const doc = await seed(bilingualDocument());
+		const bodies: ImportBody[] = [];
+		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			serve(peer, "source-live", withProfile("Field team", ["fra"]));
+			accepted(peer, 200, bodies);
+			serve(peer, "source-live");
+			expect(landed(await publish(doc)).hqAppAction).toBe("updated");
+		});
+		expect(bodies).toHaveLength(1);
+		expect(bodies[0]?.app).not.toHaveProperty("build_profiles");
+	});
+
+	it("stops after a language is removed, before any write, names the profile and the language, and changes no record", async () => {
+		const doc = await seed(bilingualDocument());
+		const removed = withMutations(doc, [
+			{ kind: "removeLanguage", code: "fra" },
+		]);
+		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			const record = await readDeployment(SCOPE, TARGET);
+			const before = requests(peer).length;
+			serve(peer, "source-live", withProfile("Field team", ["en", "fra"]));
+			const outcome = await publish(removed);
+			expect(refusal(outcome)).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_build_profile_language_missing",
+					message: ONE_AT_PREFLIGHT,
+					details: ["“Field team”: French (fra)"],
+				},
+			});
+			expect(outcome.hqAppUrl).toBe(HQ_APP_URL);
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+			expect(await readDeployment(SCOPE, TARGET)).toEqual(record);
+
+			/* The profile changed on HQ's tab: the next publish lands, and the
+			 * change to the profile is no change to anything Nova writes. */
+			serve(peer, "source-live", withProfile("Field team", ["en"]));
+			accepted(peer, 200);
+			serve(peer, "source-live");
+			expect(landed(await publish(removed)).hqAppAction).toBe("updated");
+		});
+	});
+
+	it("stops a single-language app relabelled over a profile naming its old code", async () => {
+		const doc = await seed();
+		const relabelled = withMutations(doc, [
+			{
+				kind: "relabelSourceLanguage",
+				language: { language: "fra" },
+				wireCode: "fra",
+			},
+		]);
+		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			const before = requests(peer).length;
+			serve(peer, "source-live", withProfile("English phones", ["en"]));
+			const outcome = await publish(relabelled);
+			expect(refusal(outcome)).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_build_profile_language_missing",
+					message: ONE_AT_PREFLIGHT,
+					details: ["“English phones”: English (en), the only language it has"],
+				},
+			});
+			expect(outcome.hqAppUrl).toBe(HQ_APP_URL);
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+		});
+	});
+
+	it("stops at the upload where a profile saved while a table was pushed names a language the app lacks", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			await firstLookupPublish(peer, doc);
+			const before = requests(peer).length;
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live");
+			workbookTaken(peer);
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live", withProfile("", ["en", "fra"]));
+			expect(refusal(await publish(doc, [LOOKUP]))).toMatchObject({
+				phase: "upload",
+				failure: {
+					code: "hq_build_profile_language_missing",
+					message:
+						"An application profile of the app on “clinic” includes a language this app no longer has, which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.",
+					details: ["A profile with no name: French (fra)"],
+				},
+			});
+			const sent = requests(peer).slice(before);
+			expect(sent).toContain(`POST ${WORKBOOK}`);
+			expect(sent).not.toContain(`POST ${IMPORT}`);
+		});
+	});
+
+	it("stops the retry that fills an empty app an earlier try made, where the app now holds such a profile", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			serve(peer, "source-shell", version("2.53.0"));
+			expect(refusal(await publish(doc)).phase).toBe("resources");
+
+			const before = requests(peer).length;
+			serve(peer, "source-shell", (source) => {
+				version("2.57.0")(source);
+				withProfile("Field team", ["en", "fra"])(source);
+			});
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_build_profile_language_missing",
+					message: ONE_AT_PREFLIGHT,
+					details: ["“Field team”: French (fra)"],
+				},
+			});
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+		});
+	});
+
+	it("refuses a source with no build_profiles as an app Nova cannot read, and sends nothing", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			const before = requests(peer).length;
+			serve(peer, "source-live", (source) => {
+				delete source.build_profiles;
+			});
+			expect(refusal(await publish(doc))).toMatchObject({
+				phase: "preflight",
+				failure: { code: "hq_app_state_unknown" },
+			});
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
+		});
 	});
 });

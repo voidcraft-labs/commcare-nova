@@ -33,11 +33,13 @@ import {
 } from "@/lib/deployment/resources";
 import { deploymentResumeState } from "@/lib/deployment/stateMachine";
 import type {
+	DeploymentKept,
 	DeploymentPhase,
 	DeploymentResourceKind,
 	DeploymentWithResources,
 } from "@/lib/deployment/types";
 import { DEPLOYMENT_PHASES } from "@/lib/deployment/types";
+import { KEPT_LABELS } from "@/lib/publish/keptValues";
 
 /** One remote resource an earlier publish left on the project space. */
 export interface LeftBehindResource {
@@ -90,6 +92,16 @@ export interface DeploymentProjection {
 	 * the member's display name.
 	 */
 	readonly confirmations: readonly DeploymentConfirmationProjection[];
+	/**
+	 * The settings this project space keeps in CommCare HQ at another value
+	 * than a new app's, each worded as the Publishing card words it, in the
+	 * card's order, and `observed_at`, the instant Nova read them. Null where
+	 * Nova holds no read of the app there.
+	 */
+	readonly kept: {
+		readonly labels: readonly string[];
+		readonly observed_at: string;
+	} | null;
 }
 
 /** One confirmation in force on a deployment. */
@@ -111,11 +123,13 @@ export interface DeploymentConfirmationProjection {
  * mapping and leaves nothing behind, while a renamed one leaves the old
  * table sitting there. Pass `null` when Nova could not read them, and only
  * superseded apps are reported: sending somebody to tidy up tables that
- * are perfectly fine is worse than saying less.
+ * are perfectly fine is worse than saying less. `kept` is the deployment's
+ * kept list (`service.ts::deploymentKept`).
  */
 export function describeDeployment(
 	view: DeploymentWithResources,
 	currentIdentities: ReadonlyMap<string, string> | null,
+	kept: DeploymentKept | null,
 ): DeploymentProjection {
 	const record = view.deployment;
 	const remote = activeRemoteApp(view);
@@ -169,5 +183,12 @@ export function describeDeployment(
 			confirmed_by: confirmation.confirmedByName,
 			confirmed_at: confirmation.confirmedAt,
 		})),
+		kept:
+			kept === null
+				? null
+				: {
+						labels: kept.labels.map((label) => KEPT_LABELS[label]),
+						observed_at: kept.observedAt,
+					},
 	};
 }

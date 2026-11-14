@@ -55,6 +55,7 @@
 
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { TargetFacts } from "@/lib/commcare/targetFacts";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -94,6 +95,7 @@ import {
 import {
 	type CapturedRequest,
 	type CompatibilityOutcome,
+	capturedTargetFacts,
 	capturePublish,
 	importFile,
 	localCcz,
@@ -384,6 +386,34 @@ function outcomeJson(
 		}),
 		...(step.code !== undefined && { code: step.code }),
 	};
+}
+
+/**
+ * What the project space a document's local archives are made for keeps,
+ * after the publish named `update`: one value over every configuration,
+ * since a document has one local archive and what the project space keeps
+ * does not hang on its flags. Configurations that disagree stop the
+ * emission rather than choose one.
+ */
+function archiveTargetFacts(
+	documentId: string,
+	captures: ReadonlyMap<string, PublishCapture | RepublishCapture>,
+	update: string,
+): TargetFacts | null {
+	let chosen:
+		| { readonly name: string; readonly facts: TargetFacts | null }
+		| undefined;
+	for (const [name, capture] of captures) {
+		const facts = capturedTargetFacts(capture, update);
+		if (chosen === undefined) {
+			chosen = { name, facts };
+		} else if (JSON.stringify(facts) !== JSON.stringify(chosen.facts)) {
+			throw new Error(
+				`${documentId}'s ${update} leaves its project space keeping ${JSON.stringify(facts)} under the ${name} configuration and ${JSON.stringify(chosen.facts)} under ${chosen.name}. A document has one local archive, made for one project space; look at what the capture peer holds under each configuration.`,
+			);
+		}
+	}
+	return chosen?.facts ?? null;
 }
 
 /**
@@ -759,16 +789,23 @@ export async function writeEntry(
 	 * download refuses one for a document that does not declare it
 	 * (`not-declared-for-android`), and the corpus writes no local archive
 	 * of it: a Web Apps worker meets HQ's build. */
+	/* Each archive is made for the project space as the publish before it
+	 * left it: D's for the republish, D′'s for its update, each with what the
+	 * project space keeps (`SentImport.targetFacts`). */
+	const targetFacts = archiveTargetFacts(document.id, captures, "republish");
 	const localArchive = await localCcz(
 		publish,
 		PROOF_DOMAIN,
 		local(OPERATION_ORDINALS.local),
+		{ targetFacts },
 	);
 	if (localArchive !== null) {
 		await writeFile(join(root, "local.ccz"), localArchive);
 		await writeFile(
 			join(root, "local-again.ccz"),
-			await requiredLocalCcz(publish, local(OPERATION_ORDINALS.localAgain), {}),
+			await requiredLocalCcz(publish, local(OPERATION_ORDINALS.localAgain), {
+				targetFacts,
+			}),
 		);
 		if (
 			named.some(([, configuration]) =>
@@ -779,6 +816,7 @@ export async function writeEntry(
 				join(root, EMPTY_LIST_TEXT_ARCHIVE),
 				await requiredLocalCcz(publish, local(OPERATION_ORDINALS.local), {
 					emptyCaseListText: true,
+					targetFacts,
 				}),
 			);
 		}
@@ -832,6 +870,7 @@ export async function writeEntry(
 			edit.publish,
 			PROOF_DOMAIN,
 			local(OPERATION_ORDINALS.editLocal),
+			{ targetFacts: archiveTargetFacts(document.id, captures, "update") },
 		);
 		if (editArchive !== null) {
 			await writeFile(join(editRoot, "local.ccz"), editArchive);

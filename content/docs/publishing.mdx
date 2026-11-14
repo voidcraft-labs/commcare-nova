@@ -55,7 +55,8 @@ your API key can reach the project space you picked, that the app itself has
 nothing outstanding, that you have confirmed what the project space's plan and
 settings give the app, that the project space supports the app features that
 need destination support, that the app already there is set to CommCare 2.57 or
-later, that nothing Nova publishes there has changed in CommCare HQ since its
+later, that no application profile there includes a language the app no longer
+has, that nothing Nova publishes there has changed in CommCare HQ since its
 last publish, and that the app's Web App setting there matches where the app
 runs ([A note on Web Apps](#a-note-on-web-apps)). If any required support is
 missing, or Nova cannot confirm it, nothing is sent. The result names the
@@ -120,6 +121,16 @@ the project space may be able to run the app while large Search results open
 more slowly, or a persona may be missing worker information that CommCare HQ
 will ask for later. Read [Project-space compatibility](/docs/project-space-compatibility)
 for the complete check.
+
+#### Application profiles
+
+In CommCare HQ, an app can have application profiles, each a set of the app's languages for one
+group of phones. Nova keeps them as they are and can't change them. If you remove a language in
+Nova that a profile there still includes, the next publish to that project space stops before
+it sends anything and names the profile and the language. You can take the language out of the
+profile, or remove the profile, on the Application Profiles tab of the app's Releases page in
+CommCare HQ, then publish again. A language you add in Nova joins no profile until you add it
+there.
 
 ### Data in place
 
@@ -371,6 +382,18 @@ keep refusing to open the app for that long, with the old error. Making a new
 version in CommCare HQ checks the app afresh. Saving the form once in CommCare
 HQ's form builder clears the old check, and Nova's next publish then asks before
 replacing that form.
+
+## What stays as it is in CommCare HQ
+
+Some of an app's settings are CommCare HQ's to keep: how often phones update,
+fuzzy search in case lists, your rewording of CommCare's own screens, your
+Android logos and a few more. Nova doesn't change them when it publishes, so you
+can keep setting them on the app's Settings page in CommCare HQ. The Publishing
+section lists the ones your project space holds differently from a new app,
+with the date Nova last read them, and **Refresh from CommCare HQ** reads them
+again. A CCZ you download for that project space follows them. Two things it
+can't carry, your Android logos and a practice mobile worker, it tells you about
+when you download it.
 
 ## Making workers
 

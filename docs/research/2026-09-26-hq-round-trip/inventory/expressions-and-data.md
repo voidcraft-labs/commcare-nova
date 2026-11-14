@@ -167,13 +167,13 @@ A media file is held when every platform the app declares plays it, and HQ types
 | HQ item | Disposition | Web Apps / Android | Emission |
 |---|---|---|---|
 | image PNG, JPEG, GIF, WebP | **HELD**: `lib/media` image asset | RUNS / RUNS (GIF animates only via Glide on `.gif`) | bytes via the multimedia API |
-| image BMP | **HELD**: widen: add BMP (needs a non-`sharp` body parser) | RUNS / RUNS | same |
+| image BMP | **HELD**: `lib/media` image asset, in the two headers every reader decodes | RUNS / RUNS | same |
 | image ICO, AVIF | **HELD**: an image asset for an app that does not declare Android (every browser in the bar plays them; Android 6.0 does not decode them, AVIF only from Android 14) | RUNS / UNAVAILABLE | same |
 | image SVG | **REFUSED**: broken at runtime: HQ types it as an image and cannot store it: `CommCareImage.attach_data` opens every image with Pillow, which reads no SVG, and the error escapes `process_bulk_upload_zip`'s loop, so the whole upload stops and no file of that publish is mapped | — | — |
 | image TIFF, HEIF | **REFUSED**: broken at runtime: neither platform plays them on every device or browser it runs on (MDN documents TIFF for Safari alone and does not list HEIF; Android decodes neither at 6.0, HEIF only from 8.0) | — | — |
 | audio MP3, AAC in M4A (brand `M4A `/`M4B `), FLAC, PCM WAV (8- or 16-bit) | **HELD** (MP3, WAV with an encoding check, M4A with a brand check, FLAC): audio asset | RUNS / RUNS | same |
 | audio WAV that is not 8- or 16-bit PCM | **REFUSED**: broken at runtime: Android plays only 8- and 16-bit PCM WAV (Google's supported formats), and MDN documents support for other WAV codecs only as sparse | — | — |
-| audio Ogg Vorbis or Opus | **HELD**: widen: add Ogg Vorbis and Opus to the audio set | RUNS (Safari since 18.4, per MDN's container guide, Ogg note; MDN's audio codec table still lists Safari as unsupported) / RUNS | same |
+| audio Ogg Vorbis or Opus | **HELD**: `lib/media` audio asset | RUNS (Safari since 18.4, per MDN's container guide, Ogg note; MDN's audio codec table still lists Safari as unsupported) / RUNS | same |
 | audio raw AAC (ADTS, `.aac`), AMR, MIDI | **HELD**: an audio asset for an app that does not declare Web Apps (Chrome plays AAC only inside MP4; Chrome, Firefox and Opera play no AMR, MDN leaving Edge and Safari unconfirmed, and MDN lists MIDI support for no browser) | UNAVAILABLE / RUNS | same |
 | audio M4A with another brand (`isom`, `mp41`, `mp42`, `dash`) | **REFUSED**: broken at runtime: HQ classifies it as video, so an audio reference never receives the bytes (`CommCareMultimedia.get_class_by_data`) | — | — |
 | audio 3GP | **REFUSED**: broken at runtime: HQ classifies it as video | — | — |

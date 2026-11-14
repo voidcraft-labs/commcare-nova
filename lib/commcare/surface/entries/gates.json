@@ -740,7 +740,6 @@
 		},
 		"content": "REFUSED (see \"What is refused\")",
 		"contentEntries": [
-			"application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5",
 			"menus-and-case-lists/reportmodule-mobile-ucr-and-all-of-report-configs",
 			"menus-and-case-lists/report-context-tile-true",
 			"case-search/input-select1-select-commcare-reports-itemset-mobile-ucr",
@@ -2537,7 +2536,7 @@
 		"class": {
 			"kind": "publish-check"
 		},
-		"content": "at publish of an app with an advanced module whose case list menu item is on, or with a form whose source text, decoded, holds `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`); import asks the same from step 6",
+		"content": "at publish of an app with an advanced module whose case list menu item is on, or with a form whose source text, decoded, holds `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`)",
 		"contentEntries": [
 			"menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",
 			"menus-and-case-lists/advancedmodule-product-details-equal-to-the-default-single-name",
@@ -3032,7 +3031,8 @@
 		},
 		"content": "`build_profiles` target value",
 		"contentEntries": [
-			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker"
+			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker",
+			"application-and-settings/build-profiles-non-empty"
 		],
 		"platforms": "n/a",
 		"preflight": {
