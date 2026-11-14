@@ -6496,9 +6496,7 @@ def order_a_save_changes(use, manifest):
         if held is None or not _default_value(form, other, held):
             continue
         theirs = _target_element(held)
-        if (model.index(other) < model.index(setvalue)) == (
-            tree_order.get(theirs, 0) < tree_order.get(mine, 0)
-        ):
+        if (model.index(other) < model.index(setvalue)) == (tree_order.get(theirs, 0) < tree_order.get(mine, 0)):
             continue
         their_path = form.paths.get(theirs)
         their_reads = _tree_reads(form, other.get("value") or "", their_path)
@@ -6736,9 +6734,10 @@ def blank_in_the_first_language(use, manifest):
     """``questions/an-explicitly-blank-value-in-the-first-language-where-another-holds-text``: an empty ``<value>``
     in the app's first language, Vellum's default (``views/formdesigner.py``: ``'langs': app.langs``;
     ``javaRosa/plugin.js``: ``Itext.setDefaultLanguage(langs[0])``), where another app language's value of the same
-    text and form holds content, so a Vellum save fills it from that language (``javaRosa/itext.js::getValueOrDefault``).
-    A blank value in any other language is the HELD entry's, read as no translation. Read on a form the app JSON
-    carries, whose ``langs`` say it; a form outside an app JSON does not say: None."""
+    text and form holds content, so a Vellum save fills it from that language
+    (``javaRosa/itext.js::getValueOrDefault``). A blank value in any other language is the HELD entry's, read as no
+    translation. Read on a form the app JSON carries, whose ``langs`` say it; a form outside an app JSON does not
+    say: None."""
     form, value = _itext_value(use)
     if form is None:
         return None
