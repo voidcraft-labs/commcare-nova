@@ -28,7 +28,7 @@ name: Proof image
 # - with every reader, on amd64, the slim image against the full one over
 #   this week's sample of the corpus (python3 -m proof.store.queue
 #   --sample-seed: 24 documents, turning each week, so every document is
-#   compared within fifteen weeks), as the weekly audit's seeding and seam
+#   compared within the corpus's size over 24 weeks, rounded up), as the weekly audit's seeding and seam
 #   comparisons are. The whole lane with every reader costs about 550
 #   worker-hours, and the nightly and the weekly already run it on the slim
 #   image; what this adds is the full image beside it.

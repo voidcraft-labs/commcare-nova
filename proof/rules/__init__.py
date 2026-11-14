@@ -89,11 +89,13 @@ from proof.rules import (  # noqa: E402
     add_ons,
     case_list_form_unset,
     case_references_load,
+    close_question_blank,
     column_tab_keys,
     condition_operator_default,
     detail_null_booleans,
     empty_binds,
     empty_media_maps,
+    form_filter_blank,
     form_link_fallback,
     inactive_parent_select,
     itext_value_order,
@@ -142,6 +144,8 @@ RULES: tuple[SpellingRule, ...] = (
     form_link_fallback.RULE,
     subcase_empty_strings.RULE,
     open_action_blanks.RULE,
+    close_question_blank.RULE,
+    form_filter_blank.RULE,
     # A built profile.
     profile_unread_properties.RULE,
     # The address of a request a reader sent HQ.

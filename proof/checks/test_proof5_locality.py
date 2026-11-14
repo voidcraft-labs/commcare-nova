@@ -24,10 +24,12 @@ Core's parse: an entity the edit moves compares equal there, which it does
 not with the ids left as they are, and a stack step's value is read as Core
 reads it, as XPath, but a query step's, which Core reads as a URL. A suite
 element no runtime reads is compared too: its entity's where the other
-archive reads it, and otherwise unowned, compared with its own names read
-out and inside the footprint only when the footprint reaches the app or
-holds every module, so a change to one of a module outside a footprint
-that does neither is reported. An entity the edit moved is compared with
+archive reads it; a detail otherwise its module's, whose one menu its name
+declares (Nova's ``<menu>_<case|search>_<short|long>``), with the search its
+action opens, so a change to one of a module outside the footprint is
+reported at that module; and any other unowned, compared with its own names
+read out and inside the footprint only when the footprint reaches the app or
+holds every module. An entity the edit moved is compared with
 itself, never with what took its place. A form's
 link that D' points at a form only D' holds is reported: no id D' minted
 for its own entity reads as an id of D's
@@ -238,9 +240,9 @@ TWO_MODULES_PLACED = ({"M0": 0, "M1": 1}, {"F0": (0, 0), "F1": (1, 0)})
 STRINGS = {"default": {"m0.short.title": "Cases", "m0.long.title": "Case", "m1.short.title": "Visits"}}
 
 
-def _side(xml, placed=TWO_MODULES_PLACED):
+def _side(xml, placed=TWO_MODULES_PLACED, readings=None):
     """One archive's suite as ``proof5.suite_comparison`` reads it: parsed, with Core's parse, and owned."""
-    suite = proof5.suite_of(parse_xml(xml), STRINGS, TWO_MODULES_CORE, {}, "?")
+    suite = proof5.suite_of(parse_xml(xml), STRINGS, TWO_MODULES_CORE, readings or {}, "?")
     xmlns_of = {"F0": "urn:f0", "F1": "urn:f1"}
     owned, ids = proof5._owned(suite, placed, xmlns_of)
     return suite, placed, owned, ids, xmlns_of
@@ -429,31 +431,76 @@ def test_ambiguous_menu_identity_cannot_make_two_details_alias_one(side):
     assert "m0_case_short" not in found and "m1_case_short" not in found
 
 
+def _placed(placed):
+    return {entity: _keys(elements) for entity, elements in placed.items()}
+
+
 def test_an_unread_element_is_its_entitys_where_the_other_archive_reads_it_and_unowned_otherwise():
     """A detail the edit stopped naming (unread in D', read in D by a module at the same place) is that module's;
-    a detail no datum names on either side has no owner in Core's parse, and is unowned."""
+    a detail no datum names on either side is the module's whose one menu its name declares (Nova's
+    ``<menu>_<case|search>_<short|long>``), and one whose name declares no menu has no owner, and is unowned."""
     after = TWO_MODULES.replace(' detail-confirm="m0_case_long"', "")
     (before_placed, before_unowned), (after_placed, after_unowned) = proof5._place_unread(
         [_side(TWO_MODULES), _side(after)], {}
     )
-    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
-    assert {entity: _keys(elements) for entity, elements in after_placed.items()} == {
-        ("module", "M0"): [("detail", "m0_case_long")]
+    assert _placed(before_placed) == {("module", "M1"): [("detail", "m1_case_short")]} and before_unowned == []
+    assert _placed(after_placed) == {
+        ("module", "M0"): [("detail", "m0_case_long")],
+        ("module", "M1"): [("detail", "m1_case_short")],
     }
-    assert _keys(after_unowned) == [("detail", "m1_case_short")]
+    assert after_unowned == []
 
-    # Where the module that reads it on the other side sits elsewhere there, its positional name may be another
-    # module's: it is unowned.
+    # Where the module that reads it on the other side sits elsewhere there, its positional name is no evidence
+    # across the two archives; in its own archive it names the menu Core places for its module.
     moved = ({"M0": 1, "M1": 0}, {"F0": (1, 0), "F1": (0, 0)})
     _, (after_placed, after_unowned) = proof5._place_unread([_side(TWO_MODULES), _side(after, moved)], {})
-    assert after_placed == {}
-    assert set(_keys(after_unowned)) == {("detail", "m0_case_long"), ("detail", "m1_case_short")}
+    assert _placed(after_placed) == {
+        ("module", "M0"): [("detail", "m0_case_long")],
+        ("module", "M1"): [("detail", "m1_case_short")],
+    }
+    assert after_unowned == []
+
+    # A name no module's one menu declares is unowned: an opaque id, and a declared one two modules' menus give.
+    opaque = TWO_MODULES.replace("m1_case_short", "opaque")
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(opaque), _side(opaque)], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "opaque")]
+    shared = _side(TWO_MODULES)
+    for held in shared[3].values():
+        held["menus"] = [{"id": "m1", "commands": []}]
+    (before_placed, before_unowned), _ = proof5._place_unread([shared, _side(TWO_MODULES)], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
+
+
+def test_the_search_an_unread_case_lists_action_opens_is_that_case_lists_module():
+    """A remote request a stack step of a placed unread detail opens (the search an unread case list's action
+    would open) is the detail's module's, as a read one's is; one only an unowned element opens is unowned."""
+    action = "<action><stack><push><command value=\"'m1_search'\"/></push></stack></action>"
+    detail = '<detail id="m1_case_short"><title><text><locale id="m1.short.title"/></text></title></detail>'
+    searching = TWO_MODULES.replace(
+        detail,
+        f'<detail id="m1_case_short"><title><text><locale id="m1.short.title"/></text></title>{action}</detail>'
+        '<remote-request><command id="m1_search"/></remote-request>',
+    )
+    readings = {"'m1_search'": {"strings": ["m1_search"], "truncated": False}}
+    (before_placed, before_unowned), _ = proof5._place_unread(
+        [_side(searching, readings=readings), _side(searching, readings=readings)], {}
+    )
+    assert _placed(before_placed) == {("module", "M1"): [("detail", "m1_case_short"), ("remote-request", "m1_search")]}
+    assert before_unowned == []
+
+    opaque = searching.replace("m1_case_short", "opaque")
+    (before_placed, before_unowned), _ = proof5._place_unread(
+        [_side(opaque, readings=readings), _side(opaque, readings=readings)], {}
+    )
+    assert before_placed == {}
+    assert _keys(before_unowned) == [("detail", "opaque"), ("remote-request", "m1_search")]
 
 
 def test_an_unread_element_of_a_removed_module_is_that_modules():
     """Removing the last module removes its details with it: one no datum names (unread in D, absent from D')
-    is that module's, so a footprint holding the removed module holds it. With two modules gone, or one the
-    other archive still holds, the element is unowned."""
+    is that module's, so a footprint holding the removed module holds it. An element whose name declares no
+    module's menu is the removed module's too; with two modules gone, or one the other archive still holds, it
+    is unowned."""
     detail = '<detail id="m1_case_short"><title><text><locale id="m1.short.title"/></text></title></detail>'
     after = (
         TWO_MODULES.replace(detail, "")
@@ -464,23 +511,25 @@ def test_an_unread_element_of_a_removed_module_is_that_modules():
     (before_placed, before_unowned), (after_placed, after_unowned) = proof5._place_unread(
         [_side(TWO_MODULES), _side(after, removed)], {}
     )
-    assert {entity: _keys(elements) for entity, elements in before_placed.items()} == {
-        ("module", "M1"): [("detail", "m1_case_short")]
-    }
+    assert _placed(before_placed) == {("module", "M1"): [("detail", "m1_case_short")]}
     assert before_unowned == [] and after_placed == {} and after_unowned == []
 
-    # Kept in D', the same detail is no removed module's.
-    kept = TWO_MODULES.replace('<entry><form>urn:f1</form><command id="m1-f0"/></entry>', "").replace(
+    opaque = TWO_MODULES.replace("m1_case_short", "opaque")
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(opaque), _side(after, removed)], {})
+    assert _placed(before_placed) == {("module", "M1"): [("detail", "opaque")]} and before_unowned == []
+
+    # Kept in D', the same element is no removed module's.
+    kept = opaque.replace('<entry><form>urn:f1</form><command id="m1-f0"/></entry>', "").replace(
         '<menu id="m1"><command id="m1-f0"/></menu>', ""
     )
-    (before_placed, before_unowned), _ = proof5._place_unread([_side(TWO_MODULES), _side(kept, removed)], {})
-    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(opaque), _side(kept, removed)], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "opaque")]
 
     # With no module or two modules in D alone, which one it was is unknown.
-    (before_placed, before_unowned), _ = proof5._place_unread([_side(TWO_MODULES), _side(after)], {})
-    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
-    (before_placed, before_unowned), _ = proof5._place_unread([_side(TWO_MODULES), _side("<suite/>", ({}, {}))], {})
-    assert before_placed == {} and _keys(before_unowned) == [("detail", "m1_case_short")]
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(opaque), _side(after)], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "opaque")]
+    (before_placed, before_unowned), _ = proof5._place_unread([_side(opaque), _side("<suite/>", ({}, {}))], {})
+    assert before_placed == {} and _keys(before_unowned) == [("detail", "opaque")]
 
 
 def _unowned(xml, strings, key):
@@ -526,9 +575,10 @@ def _rewritten(archive, name, change):
             written.writestr(entry, content)
 
 
-def test_a_change_to_an_unowned_element_is_reported_unless_the_footprint_reaches_it(core_runner, tmp_path):
-    """A detail no runtime reads, of a module outside the footprint, changed in D''s archive: proof 5 reports it
-    (as unowned), and holds it once the footprint reaches the app; the written footprint passed before it."""
+def test_a_change_to_an_unread_detail_is_reported_at_its_module_unless_the_footprint_holds_it(core_runner, tmp_path):
+    """A detail no runtime reads (a case list's where no form selects a case), of a module outside the
+    footprint, changed in D''s archive: proof 5 reports it at that module, whose one menu its name declares, and
+    holds it once the footprint holds the module; the written footprint passed before it."""
     from lxml import etree
 
     from proof.observe.unit import observe_local
@@ -540,16 +590,21 @@ def test_a_change_to_an_unowned_element_is_reported_unless_the_footprint_reaches
         footprint = proof5.footprint_of(document)
         compared = proof5.comparisons(document, local=local)
         suite = next(c for c in compared if c.name == "local-suite")
-        unowned = [row for row in suite.notes["unreadSuiteElements"]["edit/local.ccz"] if row[2] == proof5.UNOWNED]
-        entity = next((e for e in suite.after.records if e[0] == proof5.UNOWNED), None)
-        details = [row[1] for row in unowned if row[0] == "detail"]
-        if not details or footprint.holds(entity) or proof5.by_entity(document.id, compared, footprint):
+        outside = [
+            (detail, ("module", holder.partition(":")[2]))
+            for tag, detail, holder in suite.notes["unreadSuiteElements"]["edit/local.ccz"]
+            if tag == "detail"
+            and holder.startswith("module:")
+            and not footprint.holds(("module", holder.partition(":")[2]))
+        ]
+        if not outside or proof5.by_entity(document.id, compared, footprint):
             continue
+        (detail, entity), *_ = outside
         root = tmp_path / document.id
         shutil.copytree(document.root, root)
         copy = corpus.Document(id=document.id, source=document.source, root=root)
 
-        def changed(content, detail=details[0]):
+        def changed(content, detail=detail):
             parsed = etree.fromstring(content)
             (element,) = [element for element in parsed.iter("detail") if element.get("id") == detail]
             element.set("probe", "changed")
@@ -559,15 +614,14 @@ def test_a_change_to_an_unowned_element_is_reported_unless_the_footprint_reaches
         copy = _reread(copy)
         local, _, _ = observe_local(copy, core_runner=core_runner)
         found, _ = proof5.locality(copy, local=local)
-        assert {(d.artifact, d.path, d.kind) for d in found} >= {(proof5.SUITE, "/suite/detail[@id=*]", "added")}
+        assert found and {d.artifact for d in found} == {proof5.SUITE}, found
         assert set(proof5.by_entity(copy.id, proof5.comparisons(copy, local=local), footprint)) == {entity}
-        reaching = proof5.Footprint(footprint.entities, True, footprint.app_wide)
-        assert proof5.locality(copy, reaching, local=local)[0] == []
+        holding = proof5.Footprint(footprint.entities | {entity[1]}, footprint.app, footprint.app_wide)
+        assert proof5.locality(copy, holding, local=local)[0] == []
         return
     raise AssertionError(
-        "The corpus holds no edited document whose D' archive carries a detail no runtime reads and no entity owns,"
-        " under a footprint that neither reaches the app nor holds every module, so nothing shows proof 5 comparing"
-        " such a detail."
+        "The corpus holds no edited document whose D' archive carries a detail no runtime reads, of a module outside"
+        " the footprint, so nothing shows proof 5 comparing such a detail as its module's."
     )
 
 

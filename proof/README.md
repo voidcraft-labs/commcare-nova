@@ -415,11 +415,15 @@ and holds each to the effects as written.
    part and app strings in the local archive, each suite element placed by
    Core's parse of the archive. A suite element no runtime reads (no menu,
    endpoint, datum or stack step reaches it) is its entity's where the other
-   archive names the same element and an entity at that position owns it,
-   and a module's where the other archive lacks it and that module alone (a
-   module the edit removed or added: its elements leave and arrive with it);
-   any other is compared as one record with its own names read out, inside
-   the footprint where the footprint reaches the app or holds every module.
+   archive names the same element and an entity at that position owns it; a
+   detail is otherwise the module's whose one menu its name declares (Nova
+   names a module's details `<menu>_<case|search>_<short|long>` and emits
+   them whether or not a datum reads them, as for a case list where no form
+   selects a case), with the search its action opens; an element is a
+   module's where the other archive lacks it and that module alone (a module
+   the edit removed or added: its elements leave and arrive with it); any
+   other is compared as one record with its own names read out, inside the
+   footprint where the footprint reaches the app or holds every module.
    The footprint (`proof/corpus/footprint.ts`) is the entities the batch's
    mutations touch, every entity the reference index says reads one of them,
    and every entity whose wire Nova derives from what the batch edits. A local
@@ -3688,8 +3692,9 @@ reused is only what a key names whole, and the reuse is audited:
   (equal). The sample turns each week: the run's ISO year and week is its
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
-  ids, wrapping at the end, so every document is compared within eighteen
-  weeks (for 430), and the three runs of a week check the same sample. The
+  ids, wrapping at the end, so every document is compared within the
+  corpus's size over 24 weeks, rounded up (nineteen for 446), and the three
+  runs of a week check the same sample. The
   seed and the sample's documents are in each sampled lane's job summary,
   its verdict and a failed week's issue, and a dispatch that names the seed
   (`sample_seed`) runs the same sample again. A sampled run checks every
@@ -4843,7 +4848,7 @@ written from where a pull request's own run read documents from the store
   compared in the profile both run whole. With every reader, on amd64, the
   slim image is held to the full one over the week's sample of 24 documents,
   the one the weekly audit's comparisons turn through, so every document is
-  compared within fifteen weeks: the whole lane with every reader already
+  compared within the same turn of weeks: the whole lane with every reader already
   runs on the slim image each night and week, and what this adds beside it
   is the full image. A scheduled comparison that fails opens an issue from
   the lanes' verdicts (`python3 -m proof.lane.report --kind image`), which
