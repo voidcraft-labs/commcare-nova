@@ -6672,6 +6672,32 @@ def appearance_token_no_runtime_reads(use, manifest):
     return bool(appearance_words(manifest, form, element, value)[1])
 
 
+def case_variant_read_differently(use, manifest):
+    """``questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole``: a whole appearance an Android read
+    takes ignoring case (``WidgetFactory.buildBasicWidget``: ``equalsIgnoreCase("numeric")`` on a text input or
+    secret, ``toLowerCase().equals("ethiopian")`` on a date; ``StringWidget.shouldSupportIMEAction``:
+    ``equalsIgnoreCase`` of ``short``) spelled otherwise than the lowercase value, such as ``Numeric``. Web Apps
+    compares each space-separated token exactly (``form_ui.js::getMatchingStyles``), so it ignores the variant
+    Android reads as the value. The use's key names the read (``appearance:android/<value>``); its rule, as the
+    surface records it, must compare the whole appearance of this element and act on it, and the use is in the
+    class where the appearance is not the value itself. A read recorded otherwise than as a whole match is not
+    placed here: None."""
+    form, element, value = _control_appearance(use)
+    if element is None:
+        return None if form is None else False
+    facts = element_facts(manifest, form, element)
+    reads = [
+        rule
+        for rule in appearance_rules(manifest)
+        if rule.key == use.key and rule.reads(facts) and appearance_matches(value, rule)
+    ]
+    if not reads:
+        return False
+    if any(rule.match != "whole" for rule in reads):
+        return None
+    return any(value != rule.token for rule in reads)
+
+
 # Data Parent ------------------------------------------------------------------------
 
 
@@ -6819,6 +6845,7 @@ VALUE_CLASSES = {
     "questions/itext-pragma-entries-pragma-form-descriptor-pragma-skip-full": unreferenced_pragma,
     "questions/an-appearance-holding-such-whitespace-that-some-runtime-reads": appearance_whitespace_read_otherwise,
     "questions/any-other-multi-token-string-holding-a-token-no-runtime-reads-on": appearance_token_no_runtime_reads,
+    "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": case_variant_read_differently,
     "questions/data-parent-crossing-a-repeat": data_parent_crossing_a_repeat,
     "questions/any-other-bind-id-named-by-a-control-s-bind": other_bind_id,
     "questions/label-big-image": _big_image("label"),

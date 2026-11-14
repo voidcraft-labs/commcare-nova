@@ -4191,6 +4191,16 @@ def _data_binds_and_itext():
           <select1 ref="/data/b" appearance="minimal"><item><value>x</value></item></select1>
           <select1 ref="/data/c" appearance="minimal foo"><item><value>x</value></item></select1>""",
     )
+    # Each whole appearance Android reads ignoring case, as Nova writes it (a, c, e) and as a case variant (b, d, f).
+    keypads = form(
+        data="<a/><b/><c/><d/><e/><f/>",
+        model="""<bind nodeset="/data/a" type="xsd:string"/><bind nodeset="/data/b" type="xsd:string"/>
+          <bind nodeset="/data/c" type="xsd:string"/><bind nodeset="/data/d" type="xsd:string"/>
+          <bind nodeset="/data/e" type="xsd:date"/><bind nodeset="/data/f" type="xsd:date"/>""",
+        body="""<input ref="/data/a" appearance="numeric"/><input ref="/data/b" appearance="Numeric"/>
+          <input ref="/data/c" appearance="short"/><input ref="/data/d" appearance="SHORT"/>
+          <input ref="/data/e" appearance="ethiopian"/><input ref="/data/f" appearance="Ethiopian"/>""",
+    )
     parents = form(
         data='<r jr:template=""/><other><q/></other><top/>',
         body="""<group><repeat nodeset="/data/r"><input ref="/data/other/q"/></repeat></group>
@@ -4484,6 +4494,14 @@ def _data_binds_and_itext():
             refused("form", appearances, "xform:select1@appearance", "select1[3]/@appearance"),
             accepted("form", appearances, "xform:select1@appearance", "select1[2]/@appearance"),
         ),
+        "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole": (
+            refused("form", keypads, "appearance:android/numeric", "input[2]/@appearance"),
+            accepted("form", keypads, "appearance:android/numeric", "input[1]/@appearance"),  # Nova's Phone Number
+            refused("form", keypads, "appearance:android/short", "input[4]/@appearance"),
+            accepted("form", keypads, "appearance:android/short", "input[3]/@appearance"),
+            refused("form", keypads, "appearance:android/ethiopian", "input[6]/@appearance"),
+            accepted("form", keypads, "appearance:android/ethiopian", "input[5]/@appearance"),
+        ),
         "questions/any-other-bind-id-named-by-a-control-s-bind": (
             refused("form", bound, "xform:input@bind", "body[1]/input[2]/@bind"),
             refused("form", bound, "xform:model/bind@id", "bind[3]/@id"),
@@ -4769,7 +4787,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/parent-select-relationship-null-other",
         "menus-and-case-lists/report-context-tile-true",
         "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1",
-        "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole",
         "questions/a-choice-bind-type-contradicting-the-control-listitem-select1-on",
         "questions/a-connect-learn-module-or-task-id-longer-than-50-characters-or",
         # Its keys are a Connect block's mug types and Vellum's Connect plugin, and the extraction makes a use of
