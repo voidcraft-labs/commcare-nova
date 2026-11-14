@@ -50,7 +50,7 @@ output is never committed.
 | Scan | What it looks for | What it prints | Why it is needed |
 |---|---|---|---|
 | `scripts/scan-case-list-registration-registrations.ts` (part 02, section 16) | a saved app whose case list registration form also creates a case of the list's own type at its root | the id of each such app, and nothing else | `several-registrations` is the one rule of part 02 that could refuse a saved app |
-| `scripts/scan-instance-text.ts` (part 03, section 5.1) | a saved app whose form name, or CommCare Connect block name or description, holds text CommCare HQ's build reads as a data source | the id of each such app: no name, no form, never the text | the gate rule `FORM_TEXT_READ_AS_INSTANCE` is absolute |
+| `scripts/scan-instance-text.ts` (part 03, section 5.1) | a saved app whose form name, CommCare Connect block name or description, or choice value (of a question or of a case property's catalog) holds text CommCare HQ's build reads as a data source | the id of each such app: no name, no form, never the text | the gate rule `FORM_TEXT_READ_AS_INSTANCE` and the choice value grammar's refusal are absolute |
 | `scripts/scan-hq-app-claims.ts` (part 10, "Written and not yet run") | a CommCare HQ app that two live Nova apps publish to | two counts and nothing else: the CommCare HQ apps that two or more live Nova apps publish to, and those that several Nova apps publish to with at most one of them live | the ledger migration's unique index admits one |
 
 **The runs, and what each is for.** A scan says what production held at the moment it ran. Until

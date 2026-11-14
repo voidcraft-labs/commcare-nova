@@ -479,6 +479,8 @@ const optionValueProblemPhrase = (e: ValidationError): string => {
 			return `has the stored value ${shown}, which contains a space`;
 		case "both-quotes":
 			return "holds both an apostrophe and a double quote";
+		case "instance-read":
+			return `has the stored value ${shown}, which CommCare HQ reads as a data source when it builds the form`;
 		default:
 			return `has the stored value ${shown}, which the app can't store`;
 	}
@@ -814,7 +816,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	MUTATION_WIRE_CANONICALITY_INVALID: () =>
 		"That change was not represented exactly enough to save safely. Retry it so Nova can preserve every value as authored.",
 	CASE_PROPERTY_OPTION_VALUE_INVALID: (e) =>
-		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
+		`A choice on the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	CASE_PROPERTY_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of the ${q(det(e, "caseType", "case type"))} property ${q(det(e, "property", "property"))} both store ${q(det(e, "optionValue", ""))}, so a saved value can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	TRANSLATION_UNIT_UNKNOWN: () =>
@@ -1670,7 +1672,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	SELECT_NO_OPTIONS: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is a multiple-choice field with no choices yet. Add at least one.`,
 	SELECT_OPTION_VALUE_INVALID: (e) =>
-		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
+		`A choice on ${q(fieldName(e))} in ${q(formName(e))} ${optionValueProblemPhrase(e)}. A choice's value is the answer the app saves, so it can't hold spaces, can't hold both an apostrophe and a double quote, can't read as a data source, and can't be empty. ${q(det(e, "suggestedValue", "a_value_like_this"))} would work, with the wording kept in the label.`,
 	SELECT_OPTION_VALUE_DUPLICATE: (e) =>
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	SELECT_OPTION_LABEL_EMPTY: (e) =>

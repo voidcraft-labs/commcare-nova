@@ -5682,6 +5682,28 @@ def choice_value_refused_by_vellum(use, manifest):
     )
 
 
+# HQ's pattern for an instance read (``suite_xml/post_process/instances.py::instance_re``), over literal text,
+# with the name widened to any run that holds no quote mark: the reading Nova refuses a choice's value by
+# (``lib/domain/hqInstanceRead.ts::instanceScanRead``). Python's ``\s`` over text is ``str.isspace``, HQ's own.
+INSTANCE_READ = re.compile(r"""instance\(\s*['"][^'"]+['"]\s*\)""")
+
+
+def choice_value_read_as_an_instance(use, manifest):
+    """``questions/choice-value-read-as-an-instance``: a choice's value holding text CommCare HQ's build reads as an
+    instance, which ``XForm.add_missing_instances`` reads in the whole rendered form, a choice's ``<value>`` text
+    among the rest (``xform.py``)."""
+    form, element = _form_element(use)
+    if form is None:
+        return None
+    item = element.getparent()
+    if _local(element) != "value" or item is None or _local(item) != "item":
+        return False
+    select = item.getparent()
+    if select is None or _local(select) not in SELECTS:
+        return False
+    return INSTANCE_READ.search(_choice_value(item)) is not None
+
+
 def no_add_remove_without_count(use, manifest):
     """``questions/jr-noaddremove-without-jr-count``: a ``<repeat>`` with ``jr:noAddRemove`` and no ``jr:count``,
     which Vellum filters out (``mugs/types/group.js``, Repeat's ``controlChildFilter`` writes it only beside a
@@ -6748,6 +6770,7 @@ VALUE_CLASSES = {
     "questions/authored-data-meta-block": authored_meta_block,
     "questions/a-root-question-commcare-usercase-in-a-form-with-usercase": usercase_root_question,
     "questions/choice-value-with-whitespace-empty-or-duplicated": choice_value_refused_by_vellum,
+    "questions/choice-value-read-as-an-instance": choice_value_read_as_an_instance,
     "questions/jr-noaddremove-without-jr-count": no_add_remove_without_count,
     "questions/user-controlled-repeat-inside-a-question-list-a-group-whose": user_repeat_in_field_list,
     "questions/a-count-that-depends-on-the-rows-it-creates-through-calculations": count_reading_its_rows,

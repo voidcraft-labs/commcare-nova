@@ -8,6 +8,7 @@
 // `formEngine.ts` reads both through the platform's `numberKeypad` rule.
 
 import type { PreviewPlatformRules } from "../platform";
+import type { FieldState } from "./types";
 
 /** Web Apps' own pattern, `entries.js::PhoneEntry`. */
 export const WEB_APPS_NUMBER_KEYPAD_ANSWER = /^[+-]?\d*(\.\d+)?$/;
@@ -44,4 +45,16 @@ export function numberKeypadStores(
 ): boolean {
 	if (rule === "keys") return true;
 	return raw === "" || WEB_APPS_NUMBER_KEYPAD_ANSWER.test(raw);
+}
+
+/** A field state marked, or no longer marked, as showing a typed answer the
+ *  keypad refused (`FieldState.keypadRefused`). */
+export function withKeypadRefused(
+	state: FieldState,
+	refused: boolean,
+): FieldState {
+	if (refused) return { ...state, keypadRefused: true };
+	if (state.keypadRefused === undefined) return state;
+	const { keypadRefused: _cleared, ...rest } = state;
+	return rest;
 }

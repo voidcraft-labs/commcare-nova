@@ -43,12 +43,12 @@
 import { produce } from "immer";
 import { useContext, useMemo } from "react";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
-import { alwaysOfferedRegistrationMutations } from "@/lib/doc/alwaysOfferedRegistration";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import {
 	type CaseListRegistrationDependentsPlan,
 	planCaseListRegistrationDependentsOnRemove,
+	stopOfferingDependentsMutations,
 } from "@/lib/doc/caseListRegistrationDependents";
 import {
 	type CaseTypeRetirement,
@@ -1055,29 +1055,20 @@ export function createBlueprintMutations(
 		};
 		/* Removing a form a case list always offers is refused naming each
 		 * list. The toast's "Stop offering it" clears the offer on every named
-		 * list in one gated batch on the announcing flavor, read from the
-		 * document at the press; the person then removes the form again. */
+		 * list that still offers the form, in one gated batch on the
+		 * announcing flavor, read from the document at the press; the person
+		 * then removes the form again. */
 		const refuseOfferedRemoval = (
 			plan: Extract<CaseListRegistrationDependentsPlan, { kind: "blocked" }>,
 		): void => {
 			if (!announce) return;
-			const hosts = [
-				...new Set(
-					plan.dependents.map((dependent) => dependent.hostModuleUuid),
-				),
-			];
 			notifyRejectedCommit([plan.userMessage], {
 				label: "Stop offering it",
 				onPress: () => {
-					const current = get();
-					const mutations = hosts.flatMap((hostUuid) => {
-						const cleared = alwaysOfferedRegistrationMutations(
-							current,
-							hostUuid,
-							null,
-						);
-						return cleared.kind === "planned" ? cleared.mutations : [];
-					});
+					const mutations = stopOfferingDependentsMutations(
+						get(),
+						plan.dependents,
+					);
 					if (mutations.length > 0) guardedApply(mutations, "commit", true);
 				},
 			});

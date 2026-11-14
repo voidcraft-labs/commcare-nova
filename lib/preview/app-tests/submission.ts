@@ -27,7 +27,11 @@ import { submittedEntryPath } from "../engine/formLinkEvaluation";
 import type { AppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { enterAppTestMenu } from "./navigation";
-import type { AppTestAfterSubmitRoute, AppTestSessionState } from "./types";
+import type {
+	AppTestAfterSubmitRoute,
+	AppTestScreen,
+	AppTestSessionState,
+} from "./types";
 
 export async function submitAppTest(
 	context: AppTestContext,
@@ -221,6 +225,40 @@ export async function submitAppTest(
 						),
 				context.rules.afterSubmitFrames,
 			);
+			/* Where the frame runs a menu's search again keyed to the
+			 * registered case (a host whose forms read the search), that
+			 * menu's records hold that case alone, under the answers its
+			 * last search was run with, as the browser records it. The
+			 * landing's own list is that read; a menu the frame passes
+			 * through on its way holds it as the screen Back returns to,
+			 * which its forms read what the search found from. */
+			const registeredCaseId =
+				mutation.kind === "registration" ? result.primaryCaseIds[0] : undefined;
+			const keyedRecords = (
+				moduleUuid: Uuid,
+				caseId: string,
+			): Extract<AppTestScreen, { kind: "records" }> => {
+				const searched = [state.screen, ...[...state.history].reverse()].find(
+					(prior): prior is Extract<AppTestScreen, { kind: "records" }> =>
+						prior.kind === "records" &&
+						prior.moduleUuid === moduleUuid &&
+						prior.searchAnswers !== undefined,
+				);
+				return {
+					kind: "records",
+					moduleUuid,
+					...(searched?.searchAnswers !== undefined && {
+						searchAnswers: searched.searchAnswers,
+					}),
+					registeredCaseId: caseId,
+				};
+			};
+			const keyed =
+				registeredCaseId === undefined
+					? []
+					: registrationLanding.newCaseSearchModuleUuids.map((moduleUuid) =>
+							keyedRecords(moduleUuid, registeredCaseId),
+						);
 			const returned: AppTestSessionState = {
 				...state,
 				selections,
@@ -228,17 +266,27 @@ export async function submitAppTest(
 				afterSubmitStack,
 				history: [],
 			};
+			const entered: AppTestScreen =
+				landingScreen.kind === "first-menu"
+					? { kind: "home" as const }
+					: enterAppTestMenu(
+							{ ...context, identity },
+							returned,
+							landingScreen.moduleUuid,
+						);
+			const keyedLanding =
+				entered.kind === "records"
+					? keyed.find((records) => records.moduleUuid === entered.moduleUuid)
+					: undefined;
+			const landing: AppTestScreen =
+				entered.kind === "records" && keyedLanding !== undefined
+					? { ...entered, ...keyedLanding }
+					: entered;
 			return {
 				state: {
 					...returned,
-					screen:
-						landingScreen.kind === "first-menu"
-							? { kind: "home" as const }
-							: enterAppTestMenu(
-									{ ...context, identity },
-									returned,
-									landingScreen.moduleUuid,
-								),
+					history: keyed.filter((records) => records !== keyedLanding),
+					screen: landing,
 				},
 				identity,
 				effects: result,

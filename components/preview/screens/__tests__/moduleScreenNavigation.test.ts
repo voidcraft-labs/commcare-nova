@@ -141,7 +141,10 @@ it("retains the actual module-menu step for a bare module endpoint", () => {
 
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Location } from "@/lib/routing/types";
-import { previewParentCaseResumeLocation } from "../moduleScreenNavigation";
+import {
+	previewParentCaseRequestFor,
+	previewParentCaseResumeLocation,
+} from "../moduleScreenNavigation";
 
 const MODULE_UUID = testUuid("parent-case-resume-module");
 const FORM_UUID = testUuid("parent-case-resume-form");
@@ -185,6 +188,73 @@ describe("previewParentCaseResumeLocation", () => {
 				},
 				MODULE_UUID,
 			),
+		).toBeUndefined();
+	});
+});
+
+describe("previewParentCaseRequestFor", () => {
+	const SELECTOR_UUID = testUuid("parent-case-request-selector");
+	const GRANDPARENT_UUID = testUuid("parent-case-request-grandparent");
+	const STRUCTURAL_PARENT_UUID = testUuid("parent-case-request-menu");
+	const leaf: Location = {
+		kind: "form",
+		moduleUuid: MODULE_UUID,
+		formUuid: FORM_UUID,
+	};
+
+	it("starts a selection that resumes the leaf its URL names and cancels to its menu", () => {
+		expect(
+			previewParentCaseRequestFor({
+				loc: leaf,
+				moduleUuid: MODULE_UUID,
+				selectorModuleUuid: SELECTOR_UUID,
+				structuralParentUuid: STRUCTURAL_PARENT_UUID,
+				pending: undefined,
+			}),
+		).toEqual({
+			selectingModuleUuid: SELECTOR_UUID,
+			returnModuleUuids: [MODULE_UUID],
+			resumeLocation: leaf,
+			cancelLocation: { kind: "module", moduleUuid: STRUCTURAL_PARENT_UUID },
+		});
+	});
+
+	it("continues a pending selection at a selector that needs its own parent, keeping the leaf rather than resuming the selector's case list", () => {
+		const pending = {
+			selectingModuleUuid: SELECTOR_UUID,
+			returnModuleUuids: [MODULE_UUID],
+			resumeLocation: leaf,
+			cancelLocation: { kind: "home" } as const,
+		};
+		expect(
+			previewParentCaseRequestFor({
+				loc: { kind: "cases", moduleUuid: SELECTOR_UUID },
+				moduleUuid: SELECTOR_UUID,
+				selectorModuleUuid: GRANDPARENT_UUID,
+				structuralParentUuid: STRUCTURAL_PARENT_UUID,
+				pending,
+			}),
+		).toEqual({
+			selectingModuleUuid: GRANDPARENT_UUID,
+			returnModuleUuids: [SELECTOR_UUID, MODULE_UUID],
+			resumeLocation: leaf,
+			cancelLocation: { kind: "home" },
+		});
+	});
+
+	it("resumes no leaf when the pending selection started from a menu", () => {
+		expect(
+			previewParentCaseRequestFor({
+				loc: { kind: "cases", moduleUuid: SELECTOR_UUID },
+				moduleUuid: SELECTOR_UUID,
+				selectorModuleUuid: GRANDPARENT_UUID,
+				structuralParentUuid: null,
+				pending: {
+					selectingModuleUuid: SELECTOR_UUID,
+					returnModuleUuids: [MODULE_UUID],
+					cancelLocation: { kind: "home" },
+				},
+			}).resumeLocation,
 		).toBeUndefined();
 	});
 });

@@ -125,11 +125,20 @@ export function previewBreadcrumbTrail(
 		previewSelectedCase,
 		renderedScreen,
 	} = input;
-	const baseBreadcrumbs = sourceBreadcrumbs.map((crumb) =>
-		crumb.key === "home"
-			? { ...crumb, label: runtimeMessage(language, "home") }
-			: crumb,
-	);
+	/* The running app's trail names only screens a worker passes through: a
+	 * menu that shows its forms in the menu above has no screen, so its
+	 * crumb leaves every trail, a submenu's that keeps its screen included. */
+	const baseBreadcrumbs = sourceBreadcrumbs
+		.filter(
+			(crumb) =>
+				!crumb.key.startsWith("m:") ||
+				input.screenlessModuleUuids?.has(crumb.key.slice(2)) !== true,
+		)
+		.map((crumb) =>
+			crumb.key === "home"
+				? { ...crumb, label: runtimeMessage(language, "home") }
+				: crumb,
+		);
 
 	if (renderedScreen?.type === "home") {
 		const home = baseBreadcrumbs.filter(
@@ -164,10 +173,7 @@ export function previewBreadcrumbTrail(
 	if (!moduleUuid) return baseBreadcrumbs;
 
 	const homeAndModule = baseBreadcrumbs.filter(
-		(b) =>
-			b.location.kind === "home" ||
-			(b.key.startsWith("m:") &&
-				input.screenlessModuleUuids?.has(b.key.slice(2)) !== true),
+		(b) => b.location.kind === "home" || b.key.startsWith("m:"),
 	);
 
 	/* Preview runs the surface a configuration URL's condition governs, so
@@ -175,7 +181,7 @@ export function previewBreadcrumbTrail(
 	 * Home; a child's is decided on its parent menu; a form's condition reads
 	 * as the form. The "When it appears" crumb belongs to authoring only. */
 	if (loc.kind === "module-condition") {
-		return homeAndModule.slice(0, -1);
+		return homeAndModule.filter((b) => b.key !== `m:${loc.moduleUuid}`);
 	}
 	if (
 		loc.kind === "form-condition" ||

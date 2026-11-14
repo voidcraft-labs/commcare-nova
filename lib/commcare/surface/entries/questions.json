@@ -785,7 +785,7 @@
 		"id": "questions/choice-value-containing-or",
 		"area": "questions",
 		"section": "Question types",
-		"item": "choice value containing `'`, `\"` or `` ` ``, and not both `'` and `\"`",
+		"item": "choice value containing `'`, `\"` or `` ` ``, and not both `'` and `\"`, nor read as `instance('…')`",
 		"surfaceKeys": ["xform:select1/item/value", "xform:select/item/value"],
 		"valueClass": "one-kind-of-quote-mark",
 		"disposition": "HELD",
@@ -848,6 +848,38 @@
 			{
 				"kind": "not-hq-editable",
 				"named": "Vellum error (`mugs/types/select.js`, and `mugs.js` for a required value); multi-select stops Web Apps"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/choice-value-read-as-an-instance",
+		"area": "questions",
+		"section": "Question types",
+		"item": "choice value holding `instance('…')`",
+		"surfaceKeys": ["xform:select1/item/value", "xform:select/item/value"],
+		"valueClass": "read-as-an-instance",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: HQ's build reads the value as an instance read (`xform.py::XForm.add_missing_instances`), and a choice's value is data no writer spells another way. It stops the build for a name it has no source for, and adds the source to the built form for a name it has one for, which stops the form from opening where that is a fixture the device does not hold. Nova refuses the value by its own grammar (`SELECT_OPTION_VALUE_INVALID`, problem `instance-read`).",
+		"subject": "instance-text",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`xform.py::XForm.add_missing_instances`: \"is missing some instance declarations that can't be automatically added\"",
+				"condition": "a name CommCare HQ has no source for"
+			},
+			{
+				"kind": "broken-at-runtime",
+				"named": "the built form declares the source (`XForm.add_instance`), Core opens every declared source with the form (`FormDef.initialize`), and a fixture the device does not hold raises `FixtureInitializationException` (`CommCareInstanceInitializer.loadFixtureRoot`)",
+				"condition": "a fixture name CommCare HQ has a source for"
 			}
 		],
 		"platforms": {

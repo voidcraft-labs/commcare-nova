@@ -100,6 +100,24 @@ export function parseInterpolatedText<Reference>(
 	return parts;
 }
 
+/** Whether `source` holds a calculated value as `parseInterpolatedText` reads
+ * it: an insertion whose name starts with `=`, whatever spaces stand between
+ * `{{` and the `=`. A text that does not read holds none here; parsing it
+ * refuses it in its own words. */
+export function textHoldsCalculatedValue(source: string): boolean {
+	let holds = false;
+	try {
+		parseInterpolatedText(source, (name) => {
+			if (name.startsWith("=")) holds = true;
+			return name;
+		});
+	} catch (error) {
+		if (error instanceof AuthoringInputError) return false;
+		throw error;
+	}
+	return holds;
+}
+
 /** A text's parts, each insertion parsed by `parse`: a reference by its name,
  * a calculated value by `=` and its formula (`parseProseAtom`). */
 export function normalizeText(

@@ -143,7 +143,8 @@ CORE_CLASSES = {
     # Reads only its checked-in control (/case-list-order/orders.json), which Preview's case store is held to too.
     "CaseListOrderRuntimeTest": "case-list",
     "CaseOperationRuntimeTest": "case",
-    # The case family's sequence form in each device zone (ZONED_CLASSES), over /case/stored-instants.json.
+    # The case family's sequence form and targeted-datetime-saved's "Revisit" form in each device zone
+    # (ZONED_CLASSES), over /case/stored-instants.json.
     "StoredInstantRuntimeTest": "case",
     "ConnectRuntimeTest": "connect",
     "ContainerRuntimeTest": "container",

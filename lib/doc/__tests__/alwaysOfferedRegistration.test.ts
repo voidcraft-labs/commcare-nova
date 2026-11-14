@@ -15,7 +15,10 @@ import {
 	alwaysOfferedRegistrationChoices,
 	alwaysOfferedRegistrationMutations,
 } from "@/lib/doc/alwaysOfferedRegistration";
-import { planCaseListRegistrationDependentsOnRemove } from "@/lib/doc/caseListRegistrationDependents";
+import {
+	planCaseListRegistrationDependentsOnRemove,
+	stopOfferingDependentsMutations,
+} from "@/lib/doc/caseListRegistrationDependents";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -367,5 +370,31 @@ describe("planCaseListRegistrationDependentsOnRemove", () => {
 			}),
 		).toEqual({ kind: "none" });
 		committed(cleared, [{ kind: "removeForm", uuid: REGISTER }]);
+	});
+
+	it("stops offering the refused form only on lists that still offer it when the person presses", () => {
+		const doc = offeredOnBoth();
+		const plan = planCaseListRegistrationDependentsOnRemove(doc, {
+			kind: "form",
+			formUuid: REGISTER,
+		});
+		if (plan.kind !== "blocked") throw new Error("the removal is refused");
+		// Before the press, Visits is given the newborn registration instead.
+		const repointed = committed(
+			doc,
+			planned(doc, VISITS, { ...OFFER, formUuid: SECOND_REGISTER }),
+		);
+		const stopped = committed(
+			repointed,
+			stopOfferingDependentsMutations(repointed, plan.dependents).map(
+				(mutation) =>
+					mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+			),
+		);
+		expect(alwaysOfferedRegistrationOf(stopped, PATIENTS)).toBeUndefined();
+		expect(alwaysOfferedRegistrationOf(stopped, VISITS)?.formUuid).toBe(
+			SECOND_REGISTER,
+		);
+		committed(stopped, [{ kind: "removeForm", uuid: REGISTER }]);
 	});
 });

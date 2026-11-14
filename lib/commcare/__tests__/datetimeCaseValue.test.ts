@@ -10,9 +10,11 @@ import { questionDatetimeCaseValue } from "@/lib/commcare/xform/datetimeCaseValu
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import {
 	coalesce,
+	dateCoerce,
 	datetimeCoerce,
 	datetimeLiteral,
 	eq,
+	formatDate,
 	ifExpr,
 	literal,
 	now,
@@ -26,6 +28,7 @@ import type { Expression } from "@/lib/domain/expression/types";
 import { instantFixture } from "../xpath/wire/__tests__/instantFixture";
 import { w } from "../xpath/wire/builders";
 import {
+	deviceInstantText,
 	storedInstantOfText,
 	storedInstantValue,
 	typedInstantText,
@@ -211,11 +214,18 @@ describe("datetimeCaseValue", () => {
 		expect(() => fx.storeForm(fx.field("lost"))).toThrow(/clock may be lost/);
 	});
 
-	it("writes a question's sibling as its typed moment's stored text", () => {
+	it("writes a question's sibling by what its question holds, read as a field", () => {
 		const path = FormPath.root().child("visit_time");
-		expect(questionDatetimeCaseValue(path)).toEqual(
-			storedInstantValue(path.toWire()),
-		);
+		// A date-and-time question holds a typed moment.
+		expect(
+			questionDatetimeCaseValue(testUuid("instant-dt"), path, fx.form),
+		).toEqual(storedInstantValue(path.toWire()));
+		// A Hidden Value whose calculate copies a case's stored text holds that
+		// text, and its sibling copies it as it is: Core's parse of it would
+		// keep the written UTC date and move only the clock.
+		expect(
+			questionDatetimeCaseValue(testUuid("instant-copy"), path, fx.form),
+		).toEqual(path.toWire());
 	});
 });
 
@@ -234,6 +244,30 @@ function references(tree: WireExpr, node: WireExpr): number {
 	visit(tree);
 	return count;
 }
+
+describe("a date and time Core parses on a device", () => {
+	it("reads stored text in the device's own date and clock before format-date and date() parse it", () => {
+		const copy = read("copy");
+		expect(fx.lowerForm(formatDate(fx.field("copy"), "%Y-%m-%d"))).toEqual(
+			w.call("format-date", [deviceInstantText(copy), w.str("%Y-%m-%d")]),
+		);
+		expect(fx.lowerForm(dateCoerce(fx.field("copy")))).toEqual(
+			w.call("date", [deviceInstantText(copy)]),
+		);
+	});
+
+	it("leaves a typed moment, a date and a value whose clock is lost as they are", () => {
+		expect(fx.lowerForm(formatDate(fx.field("dt"), "%H"))).toEqual(
+			w.call("format-date", [read("dt"), w.str("%H")]),
+		);
+		expect(fx.lowerForm(dateCoerce(fx.field("day")))).toEqual(
+			w.call("date", [read("day")]),
+		);
+		expect(fx.lowerForm(dateCoerce(fx.field("lost")))).toEqual(
+			w.call("date", [read("lost")]),
+		);
+	});
+});
 
 describe("storedInstantOfText", () => {
 	it("prints its instant text 56 times, each sub-term built once", () => {

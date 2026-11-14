@@ -116,3 +116,26 @@ export function alsoOfferedOnLine(hostNames: readonly string[]): string {
 	const last = hostNames[hostNames.length - 1];
 	return `Also offered on the case lists of ${hostNames.slice(0, -1).join(", ")} and ${last}`;
 }
+
+/** A refusal the gate gave one change of the setting, held with what it
+ *  answered: the case list and the document it was given for. */
+export interface HeldRegisterRefusal {
+	readonly message: string;
+	readonly moduleUuid: Uuid;
+	readonly revision: object;
+}
+
+/** The refusal the setting shows: only while it answers this case list and
+ *  this document. Another case list, an undo or a peer's edit leaves it
+ *  behind, since its cause may be gone. */
+export function shownRegisterRefusal(
+	held: HeldRegisterRefusal | undefined,
+	moduleUuid: Uuid,
+	revision: object,
+): string | undefined {
+	return held !== undefined &&
+		held.moduleUuid === moduleUuid &&
+		held.revision === revision
+		? held.message
+		: undefined;
+}

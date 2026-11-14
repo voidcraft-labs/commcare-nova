@@ -560,12 +560,15 @@ describe("stacks of HQ's module-in-root shape", () => {
  *  that fact. */
 function writtenFrames(doc: BlueprintDoc): {
 	readonly frames: readonly { what: string; children: FrameChild[] }[];
+	/** The ids of each Register return frame that carries the new case. */
+	readonly carryingNewCase: readonly { what: string; ids: string[] }[];
 	readonly parentMenuWithoutScreen: readonly string[];
 	readonly registerReturns: number;
 } {
 	const emitted = emissionPlan(doc).doc;
 	const ctx = formLinkProjectionContext(emitted);
 	const frames: { what: string; children: FrameChild[] }[] = [];
+	const carryingNewCase: { what: string; ids: string[] }[] = [];
 	const parentMenuWithoutScreen: string[] = [];
 	let registerReturns = 0;
 	for (const moduleUuid of ctx.moduleOrder) {
@@ -612,19 +615,28 @@ function writtenFrames(doc: BlueprintDoc): {
 					host.caseType,
 				);
 				if (newCaseId === undefined) continue;
-				for (const frame of caseListFormReturnFrames(
+				for (const [index, frame] of caseListFormReturnFrames(
 					emitted,
 					ctx,
 					hostUuid,
 					newCaseId,
 					host.caseType,
 					returnTo.kind,
-				)) {
+				).entries()) {
 					registerReturns++;
 					frames.push({
 						what: `Register return of ${form.name} to ${host.name}`,
 						children: [...frame.target],
 					});
+					// HQ's host pass drops what the parent pass put on the
+					// frame that carries the new case (`ids_on_stack`).
+					if (returnTo.kind === "new-case" && index === 0)
+						carryingNewCase.push({
+							what: `Register return of ${form.name} to ${host.name}`,
+							ids: frame.target.map((child) =>
+								child.type === "command" ? child.id : child.datum.id,
+							),
+						});
 				}
 			}
 			const destinations = [
@@ -660,10 +672,10 @@ function writtenFrames(doc: BlueprintDoc): {
 			}
 		}
 	}
-	return { frames, parentMenuWithoutScreen, registerReturns };
+	return { frames, carryingNewCase, parentMenuWithoutScreen, registerReturns };
 }
 
-it("writes no frame that holds a chosen case ahead of its first command, over the menu-screens corpus", {
+it("writes no frame that holds a chosen case ahead of its first command, and no Register return carrying the new case that names an id twice, over the menu-screens corpus", {
 	timeout: 60_000,
 }, () => {
 	let frames = 0;
@@ -680,6 +692,10 @@ it("writes no frame that holds a chosen case ahead of its first command, over th
 					`${frame.what} leads with a chosen case`,
 				).toBe(false);
 			}
+			for (const frame of written.carryingNewCase)
+				expect(new Set(frame.ids).size, `${frame.what} names an id twice`).toBe(
+					frame.ids.length,
+				);
 		}),
 		{ seed: 20261114, numRuns: 60 },
 	);

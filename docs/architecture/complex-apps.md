@@ -1581,7 +1581,21 @@ prints a typed date and time in the device's zone with its offset
 or after from the written date's own fields, since a day number counts from a
 JVM-zone epoch that is UTC's on Web Apps. Stored text is written as it is,
 because Core's parse of text with an offset keeps the written date and moves
-only the clock (`DateUtils.java::parseTimeAndStore`). Core reads a sort text
+only the clock (`DateUtils.java::parseTimeAndStore`): a Save to Case row and a
+question's `nova_datetime_` sibling each classify their value
+(`instantOperand.ts`), and a Hidden Value whose calculate copies stored text
+holds that text. For the same reason, wherever Core parses stored text as a
+typed date and time on a device (a starting value cast into a node bound
+`xsd:dateTime`, a preload among them, `format-date` and `date()`), the text is
+first read in the device's own date and clock
+(`instant.ts::deviceInstantText`, whole-number arithmetic from the written
+fields and Core's own clock and `%Z` for the parsed value), so a form opened on
+a case's value and saved unchanged writes the same text back, and Preview,
+which evaluates the same printed tree, opens on the same moment. Core's cast
+ends by setting the device's date and clock on a calendar, so a moment in the
+first of an hour the zone repeats reads as the second whatever text names it.
+Nova's case store reads `date()` of a date and time as the viewer's day of the
+moment where a device evaluates it, as it reads `format-date`. Core reads a sort text
 through `string()` (`Text.java::ensureCacheIsParsed`), which prints a number
 past `int` range in a form its number comparator refuses
 (`FunctionUtils.java::toString`, `toNumeric`), so a moment cannot be a number

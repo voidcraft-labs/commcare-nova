@@ -29,7 +29,11 @@ import {
 	type FormNodeProjection,
 	formNodeProjection,
 } from "../xpath/formNodeProjection";
-import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
+import {
+	startingDatetimeWire,
+	toWire,
+	type WireTermBindings,
+} from "../xpath/wire/fromExpression";
 import type { WireExpr } from "../xpath/wire/tree";
 import { itextIdFor } from "./itextIds";
 
@@ -50,6 +54,9 @@ export interface FormExpressionEmission {
 	/** A prose atom lowered in its slot: a reference's read, or a calculated
 	 *  value's own expression. */
 	prose(part: ProseAtomPart, slot: ProseSlotRef): WireExpr;
+	/** A starting value cast into a node bound `xsd:dateTime`, lowered in
+	 *  its slot (`fromExpression.ts::startingDatetimeWire`). */
+	startingDatetime(expression: Expression, slot: SlotContextRef): WireExpr;
 }
 
 /** Every authored form expression enters wire lowering with its actual slot
@@ -92,6 +99,10 @@ export function formExpressionEmission(
 		contexts.set(key, result);
 		return result;
 	};
+	const slotBindings: WireTermBindings = {
+		...bindings,
+		itextId: (unit) => itextIdFor(expressionDoc, unit, form),
+	};
 	const lower = (
 		expression: Expression,
 		slot: SlotContextRef,
@@ -101,10 +112,7 @@ export function formExpressionEmission(
 			target: "xform",
 			types: context(slot),
 			form: projection,
-			bindings: {
-				...bindings,
-				itextId: (unit) => itextIdFor(expressionDoc, unit, form),
-			},
+			bindings: slotBindings,
 			...(overrides === undefined ? {} : { overrides }),
 		});
 	return {
@@ -119,5 +127,12 @@ export function formExpressionEmission(
 		context,
 		lower,
 		prose: (part, slot) => lower(proseAtomExpression(part), slot),
+		startingDatetime: (expression, slot) =>
+			startingDatetimeWire(expression, {
+				target: "xform",
+				types: context(slot),
+				form: projection,
+				bindings: slotBindings,
+			}),
 	};
 }

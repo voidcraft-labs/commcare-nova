@@ -13,7 +13,7 @@ import {
 	useLocalizedValues,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
-import { previewParentCaseResumeLocation } from "@/components/preview/screens/moduleScreenNavigation";
+import { previewParentCaseRequestFor } from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
@@ -61,6 +61,7 @@ import {
 	previewScreenEntries,
 	previewScreenEntryVisibility,
 } from "@/lib/preview/menuProjection";
+import { parentCaseSelectorLocation } from "@/lib/preview/screenProjection";
 import {
 	claimableCaseIds,
 	parentSelectClaimChoices,
@@ -278,36 +279,18 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 			taskContinuation?.moduleUuid !== moduleUuid
 		) {
 			setPreviewCaseTarget(undefined);
-			const continuingRequest =
-				previewParentCaseRequest?.selectingModuleUuid === moduleUuid
-					? previewParentCaseRequest
-					: undefined;
-			const onward = continuingRequest?.returnModuleUuids ?? [];
-			const structuralParentUuid = moduleParent(menuSource, moduleUuid);
-			const resumeLocation =
-				continuingRequest?.resumeLocation ??
-				previewParentCaseResumeLocation(loc, moduleUuid);
-			setPreviewParentCaseRequest({
-				selectingModuleUuid: requiredParentCase.moduleUuid,
-				returnModuleUuids: [moduleUuid, ...onward],
-				...(resumeLocation !== undefined && { resumeLocation }),
-				cancelLocation:
-					continuingRequest?.cancelLocation ??
-					(structuralParentUuid
-						? { kind: "module", moduleUuid: structuralParentUuid }
-						: { kind: "home" }),
-			});
-			navigate.replace({
-				kind: "module",
-				moduleUuid: requiredParentCase.moduleUuid,
-			});
-			return;
-		}
-		if (
-			mode !== "edit" &&
-			previewParentCaseRequest?.selectingModuleUuid === moduleUuid
-		) {
-			navigate.replace({ kind: "cases", moduleUuid });
+			setPreviewParentCaseRequest(
+				previewParentCaseRequestFor({
+					loc,
+					moduleUuid,
+					selectorModuleUuid: requiredParentCase.moduleUuid,
+					structuralParentUuid: moduleParent(menuSource, moduleUuid),
+					pending: previewParentCaseRequest,
+				}),
+			);
+			navigate.replace(
+				parentCaseSelectorLocation(requiredParentCase.moduleUuid),
+			);
 			return;
 		}
 		if (landing.kind === "replace-with-case-list") {
@@ -449,7 +432,11 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							returnModuleUuids: [child.uuid],
 							cancelLocation: { kind: "module", moduleUuid },
 						});
-						navigate.openModule(childCase.requiredParentCase.moduleUuid);
+						navigate.push(
+							parentCaseSelectorLocation(
+								childCase.requiredParentCase.moduleUuid,
+							),
+						);
 						return;
 					}
 					openModuleLanding(
@@ -481,12 +468,7 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 
 	if (!mod) return null;
 	/* Suppress the form-menu flash while the redirect above navigates away. */
-	if (
-		landing.kind !== "form-menu" ||
-		(mode !== "edit" &&
-			(requiredParentCase ||
-				previewParentCaseRequest?.selectingModuleUuid === moduleUuid))
-	) {
+	if (landing.kind !== "form-menu" || (mode !== "edit" && requiredParentCase)) {
 		return null;
 	}
 
@@ -692,6 +674,9 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 								navigate.openCaseList(formModuleUuid);
 							}
 						} else {
+							/* A form opened from its menu is no Register launch,
+							 * whatever an earlier visit left on the target. */
+							setPreviewCaseTarget(undefined);
 							navigate.openForm(formModuleUuid, form.uuid);
 						}
 					};

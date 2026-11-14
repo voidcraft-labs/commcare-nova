@@ -70,6 +70,7 @@ import {
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
 	castCanFail,
+	collectTranslationUnits,
 	convertNeedsOptionSeed,
 	entityTargetKey,
 	type Field,
@@ -79,12 +80,16 @@ import {
 	fieldReferenceSlotsFor,
 	getConvertibleTypes,
 	isContainerKindName,
+	type LanguageTag,
 	MODULE_REFERENCE_SLOTS,
+	type ProseTemplate,
 	rewriteSlotValues,
 	type SelectOptionsSource,
+	type TranslationUnitId,
 } from "@/lib/domain";
 import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { isExpression } from "@/lib/domain/expression/types";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { caseOperationChangesForUpdate } from "./caseOperationMutations";
 import { diffModuleConfigMutations } from "./diffDocsToMutations";
 import { planFieldCaseWrite } from "./fieldCaseWriteMutations";
@@ -462,7 +467,7 @@ export function planChoicePreservation(
 			carriers.add(carrier);
 	}
 	let preservedChoiceCount = 0;
-	const rewrite = (value: unknown): unknown => {
+	const literalize = (value: unknown, tally: boolean): unknown => {
 		if (!isExpression(value)) return value;
 		return mapExpressionAst(value, {
 			mapTerm(term) {
@@ -472,12 +477,15 @@ export function planChoicePreservation(
 				const values = term.options.map((uuid) => options.get(uuid));
 				// A missing identity is an admission error, never a guessed literal.
 				if (values.some((value) => value === undefined)) return undefined;
-				preservedChoiceCount++;
+				if (tally) preservedChoiceCount++;
 				return { kind: "literal", value: values.join(" ") };
 			},
 		});
 	};
+	const rewrite = (value: unknown) => literalize(value, true);
 	const mutations: Mutation[] = [];
+	const fieldMutations: Mutation[] = [];
+	let proseChanged = false;
 	for (const carrier of carriers) {
 		const field = candidate.fields[carrier];
 		if (field !== undefined) {
@@ -487,22 +495,39 @@ export function planChoicePreservation(
 				field.kind,
 				field.kind === "repeat" ? field.repeat_mode : undefined,
 			)) {
-				if (slot.kind !== "expression" && slot.kind !== "options-source")
-					continue;
-				const path =
-					slot.kind === "options-source" ? `${slot.path}.filter` : slot.path;
-				if (rewriteSlotValues(mapped, path, rewrite) === 0) continue;
+				// A text's calculated values are the field's form logic too
+				// (`referenceSlots.ts::visitProseValues`), so a choice one reads
+				// keeps its value as an expression slot's does.
+				const changed =
+					slot.kind === "prose"
+						? rewriteSlotValues(mapped, slot.path, (template) =>
+								rewriteProseValues(template, rewrite),
+							)
+						: slot.kind === "expression" || slot.kind === "options-source"
+							? rewriteSlotValues(
+									mapped,
+									slot.kind === "options-source"
+										? `${slot.path}.filter`
+										: slot.path,
+									rewrite,
+								)
+							: 0;
+				if (changed === 0) continue;
+				if (slot.kind === "prose") proseChanged = true;
 				const top = slot.path.split(".")[0]?.replace(/\[\]$/u, "");
 				if (top !== undefined)
 					patch[top] = (mapped as unknown as Record<string, unknown>)[top];
 			}
-			if (Object.keys(patch).length > 0)
-				mutations.push({
+			if (Object.keys(patch).length > 0) {
+				const update = {
 					kind: "updateField",
 					uuid: field.uuid,
 					targetKind: field.kind,
 					patch,
-				} as Mutation);
+				} as Mutation;
+				mutations.push(update);
+				fieldMutations.push(update);
+			}
 			continue;
 		}
 		const form = candidate.forms[carrier];
@@ -586,7 +611,96 @@ export function planChoicePreservation(
 			});
 		mutations.push(...diffModuleConfigMutations(module, mapped));
 	}
+	if (proseChanged)
+		mutations.push(
+			...preservedTranslations(candidate, fieldMutations, (template) =>
+				rewriteProseValues(template, (value) => literalize(value, false)),
+			),
+		);
 	return { mutations, preservedChoiceCount };
+}
+
+/** A text with each calculated value's expression through `rewrite`: the same
+ *  template where none changed. */
+function rewriteProseValues(
+	template: unknown,
+	rewrite: (value: unknown) => unknown,
+): unknown {
+	if (template === null || typeof template !== "object") return template;
+	const parts = (template as { parts?: unknown }).parts;
+	if (!Array.isArray(parts)) return template;
+	let changed = false;
+	const next = parts.map((part: unknown) => {
+		if (
+			part === null ||
+			typeof part !== "object" ||
+			(part as { kind?: unknown }).kind !== "value"
+		)
+			return part;
+		const value = part as { expression: unknown };
+		const expression = rewrite(value.expression);
+		if (expression === value.expression) return part;
+		changed = true;
+		return { ...value, expression };
+	});
+	return changed ? { ...template, parts: next } : template;
+}
+
+/**
+ * Each translation of a text whose calculated values `fieldMutations`
+ * literalize, rewritten the same way. A translation holds the same calculated
+ * values as its source (`translationUnits.ts::translationValueIntegrityIssue`),
+ * so one that was current stays current with the source's new fingerprint;
+ * one that was already out of date is left for review as it is.
+ */
+function preservedTranslations(
+	candidate: BlueprintDoc,
+	fieldMutations: readonly Mutation[],
+	rewriteProse: (template: unknown) => unknown,
+): Mutation[] {
+	const translations = candidate.localization?.translations;
+	if (translations === undefined) return [];
+	const before = new Map(
+		collectTranslationUnits(candidate).map((unit) => [unit.id, unit]),
+	);
+	const literalized = produce(candidate, (draft) => {
+		applyMutations(draft, [...fieldMutations]);
+	});
+	const after = new Map(
+		collectTranslationUnits(literalized).map((unit) => [unit.id, unit]),
+	);
+	const out: Mutation[] = [];
+	for (const [language, entries] of Object.entries(translations)) {
+		for (const [unitId, entry] of Object.entries(entries)) {
+			const prior = before.get(unitId as TranslationUnitId);
+			const next = after.get(unitId as TranslationUnitId);
+			if (
+				prior === undefined ||
+				next === undefined ||
+				typeof entry.value === "string" ||
+				translationSourceFingerprintsEqual(
+					prior.sourceFingerprint,
+					next.sourceFingerprint,
+				) ||
+				!translationSourceFingerprintsEqual(
+					entry.sourceFingerprint,
+					prior.sourceFingerprint,
+				)
+			)
+				continue;
+			out.push({
+				kind: "setTranslation",
+				language: language as LanguageTag,
+				unitId: unitId as TranslationUnitId,
+				entry: {
+					...entry,
+					value: rewriteProse(entry.value) as ProseTemplate,
+					sourceFingerprint: next.sourceFingerprint,
+				},
+			});
+		}
+	}
+	return out;
 }
 
 /** Complete field-edit convenience for single-batch surfaces. */

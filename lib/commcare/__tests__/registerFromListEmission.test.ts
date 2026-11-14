@@ -222,6 +222,85 @@ function registerAction(action: Element) {
 	};
 }
 
+const HOUSES = testUuid("houses");
+const PEOPLE = testUuid("people");
+const REGISTER_PERSON = testUuid("register-person");
+
+/** HQ's `test_case_list_form_parent_child_submodule_basic` shape: a menu of
+ *  houses whose forms open a house, a submenu of people under it that
+ *  chooses the house first, and a menu whose registration form opens a
+ *  person under a chosen house, which the people's list always offers. */
+function submenuHostDoc(afterSubmit: AlwaysOfferedRegistration["afterSubmit"]) {
+	const list = () => caseListConfig([{ field: "case_name", header: "Name" }]);
+	const doc = buildDoc({
+		appName: "Register into a submenu",
+		caseTypes: [
+			{ name: "house", properties: [] },
+			{ name: "person", parent_type: "house", properties: [] },
+		],
+		modules: [
+			{
+				uuid: "houses",
+				name: "Update house",
+				caseType: "house",
+				caseListConfig: list(),
+				forms: [
+					{
+						name: "Update house",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				uuid: "people",
+				name: "Update person",
+				caseType: "person",
+				parentCaseModuleUuid: "houses",
+				caseListConfig: list(),
+				forms: [
+					{
+						name: "Update person",
+						type: "followup" as const,
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				uuid: "register-people",
+				name: "Register person",
+				caseType: "person",
+				parentCaseModuleUuid: "houses",
+				caseListConfig: list(),
+				forms: [
+					{
+						uuid: "register-person",
+						name: "Register person",
+						type: "registration" as const,
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "person", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[PEOPLE] = { ...doc.modules[PEOPLE], parentModuleUuid: HOUSES };
+	doc.modules[PEOPLE].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: REGISTER_PERSON,
+		afterSubmit,
+	};
+	rebuildFieldParent(doc);
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
+}
+
 const RETURN_TO =
 	"count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm0'";
 const NEW_CASE =
@@ -375,5 +454,52 @@ describe("a case list that always offers another menu's registration form", () =
 				registerFromListDoc({ afterSubmit: "new-case" }),
 			).map((use) => use.id),
 		).not.toContain("registration-after-empty-search");
+	});
+});
+
+describe("a submenu's list under a menu that chooses a case first", () => {
+	const RETURN_TO_PEOPLE =
+		"count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm1'";
+	const NEW_PERSON =
+		"instance('commcaresession')/session/data/case_id_new_person_0";
+	const NEW_PERSON_ROW = `count(instance('casedb')/casedb/case[@case_id = ${NEW_PERSON}])`;
+	const HOUSE = "instance('commcaresession')/session/data/case_id";
+
+	it("writes HQ's `default` frames, naming the parent's chosen case once", () => {
+		const { suiteDoc } = compiled(submenuHostDoc("new-case"));
+		expect(frames(entry(suiteDoc, "m2-f0"))).toEqual([
+			{
+				if: `${RETURN_TO_PEOPLE} and ${NEW_PERSON_ROW} > 0`,
+				children: [
+					{ name: "command", value: "'m0'" },
+					{ name: "datum", id: "case_id", value: HOUSE },
+					{ name: "command", value: "'m1'" },
+					{ name: "datum", id: "case_id_person", value: NEW_PERSON },
+				],
+			},
+			{
+				if: `${RETURN_TO_PEOPLE} and ${NEW_PERSON_ROW} = 0`,
+				children: [
+					{ name: "command", value: "'m0'" },
+					{ name: "datum", id: "case_id", value: HOUSE },
+					{ name: "command", value: "'m1'" },
+				],
+			},
+		]);
+	});
+
+	it("writes HQ's one `case_list` frame, which keeps the submenu's copy of the chosen case", () => {
+		const { suiteDoc } = compiled(submenuHostDoc("case-list"));
+		expect(frames(entry(suiteDoc, "m2-f0"))).toEqual([
+			{
+				if: RETURN_TO_PEOPLE,
+				children: [
+					{ name: "command", value: "'m0'" },
+					{ name: "datum", id: "case_id", value: HOUSE },
+					{ name: "command", value: "'m1'" },
+					{ name: "datum", id: "case_id", value: HOUSE },
+				],
+			},
+		]);
 	});
 });

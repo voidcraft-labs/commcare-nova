@@ -70,12 +70,6 @@ export interface PreviewCaseTarget {
 	 * other way into a form, which is what lets the form screen refuse a
 	 * direct URL (`lib/preview/caseListRegistration.ts`). */
 	searchLaunch?: PreviewSearchLaunch;
-	/** The Register action of a case list that always offers this form
-	 * opened it: after submit the form returns where that list's choice says
-	 * (`lib/preview/caseListRegistration.ts::alwaysOfferedRegistrationReturn`).
-	 * Absent on every other way into the form, which is then an ordinary
-	 * form. Ephemeral, never stored. */
-	caseListRegistrationLaunch?: PreviewCaseListRegistrationLaunch;
 	/** Post-submit local-device world carried by a direct form link. A fresh
 	 * restore may omit a case the device just closed, but the linked form still
 	 * opens against the case and casedb state the submitting entry committed. */
@@ -179,6 +173,24 @@ export interface PreviewSearchLaunch {
 /** Which case list's Register action opened a form it always offers. */
 export interface PreviewCaseListRegistrationLaunch {
 	readonly hostModuleUuid: Uuid;
+}
+
+/**
+ * The one entry of a form that a case list's Register action opened, which
+ * after submit returns where that list's choice says
+ * (`lib/preview/engine/caseListRegisterAction.ts::alwaysOfferedRegistrationReturn`).
+ * It names the form it opened, in its own menu, so a form screen reached any
+ * other way is by construction not this launch, and it lasts while the
+ * running app stays on that launch's own path
+ * (`lib/preview/caseListRegistrationEntry.ts::caseListRegistrationEntryContinues`):
+ * the form, and the parent case selection that admits it. Every other
+ * location ends it, and so does its submission. Ephemeral, never stored.
+ */
+export interface PreviewCaseListRegistrationEntry
+	extends PreviewCaseListRegistrationLaunch {
+	/** The form's own menu, where the action opens it. */
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
 }
 
 /**

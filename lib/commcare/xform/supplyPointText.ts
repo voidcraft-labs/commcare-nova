@@ -17,9 +17,11 @@
  * which holds whatever text a save can leave. No admitted document's source
  * holds the text even decoded: an itext text's `instance(` is written with
  * its bracket as an output (`builder.ts::literalLabelNodes`), a literal is
- * split there (`xpath/wire/serialize.ts::literalPieces`), and a form's name
+ * split there (`xpath/wire/serialize.ts::literalPieces`), a form's name
  * and Connect texts holding it are refused at the gate
- * (`FORM_TEXT_READ_AS_INSTANCE`). `planPrivileges.ts::commtrackReasons` reads
+ * (`FORM_TEXT_READ_AS_INSTANCE`), and a choice's value holding it by its own
+ * grammar (`lib/domain/selectOptionValue.ts`, `instance-read`).
+ * `planPrivileges.ts::commtrackReasons` reads
  * the emission through this as a guard.
  */
 

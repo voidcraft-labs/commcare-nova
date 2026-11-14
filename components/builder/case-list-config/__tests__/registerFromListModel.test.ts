@@ -11,6 +11,7 @@ import {
 	afterRegisteringHelpers,
 	alsoOfferedOnLine,
 	ownAfterSubmitNote,
+	shownRegisterRefusal,
 	slotWith,
 } from "../canvas/registerFromListModel";
 
@@ -116,5 +117,28 @@ describe("alsoOfferedOnLine", () => {
 		expect(alsoOfferedOnLine(["Patients", "Visits", "Clinics"])).toBe(
 			"Also offered on the case lists of Patients, Visits and Clinics",
 		);
+	});
+});
+
+describe("shownRegisterRefusal", () => {
+	const HOST = testUuid("host-list");
+	const OTHER_HOST = testUuid("other-list");
+	const revision = {};
+	const held = {
+		message: "Visits can't offer this form.",
+		moduleUuid: HOST,
+		revision,
+	};
+
+	it("shows a refusal on the case list and document it answered", () => {
+		expect(shownRegisterRefusal(held, HOST, revision)).toBe(held.message);
+	});
+
+	it("leaves it behind on another case list", () => {
+		expect(shownRegisterRefusal(held, OTHER_HOST, revision)).toBeUndefined();
+	});
+
+	it("leaves it behind once the document changes, as after an undo or a peer's edit", () => {
+		expect(shownRegisterRefusal(held, HOST, {})).toBeUndefined();
 	});
 });
