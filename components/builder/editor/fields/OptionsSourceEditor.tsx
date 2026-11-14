@@ -258,6 +258,9 @@ export function OptionsSourceEditor<
 						key={draft?.kind === "inline" ? "draft-inline" : "current-inline"}
 						options={active.options}
 						slotKeyBase={field.uuid}
+						// A drafted list is not in the document yet, so its labels
+						// have no slot to hold a calculated value in.
+						fieldUuid={draft?.kind === "inline" ? undefined : field.uuid}
 						onSave={(options) => {
 							const next: InlineOptionsSource = { kind: "inline", options };
 							if (draft?.kind === "inline") {

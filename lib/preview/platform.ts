@@ -196,6 +196,14 @@ export interface PreviewPlatformRules {
 	 *  finds its markdown form, else draws `getSelectChoiceText` as written
 	 *  (`views/widgets/SelectOneWidget.java`, `QuestionWidget.java`). */
 	readonly plainChoice: "markdown" | "literal";
+	/** A help text shown as typed (its question holds `plainHelp`, or its form
+	 *  `plainText`), whose itext writes no markdown form. Web Apps formats a
+	 *  help text's default text always (`form_entry/form_ui.js::Question.prototype.fromJS`,
+	 *  `help`; Formplayer `PromptToJson.java::parseQuestion` sends
+	 *  `getHelpText()`); Android formats it only where its markdown form exists,
+	 *  else draws `getHelpText()` as written
+	 *  (`views/widgets/QuestionWidget.java::createHelpLayout`). */
+	readonly plainHelp: "markdown" | "literal";
 	/** Android `views/QuestionsView.java::deriveGroupText`: one header line
 	 *  per screen, the enclosing groups joined with ` > `. */
 	readonly groupLabel: "card" | "screen-header";
@@ -210,6 +218,10 @@ export interface PreviewPlatformRules {
 	/** Web Apps `entries.js::getEntry` (a barcode question falls through to
 	 *  `FreeTextEntry`); manifest `questions/barcode-barcode`. */
 	readonly barcodeQuestion: "text" | "scan-or-text";
+	/** A Text question with a number keypad. Web Apps `form_entry/entries.js::PhoneEntry` stores an
+	 *  answer only where it matches its pattern; Android `views/widgets/StringNumberWidget.java` limits
+	 *  the keys and stores what its key listener leaves in the box. */
+	readonly numberKeypad: "pattern" | "keys";
 	/** Web Apps `entries.js::FileEntry`, `entry_file.html`; Android
 	 *  `views/widgets/ImageWidget.java`, `CommCareAudioWidget.java`,
 	 *  `VideoWidget.java`. */
@@ -219,6 +231,11 @@ export interface PreviewPlatformRules {
 	/** Manifest `application-and-settings/logo-refs-hq-logo-web-apps`
 	 *  (Android ignores it). */
 	readonly logo: boolean;
+	/** A case list action's icon and spoken label, the Register button's:
+	 *  Android draws both (`views/EntityActionViewUtils.java::setupActionImage`,
+	 *  `setupActionAudio`); Web Apps draws the action's text alone
+	 *  (`cloudcare/partials/case_list/list.html`, `action.text`). */
+	readonly caseListActionMedia: "shown" | "text-only";
 }
 
 /** The one table. Both members are frozen, and the `satisfies` makes a field
@@ -260,14 +277,17 @@ export const PREVIEW_PLATFORM_RULES = {
 			images: "shown",
 		}),
 		plainChoice: "markdown",
+		plainHelp: "markdown",
 		groupLabel: "card",
 		repeatAdd: "buttons",
 		choiceMedia: false,
 		locationQuestion: "map",
 		barcodeQuestion: "text",
+		numberKeypad: "pattern",
 		capture: "attach",
 		submitLabel: "submit",
 		logo: true,
+		caseListActionMedia: "text-only",
 	}),
 	android: Object.freeze({
 		unavailableInlineChoice: "summary-or-restore",
@@ -305,14 +325,17 @@ export const PREVIEW_PLATFORM_RULES = {
 			images: "alt-text",
 		}),
 		plainChoice: "literal",
+		plainHelp: "literal",
 		groupLabel: "screen-header",
 		repeatAdd: "prompt",
 		choiceMedia: true,
 		locationQuestion: "record-location",
 		barcodeQuestion: "scan-or-text",
+		numberKeypad: "keys",
 		capture: "device",
 		submitLabel: "finish",
 		logo: false,
+		caseListActionMedia: "shown",
 	}),
 } as const satisfies Readonly<Record<Platform, PreviewPlatformRules>>;
 
@@ -322,12 +345,16 @@ export function previewPlatformRules(platform: Platform): PreviewPlatformRules {
 }
 
 /** The search screen's heading and description. Web Apps shows the
- *  authored title and description; Android shows neither, and its heading is
- *  the search action's label (`searchScreenText`). */
+ *  authored title and description, and no heading for a search with no title
+ *  (`title: null`); Android shows neither, and its heading is the search
+ *  action's label (`searchScreenText`). */
 export function searchScreenHeading(
 	rules: Pick<PreviewPlatformRules, "searchScreenText">,
-	authored: { readonly title: string; readonly subtitle: string | undefined },
-): { readonly title: string; readonly subtitle: string | undefined } {
+	authored: {
+		readonly title: string | null;
+		readonly subtitle: string | undefined;
+	},
+): { readonly title: string | null; readonly subtitle: string | undefined } {
 	return rules.searchScreenText
 		? authored
 		: { title: CASE_SEARCH_BUTTON_LABEL, subtitle: undefined };

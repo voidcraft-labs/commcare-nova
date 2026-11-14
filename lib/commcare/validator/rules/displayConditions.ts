@@ -9,9 +9,10 @@ import { slotContext } from "@/lib/domain/expression/context";
  * read a case row or a Search prompt:
  *
  *   - module conditions have no case or Search-input context;
- *   - form conditions may read the selected case only when every form in the
- *     module is case-loading (case-first), and only through a direct self read
- *     of that module's case type;
+ *   - form conditions may read the selected case only when the screen that
+ *     lists the form chooses a case first (`menuScreens.ts::
+ *     screenChoosesCaseFirst`, which reads every entry the screen lists), and
+ *     only through a direct self read of that module's case type;
  *   - Search inputs, relation walks, relation presence, and relation counts are
  *     unavailable on both surfaces.
  *
@@ -31,7 +32,11 @@ import {
 	type BlueprintDoc,
 	type Form,
 	type Module,
+	menuScreenOf,
 	moduleIsCaseFirst,
+	type ScreenCaseFirstBlocker,
+	screenCaseFirstBlocker,
+	screenChoosesCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -66,6 +71,9 @@ type Carrier =
 			readonly form: Form;
 			readonly condition: Expression;
 			readonly caseFirst: boolean;
+			/** What keeps the screen that lists the form forms first, where the
+			 *  form's own module would choose its case first. */
+			readonly blocker?: ScreenCaseFirstBlocker;
 	  };
 
 function location(carrier: Carrier) {
@@ -152,6 +160,34 @@ function firstPortabilityIssue(
 	return issue;
 }
 
+/** Why a form whose own module chooses its case first is still listed
+ *  before any case: the screen it lists on is forms first. */
+function blockerExplanation(
+	doc: BlueprintDoc,
+	blocker: ScreenCaseFirstBlocker,
+): string {
+	const blockingMenu =
+		blocker.moduleUuid === undefined
+			? ""
+			: (doc.modules[blocker.moduleUuid]?.name ?? "");
+	switch (blocker.reason) {
+		case "first-menu":
+			return "Its forms show on the app's first menu, where a worker chooses a form before any case.";
+		// A bare case list lists no form, so no form condition meets it.
+		case "bare-case-list":
+			return "This module asks the user to choose a form before it selects a case.";
+		case "opens-without-a-case": {
+			const blockingForm =
+				blocker.formUuid === undefined
+					? ""
+					: (doc.forms[blocker.formUuid]?.name ?? "");
+			return `Its forms show with "${blockingMenu}"'s on one screen, and "${blockingForm}" there opens without a case, so a worker chooses a form before any case.`;
+		}
+		case "chooses-another-case":
+			return `Its forms show with "${blockingMenu}"'s on one screen, and those forms choose a different case first, so a worker chooses a form before any case.`;
+	}
+}
+
 function validateCarrier(
 	carrier: Carrier,
 	doc: BlueprintDoc,
@@ -220,18 +256,34 @@ function validateCarrier(
 			carrier.kind === "module"
 				? "MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE"
 				: "FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE";
+		const blocker = carrier.kind === "form" ? carrier.blocker : undefined;
 		const explanation =
 			carrier.kind === "module"
 				? "A module is shown before any case is selected."
 				: carrier.caseFirst
 					? `Only direct properties of the selected "${carrier.mod.caseType ?? "case"}" case are available there; related cases and case counts are not.`
-					: "This module asks the user to choose a form before it selects a case.";
+					: blocker !== undefined
+						? blockerExplanation(doc, blocker)
+						: "This module asks the user to choose a form before it selects a case.";
 		errors.push(
 			validationError(
 				code,
 				carrier.kind,
 				`${who} reads case data in its display condition, but that case context is unavailable. ${explanation}`,
 				loc,
+				blocker === undefined
+					? undefined
+					: {
+							reason: blocker.reason,
+							...(blocker.moduleUuid !== undefined && {
+								blockingModuleUuid: blocker.moduleUuid,
+								blockingModuleName: doc.modules[blocker.moduleUuid]?.name ?? "",
+							}),
+							...(blocker.formUuid !== undefined && {
+								blockingFormUuid: blocker.formUuid,
+								blockingFormName: doc.forms[blocker.formUuid]?.name ?? "",
+							}),
+						},
 			),
 		);
 	}
@@ -299,6 +351,10 @@ export function formDisplayCondition(
 	const form = doc.forms[formUuid];
 	if (form.displayCondition === undefined) return [];
 	const mod = doc.modules[moduleUuid];
+	const screen = menuScreenOf(doc, moduleUuid);
+	const blocker = screenCaseFirstBlocker(doc, screen);
+	// The same answer `slotContext` gives the condition (`caseData`).
+	const caseFirst = screenChoosesCaseFirst(doc, screen);
 	return validateCarrier(
 		{
 			kind: "form",
@@ -307,7 +363,12 @@ export function formDisplayCondition(
 			formUuid,
 			form,
 			condition: form.displayCondition,
-			caseFirst: moduleIsCaseFirst(doc, moduleUuid),
+			caseFirst,
+			// The blocker names the screen only where the form's own module
+			// would choose its case first; otherwise the module is the reason.
+			...(!caseFirst &&
+				blocker !== undefined &&
+				moduleIsCaseFirst(doc, moduleUuid) && { blocker }),
 		},
 		doc,
 		lookupTables,

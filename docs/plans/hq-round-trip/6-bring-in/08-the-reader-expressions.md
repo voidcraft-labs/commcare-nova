@@ -2043,7 +2043,10 @@ edits, so both are built here.
 each an `ExpressionPicker` over the item under the constraint of the value the list is compared with,
 rows reordered by the shared `useReorderableList` and `ReorderableRow` (drag, and ArrowUp, ArrowDown,
 Home and End from the handle, with the move announced), a row removed by its own action, and **Add a
-value** appending an empty text literal. The schema asks for one item or more, so the last row's
+value** appending an empty literal seeded for the slot the list stands in (an empty text literal
+opposite text; `cards/reseed.ts::reseedValueForConstraint` opposite a number or a date, which the
+checker's `valueListItems` would refuse as text), the same seed the value menu gives the kind's
+first item (`ExpressionPicker.tsx::defaultExpressionForSlot`). The schema asks for one item or more, so the last row's
 remove action is absent, as `ConcatCard`'s is. Every row action is 44px and named for its row
 ("Remove value 2"). The card's heading stays "Any of these values"; the paragraph that said the list
 came with the app and is kept as it is goes.
@@ -2575,9 +2578,13 @@ use, in every sentence below and in the public docs.
 filters, after the sentence that holds `in(value,'a','b')`):
 
 - C7: "In a Search field's condition, list(value, ...) holds several values to compare a case value
-  with, using = or !=: #case/region = list('north', #search/region) keeps a case whose region is any
-  one of them. Each value is fixed, a Search answer, a worker value or a session value. Anywhere else,
-  in(value, 'a', 'b') matches any of several fixed values."
+  with, using = or !=: when-provided(#search/region, #case/region = list('north', #search/region))
+  keeps a case whose region is any one of them. Each value is fixed, a Search answer, a worker value
+  or a session value. Anywhere else, in(value, 'a', 'b') matches any of several fixed values." The
+  example carries `when-provided`, because the commit gate refuses a bare Search answer in an
+  advanced Search field's condition
+  (`lib/commcare/validator/rules/case-list/searchInputRefUsesWhenInputPresent.ts`,
+  `CASE_LIST_BARE_SEARCH_INPUT_REF`), a list's items included.
 
 **Refusals.**
 
@@ -2665,11 +2672,13 @@ C15 and C16 are in "Contracts and docs these changes make false".
   of one.
 - C15, `content/docs/mcp/tools.mdx`, in the paragraph "Record queries use expressions such as…":
   "In a Search field's condition, `list(...)` holds several values to compare a case value with,
-  such as `#case/region = list('north', #search/region)`."
+  such as `when-provided(#search/region, #case/region = list('north', #search/region))`." (the
+  guard C7 carries, for the same reason)
 - C16, `content/docs/case-workspace.mdx`, after the paragraph that ends "finds cases whose value is
   any of the chosen answers": "A search field's rule can also compare a case value with a list of
   values. A case matches when its value is any one of them, and a value in the list can be one you
-  type or another search field's answer."
+  type or a search field's answer." (Not "another search field's answer": a rule's own envelope
+  guards only its own field's answer, and the gate refuses another field's bare answer there.)
 
 ---
 
@@ -2709,9 +2718,9 @@ reads with `readExpressions`. No test asserts on a helper's output alone.
 | `__tests__/findings.test.ts` | the manifest | a `FormParseIssueCode` or `CheckErrorCode` with no entry; an entry id that is not in `lib/commcare/surface/entries`; a claim whose entry is HELD for a refusal; a key of `SURFACE_USE_ENTRIES` no entry names; an entry a table answers that is no member of `EXPRESSION_CLAIMS` |
 | `__tests__/everyFinding.test.ts` | `readExpressions` over one document | two refused expressions in one app reported as one (the plan's rule that a reading reports every finding in one pass: `../6-bring-in.md`, "The experience in brief"; part 06, decision 1) |
 | `lib/agent/authoring/__tests__/readContract.test.ts` (extended; `docs/testing.md`: a stored value a read must print extends the read sweep, not a test of one tool) | every registered read over an app whose search condition holds a `value-list` | a `value-list` that still throws on print, in any read |
-| `lib/agent/__tests__/` on `makeAuthoringHarness` (new cases in the search-condition suite) | production's one call body | `#case/region = list('north', #search/region)` written into an advanced Search field's condition refused, or stored as anything but `eq` over the `value-list` its arguments name; a stored list sent back with one value changed refused; `list(…)` in a case list filter accepted, or refused without C7b; `#case/age > list('1')` accepted, where the gate's `value-list-placement` refuses it; `list()` accepted; `list(…)` in form logic bound to anything |
+| `lib/agent/__tests__/` on `makeAuthoringHarness` (new cases in the search-condition suite) | production's one call body | `when-provided(#search/region, #case/region = list('north', #search/region))` written into an advanced Search field's condition refused, or stored as anything but `eq` over the `value-list` its arguments name (inside its `when-input-present`); a stored list sent back with one value changed refused; `list(…)` in a case list filter accepted, or refused without C7b; `#case/age > list('1')` accepted, where the gate's `value-list-placement` refuses it; `list()` accepted; `list(…)` in form logic bound to anything |
 | `components/builder/shared/__tests__/validByConstruction.test.ts` (existing; its `value-list` cases are rewritten) | the card registry against the gate, over every carrier | "A list of values" offered outside a slot CommCare's server search alone reads, or withheld in an advanced Search field's condition; the kind's default value refused by the gate in the slot that offers it; the registry's component for the kind not the editor |
-| `e2e/tests/app/search-value-list.spec.ts` (Playwright; the journey of `e2e/CLAUDE.md`, a seeded app with a case type, sample cases and a Search field) | the builder, the gate and Preview in a real browser | in an advanced search field's rule, "A list of values" missing from the value menu beside "is", or enabled beside "is more than" without the gate's reason; a value added, one set to another search field's answer, one moved from its handle with ArrowUp and one removed leaving the others changed; the last value removable; after a reload, the card showing other values than were saved; in Preview, the search finding a case whose value is none of the listed ones, or missing a case whose value is one |
+| `e2e/tests/app/search-value-list.spec.ts` (Playwright; the journey of `e2e/CLAUDE.md`, a seeded app with a case type, sample cases and a Search field) | the builder, the gate and Preview in a real browser | in an advanced search field's rule, "A list of values" missing from the value menu beside "is", or enabled beside "is more than" without the gate's reason; a value added, one set to the field's own search answer (which its rule's "once answered" guards; another field's bare answer is the gate's `CASE_LIST_BARE_SEARCH_INPUT_REF`), one moved from its handle with ArrowUp and one removed leaving the others changed; the last value removable; after a reload, the card showing other values than were saved; in Preview, the search finding a case whose value is none of the listed ones, or missing a case whose value is one |
 | `lib/agent/authoring/__tests__/dialectReadBack.test.ts` | `recordDialectRoundTrip` over the record slots `readExpressions` holds, for E5's corpora and the three starter bases | a held record slot the dialect cannot print or reads back differently; the judge reading a kind from an error's text |
 | `lib/commcare/surface/__tests__/manifest.test.ts` (existing) | the manifest | the eight new entries breaking a rule: a shared key with no value class, a subject with no sentence |
 | `lib/commcare/reader/__tests__/provisional.test.ts` (part 06's file; the `bindExpressions` cases) | `bindExpressions` over a draft, with a hand-written `ExpressionReading` and with the real reader | a claim applied to the wrong node; `PendingRegistry.outcome(i)` not giving `bound[i]` and the slot's own claim whose `source` is `i`, or giving a surface use's claim in its place; an `ownerless` registration with a finding at or above its place throwing C10, or one with none not throwing; the first run's trees or findings kept; a tag of `unreadTables` appended twice |

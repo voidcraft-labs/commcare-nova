@@ -23,6 +23,7 @@ import {
 } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "../../../lib/domain";
+import { HQ_INSTANT_VECTORS } from "../../../lib/domain/__tests__/hqInstantText.vectors";
 
 import { operationRelevanceDoc } from "../../../lib/preview/engine/__tests__/fixtures/submissionProgram";
 import {
@@ -171,3 +172,11 @@ for (const [name, document] of [
 		});
 	});
 }
+
+// StoredInstantRuntimeTest sets each moment as the sequence form's answer and
+// clock, in every device zone, and reads the text the case then holds: the
+// text CommCare HQ stores for it, written out by hand in the vectors.
+writeFileSync(
+	resolve(output, "stored-instants.json"),
+	`${JSON.stringify({ schemaVersion: 1, vectors: HQ_INSTANT_VECTORS })}\n`,
+);

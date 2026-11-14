@@ -3,6 +3,8 @@ import { produce } from "immer";
 import { sql } from "kysely";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { makeDurableAuthoringHarness } from "@/lib/agent/__tests__/durableAuthoringHarness";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
@@ -23,6 +25,7 @@ import { readAppTestSteps } from "@/lib/db/appTests";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
 import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
 import * as evaluation from "../../engine/evaluateForm";
@@ -1743,6 +1746,96 @@ it("cannot open a menu or a form that is off the menu from a menu", async () => 
 	expect(await step({ kind: "form", formUuid: hiddenForm })).toMatchObject({
 		completed: false,
 		error: "This form is not available on the current menu.",
+	});
+	await step({ kind: "finish" });
+});
+
+it("chooses a form listed on the home screen, and a submenu's form on its parent's screen with the case chosen there", async () => {
+	const base = await createEvaluationApp(
+		[
+			{ name: "Intake", forms: [{ name: "Register visitor", type: "survey" }] },
+			{
+				name: "Households",
+				caseType: "household",
+				forms: [{ name: "Visit household", type: "followup" }],
+			},
+			{
+				name: "Members",
+				caseType: "household",
+				forms: [{ name: "Check members", type: "followup" }],
+			},
+		],
+		[],
+	);
+	const byName = (name: string) => {
+		const module = Object.values(base.modules).find(
+			(item) => item.name === name,
+		);
+		if (!module) throw new Error(`Missing ${name}`);
+		return module.uuid;
+	};
+	const intake = byName("Intake");
+	const households = byName("Households");
+	const members = byName("Members");
+	const register = base.formOrder[intake][0];
+	const check = base.formOrder[members][0];
+	const doc = produce(base, (draft) => {
+		draft.modules[intake].formsInMenuAbove = true;
+		/* Members keeps its place in the module order right after its
+		 * parent, and shows its follow-up on the households screen. */
+		draft.modules[members].parentModuleUuid = households;
+		draft.modules[members].formsInMenuAbove = true;
+	});
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "above-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Forms listed in the menu above open in place",
+			scenario: {
+				records: [{ id: "house-a", caseType: "household", name: "Okafor" }],
+			},
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `above-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	/* The intake menu has no tile: its form lists on the home screen. */
+	expect(current.observation).toMatchObject({
+		screen: "home",
+		menus: [{ uuid: households, visibility: "shown" }],
+		forms: [{ uuid: register, menuUuid: intake, visibility: "shown" }],
+	});
+	expect(await step({ kind: "form", formUuid: register })).toMatchObject({
+		screen: "form",
+	});
+	await step({ kind: "home" });
+	/* The households screen chooses its case first; once chosen, it lists
+	 * the members follow-up, which opens with that household. */
+	await step({ kind: "menu", moduleUuid: households });
+	await step({ kind: "records" });
+	expect(await step({ kind: "select", caseIds: ["house-a"] })).toMatchObject({
+		screen: "menu",
+		forms: expect.arrayContaining([
+			expect.objectContaining({ uuid: check, menuUuid: members }),
+		]),
+	});
+	/* A follow-up with no case would open its own record list first; it
+	 * opens as a form because the household chosen above reaches it. */
+	expect(await step({ kind: "form", formUuid: check })).toMatchObject({
+		screen: "form",
 	});
 	await step({ kind: "finish" });
 });
@@ -3839,6 +3932,159 @@ it("runs both destinations in turn on Android and opens only the first on Web Ap
 		WHERE id = ${current.testId}`.execute(h.db());
 	expect(await step({ kind: "submit" })).toMatchObject({
 		screen: "device-home",
+	});
+	await step({ kind: "finish" });
+});
+
+/** `Patients` lists patients for a follow-up and always offers
+ *  `Registration`'s form from its list. */
+function registerFromListDoc(afterSubmit: "case-list" | "new-case") {
+	const list = caseListConfig([{ field: "case_name", header: "Name" }]);
+	const doc = buildDoc({
+		appName: "Register from list",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "rfl-host",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: list,
+				forms: [
+					{
+						uuid: "rfl-visit",
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+			{
+				uuid: "rfl-registration",
+				name: "Registration",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "rfl-register",
+						name: "Register patient",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[testUuid("rfl-host")].caseListRegistrationForm = {
+		kind: "always",
+		formUuid: testUuid("rfl-register"),
+		afterSubmit,
+	};
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return doc;
+}
+
+it.each(["case-list", "new-case"] as const)(
+	"registers from a record list that always offers the form and returns where the list says (%s)",
+	async (afterSubmit) => {
+		const doc = registerFromListDoc(afterSubmit);
+		const host = testUuid("rfl-host");
+		const register = testUuid("rfl-register");
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		let current = await startAppTest(scope, {
+			requestId: `rfl-start-${afterSubmit}`,
+			expectedBlueprintSeq: 0,
+			input: { purpose: "Register from the case list" },
+		});
+		let request = 0;
+		const step = async (action: AppTestAction) => {
+			current = await continueAppTest(scope, {
+				testId: current.testId,
+				requestId: `rfl-${afterSubmit}-${++request}`,
+				expectedStep: current.step,
+				action,
+			});
+			return current.observation;
+		};
+		// The host chooses a case first, so its menu opens on its records,
+		// which offer the form with no search to run.
+		expect(await step({ kind: "menu", moduleUuid: host })).toMatchObject({
+			registration: { uuid: register, name: "Register patient" },
+		});
+		await step({ kind: "form", formUuid: register });
+		await step({
+			kind: "answer",
+			answers: [{ path: "case_name", value: "Ada" }],
+		});
+		const saved = await step({ kind: "submit" });
+		expect(saved.savedInTest).toBe(true);
+		// On to the host's forms with the new case chosen, or back to the
+		// list, where the new case now shows.
+		if (afterSubmit === "new-case")
+			expect(saved).toMatchObject({
+				screen: "menu",
+				name: "Patients",
+				forms: [expect.objectContaining({ name: "Visit" })],
+			});
+		else
+			expect(saved).toMatchObject({
+				results: {
+					kind: "rows",
+					rows: [expect.objectContaining({ case_name: "Ada" })],
+				},
+				registration: { uuid: register },
+			});
+		await step({ kind: "finish" });
+	},
+);
+
+it("routes the offered form as any form when it is opened from its own menu", async () => {
+	const doc = registerFromListDoc("new-case");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "rfl-own-menu-start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Register from the form's own menu" },
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `rfl-own-menu-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid: testUuid("rfl-registration") });
+	await step({ kind: "form", formUuid: testUuid("rfl-register") });
+	await step({
+		kind: "answer",
+		answers: [{ path: "case_name", value: "Ada" }],
+	});
+	// A registration's after-submit is Home: no Register launch, no return.
+	expect(await step({ kind: "submit" })).toMatchObject({
+		savedInTest: true,
+		screen: "home",
 	});
 	await step({ kind: "finish" });
 });

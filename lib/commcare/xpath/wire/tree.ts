@@ -30,6 +30,9 @@ export type WireExpr =
 			readonly items: readonly [WireExpr, WireExpr, ...WireExpr[]];
 	  }
 	| { readonly k: "neg"; readonly value: WireExpr }
+	/** Its operand in parentheses whatever its precedence: HQ's
+	 * `XPath.paren(force=True)`, which a menu's conjoined condition spells. */
+	| { readonly k: "paren"; readonly expr: WireExpr }
 	| {
 			readonly k: "call";
 			readonly fn: WireFunction;

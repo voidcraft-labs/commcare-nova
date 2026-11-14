@@ -121,6 +121,7 @@ const PATIENT: CaseType = {
 		{ name: "age", label: proseText("Age"), data_type: "int" },
 		{ name: "prior_age", label: proseText("Prior age"), data_type: "int" },
 		{ name: "meds", label: proseText("Meds"), data_type: "multi_select" },
+		{ name: "seen_at", label: proseText("Seen at"), data_type: "datetime" },
 	],
 };
 // A superset of `patient` — every shared property keeps its exact
@@ -4212,4 +4213,43 @@ describe("atomic form-capture intent", () => {
 			"prepared",
 		]);
 	});
+});
+
+// ---------------------------------------------------------------
+// A date and time saved to a case
+// ---------------------------------------------------------------
+
+describe("a date and time saved to a case", () => {
+	const SEEN_FIELD = testUuid("seen-at-field");
+	const seenWrite = (): CaseOperationWrite[] => [
+		{ property: "seen_at", value: term(formField(SEEN_FIELD)) },
+	];
+
+	it.for([
+		// A wall clock entered in Nairobi (+03:00).
+		["2026-01-02T12:30:00.000", "2026-01-02T09:30:00.000000Z"],
+		// The device's own spelling of the same moment.
+		["2026-01-02T12:30:00.000+03:00", "2026-01-02T09:30:00.000000Z"],
+		// Text CommCare HQ already stored, kept exactly.
+		["2026-01-02T09:30:00.123456Z", "2026-01-02T09:30:00.123456Z"],
+	] as const)(
+		"stores %s as CommCare HQ stores its moment, never in the viewer's offset",
+		async ([answer, stored]) => {
+			const store = makeStore();
+			await seedSessionPatient(store);
+			await submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary(),
+				operations: {
+					...ownProgram("followup", [ownOp({ writes: seenWrite() })], {
+						formFields: [["seen-at-field", answer]],
+					}),
+					formFieldTypes: new Map([[SEEN_FIELD, "datetime"]]),
+					viewerTimeZone: "Africa/Nairobi",
+				},
+			});
+			const row = await patientRow(store, SESSION_CASE_ID);
+			expect(row?.properties.seen_at).toBe(stored);
+		},
+	);
 });

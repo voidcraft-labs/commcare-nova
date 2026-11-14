@@ -1,5 +1,5 @@
 import type { Element } from "domhandler";
-import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
+import type { ProseAtomPart, ProseTemplate } from "@/lib/domain";
 import { el, text } from "../elementBuilders";
 import { w } from "../xpath/wire/builders";
 import type { WireExpr } from "../xpath/wire/tree";
@@ -10,7 +10,15 @@ interface LocalizedMessage {
 }
 type MessagePart =
 	| { readonly literal: string }
-	| { readonly expression: WireExpr; readonly identity: string };
+	| {
+			readonly expression: WireExpr;
+			readonly identity: string;
+			/** Whether the part enters the guard against several answers: a
+			 *  reference may name several, while a calculated value is one
+			 *  scalar by its slot's check, and Core's `count` refuses anything
+			 *  but a node-set. */
+			readonly counted: boolean;
+	  };
 
 export interface ProtectedConstraintMessage {
 	readonly expression: WireExpr;
@@ -32,7 +40,7 @@ export interface ProtectedConstraintMessage {
 export function protectConstraintMessage(
 	id: string,
 	messages: readonly LocalizedMessage[],
-	lower: (reference: ProseReferencePart) => WireExpr,
+	lower: (part: ProseAtomPart) => WireExpr,
 ): ProtectedConstraintMessage | undefined {
 	if (
 		!constraintMessageNeedsProtection(messages.map(({ template }) => template))
@@ -43,7 +51,11 @@ export function protectConstraintMessage(
 		language,
 		parts: template.parts.map<MessagePart>((part) => {
 			if (part.kind === "text") return { literal: part.text };
-			return { expression: lower(part), identity: JSON.stringify(part) };
+			return {
+				expression: lower(part),
+				identity: JSON.stringify(part),
+				counted: part.kind !== "value",
+			};
 		}),
 	}));
 	const pieceIndices = new Set(
@@ -92,7 +104,7 @@ export function protectConstraintMessage(
 		const references = [
 			...new Map(
 				parts.flatMap((part) =>
-					"expression" in part
+					"expression" in part && part.counted
 						? [[part.identity, part.expression] as const]
 						: [],
 				),

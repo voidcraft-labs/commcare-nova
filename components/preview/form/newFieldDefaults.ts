@@ -122,3 +122,11 @@ export function newPageRepeat(
 		repeat_count: term(literal(1)),
 	};
 }
+
+/** The starter of the picker's Phone number entry: a Text question with a number keypad. */
+export function newPhoneNumber(
+	id: string,
+	label: string,
+): Omit<Extract<Field, { kind: "text" }>, "uuid"> {
+	return { ...NEW_FIELD_BUILDERS.text(id, label), keypad: "numbers" };
+}

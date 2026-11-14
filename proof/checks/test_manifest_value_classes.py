@@ -93,13 +93,16 @@ def _protected_form(
     media=False,
     typed=True,
     media_modes=True,
+    markdown_copy=True,
 ):
     """Independent wire shapes for the classifier, read by the observation's real Core/HQ parsers.
 
     Noncontiguous ordinals, a blank localized piece, nested paths, every media mode and a case predicate
     distinguish this class from an observed fixture or a simple-path-only approximation. ``media_modes``
     writes the four ``__nova_mode;<medium>`` forms a retained control keeps; without them the message is the
-    one Nova writes since defect 16. No Nova emitter or private consumer artifact supplies these bytes.
+    one Nova writes since defect 16. ``markdown_copy`` writes the message's own ``markdown`` value a retained
+    control keeps; without it the message is the one Nova writes now, which writes no formatted copy of a
+    validation message. No Nova emitter or private consumer artifact supplies these bytes.
     """
     parent = "/data/items/item" if nested else "/data"
     source, carrier = f"{parent}/q", f"{parent}/nova_constraint_message_q{'_2' if collision else ''}"
@@ -133,7 +136,9 @@ def _protected_form(
             payload = json.dumps({"v": literal}, ensure_ascii=True).replace("$", "\\u0024")
             helpers[f"__nova_piece_{piece}"] = payload
             helpers[f"__nova_piece_{piece};markdown"] = payload
-        values = "<value>Message</value><value form='markdown'>Message</value>"
+        values = "<value>Message</value>"
+        if markdown_copy:
+            values += "<value form='markdown'>Message</value>"
         if media:
             values += "".join(
                 f"<value form='{name}'>jr://file/{name}.bin</value>"
@@ -186,6 +191,7 @@ def _protected_cases():
             "nested-collision": _protected_form(nested=True, collision=True),
             "media-and-blank-localized-pieces": _protected_form(languages=("en", "fr", "es"), media=True),
             "without-media-modes": _protected_form(media_modes=False),
+            "without-markdown-copy": _protected_form(media_modes=False, markdown_copy=False),
         }
     )
     refused_cases = {}
@@ -3467,6 +3473,118 @@ def _search_and_menus():
                 "/modules/0/case_list_form/form_id",
             ),
         ),
+        "menus-and-case-lists/case-list-form-post-form-workflow-default-on-a-multi-select-host": (
+            refused(
+                "app",
+                columns_app(case_list_form={"form_id": "r", "post_form_workflow": "default"}, short=multi["short"]),
+                "schema:CaseListForm.form_id",
+                "/modules/0/case_list_form/form_id",
+            ),
+            accepted(
+                "app",
+                columns_app(case_list_form={"form_id": "r", "post_form_workflow": "case_list"}, short=multi["short"]),
+                "schema:CaseListForm.form_id",
+                "/modules/0/case_list_form/form_id",
+            ),
+            accepted(
+                "app",
+                columns_app(case_list_form={"form_id": "r", "post_form_workflow": "default"}),
+                "schema:CaseListForm.form_id",
+                "/modules/0/case_list_form/form_id",
+            ),
+        ),
+        "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of": (
+            # Each of the five things HQ's build refuses beside put_in_root, then the starter shape.
+            refused(
+                "app",
+                _app([plain(put_in_root=True, session_endpoint_id="visit")]),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(
+                            put_in_root=True,
+                            search_config={
+                                "properties": [{"name": "name"}],
+                                "inline_search": True,
+                                "auto_launch": True,
+                            },
+                        )
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app([plain(put_in_root=True, forms=[{**_form_json("case"), "post_form_workflow": "module"}])]),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(put_in_root=True),
+                        plain(
+                            unique_id="c",
+                            root_module_id="p",
+                            forms=[{**_form_json("case"), "post_form_workflow": "parent_module"}],
+                        ),
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            refused(
+                "app",
+                _app(
+                    [
+                        plain(put_in_root=True),
+                        plain(
+                            unique_id="o",
+                            forms=[
+                                {
+                                    **_form_json("case"),
+                                    "post_form_workflow": "form",
+                                    "form_links": [{"xpath": "", "module_unique_id": "p"}],
+                                }
+                            ],
+                        ),
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+            accepted(
+                "app",
+                _app(
+                    [
+                        plain(
+                            put_in_root=True,
+                            forms=[_form_json("none"), {**_form_json("case"), "post_form_workflow": "default"}],
+                        ),
+                        plain(
+                            unique_id="o",
+                            forms=[
+                                {
+                                    **_form_json("case"),
+                                    "post_form_workflow": "form",
+                                    "form_links": [
+                                        {"xpath": "", "form_id": "f", "form_module_id": "p", "module_unique_id": "p"}
+                                    ],
+                                }
+                            ],
+                        ),
+                    ]
+                ),
+                "schema:Module.put_in_root",
+                "/modules/0/put_in_root",
+            ),
+        ),
         "menus-and-case-lists/any-module-under-a-training-menu": (
             refused(
                 "app",
@@ -4018,6 +4136,14 @@ def _data_binds_and_itext():
             <text id="t3"><value/></text><text id="t4"><value/></text></translation>
           <translation lang="es"><text id="t4"><value>Hola</value></text></translation></itext>""",
     )
+    # A hint's and a label's copy that differs from its text: the hint's is no runtime's to read.
+    hinted = form(
+        data="<q/>",
+        model="""<itext><translation lang="en" default="">
+            <text id="q-hint"><value>A</value><value form="markdown">B</value></text>
+            <text id="q-label"><value>A</value><value form="markdown">B</value></text></translation></itext>""",
+        body="""<input ref="/data/q"><label ref="jr:itext('q-label')"/><hint ref="jr:itext('q-hint')"/></input>""",
+    )
     # Vellum's default language is the app's first (fr here, though the form marks en), and it fills a blank value
     # from the default, else from any app language with content (t4: es).
     translated = _with_forms(_app([_module([_form_json("none")])], langs=["fr", "en", "es"]), f=translations)
@@ -4273,6 +4399,11 @@ def _data_binds_and_itext():
         "questions/markdown-form-differing-from-the-default-text": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
             accepted("form", translations, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form"),
+            # a hint's differing copy is questions/hint-markdown-form's; the label's beside it stays refused
+            accepted(
+                "form", hinted, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form", readings=True
+            ),
+            refused("form", hinted, "itext-form:core/markdown", "translation[1]/text[2]/value[2]/@form", readings=True),
         ),
         "questions/a-label-with-a-markdown-form-in-some-languages-only-as-hq-s-bulk": (
             refused("form", translations, "itext-form:core/markdown", "translation[1]/text[1]/value[2]/@form"),
@@ -4593,7 +4724,6 @@ KNOWN_GAPS = frozenset(
         "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not",
         "menus-and-case-lists/module-lazy-load-case-list-fields-true",
         "menus-and-case-lists/parent-select-relationship-null-other",
-        "menus-and-case-lists/put-in-root-session-endpoint-id-or-inline-search-or-an-end-of",
         "menus-and-case-lists/report-context-tile-true",
         "menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1",
         "questions/a-case-variant-of-numeric-short-or-ethiopian-as-the-whole",

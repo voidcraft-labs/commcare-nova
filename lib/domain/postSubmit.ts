@@ -3,7 +3,8 @@
 // Where a form goes after submit, resolved against its module. The stored
 // slot is optional; the default depends on the form type AND on the owning
 // module's shape (forms that read the search, several-case selection, its
-// parent's selection, whether it is off the menu), so every consumer reads it here
+// parent's selection, whether it is off the menu, whether it or its parent
+// shows its forms in the menu above), so every consumer reads it here
 // rather than pairing `form.postSubmit ?? defaultPostSubmit(form.type)` by
 // hand. The offered set is the one statement of which destinations a form
 // may hold, and, less `app_home`, which built-in otherwise; the validator,
@@ -48,6 +49,9 @@ export const POST_SUBMIT_NOT_OFFERED_REASONS = [
 	"no-parent-menu",
 	"menu-off-the-menu",
 	"parent-off-the-menu",
+	"menu-forms-in-menu-above",
+	"parent-forms-in-menu-above",
+	"menu-forms-on-first-menu",
 ] as const;
 export type PostSubmitNotOfferedReason =
 	(typeof POST_SUBMIT_NOT_OFFERED_REASONS)[number];
@@ -63,6 +67,9 @@ const WITHHELD_BY: Readonly<
 	"no-parent-menu": ["parentMenu"],
 	"menu-off-the-menu": ["module", "previous"],
 	"parent-off-the-menu": ["parentMenu"],
+	"menu-forms-in-menu-above": ["module"],
+	"parent-forms-in-menu-above": ["parentMenu"],
+	"menu-forms-on-first-menu": ["previous"],
 };
 
 /** The facts of a form's module the offered set reads. */
@@ -72,6 +79,9 @@ export interface PostSubmitModuleFacts extends PostSubmitMenuShape {
 	/** A case list menu entry and no menu forms (`moduleIsBareCaseList`). */
 	readonly bareCaseList: boolean;
 	readonly parentOffTheMenu: boolean;
+	/** The parent shows its forms in the menu above, so it has no screen of
+	 *  its own to land on. */
+	readonly parentFormsInMenuAbove: boolean;
 }
 
 /** The menu shape of `moduleUuid`, as the after-submit rules read it. */
@@ -93,6 +103,14 @@ export function postSubmitModuleFacts(
 		offTheMenu: mod.hiddenFromMenu === true,
 		bareCaseList: moduleIsBareCaseList(doc, moduleUuid),
 		parentOffTheMenu: parent?.hiddenFromMenu === true,
+		formsInMenuAbove: mod.formsInMenuAbove === true,
+		// `menuScreens.ts::menuScreenOf` is the first menu exactly here: above
+		// and top-level (or under a parent that does not exist), or above under
+		// a parent that is above too.
+		formsOnFirstMenu:
+			mod.formsInMenuAbove === true &&
+			(parent === undefined || parent.formsInMenuAbove === true),
+		parentFormsInMenuAbove: parent?.formsInMenuAbove === true,
 	};
 }
 
@@ -108,6 +126,9 @@ function reasonsThatHold(
 		"no-parent-menu": facts.parentUuid === undefined,
 		"menu-off-the-menu": facts.offTheMenu === true,
 		"parent-off-the-menu": facts.parentOffTheMenu,
+		"menu-forms-in-menu-above": facts.formsInMenuAbove === true,
+		"parent-forms-in-menu-above": facts.parentFormsInMenuAbove,
+		"menu-forms-on-first-menu": facts.formsOnFirstMenu === true,
 	};
 	return POST_SUBMIT_NOT_OFFERED_REASONS.filter((reason) => holds[reason]);
 }
@@ -131,12 +152,13 @@ export function postSubmitDestinationsOfferedFor(
 /**
  * The destinations `formUuid` is offered, in `POST_SUBMIT_DESTINATIONS`
  * order. `app_home` and `firstMenu` always; `module` unless the parent
- * selects several cases, the module is a bare case list, or the module is
- * off the menu; `previous` unless the module or its parent selects several
- * cases, the module's forms read the search, or the module is off the menu;
- * `parentMenu` when the module has a parent that neither selects several
- * cases nor is off the menu. An unknown form, or one in no module, is
- * offered the two that need no module.
+ * selects several cases, the module is a bare case list, the module is off
+ * the menu, or it shows its forms in the menu above; `previous` unless the
+ * module or its parent selects several cases, the module's forms read the
+ * search, the module is off the menu, or its forms list on the app's first
+ * menu; `parentMenu` when the module has a parent that neither selects
+ * several cases, is off the menu, nor shows its forms in the menu above. An
+ * unknown form, or one in no module, is offered the two that need no module.
  */
 export function postSubmitDestinationsOffered(
 	doc: PostSubmitDoc,

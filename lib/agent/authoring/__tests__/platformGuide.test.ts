@@ -54,6 +54,11 @@ describe("the guide's platform sentences", () => {
 		],
 		[
 			"workflows",
+			"The Register button can take an icon and a spoken label (set_menu_media, target case-list-registration).",
+			"case-list-registration-media",
+		],
+		[
+			"workflows",
 			"After a form, every destination whose condition holds runs, in the order you set: the first opens, and each next one opens when the worker finishes the one before.",
 			"after-submit-several-destinations",
 		],

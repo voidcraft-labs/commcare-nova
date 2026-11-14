@@ -8,6 +8,7 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import type { FormLinkTarget } from "./forms";
+import { moduleShowsFormsInMenuAbove } from "./modules";
 import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
 
@@ -87,15 +88,16 @@ function parentOf(
  *  for a form of `sourceModuleUuid`
  *  (`views/forms.py::_get_linkable_forms_context`): a root menu always; a
  *  submenu only from a submenu whose parent's case type equals the target's
- *  parent's (`caseType ?? ""` on both sides, as HQ compares `case_type`). Nova
- *  has no display-only-forms menu, so HQ's `put_in_root` exclusion has no
- *  input here. */
+ *  parent's (`caseType ?? ""` on both sides, as HQ compares `case_type`). A
+ *  menu that shows its forms in the menu above is never offered (HQ's
+ *  `put_in_root` exclusion): it has no screen to open. */
 export function menuTargetOffered(
 	doc: Pick<BlueprintDoc, "modules">,
 	sourceModuleUuid: Uuid,
 	targetModuleUuid: Uuid,
 ): boolean {
-	if (doc.modules[targetModuleUuid] === undefined) return false;
+	const target = doc.modules[targetModuleUuid];
+	if (target === undefined || moduleShowsFormsInMenuAbove(target)) return false;
 	const targetParent = parentOf(doc, targetModuleUuid);
 	if (targetParent === undefined) return true;
 	const sourceParent = parentOf(doc, sourceModuleUuid);
@@ -106,10 +108,12 @@ export function menuTargetOffered(
 	);
 }
 
-/** The target when offered; else its parent, a root and so always offered,
- *  unless that parent is off the menu (`hiddenFromMenu`), which no link may
- *  target (`HIDDEN_MENU_NOT_A_DESTINATION`): then `undefined`. Nova's menus
- *  nest one tier (`moduleHierarchy.ts`), so one step up always reaches a root. */
+/** The target when offered; else its parent, a root and so offered while it
+ *  has its own screen and is on the menu. A parent off the menu
+ *  (`hiddenFromMenu`, `HIDDEN_MENU_NOT_A_DESTINATION`) or one that shows its
+ *  forms in the menu above (`FORMS_IN_MENU_ABOVE_NOT_A_DESTINATION`) takes no
+ *  link: then `undefined`. Nova's menus nest one tier (`moduleHierarchy.ts`),
+ *  so one step up always reaches a root. */
 export function nearestOfferedMenu(
 	doc: Pick<BlueprintDoc, "modules">,
 	sourceModuleUuid: Uuid,
@@ -120,7 +124,8 @@ export function nearestOfferedMenu(
 		return targetModuleUuid;
 	const parentUuid = parentOf(doc, targetModuleUuid);
 	if (parentUuid === undefined) return undefined;
-	return doc.modules[parentUuid]?.hiddenFromMenu === true
+	const parent = doc.modules[parentUuid];
+	return parent?.hiddenFromMenu === true || moduleShowsFormsInMenuAbove(parent)
 		? undefined
 		: parentUuid;
 }

@@ -39,9 +39,12 @@ interface Shape {
 	 *  registration form, so the menu holds no menu form. */
 	readonly bareCaseList?: boolean;
 	readonly offTheMenu?: boolean;
+	/** The menu shows its forms in the menu above. */
+	readonly formsInMenuAbove?: boolean;
 	readonly parent?: {
 		readonly multiSelect?: boolean;
 		readonly offTheMenu?: boolean;
+		readonly formsInMenuAbove?: boolean;
 	};
 	readonly formType?: FormType;
 	readonly postSubmit?: PostSubmitDestination;
@@ -51,7 +54,11 @@ interface Shape {
 function moduleOf(
 	uuid: string,
 	name: string,
-	shape: { multiSelect?: boolean; offTheMenu?: boolean },
+	shape: {
+		multiSelect?: boolean;
+		offTheMenu?: boolean;
+		formsInMenuAbove?: boolean;
+	},
 ): Module {
 	return {
 		uuid: testUuid(uuid),
@@ -68,6 +75,7 @@ function moduleOf(
 			}),
 		},
 		...(shape.offTheMenu && { hiddenFromMenu: true as const }),
+		...(shape.formsInMenuAbove && { formsInMenuAbove: true as const }),
 	};
 }
 
@@ -198,6 +206,42 @@ describe("postSubmitDestinationsOffered", () => {
 			"previous",
 		]);
 	});
+
+	// HQ's build refuses `module` in a menu that shows its forms above and
+	// `parent_module` under such a parent
+	// (`validators.py::FormBaseValidator.validate_for_module`); a form
+	// listed on the first menu is not offered `previous`, whose HQ frame there
+	// is no screen before the form.
+	it("withholds module and previous from a top-level menu that shows its forms on the first menu", () => {
+		expect(offered({ formsInMenuAbove: true })).toEqual([
+			"app_home",
+			"firstMenu",
+		]);
+	});
+
+	it("keeps previous in a submenu that shows its forms in a parent with its own screen", () => {
+		expect(offered({ formsInMenuAbove: true, parent: {} })).toEqual([
+			"app_home",
+			"firstMenu",
+			"parentMenu",
+			"previous",
+		]);
+	});
+
+	it("withholds parentMenu under a parent that shows its forms above", () => {
+		expect(offered({ parent: { formsInMenuAbove: true } })).toEqual([
+			"app_home",
+			"firstMenu",
+			"module",
+			"previous",
+		]);
+	});
+
+	it("lists a submenu above under a parent above on the first menu", () => {
+		expect(
+			offered({ formsInMenuAbove: true, parent: { formsInMenuAbove: true } }),
+		).toEqual(["app_home", "firstMenu"]);
+	});
 });
 
 describe("otherwiseDestinationsOffered", () => {
@@ -256,6 +300,24 @@ describe("otherwiseDestinationsOffered", () => {
 			{ parent: { offTheMenu: true } },
 			"parent-off-the-menu",
 			["firstMenu", "module", "previous"],
+		],
+		[
+			"a menu that shows its forms in a parent with its own screen",
+			{ formsInMenuAbove: true, parent: {} },
+			"menu-forms-in-menu-above",
+			["firstMenu", "parentMenu", "previous"],
+		],
+		[
+			"a parent that shows its forms above",
+			{ parent: { formsInMenuAbove: true } },
+			"parent-forms-in-menu-above",
+			["firstMenu", "module", "previous"],
+		],
+		[
+			"a menu that shows its forms on the first menu",
+			{ formsInMenuAbove: true },
+			"menu-forms-on-first-menu",
+			["firstMenu"],
 		],
 	])(
 		"under %s withholds what its reason withholds",
@@ -329,6 +391,30 @@ describe("defaultPostSubmit", () => {
 		expect(defaultPostSubmit("followup", { offTheMenu: true })).toBe(
 			"firstMenu",
 		);
+		expect(
+			defaultPostSubmit("followup", {
+				formsInMenuAbove: true,
+				formsOnFirstMenu: true,
+			}),
+		).toBe("firstMenu");
+		expect(defaultPostSubmit("followup", { formsInMenuAbove: true })).toBe(
+			"previous",
+		);
+		expect(defaultPostSubmit("survey", { formsOnFirstMenu: true })).toBe(
+			"app_home",
+		);
+	});
+
+	it("sends the follow-up of a submenu above that selects several cases to the first menu", () => {
+		// `previous` is withheld by the selection and `module` by the menu
+		// above; HQ's build refuses `module` there.
+		const doc = docOf({
+			formsInMenuAbove: true,
+			multiSelect: true,
+			parent: {},
+		});
+		expect(defaultPostSubmitOf(doc, form)).toBe("firstMenu");
+		expect(postSubmitDestinationsOffered(doc, form)).toContain("firstMenu");
 	});
 
 	it("is always offered, for every menu shape and form type", () => {
@@ -339,8 +425,13 @@ describe("defaultPostSubmit", () => {
 				searchFirst: fc.boolean(),
 				bareCaseList: fc.boolean(),
 				offTheMenu: fc.boolean(),
+				formsInMenuAbove: fc.boolean(),
 				parent: fc.option(
-					fc.record({ multiSelect: fc.boolean(), offTheMenu: fc.boolean() }),
+					fc.record({
+						multiSelect: fc.boolean(),
+						offTheMenu: fc.boolean(),
+						formsInMenuAbove: fc.boolean(),
+					}),
 					{ nil: undefined },
 				),
 				formType: fc.constantFrom(...FORM_TYPES),

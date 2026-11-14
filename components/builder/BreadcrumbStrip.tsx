@@ -39,6 +39,7 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
+import { moduleShowsFormsInMenuAbove } from "@/lib/domain";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -143,6 +144,15 @@ export function BreadcrumbStrip() {
 		[orderedModules],
 	);
 	const moduleForms = useOrderedForms(moduleUuid);
+	const screenlessModuleUuids = useMemo(
+		() =>
+			new Set(
+				orderedModules
+					.filter((module) => moduleShowsFormsInMenuAbove(module))
+					.map((module) => module.uuid),
+			),
+		[orderedModules],
+	);
 
 	const effectiveBreadcrumbs: PreviewBreadcrumbItem[] = useMemo(() => {
 		if (!previewing) return breadcrumbs;
@@ -158,9 +168,11 @@ export function BreadcrumbStrip() {
 			appHome: platformRules.appHome,
 			atDeviceHome,
 			appName,
+			screenlessModuleUuids,
 		});
 	}, [
 		appName,
+		screenlessModuleUuids,
 		atDeviceHome,
 		platformRules.appHome,
 		language,

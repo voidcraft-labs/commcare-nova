@@ -52,7 +52,6 @@ import {
 	materializableCaseTypes as materializableCaseTypesFromDoc,
 	menuFormUuidsOf,
 	moduleFormsReadSearch,
-	moduleIsCaseFirst,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
@@ -77,12 +76,15 @@ import {
 	type PendingAfterSubmitFrame,
 } from "@/lib/preview/afterSubmitStack";
 import {
+	alwaysOfferedRegistrationReturn,
 	caseListRegistrationAdmission,
 	caseListRegistrationPostSubmit,
 	caseListRegistrationRefusalCopy,
 	formReadsCompletedSearch,
 	formSearchAnswers,
 	isCaseListRegistrationForm,
+	registeredCaseOnDevice,
+	selectionsAfterRegistrationReturn,
 } from "@/lib/preview/caseListRegistration";
 import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
 import type { SetvalueRefusalDetails } from "@/lib/preview/engine/answerCast";
@@ -157,7 +159,10 @@ import {
 } from "@/lib/preview/hooks/useSearchCsqlRuntime";
 import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSnapshot";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
-import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
+import {
+	previewCaseFirstModuleUuids,
+	previewMenuCaseContext,
+} from "@/lib/preview/menuProjection";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -185,7 +190,10 @@ import {
 } from "@/lib/session/hooks";
 import { recordRegisteredCase } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import type { PreviewCaseChoice } from "@/lib/session/types";
+import type {
+	PreviewCaseChoice,
+	PreviewCaseListRegistrationLaunch,
+} from "@/lib/session/types";
 import { showToast } from "@/lib/ui/toastStore";
 import {
 	type FormLayoutHandle,
@@ -379,6 +387,10 @@ interface SubmissionContextSnapshot {
 	readonly moduleCaseType: string | undefined;
 	/** The form's after-submit links from the revision paired with the write. */
 	readonly links: readonly FormLink[] | undefined;
+	/** The case list whose Register action opened this form, when one did. */
+	readonly caseListRegistrationLaunch:
+		| PreviewCaseListRegistrationLaunch
+		| undefined;
 }
 
 interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
@@ -514,6 +526,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const searchLaunch =
 		previewCaseTarget?.formUuid === formUuid
 			? previewCaseTarget.searchLaunch
+			: undefined;
+	/* The case list whose Register action opened this form, which decides
+	 * where it returns (`alwaysOfferedRegistrationReturn`). */
+	const caseListRegistrationLaunch =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.caseListRegistrationLaunch
 			: undefined;
 	const noMatchesAdmission = useMemo(
 		() =>
@@ -999,6 +1017,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
 		links: form?.formLinks,
+		caseListRegistrationLaunch,
 	});
 	submissionContextRef.current = {
 		scopeEpoch,
@@ -1013,6 +1032,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
 		links: form?.formLinks,
+		caseListRegistrationLaunch,
 	};
 	useEffect(() => {
 		if (appId === undefined || entryKey === undefined) return;
@@ -1340,7 +1360,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		 * this is decided first. A host with menu forms lands on Results
 		 * showing the case it registered (the frame re-keys the search to
 		 * that case); a host without any has no frame beyond its command
-		 * (`caseListFormReturnFrame`), so the search context retires and the
+		 * (`caseListFormReturnFrames`), so the search context retires and the
 		 * module opens the way it first did: on Search, or on an automatic
 		 * Results when there is nothing to answer. */
 		const landOnResultsWithRegisteredCase = (
@@ -1430,6 +1450,88 @@ export function FormScreen({ screen }: FormScreenProps) {
 				noMatchesRegistration.moduleUuid,
 				noMatchesRegistration.caseId,
 			);
+			return;
+		}
+		/* A form a case list always offers, opened from that list's Register
+		 * action, returns where the list's frame lands, as the wire's return
+		 * frames do; opened any other way, or with its own after-submit in
+		 * force, it routes as any form does. The host's selection is the
+		 * created case where the frame carries it. */
+		const createdCase =
+			result.kind === "registration" && submitted.caseListRegistrationLaunch
+				? registeredCaseOnDevice(
+						result.caseDatabasePatch,
+						result.caseId,
+						submitted.doc.modules[
+							submitted.caseListRegistrationLaunch.hostModuleUuid
+						]?.caseType,
+					)
+				: undefined;
+		const registrationLanding =
+			submitted.formUuid === undefined
+				? undefined
+				: alwaysOfferedRegistrationReturn(
+						submitted.doc,
+						submitted.formUuid,
+						submitted.caseListRegistrationLaunch,
+						createdCase?.caseId,
+					);
+		if (
+			registrationLanding !== undefined &&
+			submitted.caseListRegistrationLaunch !== undefined
+		) {
+			const hostModuleUuid =
+				submitted.caseListRegistrationLaunch.hostModuleUuid;
+			retireCompletedTask();
+			announceWrite();
+			const current = session.getState().previewMenuCaseSelections;
+			const next = selectionsAfterRegistrationReturn(
+				current,
+				registrationLanding,
+				hostModuleUuid,
+				submitted.doc.modules[hostModuleUuid]?.caseType ?? "",
+				createdCase,
+			);
+			for (const moduleUuid of Object.keys(current))
+				if (next[moduleUuid] === undefined)
+					setPreviewMenuCaseSelection(moduleUuid as Uuid, undefined);
+			for (const [moduleUuid, selection] of Object.entries(next))
+				setPreviewMenuCaseSelection(moduleUuid as Uuid, selection);
+			setPreviewSelectedCase(undefined);
+			/* The return frame is pushed and opens like any other frame, so
+			 * what was pending stays only while the worker is on its path. */
+			const landingScreen = registrationLanding.screen;
+			if (
+				submitted.formUuid !== undefined &&
+				submitted.moduleUuid !== undefined
+			)
+				session.getState().setPreviewAfterSubmitStack(
+					completeAfterSubmitWithOwnFrame(
+						session.getState().previewAfterSubmitStack,
+						submittedEntryPath({
+							doc: submitted.doc,
+							moduleUuid: submitted.moduleUuid,
+							formUuid: submitted.formUuid,
+							caseIdsOf: (moduleUuid) =>
+								current[moduleUuid]?.cases.map((choice) => choice.caseId) ?? [],
+						}),
+						landingScreen.kind === "first-menu"
+							? []
+							: afterSubmitPath(
+									submitted.doc,
+									{ moduleUuid: landingScreen.moduleUuid },
+									Object.entries(next).map(([moduleUuid, selection]) => ({
+										moduleUuid: moduleUuid as Uuid,
+										caseIds: selection.cases.map((choice) => choice.caseId),
+									})),
+								),
+						platformRules.afterSubmitFrames,
+					),
+				);
+			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
+			if (landingScreen.kind === "first-menu") navigate.goHome();
+			else navigate.openModule(landingScreen.moduleUuid);
 			return;
 		}
 		/* A form without destinations, with nothing pending, goes straight to
@@ -1551,11 +1653,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				forms: doc.forms,
 				formOrder: doc.formOrder,
 			};
-			const caseFirstModules = new Set(
-				doc.moduleOrder.filter((moduleUuid) =>
-					moduleIsCaseFirst(doc, moduleUuid),
-				),
-			);
+			const caseFirstModules = previewCaseFirstModuleUuids(doc);
 			const submission: CarriedSubmission = {
 				...(resultCaseIds.length === 1 && { caseId: resultCaseIds[0] }),
 				...(boundCaseName !== undefined && { caseName: boundCaseName }),

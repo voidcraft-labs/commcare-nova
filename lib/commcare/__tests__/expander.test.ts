@@ -1614,7 +1614,7 @@ describe("markdown itext for all field kinds", () => {
 		expectProse(xform, "status-opt1-label", ["_Inactive_"]);
 	});
 
-	it("emits markdown form for hint text", () => {
+	it("writes hint text with no markdown form", () => {
 		const doc = buildDoc({
 			appName: "MD",
 			modules: [
@@ -1640,7 +1640,9 @@ describe("markdown itext for all field kinds", () => {
 		const xform: string = Object.values(
 			expandDoc(doc)._attachments,
 		)[0] as string;
-		expectProse(xform, "age-hint", ["Enter age in **years**"]);
+		expect(itextValues(xform, "age-hint")).toEqual([
+			{ form: "plain", parts: ["Enter age in **years**"] },
+		]);
 	});
 
 	it("emits markdown form for group labels", () => {
@@ -1917,7 +1919,9 @@ describe("#form/ hashtag expansion", () => {
 		expect(
 			one(xform, "bind", { nodeset: "/data/age" }).attribs["jr:constraintMsg"],
 		).toBe("jr:itext('age-constraintMsg')");
-		expectProse(xform, "age-constraintMsg", ["Age must be between 1 and 149"]);
+		expect(itextValues(xform, "age-constraintMsg")).toEqual([
+			{ form: "plain", parts: ["Age must be between 1 and 149"] },
+		]);
 	});
 
 	// Regression: validation is only legal on input field kinds.
@@ -2596,7 +2600,7 @@ describe("#form/ hashtag expansion", () => {
 			itextValues(xform, "code-constraintMsg").filter((value) =>
 				["plain", "markdown"].includes(value.form),
 			),
-		).toEqual(["plain", "markdown"].map((form) => ({ form, parts })));
+		).toEqual([{ form: "plain", parts }]);
 		expect(
 			one(xform, "bind", { nodeset: "/data/code" }).attribs["jr:constraintMsg"],
 		).toContain(

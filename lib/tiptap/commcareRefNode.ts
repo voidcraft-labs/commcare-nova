@@ -1,5 +1,6 @@
 /**
- * TipTap inline atom for one canonical ProseTemplate reference part.
+ * TipTap inline atom for one canonical ProseTemplate atom: a reference part or
+ * a calculated value.
  *
  * The atom stores the exact typed identity arm. Hashtag-looking text is never
  * parsed or promoted; only the explicit suggestion/convert command inserts
@@ -8,18 +9,18 @@
 
 import { mergeAttributes, Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { type ProseReferencePart, prosePartSchema } from "@/lib/domain";
+import { type ProseAtomPart, prosePartSchema } from "@/lib/domain";
 import { CommcareRefView } from "./CommcareRefView";
 
 const DATA_ATTR = "data-nova-prose-ref";
 
-export function encodeProseReferencePart(part: ProseReferencePart): string {
+export function encodeProseReferencePart(part: ProseAtomPart): string {
 	return encodeURIComponent(JSON.stringify(part));
 }
 
 export function decodeProseReferencePart(
 	encoded: string | null | undefined,
-): ProseReferencePart | null {
+): ProseAtomPart | null {
 	if (!encoded) return null;
 	try {
 		const parsed = prosePartSchema.safeParse(
@@ -31,7 +32,7 @@ export function decodeProseReferencePart(
 	}
 }
 
-export function serializedProseReferencePart(part: ProseReferencePart): string {
+export function serializedProseReferencePart(part: ProseAtomPart): string {
 	return `<span ${DATA_ATTR}="${encodeProseReferencePart(part)}"></span>`;
 }
 
@@ -46,7 +47,7 @@ export const CommcareRef = Node.create({
 			markdown: {
 				serialize(
 					state: { write: (value: string) => void },
-					node: { attrs: { part: ProseReferencePart } },
+					node: { attrs: { part: ProseAtomPart } },
 				) {
 					state.write(serializedProseReferencePart(node.attrs.part));
 				},

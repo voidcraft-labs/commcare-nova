@@ -21,7 +21,7 @@ import {
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
-import { cascadeDeleteForm } from "./helpers";
+import { cascadeDeleteForm, dropCaseListRegistrationsNaming } from "./helpers";
 
 type ModuleParent = Uuid | null;
 
@@ -202,10 +202,14 @@ export function applyModuleMutation(
 			// Child modules are independent authored entities. A parent cannot be
 			// removed until an earlier command has moved or removed each child.
 			if (moduleChildren(draft, uuid).length > 0) return;
-			// Cascade: delete each form and its field subtree before clearing the module.
-			for (const formUuid of [...(draft.formOrder[uuid] ?? [])]) {
+			// Cascade: delete each form and its field subtree before clearing the
+			// module. Another module's case list that offered one of them stops
+			// offering it in the same step.
+			const removedForms = [...(draft.formOrder[uuid] ?? [])];
+			for (const formUuid of removedForms) {
 				cascadeDeleteForm(draft, formUuid);
 			}
+			dropCaseListRegistrationsNaming(draft, new Set(removedForms));
 			delete draft.formOrder[uuid];
 			delete draft.modules[uuid];
 			const orderIndex = draft.moduleOrder.indexOf(uuid);
@@ -461,12 +465,22 @@ export function applyModuleMutation(
 			if (idx === -1) return;
 			const current = config.columns[idx];
 			if (mut.visibilityPatch) {
-				const key =
-					mut.visibilityPatch.surface === "list"
-						? "visibleInList"
-						: "visibleInDetail";
-				if (mut.visibilityPatch.visible) delete current[key];
-				else current[key] = false;
+				const { surface, visible, notOnList } = mut.visibilityPatch;
+				if (surface === "detail") {
+					if (visible) delete current.visibleInDetail;
+					else current.visibleInDetail = false;
+					return;
+				}
+				// Results is the column's list state: shown puts it back on the
+				// list too, since a shown column is always on it.
+				if (visible) {
+					delete current.visibleInList;
+					delete current.notOnList;
+					return;
+				}
+				current.visibleInList = false;
+				if (notOnList === true) current.notOnList = true;
+				else if (notOnList === false) delete current.notOnList;
 				return;
 			}
 			if (mut.sortPatch !== undefined) {
@@ -491,6 +505,9 @@ export function applyModuleMutation(
 				...(current.visibleInDetail === undefined
 					? {}
 					: { visibleInDetail: current.visibleInDetail }),
+				...(current.notOnList === undefined
+					? {}
+					: { notOnList: current.notOnList }),
 			};
 			config.columns[idx] = replacement;
 			return;

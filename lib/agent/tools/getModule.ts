@@ -32,9 +32,16 @@
  *
  * `searchWorkflow` and `formsReadSearch` say what the menu opens on and
  * whether its forms read the search, as the search tools state them;
- * `caseListMenuItem` and `caseListRegistrationForm` read the module's two
- * case list slots, and each form summary's `opensFromCaseList` names the
- * registration form.
+ * `formsInMenuAbove` says whether the module shows its forms in the menu
+ * above, and `listsOn` names the screen that lists them
+ * (`lib/domain/menuScreens.ts::menuScreenOf`). `caseListMenuItem` and
+ * `caseListRegistrationForm` read the module's two case list slots with
+ * their menu media, each built-in icon printed as the slug `setMenuMedia`
+ * accepts; `followsFormAfterSubmit` says the offered form's own after-submit
+ * is in force from the list (`caseListRegistrationReturnOf` gives `own`).
+ * Each form summary's `opensFromCaseList` names the form the list offers
+ * after an empty search, and `offeredOnCaseListsOf` the modules whose case
+ * lists always offer it (`caseListsOffering`).
  *
  * `advanced` says whether CommCare HQ receives the module as an advanced
  * menu (`lib/commcare/moduleKind.ts::emittedModuleKind`), and `kept` whether
@@ -48,19 +55,26 @@ import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
+	CaseListRegistrationReturn,
 	CaseSearchConfig,
 	FormIconRef,
 	FormType,
 	MediaAssetId,
+	MenuScreen,
 	ModuleIconRef,
 	SearchWorkflow,
 	Uuid,
 } from "@/lib/domain";
 import {
+	afterEmptySearchRegistrationFormOf,
+	caseListRegistrationReturnOf,
+	caseListsOffering,
 	childModuleUuids,
+	menuScreenOf,
 	moduleDestination,
 	moduleFormsReadSearch,
 	moduleSearchWorkflow,
+	moduleShowsFormsInMenuAbove,
 	orderedColumns,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
@@ -90,10 +104,13 @@ export interface GetModuleFormSummary {
 	audio_label: MediaAssetId | null;
 	/**
 	 * True when the form is its menu's registration from the case list
-	 * (`caseListRegistrationForm`): offered on the results after a search
-	 * finds nothing, and on no menu.
+	 * after an empty search (`caseListRegistrationForm`, the
+	 * `after-empty-search` arm): offered on the results after a search finds
+	 * nothing, and on no menu.
 	 */
 	opensFromCaseList: boolean;
+	/** The modules whose case lists always offer the form, in module order. */
+	offeredOnCaseListsOf: Uuid[];
 	/** True when the form is off the menu (`hiddenFromMenu`). */
 	hidden_from_menu: boolean;
 }
@@ -136,14 +153,62 @@ export type GetModuleResult =
 			searchWorkflow: SearchWorkflow | null;
 			/** True when the menu's forms read the search. */
 			formsReadSearch: boolean;
+			/** True when the module shows its forms in the menu above. */
+			formsInMenuAbove: boolean;
+			/** The screen that lists the module's forms. */
+			listsOn: MenuScreen;
 			/** The case list as its own menu item; `label` null uses the
 			 *  module's name. */
-			caseListMenuItem: { label: string | null } | null;
-			/** The menu's registration from the case list; `label` null uses
-			 *  the form's name. */
-			caseListRegistrationForm: { formUuid: Uuid; label: string | null } | null;
+			caseListMenuItem: {
+				label: string | null;
+				icon: ModuleIconRef | null;
+				audio_label: MediaAssetId | null;
+			} | null;
+			/** The registration the case list offers; `label` null uses the
+			 *  form's name. */
+			caseListRegistrationForm: CaseListRegistrationRead | null;
 			forms: GetModuleFormSummary[];
 	  };
+
+/** The registration a case list offers, as `getModule` reads it. The
+ *  `always` arm adds where a worker goes after registering, whether the
+ *  form's own after-submit is in force from the list, and the Register
+ *  button's media. */
+export type CaseListRegistrationRead =
+	| { kind: "after-empty-search"; formUuid: Uuid; label: string | null }
+	| {
+			kind: "always";
+			formUuid: Uuid;
+			label: string | null;
+			afterSubmit: CaseListRegistrationReturn;
+			followsFormAfterSubmit: boolean;
+			icon: FormIconRef | null;
+			audio_label: MediaAssetId | null;
+	  };
+
+function caseListRegistrationRead(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): CaseListRegistrationRead | null {
+	const slot = doc.modules[moduleUuid]?.caseListRegistrationForm;
+	if (slot === undefined) return null;
+	if (slot.kind === "after-empty-search")
+		return {
+			kind: slot.kind,
+			formUuid: slot.formUuid,
+			label: slot.label ?? null,
+		};
+	return {
+		kind: slot.kind,
+		formUuid: slot.formUuid,
+		label: slot.label ?? null,
+		afterSubmit: slot.afterSubmit,
+		followsFormAfterSubmit:
+			caseListRegistrationReturnOf(doc, moduleUuid)?.kind === "own",
+		icon: slot.icon ?? null,
+		audio_label: slot.audioLabel ?? null,
+	};
+}
 
 /** Whether CommCare HQ receives `moduleUuid` as an advanced menu, and
  *  whether a published app keeps it so: the read `getModule` and the
@@ -212,17 +277,17 @@ export const getModuleTool = {
 				case_search_config: caseSearchConfig ?? null,
 				searchWorkflow: moduleSearchWorkflow(mod) ?? null,
 				formsReadSearch: moduleFormsReadSearch(mod),
+				formsInMenuAbove: moduleShowsFormsInMenuAbove(mod),
+				listsOn: menuScreenOf(doc, moduleUuid),
 				caseListMenuItem:
 					mod.caseListMenuItem === undefined
 						? null
-						: { label: mod.caseListMenuItem.label ?? null },
-				caseListRegistrationForm:
-					mod.caseListRegistrationForm === undefined
-						? null
 						: {
-								formUuid: mod.caseListRegistrationForm.formUuid,
-								label: mod.caseListRegistrationForm.label ?? null,
+								label: mod.caseListMenuItem.label ?? null,
+								icon: mod.caseListMenuItem.icon ?? null,
+								audio_label: mod.caseListMenuItem.audioLabel ?? null,
 							},
+				caseListRegistrationForm: caseListRegistrationRead(doc, moduleUuid),
 				forms: formUuids.map((fUuid) => {
 					const f = doc.forms[fUuid];
 					return {
@@ -232,7 +297,9 @@ export const getModuleTool = {
 						fieldCount: countFieldsUnder(doc, fUuid),
 						icon: f?.icon ?? null,
 						audio_label: f?.audioLabel ?? null,
-						opensFromCaseList: mod.caseListRegistrationForm?.formUuid === fUuid,
+						opensFromCaseList:
+							afterEmptySearchRegistrationFormOf(doc, moduleUuid) === fUuid,
+						offeredOnCaseListsOf: caseListsOffering(doc, fUuid),
 						hidden_from_menu: f?.hiddenFromMenu === true,
 					};
 				}),

@@ -168,6 +168,7 @@ def app(
     commands=None,
     views: bool = False,
     type_refused: bool = False,
+    keys: bool = False,
     questions=None,
     save_incomplete: str | None = None,
     reopen: bool = False,
@@ -185,8 +186,9 @@ def app(
     A test steers the request with the keys ``Screens.java::read`` reads (``proof/android/README.md``, the
     ``app`` request): ``commands``, the forms walked alone, each from home (``m<menu>-f<form>``); ``views``, each
     screen's views as Android laid them out; ``type_refused``, a value the form refused typed into the
-    question's own box; ``questions``, the values for each question the answer table carries, by its reference
-    (``Answers.java::valuesFor``); ``save_incomplete``, a form whose first screen is answered and saved
+    question's own box; ``keys``, a number keypad question's value entered into its own box one character at a
+    time, so the box keeps what its own filters keep; ``questions``, the values for each question the answer
+    table carries, by its reference (``Answers.java::valuesFor``); ``save_incomplete``, a form whose first screen is answered and saved
     incomplete; ``reopen``, that record reopened from home's incomplete forms and completed; and ``searches``,
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
     what each finds held under the list's ``searches`` with fuzzy search as installed, on and off."""
@@ -213,6 +215,8 @@ def app(
         options["views"] = True
     if type_refused:
         options["typeRefused"] = True
+    if keys:
+        options["keys"] = True
     if save_incomplete is not None:
         options["saveIncomplete"] = save_incomplete
     if reopen:

@@ -43,9 +43,9 @@ import {
 import { eq, formField, literal } from "@/lib/domain/expression/builders";
 import {
 	formLinkRefusalReason,
+	menuChoiceRefusal,
 	otherwiseUnavailableReason,
 	planRefusal,
-	submenuNotOfferedReason,
 	targetRefusal,
 } from "../refusalCopy";
 import {
@@ -112,13 +112,7 @@ function pickerRows(
 				: [
 						{
 							target: menu.target as FormLinkTarget,
-							reason: menu.offered
-								? targetRefusal(menu.verdict, menuNameOf)
-								: submenuNotOfferedReason(
-										menu.parentUuid === undefined
-											? undefined
-											: menuNameOf(menu.parentUuid),
-									),
+							reason: menuChoiceRefusal(menu, menuNameOf),
 						},
 					]),
 			...menu.forms.map((form) => ({

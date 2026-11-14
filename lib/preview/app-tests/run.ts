@@ -5,6 +5,7 @@ import {
 	moduleFormsReadSearch,
 	orderedColumns,
 	orderedOrganizationLevels,
+	type Uuid,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
 import {
@@ -56,9 +57,10 @@ import {
 	appTestCanContinue,
 	appTestCaseListMenuEntry,
 	appTestEntryScreen,
-	appTestForms,
 	appTestMenuSelection,
 	appTestMenus,
+	appTestScreenCaseLists,
+	appTestScreenForms,
 	caseListMenuItemLanding,
 	enterAppTestForm,
 	enterAppTestMenu,
@@ -247,6 +249,10 @@ async function observeScreen(
 						(persona) => ({ uuid: persona.uuid, name: persona.name }),
 					),
 					menus: appTestMenus(context, null, state),
+					/* The forms and case lists of menus that show their forms on
+					 * the app's first menu, listed there in place. */
+					forms: screenFormsObservation(context, state, null),
+					caseLists: screenCaseListsObservation(context, state, null),
 				},
 			};
 		case "menu":
@@ -261,17 +267,14 @@ async function observeScreen(
 					)?.name,
 					worker,
 					menus: appTestMenus(context, screen.moduleUuid, state),
-					forms: appTestForms(context, state, screen.moduleUuid).map(
-						({ form, visibility }) => ({
-							uuid: form.uuid,
-							name: projectLocalizedForm(
-								context.doc,
-								context.language,
-								form.uuid,
-							)?.name,
-							visibility,
-						}),
-					),
+					forms: screenFormsObservation(context, state, screen.moduleUuid),
+					/* The case lists of menus that show their forms on this
+					 * screen; the menu's own is `caseListEntry`. */
+					caseLists: screenCaseListsObservation(
+						context,
+						state,
+						screen.moduleUuid,
+					).filter((item) => item.menuUuid !== screen.moduleUuid),
 					/* The module's case list menu entry, listed after the forms;
 					 * the `records` action chooses it. */
 					caseListEntry: (() => {
@@ -371,7 +374,7 @@ async function observeScreen(
 								}
 							: undefined,
 					registration: registration
-						? { uuid: registration.uuid, name: registration.name }
+						? { uuid: registration.form.uuid, name: registration.form.name }
 						: undefined,
 				},
 			};
@@ -861,16 +864,43 @@ export async function advanceAppTest(
 			break;
 		}
 		case "records": {
-			if (
-				screen.kind !== "menu" ||
-				!context.doc.modules[screen.moduleUuid].caseType
-			)
+			if (screen.kind !== "menu" && screen.kind !== "home")
 				throw new AppTestActionError("The current menu has no record list.");
-			/* The menu's case list entry: in a forms-first menu it opens the
-			 * list, whose choice takes the entry's route; in a case-first menu
+			/* A case list entry the screen lists, the screen's own menu's or
+			 * that of a menu showing its forms here; on a menu screen with no
+			 * menu named, the menu's own record list. */
+			const listed = appTestScreenCaseLists(
+				context,
+				state,
+				screen.kind === "home" ? null : screen.moduleUuid,
+			).filter((item) => item.visibility === "shown");
+			const named =
+				action.moduleUuid ??
+				(screen.kind === "menu"
+					? screen.moduleUuid
+					: listed.length === 1
+						? listed[0].moduleUuid
+						: undefined);
+			if (named === undefined)
+				throw new AppTestActionError(
+					listed.length === 0
+						? "This screen lists no case list."
+						: "This screen lists several case lists. Name the menu whose list to open.",
+				);
+			const listedEntry = listed.find((item) => item.moduleUuid === named);
+			if (
+				(listedEntry === undefined &&
+					!(screen.kind === "menu" && named === screen.moduleUuid)) ||
+				!context.doc.modules[named]?.caseType
+			)
+				throw new AppTestActionError(
+					"That case list is not available on the current screen.",
+				);
+			/* The menu's case list entry: on a forms-first screen it opens the
+			 * list, whose choice takes the entry's route; on a case-first screen
 			 * the case is already chosen, so choosing the entry is the
 			 * selection. */
-			const entry = appTestCaseListMenuEntry(context, state, screen.moduleUuid);
+			const entry = appTestCaseListMenuEntry(context, state, named);
 			if (entry?.action === "selection") {
 				next = caseListMenuItemLanding(context, state);
 				break;
@@ -879,7 +909,7 @@ export async function advanceAppTest(
 				...state,
 				screen: {
 					kind: "records",
-					moduleUuid: screen.moduleUuid,
+					moduleUuid: named,
 					...(entry !== undefined && {
 						openedFrom: "case-list-menu-item" as const,
 					}),
@@ -897,44 +927,72 @@ export async function advanceAppTest(
 			break;
 		}
 		case "form": {
-			if (screen.kind === "menu") {
+			if (screen.kind === "menu" || screen.kind === "home") {
+				/* A form the screen lists, its own menu's or that of a menu
+				 * showing its forms here, opens from its own menu. */
+				const listed = appTestScreenForms(
+					context,
+					state,
+					screen.kind === "home" ? null : screen.moduleUuid,
+				).find((item) => item.form.uuid === action.formUuid);
+				if (listed === undefined)
+					throw new AppTestActionError(
+						"This form is not available on the current menu.",
+					);
 				next = {
 					...state,
 					screen: enterAppTestForm(
 						context,
 						state,
-						screen.moduleUuid,
+						listed.moduleUuid,
 						action.formUuid,
 					),
 					// The browser's inline chooser is not a route. Back returns
 					// to its original Results/Details screen with a fresh read.
-					history: screen.selection
-						? state.history
-						: [...state.history, screen],
+					history:
+						screen.kind === "menu" && screen.selection
+							? state.history
+							: [...state.history, screen],
 				};
 				({ context, state: next } = await postAppTestClaims(
 					context,
 					scope,
 					state,
 					next,
-					appTestMenuSelection(context, state, screen.moduleUuid)?.cases ?? [],
+					appTestMenuSelection(context, state, listed.moduleUuid)?.cases ?? [],
 				));
 			} else if (screen.kind === "records") {
 				const read = await appTestRecords(context, scope, state);
-				if (read.registration?.uuid !== action.formUuid)
+				const registration = read.registration;
+				if (registration?.form.uuid !== action.formUuid)
 					throw new AppTestActionError(
 						"This form is not offered by the current record list.",
 					);
+				/* A form offered after an empty search reads that search; a form
+				 * the list always offers opens in its own menu, carrying the
+				 * launch that decides where it returns. */
 				next = {
 					...read.state,
-					screen: {
-						kind: "form",
-						moduleUuid: screen.moduleUuid,
-						formUuid: action.formUuid,
-						caseIds: [],
-						entryCases: state.deviceCases,
-						searchAnswers: read.search.submitted,
-					},
+					screen:
+						registration.arm === "after-empty-search"
+							? {
+									kind: "form",
+									moduleUuid: screen.moduleUuid,
+									formUuid: action.formUuid,
+									caseIds: [],
+									entryCases: state.deviceCases,
+									searchAnswers: read.search.submitted,
+								}
+							: {
+									kind: "form",
+									moduleUuid: registration.moduleUuid,
+									formUuid: action.formUuid,
+									caseIds: [],
+									entryCases: state.deviceCases,
+									caseListRegistrationLaunch: {
+										hostModuleUuid: screen.moduleUuid,
+									},
+								},
 					history: [...state.history, read.state.screen],
 				};
 			} else
@@ -1176,4 +1234,44 @@ export async function advanceAppTest(
 			observation: { ...extra, screen: "after-submit", nextTaskError: message },
 		};
 	}
+}
+
+/** A home (`null`) or menu screen's forms, each naming the menu that holds
+ *  it, as the screen lists them (`navigation.ts::appTestScreenForms`). */
+function screenFormsObservation(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	parent: Uuid | null,
+) {
+	return appTestScreenForms(context, state, parent).map(
+		({ form, moduleUuid, visibility }) => ({
+			uuid: form.uuid,
+			name: projectLocalizedForm(context.doc, context.language, form.uuid)
+				?.name,
+			menuUuid: moduleUuid,
+			visibility,
+		}),
+	);
+}
+
+/** A home (`null`) or menu screen's case list entries, each naming its menu
+ *  and what choosing it opens. */
+function screenCaseListsObservation(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	parent: Uuid | null,
+) {
+	return appTestScreenCaseLists(context, state, parent).map(
+		({ moduleUuid, entry, visibility }) => ({
+			menuUuid: moduleUuid,
+			name:
+				context.doc.modules[moduleUuid]?.caseListMenuItem?.label ??
+				projectLocalizedModule(context.doc, context.language, moduleUuid)?.name,
+			opens:
+				entry.action === "selection"
+					? ("chosen-case" as const)
+					: ("case-list" as const),
+			visibility,
+		}),
+	);
 }

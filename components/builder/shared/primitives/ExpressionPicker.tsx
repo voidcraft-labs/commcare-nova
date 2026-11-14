@@ -87,6 +87,7 @@ import {
 	switchExpr,
 	tableColumn,
 	term,
+	valueList,
 } from "@/lib/domain/expression";
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { platformPickerLine } from "@/lib/domain/platforms";
@@ -153,6 +154,9 @@ interface ExpressionPickerProps {
 	 * pass undefined.
 	 */
 	readonly onRemove?: () => void;
+	/** The remove action's accessible name, when a list names each row
+	 *  ("Remove value 2"); "Remove value" otherwise. */
+	readonly removeLabel?: string;
 	/**
 	 * Display variant: `"normal"` (default) renders the standard
 	 * glass surface; `"nested"` shifts the violet accent up for
@@ -247,6 +251,7 @@ function ExpressionPickerBody({
 	constraint = ANY_CONSTRAINT,
 	presentation = "value",
 	onRemove,
+	removeLabel = "Remove value",
 	variant = "normal",
 	dragHandleRef,
 	onMove,
@@ -495,7 +500,7 @@ function ExpressionPickerBody({
 					onMove={onMove}
 					reorderLabel={reorderLabel}
 					onRemove={onRemove}
-					removeLabel="Remove value"
+					removeLabel={removeLabel}
 				>
 					{termBody}
 				</PredicateRowShell>
@@ -510,7 +515,7 @@ function ExpressionPickerBody({
 			label={schema.label}
 			variant={variant}
 			onRemove={onRemove}
-			removeLabel="Remove value"
+			removeLabel={removeLabel}
 			dragHandleRef={dragHandleRef}
 			onMove={onMove}
 			reorderLabel={reorderLabel}
@@ -693,6 +698,12 @@ export function defaultExpressionForSlot<K extends CardValueKind>(
 		// registry's untyped `null` is not storable anywhere.
 		const [first, ...rest] = seed.values.map(() => branchSeed());
 		return coalesce(first, ...rest);
+	}
+	if (seed.kind === "value-list") {
+		// Each value is compared with the same case value, so each is seeded
+		// for the slot the list stands in.
+		const [first, ...rest] = seed.items.map(() => branchSeed());
+		return valueList(first, ...rest);
 	}
 	if (seed.kind === "date-add") {
 		const dateConstraint = dateAddOperandConstraint(constraint);

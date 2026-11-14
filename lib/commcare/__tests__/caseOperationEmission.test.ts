@@ -9,13 +9,13 @@ import { expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { datetimeCaseValueExpression } from "@/lib/commcare/xform/datetimeCaseValue";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { w } from "../xpath/wire/builders";
+import { storedInstantValue, typedInstantValue } from "../xpath/wire/instant";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
 import {
@@ -334,14 +334,12 @@ it.each(operationScenarios)(
 						xpathEvidence(bind(`${at(name)}/case/@case_id`).calculate),
 					).toEqual(xpathEvidence(target));
 				// HQ's form builder writes a row's bind untyped, so the leaf is
-				// untyped and its calculate keeps the clock.
+				// untyped; its value is the clock read once into its node.
 				const changedTypeAt = bind(
 					`${at("promote")}/case/update/changed_type_at`,
 				);
 				expect(changedTypeAt.type).toBeUndefined();
-				expect(xpathEvidence(changedTypeAt.calculate)).toEqual(
-					xpathEvidence(xformText(datetimeCaseValueExpression(w.call("now")))),
-				);
+				expectClockNodeRead(changedTypeAt.calculate, "nova_instant_promote_1");
 				expect(
 					xpathEvidence(
 						bind(`${at("promote")}/case/update/case_type`).calculate,
@@ -485,25 +483,43 @@ it.each(operationScenarios)(
 					// HQ's ordinary update must read a string carrier that exists in
 					// both source and device forms, not the date-valued question.
 					expect(bind(questionPath).type).toBe("xsd:string");
-					expect(bind(questionPath).calculate).toContain(`/data/${property}`);
-				}
-				for (const [operation, property, value] of [
-					["create_visit", "occurred_at", w.call("now")],
-					["before_ordinary", "occurred_at", w.call("now")],
-					[
-						"before_ordinary",
-						"reference_at",
-						w.str("2026-04-17T14:23:41+03:00"),
-					],
-				] as const) {
-					// HQ's form builder writes a row's bind untyped, so the leaf is
-					// untyped and its calculate keeps the clock.
-					const leaf = bind(`${at(operation)}/case/update/${property}`);
-					expect(leaf.type).toBeUndefined();
-					expect(xpathEvidence(leaf.calculate)).toEqual(
-						xpathEvidence(xformText(datetimeCaseValueExpression(value))),
+					// The sibling holds the question's moment as CommCare HQ stores it,
+					// never the device-offset spelling Nova wrote before.
+					expect(xpathEvidence(bind(questionPath).calculate)).toEqual(
+						xpathEvidence(xformText(storedInstantValue(w.form([property])))),
 					);
 				}
+				for (const operation of ["create_visit", "before_ordinary"]) {
+					// HQ's form builder writes a row's bind untyped, so the leaf is
+					// untyped; a value that reads the clock reads it once, into a
+					// Hidden Value of the operation's group with no control.
+					const leaf = bind(`${at(operation)}/case/update/occurred_at`);
+					expect(leaf.type).toBeUndefined();
+					const name = `nova_instant_${operation}_1`;
+					expectClockNodeRead(leaf.calculate, name);
+					const node = bind(`${base}/${name}`);
+					expect(node.type).toBeUndefined();
+					expect(xpathEvidence(node.calculate)).toEqual(
+						xpathEvidence(xformText(typedInstantValue(w.call("now")))),
+					);
+					expect(
+						children(operations).filter((element) => element.name === name),
+					).toHaveLength(1);
+				}
+				// A literal folds to the text CommCare HQ stores for its moment, and
+				// a value that reads no clock takes no node.
+				const reference = bind(
+					`${at("before_ordinary")}/case/update/reference_at`,
+				);
+				expect(reference.type).toBeUndefined();
+				expect(xpathEvidence(reference.calculate)).toEqual(
+					xpathEvidence("'2026-04-17T11:23:41.000000Z'"),
+				);
+				expect(
+					children(operations).filter((element) =>
+						element.name.startsWith("nova_instant_before_ordinary_2"),
+					),
+				).toEqual([]);
 			}
 			if (scenario === "sequence" && mode === "device") {
 				const names = children(data).map((element) => element.name);
@@ -564,6 +580,25 @@ const fieldUuid = (doc: BlueprintDoc, id: string) => {
 };
 
 /** The outermost location paths of an expression. */
+/** A Save to Case row whose value is the clock read once into the node
+ * `name`: `if(N = '', '', storedInstantOfText(N))`, every read in it a read
+ * of that node (57 of them, the guard's and the 56 prints of its text), and
+ * no `now()` of its own. */
+function expectClockNodeRead(calculate: string | undefined, name: string) {
+	if (calculate === undefined) throw new Error(`No calculate reads ${name}`);
+	const reads = locationPaths(calculate);
+	expect(reads).toHaveLength(57);
+	for (const read of reads) expect(read.endsWith(`/${name}`)).toBe(true);
+	const calls: string[] = [];
+	parser.parse(calculate).iterate({
+		enter(cursor) {
+			if (cursor.name === "FunctionName")
+				calls.push(calculate.slice(cursor.from, cursor.to));
+		},
+	});
+	expect(calls).not.toContain("now");
+}
+
 function locationPaths(source: string): string[] {
 	const out: string[] = [];
 	parser.parse(source).iterate({
@@ -676,9 +711,7 @@ it("checks an external_id write declared datetime in its text guard", () => {
 			.calculate ?? "";
 	const leaf = "/data/nova_operations/rename_patient/case/update/external_id";
 	expect(xpathEvidence(calculate(leaf))).toEqual(
-		xpathEvidence(
-			`replace(${xformText(datetimeCaseValueExpression(w.form(["key"])))}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
-		),
+		xpathEvidence("replace(/data/key, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')"),
 	);
 	const check = calculate(
 		"/data/nova_operations/nova_guard_rename_patient_text/case/@case_id",

@@ -96,6 +96,10 @@ export interface PreviewTrailInput {
 	atDeviceHome?: boolean;
 	/** The app's name, the module list's crumb under Android's home. */
 	appName?: string;
+	/** Menus that show their forms in the menu above and so have no screen
+	 *  of their own: the trail names the screen that lists their forms, never
+	 *  the menu. */
+	screenlessModuleUuids?: ReadonlySet<string>;
 }
 
 /** The crumb of the phone's home screen above Android's module list; its
@@ -160,7 +164,10 @@ export function previewBreadcrumbTrail(
 	if (!moduleUuid) return baseBreadcrumbs;
 
 	const homeAndModule = baseBreadcrumbs.filter(
-		(b) => b.location.kind === "home" || b.key.startsWith("m:"),
+		(b) =>
+			b.location.kind === "home" ||
+			(b.key.startsWith("m:") &&
+				input.screenlessModuleUuids?.has(b.key.slice(2)) !== true),
 	);
 
 	/* Preview runs the surface a configuration URL's condition governs, so

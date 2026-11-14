@@ -180,6 +180,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"audio-question",
 	"video-question",
 	"question-pages",
+	"number-keypad",
 	"plain-text",
 	"choice-media",
 	"help-media",
@@ -197,6 +198,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"app-language",
 	"entry-points",
 	"case-list-menu-item",
+	"case-list-registration-media",
 	"tile-grouping",
 	"tile-alignment",
 	"tile-border-and-shading",
@@ -474,12 +476,26 @@ export const PLATFORM_FEATURES: Readonly<
 		webApps: { reading: "ignored", note: "the whole form shows on one page" },
 		android: { reading: "runs", note: "each page shows on its own screen" },
 	},
+	"number-keypad": {
+		label: "Number keypad",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note:
+				"an answer must be digits, with an optional + or - in front and an optional decimal " +
+				"part, so a space or a dash inside it is refused",
+		},
+		android: {
+			reading: "runs",
+			note: "the keypad offers digits, a period, a dash, a plus and a space",
+		},
+	},
 	"plain-text": {
 		label: "Text shown as typed",
 		channel: "structure",
 		webApps: {
 			reading: "different",
-			note: "a tag in the text shows as formatting, and a choice still shows its formatting",
+			note: "a tag in the text shows as formatting, and a choice or a help text still shows its formatting",
 		},
 		android: { reading: "runs" },
 	},
@@ -641,6 +657,12 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "runs",
 			note: "with no case details, choosing a case returns to the home screen, and with them, Done returns to the list",
 		},
+	},
+	"case-list-registration-media": {
+		label: "Icon and spoken label on Register",
+		channel: "structure",
+		webApps: { reading: "ignored", note: "the button shows its text only" },
+		android: { reading: "runs" },
 	},
 	"tile-grouping": {
 		label: "Grouped tiles",

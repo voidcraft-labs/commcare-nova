@@ -1,7 +1,12 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { SelectOption, SingleSelectField } from "@/lib/domain";
+import {
+	labelShowsAsTyped,
+	type SelectOption,
+	type SingleSelectField,
+} from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
@@ -67,11 +72,12 @@ export function SelectOneField({
 	/* Choice media draws on Android and in edit mode; Web Apps draws none
 	 * (manifest `questions/choice-image`, `choice-audio-video`). */
 	const rules = usePreviewPlatformRules();
+	const textForm = useFieldTextForm(field.uuid);
 	const drawChoiceMedia = isEditMode || rules.choiceMedia;
 	const labelRendering = isEditMode ? undefined : rules.labelMarkdown;
-	/* A choice holding `plainLabel` shows as written in edit mode and where
-	 * the platform draws it so (Android); Web Apps formats every choice
-	 * (`rules.plainChoice`). */
+	/* A choice shown as typed (its own `plainLabel`, or its form's
+	 * `plainText`) shows as written in edit mode and where the platform draws
+	 * it so (Android); Web Apps formats every choice (`rules.plainChoice`). */
 	const plainChoiceAsWritten = isEditMode || rules.plainChoice === "literal";
 
 	if (dynamicChoices && state.choices === undefined) {
@@ -123,7 +129,7 @@ export function SelectOneField({
 								)}
 							</div>
 							<span className="preview-markdown text-sm text-nova-text">
-								{opt.plainLabel === true && plainChoiceAsWritten ? (
+								{labelShowsAsTyped(textForm, opt) && plainChoiceAsWritten ? (
 									opt.label
 								) : (
 									<PreviewMarkdown inline rendering={labelRendering}>

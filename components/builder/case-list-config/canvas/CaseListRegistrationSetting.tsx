@@ -11,7 +11,12 @@ import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { useOfferedBatchRefusals } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { type Form, moduleFormsReadSearch, type Uuid } from "@/lib/domain";
+import {
+	afterEmptySearchRegistrationFormOf,
+	type Form,
+	moduleFormsReadSearch,
+	type Uuid,
+} from "@/lib/domain";
 import { platformPickerLine, platformRefusal } from "@/lib/domain/platforms";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -51,7 +56,9 @@ export function CaseListRegistrationSetting({
 	const entry = useCaseListRegistration(moduleUuid);
 	const [choosing, setChoosing] = useState(false);
 	const choiceName = useId();
-	const slot = mod?.caseListRegistrationForm;
+	const registration = mod?.caseListRegistrationForm;
+	const slot =
+		registration?.kind === "after-empty-search" ? registration : undefined;
 	const current =
 		slot === undefined
 			? undefined
@@ -72,10 +79,10 @@ export function CaseListRegistrationSetting({
 				kind: "create",
 			});
 			if (create !== null) batches.create = create.mutations;
-			const registration = doc.modules[moduleUuid]?.caseListRegistrationForm;
+			const offered = afterEmptySearchRegistrationFormOf(doc, moduleUuid);
 			for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 				if (
-					formUuid === registration?.formUuid ||
+					formUuid === offered ||
 					doc.forms[formUuid]?.type !== "registration"
 				)
 					continue;

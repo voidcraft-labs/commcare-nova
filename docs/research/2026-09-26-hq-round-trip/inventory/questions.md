@@ -15,7 +15,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | Question ID failing the grammar, or `meta` in any case | **REFUSED**: not HQ-editable: Vellum error "not a valid Question ID" | — | — (Nova's `__nova_*` scaffolding names are unproducible today; in-envelope: letter-initial names) |
 | two sibling data nodes with one name | **REFUSED**: unrepresentable identity: both answers share one submission path | — | — |
 | Text (`<input>` `xsd:string`) | **HELD**: `text` | RUNS / RUNS | `input` + `xsd:string` |
-| Phone Number (`xsd:string` + `appearance="numeric"`) | **HELD-NEW**: `text` with `Field.appearance: numeric` (Appearances) | DIFFERENT (regex-validated) / RUNS | `appearance="numeric"` |
+| Phone Number (`xsd:string` + `appearance="numeric"`) | **HELD**: a Text question with `keypad: "numbers"` | DIFFERENT (regex-validated) / RUNS | `appearance="numeric"` |
 | Password (`<secret>` `xsd:string`) | **HELD**: `secret` | RUNS / RUNS | `secret` |
 | `<secret>` with a numeric bind type | **REFUSED**: not HQ-editable: Vellum's Secret writes `xsd:string` only | — | — |
 | a `<secret>` whose bind has no `type` (any appearance but `numeric` or `numbers`, ignoring case, as the whole string) | **HELD**: `secret`, the same state: Android answers `DATATYPE_NULL` with its default `StringWidget` in secret mode (`WidgetFactory`), and Vellum writes `xsd:string` (executed) | RUNS / RUNS | `xsd:string` |
@@ -118,7 +118,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | SaveToCase inside a Group whose display condition gates it | **HELD**: operation `condition` | RUNS / RUNS | the in-envelope shape for a conditional operation |
 | relevance bound on the SaveToCase node itself | **REFUSED**: not HQ-editable: Vellum discards it (`saveToCaseMugOptions.getBindList`) | — | — (Nova emits this today: save-breaking) |
 | `constraint` on SaveToCase case leaves | **REFUSED**: not HQ-editable: dropped | — | — (Nova emits this today: save-breaking; in-envelope: the constraint on the source question) |
-| `type` on a SaveToCase property leaf (a create, update or index child; Vellum writes its own `xsd:dateTime` on `…/case/@date_modified`) | **REFUSED**: not HQ-editable: dropped | — | — (Nova emits this today: save-breaking; in-envelope: untyped `if(p = '', '', format-date(coalesce(p, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`) |
+| `type` on a SaveToCase property leaf (a create, update or index child; Vellum writes its own `xsd:dateTime` on `…/case/@date_modified`) | **REFUSED**: not HQ-editable: dropped | — | — (Nova emits this today: save-breaking; in-envelope: untyped, the moment as CommCare HQ stores it, `datetimeCaseValue`) |
 | `<attachment>` inside a SaveToCase block | **REFUSED**: not HQ-editable: Vellum writes only create/update/close/index | — | — (Nova emits this today: save-breaking) |
 | create `@case_id` live calculate outside a repeat | **REFUSED**: not HQ-editable: Vellum rewrites it to an `xforms-ready` setvalue | — | — (Nova's `idFrom` at the root: save-breaking) |
 | SaveToCase create, close or link of `commcare-user`, or type `user-owner-mapping-case` | **REFUSED**: not HQ-editable: Vellum error | — | — |
@@ -130,6 +130,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | Connect Deliver Unit | **HELD**: `connect.deliver_unit`, with an empty `work_area_id` | RUNS / RUNS | with an empty `<work_area_id/>` (Vellum adds it; equivalent) |
 | Connect Deliver Unit with a `work_area_id` expression | **HELD-NEW**: a `work_area_id` expression | RUNS / RUNS | with an empty `<work_area_id/>` (Vellum adds it; equivalent) |
 | Connect Task | **HELD**: `connect.task` | RUNS / RUNS | same |
+| a Connect learn module's or task's name or description, or a deliver unit's name, holding `instance('…')` | **REFUSED**: HQ's build reads the text as an instance read (`xform.py::XForm.add_missing_instances`) and no spelling of plain text keeps it out. It stops the build for a name it has no source for, and adds the source to the built form for a name it has one for, which stops the form from opening where that is a fixture the device does not hold. For `casedb` and `commcaresession` the built form only gains a declaration nothing reads; Nova refuses those with the rest (`FORM_TEXT_READ_AS_INSTANCE`), so that one rule covers the text and a form declares only what its formulas read. | — | — |
 | a Connect learn module or task id longer than 50 characters, or deliver unit id longer than 100 | **REFUSED**: broken at runtime: Connect keeps these ids in slug columns of those lengths (commcare-connect `opportunity/models.py` `LearnModule.slug`, `TaskType.slug`, `DeliverUnit.slug`): a longer learn module or deliver unit id fails where Connect writes it (`opportunity/tasks.py`, `form_receiver/processor.py`), and a longer task id matches no task type (`processor.py` looks tasks up by `task_type__slug`), while Vellum allows any length | — | — |
 | Connect Work Area Update | **HELD-NEW**: `connect.work_area_update` | RUNS / RUNS | same |
 | unknown body control (Vellum `ReadOnly`, e.g. `<range>`) | **REFUSED**: freeform | — | — |
@@ -204,7 +205,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | `vellum:*` hashtag shadow attributes | **INERT**: Vellum metadata, stripped at build | n/a | only Vellum's own `toHashtag()` output, or none; never a shadow with a predicate on a form path (Nova's `constraintCollections.ts` shadows make Vellum write unparseable XPath into the real attribute: save-breaking) |
 | `<vellum:hashtags>`, `<vellum:hashtagTransforms>` | **INERT**: metadata | n/a | as Vellum writes them |
 | `<vellum:case_mappings>` (head) | **INERT**: HQ never parses it | n/a | omit |
-| `vellum:ignore` containing `markdown` on `h:html` (Vellum's "Disable Text Formatting") | **HELD-NEW**: `Form.plainText`: with it, Vellum writes no markdown forms and drops every existing one on each save, so dropping it would let later Vellum edits add markdown forms (`javaRosa/plugin.js`); the validator refuses a markdown label form in such a form | n/a | `vellum:ignore="markdown"` |
+| `vellum:ignore` containing `markdown` on `h:html` (Vellum's "Disable Text Formatting") | **HELD**: `Form.plainText`: the form writes no markdown form on any text | n/a | `vellum:ignore="markdown"` |
 | `vellum:ignore` containing `richText` | **INERT**: Vellum editor preference | n/a | omit |
 | `case_mapping_diff` (Vellum → HQ) | **INERT**: editor side channel; empty for every Nova form | n/a | n/a |
 
@@ -305,10 +306,10 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | inline `<label>text</label>` (no itext) | **HELD**: `Field.label` (Vellum converts it to itext: same text) | RUNS / RUNS | itext |
 | `long` form | **HELD-NEW**: `labelForms.long` (preferred over the default text on both runtimes only when the label has no markdown form) | RUNS / RUNS | `form="long"` |
 | `short` form | **INERT**: no runtime reads it | n/a | omit |
-| `markdown` form equal to the default text | **HELD**: the text with markdown on | RUNS (markdown-it) / DIFFERENT (Markwon: single newlines join, images alt-only) | `form="markdown"` copy |
+| `markdown` form equal to the default text, on a label, a choice or a help text | **HELD**: the text with markdown on | RUNS (markdown-it) / DIFFERENT (Markwon: single newlines join, images alt-only) | `form="markdown"` copy |
 | label with no `markdown` form | **HELD**: `plainLabel` on a question, group, repeat or section label | RUNS / RUNS (as written) | no markdown form |
-| `markdown` form differing from the default text | **REFUSED**: not HQ-editable: Vellum loads the markdown value as the default text and writes both from it, so a save replaces the default (`javaRosa/plugin.js::loadXML`, `contributeToModelXML`) | — | — |
-| a label with a `markdown` form in some languages only (as HQ's bulk translation upload adds, `upload_form.py::_add_or_remove_translations`) | **REFUSED**: broken at runtime where a non-default language holds one the default lacks, since Core throws `NoLocalizedTextException` when that language loads (executed), and otherwise not HQ-editable, since a Vellum save writes each language's own markdown (`javaRosa/plugin.js`; meanwhile the other languages show the default language's markdown, executed) | — | — |
+| `markdown` form differing from the default text, on a label, a choice or a help text | **REFUSED**: not HQ-editable: Vellum loads the markdown value as the default text and writes both from it, so a save replaces the default (`javaRosa/plugin.js::loadXML`, `contributeToModelXML`) | — | — |
+| a text with a `markdown` form in some languages only (as HQ's bulk translation upload adds, `upload_form.py::_add_or_remove_translations`) | **REFUSED**: broken at runtime where a non-default language holds one the default lacks, since Core throws `NoLocalizedTextException` when that language loads (executed), and otherwise not HQ-editable, since a Vellum save writes each language's own markdown (`javaRosa/plugin.js`; meanwhile the other languages show the default language's markdown, executed) | — | — |
 | label `image` / `audio` / `video` (same asset every language) | **HELD**: `Field.label_media` | DIFFERENT / DIFFERENT (renderers) | itext media forms |
 | label or option media differing by language | **HELD-NEW**: `localizedMedia` | RUNS / RUNS | per-language forms |
 | label `video-inline` | **HELD-NEW**: `label_media.videoInline` | IGNORED / RUNS (replaces the label image) | `form="video-inline"` |
@@ -321,12 +322,14 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | hint text on a label | **HELD-NEW**: `Field.hint` on a label | DIFFERENT (always markdown) / DIFFERENT (plain) | `<hint>` itext |
 | hint media, other than a missing file the Media section refuses | **INERT**: no accessor on either runtime | n/a | omit (Nova emits `hint_media` today; inert on both runtimes) |
 | help text (+ markdown form) | **HELD**: `Field.help`, markdown on (markdown off is `plainHelp`) | DIFFERENT / DIFFERENT | `<help>` itext |
+| help text with no `markdown` form | **HELD**: `plainHelp` | DIFFERENT (the help still shows as formatted text) / RUNS (as written) | help itext without a markdown form |
 | help text on an image, audio, video, signature or file question or a label | **HELD-NEW**: `Field.help` on those kinds | DIFFERENT / DIFFERENT | `<help>` itext |
 | help media | **HELD**: `Field.help_media` | DIFFERENT (only when help has text) / RUNS | itext media |
 | help media on an image, audio, video, signature or file question or a label | **HELD-NEW**: `Field.help_media` on those kinds | DIFFERENT (only when help has text) / RUNS | itext media |
 | validation message text | **HELD**: `Field.validate_msg` | RUNS / RUNS | itext |
 | validation message text on a geopoint, image, audio, video, signature or file question or a label | **HELD-NEW**: a validation message on those kinds | RUNS / RUNS | itext |
-| validation message markdown form | **HELD**: same text (neither runtime renders markdown there) | IGNORED / IGNORED | copy |
+| validation message `markdown` form, equal to the default text or differing from it | **INERT**: no runtime reads it (`FormEntryPrompt.getConstraintText` asks for no form), and Nova writes none | n/a | omit |
+| hint `markdown` form, equal to the default text or differing from it | **INERT**: no runtime reads it (`FormEntryPrompt.getHintText` asks for no form; Web Apps formats the default text), and Nova writes none | n/a | omit |
 | validation message media (`constraintMediaIText`), other than a missing file the Media section refuses | **INERT**: no runtime reads it (Android shows the message's text only, `FormEntryActivity`; Formplayer returns its text only, `JsonActionUtils`) | n/a | omit (Nova emits `validate_msg_media` today: defect 16) |
 | choice label text (+ markdown) | **HELD**: option `label`, markdown on (markdown off is `plainLabel`) | DIFFERENT (markdown in lists) / DIFFERENT (markdown in some widgets) | item itext |
 | choice label with no `markdown` form | **HELD**: `plainLabel` on an inline choice | DIFFERENT (the choice still shows as formatted text) / RUNS | item itext without a markdown form |
@@ -337,7 +340,7 @@ Vellum's error-level findings put a state outside the envelope; warnings do not.
 | group/repeat label media, other than a missing file the Media section refuses | **INERT**: Vellum offers no media on group, question list or repeat labels (`javaRosa/plugin.js`, `isSpecialGroup`), and neither runtime renders it | n/a | omit (Nova emits container `label_media` today; no runtime reads it) |
 | `<output value="…">` of a question, case or user reference | **HELD**: prose `field-ref`/`case-ref`/`user-ref`/`user-property-ref` parts | RUNS / RUNS | `<output value>` |
 | `<output ref="…">` | **HELD**: same (Vellum rewrites to `value`) | RUNS / RUNS | `<output value>` |
-| `<output value="<any other expression>">` | **HELD-NEW**: prose expression part (`Expression`) | RUNS / RUNS | `<output value>` |
+| `<output value="<any other expression>">` | **HELD**: a prose `value` part, where the expression passes the slot's check | RUNS / RUNS | `<output value>` |
 | plain label containing HTML text | **HELD**: the text | DIFFERENT (a tag shows as formatting, sanitized) / RUNS (as written) | verbatim |
 | XHTML-namespace child elements inside a `<value>` | **REFUSED**: freeform | — | — |
 | other child elements inside a `<value>` | **INERT**: dropped at parse (`XFormParser::getLabel`) | n/a | omit |

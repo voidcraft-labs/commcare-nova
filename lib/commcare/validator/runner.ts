@@ -117,6 +117,17 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	// A move scoped to another module can strand a case list registration
 	// slot, so its backstop runs as an app rule.
 	"CASE_LIST_REGISTRATION_FORM_NOT_IN_MODULE",
+	// The case list registration app rule reads a form in another module for
+	// the `always` arm, and owns each of these codes whole, both arms alike.
+	"CASE_LIST_REGISTRATION_NOT_REGISTRATION",
+	"CASE_LIST_REGISTRATION_MULTIPLE_RETURN",
+	"CASE_LIST_REGISTRATION_FORM_NOT_FOUND",
+	"CASE_LIST_REGISTRATION_HOST_NOT_CASE_FIRST",
+	"CASE_LIST_REGISTRATION_HOST_SHOWS_FORMS_ABOVE",
+	"CASE_LIST_REGISTRATION_ADVANCED_MENU",
+	// The first menu's shared case reads every menu that shows its forms
+	// above, so a batch in one menu can strand a link in another.
+	"FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE",
 	"FIELD_KIND_PROPERTY_TYPE_MISMATCH",
 	"FIELD_KIND_WRITERS_DISAGREE",
 	"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",

@@ -177,4 +177,82 @@ describe("updateCaseListColumn", () => {
 		expect(result.result.error).toContain(String(unknown));
 		expect(result.result.error).toContain("Found no entry with that uuid");
 	});
+
+	describe("a column that is not on the list", () => {
+		const offTheList = {
+			kind: "plain",
+			field: "case_name",
+			header: "Patient",
+			notOnList: true,
+		} as const;
+
+		it("writes visibleInList false with notOnList", async () => {
+			const h = makeCaseListFixture(fixtureWithColumn());
+			const result = await h.runTool(updateCaseListColumnTool, {
+				moduleUuid: MOD_A,
+				columnUuid: TARGET_UUID,
+				column: offTheList,
+			});
+			expect(result.result).not.toHaveProperty("error");
+			expect(result.mutations).toEqual([
+				expect.objectContaining({
+					kind: "updateColumn",
+					uuid: TARGET_UUID,
+					visibilityPatch: {
+						surface: "list",
+						visible: false,
+						notOnList: true,
+					},
+				}),
+			]);
+			expect(
+				h.currentDoc().modules[MOD_A]?.caseListConfig?.columns[0],
+			).toMatchObject({ visibleInList: false, notOnList: true });
+		});
+
+		it("puts the column back on the list, hidden, when the replacement leaves notOnList out", async () => {
+			const h = makeCaseListFixture(fixtureWithColumn());
+			await h.runTool(updateCaseListColumnTool, {
+				moduleUuid: MOD_A,
+				columnUuid: TARGET_UUID,
+				column: offTheList,
+			});
+			await h.runTool(updateCaseListColumnTool, {
+				moduleUuid: MOD_A,
+				columnUuid: TARGET_UUID,
+				column: {
+					kind: "plain",
+					field: "case_name",
+					header: "Patient",
+					visibleInList: false,
+				},
+			});
+			const column = h.currentDoc().modules[MOD_A]?.caseListConfig?.columns[0];
+			expect(column?.visibleInList).toBe(false);
+			expect(column).not.toHaveProperty("notOnList");
+		});
+
+		it("refuses notOnList beside visibleInList true, or beside a sort, before staging", async () => {
+			const h = makeCaseListFixture(fixtureWithColumn());
+			const shown = await h.runTool(updateCaseListColumnTool, {
+				moduleUuid: MOD_A,
+				columnUuid: TARGET_UUID,
+				column: { ...offTheList, visibleInList: true },
+			});
+			expect(shown.mutations).toEqual([]);
+			expect(shown.result).toEqual({
+				error:
+					"A column can't be shown on Results and off the list at once. Leave out notOnList to show it, or leave out visibleInList to keep it off the list.",
+			});
+			const sorted = await h.runTool(updateCaseListColumnTool, {
+				moduleUuid: MOD_A,
+				columnUuid: TARGET_UUID,
+				column: { ...offTheList, sort: { direction: "desc", priority: 0 } },
+			});
+			expect(sorted.mutations).toEqual([]);
+			expect(sorted.result).toEqual({
+				error: `The "Patient" column isn't on the list, so the list can't sort by it. You can remove its sort rule, or keep the column on the list as a hidden one, which the list's search then matches.`,
+			});
+		});
+	});
 });

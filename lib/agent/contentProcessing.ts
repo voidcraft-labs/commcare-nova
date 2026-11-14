@@ -361,6 +361,8 @@ export function flatFieldToField(
 		...(q.plain_label === true && { plainLabel: true }),
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
+		...(q.plain_help === true && { plainHelp: true }),
+		...(q.keypad != null && { keypad: q.keypad }),
 		...(q.required !== undefined &&
 			q.required !== null && { required: q.required }),
 		...(q.relevant !== undefined &&
@@ -379,9 +381,10 @@ export function flatFieldToField(
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
 		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
-		// The candidate carries the stored `fieldList` / `plainLabel`, never
-		// the tool's snake-case `field_list` / `plain_label`, so the kind's
-		// strict parse sees only domain keys.
+		// The candidate carries the stored `fieldList` / `plainLabel` /
+		// `plainHelp`, never the tool's snake-case `field_list` /
+		// `plain_label` / `plain_help`, so the kind's strict parse sees only
+		// domain keys.
 		...(fieldList !== undefined && { fieldList }),
 		// Nested repeat config: the SA's `repeat` is discriminated on `mode`
 		// (`count` exists only on count_bound, `ids_query` only on

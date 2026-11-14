@@ -3,6 +3,7 @@ import { PLATFORMS } from "@/lib/domain/platforms";
 import {
 	type DisplayConditionCarrier,
 	displayConditionCopy,
+	FIRST_MENU_NAME,
 	formOffTheMenuNote,
 	moduleOffTheMenuNote,
 } from "../displayConditionCopy";
@@ -18,6 +19,8 @@ describe("displayConditionCopy", () => {
 			kind: "module",
 			moduleName: "Mothers",
 			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		expect(copy.title).toBe("When “Mothers” appears");
 		expect(copy.locus.join(" ")).toContain("home screen");
@@ -29,11 +32,15 @@ describe("displayConditionCopy", () => {
 			kind: "module",
 			moduleName: "Clinics",
 			moduleIsBareCaseList: true,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		const withForms = copyOf({
 			kind: "module",
 			moduleName: "Clinics",
 			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		expect(withList.locus[0]).toContain("case list");
 		expect(withForms.locus[0]).not.toContain("case list");
@@ -45,6 +52,8 @@ describe("displayConditionCopy", () => {
 			moduleName: "Visits",
 			parentModuleName: "Mothers",
 			moduleIsBareCaseList: true,
+			formsInMenuAbove: false,
+			aboveName: "Mothers",
 		});
 		expect(copy.lede).toContain("submenu inside “Mothers”");
 		expect(copy.locus.join(" ")).toContain("inside “Mothers”");
@@ -120,6 +129,8 @@ describe("displayConditionCopy", () => {
 			kind: "module",
 			moduleName: "Archive",
 			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
 		});
 		const form = copyOf({
 			kind: "form",
@@ -167,9 +178,89 @@ describe("displayConditionCopy", () => {
 		);
 		expect(
 			displayConditionCopy(
-				{ kind: "module", moduleName: "Archive", moduleIsBareCaseList: false },
+				{
+					kind: "module",
+					moduleName: "Archive",
+					moduleIsBareCaseList: false,
+					formsInMenuAbove: false,
+					aboveName: FIRST_MENU_NAME,
+				},
 				["web-apps"],
 			).offTheMenuNote,
 		).toBe(moduleOffTheMenuNote(["web-apps"]));
+	});
+
+	it("says a menu that shows its forms above is checked where its forms list, with its parent's condition", () => {
+		const copy = copyOf({
+			kind: "module",
+			moduleName: "Members",
+			parentModuleName: "Households",
+			moduleIsBareCaseList: false,
+			formsInMenuAbove: true,
+			aboveName: "Households",
+		});
+		expect(copy.locus).toEqual([
+			"CommCare checks this in “Households”.",
+			"While it's false, “Members”'s forms don't show there.",
+			"“Households”'s condition applies to them too.",
+		]);
+		expect(copy.offTheMenuNote).toMatch(
+			/^“Members”'s forms are off “Households”\. On Android/,
+		);
+		const topLevel = copyOf({
+			kind: "module",
+			moduleName: "Registration",
+			moduleIsBareCaseList: false,
+			formsInMenuAbove: true,
+			aboveName: FIRST_MENU_NAME,
+		});
+		expect(topLevel.locus).toEqual([
+			"CommCare checks this in the app's first menu.",
+			"While it's false, “Registration”'s forms don't show there.",
+		]);
+	});
+
+	it("names the app's first menu for a submenu under a parent that shows its forms above", () => {
+		const copy = copyOf({
+			kind: "module",
+			moduleName: "Water",
+			parentModuleName: "Households",
+			moduleIsBareCaseList: false,
+			formsInMenuAbove: false,
+			aboveName: FIRST_MENU_NAME,
+		});
+		expect(copy.locus[0]).toBe(
+			"CommCare checks this on the app's first menu, before anyone opens “Water”.",
+		);
+	});
+
+	it("says which menu keeps a form's screen forms first", () => {
+		const copy = copyOf({
+			kind: "form",
+			formName: "Check members",
+			moduleName: "Members",
+			caseFirst: false,
+			caseFirstBlocker: {
+				reason: "opens-without-a-case",
+				otherModuleName: "Households",
+				blockingFormName: "Register household",
+			},
+			caseType: "household",
+			formCount: 1,
+		});
+		expect(copy.locus[0]).toContain(
+			"shows with “Households”'s forms on one screen, and “Register household” there opens without a case",
+		);
+		expect(
+			copyOf({
+				kind: "form",
+				formName: "Check members",
+				moduleName: "Members",
+				caseFirst: false,
+				caseFirstBlocker: { reason: "first-menu" },
+				caseType: "household",
+				formCount: 1,
+			}).locus[0],
+		).toContain("shows on the app's first menu");
 	});
 });

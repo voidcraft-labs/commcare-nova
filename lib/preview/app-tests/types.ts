@@ -13,7 +13,10 @@ import type {
 } from "@/lib/lookup/types";
 import type { StoredLocation } from "@/lib/organization/types";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
-import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import type {
+	PreviewCaseListRegistrationLaunch,
+	PreviewMenuCaseSelection,
+} from "@/lib/session/types";
 import type { AfterSubmitStackState } from "../afterSubmitStack";
 import { formAnswerValueSchema } from "../engine/formAnswerValue";
 import type { FormEvaluationEntry } from "../engine/formEvaluationTypes";
@@ -166,7 +169,14 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 				),
 		}),
 		z.strictObject({ kind: z.literal("menu"), moduleUuid: reference }),
-		z.strictObject({ kind: z.literal("records") }),
+		z.strictObject({
+			kind: z.literal("records"),
+			moduleUuid: reference
+				.optional()
+				.describe(
+					"The menu whose case list to open, where the current screen lists the case lists of several menus. Omit on a menu to open its own records.",
+				),
+		}),
 		z.strictObject({
 			kind: z.literal("page"),
 			offset: z.number().int().min(0).max(2000),
@@ -339,6 +349,9 @@ export type AppTestScreen =
 			 * of it, as a device's session keeps its query step. A new entry
 			 * takes its own. */
 			searchResults?: SearchResultsSnapshot;
+			/** The record list whose Register action opened this form, which
+			 * it always offers; set by that action alone. */
+			caseListRegistrationLaunch?: PreviewCaseListRegistrationLaunch;
 	  };
 /** A frame a submission pushed, routed when it was pushed. */
 export type AppTestAfterSubmitRoute = PostSubmissionFrame;

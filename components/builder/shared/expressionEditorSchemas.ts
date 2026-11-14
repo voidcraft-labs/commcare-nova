@@ -44,6 +44,7 @@ import {
 	type ExpressionOfKind,
 	type SearchInputDecl,
 	type SlotConstraint,
+	serverOnlySearchSlot,
 	type ValueArm,
 } from "@/lib/domain/expression";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
@@ -72,6 +73,7 @@ import {
 	HereCard,
 	NegateCard,
 	ValueListCard,
+	valueListDefault,
 } from "./cards/expression/GeneralValueCards";
 import { IdOfCard, idOfDefault } from "./cards/expression/IdOfCard";
 import { IfCard, ifDefault } from "./cards/expression/IfCard";
@@ -213,14 +215,11 @@ export const expressionCardSchemas: {
 	},
 	"value-list": {
 		kind: "value-list",
-		label: "Values",
+		label: "A list of values",
 		icon: tablerListSearch,
-		description: "A saved list of values",
+		description: "Several values, any one of which matches",
 		component: ValueListCard,
-		defaultValue: () => ({
-			kind: "value-list",
-			items: [{ kind: "term", term: { kind: "literal", value: "" } }],
-		}),
+		defaultValue: valueListDefault,
 	},
 	// ── Term lift (universal value carrier) ─────────────────────────
 	term: {
@@ -395,9 +394,9 @@ export const expressionCardSchemaList: readonly ExpressionCardSchema<CardValueKi
 	) as readonly ExpressionCardSchema<CardValueKind>[];
 
 /** Contextual vocabulary boundary for the three submission-local leaves,
- * table lookup, "Where you are now" and the display-only value list. Every
- * other registered kind ("Negative of" among them) is authorable everywhere
- * its type and execution target admit it. */
+ * table lookup, "Where you are now", "Case list search text" and the list of
+ * values. Every other registered kind ("Negative of" among them) is
+ * authorable everywhere its type and execution target admit it. */
 export function isAuthorableExpressionKind(
 	kind: CardValueKind,
 	ctx?: Pick<
@@ -406,8 +405,15 @@ export function isAuthorableExpressionKind(
 	> &
 		Partial<Pick<ExpressionEditContext, "expressionContext">>,
 ): boolean {
-	// A list held from an imported search renders, and no menu offers one.
-	if (kind === "value-list") return false;
+	// A list of values is offered where the slot's profile is CommCare's
+	// server search's alone (`profiles.ts::serverOnlySearchSlot`), today an
+	// advanced Search field's condition; the gate's own placement rule
+	// disables it beside a verb other than "is" and "isn't".
+	if (kind === "value-list")
+		return (
+			ctx?.expressionContext !== undefined &&
+			serverOnlySearchSlot(ctx.expressionContext.profile)
+		);
 	// The worker's location has a handler only in a case list's calculated
 	// column, which the slot's profile says (`SlotProfile.here`).
 	if (kind === "here") return ctx?.expressionContext?.profile.here === true;

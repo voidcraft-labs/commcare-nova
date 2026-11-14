@@ -13,9 +13,13 @@ import {
 	inheritedModuleVisibility,
 	previewCaseDescendantModuleUuids,
 	previewCaseListMenuEntry,
+	previewContributorVisibility,
 	previewMenuCaseContext,
-	previewMenuModuleUuids,
+	previewModuleOwnVisibility,
 	previewModuleVisibility,
+	previewRunningModuleScreen,
+	previewScreenEntries,
+	previewScreenEntryVisibility,
 } from "../menuProjection";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
@@ -85,8 +89,99 @@ function source(
 describe("Preview menu projection", () => {
 	it("shows roots on Home and children only on their parent menu", () => {
 		const doc = source();
-		expect(previewMenuModuleUuids(doc, null)).toEqual([ROOT, OTHER_ROOT]);
-		expect(previewMenuModuleUuids(doc, ROOT)).toEqual([CHILD]);
+		expect(previewScreenEntries(doc, { kind: "first-menu" })).toEqual([
+			{ kind: "menu", moduleUuid: ROOT },
+			{ kind: "menu", moduleUuid: OTHER_ROOT },
+		]);
+		expect(
+			previewScreenEntries(doc, { kind: "menu", moduleUuid: ROOT }),
+		).toEqual([
+			{ kind: "form", moduleUuid: ROOT, formUuid: ROOT_FORM },
+			{ kind: "menu", moduleUuid: CHILD },
+		]);
+	});
+
+	it("lists the forms of a menu that shows its forms above in place, and runs its route on the screen that lists them", () => {
+		const doc = source();
+		doc.modules[CHILD].formsInMenuAbove = true;
+		doc.modules[OTHER_ROOT].formsInMenuAbove = true;
+		expect(previewScreenEntries(doc, { kind: "first-menu" })).toEqual([
+			{ kind: "menu", moduleUuid: ROOT },
+			{ kind: "form", moduleUuid: OTHER_ROOT, formUuid: OTHER_ROOT_FORM },
+		]);
+		expect(
+			previewScreenEntries(doc, { kind: "menu", moduleUuid: ROOT }),
+		).toEqual([
+			{ kind: "form", moduleUuid: ROOT, formUuid: ROOT_FORM },
+			{ kind: "form", moduleUuid: CHILD, formUuid: CHILD_FORM },
+		]);
+		expect(previewRunningModuleScreen(doc, CHILD)).toEqual({
+			type: "module",
+			moduleUuid: ROOT,
+		});
+		expect(previewRunningModuleScreen(doc, OTHER_ROOT)).toEqual({
+			type: "home",
+		});
+		expect(previewRunningModuleScreen(doc, ROOT)).toEqual({
+			type: "module",
+			moduleUuid: ROOT,
+		});
+	});
+
+	it("keeps a submenu tile shown under a parent that shows its forms above, whatever the parent's condition", () => {
+		const doc = source();
+		doc.modules[ROOT].formsInMenuAbove = true;
+		const own = new Map([
+			[ROOT, "hidden" as const],
+			[CHILD, "shown" as const],
+			[OTHER_ROOT, "shown" as const],
+		]);
+		/* HQ conjoins the parent's filter only onto a submenu that shows its
+		 * forms above; this one keeps its screen and lists on the first menu. */
+		expect(inheritedModuleVisibility(doc, own).get(CHILD)).toBe("shown");
+		expect(previewScreenEntries(doc, { kind: "first-menu" })).toEqual([
+			{ kind: "form", moduleUuid: ROOT, formUuid: ROOT_FORM },
+			{ kind: "menu", moduleUuid: CHILD },
+			{ kind: "menu", moduleUuid: OTHER_ROOT },
+		]);
+		doc.modules[ROOT].formsInMenuAbove = undefined;
+		expect(inheritedModuleVisibility(doc, own).get(CHILD)).toBe("hidden");
+	});
+
+	it("hides a contributor's forms while its parent is off the menu", () => {
+		const doc = source();
+		doc.modules[CHILD].formsInMenuAbove = true;
+		doc.modules[ROOT].hiddenFromMenu = true;
+		const session = { context: {}, user: {}, userPropertySlugs: {} };
+		const own = previewModuleOwnVisibility(doc, {
+			authoring: false,
+			session,
+			lookup: { kind: "idle" },
+		});
+		expect(previewContributorVisibility(doc, own, CHILD)).toBe("hidden");
+		const visibility = previewScreenEntryVisibility({
+			doc,
+			entries: previewScreenEntries(doc, { kind: "menu", moduleUuid: ROOT }),
+			ownModuleVisibility: own,
+			authoring: false,
+			session,
+			lookup: { kind: "idle" },
+			selectedCaseOf: () => undefined,
+		});
+		expect(visibility.get(`form:${CHILD_FORM}`)).toBe("hidden");
+		doc.modules[ROOT].hiddenFromMenu = undefined;
+		doc.modules[CHILD].hiddenFromMenu = true;
+		expect(
+			previewContributorVisibility(
+				doc,
+				previewModuleOwnVisibility(doc, {
+					authoring: false,
+					session,
+					lookup: { kind: "idle" },
+				}),
+				CHILD,
+			),
+		).toBe("hidden");
 	});
 
 	it("inherits three-valued visibility with hidden winning over pending", () => {
@@ -285,6 +380,48 @@ describe("Preview menu projection", () => {
 			},
 		});
 		expect(previewCaseDescendantModuleUuids(doc, "household")).toEqual([CHILD]);
+	});
+
+	it("takes the case chosen on the parent's screen as the parent case of a submenu that shows its forms there", () => {
+		const base = source("person");
+		/* The person menu names another household menu as its parent case
+		 * selector, but its forms list on the household screen, where the wire
+		 * gives both selections one datum id. */
+		const doc = {
+			...base,
+			modules: {
+				...base.modules,
+				[OTHER_ROOT]: module(OTHER_ROOT, "household"),
+				[CHILD]: {
+					...base.modules[CHILD],
+					parentCaseModuleUuid: OTHER_ROOT,
+					formsInMenuAbove: true as const,
+				},
+			},
+		};
+		const selected = {
+			caseType: "household",
+			cases: [{ caseId: "h1", caseName: "Household one" }],
+		};
+		expect(previewMenuCaseContext(doc, CHILD, { [ROOT]: selected })).toEqual({
+			selectedCase: undefined,
+			selectedByModuleUuid: undefined,
+			parentCase: selected,
+			parentModuleUuid: ROOT,
+			requiredParentCase: undefined,
+		});
+		/* A submenu that keeps its own screen asks its own selector. */
+		const ownScreen = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[CHILD]: { ...doc.modules[CHILD], formsInMenuAbove: undefined },
+			},
+		};
+		expect(
+			previewMenuCaseContext(ownScreen, CHILD, { [ROOT]: selected })
+				.requiredParentCase,
+		).toEqual({ caseType: "household", moduleUuid: OTHER_ROOT });
 	});
 
 	it("uses the explicit selector despite an earlier module for the same type", () => {

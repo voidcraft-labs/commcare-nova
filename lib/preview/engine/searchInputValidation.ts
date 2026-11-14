@@ -346,6 +346,7 @@ function readsSessionData(wire: WireExpr): boolean {
 		case "call":
 			return wire.args.some(readsSessionData);
 		case "expansion":
+		case "paren":
 			return readsSessionData(wire.expr);
 		default:
 			return false;

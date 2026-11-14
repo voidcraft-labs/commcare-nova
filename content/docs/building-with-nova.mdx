@@ -94,6 +94,8 @@ After a correction, **Try again** starts the form afresh. The check keeps the
 saved value unchanged. It is help for building the app, not a screen added to
 workers' deployed forms.
 
+A date and time saved to a case is kept the way CommCare HQ keeps it, in UTC, so a case list sorted by one shows cases in the order they happened. In a list or a case detail the saved value reads in UTC, such as 2026-01-02T09:30:00.000000Z.
+
 ## Edit wording and formatting
 
 You can keep editing while Preview prepares or refreshes a form.
@@ -343,6 +345,17 @@ Nova checks app names, question text, translations and formula values before
 saving. If pasted text contains a character CommCare cannot preserve, Nova names
 the affected text so you can remove that character and try again. Accents,
 non-Latin scripts and emoji are supported.
+
+A label, a hint, a help text, a validation message or a choice can show a
+calculated value: choose Insert reference, then Calculated value, and write a
+formula such as a formatted date. Format text can be turned off for one label,
+one choice or one help text, or for a whole form in its settings.
+
+CommCare HQ reads instance('name') as a data source wherever it appears in a
+form. Question text can say it: Nova writes it so that CommCare HQ reads it as
+text. A form's name and a CommCare Connect name or description have no way to
+do that, so there Nova asks for a space before the bracket, as in
+instance ('name').
 
 If Nova cannot save a wording change, your text stays open beside the reason so
 you can correct it and try again. Rich-text tables keep images when you save

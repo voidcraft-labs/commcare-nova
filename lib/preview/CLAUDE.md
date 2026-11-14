@@ -62,12 +62,15 @@ Preview's reading goes stale.
 
 Labels render through `lib/references/LabelContent.tsx` (a question's, a
 display label's and a section title with the platform's `labelMarkdown` rule),
-hints by `rules.hint`, validation messages as plain text.
-A question, group, repeat or section label whose owner holds `plainLabel`
+hints by `rules.hint`, validation messages as plain text. A help text holding
+`plainHelp`, or in a form holding `plainText`, follows `rules.plainHelp`.
+A Text question with a number keypad follows `rules.numberKeypad`.
+A question, group, repeat or section label whose owner holds `plainLabel`, or
+whose form holds `plainText` (`lib/domain/plainText.ts::labelShowsAsTyped`),
 writes no markdown form, and both runtimes show such a label as written, so
 `LabelContent` renders its text with its line breaks kept and its references
-as chips on both platforms, in edit mode too. A choice holding `plainLabel`
-follows `rules.plainChoice`: Web Apps formats every choice through its
+as chips on both platforms, in edit mode too. A choice shown as typed the
+same way follows `rules.plainChoice`: Web Apps formats every choice through its
 markdown renderer anyway (`"markdown"`), Android shows it as written
 (`"literal"`); edit mode shows it as written. A tag in a plain label is not
 played: the Web Apps client draws it as sanitized HTML, and Preview renders no
@@ -985,7 +988,9 @@ mode never hides. A condition is evaluated as stored
 `x and never` still waits for `x`'s data.
 
 An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
-read, and a module off the menu takes its child modules off with it, as on
+read, and a module off the menu takes its forms off with it, and its child
+modules too unless it shows its forms in the menu above, where a child that
+keeps its screen stays on the app's first menu by its own condition, as on
 both runtimes; its reveal summary reads "Off the menu" (`menuProjection.ts::
 OFF_THE_MENU_SUMMARY`). App Tests cannot open one from a menu. Preview plays
 the platform it runs as (`lib/preview/platform.ts`): after submit, a link's
@@ -996,10 +1001,10 @@ conditions on Web Apps unless it ignores them and ignores them on Android
 both; `app_home` opens it on Web Apps and the device home screen on Android
 (`postSubmitAppHome`); and `parentMenu` opens the parent module's screen with
 its selection kept. On Web Apps a form target off the menu or whose condition
-is false lands on its module, and a target inside or under a module the menu
-hides, or a module target whose condition is false, lands on the menu above the
-topmost hidden module: its shown parent's, or the app's first screen for a
-top-level module (`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
+is false lands on its module, and a target the menu hides lands on the screen
+that would have listed it (`menuScreenOf` of a form's module, `menuTileScreenOf`
+of a module), walked up while that screen's own entry is hidden
+(`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
 `MenuSessionFactory.rebuildSessionFromFrame` walks the frame only through the
 menus it would show.
 
@@ -1622,6 +1627,52 @@ form is on no menu:
 `useOrderedMenuForms` / `useMenuFormCounts`, while `screenProjection.ts` still
 projects the form URL so a stale link meets the refusal rather than a blank
 screen.
+
+The `always` arm (`{ kind: "always", … }`) offers a registration form that
+stays on its own menu. `caseListRegistration.ts::previewRegisterAction` is
+what a case list draws: the action shows whenever the host's list shows
+(before its forms, from its case list entry, as another menu's parent
+choice), with the arm's icon and spoken label on Android alone
+(`platform.ts::PreviewPlatformRules.caseListActionMedia`, `"shown"` or
+`"text-only"`). Choosing it opens the form in its own menu with
+`PreviewCaseTarget.caseListRegistrationLaunch = { hostModuleUuid }`
+(`lib/session/types.ts`, ephemeral). After submit,
+`alwaysOfferedRegistrationReturn` decides the landing before ordinary routing
+(`FormScreen.dispatchAfterSubmit`, `app-tests/submission.ts`): undefined, which
+is ordinary routing, where there is no launch, where the host no longer offers
+the form, or where the form's own after-submit is in force
+(`caseListRegistrationReturnOf` gives `own`); otherwise the frame whose guard
+holds of `formLinkProjection.ts::caseListFormReturnFrames` (the one frame of
+`case-list`; for `new-case` the first where the submission created a case,
+else the second), landed by `screenOfFrame` as every frame is, the created
+case set as the host's selection where the frame carries it. So `case-list`
+lands on the host's screen with no case chosen, `new-case` with a created
+case lands there with that case chosen, and a bare case list lands on its list
+under either value. The form opened any other way is an ordinary form. App
+Tests reach the action as a worker does: a records read of the host returns
+the form as `registration`, and the form screen carries the launch.
+
+## Menus that show their forms above
+
+A menu holding `formsInMenuAbove` has no screen of its own. The home screen
+and each menu screen list `menuProjection.ts::previewScreenEntries` of their
+screen (`lib/domain/menuScreens.ts::menuScreenEntries`), each entry by kind in
+the projection's order: a menu tile, a form row with the form's own name,
+media and condition, and a case list row. A contributor's rows show by
+`previewContributorVisibility`, the conjunction of the conditions of
+`conditionModulesOf` (the module, and its parent where it shows above), and
+then by each form's own condition. Whether a screen opens on a case list is
+`screenChoosesCaseFirst` of the screen (`ModuleScreen`, `CaseListScreen`): a
+case-first screen opens on the host's case list and lists every entry once the
+case is chosen; any other screen lists its entries at once, and a form that
+opens a case then opens its own menu's case list. A route naming a menu with no
+screen resolves to `menuScreenOf` of it (`hooks/usePreviewScreenForLocation.ts`).
+After submit a frame lands where `engine/frameLanding.ts::screenOfFrame` says:
+the screen of its last menu command (the first menu where it holds none),
+with its selections applied to the menus that supply them, then the form its
+form command names. An entry point refuses a form whose entries are off the
+menu (`entryPointLaunch.ts::moduleEntriesOffTheMenu`). App Tests list and admit
+choices by the same projection.
 
 ## Case-data Server Action wire shape (edge-WAF constraint)
 

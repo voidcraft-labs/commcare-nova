@@ -17,7 +17,7 @@ import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
 import { emitCsql } from "../../../csql/emitter";
 import { formNodeProjection } from "../../formNodeProjection";
-import { toWire, type WireTarget } from "../fromExpression";
+import { storedDatetimeWire, toWire, type WireTarget } from "../fromExpression";
 import type { WireExpr } from "../tree";
 
 /** How a form value is held on a device, and the field that holds it so:
@@ -95,6 +95,12 @@ export interface InstantFixture {
 		types?: ExpressionContext,
 	): WireExpr;
 	lowerRecord(expression: Expression, target?: WireTarget): WireExpr;
+	/** A date-and-time case write of `expression` in the form, as the text
+	 *  CommCare HQ stores (`storedDatetimeWire`). */
+	storeForm(
+		expression: Expression,
+		clock?: (leaf: Expression) => WireExpr | undefined,
+	): WireExpr;
 	/** With `search`: an advanced Search field's condition, which only the
 	 * server search and the case store read but whose values outside the
 	 * server's own a device works out first, and its emitted `_xpath_query`
@@ -216,6 +222,17 @@ export function instantFixture(
 			}),
 		lowerRecord: (expression, target = "suite") =>
 			toWire(expression, { target, types: record }),
+		storeForm: (expression, clock) =>
+			storedDatetimeWire(
+				expression,
+				{
+					target: "xform",
+					types: form,
+					form: projection,
+					bindings: { formCaseProperty },
+				},
+				clock,
+			),
 		...(search === undefined
 			? {}
 			: {

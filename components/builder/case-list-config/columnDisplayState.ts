@@ -61,6 +61,7 @@ export function preservedColumnSwap(
 		sort: currentValue.sort,
 		visibleInList: currentValue.visibleInList,
 		visibleInDetail: currentValue.visibleInDetail,
+		notOnList: currentValue.notOnList,
 		tile: currentValue.tile,
 	};
 	if (targetKind === "calculated") {
@@ -184,6 +185,7 @@ export function restoreColumnDraft(draft: Column, current: Column): Column {
 		sort: current.sort,
 		visibleInList: current.visibleInList,
 		visibleInDetail: current.visibleInDetail,
+		notOnList: current.notOnList,
 		tile: current.tile,
 	} as Column;
 }

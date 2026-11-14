@@ -40,13 +40,33 @@ HQ's receiver; ``sent`` holds each instance it sent, as Android wrote it.
   ``plainLabel`` show ``*not bold*``, ``# 5``, ``1. first`` and
   ``<b>tag</b>`` as typed, and the same texts with a markdown form show
   formatted, which tells the two halves apart on the same device.
+- A help text with no markdown form shows its text as written: Android draws
+  a help text's markdown only where its text holds that form
+  (``QuestionWidget.java::createHelpLayout``: ``getHelpMultimedia`` of the
+  markdown form, else ``getHelpText()``), so in ``targeted-plain-help`` the
+  help Nova wrote from ``plainHelp`` shows ``**bold** and a
+  [link](https://example.org)`` as typed and the same help with a markdown
+  form shows ``bold and a link``. The form holding ``plainText`` writes no
+  markdown form on its label, its choice or its help text, so each shows as
+  typed. This is the evidence for the Android reading of a help text with no
+  markdown form, ``RUNS (as written)``.
+- What a number keypad question keeps of what a worker enters into its box
+  (``StringNumberWidget``'s key listener, ``DigitsKeyListener(true, true)``
+  with the digits, ``.``, ``-``, ``+`` and space accepted): in
+  ``targeted-number-keypad``, ``+1 555-1234``, ``1.2.3`` and ``12+`` are
+  kept as entered and ``a1`` as ``1``, the reading Preview's ``numberKeypad``
+  rule ``keys`` holds for Android (``lib/preview/engine/numberKeypad.ts``).
+  ``a1`` is the control: a box that keeps the letter did not pass the widget's
+  filter, so the read is no evidence of what the keypad keeps.
 
 The plausible failures: a session read Android does not resolve, or resolves
 to another id than the create block's after a reopen (an id drawn again); a
 title or saved name in the source language, or a header that moved with the
 title; a count Android reads as the row's own node (so the validation
 never holds) or as no row; and a label written with no markdown form that
-Android formats all the same, or a markdown form it stops reading.
+Android formats all the same, or a markdown form it stops reading; a help text written with no markdown form that
+Android formats all the same, or one with a markdown form that it shows as typed; and a number keypad that drops a
+sign out of place, a second period or a space, which Preview's Android rule would then keep where a phone does not.
 """
 
 from __future__ import annotations
@@ -62,6 +82,16 @@ pytestmark = pytest.mark.reader("android")
 REGISTRATION = "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0"
 RENDERS = "targeted-preview-android-renders"
 PLAIN = "targeted-plain-labels"
+PLAIN_HELP = "targeted-plain-help"
+# The text each help, label and choice of ``targeted-plain-help`` holds
+# (``proof/targeted/documents/plainHelp.ts::PLAIN_HELP_TEXT``), beside what Markwon draws of its markdown form.
+PLAIN_HELP_TEXT = "**bold** and a [link](https://example.org)"
+PLAIN_HELP_DRAWN = "bold and a link"
+# The form of ``targeted-plain-help`` that holds ``plainText``.
+AS_TYPED_FORM = "m0-f1"
+KEYPAD = "targeted-number-keypad"
+# What a worker enters into the keypad question's box, beside what the box keeps of it.
+KEYPAD_ENTRIES = {"+1 555-1234": "+1 555-1234", "1.2.3": "1.2.3", "12+": "12+", "a1": "1"}
 # The texts each half of ``targeted-plain-labels`` labels its questions and choices with
 # (``proof/targeted/documents/textReads.ts::PLAIN_LABEL_TEXTS``), each beside what Markwon draws of its markdown
 # form: the emphasis without its asterisks, the heading without its mark, the list item without its number (which
@@ -243,3 +273,53 @@ def test_a_label_without_markdown_renders_its_text_as_written(android_documents,
         assert drawn in marked and written not in marked, (written, marked)
         assert written in plain_choices, (written, plain_choices)
         assert drawn in marked_choices and written not in marked_choices, (written, marked_choices)
+
+
+def test_a_help_text_without_markdown_renders_its_text_as_written(android_documents, hq):
+    """The survey "Help" asks two questions with the help text ``**bold** and a [link](https://example.org)``, the
+    first written with ``plainHelp`` and so with no markdown form, the second with one. Android builds each help's
+    view with the question, so each question's screen holds it: the first shows the help as typed, the second shows
+    it formatted, as Markwon draws it, and not as typed. The survey "As typed" holds ``plainText``, so its label,
+    its choice and its help text show as typed."""
+    with _served(android_documents[PLAIN_HELP]) as (served, archive):
+        answer, _ = _app(served, archive, "help", commands=[FORM], views=True)
+        typed, _ = _app(served, archive, "as-typed", commands=[AS_TYPED_FORM], views=True)
+
+    (help_form,) = _forms(answer["walks"][FORM])
+    plain = _shown(help_form, "/data/plain_help[1]")
+    assert PLAIN_HELP_TEXT in plain, plain
+    marked = _shown(help_form, "/data/marked_help[1]")
+    assert PLAIN_HELP_DRAWN in marked and PLAIN_HELP_TEXT not in marked, marked
+
+    (as_typed,) = _forms(typed["walks"][AS_TYPED_FORM])
+    shown = _shown(as_typed, "/data/as_typed_choices[1]")
+    assert PLAIN_HELP_TEXT in shown and PLAIN_HELP_DRAWN not in shown, shown
+
+
+def test_a_number_keypad_keeps_what_its_keys_enter(android_documents, hq):
+    """The registration "Register" asks a phone number on a number keypad. Entered one character at a time into the
+    question's own box, ``+1 555-1234``, ``1.2.3`` and ``12+`` are kept as entered, and ``a1`` as ``1``, the letter
+    the keypad lacks dropped; the form takes what the box kept and the instance the device sends holds it."""
+    with _served(android_documents[KEYPAD]) as (served, archive):
+        walked = {
+            entered: _app(
+                served,
+                archive,
+                f"keypad-{index}",
+                commands=[FORM],
+                questions={"/data/name": ["Proof name"], "/data/phone": [entered]},
+                keys=True,
+            )
+            for index, entered in enumerate(KEYPAD_ENTRIES)
+        }
+
+    for entered, kept in KEYPAD_ENTRIES.items():
+        answer, sent = walked[entered]
+        (form,) = _forms(answer["walks"][FORM])
+        (entry,) = [entry for entry in _entries(form, "/data/phone[1]") if "typed" in entry]
+        assert entry["typed"] == entered and entry["kept"] == kept, entry
+        assert entry["given"] == kept, entry
+        assert form["saved"]["finishing"] is True, form
+        (instance,) = sent
+        root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+        assert _child(root, "phone").text == kept, instance

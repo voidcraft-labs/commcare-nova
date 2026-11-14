@@ -149,6 +149,15 @@ async function populatedApp() {
 				property: "case_name",
 				validation: { rule: "#search/name != ''", message: "Enter a name." },
 			},
+			{
+				name: "state",
+				kind: "advanced",
+				type: "text",
+				label: "State",
+				// A list of values, which every read prints as list(...).
+				predicate:
+					"when-provided(#search/state, #case/state = list('north', #search/state))",
+			},
 		],
 	});
 	await ok("addCaseOperations", {
@@ -305,6 +314,96 @@ it("reads menu icons in the form setMenuMedia accepts, so a read can be written 
 				icon: item.icon,
 				audioLabel: null,
 			})),
+		],
+	});
+	expect(h.currentDoc()).toEqual(before);
+});
+
+it("reads a case list item's and a Register button's icons as setMenuMedia takes them, so a read can be written back", async () => {
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Patients",
+				caseType: "patient",
+				forms: [{ name: "Visit", type: "followup" }],
+			},
+			{
+				name: "Registration",
+				caseType: "patient",
+				forms: [{ name: "Register patient", type: "registration" }],
+			},
+		]),
+	);
+	const doc = h.currentDoc();
+	const register = Object.values(doc.forms).find(
+		(form) => form.name === "Register patient",
+	);
+	if (register === undefined)
+		throw new Error("The fixture holds no Register patient form.");
+	for (const input of [
+		{
+			moduleUuid: "Patients",
+			register_from_case_list: { formUuid: register.uuid },
+		},
+		{
+			items: [
+				{
+					target: "case-list-menu-item",
+					moduleUuid: "Patients",
+					icon: "household",
+					audioLabel: null,
+				},
+				{
+					target: "case-list-registration",
+					moduleUuid: "Patients",
+					icon: "register",
+					audioLabel: null,
+				},
+			],
+		},
+	]) {
+		const result = await h.call(
+			"register_from_case_list" in input ? "updateModule" : "setMenuMedia",
+			input,
+		);
+		expect(result).not.toHaveProperty("error");
+	}
+	const slots = z.object({
+		icon: z.string().nullable(),
+		audio_label: z.string().nullable(),
+	});
+	const module = z
+		.object({
+			uuid: z.string(),
+			caseListMenuItem: slots,
+			caseListRegistrationForm: slots.extend({ kind: z.literal("always") }),
+		})
+		.parse(await h.call("getModule", { moduleUuid: "Patients" }));
+	expect(module.caseListMenuItem).toMatchObject({
+		icon: "household",
+		audio_label: null,
+	});
+	expect(module.caseListRegistrationForm).toMatchObject({
+		icon: "register",
+		audio_label: null,
+	});
+
+	const before = h.currentDoc();
+	await h.call("setMenuMedia", {
+		items: [
+			{
+				target: "case-list-menu-item",
+				moduleUuid: module.uuid,
+				icon: module.caseListMenuItem.icon,
+				audioLabel: module.caseListMenuItem.audio_label,
+			},
+			{
+				target: "case-list-registration",
+				moduleUuid: module.uuid,
+				icon: module.caseListRegistrationForm.icon,
+				audioLabel: module.caseListRegistrationForm.audio_label,
+			},
 		],
 	});
 	expect(h.currentDoc()).toEqual(before);

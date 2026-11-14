@@ -25,6 +25,8 @@ export const SMOKE_PROFILES = [
 	"search-claim",
 	"search-results",
 	"search-choice",
+	"search-value-list",
+	"register-from-list",
 	"localization",
 	"sections",
 	"threads",

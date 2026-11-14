@@ -11,8 +11,8 @@
  * so HQ's form page keeps the add-on on for a form whose choices come from a
  * lookup table or from the worker's cases.
  *
- * `menu_mode`, `case_detail_overwrite` and `empty_case_lists` are never
- * needed: Nova writes nothing that uses them.
+ * `case_detail_overwrite` and `empty_case_lists` are never needed: Nova
+ * writes nothing that uses them.
  *
  * An advanced form needs `subcases` and `conditional_form_actions` whatever
  * it holds, because HQ's two predicates hold for every form that is not a
@@ -38,6 +38,7 @@ export const NEEDED_ADD_ON_SLUGS = [
 	"conditional_form_actions",
 	"display_conditions",
 	"enum_image",
+	"menu_mode",
 	"register_from_case_list",
 	"subcases",
 	"submenus",
@@ -102,6 +103,7 @@ export function addOnsNeededBy(
 			needed.add("enum_image");
 		}
 		if (module.module_filter) needed.add("display_conditions");
+		if (module.put_in_root) needed.add("menu_mode");
 		if (module.case_list_form.form_id) needed.add("register_from_case_list");
 		if (module.root_module_id) needed.add("submenus");
 		const forms: readonly HqAnyForm[] = module.forms;

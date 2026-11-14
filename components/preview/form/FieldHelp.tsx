@@ -26,6 +26,11 @@ interface FieldHelpProps {
 	help: ProseTemplate | undefined;
 	resolvedHelp?: string;
 	helpMedia: Media | undefined;
+	/** The help text shows as typed (`lib/domain/plainText.ts::helpShowsAsTyped`):
+	 *  its question holds `plainHelp`, or its form's text formatting is off.
+	 *  Edit mode then shows it as written; the running preview follows the
+	 *  platform's `plainHelp` rule. */
+	asTyped?: boolean;
 	/** False in edit mode, where help shows inline; true in the running
 	 *  preview, where it plays each runtime's button and dialog. */
 	interactive: boolean;
@@ -60,13 +65,16 @@ interface FieldHelpProps {
  *
  * Neither runtime's dialog has a title, so the dialog's title holds the
  * question's label for a screen reader only. Help renders through the label
- * rendering of the runtime (Android forces the markdown form for help).
+ * rendering of the runtime. A help text shown as typed writes no markdown
+ * form: Android then draws it as written, and Web Apps formats it anyway
+ * (`lib/preview/platform.ts`, `plainHelp`).
  */
 export function FieldHelp({
 	id,
 	help,
 	resolvedHelp,
 	helpMedia,
+	asTyped = false,
 	interactive,
 	questionLabel,
 	placement,
@@ -80,6 +88,7 @@ export function FieldHelp({
 						label={help}
 						resolvedLabel={resolvedHelp}
 						isEditMode
+						plainLabel={asTyped}
 						className="text-xs text-nova-text-muted"
 					/>
 				)}
@@ -91,6 +100,7 @@ export function FieldHelp({
 			help={help}
 			resolvedHelp={resolvedHelp}
 			helpMedia={helpMedia}
+			asTyped={asTyped}
 			questionLabel={questionLabel}
 			placement={placement}
 		/>
@@ -101,12 +111,14 @@ function RunningFieldHelp({
 	help,
 	resolvedHelp,
 	helpMedia,
+	asTyped,
 	questionLabel,
 	placement,
 }: {
 	help: ProseTemplate | undefined;
 	resolvedHelp?: string;
 	helpMedia: Media | undefined;
+	asTyped: boolean;
 	questionLabel?: string;
 	placement?: "label" | "below";
 }) {
@@ -153,6 +165,7 @@ function RunningFieldHelp({
 							resolvedLabel={resolvedHelp}
 							isEditMode={false}
 							rendering={rules.labelMarkdown}
+							plainLabel={asTyped && rules.plainHelp === "literal"}
 							className="text-sm text-nova-text"
 						/>
 					)}

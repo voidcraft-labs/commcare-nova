@@ -1,0 +1,155 @@
+{
+	"schemaVersion": 1,
+	"rows": [
+		{
+			"id": "utc-day-after-new-york",
+			"instant": "2026-01-02T03:30:00.000Z",
+			"text": "2026-01-02T03:30:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-01-01T22:30:00.000-05",
+				"Asia/Kolkata": "2026-01-02T09:00:00.000+05:30",
+				"Pacific/Kiritimati": "2026-01-02T17:30:00.000+14"
+			}
+		},
+		{
+			"id": "utc-day-before-kolkata",
+			"instant": "2026-01-01T20:00:00.000Z",
+			"text": "2026-01-01T20:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-01-01T15:00:00.000-05",
+				"Asia/Kolkata": "2026-01-02T01:30:00.000+05:30",
+				"Pacific/Kiritimati": "2026-01-02T10:00:00.000+14"
+			}
+		},
+		{
+			"id": "last-millisecond-before-utc-midnight",
+			"instant": "2026-01-01T23:59:59.999Z",
+			"text": "2026-01-01T23:59:59.999000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-01-01T18:59:59.999-05",
+				"Asia/Kolkata": "2026-01-02T05:29:59.999+05:30",
+				"Pacific/Kiritimati": "2026-01-02T13:59:59.999+14"
+			}
+		},
+		{
+			"id": "before-new-york-spring-forward",
+			"instant": "2026-03-08T06:59:59.000Z",
+			"text": "2026-03-08T06:59:59.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-03-08T01:59:59.000-05",
+				"Asia/Kolkata": "2026-03-08T12:29:59.000+05:30",
+				"Pacific/Kiritimati": "2026-03-08T20:59:59.000+14"
+			}
+		},
+		{
+			"id": "after-new-york-spring-forward",
+			"instant": "2026-03-08T07:00:00.000Z",
+			"text": "2026-03-08T07:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-03-08T03:00:00.000-04",
+				"Asia/Kolkata": "2026-03-08T12:30:00.000+05:30",
+				"Pacific/Kiritimati": "2026-03-08T21:00:00.000+14"
+			}
+		},
+		{
+			"id": "new-york-repeated-hour-first",
+			"instant": "2026-11-01T05:30:00.000Z",
+			"text": "2026-11-01T05:30:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-11-01T01:30:00.000-04",
+				"Asia/Kolkata": "2026-11-01T11:00:00.000+05:30",
+				"Pacific/Kiritimati": "2026-11-01T19:30:00.000+14"
+			}
+		},
+		{
+			"id": "new-york-repeated-hour-second",
+			"instant": "2026-11-01T06:30:00.000Z",
+			"text": "2026-11-01T06:30:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-11-01T01:30:00.000-05",
+				"Asia/Kolkata": "2026-11-01T12:00:00.000+05:30",
+				"Pacific/Kiritimati": "2026-11-01T20:30:00.000+14"
+			}
+		},
+		{
+			"id": "before-1970",
+			"instant": "1969-07-20T20:17:40.250Z",
+			"text": "1969-07-20T20:17:40.250000Z",
+			"deviceTexts": {
+				"America/New_York": "1969-07-20T16:17:40.250-04",
+				"Asia/Kolkata": "1969-07-21T01:47:40.250+05:30",
+				"Pacific/Kiritimati": "1969-07-20T09:37:40.250-10:40"
+			}
+		},
+		{
+			"id": "utc-midnight",
+			"instant": "2026-01-02T00:00:00.000Z",
+			"text": "2026-01-02T00:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-01-01T19:00:00.000-05",
+				"Asia/Kolkata": "2026-01-02T05:30:00.000+05:30",
+				"Pacific/Kiritimati": "2026-01-02T14:00:00.000+14"
+			}
+		},
+		{
+			"id": "utc-day-after-month-end",
+			"instant": "2026-05-01T02:00:00.000Z",
+			"text": "2026-05-01T02:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-04-30T22:00:00.000-04",
+				"Asia/Kolkata": "2026-05-01T07:30:00.000+05:30",
+				"Pacific/Kiritimati": "2026-05-01T16:00:00.000+14"
+			}
+		},
+		{
+			"id": "utc-day-after-february-end",
+			"instant": "2026-03-01T03:00:00.000Z",
+			"text": "2026-03-01T03:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-02-28T22:00:00.000-05",
+				"Asia/Kolkata": "2026-03-01T08:30:00.000+05:30",
+				"Pacific/Kiritimati": "2026-03-01T17:00:00.000+14"
+			}
+		},
+		{
+			"id": "utc-day-after-leap-day",
+			"instant": "2024-03-01T02:00:00.000Z",
+			"text": "2024-03-01T02:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2024-02-29T21:00:00.000-05",
+				"Asia/Kolkata": "2024-03-01T07:30:00.000+05:30",
+				"Pacific/Kiritimati": "2024-03-01T16:00:00.000+14"
+			}
+		},
+		{
+			"id": "utc-day-after-year-end",
+			"instant": "2027-01-01T03:00:00.000Z",
+			"text": "2027-01-01T03:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-12-31T22:00:00.000-05",
+				"Asia/Kolkata": "2027-01-01T08:30:00.000+05:30",
+				"Pacific/Kiritimati": "2027-01-01T17:00:00.000+14"
+			}
+		},
+		{
+			"id": "utc-leap-day-before-device-march",
+			"instant": "2024-02-29T20:00:00.000Z",
+			"text": "2024-02-29T20:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2024-02-29T15:00:00.000-05",
+				"Asia/Kolkata": "2024-03-01T01:30:00.000+05:30",
+				"Pacific/Kiritimati": "2024-03-01T10:00:00.000+14"
+			}
+		},
+		{
+			"id": "utc-day-before-device-new-year",
+			"instant": "2026-12-31T20:00:00.000Z",
+			"text": "2026-12-31T20:00:00.000000Z",
+			"deviceTexts": {
+				"America/New_York": "2026-12-31T15:00:00.000-05",
+				"Asia/Kolkata": "2027-01-01T01:30:00.000+05:30",
+				"Pacific/Kiritimati": "2027-01-01T10:00:00.000+14"
+			}
+		}
+	]
+}

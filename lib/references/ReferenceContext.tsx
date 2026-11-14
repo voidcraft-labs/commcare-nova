@@ -20,6 +20,7 @@ import {
 } from "react";
 import type { FormReferenceContext } from "@/lib/codemirror/formReferenceContext";
 import type { ProseTemplate } from "@/lib/domain";
+import type { ProseSlotRef } from "@/lib/domain/expression/types";
 import { ReferenceProvider } from "./provider";
 
 const ReferenceCtx = createContext<ReferenceProvider | null>(null);
@@ -28,6 +29,10 @@ const ReferenceCtx = createContext<ReferenceProvider | null>(null);
  *  resolve refs against the active form without threading the uuid through every
  *  component. `undefined` off a form (or outside the wrapper). */
 const CurrentFormUuidCtx = createContext<string | undefined>(undefined);
+
+/** The prose slot a text editor edits, so a calculated value's chip prints
+ *  its formula in that slot. `undefined` outside a text with a slot. */
+const CurrentProseSlotCtx = createContext<ProseSlotRef | undefined>(undefined);
 
 interface ReferenceProviderWrapperProps {
 	/** Resolve the reference context for a given form uuid (blueprint + form +
@@ -96,6 +101,23 @@ export function CurrentFormScope({
 	children: React.ReactNode;
 }) {
 	return <CurrentFormUuidCtx value={formUuid}>{children}</CurrentFormUuidCtx>;
+}
+
+/** Name the prose slot of the text a subtree edits or shows. A text with no
+ *  slot (a case property's label) holds no calculated value. */
+export function ProseSlotScope({
+	slot,
+	children,
+}: {
+	slot: ProseSlotRef | undefined;
+	children: React.ReactNode;
+}) {
+	return <CurrentProseSlotCtx value={slot}>{children}</CurrentProseSlotCtx>;
+}
+
+/** The prose slot of the nearest `ProseSlotScope`. */
+export function useCurrentProseSlot(): ProseSlotRef | undefined {
+	return useContext(CurrentProseSlotCtx);
 }
 
 /** Access the nearest ReferenceProvider. Returns null if outside a wrapper. */

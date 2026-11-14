@@ -61,10 +61,14 @@ import {
 	clinicVisitsDocument,
 	searchLookupMediaDocument,
 } from "@/lib/deployment/__tests__/publishFixtures";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { type BlueprintDoc, type CaseOperation, proseText } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
+import { commtrackAdvanced } from "../../targeted/documents/advancedModules";
 import {
 	heldPlacementApp,
 	OWN_BLOCK,
@@ -370,11 +374,17 @@ it("writes commtrackEnabled and flagsOff only where Nova's publish requires them
 			compiledAtSeq: 1,
 			media: new Map(),
 		});
-	// The supply-point text in a label asks CommCare Supply off; an app
-	// without it asks nothing.
-	const supply = verdictOf(supplyPointTextApp()).minimumConfiguration;
+	// An advanced menu whose case list is its own menu item asks CommCare
+	// Supply off; the supply-point text, which no stretch of the source holds,
+	// and an app without either ask nothing.
+	const supply = verdictOf(
+		hydratePersistedBlueprint(commtrackAdvanced().doc),
+	).minimumConfiguration;
 	expect(supply.commtrackEnabled).toBe(false);
 	expect(supply).not.toHaveProperty("flagsOff");
+	const text = verdictOf(supplyPointTextApp()).minimumConfiguration;
+	expect(text).not.toHaveProperty("commtrackEnabled");
+	expect(text).not.toHaveProperty("flagsOff");
 	const without = verdictOf(clinicVisitsDocument()).minimumConfiguration;
 	expect(without).not.toHaveProperty("commtrackEnabled");
 	expect(without).not.toHaveProperty("flagsOff");

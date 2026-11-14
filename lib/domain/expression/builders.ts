@@ -412,6 +412,12 @@ export function coalesce(
 ): Extract<Expression, { kind: "coalesce" }> {
 	return { kind: "coalesce", values: [first, ...rest] };
 }
+export function valueList(
+	first: Expression,
+	...rest: Expression[]
+): Extract<Expression, { kind: "value-list" }> {
+	return { kind: "value-list", items: [first, ...rest] };
+}
 export function ifExpr(
 	cond: Expression,
 	thenBranch: Expression,

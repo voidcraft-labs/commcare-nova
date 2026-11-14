@@ -28,7 +28,7 @@ import { readSourceTool } from "../lib/agent/tools/media/readSource";
  *     `removeSearchInput`, `reorderSearchInputs`,
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `moveField`, `createForm`, `createModule`, `updateModule`, `updateForm`,
- *     `configureConnect`, `addEntryPoint`, `updateEntryPoint`,
+ *     `setFormSections`, `configureConnect`, `addEntryPoint`, `updateEntryPoint`,
  *     `addFormLinks`, `updateFormLink`, `moveFormLink`, `removeFormLink`,
  *     `setFormOtherwise`,
  *     `renameCaseProperties`, `addLanguage`, `getTranslatableContent`,
@@ -117,6 +117,7 @@ import {
 } from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
 import { setFieldOptionsSourceTool } from "../lib/agent/tools/setFieldOptionsSource";
+import { setFormSectionsTool } from "../lib/agent/tools/setFormSections";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import { updateFormTool } from "../lib/agent/tools/updateForm";
 import {
@@ -174,7 +175,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addFieldsTool.description,
 		schema: addFieldsTool.inputSchema,
 		prompt:
-			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add a group household with field_list true; inside it a text field head_name saving with caseWrite to the household case property head_name through via [{"identifier":"parent"}] only if changed; a single_select consent whose label has plain_label true, with two choices; and a repeat visits counting int(#form/visit_count) rows.',
+			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add a group household with field_list true; inside it a text field head_name saving with caseWrite to the household case property head_name through via [{"identifier":"parent"}] only if changed; a single_select consent whose label has plain_label true, with two choices; and a repeat visits counting int(#form/visit_count) rows. Also add a text field phone with keypad numbers, and a text field notes whose help text "Use *short* words" shows exactly as typed (plain_help true) and whose label is "Visit on {{= format-date(date(#form/visit_date), \'%e %b %Y\')}}".',
 	},
 	{
 		name: "addAutomations",
@@ -244,7 +245,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: updateModuleTool.description,
 		schema: updateModuleInputSchema,
 		prompt:
-			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to set its case type to "patient" and rename it to "Patients", and remove its case list menu item (null).',
+			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to rename it to "Patients", give it its own screen (forms_in_menu_above null), and offer the registration form 22222222-2222-4222-8222-222222222222 on its case list with the button text "Register a new patient", going on with the new case after registering.',
 	},
 	{
 		name: "updateForm",
@@ -252,6 +253,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: updateFormTool.inputSchema,
 		prompt:
 			"Use updateForm with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to close the case only when #form/outcome = 'done', and create the case only when #form/consent = 'yes'.",
+	},
+	{
+		name: "setFormSections",
+		description: setFormSectionsTool.description,
+		schema: setFormSectionsTool.inputSchema,
+		prompt:
+			'Use setFormSections with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to put field 33333333-3333-4333-8333-333333333333 on a page titled "About the household" and field 44444444-4444-4444-8444-444444444444 on an untitled page.',
 	},
 	{
 		name: "configureConnect",
@@ -321,14 +329,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addCaseListColumnsTool.description,
 		schema: addCaseListColumnsTool.inputSchema,
 		prompt:
-			"Use addCaseListColumns with moduleUuid 11111111-1111-4111-8111-111111111111 to add two plain columns: case_name with header Patient, and status with header Status.",
+			"Use addCaseListColumns with moduleUuid 11111111-1111-4111-8111-111111111111 to add three plain columns: case_name with header Patient, status with header Status, and notes with header Notes and notOnList true.",
 	},
 	{
 		name: "updateCaseListColumn",
 		description: updateCaseListColumnTool.description,
 		schema: updateCaseListColumnTool.inputSchema,
 		prompt:
-			"Use updateCaseListColumn with moduleUuid 11111111-1111-4111-8111-111111111111 and columnUuid 33333333-3333-4333-8333-333333333333, replacing it with a date column for dob with header Date of birth and pattern %Y-%m-%d.",
+			"Use updateCaseListColumn with moduleUuid 11111111-1111-4111-8111-111111111111 and columnUuid 33333333-3333-4333-8333-333333333333, replacing it with a date column for dob with header Date of birth, pattern %Y-%m-%d and notOnList true.",
 	},
 	{
 		name: "removeCaseListColumn",
@@ -398,7 +406,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setCaseSearchDisplayTool.description,
 		schema: setCaseSearchDisplayTool.inputSchema,
 		prompt:
-			"Use setCaseSearchDisplay with moduleUuid 11111111-1111-4111-8111-111111111111 to set the searchScreenTitle to 'Find a patient' and clear every other display slot (null).",
+			'Use setCaseSearchDisplay with moduleUuid 11111111-1111-4111-8111-111111111111 to show no search title ({ "kind": "none" }) and clear every other display slot (null).',
 	},
 	/* `editField` carries the new `help` slot — re-tested here to confirm
 	 * the edit-patch schema still compiles within the tool-input limits
@@ -410,7 +418,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: editFieldTool.description,
 		schema: editFieldTool.inputSchema,
 		prompt:
-			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null, and set plain_label to true.",
+			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null, and set plain_label to true. Also set keypad to numbers and plain_help to true.",
 	},
 	{
 		name: "moveField",
@@ -424,7 +432,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: createFormTool.description,
 		schema: createFormTool.inputSchema,
 		prompt:
-			'Use createForm with moduleUuid 11111111-1111-4111-8111-111111111111 to add a registration form named "Register patient" as the menu\'s registration from the case list, with the button text "Register a new patient".',
+			'Use createForm with moduleUuid 11111111-1111-4111-8111-111111111111 to add a registration form named "Register patient" as the menu\'s registration from the case list, with the button text "Register a new patient". Turn text formatting off for the whole form (plain_text true).',
 	},
 	{
 		name: "createModule",
@@ -562,7 +570,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setMenuMediaTool.description,
 		schema: setMenuMediaTool.inputSchema,
 		prompt:
-			"Use setMenuMedia with two items in one call: set moduleUuid 11111111-1111-4111-8111-111111111111 icon to the built-in household icon, and formUuid 22222222-2222-4222-8222-222222222222 under that moduleUuid to the built-in register icon. Clear every audio label (null).",
+			"Use setMenuMedia with four items in one call: set moduleUuid 11111111-1111-4111-8111-111111111111 icon to the built-in household icon, formUuid 22222222-2222-4222-8222-222222222222 under that moduleUuid to the built-in register icon, that module's case list item (target case-list-menu-item) to the built-in household icon, and the Register button on that module's case list (target case-list-registration) to the built-in register icon. Clear every audio label (null).",
 	},
 	{
 		name: "setAppLogo",

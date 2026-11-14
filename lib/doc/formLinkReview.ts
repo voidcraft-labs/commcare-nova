@@ -27,6 +27,7 @@ import {
 	targetFrameChildren,
 	targetSelectionDatums,
 } from "@/lib/commcare/formLinkProjection";
+import { linkTargetSharesFirstMenuCase } from "@/lib/commcare/validator/rules/formsInMenuAbove";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -95,6 +96,15 @@ export type FormLinkTargetVerdict =
 			readonly reason: "selection-case-type";
 			readonly expectedCaseType: string;
 			readonly possibleFinalCaseTypes: readonly string[];
+	  }
+	/** The frame toward the target opens through the app's first menu with
+	 *  the case every form listed there from a menu above opens
+	 *  (`FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE`). `aboveModuleUuid` is the
+	 *  menu to give its own screen again. */
+	| {
+			readonly ok: false;
+			readonly reason: "first-menu-shared-case";
+			readonly aboveModuleUuid: Uuid;
 	  };
 
 /**
@@ -171,14 +181,17 @@ function formLinkTargetVerdictForDatumMode(
 			sourceModuleUuid === undefined
 				? existingParentOf(doc, resolved.moduleUuid) === undefined
 				: menuTargetOffered(doc, sourceModuleUuid, resolved.moduleUuid);
-		return offered
+		if (!offered)
+			return {
+				ok: false,
+				reason: "not-offered",
+				menuUuid: resolved.moduleUuid,
+				parentUuid: existingParentOf(doc, resolved.moduleUuid),
+			};
+		const shared = linkTargetSharesFirstMenuCase(doc, resolved);
+		return shared === undefined
 			? { ok: true }
-			: {
-					ok: false,
-					reason: "not-offered",
-					menuUuid: resolved.moduleUuid,
-					parentUuid: existingParentOf(doc, resolved.moduleUuid),
-				};
+			: { ok: false, reason: "first-menu-shared-case", ...shared };
 	}
 
 	const targetForm = doc.forms[resolved.formUuid];
@@ -188,6 +201,9 @@ function formLinkTargetVerdictForDatumMode(
 	) {
 		return { ok: false, reason: "target-not-found" };
 	}
+	const shared = linkTargetSharesFirstMenuCase(doc, resolved);
+	if (shared !== undefined)
+		return { ok: false, reason: "first-menu-shared-case", ...shared };
 	const sourceForm = doc.forms[formUuid];
 	const sourceModule =
 		sourceModuleUuid === undefined ? undefined : doc.modules[sourceModuleUuid];

@@ -43,6 +43,10 @@ import {
 	updateFormMutations,
 	updateSearchInputMutation,
 } from "@/lib/agent/blueprintHelpers";
+import {
+	alwaysOfferedRegistrationChoices,
+	alwaysOfferedRegistrationMutations,
+} from "@/lib/doc/alwaysOfferedRegistration";
 import { caseListRegistrationFormMutations } from "@/lib/doc/caseListRegistrationForm";
 import {
 	addCaseOperationMutations,
@@ -58,6 +62,7 @@ import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import {
 	setFormDisplayConditionMutation,
 	setModuleDisplayConditionMutation,
+	setModuleFormsInMenuAboveMutation,
 } from "@/lib/doc/displayConditionMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import {
@@ -116,6 +121,7 @@ import {
 import {
 	type AppLanguageIdentity,
 	type Automation,
+	alwaysOfferedRegistrationOf,
 	automationMessageText,
 	automationsOf,
 	type BlueprintDoc,
@@ -147,6 +153,7 @@ import {
 	type Module,
 	menuFormUuidsOf,
 	moduleHasCaseListMenuItem,
+	moduleShowsFormsInMenuAbove,
 	organizationLevelsOf,
 	otherwiseDestinationsOffered,
 	type ProseTemplate,
@@ -1198,8 +1205,72 @@ const updateModule: KindGenerator = (ctx) => {
 			]),
 		);
 	}
+	arms.push(...menuScreenEdits(doc));
 	return ctx.rng.shuffle(arms).slice(0, MAX_TARGETS);
 };
+
+/**
+ * Where a menu shows its forms in the menu above, the edits of that slot
+ * (`setModuleFormsInMenuAboveMutation`): its own screen back, and the forms of
+ * another top-level menu with no search and no registration on its list
+ * shown above. Where a case list offers another menu's registration form,
+ * the edits of that arm (`alwaysOfferedRegistrationMutations`): where a worker
+ * goes after registering changed, the offer cleared, and the first form
+ * another list may offer, set there. A document holding neither shape
+ * proposes none, so no sample drawn before them draws differently. The
+ * commit gate keeps the ones it admits.
+ */
+function menuScreenEdits(doc: BlueprintDoc): Candidate[] {
+	const arms: Candidate[] = [];
+	const modules = modulesInOrder(doc);
+	const above = modules.find((m) => moduleShowsFormsInMenuAbove(m));
+	if (above !== undefined) {
+		arms.push(batch([setModuleFormsInMenuAboveMutation(above.uuid, false)]));
+		const candidate = modules.find(
+			(m) =>
+				!moduleShowsFormsInMenuAbove(m) &&
+				m.parentModuleUuid === undefined &&
+				effectiveCaseSearchConfig(m) === undefined &&
+				m.caseListRegistrationForm === undefined &&
+				m.entryPoint === undefined &&
+				m.caseListEntryPoint === undefined,
+		);
+		if (candidate !== undefined)
+			arms.push(
+				batch([setModuleFormsInMenuAboveMutation(candidate.uuid, true)]),
+			);
+	}
+	const host = modules.find(
+		(m) => alwaysOfferedRegistrationOf(doc, m.uuid) !== undefined,
+	);
+	const slot =
+		host === undefined
+			? undefined
+			: alwaysOfferedRegistrationOf(doc, host.uuid);
+	if (host !== undefined && slot !== undefined) {
+		for (const plan of [
+			alwaysOfferedRegistrationMutations(doc, host.uuid, {
+				...slot,
+				afterSubmit:
+					slot.afterSubmit === "case-list" ? "new-case" : "case-list",
+			}),
+			alwaysOfferedRegistrationMutations(doc, host.uuid, null),
+		])
+			if (plan.kind === "planned") arms.push(batch(plan.mutations));
+		const other = modules.find(
+			(m) =>
+				m.uuid !== host.uuid &&
+				m.caseListRegistrationForm === undefined &&
+				alwaysOfferedRegistrationChoices(doc, m.uuid).length > 0,
+		);
+		const choice =
+			other === undefined
+				? undefined
+				: alwaysOfferedRegistrationChoices(doc, other.uuid)[0];
+		if (choice !== undefined) arms.push(batch(choice.mutations));
+	}
+	return arms;
+}
 
 const setModuleMedia: KindGenerator = (ctx) =>
 	take(ctx, modulesInOrder(ctx.doc), MAX_TARGETS, readModule(ctx)).map((m) =>

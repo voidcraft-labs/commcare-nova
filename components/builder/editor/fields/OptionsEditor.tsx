@@ -27,6 +27,7 @@ import {
 	FORMAT_TEXT_CONFIRM_KEEP,
 	FORMAT_TEXT_CONFIRM_OFF,
 	FORMAT_TEXT_FOLLOWS_SOURCE,
+	FORMAT_TEXT_FORM_OFF,
 	FORMAT_TEXT_NAME,
 	formatTextGesture,
 	formatTextOffLine,
@@ -40,6 +41,7 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
+import { useFieldTextForm } from "@/lib/doc/hooks/useFieldTextForm";
 import { useOptionRemovalBlockers } from "@/lib/doc/hooks/useOptionRemovalBlockers";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
@@ -51,6 +53,7 @@ import {
 	type SelectOption,
 	type SelectOptionsSource,
 	sanitizeSelectOptionValue,
+	type Uuid,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
@@ -76,6 +79,9 @@ export interface OptionsEditorWidgetProps {
 	slotKeyBase: string;
 	/** When true, the first option label input receives focus on mount (undo/redo restore). */
 	autoFocus?: boolean;
+	/** The select whose choices these are, so each label names its prose
+	 *  slot and can hold a calculated value. */
+	fieldUuid?: Uuid;
 }
 
 /**
@@ -87,6 +93,7 @@ export function OptionsEditorWidget({
 	onSave,
 	slotKeyBase,
 	autoFocus,
+	fieldUuid,
 }: OptionsEditorWidgetProps) {
 	const [draft, setDraft] = useState<SelectOption[]>(options);
 	/* The draft as last rendered, for the group-blur commit: its frame runs
@@ -246,6 +253,10 @@ export function OptionsEditorWidget({
 	// fieldset, so the group-blur commit never sees the change.
 	const showsSource = useShowsSourceLanguage();
 	const platforms = useDeclaredPlatforms();
+	/* While the form's text formatting is off every choice shows as typed,
+	 * and its own setting is kept, unchanged, for when the switch goes back
+	 * on. */
+	const formFormattingOff = useFieldTextForm(fieldUuid).plainText === true;
 	/** The choice whose Format text is waiting on "Turn it off". */
 	const [confirmingPlain, setConfirmingPlain] = useState<string | null>(null);
 	const setOptionPlainLabel = useCallback(
@@ -350,6 +361,16 @@ export function OptionsEditorWidget({
 									value={opt.label}
 									onSave={(label) => saveLabel(i, label)}
 									autoFocus={focusIndex === i || (autoFocus && i === 0)}
+									proseSlot={
+										fieldUuid === undefined
+											? undefined
+											: {
+													entity: "field",
+													uuid: fieldUuid,
+													slot: "option_label",
+													member: { optionUuid: opt.uuid },
+												}
+									}
 								/>
 							</fieldset>
 							<input
@@ -410,15 +431,21 @@ export function OptionsEditorWidget({
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end" preferredMinWidth="13rem">
 								<DropdownMenuCheckboxItem
-									checked={opt.plainLabel !== true}
-									disabled={!showsSource}
+									checked={opt.plainLabel !== true && !formFormattingOff}
+									disabled={!showsSource || formFormattingOff}
 									closeOnClick
-									data-format-text={opt.plainLabel === true ? "off" : "on"}
+									data-format-text={
+										opt.plainLabel === true || formFormattingOff ? "off" : "on"
+									}
 									onClick={() => toggleOptionFormatText(i)}
 								>
 									<span className="flex flex-col">
 										<span>{FORMAT_TEXT_NAME}</span>
-										{showsSource ? null : (
+										{formFormattingOff ? (
+											<span className="text-xs text-nova-text-muted">
+												{FORMAT_TEXT_FORM_OFF}
+											</span>
+										) : showsSource ? null : (
 											<span className="text-xs text-nova-text-muted">
 												{FORMAT_TEXT_FOLLOWS_SOURCE}
 											</span>
@@ -428,7 +455,7 @@ export function OptionsEditorWidget({
 							</DropdownMenuContent>
 						</DropdownMenu>
 						<OptionValueRefusal message={optionValueRefusal(draft, i)} />
-						{opt.plainLabel === true && (
+						{opt.plainLabel === true && !formFormattingOff && (
 							<p
 								data-format-text-line
 								className="basis-full pl-1 text-xs leading-relaxed text-nova-text-muted"
@@ -527,6 +554,7 @@ export function OptionsEditor<F extends Field>(
 			<OptionsEditorWidget
 				options={source.options}
 				slotKeyBase={field.uuid}
+				fieldUuid={field.uuid}
 				autoFocus={autoFocus}
 				onSave={(next) => {
 					const outcome = onChange({
