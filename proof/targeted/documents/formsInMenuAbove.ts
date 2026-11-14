@@ -7,7 +7,10 @@
  * (`workflow.py::WorkflowHelper.get_frame_children`, `_root_module_datums`).
  *
  * - "Registration" shows its one registration form on the first menu, with
- *   an icon and a display condition, which then gate that form there.
+ *   an icon and a display condition, which then gate that form there. The
+ *   condition reads the worker's role, a worker property the app declares,
+ *   so a publish asks the project space for the field and a worker with no
+ *   role holds it blank.
  * - "Clinic" is an ordinary case-first menu between the two menus above. Its
  *   follow-up form links to "Visit", a form listed on the first menu.
  * - "Visits" shows on the first menu a follow-up form with no stored
@@ -26,7 +29,7 @@
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { setModuleFormsInMenuAboveMutation } from "@/lib/doc/displayConditionMutations";
 import { plainColumn, proseText } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/expression";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -73,6 +76,7 @@ const patients = (key: string) =>
 
 export function formsInMenuAbove() {
 	const task = uuid("archive-task");
+	const role = uuid("role");
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Forms in the menu above",
@@ -87,7 +91,7 @@ export function formsInMenuAbove() {
 				uuid: uuid("registration"),
 				name: "Registration",
 				caseType: "patient",
-				displayCondition: eq(sessionUser("role"), literal("registrar")),
+				displayCondition: eq(sessionUserProperty(role), literal("registrar")),
 				caseListConfig: patients("registration"),
 				forms: [
 					{
@@ -149,6 +153,8 @@ export function formsInMenuAbove() {
 			},
 		],
 	});
+	doc.userProperties = { [role]: { uuid: role, slug: "role", label: "Role" } };
+	doc.userPropertyOrder = [role];
 	doc.modules[uuid("registration")].formsInMenuAbove = true;
 	doc.modules[uuid("registration")].icon = "nova-icon:patient";
 	doc.modules[uuid("visits")].formsInMenuAbove = true;

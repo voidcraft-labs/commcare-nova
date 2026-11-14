@@ -24,10 +24,12 @@ import static org.junit.Assert.*;
 /** Core's own menu listing, its case-first question and its after-submit frames over the menus Nova writes for
  * menus that show their forms in the menu above, on Nova's local suite and on HQ's build alike: each screen lists
  * what Preview shows there (`menuProjection.ts::previewScreenEntryVisibility` over `menuScreens.ts::menuScreenEntries`,
- * written by the producer), in order, for a worker holding each role a display condition compares and no case, so
- * every condition is read holding and not, a submenu's rows carrying its parent's (a row its own condition admits
- * and its parent's refuses is left off, which the producer names in `parentHides`); choosing a menu asks for a case
- * first exactly where Nova says the screen chooses a case first; each form with no destinations of its own lands
+ * written by the producer), in order, for a worker holding each role a display condition compares, so every condition
+ * is read holding and not, a submenu's rows carrying its parent's (a row its own condition admits and its parent's
+ * refuses is left off, which the producer names in `parentHides`), each screen read as a device reaches it: with no
+ * case chosen, or, where the screen chooses a case first, once Core has asked for it and been given each case of its
+ * type the device holds; choosing a menu asks for a case first exactly where Nova says the screen chooses a case
+ * first; each form with no destinations of its own lands
  * where Preview lands it (`frameLanding.ts::screenOfFrame` over its after-submit frame), every one of them: an entry
  * of a menu whose forms read the search is given the search's results and its claim as Core's own command-line
  * session gives them, and any other entry that asks for a search or a claim fails. The step-back control is the
@@ -47,13 +49,25 @@ public class MenuScreensRuntimeTest {
   String resource="/menu-screens/"+document+(hq?".hq-suite.xml":".suite.xml");
   try(InputStream in=MenuScreensRuntimeTest.class.getResourceAsStream(resource)){assertNotNull(resource,in);return new Parser(in).parse();}
  }
- /** A session on the suite for a signed-in worker whose device holds the given cases, each `{id, type}`. */
- static SessionWrapper session(Suite suite,MockUserDataSandbox sandbox,String[]... cases){return session(suite,sandbox,null,cases);}
- /** The same, the worker's `role` among its data where `role` is not null. */
- static SessionWrapper session(Suite suite,MockUserDataSandbox sandbox,String role,String[]... cases){
-  User worker=new User("worker","","worker-id");if(role!=null)worker.setProperty("role",role);
+ /** A session on the suite for a signed-in worker whose device holds the given cases, each `{id, type}`, and whose
+  * role is blank. */
+ static SessionWrapper session(Suite suite,MockUserDataSandbox sandbox,String[]... cases){return session(suite,sandbox,"",new JSONArray(),cases);}
+ /** The same, the worker's `role` among its data, and the device also holding the producer's `deviceCases`, each
+  * `{id, type, properties}`. The documents that compare the role declare it as a worker property, so a publish asks
+  * the project space for the field, and in a project space that defines it a worker with no value has it blank: HQ's
+  * restore gives every worker each user field the project space defines, `''` where none is set
+  * (`user_data.py::UserData.to_dict`). */
+ static SessionWrapper session(Suite suite,MockUserDataSandbox sandbox,String role,JSONArray deviceCases,String[]... cases){
+  User worker=new User("worker","","worker-id");worker.setProperty("role",role);
   sandbox.setLoggedInUser(worker);
   for(String[] seed:cases){Case c=new Case(seed[0],seed[1]);c.setCaseId(seed[0]);sandbox.getCaseStorage().write(c);}
+  for(int i=0;i<deviceCases.length();i++){
+   JSONObject held=deviceCases.getJSONObject(i);Case c=new Case(held.getString("id"),held.getString("type"));
+   c.setCaseId(held.getString("id"));
+   JSONObject properties=held.getJSONObject("properties");
+   for(String name:properties.keySet())c.setProperty(name,properties.getString(name));
+   sandbox.getCaseStorage().write(c);
+  }
   CommCarePlatform platform=new CommCarePlatform(2,53,0);platform.registerSuite(suite);
   return new SessionWrapper(platform,sandbox);
  }
@@ -62,12 +76,16 @@ public class MenuScreensRuntimeTest {
   * result set (`RemoteQuerySessionManager.buildExternalDataInstance`, `CommCareSession.setQueryDatum`) and the
   * claim as having posted (`EXTRA_POST_SUCCESS`, as Core's `SyncScreen` marks it); anywhere else a search or a
   * claim is no step the entry should need. */
- static void fill(SessionWrapper session,String caseId,String label,boolean readsSearch)throws Exception{
+ static void fill(SessionWrapper session,String caseId,String label,boolean readsSearch)throws Exception{fill(session,caseId,label,readsSearch,false);}
+ /** The same, for a menu that chooses a case first: until it asks for a command, which its screen then lists. */
+ static void fill(SessionWrapper session,String caseId,String label,boolean readsSearch,boolean toMenu)throws Exception{
   for(int step=0;;step++){
    assertTrue(label+" needs more than ten values",step<10);
    EvaluationContext context=session.getEvaluationContext();
    String needed=session.getNeededData(context);
-   if(needed==null)return;
+   if(!toMenu&&needed==null)return;
+   assertNotNull(label+" opens an entry before it lists its menu",needed);
+   if(toMenu&&needed.equals(SessionFrame.STATE_COMMAND_ID)){assertTrue(label+" asks for a command before a case",step>0);return;}
    if(needed.equals(SessionFrame.STATE_QUERY_REQUEST)||needed.equals(SessionFrame.STATE_SYNC_REQUEST))
     assertTrue(label+" needs "+needed+" in a menu whose forms do not read the search",readsSearch);
    if(needed.equals(SessionFrame.STATE_QUERY_REQUEST)){
@@ -88,14 +106,22 @@ public class MenuScreensRuntimeTest {
   int parentHidden=0;
   for(String document:DOCUMENTS)for(boolean hq:new boolean[]{false,true}){
    Suite suite=suite(document,hq);
-   JSONArray screens=json("/menu-screens/"+document+".screens.json").getJSONArray("screens");
+   JSONObject evidence=json("/menu-screens/"+document+".screens.json");
+   JSONArray screens=evidence.getJSONArray("screens"),deviceCases=evidence.getJSONArray("deviceCases");
    for(int i=0;i<screens.length();i++){
     JSONObject screen=screens.getJSONObject(i);String menuId=screen.getString("menuId");
-    JSONArray listings=screen.getJSONArray("listings");
+    JSONArray listings=screen.getJSONArray("listings"),entries=screen.getJSONArray("entries");
+    boolean readsSearch=false;
+    for(int j=0;j<entries.length();j++)readsSearch|=entries.getJSONObject(j).getBoolean("readsSearch");
     for(int l=0;l<listings.length();l++){
-     JSONObject listing=listings.getJSONObject(l);String role=listing.isNull("role")?null:listing.getString("role");
-     String label=document+" "+menuId+" role="+role+" hq="+hq;
-     SessionWrapper session=session(suite,MockDataUtils.getStaticStorage(),role);
+     JSONObject listing=listings.getJSONObject(l);String role=listing.getString("role");
+     String caseId=listing.isNull("caseId")?null:listing.getString("caseId");
+     String label=document+" "+menuId+" role="+role+" case="+caseId+" hq="+hq;
+     assertEquals(label+" is read with a case chosen exactly where it chooses one first",screen.getBoolean("asksCaseFirst"),caseId!=null);
+     SessionWrapper session=session(suite,MockDataUtils.getStaticStorage(),role,deviceCases);
+     // A screen that chooses a case first is listed once its case is chosen, as a device reaches it: Core asks for
+     // the case before any command (`CommCareSession.getDataNeededByAllEntries`), and lists the menu after.
+     if(caseId!=null){session.setCommand(menuId);fill(session,caseId,label,readsSearch,true);}
      List<String> expected=new ArrayList<>();JSONArray commands=listing.getJSONArray("commands");
      for(int j=0;j<commands.length();j++)expected.add(commands.getString(j));
      MenuLoader loader=new MenuLoader(session.getPlatform(),session,menuId,FAIL,false,false);
@@ -137,10 +163,12 @@ public class MenuScreensRuntimeTest {
      session.setCommand(command);
      fill(session,"case-one",label,entry.getBoolean("readsSearch"));
      landed++;if(entry.getBoolean("readsSearch"))searched++;
-     // The answer says whether a frame is left to run, which Home and the first menu need not leave.
-     session.finishExecuteAndPop(session.getEvaluationContext());
+     // The answer says whether a frame is left to run, which Home and the first menu need not leave: where none is,
+     // the platform ends the session and starts again at its first menu, with no command
+     // (`MenuSessionRunnerService.executeAndRebuildSession`, `AndroidSessionWrapper.terminateSession`).
+     boolean frameLeft=session.finishExecuteAndPop(session.getEvaluationContext());
      String expected=entry.isNull("landsOn")?null:entry.getString("landsOn");
-     assertEquals(label,expected,session.getCommand());
+     assertEquals(label,expected,frameLeft?session.getCommand():null);
     }
    }
   }
@@ -157,7 +185,14 @@ public class MenuScreensRuntimeTest {
   for(boolean hq:new boolean[]{false,true}){
    String label="step-back-control hq="+hq;
    SessionWrapper session=session(suite("step-back-control",hq),MockDataUtils.getStaticStorage(),new String[]{"alpha-case","alpha"},new String[]{"beta-case","beta"});
-   session.setCommand("m2");fill(session,"alpha-case",label,false);
+   // The ordinary alpha menu asks for its case first, then for its one form (`CommCareSession.getNeededData`: a menu
+   // command names no entry of its own).
+   session.setCommand("m2");
+   assertEquals(label,SessionFrame.STATE_DATUM_VAL,session.getNeededData(session.getEvaluationContext()));
+   session.setEntityDatum(session.getNeededDatum().getDataId(),"alpha-case");
+   assertEquals(label,SessionFrame.STATE_COMMAND_ID,session.getNeededData(session.getEvaluationContext()));
+   session.setCommand("m2-f0");
+   assertNull(label,session.getNeededData(session.getEvaluationContext()));
    assertEquals(label,"m2-f0",session.getCommand());
    assertTrue(label,session.finishExecuteAndPop(session.getEvaluationContext()));
    assertEquals(label,"m0-f0",session.getCommand());

@@ -14,7 +14,12 @@ copy some runtime reads, a label's.
 validation message typed with formatting symbols, is published as Nova writes
 it (no copy) and with a copy of each hint's and validation message's text in
 every translation: HQ builds both spellings whole, and its builds differ by
-the copies alone, which the rule erases; Core's sessions, which record each
+the copies alone, which the rule erases. The hint's and the message's texts
+are their own, unlike each other and any other text of the form: HQ's build
+keeps one of a form's texts that hold the same values and points every
+reference at it (``XForm.normalize_itext``), so a copy given to a text equal
+to the second question's help would move its reference onto that help's
+text, which the rule rightly leaves. Core's sessions, which record each
 question's hint (``getHintText``), compare equal; and Core refuses the answer
 the question's validation refuses with the same validation message
 (``getConstraintText``) in every language each build holds. The sessions
@@ -43,9 +48,10 @@ JR = "{http://openrosa.org/javarosa}"
 # The first form's file in a build, and its question holding the hint and the validation message.
 FORM_FILE = "modules-0/forms-0.xml"
 QUESTION = "/data/plain_help"
-# What the hint and the validation message hold (``proof/targeted/documents/plainHelp.ts::PLAIN_HELP_TEXT``), and
-# the one answer the question's validation (``. != 'invalid'``) refuses.
-TYPED = "**bold** and a [link](https://example.org)"
+# What the hint and the validation message hold (``proof/targeted/documents/plainHelp.ts::PLAIN_HINT_TEXT``,
+# ``PLAIN_MESSAGE_TEXT``), and the one answer the question's validation (``. != 'invalid'``) refuses.
+HINT = "**hint** and a [link](https://example.org)"
+MESSAGE = "**message** and a [link](https://example.org)"
 REFUSED = "invalid"
 
 
@@ -142,10 +148,10 @@ def test_core_reads_a_hint_and_a_validation_message_alike_whatever_their_copies(
     assert build_differences(nova.build, saved.build, rules=(RULE,)) == []
     # The sessions showed the question and read its hint as typed, on both spellings.
     hints = _hints(nova_run.trace)
-    assert hints and set(hints) == {TYPED}, hints
+    assert hints and set(hints) == {HINT}, hints
     assert _hints(saved_run.trace) == hints
     assert alike == [], shown(alike)
     # Core refused the answer and read the validation message as typed in every language, on both spellings.
-    assert messages and set(messages.values()) == {("constraint", TYPED)}, messages
+    assert messages and set(messages.values()) == {("constraint", MESSAGE)}, messages
     assert saved_messages == messages
     assert shown(stored_differences(nova.stored, unlabelled.stored, rules=(RULE,)))

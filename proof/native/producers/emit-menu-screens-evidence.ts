@@ -9,10 +9,14 @@
  * Each document writes `<name>.json` (the HQ import body, which HQ's step
  * builds its suite from, `proof/native/steps/suite_emission.py::menu_screens`),
  * `<name>.suite.xml` (the local archive's suite) and `<name>.screens.json`:
- * what Nova's projection says each screen lists (`lib/domain/menuScreens.ts`),
- * which entries Preview shows there (`menuProjection.ts::previewScreenEntryVisibility`)
- * for a worker holding each role of `WORKER_ROLES` and no case, which rows of
- * a menu that shows its forms in its parent's menu that worker loses to the
+ * the cases the worker's device holds (`deviceCases`), what Nova's projection
+ * says each screen lists (`lib/domain/menuScreens.ts`), which entries Preview
+ * shows there as a device reaches the screen: for a worker holding each role
+ * of `WORKER_ROLES`, with no case chosen, or, on a screen that chooses a case
+ * first, once each case of the screen's type is chosen
+ * (`menuProjection.ts::previewScreenEntryVisibility` and
+ * `previewCaseListMenuEntry`, as `ModuleScreen` reads them), which rows of a
+ * menu that shows its forms in its parent's menu that worker loses to the
  * parent's condition alone (`parentHiddenCommands`), whether Core asks for a
  * case first, which entries open in a menu whose forms read the
  * search, and where Preview lands each form after submit
@@ -39,6 +43,7 @@ import { resolve } from "node:path";
 import AdmZip from "adm-zip";
 import { testUuid } from "../../../__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "../../../lib/__tests__/docHelpers";
+import type { CaseRow } from "../../../lib/case-store";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import {
@@ -49,6 +54,7 @@ import {
 	moduleIndexOf,
 	previousEntryFrameChildren,
 } from "../../../lib/commcare/formLinkProjection";
+import type { RuntimeTarget } from "../../../lib/commcare/runtimeTarget";
 import { alwaysOfferedRegistrationMutations } from "../../../lib/doc/alwaysOfferedRegistration";
 import { mutationCommitVerdict } from "../../../lib/doc/commitVerdicts";
 import { hydratePersistedBlueprint } from "../../../lib/doc/fieldParent";
@@ -67,6 +73,7 @@ import {
 	moduleFormsReadSearch,
 	moduleHasOwnScreen,
 	moduleUuidOfForm,
+	orderedUserProperties,
 	proseText,
 	screenChoosesCaseFirst,
 	screenIsBareCaseList,
@@ -74,9 +81,10 @@ import {
 } from "../../../lib/domain";
 import { formField, term } from "../../../lib/domain/expression";
 import { alwaysOfferedRegistrationReturn } from "../../../lib/preview/engine/caseListRegisterAction";
-import type {
-	NavigationDeviceCases,
-	NavigationItemVisibility,
+import {
+	type NavigationDeviceCases,
+	type NavigationItemVisibility,
+	navigationSelectedCase,
 } from "../../../lib/preview/engine/displayConditionEvaluation";
 import {
 	type FrameLanding,
@@ -85,6 +93,9 @@ import {
 import type { PreviewSearchSessionValues } from "../../../lib/preview/engine/identity";
 import {
 	menuScreenEntryKey,
+	previewCaseListMenuEntry,
+	previewContributorVisibility,
+	previewMenuCaseContext,
 	previewModuleOwnVisibility,
 	previewScreenEntryVisibility,
 } from "../../../lib/preview/menuProjection";
@@ -99,7 +110,18 @@ import {
 	registerFromCaseList,
 	registerFromCaseListWebApps,
 } from "../../targeted/documents/registerFromCaseList";
-import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
+
+/**
+ * The deployment HQ's step builds each document's suite for
+ * (`proof/native/steps/suite_emission.py::menu_screens`, `ENDPOINT_DOMAIN`
+ * and the app id it names), so a frame that names a request, the case
+ * fixture an inline search's return frame reads, is compared with HQ's whole.
+ */
+const MENU_SCREENS_TARGET: RuntimeTarget = {
+	server: "production",
+	domain: "test-domain",
+	appId: "menu-screens-evidence",
+};
 
 const output = process.argv[2];
 if (!output)
@@ -109,46 +131,173 @@ if (!output)
 mkdirSync(output, { recursive: true });
 
 /**
- * The worker roles each screen is listed for: none, and each value of the
+ * The worker roles each screen is listed for: blank, and each value of the
  * worker's `role` a display condition of the targeted documents compares
  * with, so every condition is read both holding and not
  * (`assertEveryMenuConditionHolds`), and a submenu's condition joined with its
  * parent's is read both holding and failing on the parent's side alone
- * (`assertEveryConjunctionIsRead`). The worker holds no case, so a condition
- * that reads the chosen case is false, as Core reads it with no case chosen.
+ * (`assertEveryConjunctionIsRead`). The documents that compare it declare
+ * `role` as a worker property, so a publish asks the project space for the
+ * field (`lib/deployment/setupArtifact.ts`, worker information), and a worker
+ * the project space holds no value for has it blank: HQ's restore gives every
+ * worker each user field the project space defines, `''` where none is set
+ * (`user_data.py::UserData.to_dict`), as Preview reads a declared property.
  */
-const WORKER_ROLES = [null, "registrar", "visitor", "checker"] as const;
+const WORKER_ROLES = ["", "registrar", "visitor", "checker"] as const;
 
-/** The device's cases: none. */
-const NO_CASES = (doc: BlueprintDoc): NavigationDeviceCases => ({
-	snapshot: { rows: [], indices: [] },
-	caseTypes: doc.caseTypes ?? [],
-});
+/**
+ * The property values of the cases the device holds of each case type a
+ * screen chooses first, one case per entry, so a form's display condition
+ * that reads the chosen case is read both holding and not
+ * (`assertEveryCaseConditionIsRead`). A type not named holds one case with no
+ * properties.
+ */
+const CASE_VALUES: Readonly<
+	Record<string, readonly Readonly<Record<string, string>>[]>
+> = {
+	household: [{ village: "north" }, { village: "south" }],
+};
+
+/** A case the worker's device holds, which Core's case storage holds alike
+ *  (`MenuScreensRuntimeTest.session`). */
+interface DeviceCase {
+	readonly id: string;
+	readonly type: string;
+	readonly properties: Readonly<Record<string, string>>;
+}
+
+/** One reading of a screen: the worker's role and, on a screen that chooses
+ *  a case first, the case chosen there and the menu that chose it. */
+interface Reading {
+	readonly role: string;
+	readonly chosen?: { readonly moduleUuid: Uuid; readonly case: DeviceCase };
+}
+
+/** The menu screen a module's own screen is. */
+function ownScreen(moduleUuid: Uuid): MenuScreen {
+	return { kind: "menu", moduleUuid };
+}
+
+/** Whether a worker chooses a case on the screen before Core lists it: a menu
+ *  screen that chooses a case first, as the module screen reads it
+ *  (`useModuleIds.ts::moduleScreenIsCaseFirst`). A bare case list chooses a
+ *  case too, and lists nothing once one is chosen. */
+function chosenFirst(doc: BlueprintDoc, screen: MenuScreen): boolean {
+	return (
+		screen.kind === "menu" &&
+		(screenChoosesCaseFirst(doc, screen) || screenIsBareCaseList(doc, screen))
+	);
+}
+
+/** The cases the worker's device holds: those of every case type a screen
+ *  chooses first. */
+function deviceCasesOf(doc: BlueprintDoc): DeviceCase[] {
+	const types = new Set<string>();
+	for (const moduleUuid of doc.moduleOrder) {
+		const caseType = doc.modules[moduleUuid]?.caseType;
+		if (
+			caseType !== undefined &&
+			moduleHasOwnScreen(doc, moduleUuid) &&
+			chosenFirst(doc, ownScreen(moduleUuid))
+		)
+			types.add(caseType);
+	}
+	return [...types].flatMap((type) =>
+		(CASE_VALUES[type] ?? [{}]).map((properties, index) => ({
+			id: `${type}-case-${index + 1}`,
+			type,
+			properties,
+		})),
+	);
+}
+
+/** The readings of a screen: each role, and on a screen that chooses a case
+ *  first, each case of its menu's type, chosen there. */
+function readingsOf(
+	doc: BlueprintDoc,
+	screen: MenuScreen,
+	cases: readonly DeviceCase[],
+): Reading[] {
+	if (screen.kind !== "menu" || !chosenFirst(doc, screen))
+		return WORKER_ROLES.map((role) => ({ role }));
+	const { moduleUuid } = screen;
+	const caseType = doc.modules[moduleUuid]?.caseType;
+	const chosen = cases.filter((held) => held.type === caseType);
+	if (chosen.length === 0)
+		throw new Error(
+			`The device holds no case for the menu "${doc.modules[moduleUuid]?.name}" to choose first.`,
+		);
+	return WORKER_ROLES.flatMap((role) =>
+		chosen.map((held) => ({ role, chosen: { moduleUuid, case: held } })),
+	);
+}
+
+/** The device's cases as Preview reads them. */
+function deviceSnapshot(
+	doc: BlueprintDoc,
+	cases: readonly DeviceCase[],
+): NavigationDeviceCases {
+	return {
+		snapshot: {
+			rows: cases.map(
+				(held): CaseRow => ({
+					case_id: held.id,
+					app_id: doc.appId ?? "menu-screens-evidence",
+					case_type: held.type,
+					owner_id: "worker-id",
+					status: "open",
+					opened_on: null,
+					modified_on: null,
+					closed_on: null,
+					case_name: held.id,
+					external_id: null,
+					parent_case_id: null,
+					properties: { ...held.properties },
+				}),
+			),
+			indices: [],
+		},
+		caseTypes: doc.caseTypes ?? [],
+	};
+}
 
 /** The worker Core's session holds (`MenuScreensRuntimeTest.session`), with
- *  `role` among its data where it holds one. */
-function workerSession(role: string | null): PreviewSearchSessionValues {
+ *  `role` among its data, under the slug each declared worker property has. */
+function workerSession(
+	doc: BlueprintDoc,
+	role: string,
+): PreviewSearchSessionValues {
 	return {
 		context: { userid: "worker-id", username: "worker" },
-		user: role === null ? {} : { role },
-		userPropertySlugs: {},
+		user: { role },
+		userPropertySlugs: Object.fromEntries(
+			orderedUserProperties(doc).map((property) => [
+				property.uuid,
+				property.slug,
+			]),
+		),
 	};
 }
 
 /** Each module's own visibility for a worker holding `role`. */
-function ownVisibility(doc: BlueprintDoc, role: string | null) {
+function ownVisibility(
+	doc: BlueprintDoc,
+	cases: readonly DeviceCase[],
+	role: string,
+) {
 	return previewModuleOwnVisibility(doc, {
 		authoring: false,
-		session: workerSession(role),
+		session: workerSession(doc, role),
 		lookup: { kind: "idle" },
-		deviceCases: NO_CASES(doc),
+		deviceCases: deviceSnapshot(doc, cases),
 	});
 }
 
 /** A role list that leaves some menu's condition never holding would leave
  *  that condition's effect unread: refuse it by name. */
 function assertEveryMenuConditionHolds(name: string, doc: BlueprintDoc): void {
-	const holding = WORKER_ROLES.map((role) => ownVisibility(doc, role));
+	const cases = deviceCasesOf(doc);
+	const holding = WORKER_ROLES.map((role) => ownVisibility(doc, cases, role));
 	for (const moduleUuid of doc.moduleOrder) {
 		const mod = doc.modules[moduleUuid];
 		if (mod?.displayCondition === undefined || mod.hiddenFromMenu === true)
@@ -170,95 +319,164 @@ function commandOf(
 	return entry.kind === "case-list" ? `m${index}-case-list` : `m${index}`;
 }
 
-/** The commands a worker holding `role` meets on a screen, in order, as
- *  Preview shows them: a menu tile by its own condition, which is all Core
- *  reads when it lists that screen, and a form or case list row by
- *  `previewScreenEntryVisibility` (the menus whose condition it carries, then
- *  a form's own). */
+/** What a screen is read over: the document, its projection, the device's
+ *  cases and the screen. */
+interface ScreenRead {
+	readonly doc: BlueprintDoc;
+	readonly ctx: FormLinkProjectionContext;
+	readonly cases: readonly DeviceCase[];
+	readonly screen: MenuScreen;
+}
+
+/** The commands a worker meets on a screen in a reading, in order, as
+ *  Preview shows them (`ModuleScreen`, `HomeScreen`): a menu tile by its own
+ *  condition, which is all Core reads when it lists that screen, a form or
+ *  case list row by `previewScreenEntryVisibility` (the menus whose condition
+ *  it carries, then a form's own, read over the chosen case), and a case list
+ *  row only where `previewCaseListMenuEntry` lists it. */
 function listedCommands(
-	doc: BlueprintDoc,
-	ctx: FormLinkProjectionContext,
+	read: ScreenRead,
 	entries: readonly MenuScreenEntry[],
-	role: string | null,
+	reading: Reading,
 ): string[] {
-	const own = ownVisibility(doc, role);
-	const shown = entryVisibility(doc, entries, own, role);
+	const own = ownVisibility(read.doc, read.cases, reading.role);
+	const shown = entryVisibility(read, entries, own, reading);
 	return entries.flatMap((entry) => {
+		if (!caseListRowListed(read, entry, reading)) return [];
 		const visibility =
 			entry.kind === "menu"
 				? (own.get(entry.moduleUuid) ?? "shown")
 				: shown.get(menuScreenEntryKey(entry));
 		if (visibility === "pending" || visibility === undefined)
 			throw new Error(
-				`Preview cannot say whether ${commandOf(ctx, entry)} shows for a worker with no cases.`,
+				`Preview cannot say whether ${commandOf(read.ctx, entry)} shows for this worker.`,
 			);
-		return visibility === "shown" ? [commandOf(ctx, entry)] : [];
+		return visibility === "shown" ? [commandOf(read.ctx, entry)] : [];
 	});
 }
 
-/** Each entry's visibility on a screen as Preview shows it to a worker
- *  holding `role` and no case, each module's own visibility read from
- *  `own`. */
+/** Whether Preview lists an entry at all where it is a case list row: the
+ *  first menu lists one as a forms-first menu does, and a menu screen as its
+ *  module screen does, by whether it chooses a case first and has one
+ *  chosen. Any other entry is listed by its visibility alone. */
+function caseListRowListed(
+	read: ScreenRead,
+	entry: MenuScreenEntry,
+	reading: Reading,
+): boolean {
+	if (entry.kind !== "case-list") return true;
+	const isCaseFirst =
+		read.screen.kind === "menu" &&
+		screenChoosesCaseFirst(read.doc, read.screen);
+	return (
+		previewCaseListMenuEntry(read.doc, entry.moduleUuid, {
+			isCaseFirst,
+			hasSelectedCase: reading.chosen !== undefined,
+		}) !== undefined
+	);
+}
+
+/** Each entry's visibility on a screen as Preview shows it in a reading,
+ *  each module's own visibility read from `own`: a form's condition reads
+ *  the case its menu has chosen, as the module screen hands it
+ *  (`previewMenuCaseContext`, `navigationSelectedCase`). */
 function entryVisibility(
-	doc: BlueprintDoc,
+	read: ScreenRead,
 	entries: readonly MenuScreenEntry[],
 	own: ReadonlyMap<Uuid, NavigationItemVisibility>,
-	role: string | null,
+	reading: Reading,
 ): ReadonlyMap<string, NavigationItemVisibility> {
+	const { doc } = read;
+	const chosen = reading.chosen;
+	const selections =
+		chosen === undefined
+			? {}
+			: {
+					[chosen.moduleUuid]: {
+						caseType: chosen.case.type,
+						cases: [
+							{
+								caseId: chosen.case.id,
+								caseName: chosen.case.id,
+								caseProperties: chosen.case.properties,
+							},
+						],
+					},
+				};
 	return previewScreenEntryVisibility({
 		doc,
 		entries,
 		ownModuleVisibility: own,
 		authoring: false,
-		session: workerSession(role),
+		session: workerSession(doc, reading.role),
 		lookup: { kind: "idle" },
-		deviceCases: NO_CASES(doc),
-		selectedCaseOf: () => undefined,
+		deviceCases: deviceSnapshot(doc, read.cases),
+		selectedCaseOf: (entry) => {
+			const cases = previewMenuCaseContext(
+				{ ...doc, caseTypes: doc.caseTypes ?? [] },
+				entry.moduleUuid,
+				selections,
+			).selectedCase?.cases;
+			return cases?.length === 1
+				? navigationSelectedCase(
+						doc,
+						entry.moduleUuid,
+						entry.formUuid,
+						cases[0].caseId,
+					)
+				: undefined;
+		},
 	});
 }
 
 /** The commands of a menu that shows its forms in its parent's menu that a
- *  worker holding `role` does not meet only because the parent's own
+ *  worker does not meet in a reading only because the parent's own
  *  visibility hides them: Preview would show each were the menu read by its
  *  own condition alone. Core leaves each off the screen only where the menu's
  *  relevance carries its parent's condition (`conditionModulesOf`). */
 function parentHiddenCommands(
-	doc: BlueprintDoc,
-	ctx: FormLinkProjectionContext,
+	read: ScreenRead,
 	entries: readonly MenuScreenEntry[],
-	role: string | null,
+	reading: Reading,
 ): string[] {
-	const own = ownVisibility(doc, role);
-	const shown = entryVisibility(doc, entries, own, role);
+	const { doc } = read;
+	const own = ownVisibility(doc, read.cases, reading.role);
+	const shown = entryVisibility(read, entries, own, reading);
 	return entries.flatMap((entry) => {
 		const parent =
 			entry.kind === "menu"
 				? undefined
 				: conditionModulesOf(doc, entry.moduleUuid)[1];
-		if (parent === undefined || own.get(parent) !== "hidden") return [];
+		if (
+			parent === undefined ||
+			own.get(parent) !== "hidden" ||
+			!caseListRowListed(read, entry, reading)
+		)
+			return [];
 		const key = menuScreenEntryKey(entry);
 		const alone = entryVisibility(
-			doc,
+			read,
 			[entry],
 			new Map([...own, [parent, "shown"]]),
-			role,
+			reading,
 		);
 		return shown.get(key) === "hidden" && alone.get(key) === "shown"
-			? [commandOf(ctx, entry)]
+			? [commandOf(read.ctx, entry)]
 			: [];
 	});
 }
 
 /** A menu that shows its forms in a parent's menu, both carrying a
  *  condition, is read through the conjunction of the two. A document whose
- *  roles never show one of its rows with both conditions holding, and never
- *  hide one by the parent's condition alone, would leave that conjunction's
- *  effect unread: refuse it by name. */
+ *  readings never show one of its rows with both conditions holding, and
+ *  never hide one by the parent's condition alone, would leave that
+ *  conjunction's effect unread: refuse it by name. */
 function assertEveryConjunctionIsRead(
 	name: string,
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
 ): void {
+	const cases = deviceCasesOf(doc);
 	for (const moduleUuid of doc.moduleOrder) {
 		const [, parentUuid] = conditionModulesOf(doc, moduleUuid);
 		const mod = doc.modules[moduleUuid];
@@ -271,22 +489,60 @@ function assertEveryConjunctionIsRead(
 			parent.hiddenFromMenu === true
 		)
 			continue;
-		const entries = menuScreenEntries(
-			doc,
-			menuScreenOf(doc, moduleUuid),
-		).filter(
+		const screen = menuScreenOf(doc, moduleUuid);
+		const read = { doc, ctx, cases, screen };
+		const entries = menuScreenEntries(doc, screen).filter(
 			(entry) => entry.kind !== "menu" && entry.moduleUuid === moduleUuid,
 		);
+		const readings = readingsOf(doc, screen, cases);
 		if (
-			!WORKER_ROLES.some(
-				(role) => listedCommands(doc, ctx, entries, role).length > 0,
+			!readings.some(
+				(reading) => listedCommands(read, entries, reading).length > 0,
 			) ||
-			!WORKER_ROLES.some(
-				(role) => parentHiddenCommands(doc, ctx, entries, role).length > 0,
+			!readings.some(
+				(reading) => parentHiddenCommands(read, entries, reading).length > 0,
 			)
 		)
 			throw new Error(
-				`No role of WORKER_ROLES both sees a row of "${mod.name}" in ${name} and loses one to the condition of "${parent.name}" alone; give the menu a row that reads no case, and conditions some role holds together and some role holds only the menu's.`,
+				`No reading both sees a row of "${mod.name}" in ${name} and loses one to the condition of "${parent.name}" alone; give the menu a row its conditions alone decide, and conditions some role holds together and some role holds only the menu's.`,
+			);
+	}
+}
+
+/** A form's display condition on a screen that chooses a case first reads
+ *  the chosen case. Where its menus show it in some reading, a document whose
+ *  device cases never both show and hide it there would leave that
+ *  condition's effect unread: refuse it by name. */
+function assertEveryCaseConditionIsRead(
+	name: string,
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	screen: MenuScreen,
+): void {
+	if (screen.kind !== "menu" || !chosenFirst(doc, screen)) return;
+	const cases = deviceCasesOf(doc);
+	const read = { doc, ctx, cases, screen };
+	const entries = menuScreenEntries(doc, screen);
+	for (const entry of entries) {
+		if (
+			entry.kind !== "form" ||
+			doc.forms[entry.formUuid]?.displayCondition === undefined
+		)
+			continue;
+		const seen = new Set<NavigationItemVisibility | undefined>();
+		for (const reading of readingsOf(doc, screen, cases)) {
+			const own = ownVisibility(doc, cases, reading.role);
+			if (previewContributorVisibility(doc, own, entry.moduleUuid) !== "shown")
+				continue;
+			seen.add(
+				entryVisibility(read, [entry], own, reading).get(
+					menuScreenEntryKey(entry),
+				),
+			);
+		}
+		if (!seen.has("shown") || !seen.has("hidden"))
+			throw new Error(
+				`The condition of "${doc.forms[entry.formUuid]?.name}" in ${name} is never both met and not by a case the device holds; give CASE_VALUES a case of each.`,
 			);
 	}
 }
@@ -337,7 +593,11 @@ function formLanding(
 	return screenOfFrame(ctx, []);
 }
 
-function screensOf(doc: BlueprintDoc, ctx: FormLinkProjectionContext) {
+function screensOf(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	cases: readonly DeviceCase[],
+) {
 	const screens: MenuScreen[] = [
 		{ kind: "first-menu" },
 		...ctx.moduleOrder
@@ -346,19 +606,18 @@ function screensOf(doc: BlueprintDoc, ctx: FormLinkProjectionContext) {
 	];
 	return screens.map((screen) => {
 		const entries = menuScreenEntries(doc, screen);
+		const read = { doc, ctx, cases, screen };
 		return {
 			menuId:
 				screen.kind === "first-menu"
 					? "root"
 					: `m${moduleIndexOf(ctx, screen.moduleUuid)}`,
-			asksCaseFirst:
-				screen.kind === "menu" &&
-				(screenChoosesCaseFirst(doc, screen) ||
-					screenIsBareCaseList(doc, screen)),
-			listings: WORKER_ROLES.map((role) => ({
-				role,
-				commands: listedCommands(doc, ctx, entries, role),
-				parentHides: parentHiddenCommands(doc, ctx, entries, role),
+			asksCaseFirst: chosenFirst(doc, screen),
+			listings: readingsOf(doc, screen, cases).map((reading) => ({
+				role: reading.role,
+				caseId: reading.chosen?.case.id ?? null,
+				commands: listedCommands(read, entries, reading),
+				parentHides: parentHiddenCommands(read, entries, reading),
 			})),
 			entries: entries.map((entry) => {
 				const mod = doc.modules[entry.moduleUuid];
@@ -430,7 +689,7 @@ function offersOf(doc: BlueprintDoc, ctx: FormLinkProjectionContext) {
 function write(name: string, doc: BlueprintDoc, withScreens: boolean): void {
 	const hq = expandDoc(doc);
 	const zip = new AdmZip(
-		compileCcz(hq, doc.appName, doc, { runtimeTarget: NATIVE_RUNTIME_TARGET }),
+		compileCcz(hq, doc.appName, doc, { runtimeTarget: MENU_SCREENS_TARGET }),
 	);
 	writeFileSync(resolve(output, `${name}.json`), JSON.stringify(hq));
 	writeFileSync(
@@ -441,9 +700,16 @@ function write(name: string, doc: BlueprintDoc, withScreens: boolean): void {
 	if (withScreens) {
 		assertEveryMenuConditionHolds(name, doc);
 		assertEveryConjunctionIsRead(name, doc, ctx);
+		for (const moduleUuid of ctx.moduleOrder)
+			if (moduleHasOwnScreen(doc, moduleUuid))
+				assertEveryCaseConditionIsRead(name, doc, ctx, ownScreen(moduleUuid));
+		const cases = deviceCasesOf(doc);
 		writeFileSync(
 			resolve(output, `${name}.screens.json`),
-			JSON.stringify({ screens: screensOf(doc, ctx) }),
+			JSON.stringify({
+				deviceCases: cases,
+				screens: screensOf(doc, ctx, cases),
+			}),
 		);
 	}
 	const offers = offersOf(doc, ctx);

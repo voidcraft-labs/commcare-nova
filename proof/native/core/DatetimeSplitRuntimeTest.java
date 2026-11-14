@@ -3,8 +3,10 @@ package nova.compatibility;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.TimeZone;
 import org.javarosa.core.model.FormDef;
@@ -43,18 +45,28 @@ import static org.junit.Assert.*;
  * bound xsd:dateTime (bind rule R3). For an entry it must hold what the
  * question held: DateTimeData of the zone-less wall clock as DateTimeData.cast
  * reads it (Recalculate.wrapData keeps a Date's clock only under xsd:dateTime),
- * and the writer's nova_datetime_ text must name the same instant. A blank part
- * leaves the join blank, and the time question's validation passes while the
- * date is blank. A case value fills both questions and rejoins to what the
- * question held from it, which is its instant wherever its local day is its
- * UTC day (DateUtils.parseTimeAndStore keeps the written day).
+ * and the writer's nova_datetime_ text must be the text CommCare HQ stores for
+ * that instant: UTC, six fraction digits and Z
+ * (dimagi/utils/parsing.py::json_format_datetime). That text, opened as the
+ * case's value, rejoins to the same instant and is written back unchanged. A
+ * blank part leaves the join blank, and the time question's validation passes
+ * while the date is blank. A case value fills both questions with the device's
+ * own date and clock of its moment and rejoins to that moment in every zone:
+ * Core's parse keeps the written day and moves only the clock
+ * (DateUtils.parseTimeAndStore), so the form reads the stored text in the
+ * device's own date and clock first
+ * (lib/commcare/xpath/wire/instant.ts::deviceInstantText), as it does for the
+ * date-and-time question the split replaces.
  * Each zone runs in a test JVM started in it, because DateUtils fixes its 1970
  * epoch when it loads; a device has no browser provider.
  *
  * Plausible failures: a join read in UTC on a device in another zone, a bind
  * that drops the clock, a join that lands outside a gap or a repeated hour
- * differently from the original question, a preload that does not rejoin, and
- * a guard that throws on a blank part.
+ * differently from the original question, a case value written in the device's
+ * offset or naming another moment, a stored value that opens on the written
+ * UTC day with the device's clock (a day away where the device's date is not
+ * the UTC one), a value that does not save back as it was read, and a guard
+ * that throws on a blank part.
  */
 public class DatetimeSplitRuntimeTest {
     private static final String CLOCK = "'%Y-%m-%d %H:%M:%S'";
@@ -172,6 +184,23 @@ public class DatetimeSplitRuntimeTest {
         return result;
     }
 
+    /** The text CommCare HQ stores for a moment: json_format_datetime, UTC with six fraction digits and Z. */
+    private static String stored(long instant) {
+        return STORED.format(Instant.ofEpochMilli(instant).atOffset(ZoneOffset.UTC));
+    }
+
+    private static final DateTimeFormatter STORED = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSSSSS'Z'");
+
+    /** The text the writer's form saves to the case, its nova_datetime_ node. */
+    private static String caseValue(FormDef form, JSONObject split) throws Exception {
+        return (String)eval(form, "string(" + split.getString("caseValue") + ")");
+    }
+
+    /** The same case holding another value of the property. */
+    private static JSONObject withValue(JSONObject preload, String value) {
+        return new JSONObject(preload.toString()).put("value", value);
+    }
+
     @Test public void eachEntryJoinsToWhatTheQuestionHeld() throws Exception {
         JSONObject rows = rows();
         String zone = deviceZone();
@@ -192,11 +221,16 @@ public class DatetimeSplitRuntimeTest {
                 assertEquals(context + ": the join lost its wall clock", date + " " + time,
                     eval(form, "format-date(coalesce(" + split.getString("joined") + ", ''), " + CLOCK + ")"));
                 if (split.has("caseValue")) {
-                    String text = (String)eval(form, "string(" + split.getString("caseValue") + ")");
-                    Date written = DateUtils.parseDateTime(text);
-                    assertNotNull(context + ": Core does not read the written case value " + text, written);
-                    assertEquals(context + ": the written case value " + text + " names another instant",
-                        value.getTime(), written.getTime());
+                    String text = caseValue(form, split);
+                    assertEquals(context + ": the written case value is not the text CommCare HQ stores for the join",
+                        stored(value.getTime()), text);
+                    // The phone opens the case it saved on that text: the
+                    // join holds the same moment and saves the text back.
+                    FormDef reopened = open(split.getString("form"), withValue(preload, text));
+                    assertEquals(context + ": the written case value " + text + " reopens on another instant",
+                        value.getTime(), joined(reopened, split, context + " reopened").getTime());
+                    assertEquals(context + ": the reopened case value is not saved back as it was read",
+                        text, caseValue(reopened, split));
                 }
             }
         }
@@ -232,28 +266,29 @@ public class DatetimeSplitRuntimeTest {
         JSONObject preload = rows.getJSONObject("preload");
         JSONObject writer = rows.getJSONObject("writer");
         FormDef form = open(writer.getString("form"), preload);
-        assertTrue(zone + ": the case value did not fill the date question",
-            held(form, writer.getString("date")) instanceof DateData);
-        assertTrue(zone + ": the case value did not fill the time question",
-            held(form, writer.getString("time")) instanceof TimeData);
-        // What the date-and-time question held when the form preloaded the
-        // value: DateTimeData.cast of its text. DateUtils.parseTimeAndStore
-        // moves the clock into the device's zone and keeps the written day, so
-        // where the instant's local day is another (Kiritimati, 10:30Z is the
-        // next day's 00:30) the question already held the day before.
+        // The stored text names its moment; the form reads it in the device's
+        // own date and clock (instant.ts::deviceInstantText), since Core's
+        // cast of it alone keeps the written day and moves only the clock
+        // (DateUtils.parseTimeAndStore): in Kiritimati 10:30Z is the next
+        // day's 00:30, and the written day with that clock is a day early.
         String value = preload.getString("value");
-        long instant = Instant.parse(preload.getString("instant")).toEpochMilli();
-        long question = ((Date)new DateTimeData().cast(new UncastData(value)).getValue()).getTime();
-        boolean sameDay = Instant.ofEpochMilli(instant).atZone(ZoneId.systemDefault()).toLocalDate()
-            .equals(Instant.ofEpochMilli(instant).atZone(ZoneOffset.UTC).toLocalDate());
-        if (sameDay) {
-            assertEquals(zone + ": the question does not hold the case value " + value + " as its instant",
-                instant, question);
-        }
-        assertEquals(zone + ": the case value " + value + " does not rejoin to what the question held",
-            question, joined(form, writer, zone + " preload").getTime());
-        // Recorded in the report: the instant the question and the join hold.
-        System.out.println("datetime-split " + zone + " preload " + value + " joins to " + Instant.ofEpochMilli(question));
+        Instant instant = Instant.parse(preload.getString("instant"));
+        LocalDateTime local = instant.atZone(ZoneId.systemDefault()).toLocalDateTime();
+        IAnswerData date = held(form, writer.getString("date"));
+        IAnswerData time = held(form, writer.getString("time"));
+        assertTrue(zone + ": the case value did not fill the date question", date instanceof DateData);
+        assertTrue(zone + ": the case value did not fill the time question", time instanceof TimeData);
+        assertEquals(zone + ": the date question does not hold the device's date of " + value,
+            local.toLocalDate().toString(), eval(form, "string(" + writer.getString("date") + ")"));
+        assertEquals(zone + ": the time question does not hold the device's clock of " + value,
+            local.format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS")),
+            eval(form, "string(" + writer.getString("time") + ")"));
+        assertEquals(zone + ": the case value " + value + " does not rejoin to its moment",
+            instant.toEpochMilli(), joined(form, writer, zone + " preload").getTime());
+        assertEquals(zone + ": the case value " + value + " is not saved back as it was read",
+            value, caseValue(form, writer));
+        // Recorded in the report: the instant the join holds.
+        System.out.println("datetime-split " + zone + " preload " + value + " joins to " + instant);
     }
 
     @Test public void aBlankPartLeavesTheJoinBlank() throws Exception {

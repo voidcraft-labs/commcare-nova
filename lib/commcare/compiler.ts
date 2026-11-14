@@ -1140,13 +1140,17 @@ export function compileCcz(
 			{ mode: { target: "suite" }, instances: moduleInstances },
 			[moduleNav.node],
 		);
+		// The menu's instances follow its commands, where HQ's build appends
+		// them once the menu is made (`post_process/instances.py::
+		// InstancesHelper._add_menu_instances`, from CommCare 2.54). Core reads
+		// a menu's children after its text in any order (`MenuParser.parse`).
 		moduleMenu.children.push(
+			...menuCommands,
 			...moduleInstances
 				.declarations()
 				.map((instance) =>
 					el("instance", { id: instance.id, src: instance.src }),
 				),
-			...menuCommands,
 		);
 		suiteMenus.push(moduleMenu);
 	}
