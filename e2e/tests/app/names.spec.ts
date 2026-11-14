@@ -2,15 +2,22 @@ import type { Page } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 
-/** Wait for the save of a batch whose body holds every one of `parts`. */
-function savedWith(page: Page, appId: string, parts: readonly string[]) {
+/** Wait for the save of a batch whose body holds every one of `parts` and
+ *  none of `absent`. */
+function savedWith(
+	page: Page,
+	appId: string,
+	parts: readonly string[],
+	absent: readonly string[] = [],
+) {
 	return page.waitForResponse((response) => {
 		const request = response.request();
 		const body = request.postData() ?? "";
 		return (
 			new URL(response.url()).pathname === `/api/apps/${appId}` &&
 			request.method() === "PUT" &&
-			parts.every((part) => body.includes(part))
+			parts.every((part) => body.includes(part)) &&
+			!absent.some((part) => body.includes(part))
 		);
 	});
 }
@@ -55,19 +62,30 @@ test("a question ID takes a hyphen and its reference resolves, and a choice hold
 	await expect(page.locator('[data-tree-field="first-name"]')).toBeVisible();
 
 	// A value keeps its apostrophe as typed: the editor no longer drops it.
-	const values = page.getByPlaceholder("value", { exact: true });
+	// The choices save together when Enter is pressed or focus leaves them.
+	const options = page.getByRole("group", { name: "Options", exact: true });
+	const values = options.getByPlaceholder("value", { exact: true });
 	await expect(values.first()).toBeVisible();
 	const quoted = savedWith(page, openAppId, [`"value":"it's"`]);
 	await values.first().fill("it's");
-	await values.first().press("Tab");
+	await values.first().press("Enter");
 	expect((await quoted).ok()).toBe(true);
 	await expect(values.first()).toHaveValue("it's");
 
-	// Choices come off until one is left, and the last one stays.
-	const removals = page.getByRole("button", { name: /^Remove / });
+	// Choices come off until one is left, and the last one stays. The editor
+	// saves the choices whole, so a removal is the save that no longer holds
+	// the removed choice's value.
+	const removals = options.getByRole("button", { name: /^Remove / });
+	await expect(values).toHaveCount(2);
 	while ((await values.count()) > 1) {
 		const before = await values.count();
-		const removed = savedWith(page, openAppId, ['"kind":"removeOption"']);
+		const gone = await values.last().inputValue();
+		const removed = savedWith(
+			page,
+			openAppId,
+			['"optionsSource"', `"value":"it's"`],
+			[`"value":"${gone}"`],
+		);
 		await removals.last().click();
 		expect((await removed).ok()).toBe(true);
 		await expect(values).toHaveCount(before - 1);
@@ -113,23 +131,29 @@ test("a case type typed with a space and a leading digit is created as HQ's menu
 	await openBuilder(page, `/build/${openAppId}`);
 	// The starter's module row opens its module screen, which holds its settings.
 	await page
-		.getByRole("heading", { name: "Survey", exact: true, level: 3 })
+		.getByRole("list", { name: "App structure" })
+		.getByRole("button", { name: "Survey", exact: true })
 		.first()
 		.click();
 	await page
 		.getByRole("button", { name: "Module settings", exact: true })
 		.click();
-	await page
-		.getByRole("button", { name: /^Case type: / })
-		.first()
-		.click();
+	const settings = page.getByRole("dialog", {
+		name: "Module settings",
+		exact: true,
+	});
+	await settings.getByRole("button", { name: /^Case type: / }).click();
 	const draft = page.getByPlaceholder("For example, Follow-up visit");
 	await draft.fill("1st visit");
 	const created = savedWith(page, openAppId, ['"1st_visit"']);
 	await page.getByRole("button", { name: "Create", exact: true }).click();
 	expect((await created).ok()).toBe(true);
+	// The picker names the saved `1st_visit` the way it names every type.
 	await expect(
-		page.getByRole("button", { name: "Case type: 1st_visit" }),
+		settings.getByRole("button", {
+			name: "Case type: 1st visit",
+			exact: true,
+		}),
 	).toBeVisible();
-	await expect(page.getByRole("alert")).toHaveCount(0);
+	await expect(settings.getByRole("alert")).toHaveCount(0);
 });
