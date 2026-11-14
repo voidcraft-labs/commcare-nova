@@ -457,7 +457,11 @@ export class TargetPeer {
 	 *
 	 * - `uiTranslations`: each language's texts beside the ones the app holds
 	 *   for it (`views/apps.py::edit_app_ui_translations`);
-	 * - `appAttributes`: each attribute set on the app (`views/apps.py::edit_app_attr`);
+	 * - `appAttributes`: each attribute set on the app, and `custom_properties`
+	 *   reset to `{}` where the project space holds `CUSTOM_PROPERTIES`
+	 *   (the settings page's save, `views/settings.py::edit_commcare_settings`:
+	 *   `edit_commcare_profile`, then `views/apps.py::edit_app_attr` over
+	 *   every attribute it names);
 	 * - `buildProfiles`: none of the peer's state, since an update never
 	 *   writes `build_profiles` and the drift comparison ignores it;
 	 * - `addOns`: each slug set on or off over the app's map
@@ -507,6 +511,15 @@ export class TargetPeer {
 		}
 		if (saves.appAttributes !== undefined) {
 			next = { ...next, ...structuredClone(saves.appAttributes) };
+			if (this.state.flags.has("CUSTOM_PROPERTIES")) {
+				next = {
+					...next,
+					profile: {
+						...((next.profile ?? {}) as Record<string, unknown>),
+						custom_properties: {},
+					},
+				};
+			}
 		}
 		if (saves.addOns !== undefined) {
 			next = {
