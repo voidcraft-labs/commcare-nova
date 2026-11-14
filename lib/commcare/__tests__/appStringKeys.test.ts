@@ -133,6 +133,42 @@ describe("defaultAppStringsHeldText", () => {
 		).toEqual({ "home.start": "Begin" });
 	});
 
+	/* Worked from `create_default_app_strings`: each language's text is read
+	 * back by `commcare_translations.loads` from what `dumps` wrote, a blank
+	 * as `""`, and a blank never replaces a text already merged. */
+	it("never takes a blank text over a later language's text", () => {
+		expect(
+			defaultAppStringsHeldText(
+				{
+					en: { "home.start": " ", "custom.greeting": " " },
+					fra: { "home.start": "Commencer" },
+				},
+				["en", "fra", "hin"],
+			),
+		).toEqual({ "home.start": "Commencer", "custom.greeting": "" });
+		expect(
+			defaultAppStringsHeldText(
+				{ en: { "custom.greeting": " " }, fra: { "custom.greeting": "\t" } },
+				["en", "fra"],
+			),
+		).toEqual({ "custom.greeting": "" });
+	});
+
+	it("takes nothing where a blank stands before a language whose catalog may hold the key", () => {
+		expect(
+			defaultAppStringsHeldText({ fra: { "home.start": " " } }, ["fra", "en"]),
+		).toEqual({});
+	});
+
+	it("drops the spaces at a text's end as HQ's read of its own strings does", () => {
+		expect(
+			defaultAppStringsHeldText(
+				{ en: { "custom.greeting": "Hello  ", "custom.farewell": "Bye \n " } },
+				["en"],
+			),
+		).toEqual({ "custom.greeting": "Hello", "custom.farewell": "Bye \n" });
+	});
+
 	it("writes nothing for a language the app does not have", () => {
 		expect(
 			defaultAppStringsHeldText({ spa: { "custom.greeting": "Hola" } }, [

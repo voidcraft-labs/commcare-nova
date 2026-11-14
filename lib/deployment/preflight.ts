@@ -158,15 +158,17 @@ import { workerRecordSetup } from "./workerRecordRequirements";
  * publish and quietly writing over a lookup table or a place somebody else
  * made. They appear only when the app actually carries one. `target-app`
  * reads the app this publish is about to update, and appears only when
- * there is one: it is where a publish learns the app is gone, is not an app
- * Nova updates, or holds a build profile naming a language the app no
- * longer has, before anything is written.
+ * there is one: it is where a publish learns the app is gone or is not an
+ * app Nova updates, before anything is written.
  *
  * The same three edges compare what CommCare HQ holds now with what Nova
  * last read back from it there (the baselines), and `hq-changes` decides
  * over everything they collected: a change nobody chose to publish over
  * stops the whole publish before any write, because a stop after a table or
- * place went out would leave them overwritten.
+ * place went out would leave them overwritten. `build-profiles` holds the
+ * `target-app` read's build profiles to the languages this publish writes
+ * only after that verdict, so a language added in CommCare HQ since Nova's
+ * last push is first asked about as the change it is.
  *
  * `organization` is also where the shapes CommCare HQ will not hold are
  * caught. Places go out in atomic batches of a hundred, one level at a
@@ -183,6 +185,7 @@ export const PREFLIGHT_CHECK_IDS = [
 	"project-space-compatibility",
 	"target-app",
 	"hq-changes",
+	"build-profiles",
 	"web-apps",
 	"required-worker-data",
 	"worker-record-access",
@@ -1282,35 +1285,6 @@ export async function runDeploymentPreflight(
 				conflicts: [],
 			};
 		}
-		/* No API key can change a build profile, so a profile this publish
-		 * would leave naming a language the app no longer has stops it here,
-		 * before any write, while HQ's page still offers that language. */
-		const gaps = buildProfileLanguageGaps(
-			publishedLanguageCodes(input.doc),
-			read.source.buildProfiles,
-		);
-		if (gaps.length > 0) {
-			const failure = buildProfileLanguageFailure(domain, gaps, false);
-			checks.push({
-				id: "target-app",
-				title: "App on CommCare HQ",
-				status: "blocked",
-				detail: failure.message,
-				items: failure.details,
-			});
-			return {
-				checks,
-				outcome: blockedOutcome(
-					input.now,
-					failure.code,
-					failure.message,
-					failure.details,
-				),
-				ready: null,
-				projectSpaceCompatibility,
-				conflicts: [],
-			};
-		}
 		targetApp = {
 			appId,
 			source: read.source,
@@ -1382,6 +1356,57 @@ export async function runDeploymentPreflight(
 					: HQ_CHANGES_NOTHING_TO_COMPARE_DETAIL,
 		items: verdict.confirmed.map((change) => change.name),
 	});
+
+	// ── 8a. Does a build profile name a language the app lacks? ────────
+	// Blocking, and only where step 7 read an app. No API key can change a
+	// build profile, so a profile this publish would leave naming a language
+	// the app does not have stops it here, before any write. After
+	// `hq-changes`, because a language a profile names may have been added
+	// in CommCare HQ since Nova's last push: the person decides on that
+	// change first, and a publish over it takes the language out of `langs`.
+	// It stops whatever the plan: no API key reads whether the plan still
+	// includes application profiles, and HQ keeps a profile on a plan
+	// without them and builds it again the day the plan includes them. So
+	// the refusal names the way out that works on any plan, where there is
+	// one.
+	if (targetApp !== null) {
+		const gaps = buildProfileLanguageGaps(
+			publishedLanguageCodes(input.doc),
+			targetApp.source.buildProfiles,
+		);
+		if (gaps.length > 0) {
+			const failure = buildProfileLanguageFailure(domain, gaps, {
+				duringPush: false,
+				hqLangs: targetApp.source.langs,
+			});
+			checks.push({
+				id: "build-profiles",
+				title: "Application profiles",
+				status: "blocked",
+				detail: failure.message,
+				items: failure.details,
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(
+					input.now,
+					failure.code,
+					failure.message,
+					failure.details,
+				),
+				ready: null,
+				projectSpaceCompatibility,
+				conflicts: [],
+			};
+		}
+		checks.push({
+			id: "build-profiles",
+			title: "Application profiles",
+			status: "passed",
+			detail: `No application profile of the app on “${domain}” includes a language this app doesn't have.`,
+			items: [],
+		});
+	}
 
 	// ── 8b. Does the app's Web App setting on HQ match where it runs? ──
 	// Blocking, after `hq-changes` because a person decides a drift discard
@@ -1813,12 +1838,17 @@ export function versionBelowFloorFailure(
  * per profile, in HQ's order. `duringPush` is true where the second read,
  * after the lookup tables and places went, found it, so the sentence says
  * what was sent. No API key can change a build profile, so the person
- * changes it on HQ's Application Profiles tab.
+ * changes it in CommCare HQ: on the Application Profiles tab, which HQ
+ * shows and saves only under the `build_profiles` plan privilege
+ * (`views/releases.py::LanguageProfilesView`), or, where `hqLangs` (the
+ * `langs` of the read the gaps came from) still lists every missing
+ * language, on the app's Languages tab, which takes a removed language out
+ * of every profile on any plan (`views/apps.py::edit_app_langs`).
  */
 export function buildProfileLanguageFailure(
 	domain: string,
 	gaps: readonly BuildProfileLanguageGap[],
-	duringPush: boolean,
+	read: { readonly duringPush: boolean; readonly hqLangs: readonly string[] },
 ): {
 	readonly code: "hq_build_profile_language_missing";
 	readonly message: string;
@@ -1829,13 +1859,17 @@ export function buildProfileLanguageFailure(
 			"A build profile refusal was built with no profile that names a missing language.",
 		);
 	}
-	const stopped = duringPush
+	const stopped = read.duringPush
 		? "which Nova found after it published this app's lookup tables and places, so it stopped before sending the app's content"
 		: "so Nova stopped before sending anything";
 	const one = gaps.length === 1 && gaps[0].missing.length === 1;
+	const held = new Set(read.hqLangs);
+	const onLanguagesTab = gaps.every((gap) =>
+		gap.missing.every((code) => held.has(code)),
+	);
 	const message = one
-		? `An application profile of the app on “${domain}” includes a language this app no longer has, ${stopped}. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.`
-		: `Application profiles of the app on “${domain}” include languages this app no longer has, ${stopped}. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.`;
+		? `An application profile of the app on “${domain}” includes a language this app no longer has, ${stopped}. Nova can't change application profiles in CommCare HQ. You can take that language out of the profile, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. That tab shows only where the project space's plan includes application profiles.${onLanguagesTab ? " On any plan, you can instead remove the language on the Languages tab of the app's settings there, which takes it out of every profile. Nova may then show you that change before it publishes." : ""} Left as it is, CommCare HQ would build the profile with a language that has no text of its own, or couldn't build it at all.`
+		: `Application profiles of the app on “${domain}” include languages this app no longer has, ${stopped}. Nova can't change application profiles in CommCare HQ. You can take those languages out of each profile listed below, or remove the profile, on the Application Profiles tab of the app's Releases page there, then publish again. That tab shows only where the project space's plan includes application profiles.${onLanguagesTab ? " On any plan, you can instead remove those languages on the Languages tab of the app's settings there, which takes them out of every profile. Nova may then show you that change before it publishes." : ""} Left as they are, CommCare HQ would build those profiles with languages that have no text of their own, or couldn't build them at all.`;
 	return {
 		code: "hq_build_profile_language_missing",
 		message,

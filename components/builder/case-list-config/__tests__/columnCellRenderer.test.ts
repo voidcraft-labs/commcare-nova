@@ -44,6 +44,7 @@ import type {
 	CaseRowWithCalculated,
 	JsonObject,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import type { ImageReference } from "@/lib/preview/engine/caseListFilterFields";
 import { previewPlatformRules } from "@/lib/preview/platform";
 import { renderCalculatedCell, renderColumnCell } from "../columnCellRenderer";
 import { admittedWorkspace } from "./admittedWorkspace";
@@ -199,7 +200,7 @@ describe("case-list Preview cell formatting", () => {
 	});
 
 	it.each(["not an address", "javascript:alert(1)", "   "])(
-		"keeps link fallback Quick Filter aligned with visible text for %j",
+		"shows a link fallback as written and filters it by the markdown a device holds for %j",
 		(address) => {
 			const column = linkColumn(
 				COLUMN_UUID,
@@ -231,8 +232,10 @@ describe("case-list Preview cell formatting", () => {
 				kind: "value",
 				text: address.trim(),
 			});
+			/* The device's field is the column's display expression,
+			 * `[View photo](<value>)`, whatever the cell draws. */
 			expect(filterKeepsRow([column], row, "View photo", EMPTY_CONTEXT)).toBe(
-				false,
+				true,
 			);
 			if (address.trim())
 				expect(
@@ -670,16 +673,26 @@ describe("case-list Preview cell formatting", () => {
 		expect(filterKeepsRow(columns, row, "Active Urgent", context)).toBe(true);
 		expect(filterKeepsRow(columns, row, "July 14", context)).toBe(true);
 		expect(filterKeepsRow(columns, row, "follow-up due", context)).toBe(true);
-		expect(filterKeepsRow(columns, row, "Yes", context)).toBe(true);
+		/* A calculated yes/no holds XPath's string of it on a device, though
+		 * the cell reads Yes. */
+		expect(filterKeepsRow(columns, row, "true", context)).toBe(true);
+		expect(filterKeepsRow(columns, row, "Yes", context)).toBe(false);
 		expect(filterKeepsRow([status], row, "unknown", context)).toBe(false);
 		expect(filterKeepsRow(columns, row, '["active"', context)).toBe(false);
 	});
 
-	it("uses the first selected image mapping as its alt and filter text", () => {
+	it("draws the first selected image mapping and filters by its image's path", () => {
+		const primary = testMediaAssetId("asset-primary");
+		const secondary = testMediaAssetId("asset-secondary");
 		const column = imageMapColumn(COLUMN_UUID, "badge", "Badge", [
-			imageMapEntry("primary", testMediaAssetId("asset-primary")),
-			imageMapEntry("secondary", testMediaAssetId("asset-secondary")),
+			imageMapEntry("primary", primary),
+			imageMapEntry("secondary", secondary),
 		]);
+		const paths = new Map([
+			[primary, "jr://file/commcare/a1b2.png"],
+			[secondary, "jr://file/commcare/c3d4.png"],
+		]);
+		const imageReference: ImageReference = (assetId) => paths.get(assetId);
 		const row = makeRow({ badge: ["secondary", "primary"] });
 		const context: ColumnDisplayContext = {
 			...EMPTY_CONTEXT,
@@ -700,8 +713,26 @@ describe("case-list Preview cell formatting", () => {
 			kind: "image",
 			text: "Primary alert",
 		});
-		expect(filterKeepsRow([column], row, "primary", context)).toBe(true);
-		expect(filterKeepsRow([column], row, "secondary", context)).toBe(false);
+		const keeps = (text: string, reference = imageReference) =>
+			filterKeepsRow([column], row, text, context, undefined, reference);
+		/* A device's field is the path the first entry the value holds names,
+		 * never the label the cell is read out by. */
+		expect(keeps("a1b2")).toBe(true);
+		expect(keeps("c3d4")).toBe(false);
+		expect(keeps("primary")).toBe(false);
+		/* A row the value holds no entry of holds a blank field. */
+		expect(
+			filterKeepsRow(
+				[column],
+				makeRow({ badge: "other" }),
+				"commcare",
+				context,
+				undefined,
+				imageReference,
+			),
+		).toBe(false);
+		/* Until Preview has read the image's media row, the field holds nothing. */
+		expect(keeps("commcare", () => undefined)).toBe(false);
 	});
 
 	it("keeps authoring blank-value labels English while worker cells follow their language", () => {
@@ -766,12 +797,14 @@ function filterKeepsRow(
 	filterText: string,
 	context: ColumnDisplayContext,
 	plan?: CaseListOrderPlan,
+	imageReference: ImageReference = () => undefined,
 ): boolean {
 	return (
 		rowsMatchingFilterText(columns, [row], filterText, context, plan, {
 			fuzzy: false,
 			rules: previewPlatformRules("web-apps").listFilter,
 			edited: true,
+			imageReference,
 		}).length === 1
 	);
 }

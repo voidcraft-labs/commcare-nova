@@ -8,6 +8,7 @@ import {
 	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
+import { log } from "@/lib/logger";
 import {
 	listHqLocations,
 	listHqLocationTypes,
@@ -633,4 +634,46 @@ it("stops a place list that names no total at the first page that takes it past 
 			child.location_id,
 		]);
 	});
+});
+
+it("logs a refused batch by its status, its count and its body's shape and length, never HQ's sentence", async () => {
+	const refused = JSON.stringify({
+		error: "Name already exists. Location site code: north_maternity_ward.",
+	});
+	const bytes = new TextEncoder().encode(refused).byteLength;
+	await withHttpPeer(async (peer) => {
+		for (const status of [400, 403])
+			peer
+				.get(HOST)
+				.intercept({ path: PATCH, method: "PATCH" })
+				.reply(status, refused);
+		/* What a person is shown keeps HQ's sentence; only the log loses it. */
+		expect(await patchHqLocations(CREDS, DOMAIN, [CREATE])).toMatchObject({
+			status: 400,
+			message: "Name already exists. Location site code: north_maternity_ward.",
+		});
+		await patchHqLocations(CREDS, DOMAIN, [CREATE]);
+	});
+	const context = (status: number) => ({
+		domain: DOMAIN,
+		status,
+		count: 1,
+		body: "json",
+		bodyBytes: bytes,
+	});
+	expect(log.error).toHaveBeenCalledExactlyOnceWith(
+		"[commcare] location push failed",
+		undefined,
+		context(400),
+	);
+	expect(log.warn).toHaveBeenCalledExactlyOnceWith(
+		"[commcare] location push refused",
+		context(403),
+	);
+	expect(
+		JSON.stringify([
+			vi.mocked(log.error).mock.calls,
+			vi.mocked(log.warn).mock.calls,
+		]),
+	).not.toContain("north_maternity_ward");
 });

@@ -58,7 +58,11 @@ export interface TargetFacts {
 	/** Every runtime UI text key the project space owns in any language, blank ones included, sorted. */
 	readonly uiTextKeys: readonly string[];
 	readonly secureSubmissions: boolean;
-	/** The origin (scheme, host, port) of the project space's custom base URL, or null. */
+	/**
+	 * The scheme and netloc HQ's build keeps of the project space's custom base
+	 * URL, the netloc exactly as stored (`hqUrlBase`), or null where it keeps no
+	 * address.
+	 */
 	readonly customBaseUrl: string | null;
 	/** Location captured with every form, on an app Nova does not set it on. */
 	readonly autoGpsCapture: boolean;
@@ -118,18 +122,133 @@ function sourceLanguages(source: JsonObject): readonly string[] {
 		: [];
 }
 
-/** The origin of an absolute `http:` or `https:` URL, or null for anything else. */
-function httpOrigin(value: unknown): string | null {
-	if (typeof value !== "string") return null;
-	let url: URL;
+/** The characters Python's `urllib.parse` takes in a scheme. */
+const SCHEME_CHARS = new Set(
+	"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.",
+);
+
+function isAsciiLetter(char: string | undefined): boolean {
+	return char !== undefined && /^[A-Za-z]$/.test(char);
+}
+
+function isHexDigit(char: string): boolean {
+	return /^[0-9A-Fa-f]$/.test(char);
+}
+
+/**
+ * Whether `ipaddress.ip_address` reads a bracketed host as an IPv6 address:
+ * the address before an optional `%` scope, which is non-empty and holds no
+ * second `%`, parsed as an IPv6 literal.
+ */
+function isIpv6Literal(hostname: string): boolean {
+	const scope = hostname.indexOf("%");
+	const address = scope === -1 ? hostname : hostname.slice(0, scope);
+	if (scope !== -1) {
+		const id = hostname.slice(scope + 1);
+		if (id === "" || id.includes("%")) return false;
+	}
+	if (!address.includes(":")) return false;
 	try {
-		url = new URL(value);
+		new URL(`http://[${address}]/`);
+		return true;
 	} catch {
+		return false;
+	}
+}
+
+/**
+ * Whether `urlsplit` accepts a netloc that holds a bracket, as
+ * `_check_bracketed_netloc` and `_check_bracketed_host` read it: both
+ * brackets, nothing before the opening one, nothing but a port after the
+ * closing one, and inside them an IPvFuture (`v`, hex digits, a dot, then
+ * at least one character) or an IPv6 address.
+ */
+function acceptsBracketedNetloc(netloc: string): boolean {
+	if (!netloc.includes("[") || !netloc.includes("]")) return false;
+	const hostAndPort = netloc.slice(netloc.lastIndexOf("@") + 1);
+	let hostname: string;
+	const open = hostAndPort.indexOf("[");
+	if (open !== -1) {
+		if (open > 0) return false;
+		const close = hostAndPort.indexOf("]", open + 1);
+		const afterHost = close === -1 ? "" : hostAndPort.slice(close + 1);
+		if (afterHost !== "" && !afterHost.startsWith(":")) return false;
+		hostname = hostAndPort.slice(open + 1, close === -1 ? undefined : close);
+	} else {
+		const colon = hostAndPort.indexOf(":");
+		hostname = colon === -1 ? hostAndPort : hostAndPort.slice(0, colon);
+	}
+	if (hostname.startsWith("v")) {
+		const dot = hostname.indexOf(".");
+		return (
+			dot > 1 &&
+			[...hostname.slice(1, dot)].every(isHexDigit) &&
+			dot < hostname.length - 1
+		);
+	}
+	return isIpv6Literal(hostname);
+}
+
+/**
+ * Whether `_checknetloc` accepts a netloc: one that is ASCII, or whose
+ * NFKC form (without its own `@`, `:`, `#` and `?`) either is unchanged or
+ * gains none of `/`, `?`, `#`, `@` and `:`.
+ */
+function acceptsNetlocCharacters(netloc: string): boolean {
+	if ([...netloc].every((char) => char.charCodeAt(0) < 0x80)) return true;
+	const bare = netloc.replace(/[@:#?]/g, "");
+	const normalized = bare.normalize("NFKC");
+	return (
+		bare === normalized ||
+		![..."/?#@:"].some((char) => normalized.includes(char))
+	);
+}
+
+/**
+ * What HQ's build keeps of a stored `custom_base_url` in the URLs it joins
+ * onto it, or null where it keeps no address.
+ *
+ * `ApplicationBase.url_base` is the stored value where it is non-empty, and
+ * `absolute_url_property` joins it with a path from the root
+ * (`urljoin(url_base, "/a/…")`), which keeps the base's scheme, lower-cased,
+ * and its netloc exactly as written (credentials, the host's own letters, an
+ * explicit default port) and drops its path, query and fragment. This reads
+ * the value as `urllib.parse.urlsplit` does: leading C0 controls and spaces
+ * stripped, tabs and line breaks removed, a scheme of Python's scheme
+ * characters before the first colon, and a netloc after `//` up to the
+ * first `/`, `?` or `#`. Only an `http` or `https` base with a netloc
+ * `urlsplit` accepts gives an address: any other base joins to a URL a
+ * phone does not reach (a path alone, `https:///a/…`) or makes HQ's build
+ * raise, so the archive keeps the server's own base there.
+ */
+function hqUrlBase(value: unknown): string | null {
+	if (typeof value !== "string" || value === "") return null;
+	let start = 0;
+	while (start < value.length && value.charCodeAt(start) <= 0x20) start++;
+	const url = value.slice(start).replace(/[\t\r\n]/g, "");
+	const colon = url.indexOf(":");
+	if (colon <= 0 || !isAsciiLetter(url[0])) return null;
+	const schemeText = url.slice(0, colon);
+	if (![...schemeText].every((char) => SCHEME_CHARS.has(char))) return null;
+	const scheme = schemeText.toLowerCase();
+	if (scheme !== "http" && scheme !== "https") return null;
+	const rest = url.slice(colon + 1);
+	if (!rest.startsWith("//")) return null;
+	let end = rest.length;
+	for (const delimiter of ["/", "?", "#"]) {
+		const at = rest.indexOf(delimiter, 2);
+		if (at !== -1) end = Math.min(end, at);
+	}
+	const netloc = rest.slice(2, end);
+	if (netloc === "") return null;
+	if (
+		(netloc.includes("[") || netloc.includes("]")) &&
+		!acceptsBracketedNetloc(netloc)
+	) {
 		return null;
 	}
-	return url.protocol === "http:" || url.protocol === "https:"
-		? url.origin
-		: null;
+	if (!acceptsNetlocCharacters(netloc)) return null;
+	return `${scheme}://${netloc}`;
 }
 
 /** The facts one normalized source read holds. A source that is no object gives null. */
@@ -207,7 +326,7 @@ export function targetFactsFromSource(
 		uiText,
 		uiTextKeys: [...uiTextKeys].sort(),
 		secureSubmissions: source.secure_submissions === true,
-		customBaseUrl: httpOrigin(source.custom_base_url),
+		customBaseUrl: hqUrlBase(source.custom_base_url),
 		autoGpsCapture:
 			!input.novaOwnsAutoGpsCapture && source.auto_gps_capture === true,
 		androidLogos,

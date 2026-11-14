@@ -106,10 +106,7 @@ import {
 	type AppLifecycleStatus,
 	isCollaborationFrameKind,
 } from "@/lib/db/types";
-import {
-	previewProjectSpaceFor,
-	previewTargetFactsFor,
-} from "@/lib/deployment/previewSpace";
+import { readPreviewDeploymentAnswer } from "@/lib/deployment/previewSpace";
 import { log } from "@/lib/logger";
 import { getLookupManifest } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
@@ -625,7 +622,9 @@ function openStream(args: {
 					 * is sent only when its value differs from the last one
 					 * announced; "not yet announced" is distinct from `null`,
 					 * so the connect-time emits still fire for an app on no
-					 * project space. */
+					 * project space. A read that faults throws out of the run,
+					 * so the pump retries it and neither frame is sent: a
+					 * failed read is no answer, and `null` is one. */
 					let announcedProjectSpace: string | null | undefined;
 					let announcedTargetFacts: string | undefined;
 					deploymentPump = createCoalescedStreamPump({
@@ -639,10 +638,8 @@ function openStream(args: {
 								role: fresh.role,
 								actorUserId: userId,
 							};
-							const [projectSpace, facts] = await Promise.all([
-								previewProjectSpaceFor(scope),
-								previewTargetFactsFor(scope),
-							]);
+							const { projectSpace, targetFacts: facts } =
+								await readPreviewDeploymentAnswer(scope);
 							if (closed) return;
 							if (projectSpace !== announcedProjectSpace) {
 								announcedProjectSpace = projectSpace;

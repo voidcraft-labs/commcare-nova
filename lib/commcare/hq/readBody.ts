@@ -1,9 +1,21 @@
 import "server-only";
 
+/** The most bytes of a body past its bound that `too-long` keeps as its `head`. */
+export const BOUNDED_BODY_HEAD_MAX_BYTES = 64 * 1024;
+
 export type BoundedBody =
 	| { readonly kind: "read"; readonly bytes: Uint8Array }
-	/** The body passed `maxBytes`; `bytes` is how many had arrived when the read was cancelled. */
-	| { readonly kind: "too-long"; readonly bytes: number }
+	/**
+	 * The body passed `maxBytes`; `bytes` is how many had arrived when the read
+	 * was cancelled, and `head` the first of them, at most `maxBytes` and at
+	 * most `BOUNDED_BODY_HEAD_MAX_BYTES`: enough to say what the body is, never
+	 * the body.
+	 */
+	| {
+			readonly kind: "too-long";
+			readonly bytes: number;
+			readonly head: Uint8Array;
+	  }
 	/** The stream failed or the deadline's signal aborted it; `error` is what the stream threw. */
 	| { readonly kind: "unavailable"; readonly error: unknown };
 
@@ -22,21 +34,33 @@ export async function readBoundedBody(
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
-			total += value.byteLength;
-			if (maxBytes !== undefined && total > maxBytes) {
+			if (maxBytes !== undefined && total + value.byteLength > maxBytes) {
+				const head = joined(
+					[...chunks, value],
+					Math.min(maxBytes, BOUNDED_BODY_HEAD_MAX_BYTES),
+				);
+				total += value.byteLength;
 				await reader.cancel().catch(() => undefined);
-				return { kind: "too-long", bytes: total };
+				return { kind: "too-long", bytes: total, head };
 			}
+			total += value.byteLength;
 			chunks.push(value);
 		}
 	} catch (error) {
 		return { kind: "unavailable", error };
 	}
-	const bytes = new Uint8Array(total);
+	return { kind: "read", bytes: joined(chunks, total) };
+}
+
+/** The first `length` bytes of `chunks`, in one array. */
+function joined(chunks: readonly Uint8Array[], length: number): Uint8Array {
+	const bytes = new Uint8Array(length);
 	let offset = 0;
 	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.byteLength;
+		if (offset >= length) break;
+		const part = chunk.subarray(0, length - offset);
+		bytes.set(part, offset);
+		offset += part.byteLength;
 	}
-	return { kind: "read", bytes };
+	return bytes;
 }

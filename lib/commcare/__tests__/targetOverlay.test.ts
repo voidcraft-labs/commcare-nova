@@ -199,12 +199,15 @@ describe("add-ons", () => {
 });
 
 describe("profile", () => {
-	it("keeps a seeded setting the target holds, seeds an absent, null or empty one, and always writes Nova's two", () => {
+	it("keeps a seeded setting the target holds, seeds one HQ's build writes nothing for, and always writes Nova's two", () => {
 		const current: HqApplicationProfile = {
 			properties: {
 				"cc-autoup-freq": "freq-daily",
 				"cc-fuzzy-search-enabled": null,
 				"cc-enable-tts": "",
+				"cc-content-valid": false,
+				"cc-days-form-retain": 0,
+				"cc-resize-images": ["half"],
 				"cc-show-saved": "no",
 				"cc-show-incomplete": "yes",
 				"foreign-setting": { value: [1, "two"] },

@@ -12,13 +12,14 @@
 // currently holds of it.
 
 import { z } from "zod";
+import type { PreviewTargetFacts } from "@/lib/collab/previewTargetFactsFrame";
 import {
 	COMMCARE_SERVER_IDS,
 	COMMCARE_SERVERS,
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
-import type { KeptLabelId } from "@/lib/publish/keptValues";
+import type { KeptListValues } from "@/lib/publish/keptValues";
 import type { PlacementMoveOfferView } from "@/lib/publish/placementMoves";
 import {
 	PLAN_FEATURE_IDS,
@@ -663,9 +664,23 @@ export interface AppOwnership {
  * order, and the date of the baseline they were read from (an ISO 8601
  * instant). Empty `labels` is a list that names nothing, which still has a date.
  */
-export interface DeploymentKept {
-	readonly labels: readonly KeptLabelId[];
+export interface DeploymentKept extends KeptListValues {
 	readonly observedAt: string;
+}
+
+/**
+ * What Preview may name and play of where an app is published: the project
+ * space `commcare_project` resolves to, and what that one project space
+ * holds of the two kept settings Preview plays (fuzzy search in a case list,
+ * and the asterisk on a required question).
+ *
+ * `targetFacts` is `null` where Preview holds no facts (no reached project
+ * space, several, or a baseline Nova never read), and Preview plays Nova's
+ * own value of each, which is what a new project space gives.
+ */
+export interface PreviewDeploymentAnswer {
+	readonly projectSpace: string | null;
+	readonly targetFacts: PreviewTargetFacts | null;
 }
 
 /** The app as CommCare HQ returned it when Nova last read it, or the fact that Nova could not read it. */

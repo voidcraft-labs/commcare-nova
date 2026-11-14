@@ -251,7 +251,8 @@ A **blocking** edge is a real prerequisite: no connection, an app the export
 boundary refuses, Project data Nova may not write over, or a change made in
 CommCare HQ since Nova's last push that the person has not confirmed
 discarding, an HQ app below CommCare 2.57, a build profile on HQ's app that
-names a language the app no longer has, and a plan feature or project-space
+names a language the app no longer has (`build-profiles`, after `hq-changes`),
+and a plan feature or project-space
 setting the app needs that the person has not confirmed (`plan-features`, which
 asks HQ nothing), and, on an update of an app that holds Nova's content, a Web
 App setting on HQ that differs from where the app runs (`web-apps`, after
@@ -305,12 +306,21 @@ table or a place reads it again before the import. Each of the three compares
 what it read with its baseline and collects what changed, and preflight gives
 one verdict over all of it, `hq_changed`, before any write. `target-app` also
 holds the CommCare version that read carries to the floor
-(`hq_app_version_below_floor`). `target-app` also holds that read's build
-profiles to the languages this publish writes
+(`hq_app_version_below_floor`). The `build-profiles` edge holds that read's
+build profiles to the languages this publish writes
 (`lib/commcare/targetBuildProfiles.ts::buildProfileLanguageGaps`, the refusal
 `hq_build_profile_language_missing`): no API key can change a profile, so a
 publish that would leave one naming a language the app lacks stops before any
 write, and the same check runs on the second read, where it stops at `upload`.
+It comes after the `hq-changes` verdict, because a language a profile names
+may have been added in CommCare HQ since Nova's last push: that is asked about
+as the change it is, and a publish over it takes the language out. It stops
+whatever the plan, since no API key reads whether the plan still includes
+application profiles and HQ keeps a profile on a plan without them; so the
+refusal names HQ's Languages tab, which takes a language out of every profile
+on any plan, wherever the app there still lists every missing language
+(`views/apps.py::edit_app_langs`), beside the Application Profiles tab, which
+HQ shows only under the `build_profiles` privilege.
 
 The floor is `lib/commcare/versionFloor.ts::compareToVersionFloor`, 2.57: the
 refusal below it carries the app's address in `hqAppUrl`, and an unreadable
@@ -546,7 +556,14 @@ where the publish's own comparison finds no change, so it moves no later
 drift verdict. Its write (`store.ts::recordRefreshedAppBaseline`) lands only
 while the stored baseline is still the one compared, and its date is taken
 before CommCare HQ is asked, so a read that predates a publish never replaces
-that publish's. The type and the reading of CommCare HQ's own keys are
+that publish's. A stored baseline that already holds the read's digest is
+current, whoever wrote it, so two refreshes of an unchanged project space both
+answer `refreshed`; `superseded` is a newer read that differs, a publish's or
+another refresh's, and its sentence names neither. Whether a refresh changed
+anything is `keptChanged` over the kept lists before and after, which compares
+the labels and a digest of every kept value (`targetFacts.ts::deploymentKeptOf`),
+so a value that moved under a label listed on both sides reads as an update.
+The type and the reading of CommCare HQ's own keys are
 `lib/commcare/targetFacts.ts`'s. Each HQ
 table and place a Project maps on a project space holds one resource baseline
 (`project_space_resource_baselines`), keyed by the HQ resource, so two apps of
@@ -989,10 +1006,17 @@ disagreeing contents, and a fresh deployment survives the status resets
 that switching the destination select causes. The two surfaces converge
 through the builder session: every dialog upsert bumps
 `deploymentRecordsRevision`, and the section reloads on it. Refreshes return
-`previewProjectSpace` and `previewTargetFacts` beside the record (a publish
-answers `preview_project_space` and `preview_target_facts`) and the caller
-applies them, so the
-own tab updates without waiting for the stream; every OTHER open tab
+`preview` beside the record (a publish answers `preview_project_space` and
+`preview_target_facts`) and the caller applies it, so the own tab updates
+without waiting for the stream. A read that faults is no answer: a refresh
+then returns `preview: null` and a publish leaves both keys out, the tab keeps
+what it holds, and the stream brings the new answer. A publish, a Check
+status or a kept refresh whose write landed answers as landed whatever faults
+after it: a kept list it cannot read is `unread`
+(`service.ts::landedDeploymentKept`, logged by the fault's class and code
+alone), which a publish answer and MCP leave out and a card answers by keeping
+the list it shows (`keptListModel.ts::refreshedViewToShow`), rather than
+turning the answer into a failure someone repeats the write over. Every OTHER open tab
 converges through the app stream's deployment lane — each store write
 pokes it (`notifyAppDeployments`, in the write's own transaction), and the
 relay re-resolves and emits the `preview-project-space` frame, and the
@@ -1043,11 +1067,15 @@ the app.
   change. Its read deliberately does NOT swallow a fault the way
   `previewSpace.ts` does: degrading to "no target" would silently drop a case
   write from the exported app.
-- `previewSpace.ts::previewTargetFactsFor` names what Preview may read of the
-  kept values, for the one reached `(server, domain)` or not at all. The
-  facts are one deployment's, so `previewTarget.ts::resolvePreviewFactsTarget`
-  de-dupes on `(server, domain)`: one domain on two servers gives none, and
-  the facts come from `readTargetFacts`.
+- `previewSpace.ts::readPreviewDeploymentAnswer` names, from one read of the
+  records, the project space and what Preview may read of its kept values,
+  for the one reached `(server, domain)` or not at all. The facts are one
+  deployment's, so `previewTarget.ts::resolvePreviewFactsTarget` de-dupes on
+  `(server, domain)`: one domain on two servers gives none, and the facts
+  come from `readTargetFacts`. It throws on a fault, so the stream's
+  deployment lane retries rather than announcing a failed read as `null`;
+  `previewDeploymentAnswerFor` gives `null` for one, which the builder page's
+  seed and a landed write's answer treat as no answer.
 
 Both are resolution, never authority. A PUBLISH consults neither: an upload
 IS the act of putting the app on a project space, so `preflight.ts` passes

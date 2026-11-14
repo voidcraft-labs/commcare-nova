@@ -1024,19 +1024,19 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			"readDeploymentPreviewRecords",
 		);
 		const factsRead = vi.spyOn(deploymentStore, "readTargetFacts");
-		const spaceResolved = vi.spyOn(previewSpace, "previewProjectSpaceFor");
-		const factsResolved = vi.spyOn(previewSpace, "previewTargetFactsFor");
+		const answerResolved = vi.spyOn(
+			previewSpace,
+			"readPreviewDeploymentAnswer",
+		);
 		const laneFinishedRunThatRead = async (read: () => boolean) =>
 			vi.waitFor(
 				() => {
 					expect(read()).toBe(true);
-					for (const resolved of [spaceResolved, factsResolved]) {
-						expect(
-							resolved.mock.settledResults.filter(
-								(result) => result.type === "incomplete",
-							),
-						).toEqual([]);
-					}
+					expect(
+						answerResolved.mock.settledResults.filter(
+							(result) => result.type === "incomplete",
+						),
+					).toEqual([]);
 				},
 				{ timeout: 2_000 },
 			);
@@ -1100,6 +1100,137 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		]);
 		/* Seq-less: only mutation frames own Last-Event-ID. */
 		for (const frame of announced) expect(frame.id).toBeUndefined();
+	});
+
+	it("announces nothing for a deployment lane read that faults, and keeps the answer it announced until a read succeeds", async () => {
+		/* A failed read is no answer: announcing it as `null` would make every
+		 * open tab drop the project space and play Nova's own fuzzy search
+		 * until the next deployment write. The run throws instead, the pump
+		 * retries it, and the retry reads the same answer, so no frame. */
+		const { foldDeploymentAttempt, recordRemoteResource } = await import(
+			"@/lib/deployment/store"
+		);
+		const { normalizeHqAppSource } = await import(
+			"@/lib/deployment/hqSourceBaseline"
+		);
+		const { gzipSync } = await import("node:zlib");
+		const appId = await seedApp(0);
+		const scope = {
+			appId,
+			projectId: PROJECT,
+			role: "editor",
+			actorUserId: USER,
+		};
+		const target = { server: "production" as const, domain: "acme" };
+		const at = "2026-11-10T09:00:00.000Z";
+		const publishWith = async (properties: Record<string, string>) => {
+			const read = normalizeHqAppSource({
+				doc_type: "Application",
+				name: "Vaccine Tracker",
+				langs: ["en"],
+				translations: { en: { en: "English" } },
+				profile: { properties },
+				modules: [],
+				_attachments: {},
+			});
+			if ("malformed" in read) throw new Error(read.malformed);
+			await recordRemoteResource(scope, target, {
+				kind: "app",
+				novaResourceId: appId,
+				remoteId: "hq-1",
+				ownership: "nova-created",
+				pushedRevision: 1,
+				uploadedAt: at,
+				remoteRevision: null,
+				baseline: {
+					origin: "push",
+					remoteAppId: "hq-1",
+					sourceGzip: gzipSync(Buffer.from(read.text, "utf8")),
+					sourceBytes: read.bytes,
+					sourceDigest: read.digest,
+					ownership: {
+						addOns: [],
+						profileProperties: ["cc-show-saved", "cc-show-incomplete"],
+						profileCustomProperties: [],
+						autoGpsCapture: false,
+					},
+					observedAt: at,
+					discard: null,
+				},
+			});
+		};
+		await foldDeploymentAttempt(
+			scope,
+			target,
+			"preflight",
+			{ status: "succeeded", at },
+			{ ensure: true },
+		);
+		await publishWith({ "cc-fuzzy-search-enabled": "yes" });
+		const fuzzyOnly = { fuzzyListSearch: true, markRequiredQuestions: false };
+		const both = { fuzzyListSearch: true, markRequiredQuestions: true };
+		const deploymentStore = await import("@/lib/deployment/store");
+		const factsRead = vi.spyOn(deploymentStore, "readTargetFacts");
+
+		const { frames } = await collectUntil(appId, {
+			predicate: (f) =>
+				f.some(
+					(x) =>
+						x.event === "preview-target-facts" &&
+						JSON.stringify(x.data) === JSON.stringify({ facts: both }),
+				),
+			onOpen: async (currentFrames) => {
+				await vi.waitFor(
+					() =>
+						expect(
+							currentFrames().filter((x) => x.event === "preview-target-facts"),
+						).toHaveLength(1),
+					{ timeout: 2_000 },
+				);
+				factsRead.mockRejectedValueOnce(new Error("connection reset"));
+				/* A write that moves neither fact pokes the lane: its first run
+				 * faults, and the retry reads that write. */
+				await publishWith({
+					"cc-fuzzy-search-enabled": "yes",
+					"cc-autoup-freq": "7",
+				});
+				await vi.waitFor(
+					() => {
+						const results = factsRead.mock.settledResults;
+						const faulted = results.findIndex(
+							(result) => result.type === "rejected",
+						);
+						expect(faulted).toBeGreaterThanOrEqual(0);
+						expect(
+							results
+								.slice(faulted + 1)
+								.some(
+									(result) =>
+										result.type === "fulfilled" &&
+										result.value?.profileProperties["cc-autoup-freq"] === "7",
+								),
+						).toBe(true);
+					},
+					{ timeout: 5_000 },
+				);
+				await publishWith({
+					"cc-fuzzy-search-enabled": "yes",
+					"cc-autoup-freq": "7",
+					"cc-label-required-questions-with-asterisk": "yes",
+				});
+			},
+		});
+
+		expect(
+			frames
+				.filter((x) => x.event === "preview-target-facts")
+				.map((frame) => frame.data),
+		).toEqual([{ facts: fuzzyOnly }, { facts: both }]);
+		expect(
+			frames
+				.filter((x) => x.event === "preview-project-space")
+				.map((frame) => frame.data),
+		).toEqual([{ projectSpace: "acme" }]);
 	});
 
 	it("emits an initial full lookup manifest without an SSE mutation id", async () => {

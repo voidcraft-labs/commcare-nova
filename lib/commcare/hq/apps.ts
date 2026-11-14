@@ -26,7 +26,9 @@ import {
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
+	HQ_MALFORMED_ANSWER,
 	INVALID_DOMAIN_SLUG,
+	isHqCount,
 	isValidDomainSlug,
 } from "./http";
 import { isHqObject } from "./readCollection";
@@ -42,12 +44,6 @@ export interface HqAppListing {
 
 /** The most bytes of the app list Nova reads: 4 MiB. */
 export const HQ_APP_LIST_MAX_BYTES = 4 * 1024 * 1024;
-
-const MALFORMED: CommCareApiError = {
-	success: false,
-	status: 502,
-	cause: "malformed",
-};
 
 /**
  * The list's envelope, checked and no further: `{status: "success", applications: [...]}`, with the
@@ -76,7 +72,7 @@ export async function readHqAppListEnvelope(
 			domain,
 			request: "app-list",
 		});
-		return MALFORMED;
+		return HQ_MALFORMED_ANSWER;
 	}
 	return { applications: body.applications };
 }
@@ -99,16 +95,14 @@ export async function listHqApps(
 			!/^[\w-]+$/.test(row.app_id) ||
 			ids.has(row.app_id) ||
 			typeof row.name !== "string" ||
-			typeof row.version !== "number" ||
-			!Number.isSafeInteger(row.version) ||
-			row.version < 0
+			!isHqCount(row.version)
 		) {
 			log.error("[commcare] app list row is malformed", undefined, {
 				domain,
 				request: "app-list",
 				index,
 			});
-			return MALFORMED;
+			return HQ_MALFORMED_ANSWER;
 		}
 		ids.add(row.app_id);
 		listings.push({ appId: row.app_id, name: row.name, version: row.version });
@@ -164,7 +158,7 @@ export async function probeHqApiAccess(
 			domain,
 			request: "api-access",
 		});
-		return failed(MALFORMED);
+		return failed(HQ_MALFORMED_ANSWER);
 	}
 	return { kind: "available" };
 }

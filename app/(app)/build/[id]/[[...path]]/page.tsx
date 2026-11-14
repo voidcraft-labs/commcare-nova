@@ -75,10 +75,7 @@ import {
 	loadThread,
 } from "@/lib/db/threads";
 import type { AppDoc } from "@/lib/db/types";
-import {
-	previewProjectSpaceFor,
-	previewTargetFactsFor,
-} from "@/lib/deployment/previewSpace";
+import { previewDeploymentAnswerFor } from "@/lib/deployment/previewSpace";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { log } from "@/lib/logger";
 import {
@@ -161,19 +158,18 @@ export default async function BuilderPage({
 	 * answer (no deployment yet, or several). Started BEFORE the thread
 	 * hydration and awaited after it, because the two reads share no data
 	 * and a serial await would put one more round trip on every builder
-	 * cold load's critical path. Its own error handling lives inside
-	 * `previewProjectSpaceFor`, which degrades to `null`, so this promise
-	 * cannot reject while it waits. */
-	const deploymentScope = {
+	 * cold load's critical path. The same read gives what that one project
+	 * space keeps of the settings Preview plays. Its own error handling lives
+	 * inside `previewDeploymentAnswerFor`, which gives `null` for a read that
+	 * faulted, so this promise cannot reject while it waits; the page then
+	 * seeds Nova's own values, and the stream's connect-time read announces
+	 * the real ones. */
+	const previewAnswerPromise = previewDeploymentAnswerFor({
 		appId: id,
 		projectId: initialAccess.projectId,
 		role: initialAccess.role,
 		actorUserId: session.user.id,
-	};
-	const previewProjectSpacePromise = previewProjectSpaceFor(deploymentScope);
-	/* What that one project space keeps of the settings Preview plays, under
-	 * the same rule and with the same degrade to `null`, started beside it. */
-	const previewTargetFactsPromise = previewTargetFactsFor(deploymentScope);
+	});
 
 	const threadHydrationPromise = (async () => {
 		let threads: LoadedThreadMeta[] = [];
@@ -198,19 +194,13 @@ export default async function BuilderPage({
 		app.status === "error" || app.status === "generating"
 			? loadMaterializedSessionForApp(id)
 			: Promise.resolve(null);
-	const [
-		threadHydration,
-		previewProjectSpace,
-		previewTargetFacts,
-		materializedDesign,
-		notices,
-	] = await Promise.all([
-		threadHydrationPromise,
-		previewProjectSpacePromise,
-		previewTargetFactsPromise,
-		materializedDesignPromise,
-		noticesPromise,
-	]);
+	const [threadHydration, previewAnswer, materializedDesign, notices] =
+		await Promise.all([
+			threadHydrationPromise,
+			previewAnswerPromise,
+			materializedDesignPromise,
+			noticesPromise,
+		]);
 	const { threads, initialThread } = threadHydration;
 
 	/* An `error` app is reachable when either its hydrated thread carries a
@@ -256,8 +246,8 @@ export default async function BuilderPage({
 			 * value the `appGenerating` prop below carries for mount-time
 			 * thread-activation decisions. */
 			initialBuildUnfinished={buildUnfinished}
-			initialProjectSpace={previewProjectSpace}
-			initialTargetFacts={previewTargetFacts}
+			initialProjectSpace={previewAnswer?.projectSpace ?? null}
+			initialTargetFacts={previewAnswer?.targetFacts ?? null}
 			initialNotices={notices}
 			userId={session.user.id}
 		>

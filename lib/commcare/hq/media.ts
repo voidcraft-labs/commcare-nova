@@ -19,7 +19,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import type { HqMediaType } from "./appSource";
-import { hqDeadlineReached, withHqRequestDeadline } from "./deadline";
+import { withHqRequestDeadline } from "./deadline";
 import {
 	authHeader,
 	baseUrl,
@@ -28,6 +28,7 @@ import {
 	delay,
 	failedResponseError,
 	HQ_REFUSED_BODY_READ_MAX_BYTES,
+	unansweredRead,
 } from "./http";
 import { readBoundedBody } from "./readBody";
 
@@ -119,8 +120,11 @@ async function readOnce(
 			response,
 			HQ_REFUSED_BODY_READ_MAX_BYTES,
 		);
-		const text =
-			body.kind === "read" ? new TextDecoder().decode(body.bytes) : "";
+		/* The headers came and the body did not: as unanswered as no headers. */
+		if (body.kind === "unavailable") return unanswered(signal, body.error);
+		const text = new TextDecoder().decode(
+			body.kind === "read" ? body.bytes : body.head,
+		);
 		/* The body is read only to tell the edge's refusal from HQ's, and is
 		 * never logged. */
 		log.warn("[commcare] media file refused", {
@@ -140,23 +144,13 @@ async function readOnce(
 	}
 	const body = await readBoundedBody(response, maxBytes);
 	if (body.kind === "too-long") return { kind: "too-large", maxBytes };
-	if (body.kind === "unavailable") return unanswered(signal);
+	if (body.kind === "unavailable") return unanswered(signal, body.error);
 	return { kind: "read", bytes: body.bytes, declaredContentType };
 }
 
-/** No answer reached Nova: the deadline, the caller's `cancel`, or the network. */
+/** No answer reached Nova, or its body stopped: the deadline, the caller's `cancel`, or the network. */
 function unanswered(signal: AbortSignal, error?: unknown): CommCareApiError {
-	if (signal.aborted && !hqDeadlineReached(signal))
-		return { success: false, status: 503, cause: "network" };
-	log.warn("[commcare] media file unavailable", {
-		request: "media-file",
-		error,
-	});
-	return {
-		success: false,
-		status: 503,
-		cause: signal.aborted ? "timeout" : "network",
-	};
+	return unansweredRead("media file", signal, error, { request: "media-file" });
 }
 
 function mediaTypeOf(header: string | null): string | null {

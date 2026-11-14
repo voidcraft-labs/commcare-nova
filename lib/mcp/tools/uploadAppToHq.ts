@@ -192,7 +192,7 @@ import { LOOKUP_ADOPTION_NOTE } from "@/lib/deployment/remoteChanges";
 import { activeRemoteApp } from "@/lib/deployment/resources";
 import {
 	currentResourceIdentities,
-	deploymentKept,
+	landedDeploymentKept,
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import {
@@ -849,8 +849,10 @@ export function registerUploadAppToHq(
 						/* The boundary gate's findings are `invalid_input`
 						 * because that is what a client branches on to know the
 						 * APP is what needs fixing, not the connection or the
-						 * target. Logged as the shared classifier logs an
-						 * invalid input, so a spike against one user shows. */
+						 * target. Logged under the shared classifier's invalid
+						 * input line, so a spike against one user shows, with
+						 * the count of findings and never their sentences,
+						 * which name the app's forms and questions. */
 						if (failure.code === "app_not_ready") {
 							const message = `This app isn't ready to upload. Fix these first: ${
 								failure.details.length > 0
@@ -860,7 +862,8 @@ export function registerUploadAppToHq(
 							log.warn("[mcp] invalid input", {
 								userId: ctx.userId,
 								appId,
-								message,
+								code: failure.code,
+								findings: failure.details.length,
 							});
 							return makeGateError("invalid_input", message, appId, answer);
 						}
@@ -1109,7 +1112,14 @@ export function registerUploadAppToHq(
 						deployment: describeDeployment(
 							outcome.deployment,
 							await currentResourceIdentities(deploymentScope, doc),
-							await deploymentKept(deploymentScope, outcome.deployment),
+							/* The app has landed, so a list Nova could not read
+							 * just now leaves `kept` out rather than failing the
+							 * answer and inviting a second upload. */
+							await landedDeploymentKept(
+								deploymentScope,
+								outcome.deployment,
+								"publish",
+							),
 						),
 						setup_artifact: outcome.artifact,
 						/* What this upload recorded of where CommCare HQ keeps

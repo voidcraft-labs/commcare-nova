@@ -71,6 +71,36 @@ export const KEPT_LABELS: Readonly<Record<KeptLabelId, string>> = {
 };
 
 /**
+ * What a kept list stands for, as far as telling whether anything kept
+ * changed: the labels it lists, and a digest of every value behind them,
+ * which the server takes over the facts (`lib/deployment/targetFacts.ts`).
+ */
+export interface KeptListValues {
+	readonly labels: readonly KeptLabelId[];
+	readonly valuesDigest: string;
+}
+
+/**
+ * Whether anything the project space keeps differs between two kept lists: a
+ * setting listed or no longer listed, the order, or a value under a label
+ * listed on both sides (a sign-in that lasts an hour where it lasted a day, a
+ * second screen reworded). No list on either side is no change; a list on one
+ * side only is one. The Publishing card and MCP both decide a refresh's
+ * sentence with it.
+ */
+export function keptChanged(
+	before: KeptListValues | null,
+	after: KeptListValues | null,
+): boolean {
+	if (before === null || after === null) return before !== after;
+	return (
+		before.valuesDigest !== after.valuesDigest ||
+		before.labels.length !== after.labels.length ||
+		before.labels.some((label, index) => label !== after.labels[index])
+	);
+}
+
+/**
  * The sentence above the kept list, or the one that says there is none.
  * `date` is the baseline's date, already formatted for the reader.
  */
@@ -95,6 +125,8 @@ export type KeptRefreshKind =
 	| "no-baseline"
 	| "app-gone"
 	| "unreadable"
+	| "too-large"
+	| "browser-only"
 	| "key-not-accepted"
 	| "no-permission"
 	| "unavailable";
@@ -106,6 +138,15 @@ export type KeptRefreshKind =
 export const KEPT_REFRESH_NOT_REACHED =
 	"Nova couldn't reach the server to read these again. You can try again in a moment.";
 
+/**
+ * The sentence a refresh ends on when it landed and Nova could not read the
+ * list it left (`service.ts::landedDeploymentKept`): the list shown stays,
+ * dated as it was. `date` is that list's date, formatted for the reader.
+ */
+export function keptListUnreadSentence(date: string): string {
+	return `Nova read CommCare HQ again but couldn't show the result just now, so these are as of ${date}. They update the next time Nova reads this deployment.`;
+}
+
 /** The sentence a refresh that found a change made in CommCare HQ ends on. */
 function keptChangedInHqSentence(date: string): string {
 	return `CommCare HQ saved this app since Nova last read it, so these stay as of ${date}.`;
@@ -115,8 +156,8 @@ function keptChangedInHqSentence(date: string): string {
 export function keptRefreshSentence(
 	outcome: {
 		readonly kind: KeptRefreshKind;
-		/** For `refreshed`: whether the label list differs from the one shown before the refresh. */
-		readonly listChanged: boolean;
+		/** For `refreshed`: whether anything kept differs from the list shown before the refresh (`keptChanged`). */
+		readonly changed: boolean;
 	},
 	context: {
 		/** The baseline's date, formatted for the reader. */
@@ -128,19 +169,23 @@ export function keptRefreshSentence(
 	const { date, space } = context;
 	switch (outcome.kind) {
 		case "refreshed":
-			return outcome.listChanged
+			return outcome.changed
 				? "Updated. This is what CommCare HQ holds now."
 				: "Nothing has changed. This is still what CommCare HQ holds.";
 		case "changed-in-hq":
 			return keptChangedInHqSentence(date);
 		case "superseded":
-			return "Someone published here while Nova was reading, so this is as that publish left it.";
+			return "A publish or another read of CommCare HQ landed here while Nova was reading, so this is the latest Nova has.";
 		case "no-baseline":
 			return "Nova hasn't read this app from CommCare HQ since its last publish here, so it has nothing to refresh. Publishing again reads it.";
 		case "app-gone":
 			return `CommCare HQ no longer has this app in ${space}. Check status shows where things stand.`;
 		case "unreadable":
 			return `CommCare HQ answered with something Nova couldn't read as this app, so these stay as of ${date}. Opening the app in CommCare HQ shows whether it still opens there.`;
+		case "too-large":
+			return `This app is larger than Nova reads from CommCare HQ, so these stay as of ${date}. That limit is Nova's, not the app's. You can tell the team through Give feedback in Nova's account menu.`;
+		case "browser-only":
+			return `CommCare HQ answered with a page meant for a browser, as it does when ${space} asks you to sign in another way or isn't active, so these stay as of ${date}. Opening ${space} in CommCare HQ shows what it's asking for. Then you can refresh again.`;
 		case "key-not-accepted":
 			return `CommCare HQ didn't accept your saved API key, so these stay as of ${date}. You can save a new key in Settings, then refresh again.`;
 		case "no-permission":

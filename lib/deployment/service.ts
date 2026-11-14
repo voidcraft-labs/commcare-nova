@@ -138,7 +138,7 @@ import {
 	recordRefreshedAppBaseline,
 	recordRemoteResource,
 } from "./store";
-import { keptListFor } from "./targetFacts";
+import { deploymentKeptOf } from "./targetFacts";
 import type {
 	AppBaselineWrite,
 	AppOwnership,
@@ -1248,7 +1248,10 @@ export async function publishAppToHq(
 			if (gaps.length > 0) {
 				return refused(
 					"upload",
-					buildProfileLanguageFailure(domain, gaps, true),
+					buildProfileLanguageFailure(domain, gaps, {
+						duringPush: true,
+						hqLangs: read.source.langs,
+					}),
 				);
 			}
 			source = read.source;
@@ -1843,6 +1846,9 @@ async function pushLookupTables(
 	const mappings: RecordRemoteResourceInput[] = [];
 	const baselines: ResourceBaselineWrite[] = [];
 	const missing: string[] = [];
+	/* The same tables by Nova's own ids, for the log line: a tag is the app's
+	 * word, and no log line holds one. */
+	const missingTableIds: string[] = [];
 	const madeAgain: string[] = [];
 	let readBackFailed = false;
 	/* The tables are independent, so their rows are read a few at a time,
@@ -1863,6 +1869,7 @@ async function pushLookupTables(
 		const rows = landedRows[index] ?? null;
 		if (landed === undefined || rows === null) {
 			missing.push(push.tag);
+			missingTableIds.push(push.tableId);
 			if (push.mappedRemoteId !== null) {
 				readBackFailed = true;
 				baselines.push(
@@ -1963,7 +1970,7 @@ async function pushLookupTables(
 		log.error("[deployment] lookup tables absent after upload", undefined, {
 			domain,
 			appId: scope.appId,
-			tags: missing.join(","),
+			tableIds: missingTableIds,
 		});
 		return {
 			failure: {
@@ -2201,7 +2208,8 @@ async function pushLocations(
 				log.error("[deployment] place pushed before its parent", undefined, {
 					domain,
 					appId: scope.appId,
-					siteCode: push.siteCode,
+					locationUuid: push.locationUuid,
+					parentLocationUuid: push.parentLocationUuid,
 				});
 				return stopped({
 					code: "hq_organization_mismatch",
@@ -2526,7 +2534,8 @@ export async function refreshDeployment(
 /**
  * The kept list a deployment's card, its MCP projection and a publish answer
  * show: the label ids `keptListFor` names over the stored baseline's facts,
- * with the baseline's date. Null where the app's content is not on the
+ * with the baseline's date and the digest of its values
+ * (`targetFacts.ts::deploymentKeptOf`). Null where the app's content is not on the
  * project space, and where the baseline gives no facts (none stored, an
  * unread one, a shell's, or one that does not verify).
  */
@@ -2544,17 +2553,67 @@ export async function deploymentKept(
 		server: view.deployment.server,
 		domain: view.deployment.domain,
 	});
-	return facts === null
-		? null
-		: { labels: keptListFor(facts), observedAt: facts.observedAt };
+	return facts === null ? null : deploymentKeptOf(facts);
 }
 
-/** What Refresh from CommCare HQ amounted to. Every kind but `refreshed` wrote nothing. */
+/** The action whose write landed before its answer read the kept list. */
+export type KeptReadAfter = "publish" | "check-status" | "kept-refresh";
+
+/**
+ * `deploymentKept` for the answer to an action whose write has landed: a
+ * publish, Check status, or a refresh of the kept values. A fault reading
+ * the list is logged and answers `unread`, which the answer leaves out (a
+ * card keeps the list it shows), so a store fault after the write never
+ * reports a write that landed as one that failed, and nobody repeats it over
+ * it. The next read of the records reads the list again.
+ *
+ * The line names the fault by its class and its code alone: the list is a
+ * projection of the app as CommCare HQ holds it, and a fault's message can
+ * quote what it was reading.
+ */
+export async function landedDeploymentKept(
+	scope: DeploymentScope,
+	view: DeploymentWithResources,
+	after: KeptReadAfter,
+): Promise<DeploymentKept | null | "unread"> {
+	try {
+		return await deploymentKept(scope, view);
+	} catch (error) {
+		log.error(
+			"[deployment] kept list unavailable after a write landed",
+			undefined,
+			{
+				appId: scope.appId,
+				domain: view.deployment.domain,
+				after,
+				errorName: error instanceof Error ? error.name : typeof error,
+				errorCode: faultCode(error),
+			},
+		);
+		return "unread";
+	}
+}
+
+/** A fault's own code where it carries a string one (a Postgres SQLSTATE, a Node system code), else null. */
+function faultCode(error: unknown): string | null {
+	if (typeof error !== "object" || error === null || !("code" in error))
+		return null;
+	return typeof error.code === "string" ? error.code : null;
+}
+
+/**
+ * What Refresh from CommCare HQ amounted to. `refreshed` leaves the baseline
+ * holding what this read saw, written by it or already stored by another
+ * read that saw the same; every other kind wrote nothing.
+ */
 export type KeptRefreshOutcome =
 	| { readonly kind: "refreshed"; readonly deployment: DeploymentWithResources }
 	/** Something Nova publishes differs from the baseline. Nothing is written. */
 	| { readonly kind: "changed-in-hq" }
-	/** A publish replaced the baseline while CommCare HQ was being read. Nothing is written. */
+	/**
+	 * A publish, or another refresh that read something else, replaced the
+	 * baseline while CommCare HQ was being read. Nothing is written.
+	 */
 	| {
 			readonly kind: "superseded";
 			readonly deployment: DeploymentWithResources;
@@ -2563,6 +2622,10 @@ export type KeptRefreshOutcome =
 	| { readonly kind: "app-gone" }
 	/** CommCare HQ answered with something that is no app Nova can read. */
 	| { readonly kind: "unreadable" }
+	/** The app's source is larger than Nova reads, on every attempt. */
+	| { readonly kind: "too-large" }
+	/** CommCare HQ answered with a page meant for a person: a sign-in another way, or an inactive project space. */
+	| { readonly kind: "browser-only" }
 	/** CommCare HQ did not accept the stored key for this read. */
 	| { readonly kind: "key-not-accepted" }
 	/** CommCare HQ turned the account away for this read. */
@@ -2598,6 +2661,12 @@ function keptReadFailure(
 			return "no-permission";
 		case "answer-unreadable":
 			return "unreadable";
+		/* Both answer the same on every attempt, so neither is worded as a
+		 * read that may work in a moment. */
+		case "too-large":
+			return "too-large";
+		case "browser-only":
+			return "browser-only";
 		default:
 			return "unavailable";
 	}
@@ -2683,7 +2752,8 @@ export async function refreshKeptValues(
 	});
 	if (parts.length > 0) return { kind: "changed-in-hq" };
 
-	// 7. Nothing Nova publishes moved: the fresh read replaces the baseline.
+	// 7. Nothing Nova publishes moved: the fresh read replaces the baseline,
+	//    or the baseline already holds what it read.
 	const written = await recordRefreshedAppBaseline(scope, target, {
 		remoteAppId: remote.remoteId,
 		comparedDigest: baseline.sourceDigest,
@@ -2694,7 +2764,7 @@ export async function refreshKeptValues(
 			observedAt,
 		},
 	});
-	return written.outcome === "written"
+	return written.outcome === "current"
 		? { kind: "refreshed", deployment: written.deployment }
 		: { kind: "superseded", deployment: written.deployment };
 }
